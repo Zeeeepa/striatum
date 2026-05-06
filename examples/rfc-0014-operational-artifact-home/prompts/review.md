@@ -17,6 +17,8 @@ Check:
 
 Write findings first, ordered by severity. Use tight references to files or RFC
 sections where possible. If there are no blocking findings, say so clearly.
+Near the top of the artifact, include the exact `Author:` line from the work
+packet expected artifact metadata.
 
 End with:
 

@@ -19,6 +19,7 @@ from agent_runner.errors import (
     LeaseError,
     NotFoundError,
 )
+from agent_runner.identity import artifact_author_identity
 from agent_runner.schema import SCHEMA_SQL
 
 # JSON columns are intentionally untyped at the SQLite boundary.
@@ -550,9 +551,16 @@ def build_packet(
     write_scope = json_loads(str(job["write_scope_json"]))
     expected_artifacts = json.loads(str(job["expected_artifacts_json"]))
     lane = json_loads(str(job["lane_selector_json"])).get("lane_id")
+    lane_id = lane if isinstance(lane, str) else None
     lanes = cast(JsonObject, workflow.get("lanes", {}))
-    lane_config = lanes.get(lane, {}) if isinstance(lane, str) else {}
+    lane_config = lanes.get(lane_id, {}) if lane_id is not None else {}
     adapter_constraints = build_adapter_constraints(lane_config if isinstance(lane_config, dict) else {})
+    author = artifact_author_identity(
+        workflow,
+        role_id=str(job["role_id"]),
+        lane_id=lane_id,
+        workflow_job_id=str(job["workflow_job_id"]),
+    )
     return {
         "packet_version": "agent-runner.work-packet.v1",
         "packet_id": packet_id,
@@ -581,6 +589,7 @@ def build_packet(
             "attempt": job["attempt"],
             "type": job["job_type"],
             "title": job["title"],
+            "author": author,
             "objective": json_loads(str(job["capability_requirements_json"])).get("objective"),
             "fresh_session_required": job["fresh_session_required"] == 1,
         },
@@ -594,7 +603,7 @@ def build_packet(
         "inputs": json_loads(str(job["capability_requirements_json"])).get("inputs", []),
         "write_scope": write_scope,
         "adapter_constraints": adapter_constraints,
-        "expected_artifacts": expected_artifacts,
+        "expected_artifacts": expected_artifacts_with_author(expected_artifacts, author_line=author["line"]),
         "commands": {
             "ack": f"agent_runner ack --session-id {session['session_id']} --message-id {message_id} --lease-id {lease_id}",
             "heartbeat": f"agent_runner heartbeat --session-id {session['session_id']} --lease-id {lease_id}",
@@ -605,6 +614,21 @@ def build_packet(
         },
         "artifact_policy": {"publish_transcripts": False, "curated_artifacts_only": True},
     }
+
+
+def expected_artifacts_with_author(expected_artifacts: object, *, author_line: str) -> list[object]:
+    """Attach the exact artifact author line to work-packet artifact specs."""
+    if not isinstance(expected_artifacts, list):
+        return []
+    enriched: list[object] = []
+    for artifact in expected_artifacts:
+        if isinstance(artifact, dict):
+            artifact_copy = dict(artifact)
+            artifact_copy["author_line"] = author_line
+            enriched.append(artifact_copy)
+        else:
+            enriched.append(artifact)
+    return enriched
 
 
 def build_adapter_constraints(lane_config: JsonObject) -> JsonObject:

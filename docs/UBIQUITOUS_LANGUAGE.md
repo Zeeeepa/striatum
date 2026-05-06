@@ -17,6 +17,8 @@ updated when decisions sharpen the product model.
 | adapter | Code that connects `agent_runner` to an external execution or interaction surface, such as tmux, a subprocess, Slack, or a model CLI. |
 | binary | The `agent_runner` executable that agents and humans invoke to read or mutate orchestration state. The binary owns SQLite writes and invariant enforcement. |
 | artifact | A durable output that should be reviewable after the live run ends, often stored in the target repository. Examples: findings, syntheses, prompt drafts, marker summaries, PRDs, specs, and decision logs. |
+| artifact author identity | Stable authorship metadata for a job or artifact: role id, lane id, declared model display name, and workflow job id. It is used instead of free-text workflow job titles in evidence exports. |
+| author line | A Markdown artifact header line built from artifact author identity, formatted as `Author: <role_id> / <lane_id> / <display_model> / <workflow_job_id>`. |
 | artifact publisher | The component that turns selected state-store messages or job outputs into durable repository artifacts. |
 | evidence export | A redacted repository artifact generated from live runner state so a run can be audited from a fresh checkout without committing `.agent_runner/` SQLite data. |
 | coordinator | The control role for a workflow. In the hybrid model, the deterministic coordinator owns state and gates, while one selected model lane may act as the AI coordinator for conversational project management. |

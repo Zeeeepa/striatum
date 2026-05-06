@@ -132,6 +132,14 @@ verdict, artifact, status, doctor, and downstream-blocking state. Export paths
 must stay inside the repository and outside `.agent_runner/`; SQLite state is
 not committed. Free-text fields that may contain agent or user prose, including
 blocker descriptions and verdict rationales, are redacted in the export.
+Workflow job titles are omitted by default; job and artifact authorship is
+reported through stable identity metadata: role id, lane id, declared model
+display name, and workflow job id.
+
+Work packets expose an exact `Author:` line built from the same identity tuple
+for agents to place in durable Markdown artifacts. The artifact publisher
+records and validates artifact references; it does not rewrite artifact files
+to insert headers.
 
 ## Branches And Commits
 

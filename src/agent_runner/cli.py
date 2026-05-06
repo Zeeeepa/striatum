@@ -36,6 +36,7 @@ from agent_runner.db import (
     utc_now,
 )
 from agent_runner.errors import InvalidTransitionError, LeaseError, NotFoundError, WorkflowError
+from agent_runner.identity import artifact_author_identity
 from agent_runner.workflow import create_run, load_workflow
 
 
@@ -1226,14 +1227,9 @@ def evidence_snapshot(conn: sqlite3.Connection, *, run_id: str) -> JsonObject:
     """Return redacted run state for evidence export."""
     run = row_by_id(conn, "runs", "run_id", run_id)
     snapshot = row_by_id(conn, "workflow_snapshots", "workflow_snapshot_id", str(run["workflow_snapshot_id"]))
-    jobs = evidence_job_summaries(conn, run_id=run_id)
-    artifacts = conn.execute(
-        """
-        SELECT artifact_id, job_id, logical_name, artifact_kind, repo_path, content_sha256
-        FROM artifacts WHERE run_id = ? ORDER BY repo_path
-        """,
-        (run_id,),
-    ).fetchall()
+    workflow = json_loads(str(snapshot["workflow_json"]))
+    jobs = evidence_job_summaries(conn, run_id=run_id, workflow=workflow)
+    artifacts = evidence_artifact_summaries(conn, run_id=run_id, workflow=workflow)
     verdicts = conn.execute(
         """
         SELECT verdict_id, job_id, session_id, verdict, findings_artifact_id, rationale
@@ -1261,26 +1257,39 @@ def evidence_snapshot(conn: sqlite3.Connection, *, run_id: str) -> JsonObject:
             "state": run["state"],
         },
         "jobs": jobs,
-        "artifacts": [dict(row) for row in artifacts],
+        "artifacts": artifacts,
         "verdicts": [dict(row) for row in verdicts],
         "blockers": [dict(row) for row in blockers],
         "blocked_downstream_jobs": blocked_downstream_jobs(conn, run_id=run_id),
     }
 
 
-def evidence_job_summaries(conn: sqlite3.Connection, *, run_id: str) -> list[JsonObject]:
+def evidence_job_summaries(
+    conn: sqlite3.Connection,
+    *,
+    run_id: str,
+    workflow: JsonObject,
+) -> list[JsonObject]:
     """Return redacted job summaries for evidence export."""
     summaries: list[JsonObject] = []
     for job in jobs_for_run(conn, run_id=run_id):
         lane = json_loads(str(job["lane_selector_json"])).get("lane_id")
+        lane_id = lane if isinstance(lane, str) else None
+        author = artifact_author_identity(
+            workflow,
+            role_id=str(job["role_id"]),
+            lane_id=lane_id,
+            workflow_job_id=str(job["workflow_job_id"]),
+        )
         summaries.append(
             {
                 "job_id": job["job_id"],
                 "workflow_job_id": job["workflow_job_id"],
-                "title": job["title"],
                 "job_type": job["job_type"],
                 "role_id": job["role_id"],
-                "lane": lane,
+                "lane": lane_id,
+                "display_model": author["display_model"],
+                "author": author,
                 "state": job["state"],
                 "attempt": job["attempt"],
                 "max_attempts": job["max_attempts"],
@@ -1289,6 +1298,51 @@ def evidence_job_summaries(conn: sqlite3.Connection, *, run_id: str) -> list[Jso
             }
         )
     return summaries
+
+
+def evidence_artifact_summaries(
+    conn: sqlite3.Connection,
+    *,
+    run_id: str,
+    workflow: JsonObject,
+) -> list[JsonObject]:
+    """Return artifact summaries with stable author identity."""
+    rows = conn.execute(
+        """
+        SELECT a.artifact_id, a.job_id, a.session_id, a.logical_name,
+               a.artifact_kind, a.repo_path, a.content_sha256,
+               j.workflow_job_id, j.role_id, j.lane_selector_json
+        FROM artifacts a
+        LEFT JOIN jobs j ON j.job_id = a.job_id
+        WHERE a.run_id = ?
+        ORDER BY a.repo_path
+        """,
+        (run_id,),
+    ).fetchall()
+    artifacts: list[JsonObject] = []
+    for row in rows:
+        lane_id: str | None = None
+        if row["lane_selector_json"] is not None:
+            lane = json_loads(str(row["lane_selector_json"])).get("lane_id")
+            lane_id = lane if isinstance(lane, str) else None
+        artifact: JsonObject = {
+            "artifact_id": row["artifact_id"],
+            "job_id": row["job_id"],
+            "session_id": row["session_id"],
+            "logical_name": row["logical_name"],
+            "artifact_kind": row["artifact_kind"],
+            "repo_path": row["repo_path"],
+            "content_sha256": row["content_sha256"],
+        }
+        if row["workflow_job_id"] is not None and row["role_id"] is not None:
+            artifact["author"] = artifact_author_identity(
+                workflow,
+                role_id=str(row["role_id"]),
+                lane_id=lane_id,
+                workflow_job_id=str(row["workflow_job_id"]),
+            )
+        artifacts.append(artifact)
+    return artifacts
 
 
 def dependency_summary(conn: sqlite3.Connection, *, job_id: str) -> list[JsonObject]:

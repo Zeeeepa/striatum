@@ -1,6 +1,8 @@
 # Record RFC 0014 Findings Ledger
 
 Read all independent RFC 0014 review artifacts listed in the work packet.
+Near the top of the artifact, include the exact `Author:` line from the work
+packet expected artifact metadata.
 
 Create a findings ledger with stable IDs:
 

@@ -1,6 +1,8 @@
 # Synthesize RFC 0014 Findings
 
 Read the RFC 0014 findings ledger and the underlying review artifacts.
+Near the top of the artifact, include the exact `Author:` line from the work
+packet expected artifact metadata.
 
 For each ledgered finding, choose one disposition:
 

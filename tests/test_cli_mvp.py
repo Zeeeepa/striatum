@@ -43,9 +43,9 @@ def init_repo(repo: Path) -> None:
     run_cli(repo, "init")
 
 
-def prepare_started_run(repo: Path) -> str:
+def prepare_started_run(repo: Path, workflow_path: Path = WORKFLOW) -> str:
     init_repo(repo)
-    prepared = data(run_cli(repo, "run", "prepare", "--workflow", str(WORKFLOW)))
+    prepared = data(run_cli(repo, "run", "prepare", "--workflow", str(workflow_path)))
     run_id = str(prepared["run_id"])
     before = run_cli(repo, "claim-next", "--session-id", "missing", check=False)
     assert before["returncode"] == 3
@@ -231,6 +231,14 @@ def test_branch_confirmation_blocks_claims(tmp_path: Path) -> None:
     job = packet["job"]
     assert isinstance(job, dict)
     assert job["workflow_job_id"] == "draft"
+    author = job["author"]
+    assert isinstance(author, dict)
+    assert author["line"] == "Author: author / codex / Codex GPT-5.5 / draft"
+    expected_artifacts = packet["expected_artifacts"]
+    assert isinstance(expected_artifacts, list)
+    first_artifact = expected_artifacts[0]
+    assert isinstance(first_artifact, dict)
+    assert first_artifact["author_line"] == author["line"]
 
 
 def test_register_session_rejects_unknown_role_or_lane(tmp_path: Path) -> None:
@@ -837,7 +845,15 @@ def test_why_resolves_blocker_artifact_and_verdict(tmp_path: Path) -> None:
 
 
 def test_evidence_export_writes_redacted_markdown_and_rejects_bad_paths(tmp_path: Path) -> None:
-    run_id = prepare_started_run(tmp_path)
+    private_job_title = "PRIVATE_JOB_TITLE_corpus_project_alpha"
+    workflow = example_workflow()
+    jobs = workflow["jobs"]
+    assert isinstance(jobs, list)
+    first_job = jobs[0]
+    assert isinstance(first_job, dict)
+    first_job["title"] = private_job_title
+    workflow_path = temporary_workflow(tmp_path, workflow)
+    run_id = prepare_started_run(tmp_path, workflow_path=workflow_path)
     author = register(tmp_path, run_id, "author", "codex")
     complete_claimed_job(
         tmp_path,
@@ -873,6 +889,9 @@ def test_evidence_export_writes_redacted_markdown_and_rejects_bad_paths(tmp_path
     assert "needs_revision" in evidence
     assert "private corpus excerpt" not in evidence
     assert "/tmp/private-notes" not in evidence
+    assert private_job_title not in evidence
+    assert '"title"' not in evidence
+    assert "Author: reviewer / codex / Codex GPT-5.5 / review_codex" in evidence
     assert "<redacted-free-text>" in evidence
     assert "state.sqlite3" not in evidence
     assert "transcript" not in evidence.lower()
