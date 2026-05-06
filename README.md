@@ -23,6 +23,7 @@ Execution prompts:
 
 - [prompts/P001_design_review_build_v1_mvp.md](prompts/P001_design_review_build_v1_mvp.md)
 - [prompts/P002_validate_agent_runner_with_rfc_0014.md](prompts/P002_validate_agent_runner_with_rfc_0014.md)
+- [prompts/P003_implement_rfc_0014_dogfood_fixes.md](prompts/P003_implement_rfc_0014_dogfood_fixes.md)
 
 Bootstrap tmux runner:
 

@@ -9,6 +9,11 @@ Start here:
 5. [SPEC.md](SPEC.md)
 6. [INTERVIEW_LOG.md](INTERVIEW_LOG.md)
 
+## Follow-Up Specs
+
+- [RFC_0014_DOGFOOD_FIX_SPEC.md](RFC_0014_DOGFOOD_FIX_SPEC.md) — fixes
+  proposed after the RFC 0014 validation dogfood run.
+
 ## Design
 
 - [design/](design/) — design artifacts produced before implementation.
