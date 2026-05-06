@@ -1,0 +1,221 @@
+{
+  "schema_version": "agent-runner.workflow.v1",
+  "workflow_id": "rfc-ledger-cleanup",
+  "workflow_version": "2026-05-06",
+  "name": "RFC Ledger Cleanup",
+  "branch": {
+    "mode": "confirm",
+    "suggested_name": "agent-runner/rfc-ledger-cleanup",
+    "allow_dirty": false
+  },
+  "coordinator": {
+    "role_id": "coordinator",
+    "lane_id": "codex"
+  },
+  "lanes": {
+    "codex": {
+      "adapter": "process",
+      "display_model": "Codex GPT-5.5",
+      "command": ["codex", "exec", "--model", "gpt-5.5", "-"],
+      "capabilities": ["write", "review", "synthesis"]
+    },
+    "gemini": {
+      "adapter": "process",
+      "display_model": "Gemini Pro 3.1",
+      "command": ["gemini", "--model", "gemini-3.1-pro-preview"],
+      "capabilities": ["review"]
+    },
+    "claude": {
+      "adapter": "process",
+      "display_model": "Claude Opus",
+      "command": ["claude", "--model", "opus", "-p"],
+      "capabilities": ["review", "synthesis"]
+    }
+  },
+  "roles": {
+    "author": {"definition_path": "roles/author.md"},
+    "reviewer": {"definition_path": "roles/reviewer.md"},
+    "ledger": {"definition_path": "roles/ledger.md"},
+    "synthesizer": {"definition_path": "roles/synthesizer.md"},
+    "coordinator": {"definition_path": "roles/coordinator.md"}
+  },
+  "context_docs": [
+    {"path": "README.md", "required": true},
+    {"path": "docs/process/multi-agent-review-loop.md", "required": false}
+  ],
+  "parallelism": {
+    "mode": "declared",
+    "max_active_jobs": 3,
+    "require_disjoint_write_scopes": true
+  },
+  "jobs": [
+    {
+      "id": "draft",
+      "type": "draft",
+      "title": "Draft RFC ledger cleanup",
+      "role_id": "author",
+      "lane_id": "codex",
+      "objective": "Draft a durable RFC ledger cleanup artifact.",
+      "task_prompt": {"path": "prompts/draft.md"},
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": ["docs/reviews/rfc-ledger/"],
+        "forbidden_paths": [".agent_runner/"]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "draft",
+          "kind": "handoff",
+          "path": "docs/reviews/rfc-ledger/RFC_LEDGER_DRAFT.md",
+          "required": true
+        }
+      ],
+      "needs": []
+    },
+    {
+      "id": "review_codex",
+      "type": "review",
+      "title": "Review RFC ledger draft with Codex",
+      "role_id": "reviewer",
+      "lane_id": "codex",
+      "parallel_group": "reviews",
+      "fresh_session_required": true,
+      "objective": "Review the draft for implementation and state risks.",
+      "task_prompt": {"path": "prompts/review.md"},
+      "write_scope": {
+        "mode": "review_only_artifact",
+        "repo_write": false,
+        "allowed_paths": ["docs/reviews/rfc-ledger/codex/"],
+        "forbidden_paths": [".agent_runner/"]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "review",
+          "kind": "finding",
+          "path": "docs/reviews/rfc-ledger/codex/RFC_LEDGER_REVIEW.md",
+          "required": true
+        }
+      ],
+      "needs": ["draft"]
+    },
+    {
+      "id": "review_gemini",
+      "type": "review",
+      "title": "Review RFC ledger draft with Gemini",
+      "role_id": "reviewer",
+      "lane_id": "gemini",
+      "parallel_group": "reviews",
+      "fresh_session_required": true,
+      "objective": "Review the draft for broad process and privacy risks.",
+      "task_prompt": {"path": "prompts/review.md"},
+      "write_scope": {
+        "mode": "review_only_artifact",
+        "repo_write": false,
+        "allowed_paths": ["docs/reviews/rfc-ledger/gemini/"],
+        "forbidden_paths": [".agent_runner/"]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "review",
+          "kind": "finding",
+          "path": "docs/reviews/rfc-ledger/gemini/RFC_LEDGER_REVIEW.md",
+          "required": true
+        }
+      ],
+      "needs": ["draft"]
+    },
+    {
+      "id": "findings_ledger",
+      "type": "ledger",
+      "title": "Record RFC ledger findings",
+      "role_id": "ledger",
+      "lane_id": "codex",
+      "fresh_session_required": true,
+      "objective": "Normalize review findings into a ledger.",
+      "task_prompt": {"path": "prompts/findings_ledger.md"},
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": ["docs/reviews/rfc-ledger/"],
+        "forbidden_paths": [".agent_runner/"]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "ledger",
+          "kind": "findings_ledger",
+          "path": "docs/reviews/rfc-ledger/RFC_LEDGER_FINDINGS_LEDGER.md",
+          "required": true
+        }
+      ],
+      "needs": ["review_codex", "review_gemini"]
+    },
+    {
+      "id": "synthesis",
+      "type": "synthesis",
+      "title": "Synthesize RFC ledger findings",
+      "role_id": "synthesizer",
+      "lane_id": "claude",
+      "fresh_session_required": true,
+      "objective": "Synthesize accepted review findings.",
+      "task_prompt": {"path": "prompts/synthesis.md"},
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": ["docs/reviews/rfc-ledger/"],
+        "forbidden_paths": [".agent_runner/"]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "synthesis",
+          "kind": "synthesis",
+          "path": "docs/reviews/rfc-ledger/RFC_LEDGER_SYNTHESIS.md",
+          "required": true
+        }
+      ],
+      "needs": ["findings_ledger"]
+    },
+    {
+      "id": "final_review",
+      "type": "review",
+      "title": "Final review",
+      "role_id": "reviewer",
+      "lane_id": "claude",
+      "fresh_session_required": true,
+      "objective": "Review whether the synthesis is ready.",
+      "task_prompt": {"path": "prompts/final_review.md"},
+      "write_scope": {
+        "mode": "review_only_artifact",
+        "repo_write": false,
+        "allowed_paths": ["docs/reviews/rfc-ledger/final/"],
+        "forbidden_paths": [".agent_runner/"]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "review",
+          "kind": "finding",
+          "path": "docs/reviews/rfc-ledger/final/RFC_LEDGER_FINAL_REVIEW.md",
+          "required": true
+        }
+      ],
+      "needs": ["synthesis"]
+    }
+  ],
+  "edges": [
+    {"from": "draft", "to": "review_codex", "on": "completed"},
+    {"from": "draft", "to": "review_gemini", "on": "completed"},
+    {"from": "review_codex", "to": "findings_ledger", "on": "completed"},
+    {"from": "review_gemini", "to": "findings_ledger", "on": "completed"},
+    {"from": "findings_ledger", "to": "synthesis", "on": "completed"},
+    {"from": "synthesis", "to": "final_review", "on": "completed"}
+  ],
+  "cycles": [
+    {
+      "from": "final_review",
+      "to": "synthesis",
+      "on_verdict": "needs_revision",
+      "max_iterations": 1
+    }
+  ]
+}
+

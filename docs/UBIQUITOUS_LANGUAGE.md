@@ -25,6 +25,8 @@ updated when decisions sharpen the product model.
 | synthesis job | A workflow job that combines findings, reviews, or intermediate artifacts into a new durable artifact. It is intentionally separate from the AI coordinator role to avoid attention dilution. |
 | workflow | A configured graph of jobs, dependencies, gates, allowed write scopes, agent lanes, expected artifacts, and stop conditions. |
 | workflow cycle | An explicit bounded loop in a workflow graph, such as revision -> re-review -> proceed/stop. Unbounded autonomous cycles are out of scope for v1. |
+| workflow snapshot | The immutable JSON workflow body and hash loaded into SQLite for one run, so later file edits do not silently change the run contract. |
+| workflow fixture | A checked-in example workflow used to validate orchestration behavior without live model calls. |
 | job | One executable unit in a workflow, such as draft, review, synthesis, build, test, or human checkpoint. |
 | task envelope | A structured instruction packet sent to an agent session for one job or subtask. It includes job id, objective, inputs, allowed write scope, expected artifacts, completion protocol, and stop/block conditions. |
 | agent session | A live agent process with conversational or terminal context that may receive one or more task envelopes. |
@@ -39,7 +41,10 @@ updated when decisions sharpen the product model.
 | message bus | The SQLite-backed local communication layer used by agents, coordinators, and adapters for live structured messages. It is not the repository artifact layer. |
 | message queue | The actionable SQLite-backed queue for work delivery and coordination messages. Queue messages can be pending, claimed, acknowledged, failed, or expired. |
 | lease | A time-bounded claim on a queued message or job. Leases prevent two agents from taking the same work and allow recovery if a session dies. |
+| lazy lease expiry | The V1 policy where CLI commands detect and expire stale leases during normal mutations instead of relying on a background daemon. |
+| stale lease | An expired or abandoned lease whose job cannot safely be requeued automatically, especially when repo-write scope may have been touched. |
 | mutation command | A binary command that changes orchestration state, such as `claim-next`, `ack`, `block`, `complete`, or `verdict`. |
+| command request | An idempotency record for a CLI mutation attempt, used to return the same result when an agent repeats the same request id and payload. |
 | message | A structured communication record in the state store, such as a blocker, review verdict, finding, handoff, or human checkpoint request. |
 | event | An append-only state transition record, such as job started, message sent, verdict recorded, or workflow stopped. |
 | marker | A durable summary artifact indicating that a job reached a terminal state. Markers are useful provenance, but not the live message bus. |
