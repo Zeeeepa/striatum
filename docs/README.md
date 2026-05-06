@@ -8,6 +8,11 @@ Start here:
 4. [PRIOR_ART.md](PRIOR_ART.md)
 5. [SPEC.md](SPEC.md)
 6. [INTERVIEW_LOG.md](INTERVIEW_LOG.md)
+7. [TODO.md](TODO.md)
+
+## Planning
+
+- [TODO.md](TODO.md) - repo split checklist and product improvement backlog.
 
 ## RFCs
 
