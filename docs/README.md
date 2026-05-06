@@ -9,10 +9,16 @@ Start here:
 5. [SPEC.md](SPEC.md)
 6. [INTERVIEW_LOG.md](INTERVIEW_LOG.md)
 
+## RFCs
+
+- [rfcs/](rfcs/) - `agent_runner` product RFCs. Engram RFCs remain under
+  `docs/rfcs/` and may be reference fixtures, but runner decisions live here.
+
 ## Follow-Up Specs
 
 - [RFC_0014_DOGFOOD_FIX_SPEC.md](RFC_0014_DOGFOOD_FIX_SPEC.md) — fixes
-  proposed after the RFC 0014 validation dogfood run.
+  proposed after the RFC 0014 validation dogfood run. This is now tracked as
+  [rfcs/0001](rfcs/0001-run-recovery-and-dogfood-fixes.md).
 
 ## Runtime Evidence
 
