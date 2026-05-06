@@ -1,8 +1,8 @@
 {
   "schema_version": "agent-runner.workflow.v1",
   "workflow_id": "rfc-0014-operational-artifact-home",
-  "workflow_version": "2026-05-06",
-  "name": "RFC 0014 Operational Artifact Home Review",
+  "workflow_version": "2026-05-06+spec-handoff",
+  "name": "RFC 0014 Operational Artifact Home Spec Handoff Review",
   "branch": {
     "mode": "confirm",
     "suggested_name": "agent-runner/rfc-0014-validation",
@@ -69,6 +69,7 @@
     {"path": "README.md", "required": true},
     {"path": "DECISION_LOG.md", "required": true},
     {"path": "docs/rfcs/0014-operational-artifact-home.md", "required": true},
+    {"path": "docs/process/operational-artifact-home-spec.md", "required": true},
     {"path": "docs/rfcs/0013-development-operational-issue-loop.md", "required": true},
     {"path": "docs/process/multi-agent-review-loop.md", "required": true},
     {"path": "agent-runner/docs/SPEC.md", "required": true},
@@ -88,12 +89,13 @@
       "lane_id": "claude",
       "parallel_group": "independent_reviews",
       "fresh_session_required": true,
-      "objective": "Review RFC 0014 for process fit, marker precedence, and operational artifact clarity.",
+      "objective": "Review the RFC 0014 spec handoff package for process fit, marker precedence, and operational artifact clarity.",
       "task_prompt": {
         "path": "agent-runner/examples/rfc-0014-operational-artifact-home/prompts/review.md"
       },
       "inputs": [
         {"path": "docs/rfcs/0014-operational-artifact-home.md", "kind": "target_rfc"},
+        {"path": "docs/process/operational-artifact-home-spec.md", "kind": "handoff_spec"},
         {"path": "docs/rfcs/0013-development-operational-issue-loop.md", "kind": "upstream_rfc"}
       ],
       "write_scope": {
@@ -120,12 +122,13 @@
       "lane_id": "codex",
       "parallel_group": "independent_reviews",
       "fresh_session_required": true,
-      "objective": "Review RFC 0014 for implementation risk, script migration risk, and runner validation usefulness.",
+      "objective": "Review the RFC 0014 spec handoff package for implementation risk, script migration risk, and runner validation usefulness.",
       "task_prompt": {
         "path": "agent-runner/examples/rfc-0014-operational-artifact-home/prompts/review.md"
       },
       "inputs": [
         {"path": "docs/rfcs/0014-operational-artifact-home.md", "kind": "target_rfc"},
+        {"path": "docs/process/operational-artifact-home-spec.md", "kind": "handoff_spec"},
         {"path": "docs/rfcs/0013-development-operational-issue-loop.md", "kind": "upstream_rfc"}
       ],
       "write_scope": {
@@ -152,12 +155,13 @@
       "lane_id": "gemini",
       "parallel_group": "independent_reviews",
       "fresh_session_required": true,
-      "objective": "Review RFC 0014 for portability, process ergonomics, and privacy/redaction risks.",
+      "objective": "Review the RFC 0014 spec handoff package for portability, process ergonomics, and privacy/redaction risks.",
       "task_prompt": {
         "path": "agent-runner/examples/rfc-0014-operational-artifact-home/prompts/review.md"
       },
       "inputs": [
         {"path": "docs/rfcs/0014-operational-artifact-home.md", "kind": "target_rfc"},
+        {"path": "docs/process/operational-artifact-home-spec.md", "kind": "handoff_spec"},
         {"path": "docs/rfcs/0013-development-operational-issue-loop.md", "kind": "upstream_rfc"}
       ],
       "write_scope": {
@@ -183,7 +187,7 @@
       "role_id": "ledger",
       "lane_id": "codex",
       "fresh_session_required": true,
-      "objective": "Normalize independent RFC 0014 review findings into a stable ledger without deciding disposition.",
+      "objective": "Normalize independent RFC 0014 spec handoff package findings into a stable ledger without deciding package readiness.",
       "task_prompt": {
         "path": "agent-runner/examples/rfc-0014-operational-artifact-home/prompts/findings_ledger.md"
       },
@@ -211,17 +215,18 @@
     {
       "id": "synthesis",
       "type": "synthesis",
-      "title": "Synthesize RFC 0014 findings",
+      "title": "Synthesize RFC 0014 spec handoff findings",
       "role_id": "synthesizer",
       "lane_id": "claude",
       "fresh_session_required": true,
-      "objective": "Synthesize RFC 0014 findings and recommend accept, revise, reject, or defer.",
+      "objective": "Synthesize RFC 0014 spec handoff findings and recommend package readiness or needed package revisions.",
       "task_prompt": {
         "path": "agent-runner/examples/rfc-0014-operational-artifact-home/prompts/synthesis.md"
       },
       "inputs": [
         {"path": "docs/reviews/rfc-0014-operational-artifact-home/RFC_0014_FINDINGS_LEDGER.md", "kind": "findings_ledger"},
-        {"path": "docs/rfcs/0014-operational-artifact-home.md", "kind": "target_rfc"}
+        {"path": "docs/rfcs/0014-operational-artifact-home.md", "kind": "target_rfc"},
+        {"path": "docs/process/operational-artifact-home-spec.md", "kind": "handoff_spec"}
       ],
       "write_scope": {
         "mode": "repo_write",
@@ -242,17 +247,19 @@
     {
       "id": "final_review",
       "type": "review",
-      "title": "Final review of RFC 0014 synthesis",
+      "title": "Final review of RFC 0014 spec handoff synthesis",
       "role_id": "reviewer",
       "lane_id": "codex",
       "fresh_session_required": true,
-      "objective": "Review whether the synthesis is ready for human disposition and whether runner validation evidence is adequate.",
+      "objective": "Review whether the synthesis is internally supported, whether the package needs another revision before implementation handoff, and whether runner validation evidence is adequate.",
       "task_prompt": {
         "path": "agent-runner/examples/rfc-0014-operational-artifact-home/prompts/final_review.md"
       },
       "inputs": [
         {"path": "docs/reviews/rfc-0014-operational-artifact-home/RFC_0014_SYNTHESIS.md", "kind": "synthesis"},
-        {"path": "docs/reviews/rfc-0014-operational-artifact-home/RFC_0014_FINDINGS_LEDGER.md", "kind": "findings_ledger"}
+        {"path": "docs/reviews/rfc-0014-operational-artifact-home/RFC_0014_FINDINGS_LEDGER.md", "kind": "findings_ledger"},
+        {"path": "docs/rfcs/0014-operational-artifact-home.md", "kind": "target_rfc"},
+        {"path": "docs/process/operational-artifact-home-spec.md", "kind": "handoff_spec"}
       ],
       "write_scope": {
         "mode": "review_only_artifact",

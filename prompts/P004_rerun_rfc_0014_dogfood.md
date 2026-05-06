@@ -3,7 +3,9 @@
 Status: ready
 Date: 2026-05-06
 Scope: `agent_runner` dogfood validation rerun
-Target RFC: `docs/rfcs/0014-operational-artifact-home.md`
+Target package:
+- `docs/rfcs/0014-operational-artifact-home.md`
+- `docs/process/operational-artifact-home-spec.md`
 Primary workflow fixture:
 `agent-runner/examples/rfc-0014-operational-artifact-home/workflow.json`
 
@@ -12,9 +14,9 @@ Primary workflow fixture:
 You are the `agent_runner` validation coordinator.
 
 Your job is to run a fresh RFC 0014 dogfood validation after the RFC 0014
-runner-recovery fixes. The rerun should prove whether the runner can coordinate
-the RFC review workflow with durable, redacted, commit-ready evidence from a
-fresh run.
+runner-recovery fixes and the RFC 0014 spec-handoff revision. The rerun should
+prove whether the runner can coordinate the RFC-plus-spec handoff review
+workflow with durable, redacted, commit-ready evidence from a fresh run.
 
 This is not a code-build prompt. Do not implement runner changes unless a
 preflight check proves the runner is unsafe to use and the human explicitly asks
@@ -35,7 +37,8 @@ Read these files in order:
 9. `docs/reviews/rfc-0014-operational-artifact-home/AGENT_RUNNER_VALIDATION_NOTES.md`
 10. `agent-runner/examples/rfc-0014-operational-artifact-home/workflow.json`
 11. `docs/rfcs/0014-operational-artifact-home.md`
-12. this prompt
+12. `docs/process/operational-artifact-home-spec.md`
+13. this prompt
 
 Treat `agent-runner/docs/DECISION_LOG.md` as binding for runner behavior.
 Treat Engram RFCs as proposals unless they have already been promoted by
@@ -110,6 +113,8 @@ In the rerun copy:
 
 - keep the same workflow id unless the runner requires otherwise;
 - set `workflow_version` to include the rerun slug;
+- preserve the handoff spec as a required context doc and as a review,
+  synthesis, and final-review input;
 - rewrite every expected review, ledger, synthesis, final-review, and evidence
   artifact path into the rerun directory;
 - rewrite ledger/synthesis/final-review input paths to the rerun artifacts;
@@ -176,10 +181,16 @@ For each job:
 Root review jobs may run in parallel. They must remain independent and must not
 read each other's draft review artifacts before submission.
 
-The ledger job normalizes review findings and does not decide disposition. The
-synthesis job decides accepted, modified, deferred, and rejected findings. The
-final review checks whether the synthesis is ready for human disposition and
-whether the dogfood evidence is adequate.
+The review target is the RFC-plus-spec handoff package. The RFC is the
+proposal/history record; the spec is the implementation handoff. Do not treat
+"explicit choices live in the spec" as a defect unless the RFC and spec
+contradict each other or the spec is missing from the work packet.
+
+The ledger job normalizes review findings and does not decide package
+readiness. The synthesis job decides accepted, modified, deferred, and rejected
+findings and recommends whether the package is ready for implementation
+handoff or still needs package revision. The final review checks whether the
+synthesis is internally supported and whether the dogfood evidence is adequate.
 
 ## Blocked Or Rejected Gates
 
@@ -266,8 +277,8 @@ Report:
 - `status`, `doctor`, test, workflow-validation, and whitespace-check results;
 - evidence export path and redaction inspection result;
 - runner validation findings;
-- whether RFC 0014 is ready for human disposition, needs revision, or remains
-  only a proposal.
+- whether the RFC-plus-spec handoff package is ready for a later
+  implementation prompt, needs package revision, or remains only a proposal.
 
 Do not claim RFC 0014 is accepted unless the synthesis and final review support
 that disposition and the human has approved any required canonical doc updates.
