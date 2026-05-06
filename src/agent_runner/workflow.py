@@ -58,15 +58,15 @@ def validate_workflow(workflow: JsonObject) -> None:
     lanes = _object(workflow, "lanes")
     roles = _object(workflow, "roles")
     jobs = _list(workflow, "jobs")
-    job_ids: set[str] = set()
+    job_map: dict[str, JsonValue] = {}
     for job_value in jobs:
         if not isinstance(job_value, dict):
             raise WorkflowError("each job must be an object")
         job = cast(JsonValue, job_value)
         job_id = _string(job, "id")
-        if job_id in job_ids:
+        if job_id in job_map:
             raise WorkflowError(f"duplicate job id {job_id!r}")
-        job_ids.add(job_id)
+        job_map[job_id] = job
         role_id = _string(job, "role_id")
         if role_id not in roles:
             raise WorkflowError(f"job {job_id!r} references unknown role {role_id!r}")
@@ -82,18 +82,21 @@ def validate_workflow(workflow: JsonObject) -> None:
             path = artifact.get("path")
             if not isinstance(path, str) or path.startswith("/") or ".." in Path(path).parts:
                 raise WorkflowError(f"job {job_id!r} has invalid artifact path")
-    for edge_value in _list(workflow, "edges"):
-        if not isinstance(edge_value, dict):
-            raise WorkflowError("each edge must be an object")
-        edge = cast(JsonValue, edge_value)
-        if edge.get("from") not in job_ids or edge.get("to") not in job_ids:
-            raise WorkflowError("workflow edge references an unknown job")
+    edge_dependency_pairs(workflow)
+    validate_needs_match_edges(workflow)
     for cycle_value in _list(workflow, "cycles"):
         if not isinstance(cycle_value, dict):
             raise WorkflowError("each cycle must be an object")
         cycle = cast(JsonValue, cycle_value)
-        if "max_iterations" not in cycle:
-            raise WorkflowError("workflow cycles must declare max_iterations")
+        from_id = _string(cycle, "from")
+        to_id = _string(cycle, "to")
+        if from_id not in job_map or to_id not in job_map:
+            raise WorkflowError("workflow cycle references an unknown job")
+        if _string(cycle, "on_verdict") != "needs_revision":
+            raise WorkflowError("workflow cycles must use on_verdict needs_revision")
+        max_iterations = cycle.get("max_iterations")
+        if not isinstance(max_iterations, int) or max_iterations < 1:
+            raise WorkflowError("workflow cycles must declare max_iterations >= 1")
     _validate_parallelism(jobs)
 
 
@@ -139,6 +142,7 @@ def create_run(conn: sqlite3.Connection, *, repo: Path, workflow_path: Path) -> 
             now,
         ),
     )
+    workflow_jobs = workflow_job_map(workflow)
     job_map: dict[str, str] = {}
     for job_value in _list(workflow, "jobs"):
         job = cast(JsonValue, job_value)
@@ -179,18 +183,18 @@ def create_run(conn: sqlite3.Connection, *, repo: Path, workflow_path: Path) -> 
                 now,
             ),
         )
-    for job_value in _list(workflow, "jobs"):
-        job = cast(JsonValue, job_value)
-        for upstream_id in job.get("needs", []):
-            if not isinstance(upstream_id, str):
-                continue
-            conn.execute(
-                """
-                INSERT OR IGNORE INTO job_dependencies(job_id, depends_on_job_id, gate_json)
-                VALUES (?, ?, '{}')
-                """,
-                (job_map[_string(job, "id")], job_map[upstream_id]),
-            )
+    for upstream_id, downstream_id, gate in edge_dependency_pairs(workflow):
+        upstream_job = workflow_jobs[upstream_id]
+        gate_json = dict(gate)
+        if upstream_job.get("type") == "review":
+            gate_json["requires_verdict"] = ["accept", "accept_with_findings"]
+        conn.execute(
+            """
+            INSERT OR IGNORE INTO job_dependencies(job_id, depends_on_job_id, gate_json)
+            VALUES (?, ?, ?)
+            """,
+            (job_map[downstream_id], job_map[upstream_id], json_dumps(gate_json)),
+        )
     insert_event(
         conn,
         run_id=run_id,
@@ -198,6 +202,55 @@ def create_run(conn: sqlite3.Connection, *, repo: Path, workflow_path: Path) -> 
         payload={"workflow_id": workflow["workflow_id"], "workflow_snapshot_id": workflow_snapshot_id},
     )
     return {"run_id": run_id, "state": "needs_branch_confirmation"}
+
+
+def workflow_job_map(workflow: JsonObject) -> dict[str, JsonValue]:
+    """Return jobs keyed by workflow job id."""
+    result: dict[str, JsonValue] = {}
+    for job_value in _list(workflow, "jobs"):
+        if not isinstance(job_value, dict):
+            raise WorkflowError("each job must be an object")
+        job = cast(JsonValue, job_value)
+        result[_string(job, "id")] = job
+    return result
+
+
+def edge_dependency_pairs(workflow: JsonObject) -> list[tuple[str, str, JsonObject]]:
+    """Return normalized dependency pairs from top-level edges."""
+    jobs = workflow_job_map(workflow)
+    pairs: list[tuple[str, str, JsonObject]] = []
+    for edge_value in _list(workflow, "edges"):
+        if not isinstance(edge_value, dict):
+            raise WorkflowError("each edge must be an object")
+        edge = cast(JsonValue, edge_value)
+        from_id = _string(edge, "from")
+        to_id = _string(edge, "to")
+        if from_id not in jobs or to_id not in jobs:
+            raise WorkflowError("workflow edge references an unknown job")
+        if edge.get("on") != "completed":
+            raise WorkflowError("workflow edges must use on completed")
+        pairs.append((from_id, to_id, {"on": "completed", "from": from_id, "to": to_id}))
+    return pairs
+
+
+def validate_needs_match_edges(workflow: JsonObject) -> None:
+    """Reject workflows where legacy needs diverge from authoritative edges."""
+    edge_needs: dict[str, set[str]] = {}
+    for from_id, to_id, _gate in edge_dependency_pairs(workflow):
+        edge_needs.setdefault(to_id, set()).add(from_id)
+    for job_id, job in workflow_job_map(workflow).items():
+        needs = job.get("needs")
+        if needs is None:
+            continue
+        if not isinstance(needs, list):
+            raise WorkflowError(f"job {job_id!r} needs must be a list")
+        declared = set()
+        for dep in needs:
+            if not isinstance(dep, str):
+                raise WorkflowError(f"job {job_id!r} has non-string dependency")
+            declared.add(dep)
+        if declared != edge_needs.get(job_id, set()):
+            raise WorkflowError(f"job {job_id!r} needs disagree with workflow edges")
 
 
 def _validate_parallelism(jobs: list[object]) -> None:
@@ -252,4 +305,3 @@ def _string(value: JsonValue, key: str) -> str:
     if not isinstance(item, str) or item == "":
         raise WorkflowError(f"workflow field {key!r} must be a non-empty string")
     return item
-

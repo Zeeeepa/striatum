@@ -325,7 +325,7 @@ def enqueue_job(conn: sqlite3.Connection, *, job_id: str) -> str:
 
 
 def maybe_enqueue_downstream(conn: sqlite3.Connection, *, completed_job_id: str) -> None:
-    """Enqueue jobs whose dependencies are all completed."""
+    """Enqueue jobs whose dependencies are satisfied."""
     dependents = conn.execute(
         "SELECT job_id FROM job_dependencies WHERE depends_on_job_id = ?",
         (completed_job_id,),
@@ -335,22 +335,59 @@ def maybe_enqueue_downstream(conn: sqlite3.Connection, *, completed_job_id: str)
         job = row_by_id(conn, "jobs", "job_id", job_id)
         if job["state"] != "blocked":
             continue
-        incomplete = conn.execute(
-            """
-            SELECT 1
-            FROM job_dependencies dep
-            JOIN jobs upstream ON upstream.job_id = dep.depends_on_job_id
-            WHERE dep.job_id = ? AND upstream.state != 'completed'
-            LIMIT 1
-            """,
-            (job_id,),
-        ).fetchone()
-        if incomplete is None:
+        if dependencies_satisfied(conn, job_id=job_id):
             enqueue_job(conn, job_id=job_id)
 
 
+def dependencies_satisfied(conn: sqlite3.Connection, *, job_id: str) -> bool:
+    """Return whether all materialized dependency gates are satisfied."""
+    dependencies = conn.execute(
+        "SELECT * FROM job_dependencies WHERE job_id = ?",
+        (job_id,),
+    ).fetchall()
+    for dependency in dependencies:
+        upstream = row_by_id(conn, "jobs", "job_id", str(dependency["depends_on_job_id"]))
+        try:
+            gate = json_loads(str(dependency["gate_json"]))
+        except (json.JSONDecodeError, InvalidTransitionError):
+            return False
+        if upstream["state"] != "completed":
+            return False
+        required = gate.get("requires_verdict")
+        if required is None:
+            continue
+        if not isinstance(required, list) or not all(isinstance(item, str) for item in required):
+            return False
+        verdict = latest_verdict(conn, job_id=str(upstream["job_id"]))
+        if verdict not in set(required):
+            return False
+    return True
+
+
+def latest_verdict(conn: sqlite3.Connection, *, job_id: str) -> str | None:
+    """Return the most recent verdict string for a review job."""
+    row = conn.execute(
+        "SELECT verdict FROM verdicts WHERE job_id = ? ORDER BY created_at DESC, verdict_id DESC LIMIT 1",
+        (job_id,),
+    ).fetchone()
+    return str(row["verdict"]) if row is not None else None
+
+
 def maybe_complete_run(conn: sqlite3.Connection, *, run_id: str) -> None:
-    """Mark a run completed when all jobs are terminally completed."""
+    """Mark a run completed or failed when terminal job states require it."""
+    failed = conn.execute(
+        "SELECT 1 FROM jobs WHERE run_id = ? AND state = 'failed' LIMIT 1",
+        (run_id,),
+    ).fetchone()
+    run = row_by_id(conn, "runs", "run_id", run_id)
+    if failed is not None and run["state"] == "running":
+        now = utc_now()
+        conn.execute(
+            "UPDATE runs SET state = 'failed', completed_at = ?, stop_reason = ? WHERE run_id = ?",
+            (now, "job_failed", run_id),
+        )
+        insert_event(conn, run_id=run_id, event_type="run.failed", payload={"reason": "job_failed"})
+        return
     remaining = conn.execute(
         """
         SELECT 1 FROM jobs
@@ -360,6 +397,8 @@ def maybe_complete_run(conn: sqlite3.Connection, *, run_id: str) -> None:
         (run_id,),
     ).fetchone()
     if remaining is not None:
+        return
+    if run["state"] != "running":
         return
     now = utc_now()
     conn.execute(
@@ -628,9 +667,350 @@ def verify_required_artifacts(conn: sqlite3.Connection, *, job_id: str) -> None:
         if not isinstance(item, dict) or item.get("required") is not True:
             continue
         logical_name = item.get("logical_name")
+        kind = item.get("kind")
+        path = item.get("path")
         found = conn.execute(
-            "SELECT 1 FROM artifacts WHERE job_id = ? AND logical_name = ? LIMIT 1",
-            (job_id, logical_name),
+            """
+            SELECT 1 FROM artifacts
+            WHERE job_id = ? AND logical_name = ? AND artifact_kind = ? AND repo_path = ?
+            LIMIT 1
+            """,
+            (job_id, logical_name, kind, path),
         ).fetchone()
         if found is None:
-            raise InvalidTransitionError(f"required artifact {logical_name!r} is missing")
+            raise InvalidTransitionError(
+                "required artifact is missing: "
+                f"logical_name={logical_name!r}, kind={kind!r}, path={path!r}"
+            )
+
+
+def record_review_verdict(
+    conn: sqlite3.Connection,
+    *,
+    session_id: str,
+    job_id: str,
+    lease_id: str,
+    verdict: str,
+    findings_artifact_id: str | None,
+    rationale: str | None,
+) -> JsonObject:
+    """Record a review verdict and apply its workflow transition."""
+    with transaction(conn):
+        job = row_by_id(conn, "jobs", "job_id", job_id)
+        if job["job_type"] != "review":
+            raise InvalidTransitionError("verdict is valid only for review jobs")
+        active_lease_for(conn, lease_id=lease_id, session_id=session_id, job_id=job_id)
+        if job["state"] != "running":
+            raise InvalidTransitionError("review job must be running before verdict")
+        verify_required_artifacts(conn, job_id=job_id)
+        verdict_id = new_id("verdict")
+        now = utc_now()
+        conn.execute(
+            """
+            INSERT INTO verdicts (
+              verdict_id, run_id, job_id, session_id, verdict, rationale,
+              findings_artifact_id, created_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (verdict_id, job["run_id"], job_id, session_id, verdict, rationale, findings_artifact_id, now),
+        )
+        insert_event(
+            conn,
+            run_id=str(job["run_id"]),
+            event_type="verdict.recorded",
+            actor_session_id=session_id,
+            job_id=job_id,
+            lease_id=lease_id,
+            payload={"verdict": verdict},
+        )
+        if verdict in ("accept", "accept_with_findings"):
+            _complete_review_job(conn, job=job, session_id=session_id, lease_id=lease_id, summary=verdict)
+            maybe_enqueue_downstream(conn, completed_job_id=job_id)
+            maybe_complete_run(conn, run_id=str(job["run_id"]))
+            return {"status": "completed", "job_id": job_id, "verdict": verdict}
+        if verdict == "needs_revision":
+            return request_revision_for_cycle(conn, review_job=job, session_id=session_id, lease_id=lease_id)
+        if verdict == "reject":
+            _fail_review_job(conn, job=job, session_id=session_id, lease_id=lease_id)
+            maybe_complete_run(conn, run_id=str(job["run_id"]))
+            return {"status": "failed", "job_id": job_id, "verdict": verdict}
+        raise InvalidTransitionError(f"unknown verdict {verdict!r}")
+
+
+def request_revision_for_cycle(
+    conn: sqlite3.Connection,
+    *,
+    review_job: sqlite3.Row,
+    session_id: str,
+    lease_id: str,
+) -> JsonObject:
+    """Route a needs_revision verdict through a declared bounded cycle."""
+    workflow = _workflow_for_run(conn, run_id=str(review_job["run_id"]))
+    cycle = _matching_revision_cycle(workflow, workflow_job_id=str(review_job["workflow_job_id"]))
+    if cycle is None:
+        blocker_id = _open_human_checkpoint(
+            conn,
+            job=review_job,
+            session_id=session_id,
+            lease_id=lease_id,
+            description="needs_revision verdict has no matching workflow cycle",
+        )
+        return {"status": "waiting_human", "job_id": review_job["job_id"], "verdict": "needs_revision", "blocker_id": blocker_id}
+    target_workflow_job_id = str(cycle["to"])
+    max_iterations = int(cycle["max_iterations"])
+    completed_attempts = conn.execute(
+        "SELECT COUNT(*) AS count FROM jobs WHERE run_id = ? AND workflow_job_id = ? AND attempt > 1",
+        (review_job["run_id"], target_workflow_job_id),
+    ).fetchone()
+    if int(completed_attempts["count"]) >= max_iterations:
+        blocker_id = _open_human_checkpoint(
+            conn,
+            job=review_job,
+            session_id=session_id,
+            lease_id=lease_id,
+            description="needs_revision cycle exhausted max_iterations",
+        )
+        return {"status": "waiting_human", "job_id": review_job["job_id"], "verdict": "needs_revision", "blocker_id": blocker_id}
+
+    attempt = int(review_job["attempt"]) + 1
+    target_job = _latest_job_for_workflow_id(
+        conn,
+        run_id=str(review_job["run_id"]),
+        workflow_job_id=target_workflow_job_id,
+    )
+    next_target_id = _clone_job_attempt(conn, source=target_job, attempt=attempt)
+    next_review_id = _clone_job_attempt(conn, source=review_job, attempt=attempt)
+    conn.execute(
+        """
+        INSERT INTO job_dependencies(job_id, depends_on_job_id, gate_json)
+        VALUES (?, ?, ?)
+        """,
+        (
+            next_review_id,
+            next_target_id,
+            json_dumps({"on": "completed", "from": target_workflow_job_id, "to": review_job["workflow_job_id"]}),
+        ),
+    )
+    _complete_review_job(conn, job=review_job, session_id=session_id, lease_id=lease_id, summary="needs_revision")
+    enqueue_job(conn, job_id=next_target_id)
+    insert_event(
+        conn,
+        run_id=str(review_job["run_id"]),
+        event_type="revision.requested",
+        actor_session_id=session_id,
+        job_id=str(review_job["job_id"]),
+        lease_id=lease_id,
+        payload={"next_job_id": next_target_id, "next_review_job_id": next_review_id, "attempt": attempt},
+    )
+    return {
+        "status": "revision_requested",
+        "job_id": review_job["job_id"],
+        "verdict": "needs_revision",
+        "next_job_id": next_target_id,
+    }
+
+
+def _complete_review_job(
+    conn: sqlite3.Connection,
+    *,
+    job: sqlite3.Row,
+    session_id: str,
+    lease_id: str,
+    summary: str,
+) -> None:
+    """Complete a review job after verdict-specific handling chooses that path."""
+    now = utc_now()
+    message_id = job["current_message_id"]
+    conn.execute(
+        "UPDATE jobs SET state = 'completed', completed_at = ?, current_lease_id = NULL WHERE job_id = ?",
+        (now, job["job_id"]),
+    )
+    if message_id is not None:
+        conn.execute(
+            """
+            UPDATE queue_messages
+            SET state = 'completed', completed_at = ?, updated_at = ?, current_lease_id = NULL
+            WHERE message_id = ?
+            """,
+            (now, now, message_id),
+        )
+    conn.execute(
+        "UPDATE leases SET state = 'released', released_at = ?, release_reason = 'verdict' WHERE lease_id = ?",
+        (now, lease_id),
+    )
+    insert_event(
+        conn,
+        run_id=str(job["run_id"]),
+        event_type="job.completed",
+        actor_session_id=session_id,
+        job_id=str(job["job_id"]),
+        message_id=message_id,
+        lease_id=lease_id,
+        payload={"summary": summary},
+    )
+
+
+def _fail_review_job(
+    conn: sqlite3.Connection,
+    *,
+    job: sqlite3.Row,
+    session_id: str,
+    lease_id: str,
+) -> None:
+    """Fail a review job after a reject verdict."""
+    now = utc_now()
+    message_id = job["current_message_id"]
+    conn.execute(
+        "UPDATE jobs SET state = 'failed', completed_at = ?, current_lease_id = NULL WHERE job_id = ?",
+        (now, job["job_id"]),
+    )
+    if message_id is not None:
+        conn.execute(
+            """
+            UPDATE queue_messages
+            SET state = 'completed', completed_at = ?, updated_at = ?, current_lease_id = NULL
+            WHERE message_id = ?
+            """,
+            (now, now, message_id),
+        )
+    conn.execute(
+        "UPDATE leases SET state = 'released', released_at = ?, release_reason = 'reject' WHERE lease_id = ?",
+        (now, lease_id),
+    )
+    insert_event(
+        conn,
+        run_id=str(job["run_id"]),
+        event_type="job.failed",
+        actor_session_id=session_id,
+        job_id=str(job["job_id"]),
+        message_id=message_id,
+        lease_id=lease_id,
+        payload={"reason": "reject"},
+    )
+
+
+def _open_human_checkpoint(
+    conn: sqlite3.Connection,
+    *,
+    job: sqlite3.Row,
+    session_id: str,
+    lease_id: str,
+    description: str,
+) -> str:
+    """Open a human checkpoint and move the review job to waiting_human."""
+    now = utc_now()
+    blocker_id = new_id("blk")
+    conn.execute(
+        """
+        INSERT INTO blockers (
+          blocker_id, run_id, job_id, session_id, severity, blocker_kind,
+          description, state, created_at
+        )
+        VALUES (?, ?, ?, ?, 'human_checkpoint', 'revision_routing', ?, 'open', ?)
+        """,
+        (blocker_id, job["run_id"], job["job_id"], session_id, description, now),
+    )
+    conn.execute(
+        "UPDATE jobs SET state = 'waiting_human', current_lease_id = NULL WHERE job_id = ?",
+        (job["job_id"],),
+    )
+    if job["current_message_id"] is not None:
+        conn.execute(
+            """
+            UPDATE queue_messages
+            SET state = 'blocked', current_lease_id = NULL, updated_at = ?
+            WHERE message_id = ?
+            """,
+            (now, job["current_message_id"]),
+        )
+    conn.execute(
+        "UPDATE leases SET state = 'released', released_at = ?, release_reason = 'needs_revision' WHERE lease_id = ?",
+        (now, lease_id),
+    )
+    insert_event(
+        conn,
+        run_id=str(job["run_id"]),
+        event_type="human_checkpoint.opened",
+        actor_session_id=session_id,
+        job_id=str(job["job_id"]),
+        lease_id=lease_id,
+        payload={"blocker_id": blocker_id, "description": description},
+    )
+    return blocker_id
+
+
+def _workflow_for_run(conn: sqlite3.Connection, *, run_id: str) -> JsonObject:
+    """Return the workflow snapshot JSON for a run."""
+    run = row_by_id(conn, "runs", "run_id", run_id)
+    snapshot = row_by_id(conn, "workflow_snapshots", "workflow_snapshot_id", str(run["workflow_snapshot_id"]))
+    return json_loads(str(snapshot["workflow_json"]))
+
+
+def _matching_revision_cycle(workflow: JsonObject, *, workflow_job_id: str) -> JsonObject | None:
+    """Find the declared needs_revision cycle for a review workflow job."""
+    cycles = workflow.get("cycles", [])
+    if not isinstance(cycles, list):
+        return None
+    for cycle in cycles:
+        if not isinstance(cycle, dict):
+            continue
+        if cycle.get("from") == workflow_job_id and cycle.get("on_verdict") == "needs_revision":
+            return cast(JsonObject, cycle)
+    return None
+
+
+def _latest_job_for_workflow_id(
+    conn: sqlite3.Connection,
+    *,
+    run_id: str,
+    workflow_job_id: str,
+) -> sqlite3.Row:
+    """Return the latest attempt for a workflow job id."""
+    row = conn.execute(
+        """
+        SELECT * FROM jobs
+        WHERE run_id = ? AND workflow_job_id = ?
+        ORDER BY attempt DESC
+        LIMIT 1
+        """,
+        (run_id, workflow_job_id),
+    ).fetchone()
+    if row is None:
+        raise NotFoundError(f"could not find job for workflow_job_id={workflow_job_id!r}")
+    return cast(sqlite3.Row, row)
+
+
+def _clone_job_attempt(conn: sqlite3.Connection, *, source: sqlite3.Row, attempt: int) -> str:
+    """Create a blocked clone for the next bounded revision attempt."""
+    job_id = f"job_{source['run_id']}_{source['workflow_job_id']}_a{attempt}"
+    now = utc_now()
+    conn.execute(
+        """
+        INSERT INTO jobs (
+          job_id, run_id, workflow_job_id, title, job_type, role_id,
+          lane_selector_json, capability_requirements_json, state, attempt,
+          max_attempts, fresh_session_required, write_scope_json,
+          expected_artifacts_json, idempotency_key, created_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'blocked', ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            job_id,
+            source["run_id"],
+            source["workflow_job_id"],
+            source["title"],
+            source["job_type"],
+            source["role_id"],
+            source["lane_selector_json"],
+            source["capability_requirements_json"],
+            attempt,
+            source["max_attempts"],
+            source["fresh_session_required"],
+            source["write_scope_json"],
+            source["expected_artifacts_json"],
+            f"{source['run_id']}:{source['workflow_job_id']}:{attempt}",
+            now,
+        ),
+    )
+    return job_id

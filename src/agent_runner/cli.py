@@ -25,13 +25,12 @@ from agent_runner.db import (
     insert_event,
     json_dumps,
     json_loads,
-    maybe_complete_run,
-    maybe_enqueue_downstream,
+    latest_verdict,
     new_id,
+    record_review_verdict,
     row_by_id,
     transaction,
     utc_now,
-    verify_required_artifacts,
 )
 from agent_runner.errors import InvalidTransitionError, LeaseError, NotFoundError, WorkflowError
 from agent_runner.workflow import create_run, load_workflow
@@ -612,81 +611,16 @@ def verdict_work(
     findings_artifact_id: str | None,
     rationale: str | None,
 ) -> JsonObject:
-    """Record a review verdict and complete the review job."""
-    with transaction(conn):
-        job = row_by_id(conn, "jobs", "job_id", job_id)
-        if job["job_type"] != "review":
-            raise InvalidTransitionError("verdict is valid only for review jobs")
-        active_lease_for(conn, lease_id=lease_id, session_id=session_id, job_id=job_id)
-        if job["state"] != "running":
-            raise InvalidTransitionError("review job must be running before verdict")
-        verify_required_artifacts(conn, job_id=job_id)
-        verdict_id = new_id("verdict")
-        now = utc_now()
-        conn.execute(
-            """
-            INSERT INTO verdicts (
-              verdict_id, run_id, job_id, session_id, verdict, rationale,
-              findings_artifact_id, created_at
-            )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                verdict_id,
-                job["run_id"],
-                job_id,
-                session_id,
-                verdict,
-                rationale,
-                findings_artifact_id,
-                now,
-            ),
-        )
-        message_id = job["current_message_id"]
-        conn.execute(
-            "UPDATE jobs SET state = 'completed', completed_at = ?, current_lease_id = NULL WHERE job_id = ?",
-            (now, job_id),
-        )
-        if message_id is not None:
-            conn.execute(
-                """
-                UPDATE queue_messages
-                SET state = 'completed', completed_at = ?, updated_at = ?,
-                    current_lease_id = NULL
-                WHERE message_id = ?
-                """,
-                (now, now, message_id),
-            )
-        conn.execute(
-            """
-            UPDATE leases
-            SET state = 'released', released_at = ?, release_reason = 'verdict'
-            WHERE lease_id = ?
-            """,
-            (now, lease_id),
-        )
-        insert_event(
-            conn,
-            run_id=str(job["run_id"]),
-            event_type="verdict.recorded",
-            actor_session_id=session_id,
-            job_id=job_id,
-            lease_id=lease_id,
-            payload={"verdict": verdict},
-        )
-        insert_event(
-            conn,
-            run_id=str(job["run_id"]),
-            event_type="job.completed",
-            actor_session_id=session_id,
-            job_id=job_id,
-            message_id=message_id,
-            lease_id=lease_id,
-            payload={"summary": verdict},
-        )
-        maybe_enqueue_downstream(conn, completed_job_id=job_id)
-        maybe_complete_run(conn, run_id=str(job["run_id"]))
-        return {"status": "completed", "job_id": job_id, "verdict": verdict}
+    """Record a review verdict and apply review-gate behavior."""
+    return record_review_verdict(
+        conn,
+        session_id=session_id,
+        job_id=job_id,
+        lease_id=lease_id,
+        verdict=verdict,
+        findings_artifact_id=findings_artifact_id,
+        rationale=rationale,
+    )
 
 
 def status(conn: sqlite3.Connection, *, run_id: str | None) -> JsonObject:
@@ -744,6 +678,56 @@ def doctor(conn: sqlite3.Connection, *, run_id: str | None) -> JsonObject:
     ).fetchall()
     for row in orphan_jobs:
         problems.append(f"active job without active lease: {row['job_id']}")
+    dependencies = conn.execute(
+        """
+        SELECT dep.job_id, dep.depends_on_job_id, dep.gate_json
+        FROM job_dependencies dep
+        JOIN jobs upstream ON upstream.job_id = dep.depends_on_job_id
+        WHERE (? IS NULL OR upstream.run_id = ?)
+        """,
+        (run_id, run_id),
+    ).fetchall()
+    for row in dependencies:
+        try:
+            gate = json_loads(str(row["gate_json"]))
+        except (json.JSONDecodeError, InvalidTransitionError):
+            problems.append(f"dependency gate_json is invalid: {row['depends_on_job_id']} -> {row['job_id']}")
+            continue
+        if gate.get("requires_verdict") is None:
+            continue
+        upstream = row_by_id(conn, "jobs", "job_id", str(row["depends_on_job_id"]))
+        if upstream["state"] == "completed" and latest_verdict(conn, job_id=str(upstream["job_id"])) not in {
+            "accept",
+            "accept_with_findings",
+        }:
+            problems.append(
+                "completed review dependency lacks accepting verdict: "
+                f"{upstream['workflow_job_id']} -> {row['job_id']}"
+            )
+    jobs = conn.execute(
+        "SELECT job_id, expected_artifacts_json FROM jobs WHERE (? IS NULL OR run_id = ?)",
+        (run_id, run_id),
+    ).fetchall()
+    for job in jobs:
+        expected = json.loads(str(job["expected_artifacts_json"]))
+        if not isinstance(expected, list):
+            continue
+        for item in expected:
+            if not isinstance(item, dict) or item.get("required") is not True:
+                continue
+            logical_name = item.get("logical_name")
+            existing = conn.execute(
+                "SELECT artifact_kind, repo_path FROM artifacts WHERE job_id = ? AND logical_name = ?",
+                (job["job_id"], logical_name),
+            ).fetchone()
+            if existing is None:
+                continue
+            if existing["artifact_kind"] != item.get("kind") or existing["repo_path"] != item.get("path"):
+                problems.append(
+                    "required artifact mismatch: "
+                    f"job_id={job['job_id']}, logical_name={logical_name!r}, "
+                    f"expected kind={item.get('kind')!r}, path={item.get('path')!r}"
+                )
     schema_version = conn.execute(
         "SELECT value FROM schema_meta WHERE key = 'schema_version'"
     ).fetchone()
