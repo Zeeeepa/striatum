@@ -550,6 +550,9 @@ def build_packet(
     write_scope = json_loads(str(job["write_scope_json"]))
     expected_artifacts = json.loads(str(job["expected_artifacts_json"]))
     lane = json_loads(str(job["lane_selector_json"])).get("lane_id")
+    lanes = cast(JsonObject, workflow.get("lanes", {}))
+    lane_config = lanes.get(lane, {}) if isinstance(lane, str) else {}
+    adapter_constraints = build_adapter_constraints(lane_config if isinstance(lane_config, dict) else {})
     return {
         "packet_version": "agent-runner.work-packet.v1",
         "packet_id": packet_id,
@@ -590,6 +593,7 @@ def build_packet(
         "task_prompt": json_loads(str(job["capability_requirements_json"])).get("task_prompt", {}),
         "inputs": json_loads(str(job["capability_requirements_json"])).get("inputs", []),
         "write_scope": write_scope,
+        "adapter_constraints": adapter_constraints,
         "expected_artifacts": expected_artifacts,
         "commands": {
             "ack": f"agent_runner ack --session-id {session['session_id']} --message-id {message_id} --lease-id {lease_id}",
@@ -601,6 +605,27 @@ def build_packet(
         },
         "artifact_policy": {"publish_transcripts": False, "curated_artifacts_only": True},
     }
+
+
+def build_adapter_constraints(lane_config: JsonObject) -> JsonObject:
+    """Return requested lane constraints and V1 enforcement status."""
+    adapter = lane_config.get("adapter")
+    constraints = lane_config.get("constraints", {})
+    if not isinstance(constraints, dict):
+        constraints = {}
+    enforcement: list[JsonObject] = []
+    for key, value in constraints.items():
+        if not isinstance(key, str) or not isinstance(value, str):
+            continue
+        if adapter == "process":
+            if key == "transcripts" and value == "off":
+                result = "enforced"
+            else:
+                result = "advisory"
+        else:
+            result = "unsupported"
+        enforcement.append({"constraint": key, "requested": value, "enforcement": result})
+    return {"requested": constraints, "enforcement": enforcement}
 
 
 def complete_job(
@@ -728,13 +753,15 @@ def record_review_verdict(
             _complete_review_job(conn, job=job, session_id=session_id, lease_id=lease_id, summary=verdict)
             maybe_enqueue_downstream(conn, completed_job_id=job_id)
             maybe_complete_run(conn, run_id=str(job["run_id"]))
-            return {"status": "completed", "job_id": job_id, "verdict": verdict}
+            return {"status": "completed", "job_id": job_id, "verdict": verdict, "verdict_id": verdict_id}
         if verdict == "needs_revision":
-            return request_revision_for_cycle(conn, review_job=job, session_id=session_id, lease_id=lease_id)
+            result = request_revision_for_cycle(conn, review_job=job, session_id=session_id, lease_id=lease_id)
+            result["verdict_id"] = verdict_id
+            return result
         if verdict == "reject":
             _fail_review_job(conn, job=job, session_id=session_id, lease_id=lease_id)
             maybe_complete_run(conn, run_id=str(job["run_id"]))
-            return {"status": "failed", "job_id": job_id, "verdict": verdict}
+            return {"status": "failed", "job_id": job_id, "verdict": verdict, "verdict_id": verdict_id}
         raise InvalidTransitionError(f"unknown verdict {verdict!r}")
 
 
@@ -749,12 +776,21 @@ def request_revision_for_cycle(
     workflow = _workflow_for_run(conn, run_id=str(review_job["run_id"]))
     cycle = _matching_revision_cycle(workflow, workflow_job_id=str(review_job["workflow_job_id"]))
     if cycle is None:
+        policy = workflow.get("review_revision_policy", {})
+        description = "needs_revision verdict has no matching workflow cycle"
+        if isinstance(policy, dict) and policy.get("root_review_needs_revision") == "human_checkpoint":
+            configured = policy.get("description")
+            description = (
+                configured
+                if isinstance(configured, str) and configured != ""
+                else "needs_revision routed to configured human checkpoint"
+            )
         blocker_id = _open_human_checkpoint(
             conn,
             job=review_job,
             session_id=session_id,
             lease_id=lease_id,
-            description="needs_revision verdict has no matching workflow cycle",
+            description=description,
         )
         return {"status": "waiting_human", "job_id": review_job["job_id"], "verdict": "needs_revision", "blocker_id": blocker_id}
     target_workflow_job_id = str(cycle["to"])

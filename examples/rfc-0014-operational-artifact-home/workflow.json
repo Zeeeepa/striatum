@@ -12,24 +12,43 @@
     "role_id": "coordinator",
     "lane_id": "codex"
   },
+  "review_revision_policy": {
+    "root_review_needs_revision": "human_checkpoint",
+    "description": "Root-review needs_revision verdicts are expected human checkpoints; downstream ledger, synthesis, and final-review jobs remain blocked until a human revises the RFC or workflow."
+  },
   "lanes": {
     "codex": {
       "adapter": "process",
       "display_model": "Codex GPT-5.5",
       "command": ["codex", "exec", "--model", "gpt-5.5", "-"],
-      "capabilities": ["review", "write", "synthesis"]
+      "capabilities": ["review", "write", "synthesis"],
+      "constraints": {
+        "network": "forbidden",
+        "transcripts": "off",
+        "repo_scope": "local_only"
+      }
     },
     "gemini": {
       "adapter": "process",
       "display_model": "Gemini 3.1 Pro Preview",
       "command": ["gemini", "--model", "gemini-3.1-pro-preview"],
-      "capabilities": ["review"]
+      "capabilities": ["review"],
+      "constraints": {
+        "network": "forbidden",
+        "transcripts": "off",
+        "repo_scope": "local_only"
+      }
     },
     "claude": {
       "adapter": "process",
       "display_model": "Claude Opus",
       "command": ["claude", "--model", "opus", "-p"],
-      "capabilities": ["review", "synthesis"]
+      "capabilities": ["review", "synthesis"],
+      "constraints": {
+        "network": "forbidden",
+        "transcripts": "off",
+        "repo_scope": "local_only"
+      }
     }
   },
   "roles": {

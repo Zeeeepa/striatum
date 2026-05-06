@@ -18,9 +18,11 @@ updated when decisions sharpen the product model.
 | binary | The `agent_runner` executable that agents and humans invoke to read or mutate orchestration state. The binary owns SQLite writes and invariant enforcement. |
 | artifact | A durable output that should be reviewable after the live run ends, often stored in the target repository. Examples: findings, syntheses, prompt drafts, marker summaries, PRDs, specs, and decision logs. |
 | artifact publisher | The component that turns selected state-store messages or job outputs into durable repository artifacts. |
+| evidence export | A redacted repository artifact generated from live runner state so a run can be audited from a fresh checkout without committing `.agent_runner/` SQLite data. |
 | coordinator | The control role for a workflow. In the hybrid model, the deterministic coordinator owns state and gates, while one selected model lane may act as the AI coordinator for conversational project management. |
 | deterministic coordinator | The non-AI control plane that owns workflow state, gates, process launch, retries, stop conditions, message routing, write-scope checks, and durable state updates. |
 | AI coordinator | The selected model lane that the user can chat with for a workflow or phase. It is instantiated with a project-manager prompt and focuses on goal tracking, blocker triage, next actions, human checkpoints, and invoking workflow commands. It does not synthesize major artifacts unless assigned a synthesis job. |
+| next action | A deterministic coordinator suggestion returned by status or introspection commands, such as resolving a human checkpoint, inspecting a blocker, claiming available work, or exporting run evidence. |
 | coordinator skill | A deterministic, invocable coordinator capability exposed through chat and backed by `agent_runner` commands, such as resolving a prompt artifact, assembling a work packet, or dispatching a job. |
 | synthesis job | A workflow job that combines findings, reviews, or intermediate artifacts into a new durable artifact. It is intentionally separate from the AI coordinator role to avoid attention dilution. |
 | workflow | A configured graph of jobs, dependencies, gates, allowed write scopes, agent lanes, expected artifacts, and stop conditions. |
@@ -57,6 +59,7 @@ updated when decisions sharpen the product model.
 | parallelism policy | The workflow rule that decides whether multiple jobs, including jobs with the same role, may run at the same time. V1 policy is declared parallelism plus disjoint write scopes or review-only artifacts. |
 | PTY adapter | An adapter that runs agents in pseudo-terminal sessions. Tmux is the first expected PTY adapter. |
 | process contract | The minimum common integration boundary for agent lanes: command, current working directory, environment, stdin, stdout, stderr, exit code, and optional PTY. |
+| adapter constraint | A workflow-declared lane requirement, such as network policy, transcript handling, or repository scope, paired with an adapter enforcement result of `enforced`, `advisory`, or `unsupported`. |
 | dashboard | A human-facing status surface. The first dashboard may be TUI; a web dashboard and chat interface are possible later. |
 | model portability | The design goal that workflows, state, and coordination semantics survive swapping model providers, model versions, and model CLIs. |
 

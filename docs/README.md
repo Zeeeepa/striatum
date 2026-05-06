@@ -14,6 +14,13 @@ Start here:
 - [RFC_0014_DOGFOOD_FIX_SPEC.md](RFC_0014_DOGFOOD_FIX_SPEC.md) — fixes
   proposed after the RFC 0014 validation dogfood run.
 
+## Runtime Evidence
+
+- `agent_runner evidence export` writes a redacted Markdown run snapshot for
+  commit and review while leaving `.agent_runner/` ignored.
+- `agent_runner submit-review` combines review artifact publication and verdict
+  recording for the common review-gate path.
+
 ## Design
 
 - [design/](design/) — design artifacts produced before implementation.

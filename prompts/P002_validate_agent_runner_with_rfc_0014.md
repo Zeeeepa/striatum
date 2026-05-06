@@ -62,9 +62,11 @@ From the Engram repository root:
 3. If already on `agent-runner/rfc-0014-validation`, continue.
 4. Otherwise create or switch to `agent-runner/rfc-0014-validation`.
 
-The MVP's `branch confirm` command records branch confirmation; it does not
-perform the actual `git switch`. For this validation, do the actual git branch
-operation yourself, then record the branch with `agent_runner branch confirm`.
+The MVP's `branch confirm` command records branch confirmation and now reports
+`records_only`, the requested branch, current git branch when detectable, and a
+mismatch warning. It still does not perform the actual `git switch` by default.
+For this validation, do the actual git branch operation yourself, then record
+the branch with `agent_runner branch confirm`.
 
 ## Runner Setup
 
@@ -93,9 +95,11 @@ Expected lanes:
 - `synthesizer` / `claude`
 - `reviewer` / `codex` for final review, as a fresh session
 
-Use `claim-next`, `ack`, `publish-artifact`, `complete`, and `verdict` exactly
-as the work packet commands specify. Use `status --json`, `why`, and `doctor
---json` when diagnosing state.
+Use `claim-next`, `ack`, `complete`, and either `submit-review` or
+`publish-artifact` + `verdict` exactly as the work packet commands specify.
+Prefer `submit-review` for review jobs unless you are deliberately testing the
+lower-level commands. Use `status --json`, `why`, `doctor --json`, and
+`evidence export` when diagnosing or preserving state.
 
 ## Workflow Discipline
 
@@ -116,9 +120,12 @@ review artifact. The ledger job normalizes findings but does not decide them.
 The synthesis job decides accepted, modified, deferred, and rejected findings.
 The final review checks the synthesis and issues the final gate verdict.
 
-If any review verdict is `needs_revision`, follow the declared runner cycle if
-one exists. If a verdict is `reject`, stop expansion and report the failed run
-state. Do not manually advance downstream jobs after a rejected or blocked gate.
+Root-review `needs_revision` verdicts are explicitly modeled by the fixture as
+human checkpoints. Treat that as an honest expected block, not as workflow
+completion, and do not manually advance the ledger, synthesis, or final-review
+jobs. The final-review job still has a declared `needs_revision` cycle back to
+synthesis. If a verdict is `reject`, stop expansion and report the failed run
+state.
 
 ## Validation Notes
 

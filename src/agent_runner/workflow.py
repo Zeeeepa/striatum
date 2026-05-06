@@ -29,6 +29,12 @@ REQUIRED_TOP_LEVEL = {
     "cycles",
 }
 
+CONSTRAINT_VALUES = {
+    "network": {"allowed", "forbidden", "advisory_forbidden"},
+    "transcripts": {"off", "redacted", "allowed"},
+    "repo_scope": {"local_only", "unrestricted"},
+}
+
 
 def load_workflow(path: Path) -> JsonObject:
     """Load and validate a workflow JSON file."""
@@ -56,6 +62,7 @@ def validate_workflow(workflow: JsonObject) -> None:
     if workflow.get("schema_version") != "agent-runner.workflow.v1":
         raise WorkflowError("workflow schema_version must be agent-runner.workflow.v1")
     lanes = _object(workflow, "lanes")
+    _validate_lane_constraints(lanes)
     roles = _object(workflow, "roles")
     jobs = _list(workflow, "jobs")
     job_map: dict[str, JsonValue] = {}
@@ -98,6 +105,7 @@ def validate_workflow(workflow: JsonObject) -> None:
         if not isinstance(max_iterations, int) or max_iterations < 1:
             raise WorkflowError("workflow cycles must declare max_iterations >= 1")
     _validate_parallelism(jobs)
+    _validate_revision_policy(workflow)
 
 
 def create_run(conn: sqlite3.Connection, *, repo: Path, workflow_path: Path) -> JsonObject:
@@ -284,6 +292,38 @@ def _validate_parallelism(jobs: list[object]) -> None:
                 if allowed in write_paths:
                     raise WorkflowError(f"parallel group {group!r} has overlapping write scope")
                 write_paths.add(allowed)
+
+
+def _validate_lane_constraints(lanes: JsonObject) -> None:
+    """Validate optional lane adapter constraints."""
+    for lane_id, lane_value in lanes.items():
+        if not isinstance(lane_value, dict):
+            raise WorkflowError(f"lane {lane_id!r} must be an object")
+        constraints = lane_value.get("constraints")
+        if constraints is None:
+            continue
+        if not isinstance(constraints, dict):
+            raise WorkflowError(f"lane {lane_id!r} constraints must be an object")
+        for key, value in constraints.items():
+            if key not in CONSTRAINT_VALUES:
+                raise WorkflowError(f"lane {lane_id!r} has unknown constraint {key!r}")
+            if value not in CONSTRAINT_VALUES[key]:
+                raise WorkflowError(f"lane {lane_id!r} has invalid {key!r} constraint value")
+
+
+def _validate_revision_policy(workflow: JsonObject) -> None:
+    """Validate optional explicit review revision policy."""
+    policy = workflow.get("review_revision_policy")
+    if policy is None:
+        return
+    if not isinstance(policy, dict):
+        raise WorkflowError("review_revision_policy must be an object")
+    root_policy = policy.get("root_review_needs_revision")
+    if root_policy not in {"human_checkpoint", "declared_cycle"}:
+        raise WorkflowError("review_revision_policy.root_review_needs_revision is invalid")
+    description = policy.get("description")
+    if description is not None and not isinstance(description, str):
+        raise WorkflowError("review_revision_policy.description must be a string")
 
 
 def _object(value: JsonObject, key: str) -> JsonObject:

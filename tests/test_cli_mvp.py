@@ -675,6 +675,12 @@ def test_verdict_requires_expected_artifact_path_and_kind(tmp_path: Path) -> Non
     reviewer = register(tmp_path, run_id, "reviewer", "codex")
     packet = claim(tmp_path, reviewer)
     job_id, message_id, lease_id = packet_ids(packet)
+    run_why = data(run_cli(tmp_path, "why", run_id))
+    assert run_why["target_type"] == "run"
+    session_why = data(run_cli(tmp_path, "why", reviewer))
+    assert session_why["target_type"] == "session"
+    message_why = data(run_cli(tmp_path, "why", message_id))
+    assert message_why["target_type"] == "message"
     run_cli(tmp_path, "ack", "--session-id", reviewer, "--message-id", message_id, "--lease-id", lease_id)
     write_artifact(tmp_path, "docs/reviews/rfc-ledger/codex/WRONG.md")
     artifact = data(
@@ -728,3 +734,258 @@ def test_doctor_reports_bad_review_gate_state(tmp_path: Path) -> None:
     doctor = data(run_cli(tmp_path, "doctor", "--run-id", run_id))
     assert doctor["ok"] is False
     assert any("lacks accepting verdict" in problem for problem in doctor["problems"])
+
+
+def test_blocked_review_verdict_appears_in_status(tmp_path: Path) -> None:
+    run_id = prepare_started_run(tmp_path)
+    author = register(tmp_path, run_id, "author", "codex")
+    complete_claimed_job(
+        tmp_path,
+        author,
+        claim(tmp_path, author),
+        logical_name="draft",
+        kind="handoff",
+        path="docs/reviews/rfc-ledger/RFC_LEDGER_DRAFT.md",
+    )
+    reviewer = register(tmp_path, run_id, "reviewer", "codex")
+    verdict = verdict_claimed_review(
+        tmp_path,
+        reviewer,
+        claim(tmp_path, reviewer),
+        verdict="needs_revision",
+        path="docs/reviews/rfc-ledger/codex/RFC_LEDGER_REVIEW.md",
+    )
+    status = data(run_cli(tmp_path, "status", "--run-id", run_id))
+    assert verdict["blocker_id"] == status["human_checkpoints"][0]["blocker_id"]
+    assert status["latest_non_accepting_review_verdicts"][0]["verdict"] == "needs_revision"
+    assert any(job["workflow_job_id"] == "findings_ledger" for job in status["blocked_downstream_jobs"])
+    assert "resolve_human_checkpoint" in status["next_actions"]
+
+
+def test_why_resolves_blocker_artifact_and_verdict(tmp_path: Path) -> None:
+    run_id = prepare_started_run(tmp_path)
+    author = register(tmp_path, run_id, "author", "codex")
+    complete_claimed_job(
+        tmp_path,
+        author,
+        claim(tmp_path, author),
+        logical_name="draft",
+        kind="handoff",
+        path="docs/reviews/rfc-ledger/RFC_LEDGER_DRAFT.md",
+    )
+    reviewer = register(tmp_path, run_id, "reviewer", "codex")
+    packet = claim(tmp_path, reviewer)
+    job_id, message_id, lease_id = packet_ids(packet)
+    run_cli(tmp_path, "ack", "--session-id", reviewer, "--message-id", message_id, "--lease-id", lease_id)
+    write_artifact(tmp_path, "docs/reviews/rfc-ledger/codex/RFC_LEDGER_REVIEW.md")
+    artifact = data(
+        run_cli(
+            tmp_path,
+            "publish-artifact",
+            "--session-id",
+            reviewer,
+            "--job-id",
+            job_id,
+            "--lease-id",
+            lease_id,
+            "--kind",
+            "finding",
+            "--logical-name",
+            "review",
+            "--path",
+            "docs/reviews/rfc-ledger/codex/RFC_LEDGER_REVIEW.md",
+        )
+    )
+    verdict = data(
+        run_cli(
+            tmp_path,
+            "verdict",
+            "--session-id",
+            reviewer,
+            "--job-id",
+            job_id,
+            "--lease-id",
+            lease_id,
+            "--verdict",
+            "needs_revision",
+            "--findings-artifact-id",
+            str(artifact["artifact_id"]),
+        )
+    )
+    blocker = data(run_cli(tmp_path, "why", str(verdict["blocker_id"])))
+    assert blocker["target_type"] == "blocker"
+    assert blocker["related_verdict"]["verdict"] == "needs_revision"
+    assert any(job["workflow_job_id"] == "findings_ledger" for job in blocker["blocked_downstream_jobs"])
+    artifact_why = data(run_cli(tmp_path, "why", str(artifact["artifact_id"])))
+    assert artifact_why["target_type"] == "artifact"
+    assert artifact_why["verdicts"][0]["verdict_id"] == verdict["verdict_id"]
+    verdict_why = data(run_cli(tmp_path, "why", str(verdict["verdict_id"])))
+    assert verdict_why["target_type"] == "verdict"
+    assert verdict_why["artifact"]["artifact_id"] == artifact["artifact_id"]
+
+
+def test_evidence_export_writes_redacted_markdown_and_rejects_bad_paths(tmp_path: Path) -> None:
+    run_id = prepare_started_run(tmp_path)
+    author = register(tmp_path, run_id, "author", "codex")
+    complete_claimed_job(
+        tmp_path,
+        author,
+        claim(tmp_path, author),
+        logical_name="draft",
+        kind="handoff",
+        path="docs/reviews/rfc-ledger/RFC_LEDGER_DRAFT.md",
+    )
+    reviewer = register(tmp_path, run_id, "reviewer", "codex")
+    verdict_claimed_review(
+        tmp_path,
+        reviewer,
+        claim(tmp_path, reviewer),
+        verdict="needs_revision",
+        path="docs/reviews/rfc-ledger/codex/RFC_LEDGER_REVIEW.md",
+    )
+    exported = data(
+        run_cli(
+            tmp_path,
+            "evidence",
+            "export",
+            "--run-id",
+            run_id,
+            "--path",
+            "docs/reviews/rfc-ledger/RUN_EVIDENCE.md",
+        )
+    )
+    assert exported["status"] == "exported"
+    evidence = (tmp_path / "docs/reviews/rfc-ledger/RUN_EVIDENCE.md").read_text(encoding="utf-8")
+    assert "Agent Runner Evidence Export" in evidence
+    assert "needs_revision" in evidence
+    assert "state.sqlite3" not in evidence
+    assert "transcript" not in evidence.lower()
+    bad_state = run_cli(
+        tmp_path,
+        "evidence",
+        "export",
+        "--run-id",
+        run_id,
+        "--path",
+        ".agent_runner/RUN_EVIDENCE.md",
+        check=False,
+    )
+    assert bad_state["returncode"] == 6
+    bad_escape = run_cli(
+        tmp_path,
+        "evidence",
+        "export",
+        "--run-id",
+        run_id,
+        "--path",
+        "../RUN_EVIDENCE.md",
+        check=False,
+    )
+    assert bad_escape["returncode"] == 6
+
+
+def test_submit_review_publishes_artifact_and_applies_gate(tmp_path: Path) -> None:
+    run_id = prepare_started_run(tmp_path)
+    author = register(tmp_path, run_id, "author", "codex")
+    complete_claimed_job(
+        tmp_path,
+        author,
+        claim(tmp_path, author),
+        logical_name="draft",
+        kind="handoff",
+        path="docs/reviews/rfc-ledger/RFC_LEDGER_DRAFT.md",
+    )
+    reviewer = register(tmp_path, run_id, "reviewer", "codex")
+    packet = claim(tmp_path, reviewer)
+    job_id, _message_id, lease_id = packet_ids(packet)
+    write_artifact(tmp_path, "docs/reviews/rfc-ledger/codex/RFC_LEDGER_REVIEW.md", text="needs revision\n")
+    submitted = data(
+        run_cli(
+            tmp_path,
+            "submit-review",
+            "--session-id",
+            reviewer,
+            "--job-id",
+            job_id,
+            "--lease-id",
+            lease_id,
+            "--path",
+            "docs/reviews/rfc-ledger/codex/RFC_LEDGER_REVIEW.md",
+            "--verdict",
+            "needs_revision",
+            "--rationale",
+            "root review blocks",
+        )
+    )
+    assert submitted["artifact"]["status"] == "published"
+    assert submitted["verdict"]["verdict"] == "needs_revision"
+    assert submitted["blocker_id"] == submitted["verdict"]["blocker_id"]
+    assert submitted["job_state"] == "waiting_human"
+    assert any(job["workflow_job_id"] == "findings_ledger" for job in submitted["downstream_jobs"])
+
+
+def test_workflow_lane_constraints_validate_and_appear_in_packets(tmp_path: Path) -> None:
+    workflow = example_workflow()
+    lanes = workflow["lanes"]
+    assert isinstance(lanes, dict)
+    codex = lanes["codex"]
+    assert isinstance(codex, dict)
+    codex["constraints"] = {
+        "network": "forbidden",
+        "transcripts": "off",
+        "repo_scope": "local_only",
+    }
+    workflow_path = temporary_workflow(tmp_path, workflow)
+    init_repo(tmp_path)
+    run_cli(tmp_path, "workflow", "validate", str(workflow_path))
+    run_id = str(data(run_cli(tmp_path, "run", "prepare", "--workflow", str(workflow_path)))["run_id"])
+    run_cli(tmp_path, "branch", "confirm", "--run-id", run_id, "--branch", "agent-runner/v1-test")
+    run_cli(tmp_path, "run", "start", "--run-id", run_id)
+    author = register(tmp_path, run_id, "author", "codex")
+    packet = claim(tmp_path, author)
+    constraints = packet["adapter_constraints"]
+    assert isinstance(constraints, dict)
+    assert constraints["requested"]["network"] == "forbidden"
+    assert {"constraint": "network", "requested": "forbidden", "enforcement": "advisory"} in constraints[
+        "enforcement"
+    ]
+    invalid = example_workflow()
+    invalid_lanes = invalid["lanes"]
+    assert isinstance(invalid_lanes, dict)
+    invalid_codex = invalid_lanes["codex"]
+    assert isinstance(invalid_codex, dict)
+    invalid_codex["constraints"] = {"network": "maybe"}
+    rejected = run_cli(tmp_path, "workflow", "validate", str(temporary_workflow(tmp_path, invalid)), check=False)
+    assert rejected["returncode"] == 8
+
+
+def test_branch_confirm_reports_records_only_and_mismatch(tmp_path: Path) -> None:
+    init_repo(tmp_path)
+    subprocess.run(["git", "init"], cwd=tmp_path, check=True, capture_output=True)
+    subprocess.run(["git", "checkout", "-b", "actual"], cwd=tmp_path, check=True, capture_output=True)
+    prepared = data(run_cli(tmp_path, "run", "prepare", "--workflow", str(WORKFLOW)))
+    confirmed = data(
+        run_cli(
+            tmp_path,
+            "branch",
+            "confirm",
+            "--run-id",
+            str(prepared["run_id"]),
+            "--branch",
+            "expected",
+        )
+    )
+    assert confirmed["records_only"] is True
+    assert confirmed["requested_branch"] == "expected"
+    assert confirmed["current_git_branch"] == "actual"
+    assert confirmed["warning"] is not None
+
+
+def test_rfc_0014_fixture_declares_root_review_revision_policy(tmp_path: Path) -> None:
+    fixture = ROOT / "examples" / "rfc-0014-operational-artifact-home" / "workflow.json"
+    init_repo(tmp_path)
+    valid = data(run_cli(tmp_path, "workflow", "validate", str(fixture)))
+    assert valid["workflow_id"] == "rfc-0014-operational-artifact-home"
+    workflow = json.loads(fixture.read_text(encoding="utf-8"))
+    policy = workflow["review_revision_policy"]
+    assert policy["root_review_needs_revision"] == "human_checkpoint"
