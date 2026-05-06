@@ -1,0 +1,270 @@
+{
+  "schema_version": "agent-runner.workflow.v1",
+  "workflow_id": "rfc-0014-operational-artifact-home",
+  "workflow_version": "2026-05-06",
+  "name": "RFC 0014 Operational Artifact Home Review",
+  "branch": {
+    "mode": "confirm",
+    "suggested_name": "agent-runner/rfc-0014-validation",
+    "allow_dirty": false
+  },
+  "coordinator": {
+    "role_id": "coordinator",
+    "lane_id": "codex"
+  },
+  "lanes": {
+    "codex": {
+      "adapter": "process",
+      "display_model": "Codex GPT-5.5",
+      "command": ["codex", "exec", "--model", "gpt-5.5", "-"],
+      "capabilities": ["review", "write", "synthesis"]
+    },
+    "gemini": {
+      "adapter": "process",
+      "display_model": "Gemini 3.1 Pro Preview",
+      "command": ["gemini", "--model", "gemini-3.1-pro-preview"],
+      "capabilities": ["review"]
+    },
+    "claude": {
+      "adapter": "process",
+      "display_model": "Claude Opus",
+      "command": ["claude", "--model", "opus", "-p"],
+      "capabilities": ["review", "synthesis"]
+    }
+  },
+  "roles": {
+    "reviewer": {
+      "definition_path": "agent-runner/examples/rfc-0014-operational-artifact-home/roles/reviewer.md"
+    },
+    "ledger": {
+      "definition_path": "agent-runner/examples/rfc-0014-operational-artifact-home/roles/ledger.md"
+    },
+    "synthesizer": {
+      "definition_path": "agent-runner/examples/rfc-0014-operational-artifact-home/roles/synthesizer.md"
+    },
+    "coordinator": {
+      "definition_path": "agent-runner/examples/rfc-0014-operational-artifact-home/roles/coordinator.md"
+    }
+  },
+  "context_docs": [
+    {"path": "README.md", "required": true},
+    {"path": "DECISION_LOG.md", "required": true},
+    {"path": "docs/rfcs/0014-operational-artifact-home.md", "required": true},
+    {"path": "docs/rfcs/0013-development-operational-issue-loop.md", "required": true},
+    {"path": "docs/process/multi-agent-review-loop.md", "required": true},
+    {"path": "agent-runner/docs/SPEC.md", "required": true},
+    {"path": "agent-runner/docs/DECISION_LOG.md", "required": true}
+  ],
+  "parallelism": {
+    "mode": "declared",
+    "max_active_jobs": 3,
+    "require_disjoint_write_scopes": true
+  },
+  "jobs": [
+    {
+      "id": "review_claude",
+      "type": "review",
+      "title": "Review RFC 0014 with Claude",
+      "role_id": "reviewer",
+      "lane_id": "claude",
+      "parallel_group": "independent_reviews",
+      "fresh_session_required": true,
+      "objective": "Review RFC 0014 for process fit, marker precedence, and operational artifact clarity.",
+      "task_prompt": {
+        "path": "agent-runner/examples/rfc-0014-operational-artifact-home/prompts/review.md"
+      },
+      "inputs": [
+        {"path": "docs/rfcs/0014-operational-artifact-home.md", "kind": "target_rfc"},
+        {"path": "docs/rfcs/0013-development-operational-issue-loop.md", "kind": "upstream_rfc"}
+      ],
+      "write_scope": {
+        "mode": "review_only_artifact",
+        "repo_write": false,
+        "allowed_paths": ["docs/reviews/rfc-0014-operational-artifact-home/"],
+        "forbidden_paths": [".agent_runner/", "docs/rfcs/"]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "review",
+          "kind": "finding",
+          "path": "docs/reviews/rfc-0014-operational-artifact-home/RFC_0014_REVIEW_claude.md",
+          "required": true
+        }
+      ],
+      "needs": []
+    },
+    {
+      "id": "review_codex",
+      "type": "review",
+      "title": "Review RFC 0014 with Codex",
+      "role_id": "reviewer",
+      "lane_id": "codex",
+      "parallel_group": "independent_reviews",
+      "fresh_session_required": true,
+      "objective": "Review RFC 0014 for implementation risk, script migration risk, and runner validation usefulness.",
+      "task_prompt": {
+        "path": "agent-runner/examples/rfc-0014-operational-artifact-home/prompts/review.md"
+      },
+      "inputs": [
+        {"path": "docs/rfcs/0014-operational-artifact-home.md", "kind": "target_rfc"},
+        {"path": "docs/rfcs/0013-development-operational-issue-loop.md", "kind": "upstream_rfc"}
+      ],
+      "write_scope": {
+        "mode": "review_only_artifact",
+        "repo_write": false,
+        "allowed_paths": ["docs/reviews/rfc-0014-operational-artifact-home/"],
+        "forbidden_paths": [".agent_runner/", "docs/rfcs/"]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "review",
+          "kind": "finding",
+          "path": "docs/reviews/rfc-0014-operational-artifact-home/RFC_0014_REVIEW_codex.md",
+          "required": true
+        }
+      ],
+      "needs": []
+    },
+    {
+      "id": "review_gemini",
+      "type": "review",
+      "title": "Review RFC 0014 with Gemini",
+      "role_id": "reviewer",
+      "lane_id": "gemini",
+      "parallel_group": "independent_reviews",
+      "fresh_session_required": true,
+      "objective": "Review RFC 0014 for portability, process ergonomics, and privacy/redaction risks.",
+      "task_prompt": {
+        "path": "agent-runner/examples/rfc-0014-operational-artifact-home/prompts/review.md"
+      },
+      "inputs": [
+        {"path": "docs/rfcs/0014-operational-artifact-home.md", "kind": "target_rfc"},
+        {"path": "docs/rfcs/0013-development-operational-issue-loop.md", "kind": "upstream_rfc"}
+      ],
+      "write_scope": {
+        "mode": "review_only_artifact",
+        "repo_write": false,
+        "allowed_paths": ["docs/reviews/rfc-0014-operational-artifact-home/"],
+        "forbidden_paths": [".agent_runner/", "docs/rfcs/"]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "review",
+          "kind": "finding",
+          "path": "docs/reviews/rfc-0014-operational-artifact-home/RFC_0014_REVIEW_gemini.md",
+          "required": true
+        }
+      ],
+      "needs": []
+    },
+    {
+      "id": "findings_ledger",
+      "type": "ledger",
+      "title": "Record RFC 0014 findings ledger",
+      "role_id": "ledger",
+      "lane_id": "codex",
+      "fresh_session_required": true,
+      "objective": "Normalize independent RFC 0014 review findings into a stable ledger without deciding disposition.",
+      "task_prompt": {
+        "path": "agent-runner/examples/rfc-0014-operational-artifact-home/prompts/findings_ledger.md"
+      },
+      "inputs": [
+        {"path": "docs/reviews/rfc-0014-operational-artifact-home/RFC_0014_REVIEW_claude.md", "kind": "review"},
+        {"path": "docs/reviews/rfc-0014-operational-artifact-home/RFC_0014_REVIEW_codex.md", "kind": "review"},
+        {"path": "docs/reviews/rfc-0014-operational-artifact-home/RFC_0014_REVIEW_gemini.md", "kind": "review"}
+      ],
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": ["docs/reviews/rfc-0014-operational-artifact-home/"],
+        "forbidden_paths": [".agent_runner/", "docs/rfcs/"]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "ledger",
+          "kind": "findings_ledger",
+          "path": "docs/reviews/rfc-0014-operational-artifact-home/RFC_0014_FINDINGS_LEDGER.md",
+          "required": true
+        }
+      ],
+      "needs": ["review_claude", "review_codex", "review_gemini"]
+    },
+    {
+      "id": "synthesis",
+      "type": "synthesis",
+      "title": "Synthesize RFC 0014 findings",
+      "role_id": "synthesizer",
+      "lane_id": "claude",
+      "fresh_session_required": true,
+      "objective": "Synthesize RFC 0014 findings and recommend accept, revise, reject, or defer.",
+      "task_prompt": {
+        "path": "agent-runner/examples/rfc-0014-operational-artifact-home/prompts/synthesis.md"
+      },
+      "inputs": [
+        {"path": "docs/reviews/rfc-0014-operational-artifact-home/RFC_0014_FINDINGS_LEDGER.md", "kind": "findings_ledger"},
+        {"path": "docs/rfcs/0014-operational-artifact-home.md", "kind": "target_rfc"}
+      ],
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": ["docs/reviews/rfc-0014-operational-artifact-home/"],
+        "forbidden_paths": [".agent_runner/"]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "synthesis",
+          "kind": "synthesis",
+          "path": "docs/reviews/rfc-0014-operational-artifact-home/RFC_0014_SYNTHESIS.md",
+          "required": true
+        }
+      ],
+      "needs": ["findings_ledger"]
+    },
+    {
+      "id": "final_review",
+      "type": "review",
+      "title": "Final review of RFC 0014 synthesis",
+      "role_id": "reviewer",
+      "lane_id": "codex",
+      "fresh_session_required": true,
+      "objective": "Review whether the synthesis is ready for human disposition and whether runner validation evidence is adequate.",
+      "task_prompt": {
+        "path": "agent-runner/examples/rfc-0014-operational-artifact-home/prompts/final_review.md"
+      },
+      "inputs": [
+        {"path": "docs/reviews/rfc-0014-operational-artifact-home/RFC_0014_SYNTHESIS.md", "kind": "synthesis"},
+        {"path": "docs/reviews/rfc-0014-operational-artifact-home/RFC_0014_FINDINGS_LEDGER.md", "kind": "findings_ledger"}
+      ],
+      "write_scope": {
+        "mode": "review_only_artifact",
+        "repo_write": false,
+        "allowed_paths": ["docs/reviews/rfc-0014-operational-artifact-home/"],
+        "forbidden_paths": [".agent_runner/", "docs/rfcs/"]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "review",
+          "kind": "finding",
+          "path": "docs/reviews/rfc-0014-operational-artifact-home/RFC_0014_FINAL_REVIEW.md",
+          "required": true
+        }
+      ],
+      "needs": ["synthesis"]
+    }
+  ],
+  "edges": [
+    {"from": "review_claude", "to": "findings_ledger", "on": "completed"},
+    {"from": "review_codex", "to": "findings_ledger", "on": "completed"},
+    {"from": "review_gemini", "to": "findings_ledger", "on": "completed"},
+    {"from": "findings_ledger", "to": "synthesis", "on": "completed"},
+    {"from": "synthesis", "to": "final_review", "on": "completed"}
+  ],
+  "cycles": [
+    {
+      "from": "final_review",
+      "to": "synthesis",
+      "on_verdict": "needs_revision",
+      "max_iterations": 1
+    }
+  ]
+}

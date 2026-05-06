@@ -19,9 +19,10 @@ Start with:
 7. [docs/INTERVIEW_LOG.md](docs/INTERVIEW_LOG.md)
 8. [docs/ENGRAM_INCUBATION_CONTEXT.md](docs/ENGRAM_INCUBATION_CONTEXT.md)
 
-First execution prompt:
+Execution prompts:
 
 - [prompts/P001_design_review_build_v1_mvp.md](prompts/P001_design_review_build_v1_mvp.md)
+- [prompts/P002_validate_agent_runner_with_rfc_0014.md](prompts/P002_validate_agent_runner_with_rfc_0014.md)
 
 Bootstrap tmux runner:
 
