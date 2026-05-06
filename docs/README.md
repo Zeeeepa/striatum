@@ -20,3 +20,10 @@ Start here:
 ## Prompts
 
 - [../prompts/](../prompts/) — execution prompts.
+
+## Bootstrap
+
+- [../scripts/agent_runner_tmux_design.sh](../scripts/agent_runner_tmux_design.sh)
+  — temporary tmux harness for collecting the three required V1 MVP design
+  inputs before synthesis. The watched completion artifacts are the three
+  `docs/design/V1_MVP_DESIGN_INPUT_*.md` files.

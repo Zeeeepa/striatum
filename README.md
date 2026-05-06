@@ -22,3 +22,14 @@ Start with:
 First execution prompt:
 
 - [prompts/P001_design_review_build_v1_mvp.md](prompts/P001_design_review_build_v1_mvp.md)
+
+Bootstrap tmux runner:
+
+```bash
+agent-runner/scripts/agent_runner_tmux_design.sh start
+tmux attach -t agent-runner-design
+```
+
+Use `start-pipe` or `AGENT_RUNNER_RUN_MODE=pipe` when the local model CLIs are
+ready to accept prompts on stdin. The runner starts Claude, Codex, and Gemini
+design-input lanes plus a synthesis handoff pane.
