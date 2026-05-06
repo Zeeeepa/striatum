@@ -28,6 +28,13 @@ Date: 2026-05-06
 - Evidence export is a curated Markdown snapshot; live coordination state
   remains SQLite under `.agent_runner/`.
 
+## Review Follow-Up
+
+- F001: `submit-review` now prevalidates review-job state, lease ownership, and
+  required artifact satisfaction before publishing an artifact row.
+- F002: `declared_cycle` revision policy validation now rejects workflows unless
+  each root review job has a matching `needs_revision` cycle.
+
 ## Verification
 
 Verified after implementation:

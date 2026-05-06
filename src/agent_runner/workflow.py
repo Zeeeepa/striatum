@@ -105,7 +105,7 @@ def validate_workflow(workflow: JsonObject) -> None:
         if not isinstance(max_iterations, int) or max_iterations < 1:
             raise WorkflowError("workflow cycles must declare max_iterations >= 1")
     _validate_parallelism(jobs)
-    _validate_revision_policy(workflow)
+    _validate_revision_policy(workflow, jobs=jobs)
 
 
 def create_run(conn: sqlite3.Connection, *, repo: Path, workflow_path: Path) -> JsonObject:
@@ -311,7 +311,7 @@ def _validate_lane_constraints(lanes: JsonObject) -> None:
                 raise WorkflowError(f"lane {lane_id!r} has invalid {key!r} constraint value")
 
 
-def _validate_revision_policy(workflow: JsonObject) -> None:
+def _validate_revision_policy(workflow: JsonObject, *, jobs: list[object]) -> None:
     """Validate optional explicit review revision policy."""
     policy = workflow.get("review_revision_policy")
     if policy is None:
@@ -324,6 +324,37 @@ def _validate_revision_policy(workflow: JsonObject) -> None:
     description = policy.get("description")
     if description is not None and not isinstance(description, str):
         raise WorkflowError("review_revision_policy.description must be a string")
+    if root_policy != "declared_cycle":
+        return
+    cycle_sources = {
+        cycle.get("from")
+        for cycle in workflow.get("cycles", [])
+        if isinstance(cycle, dict) and cycle.get("on_verdict") == "needs_revision"
+    }
+    missing = sorted(_root_review_job_ids(workflow, jobs=jobs).difference(cycle_sources))
+    if missing:
+        raise WorkflowError(
+            "declared_cycle review_revision_policy requires needs_revision cycles "
+            f"for root review jobs: {', '.join(missing)}"
+        )
+
+
+def _root_review_job_ids(workflow: JsonObject, *, jobs: list[object]) -> set[str]:
+    """Return review job ids that have no upstream workflow dependency."""
+    dependency_targets = {
+        edge.get("to")
+        for edge in workflow.get("edges", [])
+        if isinstance(edge, dict) and isinstance(edge.get("to"), str)
+    }
+    root_review_ids: set[str] = set()
+    for job_value in jobs:
+        if not isinstance(job_value, dict):
+            continue
+        job = cast(JsonValue, job_value)
+        job_id = job.get("id")
+        if job.get("type") == "review" and isinstance(job_id, str) and job_id not in dependency_targets:
+            root_review_ids.add(job_id)
+    return root_review_ids
 
 
 def _object(value: JsonObject, key: str) -> JsonObject:

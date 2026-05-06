@@ -94,6 +94,16 @@ def write_artifact(repo: Path, path: str, text: str = "artifact\n") -> None:
     target.write_text(text, encoding="utf-8")
 
 
+def artifact_count(repo: Path, job_id: str) -> int:
+    conn = sqlite3.connect(repo / ".agent_runner" / "state.sqlite3")
+    try:
+        row = conn.execute("SELECT COUNT(*) FROM artifacts WHERE job_id = ?", (job_id,)).fetchone()
+    finally:
+        conn.close()
+    assert row is not None
+    return int(row[0])
+
+
 def temporary_workflow(tmp_path: Path, workflow: dict[str, object]) -> Path:
     path = tmp_path / "workflow.json"
     path.write_text(json.dumps(workflow), encoding="utf-8")
@@ -924,6 +934,93 @@ def test_submit_review_publishes_artifact_and_applies_gate(tmp_path: Path) -> No
     assert any(job["workflow_job_id"] == "findings_ledger" for job in submitted["downstream_jobs"])
 
 
+def test_submit_review_prevalidates_before_publishing_artifact(tmp_path: Path) -> None:
+    run_id = prepare_started_run(tmp_path)
+    author = register(tmp_path, run_id, "author", "codex")
+    complete_claimed_job(
+        tmp_path,
+        author,
+        claim(tmp_path, author),
+        logical_name="draft",
+        kind="handoff",
+        path="docs/reviews/rfc-ledger/RFC_LEDGER_DRAFT.md",
+    )
+    reviewer = register(tmp_path, run_id, "reviewer", "codex")
+    packet = claim(tmp_path, reviewer)
+    job_id, _message_id, lease_id = packet_ids(packet)
+    write_artifact(tmp_path, "docs/reviews/rfc-ledger/codex/WRONG_REVIEW.md", text="wrong\n")
+    rejected = run_cli(
+        tmp_path,
+        "submit-review",
+        "--session-id",
+        reviewer,
+        "--job-id",
+        job_id,
+        "--lease-id",
+        lease_id,
+        "--path",
+        "docs/reviews/rfc-ledger/codex/WRONG_REVIEW.md",
+        "--logical-name",
+        "wrong",
+        "--kind",
+        "other",
+        "--verdict",
+        "needs_revision",
+        check=False,
+    )
+    assert rejected["returncode"] == 4
+    assert artifact_count(tmp_path, job_id) == 0
+
+    write_artifact(tmp_path, "docs/reviews/rfc-ledger/codex/RFC_LEDGER_REVIEW.md", text="correct\n")
+    submitted = data(
+        run_cli(
+            tmp_path,
+            "submit-review",
+            "--session-id",
+            reviewer,
+            "--job-id",
+            job_id,
+            "--lease-id",
+            lease_id,
+            "--path",
+            "docs/reviews/rfc-ledger/codex/RFC_LEDGER_REVIEW.md",
+            "--verdict",
+            "needs_revision",
+        )
+    )
+    assert submitted["artifact"]["status"] == "published"
+    assert artifact_count(tmp_path, job_id) == 1
+
+
+def test_submit_review_rejects_non_review_before_publishing_artifact(tmp_path: Path) -> None:
+    run_id = prepare_started_run(tmp_path)
+    author = register(tmp_path, run_id, "author", "codex")
+    packet = claim(tmp_path, author)
+    job_id, _message_id, lease_id = packet_ids(packet)
+    write_artifact(tmp_path, "docs/reviews/rfc-ledger/RFC_LEDGER_DRAFT.md", text="draft\n")
+    rejected = run_cli(
+        tmp_path,
+        "submit-review",
+        "--session-id",
+        author,
+        "--job-id",
+        job_id,
+        "--lease-id",
+        lease_id,
+        "--path",
+        "docs/reviews/rfc-ledger/RFC_LEDGER_DRAFT.md",
+        "--logical-name",
+        "draft",
+        "--kind",
+        "handoff",
+        "--verdict",
+        "accept",
+        check=False,
+    )
+    assert rejected["returncode"] == 4
+    assert artifact_count(tmp_path, job_id) == 0
+
+
 def test_workflow_lane_constraints_validate_and_appear_in_packets(tmp_path: Path) -> None:
     workflow = example_workflow()
     lanes = workflow["lanes"]
@@ -989,3 +1086,25 @@ def test_rfc_0014_fixture_declares_root_review_revision_policy(tmp_path: Path) -
     workflow = json.loads(fixture.read_text(encoding="utf-8"))
     policy = workflow["review_revision_policy"]
     assert policy["root_review_needs_revision"] == "human_checkpoint"
+
+
+def test_declared_cycle_policy_requires_root_review_cycles(tmp_path: Path) -> None:
+    fixture = ROOT / "examples" / "rfc-0014-operational-artifact-home" / "workflow.json"
+    workflow = json.loads(fixture.read_text(encoding="utf-8"))
+    workflow["review_revision_policy"] = {"root_review_needs_revision": "declared_cycle"}
+    init_repo(tmp_path)
+    rejected = run_cli(tmp_path, "workflow", "validate", str(temporary_workflow(tmp_path, workflow)), check=False)
+    assert rejected["returncode"] == 8
+    error = rejected["error"]
+    assert isinstance(error, dict)
+    assert "declared_cycle" in str(error["message"])
+
+    workflow["cycles"].extend(
+        [
+            {"from": "review_claude", "to": "findings_ledger", "on_verdict": "needs_revision", "max_iterations": 1},
+            {"from": "review_codex", "to": "findings_ledger", "on_verdict": "needs_revision", "max_iterations": 1},
+            {"from": "review_gemini", "to": "findings_ledger", "on_verdict": "needs_revision", "max_iterations": 1},
+        ]
+    )
+    valid = data(run_cli(tmp_path, "workflow", "validate", str(temporary_workflow(tmp_path, workflow))))
+    assert valid["workflow_id"] == "rfc-0014-operational-artifact-home"

@@ -705,6 +705,15 @@ def submit_review(
 ) -> JsonObject:
     """Publish a review artifact and record its verdict in one command."""
     job = row_by_id(conn, "jobs", "job_id", job_id)
+    prevalidate_submit_review(
+        conn,
+        job=job,
+        session_id=session_id,
+        lease_id=lease_id,
+        logical_name=logical_name,
+        kind=kind,
+        path_text=path_text,
+    )
     if job["state"] == "claimed" and job["current_message_id"] is not None:
         ack_work(
             conn,
@@ -741,6 +750,50 @@ def submit_review(
         "blocker_id": verdict_result.get("blocker_id"),
         "downstream_jobs": downstream_jobs(conn, job_id=job_id),
     }
+
+
+def prevalidate_submit_review(
+    conn: sqlite3.Connection,
+    *,
+    job: sqlite3.Row,
+    session_id: str,
+    lease_id: str,
+    logical_name: str,
+    kind: str,
+    path_text: str,
+) -> None:
+    """Reject submit-review calls that would fail after artifact publication."""
+    if job["job_type"] != "review":
+        raise InvalidTransitionError("submit-review is valid only for review jobs")
+    if job["state"] not in {"claimed", "running"}:
+        raise InvalidTransitionError("review job must be claimed or running before submit-review")
+    if job["state"] == "claimed" and job["current_message_id"] is None:
+        raise InvalidTransitionError("claimed review job is missing its current message")
+    active_lease_for(conn, lease_id=lease_id, session_id=session_id, job_id=str(job["job_id"]))
+    expected = json.loads(str(job["expected_artifacts_json"]))
+    if not isinstance(expected, list):
+        raise InvalidTransitionError("expected artifacts must be a list")
+    for item in expected:
+        if not isinstance(item, dict) or item.get("required") is not True:
+            continue
+        expected_logical_name = item.get("logical_name")
+        expected_kind = item.get("kind")
+        expected_path = item.get("path")
+        if (expected_logical_name, expected_kind, expected_path) == (logical_name, kind, path_text):
+            continue
+        found = conn.execute(
+            """
+            SELECT 1 FROM artifacts
+            WHERE job_id = ? AND logical_name = ? AND artifact_kind = ? AND repo_path = ?
+            LIMIT 1
+            """,
+            (job["job_id"], expected_logical_name, expected_kind, expected_path),
+        ).fetchone()
+        if found is None:
+            raise InvalidTransitionError(
+                "required artifact would still be missing after submit-review: "
+                f"logical_name={expected_logical_name!r}, kind={expected_kind!r}, path={expected_path!r}"
+            )
 
 
 def status(conn: sqlite3.Connection, *, run_id: str | None) -> JsonObject:

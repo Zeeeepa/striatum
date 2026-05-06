@@ -78,7 +78,9 @@ adapter's recorded enforcement level.
 Workflows may declare `review_revision_policy` for root review
 `needs_revision` verdicts. V1 supports the explicit
 `root_review_needs_revision: "human_checkpoint"` policy for RFC-style workflows
-that intentionally pause for human judgment instead of entering a revision loop.
+that intentionally pause for human judgment instead of entering a revision
+loop. `root_review_needs_revision: "declared_cycle"` is accepted only when each
+root review job declares a matching `needs_revision` cycle.
 
 ## Sessions
 
