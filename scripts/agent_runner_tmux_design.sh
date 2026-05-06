@@ -181,6 +181,7 @@ Scope override:
 - Do not synthesize the three-lane design.
 - Do not review the synthesized design.
 - Do not implement source code.
+- Do not create or switch branches. The one-shot coordinator owns branch setup.
 - Do not update docs/SPEC.md, docs/DECISION_LOG.md, or docs/UBIQUITOUS_LANGUAGE.md.
 - Do not edit files outside the single required output artifact.
 

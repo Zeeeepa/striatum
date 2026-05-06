@@ -18,7 +18,7 @@ You must follow the Engram-style process:
 3. record findings,
 4. synthesize accepted design deltas,
 5. build the MVP,
-6. review the build,
+6. get the build reviewed by independent reviewers,
 7. record final decisions and known gaps.
 
 Do not jump directly to code. The design and review artifacts are part of the
@@ -67,7 +67,9 @@ Preserve these accepted decisions:
   parallelization is deferred.
 - Build artifacts are durable and idempotent.
 - Coordinator starts/selects a branch only after confirmation and requests
-  commits from the human by default.
+  commits from the human by default. This one-shot prompt is the explicit
+  exception for branch setup: create or switch to branch `agent-runner` without
+  asking again, then keep commit authority with the human.
 - Python is the V1 implementation language.
 - Roles are reusable artifacts; context docs are generic; task prompts may
   reference roles.
@@ -84,22 +86,49 @@ Preserve these accepted decisions:
 - `agent_runner` is temporarily incubated inside Engram through MVP
   design/build, then split into a standalone project after validation.
 
-## Branch Checkpoint
+## One-Shot Branch Setup
 
-Before editing source or build files:
+Before editing source or build files, set up the one-shot branch from the
+Engram repository root:
 
 1. Run `git status --short` if this directory is a git repo.
-2. If not already on an appropriate feature branch, propose a branch name.
-3. Ask for human confirmation before creating or switching branches unless the
-   invocation context explicitly says branch setup is already confirmed.
+2. If the worktree has uncommitted changes you did not make, stop and report
+   the dirty files instead of switching branches.
+3. If already on `agent-runner`, continue.
+4. If branch `agent-runner` exists, run `git switch agent-runner`.
+5. Otherwise run `git switch -c agent-runner`.
 
-Documentation-only design artifacts may be drafted before branch confirmation.
+Branch setup is already confirmed by this one-shot prompt. Design-lane panes
+created by the bootstrap harness must not create or switch branches themselves;
+the one-shot coordinator owns that step.
 
 ## Bootstrap Orchestration
 
-It is acceptable to reuse or adapt the Engram tmux runner as a temporary
-bootstrap harness for this one-shot, especially to coordinate the required
-Claude, Codex, and Gemini design inputs.
+Use the `agent_runner` bootstrap harness for the required design-input fan-out:
+
+```bash
+agent-runner/scripts/agent_runner_tmux_design.sh start
+```
+
+Use `start-pipe` instead when the local model CLIs are ready to accept prompts
+on stdin:
+
+```bash
+agent-runner/scripts/agent_runner_tmux_design.sh start-pipe
+```
+
+This harness creates Claude, Codex, and Gemini design-input panes plus a
+synthesis handoff pane. The watched completion artifacts are:
+
+```text
+agent-runner/docs/design/V1_MVP_DESIGN_INPUT_claude.md
+agent-runner/docs/design/V1_MVP_DESIGN_INPUT_codex.md
+agent-runner/docs/design/V1_MVP_DESIGN_INPUT_gemini.md
+```
+
+If you are already running inside one of those pane assignments, obey the pane
+assignment and write only the lane-specific artifact. If you are the one-shot
+coordinator, do not proceed to synthesis until all three artifacts exist.
 
 Do not treat that bootstrap harness as product architecture. The `agent_runner`
 product must still design and implement its own generic tmux/PTY adapter through
@@ -178,7 +207,8 @@ The design must resolve at least:
   semantics;
 - event log semantics;
 - artifact publisher behavior;
-- branch confirmation behavior;
+- one-shot branch setup behavior and the general confirmation-gated branch
+  behavior after MVP;
 - RFC-ledger validation workflow fixture;
 - test strategy.
 
@@ -274,16 +304,23 @@ The fixture should demonstrate:
 - bounded revision/re-review path;
 - durable decision/finding artifacts.
 
-## Review The Build
+## Get The Build Reviewed
 
-After implementation, create:
+After implementation, do not review your own build. Get fresh independent build
+reviews from the three model lanes, or stop and record a blocker if any lane is
+unavailable. Reviewers may run in parallel if each writes only its own review
+artifact.
+
+Create:
 
 ```text
-docs/reviews/v1/V1_MVP_BUILD_REVIEW.md
+docs/reviews/v1/V1_MVP_BUILD_REVIEW_claude.md
+docs/reviews/v1/V1_MVP_BUILD_REVIEW_codex.md
+docs/reviews/v1/V1_MVP_BUILD_REVIEW_gemini.md
 docs/reviews/v1/V1_MVP_BUILD_SYNTHESIS.md
 ```
 
-The build review must check:
+Each build reviewer must check:
 
 - accepted decisions are honored;
 - SQLite schema supports required queue/event semantics;
@@ -295,7 +332,11 @@ The build review must check:
 - tests cover core behavior;
 - generated artifacts are idempotent where practical.
 
-If findings are accepted, fix them before final response.
+After all build reviews exist, synthesize their findings in
+`docs/reviews/v1/V1_MVP_BUILD_SYNTHESIS.md`. If findings are accepted, fix them
+and request any needed re-review before final response. The builder/coordinator
+may synthesize findings and make fixes; it must not be the sole reviewer of its
+own build.
 
 ## Verification
 
@@ -325,7 +366,7 @@ When complete, report:
 - code modules created;
 - tests run and result;
 - known gaps intentionally deferred;
-- whether the branch is ready for human commit.
+- whether branch `agent-runner` is ready for human commit.
 
 Do not claim the MVP is complete if review findings remain unresolved or tests
 were not run.
