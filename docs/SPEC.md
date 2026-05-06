@@ -117,6 +117,10 @@ inspection before requeue.
 Published artifacts are curated outputs: prompts, findings, ledgers,
 syntheses, decisions, handoffs, markers, and test reports.
 
+Durable Markdown artifacts should include the work packet's privacy-safe
+`author: <role-name>-<model-name>-<ordinal>` line in their title block when
+one is provided.
+
 `publish-artifact` validates file existence, repo-relative path, write scope,
 artifact kind, and content hash. Transcript artifacts are rejected by default.
 
@@ -136,10 +140,14 @@ Workflow job titles are omitted by default; job and artifact authorship is
 reported through stable identity metadata: role id, lane id, declared model
 display name, and workflow job id.
 
-Work packets expose an exact `Author:` line built from the same identity tuple
-for agents to place in durable Markdown artifacts. The artifact publisher
-records and validates artifact references; it does not rewrite artifact files
-to insert headers.
+Work packets expose an exact lowercase `author:` line for agents to place in
+durable Markdown artifacts. This byline is distinct from evidence-export
+identity metadata: exports keep stable role id, lane id, declared model display
+name, and workflow job id; artifact files use the compact
+`author: <role-name>-<model-name>-<ordinal>` convention so workflow job titles
+or other project-specific prose do not leak into the artifact byline. The
+artifact publisher records and validates artifact references; it does not
+rewrite artifact files to insert headers.
 
 ## Branches And Commits
 

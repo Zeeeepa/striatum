@@ -560,7 +560,11 @@ def build_packet(
         role_id=str(job["role_id"]),
         lane_id=lane_id,
         workflow_job_id=str(job["workflow_job_id"]),
+        ordinal=int(session["ordinal"]),
     )
+    author_line = author["line"]
+    if author_line is None:
+        raise InvalidTransitionError("session author line could not be derived")
     return {
         "packet_version": "agent-runner.work-packet.v1",
         "packet_id": packet_id,
@@ -603,7 +607,7 @@ def build_packet(
         "inputs": json_loads(str(job["capability_requirements_json"])).get("inputs", []),
         "write_scope": write_scope,
         "adapter_constraints": adapter_constraints,
-        "expected_artifacts": expected_artifacts_with_author(expected_artifacts, author_line=author["line"]),
+        "expected_artifacts": expected_artifacts_with_author(expected_artifacts, author_line=author_line),
         "commands": {
             "ack": f"agent_runner ack --session-id {session['session_id']} --message-id {message_id} --lease-id {lease_id}",
             "heartbeat": f"agent_runner heartbeat --session-id {session['session_id']} --lease-id {lease_id}",

@@ -1,8 +1,8 @@
 # Final Review RFC 0014 Synthesis
 
 Review the synthesis and findings ledger.
-Near the top of the artifact, include the exact `Author:` line from the work
-packet expected artifact metadata.
+Near the top of the artifact, include the exact lowercase `author:` byline from
+the work packet expected artifact metadata.
 
 Check:
 

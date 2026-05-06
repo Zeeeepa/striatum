@@ -60,7 +60,7 @@ Preserve these accepted decisions:
 - Agents identify themselves through registered sessions before claiming work.
 - Persistent sessions are preferred until role expiration; fresh context means
   new role instantiation.
-- Agent slugs are human-readable `<role>-<model>-<ordinal>`; database identity
+- Agent slugs are human-readable `<role>-<lane>-<ordinal>`; database identity
   uses opaque stable session ids.
 - Workflow graph is mostly DAG-shaped with bounded retry/revision cycles.
 - V1 parallelism is declared and write-scope safe; AI-inferred build

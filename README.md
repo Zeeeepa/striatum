@@ -309,6 +309,11 @@ If work is available, the response contains a `packet` with `job_id`,
 `message_id`, `lease_id`, expected artifacts, write scope, task prompt, and the
 commands the agent should use.
 
+Expected artifact metadata includes a privacy-safe lowercase byline such as
+`author: author-codex-gpt-5.5-001`. Put that exact line near the top of
+workflow-authored Markdown artifacts; do not derive bylines from workflow job
+titles.
+
 After reading the packet and accepting the job:
 
 ```bash

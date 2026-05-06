@@ -39,8 +39,8 @@ Current accepted foundation:
   workflow state.
 - D011: Prefer persistent agent sessions until the assigned role expires, while
   allowing fresh sessions where context reset matters.
-- D012: Use opaque `session_id` plus human-readable `<role>-<model>-<ordinal>`
-  slugs.
+- D012: Use opaque `session_id` plus human-readable `<role>-<lane>-<ordinal>`
+  runtime slugs.
 - D013: Use CLI as the primary agent control surface.
 - D014: Use mostly DAG-shaped workflows with bounded retry/revision cycles.
 - D015: V1 parallelism is workflow-declared and write-scope safe; AI-inferred

@@ -233,7 +233,8 @@ def test_branch_confirmation_blocks_claims(tmp_path: Path) -> None:
     assert job["workflow_job_id"] == "draft"
     author = job["author"]
     assert isinstance(author, dict)
-    assert author["line"] == "Author: author / codex / Codex GPT-5.5 / draft"
+    assert author["line"] == "author: author-codex-gpt-5.5-001"
+    assert "draft" not in str(author["line"])
     expected_artifacts = packet["expected_artifacts"]
     assert isinstance(expected_artifacts, list)
     first_artifact = expected_artifacts[0]
@@ -891,7 +892,8 @@ def test_evidence_export_writes_redacted_markdown_and_rejects_bad_paths(tmp_path
     assert "/tmp/private-notes" not in evidence
     assert private_job_title not in evidence
     assert '"title"' not in evidence
-    assert "Author: reviewer / codex / Codex GPT-5.5 / review_codex" in evidence
+    assert "author: reviewer-codex-gpt-5.5-001" in evidence
+    assert "Author:" not in evidence
     assert "<redacted-free-text>" in evidence
     assert "state.sqlite3" not in evidence
     assert "transcript" not in evidence.lower()

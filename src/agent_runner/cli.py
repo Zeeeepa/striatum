@@ -1311,9 +1311,12 @@ def evidence_artifact_summaries(
         """
         SELECT a.artifact_id, a.job_id, a.session_id, a.logical_name,
                a.artifact_kind, a.repo_path, a.content_sha256,
-               j.workflow_job_id, j.role_id, j.lane_selector_json
+               j.workflow_job_id, j.role_id, j.lane_selector_json,
+               s.role_id AS session_role_id, s.lane_id AS session_lane_id,
+               s.ordinal AS session_ordinal
         FROM artifacts a
         LEFT JOIN jobs j ON j.job_id = a.job_id
+        LEFT JOIN sessions s ON s.session_id = a.session_id
         WHERE a.run_id = ?
         ORDER BY a.repo_path
         """,
@@ -1335,11 +1338,15 @@ def evidence_artifact_summaries(
             "content_sha256": row["content_sha256"],
         }
         if row["workflow_job_id"] is not None and row["role_id"] is not None:
+            author_role = row["session_role_id"] or row["role_id"]
+            author_lane = row["session_lane_id"] or lane_id
+            author_ordinal = int(row["session_ordinal"]) if row["session_ordinal"] is not None else None
             artifact["author"] = artifact_author_identity(
                 workflow,
-                role_id=str(row["role_id"]),
-                lane_id=lane_id,
+                role_id=str(author_role),
+                lane_id=str(author_lane) if author_lane is not None else None,
                 workflow_job_id=str(row["workflow_job_id"]),
+                ordinal=author_ordinal,
             )
         artifacts.append(artifact)
     return artifacts
