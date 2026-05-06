@@ -130,7 +130,8 @@ artifact, verdict, blocker, run, and downstream state.
 `evidence export` writes a redacted Markdown snapshot of run, job, blocker,
 verdict, artifact, status, doctor, and downstream-blocking state. Export paths
 must stay inside the repository and outside `.agent_runner/`; SQLite state is
-not committed.
+not committed. Free-text fields that may contain agent or user prose, including
+blocker descriptions and verdict rationales, are redacted in the export.
 
 ## Branches And Commits
 

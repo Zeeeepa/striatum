@@ -156,6 +156,7 @@ def verdict_claimed_review(
     logical_name: str = "review",
     kind: str = "finding",
     path: str,
+    rationale: str | None = None,
 ) -> dict[str, object]:
     job_id, message_id, lease_id = packet_ids(packet)
     run_cli(repo, "ack", "--session-id", session_id, "--message-id", message_id, "--lease-id", lease_id)
@@ -192,6 +193,7 @@ def verdict_claimed_review(
             verdict,
             "--findings-artifact-id",
             str(artifact["artifact_id"]),
+            *(["--rationale", rationale] if rationale is not None else []),
         )
     )
 
@@ -852,6 +854,7 @@ def test_evidence_export_writes_redacted_markdown_and_rejects_bad_paths(tmp_path
         claim(tmp_path, reviewer),
         verdict="needs_revision",
         path="docs/reviews/rfc-ledger/codex/RFC_LEDGER_REVIEW.md",
+        rationale="private corpus excerpt from /tmp/private-notes",
     )
     exported = data(
         run_cli(
@@ -868,6 +871,9 @@ def test_evidence_export_writes_redacted_markdown_and_rejects_bad_paths(tmp_path
     evidence = (tmp_path / "docs/reviews/rfc-ledger/RUN_EVIDENCE.md").read_text(encoding="utf-8")
     assert "Agent Runner Evidence Export" in evidence
     assert "needs_revision" in evidence
+    assert "private corpus excerpt" not in evidence
+    assert "/tmp/private-notes" not in evidence
+    assert "<redacted-free-text>" in evidence
     assert "state.sqlite3" not in evidence
     assert "transcript" not in evidence.lower()
     bad_state = run_cli(

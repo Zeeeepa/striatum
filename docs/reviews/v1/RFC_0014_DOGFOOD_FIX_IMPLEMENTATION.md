@@ -34,6 +34,8 @@ Date: 2026-05-06
   required artifact satisfaction before publishing an artifact row.
 - F002: `declared_cycle` revision policy validation now rejects workflows unless
   each root review job has a matching `needs_revision` cycle.
+- F003: `evidence export` now redacts free-text blocker descriptions and verdict
+  rationales from the commit-ready Markdown snapshot.
 
 ## Verification
 

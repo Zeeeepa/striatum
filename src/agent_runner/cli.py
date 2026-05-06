@@ -39,6 +39,10 @@ from agent_runner.errors import InvalidTransitionError, LeaseError, NotFoundErro
 from agent_runner.workflow import create_run, load_workflow
 
 
+EVIDENCE_FREE_TEXT_KEYS = {"description", "rationale"}
+EVIDENCE_FREE_TEXT_PLACEHOLDER = "<redacted-free-text>"
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """Run the CLI."""
     parser = build_parser()
@@ -922,9 +926,9 @@ def evidence_export(conn: sqlite3.Connection, *, repo: Path, run_id: str, path_t
     run = row_by_id(conn, "runs", "run_id", run_id)
     target = repo_relative_path(repo, path_text)
     target.parent.mkdir(parents=True, exist_ok=True)
-    status_payload = status(conn, run_id=run_id)
-    doctor_payload = doctor(conn, run_id=run_id)
-    snapshot = evidence_snapshot(conn, run_id=run_id)
+    status_payload = redact_evidence_payload(status(conn, run_id=run_id))
+    doctor_payload = redact_evidence_payload(doctor(conn, run_id=run_id))
+    snapshot = redact_evidence_payload(evidence_snapshot(conn, run_id=run_id))
     body = render_evidence_markdown(
         run=dict(run),
         status_payload=status_payload,
@@ -940,6 +944,28 @@ def evidence_export(conn: sqlite3.Connection, *, repo: Path, run_id: str, path_t
         payload={"path": path_text, "sha256": digest},
     )
     return {"status": "exported", "run_id": run_id, "path": path_text, "sha256": digest}
+
+
+def redact_evidence_payload(payload: JsonObject) -> JsonObject:
+    """Return a copy of evidence payload with free-text fields redacted."""
+    redacted: JsonObject = {}
+    for key, value in payload.items():
+        redacted[str(key)] = redact_evidence_value(str(key), value)
+    return redacted
+
+
+def redact_evidence_value(key: str, value: object) -> object:
+    """Redact nested evidence values that may contain agent or user prose."""
+    if key in EVIDENCE_FREE_TEXT_KEYS and value is not None:
+        return EVIDENCE_FREE_TEXT_PLACEHOLDER
+    if isinstance(value, dict):
+        redacted: JsonObject = {}
+        for child_key, child_value in value.items():
+            redacted[str(child_key)] = redact_evidence_value(str(child_key), child_value)
+        return redacted
+    if isinstance(value, list):
+        return [redact_evidence_value("", item) for item in value]
+    return value
 
 
 def blocker_summaries(conn: sqlite3.Connection, *, run_id: str | None, severity: str | None) -> list[JsonObject]:
