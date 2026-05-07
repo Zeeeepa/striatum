@@ -45,6 +45,8 @@ CONSTRAINT_VALUES = {
     "repo_scope": {"local_only", "unrestricted"},
 }
 
+WORKTREE_ISOLATION_VALUES = {"off", "per_job"}
+
 
 def load_workflow(path: Path) -> JsonObject:
     """Load and validate a workflow JSON file."""
@@ -549,6 +551,13 @@ def _validate_lane_constraints(lanes: JsonObject) -> None:
                 or not all(isinstance(key, str) and isinstance(value, str) for key, value in env.items())
             ):
                 raise WorkflowError(f"process lane {lane_id!r} env must be an object of strings")
+        worktree_value = lane_value.get("worktree_isolation")
+        if worktree_value is not None:
+            if not isinstance(worktree_value, str) or worktree_value not in WORKTREE_ISOLATION_VALUES:
+                raise WorkflowError(
+                    f"lane {lane_id!r} worktree_isolation must be one of "
+                    f"{sorted(WORKTREE_ISOLATION_VALUES)!r}"
+                )
         constraints_value = lane_value.get("constraints")
         if constraints_value is None:
             constraints: dict[str, object] = {}

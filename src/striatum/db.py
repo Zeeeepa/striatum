@@ -27,6 +27,7 @@ JsonObject = dict[str, Any]
 
 STATE_DIR = ".striatum"
 DB_NAME = "state.sqlite3"
+WORKTREES_SUBDIR = "worktrees"
 ADAPTER_ENFORCEMENT_LEVELS = {"unsupported": 0, "advisory": 1, "enforced": 2}
 
 
@@ -221,6 +222,59 @@ def is_repo_write(job: sqlite3.Row) -> bool:
     return scope.get("repo_write") is True or scope.get("mode") == "repo_write"
 
 
+def lane_worktree_isolation(workflow: JsonObject, lane_id: str | None) -> str:
+    """Return the lane's declared worktree isolation mode.
+
+    Defaults to ``"off"`` when the lane is missing, the field is absent, or
+    the field is not a recognized string. RFC 0008 V1 only supports
+    ``"off"`` and ``"per_job"``.
+    """
+    if lane_id is None:
+        return "off"
+    lanes = workflow.get("lanes", {})
+    if not isinstance(lanes, dict):
+        return "off"
+    lane = lanes.get(lane_id)
+    if not isinstance(lane, dict):
+        return "off"
+    mode = lane.get("worktree_isolation")
+    if isinstance(mode, str) and mode in {"off", "per_job"}:
+        return mode
+    return "off"
+
+
+def job_lane_id(job: sqlite3.Row) -> str | None:
+    """Return the lane id recorded on a job row."""
+    selector = json_loads(str(job["lane_selector_json"]))
+    lane = selector.get("lane_id")
+    return lane if isinstance(lane, str) else None
+
+
+def workflow_for_run(conn: sqlite3.Connection, *, run_id: str) -> JsonObject:
+    """Return the workflow snapshot JSON associated with a run."""
+    run = row_by_id(conn, "runs", "run_id", run_id)
+    snapshot = row_by_id(
+        conn,
+        "workflow_snapshots",
+        "workflow_snapshot_id",
+        str(run["workflow_snapshot_id"]),
+    )
+    return json_loads(str(snapshot["workflow_json"]))
+
+
+def active_worktree_for_job(
+    conn: sqlite3.Connection, *, job_id: str
+) -> sqlite3.Row | None:
+    """Return the active worktree row for a job, if any."""
+    row = conn.execute(
+        "SELECT * FROM job_worktrees WHERE job_id = ? AND state = 'active' LIMIT 1",
+        (job_id,),
+    ).fetchone()
+    if row is None:
+        return None
+    return cast(sqlite3.Row, row)
+
+
 def active_lease_for(
     conn: sqlite3.Connection,
     *,
@@ -291,6 +345,28 @@ def expire_leases(conn: sqlite3.Connection, *, run_id: str) -> None:
             lease_id=str(lease["lease_id"]),
             payload={"job_state": job_state, "message_state": message_state},
         )
+        worktree = active_worktree_for_job(conn, job_id=str(job["job_id"]))
+        if worktree is not None and str(worktree["lease_id"]) == str(lease["lease_id"]):
+            conn.execute(
+                """
+                UPDATE job_worktrees
+                SET state = 'abandoned'
+                WHERE worktree_id = ?
+                """,
+                (str(worktree["worktree_id"]),),
+            )
+            insert_event(
+                conn,
+                run_id=run_id,
+                event_type="worktree.abandoned",
+                job_id=str(job["job_id"]),
+                lease_id=str(lease["lease_id"]),
+                payload={
+                    "worktree_id": str(worktree["worktree_id"]),
+                    "worktree_path": str(worktree["worktree_path"]),
+                    "reason": "lease_expired",
+                },
+            )
 
 
 def enqueue_job(conn: sqlite3.Connection, *, job_id: str) -> str:
@@ -572,6 +648,8 @@ def build_packet(
     lanes = cast(JsonObject, workflow.get("lanes", {}))
     lane_config = lanes.get(lane_id, {}) if lane_id is not None else {}
     adapter_constraints = build_adapter_constraints(lane_config if isinstance(lane_config, dict) else {})
+    worktree_isolation = lane_worktree_isolation(workflow, lane_id)
+    worktree_required = worktree_isolation == "per_job" and is_repo_write(job)
     author = artifact_author_identity(
         workflow,
         role_id=str(job["role_id"]),
@@ -625,16 +703,42 @@ def build_packet(
         "write_scope": write_scope,
         "adapter_constraints": adapter_constraints,
         "expected_artifacts": expected_artifacts_with_author(expected_artifacts, author_line=author_line),
-        "commands": {
-            "ack": f"striatum ack --session-id {session['session_id']} --message-id {message_id} --lease-id {lease_id}",
-            "heartbeat": f"striatum heartbeat --session-id {session['session_id']} --lease-id {lease_id}",
-            "publish_artifact": f"striatum publish-artifact --session-id {session['session_id']} --job-id {job['job_id']} --lease-id {lease_id}",
-            "block": f"striatum block --session-id {session['session_id']} --job-id {job['job_id']} --lease-id {lease_id}",
-            "verdict": f"striatum verdict --session-id {session['session_id']} --job-id {job['job_id']} --lease-id {lease_id}",
-            "complete": f"striatum complete --session-id {session['session_id']} --job-id {job['job_id']} --lease-id {lease_id}",
-        },
+        "worktree_isolation": worktree_isolation,
+        "worktree_required": worktree_required,
+        "commands": _build_packet_commands(
+            session_id=str(session["session_id"]),
+            job_id=str(job["job_id"]),
+            message_id=message_id,
+            lease_id=lease_id,
+            worktree_required=worktree_required,
+        ),
         "artifact_policy": {"publish_transcripts": False, "curated_artifacts_only": True},
     }
+
+
+def _build_packet_commands(
+    *,
+    session_id: str,
+    job_id: str,
+    message_id: str,
+    lease_id: str,
+    worktree_required: bool,
+) -> JsonObject:
+    """Return the command map embedded in a work packet."""
+    commands: JsonObject = {
+        "ack": f"striatum ack --session-id {session_id} --message-id {message_id} --lease-id {lease_id}",
+        "heartbeat": f"striatum heartbeat --session-id {session_id} --lease-id {lease_id}",
+        "publish_artifact": f"striatum publish-artifact --session-id {session_id} --job-id {job_id} --lease-id {lease_id}",
+        "block": f"striatum block --session-id {session_id} --job-id {job_id} --lease-id {lease_id}",
+        "verdict": f"striatum verdict --session-id {session_id} --job-id {job_id} --lease-id {lease_id}",
+        "complete": f"striatum complete --session-id {session_id} --job-id {job_id} --lease-id {lease_id}",
+    }
+    if worktree_required:
+        commands["worktree_create"] = (
+            f"striatum worktree create --session-id {session_id} "
+            f"--job-id {job_id} --lease-id {lease_id}"
+        )
+    return commands
 
 
 def expected_artifacts_with_author(expected_artifacts: object, *, author_line: str) -> list[object]:

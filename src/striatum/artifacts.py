@@ -7,6 +7,7 @@ from pathlib import Path
 
 from striatum.db import (
     active_lease_for,
+    active_worktree_for_job,
     insert_event,
     json_loads,
     new_id,
@@ -46,7 +47,23 @@ def publish_artifact(
         write_scope = json_loads(str(job["write_scope_json"]))
         if not path_allowed(repo, path_text, write_scope):
             raise ArtifactError("artifact path is outside the job write scope")
-        path = repo_relative_path(repo, path_text)
+        # Always validate against the logical repo-relative path. The artifact
+        # row records the logical path even when the file currently lives in a
+        # per-job git worktree, since artifacts are durable provenance for the
+        # main branch.
+        repo_relative_path(repo, path_text)
+        worktree = active_worktree_for_job(conn, job_id=job_id)
+        if worktree is not None:
+            path = (Path(str(worktree["worktree_path"])) / path_text).resolve()
+            worktree_root = Path(str(worktree["worktree_path"])).resolve()
+            try:
+                path.relative_to(worktree_root)
+            except ValueError as exc:
+                raise ArtifactError(
+                    "artifact path must stay inside the active worktree"
+                ) from exc
+        else:
+            path = repo_relative_path(repo, path_text)
         if not path.exists() or not path.is_file():
             raise ArtifactError("artifact file does not exist")
         payload = path.read_bytes()

@@ -79,8 +79,15 @@ Completed on 2026-05-07:
     defines the MCP boundary, and a minimal local stdio JSON-RPC wrapper maps
     tools/resources to that API. Remaining work is any richer MCP schema polish
     that emerges from real local agent use.
-11. Support worktree isolation for parallel repo-write jobs so safe build
-    parallelism can grow beyond "disjoint write scopes on one branch".
+11. Per-job git worktree isolation for parallel repo-write jobs landed on
+    2026-05-07 (RFC 0008). Lanes opt in with `worktree_isolation: per_job`;
+    work packets for repo-write jobs in those lanes advertise
+    `worktree_required: true` and the `striatum worktree create` invocation,
+    `publish-artifact` reads from the per-job worktree but records the logical
+    repo-relative path, lease expiry marks the worktree `abandoned` for
+    operator inspection, and `striatum doctor` flags orphaned and
+    missing-on-disk worktrees. Migration version 2 adds the `job_worktrees`
+    table.
 12. Build a richer fixture suite beyond Engram. A small generic docs-only
     review flow was added on 2026-05-07; remaining fixtures include a small
     code-change flow, failed-review revision cycle, human-checkpoint flow, and

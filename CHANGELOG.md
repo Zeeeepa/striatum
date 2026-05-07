@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- Added opt-in per-job git worktree isolation for parallel repo-write jobs
+  (RFC 0008). Lanes declare `worktree_isolation: per_job` and the runner
+  advertises `worktree_required: true` plus the `striatum worktree create`
+  command on matching work packets without auto-creating anything. New
+  CLI subcommands `worktree create | release | list` manage the worktrees,
+  `publish-artifact` reads files from the active per-job worktree but records
+  logical repo-relative paths so artifacts stay valid main-branch provenance,
+  lease expiry marks worktrees `abandoned` for operator inspection, and
+  `doctor` flags orphaned and missing-on-disk worktree rows. Migration
+  version 2 adds the new `job_worktrees` table.
 - Added a forward-only SQLite migration system. Schema version is tracked
   through `PRAGMA user_version`, the current schema is registered as
   `user_version = 1`, `striatum init` and every connect apply pending

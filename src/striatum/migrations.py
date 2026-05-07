@@ -38,9 +38,44 @@ def _apply_v1(conn: sqlite3.Connection) -> None:
     conn.executescript(SCHEMA_SQL)
 
 
+def _apply_v2_job_worktrees(conn: sqlite3.Connection) -> None:
+    """Add the ``job_worktrees`` table for opt-in worktree isolation.
+
+    See RFC 0008 (worktree isolation for parallel jobs). Lanes can opt into
+    ``worktree_isolation: per_job``; when they do, the runner records each
+    claimed repo-write job's worktree in this table and the agent calls
+    ``striatum worktree create`` to populate it. The unique partial index on
+    ``(job_id)`` while ``state = 'active'`` enforces "at most one active
+    worktree per job" without blocking historical released/removed/abandoned
+    rows.
+    """
+    conn.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS job_worktrees (
+          worktree_id TEXT PRIMARY KEY,
+          run_id TEXT NOT NULL REFERENCES runs(run_id),
+          job_id TEXT NOT NULL REFERENCES jobs(job_id),
+          lease_id TEXT NOT NULL REFERENCES leases(lease_id),
+          base_branch TEXT NOT NULL,
+          worktree_path TEXT NOT NULL,
+          state TEXT NOT NULL CHECK (state IN ('active','released','removed','abandoned')),
+          created_at TEXT NOT NULL,
+          released_at TEXT,
+          removed_at TEXT
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS uq_active_job_worktree
+          ON job_worktrees(job_id)
+          WHERE state = 'active';
+        CREATE INDEX IF NOT EXISTS idx_job_worktrees_run
+          ON job_worktrees(run_id, state);
+        """
+    )
+
+
 MIGRATIONS: list[Migration] = sorted(
     [
         Migration(version=1, label="v1 baseline schema", apply=_apply_v1),
+        Migration(version=2, label="job_worktrees table", apply=_apply_v2_job_worktrees),
     ],
     key=lambda migration: migration.version,
 )

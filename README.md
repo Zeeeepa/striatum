@@ -588,6 +588,14 @@ striatum recovery requeue-stale
 striatum adapter run
 ```
 
+Per-job worktree isolation (opt-in per lane via `worktree_isolation: per_job`):
+
+```text
+striatum worktree create
+striatum worktree release
+striatum worktree list
+```
+
 Stable exit codes:
 
 - `0`: success, including `claim-next` with `no_work`;

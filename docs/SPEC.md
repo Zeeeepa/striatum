@@ -39,6 +39,7 @@ The schema includes:
 - `blockers`
 - `command_requests`
 - `events`
+- `job_worktrees`
 
 `events` and artifact records are append-only. Mutations use short
 `BEGIN IMMEDIATE` transactions and emit structured events.
@@ -243,6 +244,9 @@ striatum doctor
 striatum recovery stale-leases
 striatum recovery requeue-stale
 striatum adapter run
+striatum worktree create
+striatum worktree release
+striatum worktree list
 ```
 
 Human read commands can pretty-print. `--json` returns stable machine-readable
@@ -319,6 +323,41 @@ packet on stdin, sets `STRIATUM_*` environment variables, creates a
 metadata plus lifecycle events in SQLite. Stdout and stderr are suppressed
 unless the operator explicitly requests inherited stdio; Striatum does not
 capture transcripts.
+
+### Worktree Isolation
+
+Lanes may opt into per-job filesystem isolation by setting
+`worktree_isolation: "per_job"`. The default is `"off"`, which keeps current
+single-worktree behavior. When a lane is configured for `per_job` isolation,
+work packets for repo-write jobs in that lane include
+`worktree_required: true` and a `commands.worktree_create` invocation. The
+runner does not auto-create worktrees on claim; the agent must call
+`striatum worktree create` itself.
+
+`striatum worktree create --session-id ... --job-id ... --lease-id ...`
+validates the active lease, requires the lane to declare `per_job` isolation,
+requires the job to be repo-write, and rejects requests when an active
+worktree already exists for the job. It runs
+`git worktree add --detach .striatum/worktrees/<worktree_id> <base_branch>`
+based on the run's confirmed branch and records a row in the new
+`job_worktrees` table with state `active`. `striatum worktree release
+--worktree-id <id>` runs `git worktree remove --force` and marks the row
+`removed`; releasing an already-terminal row is a no-op. `striatum worktree
+list [--run-id <id>]` returns the rows verbatim plus each job's
+`workflow_job_id`.
+
+`publish-artifact` continues to validate write scope and content against the
+logical repo-relative path, but when an active worktree exists for the job it
+reads the file from `<worktree_path>/<logical_path>` and records the
+artifact's `repo_path` as the logical path. Artifacts remain durable
+provenance for the main branch regardless of which worktree the work
+happened in.
+
+Lazy lease expiry preserves the worktree directory for operator inspection.
+The `job_worktrees` row is marked `abandoned` and an event is emitted, but
+`git worktree remove` is not run. `striatum doctor` flags active worktrees
+whose lease is no longer active and active worktrees whose path no longer
+exists on disk.
 
 ## First Validation Fixture
 
