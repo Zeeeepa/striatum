@@ -184,9 +184,26 @@ Workflow startup is confirmation-gated:
 No job is claimable before branch confirmation. V1 does not commit, push,
 merge, or rebase.
 
-`branch confirm --json` discloses that branch confirmation is records-only in
-V1, includes the requested branch and detected current git branch, and warns
-when they differ.
+`branch confirm --json` is records-only by default: it includes the requested
+branch and detected current git branch, warns when they differ, and reports
+`records_only: true`. Three opt-in flags promote the gate from advisory to
+git-enforcing:
+
+- `--create`: run `git checkout -b <branch>` (idempotent fallback to
+  `git checkout <branch>` if the branch already exists). If git refuses, the
+  runner exits with `WorkflowError` (code 8) and does NOT record the
+  confirmation. The response field `created` is `true` only when a new
+  branch was created.
+- `--use-current`: ignore `--branch` as a target and record the current git
+  branch instead. If `--branch` is also given and disagrees with the
+  current branch, exit with code 8.
+- `--strict`: require that the current git branch matches `--branch`
+  exactly before recording. If they differ, exit with code 8 and do not
+  record. This is the safe default for CI and other automation.
+
+The response also includes a `mode` field
+(`"records_only" | "create" | "use_current" | "strict"`). The default
+records-only mode preserves backwards compatibility for existing callers.
 
 ## CLI
 

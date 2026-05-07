@@ -313,6 +313,11 @@ def build_parser() -> argparse.ArgumentParser:
     confirm.add_argument("--branch", required=True)
     confirm.add_argument("--create", action="store_true")
     confirm.add_argument("--use-current", action="store_true")
+    confirm.add_argument(
+        "--strict",
+        action="store_true",
+        help="require the current git branch to match --branch before recording (safe default for CI)",
+    )
     confirm.add_argument("--json", action="store_true")
 
     register = sub.add_parser("register-session")
@@ -493,7 +498,15 @@ def dispatch(args: argparse.Namespace) -> object:
             with transaction(conn):
                 return create_run(conn, repo=repo, workflow_path=Path(args.workflow))
         if args.command == "branch" and args.branch_command == "confirm":
-            return branch_confirm(conn, repo=repo, run_id=args.run_id, branch=args.branch)
+            return branch_confirm(
+                conn,
+                repo=repo,
+                run_id=args.run_id,
+                branch=args.branch,
+                create=args.create,
+                use_current=args.use_current,
+                strict=args.strict,
+            )
         if args.command == "run" and args.run_command == "start":
             return run_start(conn, run_id=args.run_id)
         if args.command == "run" and args.run_command == "summary":
@@ -618,8 +631,66 @@ def dispatch(args: argparse.Namespace) -> object:
     raise StriatumError("unknown command", exit_code=2)
 
 
-def branch_confirm(conn: sqlite3.Connection, *, repo: Path, run_id: str, branch: str) -> JsonObject:
-    """Record branch confirmation."""
+def branch_confirm(
+    conn: sqlite3.Connection,
+    *,
+    repo: Path,
+    run_id: str,
+    branch: str,
+    create: bool = False,
+    use_current: bool = False,
+    strict: bool = False,
+) -> JsonObject:
+    """Record branch confirmation.
+
+    Default mode is records-only: write the row, run an advisory git check,
+    and emit a warning if the current branch disagrees. The opt-in modes
+    actually drive git or refuse to record:
+
+    - ``create``: run ``git checkout -b <branch>`` (idempotent fallback to
+      ``git checkout <branch>`` if the branch already exists). Surface git
+      errors and exit with ``WorkflowError`` (code 8).
+    - ``use_current``: ignore the requested branch as a target and record the
+      current git branch instead. Conflicts with a non-matching ``--branch``.
+    - ``strict``: refuse to record unless the current git branch already
+      matches ``--branch`` exactly.
+    """
+    if create and use_current:
+        raise WorkflowError("--create and --use-current are mutually exclusive")
+    if strict and (create or use_current):
+        raise WorkflowError("--strict is incompatible with --create and --use-current")
+
+    requested_branch = branch
+    created = False
+    mode = "records_only"
+
+    if use_current:
+        mode = "use_current"
+        current = current_git_branch(repo)
+        if current is None:
+            raise WorkflowError(
+                "--use-current requires a detectable current git branch in the target repo"
+            )
+        if branch != current:
+            raise WorkflowError(
+                f"--use-current was given but --branch={branch!r} does not match current git branch {current!r}"
+            )
+        target_branch = current
+    elif create:
+        mode = "create"
+        target_branch, created = git_create_or_checkout_branch(repo, branch)
+    elif strict:
+        mode = "strict"
+        current = current_git_branch(repo)
+        if current != branch:
+            raise WorkflowError(
+                f"--strict requires current git branch to match --branch={branch!r}; "
+                f"current branch is {current!r}"
+            )
+        target_branch = branch
+    else:
+        target_branch = branch
+
     with transaction(conn):
         run = row_by_id(conn, "runs", "run_id", run_id)
         if run["state"] not in ("needs_branch_confirmation", "ready"):
@@ -633,21 +704,63 @@ def branch_confirm(conn: sqlite3.Connection, *, repo: Path, run_id: str, branch:
                 state = 'ready'
             WHERE run_id = ?
             """,
-            (branch, now, run_id),
+            (target_branch, now, run_id),
         )
-        insert_event(conn, run_id=run_id, event_type="run.branch_confirmed", payload={"branch": branch})
+        insert_event(
+            conn,
+            run_id=run_id,
+            event_type="run.branch_confirmed",
+            payload={"branch": target_branch, "mode": mode, "created": created},
+        )
         warning = None
-        if current_branch is not None and current_branch != branch:
+        if current_branch is not None and current_branch != target_branch:
             warning = "current git branch differs from recorded branch confirmation"
         return {
             "run_id": run_id,
             "state": "ready",
-            "branch": branch,
-            "requested_branch": branch,
+            "branch": target_branch,
+            "requested_branch": requested_branch,
             "current_git_branch": current_branch,
             "records_only": True,
             "warning": warning,
+            "created": created,
+            "mode": mode,
         }
+
+
+def git_create_or_checkout_branch(repo: Path, branch: str) -> tuple[str, bool]:
+    """Create ``branch`` via ``git checkout -b`` or fall back to checkout.
+
+    Returns ``(branch, created)`` where ``created`` is True only when the
+    branch did not exist beforehand. Raises ``WorkflowError`` if both git
+    invocations fail; the latter stderr is included (truncated) so the user
+    can diagnose dirty working trees and similar problems.
+    """
+    create_result = subprocess.run(
+        ["git", "checkout", "-b", branch],
+        cwd=repo,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    if create_result.returncode == 0:
+        return branch, True
+    checkout_result = subprocess.run(
+        ["git", "checkout", branch],
+        cwd=repo,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    if checkout_result.returncode == 0:
+        return branch, False
+    stderr = (checkout_result.stderr or create_result.stderr or "").strip()
+    if len(stderr) > 200:
+        stderr = stderr[:200] + "..."
+    raise WorkflowError(
+        f"git checkout failed for branch {branch!r}: {stderr}" if stderr
+        else f"git checkout failed for branch {branch!r}"
+    )
 
 
 def current_git_branch(repo: Path) -> str | None:

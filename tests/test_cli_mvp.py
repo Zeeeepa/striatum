@@ -1872,6 +1872,209 @@ def test_branch_confirm_reports_records_only_and_mismatch(tmp_path: Path) -> Non
     assert confirmed["requested_branch"] == "expected"
     assert confirmed["current_git_branch"] == "actual"
     assert confirmed["warning"] is not None
+    assert confirmed["mode"] == "records_only"
+    assert confirmed["created"] is False
+
+
+def _git_init_repo(repo: Path, initial_branch: str = "main") -> None:
+    """Initialize a git repo with at least one commit so checkout is unambiguous."""
+    subprocess.run(["git", "init"], cwd=repo, check=True, capture_output=True)
+    subprocess.run(["git", "checkout", "-b", initial_branch], cwd=repo, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "config", "user.email", "test@example.com"], cwd=repo, check=True, capture_output=True
+    )
+    subprocess.run(
+        ["git", "config", "user.name", "Test"], cwd=repo, check=True, capture_output=True
+    )
+    seed = repo / ".gitseed"
+    seed.write_text("seed\n", encoding="utf-8")
+    subprocess.run(["git", "add", ".gitseed"], cwd=repo, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "commit", "-m", "seed", "--no-gpg-sign"],
+        cwd=repo,
+        check=True,
+        capture_output=True,
+    )
+
+
+def _current_branch(repo: Path) -> str:
+    result = subprocess.run(
+        ["git", "branch", "--show-current"],
+        cwd=repo,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return result.stdout.strip()
+
+
+def test_branch_confirm_create_runs_git_checkout_b(tmp_path: Path) -> None:
+    _git_init_repo(tmp_path, initial_branch="main")
+    init_repo(tmp_path)
+    prepared = data(run_cli(tmp_path, "run", "prepare", "--workflow", str(WORKFLOW)))
+    confirmed = data(
+        run_cli(
+            tmp_path,
+            "branch",
+            "confirm",
+            "--run-id",
+            str(prepared["run_id"]),
+            "--branch",
+            "striatum/created-here",
+            "--create",
+        )
+    )
+    assert confirmed["created"] is True
+    assert confirmed["mode"] == "create"
+    assert confirmed["branch"] == "striatum/created-here"
+    assert confirmed["records_only"] is True
+    assert _current_branch(tmp_path) == "striatum/created-here"
+
+
+def test_branch_confirm_create_falls_back_to_checkout_when_branch_exists(tmp_path: Path) -> None:
+    _git_init_repo(tmp_path, initial_branch="main")
+    subprocess.run(
+        ["git", "branch", "striatum/already-here"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
+    init_repo(tmp_path)
+    prepared = data(run_cli(tmp_path, "run", "prepare", "--workflow", str(WORKFLOW)))
+    confirmed = data(
+        run_cli(
+            tmp_path,
+            "branch",
+            "confirm",
+            "--run-id",
+            str(prepared["run_id"]),
+            "--branch",
+            "striatum/already-here",
+            "--create",
+        )
+    )
+    assert confirmed["created"] is False
+    assert confirmed["mode"] == "create"
+    assert confirmed["branch"] == "striatum/already-here"
+    assert _current_branch(tmp_path) == "striatum/already-here"
+
+
+def test_branch_confirm_use_current_records_actual_branch(tmp_path: Path) -> None:
+    _git_init_repo(tmp_path, initial_branch="main")
+    subprocess.run(
+        ["git", "checkout", "-b", "feature/abc"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
+    init_repo(tmp_path)
+    prepared = data(run_cli(tmp_path, "run", "prepare", "--workflow", str(WORKFLOW)))
+    confirmed = data(
+        run_cli(
+            tmp_path,
+            "branch",
+            "confirm",
+            "--run-id",
+            str(prepared["run_id"]),
+            "--branch",
+            "feature/abc",
+            "--use-current",
+        )
+    )
+    assert confirmed["branch"] == "feature/abc"
+    assert confirmed["mode"] == "use_current"
+    assert confirmed["created"] is False
+
+    # Conflict path: --use-current with a non-matching --branch must fail with code 8
+    # and must NOT update the run state. Use a fresh repo + run so we can re-test.
+    second_repo = tmp_path / "second"
+    second_repo.mkdir()
+    _git_init_repo(second_repo, initial_branch="main")
+    subprocess.run(
+        ["git", "checkout", "-b", "feature/abc"],
+        cwd=second_repo,
+        check=True,
+        capture_output=True,
+    )
+    init_repo(second_repo)
+    prepared2 = data(run_cli(second_repo, "run", "prepare", "--workflow", str(WORKFLOW)))
+    rejected = run_cli(
+        second_repo,
+        "branch",
+        "confirm",
+        "--run-id",
+        str(prepared2["run_id"]),
+        "--branch",
+        "something/else",
+        "--use-current",
+        check=False,
+    )
+    assert rejected["returncode"] == 8
+    error = rejected["error"]
+    assert isinstance(error, dict)
+    assert "use-current" in str(error["message"]) or "current git branch" in str(error["message"])
+    # Run state must remain needs_branch_confirmation
+    conn = sqlite3.connect(second_repo / ".striatum" / "state.sqlite3")
+    try:
+        row = conn.execute(
+            "SELECT state FROM runs WHERE run_id = ?", (str(prepared2["run_id"]),)
+        ).fetchone()
+    finally:
+        conn.close()
+    assert row is not None
+    assert row[0] == "needs_branch_confirmation"
+
+
+def test_branch_confirm_strict_rejects_mismatch(tmp_path: Path) -> None:
+    _git_init_repo(tmp_path, initial_branch="main")
+    init_repo(tmp_path)
+    prepared = data(run_cli(tmp_path, "run", "prepare", "--workflow", str(WORKFLOW)))
+    rejected = run_cli(
+        tmp_path,
+        "branch",
+        "confirm",
+        "--run-id",
+        str(prepared["run_id"]),
+        "--branch",
+        "striatum/foo",
+        "--strict",
+        check=False,
+    )
+    assert rejected["returncode"] == 8
+    # Run state must NOT have been updated.
+    conn = sqlite3.connect(tmp_path / ".striatum" / "state.sqlite3")
+    try:
+        row = conn.execute(
+            "SELECT state FROM runs WHERE run_id = ?", (str(prepared["run_id"]),)
+        ).fetchone()
+    finally:
+        conn.close()
+    assert row is not None
+    assert row[0] == "needs_branch_confirmation"
+
+    # Now check out the matching branch and re-run; assert success.
+    subprocess.run(
+        ["git", "checkout", "-b", "striatum/foo"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
+    confirmed = data(
+        run_cli(
+            tmp_path,
+            "branch",
+            "confirm",
+            "--run-id",
+            str(prepared["run_id"]),
+            "--branch",
+            "striatum/foo",
+            "--strict",
+        )
+    )
+    assert confirmed["mode"] == "strict"
+    assert confirmed["branch"] == "striatum/foo"
+    assert confirmed["warning"] is None
+    assert confirmed["records_only"] is True
 
 
 def test_rfc_0014_fixture_declares_root_review_revision_policy(tmp_path: Path) -> None:

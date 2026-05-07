@@ -286,8 +286,31 @@ Then start the run:
   --json
 ```
 
-Remember: V1 branch confirmation records intent and reports mismatches. Use git
-yourself if you need to create or switch branches.
+The default behavior is records-only: Striatum writes the chosen branch into
+state, runs an advisory `git branch --show-current` check, and emits a
+`warning` field if the working tree is on a different branch. Three opt-in
+flags give actual git enforcement instead:
+
+- `--create`: run `git checkout -b <branch>` from the target repo. If the
+  branch already exists, fall back to `git checkout <branch>` so the call is
+  idempotent. If git refuses (for example, a dirty working tree blocking
+  checkout), the runner exits with code 8 and does NOT record the
+  confirmation. The response field `created` is `true` only when the
+  checkout actually created a new branch.
+- `--use-current`: ignore `--branch` as a target; read the current git
+  branch and record THAT. Useful when the human already created the branch
+  manually. If `--branch` is also given and disagrees with the current
+  branch, Striatum exits with code 8 — that disagreement is a user mistake
+  worth catching.
+- `--strict`: require that the current git branch matches `--branch`
+  exactly before recording. If they differ, exit with code 8 and do not
+  record. This is the safe default for CI and other automation that should
+  refuse to run if the working tree is misaligned.
+
+The default (no flags) is unchanged from earlier releases for backwards
+compatibility. The response includes a `mode` field
+(`"records_only" | "create" | "use_current" | "strict"`) and a `created`
+boolean alongside the existing fields.
 
 ### 5. Register A Session
 
