@@ -38,8 +38,10 @@ The schema includes:
 - `verdicts`
 - `blockers`
 - `command_requests`
+- `process_executions`
 - `events`
-- `job_worktrees`
+- `job_worktrees` (added in migration version 2)
+- `process_supervisors` (added in migration version 4)
 
 `events` and artifact records are append-only. Mutations use short
 `BEGIN IMMEDIATE` transactions and emit structured events.
@@ -104,15 +106,7 @@ parent session unless explicitly registered as first-class sessions.
 
 `claim-next` lazily expires active leases, then atomically claims the oldest
 eligible pending work message. It returns a structured work packet and stores
-the packet JSON plus hash. When the claiming session has an `attached`
-supervisor (RFC 0009), the runner additionally writes the packet through the
-supervisor's stdin pipe inside the same transaction and surfaces a
-`supervisor_delivery: {supervisor_id, bytes_written}` field in the response so
-the caller knows the packet was already delivered. If the pipe is missing or
-the write fails, the supervisor transitions to `lost` and the response
-reports `supervisor_delivery: {supervisor_id, error: "stdin_pipe_missing"}`;
-the packet itself is still returned so the caller can recover. Sessions
-without a supervisor see no `supervisor_delivery` field.
+the packet JSON plus hash.
 
 Required transition commands:
 
@@ -258,9 +252,10 @@ records-only mode preserves backwards compatibility for existing callers.
 
 ## CLI
 
-Required commands:
+Required commands, grouped by concern:
 
 ```text
+# Core lifecycle
 striatum init
 striatum workflow validate
 striatum workflow plan
@@ -270,6 +265,8 @@ striatum run prepare
 striatum branch confirm
 striatum run start
 striatum run summary
+
+# Agent / session work loop
 striatum register-session
 striatum claim-next
 striatum ack
@@ -281,23 +278,111 @@ striatum publish-artifact
 striatum submit-review
 striatum complete
 striatum verdict
-striatum evidence export
 striatum decision record
-striatum status
-striatum why
-striatum doctor
-striatum recovery stale-leases
-striatum recovery requeue-stale
-striatum recovery cancel-job
-striatum checkpoint resolve
-striatum adapter run
+
+# Worktree (opt-in per lane)
 striatum worktree create
 striatum worktree release
 striatum worktree list
+
+# Supervisor (RFC 0009)
+striatum supervise start
+striatum supervise send
+striatum supervise stop
+striatum supervise status
+striatum supervise list
+
+# Dashboard
+striatum dashboard
+
+# Inspection and recovery
+striatum status
+striatum why
+striatum doctor
+striatum evidence export
+striatum recovery stale-leases
+striatum recovery requeue-stale
+
+# Adapter
+striatum adapter run
 ```
 
 Human read commands can pretty-print. `--json` returns stable machine-readable
 JSON. Mutation commands support JSON output for agent use.
+
+## Introspection
+
+`status --json` keeps aggregate run and job counts and also reports open
+blockers, human checkpoints, latest non-accepting review verdicts, claimable
+jobs grouped by role and lane, blocked downstream jobs, and deterministic
+`next_actions`.
+
+`why <id> --json` resolves run, job, queue message, blocker, artifact,
+verdict, session, and process ids. Blocker introspection includes owning
+context, related verdict when present, blocked downstream jobs,
+human-checkpoint context when relevant, and next actions.
+
+### Doctor And Verbose Records
+
+`doctor [--verbose]` returns a stable string `problems` list by default. With
+`--verbose` the payload also carries a `problem_records` list of structured
+records with stable `check` names (e.g. `active_job_without_active_lease`,
+`stale_queue_message_claim`, `worktree_path_missing_on_disk`,
+`supervisor_pid_missing`, `supervisor_stdin_pipe_missing`), the affected `id`,
+and a small `context` map. The string list is preserved verbatim so callers
+that already grep `problems` keep working.
+
+### Dashboard
+
+`striatum dashboard --run-id <id>` renders a compact, dependency-free terminal
+view over the same SQLite state that `status` and `why` expose. It refreshes
+every 2 seconds by default and shows run state and branch, job counts by
+state, verdict counts, open blockers (including human checkpoints), claimable
+work grouped by role/lane, deterministic next actions, and the most recent
+events. `--refresh <seconds>` changes cadence; `--once` renders a single frame
+to stdout and exits, which makes the dashboard useful in scripts and CI
+assertions that should not redraw a TUI.
+
+### Run Summary
+
+`run summary` writes a compact durable Markdown note with run id, branch
+context (recorded plus current git branch with an explicit `(MISMATCH)`
+annotation when they differ), run timing (`created_at`, `started_at`,
+`completed_at`, and a wall-clock `duration`), job counts, verdicts grouped by
+review job with attempt counts, artifacts annotated with structured author
+bylines, blockers, and verification state. The renderer is deterministic so
+two runs with the same SQLite state produce the same Markdown.
+
+### Recovery
+
+`recovery stale-leases --json` applies lazy lease expiry for a run and
+reports stale lease recovery context, explicitly distinguishing repo-write
+work that requires manual inspection from review-only work that can be
+reclaimed safely. `recovery requeue-stale --run-id <id> --job-id <id> --json`
+is a bounded operator mutation for expired non-repo-write work only. It
+restores the job's work message to `pending` when needed, reports when the
+work was already reclaimable, and refuses repo-write jobs so abandoned write
+work still requires manual inspection or a future worktree-isolated recovery
+path.
+
+## Workflow Authoring Tools
+
+`workflow plan --json` validates a workflow and returns a dry-run plan with
+claim waves, review gates, declared revision cycles, and graph nodes/edges.
+
+`workflow graph <workflow.json>` validates a workflow and exports graph data
+for authoring review. The default output is Mermaid `flowchart TD`, including
+declared dependency edges, accepting-review gates, bounded revision-cycle
+edges, and declared parallel groups. `--format json --json` returns stable
+machine-readable graph data with nodes, edges, and cycles.
+
+`workflow init [--style minimal|review|code-change] <path>` writes a starter
+workflow tree. The generated tree includes `<path>/workflow.json` plus role
+and prompt stubs and validates cleanly with `workflow validate`. The default
+`review` style mirrors the `examples/code-change-flow/` shape with placeholder
+paths; `minimal` writes a single author job with no review; `code-change`
+adds a one-shot `needs_revision` cycle. The command refuses to overwrite an
+existing path.
 
 ## Local API And MCP Wrapper Boundary
 
@@ -319,86 +404,14 @@ This API is an adapter convenience only. It must not write SQLite directly,
 reimplement workflow transitions, bypass artifact validation, or define a
 separate command vocabulary.
 
-The minimal local MCP-like wrapper exposes tools over line-delimited stdio
-JSON-RPC. Each tool maps to an existing CLI command or `striatum.api.invoke`
-call. MCP resources may expose read-only views such as status, `why`, doctor
-output, or stored work packets. MCP remains optional and local; the CLI and
-SQLite invariants are still the product contract.
-
-`status --json` keeps aggregate run and job counts and also reports open
-blockers, human checkpoints, latest non-accepting review verdicts, claimable
-jobs grouped by role and lane, blocked downstream jobs, and deterministic
-`next_actions`.
-
-`workflow plan --json` validates a workflow and returns a dry-run plan with
-claim waves, review gates, declared revision cycles, and graph nodes/edges.
-
-`workflow graph <workflow.json>` validates a workflow and exports graph data
-for authoring review. The default output is Mermaid `flowchart TD`, including
-declared dependency edges, accepting-review gates, bounded revision-cycle
-edges, and declared parallel groups. `--format json --json` returns stable
-machine-readable graph data with nodes, edges, and cycles.
-
-`why <id> --json` resolves run, job, queue message, blocker, artifact, verdict,
-session, and process ids. Blocker introspection includes owning context,
-related verdict when present, blocked downstream jobs, human-checkpoint context
-when relevant, and next actions.
-
-`run summary` writes a compact durable Markdown note with run id, branch
-context (recorded plus current git branch with an explicit `(MISMATCH)`
-annotation when they differ), run timing (`created_at`, `started_at`,
-`completed_at`, and a wall-clock `duration`), job counts, verdicts grouped by
-review job with attempt counts, artifacts annotated with structured author
-bylines, blockers, and verification state.
-
-`workflow init [--style minimal|review|code-change] <path>` writes a starter
-workflow tree. The generated tree includes `<path>/workflow.json` plus role
-and prompt stubs and validates cleanly with `workflow validate`. The default
-`review` style mirrors the `examples/code-change-flow/` shape with placeholder
-paths; `minimal` writes a single author job with no review; `code-change`
-adds a one-shot `needs_revision` cycle. The command refuses to overwrite an
-existing path.
-
-`doctor [--verbose]` returns a stable string `problems` list by default. With
-`--verbose` the payload also carries a `problem_records` list of structured
-records with stable `check` names (e.g. `active_job_without_active_lease`,
-`stale_queue_message_claim`, `worktree_path_missing_on_disk`), the affected
-`id`, and a small `context` map. The string list is preserved verbatim so
-callers that grep `problems` keep working.
-
-`recovery stale-leases --json` applies lazy lease expiry for a run and reports
-stale lease recovery context, explicitly distinguishing repo-write work that
-requires manual inspection from review-only work that can be reclaimed safely.
-`recovery requeue-stale --run-id <id> --job-id <id> --json` is a bounded
-operator mutation for expired non-repo-write work only. It restores the job's
-work message to `pending` when needed, reports when the work was already
-reclaimable, and refuses repo-write jobs so abandoned write work still requires
-manual inspection or a future worktree-isolated recovery path.
-
-`recovery cancel-job --run-id <id> --job-id <id> --reason <text> [--cascade]
---json` is the explicit operator cancel for a non-terminal job. It releases any
-active or expired lease, marks the job's queue message canceled, transitions
-the job to `canceled`, and emits a `job.canceled` event. Terminal-state jobs
-(`completed`, `failed`, `canceled`, `skipped`) are refused with exit code 4.
-When the target job has dependents in `blocked` state whose only path was
-through it, the call refuses with exit code 4 and lists the affected
-workflow job ids; rerun with `--cascade` to cancel them in the same
-transaction (transitively, until no more orphaned blocked dependents
-remain). The handler calls `maybe_complete_run` after committing so the run
-finalizes when the cancel removed the last non-terminal work.
-
-`checkpoint resolve --blocker-id <id> --action {continue|cancel}
-[--decision-id <id>] --json` resolves an open `human_checkpoint` blocker.
-`continue` closes the blocker, returns the affected job to a claimable state
-(`queued`, with its existing work message restored to `pending`), and emits a
-`checkpoint.resolved` event. `cancel` closes the blocker, transitions the
-affected job to `canceled`, and emits a `checkpoint.canceled` event;
-downstream blocked jobs are not auto-progressed because their dependency was
-canceled. When `--decision-id` is given, the matching run-level decision
-artifact (kind `decision`, no job or session binding) is validated and its
-artifact id is recorded on the resolution event so audit can link the
-resolution back to the operator's decision artifact. Both refuse if the
-blocker is not in state `open` or its severity is not `human_checkpoint`.
+The minimal local MCP-like wrapper exposes tools over stdio JSON-RPC with
+LSP-style `Content-Length` framing by default and automatic line-delimited
+fallback. `python -m striatum.mcp --framing {auto,line,framed}` lets operators
+pin the wire shape. Each tool maps to an existing CLI command or
+`striatum.api.invoke` call. MCP resources may expose read-only views such as
+status, `why`, doctor output, or stored work packets. MCP remains optional
+and local; the CLI and SQLite invariants are still the product contract. See
+`docs/MCP.md` for the wire shape and tool list.
 
 ## Adapter Boundary
 
@@ -407,13 +420,23 @@ stdin, stdout, stderr, exit code, and optional PTY/tmux wrapping. Provider
 features live in lane command configuration. Core scheduling does not parse
 terminal output or infer behavior from provider names.
 
+Adapter constraint enforcement has four levels: `enforced` (the adapter
+prevents the constraint from being violated), `advisory_strict` (the adapter
+takes best-effort steps the agent cannot easily undo, such as scrubbing proxy
+env vars or setting `STRIATUM_NETWORK_POLICY` / `STRIATUM_REPO_SCOPE`
+sentinels), `advisory` (the constraint is recorded and surfaced but not
+mechanically restricted), and `unsupported` (the adapter cannot represent
+the constraint). Workflow validation rejects a lane whose `required_enforcement`
+asks for a stronger level than the adapter can provide.
+
 `adapter run` is the minimal local process adapter. It launches the configured
 `process` lane command for an active claimed lease, can pass the stored work
 packet on stdin, sets `STRIATUM_*` environment variables, creates a
 `.striatum/scratch/<process_id>` scratch directory, and records process
 metadata plus lifecycle events in SQLite. Stdout and stderr are suppressed
 unless the operator explicitly requests inherited stdio; Striatum does not
-capture transcripts.
+capture transcripts. The process adapter graduates `network=forbidden` and
+`repo_scope=local_only` to `advisory_strict`; transcript-off is `enforced`.
 
 ### Process Supervision
 

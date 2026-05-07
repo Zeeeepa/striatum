@@ -1,13 +1,19 @@
 # striatum PRD
 
-Status: draft
-Date: 2026-05-06
+Status: V1 shipped
+Date: 2026-05-07
 
-This PRD will be developed through the interview recorded in
-`docs/INTERVIEW_LOG.md` and decisions recorded in `docs/DECISION_LOG.md`.
-Shared terms are defined in `docs/UBIQUITOUS_LANGUAGE.md`.
+The seed thesis and seed requirements below were collected through the
+interview recorded in `docs/INTERVIEW_LOG.md` and decisions recorded in
+`docs/DECISION_LOG.md`. Shared terms are defined in
+`docs/UBIQUITOUS_LANGUAGE.md`. The implementation contract for V1 is
+`docs/SPEC.md`; this file remains the product framing.
 
-Current accepted foundation:
+The V1 surface that has shipped covers the Seed Requirements below. Engram
+is the reference customer and first validation fixture; the runner itself is
+generic. Remaining product work is tracked in `docs/TODO.md`.
+
+Accepted foundation:
 
 - D001: Start with a PRD backed by a decision log. Use RFCs for contested
   architecture branches, then write the implementation spec after product
@@ -140,3 +146,44 @@ message bus.
   product architecture should remain generic.
 - Use Engram as reference customer/context while keeping core product logic
   generic and extractable.
+
+## V1 Surface (shipped)
+
+V1 satisfies the Seed Requirements above through the surface documented in
+`docs/SPEC.md` and `README.md`:
+
+- Repo-local SQLite state under `.striatum/state.sqlite3` with a
+  forward-only migration system (`PRAGMA user_version`); a database newer
+  than the runner exits with code 9.
+- JSON workflow validation, snapshots, dry-run planning, Mermaid/JSON graph
+  export, and `workflow init` starter trees (`minimal`, `review`,
+  `code-change`).
+- Confirmation-gated branch start with records-only default plus opt-in
+  `--create`, `--use-current`, and `--strict` git enforcement.
+- Sessions, leases, claim-next, ack, heartbeat, release, block, complete,
+  verdict, and `submit-review`, with declared-cycle revision routing and a
+  `human_checkpoint` fallback when no safe cycle exists.
+- Artifact publishing with path/scope/kind validation, default-deny
+  evidence redaction, and per-kind front-matter schemas for `decision`,
+  `finding`, `findings_ledger`, and `synthesis`.
+- Owner decisions through `decision record` (artifact kind `decision`,
+  schema `striatum.decision.v1`), no active lease required.
+- Introspection through `status`, `why`, `doctor --verbose`, and a
+  dependency-free terminal `dashboard`.
+- Stale-lease recovery (`recovery stale-leases`, `recovery requeue-stale`)
+  that distinguishes review-only from repo-write work.
+- A four-level adapter constraint model (`enforced`, `advisory_strict`,
+  `advisory`, `unsupported`) enforced at workflow validation; the local
+  process adapter graduates `network` and `repo_scope` to
+  `advisory_strict`.
+- A single-shot local process adapter (`adapter run`) and long-lived
+  supervised sessions (`supervise start | send | stop | status | list`,
+  RFC 0009).
+- Opt-in per-job git worktree isolation (RFC 0008) for parallel repo-write
+  jobs, with `worktree create | release | list`.
+- A minimal local Python API (`striatum.api.invoke`) and a stdio JSON-RPC
+  MCP-like wrapper with `Content-Length` framing.
+
+Out of V1: hosted services, transcript capture, web/Slack dashboards,
+plugin marketplaces, automatic commits, and AI-inferred build
+parallelization. Remaining product work is enumerated in `docs/TODO.md`.

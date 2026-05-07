@@ -10,64 +10,69 @@ work without relying on a hosted coordinator or hidden chat transcripts.
 
 The important distinction is this:
 
-- `.striatum/state.sqlite3` is the authoritative live state for runs,
-  jobs, sessions, queue messages, leases, blockers, verdicts, artifacts, and
-  events.
+- `.striatum/state.sqlite3` is the authoritative live state for runs, jobs,
+  sessions, queue messages, leases, blockers, verdicts, artifacts, and events.
 - Repository files are durable provenance: prompts, findings, ledgers,
   syntheses, decisions, handoffs, markers, and redacted evidence exports.
 
 Marker files, tmux pane state, terminal output, and provider hooks are useful
 for humans, but they are not the live message bus.
 
-Striatum was incubated inside Engram because Engram supplied the first real
-validation workflow and design pressure. It is now a standalone project. Engram
-remains the reference customer and first fixture, but the product boundary is
-generic: `striatum` is intended to orchestrate terminal-agent workflows for any
-target repository.
+Striatum was incubated inside Engram, which supplied the first validation
+workflow and design pressure. It is now a standalone project. Engram remains
+the reference customer; the product boundary is generic.
 
 ## Current Status
 
 The V1 MVP is implemented as a Python CLI with no runtime dependencies outside
-the standard library. It can:
+the standard library. Today's surface includes:
 
-- initialize repo-local SQLite state under `.striatum/`;
-- validate JSON workflow files and reject YAML;
-- snapshot workflows into SQLite so a run is not silently changed by later file
-  edits;
-- require explicit branch confirmation before work becomes claimable;
-- register agent sessions with opaque `session_id` values and human-readable
-  `<role>-<lane>-<ordinal>` slugs;
-- hand out identity-aware work packets through `claim-next`;
-- enforce leases, acknowledgements, heartbeats, release, block, complete, and
-  review-verdict transitions;
-- validate artifact paths, artifact kinds, write scopes, and required
-  artifacts before completion;
-- keep `events` and artifact records append-only;
-- route review gates through `accept`, `accept_with_findings`,
-  `needs_revision`, and `reject`;
-- create bounded revision attempts when a workflow declares a cycle;
-- stop at a human checkpoint when review feedback has no declared safe route;
-- export redacted Markdown evidence snapshots for commit and review while
-  leaving `.striatum/` ignored.
-
-V1 includes a minimal local process adapter for configured `process` lanes and
-already-claimed work. It does not yet provide long-lived interactive
-supervision, but the tested core is now the deterministic state, workflow,
-work-packet, artifact, review-gate, and process launch contract.
+- repo-local SQLite state (`.striatum/state.sqlite3`) with a forward-only
+  migration system (`PRAGMA user_version`); a database newer than this install
+  exits with code 9;
+- JSON workflow validation (YAML rejected), workflow snapshots, dry-run
+  planning, Mermaid/JSON graph export, and `workflow init` starter trees;
+- branch confirmation that defaults to records-only and offers `--create`,
+  `--use-current`, and `--strict` to actually drive git;
+- agent sessions with opaque `session_id` plus `<role>-<lane>-<ordinal>` slugs;
+- `claim-next` work packets with required artifacts, write scope, adapter
+  constraints, and the exact follow-up commands the agent should run;
+- leases, ack, heartbeat, release, block, complete, verdict, and
+  `submit-review`, with declared-cycle revision routing and
+  `human_checkpoint` fallback;
+- artifact publishing with path/scope/kind validation, default-deny evidence
+  redaction, and per-kind front-matter schemas for `decision`, `finding`,
+  `findings_ledger`, and `synthesis` artifacts;
+- owner decisions recorded as durable Markdown via `decision record`, no
+  active lease required;
+- introspection through `status`, `why`, and `doctor --verbose`
+  (structured `problem_records`), plus `evidence export` for redacted
+  Markdown snapshots;
+- a compact terminal `dashboard` over the same SQLite state;
+- stale-lease recovery (`recovery stale-leases`, `recovery requeue-stale`)
+  that distinguishes review-only from repo-write work;
+- a single-shot local process adapter (`adapter run`) and long-lived
+  supervised sessions (`supervise start | send | stop | status | list`,
+  RFC 0009);
+- opt-in per-job git worktree isolation (RFC 0008) for parallel repo-write
+  jobs, with `worktree create | release | list`;
+- a four-level adapter constraint model (`enforced`, `advisory_strict`,
+  `advisory`, `unsupported`) where the process adapter scrubs proxy env vars
+  and sets `STRIATUM_NETWORK_POLICY` / `STRIATUM_REPO_SCOPE` sentinels for
+  cooperating agents;
+- a minimal local Python API (`striatum.api.invoke`) and a stdio JSON-RPC
+  MCP-like wrapper with `Content-Length` framing.
 
 ## What It Is For
 
-`striatum` is for long-running, review-heavy agent workflows where "just
-tell three agents to work in tmux panes" stops being enough. It gives the human
-and coordinator a stable answer to questions like:
+`striatum` is for long-running, review-heavy agent workflows where "just tell
+three agents to work in tmux panes" stops being enough. It gives the human and
+coordinator a stable answer to questions like:
 
-- What run is active, and on which branch was it confirmed?
-- Which jobs are claimable, blocked, waiting for review, or waiting for human
-  judgment?
-- Which agent session owns a lease?
-- What artifact was required, where was it written, and what hash did the
-  runner record?
-- Why is a downstream job still blocked?
+- What run is active, on which branch was it confirmed, and which jobs are
+  claimable, blocked, in review, or waiting on a human?
+- Which session owns a lease? What artifact was required, where was it
+  written, what hash was recorded?
 - Did a review return `needs_revision`, and did the workflow declare a safe
   cycle for that?
 - Can I commit a redacted evidence summary without committing live SQLite
@@ -81,41 +86,48 @@ humans move the workflow by calling `striatum` commands.
 
 ### Local State
 
-`striatum init` creates `.striatum/state.sqlite3`, enables SQLite WAL
-mode and foreign keys, and ensures `.striatum/` appears in `.gitignore`.
-The state database is local working state, not a repo artifact to commit.
+`striatum init` creates `.striatum/state.sqlite3`, enables SQLite WAL and
+foreign keys, applies pending migrations under `PRAGMA user_version`, and adds
+`.striatum/` to `.gitignore`. The state database is local working state, not a
+repo artifact.
 
 ### Workflow Snapshots
 
-Workflow files are JSON objects with schema version
-`striatum.workflow.v1`. `run prepare` validates the file, stores a
-canonical JSON snapshot and SHA-256 hash in SQLite, and creates a run in
-`needs_branch_confirmation`. Later edits to the workflow file do not mutate an
-already prepared run.
+Workflow files are JSON objects with schema version `striatum.workflow.v1`.
+`run prepare` validates the file, stores a canonical JSON snapshot plus
+SHA-256 hash, and creates a run in `needs_branch_confirmation`. Later edits to
+the workflow file do not mutate an already prepared run.
 
 ### Branch Gate
 
 No job is claimable until `branch confirm` records explicit human confirmation
-and `run start` starts the run. In V1, `branch confirm` is records-only: it
-does not switch, create, merge, push, or commit branches. It reports the
-requested branch, the detected current git branch, and a warning when they
-differ.
+and `run start` starts the run. By default `branch confirm` is records-only:
+it writes the chosen branch and warns when the working tree is on a different
+branch. Three opt-in flags promote the gate from advisory to git-enforcing:
+
+- `--create`: run `git checkout -b <branch>`, falling back to
+  `git checkout <branch>` if it already exists; on failure exits 8 and does
+  NOT record. The response field `created` is true only when a new branch was
+  created.
+- `--use-current`: ignore `--branch` as a target and record the actual current
+  branch. If `--branch` is given and disagrees, exit 8.
+- `--strict`: require the current branch to match `--branch` exactly before
+  recording; otherwise exit 8. Safe default for CI.
+
+The response includes a `mode` field
+(`records_only | create | use_current | strict`).
 
 ### Sessions And Work Packets
 
 An agent registers a session for a run, role, and lane before claiming work.
 `claim-next` matches pending work by run, role, lane, and freshness rules. A
-successful claim creates a lease and returns a work packet containing:
-
-- run, branch, session, lease, and job identifiers;
-- role definition path and context-doc references;
-- task prompt reference and inputs;
-- write scope and forbidden paths;
-- expected artifacts;
-- ready-to-use commands for ack, heartbeat, publish, block, verdict, and
-  complete;
-- adapter constraints such as network, transcript, and repo-scope policy, plus
-  whether V1 can enforce them or only record them as advisory.
+successful claim creates a lease and returns a work packet containing run,
+branch, session, lease, and job identifiers; role and context-doc references;
+task prompt and inputs; write scope and forbidden paths; expected artifacts
+(with privacy-safe author byline); follow-up commands for ack/heartbeat/
+publish/block/verdict/complete; adapter constraints with declared and actual
+enforcement levels; and, when the lane opts in, a `worktree_required: true`
+flag plus the `worktree create` invocation.
 
 Fresh-session jobs cannot be claimed by a session that has already received a
 work packet in the run. Review fixtures use fresh sessions for independent
@@ -123,27 +135,32 @@ review by default.
 
 ### Leases And Recovery
 
-Work is leased, not merely assigned. Agents should `ack` after accepting the
-packet and `heartbeat` during long work. Lease expiry is lazy: normal CLI
-mutations expire stale leases rather than a background daemon. Expired
-review-only work may be requeued; repo-write work is treated more cautiously
-and becomes stale or blocked for coordinator/human inspection.
+Work is leased, not merely assigned. Agents `ack` after accepting a packet and
+`heartbeat` during long work. Lease expiry is lazy: normal CLI mutations
+expire stale leases rather than a background daemon. `recovery stale-leases`
+reports expired-lease context and distinguishes repo-write from review-only
+work. `recovery requeue-stale --run-id ... --job-id ...` requeues expired
+non-repo-write work and refuses repo-write jobs so abandoned write work still
+requires manual operator inspection.
 
 ### Artifacts
 
-Artifacts are curated repo outputs, not broad transcripts. `publish-artifact`
-checks:
+Artifacts are curated repo outputs. `publish-artifact` checks lease ownership,
+file existence, repo-relative path, that the path stays outside `.striatum/`
+and inside the job's write scope, that the artifact kind is allowed, and that
+a logical name is not being reused for different content. Transcript artifacts
+are rejected by default. Completion and review verdicts verify required
+artifacts by logical name, kind, and path.
 
-- the caller owns the active lease;
-- the artifact file exists;
-- the path is repo-relative;
-- the path stays outside `.striatum/`;
-- the path is inside the job write scope;
-- the artifact kind is allowed;
-- the logical name is not being reused for different content.
+When the artifact kind has a registered front-matter schema (`decision`,
+`finding`, `findings_ledger`, `synthesis`) and the file starts with a `---`
+front-matter block, the publisher validates it against the schema. Files
+without a front-matter block are still accepted; the publisher never rewrites
+artifact files.
 
-Transcript artifacts are rejected by default. Completion and review verdicts
-verify required artifacts by logical name, kind, and path.
+`decision record` writes a durable Markdown decision artifact (kind
+`decision`, schema `striatum.decision.v1`) without claiming work or holding a
+lease, with outcomes `accepted`, `rejected`, or `accepted_with_follow_up`.
 
 ### Review Gates
 
@@ -157,27 +174,55 @@ Review jobs use structured verdicts:
   runner opens a human checkpoint instead.
 - `reject` fails the review job and can fail the run.
 
-`submit-review` is the common shortcut for review jobs: it publishes the review
-artifact and records the verdict in one validated command.
+`submit-review` is the common shortcut: it publishes the review artifact and
+records the verdict in one validated command.
+
+### Worktree Isolation
+
+Lanes may opt into per-job filesystem isolation by setting
+`worktree_isolation: "per_job"` (default `"off"`). When opted in, work packets
+for repo-write jobs in that lane include `worktree_required: true` and the
+`striatum worktree create` invocation. The runner does not auto-create a
+worktree on claim; the agent calls `worktree create` itself. `publish-artifact`
+reads files from the active per-job worktree but records the artifact's
+logical repo-relative path so artifacts remain valid main-branch provenance.
+Lazy lease expiry marks the worktree row `abandoned` for operator inspection
+without removing the directory. See RFC 0008.
+
+### Process Supervision
+
+`adapter run` is single-shot: the child exits with the configured command, and
+the next packet must spawn a fresh process. RFC 0009 adds `striatum supervise
+start | send | stop | status | list` for long-lived agent CLIs that span
+multiple work packets. `supervise start` forks the lane command in a new
+session and creates a per-supervisor named pipe at
+`.striatum/scratch/<supervisor_id>/stdin.pipe`; `supervise send` delivers a
+stored work packet as a newline-terminated JSON line through that pipe. Stdout
+and stderr go to `DEVNULL` (no transcripts). Lease expiry transitions an
+attached supervisor to `lost` without auto-killing the OS process; operator
+inspection is required, mirroring the repo-write stale-lease policy.
 
 ### Introspection
 
-Use `status`, `why`, and `doctor` when a run becomes hard to reason about:
+Use `status`, `why`, `doctor`, and `dashboard` when a run becomes hard to
+reason about:
 
 - `status --json` reports runs, job counts, open blockers, human checkpoints,
-  non-accepting review verdicts, claimable work, blocked downstream jobs, and
+  non-accepting verdicts, claimable work, blocked downstream jobs, and
   deterministic next actions.
 - `why <id> --json` explains runs, jobs, queue messages, blockers, artifacts,
-  verdicts, and sessions.
-- `doctor --json` checks common state inconsistencies such as active jobs
-  without active leases or completed review dependencies without accepting
-  verdicts. Pass `--verbose` to additionally emit a `problem_records` list
-  with stable `check` names, affected ids, and small context maps for tooling
-  that wants to act on specific failure kinds without parsing strings.
+  verdicts, sessions, and processes.
+- `doctor --json` flags state inconsistencies. `--verbose` adds a
+  `problem_records` list with stable `check` names, affected ids, and small
+  context maps for tooling that wants to act on specific failure kinds without
+  parsing strings.
+- `dashboard --run-id <id>` renders a compact, dependency-free terminal view
+  of the same SQLite state.
 
-`evidence export` writes a redacted Markdown snapshot that can be committed for
-review. It redacts free-text blocker descriptions and verdict rationales and
-does not include the SQLite database or transcripts.
+`evidence export` writes a redacted Markdown snapshot. Redaction is
+default-deny: any field not explicitly classified as `safe` in the per-field
+policy registry is replaced with the redaction placeholder. The export does
+not include SQLite state or transcripts.
 
 ## Installation
 
@@ -202,8 +247,8 @@ make test
 
 ## Usage Guide
 
-The examples below assume you are in the Striatum checkout and want to
-operate on some target repository. Set these once:
+The examples below assume you are in the Striatum checkout and want to operate
+on some target repository. Set these once:
 
 ```bash
 RUNNER=.venv/bin/striatum
@@ -211,10 +256,9 @@ TARGET_REPO=/path/to/target/repo
 WORKFLOW=examples/rfc-ledger-cleanup/workflow.json
 ```
 
-Point `TARGET_REPO` at the repository you want to orchestrate and adapt the
-workflow's artifact paths to that repo. The generic fixture writes under
-`docs/reviews/rfc-ledger/` in the target repo, so use a scratch target if you
-only want to smoke-test the runner.
+Point `TARGET_REPO` at the repository you want to orchestrate. The generic
+fixture writes under `docs/reviews/rfc-ledger/` in the target repo, so use a
+scratch target if you only want to smoke-test the runner.
 
 ### 1. Initialize Runner State
 
@@ -227,96 +271,54 @@ only want to smoke-test the runner.
 This creates `.striatum/state.sqlite3` under the target repo and adds
 `.striatum/` to that repo's `.gitignore`.
 
-### 2. Validate A Workflow
+### 2. Validate Or Scaffold A Workflow
 
 ```bash
-"$RUNNER" --repo "$TARGET_REPO" workflow validate \
-  "$WORKFLOW" \
-  --json
-```
-
-The fixture workflow is:
-
-```text
-draft -> parallel reviews -> findings ledger -> synthesis -> final review
-```
-
-The validator checks required top-level fields, role/lane references, artifact
-paths, dependency edges, bounded cycles, declared parallelism, and lane
-constraints. YAML files are rejected.
-
-For authoring reviews, export the workflow graph before preparing a run:
-
-```bash
+"$RUNNER" --repo "$TARGET_REPO" workflow validate "$WORKFLOW" --json
+"$RUNNER" --repo "$TARGET_REPO" workflow plan "$WORKFLOW" --json
 "$RUNNER" --repo "$TARGET_REPO" workflow graph "$WORKFLOW"
-"$RUNNER" --repo "$TARGET_REPO" workflow graph "$WORKFLOW" \
-  --format json \
-  --json
+"$RUNNER" --repo "$TARGET_REPO" workflow graph "$WORKFLOW" --format json --json
 ```
 
-The default graph output is a Mermaid `flowchart TD` that can be pasted into
-Markdown renderers that support Mermaid. The JSON format returns the same
-validated graph data used by the dry-run planner.
+`workflow validate` checks required fields, role/lane references, artifact
+paths, dependency edges, bounded cycles, declared parallelism, and lane
+constraints. YAML files are rejected. `workflow plan` returns a dry-run plan;
+`workflow graph` exports Mermaid `flowchart TD` (default) or JSON.
+
+To scaffold a new workflow tree:
+
+```bash
+"$RUNNER" workflow init --style review path/to/new-flow
+```
+
+`--style` accepts `minimal`, `review` (default), or `code-change`. The
+generated tree includes `workflow.json` plus `roles/` and `prompts/` stubs and
+validates cleanly. The command refuses to overwrite an existing path.
 
 ### 3. Prepare A Run
 
 ```bash
-"$RUNNER" --repo "$TARGET_REPO" run prepare \
-  --workflow "$WORKFLOW" \
-  --json
+"$RUNNER" --repo "$TARGET_REPO" run prepare --workflow "$WORKFLOW" --json
 ```
 
-Copy the returned `run_id` for later commands. The run is now prepared but not
-claimable.
+Copy the returned `run_id` for later commands. The run is now prepared but
+not claimable.
 
 ### 4. Confirm The Branch And Start
-
-Confirm the branch that the human has chosen for this run:
 
 ```bash
 "$RUNNER" --repo "$TARGET_REPO" branch confirm \
   --run-id <run_id> \
   --branch striatum/rfc-ledger-cleanup \
   --json
+
+"$RUNNER" --repo "$TARGET_REPO" run start --run-id <run_id> --json
 ```
 
-Then start the run:
-
-```bash
-"$RUNNER" --repo "$TARGET_REPO" run start \
-  --run-id <run_id> \
-  --json
-```
-
-The default behavior is records-only: Striatum writes the chosen branch into
-state, runs an advisory `git branch --show-current` check, and emits a
-`warning` field if the working tree is on a different branch. Three opt-in
-flags give actual git enforcement instead:
-
-- `--create`: run `git checkout -b <branch>` from the target repo. If the
-  branch already exists, fall back to `git checkout <branch>` so the call is
-  idempotent. If git refuses (for example, a dirty working tree blocking
-  checkout), the runner exits with code 8 and does NOT record the
-  confirmation. The response field `created` is `true` only when the
-  checkout actually created a new branch.
-- `--use-current`: ignore `--branch` as a target; read the current git
-  branch and record THAT. Useful when the human already created the branch
-  manually. If `--branch` is also given and disagrees with the current
-  branch, Striatum exits with code 8 — that disagreement is a user mistake
-  worth catching.
-- `--strict`: require that the current git branch matches `--branch`
-  exactly before recording. If they differ, exit with code 8 and do not
-  record. This is the safe default for CI and other automation that should
-  refuse to run if the working tree is misaligned.
-
-The default (no flags) is unchanged from earlier releases for backwards
-compatibility. The response includes a `mode` field
-(`"records_only" | "create" | "use_current" | "strict"`) and a `created`
-boolean alongside the existing fields.
+Add `--create`, `--use-current`, or `--strict` to drive git instead of just
+recording (see Behavior Model > Branch Gate).
 
 ### 5. Register A Session
-
-Each agent or human acting as a role needs a session:
 
 ```bash
 "$RUNNER" --repo "$TARGET_REPO" register-session \
@@ -327,99 +329,69 @@ Each agent or human acting as a role needs a session:
   --json
 ```
 
-Copy the returned `session_id`. The display slug will look like
-`author-codex-1`.
+Copy the returned `session_id`. The display slug looks like `author-codex-1`.
 
 ### 6. Claim And Acknowledge Work
 
 ```bash
-"$RUNNER" --repo "$TARGET_REPO" claim-next \
-  --session-id <session_id> \
-  --json
+"$RUNNER" --repo "$TARGET_REPO" claim-next --session-id <session_id> --json
 ```
 
-If work is available, the response contains a `packet` with `job_id`,
-`message_id`, `lease_id`, expected artifacts, write scope, task prompt, and the
-commands the agent should use.
+If work is available, the response includes a `packet` with `job_id`,
+`message_id`, `lease_id`, expected artifacts, write scope, task prompt, and
+the commands to use. Expected artifact metadata includes a privacy-safe
+lowercase byline such as `author: author-codex-gpt-5.5-001`. Put that exact
+line near the top of any workflow-authored Markdown artifact.
 
-Expected artifact metadata includes a privacy-safe lowercase byline such as
-`author: author-codex-gpt-5.5-001`. Put that exact line near the top of
-workflow-authored Markdown artifacts; do not derive bylines from workflow job
-titles.
+If the work packet contains `worktree_required: true`, run the suggested
+`striatum worktree create` command before publishing.
 
-After reading the packet and accepting the job:
-
-```bash
-"$RUNNER" --repo "$TARGET_REPO" ack \
-  --session-id <session_id> \
-  --message-id <message_id> \
-  --lease-id <lease_id> \
-  --json
-```
-
-For long jobs:
+After reading the packet:
 
 ```bash
-"$RUNNER" --repo "$TARGET_REPO" heartbeat \
-  --session-id <session_id> \
-  --lease-id <lease_id> \
-  --extend-seconds 1800 \
+"$RUNNER" ack \
+  --session-id <session_id> --message-id <message_id> --lease-id <lease_id> \
   --json
+
+"$RUNNER" heartbeat \
+  --session-id <session_id> --lease-id <lease_id> --extend-seconds 1800 --json
 ```
 
 ### 7. Publish Artifacts And Complete Non-Review Work
 
-Write the artifact required by the work packet, then publish it:
-
 ```bash
-"$RUNNER" --repo "$TARGET_REPO" publish-artifact \
-  --session-id <session_id> \
-  --job-id <job_id> \
-  --lease-id <lease_id> \
+"$RUNNER" publish-artifact \
+  --session-id <session_id> --job-id <job_id> --lease-id <lease_id> \
   --kind handoff \
   --logical-name draft \
   --path docs/reviews/rfc-ledger/RFC_LEDGER_DRAFT.md \
   --json
+
+"$RUNNER" complete \
+  --session-id <session_id> --job-id <job_id> --lease-id <lease_id> \
+  --summary "Draft artifact published." --json
 ```
 
-Complete the job after all required artifacts are published:
-
-```bash
-"$RUNNER" --repo "$TARGET_REPO" complete \
-  --session-id <session_id> \
-  --job-id <job_id> \
-  --lease-id <lease_id> \
-  --summary "Draft artifact published." \
-  --json
-```
-
-Completion may enqueue downstream jobs when dependencies are satisfied.
+Completion may enqueue downstream jobs once dependencies are satisfied.
 
 ### 8. Submit Review Work
 
-For a review job, the shortest path is `submit-review`:
-
 ```bash
-"$RUNNER" --repo "$TARGET_REPO" submit-review \
+"$RUNNER" submit-review \
   --session-id <review_session_id> \
   --job-id <review_job_id> \
   --lease-id <review_lease_id> \
   --path docs/reviews/rfc-ledger/codex/RFC_LEDGER_REVIEW.md \
-  --verdict accept_with_findings \
-  --json
+  --verdict accept_with_findings --json
 ```
 
-Use `--verdict accept`, `accept_with_findings`, `needs_revision`, or `reject`.
-For unusual flows, you can still call `publish-artifact` and `verdict`
-separately.
+`--verdict` accepts `accept`, `accept_with_findings`, `needs_revision`, or
+`reject`. For unusual flows, call `publish-artifact` and `verdict` separately.
 
 ### 9. Record Owner Decisions
 
-Owner choices that affect a run can be written as durable decision artifacts
-without claiming work or holding an active lease:
-
 ```bash
-"$RUNNER" --repo "$TARGET_REPO" decision record \
+"$RUNNER" decision record \
   --run-id <run_id> \
   --path docs/decisions/owner-choice.md \
   --outcome accepted_with_follow_up \
@@ -429,17 +401,14 @@ without claiming work or holding an active lease:
 ```
 
 The generated Markdown includes machine-checkable front matter and is recorded
-as artifact kind `decision`.
+as artifact kind `decision`. `decision record` does not require an active
+lease.
 
 ### 10. Report A Blocker
 
-If an agent cannot proceed:
-
 ```bash
-"$RUNNER" --repo "$TARGET_REPO" block \
-  --session-id <session_id> \
-  --job-id <job_id> \
-  --lease-id <lease_id> \
+"$RUNNER" block \
+  --session-id <session_id> --job-id <job_id> --lease-id <lease_id> \
   --kind missing_input \
   --severity human_checkpoint \
   --description "Need human decision before continuing." \
@@ -449,6 +418,7 @@ If an agent cannot proceed:
 Use `--severity blocked` for normal blockers and `human_checkpoint` when the
 run needs explicit human judgment.
 
+<<<<<<< HEAD
 To resolve a `human_checkpoint` blocker explicitly once the operator has
 decided, use `striatum checkpoint resolve`:
 
@@ -473,13 +443,21 @@ record`; the resolution event payload then links back to that artifact for
 audit.
 
 ### 11. Inspect And Export Recovery Evidence
+=======
+### 11. Inspect, Watch, And Export Recovery Evidence
+>>>>>>> 270210c (Documentation coherence pass for V1.0)
 
 ```bash
-"$RUNNER" --repo "$TARGET_REPO" status --run-id <run_id> --json
-"$RUNNER" --repo "$TARGET_REPO" why <blocker_or_job_or_artifact_id> --json
-"$RUNNER" --repo "$TARGET_REPO" doctor --run-id <run_id> --json
+"$RUNNER" status --run-id <run_id> --json
+"$RUNNER" why <blocker_or_job_or_artifact_id> --json
+"$RUNNER" doctor --run-id <run_id> --verbose --json
+"$RUNNER" dashboard --run-id <run_id>           # live; --once for one frame
+"$RUNNER" run summary --run-id <run_id> --path docs/reviews/RUN_SUMMARY.md
+"$RUNNER" evidence export \
+  --run-id <run_id> --path docs/reviews/rfc-ledger/RUN_EVIDENCE.md --json
 ```
 
+<<<<<<< HEAD
 To explicitly cancel a non-terminal job (and optionally its blocked-only-
 through-this dependents), use `striatum recovery cancel-job`:
 
@@ -529,38 +507,27 @@ To publish a redacted run snapshot:
 ```
 
 The export path must be inside the repository and outside `.striatum/`.
+=======
+The dashboard refreshes every 2 seconds by default; pass `--refresh <seconds>`
+or `--once` (single frame to stdout, useful in scripts and CI). The export
+path must be inside the repository and outside `.striatum/`.
+>>>>>>> 270210c (Documentation coherence pass for V1.0)
 
 ## Writing Workflows
 
-Start from `examples/rfc-ledger-cleanup/workflow.json`. For a smaller generic
-docs-only fixture, see `examples/docs-review-flow/workflow.json`.
+Start from `examples/rfc-ledger-cleanup/workflow.json`. For smaller fixtures,
+see `examples/docs-review-flow/`, `examples/code-change-flow/`,
+`examples/failed-review-revision-cycle/`, `examples/human-checkpoint-flow/`,
+and `examples/adapter-unavailable-flow/`.
 
-Required top-level fields:
+Required top-level fields: `schema_version`, `workflow_id`,
+`workflow_version`, `name`, `branch`, `coordinator`, `lanes`, `roles`,
+`context_docs`, `parallelism`, `jobs`, `edges`, `cycles`.
 
-- `schema_version`
-- `workflow_id`
-- `workflow_version`
-- `name`
-- `branch`
-- `coordinator`
-- `lanes`
-- `roles`
-- `context_docs`
-- `parallelism`
-- `jobs`
-- `edges`
-- `cycles`
-
-Common job fields:
-
-- `id`, `type`, `title`, `role_id`, and optional `lane_id`;
-- `objective` and `task_prompt`;
-- `inputs`;
-- `write_scope` with `allowed_paths` and `forbidden_paths`;
-- `expected_artifacts` with `logical_name`, `kind`, `path`, and `required`;
-- `fresh_session_required` when independent context matters;
-- `parallel_group` only when declared parallel work has unique artifacts or
-  disjoint write scopes.
+Common job fields: `id`, `type`, `title`, `role_id`, optional `lane_id`,
+`objective`, `task_prompt`, `inputs`, `write_scope` (`allowed_paths`,
+`forbidden_paths`), `expected_artifacts` (`logical_name`, `kind`, `path`,
+`required`), `fresh_session_required`, and `parallel_group`.
 
 Lane configs may declare adapter constraints:
 
@@ -572,18 +539,19 @@ Lane configs may declare adapter constraints:
     "repo_scope": "local_only"
   },
   "required_enforcement": {
-    "network": "advisory",
+    "network": "advisory_strict",
     "transcripts": "enforced"
   }
 }
 ```
 
-V1 records requested constraints, required enforcement levels, actual adapter
-enforcement, and satisfaction status in work packets. Workflow validation
-rejects a lane when `required_enforcement` asks for a stronger guarantee than
-the adapter can provide. The local process adapter enforces transcript-off by
-default; network and repo-scope restrictions remain advisory unless a
-surrounding launcher or sandbox enforces them.
+V1 records the requested constraint, the required enforcement level, the
+adapter's actual enforcement (`enforced`, `advisory_strict`, `advisory`, or
+`unsupported`), and satisfaction status in work packets. Validation rejects a
+lane when `required_enforcement` asks for a level the adapter cannot provide.
+The local process adapter enforces transcript-off, scrubs proxy env vars when
+network is forbidden, and sets `STRIATUM_NETWORK_POLICY` and
+`STRIATUM_REPO_SCOPE` sentinels so cooperating agents can honor the policy.
 
 ## Bootstrap Tmux Harness
 
@@ -595,18 +563,9 @@ scripts/striatum_tmux_design.sh start
 tmux attach -t striatum-design
 ```
 
-Use `start-pipe` or `STRIATUM_RUN_MODE=pipe` when the local model CLIs are
-ready to accept prompts on stdin. The harness starts Claude, Codex, and Gemini
-design-input lanes plus a synthesis handoff pane.
-
-This script is not the product control plane and should not be treated as
-generic runner behavior. It exists to bootstrap the MVP design/build process
-until the generic runner can represent that workflow end to end.
-
-The runner now has a minimal generic process adapter through `adapter run`.
-It launches configured local `process` lane commands for already-claimed work,
-passes the work packet on stdin by default, records process metadata/events in
-SQLite, and does not capture transcripts.
+This script is not the product control plane. It exists to bootstrap MVP
+design/build work until the generic process adapter (`adapter run`) and
+supervised sessions (`supervise`) cover that workflow end to end.
 
 ## Command Reference
 
@@ -624,14 +583,7 @@ striatum run start
 striatum run summary
 ```
 
-`workflow init [--style minimal|review|code-change] <path>` writes a starter
-workflow tree (`workflow.json` plus `roles/` and `prompts/` stubs). The
-`review` default mirrors the `examples/code-change-flow/` shape with
-placeholder paths and validates cleanly with `striatum workflow validate`.
-`minimal` writes a single author job and `code-change` adds a one-shot
-`needs_revision` cycle. The command refuses to overwrite an existing path.
-
-Agent/session work loop:
+Agent / session work loop:
 
 ```text
 striatum register-session
@@ -648,6 +600,7 @@ striatum submit-review
 striatum decision record
 ```
 
+<<<<<<< HEAD
 Inspection and recovery:
 
 ```text
@@ -664,6 +617,9 @@ striatum dashboard
 ```
 
 Per-job worktree isolation (opt-in per lane via `worktree_isolation: per_job`):
+=======
+Worktree (opt-in per lane via `worktree_isolation: per_job`):
+>>>>>>> 270210c (Documentation coherence pass for V1.0)
 
 ```text
 striatum worktree create
@@ -671,8 +627,7 @@ striatum worktree release
 striatum worktree list
 ```
 
-Long-lived process supervision (RFC 0009; see `docs/SPEC.md` Process
-Supervision):
+Supervisor (RFC 0009):
 
 ```text
 striatum supervise start
@@ -680,19 +635,47 @@ striatum supervise send
 striatum supervise stop
 striatum supervise status
 striatum supervise list
+<<<<<<< HEAD
+=======
+```
+
+Dashboard:
+
+```text
+striatum dashboard
+```
+
+Inspection and recovery:
+
+```text
+striatum status
+striatum why
+striatum doctor
+striatum evidence export
+striatum recovery stale-leases
+striatum recovery requeue-stale
+```
+
+Adapter:
+
+```text
+striatum adapter run
+>>>>>>> 270210c (Documentation coherence pass for V1.0)
 ```
 
 Stable exit codes:
 
 - `0`: success, including `claim-next` with `no_work`;
-- `2`: CLI usage error;
+- `1`: generic / unhandled runtime error;
+- `2`: CLI usage error (argparse);
 - `3`: missing run, session, job, message, blocker, artifact, verdict, or
   session target;
 - `4`: invalid state transition;
 - `5`: lease expiry or ownership mismatch;
 - `6`: artifact or write-scope violation;
 - `7`: branch confirmation required before work can be claimed;
-- `8`: workflow config rejected;
+- `8`: workflow config rejected (also raised by `branch confirm` when a
+  requested git operation cannot be performed);
 - `9`: local SQLite schema is newer than this Striatum install supports.
 
 ## Documentation Map
@@ -706,17 +689,10 @@ Start with:
 5. [docs/PRIOR_ART.md](docs/PRIOR_ART.md)
 6. [docs/rfcs/](docs/rfcs/)
 7. [docs/SPEC.md](docs/SPEC.md)
-8. [docs/INTERVIEW_LOG.md](docs/INTERVIEW_LOG.md)
-9. [docs/ENGRAM_INCUBATION_CONTEXT.md](docs/ENGRAM_INCUBATION_CONTEXT.md)
+8. [docs/MCP.md](docs/MCP.md)
+9. [docs/INTERVIEW_LOG.md](docs/INTERVIEW_LOG.md)
+10. [docs/ENGRAM_INCUBATION_CONTEXT.md](docs/ENGRAM_INCUBATION_CONTEXT.md)
 
-Historical incubation prompts:
-
-These prompts are retained as provenance from the Engram incubation and dogfood
-validation period. They are useful templates and history, not current
-standalone execution plans.
-
-- [prompts/README.md](prompts/README.md)
-- [prompts/P001_design_review_build_v1_mvp.md](prompts/P001_design_review_build_v1_mvp.md)
-- [prompts/P002_validate_striatum_with_rfc_0014.md](prompts/P002_validate_striatum_with_rfc_0014.md)
-- [prompts/P003_implement_rfc_0014_dogfood_fixes.md](prompts/P003_implement_rfc_0014_dogfood_fixes.md)
-- [prompts/P004_rerun_rfc_0014_dogfood.md](prompts/P004_rerun_rfc_0014_dogfood.md)
+Historical incubation prompts live under `prompts/`. They are retained as
+provenance from the Engram incubation and dogfood validation period; they are
+not current standalone execution plans.
