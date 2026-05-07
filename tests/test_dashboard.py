@@ -5,6 +5,7 @@ import os
 import subprocess
 import sys
 from pathlib import Path
+from typing import Any
 
 from test_cli_mvp import prepare_started_run, run_cli
 
@@ -12,7 +13,7 @@ from test_cli_mvp import prepare_started_run, run_cli
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def _import_dashboard():
+def _import_dashboard() -> Any:
     sys.path.insert(0, str(ROOT / "src"))
     try:
         import striatum.dashboard as dashboard  # noqa: WPS433 - test-time import
