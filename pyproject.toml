@@ -1,10 +1,15 @@
+[build-system]
+requires = ["setuptools>=77.0"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "striatum"
 version = "0.1.0"
 description = "Local-first orchestration for terminal-based AI coding agents"
 readme = "README.md"
 requires-python = ">=3.11"
-license = { file = "LICENSE" }
+license = "Apache-2.0"
+license-files = ["LICENSE"]
 authors = [
   { name = "Hal Britt" },
 ]
@@ -22,7 +27,10 @@ dependencies = []
 
 [project.optional-dependencies]
 dev = [
+  "build>=1.2",
+  "mypy>=1.10",
   "pytest>=8.0",
+  "ruff>=0.5",
 ]
 
 [project.scripts]
@@ -35,3 +43,8 @@ testpaths = ["tests"]
 [tool.ruff]
 line-length = 100
 target-version = "py311"
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+files = ["src", "tests"]

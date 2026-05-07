@@ -1,0 +1,116 @@
+{
+  "schema_version": "striatum.workflow.v1",
+  "workflow_id": "docs-review-flow",
+  "workflow_version": "2026-05-07",
+  "name": "Docs Review Flow",
+  "branch": {
+    "mode": "confirm",
+    "suggested_name": "striatum/docs-review-flow",
+    "allow_dirty": false
+  },
+  "coordinator": {
+    "role_id": "coordinator",
+    "lane_id": "local"
+  },
+  "lanes": {
+    "local": {
+      "adapter": "process",
+      "display_model": "Local Fixture",
+      "command": ["sh", "-c", "cat >/dev/null"],
+      "capabilities": ["write", "review"]
+    }
+  },
+  "roles": {
+    "author": {"definition_path": "roles/author.md"},
+    "reviewer": {"definition_path": "roles/reviewer.md"},
+    "coordinator": {"definition_path": "roles/coordinator.md"}
+  },
+  "context_docs": [
+    {"path": "README.md", "required": true}
+  ],
+  "parallelism": {
+    "mode": "declared",
+    "max_active_jobs": 1,
+    "require_disjoint_write_scopes": true
+  },
+  "jobs": [
+    {
+      "id": "draft_docs",
+      "type": "draft",
+      "title": "Draft docs update",
+      "role_id": "author",
+      "lane_id": "local",
+      "objective": "Draft a small target-repository documentation update.",
+      "task_prompt": {"path": "prompts/draft_docs.md"},
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": ["docs/reviews/docs-review-flow/"],
+        "forbidden_paths": [".striatum/"]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "draft",
+          "kind": "handoff",
+          "path": "docs/reviews/docs-review-flow/DOCS_DRAFT.md",
+          "required": true
+        }
+      ],
+      "needs": []
+    },
+    {
+      "id": "review_docs",
+      "type": "review",
+      "title": "Review docs update",
+      "role_id": "reviewer",
+      "lane_id": "local",
+      "fresh_session_required": true,
+      "objective": "Review the documentation draft for clarity and generic language.",
+      "task_prompt": {"path": "prompts/review_docs.md"},
+      "write_scope": {
+        "mode": "review_only_artifact",
+        "repo_write": false,
+        "allowed_paths": ["docs/reviews/docs-review-flow/review/"],
+        "forbidden_paths": [".striatum/"]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "review",
+          "kind": "finding",
+          "path": "docs/reviews/docs-review-flow/review/DOCS_REVIEW.md",
+          "required": true
+        }
+      ],
+      "needs": ["draft_docs"]
+    },
+    {
+      "id": "apply_docs",
+      "type": "synthesis",
+      "title": "Apply docs review",
+      "role_id": "author",
+      "lane_id": "local",
+      "objective": "Apply accepted documentation review findings.",
+      "task_prompt": {"path": "prompts/apply_docs.md"},
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": ["docs/reviews/docs-review-flow/"],
+        "forbidden_paths": [".striatum/"]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "summary",
+          "kind": "synthesis",
+          "path": "docs/reviews/docs-review-flow/DOCS_SUMMARY.md",
+          "required": true
+        }
+      ],
+      "needs": ["review_docs"]
+    }
+  ],
+  "edges": [
+    {"from": "draft_docs", "to": "review_docs", "on": "completed"},
+    {"from": "review_docs", "to": "apply_docs", "on": "completed"}
+  ],
+  "cycles": []
+}

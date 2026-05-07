@@ -7,7 +7,17 @@ import sqlite3
 from pathlib import Path
 from typing import Any, cast
 
-from striatum.db import JsonObject, insert_event, json_dumps, new_id, sha256_bytes, utc_now
+from striatum.db import (
+    ADAPTER_ENFORCEMENT_LEVELS,
+    JsonObject,
+    adapter_constraint_enforcement,
+    adapter_enforcement_satisfies,
+    insert_event,
+    json_dumps,
+    new_id,
+    sha256_bytes,
+    utc_now,
+)
 from striatum.errors import WorkflowError
 
 # JSON workflow files are user-authored and need dynamic validation.
@@ -52,6 +62,119 @@ def load_workflow(path: Path) -> JsonObject:
     workflow = cast(JsonObject, loaded)
     validate_workflow(workflow)
     return workflow
+
+
+def plan_workflow(workflow: JsonObject) -> JsonObject:
+    """Return a dry-run execution plan for an already validated workflow."""
+    validate_workflow(workflow)
+    jobs = workflow_job_map(workflow)
+    edges = edge_dependency_pairs(workflow)
+    downstream: dict[str, list[str]] = {job_id: [] for job_id in jobs}
+    indegree: dict[str, int] = {job_id: 0 for job_id in jobs}
+    for from_id, to_id, _gate in edges:
+        downstream[from_id].append(to_id)
+        indegree[to_id] += 1
+
+    ready = sorted(job_id for job_id, count in indegree.items() if count == 0)
+    claim_order: list[JsonObject] = []
+    visited: set[str] = set()
+    step = 1
+    while ready:
+        wave = ready
+        ready = []
+        claim_order.append(
+            {
+                "step": step,
+                "claimable": [_planned_job(jobs[job_id]) for job_id in wave],
+            }
+        )
+        step += 1
+        for job_id in wave:
+            visited.add(job_id)
+            for downstream_id in sorted(downstream[job_id]):
+                indegree[downstream_id] -= 1
+                if indegree[downstream_id] == 0:
+                    ready.append(downstream_id)
+        ready.sort()
+
+    if len(visited) != len(jobs):
+        remaining = sorted(set(jobs).difference(visited))
+        raise WorkflowError(f"workflow edges contain a dependency cycle involving: {', '.join(remaining)}")
+
+    return {
+        "workflow_id": workflow["workflow_id"],
+        "workflow_version": workflow.get("workflow_version"),
+        "valid": True,
+        "summary": {
+            "jobs": len(jobs),
+            "edges": len(edges),
+            "cycles": len(_list(workflow, "cycles")),
+            "claim_steps": len(claim_order),
+        },
+        "claim_order": claim_order,
+        "review_gates": _planned_review_gates(workflow, jobs=jobs, edges=edges),
+        "cycles": _planned_cycles(workflow),
+        "graph": workflow_graph_data(workflow)["graph"],
+    }
+
+
+def workflow_graph_data(workflow: JsonObject) -> JsonObject:
+    """Return workflow graph data for authoring and visualization."""
+    validate_workflow(workflow)
+    jobs = workflow_job_map(workflow)
+    edges = edge_dependency_pairs(workflow)
+    return {
+        "workflow_id": workflow["workflow_id"],
+        "workflow_version": workflow.get("workflow_version"),
+        "graph": {
+            "nodes": [_planned_job(job) for job in jobs.values()],
+            "edges": [_planned_edge(jobs, from_id=from_id, to_id=to_id) for from_id, to_id, _gate in edges],
+            "cycles": _planned_cycles(workflow),
+        },
+    }
+
+
+def workflow_graph_mermaid(workflow: JsonObject) -> str:
+    """Return a Mermaid flowchart for a workflow graph."""
+    graph_data = workflow_graph_data(workflow)
+    graph = cast(JsonObject, graph_data["graph"])
+    nodes = cast(list[JsonObject], graph["nodes"])
+    edges = cast(list[JsonObject], graph["edges"])
+    cycles = cast(list[JsonObject], graph["cycles"])
+
+    node_names = {str(node["job_id"]): f"n{index}" for index, node in enumerate(nodes)}
+    parallel_groups: dict[str, list[JsonObject]] = {}
+    ungrouped: list[JsonObject] = []
+    for node in nodes:
+        group = node.get("parallel_group")
+        if isinstance(group, str) and group != "":
+            parallel_groups.setdefault(group, []).append(node)
+        else:
+            ungrouped.append(node)
+
+    lines = ["flowchart TD"]
+    for node in ungrouped:
+        lines.append(_mermaid_node_line(node, node_names=node_names, indent="  "))
+    for group_index, group_id in enumerate(sorted(parallel_groups)):
+        lines.append(f'  subgraph pg{group_index}["parallel: {_mermaid_label(group_id)}"]')
+        for node in sorted(parallel_groups[group_id], key=lambda item: str(item["job_id"])):
+            lines.append(_mermaid_node_line(node, node_names=node_names, indent="    "))
+        lines.append("  end")
+    for edge in edges:
+        from_id = str(edge["from"])
+        to_id = str(edge["to"])
+        gate = edge.get("gate")
+        label = "completed"
+        if isinstance(gate, dict) and "requires_verdict" in gate:
+            label = "accepted review"
+        lines.append(f"  {node_names[from_id]} -->|{label}| {node_names[to_id]}")
+    for cycle in cycles:
+        from_id = str(cycle["from"])
+        to_id = str(cycle["to"])
+        max_iterations = cycle.get("max_iterations")
+        label = f"needs_revision max {max_iterations}"
+        lines.append(f"  {node_names[from_id]} -.->|{label}| {node_names[to_id]}")
+    return "\n".join(lines) + "\n"
 
 
 def validate_workflow(workflow: JsonObject) -> None:
@@ -261,6 +384,121 @@ def validate_needs_match_edges(workflow: JsonObject) -> None:
             raise WorkflowError(f"job {job_id!r} needs disagree with workflow edges")
 
 
+def _planned_job(job: JsonValue) -> JsonObject:
+    lane_id = job.get("lane_id")
+    parallel_group = job.get("parallel_group")
+    artifacts = []
+    for artifact in job.get("expected_artifacts", []):
+        if isinstance(artifact, dict):
+            artifacts.append(
+                {
+                    "logical_name": artifact.get("logical_name"),
+                    "kind": artifact.get("kind"),
+                    "path": artifact.get("path"),
+                    "required": artifact.get("required") is True,
+                }
+            )
+    return {
+        "job_id": _string(job, "id"),
+        "type": job.get("type", "generic"),
+        "role_id": _string(job, "role_id"),
+        "lane_id": lane_id if isinstance(lane_id, str) else None,
+        "parallel_group": parallel_group if isinstance(parallel_group, str) else None,
+        "fresh_session_required": job.get("fresh_session_required") is True,
+        "write_scope_mode": _write_scope_mode(job),
+        "expected_artifacts": artifacts,
+    }
+
+
+def _planned_edge(jobs: dict[str, JsonValue], *, from_id: str, to_id: str) -> JsonObject:
+    gate: JsonObject = {"on": "completed"}
+    if jobs[from_id].get("type") == "review":
+        gate["requires_verdict"] = ["accept", "accept_with_findings"]
+    return {"from": from_id, "to": to_id, "gate": gate}
+
+
+def _planned_review_gates(
+    workflow: JsonObject,
+    *,
+    jobs: dict[str, JsonValue],
+    edges: list[tuple[str, str, JsonObject]],
+) -> list[JsonObject]:
+    cycle_by_review = {
+        str(cycle["from"]): cycle
+        for cycle in _planned_cycles(workflow)
+        if isinstance(cycle.get("from"), str)
+    }
+    downstream_by_review: dict[str, list[str]] = {}
+    for from_id, to_id, _gate in edges:
+        if jobs[from_id].get("type") == "review":
+            downstream_by_review.setdefault(from_id, []).append(to_id)
+
+    policy = workflow.get("review_revision_policy")
+    root_policy = policy.get("root_review_needs_revision") if isinstance(policy, dict) else None
+    gates: list[JsonObject] = []
+    for job_id, job in jobs.items():
+        if job.get("type") != "review":
+            continue
+        revision_cycle = cycle_by_review.get(job_id)
+        if revision_cycle is not None:
+            needs_revision: JsonObject = {
+                "action": "cycle",
+                "to": revision_cycle["to"],
+                "max_iterations": revision_cycle["max_iterations"],
+            }
+        elif root_policy == "human_checkpoint":
+            needs_revision = {"action": "human_checkpoint"}
+        else:
+            needs_revision = {"action": "no_declared_route"}
+        gates.append(
+            {
+                "review_job_id": job_id,
+                "downstream_jobs": sorted(downstream_by_review.get(job_id, [])),
+                "accepting_verdicts": ["accept", "accept_with_findings"],
+                "needs_revision": needs_revision,
+                "reject": {"action": "fail_review"},
+            }
+        )
+    return sorted(gates, key=lambda gate: str(gate["review_job_id"]))
+
+
+def _planned_cycles(workflow: JsonObject) -> list[JsonObject]:
+    cycles: list[JsonObject] = []
+    for cycle_value in _list(workflow, "cycles"):
+        cycle = cast(JsonValue, cycle_value)
+        cycles.append(
+            {
+                "from": _string(cycle, "from"),
+                "to": _string(cycle, "to"),
+                "on_verdict": _string(cycle, "on_verdict"),
+                "max_iterations": cycle["max_iterations"],
+            }
+        )
+    return cycles
+
+
+def _write_scope_mode(job: JsonValue) -> str | None:
+    write_scope = job.get("write_scope")
+    if not isinstance(write_scope, dict):
+        return None
+    mode = write_scope.get("mode")
+    return mode if isinstance(mode, str) else None
+
+
+def _mermaid_node_line(node: JsonObject, *, node_names: dict[str, str], indent: str) -> str:
+    job_id = str(node["job_id"])
+    type_text = str(node.get("type", "generic"))
+    role_id = str(node.get("role_id", ""))
+    lane_id = node.get("lane_id")
+    lane_text = f"/{lane_id}" if isinstance(lane_id, str) and lane_id != "" else ""
+    label = _mermaid_label(f"{job_id}<br/>{type_text} {role_id}{lane_text}")
+    return f'{indent}{node_names[job_id]}["{label}"]'
+
+
+def _mermaid_label(value: str) -> str:
+    return value.replace("\\", "\\\\").replace('"', '\\"')
+
+
 def _validate_parallelism(jobs: list[object]) -> None:
     groups: dict[str, list[JsonValue]] = {}
     for job_value in jobs:
@@ -299,16 +537,55 @@ def _validate_lane_constraints(lanes: JsonObject) -> None:
     for lane_id, lane_value in lanes.items():
         if not isinstance(lane_value, dict):
             raise WorkflowError(f"lane {lane_id!r} must be an object")
-        constraints = lane_value.get("constraints")
-        if constraints is None:
-            continue
-        if not isinstance(constraints, dict):
+        if lane_value.get("adapter") == "process":
+            command = lane_value.get("command")
+            if not isinstance(command, list) or not command:
+                raise WorkflowError(f"process lane {lane_id!r} command must be a non-empty array")
+            if not all(isinstance(part, str) and part != "" for part in command):
+                raise WorkflowError(f"process lane {lane_id!r} command entries must be non-empty strings")
+            env = lane_value.get("env")
+            if env is not None and (
+                not isinstance(env, dict)
+                or not all(isinstance(key, str) and isinstance(value, str) for key, value in env.items())
+            ):
+                raise WorkflowError(f"process lane {lane_id!r} env must be an object of strings")
+        constraints_value = lane_value.get("constraints")
+        if constraints_value is None:
+            constraints: dict[str, object] = {}
+        elif not isinstance(constraints_value, dict):
             raise WorkflowError(f"lane {lane_id!r} constraints must be an object")
+        else:
+            constraints = constraints_value
         for key, value in constraints.items():
             if key not in CONSTRAINT_VALUES:
                 raise WorkflowError(f"lane {lane_id!r} has unknown constraint {key!r}")
             if value not in CONSTRAINT_VALUES[key]:
                 raise WorkflowError(f"lane {lane_id!r} has invalid {key!r} constraint value")
+        required = lane_value.get("required_enforcement")
+        if required is None:
+            continue
+        if not isinstance(required, dict):
+            raise WorkflowError(f"lane {lane_id!r} required_enforcement must be an object")
+        for key, value in required.items():
+            if key not in constraints:
+                raise WorkflowError(
+                    f"lane {lane_id!r} requires enforcement for undeclared constraint {key!r}"
+                )
+            if value not in ADAPTER_ENFORCEMENT_LEVELS:
+                raise WorkflowError(f"lane {lane_id!r} has invalid required enforcement level")
+            constraint_value = constraints[key]
+            if not isinstance(constraint_value, str) or not isinstance(value, str):
+                raise WorkflowError(f"lane {lane_id!r} required_enforcement entries must be strings")
+            actual = adapter_constraint_enforcement(
+                lane_value.get("adapter"),
+                constraint=str(key),
+                requested=constraint_value,
+            )
+            if not adapter_enforcement_satisfies(actual=actual, required=value):
+                raise WorkflowError(
+                    f"lane {lane_id!r} requires {value!r} enforcement for {key!r}, "
+                    f"but adapter provides {actual!r}"
+                )
 
 
 def _validate_revision_policy(workflow: JsonObject, *, jobs: list[object]) -> None:

@@ -11,8 +11,8 @@ This specification binds the V1 MVP described in
 
 `striatum` V1 is a local Python CLI for orchestrating terminal-agent
 workflow state inside one repository. It does not provide hosted services,
-external persistence, telemetry, Slack, web, TUI, MCP, plugin marketplaces, or
-automatic commits.
+external persistence, telemetry, Slack, web, TUI, a long-running MCP server,
+plugin marketplaces, or automatic commits.
 
 The authoritative live state is SQLite under `.striatum/state.sqlite3`.
 Repository artifacts are durable provenance only. Marker files, tmux panes,
@@ -73,7 +73,9 @@ with disjoint write scopes or review-only unique artifact paths.
 Lane configs may declare adapter constraints for network access, transcript
 handling, and repository scope. The validator accepts only known constraint
 names and values, and work packets expose both the requested constraint and the
-adapter's recorded enforcement level.
+adapter's recorded enforcement level. Lanes may also declare
+`required_enforcement` for any declared constraint. Validation rejects a lane
+when the adapter can only provide a weaker level than the workflow requires.
 
 Workflows may declare `review_revision_policy` for root review
 `needs_revision` verdicts. V1 supports the explicit
@@ -117,12 +119,25 @@ inspection before requeue.
 Published artifacts are curated outputs: prompts, findings, ledgers,
 syntheses, decisions, handoffs, markers, and test reports.
 
+Owner choices can be recorded with `decision record`. The command writes a
+durable Markdown artifact with YAML front matter using
+`schema_version: striatum.decision.v1`, `artifact_kind: decision`, a stable
+`decision_id`, `run_id`, `outcome`, `follow_up_required`, title, owner, and
+creation timestamp. It records the file as a run-level artifact of kind
+`decision` with no job, session, or active lease requirement, and emits a
+`decision.recorded` event. Outcomes are `accepted`, `rejected`, and
+`accepted_with_follow_up`; the follow-up outcome requires explicit follow-up
+text.
+
 Durable Markdown artifacts should include the work packet's privacy-safe
 `author: <role-name>-<model-name>-<ordinal>` line in their title block when
 one is provided.
 
 `publish-artifact` validates file existence, repo-relative path, write scope,
 artifact kind, and content hash. Transcript artifacts are rejected by default.
+Markdown artifacts may include YAML front matter or title-block `author:`
+metadata; when they do, the line must exactly match the work packet's lowercase
+author line. The publisher still records artifacts rather than rewriting them.
 
 `complete` and review `verdict` commands verify all required artifacts before
 terminal job transition.
@@ -173,9 +188,12 @@ Required commands:
 ```text
 striatum init
 striatum workflow validate
+striatum workflow plan
+striatum workflow graph
 striatum run prepare
 striatum branch confirm
 striatum run start
+striatum run summary
 striatum register-session
 striatum claim-next
 striatum ack
@@ -188,22 +206,74 @@ striatum submit-review
 striatum complete
 striatum verdict
 striatum evidence export
+striatum decision record
 striatum status
 striatum why
 striatum doctor
+striatum recovery stale-leases
+striatum recovery requeue-stale
+striatum adapter run
 ```
 
 Human read commands can pretty-print. `--json` returns stable machine-readable
 JSON. Mutation commands support JSON output for agent use.
+
+## Local API And MCP Wrapper Boundary
+
+`striatum.api.invoke(args, repo=...)` is the minimal local Python API. It
+parses the same command arguments as the CLI, calls the same dispatcher, and
+returns the same JSON-style result envelope:
+
+```json
+{"ok": true, "data": {}}
+```
+
+Errors use the CLI's existing exit-code semantics:
+
+```json
+{"ok": false, "error": {"message": "...", "code": 3}}
+```
+
+This API is an adapter convenience only. It must not write SQLite directly,
+reimplement workflow transitions, bypass artifact validation, or define a
+separate command vocabulary.
+
+The minimal local MCP-like wrapper exposes tools over line-delimited stdio
+JSON-RPC. Each tool maps to an existing CLI command or `striatum.api.invoke`
+call. MCP resources may expose read-only views such as status, `why`, doctor
+output, or stored work packets. MCP remains optional and local; the CLI and
+SQLite invariants are still the product contract.
 
 `status --json` keeps aggregate run and job counts and also reports open
 blockers, human checkpoints, latest non-accepting review verdicts, claimable
 jobs grouped by role and lane, blocked downstream jobs, and deterministic
 `next_actions`.
 
+`workflow plan --json` validates a workflow and returns a dry-run plan with
+claim waves, review gates, declared revision cycles, and graph nodes/edges.
+
+`workflow graph <workflow.json>` validates a workflow and exports graph data
+for authoring review. The default output is Mermaid `flowchart TD`, including
+declared dependency edges, accepting-review gates, bounded revision-cycle
+edges, and declared parallel groups. `--format json --json` returns stable
+machine-readable graph data with nodes, edges, and cycles.
+
 `why <id> --json` resolves run, job, queue message, blocker, artifact, verdict,
-and session ids. Blocker introspection includes owning context, related verdict
-when present, blocked downstream jobs, and next actions.
+session, and process ids. Blocker introspection includes owning context,
+related verdict when present, blocked downstream jobs, human-checkpoint context
+when relevant, and next actions.
+
+`run summary` writes a compact durable Markdown note with run id, branch, job
+counts, verdicts, artifacts, blockers, and verification state.
+
+`recovery stale-leases --json` applies lazy lease expiry for a run and reports
+stale lease recovery context, explicitly distinguishing repo-write work that
+requires manual inspection from review-only work that can be reclaimed safely.
+`recovery requeue-stale --run-id <id> --job-id <id> --json` is a bounded
+operator mutation for expired non-repo-write work only. It restores the job's
+work message to `pending` when needed, reports when the work was already
+reclaimable, and refuses repo-write jobs so abandoned write work still requires
+manual inspection or a future worktree-isolated recovery path.
 
 ## Adapter Boundary
 
@@ -211,6 +281,14 @@ The minimum integration contract is process-based: command array, cwd, env,
 stdin, stdout, stderr, exit code, and optional PTY/tmux wrapping. Provider
 features live in lane command configuration. Core scheduling does not parse
 terminal output or infer behavior from provider names.
+
+`adapter run` is the minimal local process adapter. It launches the configured
+`process` lane command for an active claimed lease, can pass the stored work
+packet on stdin, sets `STRIATUM_*` environment variables, creates a
+`.striatum/scratch/<process_id>` scratch directory, and records process
+metadata plus lifecycle events in SQLite. Stdout and stderr are suppressed
+unless the operator explicitly requests inherited stdio; Striatum does not
+capture transcripts.
 
 ## First Validation Fixture
 
@@ -221,6 +299,10 @@ draft -> parallel reviews -> findings ledger -> synthesis -> final review
 ```
 
 Tests exercise it with fake sessions and no live model calls.
+
+A smaller generic docs-only workflow fixture also lives at
+`examples/docs-review-flow/workflow.json`. It covers draft, review, and apply
+steps without Engram-specific paths or live model requirements.
 
 ## Verification
 

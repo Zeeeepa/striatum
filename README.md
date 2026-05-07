@@ -50,10 +50,10 @@ the standard library. It can:
 - export redacted Markdown evidence snapshots for commit and review while
   leaving `.striatum/` ignored.
 
-V1 deliberately does not launch or supervise production model processes yet.
-The generic process/tmux adapter boundary is designed, and a temporary tmux
-bootstrap script exists, but the tested core is the deterministic state,
-workflow, work-packet, artifact, and review-gate contract.
+V1 includes a minimal local process adapter for configured `process` lanes and
+already-claimed work. It does not yet provide long-lived interactive
+supervision, but the tested core is now the deterministic state, workflow,
+work-packet, artifact, review-gate, and process launch contract.
 
 ## What It Is For
 
@@ -243,6 +243,19 @@ The validator checks required top-level fields, role/lane references, artifact
 paths, dependency edges, bounded cycles, declared parallelism, and lane
 constraints. YAML files are rejected.
 
+For authoring reviews, export the workflow graph before preparing a run:
+
+```bash
+"$RUNNER" --repo "$TARGET_REPO" workflow graph "$WORKFLOW"
+"$RUNNER" --repo "$TARGET_REPO" workflow graph "$WORKFLOW" \
+  --format json \
+  --json
+```
+
+The default graph output is a Mermaid `flowchart TD` that can be pasted into
+Markdown renderers that support Mermaid. The JSON format returns the same
+validated graph data used by the dry-run planner.
+
 ### 3. Prepare A Run
 
 ```bash
@@ -375,7 +388,25 @@ Use `--verdict accept`, `accept_with_findings`, `needs_revision`, or `reject`.
 For unusual flows, you can still call `publish-artifact` and `verdict`
 separately.
 
-### 9. Report A Blocker
+### 9. Record Owner Decisions
+
+Owner choices that affect a run can be written as durable decision artifacts
+without claiming work or holding an active lease:
+
+```bash
+"$RUNNER" --repo "$TARGET_REPO" decision record \
+  --run-id <run_id> \
+  --path docs/decisions/owner-choice.md \
+  --outcome accepted_with_follow_up \
+  --title "Keep decisions as durable artifacts" \
+  --follow-up "Review fuller decision schemas later." \
+  --json
+```
+
+The generated Markdown includes machine-checkable front matter and is recorded
+as artifact kind `decision`.
+
+### 10. Report A Blocker
 
 If an agent cannot proceed:
 
@@ -393,7 +424,7 @@ If an agent cannot proceed:
 Use `--severity blocked` for normal blockers and `human_checkpoint` when the
 run needs explicit human judgment.
 
-### 10. Inspect And Export Recovery Evidence
+### 11. Inspect And Export Recovery Evidence
 
 ```bash
 "$RUNNER" --repo "$TARGET_REPO" status --run-id <run_id> --json
@@ -414,7 +445,8 @@ The export path must be inside the repository and outside `.striatum/`.
 
 ## Writing Workflows
 
-Start from `examples/rfc-ledger-cleanup/workflow.json`.
+Start from `examples/rfc-ledger-cleanup/workflow.json`. For a smaller generic
+docs-only fixture, see `examples/docs-review-flow/workflow.json`.
 
 Required top-level fields:
 
@@ -451,13 +483,20 @@ Lane configs may declare adapter constraints:
     "network": "forbidden",
     "transcripts": "off",
     "repo_scope": "local_only"
+  },
+  "required_enforcement": {
+    "network": "advisory",
+    "transcripts": "enforced"
   }
 }
 ```
 
-V1 records these constraints in work packets. It can enforce transcript-off for
-the V1 process adapter, but network and repo-scope restrictions are advisory
-unless the surrounding launcher/sandbox actually enforces them.
+V1 records requested constraints, required enforcement levels, actual adapter
+enforcement, and satisfaction status in work packets. Workflow validation
+rejects a lane when `required_enforcement` asks for a stronger guarantee than
+the adapter can provide. The local process adapter enforces transcript-off by
+default; network and repo-scope restrictions remain advisory unless a
+surrounding launcher or sandbox enforces them.
 
 ## Bootstrap Tmux Harness
 
@@ -475,7 +514,12 @@ design-input lanes plus a synthesis handoff pane.
 
 This script is not the product control plane and should not be treated as
 generic runner behavior. It exists to bootstrap the MVP design/build process
-until the generic runner grows a real process/tmux adapter.
+until the generic runner can represent that workflow end to end.
+
+The runner now has a minimal generic process adapter through `adapter run`.
+It launches configured local `process` lane commands for already-claimed work,
+passes the work packet on stdin by default, records process metadata/events in
+SQLite, and does not capture transcripts.
 
 ## Command Reference
 
@@ -484,9 +528,12 @@ Core lifecycle:
 ```text
 striatum init
 striatum workflow validate
+striatum workflow plan
+striatum workflow graph
 striatum run prepare
 striatum branch confirm
 striatum run start
+striatum run summary
 ```
 
 Agent/session work loop:
@@ -503,6 +550,7 @@ striatum publish-artifact
 striatum complete
 striatum verdict
 striatum submit-review
+striatum decision record
 ```
 
 Inspection and recovery:
@@ -512,6 +560,9 @@ striatum status
 striatum why
 striatum doctor
 striatum evidence export
+striatum recovery stale-leases
+striatum recovery requeue-stale
+striatum adapter run
 ```
 
 Stable exit codes:

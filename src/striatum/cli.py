@@ -13,7 +13,6 @@ from typing import Sequence
 
 from striatum.artifacts import publish_artifact
 from striatum.db import (
-    StriatumError,
     JsonObject,
     active_lease_for,
     claim_next,
@@ -35,9 +34,10 @@ from striatum.db import (
     transaction,
     utc_now,
 )
-from striatum.errors import InvalidTransitionError, LeaseError, NotFoundError, WorkflowError
+from striatum.errors import ArtifactError, InvalidTransitionError, NotFoundError, StriatumError, WorkflowError
 from striatum.identity import artifact_author_identity
-from striatum.workflow import create_run, load_workflow
+from striatum.process_adapter import run_process_adapter
+from striatum.workflow import create_run, load_workflow, plan_workflow, workflow_graph_data, workflow_graph_mermaid
 
 
 EVIDENCE_FREE_TEXT_KEYS = {"description", "rationale"}
@@ -84,6 +84,13 @@ def build_parser() -> argparse.ArgumentParser:
     validate = workflow_sub.add_parser("validate")
     validate.add_argument("path")
     validate.add_argument("--json", action="store_true")
+    plan = workflow_sub.add_parser("plan")
+    plan.add_argument("path")
+    plan.add_argument("--json", action="store_true")
+    graph = workflow_sub.add_parser("graph")
+    graph.add_argument("path")
+    graph.add_argument("--format", choices=["mermaid", "json"], default="mermaid")
+    graph.add_argument("--json", action="store_true")
 
     run = sub.add_parser("run")
     run_sub = run.add_subparsers(dest="run_command", required=True)
@@ -93,6 +100,10 @@ def build_parser() -> argparse.ArgumentParser:
     start = run_sub.add_parser("start")
     start.add_argument("--run-id", required=True)
     start.add_argument("--json", action="store_true")
+    summary = run_sub.add_parser("summary")
+    summary.add_argument("--run-id", required=True)
+    summary.add_argument("--path", required=True)
+    summary.add_argument("--json", action="store_true")
 
     branch = sub.add_parser("branch")
     branch_sub = branch.add_subparsers(dest="branch_command", required=True)
@@ -197,6 +208,22 @@ def build_parser() -> argparse.ArgumentParser:
     evidence_export.add_argument("--path", required=True)
     evidence_export.add_argument("--json", action="store_true")
 
+    decision = sub.add_parser("decision")
+    decision_sub = decision.add_subparsers(dest="decision_command", required=True)
+    decision_record = decision_sub.add_parser("record")
+    decision_record.add_argument("--run-id", required=True)
+    decision_record.add_argument("--path", required=True)
+    decision_record.add_argument(
+        "--outcome",
+        choices=["accepted", "rejected", "accepted_with_follow_up"],
+        required=True,
+    )
+    decision_record.add_argument("--title", required=True)
+    decision_record.add_argument("--decision-id")
+    decision_record.add_argument("--rationale")
+    decision_record.add_argument("--follow-up")
+    decision_record.add_argument("--json", action="store_true")
+
     status = sub.add_parser("status")
     status.add_argument("--run-id")
     status.add_argument("--json", action="store_true")
@@ -208,6 +235,25 @@ def build_parser() -> argparse.ArgumentParser:
     doctor = sub.add_parser("doctor")
     doctor.add_argument("--run-id")
     doctor.add_argument("--json", action="store_true")
+
+    recovery = sub.add_parser("recovery")
+    recovery_sub = recovery.add_subparsers(dest="recovery_command", required=True)
+    stale_leases = recovery_sub.add_parser("stale-leases")
+    stale_leases.add_argument("--run-id", required=True)
+    stale_leases.add_argument("--json", action="store_true")
+    requeue_stale = recovery_sub.add_parser("requeue-stale")
+    requeue_stale.add_argument("--run-id", required=True)
+    requeue_stale.add_argument("--job-id", required=True)
+    requeue_stale.add_argument("--json", action="store_true")
+
+    adapter = sub.add_parser("adapter")
+    adapter_sub = adapter.add_subparsers(dest="adapter_command", required=True)
+    adapter_run = adapter_sub.add_parser("run")
+    adapter_run.add_argument("--session-id", required=True)
+    adapter_run.add_argument("--lease-id", required=True)
+    adapter_run.add_argument("--stdin", choices=["packet", "none"], default="packet")
+    adapter_run.add_argument("--inherit-stdio", action="store_true")
+    adapter_run.add_argument("--json", action="store_true")
 
     return parser
 
@@ -229,6 +275,17 @@ def dispatch(args: argparse.Namespace) -> object:
     if args.command == "workflow" and args.workflow_command == "validate":
         workflow = load_workflow(Path(args.path))
         return {"workflow_id": workflow["workflow_id"], "valid": True}
+    if args.command == "workflow" and args.workflow_command == "plan":
+        workflow = load_workflow(Path(args.path))
+        return plan_workflow(workflow)
+    if args.command == "workflow" and args.workflow_command == "graph":
+        workflow = load_workflow(Path(args.path))
+        if args.format == "json":
+            return workflow_graph_data(workflow)
+        mermaid = workflow_graph_mermaid(workflow)
+        if args.json:
+            return {"format": "mermaid", "source": mermaid}
+        return mermaid
     ensure_initialized(repo)
     with connect(repo) as conn:
         if args.command == "run" and args.run_command == "prepare":
@@ -238,6 +295,8 @@ def dispatch(args: argparse.Namespace) -> object:
             return branch_confirm(conn, repo=repo, run_id=args.run_id, branch=args.branch)
         if args.command == "run" and args.run_command == "start":
             return run_start(conn, run_id=args.run_id)
+        if args.command == "run" and args.run_command == "summary":
+            return run_summary_export(conn, repo=repo, run_id=args.run_id, path_text=args.path)
         if args.command == "register-session":
             return register_session(
                 conn,
@@ -324,12 +383,37 @@ def dispatch(args: argparse.Namespace) -> object:
             )
         if args.command == "evidence" and args.evidence_command == "export":
             return evidence_export(conn, repo=repo, run_id=args.run_id, path_text=args.path)
+        if args.command == "decision" and args.decision_command == "record":
+            return decision_record(
+                conn,
+                repo=repo,
+                run_id=args.run_id,
+                path_text=args.path,
+                outcome=args.outcome,
+                title=args.title,
+                decision_id=args.decision_id,
+                rationale=args.rationale,
+                follow_up=args.follow_up,
+            )
         if args.command == "status":
             return status(conn, run_id=args.run_id)
         if args.command == "why":
             return why(conn, target_id=args.id)
         if args.command == "doctor":
             return doctor(conn, run_id=args.run_id)
+        if args.command == "recovery" and args.recovery_command == "stale-leases":
+            return stale_leases(conn, run_id=args.run_id)
+        if args.command == "recovery" and args.recovery_command == "requeue-stale":
+            return requeue_stale(conn, run_id=args.run_id, job_id=args.job_id)
+        if args.command == "adapter" and args.adapter_command == "run":
+            return run_process_adapter(
+                conn,
+                repo=repo,
+                session_id=args.session_id,
+                lease_id=args.lease_id,
+                stdin_mode=args.stdin,
+                inherit_stdio=args.inherit_stdio,
+            )
     raise StriatumError("unknown command", exit_code=2)
 
 
@@ -869,29 +953,53 @@ def why(conn: sqlite3.Connection, *, target_id: str) -> JsonObject:
 
     blocker = conn.execute("SELECT * FROM blockers WHERE blocker_id = ?", (target_id,)).fetchone()
     if blocker is not None:
-        job_id = str(blocker["job_id"]) if blocker["job_id"] is not None else None
+        blocker_job_id = str(blocker["job_id"]) if blocker["job_id"] is not None else None
         run_id = str(blocker["run_id"])
+        blocked_jobs = (
+            downstream_jobs(conn, job_id=blocker_job_id) if blocker_job_id is not None else []
+        )
+        blocker_payload = dict(blocker)
+        if blocker_job_id is not None:
+            blocker_job = row_by_id(conn, "jobs", "job_id", blocker_job_id)
+            blocker_payload["workflow_job_id"] = blocker_job["workflow_job_id"]
+            blocker_payload["job_state"] = blocker_job["state"]
+        checkpoint_context = (
+            human_checkpoint_context(blocker_payload, blocked_jobs=blocked_jobs)
+            if blocker["severity"] == "human_checkpoint"
+            else None
+        )
         return {
             "target_type": "blocker",
-            "blocker": dict(blocker),
+            "blocker": blocker_payload,
             "run": dict(row_by_id(conn, "runs", "run_id", run_id)),
-            "job": dict(row_by_id(conn, "jobs", "job_id", job_id)) if job_id is not None else None,
+            "job": dict(row_by_id(conn, "jobs", "job_id", blocker_job_id))
+            if blocker_job_id is not None
+            else None,
             "session": dict(row_by_id(conn, "sessions", "session_id", str(blocker["session_id"])))
             if blocker["session_id"] is not None
             else None,
-            "related_verdict": latest_verdict_row(conn, job_id=job_id) if job_id is not None else None,
-            "blocked_downstream_jobs": downstream_jobs(conn, job_id=job_id) if job_id is not None else [],
-            "next_actions": ["inspect_blocker", "resolve_human_checkpoint", "export_run_evidence"],
-            "events": events_for(conn, job_id=job_id) if job_id is not None else events_for(conn, run_id=run_id),
+            "related_verdict": latest_verdict_row(conn, job_id=blocker_job_id)
+            if blocker_job_id is not None
+            else None,
+            "blocked_downstream_jobs": blocked_jobs,
+            "human_checkpoint": checkpoint_context,
+            "next_actions": checkpoint_context["next_actions"]
+            if checkpoint_context is not None
+            else ["inspect_blocker", "export_run_evidence"],
+            "events": events_for(conn, job_id=blocker_job_id)
+            if blocker_job_id is not None
+            else events_for(conn, run_id=run_id),
         }
 
     artifact = conn.execute("SELECT * FROM artifacts WHERE artifact_id = ?", (target_id,)).fetchone()
     if artifact is not None:
-        job_id = str(artifact["job_id"]) if artifact["job_id"] is not None else None
+        artifact_job_id = str(artifact["job_id"]) if artifact["job_id"] is not None else None
         return {
             "target_type": "artifact",
             "artifact": dict(artifact),
-            "job": dict(row_by_id(conn, "jobs", "job_id", job_id)) if job_id is not None else None,
+            "job": dict(row_by_id(conn, "jobs", "job_id", artifact_job_id))
+            if artifact_job_id is not None
+            else None,
             "verdicts": verdicts_for_artifact(conn, artifact_id=target_id),
             "events": events_for(conn, artifact_id=target_id),
         }
@@ -919,7 +1027,20 @@ def why(conn: sqlite3.Connection, *, target_id: str) -> JsonObject:
             "events": events_for(conn, session_id=str(session["session_id"])),
         }
 
-    raise NotFoundError("target id is not a known run, job, message, blocker, artifact, verdict, or session")
+    if table_exists(conn, "process_executions"):
+        process = conn.execute("SELECT * FROM process_executions WHERE process_id = ?", (target_id,)).fetchone()
+        if process is not None:
+            return {
+                "target_type": "process",
+                "process": dict(process),
+                "job": dict(row_by_id(conn, "jobs", "job_id", str(process["job_id"]))),
+                "session": dict(row_by_id(conn, "sessions", "session_id", str(process["session_id"]))),
+                "events": events_for_process(conn, process_id=target_id),
+            }
+
+    raise NotFoundError(
+        "target id is not a known run, job, message, blocker, artifact, verdict, session, or process"
+    )
 
 
 def evidence_export(conn: sqlite3.Connection, *, repo: Path, run_id: str, path_text: str) -> JsonObject:
@@ -945,6 +1066,157 @@ def evidence_export(conn: sqlite3.Connection, *, repo: Path, run_id: str, path_t
         payload={"path": path_text, "sha256": digest},
     )
     return {"status": "exported", "run_id": run_id, "path": path_text, "sha256": digest}
+
+
+def run_summary_export(conn: sqlite3.Connection, *, repo: Path, run_id: str, path_text: str) -> JsonObject:
+    """Write a compact human-facing run summary."""
+    run = row_by_id(conn, "runs", "run_id", run_id)
+    target = repo_relative_path(repo, path_text)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    summary = run_summary_snapshot(conn, run_id=run_id)
+    body = render_run_summary_markdown(run=dict(run), summary=summary)
+    target.write_text(body, encoding="utf-8")
+    digest = sha256_bytes(body.encode("utf-8"))
+    insert_event(
+        conn,
+        run_id=run_id,
+        event_type="run_summary.exported",
+        payload={"path": path_text, "sha256": digest},
+    )
+    return {"status": "exported", "run_id": run_id, "path": path_text, "sha256": digest}
+
+
+def decision_record(
+    conn: sqlite3.Connection,
+    *,
+    repo: Path,
+    run_id: str,
+    path_text: str,
+    outcome: str,
+    title: str,
+    decision_id: str | None,
+    rationale: str | None,
+    follow_up: str | None,
+) -> JsonObject:
+    """Write and record an owner decision artifact without requiring a lease."""
+    row_by_id(conn, "runs", "run_id", run_id)
+    title = title.strip()
+    if title == "":
+        raise ArtifactError("decision title cannot be empty")
+    if outcome == "accepted_with_follow_up" and (follow_up is None or follow_up.strip() == ""):
+        raise ArtifactError("accepted_with_follow_up decisions require --follow-up")
+    resolved_decision_id = decision_id.strip() if decision_id is not None else new_id("dec")
+    if resolved_decision_id == "" or any(character.isspace() for character in resolved_decision_id):
+        raise ArtifactError("decision id cannot be empty or contain whitespace")
+    existing = conn.execute(
+        """
+        SELECT artifact_id FROM artifacts
+        WHERE run_id = ? AND artifact_kind = 'decision'
+          AND (logical_name = ? OR repo_path = ?)
+        LIMIT 1
+        """,
+        (run_id, resolved_decision_id, path_text),
+    ).fetchone()
+    if existing is not None:
+        raise ArtifactError("decision artifact already exists for this run id/path")
+    target = repo_relative_path(repo, path_text)
+    if target.exists():
+        raise ArtifactError("decision artifact path already exists")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    created_at = utc_now()
+    body = render_decision_markdown(
+        decision_id=resolved_decision_id,
+        run_id=run_id,
+        outcome=outcome,
+        title=title,
+        created_at=created_at,
+        rationale=rationale,
+        follow_up=follow_up,
+    )
+    target.write_text(body, encoding="utf-8")
+    payload = body.encode("utf-8")
+    digest = sha256_bytes(payload)
+    artifact_id = new_id("art")
+    with transaction(conn):
+        conn.execute(
+            """
+            INSERT INTO artifacts (
+              artifact_id, run_id, job_id, session_id, logical_name,
+              artifact_kind, repo_path, content_sha256, size_bytes,
+              publish_mode, created_at
+            )
+            VALUES (?, ?, NULL, NULL, ?, 'decision', ?, ?, ?, 'create', ?)
+            """,
+            (
+                artifact_id,
+                run_id,
+                resolved_decision_id,
+                path_text,
+                digest,
+                len(payload),
+                created_at,
+            ),
+        )
+        insert_event(
+            conn,
+            run_id=run_id,
+            event_type="decision.recorded",
+            artifact_id=artifact_id,
+            payload={
+                "decision_id": resolved_decision_id,
+                "outcome": outcome,
+                "path": path_text,
+                "sha256": digest,
+            },
+        )
+    return {
+        "status": "recorded",
+        "run_id": run_id,
+        "decision_id": resolved_decision_id,
+        "artifact_id": artifact_id,
+        "path": path_text,
+        "outcome": outcome,
+        "sha256": digest,
+    }
+
+
+def render_decision_markdown(
+    *,
+    decision_id: str,
+    run_id: str,
+    outcome: str,
+    title: str,
+    created_at: str,
+    rationale: str | None,
+    follow_up: str | None,
+) -> str:
+    """Render a machine-checkable owner decision Markdown artifact."""
+    follow_up_required = outcome == "accepted_with_follow_up"
+    lines = [
+        "---",
+        "schema_version: striatum.decision.v1",
+        f"decision_id: {json.dumps(decision_id)}",
+        f"run_id: {json.dumps(run_id)}",
+        "artifact_kind: decision",
+        "owner: human",
+        f"outcome: {outcome}",
+        f"follow_up_required: {str(follow_up_required).lower()}",
+        f"title: {json.dumps(title)}",
+        f"created_at: {json.dumps(created_at)}",
+        "---",
+        "",
+        f"# {title}",
+        "",
+        f"Decision ID: `{decision_id}`",
+        f"Run ID: `{run_id}`",
+        f"Outcome: `{outcome}`",
+        "",
+    ]
+    if rationale is not None and rationale.strip() != "":
+        lines.extend(["## Rationale", "", rationale.strip(), ""])
+    if follow_up is not None and follow_up.strip() != "":
+        lines.extend(["## Follow-Up", "", follow_up.strip(), ""])
+    return "\n".join(lines)
 
 
 def redact_evidence_payload(payload: JsonObject) -> JsonObject:
@@ -984,7 +1256,49 @@ def blocker_summaries(conn: sqlite3.Connection, *, run_id: str | None, severity:
         """,
         (run_id, run_id, severity, severity),
     ).fetchall()
-    return [dict(row) for row in rows]
+    summaries: list[JsonObject] = []
+    for row in rows:
+        summary = dict(row)
+        if row["severity"] == "human_checkpoint":
+            job_id = str(row["job_id"]) if row["job_id"] is not None else None
+            blocked_jobs = downstream_jobs(conn, job_id=job_id) if job_id is not None else []
+            summary["human_checkpoint"] = human_checkpoint_context(summary, blocked_jobs=blocked_jobs)
+        summaries.append(summary)
+    return summaries
+
+
+def human_checkpoint_context(blocker: JsonObject, *, blocked_jobs: list[JsonObject]) -> JsonObject:
+    """Return explicit operator context for a human checkpoint."""
+    affected_jobs: list[JsonObject] = []
+    if blocker.get("job_id") is not None:
+        affected_jobs.append(
+            {
+                "job_id": blocker["job_id"],
+                "workflow_job_id": blocker.get("workflow_job_id"),
+                "state": blocker.get("job_state"),
+                "relationship": "checkpoint_job",
+            }
+        )
+    for job in blocked_jobs:
+        affected_jobs.append(
+            {
+                "job_id": job["job_id"],
+                "workflow_job_id": job["workflow_job_id"],
+                "state": job["state"],
+                "relationship": "blocked_downstream",
+            }
+        )
+    return {
+        "decision_required": "Human decision required before downstream work can continue.",
+        "unblock_path": [
+            "inspect_checkpoint_blocker",
+            "review_related_verdict_and_artifact",
+            "record_owner_decision_or_adjust_workflow",
+            "resume_or_requeue_affected_work",
+        ],
+        "affected_jobs": affected_jobs,
+        "next_actions": ["inspect_blocker", "resolve_human_checkpoint", "export_run_evidence"],
+    }
 
 
 def latest_non_accepting_verdicts(conn: sqlite3.Connection, *, run_id: str | None) -> list[JsonObject]:
@@ -1223,6 +1537,33 @@ def events_for(
     return [dict(row) for row in rows]
 
 
+def events_for_process(conn: sqlite3.Connection, *, process_id: str) -> list[JsonObject]:
+    """Return process lifecycle events for a process id."""
+    rows = conn.execute(
+        """
+        SELECT event_id, event_type, payload_json
+        FROM events
+        WHERE event_type LIKE 'process.%'
+        ORDER BY event_id
+        """
+    ).fetchall()
+    result: list[JsonObject] = []
+    for row in rows:
+        payload = json_loads(str(row["payload_json"]))
+        if payload.get("process_id") == process_id:
+            result.append(dict(row))
+    return result
+
+
+def table_exists(conn: sqlite3.Connection, table_name: str) -> bool:
+    """Return whether a SQLite table exists."""
+    row = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?",
+        (table_name,),
+    ).fetchone()
+    return row is not None
+
+
 def evidence_snapshot(conn: sqlite3.Connection, *, run_id: str) -> JsonObject:
     """Return redacted run state for evidence export."""
     run = row_by_id(conn, "runs", "run_id", run_id)
@@ -1352,6 +1693,46 @@ def evidence_artifact_summaries(
     return artifacts
 
 
+def run_summary_snapshot(conn: sqlite3.Connection, *, run_id: str) -> JsonObject:
+    """Return compact run facts for publishable summaries."""
+    row_by_id(conn, "runs", "run_id", run_id)
+    artifacts = conn.execute(
+        """
+        SELECT artifact_id, job_id, logical_name, artifact_kind, repo_path, content_sha256
+        FROM artifacts
+        WHERE run_id = ?
+        ORDER BY repo_path
+        """,
+        (run_id,),
+    ).fetchall()
+    verdicts = conn.execute(
+        """
+        SELECT v.verdict_id, v.job_id, j.workflow_job_id, v.verdict, v.findings_artifact_id
+        FROM verdicts v
+        JOIN jobs j ON j.job_id = v.job_id
+        WHERE v.run_id = ?
+        ORDER BY v.created_at
+        """,
+        (run_id,),
+    ).fetchall()
+    blockers = conn.execute(
+        """
+        SELECT blocker_id, job_id, severity, blocker_kind, state
+        FROM blockers
+        WHERE run_id = ?
+        ORDER BY created_at
+        """,
+        (run_id,),
+    ).fetchall()
+    return {
+        "status": status(conn, run_id=run_id),
+        "doctor": doctor(conn, run_id=run_id),
+        "artifacts": [dict(row) for row in artifacts],
+        "verdicts": [dict(row) for row in verdicts],
+        "blockers": [dict(row) for row in blockers],
+    }
+
+
 def dependency_summary(conn: sqlite3.Connection, *, job_id: str) -> list[JsonObject]:
     """Return all upstream dependency states for export."""
     rows = conn.execute(
@@ -1418,6 +1799,197 @@ def render_evidence_markdown(
             "",
         ]
     )
+
+
+def render_run_summary_markdown(*, run: JsonObject, summary: JsonObject) -> str:
+    """Render a compact run note intended for durable provenance."""
+    status_payload = summary["status"]
+    doctor_payload = summary["doctor"]
+    jobs = status_payload["jobs"]
+    artifacts = summary["artifacts"]
+    verdicts = summary["verdicts"]
+    blockers = summary["blockers"]
+    lines = [
+        "# Striatum Run Summary",
+        "",
+        f"Run ID: `{run['run_id']}`",
+        f"Branch: `{run['branch_name']}`",
+        f"Run state: `{run['state']}`",
+        f"Verification: `doctor ok={str(doctor_payload['ok']).lower()}`",
+        "",
+        "## Jobs",
+        "",
+    ]
+    if jobs:
+        for state, count in sorted(jobs.items()):
+            lines.append(f"- `{state}`: {count}")
+    else:
+        lines.append("- No jobs recorded.")
+    lines.extend(["", "## Verdicts", ""])
+    if verdicts:
+        for verdict in verdicts:
+            lines.append(
+                f"- `{verdict['verdict']}` on `{verdict['workflow_job_id']}` "
+                f"({verdict['verdict_id']})"
+            )
+    else:
+        lines.append("- No verdicts recorded.")
+    lines.extend(["", "## Artifacts", ""])
+    if artifacts:
+        for artifact in artifacts:
+            lines.append(
+                f"- `{artifact['artifact_kind']}` `{artifact['logical_name']}`: "
+                f"`{artifact['repo_path']}`"
+            )
+    else:
+        lines.append("- No artifacts recorded.")
+    lines.extend(["", "## Blockers", ""])
+    if blockers:
+        for blocker in blockers:
+            lines.append(
+                f"- `{blocker['state']}` `{blocker['severity']}` "
+                f"`{blocker['blocker_kind']}` ({blocker['blocker_id']})"
+            )
+    else:
+        lines.append("- No blockers recorded.")
+    lines.extend(["", "## Next Actions", ""])
+    next_actions = status_payload["next_actions"]
+    if next_actions:
+        for action in next_actions:
+            lines.append(f"- `{action}`")
+    else:
+        lines.append("- No deterministic next actions.")
+    lines.append("")
+    return "\n".join(lines)
+
+
+def stale_leases(conn: sqlite3.Connection, *, run_id: str) -> JsonObject:
+    """Inspect stale lease recovery state for a run."""
+    row_by_id(conn, "runs", "run_id", run_id)
+    with transaction(conn):
+        expire_leases(conn, run_id=run_id)
+    from striatum.db import is_repo_write
+
+    stale_jobs = conn.execute(
+        """
+        SELECT j.*, l.lease_id, l.owner_session_id, l.acquired_at, l.expires_at,
+               l.released_at, l.release_reason, qm.message_id, qm.state AS message_state
+        FROM jobs j
+        LEFT JOIN leases l ON l.lease_id = j.current_lease_id
+           OR (l.resource_id = j.job_id AND l.state = 'expired')
+        LEFT JOIN queue_messages qm ON qm.message_id = j.current_message_id
+        WHERE j.run_id = ? AND (j.state = 'stale_lease' OR l.state = 'expired')
+        ORDER BY j.workflow_job_id, l.expires_at
+        """,
+        (run_id,),
+    ).fetchall()
+    entries: list[JsonObject] = []
+    seen: set[tuple[str, str | None]] = set()
+    for row in stale_jobs:
+        key = (str(row["job_id"]), str(row["lease_id"]) if row["lease_id"] is not None else None)
+        if key in seen:
+            continue
+        seen.add(key)
+        repo_write = is_repo_write(row)
+        entries.append(
+            {
+                "job_id": row["job_id"],
+                "workflow_job_id": row["workflow_job_id"],
+                "job_state": row["state"],
+                "lease_id": row["lease_id"],
+                "owner_session_id": row["owner_session_id"],
+                "expires_at": row["expires_at"],
+                "released_at": row["released_at"],
+                "release_reason": row["release_reason"],
+                "message_id": row["message_id"],
+                "message_state": row["message_state"],
+                "repo_write": repo_write,
+                "recovery_policy": "manual_inspection_required" if repo_write else "safe_to_reclaim_when_pending",
+                "next_actions": [
+                    "inspect_worktree_and_artifacts",
+                    "decide_requeue_or_cancel",
+                ]
+                if repo_write
+                else ["register_or_select_session", "claim_available_work"],
+            }
+        )
+    return {
+        "run_id": run_id,
+        "stale_count": len(entries),
+        "stale_leases": entries,
+        "next_actions": ["inspect_worktree_and_artifacts", "decide_requeue_or_cancel"]
+        if entries
+        else [],
+    }
+
+
+def requeue_stale(conn: sqlite3.Connection, *, run_id: str, job_id: str) -> JsonObject:
+    """Requeue stale review-only work after lazy lease expiry."""
+    row_by_id(conn, "runs", "run_id", run_id)
+    from striatum.db import enqueue_job, is_repo_write
+
+    with transaction(conn):
+        expire_leases(conn, run_id=run_id)
+        row = conn.execute(
+            """
+            SELECT j.*, l.lease_id, l.owner_session_id, l.expires_at,
+                   qm.message_id, qm.state AS message_state
+            FROM jobs j
+            JOIN leases l ON l.resource_id = j.job_id AND l.state = 'expired'
+            LEFT JOIN queue_messages qm ON qm.message_id = j.current_message_id
+            WHERE j.run_id = ? AND j.job_id = ?
+              AND j.state IN ('queued', 'blocked', 'stale_lease')
+            ORDER BY l.expires_at DESC
+            LIMIT 1
+            """,
+            (run_id, job_id),
+        ).fetchone()
+        if row is None:
+            raise InvalidTransitionError("job has no stale expired lease to requeue")
+        if is_repo_write(row):
+            raise InvalidTransitionError("repo-write stale jobs require manual inspection")
+
+        now = utc_now()
+        already_reclaimable = row["state"] == "queued" and row["message_state"] == "pending"
+        message_id = row["message_id"]
+        if message_id is None:
+            message_id = enqueue_job(conn, job_id=job_id)
+        else:
+            conn.execute(
+                """
+                UPDATE jobs
+                SET state = 'queued', current_lease_id = NULL
+                WHERE job_id = ?
+                """,
+                (job_id,),
+            )
+            conn.execute(
+                """
+                UPDATE queue_messages
+                SET state = 'pending', current_lease_id = NULL, updated_at = ?
+                WHERE message_id = ?
+                """,
+                (now, message_id),
+            )
+        insert_event(
+            conn,
+            run_id=run_id,
+            event_type="recovery.stale_requeued",
+            job_id=job_id,
+            message_id=str(message_id),
+            lease_id=str(row["lease_id"]),
+            payload={"already_reclaimable": already_reclaimable, "repo_write": False},
+        )
+        return {
+            "status": "already_reclaimable" if already_reclaimable else "requeued",
+            "run_id": run_id,
+            "job_id": job_id,
+            "workflow_job_id": row["workflow_job_id"],
+            "lease_id": row["lease_id"],
+            "message_id": message_id,
+            "repo_write": False,
+            "next_actions": ["register_or_select_session", "claim_available_work"],
+        }
 
 
 def doctor(conn: sqlite3.Connection, *, run_id: str | None) -> JsonObject:

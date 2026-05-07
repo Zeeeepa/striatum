@@ -214,6 +214,26 @@ CREATE TABLE IF NOT EXISTS command_requests (
   completed_at TEXT
 );
 
+CREATE TABLE IF NOT EXISTS process_executions (
+  process_id TEXT PRIMARY KEY,
+  run_id TEXT NOT NULL REFERENCES runs(run_id),
+  job_id TEXT NOT NULL REFERENCES jobs(job_id),
+  session_id TEXT NOT NULL REFERENCES sessions(session_id),
+  lease_id TEXT NOT NULL REFERENCES leases(lease_id),
+  packet_id TEXT NOT NULL REFERENCES work_packets(packet_id),
+  adapter TEXT NOT NULL,
+  command_json TEXT NOT NULL,
+  cwd TEXT NOT NULL,
+  scratch_path TEXT NOT NULL,
+  stdin_mode TEXT NOT NULL CHECK (stdin_mode IN ('packet','none')),
+  stdio_mode TEXT NOT NULL CHECK (stdio_mode IN ('suppressed','inherit')),
+  pid INTEGER,
+  state TEXT NOT NULL CHECK (state IN ('starting','running','exited','failed')),
+  exit_code INTEGER,
+  started_at TEXT NOT NULL,
+  ended_at TEXT
+);
+
 CREATE TABLE IF NOT EXISTS events (
   event_id INTEGER PRIMARY KEY AUTOINCREMENT,
   run_id TEXT REFERENCES runs(run_id),
@@ -236,6 +256,8 @@ CREATE INDEX IF NOT EXISTS idx_queue_claimable ON queue_messages(
 );
 CREATE INDEX IF NOT EXISTS idx_events_run_time ON events(run_id, event_id);
 CREATE INDEX IF NOT EXISTS idx_events_job ON events(job_id, event_id);
+CREATE INDEX IF NOT EXISTS idx_process_executions_run_job
+  ON process_executions(run_id, job_id, started_at);
 
 CREATE UNIQUE INDEX IF NOT EXISTS uq_active_resource_lease
   ON leases(resource_type, resource_id)
@@ -271,4 +293,3 @@ END;
 
 INSERT OR REPLACE INTO schema_meta(key, value) VALUES ('schema_version', '1');
 """
-

@@ -18,6 +18,9 @@ and, when behavior changes, `docs/SPEC.md`.
 | [0003](0003-support-ledgers-and-evidence-audits.md) | proposed | Add support ledgers and evidence-audit jobs for claims made by artifacts. |
 | [0004](0004-critique-to-action-loop.md) | proposed | Normalize review action items and require resolution checks. |
 | [0005](0005-harness-meta-optimization.md) | proposed | Use runner events to propose harness improvements, gated by review. |
+| [0006](0006-sqlite-schema-migration-system.md) | proposed | Add a lightweight migration system for repo-local SQLite state. |
+| [0007](0007-workflow-visualization.md) | proposed | Export workflow graphs for authoring and review. |
+| [0008](0008-worktree-isolation-for-parallel-jobs.md) | proposed | Use Git worktrees for isolated parallel repo-write jobs. |
 
 ## Template
 

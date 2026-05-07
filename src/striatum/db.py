@@ -27,6 +27,7 @@ JsonObject = dict[str, Any]
 
 STATE_DIR = ".striatum"
 DB_NAME = "state.sqlite3"
+ADAPTER_ENFORCEMENT_LEVELS = {"unsupported": 0, "advisory": 1, "enforced": 2}
 
 
 def utc_now() -> str:
@@ -141,7 +142,9 @@ def insert_event(
             utc_now(),
         ),
     )
-    return int(cursor.lastrowid)
+    if cursor.lastrowid is None:
+        raise InvalidTransitionError("event insert did not return a row id")
+    return cursor.lastrowid
 
 
 def row_by_id(conn: sqlite3.Connection, table: str, column: str, value: str) -> sqlite3.Row:
@@ -641,19 +644,46 @@ def build_adapter_constraints(lane_config: JsonObject) -> JsonObject:
     constraints = lane_config.get("constraints", {})
     if not isinstance(constraints, dict):
         constraints = {}
+    required = lane_config.get("required_enforcement", {})
+    if not isinstance(required, dict):
+        required = {}
     enforcement: list[JsonObject] = []
     for key, value in constraints.items():
         if not isinstance(key, str) or not isinstance(value, str):
             continue
-        if adapter == "process":
-            if key == "transcripts" and value == "off":
-                result = "enforced"
-            else:
-                result = "advisory"
-        else:
-            result = "unsupported"
-        enforcement.append({"constraint": key, "requested": value, "enforcement": result})
-    return {"requested": constraints, "enforcement": enforcement}
+        result = adapter_constraint_enforcement(adapter, constraint=key, requested=value)
+        required_level = required.get(key)
+        required_text = required_level if isinstance(required_level, str) else None
+        enforcement.append(
+            {
+                "constraint": key,
+                "requested": value,
+                "required_enforcement": required_text,
+                "enforcement": result,
+                "satisfied": required_text is None
+                or adapter_enforcement_satisfies(actual=result, required=required_text),
+            }
+        )
+    return {
+        "requested": constraints,
+        "required_enforcement": required,
+        "enforcement": enforcement,
+        "satisfied": all(item["satisfied"] for item in enforcement),
+    }
+
+
+def adapter_constraint_enforcement(adapter: object, *, constraint: str, requested: str) -> str:
+    """Return the enforcement level an adapter can provide for a requested constraint."""
+    if adapter == "process":
+        if constraint == "transcripts" and requested == "off":
+            return "enforced"
+        return "advisory"
+    return "unsupported"
+
+
+def adapter_enforcement_satisfies(*, actual: str, required: str) -> bool:
+    """Return whether an actual enforcement level satisfies a workflow requirement."""
+    return ADAPTER_ENFORCEMENT_LEVELS[actual] >= ADAPTER_ENFORCEMENT_LEVELS[required]
 
 
 def complete_job(

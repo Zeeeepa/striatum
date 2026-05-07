@@ -24,8 +24,8 @@ Completed on 2026-05-07:
 6. Left private diagnostics, transcripts, `.striatum/state.sqlite3`, caches,
    virtual environments, and target-repo runtime state out of the split.
 7. Removed `TARGET_REPO=..` as the primary usage path.
-8. Added standalone metadata: all-rights-reserved license status, contribution
-   notes, changelog, supported Python versions, and CI.
+8. Added standalone metadata: Apache-2.0 license status, contribution notes,
+   changelog, supported Python versions, and CI.
 9. Added `scripts/fresh_clone_smoke.sh` to install a fresh clone, initialize a
    scratch target repo, validate the generic example workflow, prepare and
    start a run, and export redacted evidence.
@@ -35,56 +35,77 @@ Completed on 2026-05-07:
 
 ## Product Improvement TODOs
 
-1. Implement the generic process or tmux adapter that can actually launch and
-   supervise configured agent commands. V1 currently tests the deterministic
-   state/control-plane contract and does not launch production model processes.
-2. Make adapter constraint enforcement first-class. Network policy, transcript
-   handling, repo scope, and sandbox expectations should be reported as
-   `enforced`, `advisory`, or `unsupported`, with workflows able to reject lanes
-   that cannot meet a required enforcement level.
-3. Improve workflow authoring tooling: templates, linting, graph validation
-   output, path rewriting for reruns, artifact collision checks, and a
-   dry-run planner that explains claim order and review gates.
-4. Improve human-checkpoint UX. `status`, `why`, and evidence export should make
-   the required human decision, affected jobs, and unblock path obvious.
-5. Add explicit decision-artifact support for owner choices, including durable
-   machine-checkable metadata for "accepted", "rejected", and "accepted with
-   follow-up" outcomes.
-6. Tighten artifact schema support. Durable Markdown artifacts should have
-   optional machine-validated front matter, including the lowercase
-   privacy-safe `author:` line, while preserving the current rule that the
-   publisher records artifacts rather than rewriting them.
+1. Expand the generic process adapter beyond the minimal local command runner
+   added on 2026-05-07. The current slice can launch configured process lane
+   command arrays for claimed work and record process metadata/events without
+   transcript capture; remaining work includes longer-lived interactive
+   supervision and broader adapter recovery UX.
+2. Continue adapter constraint enforcement. Workflow validation now supports
+   lane `required_enforcement` on 2026-05-07, records requested and actual
+   enforcement as `enforced`, `advisory`, or `unsupported`, and rejects lanes
+   whose adapters cannot satisfy the declared requirement. Remaining work is
+   richer sandbox/worktree adapters that can enforce more than transcript-off.
+3. Continue workflow authoring tooling. A dry-run planner was added on
+   2026-05-07 to explain claim order, graph edges, review gates, and revision
+   cycles. Mermaid/JSON graph export was added on 2026-05-07. Remaining work
+   includes templates, linting output, path rewriting for reruns, and artifact
+   collision checks.
+4. Continue human-checkpoint UX. `status` and `why` now include decision
+   context, affected jobs, unblock path, and next actions; remaining work is
+   to keep refining evidence export and any explicit resume flow.
+5. Explicit decision-artifact support for owner choices was added on
+   2026-05-07. `decision record` writes durable Markdown with
+   machine-checkable `striatum.decision.v1` front matter for "accepted",
+   "rejected", and "accepted with follow-up" outcomes, records it as artifact
+   kind `decision`, and does not require an active lease.
+6. Continue artifact schema support. Optional Markdown `author:` metadata is
+   machine-validated when present, including YAML front matter and title-block
+   lines, while preserving the current rule that the publisher records
+   artifacts rather than rewriting them. Remaining work includes fuller
+   front-matter schemas for artifact kinds beyond author metadata.
 7. Extend redaction tests for evidence export and artifact publication. Cover
    workflow titles, job prompts, model rationales, blocker text, transcript-like
    fields, and path hygiene.
-8. Add better recovery commands for stale leases, abandoned write jobs, blocked
-   review cycles, and rerun attempts. Recovery should distinguish review-only
-   work from repo-write work.
+8. Continue recovery commands. `recovery stale-leases` now reports expired
+   lease recovery context and distinguishes repo-write work from review-only
+   work. `recovery requeue-stale` now provides a bounded operator requeue for
+   expired non-repo-write jobs and refuses repo-write jobs. Remaining work
+   includes abandoned write jobs, blocked review cycles, rerun attempts, and
+   explicit operator resume flows.
 9. Add a compact TUI or local dashboard over the existing SQLite state before
    investing in web or Slack surfaces.
-10. Add a local API or MCP adapter only as a wrapper over the CLI/state
-    semantics, not as a second source of truth.
+10. Continue local API/MCP support. `striatum.api.invoke` now wraps the same
+    CLI parser/dispatcher without direct SQLite writes, `docs/SPEC.md`
+    defines the MCP boundary, and a minimal local stdio JSON-RPC wrapper maps
+    tools/resources to that API. Remaining work is any richer MCP schema polish
+    that emerges from real local agent use.
 11. Support worktree isolation for parallel repo-write jobs so safe build
     parallelism can grow beyond "disjoint write scopes on one branch".
-12. Build a richer fixture suite beyond Engram: small docs-only review flow,
-    small code-change flow, failed-review revision cycle, human-checkpoint flow,
-    and adapter-unavailable flow.
-13. Replace temporary bootstrap scripts with runner-owned workflows wherever the
-    deterministic core can represent the process.
-14. Add packaging and release checks: `ruff`, type checking, wheel build,
-    console-script smoke test, and cross-platform tests for macOS and Linux.
-15. Make run summaries easier to publish: one command should produce a compact
-    final run note with run id, branch, jobs, verdicts, artifacts, blockers, and
-    verification.
+12. Build a richer fixture suite beyond Engram. A small generic docs-only
+    review flow was added on 2026-05-07; remaining fixtures include a small
+    code-change flow, failed-review revision cycle, human-checkpoint flow, and
+    adapter-unavailable flow.
+13. Continue replacing temporary bootstrap scripts with runner-owned workflows.
+    A minimal generic process adapter now launches configured local process
+    lanes for claimed work and records process metadata/events without
+    transcript capture. Remaining work is representing the old bootstrap
+    design workflow end-to-end with the runner.
+14. Continue packaging and release checks. Started on 2026-05-07 with `ruff`,
+    wheel/sdist build, installed console-script smoke testing, and macOS/Linux
+    CI wiring. Type checking and installed release metadata checks were added
+    on 2026-05-07. Remaining work is any fuller release policy needed before
+    publication.
+15. Run summaries now have `run summary`, which writes a compact final run note
+    with run id, branch, jobs, verdicts, artifacts, blockers, and verification.
+    Remaining work is any formatting polish that emerges from real runs.
 16. Keep the generic language current. New docs should say "target repository",
     "workflow fixture", "runner state", "artifact", and "adapter" rather than
     assuming Engram-specific paths or marker names.
 
 ## Immediate Follow-Up
 
-1. Decide whether to replace the all-rights-reserved license status with an
-   open-source license.
-2. Replace the temporary tmux bootstrap harness with a Striatum-owned adapter
-   workflow.
-3. Add packaging checks for wheel build, console-script smoke, and cross-
-   platform macOS/Linux execution.
+1. Exercise the minimal generic process adapter on a Striatum-owned version of
+   the historical bootstrap workflow, then retire the tmux harness from active
+   workflow guidance.
+2. Define any fuller publication policy after the initial package smoke,
+   typecheck, metadata check, and macOS/Linux CI wiring.

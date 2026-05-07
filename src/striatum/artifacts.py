@@ -6,17 +6,22 @@ import sqlite3
 from pathlib import Path
 
 from striatum.db import (
-    ArtifactError,
     active_lease_for,
     insert_event,
     json_loads,
     new_id,
     path_allowed,
     repo_relative_path,
+    row_by_id,
     sha256_bytes,
     transaction,
     utc_now,
 )
+from striatum.errors import ArtifactError
+from striatum.identity import artifact_author_identity
+
+
+MARKDOWN_SUFFIXES = {".md", ".markdown"}
 
 
 def publish_artifact(
@@ -45,6 +50,13 @@ def publish_artifact(
         if not path.exists() or not path.is_file():
             raise ArtifactError("artifact file does not exist")
         payload = path.read_bytes()
+        validate_optional_markdown_author_line(
+            conn,
+            job=job,
+            session_id=session_id,
+            path=path,
+            payload=payload,
+        )
         digest = sha256_bytes(payload)
         existing = conn.execute(
             """
@@ -93,3 +105,73 @@ def publish_artifact(
         )
         return {"status": "published", "artifact_id": artifact_id, "sha256": digest}
 
+
+def validate_optional_markdown_author_line(
+    conn: sqlite3.Connection,
+    *,
+    job: sqlite3.Row,
+    session_id: str,
+    path: Path,
+    payload: bytes,
+) -> None:
+    """Validate Markdown artifact author metadata when the file provides it."""
+    if path.suffix.lower() not in MARKDOWN_SUFFIXES:
+        return
+    try:
+        text = payload.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise ArtifactError("markdown artifact must be UTF-8") from exc
+    author_lines = markdown_title_block_author_lines(text)
+    if not author_lines:
+        return
+    expected = expected_author_line(conn, job=job, session_id=session_id)
+    for line in author_lines:
+        if line.strip() != expected:
+            raise ArtifactError("markdown artifact author line must match expected work packet author line")
+
+
+def markdown_title_block_author_lines(text: str) -> list[str]:
+    """Return author metadata lines from YAML front matter or a Markdown title block."""
+    lines = text.splitlines()
+    if lines and lines[0].strip() == "---":
+        front_matter: list[str] = []
+        for line in lines[1:]:
+            if line.strip() == "---":
+                break
+            front_matter.append(line)
+        return [line for line in front_matter if line.strip().lower().startswith("author:")]
+
+    title_block = lines[:40]
+    author_lines: list[str] = []
+    for line in title_block:
+        if line.startswith("## "):
+            break
+        stripped = line.strip()
+        if stripped.lower().startswith("author:"):
+            author_lines.append(line)
+    return author_lines
+
+
+def expected_author_line(conn: sqlite3.Connection, *, job: sqlite3.Row, session_id: str) -> str:
+    """Return the exact work-packet author line expected for this job/session."""
+    run = row_by_id(conn, "runs", "run_id", str(job["run_id"]))
+    snapshot = row_by_id(
+        conn,
+        "workflow_snapshots",
+        "workflow_snapshot_id",
+        str(run["workflow_snapshot_id"]),
+    )
+    session = row_by_id(conn, "sessions", "session_id", session_id)
+    lane = json_loads(str(job["lane_selector_json"])).get("lane_id")
+    lane_id = lane if isinstance(lane, str) else None
+    author = artifact_author_identity(
+        json_loads(str(snapshot["workflow_json"])),
+        role_id=str(job["role_id"]),
+        lane_id=lane_id,
+        workflow_job_id=str(job["workflow_job_id"]),
+        ordinal=int(session["ordinal"]),
+    )
+    line = author["line"]
+    if line is None:
+        raise ArtifactError("expected artifact author line could not be derived")
+    return line

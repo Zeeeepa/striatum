@@ -6,11 +6,11 @@ explicit product decision.
 
 Before proposing changes:
 
-1. Run `make test`.
-2. Run `scripts/fresh_clone_smoke.sh` for packaging and CLI smoke coverage.
+1. Run `make check`.
+2. Run `make smoke` for fresh-clone CLI smoke coverage.
 3. Update `docs/DECISION_LOG.md` for product or architecture decisions.
 4. Keep examples generic unless a file is explicitly labeled as an external
    reference fixture.
 
-The current copyright status is all rights reserved pending an explicit owner
-license decision.
+Unless noted otherwise, contributions are licensed under the Apache License,
+Version 2.0.

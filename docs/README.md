@@ -29,8 +29,12 @@ Start here:
 
 - `striatum evidence export` writes a redacted Markdown run snapshot for
   commit and review while leaving `.striatum/` ignored.
+- `striatum decision record` writes owner choices as durable Markdown decision
+  artifacts with machine-checkable local metadata.
 - `striatum submit-review` combines review artifact publication and verdict
   recording for the common review-gate path.
+- [MCP.md](MCP.md) documents the optional local MCP-like stdio wrapper over the
+  same CLI/API command vocabulary.
 
 ## Design
 
@@ -46,9 +50,11 @@ Start here:
   provenance. They are not current standalone execution plans unless rewritten
   for the target repository and branch.
 
-## Bootstrap
+## Historical Bootstrap
 
 - [../scripts/striatum_tmux_design.sh](../scripts/striatum_tmux_design.sh)
   — temporary tmux harness for collecting the three required V1 MVP design
   inputs before synthesis. The watched completion artifacts are the three
-  `docs/design/V1_MVP_DESIGN_INPUT_*.md` files.
+  `docs/design/V1_MVP_DESIGN_INPUT_*.md` files. It is retained as incubation
+  provenance; active adapter work should use Striatum-owned workflow and
+  process-adapter paths.
