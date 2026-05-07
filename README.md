@@ -540,8 +540,13 @@ Start with:
 8. [docs/INTERVIEW_LOG.md](docs/INTERVIEW_LOG.md)
 9. [docs/ENGRAM_INCUBATION_CONTEXT.md](docs/ENGRAM_INCUBATION_CONTEXT.md)
 
-Execution prompts:
+Historical incubation prompts:
 
+These prompts are retained as provenance from the Engram incubation and dogfood
+validation period. They are useful templates and history, not current
+standalone execution plans.
+
+- [prompts/README.md](prompts/README.md)
 - [prompts/P001_design_review_build_v1_mvp.md](prompts/P001_design_review_build_v1_mvp.md)
 - [prompts/P002_validate_striatum_with_rfc_0014.md](prompts/P002_validate_striatum_with_rfc_0014.md)
 - [prompts/P003_implement_rfc_0014_dogfood_fixes.md](prompts/P003_implement_rfc_0014_dogfood_fixes.md)

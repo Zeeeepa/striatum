@@ -42,7 +42,9 @@ Start here:
 
 ## Prompts
 
-- [../prompts/](../prompts/) — execution prompts.
+- [../prompts/](../prompts/) — historical incubation prompts retained as
+  provenance. They are not current standalone execution plans unless rewritten
+  for the target repository and branch.
 
 ## Bootstrap
 

@@ -1,6 +1,6 @@
 # P004: Re-run RFC 0014 Dogfood Validation
 
-Status: ready
+Status: historical
 Date: 2026-05-06
 Scope: `striatum` dogfood validation rerun
 Target package:
@@ -8,6 +8,11 @@ Target package:
 - `docs/process/operational-artifact-home-spec.md`
 Primary workflow fixture:
 `examples/rfc-0014-operational-artifact-home/workflow.json`
+
+Historical note: this prompt is retained as incubation/dogfood provenance. It
+assumes Striatum is being run from inside Engram with `--repo ..`; do not
+execute it as a current standalone plan without rewriting repository, branch,
+workflow, and artifact paths.
 
 ## Mission
 

@@ -85,7 +85,7 @@ artifact.
 Executed from a detached review worktree of `origin/striatum/v1-mvp`:
 
 ```bash
-PYTHONPATH=src /Users/halbritt/Documents/GitHub/engram/.venv/bin/python -m pytest -q
+PYTHONPATH=src python -m pytest -q
 ```
 
 Result:

@@ -1,11 +1,16 @@
 # P002: Validate striatum With RFC 0014
 
-Status: ready
+Status: historical
 Date: 2026-05-06
 Scope: `striatum` dogfood validation
 Target RFC: `docs/rfcs/0014-operational-artifact-home.md`
 Primary outcome: a completed or honestly blocked `striatum` validation run
 against a bounded Engram RFC review workflow.
+
+Historical note: this prompt is retained as incubation/dogfood provenance. It
+assumes Striatum is being run from inside Engram with `--repo ..`; do not
+execute it as a current standalone plan without rewriting repository, branch,
+workflow, and artifact paths.
 
 ## Mission
 

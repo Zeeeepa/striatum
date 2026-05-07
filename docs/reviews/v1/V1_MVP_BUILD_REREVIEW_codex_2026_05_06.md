@@ -94,7 +94,7 @@ verification is job-scoped.
 Executed from `striatum/`:
 
 ```bash
-PYTHONPATH=src /Users/halbritt/Documents/GitHub/engram/.venv/bin/python -m pytest -q
+PYTHONPATH=src python -m pytest -q
 ```
 
 Result:

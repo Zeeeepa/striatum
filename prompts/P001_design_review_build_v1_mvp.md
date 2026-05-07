@@ -1,10 +1,15 @@
 # P001: Design, Review, Record, And Build striatum V1 MVP
 
-Status: draft
+Status: historical
 Date: 2026-05-06
 Scope: `striatum` V1 MVP
 Primary outcome: a reviewed, tested Python MVP for local terminal-agent
 orchestration.
+
+Historical note: this prompt is retained as incubation provenance from before
+Striatum split out of Engram. Do not execute it as a current standalone plan
+without rewriting the target repository, branch setup, and verification
+commands.
 
 ## Mission
 

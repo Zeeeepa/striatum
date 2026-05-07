@@ -1,9 +1,13 @@
 # P003: Implement RFC 0014 Dogfood Fixes
 
-Status: ready
+Status: historical
 Date: 2026-05-06
 Scope: `striatum` follow-up implementation
 Primary spec: `docs/RFC_0014_DOGFOOD_FIX_SPEC.md`
+
+Historical note: this prompt is retained as incubation/dogfood provenance. Its
+branch and validation-artifact instructions describe the historical Engram
+dogfood branch, not current standalone Striatum work.
 
 ## Mission
 

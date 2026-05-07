@@ -40,7 +40,7 @@ $ make test
 .venv/bin/python -m pytest
 ============================= test session starts ==============================
 platform linux -- Python 3.12.3, pytest-9.0.3, pluggy-1.6.0
-rootdir: /home/halbritt/git/engram/striatum
+rootdir: <striatum-checkout>
 configfile: pyproject.toml
 testpaths: tests
 collected 18 items
