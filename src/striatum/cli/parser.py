@@ -274,7 +274,48 @@ def build_parser() -> argparse.ArgumentParser:
     dashboard.add_argument("--refresh", type=float, default=2.0)
     dashboard.add_argument("--once", action="store_true")
 
+    list_cmd = sub.add_parser("list")
+    list_sub = list_cmd.add_subparsers(dest="list_command", required=True)
+
+    list_runs_p = list_sub.add_parser("runs")
+    list_runs_p.add_argument("--state")
+    list_runs_p.add_argument("--limit", type=_positive_int, default=100)
+    list_runs_p.add_argument("--json", action="store_true")
+
+    list_sessions_p = list_sub.add_parser("sessions")
+    list_sessions_p.add_argument("--run-id", required=True)
+    list_sessions_p.add_argument("--state")
+    list_sessions_p.add_argument("--role")
+    list_sessions_p.add_argument("--lane")
+    list_sessions_p.add_argument("--json", action="store_true")
+
+    list_jobs_p = list_sub.add_parser("jobs")
+    list_jobs_p.add_argument("--run-id", required=True)
+    list_jobs_p.add_argument("--state")
+    list_jobs_p.add_argument("--workflow-job-id")
+    list_jobs_p.add_argument("--json", action="store_true")
+
+    list_artifacts_p = list_sub.add_parser("artifacts")
+    list_artifacts_p.add_argument("--run-id", required=True)
+    list_artifacts_p.add_argument("--kind")
+    list_artifacts_p.add_argument("--json", action="store_true")
+
+    list_workflows_p = list_sub.add_parser("workflows")
+    list_workflows_p.add_argument("--limit", type=_positive_int, default=100)
+    list_workflows_p.add_argument("--json", action="store_true")
+
     return parser
+
+
+def _positive_int(value: str) -> int:
+    """Argparse type for ``--limit``: require a positive integer."""
+    try:
+        parsed = int(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(f"expected a positive integer, got {value!r}") from exc
+    if parsed <= 0:
+        raise argparse.ArgumentTypeError(f"expected a positive integer, got {value!r}")
+    return parsed
 
 
 def add_work_identity(parser: argparse.ArgumentParser) -> None:

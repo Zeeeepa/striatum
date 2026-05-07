@@ -418,7 +418,6 @@ lease.
 Use `--severity blocked` for normal blockers and `human_checkpoint` when the
 run needs explicit human judgment.
 
-<<<<<<< HEAD
 To resolve a `human_checkpoint` blocker explicitly once the operator has
 decided, use `striatum checkpoint resolve`:
 
@@ -442,10 +441,7 @@ an existing run-level decision artifact recorded with `striatum decision
 record`; the resolution event payload then links back to that artifact for
 audit.
 
-### 11. Inspect And Export Recovery Evidence
-=======
 ### 11. Inspect, Watch, And Export Recovery Evidence
->>>>>>> 270210c (Documentation coherence pass for V1.0)
 
 ```bash
 "$RUNNER" status --run-id <run_id> --json
@@ -457,7 +453,6 @@ audit.
   --run-id <run_id> --path docs/reviews/rfc-ledger/RUN_EVIDENCE.md --json
 ```
 
-<<<<<<< HEAD
 To explicitly cancel a non-terminal job (and optionally its blocked-only-
 through-this dependents), use `striatum recovery cancel-job`:
 
@@ -507,11 +502,6 @@ To publish a redacted run snapshot:
 ```
 
 The export path must be inside the repository and outside `.striatum/`.
-=======
-The dashboard refreshes every 2 seconds by default; pass `--refresh <seconds>`
-or `--once` (single frame to stdout, useful in scripts and CI). The export
-path must be inside the repository and outside `.striatum/`.
->>>>>>> 270210c (Documentation coherence pass for V1.0)
 
 ## Writing Workflows
 
@@ -600,26 +590,7 @@ striatum submit-review
 striatum decision record
 ```
 
-<<<<<<< HEAD
-Inspection and recovery:
-
-```text
-striatum status
-striatum why
-striatum doctor
-striatum evidence export
-striatum recovery stale-leases
-striatum recovery requeue-stale
-striatum recovery cancel-job
-striatum checkpoint resolve
-striatum adapter run
-striatum dashboard
-```
-
-Per-job worktree isolation (opt-in per lane via `worktree_isolation: per_job`):
-=======
 Worktree (opt-in per lane via `worktree_isolation: per_job`):
->>>>>>> 270210c (Documentation coherence pass for V1.0)
 
 ```text
 striatum worktree create
@@ -635,14 +606,22 @@ striatum supervise send
 striatum supervise stop
 striatum supervise status
 striatum supervise list
-<<<<<<< HEAD
-=======
 ```
 
 Dashboard:
 
 ```text
 striatum dashboard
+```
+
+List (read-only enumeration):
+
+```text
+striatum list runs
+striatum list sessions
+striatum list jobs
+striatum list artifacts
+striatum list workflows
 ```
 
 Inspection and recovery:
@@ -654,13 +633,14 @@ striatum doctor
 striatum evidence export
 striatum recovery stale-leases
 striatum recovery requeue-stale
+striatum recovery cancel-job
+striatum checkpoint resolve
 ```
 
 Adapter:
 
 ```text
 striatum adapter run
->>>>>>> 270210c (Documentation coherence pass for V1.0)
 ```
 
 Stable exit codes:

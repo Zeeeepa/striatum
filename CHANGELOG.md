@@ -4,6 +4,16 @@
 
 ### Added
 
+- `striatum list ...` subcommand group for read-only enumeration of runs,
+  sessions, jobs, artifacts, and workflow snapshots. Each command returns a
+  stable `{"items": [...], "count": N}` envelope shaped from existing SQLite
+  state. `list runs` joins `workflow_snapshots` to surface `workflow_id`;
+  `list sessions --run-id <id>` accepts `--state`, `--role`, `--lane`;
+  `list jobs --run-id <id>` includes the latest verdict for review jobs and
+  accepts `--state` and `--workflow-job-id`; `list artifacts --run-id <id>`
+  embeds the structured author byline and accepts `--kind`; `list workflows`
+  reports loaded snapshots with their `content_sha256`. Every run-scoped
+  variant applies the lazy lease-expiry sweep before reading.
 - `striatum checkpoint resolve --blocker-id <id> --action {continue|cancel}
   [--decision-id <id>]` resolves an open `human_checkpoint` blocker:
   `continue` re-queues the affected job and emits `checkpoint.resolved`;

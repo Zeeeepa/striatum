@@ -31,6 +31,13 @@ from striatum.workflow import (
 
 from striatum.cli.evidence import evidence_export
 from striatum.cli.introspect import doctor, status, why
+from striatum.cli.list_commands import (
+    list_artifacts,
+    list_jobs,
+    list_runs,
+    list_sessions,
+    list_workflows,
+)
 from striatum.cli.mutations import (
     ack_work,
     block_work,
@@ -290,4 +297,25 @@ def dispatch(args: argparse.Namespace) -> object:
             return supervise_status(conn, session_id=args.session_id)
         if args.command == "supervise" and args.supervise_command == "list":
             return supervise_list(conn, run_id=args.run_id, state=args.state)
+        if args.command == "list" and args.list_command == "runs":
+            return list_runs(conn, state=args.state, limit=args.limit)
+        if args.command == "list" and args.list_command == "sessions":
+            return list_sessions(
+                conn,
+                run_id=args.run_id,
+                state=args.state,
+                role=args.role,
+                lane=args.lane,
+            )
+        if args.command == "list" and args.list_command == "jobs":
+            return list_jobs(
+                conn,
+                run_id=args.run_id,
+                state=args.state,
+                workflow_job_id=args.workflow_job_id,
+            )
+        if args.command == "list" and args.list_command == "artifacts":
+            return list_artifacts(conn, run_id=args.run_id, kind=args.kind)
+        if args.command == "list" and args.list_command == "workflows":
+            return list_workflows(conn, limit=args.limit)
     raise StriatumError("unknown command", exit_code=2)

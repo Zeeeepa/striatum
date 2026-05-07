@@ -60,6 +60,13 @@ from striatum.cli.mutations import (
     submit_review,
     verdict_work,
 )
+from striatum.cli.list_commands import (
+    list_artifacts,
+    list_jobs,
+    list_runs,
+    list_sessions,
+    list_workflows,
+)
 from striatum.cli.parser import add_work_identity, build_parser
 from striatum.cli.recovery import cancel_job, requeue_stale, stale_leases
 from striatum.cli.run_summary import (
@@ -113,6 +120,11 @@ __all__ = [
     "jobs_for_session",
     "latest_non_accepting_verdicts",
     "latest_verdict_row",
+    "list_artifacts",
+    "list_jobs",
+    "list_runs",
+    "list_sessions",
+    "list_workflows",
     "main",
     "next_actions",
     "prevalidate_submit_review",
