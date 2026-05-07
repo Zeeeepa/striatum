@@ -26,6 +26,7 @@ from striatum.workflow import (
     load_workflow,
     plan_workflow,
     workflow_graph_data,
+    workflow_graph_dot,
     workflow_graph_mermaid,
 )
 
@@ -108,6 +109,11 @@ def dispatch(args: argparse.Namespace) -> object:
         workflow = load_workflow(Path(args.path))
         if args.format == "json":
             return workflow_graph_data(workflow)
+        if args.format == "dot":
+            dot = workflow_graph_dot(workflow)
+            if args.json:
+                return {"format": "dot", "source": dot}
+            return dot
         mermaid = workflow_graph_mermaid(workflow)
         if args.json:
             return {"format": "mermaid", "source": mermaid}

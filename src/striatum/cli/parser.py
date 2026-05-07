@@ -24,7 +24,7 @@ def build_parser() -> argparse.ArgumentParser:
     plan.add_argument("--json", action="store_true")
     graph = workflow_sub.add_parser("graph")
     graph.add_argument("path")
-    graph.add_argument("--format", choices=["mermaid", "json"], default="mermaid")
+    graph.add_argument("--format", choices=["mermaid", "json", "dot"], default="mermaid")
     graph.add_argument("--json", action="store_true")
     workflow_init = workflow_sub.add_parser("init")
     workflow_init.add_argument("path")

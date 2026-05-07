@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
 import sys
 from pathlib import Path, PurePosixPath
@@ -201,6 +202,95 @@ def workflow_graph_mermaid(
             class_name = mermaid_state_class(state)
             lines.append(f"  class {node_names[job_id]} {class_name}")
     return "\n".join(lines) + "\n"
+
+
+def workflow_graph_dot(workflow: JsonObject) -> str:
+    """Return a Graphviz DOT digraph for a workflow graph.
+
+    Mirrors :func:`workflow_graph_mermaid`'s shape: same nodes, same
+    dependency edges, same parallel groups (rendered as ``cluster_*``
+    subgraphs), and the same bounded ``needs_revision`` cycle edges
+    (rendered as dashed arrows). Output is deterministic — node names
+    follow ``n0``, ``n1``, ... in insertion order, and parallel groups
+    are emitted in sorted order.
+    """
+    graph_data = workflow_graph_data(workflow)
+    graph = cast(JsonObject, graph_data["graph"])
+    nodes = cast(list[JsonObject], graph["nodes"])
+    edges = cast(list[JsonObject], graph["edges"])
+    cycles = cast(list[JsonObject], graph["cycles"])
+
+    node_names = {str(node["job_id"]): f"n{index}" for index, node in enumerate(nodes)}
+    parallel_groups: dict[str, list[JsonObject]] = {}
+    ungrouped: list[JsonObject] = []
+    for node in nodes:
+        group = node.get("parallel_group")
+        if isinstance(group, str) and group != "":
+            parallel_groups.setdefault(group, []).append(node)
+        else:
+            ungrouped.append(node)
+
+    lines = [
+        "digraph striatum_workflow {",
+        "  rankdir=TB;",
+        '  node [shape=box, fontname="Helvetica"];',
+    ]
+    for node in ungrouped:
+        lines.append(_dot_node_line(node, node_names=node_names, indent="  "))
+    for group_index, group_id in enumerate(sorted(parallel_groups)):
+        cluster_id = _dot_cluster_id(group_id, group_index)
+        lines.append(f"  subgraph {cluster_id} {{")
+        lines.append(f'    label="parallel: {_dot_label(group_id)}";')
+        for node in sorted(parallel_groups[group_id], key=lambda item: str(item["job_id"])):
+            lines.append(_dot_node_line(node, node_names=node_names, indent="    "))
+        lines.append("  }")
+    for edge in edges:
+        from_id = str(edge["from"])
+        to_id = str(edge["to"])
+        gate = edge.get("gate")
+        label = "completed"
+        if isinstance(gate, dict) and "requires_verdict" in gate:
+            label = "accepted review"
+        lines.append(
+            f'  {node_names[from_id]} -> {node_names[to_id]} [label="{_dot_label(label)}"];'
+        )
+    for cycle in cycles:
+        from_id = str(cycle["from"])
+        to_id = str(cycle["to"])
+        max_iterations = cycle.get("max_iterations")
+        label = f"needs_revision max {max_iterations}"
+        lines.append(
+            f'  {node_names[from_id]} -> {node_names[to_id]} '
+            f'[style=dashed, label="{_dot_label(label)}"];'
+        )
+    lines.append("}")
+    return "\n".join(lines) + "\n"
+
+
+_DOT_ID_SANITIZER = re.compile(r"[^A-Za-z0-9_]+")
+
+
+def _dot_cluster_id(group_id: str, index: int) -> str:
+    sanitized = _DOT_ID_SANITIZER.sub("_", group_id).strip("_")
+    if sanitized == "":
+        sanitized = f"pg{index}"
+    return f"cluster_{sanitized}"
+
+
+def _dot_node_line(node: JsonObject, *, node_names: dict[str, str], indent: str) -> str:
+    job_id = str(node["job_id"])
+    type_text = str(node.get("type", "generic"))
+    role_id = str(node.get("role_id", ""))
+    lane_id = node.get("lane_id")
+    lane_text = f"/{lane_id}" if isinstance(lane_id, str) and lane_id != "" else ""
+    line1 = _dot_label(job_id)
+    line2 = _dot_label(f"{type_text} {role_id}{lane_text}")
+    label = f"{line1}\\n{line2}"
+    return f'{indent}{node_names[job_id]} [label="{label}"];'
+
+
+def _dot_label(value: str) -> str:
+    return value.replace("\\", "\\\\").replace('"', '\\"')
 
 
 # Mermaid class palette for stateful graph highlighting. Keep deterministic

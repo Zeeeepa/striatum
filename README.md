@@ -283,7 +283,8 @@ This creates `.striatum/state.sqlite3` under the target repo and adds
 `workflow validate` checks required fields, role/lane references, artifact
 paths, dependency edges, bounded cycles, declared parallelism, and lane
 constraints. YAML files are rejected. `workflow plan` returns a dry-run plan;
-`workflow graph` exports Mermaid `flowchart TD` (default) or JSON.
+`workflow graph` exports Mermaid `flowchart TD` (default), JSON, or
+Graphviz DOT (`--format dot`, pipe through `dot -Tsvg` to render).
 
 To scaffold a new workflow tree:
 

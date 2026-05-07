@@ -4,6 +4,12 @@
 
 ### Added
 
+- `striatum workflow graph --format dot <workflow.json>` emits a Graphviz
+  `digraph striatum_workflow { ... }` alongside the existing Mermaid
+  (default) and JSON outputs. Same nodes, dependency edges, parallel
+  groups (rendered as `subgraph cluster_<group>` blocks), and bounded
+  `needs_revision` cycle edges (rendered as dashed arrows with the
+  `max_iterations` count). Pipe through `dot -Tsvg` to render.
 - Three new artifact kinds and front-matter schemas (RFCs 0003/0004/0005,
   accepted): `support_ledger` (`striatum.support_ledger.v1`),
   `action_item_ledger` (`striatum.action_item_ledger.v1`), and

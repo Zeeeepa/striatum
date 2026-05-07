@@ -4,6 +4,7 @@ import io
 import json
 from contextlib import redirect_stderr
 import os
+import shutil
 import sqlite3
 import subprocess
 import sys
@@ -477,6 +478,42 @@ def test_workflow_graph_exports_mermaid_and_json(tmp_path: Path) -> None:
     ]
     review_node = next(node for node in graph_data["nodes"] if node["job_id"] == "review_codex")
     assert review_node["parallel_group"] == "reviews"
+
+
+def test_workflow_graph_exports_dot(tmp_path: Path) -> None:
+    dot_text = run_cli_text(tmp_path, "workflow", "graph", str(WORKFLOW), "--format", "dot")
+    assert dot_text.startswith("digraph striatum_workflow {\n")
+    assert dot_text.rstrip().endswith("}")
+    workflow_data = json.loads(WORKFLOW.read_text(encoding="utf-8"))
+    for job in workflow_data["jobs"]:
+        assert job["id"] in dot_text
+    # Parallel group becomes a cluster_<group> subgraph with a label attribute.
+    assert "subgraph cluster_reviews {" in dot_text
+    assert 'label="parallel: reviews";' in dot_text
+    # Dependency edges are solid arrows; review-acceptance edges carry the
+    # "accepted review" label.
+    assert "->" in dot_text
+    assert '[label="completed"]' in dot_text
+    assert '[label="accepted review"]' in dot_text
+    # The needs_revision cycle becomes a dashed edge with max_iterations on
+    # the label.
+    assert "style=dashed" in dot_text
+    assert "needs_revision max 1" in dot_text
+
+    # JSON wrapper exposes the same DOT body under {"format":"dot","source":...}.
+    wrapped = data(run_cli(tmp_path, "workflow", "graph", str(WORKFLOW), "--format", "dot", "--json"))
+    assert wrapped["format"] == "dot"
+    assert wrapped["source"].rstrip("\n") == dot_text.rstrip("\n")
+
+    # If Graphviz is installed locally, the output must parse and render.
+    if shutil.which("dot") is not None:
+        proc = subprocess.run(
+            ["dot", "-Tsvg", "-o", str(tmp_path / "workflow_graph.svg")],
+            input=dot_text,
+            capture_output=True,
+            text=True,
+        )
+        assert proc.returncode == 0, proc.stderr
 
 
 def test_docs_review_flow_fixture_validates_and_exports_graph(tmp_path: Path) -> None:

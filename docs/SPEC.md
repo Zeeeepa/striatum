@@ -423,7 +423,11 @@ claim waves, review gates, declared revision cycles, and graph nodes/edges.
 for authoring review. The default output is Mermaid `flowchart TD`, including
 declared dependency edges, accepting-review gates, bounded revision-cycle
 edges, and declared parallel groups. `--format json --json` returns stable
-machine-readable graph data with nodes, edges, and cycles.
+machine-readable graph data with nodes, edges, and cycles. `--format dot`
+emits a Graphviz `digraph striatum_workflow { ... }` with the same nodes
+and edges, parallel groups rendered as `subgraph cluster_<group>` blocks,
+and `needs_revision` cycle edges rendered as dashed arrows; pipe through
+`dot -Tsvg` to render.
 
 `run graph --run-id <id> [--format mermaid|json]` renders the same graph for
 a live run, annotated with current job state. The Mermaid output appends a
