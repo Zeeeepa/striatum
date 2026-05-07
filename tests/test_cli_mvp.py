@@ -1260,6 +1260,125 @@ def test_why_resolves_blocker_artifact_and_verdict(tmp_path: Path) -> None:
     assert verdict_why["artifact"]["artifact_id"] == artifact["artifact_id"]
 
 
+def test_evidence_redaction_drops_unknown_fields_by_default(tmp_path: Path, monkeypatch) -> None:
+    from striatum import cli as cli_module
+    from striatum.db import connect, db_path
+
+    private_marker = "agent prose here that must never escape"
+    workflow_path = WORKFLOW
+    run_id = prepare_started_run(tmp_path, workflow_path=workflow_path)
+    real_snapshot = cli_module.evidence_snapshot
+
+    def patched_snapshot(conn, *, run_id):
+        payload = real_snapshot(conn, run_id=run_id)
+        payload["future_unknown_field"] = private_marker
+        # Inject a nested unknown field inside a known list element.
+        if payload.get("artifacts"):
+            artifacts = payload["artifacts"]
+            assert isinstance(artifacts, list)
+            for entry in artifacts:
+                if isinstance(entry, dict):
+                    entry["future_nested_field"] = private_marker
+        return payload
+
+    monkeypatch.setattr(cli_module, "evidence_snapshot", patched_snapshot)
+
+    assert db_path(tmp_path).exists()
+    with connect(tmp_path) as conn:
+        cli_module.evidence_export(
+            conn,
+            repo=tmp_path,
+            run_id=run_id,
+            path_text="docs/reviews/rfc-ledger/RUN_EVIDENCE.md",
+        )
+    evidence = (tmp_path / "docs/reviews/rfc-ledger/RUN_EVIDENCE.md").read_text(encoding="utf-8")
+    assert private_marker not in evidence
+    assert "future_unknown_field" in evidence
+    assert "<redacted-free-text>" in evidence
+
+
+def test_evidence_redaction_preserves_safe_fields(tmp_path: Path) -> None:
+    run_id = prepare_started_run(tmp_path)
+    author = register(tmp_path, run_id, "author", "codex")
+    complete_claimed_job(
+        tmp_path,
+        author,
+        claim(tmp_path, author),
+        logical_name="draft",
+        kind="handoff",
+        path="docs/reviews/rfc-ledger/RFC_LEDGER_DRAFT.md",
+    )
+    reviewer = register(tmp_path, run_id, "reviewer", "codex")
+    verdict_claimed_review(
+        tmp_path,
+        reviewer,
+        claim(tmp_path, reviewer),
+        verdict="needs_revision",
+        path="docs/reviews/rfc-ledger/codex/RFC_LEDGER_REVIEW.md",
+        rationale="agent prose that should be redacted",
+    )
+    data(
+        run_cli(
+            tmp_path,
+            "evidence",
+            "export",
+            "--run-id",
+            run_id,
+            "--path",
+            "docs/reviews/rfc-ledger/RUN_EVIDENCE.md",
+        )
+    )
+    evidence = (tmp_path / "docs/reviews/rfc-ledger/RUN_EVIDENCE.md").read_text(encoding="utf-8")
+    assert run_id in evidence
+    assert "striatum/v1-test" in evidence
+    assert "striatum.evidence.v1" in evidence
+    assert "needs_revision" in evidence
+    # Author identity metadata stays safe.
+    assert "reviewer" in evidence
+    assert "codex" in evidence
+    assert "gpt-5.5" in evidence
+    # Job ids and workflow job ids stay safe.
+    assert "draft" in evidence
+    # Content hash is preserved.
+    assert "content_sha256" in evidence
+    # Schema version from doctor() stays safe.
+    assert "schema_version" in evidence
+
+
+def test_evidence_redacts_workflow_job_titles(tmp_path: Path) -> None:
+    distinctive_title = "DISTINCTIVE_TITLE_project_secret_alpha_12345"
+    workflow = example_workflow()
+    jobs = workflow["jobs"]
+    assert isinstance(jobs, list)
+    for job in jobs:
+        assert isinstance(job, dict)
+        job["title"] = distinctive_title
+    workflow_path = temporary_workflow(tmp_path, workflow)
+    run_id = prepare_started_run(tmp_path, workflow_path=workflow_path)
+    author = register(tmp_path, run_id, "author", "codex")
+    complete_claimed_job(
+        tmp_path,
+        author,
+        claim(tmp_path, author),
+        logical_name="draft",
+        kind="handoff",
+        path="docs/reviews/rfc-ledger/RFC_LEDGER_DRAFT.md",
+    )
+    data(
+        run_cli(
+            tmp_path,
+            "evidence",
+            "export",
+            "--run-id",
+            run_id,
+            "--path",
+            "docs/reviews/rfc-ledger/RUN_EVIDENCE.md",
+        )
+    )
+    evidence = (tmp_path / "docs/reviews/rfc-ledger/RUN_EVIDENCE.md").read_text(encoding="utf-8")
+    assert distinctive_title not in evidence
+
+
 def test_evidence_export_writes_redacted_markdown_and_rejects_bad_paths(tmp_path: Path) -> None:
     private_job_title = "PRIVATE_JOB_TITLE_corpus_project_alpha"
     workflow = example_workflow()

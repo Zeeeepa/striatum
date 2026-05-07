@@ -2,11 +2,10 @@
 
 ## Unreleased
 
-- MCP wrapper now speaks LSP-style `Content-Length` framing by default with
-  automatic line-delimited fallback. Real MCP clients (Claude Desktop, IDE
-  MCP integrations) can connect cleanly; existing line-delimited scripts and
-  tests keep working unchanged. Added `python -m striatum.mcp --framing
-  {auto,line,framed}` for operators that need to pin the wire shape.
+- Replaced the evidence-export key-name blocklist with a default-deny policy
+  registry. Any field not explicitly classified as `safe` in
+  `EVIDENCE_POLICY` is redacted from exported Markdown, so future schema
+  additions cannot silently leak agent or user prose.
 
 ## 0.1.0 - 2026-05-07
 

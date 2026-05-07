@@ -155,6 +155,13 @@ Workflow job titles are omitted by default; job and artifact authorship is
 reported through stable identity metadata: role id, lane id, declared model
 display name, and workflow job id.
 
+Evidence redaction is **default-deny**. The export schema is defined by an
+explicit per-field policy registry that classifies every emitted field as
+`safe`, `redacted`, or `dropped`. Any field added to `evidence_snapshot()`,
+`status()`, or `doctor()` that is not registered as `safe` is replaced with
+the redaction placeholder. New fields cannot leak agent or user prose into a
+committed export without an explicit, reviewable change to the registry.
+
 Work packets expose an exact lowercase `author:` line for agents to place in
 durable Markdown artifacts. This byline is distinct from evidence-export
 identity metadata: exports keep stable role id, lane id, declared model display

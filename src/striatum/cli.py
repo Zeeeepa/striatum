@@ -40,8 +40,209 @@ from striatum.process_adapter import run_process_adapter
 from striatum.workflow import create_run, load_workflow, plan_workflow, workflow_graph_data, workflow_graph_mermaid
 
 
-EVIDENCE_FREE_TEXT_KEYS = {"description", "rationale"}
 EVIDENCE_FREE_TEXT_PLACEHOLDER = "<redacted-free-text>"
+
+# Evidence redaction is a typed-field registry, not a blocklist. The export
+# payload schema is fixed and known: every field that should appear verbatim
+# in the committed Markdown export must be classified as "safe" below. Any
+# field not listed in the registry is redacted by default. This default-deny
+# rule is the contract: when someone adds a new field to evidence_snapshot(),
+# status(), or doctor(), it is replaced with the placeholder until they
+# explicitly extend the registry. See docs/SPEC.md (Artifacts/Evidence).
+#
+# Policy values:
+#   "safe"     - emit value verbatim (ids, enums, counts, hashes, timestamps,
+#                role/lane/state names, structured author identity).
+#   "redacted" - replace value with EVIDENCE_FREE_TEXT_PLACEHOLDER.
+#   "dropped"  - omit the field entirely from the redacted output.
+#
+# Special keys inside a section policy:
+#   "_each"    - apply this policy to every dict element of a list.
+#   "_items"   - apply this policy to every primitive element of a list
+#                (use "safe" for lists of ids, enum names, or counts).
+EVIDENCE_POLICY: JsonObject = {
+    # --- status() output -------------------------------------------------
+    "runs": {
+        "_each": {
+            "run_id": "safe",
+            "state": "safe",
+            "branch_name": "safe",
+        },
+    },
+    "jobs": {
+        # status returns a dict[str, int] of state -> count; every key is a
+        # job-state enum name and every value is a count, so the whole
+        # mapping is safe. Any unexpected nested structure is redacted.
+        "_dict": "safe",
+    },
+    "open_blockers": {
+        "_each": {
+            "blocker_id": "safe",
+            "run_id": "safe",
+            "job_id": "safe",
+            "session_id": "safe",
+            "severity": "safe",
+            "blocker_kind": "safe",
+            "description": "redacted",
+            "state": "safe",
+            "workflow_job_id": "safe",
+            "job_state": "safe",
+        },
+    },
+    "human_checkpoints": {
+        "_each": {
+            "blocker_id": "safe",
+            "run_id": "safe",
+            "job_id": "safe",
+            "session_id": "safe",
+            "severity": "safe",
+            "blocker_kind": "safe",
+            "description": "redacted",
+            "state": "safe",
+            "workflow_job_id": "safe",
+            "job_state": "safe",
+        },
+    },
+    "latest_non_accepting_review_verdicts": {
+        "_each": {
+            "verdict_id": "safe",
+            "run_id": "safe",
+            "job_id": "safe",
+            "workflow_job_id": "safe",
+            "job_state": "safe",
+            "session_id": "safe",
+            "verdict": "safe",
+            "findings_artifact_id": "safe",
+            "rationale": "redacted",
+        },
+    },
+    "claimable_jobs": {
+        "_each": {
+            "role_id": "safe",
+            "lane_id": "safe",
+            "count": "safe",
+            "workflow_job_ids": {"_items": "safe"},
+        },
+    },
+    "blocked_downstream_jobs": {
+        "_each": {
+            "job_id": "safe",
+            "workflow_job_id": "safe",
+            "state": "safe",
+            "role_id": "safe",
+            "lane": "safe",
+            "blocked_by": {
+                "_each": {
+                    "depends_on_job_id": "safe",
+                    "workflow_job_id": "safe",
+                    "state": "safe",
+                    "required_verdicts": {"_items": "safe"},
+                    "latest_verdict": "safe",
+                },
+            },
+        },
+    },
+    "next_actions": {"_items": "safe"},
+    # --- doctor() output -------------------------------------------------
+    "ok": "safe",
+    "schema_version": "safe",
+    "problems": {"_items": "safe"},
+    # --- evidence_snapshot() output --------------------------------------
+    "exported_at": "safe",
+    "workflow": {
+        "workflow_id": "safe",
+        "workflow_version": "safe",
+    },
+    "run": {
+        "run_id": "safe",
+        "branch_name": "safe",
+        "state": "safe",
+    },
+    # snapshot.jobs is a list of job summary dicts (key reused from status
+    # but reached via a different path; the walker disambiguates by context).
+    "snapshot_jobs": {
+        "_each": {
+            "job_id": "safe",
+            "workflow_job_id": "safe",
+            "job_type": "safe",
+            "role_id": "safe",
+            "lane": "safe",
+            "display_model": "safe",
+            "author": {
+                "role_id": "safe",
+                "lane_id": "safe",
+                "display_model": "safe",
+                "workflow_job_id": "safe",
+                "ordinal": "safe",
+                "line": "safe",
+            },
+            "state": "safe",
+            "attempt": "safe",
+            "max_attempts": "safe",
+            "fresh_session_required": "safe",
+            # Workflow job titles are project-specific prose; per docs/SPEC.md
+            # they are omitted by default. evidence_job_summaries() does not
+            # include "title" today, but if a future change adds it the
+            # default-deny rule keeps it out of the export.
+            "title": "redacted",
+            "dependencies": {
+                "_each": {
+                    "depends_on_job_id": "safe",
+                    "workflow_job_id": "safe",
+                    "state": "safe",
+                    "required_verdicts": {"_items": "safe"},
+                    "latest_verdict": "safe",
+                },
+            },
+        },
+    },
+    "artifacts": {
+        "_each": {
+            "artifact_id": "safe",
+            "job_id": "safe",
+            "session_id": "safe",
+            "logical_name": "safe",
+            "artifact_kind": "safe",
+            "repo_path": "safe",
+            "content_sha256": "safe",
+            "author": {
+                "role_id": "safe",
+                "lane_id": "safe",
+                "display_model": "safe",
+                "workflow_job_id": "safe",
+                "ordinal": "safe",
+                "line": "safe",
+            },
+        },
+    },
+    "verdicts": {
+        "_each": {
+            "verdict_id": "safe",
+            "job_id": "safe",
+            "session_id": "safe",
+            "verdict": "safe",
+            "findings_artifact_id": "safe",
+            "rationale": "redacted",
+        },
+    },
+    "blockers": {
+        "_each": {
+            "blocker_id": "safe",
+            "job_id": "safe",
+            "session_id": "safe",
+            "severity": "safe",
+            "blocker_kind": "safe",
+            "description": "redacted",
+            "state": "safe",
+        },
+    },
+}
+
+# The "jobs" key appears at the top level in two payload shapes:
+#   - status(): dict[state -> count]
+#   - evidence_snapshot(): list of job summary dicts
+# _evidence_policy_for_top_level() dispatches by value type to pick between
+# EVIDENCE_POLICY["jobs"] and EVIDENCE_POLICY["snapshot_jobs"].
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -1220,25 +1421,105 @@ def render_decision_markdown(
 
 
 def redact_evidence_payload(payload: JsonObject) -> JsonObject:
-    """Return a copy of evidence payload with free-text fields redacted."""
+    """Return a redacted copy of an evidence payload (status, doctor, or snapshot).
+
+    The redaction is policy-driven: each top-level field is matched against
+    EVIDENCE_POLICY and walked recursively. Fields not listed in the policy
+    are replaced with EVIDENCE_FREE_TEXT_PLACEHOLDER (default-deny). This
+    prevents future schema additions from silently leaking agent or user
+    prose into the committed Markdown export.
+    """
     redacted: JsonObject = {}
     for key, value in payload.items():
-        redacted[str(key)] = redact_evidence_value(str(key), value)
+        policy = _evidence_policy_for_top_level(str(key), value)
+        result = _apply_evidence_policy(value, policy)
+        if result is _EVIDENCE_DROP:
+            continue
+        redacted[str(key)] = result
     return redacted
 
 
-def redact_evidence_value(key: str, value: object) -> object:
-    """Redact nested evidence values that may contain agent or user prose."""
-    if key in EVIDENCE_FREE_TEXT_KEYS and value is not None:
+_EVIDENCE_DROP = object()
+
+
+def _evidence_policy_for_top_level(key: str, value: object) -> object:
+    """Pick the policy entry for a top-level payload key.
+
+    Disambiguates the "jobs" key, which is a state-count dict in status()
+    output but a list of job summary dicts in snapshot output. Other keys
+    look up by name; missing keys fall through to default-deny redaction.
+    """
+    if key == "jobs":
+        if isinstance(value, list):
+            return EVIDENCE_POLICY["snapshot_jobs"]
+        return EVIDENCE_POLICY["jobs"]
+    return EVIDENCE_POLICY.get(key, "redacted")
+
+
+def _apply_evidence_policy(value: object, policy: object) -> object:
+    """Recursively apply a policy node to a value.
+
+    Policy is one of:
+      - "safe": value passes through verbatim.
+      - "redacted": non-None values become the placeholder.
+      - "dropped": signals omission (caller must check for _EVIDENCE_DROP).
+      - dict with field-name keys: applies to dict values; "_each" applies
+        to each dict element of a list; "_items" applies to each primitive
+        element of a list; "_dict" applies to all values of a dict.
+    """
+    if policy == "safe":
+        return value
+    if policy == "redacted":
+        if value is None:
+            return None
         return EVIDENCE_FREE_TEXT_PLACEHOLDER
-    if isinstance(value, dict):
-        redacted: JsonObject = {}
-        for child_key, child_value in value.items():
-            redacted[str(child_key)] = redact_evidence_value(str(child_key), child_value)
-        return redacted
-    if isinstance(value, list):
-        return [redact_evidence_value("", item) for item in value]
-    return value
+    if policy == "dropped":
+        return _EVIDENCE_DROP
+    if isinstance(policy, dict):
+        if isinstance(value, list):
+            if "_each" in policy:
+                element_policy = policy["_each"]
+                return [
+                    _apply_evidence_policy(item, element_policy)
+                    for item in value
+                    if _apply_evidence_policy(item, element_policy) is not _EVIDENCE_DROP
+                ]
+            if "_items" in policy:
+                item_policy = policy["_items"]
+                return [
+                    _apply_evidence_policy(item, item_policy)
+                    for item in value
+                    if _apply_evidence_policy(item, item_policy) is not _EVIDENCE_DROP
+                ]
+            # List with no list-shape policy: redact by default.
+            return EVIDENCE_FREE_TEXT_PLACEHOLDER
+        if isinstance(value, dict):
+            if "_dict" in policy:
+                value_policy = policy["_dict"]
+                redacted_dict: JsonObject = {}
+                for child_key, child_value in value.items():
+                    result = _apply_evidence_policy(child_value, value_policy)
+                    if result is _EVIDENCE_DROP:
+                        continue
+                    redacted_dict[str(child_key)] = result
+                return redacted_dict
+            redacted_dict = {}
+            for child_key, child_value in value.items():
+                child_policy = policy.get(str(child_key), "redacted")
+                result = _apply_evidence_policy(child_value, child_policy)
+                if result is _EVIDENCE_DROP:
+                    continue
+                redacted_dict[str(child_key)] = result
+            return redacted_dict
+        # Primitive value with a structured policy: nothing to walk; default
+        # redact unless explicitly safe.
+        if value is None:
+            return None
+        return EVIDENCE_FREE_TEXT_PLACEHOLDER
+    # Unknown policy shape: redact for safety.
+    if value is None:
+        return None
+    return EVIDENCE_FREE_TEXT_PLACEHOLDER
 
 
 def blocker_summaries(conn: sqlite3.Connection, *, run_id: str | None, severity: str | None) -> list[JsonObject]:
