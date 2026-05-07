@@ -1,0 +1,161 @@
+{
+  "schema_version": "striatum.workflow.v1",
+  "workflow_id": "dogfood-001-workflow-graph-dot",
+  "workflow_version": "2026-05-07",
+  "name": "Dogfood 001: Add --format dot to striatum workflow graph",
+  "branch": {
+    "mode": "confirm",
+    "suggested_name": "striatum/dogfood-001-graph-dot",
+    "allow_dirty": false
+  },
+  "coordinator": {
+    "role_id": "coordinator",
+    "lane_id": "claude_code"
+  },
+  "lanes": {
+    "claude_code": {
+      "adapter": "process",
+      "display_model": "Claude Opus",
+      "command": ["claude", "--model", "opus", "-p"],
+      "capabilities": ["write", "review"],
+      "constraints": {
+        "transcripts": "off",
+        "repo_scope": "local_only"
+      },
+      "required_enforcement": {
+        "transcripts": "enforced"
+      }
+    },
+    "codex": {
+      "adapter": "process",
+      "display_model": "Codex GPT-5.5",
+      "command": ["codex", "exec", "-"],
+      "capabilities": ["write", "review"],
+      "constraints": {
+        "transcripts": "off",
+        "repo_scope": "local_only"
+      },
+      "required_enforcement": {
+        "transcripts": "enforced"
+      }
+    }
+  },
+  "roles": {
+    "author": {"definition_path": "docs/dogfood/001/roles/author.md"},
+    "reviewer": {"definition_path": "docs/dogfood/001/roles/reviewer.md"},
+    "coordinator": {"definition_path": "docs/dogfood/001/roles/coordinator.md"}
+  },
+  "context_docs": [
+    {"path": "AGENTS.md", "required": true},
+    {"path": "docs/SPEC.md", "required": true},
+    {"path": "src/striatum/workflow.py", "required": true},
+    {"path": "src/striatum/cli/parser.py", "required": true},
+    {"path": "src/striatum/cli/dispatch.py", "required": false},
+    {"path": "tests/test_cli_mvp.py", "required": false}
+  ],
+  "parallelism": {
+    "mode": "declared",
+    "max_active_jobs": 1,
+    "require_disjoint_write_scopes": true
+  },
+  "jobs": [
+    {
+      "id": "draft_change",
+      "type": "draft",
+      "title": "Draft --format dot for striatum workflow graph",
+      "role_id": "author",
+      "lane_id": "claude_code",
+      "objective": "Implement Graphviz DOT export alongside the existing Mermaid and JSON formats; add a focused test; update SPEC and README.",
+      "task_prompt": {"path": "docs/dogfood/001/prompts/draft.md"},
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "src/striatum/",
+          "tests/",
+          "docs/SPEC.md",
+          "docs/dogfood/001/",
+          "README.md",
+          "CHANGELOG.md"
+        ],
+        "forbidden_paths": [".striatum/"]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "draft_handoff",
+          "kind": "handoff",
+          "path": "docs/dogfood/001/DRAFT_HANDOFF.md",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "review_change",
+      "type": "review",
+      "title": "Independent review of the DOT export change",
+      "role_id": "reviewer",
+      "lane_id": "codex",
+      "fresh_session_required": true,
+      "reviewer_access_scope": "artifact_augmented",
+      "reviewer_context_policy": "fresh",
+      "objective": "Review the draft for correctness, parity with the Mermaid/JSON outputs, write-scope hygiene, and test coverage.",
+      "task_prompt": {"path": "docs/dogfood/001/prompts/review.md"},
+      "write_scope": {
+        "mode": "review_only_artifact",
+        "repo_write": false,
+        "allowed_paths": ["docs/dogfood/001/review/"],
+        "forbidden_paths": [".striatum/"]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "review_finding",
+          "kind": "finding",
+          "path": "docs/dogfood/001/review/FINDING.md",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "apply_change",
+      "type": "synthesis",
+      "title": "Apply accepted review and finalize the change",
+      "role_id": "author",
+      "lane_id": "claude_code",
+      "objective": "Apply the review's accepted findings, run make lint typecheck test, and write a final summary handoff.",
+      "task_prompt": {"path": "docs/dogfood/001/prompts/apply.md"},
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "src/striatum/",
+          "tests/",
+          "docs/SPEC.md",
+          "docs/dogfood/001/",
+          "README.md",
+          "CHANGELOG.md"
+        ],
+        "forbidden_paths": [".striatum/"]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "apply_handoff",
+          "kind": "handoff",
+          "path": "docs/dogfood/001/APPLY_HANDOFF.md",
+          "required": true
+        }
+      ]
+    }
+  ],
+  "edges": [
+    {"from": "draft_change", "to": "review_change", "on": "completed"},
+    {"from": "review_change", "to": "apply_change", "on": "completed"}
+  ],
+  "cycles": [
+    {
+      "from": "review_change",
+      "to": "draft_change",
+      "on_verdict": "needs_revision",
+      "max_iterations": 1
+    }
+  ]
+}
