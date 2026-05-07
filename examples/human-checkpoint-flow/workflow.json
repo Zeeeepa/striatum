@@ -1,0 +1,113 @@
+{
+  "schema_version": "striatum.workflow.v1",
+  "workflow_id": "human-checkpoint-flow",
+  "workflow_version": "2026-05-07",
+  "name": "Human Checkpoint Flow",
+  "branch": {
+    "mode": "confirm",
+    "suggested_name": "striatum/human-checkpoint-flow",
+    "allow_dirty": false
+  },
+  "coordinator": {
+    "role_id": "coordinator",
+    "lane_id": "local"
+  },
+  "lanes": {
+    "local": {
+      "adapter": "process",
+      "display_model": "Local Fixture",
+      "command": ["sh", "-c", "cat >/dev/null"],
+      "capabilities": ["write", "review"]
+    }
+  },
+  "roles": {
+    "author": {"definition_path": "roles/author.md"},
+    "reviewer": {"definition_path": "roles/reviewer.md"},
+    "human_checkpoint": {"definition_path": "roles/human_checkpoint.md"},
+    "coordinator": {"definition_path": "roles/coordinator.md"}
+  },
+  "context_docs": [],
+  "parallelism": {
+    "mode": "declared",
+    "max_active_jobs": 1,
+    "require_disjoint_write_scopes": true
+  },
+  "jobs": [
+    {
+      "id": "analyze",
+      "type": "draft",
+      "title": "Analyze and draft",
+      "role_id": "author",
+      "lane_id": "local",
+      "objective": "Draft the analysis artifact for the human checkpoint to decide on.",
+      "task_prompt": {"path": "prompts/analyze.md"},
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": ["docs/checkpoints/human-checkpoint-flow/"],
+        "forbidden_paths": [".striatum/"]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "analysis",
+          "kind": "handoff",
+          "path": "docs/checkpoints/human-checkpoint-flow/ANALYSIS.md",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "review",
+      "type": "review",
+      "title": "Review the analysis",
+      "role_id": "reviewer",
+      "lane_id": "local",
+      "fresh_session_required": true,
+      "objective": "Review the analysis artifact and record findings.",
+      "task_prompt": {"path": "prompts/review.md"},
+      "write_scope": {
+        "mode": "review_only_artifact",
+        "repo_write": false,
+        "allowed_paths": ["docs/checkpoints/human-checkpoint-flow/review/"],
+        "forbidden_paths": [".striatum/"]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "review",
+          "kind": "finding",
+          "path": "docs/checkpoints/human-checkpoint-flow/review/REVIEW.md",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "decide",
+      "type": "human_checkpoint",
+      "title": "Operator decision checkpoint",
+      "role_id": "human_checkpoint",
+      "lane_id": "local",
+      "fresh_session_required": true,
+      "objective": "Surface a human checkpoint and wait for the operator to record a decision artifact.",
+      "task_prompt": {"path": "prompts/decide.md"},
+      "write_scope": {
+        "mode": "review_only_artifact",
+        "repo_write": false,
+        "allowed_paths": ["docs/checkpoints/human-checkpoint-flow/decisions/"],
+        "forbidden_paths": [".striatum/"]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "decision",
+          "kind": "decision",
+          "path": "docs/checkpoints/human-checkpoint-flow/decisions/DECISION.md",
+          "required": true
+        }
+      ]
+    }
+  ],
+  "edges": [
+    {"from": "analyze", "to": "review", "on": "completed"},
+    {"from": "review", "to": "decide", "on": "completed"}
+  ],
+  "cycles": []
+}

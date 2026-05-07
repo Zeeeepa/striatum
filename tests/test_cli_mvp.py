@@ -23,6 +23,12 @@ CODE_CHANGE_WORKFLOW = ROOT / "examples" / "code-change-flow" / "workflow.json"
 FAILED_REVIEW_WORKFLOW = (
     ROOT / "examples" / "failed-review-revision-cycle" / "workflow.json"
 )
+HUMAN_CHECKPOINT_WORKFLOW = (
+    ROOT / "examples" / "human-checkpoint-flow" / "workflow.json"
+)
+ADAPTER_UNAVAILABLE_WORKFLOW = (
+    ROOT / "examples" / "adapter-unavailable-flow" / "workflow.json"
+)
 
 
 JsonDict = dict[str, Any]
@@ -3211,3 +3217,210 @@ def test_workflow_init_writes_validating_template(tmp_path: Path) -> None:
     )
     assert refused["returncode"] != 0
     assert "refuses to overwrite" in refused["error"]["message"]
+
+
+def test_human_checkpoint_flow_records_owner_decision_and_unblocks_downstream(
+    tmp_path: Path,
+) -> None:
+    """The human-checkpoint fixture surfaces an explicit operator checkpoint.
+
+    The decide job's session calls ``block --severity human_checkpoint`` from
+    a regular claimed job, status reflects the open human_checkpoint blocker
+    and the ``resolve_human_checkpoint`` next action, and the operator records
+    the durable decision artifact via ``striatum decision record`` (kind
+    ``decision``, no lease required).
+    """
+    init_repo(tmp_path)
+    valid = data(run_cli(tmp_path, "workflow", "validate", str(HUMAN_CHECKPOINT_WORKFLOW)))
+    assert valid["workflow_id"] == "human-checkpoint-flow"
+    run_id = str(
+        data(run_cli(tmp_path, "run", "prepare", "--workflow", str(HUMAN_CHECKPOINT_WORKFLOW)))[
+            "run_id"
+        ]
+    )
+    run_cli(tmp_path, "branch", "confirm", "--run-id", run_id, "--branch", "wf/human-checkpoint-test")
+    run_cli(tmp_path, "run", "start", "--run-id", run_id)
+
+    author = register(tmp_path, run_id, "author", "local")
+    complete_claimed_job(
+        tmp_path,
+        author,
+        claim(tmp_path, author),
+        logical_name="analysis",
+        kind="handoff",
+        path="docs/checkpoints/human-checkpoint-flow/ANALYSIS.md",
+    )
+
+    reviewer = register(tmp_path, run_id, "reviewer", "local")
+    review_verdict = verdict_claimed_review(
+        tmp_path,
+        reviewer,
+        claim(tmp_path, reviewer),
+        verdict="accept",
+        path="docs/checkpoints/human-checkpoint-flow/review/REVIEW.md",
+    )
+    assert review_verdict["status"] == "completed"
+    assert review_verdict["verdict"] == "accept"
+
+    # The decide job is a regular claimable human_checkpoint-typed job. Its
+    # session surfaces the explicit operator checkpoint via
+    # ``block --severity human_checkpoint``.
+    decider = register(tmp_path, run_id, "human_checkpoint", "local")
+    decide_packet = claim(tmp_path, decider)
+    assert decide_packet["job"]["workflow_job_id"] == "decide"
+    decide_job_id, decide_message_id, decide_lease_id = packet_ids(decide_packet)
+    run_cli(
+        tmp_path,
+        "ack",
+        "--session-id",
+        decider,
+        "--message-id",
+        decide_message_id,
+        "--lease-id",
+        decide_lease_id,
+    )
+    blocked = data(
+        run_cli(
+            tmp_path,
+            "block",
+            "--session-id",
+            decider,
+            "--job-id",
+            decide_job_id,
+            "--lease-id",
+            decide_lease_id,
+            "--kind",
+            "owner_decision",
+            "--severity",
+            "human_checkpoint",
+            "--description",
+            "operator must accept or reject the analysis",
+        )
+    )
+    assert blocked["status"] == "blocked"
+    blocker_id = blocked["blocker_id"]
+
+    status = data(run_cli(tmp_path, "status", "--run-id", run_id))
+    checkpoints = status["human_checkpoints"]
+    assert isinstance(checkpoints, list)
+    assert len(checkpoints) == 1
+    checkpoint = checkpoints[0]
+    assert checkpoint["blocker_id"] == blocker_id
+    assert checkpoint["severity"] == "human_checkpoint"
+    assert checkpoint["state"] == "open"
+    assert checkpoint["workflow_job_id"] == "decide"
+    assert "resolve_human_checkpoint" in status["next_actions"]
+    # The decide job should be parked in waiting_human until the operator
+    # records a decision.
+    assert int(status["jobs"].get("waiting_human", 0)) >= 1
+
+    recorded = data(
+        run_cli(
+            tmp_path,
+            "decision",
+            "record",
+            "--run-id",
+            run_id,
+            "--path",
+            "docs/checkpoints/human-checkpoint-flow/decisions/DECISION.md",
+            "--decision-id",
+            "human-checkpoint-flow-001",
+            "--outcome",
+            "accepted",
+            "--title",
+            "Operator accepts analysis",
+            "--rationale",
+            "Operator reviewed the upstream analysis and review artifacts.",
+        )
+    )
+    assert recorded["status"] == "recorded"
+    assert recorded["outcome"] == "accepted"
+    assert recorded["decision_id"] == "human-checkpoint-flow-001"
+
+    # The decision artifact is recorded as kind ``decision`` and lives at the
+    # configured checkpoint path.
+    decision_path = (
+        tmp_path / "docs" / "checkpoints" / "human-checkpoint-flow" / "decisions" / "DECISION.md"
+    )
+    assert decision_path.exists()
+    decision_text = decision_path.read_text(encoding="utf-8")
+    assert "schema_version: striatum.decision.v1" in decision_text
+    assert "artifact_kind: decision" in decision_text
+    assert "outcome: accepted" in decision_text
+
+    conn = sqlite3.connect(tmp_path / ".striatum" / "state.sqlite3")
+    try:
+        artifact_row = conn.execute(
+            """
+            SELECT artifact_kind, job_id, session_id, logical_name, repo_path
+            FROM artifacts
+            WHERE artifact_id = ?
+            """,
+            (recorded["artifact_id"],),
+        ).fetchone()
+        assert artifact_row is not None
+        assert artifact_row[0] == "decision"
+        # ``decision record`` is run-level; it does not bind to a job/session.
+        assert artifact_row[1] is None
+        assert artifact_row[2] is None
+        assert artifact_row[3] == "human-checkpoint-flow-001"
+        assert artifact_row[4] == "docs/checkpoints/human-checkpoint-flow/decisions/DECISION.md"
+        decision_event = conn.execute(
+            "SELECT event_type FROM events WHERE artifact_id = ?",
+            (recorded["artifact_id"],),
+        ).fetchone()
+        assert decision_event is not None
+        assert decision_event[0] == "decision.recorded"
+    finally:
+        conn.close()
+
+    # The run's terminal state reflects the recorded operator decision: the
+    # checkpoint blocker is still the open record explaining why downstream
+    # work paused, and the durable decision artifact is now part of the run's
+    # provenance. The decide job stays in ``waiting_human`` until an operator
+    # explicitly resumes it; that explicit resume flow is RFC 0010 future
+    # work, so this fixture asserts the blocker, the recorded decision, and
+    # the next-action surface that drives the operator workflow.
+    final_status = data(run_cli(tmp_path, "status", "--run-id", run_id))
+    assert final_status["runs"][0]["state"] == "running"
+    assert {cp["blocker_id"] for cp in final_status["human_checkpoints"]} == {blocker_id}
+    assert "resolve_human_checkpoint" in final_status["next_actions"]
+
+
+def test_adapter_unavailable_flow_rejects_at_validation(tmp_path: Path) -> None:
+    """Workflow validation rejects lanes whose adapter cannot satisfy
+    ``required_enforcement``.
+
+    The fixture asks for ``network=enforced`` but the configured ``process``
+    adapter only provides ``advisory_strict`` for ``network=forbidden``.
+    Lowering the requirement to ``advisory_strict`` makes the same workflow
+    pass validation cleanly.
+    """
+    init_repo(tmp_path)
+    rejected = run_cli(
+        tmp_path,
+        "workflow",
+        "validate",
+        str(ADAPTER_UNAVAILABLE_WORKFLOW),
+        check=False,
+    )
+    assert rejected["returncode"] == 8
+    assert rejected["ok"] is False
+    error_message = rejected["error"]["message"]
+    assert "requires 'enforced' enforcement" in error_message
+    assert "'network'" in error_message
+
+    # Lowering the requirement to ``advisory_strict`` makes the same workflow
+    # validate cleanly. We mutate a copy of the fixture into a tmp path to
+    # avoid touching the on-disk fixture itself.
+    workflow_payload = json.loads(
+        ADAPTER_UNAVAILABLE_WORKFLOW.read_text(encoding="utf-8")
+    )
+    workflow_payload["lanes"]["local"]["required_enforcement"] = {
+        "network": "advisory_strict",
+    }
+    relaxed_path = tmp_path / "adapter-unavailable-relaxed.json"
+    relaxed_path.write_text(json.dumps(workflow_payload), encoding="utf-8")
+    accepted = data(run_cli(tmp_path, "workflow", "validate", str(relaxed_path)))
+    assert accepted["valid"] is True
+    assert accepted["workflow_id"] == "adapter-unavailable-flow"

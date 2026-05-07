@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- New example fixtures: `examples/human-checkpoint-flow/` (analyze -> review
+  -> decide, where the decide job is a `human_checkpoint`-typed job whose
+  session calls `block --severity human_checkpoint` to surface an operator
+  checkpoint and the operator records the decision via
+  `striatum decision record --outcome accepted`), and
+  `examples/adapter-unavailable-flow/` (a process-lane workflow that requests
+  `network=enforced` and is rejected at validation because the process
+  adapter only provides `advisory_strict` for that constraint). Both are
+  covered by end-to-end tests in `tests/test_cli_mvp.py`.
 - Added `striatum dashboard` command: a compact, dependency-free terminal
   dashboard over the existing SQLite state that summarizes run state, job
   counts, verdicts, open blockers, claimable work, deterministic next actions,

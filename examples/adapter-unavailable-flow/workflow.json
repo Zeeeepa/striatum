@@ -1,0 +1,92 @@
+{
+  "schema_version": "striatum.workflow.v1",
+  "workflow_id": "adapter-unavailable-flow",
+  "workflow_version": "2026-05-07",
+  "name": "Adapter Unavailable Flow",
+  "branch": {
+    "mode": "confirm",
+    "suggested_name": "striatum/adapter-unavailable-flow",
+    "allow_dirty": false
+  },
+  "coordinator": {
+    "role_id": "author",
+    "lane_id": "local"
+  },
+  "lanes": {
+    "local": {
+      "adapter": "process",
+      "display_model": "Local Fixture",
+      "command": ["sh", "-c", "cat >/dev/null"],
+      "capabilities": ["write", "review"],
+      "constraints": {
+        "network": "forbidden"
+      },
+      "required_enforcement": {
+        "network": "enforced"
+      }
+    }
+  },
+  "roles": {
+    "author": {"definition_path": "roles/author.md"},
+    "reviewer": {"definition_path": "roles/reviewer.md"}
+  },
+  "context_docs": [],
+  "parallelism": {
+    "mode": "declared",
+    "max_active_jobs": 1,
+    "require_disjoint_write_scopes": true
+  },
+  "jobs": [
+    {
+      "id": "draft",
+      "type": "draft",
+      "title": "Draft change",
+      "role_id": "author",
+      "lane_id": "local",
+      "objective": "Draft the change to be reviewed.",
+      "task_prompt": {"path": "prompts/draft.md"},
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": ["docs/adapter-unavailable/"],
+        "forbidden_paths": [".striatum/"]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "draft",
+          "kind": "handoff",
+          "path": "docs/adapter-unavailable/DRAFT.md",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "review",
+      "type": "review",
+      "title": "Review change",
+      "role_id": "reviewer",
+      "lane_id": "local",
+      "fresh_session_required": true,
+      "objective": "Review the drafted change.",
+      "task_prompt": {"path": "prompts/review.md"},
+      "write_scope": {
+        "mode": "review_only_artifact",
+        "repo_write": false,
+        "allowed_paths": ["docs/adapter-unavailable/review/"],
+        "forbidden_paths": [".striatum/"]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "review",
+          "kind": "finding",
+          "path": "docs/adapter-unavailable/review/REVIEW.md",
+          "required": true
+        }
+      ]
+    }
+  ],
+  "edges": [
+    {"from": "draft", "to": "review", "on": "completed"}
+  ],
+  "cycles": []
+}

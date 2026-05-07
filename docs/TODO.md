@@ -107,10 +107,15 @@ Completed on 2026-05-07:
     table.
 12. Build a richer fixture suite beyond Engram. Added on 2026-05-07: a small
     generic docs-only review flow, a code-change flow with a one-shot
-    needs_revision cycle (`examples/code-change-flow/`), and a single-review
+    needs_revision cycle (`examples/code-change-flow/`), a single-review
     failed-revision flow that opens a configured human checkpoint
-    (`examples/failed-review-revision-cycle/`). Remaining: human-checkpoint
-    workflow surfaced explicitly and an adapter-unavailable flow.
+    (`examples/failed-review-revision-cycle/`), an explicit human-checkpoint
+    flow whose decide job surfaces an operator checkpoint via
+    `block --severity human_checkpoint` and is resolved with
+    `striatum decision record` (`examples/human-checkpoint-flow/`), and an
+    adapter-unavailable flow that requests `network=enforced` on a process
+    lane and is rejected at validation with exit code 8
+    (`examples/adapter-unavailable-flow/`). All listed gaps delivered.
 13. Continue replacing temporary bootstrap scripts with runner-owned workflows.
     A minimal generic process adapter now launches configured local process
     lanes for claimed work and records process metadata/events without
