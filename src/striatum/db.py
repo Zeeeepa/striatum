@@ -512,32 +512,29 @@ def claim_next(conn: sqlite3.Connection, *, repo: Path, session_id: str, lease_s
             raise BranchConfirmationError("branch confirmation and run start are required before claims")
         if run["state"] != "running":
             return {"status": "no_work"}
-        messages = conn.execute(
+        chosen = conn.execute(
             """
             SELECT qm.*
             FROM queue_messages qm
             JOIN jobs j ON j.job_id = qm.job_id
-            WHERE qm.run_id = ?
-              AND qm.kind = 'work'
+            WHERE qm.kind = 'work'
               AND qm.state = 'pending'
               AND qm.target_role_id = ?
               AND (qm.target_lane_id IS NULL OR qm.target_lane_id = ?)
+              AND (
+                j.fresh_session_required = 0
+                OR NOT EXISTS (
+                  SELECT 1 FROM work_packets wp
+                  WHERE wp.run_id = qm.run_id
+                    AND wp.session_id = ?
+                )
+              )
+              AND qm.run_id = ?
             ORDER BY qm.priority DESC, qm.created_at ASC
+            LIMIT 1
             """,
-            (run["run_id"], session["role_id"], session["lane_id"]),
-        ).fetchall()
-        chosen: sqlite3.Row | None = None
-        for message in messages:
-            job = row_by_id(conn, "jobs", "job_id", str(message["job_id"]))
-            if job["fresh_session_required"] == 1:
-                prior = conn.execute(
-                    "SELECT 1 FROM work_packets WHERE run_id = ? AND session_id = ? LIMIT 1",
-                    (run["run_id"], session_id),
-                ).fetchone()
-                if prior is not None:
-                    continue
-            chosen = message
-            break
+            (session["role_id"], session["lane_id"], session_id, run["run_id"]),
+        ).fetchone()
         if chosen is None:
             return {"status": "no_work"}
         job = row_by_id(conn, "jobs", "job_id", str(chosen["job_id"]))

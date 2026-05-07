@@ -668,6 +668,63 @@ def test_release_requeues_fresh_review_for_new_session_only(tmp_path: Path) -> N
     assert job["workflow_job_id"] == "review_codex"
 
 
+def test_claim_next_filters_fresh_session_required_in_sql(tmp_path: Path) -> None:
+    """The SQL filter must hide fresh-session-required work from any session
+    that has already received a packet on this run, even when the message is
+    pending and otherwise eligible. Regression for the database-side filter
+    in ``claim_next``."""
+
+    run_id = prepare_started_run(tmp_path)
+    author = register(tmp_path, run_id, "author", "codex")
+    complete_claimed_job(
+        tmp_path,
+        author,
+        claim(tmp_path, author),
+        logical_name="draft",
+        kind="handoff",
+        path="docs/reviews/rfc-ledger/RFC_LEDGER_DRAFT.md",
+    )
+    reviewer = register(tmp_path, run_id, "reviewer", "codex")
+    review_packet = claim(tmp_path, reviewer)
+    _, message_id, lease_id = packet_ids(review_packet)
+    # Release the review back to pending so the message is otherwise claimable.
+    run_cli(
+        tmp_path,
+        "release",
+        "--session-id",
+        reviewer,
+        "--message-id",
+        message_id,
+        "--lease-id",
+        lease_id,
+        "--reason",
+        "fresh-filter regression",
+        "--requeue",
+    )
+
+    # Sanity-check the SQL precondition: the released message is pending and
+    # the session has a recorded work packet.
+    conn = sqlite3.connect(tmp_path / ".striatum" / "state.sqlite3")
+    try:
+        msg_state = conn.execute(
+            "SELECT state FROM queue_messages WHERE message_id = ?",
+            (message_id,),
+        ).fetchone()
+        assert msg_state is not None and msg_state[0] == "pending"
+        prior_packets = conn.execute(
+            "SELECT COUNT(*) FROM work_packets WHERE run_id = ? AND session_id = ?",
+            (run_id, reviewer),
+        ).fetchone()
+        assert prior_packets is not None and prior_packets[0] >= 1
+    finally:
+        conn.close()
+
+    # The same session must not reclaim a fresh-session-required job it has
+    # already touched, even though the message is otherwise eligible.
+    no_work = data(run_cli(tmp_path, "claim-next", "--session-id", reviewer))
+    assert no_work["status"] == "no_work"
+
+
 def test_publish_artifact_rejects_out_of_scope_paths(tmp_path: Path) -> None:
     run_id = prepare_started_run(tmp_path)
     author = register(tmp_path, run_id, "author", "codex")

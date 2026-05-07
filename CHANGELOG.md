@@ -47,6 +47,12 @@
   registry. Any field not explicitly classified as `safe` in
   `EVIDENCE_POLICY` is redacted from exported Markdown, so future schema
   additions cannot silently leak agent or user prose.
+- Pushed the `fresh_session_required` filter in `claim_next` into a single
+  SQL query using a `NOT EXISTS` correlated subquery, replacing the
+  per-candidate Python loop. Added covering index migration for
+  `work_packets(run_id, session_id)`.
+- Added RFC 0009 (proposed) describing the V2 long-lived process supervisor
+  for agent CLIs that span multiple work packets.
 
 ## 0.1.0 - 2026-05-07
 

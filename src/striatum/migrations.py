@@ -72,10 +72,28 @@ def _apply_v2_job_worktrees(conn: sqlite3.Connection) -> None:
     )
 
 
+def _apply_v3_work_packets_index(conn: sqlite3.Connection) -> None:
+    """Cover the work_packets side of the fresh-session correlated subquery.
+
+    `claim_next` filters out work that requires a fresh session when the
+    candidate session has already received a packet for the run. The check
+    is a correlated `NOT EXISTS` against `work_packets(run_id, session_id)`;
+    this covering index makes that subquery use an index seek instead of a
+    scan as session counts grow.
+    """
+    conn.executescript(
+        """
+        CREATE INDEX IF NOT EXISTS idx_work_packets_run_session
+          ON work_packets(run_id, session_id);
+        """
+    )
+
+
 MIGRATIONS: list[Migration] = sorted(
     [
         Migration(version=1, label="v1 baseline schema", apply=_apply_v1),
         Migration(version=2, label="job_worktrees table", apply=_apply_v2_job_worktrees),
+        Migration(version=3, label="work_packets fresh-session index", apply=_apply_v3_work_packets_index),
     ],
     key=lambda migration: migration.version,
 )
