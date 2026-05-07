@@ -1,8 +1,8 @@
-# agent_runner
+# striatum
 
 Local-first orchestration for multiple terminal-based AI coding agents.
 
-`agent_runner` is a small, repo-local control plane for coordinating AI coding
+`striatum` is a small, repo-local control plane for coordinating AI coding
 agents that live in terminals: Codex, Claude Code, Gemini CLI, or any other
 model runtime that can be represented as a command. It is built for workflows
 where several agents need to draft, review, synthesize, repair, and report on
@@ -10,7 +10,7 @@ work without relying on a hosted coordinator or hidden chat transcripts.
 
 The important distinction is this:
 
-- `.agent_runner/state.sqlite3` is the authoritative live state for runs,
+- `.striatum/state.sqlite3` is the authoritative live state for runs,
   jobs, sessions, queue messages, leases, blockers, verdicts, artifacts, and
   events.
 - Repository files are durable provenance: prompts, findings, ledgers,
@@ -19,19 +19,18 @@ The important distinction is this:
 Marker files, tmux pane state, terminal output, and provider hooks are useful
 for humans, but they are not the live message bus.
 
-This directory is temporarily incubated inside Engram because Engram supplied
-the first real validation workflow and design pressure. The product boundary is
-generic: `agent_runner` is intended to orchestrate terminal-agent workflows for
-any repository. Engram is the reference customer and first fixture, not the
-product scope. After MVP validation, this directory should split into a
-standalone repository.
+Striatum was incubated inside Engram because Engram supplied the first real
+validation workflow and design pressure. It is now a standalone project. Engram
+remains the reference customer and first fixture, but the product boundary is
+generic: `striatum` is intended to orchestrate terminal-agent workflows for any
+target repository.
 
 ## Current Status
 
 The V1 MVP is implemented as a Python CLI with no runtime dependencies outside
 the standard library. It can:
 
-- initialize repo-local SQLite state under `.agent_runner/`;
+- initialize repo-local SQLite state under `.striatum/`;
 - validate JSON workflow files and reject YAML;
 - snapshot workflows into SQLite so a run is not silently changed by later file
   edits;
@@ -49,7 +48,7 @@ the standard library. It can:
 - create bounded revision attempts when a workflow declares a cycle;
 - stop at a human checkpoint when review feedback has no declared safe route;
 - export redacted Markdown evidence snapshots for commit and review while
-  leaving `.agent_runner/` ignored.
+  leaving `.striatum/` ignored.
 
 V1 deliberately does not launch or supervise production model processes yet.
 The generic process/tmux adapter boundary is designed, and a temporary tmux
@@ -58,7 +57,7 @@ workflow, work-packet, artifact, and review-gate contract.
 
 ## What It Is For
 
-`agent_runner` is for long-running, review-heavy agent workflows where "just
+`striatum` is for long-running, review-heavy agent workflows where "just
 tell three agents to work in tmux panes" stops being enough. It gives the human
 and coordinator a stable answer to questions like:
 
@@ -76,20 +75,20 @@ and coordinator a stable answer to questions like:
 
 The runner is intentionally conservative. It coordinates work; it does not
 decide that an agent is done because a terminal printed a phrase. Agents and
-humans move the workflow by calling `agent_runner` commands.
+humans move the workflow by calling `striatum` commands.
 
 ## Behavior Model
 
 ### Local State
 
-`agent_runner init` creates `.agent_runner/state.sqlite3`, enables SQLite WAL
-mode and foreign keys, and ensures `.agent_runner/` appears in `.gitignore`.
+`striatum init` creates `.striatum/state.sqlite3`, enables SQLite WAL
+mode and foreign keys, and ensures `.striatum/` appears in `.gitignore`.
 The state database is local working state, not a repo artifact to commit.
 
 ### Workflow Snapshots
 
 Workflow files are JSON objects with schema version
-`agent-runner.workflow.v1`. `run prepare` validates the file, stores a
+`striatum.workflow.v1`. `run prepare` validates the file, stores a
 canonical JSON snapshot and SHA-256 hash in SQLite, and creates a run in
 `needs_branch_confirmation`. Later edits to the workflow file do not mutate an
 already prepared run.
@@ -138,7 +137,7 @@ checks:
 - the caller owns the active lease;
 - the artifact file exists;
 - the path is repo-relative;
-- the path stays outside `.agent_runner/`;
+- the path stays outside `.striatum/`;
 - the path is inside the job write scope;
 - the artifact kind is allowed;
 - the logical name is not being reused for different content.
@@ -180,44 +179,40 @@ does not include the SQLite database or transcripts.
 
 ## Installation
 
-From this incubation directory:
+From a checkout of this repository:
 
 ```bash
-cd agent-runner
 make install
-.venv/bin/agent_runner --help
+.venv/bin/striatum --help
 ```
 
 For quick development without installing the console script:
 
 ```bash
-cd agent-runner
-PYTHONPATH=src python3 -m agent_runner.cli --help
+PYTHONPATH=src python3 -m striatum.cli --help
 ```
 
 Run the tests with:
 
 ```bash
-cd agent-runner
 make test
 ```
 
 ## Usage Guide
 
-The examples below assume you are in this `agent-runner` directory and want to
+The examples below assume you are in the Striatum checkout and want to
 operate on some target repository. Set these once:
 
 ```bash
-RUNNER=.venv/bin/agent_runner
+RUNNER=.venv/bin/striatum
 TARGET_REPO=/path/to/target/repo
 WORKFLOW=examples/rfc-ledger-cleanup/workflow.json
 ```
 
-During incubation, the Engram repo happens to be the parent directory, so
-`TARGET_REPO=..` works for the checked-in fixture. For another project, point
-`TARGET_REPO` at that project and adapt the workflow's artifact paths to that
-repo. The fixture writes under `docs/reviews/rfc-ledger/` in the target repo,
-so use a scratch target if you only want to smoke-test the runner.
+Point `TARGET_REPO` at the repository you want to orchestrate and adapt the
+workflow's artifact paths to that repo. The generic fixture writes under
+`docs/reviews/rfc-ledger/` in the target repo, so use a scratch target if you
+only want to smoke-test the runner.
 
 ### 1. Initialize Runner State
 
@@ -227,8 +222,8 @@ so use a scratch target if you only want to smoke-test the runner.
 "$RUNNER" --repo "$TARGET_REPO" doctor --json
 ```
 
-This creates `.agent_runner/state.sqlite3` under the target repo and adds
-`.agent_runner/` to that repo's `.gitignore`.
+This creates `.striatum/state.sqlite3` under the target repo and adds
+`.striatum/` to that repo's `.gitignore`.
 
 ### 2. Validate A Workflow
 
@@ -266,7 +261,7 @@ Confirm the branch that the human has chosen for this run:
 ```bash
 "$RUNNER" --repo "$TARGET_REPO" branch confirm \
   --run-id <run_id> \
-  --branch agent-runner/rfc-ledger-cleanup \
+  --branch striatum/rfc-ledger-cleanup \
   --json
 ```
 
@@ -415,7 +410,7 @@ To publish a redacted run snapshot:
   --json
 ```
 
-The export path must be inside the repository and outside `.agent_runner/`.
+The export path must be inside the repository and outside `.striatum/`.
 
 ## Writing Workflows
 
@@ -466,15 +461,15 @@ unless the surrounding launcher/sandbox actually enforces them.
 
 ## Bootstrap Tmux Harness
 
-The temporary design bootstrap runner is still available during Engram
-incubation:
+The temporary design bootstrap runner remains available for historical design
+fixture work:
 
 ```bash
-agent-runner/scripts/agent_runner_tmux_design.sh start
-tmux attach -t agent-runner-design
+scripts/striatum_tmux_design.sh start
+tmux attach -t striatum-design
 ```
 
-Use `start-pipe` or `AGENT_RUNNER_RUN_MODE=pipe` when the local model CLIs are
+Use `start-pipe` or `STRIATUM_RUN_MODE=pipe` when the local model CLIs are
 ready to accept prompts on stdin. The harness starts Claude, Codex, and Gemini
 design-input lanes plus a synthesis handoff pane.
 
@@ -487,36 +482,36 @@ until the generic runner grows a real process/tmux adapter.
 Core lifecycle:
 
 ```text
-agent_runner init
-agent_runner workflow validate
-agent_runner run prepare
-agent_runner branch confirm
-agent_runner run start
+striatum init
+striatum workflow validate
+striatum run prepare
+striatum branch confirm
+striatum run start
 ```
 
 Agent/session work loop:
 
 ```text
-agent_runner register-session
-agent_runner claim-next
-agent_runner ack
-agent_runner heartbeat
-agent_runner release
-agent_runner send
-agent_runner block
-agent_runner publish-artifact
-agent_runner complete
-agent_runner verdict
-agent_runner submit-review
+striatum register-session
+striatum claim-next
+striatum ack
+striatum heartbeat
+striatum release
+striatum send
+striatum block
+striatum publish-artifact
+striatum complete
+striatum verdict
+striatum submit-review
 ```
 
 Inspection and recovery:
 
 ```text
-agent_runner status
-agent_runner why
-agent_runner doctor
-agent_runner evidence export
+striatum status
+striatum why
+striatum doctor
+striatum evidence export
 ```
 
 Stable exit codes:
@@ -548,6 +543,6 @@ Start with:
 Execution prompts:
 
 - [prompts/P001_design_review_build_v1_mvp.md](prompts/P001_design_review_build_v1_mvp.md)
-- [prompts/P002_validate_agent_runner_with_rfc_0014.md](prompts/P002_validate_agent_runner_with_rfc_0014.md)
+- [prompts/P002_validate_striatum_with_rfc_0014.md](prompts/P002_validate_striatum_with_rfc_0014.md)
 - [prompts/P003_implement_rfc_0014_dogfood_fixes.md](prompts/P003_implement_rfc_0014_dogfood_fixes.md)
 - [prompts/P004_rerun_rfc_0014_dogfood.md](prompts/P004_rerun_rfc_0014_dogfood.md)

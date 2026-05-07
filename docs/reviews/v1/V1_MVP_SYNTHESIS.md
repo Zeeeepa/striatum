@@ -13,9 +13,9 @@ Status: accepted for implementation after branch confirmation
 
 ## Accepted Recommendations
 
-- Use SQLite under `.agent_runner/` as the authoritative local state store,
+- Use SQLite under `.striatum/` as the authoritative local state store,
   event log, and lightweight queue.
-- Expose all mutations through `agent_runner` CLI commands.
+- Expose all mutations through `striatum` CLI commands.
 - Store durable findings, decisions, syntheses, prompts, and markers as repo
   artifacts; do not use artifacts as the live message bus.
 - Use JSON workflow configuration and reject YAML.

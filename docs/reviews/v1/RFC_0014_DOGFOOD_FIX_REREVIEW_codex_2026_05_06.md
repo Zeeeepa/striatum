@@ -2,14 +2,14 @@
 
 Date: 2026-05-06
 Reviewer: Codex GPT-5.5
-Branch reviewed: `agent-runner/rfc-0014-validation`
+Branch reviewed: `striatum/rfc-0014-validation`
 Commit reviewed: `e293817`
 Verdict: needs_revision
 
 ## Scope
 
 Re-reviewed the RFC 0014 dogfood fix implementation after
-`agent-runner/docs/reviews/v1/RFC_0014_DOGFOOD_FIX_REVIEW_codex_2026_05_06.md`
+`docs/reviews/v1/RFC_0014_DOGFOOD_FIX_REVIEW_codex_2026_05_06.md`
 recorded two findings:
 
 - F001: `submit-review` can leave an immutable bad artifact behind.
@@ -26,9 +26,9 @@ Verification run during re-review:
 
 ```bash
 git diff --check origin/master...HEAD
-cd agent-runner
+cd striatum
 PYTHONPATH=src ../.venv/bin/python -m pytest -q
-PYTHONPATH=src python3 -m agent_runner.cli workflow validate examples/rfc-0014-operational-artifact-home/workflow.json --json
+PYTHONPATH=src python3 -m striatum.cli workflow validate examples/rfc-0014-operational-artifact-home/workflow.json --json
 ```
 
 Results:
@@ -41,7 +41,7 @@ Results:
 
 ### F003 [P1] Evidence export is not actually redacted
 
-File: `agent-runner/src/agent_runner/cli.py:925-932`
+File: `src/striatum/cli.py:925-932`
 
 `evidence_export` labels the output as redacted, but it serializes
 `status_payload` and `snapshot` directly. Those include free-text blocker

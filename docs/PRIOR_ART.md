@@ -8,7 +8,7 @@ choice still needs promotion into `docs/DECISION_LOG.md`.
 
 ## Relevant Systems
 
-| System | Relevant Ideas | Notes For agent_runner |
+| System | Relevant Ideas | Notes For striatum |
 |--------|----------------|------------------------|
 | [Crewly](https://crewlyai.com/) | Orchestrates Claude Code, Gemini CLI, and Codex in live terminal sessions; agents communicate through bash-based skills; includes task management, roles, persistent memory, and a dashboard. | Confirms the terminal-agent orchestration shape. The bash-skill communication idea maps to a CLI fallback, but the product abstraction felt too opinionated for exact-model/headless control. |
 | [Forge MCP](https://forgemcp.dev/) | Terminal MCP server with persistent PTY sessions, event subscriptions, pattern matching, `wait_for`, and multi-agent delegation. | Strong signal for an MCP control surface plus event-driven terminal observation. Persistent sessions and "new output only" reads address context and introspection pain. |
@@ -36,7 +36,7 @@ choice still needs promotion into `docs/DECISION_LOG.md`.
 
 ## Design Ideas To Consider
 
-- Use `agent_runner` CLI commands as the primary agent control surface:
+- Use `striatum` CLI commands as the primary agent control surface:
   `claim-next`, `send`, `complete`, `block`, `publish-artifact`, `read-prompt`,
   and `status`.
 - Consider exposing those same operations through MCP later, but do not make

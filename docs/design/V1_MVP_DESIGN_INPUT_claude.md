@@ -1,6 +1,6 @@
 # V1 MVP Design Input: Claude
 
-Lane: Claude Opus design lane for `agent_runner` P001.
+Lane: Claude Opus design lane for `striatum` P001.
 Date: 2026-05-06.
 Posture: design notes only, no code, no source/spec/decision/language edits.
 
@@ -18,7 +18,7 @@ Top-line risks the synthesis must guard:
 - Coordinator drift into synthesis. The selected AI coordinator lane will be
   asked to "just write it" and will comply unless the CLI itself denies it.
 - Marker / SQLite duality. Engram's tmux harness uses marker files as the live
-  message bus. `agent_runner` must not. Markers and other repo artifacts are
+  message bus. `striatum` must not. Markers and other repo artifacts are
   published outputs from SQLite, never read as control-plane state.
 - Persistent-session contamination across reviews. Persistent sessions are
   preferred by D011 only while the role is active; reviews that need
@@ -37,7 +37,7 @@ commits/pushes.
 
 In scope (Claude lane recommendation):
 
-- SQLite state store under `.agent_runner/agent_runner.sqlite3` (WAL, foreign
+- SQLite state store under `.striatum/striatum.sqlite3` (WAL, foreign
   keys, append-only `events`, queue tables, lease columns, verdicts,
   artifacts, human checkpoints).
 - Mutation CLI: `register-session`, `claim-next`, `ack`, `release`,
@@ -69,7 +69,7 @@ Out of MVP (must remain explicitly deferred in `docs/SPEC.md`):
   belong inside lane command templates the operator declares, not core
   semantics).
 - Transcript capture. Optional debug capture only under
-  `.agent_runner/diagnostics/<session_id>.log`, gitignored, off by default.
+  `.striatum/diagnostics/<session_id>.log`, gitignored, off by default.
 - Coordinator-as-author. The AI coordinator must not be able to publish
   artifacts for jobs other than coordinator-owned jobs.
 
@@ -77,19 +77,19 @@ Out of MVP (must remain explicitly deferred in `docs/SPEC.md`):
 
 User flow A — bootstrap a repo:
 
-1. `agent_runner init` creates `.agent_runner/`, initializes SQLite, ensures
-   `.gitignore` covers `.agent_runner/` and `.agent_runner/diagnostics/`.
-2. `agent_runner doctor` reports schema version, WAL state, and any orphaned
+1. `striatum init` creates `.striatum/`, initializes SQLite, ensures
+   `.gitignore` covers `.striatum/` and `.striatum/diagnostics/`.
+2. `striatum doctor` reports schema version, WAL state, and any orphaned
    leases.
 
 User flow B — start a workflow run:
 
-1. Operator: `agent_runner run start --workflow examples/workflows/rfc_ledger_cleanup/workflow.json --coordinator-lane claude_opus`.
+1. Operator: `striatum run start --workflow examples/workflows/rfc_ledger_cleanup/workflow.json --coordinator-lane claude_opus`.
 2. The deterministic coordinator validates JSON, registers workflow/run rows,
    loads roles/lanes/context refs, and stages all jobs in `state=staged`.
 3. If `branch.policy == confirm_required`, the runner emits a
    `branch_proposal` human checkpoint and stops. No git mutation yet.
-4. Operator: `agent_runner branch confirm --run R --branch feature/...`. The
+4. Operator: `striatum branch confirm --run R --branch feature/...`. The
    runner performs the `git switch -c` and transitions the run to `running`.
 5. The runner launches the AI coordinator session under the selected lane,
    piping a coordinator system prompt that names allowed coordinator skills.
@@ -213,7 +213,7 @@ implicit.
   "write_scope": {
     "allow_paths": ["docs/reviews/01J.../"],
     "deny_paths": ["src/", "scripts/", "docs/rfc/"],
-    "readonly_globs": ["**/*.lock", "**/.agent_runner/**"]
+    "readonly_globs": ["**/*.lock", "**/.striatum/**"]
   },
   "completion_protocol": {
     "required_calls": ["publish-artifact", "verdict", "complete"],
@@ -236,7 +236,7 @@ implicit.
   "cycle": { "id": "review_revise", "iteration": 1, "max_iterations": 2 },
   "prior_messages": [],
   "assembled_at": "2026-05-06T...",
-  "assembler_version": "agent_runner/0.1.0",
+  "assembler_version": "striatum/0.1.0",
   "packet_sha": "..."
 }
 ```
@@ -256,8 +256,8 @@ Top-level shape (illustrative subset for RFC-ledger):
 
 ```json
 {
-  "$schema": "https://schemas.agent_runner.dev/workflow.v1.json",
-  "format": "agent_runner.workflow.v1",
+  "$schema": "https://schemas.striatum.dev/workflow.v1.json",
+  "format": "striatum.workflow.v1",
   "workflow": "rfc_ledger_cleanup",
   "version": "1.0.0",
   "branch": {
@@ -362,7 +362,7 @@ Top-level shape (illustrative subset for RFC-ledger):
 
 Validator must enforce:
 
-- `format` literal `agent_runner.workflow.v1`.
+- `format` literal `striatum.workflow.v1`.
 - All declared `lane`/`role` references resolve.
 - All `parallel_group` siblings have disjoint `write_scope.allow_paths` and
   distinct `expected_artifacts.path`.
@@ -398,7 +398,7 @@ Lifecycle states:
 - Match by `(run_id, role_id, lane_id, capabilities ⊇ packet.required_capabilities)`.
 - Reject the match if the packet has `fresh_session_required=true` AND the
   session has previously claimed any packet for the same role+run. The
-  caller must register a new session (new ordinal); `agent_runner run start`
+  caller must register a new session (new ordinal); `striatum run start`
   and the coordinator skill `enqueue-job` are responsible for triggering a
   fresh launch for fresh-required jobs.
 - Reject the match if `session.terminated_at` is set.
@@ -419,7 +419,7 @@ Fresh-context semantics (D029):
 Native sub-agents (D021):
 
 - Default: parent session is accountable. Sub-agents inherit
-  `AGENT_RUNNER_SESSION_ID` from environment, and any CLI mutation they
+  `STRIATUM_SESSION_ID` from environment, and any CLI mutation they
   make is recorded against the parent.
 - Opt-in first-class: a coordinator skill `register-session
   --parent-session-id PSID` registers the child as a separate session with
@@ -537,10 +537,10 @@ local Unix socket mediator without changing the agent contract.
 
 CLI shape:
 
-- One entrypoint: `agent_runner <group> <verb> [...]`.
+- One entrypoint: `striatum <group> <verb> [...]`.
 - Two groups: `admin` (operator) and mutations (no group prefix needed for
   agents). Aliases keep operator commands ergonomic
-  (`agent_runner status` ≡ `agent_runner admin status`).
+  (`striatum status` ≡ `striatum admin status`).
 - Universal flags: `--json`, `--repo PATH` (defaults to cwd discovery),
   `--quiet`, `--session SID`, `--run RUN_ID`.
 
@@ -595,7 +595,7 @@ Adapter boundary:
   `pty`), `TmuxAdapter` (wraps `ProcessAdapter` to attach the process
   inside a configured tmux window). No vendor-specific behavior.
 - The adapter does NOT parse stdout. Workers communicate state back through
-  `agent_runner` mutations. This is the cornerstone of model portability:
+  `striatum` mutations. This is the cornerstone of model portability:
   swapping a lane only swaps the launch command, not protocol logic.
 - Provider features (slash commands, MCP tool servers, hooks) live entirely
   inside lane `command` arrays the operator authors. Core makes no
@@ -625,7 +625,7 @@ Artifact policy (D016, D028):
   reads them back as state. SQLite is authoritative.
 - Transcripts: not captured by default. If an operator turns on diagnostic
   capture for a session, output goes to
-  `.agent_runner/diagnostics/<session_id>.log`, gitignored, and never
+  `.striatum/diagnostics/<session_id>.log`, gitignored, and never
   registered as an artifact.
 
 Branch confirmation (D017, D026):
@@ -637,7 +637,7 @@ Branch confirmation (D017, D026):
 - Under `confirm_required`, the runner inserts a `human_checkpoint` row of
   kind `branch_proposal` and sets `runs.state=awaiting_branch`. No git
   operation executes.
-- The human runs `agent_runner branch confirm --run R --branch NAME`. The
+- The human runs `striatum branch confirm --run R --branch NAME`. The
   runner now executes `git switch -c NAME` (or `git switch NAME` for an
   existing branch confirmed by the human) and resolves the checkpoint.
 - If the working tree is dirty, the checkpoint body lists modified paths
@@ -676,9 +676,9 @@ final_review`, with bounded `synth_revise` cycle (`max_iterations=2`).
 
 Test exercise (no live model calls; mocked sessions):
 
-1. `agent_runner workflow validate examples/.../workflow.json` succeeds.
+1. `striatum workflow validate examples/.../workflow.json` succeeds.
 2. Equivalent YAML file with same content is rejected.
-3. `agent_runner run start --workflow ...` puts run into
+3. `striatum run start --workflow ...` puts run into
    `awaiting_branch`; no git mutation occurred.
 4. After `branch confirm`, exactly three review packets are `ready` and the
    draft packet was already completed by a fixture pre-populated artifact.
@@ -755,12 +755,12 @@ Layers and what each enforces:
    - workflow JSON Schema does not mention transcript capture.
 
 8. Smoke (Make target `make smoke`):
-   - tmpdir → `agent_runner init` → `status --json` → `doctor`. Asserts
+   - tmpdir → `striatum init` → `status --json` → `doctor`. Asserts
      exit 0 and presence of expected files.
 
 Make targets: `make test`, `make lint`, `make smoke`. CI runs all three.
 
-Coverage target: ≥85% line coverage on `src/agent_runner/`, with full
+Coverage target: ≥85% line coverage on `src/striatum/`, with full
 coverage of state-machine transitions and gate evaluator. Performance is
 not an MVP gate; informational `claim-next` micro-bench under
 `tests/perf/` is allowed but not required to pass.
@@ -794,7 +794,7 @@ Risks:
   remain bound to the parent session id.
 - R9. Bootstrap harness leakage. The Engram tmux runner is an OK temporary
   one-shot helper but its marker pattern must not bleed into
-  `agent_runner` core. Mitigation: explicit non-goal in `docs/SPEC.md`.
+  `striatum` core. Mitigation: explicit non-goal in `docs/SPEC.md`.
   The adapter ships from scratch.
 - R10. Plugin marketplace temptation. Mitigation: lanes are workflow JSON
   declarations only. No discovery, no registry, no upgrade flow. Document
@@ -812,7 +812,7 @@ Blocker (open question, Q030):
 - Recommendation: yes, allow Engram's `scripts/phase3_tmux_agents.sh` to be
   reused as bootstrap orchestration for THIS one-shot's three-model design
   pass. No, do not import its marker-as-bus mental model into
-  `agent_runner` core. Make this distinction explicit in `docs/SPEC.md`
+  `striatum` core. Make this distinction explicit in `docs/SPEC.md`
   before synthesis.
 
 Recommendations to synthesis:

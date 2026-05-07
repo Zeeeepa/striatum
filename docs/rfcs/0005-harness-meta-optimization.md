@@ -2,12 +2,12 @@
 
 Status: proposed
 Date: 2026-05-06
-Context: ARIS paper review, `agent-runner/docs/SPEC.md`,
-`agent-runner/docs/DECISION_LOG.md`
+Context: ARIS paper review, `docs/SPEC.md`,
+`docs/DECISION_LOG.md`
 
 ## Problem
 
-`agent_runner` will accumulate structured evidence about its own workflow
+`striatum` will accumulate structured evidence about its own workflow
 friction: repeated blockers, manual command plumbing, failed gates, unclear
 work packets, adapter limitations, and review cycles that plateau. Today those
 observations become manual validation notes or ad hoc follow-up specs.
@@ -67,7 +67,7 @@ the human retains final disposition.
 - Workflow validation accepts `harness_improvement_proposal` as an artifact
   kind.
 - A sample maintenance workflow can analyze committed evidence exports without
-  reading `.agent_runner/` directly.
+  reading `.striatum/` directly.
 - Proposed harness changes require a review job before any implementation job
   becomes claimable.
 - Documentation states that meta-optimization never auto-applies patches.

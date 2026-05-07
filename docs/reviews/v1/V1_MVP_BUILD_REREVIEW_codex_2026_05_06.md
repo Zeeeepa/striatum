@@ -2,7 +2,7 @@
 
 Date: 2026-05-06
 Reviewer: Codex GPT-5.5
-Branch reviewed: `agent-runner/v1-mvp`
+Branch reviewed: `striatum/v1-mvp`
 Commit reviewed: `93edc15`
 Base reviewed against: `origin/master`
 Verdict: accept_with_findings
@@ -16,12 +16,12 @@ revised P001 build-review gate now has independent reviewer coverage.
 
 Reviewed:
 
-- `agent-runner/src/agent_runner/cli.py`
-- `agent-runner/src/agent_runner/db.py`
-- `agent-runner/src/agent_runner/workflow.py`
-- `agent-runner/src/agent_runner/schema.py`
-- `agent-runner/tests/test_cli_mvp.py`
-- `agent-runner/docs/reviews/v1/`
+- `src/striatum/cli.py`
+- `src/striatum/db.py`
+- `src/striatum/workflow.py`
+- `src/striatum/schema.py`
+- `tests/test_cli_mvp.py`
+- `docs/reviews/v1/`
 
 ## Finding Resolution
 
@@ -91,7 +91,7 @@ verification is job-scoped.
 
 ## Verification
 
-Executed from `agent-runner/`:
+Executed from `striatum/`:
 
 ```bash
 PYTHONPATH=src /Users/halbritt/Documents/GitHub/engram/.venv/bin/python -m pytest -q
@@ -106,9 +106,9 @@ Result:
 Smoke sequence in a temporary repo:
 
 ```bash
-agent_runner init --json
-agent_runner status --json
-agent_runner doctor --json
+striatum init --json
+striatum status --json
+striatum doctor --json
 ```
 
 Result: all commands returned `ok: true`; `doctor` reported schema version `1`

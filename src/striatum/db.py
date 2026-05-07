@@ -11,21 +11,21 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, Iterator, cast
 
-from agent_runner.errors import (
-    AgentRunnerError,
+from striatum.errors import (
+    StriatumError,
     ArtifactError,
     BranchConfirmationError,
     InvalidTransitionError,
     LeaseError,
     NotFoundError,
 )
-from agent_runner.identity import artifact_author_identity
-from agent_runner.schema import SCHEMA_SQL
+from striatum.identity import artifact_author_identity
+from striatum.schema import SCHEMA_SQL
 
 # JSON columns are intentionally untyped at the SQLite boundary.
 JsonObject = dict[str, Any]
 
-STATE_DIR = ".agent_runner"
+STATE_DIR = ".striatum"
 DB_NAME = "state.sqlite3"
 
 
@@ -95,9 +95,9 @@ def init_repo(repo: Path) -> None:
     state_dir(repo).mkdir(parents=True, exist_ok=True)
     ignore_path = repo / ".gitignore"
     existing = ignore_path.read_text(encoding="utf-8") if ignore_path.exists() else ""
-    if ".agent_runner/" not in existing.splitlines():
+    if ".striatum/" not in existing.splitlines():
         prefix = "" if existing == "" or existing.endswith("\n") else "\n"
-        ignore_path.write_text(f"{existing}{prefix}.agent_runner/\n", encoding="utf-8")
+        ignore_path.write_text(f"{existing}{prefix}.striatum/\n", encoding="utf-8")
     with connect(repo) as conn:
         conn.executescript(SCHEMA_SQL)
 
@@ -105,7 +105,7 @@ def init_repo(repo: Path) -> None:
 def ensure_initialized(repo: Path) -> None:
     """Raise if the repo has not been initialized."""
     if not db_path(repo).exists():
-        raise AgentRunnerError("agent_runner state is not initialized; run agent_runner init", exit_code=3)
+        raise StriatumError("striatum state is not initialized; run striatum init", exit_code=3)
 
 
 def insert_event(
@@ -172,7 +172,7 @@ def _repo_relative_path(repo: Path, path_text: str, *, allow_state: bool) -> Pat
     if not allow_state and (
         resolved == repo_resolved / STATE_DIR or (repo_resolved / STATE_DIR) in resolved.parents
     ):
-        raise ArtifactError("artifact path cannot be under .agent_runner")
+        raise ArtifactError("artifact path cannot be under .striatum")
     return resolved
 
 
@@ -566,7 +566,7 @@ def build_packet(
     if author_line is None:
         raise InvalidTransitionError("session author line could not be derived")
     return {
-        "packet_version": "agent-runner.work-packet.v1",
+        "packet_version": "striatum.work-packet.v1",
         "packet_id": packet_id,
         "run": {
             "run_id": run["run_id"],
@@ -609,12 +609,12 @@ def build_packet(
         "adapter_constraints": adapter_constraints,
         "expected_artifacts": expected_artifacts_with_author(expected_artifacts, author_line=author_line),
         "commands": {
-            "ack": f"agent_runner ack --session-id {session['session_id']} --message-id {message_id} --lease-id {lease_id}",
-            "heartbeat": f"agent_runner heartbeat --session-id {session['session_id']} --lease-id {lease_id}",
-            "publish_artifact": f"agent_runner publish-artifact --session-id {session['session_id']} --job-id {job['job_id']} --lease-id {lease_id}",
-            "block": f"agent_runner block --session-id {session['session_id']} --job-id {job['job_id']} --lease-id {lease_id}",
-            "verdict": f"agent_runner verdict --session-id {session['session_id']} --job-id {job['job_id']} --lease-id {lease_id}",
-            "complete": f"agent_runner complete --session-id {session['session_id']} --job-id {job['job_id']} --lease-id {lease_id}",
+            "ack": f"striatum ack --session-id {session['session_id']} --message-id {message_id} --lease-id {lease_id}",
+            "heartbeat": f"striatum heartbeat --session-id {session['session_id']} --lease-id {lease_id}",
+            "publish_artifact": f"striatum publish-artifact --session-id {session['session_id']} --job-id {job['job_id']} --lease-id {lease_id}",
+            "block": f"striatum block --session-id {session['session_id']} --job-id {job['job_id']} --lease-id {lease_id}",
+            "verdict": f"striatum verdict --session-id {session['session_id']} --job-id {job['job_id']} --lease-id {lease_id}",
+            "complete": f"striatum complete --session-id {session['session_id']} --job-id {job['job_id']} --lease-id {lease_id}",
         },
         "artifact_policy": {"publish_transcripts": False, "curated_artifacts_only": True},
     }

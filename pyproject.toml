@@ -1,8 +1,23 @@
 [project]
-name = "agent-runner"
+name = "striatum"
 version = "0.1.0"
 description = "Local-first orchestration for terminal-based AI coding agents"
+readme = "README.md"
 requires-python = ">=3.11"
+license = { file = "LICENSE" }
+authors = [
+  { name = "Hal Britt" },
+]
+keywords = ["ai-agents", "cli", "local-first", "orchestration", "sqlite"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Environment :: Console",
+  "Intended Audience :: Developers",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Software Development",
+]
 dependencies = []
 
 [project.optional-dependencies]
@@ -11,7 +26,7 @@ dev = [
 ]
 
 [project.scripts]
-agent_runner = "agent_runner.cli:main"
+striatum = "striatum.cli:main"
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]
@@ -20,4 +35,3 @@ testpaths = ["tests"]
 [tool.ruff]
 line-length = 100
 target-version = "py311"
-

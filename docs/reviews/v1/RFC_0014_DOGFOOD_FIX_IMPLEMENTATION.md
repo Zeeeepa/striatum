@@ -10,9 +10,9 @@ Date: 2026-05-06
 - Enriched `status --json` with open blockers, human checkpoints,
   non-accepting verdicts, claimable jobs, blocked downstream jobs, and
   deterministic next actions.
-- Added `agent_runner evidence export` for redacted Markdown run snapshots that
-  can be committed without the ignored `.agent_runner/` SQLite database.
-- Added `agent_runner submit-review` to publish a review artifact, record its
+- Added `striatum evidence export` for redacted Markdown run snapshots that
+  can be committed without the ignored `.striatum/` SQLite database.
+- Added `striatum submit-review` to publish a review artifact, record its
   verdict, and apply review-gate behavior in one command.
 - Clarified `branch confirm --json` output with records-only, requested branch,
   detected current branch, and mismatch warning fields.
@@ -26,7 +26,7 @@ Date: 2026-05-06
   network or repository access for arbitrary model CLIs.
 - `branch confirm` still does not perform automatic git switching.
 - Evidence export is a curated Markdown snapshot; live coordination state
-  remains SQLite under `.agent_runner/`.
+  remains SQLite under `.striatum/`.
 
 ## Review Follow-Up
 
@@ -42,9 +42,9 @@ Date: 2026-05-06
 Verified after implementation:
 
 ```bash
-cd agent-runner
+cd striatum
 PYTHONPATH=src ../.venv/bin/python -m pytest -q
-PYTHONPATH=src python3 -m agent_runner.cli workflow validate examples/rfc-0014-operational-artifact-home/workflow.json --json
+PYTHONPATH=src python3 -m striatum.cli workflow validate examples/rfc-0014-operational-artifact-home/workflow.json --json
 ```
 
 Results:

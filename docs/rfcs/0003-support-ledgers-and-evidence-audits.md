@@ -2,13 +2,13 @@
 
 Status: proposed
 Date: 2026-05-06
-Context: ARIS paper review, `agent-runner/docs/SPEC.md`,
-`agent-runner/docs/RFC_0014_DOGFOOD_FIX_SPEC.md`
+Context: ARIS paper review, `docs/SPEC.md`,
+`docs/RFC_0014_DOGFOOD_FIX_SPEC.md`
 
 ## Problem
 
 Long-running agent workflows can produce polished artifacts whose claims outrun
-their evidence. `agent_runner` already tracks artifacts and verdicts, but it
+their evidence. `striatum` already tracks artifacts and verdicts, but it
 does not have a general artifact contract for answering:
 
 > Which claims did this artifact make, and what supports each one?
@@ -29,7 +29,7 @@ underlying files or command outputs.
 
 ## Non-Goals
 
-- Do not turn `agent_runner` into Engram's belief/claim database.
+- Do not turn `striatum` into Engram's belief/claim database.
 - Do not store private corpus content in runner artifacts.
 - Do not require every small workflow to maintain a support ledger.
 - Do not add automated factual verification against the internet.

@@ -2,16 +2,16 @@
 
 Status: ready
 Date: 2026-05-06
-Scope: `agent_runner` dogfood validation rerun
+Scope: `striatum` dogfood validation rerun
 Target package:
 - `docs/rfcs/0014-operational-artifact-home.md`
 - `docs/process/operational-artifact-home-spec.md`
 Primary workflow fixture:
-`agent-runner/examples/rfc-0014-operational-artifact-home/workflow.json`
+`examples/rfc-0014-operational-artifact-home/workflow.json`
 
 ## Mission
 
-You are the `agent_runner` validation coordinator.
+You are the `striatum` validation coordinator.
 
 Your job is to run a fresh RFC 0014 dogfood validation after the RFC 0014
 runner-recovery fixes and the RFC 0014 spec-handoff revision. The rerun should
@@ -26,21 +26,21 @@ you to fix it. If the runner is not ready, stop and record the blocker.
 
 Read these files in order:
 
-1. `agent-runner/README.md`
-2. `agent-runner/docs/SPEC.md`
-3. `agent-runner/docs/RFC_0014_DOGFOOD_FIX_SPEC.md`
-4. `agent-runner/docs/DECISION_LOG.md`
-5. `agent-runner/docs/UBIQUITOUS_LANGUAGE.md`
-6. `agent-runner/prompts/P002_validate_agent_runner_with_rfc_0014.md`
-7. `agent-runner/docs/reviews/v1/RFC_0014_DOGFOOD_FIX_REVIEW_codex_2026_05_06.md`
-8. `agent-runner/docs/reviews/v1/RFC_0014_DOGFOOD_FIX_REREVIEW_codex_2026_05_06.md`
-9. `docs/reviews/rfc-0014-operational-artifact-home/AGENT_RUNNER_VALIDATION_NOTES.md`
-10. `agent-runner/examples/rfc-0014-operational-artifact-home/workflow.json`
+1. `README.md`
+2. `docs/SPEC.md`
+3. `docs/RFC_0014_DOGFOOD_FIX_SPEC.md`
+4. `docs/DECISION_LOG.md`
+5. `docs/UBIQUITOUS_LANGUAGE.md`
+6. `prompts/P002_validate_striatum_with_rfc_0014.md`
+7. `docs/reviews/v1/RFC_0014_DOGFOOD_FIX_REVIEW_codex_2026_05_06.md`
+8. `docs/reviews/v1/RFC_0014_DOGFOOD_FIX_REREVIEW_codex_2026_05_06.md`
+9. `docs/reviews/rfc-0014-operational-artifact-home/STRIATUM_VALIDATION_NOTES.md`
+10. `examples/rfc-0014-operational-artifact-home/workflow.json`
 11. `docs/rfcs/0014-operational-artifact-home.md`
 12. `docs/process/operational-artifact-home-spec.md`
 13. this prompt
 
-Treat `agent-runner/docs/DECISION_LOG.md` as binding for runner behavior.
+Treat `docs/DECISION_LOG.md` as binding for runner behavior.
 Treat Engram RFCs as proposals unless they have already been promoted by
 Engram's canonical docs.
 
@@ -49,26 +49,26 @@ Engram's canonical docs.
 Before starting a new dogfood run, verify the known evidence-redaction issue is
 resolved:
 
-- `agent_runner evidence export` must not emit free-text blocker descriptions,
+- `striatum evidence export` must not emit free-text blocker descriptions,
   verdict rationales, or workflow job titles by default.
 - The test suite should include or be updated with a sentinel assertion proving
   that a private-looking job title does not appear in exported evidence.
 - If this is still unfixed, do not run the RFC 0014 dogfood workflow. Record a
-  blocker under `agent-runner/docs/reviews/v1/` and report that the rerun is
+  blocker under `docs/reviews/v1/` and report that the rerun is
   blocked by unsafe evidence export.
 
-Run from `agent-runner/`:
+Run from `striatum/`:
 
 ```bash
 PYTHONPATH=src ../.venv/bin/python -m pytest -q
-PYTHONPATH=src python3 -m agent_runner.cli workflow validate examples/rfc-0014-operational-artifact-home/workflow.json --json
+PYTHONPATH=src python3 -m striatum.cli workflow validate examples/rfc-0014-operational-artifact-home/workflow.json --json
 ```
 
 Only continue if both commands pass and the redaction issue is resolved.
 
 ## Branch Discipline
 
-Work on the current `agent-runner/rfc-0014-validation` branch unless the human
+Work on the current `striatum/rfc-0014-validation` branch unless the human
 explicitly redirects you.
 
 Before editing or running the workflow:
@@ -76,7 +76,7 @@ Before editing or running the workflow:
 1. Run `git status --short --branch`.
 2. If the worktree has uncommitted changes you did not make, inspect them and
    preserve them.
-3. Do not delete or rewrite `.agent_runner/` state unless the human explicitly
+3. Do not delete or rewrite `.striatum/` state unless the human explicitly
    asks for that. Use a new run id and pass `--run-id` to runner commands.
 4. Do not overwrite the first RFC 0014 validation artifacts. This rerun must use
    a distinct artifact directory.
@@ -106,7 +106,7 @@ docs/reviews/rfc-0014-operational-artifact-home/reruns/<RUN_SLUG>/workflow.json
 Base it on:
 
 ```text
-agent-runner/examples/rfc-0014-operational-artifact-home/workflow.json
+examples/rfc-0014-operational-artifact-home/workflow.json
 ```
 
 In the rerun copy:
@@ -119,7 +119,7 @@ In the rerun copy:
   artifact path into the rerun directory;
 - rewrite ledger/synthesis/final-review input paths to the rerun artifacts;
 - set each job write scope `allowed_paths` to the rerun directory;
-- keep forbidden paths including `.agent_runner/`;
+- keep forbidden paths including `.striatum/`;
 - keep the root-review `needs_revision` human-checkpoint policy unless the
   human explicitly asks to test a declared root-review revision cycle.
 
@@ -128,17 +128,17 @@ beside the original validation files.
 
 ## Runner Setup
 
-Use the Engram repo root as the runner repo and `agent-runner/` as the Python
+Use the Engram repo root as the runner repo and `striatum/` as the Python
 project directory.
 
-Recommended command shape from `agent-runner/`:
+Recommended command shape from `striatum/`:
 
 ```bash
-PYTHONPATH=src python3 -m agent_runner.cli --repo .. init --json
-PYTHONPATH=src python3 -m agent_runner.cli --repo .. workflow validate ../docs/reviews/rfc-0014-operational-artifact-home/reruns/<RUN_SLUG>/workflow.json --json
-PYTHONPATH=src python3 -m agent_runner.cli --repo .. run prepare --workflow ../docs/reviews/rfc-0014-operational-artifact-home/reruns/<RUN_SLUG>/workflow.json --json
-PYTHONPATH=src python3 -m agent_runner.cli --repo .. branch confirm --run-id <RUN_ID> --branch agent-runner/rfc-0014-validation --use-current --json
-PYTHONPATH=src python3 -m agent_runner.cli --repo .. run start --run-id <RUN_ID> --json
+PYTHONPATH=src python3 -m striatum.cli --repo .. init --json
+PYTHONPATH=src python3 -m striatum.cli --repo .. workflow validate ../docs/reviews/rfc-0014-operational-artifact-home/reruns/<RUN_SLUG>/workflow.json --json
+PYTHONPATH=src python3 -m striatum.cli --repo .. run prepare --workflow ../docs/reviews/rfc-0014-operational-artifact-home/reruns/<RUN_SLUG>/workflow.json --json
+PYTHONPATH=src python3 -m striatum.cli --repo .. branch confirm --run-id <RUN_ID> --branch striatum/rfc-0014-validation --use-current --json
+PYTHONPATH=src python3 -m striatum.cli --repo .. run start --run-id <RUN_ID> --json
 ```
 
 Use the returned `RUN_ID` for every subsequent `status`, `doctor`, `why`, and
@@ -216,7 +216,7 @@ In every blocked or rejected case:
 At the end of the run, and also when blocked, export evidence:
 
 ```bash
-PYTHONPATH=src python3 -m agent_runner.cli --repo .. evidence export \
+PYTHONPATH=src python3 -m striatum.cli --repo .. evidence export \
   --run-id <RUN_ID> \
   --path docs/reviews/rfc-0014-operational-artifact-home/reruns/<RUN_SLUG>/RUN_EVIDENCE.md \
   --json
@@ -224,7 +224,7 @@ PYTHONPATH=src python3 -m agent_runner.cli --repo .. evidence export \
 
 Then inspect `RUN_EVIDENCE.md` before committing it:
 
-- it must not contain `.agent_runner/state.sqlite3`;
+- it must not contain `.striatum/state.sqlite3`;
 - it must not contain transcript text;
 - it must not contain private-looking sentinel strings used in redaction tests;
 - it must not contain workflow job titles if title redaction is the selected
@@ -251,12 +251,12 @@ Instead, explain why they are absent in `VALIDATION_NOTES.md`.
 
 ## Verification
 
-Before final response, run from `agent-runner/`:
+Before final response, run from `striatum/`:
 
 ```bash
 PYTHONPATH=src ../.venv/bin/python -m pytest -q
-PYTHONPATH=src python3 -m agent_runner.cli --repo .. status --run-id <RUN_ID> --json
-PYTHONPATH=src python3 -m agent_runner.cli --repo .. doctor --run-id <RUN_ID> --json
+PYTHONPATH=src python3 -m striatum.cli --repo .. status --run-id <RUN_ID> --json
+PYTHONPATH=src python3 -m striatum.cli --repo .. doctor --run-id <RUN_ID> --json
 git diff --check
 ```
 

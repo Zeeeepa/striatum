@@ -24,7 +24,7 @@ Check:
   prompt without requiring the reviewer to infer choices;
 - whether legacy marker compatibility is adequate;
 - whether the proposal risks committing private corpus content;
-- whether this RFC is a good bounded target for `agent_runner` validation.
+- whether this RFC is a good bounded target for `striatum` validation.
 
 Write findings first, ordered by severity. Use tight references to files or RFC
 sections where possible. If there are no blocking findings, say so clearly.

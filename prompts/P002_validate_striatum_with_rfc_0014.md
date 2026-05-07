@@ -1,40 +1,40 @@
-# P002: Validate agent_runner With RFC 0014
+# P002: Validate striatum With RFC 0014
 
 Status: ready
 Date: 2026-05-06
-Scope: `agent_runner` dogfood validation
+Scope: `striatum` dogfood validation
 Target RFC: `docs/rfcs/0014-operational-artifact-home.md`
-Primary outcome: a completed or honestly blocked `agent_runner` validation run
+Primary outcome: a completed or honestly blocked `striatum` validation run
 against a bounded Engram RFC review workflow.
 
 ## Mission
 
-You are the `agent_runner` validation coordinator.
+You are the `striatum` validation coordinator.
 
-Your job is to use the `agent_runner` MVP itself to coordinate review,
+Your job is to use the `striatum` MVP itself to coordinate review,
 findings-ledger, synthesis, and final-review work for RFC 0014. This is a
 dogfood run: the output is not just the RFC disposition, but evidence about
 whether the runner can coordinate a real Engram-style workflow.
 
 Do not fall back to an ordinary single-agent review unless the runner blocks. If
-the runner blocks, record the blocker through `agent_runner` where possible and
+the runner blocks, record the blocker through `striatum` where possible and
 write a durable validation note explaining what failed.
 
 ## Read First
 
 Read these files in order:
 
-1. `agent-runner/README.md`
-2. `agent-runner/docs/SPEC.md`
-3. `agent-runner/docs/DECISION_LOG.md`
-4. `agent-runner/docs/UBIQUITOUS_LANGUAGE.md`
-5. `agent-runner/examples/rfc-0014-operational-artifact-home/workflow.json`
+1. `README.md`
+2. `docs/SPEC.md`
+3. `docs/DECISION_LOG.md`
+4. `docs/UBIQUITOUS_LANGUAGE.md`
+5. `examples/rfc-0014-operational-artifact-home/workflow.json`
 6. `docs/rfcs/0014-operational-artifact-home.md`
 7. `docs/rfcs/0013-development-operational-issue-loop.md`
 8. `docs/process/multi-agent-review-loop.md`
 9. this prompt
 
-Treat `agent-runner/docs/DECISION_LOG.md` as binding for runner behavior.
+Treat `docs/DECISION_LOG.md` as binding for runner behavior.
 Treat Engram RFCs as proposals unless already promoted by Engram's canonical
 docs.
 
@@ -59,28 +59,28 @@ From the Engram repository root:
 1. Run `git status --short`.
 2. If the worktree has uncommitted changes you did not make, stop and report
    the dirty files.
-3. If already on `agent-runner/rfc-0014-validation`, continue.
-4. Otherwise create or switch to `agent-runner/rfc-0014-validation`.
+3. If already on `striatum/rfc-0014-validation`, continue.
+4. Otherwise create or switch to `striatum/rfc-0014-validation`.
 
 The MVP's `branch confirm` command records branch confirmation and now reports
 `records_only`, the requested branch, current git branch when detectable, and a
 mismatch warning. It still does not perform the actual `git switch` by default.
 For this validation, do the actual git branch operation yourself, then record
-the branch with `agent_runner branch confirm`.
+the branch with `striatum branch confirm`.
 
 ## Runner Setup
 
-Use the Engram repo root as the runner repo and `agent-runner/` as the Python
+Use the Engram repo root as the runner repo and `striatum/` as the Python
 project directory.
 
-Recommended command shape from `agent-runner/`:
+Recommended command shape from `striatum/`:
 
 ```bash
-PYTHONPATH=src python -m agent_runner.cli --repo .. init --json
-PYTHONPATH=src python -m agent_runner.cli --repo .. workflow validate examples/rfc-0014-operational-artifact-home/workflow.json --json
-PYTHONPATH=src python -m agent_runner.cli --repo .. run prepare --workflow examples/rfc-0014-operational-artifact-home/workflow.json --json
-PYTHONPATH=src python -m agent_runner.cli --repo .. branch confirm --run-id <RUN_ID> --branch agent-runner/rfc-0014-validation --use-current --json
-PYTHONPATH=src python -m agent_runner.cli --repo .. run start --run-id <RUN_ID> --json
+PYTHONPATH=src python -m striatum.cli --repo .. init --json
+PYTHONPATH=src python -m striatum.cli --repo .. workflow validate examples/rfc-0014-operational-artifact-home/workflow.json --json
+PYTHONPATH=src python -m striatum.cli --repo .. run prepare --workflow examples/rfc-0014-operational-artifact-home/workflow.json --json
+PYTHONPATH=src python -m striatum.cli --repo .. branch confirm --run-id <RUN_ID> --branch striatum/rfc-0014-validation --use-current --json
+PYTHONPATH=src python -m striatum.cli --repo .. run start --run-id <RUN_ID> --json
 ```
 
 Register only the sessions needed by the workflow. Use fresh sessions for jobs
@@ -106,7 +106,7 @@ lower-level commands. Use `status --json`, `why`, `doctor --json`, and
 The workflow fixture is:
 
 ```text
-agent-runner/examples/rfc-0014-operational-artifact-home/workflow.json
+examples/rfc-0014-operational-artifact-home/workflow.json
 ```
 
 It should produce durable artifacts under:
@@ -133,7 +133,7 @@ Keep a separate validation note if the runner itself is awkward, incomplete, or
 blocks the run:
 
 ```text
-docs/reviews/rfc-0014-operational-artifact-home/AGENT_RUNNER_VALIDATION_NOTES.md
+docs/reviews/rfc-0014-operational-artifact-home/STRIATUM_VALIDATION_NOTES.md
 ```
 
 Record runner findings separately from RFC 0014 findings. Examples:
@@ -167,12 +167,12 @@ recorded durably and the final response is honest.
 
 ## Verification
 
-At minimum, run from `agent-runner/`:
+At minimum, run from `striatum/`:
 
 ```bash
 PYTHONPATH=src python -m pytest -q
-PYTHONPATH=src python -m agent_runner.cli --repo .. status --json
-PYTHONPATH=src python -m agent_runner.cli --repo .. doctor --json
+PYTHONPATH=src python -m striatum.cli --repo .. status --json
+PYTHONPATH=src python -m striatum.cli --repo .. doctor --json
 ```
 
 If tests fail, stop and record the failure. If tests pass but the workflow

@@ -1,4 +1,4 @@
-"""Command line interface for the agent_runner MVP."""
+"""Command line interface for the striatum MVP."""
 
 from __future__ import annotations
 
@@ -11,9 +11,9 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Sequence
 
-from agent_runner.artifacts import publish_artifact
-from agent_runner.db import (
-    AgentRunnerError,
+from striatum.artifacts import publish_artifact
+from striatum.db import (
+    StriatumError,
     JsonObject,
     active_lease_for,
     claim_next,
@@ -35,9 +35,9 @@ from agent_runner.db import (
     transaction,
     utc_now,
 )
-from agent_runner.errors import InvalidTransitionError, LeaseError, NotFoundError, WorkflowError
-from agent_runner.identity import artifact_author_identity
-from agent_runner.workflow import create_run, load_workflow
+from striatum.errors import InvalidTransitionError, LeaseError, NotFoundError, WorkflowError
+from striatum.identity import artifact_author_identity
+from striatum.workflow import create_run, load_workflow
 
 
 EVIDENCE_FREE_TEXT_KEYS = {"description", "rationale"}
@@ -50,7 +50,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         result = dispatch(args)
-    except AgentRunnerError as exc:
+    except StriatumError as exc:
         if getattr(args, "json", False):
             print(json_dumps({"ok": False, "error": {"message": str(exc), "code": exc.exit_code}}))
         else:
@@ -72,7 +72,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 def build_parser() -> argparse.ArgumentParser:
     """Build the top-level argument parser."""
-    parser = argparse.ArgumentParser(prog="agent_runner")
+    parser = argparse.ArgumentParser(prog="striatum")
     parser.add_argument("--repo", default=".", help="repository root")
     sub = parser.add_subparsers(dest="command", required=True)
 
@@ -225,7 +225,7 @@ def dispatch(args: argparse.Namespace) -> object:
     repo = Path(args.repo).resolve()
     if args.command == "init":
         init_repo(repo)
-        return {"state_dir": str(repo / ".agent_runner"), "db": str(db_path(repo))}
+        return {"state_dir": str(repo / ".striatum"), "db": str(db_path(repo))}
     if args.command == "workflow" and args.workflow_command == "validate":
         workflow = load_workflow(Path(args.path))
         return {"workflow_id": workflow["workflow_id"], "valid": True}
@@ -330,7 +330,7 @@ def dispatch(args: argparse.Namespace) -> object:
             return why(conn, target_id=args.id)
         if args.command == "doctor":
             return doctor(conn, run_id=args.run_id)
-    raise AgentRunnerError("unknown command", exit_code=2)
+    raise StriatumError("unknown command", exit_code=2)
 
 
 def branch_confirm(conn: sqlite3.Connection, *, repo: Path, run_id: str, branch: str) -> JsonObject:
@@ -403,7 +403,7 @@ def run_start(conn: sqlite3.Connection, *, run_id: str) -> JsonObject:
                 """,
                 (run_id,),
             ).fetchall()
-            from agent_runner.db import enqueue_job
+            from striatum.db import enqueue_job
 
             for root in roots:
                 enqueue_job(conn, job_id=str(root["job_id"]))
@@ -557,7 +557,7 @@ def release_work(
         message = row_by_id(conn, "queue_messages", "message_id", message_id)
         job = row_by_id(conn, "jobs", "job_id", str(message["job_id"]))
         active_lease_for(conn, lease_id=lease_id, session_id=session_id, job_id=str(job["job_id"]))
-        from agent_runner.db import is_repo_write
+        from striatum.db import is_repo_write
 
         now = utc_now()
         if requeue and not is_repo_write(job):
@@ -1245,7 +1245,7 @@ def evidence_snapshot(conn: sqlite3.Connection, *, run_id: str) -> JsonObject:
         (run_id,),
     ).fetchall()
     return {
-        "schema_version": "agent-runner.evidence.v1",
+        "schema_version": "striatum.evidence.v1",
         "exported_at": utc_now(),
         "workflow": {
             "workflow_id": snapshot["workflow_id"],
@@ -1389,14 +1389,14 @@ def render_evidence_markdown(
     """Render a redacted evidence snapshot as Markdown."""
     return "\n".join(
         [
-            "# Agent Runner Evidence Export",
+            "# Striatum Evidence Export",
             "",
             f"Run ID: `{run['run_id']}`",
             f"Branch: `{run['branch_name']}`",
             f"Run state: `{run['state']}`",
             f"Exported at: `{snapshot['exported_at']}`",
             "",
-            "Live SQLite state remains ignored under `.agent_runner/` and is not part of this export.",
+            "Live SQLite state remains ignored under `.striatum/` and is not part of this export.",
             "",
             "## Status Output",
             "",

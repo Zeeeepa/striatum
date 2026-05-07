@@ -2,8 +2,8 @@
 
 Date: 2026-05-06
 Coordinator: Codex GPT-5.5
-Branch checked: `agent-runner/rfc-0014-validation`
-Prompt: `agent-runner/prompts/P004_rerun_rfc_0014_dogfood.md`
+Branch checked: `striatum/rfc-0014-validation`
+Prompt: `prompts/P004_rerun_rfc_0014_dogfood.md`
 Verdict: blocked
 
 ## Scope
@@ -15,9 +15,9 @@ fully satisfied.
 Verification run during preflight:
 
 ```bash
-cd agent-runner
+cd striatum
 PYTHONPATH=src ../.venv/bin/python -m pytest -q
-PYTHONPATH=src python3 -m agent_runner.cli workflow validate examples/rfc-0014-operational-artifact-home/workflow.json --json
+PYTHONPATH=src python3 -m striatum.cli workflow validate examples/rfc-0014-operational-artifact-home/workflow.json --json
 ```
 
 Results:
@@ -28,18 +28,18 @@ Results:
 
 ## Blocker
 
-`agent_runner evidence export` still includes workflow job titles in the
+`striatum evidence export` still includes workflow job titles in the
 default snapshot path. The P004 preflight explicitly requires default evidence
 export to omit free-text blocker descriptions, verdict rationales, and workflow
 job titles before the dogfood rerun starts.
 
 Observed implementation state:
 
-- `agent-runner/src/agent_runner/cli.py` defines
+- `src/striatum/cli.py` defines
   `EVIDENCE_FREE_TEXT_KEYS = {"description", "rationale"}`.
 - `evidence_job_summaries` still adds `"title": job["title"]` to the exported
   job summary.
-- `agent-runner/tests/test_cli_mvp.py` asserts redaction of private verdict
+- `tests/test_cli_mvp.py` asserts redaction of private verdict
   rationale text and state/transcript markers, but it does not include the P004
   sentinel assertion proving that a private-looking job title is absent from
   exported evidence.
@@ -61,4 +61,4 @@ The human owner directed the concrete fix on 2026-05-06: evidence should use
 role id, lane id, declared model display name, and workflow job id instead of
 workflow job title prose; durable artifacts should include an `Author:` line
 with that same identity. Those owner decisions are recorded as D039 and D040 in
-`agent-runner/docs/DECISION_LOG.md`.
+`docs/DECISION_LOG.md`.

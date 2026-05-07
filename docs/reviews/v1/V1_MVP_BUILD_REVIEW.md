@@ -9,7 +9,7 @@ Verdict: accept_with_findings
 - `pyproject.toml`
 - `Makefile`
 - `.gitignore`
-- `src/agent_runner/`
+- `src/striatum/`
 - `examples/rfc-ledger-cleanup/`
 - `tests/test_cli_mvp.py`
 - `docs/SPEC.md`
@@ -34,7 +34,7 @@ Verdict: accept_with_findings
 
 ### B-F001 P1: `complete` allowed terminal transition before `ack`
 
-Affected file: `src/agent_runner/db.py`
+Affected file: `src/striatum/db.py`
 
 The first implementation allowed `complete` from `claimed` as well as
 `running`, which contradicted the design's invalid-transition rule.
@@ -44,7 +44,7 @@ Disposition: accepted and fixed. `complete` now requires `running`, and
 
 ### B-F002 P1: `verdict` was not atomic with completion
 
-Affected file: `src/agent_runner/cli.py`
+Affected file: `src/striatum/cli.py`
 
 The first implementation inserted a verdict in one transaction and then called
 `complete_job` in a second transaction. If completion failed, the verdict could
@@ -56,7 +56,7 @@ enqueues downstream work in one transaction.
 
 ### B-F003 P1: Session registration accepted unknown roles and lanes
 
-Affected file: `src/agent_runner/cli.py`
+Affected file: `src/striatum/cli.py`
 
 `register-session` initially accepted any role/lane strings. That would allow
 sessions that can never claim valid workflow work and weakens auditability.
@@ -66,7 +66,7 @@ the run's workflow snapshot, with test coverage.
 
 ### B-F004 P2: Generated package metadata could be accidentally committed
 
-Affected files: `.gitignore`, generated `src/agent_runner.egg-info/`
+Affected files: `.gitignore`, generated `src/striatum.egg-info/`
 
 Editable install generated package metadata under `src/`. The project needed
 an ignore rule to avoid committing local build output.
@@ -88,6 +88,6 @@ were removed from the working tree.
 ## Verification
 
 - `make test`: passed, 9 tests.
-- CLI smoke in a temporary directory: `agent_runner init`, `status --json`,
+- CLI smoke in a temporary directory: `striatum init`, `status --json`,
   and `doctor --json` all passed.
 

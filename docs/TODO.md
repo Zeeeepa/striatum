@@ -1,47 +1,37 @@
-# agent_runner TODO
+# striatum TODO
 
-Status: planning
-Date: 2026-05-06
+Status: active
+Date: 2026-05-07
 author: coordinator-codex-gpt-5.5-001
 
-This list records the practical work needed to split `agent_runner` out of
-Engram and the product improvements that should follow. Engram remains the
-incubation repository and first validation fixture; it is not the product
-boundary.
+This list records completed split work and product improvements that should
+follow. Engram remains the first validation fixture, not the product boundary.
 
 ## Repo Split TODOs
 
-1. Choose the public repository name and Python distribution name. Current code
-   and docs use `agent_runner` for the CLI/module and `agent-runner` for the
-   package directory.
-2. Tag the Engram extraction point after the accepted dogfood artifacts,
-   findings, and TODOs are committed.
-3. Split preserving history with a prefix split, for example
-   `git subtree split --prefix=agent-runner -b agent-runner-split`.
-4. Create the standalone remote and push the split branch as the new repository
-   main branch.
-5. Confirm the split repository root has the intended layout: `src/`,
-   `tests/`, `docs/`, `examples/`, `prompts/`, `scripts/`, `README.md`,
-   `Makefile`, `pyproject.toml`, and `.gitignore`.
-6. Keep Engram dogfood material as validation history, but label it as an
-   external reference fixture. The generic `rfc-ledger-cleanup` example should
-   remain the first walkthrough.
-7. Move or copy only the redacted dogfood artifacts needed for runner history.
-   Private diagnostics, transcripts, `.agent_runner/state.sqlite3`, caches,
-   virtual environments, and target-repo runtime state stay out of the split.
-8. Update paths that assume the parent Engram checkout. In particular, remove
-   `TARGET_REPO=..` as the primary usage path and keep it only as incubation
-   context where still useful.
-9. Add standalone project metadata: license, contribution notes, release notes
-   or changelog policy, supported Python versions, and CI.
-10. Add a fresh-clone smoke test that installs the package, initializes a
-    scratch target repo, validates the generic example workflow, prepares and
-    starts a run, and exports redacted evidence.
-11. Decide what remains in Engram after the split: a pointer document, a
-    submodule/subtree, or no checked-in runner copy. Do not delete the
-    incubation history until the standalone repository is verified.
-12. Record the split decision in both Engram and `agent_runner` decision logs so
-    future agents do not confuse the incubation path with the product boundary.
+Completed on 2026-05-07:
+
+1. Chosen public repository and Python distribution name: `striatum`.
+2. Tagged the Engram extraction point as `striatum-extraction-2026-05-07`.
+3. Created a history-preserving split from Engram's former `agent-runner/`
+   prefix.
+4. Prepared the standalone repository root with `src/`, `tests/`, `docs/`,
+   `examples/`, `prompts/`, `scripts/`, `README.md`, `Makefile`,
+   `pyproject.toml`, and `.gitignore`.
+5. Kept redacted Engram dogfood material as validation history and external
+   reference fixtures. The generic `rfc-ledger-cleanup` example remains the
+   first walkthrough.
+6. Left private diagnostics, transcripts, `.striatum/state.sqlite3`, caches,
+   virtual environments, and target-repo runtime state out of the split.
+7. Removed `TARGET_REPO=..` as the primary usage path.
+8. Added standalone metadata: all-rights-reserved license status, contribution
+   notes, changelog, supported Python versions, and CI.
+9. Added `scripts/fresh_clone_smoke.sh` to install a fresh clone, initialize a
+   scratch target repo, validate the generic example workflow, prepare and
+   start a run, and export redacted evidence.
+10. Recorded the split decision here. Engram keeps the incubation copy as
+    historical provenance plus a pointer to the standalone repository until
+    the owner decides whether to remove, subtree, or submodule it.
 
 ## Product Improvement TODOs
 
@@ -92,9 +82,9 @@ boundary.
 
 ## Immediate Follow-Up
 
-1. Fix the RFC 0014 marker-gate findings recorded in
-   `docs/reviews/rfc-0014-operational-artifact-home/BRANCH_REVIEW_codex_2026_05_06.md`.
-2. Run the Phase 3 marker-gate tests through the project-managed environment
-   rather than relying on a globally installed `pytest`.
-3. After the gate fixes are green, tag the extraction point and perform the
-   history-preserving split.
+1. Decide whether to replace the all-rights-reserved license status with an
+   open-source license.
+2. Replace the temporary tmux bootstrap harness with a Striatum-owned adapter
+   workflow.
+3. Add packaging checks for wheel build, console-script smoke, and cross-
+   platform macOS/Linux execution.

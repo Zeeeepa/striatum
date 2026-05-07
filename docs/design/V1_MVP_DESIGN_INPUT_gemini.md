@@ -2,7 +2,7 @@
 
 ## 1. Lane Verdict
 
-The architectural foundation of `agent_runner`—a deterministic local control plane over SQLite, decoupled from AI logic—is conceptually sound and aligns well with local-first, portable requirements. However, the scope specified for the V1 MVP (leases, multi-agent queues, bounded cycles, heartbeats) is overly ambitious and highly susceptible to distributed state bugs disguised as local CLI complexity.
+The architectural foundation of `striatum`—a deterministic local control plane over SQLite, decoupled from AI logic—is conceptually sound and aligns well with local-first, portable requirements. However, the scope specified for the V1 MVP (leases, multi-agent queues, bounded cycles, heartbeats) is overly ambitious and highly susceptible to distributed state bugs disguised as local CLI complexity.
 
 I recommend reducing the V1 MVP boundary to strictly sequential job execution with explicit manual recovery, dropping complex autonomous queuing mechanics for now. With that scope reduction, I approve the design direction and believe it is safe to proceed to synthesis.
 
@@ -22,10 +22,10 @@ The P001 specification for the MVP currently encompasses session registration, l
   - *Mitigation:* Synthesis and Build jobs must default to `fresh_session_required: true`. Persistent sessions should be strictly reserved for the AI Coordinator (where context accumulation is the feature) or explicit multi-pass review loops where prior context is intentionally carried over.
 - **Write-Scope Safety (High Risk):** Same-branch parallel writes risk file corruption and merge conflicts.
   - *Mitigation:* V1 must enforce sequential execution. If parallel jobs are eventually allowed in V1, they must be mathematically proven to have disjoint write scopes or be strictly read-only (e.g., parallel independent reviews).
-- **Privacy and Local-First Defaults (Medium Risk):** The SQLite database (`.agent_runner/`) could be accidentally ingested into context windows or committed to remote repositories.
-  - *Mitigation:* `agent_runner init` must aggressively append `.agent_runner/` to `.gitignore`, `.geminiignore`, and `.aiderignore`.
+- **Privacy and Local-First Defaults (Medium Risk):** The SQLite database (`.striatum/`) could be accidentally ingested into context windows or committed to remote repositories.
+  - *Mitigation:* `striatum init` must aggressively append `.striatum/` to `.gitignore`, `.geminiignore`, and `.aiderignore`.
 - **Hidden Provider Assumptions (Medium Risk):** Assuming agents can parse complex CLI output or maintain interactive PTY states reliably.
-  - *Mitigation:* The `agent_runner` binary must support a purely non-interactive, headless mode driven by JSON stdout.
+  - *Mitigation:* The `striatum` binary must support a purely non-interactive, headless mode driven by JSON stdout.
 
 ## 4. SQLite Schema and Queue Semantics Critique
 
@@ -34,7 +34,7 @@ The P001 specification for the MVP currently encompasses session registration, l
 **Recommendation:**
 - Simplify job states to: `pending`, `claimed`, `completed`, `failed`.
 - `claim-next` must be atomic and synchronous. When an agent calls `claim-next`, the state immediately transitions to `claimed` using the `session_id`.
-- Omit automatic lease expiration in V1. If an agent crashes while a job is `claimed`, human intervention (e.g., `agent_runner release <job_id>`) is required to revert it to `pending`.
+- Omit automatic lease expiration in V1. If an agent crashes while a job is `claimed`, human intervention (e.g., `striatum release <job_id>`) is required to revert it to `pending`.
 
 ## 5. CLI and Adapter Boundary Critique
 
@@ -76,7 +76,7 @@ As noted in the adversarial risks, persistent sessions are the enemy of idempote
 
 - **Transcripts:** I strongly endorse the decision *not* to capture broad shell transcripts. They cause database bloat and introduce massive privacy risks. Only structured payloads sent via `complete` or explicit `publish-artifact` commands should be recorded.
 - **Artifacts:** `publish-artifact` should register a file path in the SQLite event log and ensure it exists within the allowed `write_scope`.
-- **Branch Confirmation:** If `agent_runner` attempts to modify git state, it must fail cleanly in headless environments unless passed a `--confirm-branch` flag.
+- **Branch Confirmation:** If `striatum` attempts to modify git state, it must fail cleanly in headless environments unless passed a `--confirm-branch` flag.
 
 ## 9. RFC-Ledger Validation Fixture
 
@@ -92,7 +92,7 @@ This proves role definition, artifact passing, and sequential queue claiming wit
 ## 10. Test Strategy
 
 - **Avoid LLM dependencies in CI:** The test suite must be entirely local and deterministic. Do not hit real model APIs.
-- **Integration Harness:** Use a bash script that mimics an agent by calling `agent_runner register-session`, `agent_runner claim-next`, and `agent_runner complete` to validate state transitions.
+- **Integration Harness:** Use a bash script that mimics an agent by calling `striatum register-session`, `striatum claim-next`, and `striatum complete` to validate state transitions.
 - **State Validation:** Tests must assert that SQLite invariants hold (e.g., an agent cannot claim a job already claimed by another `session_id`).
 
 ## 11. Recommendations to Accept, Modify, Defer, or Reject
@@ -104,5 +104,5 @@ This proves role definition, artifact passing, and sequential queue claiming wit
 
 ## 12. Open Blockers
 
-1. **Coordinator Invocation:** If `agent_runner` is purely a CLI invoked by agents, what initiates the run and routes jobs? There must be a top-level `agent_runner serve` or `run` command that acts as the deterministic coordinator loop, dispatching tasks or waiting for agents to poll. The exact architecture of this run loop needs definition before implementation.
+1. **Coordinator Invocation:** If `striatum` is purely a CLI invoked by agents, what initiates the run and routes jobs? There must be a top-level `striatum serve` or `run` command that acts as the deterministic coordinator loop, dispatching tasks or waiting for agents to poll. The exact architecture of this run loop needs definition before implementation.
 2. **JSON Schema Definition:** The exact schema for the workflow configuration must be defined prior to building the parser to ensure deterministic testing.

@@ -2,7 +2,7 @@
 
 Date: 2026-05-06
 Reviewer: Gemini Pro
-Branch reviewed: local agent-runner/v1-mvp working tree
+Branch reviewed: local striatum/v1-mvp working tree
 Verdict: accept_with_findings
 
 ## Summary
@@ -17,7 +17,7 @@ The branch is in a strong state for the V1 MVP. One minor finding is raised rega
 
 ### G001 [P3] Multiple artifact versions for the same path can accumulate
 
-- **Affected File/Section:** `agent-runner/src/agent_runner/schema.py` (artifacts table), `agent-runner/src/agent_runner/db.py`
+- **Affected File/Section:** `src/striatum/schema.py` (artifacts table), `src/striatum/db.py`
 - **Issue:** The current design allows for multiple artifact records to point to the same file path (`repo_path`). This occurs naturally during revision cycles (`needs_revision`), where a new job attempt creates a new version of an artifact, resulting in a new row in the `artifacts` table with a new `job_id` and `content_sha256`.
 - **Consequence:** This is not a runtime bug, as the data flow between jobs is explicitly declared in the workflow, not dynamically discovered from the artifacts table. However, it leads to an accumulation of artifact metadata for the same file path. This can make manual database inspection, post-run analysis, or debugging more complex, as there is no explicit marker for which artifact version is the "latest" or "active" one for a given path. The `doctor` command does not report on this condition.
 - **Proposed Fix:** For a future version, consider adding a `state` column to the `artifacts` table (e.g., `active`, `superseded`) to explicitly manage the lifecycle of artifact versions. When a new version of an artifact at a specific path is published, the previous one(s) could be marked as `superseded`. Alternatively, the `doctor` command could be enhanced to report multiple artifact versions for the same path as a low-severity warning. This finding is minor and does not need to be addressed for the V1 MVP.
@@ -33,14 +33,14 @@ The fixes for the prior Codex review (`V1_MVP_BUILD_REVIEW_codex_2026_05_06.md`)
 
 ## Verification
 
-Tests were executed from the `agent-runner/` directory. All 18 tests passed, including the new tests covering the Codex review findings.
+Tests were executed from the `striatum/` directory. All 18 tests passed, including the new tests covering the Codex review findings.
 
 ```bash
 $ make test
 .venv/bin/python -m pytest
 ============================= test session starts ==============================
 platform linux -- Python 3.12.3, pytest-9.0.3, pluggy-1.6.0
-rootdir: /home/halbritt/git/engram/agent-runner
+rootdir: /home/halbritt/git/engram/striatum
 configfile: pyproject.toml
 testpaths: tests
 collected 18 items

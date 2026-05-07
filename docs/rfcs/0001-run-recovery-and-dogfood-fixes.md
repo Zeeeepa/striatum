@@ -3,8 +3,8 @@
 Status: proposed
 Date: 2026-05-06
 Context:
-`agent-runner/docs/RFC_0014_DOGFOOD_FIX_SPEC.md`,
-`docs/reviews/rfc-0014-operational-artifact-home/AGENT_RUNNER_VALIDATION_NOTES.md`
+`docs/RFC_0014_DOGFOOD_FIX_SPEC.md`,
+`docs/reviews/rfc-0014-operational-artifact-home/STRIATUM_VALIDATION_NOTES.md`
 
 ## Problem
 
@@ -35,7 +35,7 @@ output;
 
 ## Non-Goals
 
-- Do not commit `.agent_runner/` SQLite state.
+- Do not commit `.striatum/` SQLite state.
 - Do not capture transcripts by default.
 - Do not add Slack, TUI, web, MCP, or autonomous process launch as part of this
   RFC.
@@ -46,7 +46,7 @@ output;
 Promote the dogfood fix spec into the first runner RFC and implement the
 following product changes:
 
-1. Add `agent_runner evidence export --run-id <run_id> --path <repo_path>` to
+1. Add `striatum evidence export --run-id <run_id> --path <repo_path>` to
    write a redacted Markdown snapshot of run state, jobs, blockers, verdicts,
    artifacts, status, doctor output, and blocked downstream jobs.
 2. Extend `status --json` with open blockers, human checkpoints, latest
@@ -71,7 +71,7 @@ following product changes:
   values.
 - The RFC 0014 fixture declares whether root-review `needs_revision` is an
   expected human checkpoint or routes to a revision job.
-- `agent-runner/docs/SPEC.md` and `UBIQUITOUS_LANGUAGE.md` reflect the accepted
+- `docs/SPEC.md` and `UBIQUITOUS_LANGUAGE.md` reflect the accepted
   behavior after implementation.
 
 ## Open Questions

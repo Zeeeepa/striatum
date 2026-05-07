@@ -1,4 +1,4 @@
-# agent_runner V1 MVP Design
+# striatum V1 MVP Design
 
 Status: synthesized design
 Date: 2026-05-06
@@ -12,14 +12,14 @@ This design synthesizes the required model-lane inputs:
 ## 1. MVP Boundary
 
 V1 is a local Python CLI MVP for repo-local terminal-agent orchestration. The
-control plane is deterministic. Agents mutate state through `agent_runner`
+control plane is deterministic. Agents mutate state through `striatum`
 commands. SQLite is authoritative for live workflow state; repo artifacts are
 durable provenance only.
 
 In scope:
 
-- `agent_runner init` creates `.agent_runner/`, initializes SQLite, and ensures
-  `.agent_runner/` is ignored by git.
+- `striatum init` creates `.striatum/`, initializes SQLite, and ensures
+  `.striatum/` is ignored by git.
 - JSON workflow validation and loading. YAML is rejected.
 - Run preparation and branch confirmation before jobs become claimable.
 - Registered sessions with opaque `session_id` and human-readable
@@ -53,13 +53,13 @@ Required shape:
 
 ```json
 {
-  "packet_version": "agent-runner.work-packet.v1",
+  "packet_version": "striatum.work-packet.v1",
   "packet_id": "wp_...",
   "run": {
     "run_id": "run_...",
     "workflow_id": "rfc-ledger-cleanup",
     "repo_root": "/repo",
-    "branch": {"name": "agent-runner/rfc-ledger-cleanup", "confirmed": true}
+    "branch": {"name": "striatum/rfc-ledger-cleanup", "confirmed": true}
   },
   "session": {
     "session_id": "sess_...",
@@ -97,7 +97,7 @@ Required shape:
   "write_scope": {
     "mode": "review_only_artifact",
     "allowed_paths": ["docs/reviews/rfc-ledger/"],
-    "forbidden_paths": [".agent_runner/"],
+    "forbidden_paths": [".striatum/"],
     "repo_write": false
   },
   "expected_artifacts": [
@@ -109,12 +109,12 @@ Required shape:
     }
   ],
   "commands": {
-    "ack": "agent_runner ack --session-id ...",
-    "heartbeat": "agent_runner heartbeat --session-id ...",
-    "publish_artifact": "agent_runner publish-artifact --session-id ...",
-    "block": "agent_runner block --session-id ...",
-    "verdict": "agent_runner verdict --session-id ...",
-    "complete": "agent_runner complete --session-id ..."
+    "ack": "striatum ack --session-id ...",
+    "heartbeat": "striatum heartbeat --session-id ...",
+    "publish_artifact": "striatum publish-artifact --session-id ...",
+    "block": "striatum block --session-id ...",
+    "verdict": "striatum verdict --session-id ...",
+    "complete": "striatum complete --session-id ..."
   },
   "artifact_policy": {
     "publish_transcripts": false,
@@ -129,7 +129,7 @@ scope, and completion protocol.
 
 ## 3. SQLite Schema
 
-Database path: `.agent_runner/state.sqlite3`.
+Database path: `.striatum/state.sqlite3`.
 
 Connection defaults:
 
@@ -186,7 +186,7 @@ Required invariants:
   `(resource_type, resource_id)` where `state='active'`.
 - One active work message per job via a partial unique index where
   `kind='work'` and state is `pending`, `claimed`, or `acked`.
-- Artifact paths must be repo-relative, outside `.agent_runner/`, and inside
+- Artifact paths must be repo-relative, outside `.striatum/`, and inside
   the packet write scope.
 
 Direct SQLite mutation by agents is unsupported. The CLI owns writes and
@@ -259,29 +259,29 @@ Lease expiry:
 Mutation commands:
 
 ```text
-agent_runner init [--repo PATH]
-agent_runner workflow validate WORKFLOW.json [--json]
-agent_runner run prepare --workflow WORKFLOW.json [--repo PATH] [--json]
-agent_runner branch confirm --run-id RUN --branch NAME [--create|--use-current] [--json]
-agent_runner run start --run-id RUN [--json]
-agent_runner register-session --run-id RUN --role ROLE --lane LANE [--capability CAP]... [--fresh] [--json]
-agent_runner claim-next --session-id SESSION [--lease-seconds N] [--json]
-agent_runner ack --session-id SESSION --message-id MSG --lease-id LEASE [--json]
-agent_runner heartbeat --session-id SESSION --lease-id LEASE [--extend-seconds N] [--json]
-agent_runner release --session-id SESSION --message-id MSG --lease-id LEASE --reason TEXT [--requeue] [--json]
-agent_runner send --session-id SESSION --kind KIND --body-json JSON [--json]
-agent_runner block --session-id SESSION --job-id JOB --lease-id LEASE --kind KIND --severity blocked|human_checkpoint --description TEXT [--json]
-agent_runner publish-artifact --session-id SESSION --job-id JOB --lease-id LEASE --kind KIND --logical-name NAME --path REPO_PATH [--json]
-agent_runner complete --session-id SESSION --job-id JOB --lease-id LEASE [--summary TEXT] [--json]
-agent_runner verdict --session-id SESSION --job-id JOB --lease-id LEASE --verdict accept|accept_with_findings|needs_revision|reject [--findings-artifact-id ARTIFACT] [--json]
+striatum init [--repo PATH]
+striatum workflow validate WORKFLOW.json [--json]
+striatum run prepare --workflow WORKFLOW.json [--repo PATH] [--json]
+striatum branch confirm --run-id RUN --branch NAME [--create|--use-current] [--json]
+striatum run start --run-id RUN [--json]
+striatum register-session --run-id RUN --role ROLE --lane LANE [--capability CAP]... [--fresh] [--json]
+striatum claim-next --session-id SESSION [--lease-seconds N] [--json]
+striatum ack --session-id SESSION --message-id MSG --lease-id LEASE [--json]
+striatum heartbeat --session-id SESSION --lease-id LEASE [--extend-seconds N] [--json]
+striatum release --session-id SESSION --message-id MSG --lease-id LEASE --reason TEXT [--requeue] [--json]
+striatum send --session-id SESSION --kind KIND --body-json JSON [--json]
+striatum block --session-id SESSION --job-id JOB --lease-id LEASE --kind KIND --severity blocked|human_checkpoint --description TEXT [--json]
+striatum publish-artifact --session-id SESSION --job-id JOB --lease-id LEASE --kind KIND --logical-name NAME --path REPO_PATH [--json]
+striatum complete --session-id SESSION --job-id JOB --lease-id LEASE [--summary TEXT] [--json]
+striatum verdict --session-id SESSION --job-id JOB --lease-id LEASE --verdict accept|accept_with_findings|needs_revision|reject [--findings-artifact-id ARTIFACT] [--json]
 ```
 
 Read commands:
 
 ```text
-agent_runner status [--run-id RUN] [--json]
-agent_runner why JOB_OR_MESSAGE_ID [--json]
-agent_runner doctor [--run-id RUN] [--json]
+striatum status [--run-id RUN] [--json]
+striatum why JOB_OR_MESSAGE_ID [--json]
+striatum doctor [--run-id RUN] [--json]
 ```
 
 Exit codes:
@@ -298,7 +298,7 @@ Exit codes:
 ## 6. Workflow Config
 
 Workflow config is JSON with
-`schema_version: "agent-runner.workflow.v1"`. YAML is rejected by extension
+`schema_version: "striatum.workflow.v1"`. YAML is rejected by extension
 and parser path.
 
 Required top-level keys:
@@ -384,7 +384,7 @@ Tests use fake sessions and do not run external model CLIs.
 
 Required tests:
 
-- `init` creates `.agent_runner/`, schema, WAL state, and ignore entry.
+- `init` creates `.striatum/`, schema, WAL state, and ignore entry.
 - Workflow validator accepts the JSON fixture and rejects YAML.
 - Branch confirmation blocks claims before confirmation.
 - Session registration creates opaque ids and unique slugs.

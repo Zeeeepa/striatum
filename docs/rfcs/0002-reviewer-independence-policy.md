@@ -2,12 +2,12 @@
 
 Status: proposed
 Date: 2026-05-06
-Context: ARIS paper review, `agent-runner/docs/SPEC.md`,
-`agent-runner/examples/rfc-0014-operational-artifact-home/workflow.json`
+Context: ARIS paper review, `docs/SPEC.md`,
+`examples/rfc-0014-operational-artifact-home/workflow.json`
 
 ## Problem
 
-`agent_runner` already supports fresh sessions, independent review jobs, and
+`striatum` already supports fresh sessions, independent review jobs, and
 model-portable lanes. The workflow contract still leaves reviewer independence
 partly implicit. A reviewer can be fresh or persistent, but the workflow does
 not explicitly say what the reviewer may read or whether it should retain state
@@ -78,7 +78,7 @@ Validation rules:
   behavior.
 - The RFC 0014 fixture labels root reviews as fresh and document/artifact
   scoped.
-- `agent-runner/docs/SPEC.md` documents the two axes.
+- `docs/SPEC.md` documents the two axes.
 
 ## Open Questions
 

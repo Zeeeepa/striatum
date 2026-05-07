@@ -2,7 +2,7 @@
 
 Date: 2026-05-06
 Reviewer: Codex GPT-5.5
-Branch reviewed: `origin/agent-runner/v1-mvp`
+Branch reviewed: `origin/striatum/v1-mvp`
 Base reviewed against: `origin/master`
 Verdict: reject_for_revision
 
@@ -17,7 +17,7 @@ non-accepting review verdicts still complete jobs and unblock downstream work.
 
 ### F001 [P1] Non-accept verdicts still complete the gate
 
-File: `agent-runner/src/agent_runner/cli.py`
+File: `src/striatum/cli.py`
 Lines: 646-688
 
 `verdict_work` marks every review verdict as `completed` and immediately calls
@@ -32,7 +32,7 @@ workflow instead of completing it successfully.
 
 ### F002 [P1] Build review did not use independent reviewers
 
-File: `agent-runner/docs/reviews/v1/V1_MVP_BUILD_REVIEW.md`
+File: `docs/reviews/v1/V1_MVP_BUILD_REVIEW.md`
 Lines: 3-5
 
 The current build review says the reviewer is the parent Codex coordinator, and
@@ -44,9 +44,9 @@ ready without the review gate the one-shot was explicitly revised to require.
 Recommendation: Add separate fresh-lane review artifacts, for example:
 
 ```text
-agent-runner/docs/reviews/v1/V1_MVP_BUILD_REVIEW_claude.md
-agent-runner/docs/reviews/v1/V1_MVP_BUILD_REVIEW_codex.md
-agent-runner/docs/reviews/v1/V1_MVP_BUILD_REVIEW_gemini.md
+docs/reviews/v1/V1_MVP_BUILD_REVIEW_claude.md
+docs/reviews/v1/V1_MVP_BUILD_REVIEW_codex.md
+docs/reviews/v1/V1_MVP_BUILD_REVIEW_gemini.md
 ```
 
 Then update `V1_MVP_BUILD_SYNTHESIS.md` to cite and synthesize those independent
@@ -54,7 +54,7 @@ reviews.
 
 ### F003 [P2] Workflow edges validate but do not drive dependencies
 
-File: `agent-runner/src/agent_runner/workflow.py`
+File: `src/striatum/workflow.py`
 Lines: 182-193
 
 `validate_workflow` requires and validates top-level `edges`, but `create_run`
@@ -68,7 +68,7 @@ missing from `needs`.
 
 ### F004 [P2] Required artifacts can be satisfied by the wrong file
 
-File: `agent-runner/src/agent_runner/db.py`
+File: `src/striatum/db.py`
 Lines: 621-636
 
 Completion only checks that an artifact with the expected `logical_name` exists
@@ -82,7 +82,7 @@ artifact.
 
 ## Verification
 
-Executed from a detached review worktree of `origin/agent-runner/v1-mvp`:
+Executed from a detached review worktree of `origin/striatum/v1-mvp`:
 
 ```bash
 PYTHONPATH=src /Users/halbritt/Documents/GitHub/engram/.venv/bin/python -m pytest -q

@@ -2,7 +2,7 @@
 
 Status: proposed
 Date: 2026-05-06
-Context: ARIS paper review, `agent-runner/docs/SPEC.md`,
+Context: ARIS paper review, `docs/SPEC.md`,
 `docs/process/multi-agent-review-loop.md`
 
 ## Problem

@@ -2,21 +2,21 @@
 set -euo pipefail
 
 AGENT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-REPO_ROOT="$(cd "$AGENT_ROOT/.." && pwd)"
-SESSION="${AGENT_RUNNER_SESSION:-agent-runner-design}"
-RUN_MODE="${AGENT_RUNNER_RUN_MODE:-print}"
-WAIT_SECONDS="${AGENT_RUNNER_WAIT_SECONDS:-20}"
+REPO_ROOT="${STRIATUM_TARGET_REPO:-$(cd "$AGENT_ROOT/.." && pwd)}"
+SESSION="${STRIATUM_SESSION:-striatum-design}"
+RUN_MODE="${STRIATUM_RUN_MODE:-print}"
+WAIT_SECONDS="${STRIATUM_WAIT_SECONDS:-20}"
 PROMPT="prompts/P001_design_review_build_v1_mvp.md"
 
 usage() {
   cat <<'EOF'
 Usage:
-  agent-runner/scripts/agent_runner_tmux_design.sh start
-  agent-runner/scripts/agent_runner_tmux_design.sh start-pipe
-  agent-runner/scripts/agent_runner_tmux_design.sh run-job <job>
-  agent-runner/scripts/agent_runner_tmux_design.sh print-prompt <job>
-  agent-runner/scripts/agent_runner_tmux_design.sh status
-  agent-runner/scripts/agent_runner_tmux_design.sh next
+  scripts/striatum_tmux_design.sh start
+  scripts/striatum_tmux_design.sh start-pipe
+  scripts/striatum_tmux_design.sh run-job <job>
+  scripts/striatum_tmux_design.sh print-prompt <job>
+  scripts/striatum_tmux_design.sh status
+  scripts/striatum_tmux_design.sh next
 
 Jobs:
   design_claude
@@ -25,9 +25,9 @@ Jobs:
   synthesis_ready
 
 Environment:
-  AGENT_RUNNER_SESSION       tmux session name (default: agent-runner-design)
-  AGENT_RUNNER_RUN_MODE      print | pipe (default: print)
-  AGENT_RUNNER_WAIT_SECONDS  poll interval for synthesis_ready (default: 20)
+  STRIATUM_SESSION       tmux session name (default: striatum-design)
+  STRIATUM_RUN_MODE      print | pipe (default: print)
+  STRIATUM_WAIT_SECONDS  poll interval for synthesis_ready (default: 20)
 
   CODEX_CMD                  stdin-taking command for Codex GPT-5.5
                              (default: codex -a never exec --model gpt-5.5
@@ -44,7 +44,7 @@ Modes:
   pipe   Pipe the lane-specific prompt into the configured model command.
 
 The design input Markdown files are the watched completion artifacts for this
-bootstrap pass. This runner is temporary orchestration for the agent_runner MVP
+bootstrap pass. This runner is temporary orchestration for the striatum MVP
 design, not the product architecture.
 EOF
 }
@@ -132,8 +132,8 @@ shell_quote() {
 tmux_env_prefix() {
   local prefix
   local var
-  prefix="AGENT_RUNNER_RUN_MODE=$(shell_quote "$RUN_MODE")"
-  prefix="$prefix AGENT_RUNNER_WAIT_SECONDS=$(shell_quote "$WAIT_SECONDS")"
+  prefix="STRIATUM_RUN_MODE=$(shell_quote "$RUN_MODE")"
+  prefix="$prefix STRIATUM_WAIT_SECONDS=$(shell_quote "$WAIT_SECONDS")"
   for var in CODEX_CMD CLAUDE_CMD GEMINI_CMD; do
     if [[ -n "${!var:-}" ]]; then
       prefix="$prefix $var=$(shell_quote "${!var}")"
@@ -164,7 +164,7 @@ lane_prompt() {
 
 ---
 
-agent_runner tmux bootstrap assignment:
+striatum tmux bootstrap assignment:
 
 The base prompt above describes the complete one-shot. This tmux pane is only
 one design-lane input for that one-shot.
@@ -186,10 +186,10 @@ Scope override:
 - Do not edit files outside the single required output artifact.
 
 Required reading:
-- Read the files named in the base prompt from the agent_runner project root.
+- Read the files named in the base prompt from the striatum project root.
 - Also read docs/ENGRAM_INCUBATION_CONTEXT.md.
 - For Engram repo-root paths listed there, prefix ../ when running from this
-  agent_runner directory.
+  striatum directory.
 - Inspect ../scripts/phase3_tmux_agents.sh enough to understand the bootstrap
   pain, but do not treat it as target architecture.
 
@@ -226,7 +226,7 @@ EOF
 
 print_synthesis_handoff() {
   cat <<'EOF'
-=== agent_runner design inputs complete ===
+=== striatum design inputs complete ===
 
 All three required design input artifacts exist:
 
@@ -276,7 +276,7 @@ run_job() {
     return 0
   fi
 
-  printf "\n=== agent_runner design job ready ===\n"
+  printf "\n=== striatum design job ready ===\n"
   printf "Job:      %s\n" "$job"
   printf "Lane:     %s\n" "$LABEL"
   printf "Model:    %s\n" "$MODEL"
@@ -302,9 +302,9 @@ run_job() {
       ;;
     print)
       printf "Print mode. To pipe this job now, run:\n\n"
-      printf "  AGENT_RUNNER_RUN_MODE=pipe %s run-job %s\n\n" "scripts/agent_runner_tmux_design.sh" "$job"
+      printf "  STRIATUM_RUN_MODE=pipe %s run-job %s\n\n" "scripts/striatum_tmux_design.sh" "$job"
       printf "To inspect/copy the full lane prompt, run:\n\n"
-      printf "  %s print-prompt %s\n\n" "scripts/agent_runner_tmux_design.sh" "$job"
+      printf "  %s print-prompt %s\n\n" "scripts/striatum_tmux_design.sh" "$job"
       printf "Configured command for this model would be:\n\n"
       printf "  %s\n\n" "$(command_for_model "$MODEL")"
       printf "=== BEGIN LANE PROMPT ===\n\n"
@@ -312,7 +312,7 @@ run_job() {
       printf "\n=== END LANE PROMPT ===\n"
       ;;
     *)
-      printf "Unknown AGENT_RUNNER_RUN_MODE: %s\n" "$RUN_MODE" >&2
+      printf "Unknown STRIATUM_RUN_MODE: %s\n" "$RUN_MODE" >&2
       return 2
       ;;
   esac
@@ -335,9 +335,9 @@ start_session() {
   if ! command -v tmux >/dev/null 2>&1; then
     printf "tmux is required for start/start-pipe but was not found on PATH.\n" >&2
     printf "You can still run individual jobs with:\n" >&2
-    printf "  %s run-job design_claude\n" "scripts/agent_runner_tmux_design.sh" >&2
-    printf "  %s run-job design_codex\n" "scripts/agent_runner_tmux_design.sh" >&2
-    printf "  %s run-job design_gemini\n" "scripts/agent_runner_tmux_design.sh" >&2
+    printf "  %s run-job design_claude\n" "scripts/striatum_tmux_design.sh" >&2
+    printf "  %s run-job design_codex\n" "scripts/striatum_tmux_design.sh" >&2
+    printf "  %s run-job design_gemini\n" "scripts/striatum_tmux_design.sh" >&2
     return 127
   fi
 
@@ -351,12 +351,12 @@ start_session() {
   env_prefix="$(tmux_env_prefix)"
 
   tmux new-session -d -s "$SESSION" -c "$AGENT_ROOT" -n coordinator \
-    "$env_prefix scripts/agent_runner_tmux_design.sh status; printf '\nagent_runner design bootstrap session: %s\nRun mode: %s\n\n' '$SESSION' '$RUN_MODE'; exec ${SHELL:-/bin/bash} -l"
+    "$env_prefix scripts/striatum_tmux_design.sh status; printf '\nstriatum design bootstrap session: %s\nRun mode: %s\n\n' '$SESSION' '$RUN_MODE'; exec ${SHELL:-/bin/bash} -l"
 
   local job
   while IFS= read -r job; do
     tmux new-window -t "$SESSION" -c "$AGENT_ROOT" -n "${job//_/-}" \
-      "$env_prefix scripts/agent_runner_tmux_design.sh run-job '$job'; exec ${SHELL:-/bin/bash} -l"
+      "$env_prefix scripts/striatum_tmux_design.sh run-job '$job'; exec ${SHELL:-/bin/bash} -l"
   done < <(jobs)
 
   printf "Started tmux session: %s\n" "$SESSION"

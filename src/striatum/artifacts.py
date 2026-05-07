@@ -5,7 +5,7 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
-from agent_runner.db import (
+from striatum.db import (
     ArtifactError,
     active_lease_for,
     insert_event,

@@ -7,8 +7,8 @@ import sqlite3
 from pathlib import Path
 from typing import Any, cast
 
-from agent_runner.db import JsonObject, insert_event, json_dumps, new_id, sha256_bytes, utc_now
-from agent_runner.errors import WorkflowError
+from striatum.db import JsonObject, insert_event, json_dumps, new_id, sha256_bytes, utc_now
+from striatum.errors import WorkflowError
 
 # JSON workflow files are user-authored and need dynamic validation.
 JsonValue = dict[str, Any]
@@ -59,8 +59,8 @@ def validate_workflow(workflow: JsonObject) -> None:
     missing = sorted(REQUIRED_TOP_LEVEL.difference(workflow))
     if missing:
         raise WorkflowError(f"workflow is missing required fields: {', '.join(missing)}")
-    if workflow.get("schema_version") != "agent-runner.workflow.v1":
-        raise WorkflowError("workflow schema_version must be agent-runner.workflow.v1")
+    if workflow.get("schema_version") != "striatum.workflow.v1":
+        raise WorkflowError("workflow schema_version must be striatum.workflow.v1")
     lanes = _object(workflow, "lanes")
     _validate_lane_constraints(lanes)
     roles = _object(workflow, "roles")

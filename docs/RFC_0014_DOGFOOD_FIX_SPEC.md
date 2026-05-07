@@ -3,11 +3,11 @@
 Status: proposed implementation spec
 Date: 2026-05-06
 Source validation:
-`docs/reviews/rfc-0014-operational-artifact-home/AGENT_RUNNER_VALIDATION_NOTES.md`
+`docs/reviews/rfc-0014-operational-artifact-home/STRIATUM_VALIDATION_NOTES.md`
 
 ## Purpose
 
-This spec turns the RFC 0014 dogfood findings into concrete `agent_runner`
+This spec turns the RFC 0014 dogfood findings into concrete `striatum`
 follow-up work. The dogfood run correctly blocked after a root review returned
 `needs_revision` without a declared revision cycle. That was a useful result,
 but it exposed gaps in audit export, status visibility, blocker introspection,
@@ -24,21 +24,21 @@ The validation run produced these runner-level findings:
    blocker or next useful coordinator action.
 2. `why <blocker_id> --json` failed because blocker IDs are not supported
    introspection targets.
-3. Runner state evidence lived only in ignored `.agent_runner/` SQLite until a
+3. Runner state evidence lived only in ignored `.striatum/` SQLite until a
    manual redacted snapshot was added to the validation notes.
 4. Review submission required multiple manual commands: publish artifact,
    capture artifact ID, then pass that ID to `verdict`.
 5. The process adapter could describe local-only scope but could not enforce or
    record whether launched lanes respected it.
 6. Branch confirmation remained split between manual `git switch` and
-   `agent_runner branch confirm`.
+   `striatum branch confirm`.
 7. The RFC 0014 workflow had no explicit `needs_revision` path from root review
    jobs, so the runner opened a human checkpoint.
 
 ## Goals
 
 - Make runner state auditable from committed, redacted artifacts without
-  committing `.agent_runner/`.
+  committing `.striatum/`.
 - Make `status` and `why` sufficient for coordinator recovery after blocks.
 - Reduce the most common review-artifact command sequence to one safe command.
 - Preserve the V1 control-plane boundary: SQLite is live state; repo artifacts
@@ -52,7 +52,7 @@ The validation run produced these runner-level findings:
 - Do not commit SQLite state, transcripts, or broad model logs.
 - Do not build Slack, TUI, web dashboard, MCP, or autonomous provider launch as
   part of this fix set.
-- Do not make `agent_runner` parse repo marker files as live queue state.
+- Do not make `striatum` parse repo marker files as live queue state.
 - Do not let adapter constraints create a false sandbox guarantee for CLIs that
   cannot actually enforce them.
 - Do not accept or revise Engram RFC 0014 in this spec.
@@ -64,7 +64,7 @@ The validation run produced these runner-level findings:
 Add:
 
 ```text
-agent_runner evidence export --run-id <run_id> --path <repo_path> [--json]
+striatum evidence export --run-id <run_id> --path <repo_path> [--json]
 ```
 
 The export writes a curated, redacted run snapshot suitable for commit.
@@ -103,7 +103,7 @@ Acceptance:
 
 - Export works from a live initialized run.
 - Export fails closed if the target path is outside the repo or under
-  `.agent_runner/`.
+  `.striatum/`.
 - Exported Markdown is deterministic enough for review after redaction.
 - Tests assert that ignored SQLite is not needed to inspect the committed
   export.
@@ -113,7 +113,7 @@ Acceptance:
 Extend:
 
 ```text
-agent_runner status --json
+striatum status --json
 ```
 
 The JSON response must include:
@@ -146,7 +146,7 @@ Acceptance:
 Extend:
 
 ```text
-agent_runner why <id> --json
+striatum why <id> --json
 ```
 
 Supported targets:
@@ -177,7 +177,7 @@ Acceptance:
 Add:
 
 ```text
-agent_runner submit-review \
+striatum submit-review \
   --session-id <session_id> \
   --job-id <job_id> \
   --lease-id <lease_id> \
@@ -311,7 +311,7 @@ implementation step.
 
 ## Test Plan
 
-Add or update tests under `agent-runner/tests/`:
+Add or update tests under `tests/`:
 
 - blocked review verdict creates a blocker and appears in `status --json`;
 - `why <blocker_id>` returns blocker, verdict, job, and downstream dependency
@@ -330,12 +330,12 @@ Add or update tests under `agent-runner/tests/`:
 Required commands:
 
 ```bash
-cd agent-runner
+cd striatum
 PYTHONPATH=src ../.venv/bin/python -m pytest -q
-PYTHONPATH=src python3 -m agent_runner.cli workflow validate examples/rfc-0014-operational-artifact-home/workflow.json --json
+PYTHONPATH=src python3 -m striatum.cli workflow validate examples/rfc-0014-operational-artifact-home/workflow.json --json
 ```
 
-Use the Engram repository virtualenv while `agent-runner` is incubated here. If
+Use the Engram repository virtualenv while `striatum` is incubated here. If
 the eventual standalone project has its own virtualenv or test runner, use that
 project's documented command.
 
@@ -343,11 +343,11 @@ project's documented command.
 
 Update:
 
-- `agent-runner/docs/SPEC.md` after implementation changes land;
-- `agent-runner/docs/UBIQUITOUS_LANGUAGE.md` for "evidence export",
+- `docs/SPEC.md` after implementation changes land;
+- `docs/UBIQUITOUS_LANGUAGE.md` for "evidence export",
   "adapter constraint", and "next action";
-- `agent-runner/examples/rfc-0014-operational-artifact-home/workflow.json`;
-- `agent-runner/prompts/P002_validate_agent_runner_with_rfc_0014.md`;
+- `examples/rfc-0014-operational-artifact-home/workflow.json`;
+- `prompts/P002_validate_striatum_with_rfc_0014.md`;
 - validation notes for any rerun.
 
 ## Done Criteria

@@ -3,7 +3,7 @@
 Status: active
 Date: 2026-05-06
 
-This log captures the interview-driven design process for `agent_runner`.
+This log captures the interview-driven design process for `striatum`.
 
 ## Ground Rules
 
@@ -34,7 +34,7 @@ Resolution: accepted as D001 in `docs/DECISION_LOG.md`.
 Question: What is the v1 product boundary: a generic local terminal-agent
 orchestrator, or an Engram-specific Phase 3 runner extracted later?
 
-Recommended answer: Build `agent_runner` as a generic local terminal-agent
+Recommended answer: Build `striatum` as a generic local terminal-agent
 orchestrator from the start, with Engram Phase 3 and the RFC-ledger workflow as
 reference fixtures. The product should not embed Engram-specific marker names,
 prompt ordinals, or review directories into core logic.
@@ -116,11 +116,11 @@ Resolution: accepted as D006 in `docs/DECISION_LOG.md`.
 ### Q006: State Store Location
 
 Question: Where should the SQLite state store live by default: inside each repo
-under `.agent_runner/`, in a user-level directory keyed by repo path, or
+under `.striatum/`, in a user-level directory keyed by repo path, or
 configurable per workflow?
 
 Recommended answer: Store v1 state inside the target repo under
-`.agent_runner/`, ignored by default. This makes runs portable with the worktree
+`.striatum/`, ignored by default. This makes runs portable with the worktree
 and keeps project state easy to inspect. Add a user-level override later if
 people want one dashboard across many repos.
 
@@ -163,7 +163,7 @@ Question: How should agents signal completion, take new work, and communicate
 with the coordinator: CLI commands, MCP tools, terminal text conventions, or
 provider-specific hooks?
 
-Recommended answer: Use the `agent_runner` CLI as the primary agent control
+Recommended answer: Use the `striatum` CLI as the primary agent control
 surface. MCP tools may wrap the same commands later. Use terminal text
 conventions only for human readability, not as the source of truth.
 Provider-specific hooks can improve adapters later but should not be the
@@ -176,7 +176,7 @@ Resolution: accepted as D013 in `docs/DECISION_LOG.md`.
 ### Q010: SQLite Access Boundary
 
 Question: Should agents interact with SQLite directly, or only through
-`agent_runner` APIs/tools that own the schema and invariants?
+`striatum` APIs/tools that own the schema and invariants?
 
 Recommended answer: Agents should not write SQLite directly. They should
 interact through MCP tools and CLI commands that enforce leases,
@@ -192,7 +192,7 @@ Resolution: accepted as D009 in `docs/DECISION_LOG.md`.
 
 ### Q011: Agent Mutation Commands
 
-Question: What should the `agent_runner` binary's minimum mutation command set
+Question: What should the `striatum` binary's minimum mutation command set
 be?
 
 Recommended answer: Start with:
@@ -212,7 +212,7 @@ Commands that claim or mutate work require session identity. Keep admin/status
 commands separate from agent mutation commands.
 
 Owner input: the agent needs to identify itself. If an agent issues
-`agent_runner claim-next`, the work packet it gets depends on its role.
+`striatum claim-next`, the work packet it gets depends on its role.
 
 Owner answer: good enough for now, but details are still foggy.
 
@@ -235,7 +235,7 @@ Resolution: accepted as D012 in `docs/DECISION_LOG.md`.
 
 ### Q013: Cyclic State Graph
 
-Question: Does `agent_runner` need a cyclic state graph, or is an acyclic
+Question: Does `striatum` need a cyclic state graph, or is an acyclic
 workflow DAG with explicit retry/revision edges enough?
 
 Recommended answer: Use a workflow graph that is mostly DAG-shaped but permits
@@ -351,14 +351,14 @@ Resolution: accepted as D018 in `docs/DECISION_LOG.md`.
 
 ### Q022: Native Sub-Agents
 
-Question: How should `agent_runner` handle native sub-agents spawned by
+Question: How should `striatum` handle native sub-agents spawned by
 supported agent CLIs?
 
 Recommended answer: Treat native sub-agents as an internal implementation
 detail of the parent agent session in v1. The parent session remains
 accountable for write scope, artifacts, completion, and messages. If a sub-agent
 needs independent auditability, queue claims, or parallel scheduling,
-`agent_runner` should register it as a first-class session instead.
+`striatum` should register it as a first-class session instead.
 
 Owner input: the respective agent CLI tools can spawn sub-agents.
 
@@ -421,7 +421,7 @@ Resolution: accepted as D030 in `docs/DECISION_LOG.md`.
 
 ### Q028: Project Structure
 
-Question: What project structure should `agent_runner` emulate?
+Question: What project structure should `striatum` emulate?
 
 Recommended answer: Emulate Engram's Python project discipline where
 appropriate.
@@ -446,7 +446,7 @@ Resolution: accepted as D032 in `docs/DECISION_LOG.md`.
 ### Q030: Bootstrap Tmux Runner
 
 Question: Should the Engram tmux runner be reused as bootstrap orchestration for
-the `agent_runner` one-shot?
+the `striatum` one-shot?
 
 Recommended answer: Allow reuse or adaptation of the Engram tmux runner as a
 temporary bootstrap harness for the three-model design/build pass, but keep it
@@ -459,10 +459,10 @@ Owner answer: pending.
 
 ### Q031: Engram Incubation
 
-Question: Should `agent_runner` be incubated inside Engram before being split
+Question: Should `striatum` be incubated inside Engram before being split
 out?
 
-Recommended answer: Yes. Commit it under `engram/agent-runner` for MVP context,
+Recommended answer: Yes. Commit it under `engram/striatum` for MVP context,
 then split it into a separate project after MVP validation.
 
 Owner answer: accepted.

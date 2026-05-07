@@ -1,4 +1,4 @@
-# agent_runner Specification
+# striatum Specification
 
 Status: implementation contract
 Date: 2026-05-06
@@ -9,19 +9,19 @@ This specification binds the V1 MVP described in
 
 ## Product Boundary
 
-`agent_runner` V1 is a local Python CLI for orchestrating terminal-agent
+`striatum` V1 is a local Python CLI for orchestrating terminal-agent
 workflow state inside one repository. It does not provide hosted services,
 external persistence, telemetry, Slack, web, TUI, MCP, plugin marketplaces, or
 automatic commits.
 
-The authoritative live state is SQLite under `.agent_runner/state.sqlite3`.
+The authoritative live state is SQLite under `.striatum/state.sqlite3`.
 Repository artifacts are durable provenance only. Marker files, tmux panes,
 terminal output, and provider hooks are never live control-plane state.
 
 ## State Store
 
-`agent_runner init` creates `.agent_runner/`, initializes SQLite, enables WAL,
-enforces foreign keys, and ensures `.agent_runner/` is ignored by git.
+`striatum init` creates `.striatum/`, initializes SQLite, enables WAL,
+enforces foreign keys, and ensures `.striatum/` is ignored by git.
 
 The schema includes:
 
@@ -64,7 +64,7 @@ Required workflow fields:
 - `edges`
 - `cycles`
 
-The V1 schema version is `agent-runner.workflow.v1`.
+The V1 schema version is `striatum.workflow.v1`.
 
 The validator enforces unique job ids, resolved role/lane references, valid
 edges, bounded cycles, repo-relative artifact paths, and declared parallelism
@@ -133,7 +133,7 @@ artifact, verdict, blocker, run, and downstream state.
 
 `evidence export` writes a redacted Markdown snapshot of run, job, blocker,
 verdict, artifact, status, doctor, and downstream-blocking state. Export paths
-must stay inside the repository and outside `.agent_runner/`; SQLite state is
+must stay inside the repository and outside `.striatum/`; SQLite state is
 not committed. Free-text fields that may contain agent or user prose, including
 blocker descriptions and verdict rationales, are redacted in the export.
 Workflow job titles are omitted by default; job and artifact authorship is
@@ -171,26 +171,26 @@ when they differ.
 Required commands:
 
 ```text
-agent_runner init
-agent_runner workflow validate
-agent_runner run prepare
-agent_runner branch confirm
-agent_runner run start
-agent_runner register-session
-agent_runner claim-next
-agent_runner ack
-agent_runner heartbeat
-agent_runner release
-agent_runner send
-agent_runner block
-agent_runner publish-artifact
-agent_runner submit-review
-agent_runner complete
-agent_runner verdict
-agent_runner evidence export
-agent_runner status
-agent_runner why
-agent_runner doctor
+striatum init
+striatum workflow validate
+striatum run prepare
+striatum branch confirm
+striatum run start
+striatum register-session
+striatum claim-next
+striatum ack
+striatum heartbeat
+striatum release
+striatum send
+striatum block
+striatum publish-artifact
+striatum submit-review
+striatum complete
+striatum verdict
+striatum evidence export
+striatum status
+striatum why
+striatum doctor
 ```
 
 Human read commands can pretty-print. `--json` returns stable machine-readable
@@ -233,7 +233,7 @@ make test
 The smoke sequence is:
 
 ```bash
-agent_runner init
-agent_runner status --json
-agent_runner doctor
+striatum init
+striatum status --json
+striatum doctor
 ```

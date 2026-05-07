@@ -1,13 +1,13 @@
-# agent_runner RFCs
+# striatum RFCs
 
-This directory holds `agent_runner` RFCs. Engram RFCs remain under
+This directory holds `striatum` RFCs. Engram RFCs remain under
 `docs/rfcs/`; they can be reference fixtures, but they are not the product
 decision record for the runner.
 
-RFCs here are for contested or cross-cutting `agent_runner` design changes:
+RFCs here are for contested or cross-cutting `striatum` design changes:
 workflow semantics, review gates, artifact contracts, adapter behavior, and
-run-state policy. Accepted RFCs should update `agent-runner/docs/DECISION_LOG.md`
-and, when behavior changes, `agent-runner/docs/SPEC.md`.
+run-state policy. Accepted RFCs should update `docs/DECISION_LOG.md`
+and, when behavior changes, `docs/SPEC.md`.
 
 ## Index
 

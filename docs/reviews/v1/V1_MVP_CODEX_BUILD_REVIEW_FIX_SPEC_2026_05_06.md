@@ -1,8 +1,8 @@
 # V1 MVP Codex Build Review Fix Spec
 
 Date: 2026-05-06
-Source review: `agent-runner/docs/reviews/v1/V1_MVP_BUILD_REVIEW_codex_2026_05_06.md`
-Target branch: `agent-runner/v1-mvp`
+Source review: `docs/reviews/v1/V1_MVP_BUILD_REVIEW_codex_2026_05_06.md`
+Target branch: `striatum/v1-mvp`
 Status: implementation spec
 
 ## Summary
@@ -42,7 +42,7 @@ artifact verification must match `logical_name`, `kind`, and exact repo-relative
 
 ## Implementation Plan
 
-### `agent-runner/src/agent_runner/workflow.py`
+### `src/striatum/workflow.py`
 
 - Keep JSON-only validation and top-level required fields unchanged.
 - Strengthen `validate_workflow`:
@@ -67,7 +67,7 @@ artifact verification must match `logical_name`, `kind`, and exact repo-relative
   - `edge_dependency_pairs(workflow) -> list[tuple[str, str, JsonObject]]`
   - `validate_needs_match_edges(workflow)`.
 
-### `agent-runner/src/agent_runner/db.py`
+### `src/striatum/db.py`
 
 - Replace `maybe_enqueue_downstream`'s simple `upstream.state == "completed"`
   check with a dependency satisfaction helper:
@@ -111,7 +111,7 @@ artifact verification must match `logical_name`, `kind`, and exact repo-relative
   - `job.failed` and `run.failed` for `reject`.
   - `human_checkpoint.opened` when a revision cannot be routed.
 
-### `agent-runner/src/agent_runner/cli.py`
+### `src/striatum/cli.py`
 
 - Remove the direct import and use of `maybe_enqueue_downstream` from
   `verdict_work`; verdict behavior must go through the new review-gate helper.
@@ -136,7 +136,7 @@ artifact verification must match `logical_name`, `kind`, and exact repo-relative
   - Required artifact rows whose logical name exists but kind/path do not match
     expected artifacts.
 
-### `agent-runner/src/agent_runner/schema.py`
+### `src/striatum/schema.py`
 
 - No new table is required for the minimal V1 fix.
 - Schema changes are allowed if implementation is cleaner, but keep them
@@ -146,7 +146,7 @@ artifact verification must match `logical_name`, `kind`, and exact repo-relative
 - Existing unique constraints on `(run_id, workflow_job_id, attempt)` and active
   work messages must remain enforced.
 
-### `agent-runner/src/agent_runner/artifacts.py`
+### `src/striatum/artifacts.py`
 
 - Publishing scope validation can stay as-is.
 - Do not try to enforce expected artifact kind/path at publish time unless the
@@ -191,24 +191,24 @@ Artifact invariants:
 
 ## CLI Behavior Changes
 
-- `agent_runner verdict --verdict accept` and `accept_with_findings` continue to
+- `striatum verdict --verdict accept` and `accept_with_findings` continue to
   return success status `completed`.
-- `agent_runner verdict --verdict needs_revision` returns success status
+- `striatum verdict --verdict needs_revision` returns success status
   `revision_requested` when it creates a bounded revision attempt.
-- `agent_runner verdict --verdict needs_revision` returns success status
+- `striatum verdict --verdict needs_revision` returns success status
   `waiting_human` when it records the finding but cannot route a revision. It
   must not return `completed` in that case.
-- `agent_runner verdict --verdict reject` returns success status `failed` after
+- `striatum verdict --verdict reject` returns success status `failed` after
   recording the verdict and failing the run. The command itself exits 0 because
   the verdict was recorded successfully.
-- `agent_runner claim-next` must not expose downstream jobs whose upstream
+- `striatum claim-next` must not expose downstream jobs whose upstream
   review verdict was `needs_revision` or `reject`.
-- `agent_runner doctor --json` should flag inconsistent review gates and
+- `striatum doctor --json` should flag inconsistent review gates and
   required-artifact mismatches.
 
 ## Test Plan
 
-Add or update tests in `agent-runner/tests/test_cli_mvp.py`.
+Add or update tests in `tests/test_cli_mvp.py`.
 
 - `test_verdict_reject_fails_run_and_does_not_enqueue_downstream`:
   complete `draft`, claim and ack `review_codex`, publish its required review
@@ -244,7 +244,7 @@ Keep tests deterministic. Do not call live model CLIs.
 
 ## Verification Commands
 
-Run from `agent-runner/`:
+Run from `striatum/`:
 
 ```bash
 make test
@@ -261,9 +261,9 @@ Recommended smoke check after tests:
 
 ```bash
 tmpdir="$(mktemp -d)"
-PYTHONPATH=src python -m agent_runner.cli --repo "$tmpdir" init --json
-PYTHONPATH=src python -m agent_runner.cli --repo "$tmpdir" status --json
-PYTHONPATH=src python -m agent_runner.cli --repo "$tmpdir" doctor --json
+PYTHONPATH=src python -m striatum.cli --repo "$tmpdir" init --json
+PYTHONPATH=src python -m striatum.cli --repo "$tmpdir" status --json
+PYTHONPATH=src python -m striatum.cli --repo "$tmpdir" doctor --json
 ```
 
 ## Non-Goals
@@ -285,13 +285,13 @@ PYTHONPATH=src python -m agent_runner.cli --repo "$tmpdir" doctor --json
 - F002 requires human coordination. A human must obtain fresh independent build
   reviews and update the build synthesis before declaring the V1 MVP branch
   ready:
-  - `agent-runner/docs/reviews/v1/V1_MVP_BUILD_REVIEW_claude_2026_05_06.md`
-  - `agent-runner/docs/reviews/v1/V1_MVP_BUILD_REVIEW_codex_2026_05_06.md`
-  - `agent-runner/docs/reviews/v1/V1_MVP_BUILD_REVIEW_gemini_2026_05_06.md`
-  - `agent-runner/docs/reviews/v1/V1_MVP_BUILD_SYNTHESIS.md`
+  - `docs/reviews/v1/V1_MVP_BUILD_REVIEW_claude_2026_05_06.md`
+  - `docs/reviews/v1/V1_MVP_BUILD_REVIEW_codex_2026_05_06.md`
+  - `docs/reviews/v1/V1_MVP_BUILD_REVIEW_gemini_2026_05_06.md`
+  - `docs/reviews/v1/V1_MVP_BUILD_SYNTHESIS.md`
 - If implementation discovers that bounded revision cycles require more than a
   single target/review retry pair for the V1 fixture, pause and ask for a
   smaller state-machine decision before inventing a general graph-rewrite
   engine.
 - If schema changes are needed, confirm whether this branch needs migrations
-  for existing `.agent_runner/state.sqlite3` files or only a clean MVP schema.
+  for existing `.striatum/state.sqlite3` files or only a clean MVP schema.

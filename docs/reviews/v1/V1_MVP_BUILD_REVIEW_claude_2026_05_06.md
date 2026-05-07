@@ -2,7 +2,7 @@
 
 Date: 2026-05-06
 Reviewer: Claude Haiku
-Branch reviewed: local agent-runner/v1-mvp working tree
+Branch reviewed: local striatum/v1-mvp working tree
 Verdict: accept
 
 ## Summary
@@ -15,14 +15,14 @@ All 18 tests pass, including 9 new tests specifically addressing the Codex findi
 
 ### C001 [P2] Build synthesis document is stale
 
-- **File:** `agent-runner/docs/reviews/v1/V1_MVP_BUILD_SYNTHESIS.md`
+- **File:** `docs/reviews/v1/V1_MVP_BUILD_SYNTHESIS.md`
 - **Issue:** The synthesis cites prior review findings (B-F001 through B-F004) and verification results from an earlier build state. It does not reference the new Codex review or the current independent Claude/Gemini reviews, leaving its findings table incomplete relative to the current working tree.
 - **Consequence:** A human reading the synthesis would not understand which findings were just resolved in this revision. The document creates ambiguity about the current review gate state.
 - **Proposed Fix:** Update the synthesis document to cite all three independent build reviews (Claude, Codex, Gemini) and map the Codex findings (F001–F004) to their resolution status. No code changes required; this is a documentation update suitable for the coordinating human to perform.
 
 ### C002 [P3] Artifact versioning during revision cycles lacks explicit markers
 
-- **File:** `agent-runner/src/agent_runner/schema.py` (artifacts table)
+- **File:** `src/striatum/schema.py` (artifacts table)
 - **Issue:** The artifacts table allows multiple records with the same `repo_path` but different `job_id` and `content_sha256` values, which occurs naturally during `needs_revision` cycles. While this does not cause runtime bugs (dependencies are explicit, not inferred from artifacts), manual database inspection and post-run analysis can be confusing without explicit markers for which artifact version is active.
 - **Consequence:** This is a P3 cosmetic issue during debugging and does not affect correctness or safety. The `doctor` command could report this condition in a future version.
 - **Proposed Fix:** Defer. For V2+, consider adding an `artifact_state` column (`active`, `superseded`) or enhancing `doctor` to report multiple artifact versions for the same path as a low-severity advisory.
@@ -55,7 +55,7 @@ All Codex findings have been resolved:
 
 ## Verification
 
-Executed from `agent-runner/`:
+Executed from `striatum/`:
 
 ```bash
 make test
@@ -79,9 +79,9 @@ tests/test_cli_mvp.py ..................                                 [100%]
 **Smoke checks:**
 ```bash
 tmpdir=$(mktemp -d)
-PYTHONPATH=src python -m agent_runner.cli --repo "$tmpdir" init --json
-PYTHONPATH=src python -m agent_runner.cli --repo "$tmpdir" status --json
-PYTHONPATH=src python -m agent_runner.cli --repo "$tmpdir" doctor --json
+PYTHONPATH=src python -m striatum.cli --repo "$tmpdir" init --json
+PYTHONPATH=src python -m striatum.cli --repo "$tmpdir" status --json
+PYTHONPATH=src python -m striatum.cli --repo "$tmpdir" doctor --json
 ```
 
 All successful. Schema initializes, state queries work, doctor reports no problems.

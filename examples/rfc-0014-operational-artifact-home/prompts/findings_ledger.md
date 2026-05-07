@@ -23,5 +23,5 @@ For each finding, record:
 
 Do not decide the disposition. That belongs to synthesis.
 
-If a required review artifact is missing, block the job through `agent_runner`
+If a required review artifact is missing, block the job through `striatum`
 instead of fabricating findings.

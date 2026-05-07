@@ -2,15 +2,15 @@
 
 Status: ready
 Date: 2026-05-06
-Scope: `agent_runner` follow-up implementation
-Primary spec: `agent-runner/docs/RFC_0014_DOGFOOD_FIX_SPEC.md`
+Scope: `striatum` follow-up implementation
+Primary spec: `docs/RFC_0014_DOGFOOD_FIX_SPEC.md`
 
 ## Mission
 
-You are the `agent_runner` implementation coordinator. Your job is to implement
+You are the `striatum` implementation coordinator. Your job is to implement
 the follow-up fixes specified after the RFC 0014 validation dogfood run.
 
-The goal is not to decide RFC 0014. The goal is to make `agent_runner` better
+The goal is not to decide RFC 0014. The goal is to make `striatum` better
 at recovering from blocked workflows, exporting durable run evidence, and
 reducing review-gate command friction.
 
@@ -18,23 +18,23 @@ reducing review-gate command friction.
 
 Read these files in order:
 
-1. `agent-runner/README.md`
-2. `agent-runner/docs/SPEC.md`
-3. `agent-runner/docs/RFC_0014_DOGFOOD_FIX_SPEC.md`
-4. `agent-runner/docs/DECISION_LOG.md`
-5. `agent-runner/docs/UBIQUITOUS_LANGUAGE.md`
-6. `docs/reviews/rfc-0014-operational-artifact-home/AGENT_RUNNER_VALIDATION_NOTES.md`
-7. `agent-runner/examples/rfc-0014-operational-artifact-home/workflow.json`
+1. `README.md`
+2. `docs/SPEC.md`
+3. `docs/RFC_0014_DOGFOOD_FIX_SPEC.md`
+4. `docs/DECISION_LOG.md`
+5. `docs/UBIQUITOUS_LANGUAGE.md`
+6. `docs/reviews/rfc-0014-operational-artifact-home/STRIATUM_VALIDATION_NOTES.md`
+7. `examples/rfc-0014-operational-artifact-home/workflow.json`
 8. this prompt
 
 Treat `RFC_0014_DOGFOOD_FIX_SPEC.md` as the implementation contract unless you
-find a contradiction with the existing `agent_runner` spec. If you find a
+find a contradiction with the existing `striatum` spec. If you find a
 contradiction, stop and record the blocker instead of silently changing product
 direction.
 
 ## Branch Discipline
 
-Work on the current `agent-runner/rfc-0014-validation` branch unless the human
+Work on the current `striatum/rfc-0014-validation` branch unless the human
 explicitly redirects you. Before editing:
 
 1. Run `git status --short --branch`.
@@ -55,14 +55,14 @@ Implement the spec requirements in this order:
 6. R005: adapter constraint declarations.
 7. R007: RFC 0014 workflow revision policy.
 
-Keep changes scoped to `agent-runner/` unless a validation artifact or root
+Keep changes scoped to `striatum/` unless a validation artifact or root
 ignore file must be updated.
 
 ## Required Behavior
 
 ### Expanded `why`
 
-`agent_runner why <id> --json` must support:
+`striatum why <id> --json` must support:
 
 - run ids;
 - job ids;
@@ -77,7 +77,7 @@ when applicable, blocked downstream jobs, and deterministic next actions.
 
 ### Richer `status`
 
-`agent_runner status --json` must keep existing aggregate fields and add:
+`striatum status --json` must keep existing aggregate fields and add:
 
 - open blockers;
 - human checkpoints;
@@ -94,21 +94,21 @@ without reading SQLite manually.
 Add:
 
 ```bash
-agent_runner evidence export --run-id <run_id> --path <repo_path> --json
+striatum evidence export --run-id <run_id> --path <repo_path> --json
 ```
 
 The command writes a redacted Markdown run snapshot. It must include run, job,
 blocker, verdict, artifact, status, doctor, and downstream-blocking evidence.
-It must reject paths outside the repo and paths under `.agent_runner/`.
+It must reject paths outside the repo and paths under `.striatum/`.
 
-Do not commit `.agent_runner/`.
+Do not commit `.striatum/`.
 
 ### Submit Review
 
 Add:
 
 ```bash
-agent_runner submit-review \
+striatum submit-review \
   --session-id <session_id> \
   --job-id <job_id> \
   --lease-id <lease_id> \
@@ -165,16 +165,16 @@ Do not leave the current behavior implicit.
 
 Update as implementation lands:
 
-- `agent-runner/docs/SPEC.md`
-- `agent-runner/docs/UBIQUITOUS_LANGUAGE.md`
-- `agent-runner/docs/README.md` if commands or docs are added
-- `agent-runner/examples/rfc-0014-operational-artifact-home/workflow.json`
-- `agent-runner/prompts/P002_validate_agent_runner_with_rfc_0014.md`
+- `docs/SPEC.md`
+- `docs/UBIQUITOUS_LANGUAGE.md`
+- `docs/README.md` if commands or docs are added
+- `examples/rfc-0014-operational-artifact-home/workflow.json`
+- `prompts/P002_validate_striatum_with_rfc_0014.md`
 
 Add a short implementation note under:
 
 ```text
-agent-runner/docs/reviews/v1/
+docs/reviews/v1/
 ```
 
 Use a filename like:
@@ -187,7 +187,7 @@ Record what was implemented, what was deferred, and how it was verified.
 
 ## Tests
 
-Add or update focused tests under `agent-runner/tests/`.
+Add or update focused tests under `tests/`.
 
 Required coverage:
 
@@ -203,11 +203,11 @@ Required coverage:
 
 ## Verification
 
-Run from `agent-runner/`:
+Run from `striatum/`:
 
 ```bash
 PYTHONPATH=src ../.venv/bin/python -m pytest -q
-PYTHONPATH=src python3 -m agent_runner.cli workflow validate examples/rfc-0014-operational-artifact-home/workflow.json --json
+PYTHONPATH=src python3 -m striatum.cli workflow validate examples/rfc-0014-operational-artifact-home/workflow.json --json
 ```
 
 Also run a small smoke sequence in a temporary repo that exercises:

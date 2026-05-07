@@ -1,14 +1,14 @@
-# P001: Design, Review, Record, And Build agent_runner V1 MVP
+# P001: Design, Review, Record, And Build striatum V1 MVP
 
 Status: draft
 Date: 2026-05-06
-Scope: `agent_runner` V1 MVP
+Scope: `striatum` V1 MVP
 Primary outcome: a reviewed, tested Python MVP for local terminal-agent
 orchestration.
 
 ## Mission
 
-You are the `agent_runner` build coordinator. Your job is to take this project
+You are the `striatum` build coordinator. Your job is to take this project
 from PRD-level design into a small, tested V1 MVP.
 
 You must follow the Engram-style process:
@@ -55,8 +55,8 @@ Preserve these accepted decisions:
   - synthesis is an explicit job, not default coordinator behavior.
 - SQLite is the local state store, append-only event log, and lightweight
   message queue.
-- State lives under `.agent_runner/` in the target repo, ignored by default.
-- Agents mutate state through the `agent_runner` CLI, not direct SQLite writes.
+- State lives under `.striatum/` in the target repo, ignored by default.
+- Agents mutate state through the `striatum` CLI, not direct SQLite writes.
 - Agents identify themselves through registered sessions before claiming work.
 - Persistent sessions are preferred until role expiration; fresh context means
   new role instantiation.
@@ -68,7 +68,7 @@ Preserve these accepted decisions:
 - Build artifacts are durable and idempotent.
 - Coordinator starts/selects a branch only after confirmation and requests
   commits from the human by default. This one-shot prompt is the explicit
-  exception for branch setup: create or switch to branch `agent-runner` without
+  exception for branch setup: create or switch to branch `striatum` without
   asking again, then keep commit authority with the human.
 - Python is the V1 implementation language.
 - Roles are reusable artifacts; context docs are generic; task prompts may
@@ -76,14 +76,14 @@ Preserve these accepted decisions:
 - Coordinator chat commands like "read prompt foo" are coordinator skills backed
   by deterministic CLI operations.
 - Native sub-agents are internal to the parent session unless explicitly
-  registered as first-class `agent_runner` sessions.
+  registered as first-class `striatum` sessions.
 - Minimum common agent integration contract is process-based.
 - Workflow config is JSON. Do not use YAML.
 - Decisions, prompts, findings, syntheses, markers, and handoffs are durable
   repo artifacts. Do not capture or publish broad transcripts by default.
 - First validation workflow is RFC-ledger cleanup.
 - Emulate Engram's Python project discipline where appropriate.
-- `agent_runner` is temporarily incubated inside Engram through MVP
+- `striatum` is temporarily incubated inside Engram through MVP
   design/build, then split into a standalone project after validation.
 
 ## One-Shot Branch Setup
@@ -94,9 +94,9 @@ Engram repository root:
 1. Run `git status --short` if this directory is a git repo.
 2. If the worktree has uncommitted changes you did not make, stop and report
    the dirty files instead of switching branches.
-3. If already on `agent-runner`, continue.
-4. If branch `agent-runner` exists, run `git switch agent-runner`.
-5. Otherwise run `git switch -c agent-runner`.
+3. If already on `striatum`, continue.
+4. If branch `striatum` exists, run `git switch striatum`.
+5. Otherwise run `git switch -c striatum`.
 
 Branch setup is already confirmed by this one-shot prompt. Design-lane panes
 created by the bootstrap harness must not create or switch branches themselves;
@@ -104,33 +104,33 @@ the one-shot coordinator owns that step.
 
 ## Bootstrap Orchestration
 
-Use the `agent_runner` bootstrap harness for the required design-input fan-out:
+Use the `striatum` bootstrap harness for the required design-input fan-out:
 
 ```bash
-agent-runner/scripts/agent_runner_tmux_design.sh start
+scripts/striatum_tmux_design.sh start
 ```
 
 Use `start-pipe` instead when the local model CLIs are ready to accept prompts
 on stdin:
 
 ```bash
-agent-runner/scripts/agent_runner_tmux_design.sh start-pipe
+scripts/striatum_tmux_design.sh start-pipe
 ```
 
 This harness creates Claude, Codex, and Gemini design-input panes plus a
 synthesis handoff pane. The watched completion artifacts are:
 
 ```text
-agent-runner/docs/design/V1_MVP_DESIGN_INPUT_claude.md
-agent-runner/docs/design/V1_MVP_DESIGN_INPUT_codex.md
-agent-runner/docs/design/V1_MVP_DESIGN_INPUT_gemini.md
+docs/design/V1_MVP_DESIGN_INPUT_claude.md
+docs/design/V1_MVP_DESIGN_INPUT_codex.md
+docs/design/V1_MVP_DESIGN_INPUT_gemini.md
 ```
 
 If you are already running inside one of those pane assignments, obey the pane
 assignment and write only the lane-specific artifact. If you are the one-shot
 coordinator, do not proceed to synthesis until all three artifacts exist.
 
-Do not treat that bootstrap harness as product architecture. The `agent_runner`
+Do not treat that bootstrap harness as product architecture. The `striatum`
 product must still design and implement its own generic tmux/PTY adapter through
 the reviewed MVP design.
 
@@ -231,7 +231,7 @@ Recommended project shape:
 ```text
 pyproject.toml
 Makefile
-src/agent_runner/
+src/striatum/
   __init__.py
   cli.py
   db.py
@@ -246,8 +246,8 @@ The design team may adjust this shape, but keep it simple.
 
 Minimum MVP behavior should include:
 
-- `agent_runner init`
-  - creates `.agent_runner/`;
+- `striatum init`
+  - creates `.striatum/`;
   - initializes SQLite;
   - ensures ignore handling is documented or applied safely.
 - session registration
@@ -285,7 +285,7 @@ is already complete and tested. Leave those as documented future work.
 ## First Validation Fixture
 
 Create an RFC-ledger cleanup workflow fixture. It does not need to fully run
-external model CLIs in tests. It should prove that `agent_runner` can represent
+external model CLIs in tests. It should prove that `striatum` can represent
 the workflow:
 
 ```text
@@ -352,9 +352,9 @@ command is the MVP test command.
 Also run a small CLI smoke sequence against a temporary directory if feasible:
 
 ```bash
-agent_runner init
-agent_runner status --json
-agent_runner doctor
+striatum init
+striatum status --json
+striatum doctor
 ```
 
 ## Final Response Requirements
@@ -366,7 +366,7 @@ When complete, report:
 - code modules created;
 - tests run and result;
 - known gaps intentionally deferred;
-- whether branch `agent-runner` is ready for human commit.
+- whether branch `striatum` is ready for human commit.
 
 Do not claim the MVP is complete if review findings remain unresolved or tests
 were not run.

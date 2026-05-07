@@ -19,7 +19,7 @@ Earlier review/fix artifacts:
 
 Implementation and verification surfaces:
 
-- `src/agent_runner/`
+- `src/striatum/`
 - `examples/rfc-ledger-cleanup/`
 - `tests/test_cli_mvp.py`
 
@@ -46,7 +46,7 @@ Implementation and verification surfaces:
 
 ## Verification After Fixes
 
-Executed from `agent-runner/`:
+Executed from `striatum/`:
 
 ```bash
 PYTHONPATH=src /Users/halbritt/Documents/GitHub/engram/.venv/bin/python -m pytest -q
@@ -61,9 +61,9 @@ Result:
 Smoke sequence in a temporary repo:
 
 ```text
-agent_runner init --json
-agent_runner status --json
-agent_runner doctor --json
+striatum init --json
+striatum status --json
+striatum doctor --json
 ```
 
 Result: all smoke commands returned `ok: true`; `doctor` reported schema

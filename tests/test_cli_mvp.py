@@ -17,7 +17,7 @@ def run_cli(repo: Path, *args: str, check: bool = True) -> dict[str, object]:
     env = os.environ.copy()
     env["PYTHONPATH"] = str(ROOT / "src")
     result = subprocess.run(
-        [sys.executable, "-m", "agent_runner.cli", "--repo", str(repo), *args, "--json"],
+        [sys.executable, "-m", "striatum.cli", "--repo", str(repo), *args, "--json"],
         cwd=repo,
         env=env,
         text=True,
@@ -49,7 +49,7 @@ def prepare_started_run(repo: Path, workflow_path: Path = WORKFLOW) -> str:
     run_id = str(prepared["run_id"])
     before = run_cli(repo, "claim-next", "--session-id", "missing", check=False)
     assert before["returncode"] == 3
-    run_cli(repo, "branch", "confirm", "--run-id", run_id, "--branch", "agent-runner/v1-test")
+    run_cli(repo, "branch", "confirm", "--run-id", run_id, "--branch", "striatum/v1-test")
     run_cli(repo, "run", "start", "--run-id", run_id)
     return run_id
 
@@ -95,7 +95,7 @@ def write_artifact(repo: Path, path: str, text: str = "artifact\n") -> None:
 
 
 def artifact_count(repo: Path, job_id: str) -> int:
-    conn = sqlite3.connect(repo / ".agent_runner" / "state.sqlite3")
+    conn = sqlite3.connect(repo / ".striatum" / "state.sqlite3")
     try:
         row = conn.execute("SELECT COUNT(*) FROM artifacts WHERE job_id = ?", (job_id,)).fetchone()
     finally:
@@ -200,8 +200,8 @@ def verdict_claimed_review(
 
 def test_init_status_and_doctor(tmp_path: Path) -> None:
     init_repo(tmp_path)
-    assert (tmp_path / ".agent_runner" / "state.sqlite3").exists()
-    assert ".agent_runner/" in (tmp_path / ".gitignore").read_text(encoding="utf-8")
+    assert (tmp_path / ".striatum" / "state.sqlite3").exists()
+    assert ".striatum/" in (tmp_path / ".gitignore").read_text(encoding="utf-8")
     status = data(run_cli(tmp_path, "status"))
     assert status["runs"] == []
     doctor = data(run_cli(tmp_path, "doctor"))
@@ -213,7 +213,7 @@ def test_workflow_validate_accepts_json_and_rejects_yaml(tmp_path: Path) -> None
     valid = data(run_cli(tmp_path, "workflow", "validate", str(WORKFLOW)))
     assert valid["workflow_id"] == "rfc-ledger-cleanup"
     yaml_path = tmp_path / "workflow.yaml"
-    yaml_path.write_text("schema_version: agent-runner.workflow.v1\n", encoding="utf-8")
+    yaml_path.write_text("schema_version: striatum.workflow.v1\n", encoding="utf-8")
     rejected = run_cli(tmp_path, "workflow", "validate", str(yaml_path), check=False)
     assert rejected["returncode"] == 8
 
@@ -225,7 +225,7 @@ def test_branch_confirmation_blocks_claims(tmp_path: Path) -> None:
     session_id = register(tmp_path, run_id, "author", "codex")
     blocked = run_cli(tmp_path, "claim-next", "--session-id", session_id, check=False)
     assert blocked["returncode"] == 7
-    run_cli(tmp_path, "branch", "confirm", "--run-id", run_id, "--branch", "agent-runner/v1-test")
+    run_cli(tmp_path, "branch", "confirm", "--run-id", run_id, "--branch", "striatum/v1-test")
     run_cli(tmp_path, "run", "start", "--run-id", run_id)
     packet = claim(tmp_path, session_id)
     job = packet["job"]
@@ -432,7 +432,7 @@ def test_publish_artifact_rejects_out_of_scope_paths(tmp_path: Path) -> None:
 
 def test_events_are_append_only(tmp_path: Path) -> None:
     run_id = prepare_started_run(tmp_path)
-    conn = sqlite3.connect(tmp_path / ".agent_runner" / "state.sqlite3")
+    conn = sqlite3.connect(tmp_path / ".striatum" / "state.sqlite3")
     try:
         event_id = conn.execute("SELECT event_id FROM events WHERE run_id = ? LIMIT 1", (run_id,)).fetchone()[0]
         try:
@@ -574,7 +574,7 @@ def test_verdict_needs_revision_without_cycle_waits_human(tmp_path: Path) -> Non
     workflow_path = temporary_workflow(tmp_path, workflow)
     init_repo(tmp_path)
     run_id = str(data(run_cli(tmp_path, "run", "prepare", "--workflow", str(workflow_path)))["run_id"])
-    run_cli(tmp_path, "branch", "confirm", "--run-id", run_id, "--branch", "agent-runner/v1-test")
+    run_cli(tmp_path, "branch", "confirm", "--run-id", run_id, "--branch", "striatum/v1-test")
     run_cli(tmp_path, "run", "start", "--run-id", run_id)
     author = register(tmp_path, run_id, "author", "codex")
     complete_claimed_job(
@@ -594,7 +594,7 @@ def test_verdict_needs_revision_without_cycle_waits_human(tmp_path: Path) -> Non
         path="docs/reviews/rfc-ledger/codex/RFC_LEDGER_REVIEW.md",
     )
     assert verdict["status"] == "waiting_human"
-    conn = sqlite3.connect(tmp_path / ".agent_runner" / "state.sqlite3")
+    conn = sqlite3.connect(tmp_path / ".striatum" / "state.sqlite3")
     try:
         blocker = conn.execute("SELECT state FROM blockers WHERE run_id = ?", (run_id,)).fetchone()
         assert blocker[0] == "open"
@@ -611,7 +611,7 @@ def test_edges_materialize_dependencies_without_needs(tmp_path: Path) -> None:
     workflow_path = temporary_workflow(tmp_path, workflow)
     init_repo(tmp_path)
     run_id = str(data(run_cli(tmp_path, "run", "prepare", "--workflow", str(workflow_path)))["run_id"])
-    run_cli(tmp_path, "branch", "confirm", "--run-id", run_id, "--branch", "agent-runner/v1-test")
+    run_cli(tmp_path, "branch", "confirm", "--run-id", run_id, "--branch", "striatum/v1-test")
     run_cli(tmp_path, "run", "start", "--run-id", run_id)
     author = register(tmp_path, run_id, "author", "codex")
     reviewer = register(tmp_path, run_id, "reviewer", "codex")
@@ -742,7 +742,7 @@ def test_verdict_requires_expected_artifact_path_and_kind(tmp_path: Path) -> Non
 
 def test_doctor_reports_bad_review_gate_state(tmp_path: Path) -> None:
     run_id = prepare_started_run(tmp_path)
-    conn = sqlite3.connect(tmp_path / ".agent_runner" / "state.sqlite3")
+    conn = sqlite3.connect(tmp_path / ".striatum" / "state.sqlite3")
     try:
         review = conn.execute(
             "SELECT job_id FROM jobs WHERE run_id = ? AND workflow_job_id = 'review_codex'",
@@ -886,7 +886,7 @@ def test_evidence_export_writes_redacted_markdown_and_rejects_bad_paths(tmp_path
     )
     assert exported["status"] == "exported"
     evidence = (tmp_path / "docs/reviews/rfc-ledger/RUN_EVIDENCE.md").read_text(encoding="utf-8")
-    assert "Agent Runner Evidence Export" in evidence
+    assert "Striatum Evidence Export" in evidence
     assert "needs_revision" in evidence
     assert "private corpus excerpt" not in evidence
     assert "/tmp/private-notes" not in evidence
@@ -904,7 +904,7 @@ def test_evidence_export_writes_redacted_markdown_and_rejects_bad_paths(tmp_path
         "--run-id",
         run_id,
         "--path",
-        ".agent_runner/RUN_EVIDENCE.md",
+        ".striatum/RUN_EVIDENCE.md",
         check=False,
     )
     assert bad_state["returncode"] == 6
@@ -1063,7 +1063,7 @@ def test_workflow_lane_constraints_validate_and_appear_in_packets(tmp_path: Path
     init_repo(tmp_path)
     run_cli(tmp_path, "workflow", "validate", str(workflow_path))
     run_id = str(data(run_cli(tmp_path, "run", "prepare", "--workflow", str(workflow_path)))["run_id"])
-    run_cli(tmp_path, "branch", "confirm", "--run-id", run_id, "--branch", "agent-runner/v1-test")
+    run_cli(tmp_path, "branch", "confirm", "--run-id", run_id, "--branch", "striatum/v1-test")
     run_cli(tmp_path, "run", "start", "--run-id", run_id)
     author = register(tmp_path, run_id, "author", "codex")
     packet = claim(tmp_path, author)

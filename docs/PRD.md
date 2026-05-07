@@ -1,4 +1,4 @@
-# agent_runner PRD
+# striatum PRD
 
 Status: draft
 Date: 2026-05-06
@@ -12,7 +12,7 @@ Current accepted foundation:
 - D001: Start with a PRD backed by a decision log. Use RFCs for contested
   architecture branches, then write the implementation spec after product
   boundaries stabilize.
-- D002: Build `agent_runner` as a generic local terminal-agent orchestrator
+- D002: Build `striatum` as a generic local terminal-agent orchestrator
   from the start, with Engram workflows as reference fixtures.
 - D003: Model portability is a core design goal. Agent lanes are
   configuration, not product identity.
@@ -27,11 +27,11 @@ Current accepted foundation:
 - D006: Use SQLite as the v1 live coordination layer and state store, with CLI
   as the first interface. Repo files remain durable artifacts, not the live
   message bus.
-- D007: Store v1 run state inside the target repo under `.agent_runner/`,
+- D007: Store v1 run state inside the target repo under `.striatum/`,
   ignored by default.
 - D008: Model SQLite as both append-only event log and lightweight local
   message queue.
-- D009: Agents update orchestration state through the `agent_runner` binary/CLI.
+- D009: Agents update orchestration state through the `striatum` binary/CLI.
   The binary owns SQLite writes and invariants. MCP is optional adapter surface,
   not the core contract.
 - D010: Agents identify themselves through registered sessions before claiming
@@ -72,12 +72,12 @@ Current accepted foundation:
 - D031: Emulate Engram's Python project discipline where appropriate.
 - D032: The one-shot MVP process requires design input from all three frontier
   model lanes before synthesis/build.
-- D033: Incubate `agent_runner` inside Engram through MVP design/build, then
+- D033: Incubate `striatum` inside Engram through MVP design/build, then
   split it into a separate project.
 
 Seed thesis:
 
-`agent_runner` is a local-first orchestration tool for coordinating multiple
+`striatum` is a local-first orchestration tool for coordinating multiple
 terminal-based AI coding agents over repository workflows. It should preserve
 exact model command control, structured review gates, local state, and durable
 repo-published findings without treating repository marker files as the live
@@ -106,7 +106,7 @@ message bus.
 - Provide a lightweight local message bus for agent/coordinator communication.
 - Use SQLite for local live state: runs, jobs, messages, events, verdicts,
   process metadata, and artifact references.
-- Store local state under `.agent_runner/` in the target repo by default.
+- Store local state under `.striatum/` in the target repo by default.
 - Provide queue semantics for work delivery, acknowledgements, leases, retries,
   blockers, and completion signals.
 - Provide a binary/CLI control surface that agents use to mutate orchestration
@@ -124,7 +124,7 @@ message bus.
 - Assemble work packets from separate role definitions, generic context docs,
   task prompts, completion protocol, and artifact/write-scope requirements.
 - Treat native sub-agents spawned inside an agent CLI as part of the parent
-  session unless explicitly registered as first-class `agent_runner` sessions.
+  session unless explicitly registered as first-class `striatum` sessions.
 - Provide coordinator skills for prompt resolution, context loading, work packet
   assembly, confirmation checks, and dispatch through the control plane.
 - Let the coordinator execute repo-defined prompts or workflows, for example:

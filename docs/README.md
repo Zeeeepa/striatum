@@ -16,8 +16,8 @@ Start here:
 
 ## RFCs
 
-- [rfcs/](rfcs/) - `agent_runner` product RFCs. Engram RFCs remain under
-  `docs/rfcs/` and may be reference fixtures, but runner decisions live here.
+- [rfcs/](rfcs/) - `striatum` product RFCs. Engram RFCs are external
+  reference fixtures; Striatum product decisions live here.
 
 ## Follow-Up Specs
 
@@ -27,9 +27,9 @@ Start here:
 
 ## Runtime Evidence
 
-- `agent_runner evidence export` writes a redacted Markdown run snapshot for
-  commit and review while leaving `.agent_runner/` ignored.
-- `agent_runner submit-review` combines review artifact publication and verdict
+- `striatum evidence export` writes a redacted Markdown run snapshot for
+  commit and review while leaving `.striatum/` ignored.
+- `striatum submit-review` combines review artifact publication and verdict
   recording for the common review-gate path.
 
 ## Design
@@ -46,7 +46,7 @@ Start here:
 
 ## Bootstrap
 
-- [../scripts/agent_runner_tmux_design.sh](../scripts/agent_runner_tmux_design.sh)
+- [../scripts/striatum_tmux_design.sh](../scripts/striatum_tmux_design.sh)
   — temporary tmux harness for collecting the three required V1 MVP design
   inputs before synthesis. The watched completion artifacts are the three
   `docs/design/V1_MVP_DESIGN_INPUT_*.md` files.

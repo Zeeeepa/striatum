@@ -2,14 +2,14 @@
 
 Date: 2026-05-06
 Reviewer: Codex GPT-5.5
-Branch reviewed: `agent-runner/rfc-0014-validation`
+Branch reviewed: `striatum/rfc-0014-validation`
 Commit reviewed: `03b24c6`
 Verdict: needs_revision
 
 ## Scope
 
 Reviewed the implementation of
-`agent-runner/docs/RFC_0014_DOGFOOD_FIX_SPEC.md`, focusing on the new
+`docs/RFC_0014_DOGFOOD_FIX_SPEC.md`, focusing on the new
 `submit-review`, `status`, `why`, `evidence export`, workflow revision policy,
 adapter constraints, and fixture updates.
 
@@ -17,9 +17,9 @@ Verification run during review:
 
 ```bash
 git diff --check origin/master...HEAD
-cd agent-runner
+cd striatum
 PYTHONPATH=src ../.venv/bin/python -m pytest -q
-PYTHONPATH=src python3 -m agent_runner.cli workflow validate examples/rfc-0014-operational-artifact-home/workflow.json --json
+PYTHONPATH=src python3 -m striatum.cli workflow validate examples/rfc-0014-operational-artifact-home/workflow.json --json
 ```
 
 Results:
@@ -32,7 +32,7 @@ Results:
 
 ### F001 [P1] `submit-review` can leave an immutable bad artifact behind
 
-File: `agent-runner/src/agent_runner/cli.py:707-733`
+File: `src/striatum/cli.py:707-733`
 
 `submit_review` runs `ack_work`, `publish_artifact`, and
 `record_review_verdict` as separate transactions. If the verdict step fails
@@ -49,7 +49,7 @@ publishing, or refactor this path into one transaction with rollback.
 
 ### F002 [P2] `declared_cycle` policy is accepted but not enforced
 
-File: `agent-runner/src/agent_runner/workflow.py:321-323`
+File: `src/striatum/workflow.py:321-323`
 
 The validator accepts `root_review_needs_revision: declared_cycle`, but it does
 not verify that root review jobs actually have matching `needs_revision`
