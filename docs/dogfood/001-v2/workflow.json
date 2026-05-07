@@ -1,0 +1,176 @@
+{
+  "schema_version": "striatum.workflow.v1",
+  "workflow_id": "dogfood-001-v2-harness-fixes",
+  "workflow_version": "2026-05-07",
+  "name": "Dogfood 001 v2: land HARNESS-001/002/003/004 fixes",
+  "branch": {
+    "mode": "confirm",
+    "suggested_name": "striatum/dogfood-001-v2-harness-fixes",
+    "allow_dirty": false
+  },
+  "coordinator": {
+    "role_id": "coordinator",
+    "lane_id": "claude_code"
+  },
+  "lanes": {
+    "claude_code": {
+      "adapter": "process",
+      "display_model": "Claude Opus",
+      "command": ["claude", "--model", "opus", "-p"],
+      "capabilities": ["write", "review"],
+      "constraints": {
+        "transcripts": "off",
+        "repo_scope": "local_only"
+      },
+      "required_enforcement": {
+        "transcripts": "enforced"
+      }
+    },
+    "codex": {
+      "adapter": "process",
+      "display_model": "Codex GPT-5.5",
+      "command": ["codex", "exec", "-"],
+      "capabilities": ["write", "review"],
+      "constraints": {
+        "transcripts": "off",
+        "repo_scope": "local_only"
+      },
+      "required_enforcement": {
+        "transcripts": "enforced"
+      }
+    }
+  },
+  "roles": {
+    "author": {"definition_path": "docs/dogfood/001-v2/roles/author.md"},
+    "reviewer": {"definition_path": "docs/dogfood/001-v2/roles/reviewer.md"},
+    "coordinator": {"definition_path": "docs/dogfood/001-v2/roles/coordinator.md"}
+  },
+  "context_docs": [
+    {"path": "AGENTS.md", "required": true},
+    {"path": "docs/SPEC.md", "required": true},
+    {"path": "docs/dogfood/001/SYNTHESIS.md", "required": true},
+    {"path": "docs/dogfood/001/findings/HARNESS-001.md", "required": true},
+    {"path": "docs/dogfood/001/findings/HARNESS-002.md", "required": true},
+    {"path": "docs/dogfood/001/findings/HARNESS-003.md", "required": true},
+    {"path": "docs/dogfood/001/review/HARNESS-004.md", "required": true},
+    {"path": "src/striatum/doctor.py", "required": false},
+    {"path": "src/striatum/db.py", "required": false},
+    {"path": "src/striatum/cli/parser.py", "required": false},
+    {"path": "src/striatum/cli/dispatch.py", "required": false},
+    {"path": "src/striatum/sessions.py", "required": false},
+    {"path": "src/striatum/artifacts.py", "required": false},
+    {"path": "src/striatum/supervise.py", "required": false},
+    {"path": "tests/test_cli_mvp.py", "required": false}
+  ],
+  "parallelism": {
+    "mode": "declared",
+    "max_active_jobs": 1,
+    "require_disjoint_write_scopes": true
+  },
+  "jobs": [
+    {
+      "id": "draft_change",
+      "type": "draft",
+      "title": "Land HARNESS-001/002/003/004 fixes (one bundle)",
+      "role_id": "author",
+      "lane_id": "claude_code",
+      "objective": "Implement the recommended fixes from the four dogfood-001 harness improvement proposals, with explicit scope cuts called out in the prompt.",
+      "task_prompt": {"path": "docs/dogfood/001-v2/prompts/draft.md"},
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "src/striatum/",
+          "tests/",
+          "docs/SPEC.md",
+          "docs/UBIQUITOUS_LANGUAGE.md",
+          "docs/dogfood/001-v2/",
+          "docs/dogfood/001/roles/",
+          "Makefile",
+          "README.md",
+          "CHANGELOG.md"
+        ],
+        "forbidden_paths": [".striatum/"]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "draft_handoff",
+          "kind": "handoff",
+          "path": "docs/dogfood/001-v2/DRAFT_HANDOFF.md",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "review_change",
+      "type": "review",
+      "title": "Independent review of the four harness fixes",
+      "role_id": "reviewer",
+      "lane_id": "codex",
+      "fresh_session_required": true,
+      "reviewer_access_scope": "artifact_augmented",
+      "reviewer_context_policy": "fresh",
+      "objective": "Verify each landed fix against the specific recommendations in the source HARNESS proposal. Surface any partial fixes, regressions, or unaddressed sub-points.",
+      "task_prompt": {"path": "docs/dogfood/001-v2/prompts/review.md"},
+      "write_scope": {
+        "mode": "review_only_artifact",
+        "repo_write": false,
+        "allowed_paths": ["docs/dogfood/001-v2/review/"],
+        "forbidden_paths": [".striatum/"]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "review_finding",
+          "kind": "finding",
+          "path": "docs/dogfood/001-v2/review/FINDING.md",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "apply_change",
+      "type": "synthesis",
+      "title": "Apply accepted review and finalize the harness fixes",
+      "role_id": "author",
+      "lane_id": "claude_code",
+      "objective": "Apply accepted review findings, run make lint typecheck test, and write a final summary handoff.",
+      "task_prompt": {"path": "docs/dogfood/001-v2/prompts/apply.md"},
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "src/striatum/",
+          "tests/",
+          "docs/SPEC.md",
+          "docs/UBIQUITOUS_LANGUAGE.md",
+          "docs/dogfood/001-v2/",
+          "docs/dogfood/001/roles/",
+          "Makefile",
+          "README.md",
+          "CHANGELOG.md"
+        ],
+        "forbidden_paths": [".striatum/"]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "apply_handoff",
+          "kind": "handoff",
+          "path": "docs/dogfood/001-v2/APPLY_HANDOFF.md",
+          "required": true
+        }
+      ]
+    }
+  ],
+  "edges": [
+    {"from": "draft_change", "to": "review_change", "on": "completed"},
+    {"from": "review_change", "to": "apply_change", "on": "completed"}
+  ],
+  "cycles": [
+    {
+      "from": "review_change",
+      "to": "draft_change",
+      "on_verdict": "needs_revision",
+      "max_iterations": 1
+    }
+  ]
+}

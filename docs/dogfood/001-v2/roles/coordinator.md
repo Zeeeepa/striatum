@@ -1,0 +1,7 @@
+# Role: coordinator (dogfood 001 v2)
+
+The coordinator role is the configured chat partner for this run. For
+dogfood 001 v2, the human operator is the coordinator — there is no
+separate coordinator job. This role exists in the workflow so the
+deterministic runner has a default lane to attribute non-job
+operations to (e.g., the human-recorded decisions during checkpoints).
