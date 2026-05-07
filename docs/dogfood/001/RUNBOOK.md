@@ -29,6 +29,9 @@ Acceptance:
 
 ## Before you start
 
+For a concise agent handoff, give the agent `docs/dogfood/001/SKILL.md` and
+ask it to use the skill to start or drive dogfood-001.
+
 Install agent CLIs you want to use as lanes. The workflow ships with two:
 
 - `claude_code` — `claude` (Claude Code) on PATH

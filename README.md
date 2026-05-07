@@ -543,6 +543,49 @@ The local process adapter enforces transcript-off, scrubs proxy env vars when
 network is forbidden, and sets `STRIATUM_NETWORK_POLICY` and
 `STRIATUM_REPO_SCOPE` sentinels so cooperating agents can honor the policy.
 
+## Dogfood 001 Usage
+
+`docs/dogfood/001/` is the first Striatum-on-Striatum dogfood scaffold. It
+drives a small code change, adding Graphviz DOT export to `workflow graph`,
+but the real purpose is to exercise the runner with real agent CLIs and
+capture harness friction as durable `harness_improvement_proposal` artifacts.
+
+For a human-run session, start with the runbook:
+
+```bash
+less docs/dogfood/001/RUNBOOK.md
+```
+
+For an agent handoff, give the agent the repo-local skill:
+
+```text
+Use the skill at /path/to/striatum/docs/dogfood/001/SKILL.md to start and drive dogfood-001.
+```
+
+Starting a dogfood run does not launch an interactive orchestrator chat. The
+runner creates SQLite workflow state, makes jobs claimable, and can supervise
+an agent process. Humans drive the run with `striatum` commands and watch it
+through `dashboard`, `status`, `why`, and the artifacts the agents publish.
+
+The shortest happy path is:
+
+```bash
+cd /path/to/striatum
+RUNNER=.venv/bin/striatum
+WORKFLOW=docs/dogfood/001/workflow.json
+TARGET_REPO=.
+
+"$RUNNER" --repo "$TARGET_REPO" init --json
+"$RUNNER" --repo "$TARGET_REPO" workflow validate "$WORKFLOW" --json
+"$RUNNER" --repo "$TARGET_REPO" workflow plan "$WORKFLOW" --json | head -40
+```
+
+Then follow the runbook to prepare the run, confirm
+`striatum/dogfood-001-graph-dot`, register author and reviewer sessions,
+start the author supervisor, claim packets, export evidence, and stop the
+supervisor cleanly. If any step is awkward or surprising, capture it
+immediately with `docs/dogfood/001/HARNESS_PROPOSAL_TEMPLATE.md`.
+
 ## Bootstrap Tmux Harness
 
 The temporary design bootstrap runner remains available for historical design
