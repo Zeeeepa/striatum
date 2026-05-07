@@ -1,6 +1,6 @@
 # RFC 0001: Run Recovery And Dogfood Fixes
 
-Status: proposed
+Status: accepted
 Date: 2026-05-06
 Context:
 `docs/RFC_0014_DOGFOOD_FIX_SPEC.md`,
@@ -80,3 +80,59 @@ following product changes:
   for user-requested validation/reporting workflows?
 - Should root-review `needs_revision` default to human checkpoint for all RFC
   workflows, or must every workflow state the policy explicitly?
+
+## Implementation Notes
+
+Each Proposal item has landed on `main`. Files and tests below prove it; the
+RFC moves to `accepted` because no further behavior is owed.
+
+1. `striatum evidence export --run-id <id> --path <repo_path>` writes a
+   redacted Markdown snapshot of run state, jobs, blockers, verdicts,
+   artifacts, status, doctor output, and blocked downstream jobs.
+   - Implementation: `src/striatum/cli/evidence.py:evidence_export`,
+     `evidence_snapshot`, `render_evidence_markdown`, `redact_evidence_payload`.
+   - Test: `tests/test_cli_mvp.py:test_evidence_export_writes_redacted_markdown_and_rejects_bad_paths`.
+2. `status --json` returns open blockers, human checkpoints, latest
+   non-accepting review verdicts, claimable jobs grouped by `(role, lane)`,
+   blocked downstream jobs, and deterministic `next_actions`.
+   - Implementation: `src/striatum/cli/introspect.py:status` with helpers
+     `blocker_summaries`, `latest_non_accepting_verdicts`,
+     `claimable_jobs_by_role_lane`, `blocked_downstream_jobs`, `next_actions`.
+   - Tests: `test_cli_mvp.py:test_why_resolves_blocker_artifact_and_verdict`
+     and the surrounding `status` cases that assert the new keys.
+3. `why <id> --json` resolves runs, jobs, queue messages, blockers,
+   artifacts, verdicts, sessions, and process records.
+   - Implementation: `src/striatum/cli/introspect.py:why`.
+   - Test: `tests/test_cli_mvp.py:test_why_resolves_blocker_artifact_and_verdict`.
+4. `submit-review` is a single command that publishes the review artifact and
+   records the verdict atomically (with prevalidation against the lease and
+   write scope before any artifact is written).
+   - Implementation: `src/striatum/cli/mutations.py:submit_review`,
+     `prevalidate_submit_review`.
+   - Tests: `tests/test_cli_mvp.py:test_submit_review_publishes_artifact_and_applies_gate`,
+     `:test_submit_review_prevalidates_before_publishing_artifact`,
+     `:test_submit_review_rejects_non_review_before_publishing_artifact`.
+5. Lane-level adapter constraint declarations with enforcement levels
+   `unsupported|advisory|advisory_strict|enforced` are validated and surfaced
+   in work packets as the requested vs. enforced status.
+   - Implementation: `src/striatum/db.py` constants
+     `ADAPTER_ENFORCEMENT_LEVELS`, `adapter_constraint_enforcement`,
+     `adapter_enforcement_satisfies`; lane validation in
+     `src/striatum/workflow.py:_validate_lane_constraints`.
+   - Test: `tests/test_cli_mvp.py` packet assertion at the
+     `constraints = packet["adapter_constraints"]` line, plus the workflow
+     validation rejection cases.
+6. `branch confirm --json` reports `records_only`, `requested_branch`,
+   `current_git_branch`, `warning`, `mode`, and `created`.
+   - Implementation: `src/striatum/cli/mutations.py:branch_confirm` and
+     `current_git_branch`.
+   - Test: `tests/test_cli_mvp.py:test_branch_confirm_reports_records_only_and_mismatch`.
+7. Root-review `needs_revision` policy is declarable on the workflow via
+   `review_revision_policy.root_review_needs_revision` (`human_checkpoint` or
+   `declared_cycle`); validation enforces that `declared_cycle` requires a
+   matching cycle and that `human_checkpoint` does not silently swallow a
+   verdict.
+   - Implementation: `src/striatum/workflow.py:_validate_revision_policy` and
+     plan output via `_planned_review_gates`.
+   - Tests: `tests/test_cli_mvp.py:test_rfc_0014_fixture_declares_root_review_revision_policy`,
+     `:test_declared_cycle_policy_requires_root_review_cycles`.

@@ -631,11 +631,17 @@ striatum status
 striatum why
 striatum doctor
 striatum evidence export
+striatum run graph
 striatum recovery stale-leases
 striatum recovery requeue-stale
 striatum recovery cancel-job
 striatum checkpoint resolve
 ```
+
+`run graph --run-id <id> [--format mermaid|json]` renders the workflow graph
+for an existing run with each node colored by current job state (Mermaid
+`classDef`/`class` lines), or as machine-readable JSON with `current_state`,
+`attempt`, and a `latest_verdict` block on review nodes.
 
 Adapter:
 

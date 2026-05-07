@@ -489,6 +489,93 @@ def test_docs_review_flow_fixture_validates_and_exports_graph(tmp_path: Path) ->
     assert graph_data["cycles"] == []
 
 
+def test_run_graph_highlights_job_states_in_mermaid(tmp_path: Path) -> None:
+    run_id = prepare_started_run(tmp_path, DOCS_REVIEW_WORKFLOW)
+    author = register(tmp_path, run_id, "author", "local")
+    draft_packet = claim(tmp_path, author)
+    complete_claimed_job(
+        tmp_path,
+        author,
+        draft_packet,
+        logical_name="draft",
+        kind="handoff",
+        path="docs/reviews/docs-review-flow/DOCS_DRAFT.md",
+    )
+
+    mermaid = run_cli_text(
+        tmp_path,
+        "run",
+        "graph",
+        "--run-id",
+        run_id,
+        "--format",
+        "mermaid",
+    )
+    # Node n0 is the first node (draft_docs); n1 is review_docs (now queued
+    # because draft completed); n2 is apply_docs (still blocked on review).
+    assert mermaid.startswith("flowchart TD\n")
+    assert "classDef state-completed fill:#c8e6c9" in mermaid
+    assert "classDef state-queued fill:#e0e0e0" in mermaid
+    assert "classDef state-blocked fill:#fff59d" in mermaid
+    assert "class n0 state-completed" in mermaid
+    assert "class n1 state-queued" in mermaid
+    assert "class n2 state-blocked" in mermaid
+
+
+def test_run_graph_json_includes_current_state(tmp_path: Path) -> None:
+    run_id = prepare_started_run(tmp_path, DOCS_REVIEW_WORKFLOW)
+    author = register(tmp_path, run_id, "author", "local")
+    draft_packet = claim(tmp_path, author)
+    complete_claimed_job(
+        tmp_path,
+        author,
+        draft_packet,
+        logical_name="draft",
+        kind="handoff",
+        path="docs/reviews/docs-review-flow/DOCS_DRAFT.md",
+    )
+    reviewer = register(tmp_path, run_id, "reviewer", "local")
+    review_packet = claim(tmp_path, reviewer)
+    verdict_claimed_review(
+        tmp_path,
+        reviewer,
+        review_packet,
+        verdict="accept",
+        path="docs/reviews/docs-review-flow/review/DOCS_REVIEW.md",
+    )
+
+    payload = data(
+        run_cli(
+            tmp_path,
+            "run",
+            "graph",
+            "--run-id",
+            run_id,
+            "--format",
+            "json",
+        )
+    )
+    assert payload["run_id"] == run_id
+    assert payload["workflow_id"] == "docs-review-flow"
+    graph_obj = payload["graph"]
+    assert isinstance(graph_obj, dict)
+    nodes_by_id = {str(node["job_id"]): node for node in graph_obj["nodes"]}
+    for node in nodes_by_id.values():
+        assert "current_state" in node
+        assert "attempt" in node
+    assert nodes_by_id["draft_docs"]["current_state"] == "completed"
+    assert nodes_by_id["review_docs"]["current_state"] == "completed"
+    review_verdict = nodes_by_id["review_docs"]["latest_verdict"]
+    assert isinstance(review_verdict, dict)
+    assert review_verdict["verdict"] == "accept"
+    apply_node = nodes_by_id["apply_docs"]
+    # apply_docs is queued after the review accepts; reviewers do not have
+    # write capability so this is the next claimable job.
+    assert apply_node["current_state"] in {"queued", "blocked"}
+    # Non-review nodes should not carry latest_verdict.
+    assert "latest_verdict" not in nodes_by_id["draft_docs"]
+
+
 def test_branch_confirmation_blocks_claims(tmp_path: Path) -> None:
     init_repo(tmp_path)
     prepared = data(run_cli(tmp_path, "run", "prepare", "--workflow", str(WORKFLOW)))

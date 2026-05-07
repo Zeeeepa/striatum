@@ -17,6 +17,11 @@ from striatum.db import (
 from striatum.errors import InvalidTransitionError, NotFoundError
 from striatum.supervisor import SUPERVISOR_ACTIVE_STATES
 from striatum.db import utc_now
+from striatum.workflow import (
+    mermaid_state_class,
+    workflow_graph_data,
+    workflow_graph_mermaid,
+)
 
 
 def status(conn: sqlite3.Connection, *, run_id: str | None) -> JsonObject:
@@ -401,6 +406,97 @@ def latest_verdict_row(conn: sqlite3.Connection, *, job_id: str | None) -> JsonO
         (job_id,),
     ).fetchone()
     return dict(row) if row is not None else None
+
+
+def run_graph(
+    conn: sqlite3.Connection,
+    *,
+    run_id: str,
+    output_format: str = "mermaid",
+) -> JsonObject | str:
+    """Render the workflow graph for a run, annotated with current job states.
+
+    For ``mermaid`` format, returns a string with Mermaid ``classDef`` lines and
+    per-node ``class`` assignments so renderers can highlight job state.
+
+    For ``json`` format, returns a dict whose graph nodes carry an additional
+    ``current_state`` (defaulting to ``pending`` when the job has not yet been
+    materialised), ``attempt`` (highest known attempt for that workflow job),
+    and, for review jobs, ``latest_verdict``.
+    """
+    expire_leases(conn, run_id=run_id)
+    run = row_by_id(conn, "runs", "run_id", run_id)
+    snapshot = row_by_id(
+        conn, "workflow_snapshots", "workflow_snapshot_id", str(run["workflow_snapshot_id"])
+    )
+    workflow = json_loads(str(snapshot["workflow_json"]))
+
+    # Pick the highest-attempt row per workflow_job_id so we report the most
+    # recent state (e.g. after a requeue creates attempt 2).
+    job_rows = conn.execute(
+        """
+        SELECT job_id, workflow_job_id, state, attempt, job_type
+        FROM jobs
+        WHERE run_id = ?
+        ORDER BY workflow_job_id, attempt DESC
+        """,
+        (run_id,),
+    ).fetchall()
+    latest_by_workflow_job: dict[str, sqlite3.Row] = {}
+    for row in job_rows:
+        wf_job_id = str(row["workflow_job_id"])
+        if wf_job_id not in latest_by_workflow_job:
+            latest_by_workflow_job[wf_job_id] = row
+
+    node_states: dict[str, str] = {
+        wf_id: str(row["state"]) for wf_id, row in latest_by_workflow_job.items()
+    }
+
+    if output_format == "mermaid":
+        return workflow_graph_mermaid(workflow, node_states=node_states)
+
+    if output_format != "json":
+        raise InvalidTransitionError(f"unknown run graph format {output_format!r}")
+
+    graph_payload = workflow_graph_data(workflow)
+    graph = graph_payload["graph"]
+    assert isinstance(graph, dict)
+    nodes = graph.get("nodes", [])
+    assert isinstance(nodes, list)
+    annotated_nodes: list[JsonObject] = []
+    for node in nodes:
+        assert isinstance(node, dict)
+        annotated = dict(node)
+        wf_id = str(node["job_id"])
+        row = latest_by_workflow_job.get(wf_id)
+        if row is None:
+            annotated["current_state"] = "pending"
+            annotated["attempt"] = None
+            annotated["state_class"] = mermaid_state_class("pending")
+        else:
+            state = str(row["state"])
+            annotated["current_state"] = state
+            annotated["attempt"] = int(row["attempt"])
+            annotated["state_class"] = mermaid_state_class(state)
+            if str(row["job_type"]) == "review":
+                verdict_row = latest_verdict_row(conn, job_id=str(row["job_id"]))
+                if verdict_row is not None:
+                    annotated["latest_verdict"] = {
+                        "verdict_id": verdict_row["verdict_id"],
+                        "verdict": verdict_row["verdict"],
+                        "rationale": verdict_row.get("rationale"),
+                        "findings_artifact_id": verdict_row.get("findings_artifact_id"),
+                    }
+                else:
+                    annotated["latest_verdict"] = None
+        annotated_nodes.append(annotated)
+    graph["nodes"] = annotated_nodes
+    return {
+        "run_id": run_id,
+        "workflow_id": graph_payload["workflow_id"],
+        "workflow_version": graph_payload.get("workflow_version"),
+        "graph": graph,
+    }
 
 
 def blockers_for_job(conn: sqlite3.Connection, *, job_id: str) -> list[JsonObject]:

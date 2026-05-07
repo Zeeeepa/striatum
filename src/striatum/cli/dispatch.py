@@ -30,7 +30,7 @@ from striatum.workflow import (
 )
 
 from striatum.cli.evidence import evidence_export
-from striatum.cli.introspect import doctor, status, why
+from striatum.cli.introspect import doctor, run_graph, status, why
 from striatum.cli.list_commands import (
     list_artifacts,
     list_jobs,
@@ -143,6 +143,11 @@ def dispatch(args: argparse.Namespace) -> object:
             return run_start(conn, run_id=args.run_id)
         if args.command == "run" and args.run_command == "summary":
             return run_summary_export(conn, repo=repo, run_id=args.run_id, path_text=args.path)
+        if args.command == "run" and args.run_command == "graph":
+            result = run_graph(conn, run_id=args.run_id, output_format=args.format)
+            if args.format == "mermaid" and isinstance(result, str) and args.json:
+                return {"format": "mermaid", "source": result}
+            return result
         if args.command == "register-session":
             return register_session(
                 conn,

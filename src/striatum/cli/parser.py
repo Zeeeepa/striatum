@@ -48,6 +48,10 @@ def build_parser() -> argparse.ArgumentParser:
     summary.add_argument("--run-id", required=True)
     summary.add_argument("--path", required=True)
     summary.add_argument("--json", action="store_true")
+    run_graph_p = run_sub.add_parser("graph")
+    run_graph_p.add_argument("--run-id", required=True)
+    run_graph_p.add_argument("--format", choices=["mermaid", "json"], default="mermaid")
+    run_graph_p.add_argument("--json", action="store_true")
 
     branch = sub.add_parser("branch")
     branch_sub = branch.add_subparsers(dest="branch_command", required=True)

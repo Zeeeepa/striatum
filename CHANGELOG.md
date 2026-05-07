@@ -4,6 +4,14 @@
 
 ### Added
 
+- `striatum run graph --run-id <id> [--format mermaid|json]` renders the
+  workflow graph for an existing run with each node colored by current job
+  state. Mermaid output appends a `classDef` palette plus per-node `class`
+  assignments (completed/running/claimed/acked/blocked/stale_lease/
+  waiting_human/failed/canceled/queued/pending); JSON output adds
+  `current_state`, `attempt`, and a `latest_verdict` block on review nodes.
+  The runner picks the highest-`attempt` row per `workflow_job_id` so
+  requeued attempts show their latest state.
 - `striatum list ...` subcommand group for read-only enumeration of runs,
   sessions, jobs, artifacts, and workflow snapshots. Each command returns a
   stable `{"items": [...], "count": N}` envelope shaped from existing SQLite

@@ -137,8 +137,19 @@ def workflow_graph_data(workflow: JsonObject) -> JsonObject:
     }
 
 
-def workflow_graph_mermaid(workflow: JsonObject) -> str:
-    """Return a Mermaid flowchart for a workflow graph."""
+def workflow_graph_mermaid(
+    workflow: JsonObject,
+    *,
+    node_states: dict[str, str] | None = None,
+) -> str:
+    """Return a Mermaid flowchart for a workflow graph.
+
+    When ``node_states`` is supplied, append Mermaid ``classDef`` lines and
+    per-node ``class`` assignments so a renderer can highlight current job
+    states. Keys are workflow job ids; values are state strings (e.g. the
+    ``jobs.state`` column or the ``pending`` sentinel for jobs that have no
+    row yet).
+    """
     graph_data = workflow_graph_data(workflow)
     graph = cast(JsonObject, graph_data["graph"])
     nodes = cast(list[JsonObject], graph["nodes"])
@@ -177,7 +188,43 @@ def workflow_graph_mermaid(workflow: JsonObject) -> str:
         max_iterations = cycle.get("max_iterations")
         label = f"needs_revision max {max_iterations}"
         lines.append(f"  {node_names[from_id]} -.->|{label}| {node_names[to_id]}")
+    if node_states is not None:
+        for class_name, fill in MERMAID_STATE_FILLS.items():
+            lines.append(f"  classDef {class_name} fill:{fill}")
+        for node in nodes:
+            job_id = str(node["job_id"])
+            state = node_states.get(job_id, "pending")
+            class_name = mermaid_state_class(state)
+            lines.append(f"  class {node_names[job_id]} {class_name}")
     return "\n".join(lines) + "\n"
+
+
+# Mermaid class palette for stateful graph highlighting. Keep deterministic
+# (insertion order) so generated Mermaid output is stable across runs.
+MERMAID_STATE_FILLS: dict[str, str] = {
+    "state-completed": "#c8e6c9",
+    "state-running": "#bbdefb",
+    "state-claimed": "#bbdefb",
+    "state-acked": "#bbdefb",
+    "state-blocked": "#fff59d",
+    "state-stale_lease": "#fff59d",
+    "state-waiting_human": "#fff59d",
+    "state-failed": "#ffcdd2",
+    "state-canceled": "#ffcdd2",
+    "state-queued": "#e0e0e0",
+    "state-pending": "#f5f5f5",
+}
+
+
+def mermaid_state_class(state: str) -> str:
+    """Map a job state (or ``pending`` sentinel) to a Mermaid class name."""
+    if state == "skipped":
+        # Skipped jobs are terminal but not a success; group with canceled.
+        return "state-canceled"
+    candidate = f"state-{state}"
+    if candidate in MERMAID_STATE_FILLS:
+        return candidate
+    return "state-pending"
 
 
 def validate_workflow(workflow: JsonObject) -> None:

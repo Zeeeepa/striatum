@@ -265,6 +265,7 @@ striatum run prepare
 striatum branch confirm
 striatum run start
 striatum run summary
+striatum run graph
 
 # Agent / session work loop
 striatum register-session
@@ -375,6 +376,15 @@ for authoring review. The default output is Mermaid `flowchart TD`, including
 declared dependency edges, accepting-review gates, bounded revision-cycle
 edges, and declared parallel groups. `--format json --json` returns stable
 machine-readable graph data with nodes, edges, and cycles.
+
+`run graph --run-id <id> [--format mermaid|json]` renders the same graph for
+a live run, annotated with current job state. The Mermaid output appends a
+`classDef` palette and per-node `class` assignments so renderers can highlight
+completed (green), running/claimed/acked (blue), blocked/stale_lease/
+waiting_human (yellow), failed/canceled (red), queued (grey), and pending
+(light grey, default for jobs with no row yet) jobs. The JSON form extends
+each node with `current_state`, `attempt`, and a `latest_verdict` block for
+review jobs.
 
 `workflow init [--style minimal|review|code-change] <path>` writes a starter
 workflow tree. The generated tree includes `<path>/workflow.json` plus role
