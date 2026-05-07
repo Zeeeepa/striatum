@@ -178,6 +178,42 @@ or other project-specific prose do not leak into the artifact byline. The
 artifact publisher records and validates artifact references; it does not
 rewrite artifact files to insert headers.
 
+### Artifact Front Matter Schemas
+
+Durable Markdown artifacts may include an optional YAML-style `---`-delimited
+front-matter block at the top of the file. When the artifact kind has a
+registered schema and a front-matter block is present, `publish-artifact`
+validates the parsed metadata against the schema. Files without a front-matter
+block remain accepted as before; the publisher never rewrites artifact files.
+
+Front-matter values are written as `key: <json-value>` lines so the parser is
+unambiguous without adding a YAML dependency. Strings must be JSON-quoted,
+booleans use `true` and `false`, integers and lists follow JSON syntax, and
+nested mappings are not supported.
+
+V1 schemas:
+
+- `striatum.decision.v1` (kind `decision`): required `schema_version`,
+  `artifact_kind: decision`, `decision_id`, `run_id`, `owner: human`,
+  `outcome` (one of `accepted`, `rejected`, `accepted_with_follow_up`),
+  `follow_up_required` (boolean), `title`, `created_at`.
+- `striatum.finding.v1` (kind `finding`): required `schema_version`,
+  `artifact_kind: finding`, and `verdict_intent` (one of `accept`,
+  `accept_with_findings`, `needs_revision`, `reject`); optional `severity`
+  (one of `info`, `low`, `medium`, `high`, `critical`) and `tags` (list of
+  strings).
+- `striatum.findings_ledger.v1` (kind `findings_ledger`): required
+  `schema_version`, `artifact_kind: findings_ledger`, and `summary_count`
+  (non-negative integer); optional `entries_path`. Ledger entries themselves
+  are body content, not structured front matter.
+- `striatum.synthesis.v1` (kind `synthesis`): required `schema_version` and
+  `artifact_kind: synthesis`; optional `inputs` (list of logical-name
+  strings).
+
+Other artifact kinds (`prompt`, `marker`, `handoff`, `patch_summary`,
+`test_report`, `other`) remain unschemaed in V1 and pass through without a
+front-matter check.
+
 ## Branches And Commits
 
 Workflow startup is confirmation-gated:

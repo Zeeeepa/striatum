@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import json
 import sqlite3
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Callable
 
 from striatum.db import (
     active_lease_for,
@@ -23,6 +26,283 @@ from striatum.identity import artifact_author_identity
 
 
 MARKDOWN_SUFFIXES = {".md", ".markdown"}
+
+
+# --- Front-matter schema definitions -------------------------------------------------
+#
+# Durable Markdown artifacts MAY include YAML-style `---` front matter. When a
+# kind has a registered schema and the file starts with a `---` block, the
+# publisher validates the parsed front matter against the schema. Files without
+# front matter are accepted unchanged (preserves the prior loose behavior).
+#
+# The publisher records artifacts and never mutates files. Front-matter
+# validation is read-only.
+
+
+@dataclass(frozen=True)
+class FrontMatterField:
+    """One declarative front-matter field rule."""
+
+    name: str
+    required: bool
+    # Predicate returning a description of the rule when the value is invalid,
+    # or None when the value is acceptable. The predicate is only invoked when
+    # the field is present.
+    validator: Callable[[object], str | None]
+
+
+@dataclass(frozen=True)
+class FrontMatterSchema:
+    """A per-artifact-kind front-matter rule set."""
+
+    schema_version: str
+    artifact_kind: str
+    fields: tuple[FrontMatterField, ...]
+
+
+def _is_str(value: object) -> str | None:
+    return None if isinstance(value, str) else "must be a string"
+
+
+def _is_bool(value: object) -> str | None:
+    return None if isinstance(value, bool) else "must be a boolean"
+
+
+def _is_non_negative_int(value: object) -> str | None:
+    if isinstance(value, bool) or not isinstance(value, int):
+        return "must be a non-negative integer"
+    return None if value >= 0 else "must be a non-negative integer"
+
+
+def _is_str_list(value: object) -> str | None:
+    if not isinstance(value, list):
+        return "must be a list of strings"
+    for item in value:
+        if not isinstance(item, str):
+            return "must be a list of strings"
+    return None
+
+
+def _one_of(name: str, choices: tuple[str, ...]) -> Callable[[object], str | None]:
+    expected = "|".join(choices)
+
+    def check(value: object) -> str | None:
+        if not isinstance(value, str):
+            return f"must be one of {expected}"
+        if value not in choices:
+            return f"must be one of {expected}, got {value!r}"
+        return None
+
+    check.__name__ = f"_one_of_{name}"
+    return check
+
+
+def _equals(expected: str) -> Callable[[object], str | None]:
+    def check(value: object) -> str | None:
+        if value == expected:
+            return None
+        return f"must equal {expected!r}, got {value!r}"
+
+    check.__name__ = f"_equals_{expected}"
+    return check
+
+
+_DECISION_OUTCOMES: tuple[str, ...] = ("accepted", "rejected", "accepted_with_follow_up")
+_FINDING_VERDICT_INTENTS: tuple[str, ...] = (
+    "accept",
+    "accept_with_findings",
+    "needs_revision",
+    "reject",
+)
+_FINDING_SEVERITIES: tuple[str, ...] = ("info", "low", "medium", "high", "critical")
+
+
+FRONT_MATTER_SCHEMAS: dict[str, FrontMatterSchema] = {
+    "decision": FrontMatterSchema(
+        schema_version="striatum.decision.v1",
+        artifact_kind="decision",
+        fields=(
+            FrontMatterField("schema_version", True, _equals("striatum.decision.v1")),
+            FrontMatterField("artifact_kind", True, _equals("decision")),
+            FrontMatterField("decision_id", True, _is_str),
+            FrontMatterField("run_id", True, _is_str),
+            FrontMatterField("owner", True, _equals("human")),
+            FrontMatterField("outcome", True, _one_of("outcome", _DECISION_OUTCOMES)),
+            FrontMatterField("follow_up_required", True, _is_bool),
+            FrontMatterField("title", True, _is_str),
+            FrontMatterField("created_at", True, _is_str),
+        ),
+    ),
+    "finding": FrontMatterSchema(
+        schema_version="striatum.finding.v1",
+        artifact_kind="finding",
+        fields=(
+            FrontMatterField("schema_version", True, _equals("striatum.finding.v1")),
+            FrontMatterField("artifact_kind", True, _equals("finding")),
+            FrontMatterField(
+                "verdict_intent", True, _one_of("verdict_intent", _FINDING_VERDICT_INTENTS)
+            ),
+            FrontMatterField("severity", False, _one_of("severity", _FINDING_SEVERITIES)),
+            FrontMatterField("tags", False, _is_str_list),
+        ),
+    ),
+    "findings_ledger": FrontMatterSchema(
+        schema_version="striatum.findings_ledger.v1",
+        artifact_kind="findings_ledger",
+        fields=(
+            FrontMatterField(
+                "schema_version", True, _equals("striatum.findings_ledger.v1")
+            ),
+            FrontMatterField("artifact_kind", True, _equals("findings_ledger")),
+            FrontMatterField("summary_count", True, _is_non_negative_int),
+            FrontMatterField("entries_path", False, _is_str),
+        ),
+    ),
+    "synthesis": FrontMatterSchema(
+        schema_version="striatum.synthesis.v1",
+        artifact_kind="synthesis",
+        fields=(
+            FrontMatterField("schema_version", True, _equals("striatum.synthesis.v1")),
+            FrontMatterField("artifact_kind", True, _equals("synthesis")),
+            FrontMatterField("inputs", False, _is_str_list),
+        ),
+    ),
+}
+
+
+_MARKDOWN_SUFFIXES: tuple[str, ...] = (".md", ".markdown")
+
+
+def _front_matter_block(text: str) -> str | None:
+    """Extract the `---`-delimited front-matter block, if any.
+
+    Returns the inner block text without the delimiter lines, or None when no
+    front matter is present.
+    """
+    # The block must start at the very first line. Allow either "\r\n" or "\n".
+    if not text.startswith("---"):
+        return None
+    # Require the opening "---" to be followed by an end-of-line.
+    head_end = 3
+    if head_end < len(text) and text[head_end] == "\r":
+        head_end += 1
+    if head_end >= len(text) or text[head_end] != "\n":
+        return None
+    body_start = head_end + 1
+    # Find a closing "---" at the start of a line.
+    needle = "\n---"
+    rel = text.find(needle, body_start - 1)
+    if rel == -1:
+        raise ArtifactError(
+            "artifact front matter block is not closed; "
+            "add a `---` terminator after the metadata"
+        )
+    block = text[body_start:rel + 1]
+    # Strip the trailing newline before the closing fence to keep parsing simple.
+    if block.endswith("\n"):
+        block = block[:-1]
+    return block
+
+
+def _parse_front_matter(block: str, *, kind: str) -> dict[str, object]:
+    """Parse a minimal `key: <json-value>` block.
+
+    Each non-empty, non-comment line must be ``key: <json-value>``. Values are
+    decoded with the standard JSON parser, so quoted strings, booleans, ints,
+    floats, ``null``, and JSON-style lists/objects all work. Bare scalars are
+    not accepted; the user must JSON-quote string values. This keeps parsing
+    deterministic without adding a YAML dependency.
+    """
+    parsed: dict[str, object] = {}
+    for line_number, raw_line in enumerate(block.splitlines(), start=1):
+        line = raw_line.rstrip("\r")
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        if line.startswith((" ", "\t")):
+            raise ArtifactError(
+                f"{kind} artifact front matter line {line_number} is indented; "
+                "nested values are not supported, write each key at column 0"
+            )
+        sep = line.find(":")
+        if sep == -1:
+            raise ArtifactError(
+                f"{kind} artifact front matter line {line_number} is not 'key: value'"
+            )
+        key = line[:sep].strip()
+        if not key:
+            raise ArtifactError(
+                f"{kind} artifact front matter line {line_number} has an empty key"
+            )
+        value_text = line[sep + 1:].strip()
+        if not value_text:
+            raise ArtifactError(
+                f"{kind} artifact front matter field {key!r} has no value"
+            )
+        try:
+            value = json.loads(value_text)
+        except json.JSONDecodeError as exc:
+            raise ArtifactError(
+                f"{kind} artifact front matter field {key!r} value must be JSON-encoded "
+                f"(quote strings, use true/false/null, JSON lists); got {value_text!r}"
+            ) from exc
+        if key in parsed:
+            raise ArtifactError(
+                f"{kind} artifact front matter field {key!r} is declared more than once"
+            )
+        parsed[key] = value
+    return parsed
+
+
+def _validate_front_matter(parsed: dict[str, object], schema: FrontMatterSchema) -> None:
+    """Apply schema rules to a parsed front-matter mapping."""
+    declared = {field.name for field in schema.fields}
+    for field in schema.fields:
+        if field.name not in parsed:
+            if field.required:
+                raise ArtifactError(
+                    f"{schema.artifact_kind} artifact front matter "
+                    f"missing required field {field.name!r}"
+                )
+            continue
+        problem = field.validator(parsed[field.name])
+        if problem is not None:
+            raise ArtifactError(
+                f"{schema.artifact_kind} artifact front matter "
+                f"field {field.name!r} {problem}"
+            )
+    extra = sorted(set(parsed) - declared)
+    if extra:
+        raise ArtifactError(
+            f"{schema.artifact_kind} artifact front matter has unknown fields: "
+            f"{', '.join(extra)}"
+        )
+
+
+def validate_artifact_front_matter(
+    *, kind: str, path: Path, payload: bytes
+) -> None:
+    """Validate optional Markdown front matter for kinds with a registered schema.
+
+    No-op when the artifact kind has no schema, when the file is not Markdown,
+    or when the file does not start with a `---` block.
+    """
+    schema = FRONT_MATTER_SCHEMAS.get(kind)
+    if schema is None:
+        return
+    if path.suffix.lower() not in _MARKDOWN_SUFFIXES:
+        return
+    try:
+        text = payload.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise ArtifactError(
+            f"{kind} artifact must be UTF-8 to validate front matter"
+        ) from exc
+    block = _front_matter_block(text)
+    if block is None:
+        return
+    parsed = _parse_front_matter(block, kind=kind)
+    _validate_front_matter(parsed, schema)
 
 
 def publish_artifact(
@@ -74,6 +354,7 @@ def publish_artifact(
             path=path,
             payload=payload,
         )
+        validate_artifact_front_matter(kind=kind, path=path, payload=payload)
         digest = sha256_bytes(payload)
         existing = conn.execute(
             """
@@ -121,6 +402,7 @@ def publish_artifact(
             payload={"logical_name": logical_name, "path": path_text, "sha256": digest},
         )
         return {"status": "published", "artifact_id": artifact_id, "sha256": digest}
+<<<<<<< HEAD
 
 
 def validate_optional_markdown_author_line(

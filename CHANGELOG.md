@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Added optional per-kind Markdown front-matter validation in
+  `publish-artifact` for `decision` (`striatum.decision.v1`), `finding`
+  (`striatum.finding.v1`), `findings_ledger`
+  (`striatum.findings_ledger.v1`), and `synthesis`
+  (`striatum.synthesis.v1`). Front matter is read with a minimal
+  `key: <json-value>` parser, validated only when present, and never
+  rewritten by the publisher. Other artifact kinds remain unschemaed.
 - New example fixtures: `examples/human-checkpoint-flow/` (analyze -> review
   -> decide, where the decide job is a `human_checkpoint`-typed job whose
   session calls `block --severity human_checkpoint` to surface an operator
