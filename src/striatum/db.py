@@ -1004,6 +1004,15 @@ def request_revision_for_cycle(
             json_dumps({"on": "completed", "from": target_workflow_job_id, "to": review_job["workflow_job_id"]}),
         ),
     )
+    # Re-route any downstream dependencies from the original review attempt to
+    # the new review attempt so downstream jobs gate on the latest verdict.
+    conn.execute(
+        """
+        UPDATE job_dependencies SET depends_on_job_id = ?
+        WHERE depends_on_job_id = ?
+        """,
+        (next_review_id, review_job["job_id"]),
+    )
     _complete_review_job(conn, job=review_job, session_id=session_id, lease_id=lease_id, summary="needs_revision")
     enqueue_job(conn, job_id=next_target_id)
     insert_event(

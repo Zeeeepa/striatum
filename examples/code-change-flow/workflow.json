@@ -1,0 +1,118 @@
+{
+  "schema_version": "striatum.workflow.v1",
+  "workflow_id": "code-change-flow",
+  "workflow_version": "2026-05-07",
+  "name": "Generic Code Change Flow",
+  "branch": {
+    "mode": "confirm",
+    "suggested_name": "striatum/code-change-flow",
+    "allow_dirty": false
+  },
+  "coordinator": {
+    "role_id": "author",
+    "lane_id": "codex"
+  },
+  "lanes": {
+    "codex": {
+      "adapter": "process",
+      "display_model": "Codex GPT-5.5",
+      "command": ["codex", "exec", "--model", "gpt-5.5", "-"],
+      "capabilities": ["write", "review"]
+    }
+  },
+  "roles": {
+    "author": {"definition_path": "roles/author.md"},
+    "reviewer": {"definition_path": "roles/reviewer.md"}
+  },
+  "context_docs": [],
+  "parallelism": {
+    "mode": "declared",
+    "max_active_jobs": 1,
+    "require_disjoint_write_scopes": true
+  },
+  "jobs": [
+    {
+      "id": "draft_change",
+      "type": "draft",
+      "title": "Draft code change",
+      "role_id": "author",
+      "lane_id": "codex",
+      "objective": "Draft an initial code change for review.",
+      "task_prompt": {"path": "prompts/draft.md"},
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": ["src/example/", "docs/code-change/"],
+        "forbidden_paths": [".striatum/"]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "draft",
+          "kind": "handoff",
+          "path": "src/example/draft.py",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "review_change",
+      "type": "review",
+      "title": "Review code change",
+      "role_id": "reviewer",
+      "lane_id": "codex",
+      "fresh_session_required": true,
+      "objective": "Review the drafted code change for correctness and style.",
+      "task_prompt": {"path": "prompts/review.md"},
+      "write_scope": {
+        "mode": "review_only_artifact",
+        "repo_write": false,
+        "allowed_paths": ["docs/code-change/"],
+        "forbidden_paths": [".striatum/"]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "review",
+          "kind": "finding",
+          "path": "docs/code-change/REVIEW.md",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "apply_change",
+      "type": "draft",
+      "title": "Apply approved code change",
+      "role_id": "author",
+      "lane_id": "codex",
+      "fresh_session_required": true,
+      "objective": "Apply the accepted draft as the final code change.",
+      "task_prompt": {"path": "prompts/fix.md"},
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": ["src/example/", "docs/code-change/"],
+        "forbidden_paths": [".striatum/"]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "applied",
+          "kind": "handoff",
+          "path": "src/example/applied.py",
+          "required": true
+        }
+      ]
+    }
+  ],
+  "edges": [
+    {"from": "draft_change", "to": "review_change", "on": "completed"},
+    {"from": "review_change", "to": "apply_change", "on": "completed"}
+  ],
+  "cycles": [
+    {
+      "from": "review_change",
+      "to": "draft_change",
+      "on_verdict": "needs_revision",
+      "max_iterations": 1
+    }
+  ]
+}

@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from pathlib import Path
+import sys
+from pathlib import Path, PurePosixPath
 from typing import Any, cast
 
 from striatum.db import (
@@ -208,12 +209,15 @@ def validate_workflow(workflow: JsonObject) -> None:
         for dep in job.get("needs", []):
             if not isinstance(dep, str):
                 raise WorkflowError(f"job {job_id!r} has non-string dependency")
+        _validate_write_scope_paths(job_id, job)
         for artifact in job.get("expected_artifacts", []):
             if not isinstance(artifact, dict):
                 raise WorkflowError(f"job {job_id!r} expected artifact must be an object")
             path = artifact.get("path")
             if not isinstance(path, str) or path.startswith("/") or ".." in Path(path).parts:
                 raise WorkflowError(f"job {job_id!r} has invalid artifact path")
+            _validate_artifact_in_write_scope(job_id, job, path)
+    _validate_artifact_path_uniqueness(jobs)
     edge_dependency_pairs(workflow)
     validate_needs_match_edges(workflow)
     for cycle_value in _list(workflow, "cycles"):
@@ -229,6 +233,7 @@ def validate_workflow(workflow: JsonObject) -> None:
         max_iterations = cycle.get("max_iterations")
         if not isinstance(max_iterations, int) or max_iterations < 1:
             raise WorkflowError("workflow cycles must declare max_iterations >= 1")
+    _validate_cycle_targets_feed_sources(workflow, job_map=job_map)
     _validate_parallelism(jobs)
     _validate_revision_policy(workflow, jobs=jobs)
 
@@ -371,6 +376,7 @@ def validate_needs_match_edges(workflow: JsonObject) -> None:
     edge_needs: dict[str, set[str]] = {}
     for from_id, to_id, _gate in edge_dependency_pairs(workflow):
         edge_needs.setdefault(to_id, set()).add(from_id)
+    deprecated_jobs: list[str] = []
     for job_id, job in workflow_job_map(workflow).items():
         needs = job.get("needs")
         if needs is None:
@@ -384,6 +390,14 @@ def validate_needs_match_edges(workflow: JsonObject) -> None:
             declared.add(dep)
         if declared != edge_needs.get(job_id, set()):
             raise WorkflowError(f"job {job_id!r} needs disagree with workflow edges")
+        deprecated_jobs.append(job_id)
+    if deprecated_jobs:
+        names = ", ".join(sorted(deprecated_jobs))
+        print(
+            "warning: workflow uses deprecated 'needs' field on jobs: "
+            f"{names}. 'edges' is authoritative; remove 'needs' to silence this warning.",
+            file=sys.stderr,
+        )
 
 
 def _planned_job(job: JsonValue) -> JsonObject:
@@ -513,6 +527,7 @@ def _validate_parallelism(jobs: list[object]) -> None:
     for group, members in groups.items():
         artifact_paths: set[str] = set()
         write_paths: set[str] = set()
+        repo_write_modes: set[bool] = set()
         for job in members:
             for artifact in job.get("expected_artifacts", []):
                 if not isinstance(artifact, dict):
@@ -524,7 +539,10 @@ def _validate_parallelism(jobs: list[object]) -> None:
                     raise WorkflowError(f"parallel group {group!r} reuses artifact path {path!r}")
                 artifact_paths.add(path)
             scope = job.get("write_scope", {})
-            if not isinstance(scope, dict) or scope.get("repo_write") is not True:
+            if not isinstance(scope, dict):
+                continue
+            repo_write_modes.add(scope.get("repo_write") is True)
+            if scope.get("repo_write") is not True:
                 continue
             for allowed in scope.get("allowed_paths", []):
                 if not isinstance(allowed, str):
@@ -532,6 +550,11 @@ def _validate_parallelism(jobs: list[object]) -> None:
                 if allowed in write_paths:
                     raise WorkflowError(f"parallel group {group!r} has overlapping write scope")
                 write_paths.add(allowed)
+        if len(repo_write_modes) > 1:
+            raise WorkflowError(
+                f"parallel group {group!r} mixes repo_write and review-only jobs; "
+                "split them into separate groups"
+            )
 
 
 def _validate_lane_constraints(lanes: JsonObject) -> None:
@@ -662,3 +685,154 @@ def _string(value: JsonValue, key: str) -> str:
     if not isinstance(item, str) or item == "":
         raise WorkflowError(f"workflow field {key!r} must be a non-empty string")
     return item
+
+
+def _validate_artifact_path_uniqueness(jobs: list[object]) -> None:
+    """Reject workflows where two jobs declare the same expected artifact path."""
+    seen: dict[str, str] = {}
+    for job_value in jobs:
+        if not isinstance(job_value, dict):
+            continue
+        job = cast(JsonValue, job_value)
+        job_id = job.get("id")
+        if not isinstance(job_id, str):
+            continue
+        for artifact in job.get("expected_artifacts", []):
+            if not isinstance(artifact, dict):
+                continue
+            path = artifact.get("path")
+            if not isinstance(path, str):
+                continue
+            normalized = _normalize_path_string(path)
+            if normalized in seen and seen[normalized] != job_id:
+                raise WorkflowError(
+                    f"jobs {seen[normalized]!r} and {job_id!r} both declare expected "
+                    f"artifact path {path!r}"
+                )
+            seen.setdefault(normalized, job_id)
+
+
+def _validate_write_scope_paths(job_id: str, job: JsonValue) -> None:
+    """Reject write_scopes where allowed_paths overlap forbidden_paths."""
+    scope = job.get("write_scope")
+    if not isinstance(scope, dict):
+        return
+    allowed_paths = scope.get("allowed_paths", [])
+    forbidden_paths = scope.get("forbidden_paths", [])
+    if not isinstance(allowed_paths, list) or not isinstance(forbidden_paths, list):
+        return
+    for allowed in allowed_paths:
+        if not isinstance(allowed, str):
+            continue
+        for forbidden in forbidden_paths:
+            if not isinstance(forbidden, str):
+                continue
+            if _path_within(allowed, forbidden):
+                raise WorkflowError(
+                    f"job {job_id!r} write_scope allowed_path {allowed!r} is inside "
+                    f"forbidden_path {forbidden!r}"
+                )
+
+
+def _validate_artifact_in_write_scope(job_id: str, job: JsonValue, artifact_path: str) -> None:
+    """Reject expected artifact paths that are not inside the job's write_scope."""
+    scope = job.get("write_scope")
+    if not isinstance(scope, dict):
+        return
+    allowed_paths = scope.get("allowed_paths", [])
+    forbidden_paths = scope.get("forbidden_paths", [])
+    if not isinstance(allowed_paths, list) or not isinstance(forbidden_paths, list):
+        return
+    if not allowed_paths:
+        return
+    for forbidden in forbidden_paths:
+        if not isinstance(forbidden, str):
+            continue
+        if _path_within(artifact_path, forbidden):
+            raise WorkflowError(
+                f"job {job_id!r} expected artifact {artifact_path!r} is inside "
+                f"forbidden_path {forbidden!r}"
+            )
+    inside_any = False
+    for allowed in allowed_paths:
+        if not isinstance(allowed, str):
+            continue
+        if _path_within(artifact_path, allowed):
+            inside_any = True
+            break
+    if not inside_any:
+        raise WorkflowError(
+            f"job {job_id!r} expected artifact {artifact_path!r} is not inside "
+            f"any allowed_path"
+        )
+
+
+def _validate_cycle_targets_feed_sources(workflow: JsonObject, *, job_map: dict[str, JsonValue]) -> None:
+    """Reject cycles whose target does not feed back into the cycle source via edges."""
+    edges: list[tuple[str, str]] = []
+    for edge in workflow.get("edges", []):
+        if not isinstance(edge, dict):
+            continue
+        from_id = edge.get("from")
+        to_id = edge.get("to")
+        if isinstance(from_id, str) and isinstance(to_id, str):
+            edges.append((from_id, to_id))
+    for cycle_value in workflow.get("cycles", []):
+        if not isinstance(cycle_value, dict):
+            continue
+        from_id = cycle_value.get("from")
+        to_id = cycle_value.get("to")
+        if not isinstance(from_id, str) or not isinstance(to_id, str):
+            continue
+        if from_id not in job_map or to_id not in job_map:
+            continue
+        if not _has_path(edges, source=to_id, target=from_id):
+            raise WorkflowError(
+                f"workflow cycle from {from_id!r} to {to_id!r} is unsound: "
+                f"{to_id!r} does not feed back into {from_id!r} through workflow edges"
+            )
+
+
+def _has_path(edges: list[tuple[str, str]], *, source: str, target: str) -> bool:
+    """Return True if the edge graph has a directed path from source to target."""
+    if source == target:
+        return True
+    adjacency: dict[str, list[str]] = {}
+    for from_id, to_id in edges:
+        adjacency.setdefault(from_id, []).append(to_id)
+    visited: set[str] = set()
+    stack: list[str] = [source]
+    while stack:
+        current = stack.pop()
+        if current == target:
+            return True
+        if current in visited:
+            continue
+        visited.add(current)
+        stack.extend(adjacency.get(current, []))
+    return False
+
+
+def _normalize_path_string(path_text: str) -> str:
+    """Normalize a repo-relative path string for stable comparison."""
+    pure = PurePosixPath(path_text)
+    parts: list[str] = []
+    for part in pure.parts:
+        if part in ("", "."):
+            continue
+        parts.append(part)
+    if not parts:
+        return ""
+    normalized = "/".join(parts)
+    return normalized.rstrip("/")
+
+
+def _path_within(child: str, parent: str) -> bool:
+    """Return True if child path is equal to or inside parent path (string-only)."""
+    child_norm = _normalize_path_string(child)
+    parent_norm = _normalize_path_string(parent)
+    if parent_norm == "":
+        return True
+    if child_norm == parent_norm:
+        return True
+    return child_norm.startswith(parent_norm + "/")

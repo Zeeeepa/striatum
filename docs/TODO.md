@@ -39,7 +39,7 @@ Completed on 2026-05-07:
    added on 2026-05-07. The current slice can launch configured process lane
    command arrays for claimed work and record process metadata/events without
    transcript capture; remaining work includes longer-lived interactive
-   supervision and broader adapter recovery UX.
+   supervision (RFC 0009) and broader adapter recovery UX.
 2. Continue adapter constraint enforcement. Workflow validation now supports
    lane `required_enforcement` on 2026-05-07, records requested and actual
    enforcement as `enforced`, `advisory`, or `unsupported`, and rejects lanes
@@ -47,9 +47,12 @@ Completed on 2026-05-07:
    richer sandbox/worktree adapters that can enforce more than transcript-off.
 3. Continue workflow authoring tooling. A dry-run planner was added on
    2026-05-07 to explain claim order, graph edges, review gates, and revision
-   cycles. Mermaid/JSON graph export was added on 2026-05-07. Remaining work
-   includes templates, linting output, path rewriting for reruns, and artifact
-   collision checks.
+   cycles. Mermaid/JSON graph export was added on 2026-05-07. Validator
+   additions on 2026-05-07: cross-job artifact path collisions,
+   write-scope/forbidden-path overlap, artifact-in-write-scope, unsound
+   cycle target, parallel-group repo_write/review-only mode consistency,
+   plus a `needs` deprecation warning. Remaining work includes templates,
+   linting output, and path rewriting for reruns.
 4. Continue human-checkpoint UX. `status` and `why` now include decision
    context, affected jobs, unblock path, and next actions; remaining work is
    to keep refining evidence export and any explicit resume flow.
@@ -88,10 +91,12 @@ Completed on 2026-05-07:
     operator inspection, and `striatum doctor` flags orphaned and
     missing-on-disk worktrees. Migration version 2 adds the `job_worktrees`
     table.
-12. Build a richer fixture suite beyond Engram. A small generic docs-only
-    review flow was added on 2026-05-07; remaining fixtures include a small
-    code-change flow, failed-review revision cycle, human-checkpoint flow, and
-    adapter-unavailable flow.
+12. Build a richer fixture suite beyond Engram. Added on 2026-05-07: a small
+    generic docs-only review flow, a code-change flow with a one-shot
+    needs_revision cycle (`examples/code-change-flow/`), and a single-review
+    failed-revision flow that opens a configured human checkpoint
+    (`examples/failed-review-revision-cycle/`). Remaining: human-checkpoint
+    workflow surfaced explicitly and an adapter-unavailable flow.
 13. Continue replacing temporary bootstrap scripts with runner-owned workflows.
     A minimal generic process adapter now launches configured local process
     lanes for claimed work and records process metadata/events without

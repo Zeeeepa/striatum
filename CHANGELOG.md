@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+- Workflow validator now rejects cross-job expected-artifact path collisions,
+  write-scope `allowed_paths` that overlap `forbidden_paths`, expected
+  artifacts outside the job's write scope, unsound revision cycles whose
+  target does not feed back into the cycle source through workflow edges, and
+  parallel groups that mix `repo_write` with review-only jobs.
+- Workflow validator emits a deprecation warning to stderr when jobs declare
+  the legacy `needs` field; `edges` remains authoritative.
+- Cycle resolution now redirects downstream dependencies to the new review
+  attempt so jobs gated on the review verdict unblock once the new attempt
+  accepts.
+- New example fixtures: `examples/code-change-flow/` (draft -> review -> apply
+  with a one-shot needs_revision cycle) and
+  `examples/failed-review-revision-cycle/` (single review whose second
+  needs_revision opens a configured human checkpoint).
 - Added opt-in per-job git worktree isolation for parallel repo-write jobs
   (RFC 0008). Lanes declare `worktree_isolation: per_job` and the runner
   advertises `worktree_required: true` plus the `striatum worktree create`
