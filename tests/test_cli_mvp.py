@@ -1797,7 +1797,7 @@ def test_workflow_lane_constraints_validate_and_appear_in_packets(tmp_path: Path
         "constraint": "network",
         "requested": "forbidden",
         "required_enforcement": "advisory",
-        "enforcement": "advisory",
+        "enforcement": "advisory_strict",
         "satisfied": True,
     } in constraints["enforcement"]
     assert {
@@ -1916,6 +1916,57 @@ def test_process_adapter_runs_configured_command_and_records_metadata(tmp_path: 
     explained = data(run_cli(tmp_path, "why", process_id))
     assert explained["target_type"] == "process"
     assert len(explained["events"]) == 3
+
+
+def test_process_adapter_scrubs_proxy_env_when_network_forbidden(tmp_path: Path) -> None:
+    workflow = example_workflow()
+    lanes = workflow["lanes"]
+    assert isinstance(lanes, dict)
+    codex = lanes["codex"]
+    assert isinstance(codex, dict)
+    codex["constraints"] = {"network": "forbidden", "repo_scope": "local_only"}
+    codex["command"] = [
+        sys.executable,
+        "-c",
+        (
+            "import os, pathlib, sys; sys.stdin.read(); "
+            "scratch = pathlib.Path(os.environ['STRIATUM_SCRATCH_DIR']); "
+            "scratch.mkdir(parents=True, exist_ok=True); "
+            "(scratch / 'env.txt').write_text("
+            "  '\\n'.join("
+            "    f'{k}={v}' for k, v in os.environ.items()"
+            "    if k in ('HTTP_PROXY','HTTPS_PROXY','ALL_PROXY','http_proxy','https_proxy','all_proxy',"
+            "             'STRIATUM_NETWORK_POLICY','STRIATUM_REPO_SCOPE')"
+            "  ), encoding='utf-8'"
+            ")"
+        ),
+    ]
+    workflow_path = temporary_workflow(tmp_path, workflow)
+    run_id = prepare_started_run(tmp_path, workflow_path)
+    author = register(tmp_path, run_id, "author", "codex")
+    packet = claim(tmp_path, author)
+    _, _, lease_id = packet_ids(packet)
+
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(ROOT / "src")
+    env["HTTP_PROXY"] = "http://proxy.example:3128"
+    env["HTTPS_PROXY"] = "http://proxy.example:3128"
+    env["http_proxy"] = "http://proxy.example:3128"
+    proc = subprocess.run(
+        [sys.executable, "-m", "striatum.cli", "--repo", str(tmp_path),
+         "adapter", "run", "--session-id", author, "--lease-id", lease_id, "--json"],
+        cwd=tmp_path, env=env, text=True, capture_output=True, check=True,
+    )
+    result = json.loads(proc.stdout)["data"]
+    assert result["exit_code"] == 0
+    env_dump = (Path(str(result["scratch_path"])) / "env.txt").read_text(encoding="utf-8")
+    # Proxy vars must have been scrubbed from the child's env.
+    assert "HTTP_PROXY=" not in env_dump
+    assert "HTTPS_PROXY=" not in env_dump
+    assert "http_proxy=" not in env_dump
+    # Sentinels must be present.
+    assert "STRIATUM_NETWORK_POLICY=forbidden" in env_dump
+    assert "STRIATUM_REPO_SCOPE=local_only" in env_dump
 
 
 def test_branch_confirm_reports_records_only_and_mismatch(tmp_path: Path) -> None:

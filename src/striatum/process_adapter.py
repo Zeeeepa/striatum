@@ -74,8 +74,14 @@ def run_process_adapter(
     command = cast(list[str], launch["command"])
     scratch_path = Path(str(launch["scratch_path"]))
     scratch_path.mkdir(parents=True, exist_ok=True)
+    constraints = cast(dict[str, str], launch.get("lane_constraints") or {})
+    base_env = dict(os.environ)
+    if constraints.get("network") == "forbidden":
+        for key in ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY",
+                    "http_proxy", "https_proxy", "all_proxy", "no_proxy"):
+            base_env.pop(key, None)
     env = {
-        **dict(os.environ),
+        **base_env,
         **cast(dict[str, str], launch["env"]),
         "STRIATUM_RUN_ID": str(launch["run_id"]),
         "STRIATUM_JOB_ID": str(launch["job_id"]),
@@ -87,6 +93,10 @@ def run_process_adapter(
         "STRIATUM_REPO": str(repo),
         "STRIATUM_SCRATCH_DIR": str(scratch_path),
     }
+    if constraints.get("network") == "forbidden":
+        env["STRIATUM_NETWORK_POLICY"] = "forbidden"
+    if constraints.get("repo_scope") == "local_only":
+        env["STRIATUM_REPO_SCOPE"] = "local_only"
     payload = str(launch["packet_json"]) if stdin_mode == "packet" else None
     stdio = None if inherit_stdio else subprocess.DEVNULL
     try:
@@ -191,6 +201,8 @@ def prepare_process_launch(
             lease_id=lease_id,
             payload={"process_id": process_id, "adapter": "process", "stdio": stdio_mode},
         )
+        constraints_value = lane.get("constraints")
+        lane_constraints = constraints_value if isinstance(constraints_value, dict) else {}
         return {
             "process_id": process_id,
             "run_id": run["run_id"],
@@ -203,6 +215,7 @@ def prepare_process_launch(
             "command": command,
             "env": env_overrides if isinstance(env_overrides, dict) else {},
             "scratch_path": str(scratch),
+            "lane_constraints": lane_constraints,
         }
 
 

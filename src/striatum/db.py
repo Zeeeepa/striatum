@@ -28,7 +28,12 @@ JsonObject = dict[str, Any]
 STATE_DIR = ".striatum"
 DB_NAME = "state.sqlite3"
 WORKTREES_SUBDIR = "worktrees"
-ADAPTER_ENFORCEMENT_LEVELS = {"unsupported": 0, "advisory": 1, "enforced": 2}
+ADAPTER_ENFORCEMENT_LEVELS = {
+    "unsupported": 0,
+    "advisory": 1,
+    "advisory_strict": 2,
+    "enforced": 3,
+}
 
 
 def utc_now() -> str:
@@ -788,10 +793,20 @@ def build_adapter_constraints(lane_config: JsonObject) -> JsonObject:
 
 
 def adapter_constraint_enforcement(adapter: object, *, constraint: str, requested: str) -> str:
-    """Return the enforcement level an adapter can provide for a requested constraint."""
+    """Return the enforcement level an adapter can provide for a requested constraint.
+
+    `advisory_strict` is a best-effort enforcement that the runner actively
+    sets up but cannot fully prevent; e.g. for `network=forbidden` the process
+    adapter scrubs proxy env vars and sets a sentinel `STRIATUM_NETWORK_POLICY`,
+    but a child process that ignores the policy can still open sockets.
+    """
     if adapter == "process":
         if constraint == "transcripts" and requested == "off":
             return "enforced"
+        if constraint == "network" and requested == "forbidden":
+            return "advisory_strict"
+        if constraint == "repo_scope" and requested == "local_only":
+            return "advisory_strict"
         return "advisory"
     return "unsupported"
 
