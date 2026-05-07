@@ -53,6 +53,12 @@
   `work_packets(run_id, session_id)`.
 - Added RFC 0009 (proposed) describing the V2 long-lived process supervisor
   for agent CLIs that span multiple work packets.
+- Added a fourth adapter enforcement level `advisory_strict` (between
+  `advisory` and `enforced`). The process adapter graduates
+  `network=forbidden` and `repo_scope=local_only` to `advisory_strict`:
+  proxy env vars are scrubbed from the child env when network is forbidden,
+  and `STRIATUM_NETWORK_POLICY` / `STRIATUM_REPO_SCOPE` sentinels are set so
+  cooperating agents can honor the policy.
 
 ## 0.1.0 - 2026-05-07
 
