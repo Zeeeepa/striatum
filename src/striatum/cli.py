@@ -1541,17 +1541,21 @@ def events_for_process(conn: sqlite3.Connection, *, process_id: str) -> list[Jso
     """Return process lifecycle events for a process id."""
     rows = conn.execute(
         """
-        SELECT event_id, event_type, payload_json
-        FROM events
-        WHERE event_type LIKE 'process.%'
-        ORDER BY event_id
-        """
+        SELECT e.event_id, e.event_type, e.payload_json
+        FROM events e
+        JOIN process_executions p ON p.run_id = e.run_id AND p.job_id = e.job_id
+        WHERE p.process_id = ?
+          AND e.event_type LIKE 'process.%'
+        ORDER BY e.event_id
+        """,
+        (process_id,),
     ).fetchall()
     result: list[JsonObject] = []
     for row in rows:
         payload = json_loads(str(row["payload_json"]))
-        if payload.get("process_id") == process_id:
-            result.append(dict(row))
+        if payload.get("process_id") != process_id:
+            continue
+        result.append(dict(row))
     return result
 
 
@@ -2057,6 +2061,119 @@ def doctor(conn: sqlite3.Connection, *, run_id: str | None) -> JsonObject:
                     f"job_id={job['job_id']}, logical_name={logical_name!r}, "
                     f"expected kind={item.get('kind')!r}, path={item.get('path')!r}"
                 )
+    stuck_runs = conn.execute(
+        """
+        SELECT r.run_id
+        FROM runs r
+        WHERE r.state = 'running'
+          AND (? IS NULL OR r.run_id = ?)
+          AND NOT EXISTS (
+            SELECT 1 FROM jobs j
+            WHERE j.run_id = r.run_id
+              AND j.state IN (
+                'queued','claimed','running','blocked','stale_lease','waiting_human'
+              )
+          )
+          AND EXISTS (
+            SELECT 1 FROM jobs j
+            WHERE j.run_id = r.run_id AND j.state = 'failed'
+          )
+        """,
+        (run_id, run_id),
+    ).fetchall()
+    for row in stuck_runs:
+        problems.append(f"run is running but no progressable jobs remain: {row['run_id']}")
+    stale_messages = conn.execute(
+        """
+        SELECT m.message_id
+        FROM queue_messages m
+        LEFT JOIN leases l ON l.lease_id = m.current_lease_id AND l.state = 'active'
+        WHERE m.state IN ('claimed','acked')
+          AND m.current_lease_id IS NOT NULL
+          AND l.lease_id IS NULL
+          AND (? IS NULL OR m.run_id = ?)
+        """,
+        (run_id, run_id),
+    ).fetchall()
+    for row in stale_messages:
+        problems.append(f"queue message has stale claim: {row['message_id']}")
+    bad_message_pointers = conn.execute(
+        """
+        SELECT j.job_id
+        FROM jobs j
+        LEFT JOIN queue_messages m ON m.message_id = j.current_message_id
+        WHERE j.current_message_id IS NOT NULL
+          AND (m.message_id IS NULL OR m.job_id IS NOT j.job_id)
+          AND (? IS NULL OR j.run_id = ?)
+        """,
+        (run_id, run_id),
+    ).fetchall()
+    for row in bad_message_pointers:
+        problems.append(f"job current_message_id is inconsistent: {row['job_id']}")
+    bad_lease_pointers = conn.execute(
+        """
+        SELECT j.job_id
+        FROM jobs j
+        LEFT JOIN leases l ON l.lease_id = j.current_lease_id
+        WHERE j.current_lease_id IS NOT NULL
+          AND (l.lease_id IS NULL OR l.resource_id IS NOT j.job_id)
+          AND (? IS NULL OR j.run_id = ?)
+        """,
+        (run_id, run_id),
+    ).fetchall()
+    for row in bad_lease_pointers:
+        problems.append(f"job current_lease_id is inconsistent: {row['job_id']}")
+    terminal_sessions = conn.execute(
+        """
+        SELECT s.session_id
+        FROM sessions s
+        JOIN runs r ON r.run_id = s.run_id
+        WHERE s.state = 'active'
+          AND r.state IN ('completed','failed','canceled')
+          AND (? IS NULL OR s.run_id = ?)
+        """,
+        (run_id, run_id),
+    ).fetchall()
+    for row in terminal_sessions:
+        problems.append(f"active session on terminal run: {row['session_id']}")
+    expired_leases = conn.execute(
+        """
+        SELECT l.lease_id
+        FROM leases l
+        WHERE l.state = 'active'
+          AND l.expires_at < ?
+          AND (? IS NULL OR l.run_id = ?)
+        """,
+        (utc_now(), run_id, run_id),
+    ).fetchall()
+    for row in expired_leases:
+        problems.append(f"active lease has expired without reap: {row['lease_id']}")
+    open_blockers = conn.execute(
+        """
+        SELECT b.blocker_id
+        FROM blockers b
+        JOIN runs r ON r.run_id = b.run_id
+        WHERE b.state = 'open'
+          AND r.state IN ('completed','canceled')
+          AND (? IS NULL OR b.run_id = ?)
+        """,
+        (run_id, run_id),
+    ).fetchall()
+    for row in open_blockers:
+        problems.append(f"open blocker on terminal run: {row['blocker_id']}")
+    orphan_packets = conn.execute(
+        """
+        SELECT p.packet_id
+        FROM work_packets p
+        LEFT JOIN leases l ON l.lease_id = p.lease_id
+        LEFT JOIN sessions s ON s.session_id = p.session_id
+        WHERE (l.lease_id IS NULL OR s.session_id IS NULL)
+          AND (? IS NULL OR p.run_id = ?)
+        """,
+        (run_id, run_id),
+    ).fetchall()
+    for row in orphan_packets:
+        problems.append(f"work packet references missing lease/session: {row['packet_id']}")
     schema_version = conn.execute(
         "SELECT value FROM schema_meta WHERE key = 'schema_version'"
     ).fetchone()

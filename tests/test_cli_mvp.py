@@ -1785,3 +1785,303 @@ def test_declared_cycle_policy_requires_root_review_cycles(tmp_path: Path) -> No
     )
     valid = data(run_cli(tmp_path, "workflow", "validate", str(temporary_workflow(tmp_path, workflow))))
     assert valid["workflow_id"] == "rfc-0014-operational-artifact-home"
+
+
+def test_doctor_flags_orphaned_message_and_lease_pointers(tmp_path: Path) -> None:
+    run_id = prepare_started_run(tmp_path)
+    conn = sqlite3.connect(tmp_path / ".striatum" / "state.sqlite3")
+    try:
+        job_row = conn.execute(
+            "SELECT job_id FROM jobs WHERE run_id = ? AND workflow_job_id = 'draft'",
+            (run_id,),
+        ).fetchone()
+        assert job_row is not None
+        job_id = str(job_row[0])
+        conn.execute(
+            "UPDATE jobs SET current_message_id = 'msg-does-not-exist', current_lease_id = 'lease-does-not-exist' WHERE job_id = ?",
+            (job_id,),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    doctor = data(run_cli(tmp_path, "doctor", "--run-id", run_id))
+    problems = doctor["problems"]
+    assert isinstance(problems, list)
+    assert doctor["ok"] is False
+    assert any(
+        f"job current_message_id is inconsistent: {job_id}" == problem for problem in problems
+    )
+    assert any(
+        f"job current_lease_id is inconsistent: {job_id}" == problem for problem in problems
+    )
+
+
+def test_doctor_flags_active_session_on_completed_run(tmp_path: Path) -> None:
+    run_id = prepare_started_run(tmp_path)
+    session_id = register(tmp_path, run_id, "author", "codex")
+    conn = sqlite3.connect(tmp_path / ".striatum" / "state.sqlite3")
+    try:
+        conn.execute(
+            "UPDATE runs SET state = 'completed', completed_at = ? WHERE run_id = ?",
+            ("2026-05-07T00:00:00Z", run_id),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    doctor = data(run_cli(tmp_path, "doctor", "--run-id", run_id))
+    assert doctor["ok"] is False
+    assert any(
+        problem == f"active session on terminal run: {session_id}"
+        for problem in doctor["problems"]
+    )
+
+
+def test_doctor_flags_unreaped_expired_leases(tmp_path: Path) -> None:
+    run_id = prepare_started_run(tmp_path)
+    author = register(tmp_path, run_id, "author", "codex")
+    packet = claim(tmp_path, author)
+    _, _, lease_id = packet_ids(packet)
+    conn = sqlite3.connect(tmp_path / ".striatum" / "state.sqlite3")
+    try:
+        conn.execute(
+            "UPDATE leases SET expires_at = ? WHERE lease_id = ?",
+            ("2000-01-01T00:00:00Z", lease_id),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    doctor = data(run_cli(tmp_path, "doctor", "--run-id", run_id))
+    assert doctor["ok"] is False
+    assert any(
+        problem == f"active lease has expired without reap: {lease_id}"
+        for problem in doctor["problems"]
+    )
+
+
+def test_doctor_flags_open_blocker_on_canceled_run(tmp_path: Path) -> None:
+    run_id = prepare_started_run(tmp_path)
+    author = register(tmp_path, run_id, "author", "codex")
+    complete_claimed_job(
+        tmp_path,
+        author,
+        claim(tmp_path, author),
+        logical_name="draft",
+        kind="handoff",
+        path="docs/reviews/rfc-ledger/RFC_LEDGER_DRAFT.md",
+    )
+    reviewer = register(tmp_path, run_id, "reviewer", "codex")
+    verdict_claimed_review(
+        tmp_path,
+        reviewer,
+        claim(tmp_path, reviewer),
+        verdict="needs_revision",
+        path="docs/reviews/rfc-ledger/codex/RFC_LEDGER_REVIEW.md",
+    )
+    conn = sqlite3.connect(tmp_path / ".striatum" / "state.sqlite3")
+    try:
+        blocker = conn.execute(
+            "SELECT blocker_id, state FROM blockers WHERE run_id = ?", (run_id,)
+        ).fetchone()
+        assert blocker is not None
+        assert blocker[1] == "open"
+        blocker_id = str(blocker[0])
+        conn.execute(
+            "UPDATE runs SET state = 'canceled', completed_at = ?, stop_reason = 'test' WHERE run_id = ?",
+            ("2026-05-07T00:00:00Z", run_id),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    doctor = data(run_cli(tmp_path, "doctor", "--run-id", run_id))
+    assert doctor["ok"] is False
+    assert any(
+        problem == f"open blocker on terminal run: {blocker_id}"
+        for problem in doctor["problems"]
+    )
+
+
+def test_doctor_flags_stale_queue_message_claim(tmp_path: Path) -> None:
+    run_id = prepare_started_run(tmp_path)
+    author = register(tmp_path, run_id, "author", "codex")
+    packet = claim(tmp_path, author)
+    _, message_id, lease_id = packet_ids(packet)
+    conn = sqlite3.connect(tmp_path / ".striatum" / "state.sqlite3")
+    try:
+        conn.execute(
+            "UPDATE leases SET state = 'released', released_at = ?, release_reason = 'test' WHERE lease_id = ?",
+            ("2026-05-07T00:00:00Z", lease_id),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    doctor = data(run_cli(tmp_path, "doctor", "--run-id", run_id))
+    assert doctor["ok"] is False
+    assert any(
+        problem == f"queue message has stale claim: {message_id}"
+        for problem in doctor["problems"]
+    )
+
+
+def test_events_for_process_does_not_leak_across_runs(tmp_path: Path) -> None:
+    run_id = prepare_started_run(tmp_path)
+    author = register(tmp_path, run_id, "author", "codex")
+    packet = claim(tmp_path, author)
+    job_id, _, lease_id = packet_ids(packet)
+    session_id = author
+    packet_id = str(packet["packet_id"])
+
+    other_run_id = "run-other-doctor-test"
+    other_job_id = "job-other-doctor-test"
+    other_session_id = "session-other-doctor-test"
+    other_lease_id = "lease-other-doctor-test"
+    other_packet_id = "packet-other-doctor-test"
+    other_workflow_snapshot_id = "snap-other-doctor-test"
+    process_a = "process-a-doctor-test"
+    process_b = "process-b-doctor-test"
+
+    conn = sqlite3.connect(tmp_path / ".striatum" / "state.sqlite3")
+    conn.row_factory = sqlite3.Row
+    try:
+        conn.execute("PRAGMA foreign_keys = ON")
+        first_snapshot = conn.execute(
+            "SELECT workflow_snapshot_id FROM runs WHERE run_id = ?", (run_id,)
+        ).fetchone()
+        assert first_snapshot is not None
+        snapshot_row = conn.execute(
+            "SELECT workflow_id, workflow_version, source_path, content_sha256, workflow_json, loaded_at FROM workflow_snapshots WHERE workflow_snapshot_id = ?",
+            (first_snapshot[0],),
+        ).fetchone()
+        assert snapshot_row is not None
+        conn.execute(
+            "INSERT INTO workflow_snapshots(workflow_snapshot_id, workflow_id, workflow_version, source_path, content_sha256, workflow_json, loaded_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (
+                other_workflow_snapshot_id,
+                snapshot_row["workflow_id"],
+                snapshot_row["workflow_version"],
+                snapshot_row["source_path"],
+                snapshot_row["content_sha256"],
+                snapshot_row["workflow_json"],
+                snapshot_row["loaded_at"],
+            ),
+        )
+        conn.execute(
+            "INSERT INTO runs(run_id, workflow_snapshot_id, repo_root, state, branch_name, branch_base, branch_confirmed_at, branch_confirmed_by, created_at, started_at) VALUES (?, ?, ?, 'running', 'striatum/v1-test', NULL, ?, 'system', ?, ?)",
+            (
+                other_run_id,
+                other_workflow_snapshot_id,
+                str(tmp_path),
+                "2026-05-07T00:00:00Z",
+                "2026-05-07T00:00:00Z",
+                "2026-05-07T00:00:00Z",
+            ),
+        )
+        conn.execute(
+            "INSERT INTO sessions(session_id, run_id, role_id, lane_id, slug, ordinal, capabilities_json, parent_session_id, first_class, fresh_context, state, registered_at) VALUES (?, ?, 'author', 'codex', 'author-codex-other', 1, '[]', NULL, 1, 0, 'active', ?)",
+            (other_session_id, other_run_id, "2026-05-07T00:00:00Z"),
+        )
+        conn.execute(
+            "INSERT INTO jobs(job_id, run_id, workflow_job_id, title, job_type, role_id, lane_selector_json, capability_requirements_json, state, attempt, max_attempts, fresh_session_required, write_scope_json, expected_artifacts_json, idempotency_key, created_at) VALUES (?, ?, 'draft-other', 'Draft other', 'draft', 'author', '{}', '[]', 'running', 1, 1, 0, '{}', '[]', 'idem-other', ?)",
+            (other_job_id, other_run_id, "2026-05-07T00:00:00Z"),
+        )
+        conn.execute(
+            "INSERT INTO leases(lease_id, run_id, resource_type, resource_id, owner_session_id, state, acquired_at, expires_at) VALUES (?, ?, 'job', ?, ?, 'active', ?, ?)",
+            (
+                other_lease_id,
+                other_run_id,
+                other_job_id,
+                other_session_id,
+                "2026-05-07T00:00:00Z",
+                "2999-01-01T00:00:00Z",
+            ),
+        )
+        conn.execute(
+            "INSERT INTO queue_messages(message_id, run_id, job_id, kind, state, priority, payload_json, created_at, updated_at) VALUES (?, ?, ?, 'work', 'claimed', 0, '{}', ?, ?)",
+            (
+                "msg-other-doctor-test",
+                other_run_id,
+                other_job_id,
+                "2026-05-07T00:00:00Z",
+                "2026-05-07T00:00:00Z",
+            ),
+        )
+        conn.execute(
+            "INSERT INTO work_packets(packet_id, run_id, job_id, message_id, lease_id, session_id, packet_json, packet_sha256, created_at) VALUES (?, ?, ?, 'msg-other-doctor-test', ?, ?, '{}', '0', ?)",
+            (
+                other_packet_id,
+                other_run_id,
+                other_job_id,
+                other_lease_id,
+                other_session_id,
+                "2026-05-07T00:00:00Z",
+            ),
+        )
+        conn.execute(
+            "INSERT INTO process_executions(process_id, run_id, job_id, session_id, lease_id, packet_id, adapter, command_json, cwd, scratch_path, stdin_mode, stdio_mode, state, started_at) VALUES (?, ?, ?, ?, ?, ?, 'subprocess', '[]', ?, ?, 'packet', 'suppressed', 'running', ?)",
+            (
+                process_a,
+                run_id,
+                job_id,
+                session_id,
+                lease_id,
+                packet_id,
+                str(tmp_path),
+                str(tmp_path),
+                "2026-05-07T00:00:00Z",
+            ),
+        )
+        conn.execute(
+            "INSERT INTO process_executions(process_id, run_id, job_id, session_id, lease_id, packet_id, adapter, command_json, cwd, scratch_path, stdin_mode, stdio_mode, state, started_at) VALUES (?, ?, ?, ?, ?, ?, 'subprocess', '[]', ?, ?, 'packet', 'suppressed', 'running', ?)",
+            (
+                process_b,
+                other_run_id,
+                other_job_id,
+                other_session_id,
+                other_lease_id,
+                other_packet_id,
+                str(tmp_path),
+                str(tmp_path),
+                "2026-05-07T00:00:00Z",
+            ),
+        )
+        # Both processes get a 'process.starting' event under the same event_type.
+        conn.execute(
+            "INSERT INTO events(run_id, event_type, actor_session_id, job_id, lease_id, payload_json, created_at) VALUES (?, 'process.starting', ?, ?, ?, ?, ?)",
+            (
+                run_id,
+                session_id,
+                job_id,
+                lease_id,
+                json.dumps({"process_id": process_a}),
+                "2026-05-07T00:00:00Z",
+            ),
+        )
+        conn.execute(
+            "INSERT INTO events(run_id, event_type, actor_session_id, job_id, lease_id, payload_json, created_at) VALUES (?, 'process.starting', ?, ?, ?, ?, ?)",
+            (
+                other_run_id,
+                other_session_id,
+                other_job_id,
+                other_lease_id,
+                json.dumps({"process_id": process_b}),
+                "2026-05-07T00:00:00Z",
+            ),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    why_a = data(run_cli(tmp_path, "why", process_a))
+    assert why_a["target_type"] == "process"
+    events_a = why_a["events"]
+    assert isinstance(events_a, list)
+    assert len(events_a) == 1
+    payload_a = json.loads(events_a[0]["payload_json"])
+    assert payload_a["process_id"] == process_a
+
+    why_b = data(run_cli(tmp_path, "why", process_b))
+    assert why_b["target_type"] == "process"
+    events_b = why_b["events"]
+    assert isinstance(events_b, list)
+    assert len(events_b) == 1
+    payload_b = json.loads(events_b[0]["payload_json"])
+    assert payload_b["process_id"] == process_b
