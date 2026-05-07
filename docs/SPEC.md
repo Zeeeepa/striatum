@@ -221,6 +221,7 @@ striatum init
 striatum workflow validate
 striatum workflow plan
 striatum workflow graph
+striatum workflow init
 striatum run prepare
 striatum branch confirm
 striatum run start
@@ -297,8 +298,27 @@ session, and process ids. Blocker introspection includes owning context,
 related verdict when present, blocked downstream jobs, human-checkpoint context
 when relevant, and next actions.
 
-`run summary` writes a compact durable Markdown note with run id, branch, job
-counts, verdicts, artifacts, blockers, and verification state.
+`run summary` writes a compact durable Markdown note with run id, branch
+context (recorded plus current git branch with an explicit `(MISMATCH)`
+annotation when they differ), run timing (`created_at`, `started_at`,
+`completed_at`, and a wall-clock `duration`), job counts, verdicts grouped by
+review job with attempt counts, artifacts annotated with structured author
+bylines, blockers, and verification state.
+
+`workflow init [--style minimal|review|code-change] <path>` writes a starter
+workflow tree. The generated tree includes `<path>/workflow.json` plus role
+and prompt stubs and validates cleanly with `workflow validate`. The default
+`review` style mirrors the `examples/code-change-flow/` shape with placeholder
+paths; `minimal` writes a single author job with no review; `code-change`
+adds a one-shot `needs_revision` cycle. The command refuses to overwrite an
+existing path.
+
+`doctor [--verbose]` returns a stable string `problems` list by default. With
+`--verbose` the payload also carries a `problem_records` list of structured
+records with stable `check` names (e.g. `active_job_without_active_lease`,
+`stale_queue_message_claim`, `worktree_path_missing_on_disk`), the affected
+`id`, and a small `context` map. The string list is preserved verbatim so
+callers that grep `problems` keep working.
 
 `recovery stale-leases --json` applies lazy lease expiry for a run and reports
 stale lease recovery context, explicitly distinguishing repo-write work that

@@ -299,6 +299,15 @@ def build_parser() -> argparse.ArgumentParser:
     graph.add_argument("path")
     graph.add_argument("--format", choices=["mermaid", "json"], default="mermaid")
     graph.add_argument("--json", action="store_true")
+    workflow_init = workflow_sub.add_parser("init")
+    workflow_init.add_argument("path")
+    workflow_init.add_argument(
+        "--style",
+        choices=["minimal", "review", "code-change"],
+        default="review",
+        help="template style for the generated workflow",
+    )
+    workflow_init.add_argument("--json", action="store_true")
 
     run = sub.add_parser("run")
     run_sub = run.add_subparsers(dest="run_command", required=True)
@@ -447,6 +456,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     doctor = sub.add_parser("doctor")
     doctor.add_argument("--run-id")
+    doctor.add_argument(
+        "--verbose",
+        action="store_true",
+        help="include structured problem_records alongside the existing problems list",
+    )
     doctor.add_argument("--json", action="store_true")
 
     recovery = sub.add_parser("recovery")
@@ -513,6 +527,8 @@ def dispatch(args: argparse.Namespace) -> object:
         if args.json:
             return {"format": "mermaid", "source": mermaid}
         return mermaid
+    if args.command == "workflow" and args.workflow_command == "init":
+        return workflow_init(Path(args.path), style=args.style)
     ensure_initialized(repo)
     with connect(repo) as conn:
         if args.command == "run" and args.run_command == "prepare":
@@ -635,7 +651,7 @@ def dispatch(args: argparse.Namespace) -> object:
         if args.command == "why":
             return why(conn, target_id=args.id)
         if args.command == "doctor":
-            return doctor(conn, repo=repo, run_id=args.run_id)
+            return doctor(conn, repo=repo, run_id=args.run_id, verbose=args.verbose)
         if args.command == "recovery" and args.recovery_command == "stale-leases":
             return stale_leases(conn, run_id=args.run_id)
         if args.command == "recovery" and args.recovery_command == "requeue-stale":
@@ -809,6 +825,259 @@ def current_git_branch(repo: Path) -> str | None:
     if result.returncode != 0 or branch == "":
         return None
     return branch
+
+
+def workflow_init(target: Path, *, style: str) -> JsonObject:
+    """Write a starter workflow tree at ``target`` for the requested style.
+
+    The generated tree always validates with ``striatum workflow validate``
+    and uses repo-relative paths inside ``expected_artifacts``. Refuses to
+    overwrite an existing path so the caller never accidentally clobbers an
+    in-progress workflow.
+    """
+    if style not in {"minimal", "review", "code-change"}:
+        raise WorkflowError(f"unknown workflow style: {style!r}")
+    if target.exists():
+        raise WorkflowError(
+            f"workflow init refuses to overwrite existing path: {target}"
+        )
+    workflow = _starter_workflow(target.name, style=style)
+    roles_dir = target / "roles"
+    prompts_dir = target / "prompts"
+    target.mkdir(parents=True)
+    roles_dir.mkdir()
+    prompts_dir.mkdir()
+    role_stubs: dict[str, str] = {
+        "author": (
+            "# Author Role\n\n"
+            "You are the author for this workflow. Produce the expected handoff "
+            "artifact at the path declared in the workflow. Stay inside the "
+            "declared write scope.\n"
+        ),
+        "reviewer": (
+            "# Reviewer Role\n\n"
+            "You are the reviewer for this workflow. Read the upstream draft "
+            "and write a single review-only finding artifact at the declared "
+            "path; do not modify other files.\n"
+        ),
+    }
+    prompt_stubs: dict[str, str] = {
+        "draft": (
+            "Draft the initial artifact described by the workflow. Replace this "
+            "stub with the concrete authoring instructions for your team.\n"
+        ),
+        "review": (
+            "Review the upstream draft and record a finding with one of the "
+            "supported verdicts. Replace this stub with reviewer guidance.\n"
+        ),
+        "apply": (
+            "Apply the accepted review by producing the final synthesis "
+            "artifact. Replace this stub with concrete apply instructions.\n"
+        ),
+    }
+    written: list[str] = []
+    if style == "minimal":
+        (roles_dir / "author.md").write_text(role_stubs["author"], encoding="utf-8")
+        (prompts_dir / "draft.md").write_text(prompt_stubs["draft"], encoding="utf-8")
+        written.extend(["roles/author.md", "prompts/draft.md"])
+    else:
+        (roles_dir / "author.md").write_text(role_stubs["author"], encoding="utf-8")
+        (roles_dir / "reviewer.md").write_text(role_stubs["reviewer"], encoding="utf-8")
+        (prompts_dir / "draft.md").write_text(prompt_stubs["draft"], encoding="utf-8")
+        (prompts_dir / "review.md").write_text(prompt_stubs["review"], encoding="utf-8")
+        (prompts_dir / "apply.md").write_text(prompt_stubs["apply"], encoding="utf-8")
+        written.extend(
+            [
+                "roles/author.md",
+                "roles/reviewer.md",
+                "prompts/draft.md",
+                "prompts/review.md",
+                "prompts/apply.md",
+            ]
+        )
+    workflow_path = target / "workflow.json"
+    workflow_path.write_text(
+        json.dumps(workflow, indent=2, sort_keys=False) + "\n", encoding="utf-8"
+    )
+    written.append("workflow.json")
+    # Validate the freshly written tree so a misconfigured generator is caught
+    # at init time rather than the next time someone tries to prepare a run.
+    load_workflow(workflow_path)
+    return {
+        "status": "created",
+        "path": str(target),
+        "workflow_path": str(workflow_path),
+        "style": style,
+        "files": written,
+    }
+
+
+def _starter_workflow(slug: str, *, style: str) -> JsonObject:
+    """Return a starter workflow JSON object matching the requested style."""
+    safe_slug = slug if slug != "" else "starter-workflow"
+    workflow_id = f"{safe_slug}-starter"
+    coordinator_role = "author"
+    lane_id = "local"
+    lanes: JsonObject = {
+        lane_id: {
+            "adapter": "process",
+            "display_model": "Local Fixture",
+            "command": ["sh", "-c", "cat >/dev/null"],
+            "capabilities": ["write", "review"],
+        }
+    }
+    base_dir = f"docs/workflows/{safe_slug}"
+    jobs: list[JsonObject]
+    edges: list[JsonObject]
+    cycles: list[JsonObject]
+    roles: JsonObject
+    if style == "minimal":
+        roles = {"author": {"definition_path": "roles/author.md"}}
+        jobs = [
+            {
+                "id": "draft",
+                "type": "draft",
+                "title": "Draft starter artifact",
+                "role_id": "author",
+                "lane_id": lane_id,
+                "objective": "Produce the starter artifact for this workflow.",
+                "task_prompt": {"path": "prompts/draft.md"},
+                "write_scope": {
+                    "mode": "repo_write",
+                    "repo_write": True,
+                    "allowed_paths": [f"{base_dir}/"],
+                    "forbidden_paths": [".striatum/"],
+                },
+                "expected_artifacts": [
+                    {
+                        "logical_name": "draft",
+                        "kind": "handoff",
+                        "path": f"{base_dir}/DRAFT.md",
+                        "required": True,
+                    }
+                ],
+            }
+        ]
+        edges = []
+        cycles = []
+    else:
+        roles = {
+            "author": {"definition_path": "roles/author.md"},
+            "reviewer": {"definition_path": "roles/reviewer.md"},
+        }
+        jobs = [
+            {
+                "id": "draft",
+                "type": "draft",
+                "title": "Draft starter artifact",
+                "role_id": "author",
+                "lane_id": lane_id,
+                "objective": "Produce the starter artifact for this workflow.",
+                "task_prompt": {"path": "prompts/draft.md"},
+                "write_scope": {
+                    "mode": "repo_write",
+                    "repo_write": True,
+                    "allowed_paths": [f"{base_dir}/"],
+                    "forbidden_paths": [".striatum/"],
+                },
+                "expected_artifacts": [
+                    {
+                        "logical_name": "draft",
+                        "kind": "handoff",
+                        "path": f"{base_dir}/DRAFT.md",
+                        "required": True,
+                    }
+                ],
+            },
+            {
+                "id": "review",
+                "type": "review",
+                "title": "Review the draft",
+                "role_id": "reviewer",
+                "lane_id": lane_id,
+                "fresh_session_required": True,
+                "objective": "Review the draft and record a finding.",
+                "task_prompt": {"path": "prompts/review.md"},
+                "write_scope": {
+                    "mode": "review_only_artifact",
+                    "repo_write": False,
+                    "allowed_paths": [f"{base_dir}/review/"],
+                    "forbidden_paths": [".striatum/"],
+                },
+                "expected_artifacts": [
+                    {
+                        "logical_name": "review",
+                        "kind": "finding",
+                        "path": f"{base_dir}/review/REVIEW.md",
+                        "required": True,
+                    }
+                ],
+            },
+            {
+                "id": "apply",
+                "type": "synthesis",
+                "title": "Apply the accepted review",
+                "role_id": "author",
+                "lane_id": lane_id,
+                "objective": "Apply the accepted review findings.",
+                "task_prompt": {"path": "prompts/apply.md"},
+                "write_scope": {
+                    "mode": "repo_write",
+                    "repo_write": True,
+                    "allowed_paths": [f"{base_dir}/"],
+                    "forbidden_paths": [".striatum/"],
+                },
+                "expected_artifacts": [
+                    {
+                        "logical_name": "summary",
+                        "kind": "synthesis",
+                        "path": f"{base_dir}/SUMMARY.md",
+                        "required": True,
+                    }
+                ],
+            },
+        ]
+        edges = [
+            {"from": "draft", "to": "review", "on": "completed"},
+            {"from": "review", "to": "apply", "on": "completed"},
+        ]
+        if style == "code-change":
+            cycles = [
+                {
+                    "from": "review",
+                    "to": "draft",
+                    "on_verdict": "needs_revision",
+                    "max_iterations": 1,
+                }
+            ]
+        else:
+            cycles = []
+    return {
+        "schema_version": "striatum.workflow.v1",
+        "workflow_id": workflow_id,
+        "workflow_version": utc_now().split("T", 1)[0],
+        "name": f"{safe_slug} starter ({style})",
+        "branch": {
+            "mode": "confirm",
+            "suggested_name": f"striatum/{safe_slug}",
+            "allow_dirty": False,
+        },
+        "coordinator": {
+            "role_id": coordinator_role,
+            "lane_id": lane_id,
+        },
+        "lanes": lanes,
+        "roles": roles,
+        "context_docs": [],
+        "parallelism": {
+            "mode": "declared",
+            "max_active_jobs": 1,
+            "require_disjoint_write_scopes": True,
+        },
+        "jobs": jobs,
+        "edges": edges,
+        "cycles": cycles,
+    }
 
 
 def run_start(conn: sqlite3.Connection, *, run_id: str) -> JsonObject:
@@ -2125,20 +2394,23 @@ def evidence_artifact_summaries(
 
 
 def run_summary_snapshot(conn: sqlite3.Connection, *, repo: Path, run_id: str) -> JsonObject:
-    """Return compact run facts for publishable summaries."""
-    row_by_id(conn, "runs", "run_id", run_id)
-    artifacts = conn.execute(
-        """
-        SELECT artifact_id, job_id, logical_name, artifact_kind, repo_path, content_sha256
-        FROM artifacts
-        WHERE run_id = ?
-        ORDER BY repo_path
-        """,
-        (run_id,),
-    ).fetchall()
+    """Return compact run facts for publishable summaries.
+
+    The artifact list carries author identity (loaded from the snapshotted
+    workflow), verdicts are grouped by ``workflow_job_id`` so authors can see
+    review attempts at a glance, and branch/timing context surfaces what is
+    needed to reason about a run after the fact.
+    """
+    run = row_by_id(conn, "runs", "run_id", run_id)
+    snapshot_row = row_by_id(
+        conn, "workflow_snapshots", "workflow_snapshot_id", str(run["workflow_snapshot_id"])
+    )
+    workflow = json_loads(str(snapshot_row["workflow_json"]))
+    artifacts = evidence_artifact_summaries(conn, run_id=run_id, workflow=workflow)
     verdicts = conn.execute(
         """
-        SELECT v.verdict_id, v.job_id, j.workflow_job_id, v.verdict, v.findings_artifact_id
+        SELECT v.verdict_id, v.job_id, j.workflow_job_id, v.verdict, v.findings_artifact_id,
+               v.created_at
         FROM verdicts v
         JOIN jobs j ON j.job_id = v.job_id
         WHERE v.run_id = ?
@@ -2146,6 +2418,8 @@ def run_summary_snapshot(conn: sqlite3.Connection, *, repo: Path, run_id: str) -
         """,
         (run_id,),
     ).fetchall()
+    verdict_dicts = [dict(row) for row in verdicts]
+    grouped_verdicts = _group_verdicts_by_workflow_job(verdict_dicts)
     blockers = conn.execute(
         """
         SELECT blocker_id, job_id, severity, blocker_kind, state
@@ -2155,13 +2429,89 @@ def run_summary_snapshot(conn: sqlite3.Connection, *, repo: Path, run_id: str) -
         """,
         (run_id,),
     ).fetchall()
+    branch_context = {
+        "recorded": run["branch_name"],
+        "current": current_git_branch(repo),
+    }
+    branch_context["mismatch"] = (
+        branch_context["recorded"] is not None
+        and branch_context["current"] is not None
+        and branch_context["recorded"] != branch_context["current"]
+    )
+    timing = {
+        "created_at": run["created_at"],
+        "started_at": run["started_at"],
+        "completed_at": run["completed_at"],
+        "duration": _format_run_duration(
+            started_at=run["started_at"],
+            completed_at=run["completed_at"],
+        ),
+    }
     return {
         "status": status(conn, run_id=run_id),
         "doctor": doctor(conn, repo=repo, run_id=run_id),
-        "artifacts": [dict(row) for row in artifacts],
-        "verdicts": [dict(row) for row in verdicts],
+        "artifacts": artifacts,
+        "verdicts": verdict_dicts,
+        "verdicts_by_workflow_job": grouped_verdicts,
         "blockers": [dict(row) for row in blockers],
+        "branch_context": branch_context,
+        "timing": timing,
     }
+
+
+def _group_verdicts_by_workflow_job(verdicts: list[JsonObject]) -> list[JsonObject]:
+    """Group verdicts by workflow_job_id, preserving chronological order.
+
+    Returns one record per review job with the latest verdict, attempt count,
+    and the ordered list of verdict values that preceded it. Verdicts arriving
+    out of order would be unusual (verdicts has UNIQUE(job_id, session_id)),
+    but we still sort by created_at to be defensive.
+    """
+    groups: dict[str, list[JsonObject]] = {}
+    order: list[str] = []
+    for verdict in verdicts:
+        workflow_job_id = str(verdict["workflow_job_id"])
+        if workflow_job_id not in groups:
+            groups[workflow_job_id] = []
+            order.append(workflow_job_id)
+        groups[workflow_job_id].append(verdict)
+    grouped: list[JsonObject] = []
+    for workflow_job_id in order:
+        items = sorted(
+            groups[workflow_job_id],
+            key=lambda entry: str(entry.get("created_at") or ""),
+        )
+        latest = items[-1]
+        prior_verdicts = [str(item["verdict"]) for item in items[:-1]]
+        grouped.append(
+            {
+                "workflow_job_id": workflow_job_id,
+                "attempts": len(items),
+                "latest_verdict": latest["verdict"],
+                "latest_verdict_id": latest["verdict_id"],
+                "prior_verdicts": prior_verdicts,
+            }
+        )
+    return grouped
+
+
+def _format_run_duration(*, started_at: str | None, completed_at: str | None) -> str | None:
+    """Render the wall-clock duration between started_at and completed_at."""
+    if started_at is None:
+        return None
+    end = completed_at if completed_at is not None else utc_now()
+    try:
+        start_dt = datetime.fromisoformat(started_at.replace("Z", "+00:00"))
+        end_dt = datetime.fromisoformat(end.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    delta = end_dt - start_dt
+    total_seconds = int(delta.total_seconds())
+    if total_seconds < 0:
+        return None
+    hours, remainder = divmod(total_seconds, 3600)
+    minutes, seconds = divmod(remainder, 60)
+    return f"{hours}h {minutes}m {seconds}s"
 
 
 def dependency_summary(conn: sqlite3.Connection, *, job_id: str) -> list[JsonObject]:
@@ -2238,15 +2588,32 @@ def render_run_summary_markdown(*, run: JsonObject, summary: JsonObject) -> str:
     doctor_payload = summary["doctor"]
     jobs = status_payload["jobs"]
     artifacts = summary["artifacts"]
-    verdicts = summary["verdicts"]
+    grouped_verdicts = summary.get("verdicts_by_workflow_job", [])
     blockers = summary["blockers"]
+    branch_context = summary.get("branch_context", {})
+    timing = summary.get("timing", {})
+    recorded_branch = branch_context.get("recorded")
+    current_branch = branch_context.get("current")
+    branch_line = f"Branch: `{recorded_branch}`"
+    if branch_context.get("mismatch"):
+        branch_line += f" (current: `{current_branch}`) (MISMATCH)"
+    elif current_branch is not None and current_branch != recorded_branch:
+        # Only one of the two is missing; surface the current branch for context.
+        branch_line += f" (current: `{current_branch}`)"
     lines = [
         "# Striatum Run Summary",
         "",
         f"Run ID: `{run['run_id']}`",
-        f"Branch: `{run['branch_name']}`",
+        branch_line,
         f"Run state: `{run['state']}`",
         f"Verification: `doctor ok={str(doctor_payload['ok']).lower()}`",
+        "",
+        "## Timing",
+        "",
+        f"- Created at: `{timing.get('created_at')}`",
+        f"- Started at: `{timing.get('started_at')}`",
+        f"- Completed at: `{timing.get('completed_at')}`",
+        f"- Duration: `{timing.get('duration')}`",
         "",
         "## Jobs",
         "",
@@ -2257,21 +2624,43 @@ def render_run_summary_markdown(*, run: JsonObject, summary: JsonObject) -> str:
     else:
         lines.append("- No jobs recorded.")
     lines.extend(["", "## Verdicts", ""])
-    if verdicts:
-        for verdict in verdicts:
-            lines.append(
-                f"- `{verdict['verdict']}` on `{verdict['workflow_job_id']}` "
-                f"({verdict['verdict_id']})"
-            )
+    if grouped_verdicts:
+        for entry in grouped_verdicts:
+            attempts = int(entry["attempts"])
+            latest = str(entry["latest_verdict"])
+            prior = list(entry.get("prior_verdicts") or [])
+            line = f"- `{entry['workflow_job_id']}` ({attempts} attempts): `{latest}`"
+            if prior:
+                # Compress like ``2x needs_revision, 1x reject`` so a long
+                # cycle stays readable on one line.
+                tally: dict[str, int] = {}
+                order: list[str] = []
+                for value in prior:
+                    if value not in tally:
+                        tally[value] = 0
+                        order.append(value)
+                    tally[value] += 1
+                summary_parts = [f"{tally[value]}x `{value}`" for value in order]
+                line += f" after {', '.join(summary_parts)}"
+            lines.append(line)
     else:
         lines.append("- No verdicts recorded.")
     lines.extend(["", "## Artifacts", ""])
     if artifacts:
         for artifact in artifacts:
-            lines.append(
+            line = (
                 f"- `{artifact['artifact_kind']}` `{artifact['logical_name']}`: "
                 f"`{artifact['repo_path']}`"
             )
+            author = artifact.get("author")
+            if isinstance(author, dict):
+                author_line = author.get("line")
+                # ``line`` already includes the ``author: `` prefix from the
+                # identity helper, so we just wrap it in a code span instead
+                # of re-prefixing.
+                if isinstance(author_line, str) and author_line != "":
+                    line += f" - `{author_line}`"
+            lines.append(line)
     else:
         lines.append("- No artifacts recorded.")
     lines.extend(["", "## Blockers", ""])
@@ -2606,12 +2995,54 @@ def worktree_list(conn: sqlite3.Connection, *, run_id: str | None) -> JsonObject
     return {"worktrees": [dict(row) for row in rows]}
 
 
-def doctor(conn: sqlite3.Connection, *, repo: Path, run_id: str | None) -> JsonObject:
-    """Return consistency checks for the state database."""
+def doctor(
+    conn: sqlite3.Connection,
+    *,
+    repo: Path,
+    run_id: str | None,
+    verbose: bool = False,
+) -> JsonObject:
+    """Return consistency checks for the state database.
+
+    The string ``problems`` list is the historical, stable contract that
+    callers (status renderers, evidence export, smoke scripts) depend on. When
+    ``verbose`` is true the payload is augmented with ``problem_records`` —
+    structured rows describing each problem with a stable ``check`` name and
+    minimal ``context``. The string list is preserved verbatim regardless of
+    the verbose flag so callers that grep or display ``problems`` keep working.
+    """
+    # Stable check names. These are the public vocabulary for problem_records
+    # and should be considered API: existing names must not be renamed without
+    # a deprecation cycle. New checks should add a new constant here.
+    DOCTOR_CHECKS: tuple[str, ...] = (
+        "active_job_without_active_lease",
+        "dependency_gate_json_invalid",
+        "completed_review_dependency_lacks_accepting_verdict",
+        "required_artifact_kind_or_path_mismatch",
+        "run_running_with_no_progressable_jobs",
+        "stale_queue_message_claim",
+        "job_current_message_id_inconsistent",
+        "job_current_lease_id_inconsistent",
+        "active_session_on_terminal_run",
+        "unreaped_expired_lease",
+        "open_blocker_on_terminal_run",
+        "orphan_work_packet",
+        "worktree_orphaned_lease",
+        "worktree_path_missing_on_disk",
+    )
     problems: list[str] = []
+    records: list[JsonObject] = []
+
+    def report(check: str, *, identifier: str, message: str, context: JsonObject) -> None:
+        # Keep the legacy string and the structured record in lockstep so
+        # callers cannot drift between the two views.
+        assert check in DOCTOR_CHECKS, f"unknown doctor check: {check}"
+        problems.append(message)
+        records.append({"check": check, "id": identifier, "context": context})
+
     orphan_jobs = conn.execute(
         """
-        SELECT j.job_id
+        SELECT j.job_id, j.workflow_job_id, j.state
         FROM jobs j
         LEFT JOIN leases l ON l.lease_id = j.current_lease_id AND l.state = 'active'
         WHERE j.state IN ('claimed','running') AND l.lease_id IS NULL
@@ -2620,7 +3051,15 @@ def doctor(conn: sqlite3.Connection, *, repo: Path, run_id: str | None) -> JsonO
         (run_id, run_id),
     ).fetchall()
     for row in orphan_jobs:
-        problems.append(f"active job without active lease: {row['job_id']}")
+        report(
+            "active_job_without_active_lease",
+            identifier=str(row["job_id"]),
+            message=f"active job without active lease: {row['job_id']}",
+            context={
+                "workflow_job_id": row["workflow_job_id"],
+                "job_state": row["state"],
+            },
+        )
     dependencies = conn.execute(
         """
         SELECT dep.job_id, dep.depends_on_job_id, dep.gate_json
@@ -2634,7 +3073,17 @@ def doctor(conn: sqlite3.Connection, *, repo: Path, run_id: str | None) -> JsonO
         try:
             gate = json_loads(str(row["gate_json"]))
         except (json.JSONDecodeError, InvalidTransitionError):
-            problems.append(f"dependency gate_json is invalid: {row['depends_on_job_id']} -> {row['job_id']}")
+            report(
+                "dependency_gate_json_invalid",
+                identifier=str(row["depends_on_job_id"]),
+                message=(
+                    f"dependency gate_json is invalid: {row['depends_on_job_id']} -> {row['job_id']}"
+                ),
+                context={
+                    "depends_on_job_id": row["depends_on_job_id"],
+                    "downstream_job_id": row["job_id"],
+                },
+            )
             continue
         if gate.get("requires_verdict") is None:
             continue
@@ -2643,9 +3092,18 @@ def doctor(conn: sqlite3.Connection, *, repo: Path, run_id: str | None) -> JsonO
             "accept",
             "accept_with_findings",
         }:
-            problems.append(
-                "completed review dependency lacks accepting verdict: "
-                f"{upstream['workflow_job_id']} -> {row['job_id']}"
+            report(
+                "completed_review_dependency_lacks_accepting_verdict",
+                identifier=str(upstream["job_id"]),
+                message=(
+                    "completed review dependency lacks accepting verdict: "
+                    f"{upstream['workflow_job_id']} -> {row['job_id']}"
+                ),
+                context={
+                    "upstream_workflow_job_id": upstream["workflow_job_id"],
+                    "downstream_job_id": row["job_id"],
+                    "latest_verdict": latest_verdict(conn, job_id=str(upstream["job_id"])),
+                },
             )
     jobs = conn.execute(
         "SELECT job_id, expected_artifacts_json FROM jobs WHERE (? IS NULL OR run_id = ?)",
@@ -2666,10 +3124,21 @@ def doctor(conn: sqlite3.Connection, *, repo: Path, run_id: str | None) -> JsonO
             if existing is None:
                 continue
             if existing["artifact_kind"] != item.get("kind") or existing["repo_path"] != item.get("path"):
-                problems.append(
-                    "required artifact mismatch: "
-                    f"job_id={job['job_id']}, logical_name={logical_name!r}, "
-                    f"expected kind={item.get('kind')!r}, path={item.get('path')!r}"
+                report(
+                    "required_artifact_kind_or_path_mismatch",
+                    identifier=str(job["job_id"]),
+                    message=(
+                        "required artifact mismatch: "
+                        f"job_id={job['job_id']}, logical_name={logical_name!r}, "
+                        f"expected kind={item.get('kind')!r}, path={item.get('path')!r}"
+                    ),
+                    context={
+                        "logical_name": logical_name,
+                        "expected_kind": item.get("kind"),
+                        "expected_path": item.get("path"),
+                        "actual_kind": existing["artifact_kind"],
+                        "actual_path": existing["repo_path"],
+                    },
                 )
     stuck_runs = conn.execute(
         """
@@ -2692,10 +3161,15 @@ def doctor(conn: sqlite3.Connection, *, repo: Path, run_id: str | None) -> JsonO
         (run_id, run_id),
     ).fetchall()
     for row in stuck_runs:
-        problems.append(f"run is running but no progressable jobs remain: {row['run_id']}")
+        report(
+            "run_running_with_no_progressable_jobs",
+            identifier=str(row["run_id"]),
+            message=f"run is running but no progressable jobs remain: {row['run_id']}",
+            context={"run_state": "running"},
+        )
     stale_messages = conn.execute(
         """
-        SELECT m.message_id
+        SELECT m.message_id, m.current_lease_id, m.state
         FROM queue_messages m
         LEFT JOIN leases l ON l.lease_id = m.current_lease_id AND l.state = 'active'
         WHERE m.state IN ('claimed','acked')
@@ -2706,10 +3180,18 @@ def doctor(conn: sqlite3.Connection, *, repo: Path, run_id: str | None) -> JsonO
         (run_id, run_id),
     ).fetchall()
     for row in stale_messages:
-        problems.append(f"queue message has stale claim: {row['message_id']}")
+        report(
+            "stale_queue_message_claim",
+            identifier=str(row["message_id"]),
+            message=f"queue message has stale claim: {row['message_id']}",
+            context={
+                "message_state": row["state"],
+                "current_lease_id": row["current_lease_id"],
+            },
+        )
     bad_message_pointers = conn.execute(
         """
-        SELECT j.job_id
+        SELECT j.job_id, j.current_message_id
         FROM jobs j
         LEFT JOIN queue_messages m ON m.message_id = j.current_message_id
         WHERE j.current_message_id IS NOT NULL
@@ -2719,10 +3201,15 @@ def doctor(conn: sqlite3.Connection, *, repo: Path, run_id: str | None) -> JsonO
         (run_id, run_id),
     ).fetchall()
     for row in bad_message_pointers:
-        problems.append(f"job current_message_id is inconsistent: {row['job_id']}")
+        report(
+            "job_current_message_id_inconsistent",
+            identifier=str(row["job_id"]),
+            message=f"job current_message_id is inconsistent: {row['job_id']}",
+            context={"current_message_id": row["current_message_id"]},
+        )
     bad_lease_pointers = conn.execute(
         """
-        SELECT j.job_id
+        SELECT j.job_id, j.current_lease_id
         FROM jobs j
         LEFT JOIN leases l ON l.lease_id = j.current_lease_id
         WHERE j.current_lease_id IS NOT NULL
@@ -2732,10 +3219,15 @@ def doctor(conn: sqlite3.Connection, *, repo: Path, run_id: str | None) -> JsonO
         (run_id, run_id),
     ).fetchall()
     for row in bad_lease_pointers:
-        problems.append(f"job current_lease_id is inconsistent: {row['job_id']}")
+        report(
+            "job_current_lease_id_inconsistent",
+            identifier=str(row["job_id"]),
+            message=f"job current_lease_id is inconsistent: {row['job_id']}",
+            context={"current_lease_id": row["current_lease_id"]},
+        )
     terminal_sessions = conn.execute(
         """
-        SELECT s.session_id
+        SELECT s.session_id, s.run_id, r.state AS run_state
         FROM sessions s
         JOIN runs r ON r.run_id = s.run_id
         WHERE s.state = 'active'
@@ -2745,10 +3237,18 @@ def doctor(conn: sqlite3.Connection, *, repo: Path, run_id: str | None) -> JsonO
         (run_id, run_id),
     ).fetchall()
     for row in terminal_sessions:
-        problems.append(f"active session on terminal run: {row['session_id']}")
+        report(
+            "active_session_on_terminal_run",
+            identifier=str(row["session_id"]),
+            message=f"active session on terminal run: {row['session_id']}",
+            context={
+                "run_id": row["run_id"],
+                "run_state": row["run_state"],
+            },
+        )
     expired_leases = conn.execute(
         """
-        SELECT l.lease_id
+        SELECT l.lease_id, l.expires_at, l.resource_id
         FROM leases l
         WHERE l.state = 'active'
           AND l.expires_at < ?
@@ -2757,10 +3257,18 @@ def doctor(conn: sqlite3.Connection, *, repo: Path, run_id: str | None) -> JsonO
         (utc_now(), run_id, run_id),
     ).fetchall()
     for row in expired_leases:
-        problems.append(f"active lease has expired without reap: {row['lease_id']}")
+        report(
+            "unreaped_expired_lease",
+            identifier=str(row["lease_id"]),
+            message=f"active lease has expired without reap: {row['lease_id']}",
+            context={
+                "expires_at": row["expires_at"],
+                "resource_id": row["resource_id"],
+            },
+        )
     open_blockers = conn.execute(
         """
-        SELECT b.blocker_id
+        SELECT b.blocker_id, b.run_id, r.state AS run_state, b.severity, b.blocker_kind
         FROM blockers b
         JOIN runs r ON r.run_id = b.run_id
         WHERE b.state = 'open'
@@ -2770,10 +3278,20 @@ def doctor(conn: sqlite3.Connection, *, repo: Path, run_id: str | None) -> JsonO
         (run_id, run_id),
     ).fetchall()
     for row in open_blockers:
-        problems.append(f"open blocker on terminal run: {row['blocker_id']}")
+        report(
+            "open_blocker_on_terminal_run",
+            identifier=str(row["blocker_id"]),
+            message=f"open blocker on terminal run: {row['blocker_id']}",
+            context={
+                "run_id": row["run_id"],
+                "run_state": row["run_state"],
+                "severity": row["severity"],
+                "blocker_kind": row["blocker_kind"],
+            },
+        )
     orphan_packets = conn.execute(
         """
-        SELECT p.packet_id
+        SELECT p.packet_id, p.lease_id, p.session_id
         FROM work_packets p
         LEFT JOIN leases l ON l.lease_id = p.lease_id
         LEFT JOIN sessions s ON s.session_id = p.session_id
@@ -2783,10 +3301,18 @@ def doctor(conn: sqlite3.Connection, *, repo: Path, run_id: str | None) -> JsonO
         (run_id, run_id),
     ).fetchall()
     for row in orphan_packets:
-        problems.append(f"work packet references missing lease/session: {row['packet_id']}")
+        report(
+            "orphan_work_packet",
+            identifier=str(row["packet_id"]),
+            message=f"work packet references missing lease/session: {row['packet_id']}",
+            context={
+                "lease_id": row["lease_id"],
+                "session_id": row["session_id"],
+            },
+        )
     orphan_worktrees = conn.execute(
         """
-        SELECT w.worktree_id
+        SELECT w.worktree_id, w.lease_id, w.worktree_path
         FROM job_worktrees w
         LEFT JOIN leases l ON l.lease_id = w.lease_id AND l.state = 'active'
         WHERE w.state = 'active' AND l.lease_id IS NULL
@@ -2795,7 +3321,15 @@ def doctor(conn: sqlite3.Connection, *, repo: Path, run_id: str | None) -> JsonO
         (run_id, run_id),
     ).fetchall()
     for row in orphan_worktrees:
-        problems.append(f"active worktree without active lease: {row['worktree_id']}")
+        report(
+            "worktree_orphaned_lease",
+            identifier=str(row["worktree_id"]),
+            message=f"active worktree without active lease: {row['worktree_id']}",
+            context={
+                "lease_id": row["lease_id"],
+                "worktree_path": row["worktree_path"],
+            },
+        )
     drifted_worktrees = conn.execute(
         """
         SELECT worktree_id, worktree_path
@@ -2807,18 +3341,26 @@ def doctor(conn: sqlite3.Connection, *, repo: Path, run_id: str | None) -> JsonO
     for row in drifted_worktrees:
         target = repo / str(row["worktree_path"])
         if not target.exists():
-            problems.append(
-                "active worktree directory missing on disk: "
-                f"{row['worktree_id']} ({row['worktree_path']})"
+            report(
+                "worktree_path_missing_on_disk",
+                identifier=str(row["worktree_id"]),
+                message=(
+                    "active worktree directory missing on disk: "
+                    f"{row['worktree_id']} ({row['worktree_path']})"
+                ),
+                context={"worktree_path": row["worktree_path"]},
             )
     schema_version = conn.execute(
         "SELECT value FROM schema_meta WHERE key = 'schema_version'"
     ).fetchone()
-    return {
+    payload: JsonObject = {
         "ok": len(problems) == 0,
         "schema_version": schema_version["value"] if schema_version is not None else None,
         "problems": problems,
     }
+    if verbose:
+        payload["problem_records"] = records
+    return payload
 
 
 if __name__ == "__main__":

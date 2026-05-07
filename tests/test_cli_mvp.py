@@ -1556,9 +1556,25 @@ def test_run_summary_export_writes_compact_note(tmp_path: Path) -> None:
     assert "Striatum Run Summary" in summary
     assert f"Run ID: `{run_id}`" in summary
     assert "Verification: `doctor ok=true`" in summary
-    assert "`needs_revision` on `review_codex`" in summary
+    # Verdicts are now grouped by review job. The latest verdict and the
+    # attempt count both surface in a single line so the summary stays
+    # readable when a review cycles through several attempts.
+    assert "`review_codex` (1 attempts): `needs_revision`" in summary
     assert "`finding` `review`: `docs/reviews/rfc-ledger/codex/RFC_LEDGER_REVIEW.md`" in summary
+    # Each artifact carries the structured author byline so a reader can see
+    # which role/model produced it without opening the artifact file.
+    assert "author: reviewer-codex-gpt-5.5-001" in summary
     assert "`human_checkpoint`" in summary
+    # Branch context records what the run was prepared with; without a real
+    # git checkout the current branch is None and the recorded branch is
+    # surfaced verbatim. With no git current branch detected the line stays
+    # short and never claims a MISMATCH.
+    assert "Branch: `striatum/v1-test`" in summary
+    assert "(MISMATCH)" not in summary
+    # Timing block always appears, even when started_at/completed_at are unset.
+    assert "## Timing" in summary
+    assert "- Created at: `" in summary
+    assert "- Started at: `" in summary
 
 
 def test_recovery_stale_leases_reports_repo_write_policy(tmp_path: Path) -> None:
@@ -3072,3 +3088,126 @@ def test_failed_review_cycle_routes_to_human_checkpoint_after_max_iterations(tmp
     assert isinstance(checkpoints, list)
     assert len(checkpoints) >= 1
     assert second_verdict["blocker_id"] in {cp["blocker_id"] for cp in checkpoints}
+
+
+def test_doctor_verbose_includes_problem_records(tmp_path: Path) -> None:
+    """`doctor --verbose` augments string problems with structured records."""
+    run_id = prepare_started_run(tmp_path)
+    author = register(tmp_path, run_id, "author", "codex")
+    # Create a packet to capture both a real lease and message id, then snip
+    # the lease so the queue message becomes "stale claim", and mark the run
+    # completed so the still-active session is "active session on terminal run".
+    packet = claim(tmp_path, author)
+    _, message_id, lease_id = packet_ids(packet)
+    conn = sqlite3.connect(tmp_path / ".striatum" / "state.sqlite3")
+    try:
+        conn.execute(
+            "UPDATE leases SET state = 'released', released_at = ?, release_reason = 'test' WHERE lease_id = ?",
+            ("2026-05-07T00:00:00Z", lease_id),
+        )
+        conn.execute(
+            "UPDATE runs SET state = 'completed', completed_at = ? WHERE run_id = ?",
+            ("2026-05-07T00:00:00Z", run_id),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    # Without --verbose the historical contract still holds: the response is
+    # the string list and nothing else.
+    plain = data(run_cli(tmp_path, "doctor", "--run-id", run_id))
+    assert plain["ok"] is False
+    assert isinstance(plain["problems"], list)
+    assert "problem_records" not in plain
+
+    verbose = data(run_cli(tmp_path, "doctor", "--run-id", run_id, "--verbose"))
+    assert verbose["ok"] is False
+    assert isinstance(verbose["problems"], list)
+    assert verbose["problems"] == plain["problems"], (
+        "verbose mode must not change the string problems list"
+    )
+    records = verbose["problem_records"]
+    assert isinstance(records, list)
+    assert len(records) == len(verbose["problems"])
+    by_check: dict[str, list[JsonDict]] = {}
+    for record in records:
+        assert isinstance(record, dict)
+        by_check.setdefault(str(record["check"]), []).append(cast(JsonDict, record))
+    assert "stale_queue_message_claim" in by_check
+    stale = by_check["stale_queue_message_claim"][0]
+    assert stale["id"] == message_id
+    assert isinstance(stale["context"], dict)
+    assert stale["context"]["current_lease_id"] == lease_id
+    assert "active_session_on_terminal_run" in by_check
+    terminal = by_check["active_session_on_terminal_run"][0]
+    assert terminal["id"] == author
+    assert isinstance(terminal["context"], dict)
+    assert terminal["context"]["run_state"] == "completed"
+
+
+def test_workflow_init_writes_validating_template(tmp_path: Path) -> None:
+    """``workflow init`` produces trees that pass ``workflow validate``."""
+    init_repo(tmp_path)
+    minimal_dir = tmp_path / "examples" / "starter-minimal"
+    review_dir = tmp_path / "examples" / "starter-review"
+    code_change_dir = tmp_path / "examples" / "starter-code-change"
+
+    minimal = data(
+        run_cli(tmp_path, "workflow", "init", "--style", "minimal", str(minimal_dir))
+    )
+    assert minimal["status"] == "created"
+    assert minimal["style"] == "minimal"
+    assert (minimal_dir / "workflow.json").exists()
+    assert (minimal_dir / "roles" / "author.md").exists()
+    assert (minimal_dir / "prompts" / "draft.md").exists()
+    assert not (minimal_dir / "roles" / "reviewer.md").exists()
+
+    review = data(run_cli(tmp_path, "workflow", "init", str(review_dir)))
+    assert review["style"] == "review"
+    for relative in (
+        "workflow.json",
+        "roles/author.md",
+        "roles/reviewer.md",
+        "prompts/draft.md",
+        "prompts/review.md",
+        "prompts/apply.md",
+    ):
+        assert (review_dir / relative).exists(), relative
+
+    code_change = data(
+        run_cli(
+            tmp_path,
+            "workflow",
+            "init",
+            "--style",
+            "code-change",
+            str(code_change_dir),
+        )
+    )
+    assert code_change["style"] == "code-change"
+    code_change_workflow = json.loads(
+        (code_change_dir / "workflow.json").read_text(encoding="utf-8")
+    )
+    cycles = code_change_workflow["cycles"]
+    assert isinstance(cycles, list) and len(cycles) == 1
+    assert cycles[0]["on_verdict"] == "needs_revision"
+
+    for path in (minimal_dir, review_dir, code_change_dir):
+        validated = data(
+            run_cli(tmp_path, "workflow", "validate", str(path / "workflow.json"))
+        )
+        assert validated["valid"] is True
+
+    # Refuses to overwrite an existing path; surface the error envelope so
+    # the operator can see why init refused.
+    refused = run_cli(
+        tmp_path,
+        "workflow",
+        "init",
+        "--style",
+        "minimal",
+        str(minimal_dir),
+        check=False,
+    )
+    assert refused["returncode"] != 0
+    assert "refuses to overwrite" in refused["error"]["message"]

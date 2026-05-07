@@ -171,7 +171,9 @@ Use `status`, `why`, and `doctor` when a run becomes hard to reason about:
   verdicts, and sessions.
 - `doctor --json` checks common state inconsistencies such as active jobs
   without active leases or completed review dependencies without accepting
-  verdicts.
+  verdicts. Pass `--verbose` to additionally emit a `problem_records` list
+  with stable `check` names, affected ids, and small context maps for tooling
+  that wants to act on specific failure kinds without parsing strings.
 
 `evidence export` writes a redacted Markdown snapshot that can be committed for
 review. It redacts free-text blocker descriptions and verdict rationales and
@@ -553,11 +555,19 @@ striatum init
 striatum workflow validate
 striatum workflow plan
 striatum workflow graph
+striatum workflow init
 striatum run prepare
 striatum branch confirm
 striatum run start
 striatum run summary
 ```
+
+`workflow init [--style minimal|review|code-change] <path>` writes a starter
+workflow tree (`workflow.json` plus `roles/` and `prompts/` stubs). The
+`review` default mirrors the `examples/code-change-flow/` shape with
+placeholder paths and validates cleanly with `striatum workflow validate`.
+`minimal` writes a single author job and `code-change` adds a one-shot
+`needs_revision` cycle. The command refuses to overwrite an existing path.
 
 Agent/session work loop:
 

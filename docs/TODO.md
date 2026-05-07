@@ -51,8 +51,11 @@ Completed on 2026-05-07:
    additions on 2026-05-07: cross-job artifact path collisions,
    write-scope/forbidden-path overlap, artifact-in-write-scope, unsound
    cycle target, parallel-group repo_write/review-only mode consistency,
-   plus a `needs` deprecation warning. Remaining work includes templates,
-   linting output, and path rewriting for reruns.
+   plus a `needs` deprecation warning. `workflow init [--style] <path>`
+   landed on 2026-05-07 and writes a validating starter tree
+   (`workflow.json` plus role/prompt stubs) for `minimal`, `review`, and
+   `code-change` styles. Remaining work includes linting output and path
+   rewriting for reruns.
 4. Continue human-checkpoint UX. `status` and `why` now include decision
    context, affected jobs, unblock path, and next actions; remaining work is
    to keep refining evidence export and any explicit resume flow.
@@ -109,6 +112,11 @@ Completed on 2026-05-07:
     publication.
 15. Run summaries now have `run summary`, which writes a compact final run note
     with run id, branch, jobs, verdicts, artifacts, blockers, and verification.
+    On 2026-05-07 the renderer was extended to group verdicts by review job
+    with attempt counts, append the structured author byline to each
+    artifact, surface recorded vs. current git branch with an explicit
+    `(MISMATCH)` annotation when they differ, and print a Timing block
+    (`created_at`, `started_at`, `completed_at`, wall-clock `duration`).
     Remaining work is any formatting polish that emerges from real runs.
 16. Keep the generic language current. New docs should say "target repository",
     "workflow fixture", "runner state", "artifact", and "adapter" rather than

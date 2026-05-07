@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+- `striatum doctor --verbose` now augments the historical string `problems`
+  list with a `problem_records` list of structured rows. Each record carries a
+  stable `check` name (e.g. `active_job_without_active_lease`,
+  `stale_queue_message_claim`, `worktree_path_missing_on_disk`), the affected
+  `id`, and a small `context` map. The string list is preserved verbatim so
+  callers that already grep `problems` keep working.
+- `striatum run summary` Markdown output now groups verdicts by review job
+  with an attempt count and rolled-up prior verdicts, appends the structured
+  author byline (`author: <role>-<model>-<ordinal>`) to each artifact line,
+  surfaces the recorded branch alongside the current git branch with an
+  explicit `(MISMATCH)` annotation when they differ, and prints a Timing
+  block with `created_at`, `started_at`, `completed_at`, and wall-clock
+  `duration`.
+- `striatum workflow init [--style minimal|review|code-change] <path>` writes
+  a starter workflow tree (`workflow.json` plus `roles/` and `prompts/`
+  stubs) that validates cleanly with `workflow validate`. Refuses to
+  overwrite an existing path. The `review` default mirrors the
+  `examples/code-change-flow/` shape with placeholder paths; `minimal` skips
+  review; `code-change` adds a one-shot `needs_revision` cycle.
 - Workflow validator now rejects cross-job expected-artifact path collisions,
   write-scope `allowed_paths` that overlap `forbidden_paths`, expected
   artifacts outside the job's write scope, unsound revision cycles whose
