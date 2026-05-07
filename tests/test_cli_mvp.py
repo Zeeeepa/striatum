@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 import json
+from contextlib import redirect_stderr
 import os
 import sqlite3
 import subprocess
@@ -10,12 +11,18 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Any, cast
 
+import pytest
+
 from striatum.api import invoke
 from striatum.mcp import LocalRpcServer, serve_stdio
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / "examples" / "rfc-ledger-cleanup" / "workflow.json"
 DOCS_REVIEW_WORKFLOW = ROOT / "examples" / "docs-review-flow" / "workflow.json"
+CODE_CHANGE_WORKFLOW = ROOT / "examples" / "code-change-flow" / "workflow.json"
+FAILED_REVIEW_WORKFLOW = (
+    ROOT / "examples" / "failed-review-revision-cycle" / "workflow.json"
+)
 
 
 JsonDict = dict[str, Any]
@@ -2100,11 +2107,51 @@ def test_declared_cycle_policy_requires_root_review_cycles(tmp_path: Path) -> No
     assert isinstance(error, dict)
     assert "declared_cycle" in str(error["message"])
 
+    # The new cycle-soundness check requires the cycle target to feed back into
+    # the cycle source through workflow edges. The root reviews don't have an
+    # upstream feeder, so insert an "anchor" draft job that does, and target
+    # the declared cycles at it.
+    workflow["jobs"].insert(
+        0,
+        {
+            "id": "anchor",
+            "type": "draft",
+            "title": "Anchor draft",
+            "role_id": "ledger",
+            "lane_id": "codex",
+            "objective": "Anchor source for declared_cycle root review cycles.",
+            "task_prompt": {"path": "examples/rfc-0014-operational-artifact-home/prompts/findings_ledger.md"},
+            "write_scope": {
+                "mode": "repo_write",
+                "repo_write": True,
+                "allowed_paths": ["docs/reviews/rfc-0014-operational-artifact-home/"],
+                "forbidden_paths": [".striatum/"],
+            },
+            "expected_artifacts": [
+                {
+                    "logical_name": "anchor",
+                    "kind": "handoff",
+                    "path": "docs/reviews/rfc-0014-operational-artifact-home/RFC_0014_ANCHOR.md",
+                    "required": True,
+                }
+            ],
+        },
+    )
+    workflow["edges"].extend(
+        [
+            {"from": "anchor", "to": "review_claude", "on": "completed"},
+            {"from": "anchor", "to": "review_codex", "on": "completed"},
+            {"from": "anchor", "to": "review_gemini", "on": "completed"},
+        ]
+    )
+    for job in workflow["jobs"]:
+        if job["id"] in {"review_claude", "review_codex", "review_gemini"}:
+            job["needs"] = ["anchor"]
     workflow["cycles"].extend(
         [
-            {"from": "review_claude", "to": "findings_ledger", "on_verdict": "needs_revision", "max_iterations": 1},
-            {"from": "review_codex", "to": "findings_ledger", "on_verdict": "needs_revision", "max_iterations": 1},
-            {"from": "review_gemini", "to": "findings_ledger", "on_verdict": "needs_revision", "max_iterations": 1},
+            {"from": "review_claude", "to": "anchor", "on_verdict": "needs_revision", "max_iterations": 1},
+            {"from": "review_codex", "to": "anchor", "on_verdict": "needs_revision", "max_iterations": 1},
+            {"from": "review_gemini", "to": "anchor", "on_verdict": "needs_revision", "max_iterations": 1},
         ]
     )
     valid = data(run_cli(tmp_path, "workflow", "validate", str(temporary_workflow(tmp_path, workflow))))
@@ -2409,3 +2456,511 @@ def test_events_for_process_does_not_leak_across_runs(tmp_path: Path) -> None:
     assert len(events_b) == 1
     payload_b = json.loads(events_b[0]["payload_json"])
     assert payload_b["process_id"] == process_b
+
+def _minimal_validation_workflow() -> dict[str, Any]:
+    """Return a tiny valid workflow shape used as a base for validation tests."""
+    return {
+        "schema_version": "striatum.workflow.v1",
+        "workflow_id": "wf-validation",
+        "workflow_version": "1",
+        "name": "Validation",
+        "branch": {"mode": "confirm", "suggested_name": "wf/validation", "allow_dirty": False},
+        "coordinator": {"role_id": "author", "lane_id": "lane_a"},
+        "lanes": {
+            "lane_a": {"adapter": "process", "display_model": "X", "command": ["echo"], "capabilities": ["write"]},
+        },
+        "roles": {"author": {"definition_path": "roles/author.md"}},
+        "context_docs": [],
+        "parallelism": {"mode": "declared", "max_active_jobs": 1, "require_disjoint_write_scopes": True},
+        "jobs": [],
+        "edges": [],
+        "cycles": [],
+    }
+
+
+def _validate(workflow_obj: dict[str, Any]) -> None:
+    """Invoke the in-process validator (faster than the subprocess CLI)."""
+    from striatum.workflow import validate_workflow
+
+    validate_workflow(workflow_obj)
+
+
+def test_workflow_validation_rejects_cross_job_artifact_path_collision() -> None:
+    from striatum.errors import WorkflowError
+
+    workflow = _minimal_validation_workflow()
+    workflow["jobs"] = [
+        {
+            "id": "draft_one",
+            "type": "draft",
+            "title": "Draft one",
+            "role_id": "author",
+            "lane_id": "lane_a",
+            "objective": "Draft one",
+            "task_prompt": {"path": "prompts/draft.md"},
+            "write_scope": {
+                "mode": "repo_write",
+                "repo_write": True,
+                "allowed_paths": ["docs/output/"],
+                "forbidden_paths": [".striatum/"],
+            },
+            "expected_artifacts": [
+                {"logical_name": "draft", "kind": "handoff", "path": "docs/output/SHARED.md", "required": True}
+            ],
+        },
+        {
+            "id": "draft_two",
+            "type": "draft",
+            "title": "Draft two",
+            "role_id": "author",
+            "lane_id": "lane_a",
+            "objective": "Draft two",
+            "task_prompt": {"path": "prompts/draft.md"},
+            "write_scope": {
+                "mode": "repo_write",
+                "repo_write": True,
+                "allowed_paths": ["docs/output/"],
+                "forbidden_paths": [".striatum/"],
+            },
+            "expected_artifacts": [
+                {"logical_name": "draft", "kind": "handoff", "path": "docs/output/SHARED.md", "required": True}
+            ],
+        },
+    ]
+    with pytest.raises(WorkflowError, match="both declare expected artifact path"):
+        _validate(workflow)
+
+    workflow["jobs"][1]["expected_artifacts"][0]["path"] = "docs/output/UNIQUE.md"
+    _validate(workflow)
+
+
+def test_workflow_validation_rejects_overlapping_allowed_and_forbidden_paths() -> None:
+    from striatum.errors import WorkflowError
+
+    workflow = _minimal_validation_workflow()
+    workflow["jobs"] = [
+        {
+            "id": "draft",
+            "type": "draft",
+            "title": "Draft",
+            "role_id": "author",
+            "lane_id": "lane_a",
+            "objective": "Draft",
+            "task_prompt": {"path": "prompts/draft.md"},
+            "write_scope": {
+                "mode": "repo_write",
+                "repo_write": True,
+                "allowed_paths": [".striatum/foo"],
+                "forbidden_paths": [".striatum/"],
+            },
+            "expected_artifacts": [],
+        },
+    ]
+    with pytest.raises(WorkflowError, match="is inside forbidden_path"):
+        _validate(workflow)
+
+    workflow["jobs"][0]["write_scope"]["allowed_paths"] = ["docs/output/"]
+    _validate(workflow)
+
+
+def test_workflow_validation_rejects_artifact_path_outside_write_scope() -> None:
+    from striatum.errors import WorkflowError
+
+    workflow = _minimal_validation_workflow()
+    workflow["jobs"] = [
+        {
+            "id": "draft",
+            "type": "draft",
+            "title": "Draft",
+            "role_id": "author",
+            "lane_id": "lane_a",
+            "objective": "Draft",
+            "task_prompt": {"path": "prompts/draft.md"},
+            "write_scope": {
+                "mode": "repo_write",
+                "repo_write": True,
+                "allowed_paths": ["docs/output/"],
+                "forbidden_paths": [".striatum/"],
+            },
+            "expected_artifacts": [
+                {"logical_name": "out", "kind": "handoff", "path": "docs/elsewhere/OUT.md", "required": True}
+            ],
+        },
+    ]
+    with pytest.raises(WorkflowError, match="is not inside any allowed_path"):
+        _validate(workflow)
+
+    workflow["jobs"][0]["expected_artifacts"][0]["path"] = "docs/output/OUT.md"
+    _validate(workflow)
+
+
+def test_workflow_validation_rejects_unsound_cycle_target() -> None:
+    from striatum.errors import WorkflowError
+
+    workflow = _minimal_validation_workflow()
+    workflow["roles"]["reviewer"] = {"definition_path": "roles/reviewer.md"}
+    workflow["jobs"] = [
+        {
+            "id": "draft",
+            "type": "draft",
+            "title": "Draft",
+            "role_id": "author",
+            "lane_id": "lane_a",
+            "objective": "Draft",
+            "task_prompt": {"path": "prompts/draft.md"},
+            "write_scope": {
+                "mode": "repo_write",
+                "repo_write": True,
+                "allowed_paths": ["docs/output/"],
+                "forbidden_paths": [".striatum/"],
+            },
+            "expected_artifacts": [
+                {"logical_name": "draft", "kind": "handoff", "path": "docs/output/DRAFT.md", "required": True}
+            ],
+        },
+        {
+            "id": "review",
+            "type": "review",
+            "title": "Review",
+            "role_id": "reviewer",
+            "lane_id": "lane_a",
+            "objective": "Review",
+            "task_prompt": {"path": "prompts/review.md"},
+            "write_scope": {
+                "mode": "review_only_artifact",
+                "repo_write": False,
+                "allowed_paths": ["docs/reviews/"],
+                "forbidden_paths": [".striatum/"],
+            },
+            "expected_artifacts": [
+                {"logical_name": "review", "kind": "finding", "path": "docs/reviews/REVIEW.md", "required": True}
+            ],
+        },
+        {
+            "id": "apply",
+            "type": "draft",
+            "title": "Apply",
+            "role_id": "author",
+            "lane_id": "lane_a",
+            "objective": "Apply",
+            "task_prompt": {"path": "prompts/apply.md"},
+            "write_scope": {
+                "mode": "repo_write",
+                "repo_write": True,
+                "allowed_paths": ["docs/applied/"],
+                "forbidden_paths": [".striatum/"],
+            },
+            "expected_artifacts": [
+                {"logical_name": "applied", "kind": "handoff", "path": "docs/applied/APPLIED.md", "required": True}
+            ],
+        },
+    ]
+    workflow["edges"] = [
+        {"from": "draft", "to": "review", "on": "completed"},
+        {"from": "review", "to": "apply", "on": "completed"},
+    ]
+    # Cycle target "apply" is downstream of "review", not upstream — unsound.
+    workflow["cycles"] = [
+        {"from": "review", "to": "apply", "on_verdict": "needs_revision", "max_iterations": 1}
+    ]
+    with pytest.raises(WorkflowError, match="unsound"):
+        _validate(workflow)
+
+    # Cycle target "draft" is upstream of "review" via an edge — sound.
+    workflow["cycles"] = [
+        {"from": "review", "to": "draft", "on_verdict": "needs_revision", "max_iterations": 1}
+    ]
+    _validate(workflow)
+
+
+def test_workflow_validation_rejects_mixed_repo_write_modes_in_parallel_group() -> None:
+    from striatum.errors import WorkflowError
+
+    workflow = _minimal_validation_workflow()
+    workflow["roles"]["reviewer"] = {"definition_path": "roles/reviewer.md"}
+    workflow["jobs"] = [
+        {
+            "id": "writer_a",
+            "type": "draft",
+            "title": "Writer A",
+            "role_id": "author",
+            "lane_id": "lane_a",
+            "parallel_group": "g1",
+            "objective": "Write",
+            "task_prompt": {"path": "prompts/write.md"},
+            "write_scope": {
+                "mode": "repo_write",
+                "repo_write": True,
+                "allowed_paths": ["docs/a/"],
+                "forbidden_paths": [".striatum/"],
+            },
+            "expected_artifacts": [
+                {"logical_name": "a", "kind": "handoff", "path": "docs/a/A.md", "required": True}
+            ],
+        },
+        {
+            "id": "review_b",
+            "type": "review",
+            "title": "Review B",
+            "role_id": "reviewer",
+            "lane_id": "lane_a",
+            "parallel_group": "g1",
+            "objective": "Review",
+            "task_prompt": {"path": "prompts/review.md"},
+            "write_scope": {
+                "mode": "review_only_artifact",
+                "repo_write": False,
+                "allowed_paths": ["docs/reviews/"],
+                "forbidden_paths": [".striatum/"],
+            },
+            "expected_artifacts": [
+                {"logical_name": "review", "kind": "finding", "path": "docs/reviews/B.md", "required": True}
+            ],
+        },
+    ]
+    with pytest.raises(WorkflowError, match="mixes repo_write and review-only jobs"):
+        _validate(workflow)
+
+    # Putting the review job in a different parallel group resolves the conflict.
+    workflow["jobs"][1]["parallel_group"] = "g2"
+    _validate(workflow)
+
+
+def test_workflow_validation_warns_on_deprecated_needs() -> None:
+    workflow = _minimal_validation_workflow()
+    workflow["jobs"] = [
+        {
+            "id": "draft",
+            "type": "draft",
+            "title": "Draft",
+            "role_id": "author",
+            "lane_id": "lane_a",
+            "objective": "Draft",
+            "task_prompt": {"path": "prompts/draft.md"},
+            "write_scope": {
+                "mode": "repo_write",
+                "repo_write": True,
+                "allowed_paths": ["docs/output/"],
+                "forbidden_paths": [".striatum/"],
+            },
+            "expected_artifacts": [
+                {"logical_name": "draft", "kind": "handoff", "path": "docs/output/D.md", "required": True}
+            ],
+            "needs": [],
+        },
+    ]
+    buffer = io.StringIO()
+    with redirect_stderr(buffer):
+        _validate(workflow)
+    stderr_output = buffer.getvalue()
+    assert "deprecated 'needs'" in stderr_output
+    assert "draft" in stderr_output
+
+    # Removing 'needs' silences the warning.
+    workflow["jobs"][0].pop("needs")
+    buffer = io.StringIO()
+    with redirect_stderr(buffer):
+        _validate(workflow)
+    assert buffer.getvalue() == ""
+
+
+def test_code_change_flow_runs_through_revision_cycle(tmp_path: Path) -> None:
+    init_repo(tmp_path)
+    valid = data(run_cli(tmp_path, "workflow", "validate", str(CODE_CHANGE_WORKFLOW)))
+    assert valid["workflow_id"] == "code-change-flow"
+    run_id = str(data(run_cli(tmp_path, "run", "prepare", "--workflow", str(CODE_CHANGE_WORKFLOW)))["run_id"])
+    run_cli(tmp_path, "branch", "confirm", "--run-id", run_id, "--branch", "wf/code-change-test")
+    run_cli(tmp_path, "run", "start", "--run-id", run_id)
+
+    author = register(tmp_path, run_id, "author", "codex")
+    complete_claimed_job(
+        tmp_path,
+        author,
+        claim(tmp_path, author),
+        logical_name="draft",
+        kind="handoff",
+        path="src/example/draft.py",
+    )
+    reviewer = register(tmp_path, run_id, "reviewer", "codex")
+    verdict_claimed_review(
+        tmp_path,
+        reviewer,
+        claim(tmp_path, reviewer),
+        verdict="needs_revision",
+        path="docs/code-change/REVIEW.md",
+    )
+    # A new draft attempt should be enqueued via the declared cycle.
+    next_author = register(tmp_path, run_id, "author", "codex")
+    next_packet = claim(tmp_path, next_author)
+    assert next_packet["job"]["workflow_job_id"] == "draft_change"
+    assert next_packet["job"]["attempt"] == 2
+    next_job_id, next_message_id, next_lease_id = packet_ids(next_packet)
+    run_cli(tmp_path, "ack", "--session-id", next_author, "--message-id", next_message_id, "--lease-id", next_lease_id)
+    write_artifact(tmp_path, "src/example/draft.py", text="revised draft\n")
+    run_cli(
+        tmp_path,
+        "publish-artifact",
+        "--session-id",
+        next_author,
+        "--job-id",
+        next_job_id,
+        "--lease-id",
+        next_lease_id,
+        "--kind",
+        "handoff",
+        "--logical-name",
+        "draft",
+        "--path",
+        "src/example/draft.py",
+    )
+    run_cli(tmp_path, "complete", "--session-id", next_author, "--job-id", next_job_id, "--lease-id", next_lease_id)
+
+    next_reviewer = register(tmp_path, run_id, "reviewer", "codex")
+    next_review_packet = claim(tmp_path, next_reviewer)
+    next_review_job_id, next_review_message_id, next_review_lease_id = packet_ids(next_review_packet)
+    run_cli(tmp_path, "ack", "--session-id", next_reviewer, "--message-id", next_review_message_id, "--lease-id", next_review_lease_id)
+    write_artifact(tmp_path, "docs/code-change/REVIEW.md", text="accept\n")
+    next_review_artifact = data(
+        run_cli(
+            tmp_path,
+            "publish-artifact",
+            "--session-id",
+            next_reviewer,
+            "--job-id",
+            next_review_job_id,
+            "--lease-id",
+            next_review_lease_id,
+            "--kind",
+            "finding",
+            "--logical-name",
+            "review",
+            "--path",
+            "docs/code-change/REVIEW.md",
+        )
+    )
+    run_cli(
+        tmp_path,
+        "verdict",
+        "--session-id",
+        next_reviewer,
+        "--job-id",
+        next_review_job_id,
+        "--lease-id",
+        next_review_lease_id,
+        "--verdict",
+        "accept",
+        "--findings-artifact-id",
+        str(next_review_artifact["artifact_id"]),
+    )
+
+    applier = register(tmp_path, run_id, "author", "codex")
+    apply_packet = claim(tmp_path, applier)
+    assert apply_packet["job"]["workflow_job_id"] == "apply_change"
+    complete_claimed_job(
+        tmp_path,
+        applier,
+        apply_packet,
+        logical_name="applied",
+        kind="handoff",
+        path="src/example/applied.py",
+    )
+    status = data(run_cli(tmp_path, "status", "--run-id", run_id))
+    assert status["runs"][0]["state"] == "completed"
+
+
+def test_failed_review_cycle_routes_to_human_checkpoint_after_max_iterations(tmp_path: Path) -> None:
+    init_repo(tmp_path)
+    valid = data(run_cli(tmp_path, "workflow", "validate", str(FAILED_REVIEW_WORKFLOW)))
+    assert valid["workflow_id"] == "failed-review-revision-cycle"
+    run_id = str(data(run_cli(tmp_path, "run", "prepare", "--workflow", str(FAILED_REVIEW_WORKFLOW)))["run_id"])
+    run_cli(tmp_path, "branch", "confirm", "--run-id", run_id, "--branch", "wf/failed-review-test")
+    run_cli(tmp_path, "run", "start", "--run-id", run_id)
+
+    author = register(tmp_path, run_id, "author", "codex")
+    complete_claimed_job(
+        tmp_path,
+        author,
+        claim(tmp_path, author),
+        logical_name="draft",
+        kind="handoff",
+        path="src/example/draft.py",
+    )
+    reviewer = register(tmp_path, run_id, "reviewer", "codex")
+    first_verdict = verdict_claimed_review(
+        tmp_path,
+        reviewer,
+        claim(tmp_path, reviewer),
+        verdict="needs_revision",
+        path="docs/failed-review/REVIEW.md",
+    )
+    assert first_verdict["status"] == "revision_requested"
+
+    next_author = register(tmp_path, run_id, "author", "codex")
+    next_packet = claim(tmp_path, next_author)
+    next_job_id, next_message_id, next_lease_id = packet_ids(next_packet)
+    run_cli(tmp_path, "ack", "--session-id", next_author, "--message-id", next_message_id, "--lease-id", next_lease_id)
+    write_artifact(tmp_path, "src/example/draft.py", text="revised draft\n")
+    run_cli(
+        tmp_path,
+        "publish-artifact",
+        "--session-id",
+        next_author,
+        "--job-id",
+        next_job_id,
+        "--lease-id",
+        next_lease_id,
+        "--kind",
+        "handoff",
+        "--logical-name",
+        "draft",
+        "--path",
+        "src/example/draft.py",
+    )
+    run_cli(tmp_path, "complete", "--session-id", next_author, "--job-id", next_job_id, "--lease-id", next_lease_id)
+
+    next_reviewer = register(tmp_path, run_id, "reviewer", "codex")
+    next_review_packet = claim(tmp_path, next_reviewer)
+    next_review_job_id, next_review_message_id, next_review_lease_id = packet_ids(next_review_packet)
+    run_cli(tmp_path, "ack", "--session-id", next_reviewer, "--message-id", next_review_message_id, "--lease-id", next_review_lease_id)
+    write_artifact(tmp_path, "docs/failed-review/REVIEW.md", text="second revision request\n")
+    second_review_artifact = data(
+        run_cli(
+            tmp_path,
+            "publish-artifact",
+            "--session-id",
+            next_reviewer,
+            "--job-id",
+            next_review_job_id,
+            "--lease-id",
+            next_review_lease_id,
+            "--kind",
+            "finding",
+            "--logical-name",
+            "review",
+            "--path",
+            "docs/failed-review/REVIEW.md",
+        )
+    )
+    second_verdict = data(
+        run_cli(
+            tmp_path,
+            "verdict",
+            "--session-id",
+            next_reviewer,
+            "--job-id",
+            next_review_job_id,
+            "--lease-id",
+            next_review_lease_id,
+            "--verdict",
+            "needs_revision",
+            "--findings-artifact-id",
+            str(second_review_artifact["artifact_id"]),
+        )
+    )
+    assert second_verdict["status"] == "waiting_human"
+    status = data(run_cli(tmp_path, "status", "--run-id", run_id))
+    assert status["runs"][0]["state"] == "running"
+    checkpoints = status["human_checkpoints"]
+    assert isinstance(checkpoints, list)
+    assert len(checkpoints) >= 1
+    assert second_verdict["blocker_id"] in {cp["blocker_id"] for cp in checkpoints}
