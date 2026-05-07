@@ -8,6 +8,7 @@ import sys
 from pathlib import Path, PurePosixPath
 from typing import Any, cast
 
+from striatum.artifacts import ALLOWED_ARTIFACT_KINDS
 from striatum.db import (
     ADAPTER_ENFORCEMENT_LEVELS,
     JsonObject,
@@ -266,6 +267,11 @@ def validate_workflow(workflow: JsonObject) -> None:
             path = artifact.get("path")
             if not isinstance(path, str) or path.startswith("/") or ".." in Path(path).parts:
                 raise WorkflowError(f"job {job_id!r} has invalid artifact path")
+            kind = artifact.get("kind")
+            if isinstance(kind, str) and kind not in ALLOWED_ARTIFACT_KINDS:
+                raise WorkflowError(
+                    f"job {job_id} declares unknown artifact kind {kind}"
+                )
             _validate_artifact_in_write_scope(job_id, job, path)
         _validate_reviewer_policy(job_id, job)
     _validate_artifact_path_uniqueness(jobs)

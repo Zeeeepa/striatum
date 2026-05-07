@@ -474,3 +474,455 @@ def test_front_matter_unquoted_string_is_rejected(tmp_path: Path) -> None:
     error = rejected["error"]
     assert isinstance(error, dict)
     assert "JSON" in str(error.get("message", ""))
+
+
+# --- RFCs 0003 / 0004 / 0005 -----------------------------------------------------
+
+SUPPORT_LEDGER_FLOW_WORKFLOW = ROOT / "examples" / "support-ledger-flow" / "workflow.json"
+
+
+def _temp_workflow(tmp_path: Path, workflow: dict[str, object]) -> Path:
+    path = tmp_path / "workflow.json"
+    path.write_text(json.dumps(workflow), encoding="utf-8")
+    return path
+
+
+def _minimal_workflow_for_kind(kind: str, *, path: str) -> dict[str, object]:
+    """Build a minimum-shape workflow that declares one expected_artifacts kind."""
+    return {
+        "schema_version": "striatum.workflow.v1",
+        "workflow_id": f"kind-test-{kind}",
+        "workflow_version": "2026-05-07",
+        "name": f"Kind validation fixture for {kind}",
+        "branch": {
+            "mode": "confirm",
+            "suggested_name": "striatum/kind-test",
+            "allow_dirty": False,
+        },
+        "coordinator": {"role_id": "author", "lane_id": "codex"},
+        "lanes": {
+            "codex": {
+                "adapter": "process",
+                "display_model": "Codex GPT-5.5",
+                "command": ["codex", "exec", "--model", "gpt-5.5", "-"],
+                "capabilities": ["write", "review"],
+            }
+        },
+        "roles": {"author": {"definition_path": "roles/author.md"}},
+        "context_docs": [],
+        "parallelism": {
+            "mode": "declared",
+            "max_active_jobs": 1,
+            "require_disjoint_write_scopes": True,
+        },
+        "jobs": [
+            {
+                "id": "draft_job",
+                "type": "draft",
+                "title": "Draft",
+                "role_id": "author",
+                "lane_id": "codex",
+                "objective": "Produce an artifact under test.",
+                "task_prompt": {"path": "prompts/draft.md"},
+                "write_scope": {
+                    "mode": "repo_write",
+                    "repo_write": True,
+                    "allowed_paths": ["docs/kind-test/"],
+                    "forbidden_paths": [".striatum/"],
+                },
+                "expected_artifacts": [
+                    {
+                        "logical_name": kind,
+                        "kind": kind,
+                        "path": path,
+                        "required": True,
+                    }
+                ],
+            }
+        ],
+        "edges": [],
+        "cycles": [],
+    }
+
+
+def test_artifact_kind_rejects_truly_unknown_kind(tmp_path: Path) -> None:
+    """publish-artifact rejects kinds outside ALLOWED_ARTIFACT_KINDS with exit code 6."""
+    author, job_id, lease_id, _ = claim_author(tmp_path)
+    write_artifact(tmp_path, f"{DRAFT_DIR}/BOGUS.md", "Not a real kind.\n")
+    rejected = publish(
+        tmp_path,
+        session_id=author,
+        job_id=job_id,
+        lease_id=lease_id,
+        kind="bogus_kind",
+        logical_name="bogus",
+        path=f"{DRAFT_DIR}/BOGUS.md",
+        check=False,
+    )
+    assert rejected["returncode"] == 6
+    error = rejected["error"]
+    assert isinstance(error, dict)
+    message = str(error.get("message", ""))
+    assert "bogus_kind" in message
+    assert "not in the allowed kinds list" in message
+
+
+def test_workflow_validation_rejects_unknown_artifact_kind(tmp_path: Path) -> None:
+    """validate_workflow rejects expected_artifacts with kinds outside the allowed set."""
+    init_repo(tmp_path)
+    workflow = _minimal_workflow_for_kind("made_up", path="docs/kind-test/OUT.md")
+    rejected = run_cli(
+        tmp_path,
+        "workflow",
+        "validate",
+        str(_temp_workflow(tmp_path, workflow)),
+        check=False,
+    )
+    assert rejected["returncode"] == 8
+    error = rejected["error"]
+    assert isinstance(error, dict)
+    message = str(error.get("message", ""))
+    assert "draft_job" in message
+    assert "made_up" in message
+
+
+def test_workflow_validation_accepts_three_new_kinds(tmp_path: Path) -> None:
+    """validate_workflow accepts support_ledger, action_item_ledger, and harness_improvement_proposal."""
+    init_repo(tmp_path)
+    workflow: dict[str, object] = {
+        "schema_version": "striatum.workflow.v1",
+        "workflow_id": "kind-test-three",
+        "workflow_version": "2026-05-07",
+        "name": "Three new kinds fixture",
+        "branch": {
+            "mode": "confirm",
+            "suggested_name": "striatum/kind-test",
+            "allow_dirty": False,
+        },
+        "coordinator": {"role_id": "author", "lane_id": "codex"},
+        "lanes": {
+            "codex": {
+                "adapter": "process",
+                "display_model": "Codex GPT-5.5",
+                "command": ["codex", "exec", "--model", "gpt-5.5", "-"],
+                "capabilities": ["write", "review"],
+            }
+        },
+        "roles": {"author": {"definition_path": "roles/author.md"}},
+        "context_docs": [],
+        "parallelism": {
+            "mode": "declared",
+            "max_active_jobs": 1,
+            "require_disjoint_write_scopes": True,
+        },
+        "jobs": [
+            {
+                "id": "support",
+                "type": "draft",
+                "title": "Support ledger",
+                "role_id": "author",
+                "lane_id": "codex",
+                "objective": "Write a support ledger.",
+                "task_prompt": {"path": "prompts/support.md"},
+                "write_scope": {
+                    "mode": "repo_write",
+                    "repo_write": True,
+                    "allowed_paths": ["docs/kind-test/"],
+                    "forbidden_paths": [".striatum/"],
+                },
+                "expected_artifacts": [
+                    {
+                        "logical_name": "support_ledger",
+                        "kind": "support_ledger",
+                        "path": "docs/kind-test/SUPPORT.md",
+                        "required": True,
+                    }
+                ],
+            },
+            {
+                "id": "actions",
+                "type": "draft",
+                "title": "Action item ledger",
+                "role_id": "author",
+                "lane_id": "codex",
+                "objective": "Write an action-item ledger.",
+                "task_prompt": {"path": "prompts/actions.md"},
+                "write_scope": {
+                    "mode": "repo_write",
+                    "repo_write": True,
+                    "allowed_paths": ["docs/kind-test/"],
+                    "forbidden_paths": [".striatum/"],
+                },
+                "expected_artifacts": [
+                    {
+                        "logical_name": "action_items",
+                        "kind": "action_item_ledger",
+                        "path": "docs/kind-test/ACTIONS.md",
+                        "required": True,
+                    }
+                ],
+            },
+            {
+                "id": "harness",
+                "type": "draft",
+                "title": "Harness improvement proposal",
+                "role_id": "author",
+                "lane_id": "codex",
+                "objective": "Write a harness improvement proposal.",
+                "task_prompt": {"path": "prompts/harness.md"},
+                "write_scope": {
+                    "mode": "repo_write",
+                    "repo_write": True,
+                    "allowed_paths": ["docs/kind-test/"],
+                    "forbidden_paths": [".striatum/"],
+                },
+                "expected_artifacts": [
+                    {
+                        "logical_name": "harness_proposal",
+                        "kind": "harness_improvement_proposal",
+                        "path": "docs/kind-test/HARNESS.md",
+                        "required": True,
+                    }
+                ],
+            },
+        ],
+        "edges": [],
+        "cycles": [],
+    }
+    accepted = run_cli(
+        tmp_path,
+        "workflow",
+        "validate",
+        str(_temp_workflow(tmp_path, workflow)),
+    )
+    assert accepted["returncode"] == 0
+    assert data(accepted)["valid"] is True
+
+
+def test_action_item_ledger_front_matter_validates(tmp_path: Path) -> None:
+    """A well-formed striatum.action_item_ledger.v1 publishes; bad revision_round fails."""
+    author, job_id, lease_id, _ = claim_author(tmp_path)
+    good = (
+        "---\n"
+        'schema_version: "striatum.action_item_ledger.v1"\n'
+        'artifact_kind: "action_item_ledger"\n'
+        'source_review_artifact: "docs/reviews/rfc-ledger/codex/RFC_LEDGER_REVIEW.md"\n'
+        "revision_round: 1\n"
+        "total_items: 4\n"
+        "---\n"
+        "\n"
+        "Action items follow as Markdown.\n"
+    )
+    write_artifact(tmp_path, f"{DRAFT_DIR}/ACTIONS.md", good)
+    accepted = publish(
+        tmp_path,
+        session_id=author,
+        job_id=job_id,
+        lease_id=lease_id,
+        kind="action_item_ledger",
+        logical_name="action_items",
+        path=f"{DRAFT_DIR}/ACTIONS.md",
+    )
+    assert accepted["returncode"] == 0
+    assert data(accepted)["status"] == "published"
+
+    bad = (
+        "---\n"
+        'schema_version: "striatum.action_item_ledger.v1"\n'
+        'artifact_kind: "action_item_ledger"\n'
+        'source_review_artifact: "docs/reviews/rfc-ledger/codex/RFC_LEDGER_REVIEW.md"\n'
+        'revision_round: "first"\n'
+        "---\n"
+    )
+    write_artifact(tmp_path, f"{DRAFT_DIR}/ACTIONS_BAD.md", bad)
+    rejected = publish(
+        tmp_path,
+        session_id=author,
+        job_id=job_id,
+        lease_id=lease_id,
+        kind="action_item_ledger",
+        logical_name="action_items_bad",
+        path=f"{DRAFT_DIR}/ACTIONS_BAD.md",
+        check=False,
+    )
+    assert rejected["returncode"] == 6
+    error = rejected["error"]
+    assert isinstance(error, dict)
+    assert "revision_round" in str(error.get("message", ""))
+
+
+def test_harness_improvement_proposal_front_matter_validates(tmp_path: Path) -> None:
+    """A well-formed striatum.harness_improvement_proposal.v1 publishes; bad target fails."""
+    author, job_id, lease_id, _ = claim_author(tmp_path)
+    good = (
+        "---\n"
+        'schema_version: "striatum.harness_improvement_proposal.v1"\n'
+        'artifact_kind: "harness_improvement_proposal"\n'
+        'target: "workflow"\n'
+        'expected_benefit: "Reduce review cycles for trivial typo fixes."\n'
+        'risk: "Low; advisory only."\n'
+        'rollback: "Revert the workflow JSON change."\n'
+        "---\n"
+        "\n"
+        "Body of the proposal.\n"
+    )
+    write_artifact(tmp_path, f"{DRAFT_DIR}/HARNESS.md", good)
+    accepted = publish(
+        tmp_path,
+        session_id=author,
+        job_id=job_id,
+        lease_id=lease_id,
+        kind="harness_improvement_proposal",
+        logical_name="harness_proposal",
+        path=f"{DRAFT_DIR}/HARNESS.md",
+    )
+    assert accepted["returncode"] == 0
+    assert data(accepted)["status"] == "published"
+
+    bad = (
+        "---\n"
+        'schema_version: "striatum.harness_improvement_proposal.v1"\n'
+        'artifact_kind: "harness_improvement_proposal"\n'
+        'target: "infrastructure"\n'
+        'expected_benefit: "Speed up CI."\n'
+        "---\n"
+    )
+    write_artifact(tmp_path, f"{DRAFT_DIR}/HARNESS_BAD.md", bad)
+    rejected = publish(
+        tmp_path,
+        session_id=author,
+        job_id=job_id,
+        lease_id=lease_id,
+        kind="harness_improvement_proposal",
+        logical_name="harness_proposal_bad",
+        path=f"{DRAFT_DIR}/HARNESS_BAD.md",
+        check=False,
+    )
+    assert rejected["returncode"] == 6
+    error = rejected["error"]
+    assert isinstance(error, dict)
+    message = str(error.get("message", ""))
+    assert "target" in message
+    assert "infrastructure" in message
+
+
+def test_support_ledger_flow_publishes_three_kinds(tmp_path: Path) -> None:
+    """Drive examples/support-ledger-flow/ through produce_artifact and write_support_ledger."""
+    init_repo(tmp_path)
+    prepared = data(
+        run_cli(
+            tmp_path,
+            "run",
+            "prepare",
+            "--workflow",
+            str(SUPPORT_LEDGER_FLOW_WORKFLOW),
+        )
+    )
+    run_id = str(prepared["run_id"])
+    run_cli(
+        tmp_path, "branch", "confirm", "--run-id", run_id, "--branch", "striatum/v1-test"
+    )
+    run_cli(tmp_path, "run", "start", "--run-id", run_id)
+
+    # produce_artifact
+    author = register(tmp_path, run_id, "author", "codex")
+    packet1 = claim(tmp_path, author)
+    job_id1, message_id1, lease_id1 = packet_ids(packet1)
+    run_cli(
+        tmp_path,
+        "ack",
+        "--session-id",
+        author,
+        "--message-id",
+        message_id1,
+        "--lease-id",
+        lease_id1,
+    )
+    synthesis_body = (
+        "---\n"
+        'schema_version: "striatum.synthesis.v1"\n'
+        'artifact_kind: "synthesis"\n'
+        'inputs: ["produce_artifact"]\n'
+        "---\n"
+        "\n"
+        "Synthesis body for the support-ledger fixture.\n"
+    )
+    write_artifact(tmp_path, "docs/support-ledger-flow/SYNTHESIS.md", synthesis_body)
+    pub1 = publish(
+        tmp_path,
+        session_id=author,
+        job_id=job_id1,
+        lease_id=lease_id1,
+        kind="synthesis",
+        logical_name="synthesis",
+        path="docs/support-ledger-flow/SYNTHESIS.md",
+    )
+    assert pub1["returncode"] == 0
+    assert data(pub1)["status"] == "published"
+    run_cli(
+        tmp_path,
+        "complete",
+        "--session-id",
+        author,
+        "--job-id",
+        job_id1,
+        "--lease-id",
+        lease_id1,
+    )
+
+    # write_support_ledger
+    author2 = register(tmp_path, run_id, "author", "codex")
+    packet2 = claim(tmp_path, author2)
+    job_id2, message_id2, lease_id2 = packet_ids(packet2)
+    run_cli(
+        tmp_path,
+        "ack",
+        "--session-id",
+        author2,
+        "--message-id",
+        message_id2,
+        "--lease-id",
+        lease_id2,
+    )
+    ledger_body = (
+        "---\n"
+        'schema_version: "striatum.support_ledger.v1"\n'
+        'artifact_kind: "support_ledger"\n'
+        'audited_artifact: "docs/support-ledger-flow/SYNTHESIS.md"\n'
+        "claim_count: 1\n"
+        "---\n"
+        "\n"
+        "| ID | Claim | Support | Evidence paths | Status |\n"
+        "| --- | --- | --- | --- | --- |\n"
+        "| SL001 | Synthesis exists. | The file is present in the repo. |"
+        " `docs/support-ledger-flow/SYNTHESIS.md` | supported |\n"
+    )
+    write_artifact(
+        tmp_path, "docs/support-ledger-flow/SUPPORT_LEDGER.md", ledger_body
+    )
+    pub2 = publish(
+        tmp_path,
+        session_id=author2,
+        job_id=job_id2,
+        lease_id=lease_id2,
+        kind="support_ledger",
+        logical_name="support_ledger",
+        path="docs/support-ledger-flow/SUPPORT_LEDGER.md",
+    )
+    assert pub2["returncode"] == 0
+    assert data(pub2)["status"] == "published"
+
+    import sqlite3
+
+    conn = sqlite3.connect(tmp_path / ".striatum" / "state.sqlite3")
+    try:
+        kinds = sorted(
+            row[0]
+            for row in conn.execute(
+                "SELECT artifact_kind FROM artifacts WHERE run_id = ?", (run_id,)
+            )
+        )
+    finally:
+        conn.close()
+    assert "synthesis" in kinds
+    assert "support_ledger" in kinds

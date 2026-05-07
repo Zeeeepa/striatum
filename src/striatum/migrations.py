@@ -89,6 +89,54 @@ def _apply_v3_work_packets_index(conn: sqlite3.Connection) -> None:
     )
 
 
+def _apply_v5_open_artifact_kinds(conn: sqlite3.Connection) -> None:
+    """Move artifact_kind validation from SQL CHECK to Python.
+
+    The previous CHECK froze the artifact-kind vocabulary in schema. RFCs
+    0003/0004/0005 introduce three new kinds and future RFCs may add more.
+    Python-side validation in `striatum.artifacts.publish_artifact` and the
+    workflow validator now own the allowed-kinds list.
+    """
+    conn.executescript('''
+        CREATE TABLE artifacts_v5 (
+          artifact_id TEXT PRIMARY KEY,
+          run_id TEXT NOT NULL REFERENCES runs(run_id),
+          job_id TEXT REFERENCES jobs(job_id),
+          session_id TEXT REFERENCES sessions(session_id),
+          logical_name TEXT NOT NULL,
+          artifact_kind TEXT NOT NULL,
+          repo_path TEXT NOT NULL,
+          content_sha256 TEXT NOT NULL,
+          size_bytes INTEGER NOT NULL,
+          publish_mode TEXT NOT NULL CHECK (publish_mode IN (
+            'create','replace_same_job','append_version'
+          )),
+          created_at TEXT NOT NULL,
+          UNIQUE (run_id, job_id, logical_name),
+          UNIQUE (run_id, repo_path, content_sha256)
+        );
+        INSERT INTO artifacts_v5
+          SELECT artifact_id, run_id, job_id, session_id, logical_name,
+                 artifact_kind, repo_path, content_sha256, size_bytes,
+                 publish_mode, created_at
+          FROM artifacts;
+        DROP TABLE artifacts;
+        ALTER TABLE artifacts_v5 RENAME TO artifacts;
+    ''')
+    conn.executescript('''
+        CREATE TRIGGER IF NOT EXISTS artifacts_no_update
+        BEFORE UPDATE ON artifacts
+        BEGIN
+          SELECT RAISE(ABORT, 'artifact records are append-only');
+        END;
+        CREATE TRIGGER IF NOT EXISTS artifacts_no_delete
+        BEFORE DELETE ON artifacts
+        BEGIN
+          SELECT RAISE(ABORT, 'artifact records are append-only');
+        END;
+    ''')
+
+
 def _apply_v4_process_supervisors(conn: sqlite3.Connection) -> None:
     """Add the ``process_supervisors`` table for RFC 0009 long-lived supervision.
 
@@ -132,6 +180,7 @@ MIGRATIONS: list[Migration] = sorted(
         Migration(version=2, label="job_worktrees table", apply=_apply_v2_job_worktrees),
         Migration(version=3, label="work_packets fresh-session index", apply=_apply_v3_work_packets_index),
         Migration(version=4, label="process_supervisors table", apply=_apply_v4_process_supervisors),
+        Migration(version=5, label="open artifact_kind to python validation", apply=_apply_v5_open_artifact_kinds),
     ],
     key=lambda migration: migration.version,
 )

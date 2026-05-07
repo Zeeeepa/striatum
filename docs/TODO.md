@@ -150,14 +150,18 @@ Legend: ✅ done · 🟡 most done (sub-tasks remain) · ⏳ open
    from validation errors) and path rewriting for reruns.
 
 6. **Artifact schema support.** Optional Markdown `author:` metadata is
-   machine-validated; per-kind front-matter schemas exist for `decision`
-   (`striatum.decision.v1`), `finding` (`striatum.finding.v1`),
-   `findings_ledger` (`striatum.findings_ledger.v1`), and `synthesis`
-   (`striatum.synthesis.v1`). The publisher records artifacts rather than
-   rewriting them. **Remaining:** schemas for additional kinds as use cases
-   emerge (RFCs 0003/0004/0005 propose `support_ledger`,
-   `action_item_ledger`, `harness_improvement_proposal` — pending follow-up
-   integration).
+   machine-validated; per-kind front-matter schemas exist for seven kinds:
+   `decision` (`striatum.decision.v1`), `finding` (`striatum.finding.v1`),
+   `findings_ledger` (`striatum.findings_ledger.v1`), `synthesis`
+   (`striatum.synthesis.v1`), `support_ledger` (`striatum.support_ledger.v1`,
+   RFC 0003), `action_item_ledger` (`striatum.action_item_ledger.v1`, RFC
+   0004), and `harness_improvement_proposal`
+   (`striatum.harness_improvement_proposal.v1`, RFC 0005). Migration version
+   5 dropped the SQL `CHECK` on `artifact_kind`; allowed kinds now live in
+   `striatum.artifacts.ALLOWED_ARTIFACT_KINDS` and are enforced by both
+   `publish-artifact` (exit 6) and workflow validation (exit 8). The
+   publisher records artifacts rather than rewriting them. **Remaining:**
+   schemas for additional kinds as future RFCs emerge.
 
 7. **Redaction tests.** Default-deny evidence-export policy registry is in
    place; new evidence fields default to redacted unless explicitly marked
@@ -192,12 +196,11 @@ F1. Exercise the minimal process adapter on a Striatum-owned version of the
 F2. Define any fuller publication policy after the initial package smoke,
     typecheck, metadata check, and macOS/Linux CI wiring.
 
-F3. Land the round-6 follow-up integrations (RFC 0002 reviewer-independence
-    workflow fields; RFCs 0003/0004/0005 new artifact kinds and
-    `support-ledger-flow` fixture). The agent commits forked from a stale
-    base and would lose post-round-1 work if cherry-picked as-is; redo
-    against current `main`. RFC 0002 is now landed (D051): the workflow
-    validator accepts `reviewer_access_scope` and `reviewer_context_policy`
-    on review jobs, work packets surface a `review_policy` block when the
-    fields are declared, and the RFC 0014 fixture labels its root reviews
-    as `document_only`/`fresh`. RFCs 0003/0004/0005 remain to be redone.
+F3. ~~Land the round-6 follow-up integrations.~~ Done: RFC 0002 landed
+    (D051) — reviewer-policy workflow fields plus work-packet exposure plus
+    RFC 0014 fixture labels. RFCs 0003/0004/0005 landed (D052/D053/D054) —
+    migration v5 opens `artifacts.artifact_kind` to Python validation, three
+    new kinds (`support_ledger`, `action_item_ledger`,
+    `harness_improvement_proposal`) registered with v1 front-matter schemas,
+    workflow + publish validation reject unknown kinds, and
+    `examples/support-ledger-flow/` ships as the reference fixture.

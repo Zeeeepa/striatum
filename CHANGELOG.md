@@ -4,6 +4,18 @@
 
 ### Added
 
+- Three new artifact kinds and front-matter schemas (RFCs 0003/0004/0005,
+  accepted): `support_ledger` (`striatum.support_ledger.v1`),
+  `action_item_ledger` (`striatum.action_item_ledger.v1`), and
+  `harness_improvement_proposal`
+  (`striatum.harness_improvement_proposal.v1`). Migration version 5 drops the
+  SQL `CHECK (artifact_kind IN (...))` on the `artifacts` table; allowed kinds
+  now live in `striatum.artifacts.ALLOWED_ARTIFACT_KINDS` and are enforced by
+  `publish-artifact` (`ArtifactError`, exit 6) and workflow validation
+  (`WorkflowError`, exit 8). Reference fixture
+  `examples/support-ledger-flow/` exercises the produce -> support ledger ->
+  evidence audit -> final review pattern; "evidence audit" is a workflow
+  convention name, not a new `job_type`.
 - Reviewer independence policy fields on review jobs (RFC 0002, D051).
   `type: "review"` jobs may declare `reviewer_access_scope`
   (`document_only` | `artifact_augmented` | `repo_level`) and

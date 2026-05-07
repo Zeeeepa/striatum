@@ -28,6 +28,19 @@ from striatum.identity import artifact_author_identity
 MARKDOWN_SUFFIXES = {".md", ".markdown"}
 
 
+# --- Allowed artifact kinds ---------------------------------------------------------
+#
+# Artifact-kind validation lives in Python (migration v5 dropped the SQL CHECK on
+# `artifacts.artifact_kind`). Adding a new kind now means extending this set and,
+# optionally, registering a `FrontMatterSchema` below.
+
+ALLOWED_ARTIFACT_KINDS: frozenset[str] = frozenset({
+    "prompt", "finding", "findings_ledger", "synthesis", "marker",
+    "handoff", "decision", "patch_summary", "test_report", "other",
+    "support_ledger", "action_item_ledger", "harness_improvement_proposal",
+})
+
+
 # --- Front-matter schema definitions -------------------------------------------------
 #
 # Durable Markdown artifacts MAY include YAML-style `---` front matter. When a
@@ -115,6 +128,13 @@ _FINDING_VERDICT_INTENTS: tuple[str, ...] = (
     "reject",
 )
 _FINDING_SEVERITIES: tuple[str, ...] = ("info", "low", "medium", "high", "critical")
+_HARNESS_PROPOSAL_TARGETS: tuple[str, ...] = (
+    "prompt",
+    "workflow",
+    "spec",
+    "defaults",
+    "documentation",
+)
 
 
 FRONT_MATTER_SCHEMAS: dict[str, FrontMatterSchema] = {
@@ -165,6 +185,49 @@ FRONT_MATTER_SCHEMAS: dict[str, FrontMatterSchema] = {
             FrontMatterField("schema_version", True, _equals("striatum.synthesis.v1")),
             FrontMatterField("artifact_kind", True, _equals("synthesis")),
             FrontMatterField("inputs", False, _is_str_list),
+        ),
+    ),
+    "support_ledger": FrontMatterSchema(
+        schema_version="striatum.support_ledger.v1",
+        artifact_kind="support_ledger",
+        fields=(
+            FrontMatterField(
+                "schema_version", True, _equals("striatum.support_ledger.v1")
+            ),
+            FrontMatterField("artifact_kind", True, _equals("support_ledger")),
+            FrontMatterField("audited_artifact", True, _is_str),
+            FrontMatterField("claim_count", False, _is_non_negative_int),
+        ),
+    ),
+    "action_item_ledger": FrontMatterSchema(
+        schema_version="striatum.action_item_ledger.v1",
+        artifact_kind="action_item_ledger",
+        fields=(
+            FrontMatterField(
+                "schema_version", True, _equals("striatum.action_item_ledger.v1")
+            ),
+            FrontMatterField("artifact_kind", True, _equals("action_item_ledger")),
+            FrontMatterField("source_review_artifact", True, _is_str),
+            FrontMatterField("revision_round", True, _is_non_negative_int),
+            FrontMatterField("total_items", False, _is_non_negative_int),
+        ),
+    ),
+    "harness_improvement_proposal": FrontMatterSchema(
+        schema_version="striatum.harness_improvement_proposal.v1",
+        artifact_kind="harness_improvement_proposal",
+        fields=(
+            FrontMatterField(
+                "schema_version",
+                True,
+                _equals("striatum.harness_improvement_proposal.v1"),
+            ),
+            FrontMatterField(
+                "artifact_kind", True, _equals("harness_improvement_proposal")
+            ),
+            FrontMatterField("target", True, _one_of("target", _HARNESS_PROPOSAL_TARGETS)),
+            FrontMatterField("expected_benefit", True, _is_str),
+            FrontMatterField("risk", False, _is_str),
+            FrontMatterField("rollback", False, _is_str),
         ),
     ),
 }
@@ -324,6 +387,11 @@ def publish_artifact(
         active_lease_for(conn, lease_id=lease_id, session_id=session_id, job_id=job_id)
         if kind == "transcript":
             raise ArtifactError("transcript artifacts are not allowed by default")
+        if kind not in ALLOWED_ARTIFACT_KINDS:
+            allowed = ", ".join(sorted(ALLOWED_ARTIFACT_KINDS))
+            raise ArtifactError(
+                f"artifact kind {kind!r} is not in the allowed kinds list: {allowed}"
+            )
         write_scope = json_loads(str(job["write_scope_json"]))
         if not path_allowed(repo, path_text, write_scope):
             raise ArtifactError("artifact path is outside the job write scope")

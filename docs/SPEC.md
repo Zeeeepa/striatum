@@ -238,10 +238,31 @@ V1 schemas:
 - `striatum.synthesis.v1` (kind `synthesis`): required `schema_version` and
   `artifact_kind: synthesis`; optional `inputs` (list of logical-name
   strings).
+- `striatum.support_ledger.v1` (kind `support_ledger`, RFC 0003): required
+  `schema_version`, `artifact_kind: support_ledger`, and `audited_artifact`
+  (string repo-relative path or logical name); optional `claim_count`
+  (non-negative integer). Ledger rows themselves are body content.
+- `striatum.action_item_ledger.v1` (kind `action_item_ledger`, RFC 0004):
+  required `schema_version`, `artifact_kind: action_item_ledger`,
+  `source_review_artifact` (string), and `revision_round` (non-negative
+  integer); optional `total_items` (non-negative integer). Action-item rows
+  themselves are body content.
+- `striatum.harness_improvement_proposal.v1` (kind
+  `harness_improvement_proposal`, RFC 0005): required `schema_version`,
+  `artifact_kind: harness_improvement_proposal`, `target` (one of `prompt`,
+  `workflow`, `spec`, `defaults`, `documentation`), and `expected_benefit`
+  (string); optional `risk` and `rollback` (strings).
 
 Other artifact kinds (`prompt`, `marker`, `handoff`, `patch_summary`,
 `test_report`, `other`) remain unschemaed in V1 and pass through without a
 front-matter check.
+
+Artifact kinds are validated in Python rather than by SQL `CHECK`. Migration
+version 5 dropped the `CHECK (artifact_kind IN (...))` clause from the
+`artifacts` table; the canonical allowed-kinds set is
+`striatum.artifacts.ALLOWED_ARTIFACT_KINDS`. Both `publish-artifact`
+(`ArtifactError`, exit code 6) and workflow validation (`WorkflowError`, exit
+code 8) reject kinds outside that set.
 
 ## Branches And Commits
 

@@ -1,0 +1,138 @@
+{
+  "schema_version": "striatum.workflow.v1",
+  "workflow_id": "support-ledger-flow",
+  "workflow_version": "2026-05-07",
+  "name": "Support Ledger and Evidence Audit Flow",
+  "branch": {
+    "mode": "confirm",
+    "suggested_name": "striatum/support-ledger-flow",
+    "allow_dirty": false
+  },
+  "coordinator": {
+    "role_id": "author",
+    "lane_id": "codex"
+  },
+  "lanes": {
+    "codex": {
+      "adapter": "process",
+      "display_model": "Codex GPT-5.5",
+      "command": ["codex", "exec", "--model", "gpt-5.5", "-"],
+      "capabilities": ["write", "review"]
+    }
+  },
+  "roles": {
+    "author": {"definition_path": "roles/author.md"},
+    "auditor": {"definition_path": "roles/auditor.md"},
+    "reviewer": {"definition_path": "roles/reviewer.md"}
+  },
+  "context_docs": [],
+  "parallelism": {
+    "mode": "declared",
+    "max_active_jobs": 1,
+    "require_disjoint_write_scopes": true
+  },
+  "jobs": [
+    {
+      "id": "produce_artifact",
+      "type": "draft",
+      "title": "Produce the synthesis artifact",
+      "role_id": "author",
+      "lane_id": "codex",
+      "objective": "Produce the synthesis artifact whose claims will be audited.",
+      "task_prompt": {"path": "prompts/produce_artifact.md"},
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": ["docs/support-ledger-flow/"],
+        "forbidden_paths": [".striatum/"]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "synthesis",
+          "kind": "synthesis",
+          "path": "docs/support-ledger-flow/SYNTHESIS.md",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "write_support_ledger",
+      "type": "ledger",
+      "title": "Write the support ledger",
+      "role_id": "author",
+      "lane_id": "codex",
+      "fresh_session_required": true,
+      "objective": "Curate a support ledger that maps each synthesis claim to its evidence.",
+      "task_prompt": {"path": "prompts/write_support_ledger.md"},
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": ["docs/support-ledger-flow/"],
+        "forbidden_paths": [".striatum/"]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "support_ledger",
+          "kind": "support_ledger",
+          "path": "docs/support-ledger-flow/SUPPORT_LEDGER.md",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "evidence_audit",
+      "_comment_evidence_audit": "evidence_audit is a workflow convention name used here to identify a review-only audit job that inspects the synthesis claims against the support ledger. It is NOT a new job_type; the underlying job_type remains the existing 'review' value so the runner's gates and verdicts apply unchanged.",
+      "type": "review",
+      "title": "Audit the synthesis evidence",
+      "role_id": "auditor",
+      "lane_id": "codex",
+      "fresh_session_required": true,
+      "objective": "Audit each ledger row against the referenced evidence and emit a finding artifact.",
+      "task_prompt": {"path": "prompts/evidence_audit.md"},
+      "write_scope": {
+        "mode": "review_only_artifact",
+        "repo_write": false,
+        "allowed_paths": ["docs/support-ledger-flow/audit/"],
+        "forbidden_paths": [".striatum/"]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "audit_finding",
+          "kind": "finding",
+          "path": "docs/support-ledger-flow/audit/AUDIT.md",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "final_review",
+      "type": "review",
+      "title": "Final review after evidence audit",
+      "role_id": "reviewer",
+      "lane_id": "codex",
+      "fresh_session_required": true,
+      "objective": "Decide whether to accept the synthesis after the evidence audit.",
+      "task_prompt": {"path": "prompts/final_review.md"},
+      "write_scope": {
+        "mode": "review_only_artifact",
+        "repo_write": false,
+        "allowed_paths": ["docs/support-ledger-flow/final/"],
+        "forbidden_paths": [".striatum/"]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "final_review",
+          "kind": "finding",
+          "path": "docs/support-ledger-flow/final/FINAL_REVIEW.md",
+          "required": true
+        }
+      ]
+    }
+  ],
+  "edges": [
+    {"from": "produce_artifact", "to": "write_support_ledger", "on": "completed"},
+    {"from": "write_support_ledger", "to": "evidence_audit", "on": "completed"},
+    {"from": "evidence_audit", "to": "final_review", "on": "completed"}
+  ],
+  "cycles": []
+}

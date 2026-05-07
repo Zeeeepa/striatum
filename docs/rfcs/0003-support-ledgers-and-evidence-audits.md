@@ -1,6 +1,6 @@
 # RFC 0003: Support Ledgers And Evidence Audits
 
-Status: proposed
+Status: accepted
 Date: 2026-05-06
 Context: ARIS paper review, `docs/SPEC.md`,
 `docs/RFC_0014_DOGFOOD_FIX_SPEC.md`
@@ -90,3 +90,22 @@ artifact -> support ledger -> evidence audit -> downstream review/synthesis
   RFC?
 - Should the runner model claim rows structurally in SQLite, or keep ledgers as
   artifact files in V1?
+
+## Implementation Notes
+
+- Migration version 5 drops the SQL `CHECK (artifact_kind IN (...))` on the
+  `artifacts` table. Allowed kinds now live in
+  `striatum.artifacts.ALLOWED_ARTIFACT_KINDS` and `publish-artifact` rejects
+  unknown kinds with `ArtifactError` (exit code 6). Workflow validation imports
+  the same set and rejects `expected_artifacts.kind` values it does not
+  recognize with `WorkflowError` (exit code 8).
+- `support_ledger` is added to `ALLOWED_ARTIFACT_KINDS` and registered in
+  `FRONT_MATTER_SCHEMAS` as `striatum.support_ledger.v1`. Required front-matter
+  fields are `schema_version`, `artifact_kind: support_ledger`, and
+  `audited_artifact`; optional `claim_count` is a non-negative integer.
+- `examples/support-ledger-flow/` is the reference fixture. Its
+  `evidence_audit` job reuses the existing `review` job_type; the field
+  `_comment_evidence_audit` documents that "evidence audit" is a workflow
+  convention, not a new job_type.
+- `tests/test_artifact_schemas.py` covers the new kind, its front-matter
+  schema, and the support-ledger flow end to end.

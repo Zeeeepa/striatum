@@ -1,6 +1,6 @@
 # RFC 0005: Harness Meta-Optimization
 
-Status: proposed
+Status: accepted
 Date: 2026-05-06
 Context: ARIS paper review, `docs/SPEC.md`,
 `docs/DECISION_LOG.md`
@@ -78,3 +78,22 @@ the human retains final disposition.
   blocked validation runs?
 - What threshold of repeated friction should trigger a proposal rather than a
   validation note?
+
+## Implementation Notes
+
+- `harness_improvement_proposal` is added to
+  `striatum.artifacts.ALLOWED_ARTIFACT_KINDS` under migration version 5.
+  Workflow validation rejects unknown `expected_artifacts.kind` values with
+  `WorkflowError` (exit code 8); `publish-artifact` rejects unknown kinds with
+  `ArtifactError` (exit code 6).
+- `striatum.harness_improvement_proposal.v1` is registered in
+  `FRONT_MATTER_SCHEMAS` with required `schema_version`, `artifact_kind:
+  harness_improvement_proposal`, `target` (one of `prompt`, `workflow`,
+  `spec`, `defaults`, `documentation`), and `expected_benefit`. Optional
+  fields are `risk` and `rollback`.
+- Meta-optimization workflows remain advisory: this RFC adds the artifact
+  kind and front-matter schema, but does not auto-apply patches. Reviewer and
+  human disposition still gate any change to prompts, workflows, or docs.
+- Tests live in `tests/test_artifact_schemas.py`
+  (`test_harness_improvement_proposal_front_matter_validates` plus the
+  three-new-kinds workflow validation case).

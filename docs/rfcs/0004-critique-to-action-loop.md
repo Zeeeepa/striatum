@@ -1,6 +1,6 @@
 # RFC 0004: Critique-To-Action Loop
 
-Status: proposed
+Status: accepted
 Date: 2026-05-06
 Context: ARIS paper review, `docs/SPEC.md`,
 `docs/process/multi-agent-review-loop.md`
@@ -79,3 +79,19 @@ ledger and verifies each row against the changed artifacts.
   reviewers emit proposed ids?
 - Should unresolved high-severity action items automatically force
   `needs_revision`, or should that remain prompt-level policy in V1?
+
+## Implementation Notes
+
+- `action_item_ledger` is added to `striatum.artifacts.ALLOWED_ARTIFACT_KINDS`
+  alongside RFCs 0003 and 0005 under migration version 5, which drops the
+  per-table SQL CHECK on `artifact_kind` and moves validation into Python.
+- `striatum.action_item_ledger.v1` is registered in `FRONT_MATTER_SCHEMAS` with
+  required `schema_version`, `artifact_kind: action_item_ledger`,
+  `source_review_artifact`, and `revision_round` (non-negative integer);
+  optional `total_items` is also a non-negative integer.
+- Workflow JSON declarations using `expected_artifacts: [{kind:
+  "action_item_ledger", ...}]` validate cleanly. Ledger entries themselves are
+  body content, not structured front matter.
+- Tests live in `tests/test_artifact_schemas.py`
+  (`test_action_item_ledger_front_matter_validates` plus the unknown-kind and
+  three-new-kinds cases).
