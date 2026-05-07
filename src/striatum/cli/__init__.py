@@ -46,6 +46,7 @@ from striatum.cli.mutations import (
     ack_work,
     block_work,
     branch_confirm,
+    checkpoint_resolve,
     current_git_branch,
     decision_record,
     git_create_or_checkout_branch,
@@ -60,7 +61,7 @@ from striatum.cli.mutations import (
     verdict_work,
 )
 from striatum.cli.parser import add_work_identity, build_parser
-from striatum.cli.recovery import requeue_stale, stale_leases
+from striatum.cli.recovery import cancel_job, requeue_stale, stale_leases
 from striatum.cli.run_summary import (
     render_run_summary_markdown,
     run_summary_export,
@@ -89,6 +90,8 @@ __all__ = [
     "blockers_for_job",
     "branch_confirm",
     "build_parser",
+    "cancel_job",
+    "checkpoint_resolve",
     "claimable_jobs_by_role_lane",
     "current_git_branch",
     "decision_record",

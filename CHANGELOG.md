@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+- Added explicit operator resume and cancel flows for the human-checkpoint
+  and recovery surfaces. `striatum checkpoint resolve --blocker-id <id>
+  --action {continue|cancel} [--decision-id <id>]` resolves an open
+  `human_checkpoint` blocker: `continue` re-queues the affected job (state
+  `queued`, message `pending`) and emits `checkpoint.resolved`; `cancel`
+  marks the affected job `canceled` and emits `checkpoint.canceled` (and
+  lets `maybe_complete_run` finalize the run when no other work remains).
+  Optional `--decision-id` validates that a run-level decision artifact
+  exists (kind `decision`, no job/session binding) and records the
+  artifact id on the resolution event payload so audit can link the
+  resolution back to the operator's decision artifact.
+  `striatum recovery cancel-job --run-id <id> --job-id <id> --reason <text>
+  [--cascade]` is the explicit operator cancel for a non-terminal job: it
+  releases active/expired leases, marks the queue message `canceled`,
+  transitions the job to `canceled`, emits `job.canceled`, and calls
+  `maybe_complete_run`. Terminal-state jobs are refused with exit code 4;
+  jobs with blocked-only-through-this dependents are refused with exit
+  code 4 unless `--cascade` is set, in which case dependents are canceled
+  transitively in the same transaction.
 - `claim-next` now closes the RFC 0009 supervisor loop: when the claiming
   session has an `attached` supervisor, the runner writes the freshly built
   packet through the supervisor's stdin pipe inside the same write

@@ -288,6 +288,8 @@ striatum why
 striatum doctor
 striatum recovery stale-leases
 striatum recovery requeue-stale
+striatum recovery cancel-job
+striatum checkpoint resolve
 striatum adapter run
 striatum worktree create
 striatum worktree release
@@ -372,6 +374,31 @@ operator mutation for expired non-repo-write work only. It restores the job's
 work message to `pending` when needed, reports when the work was already
 reclaimable, and refuses repo-write jobs so abandoned write work still requires
 manual inspection or a future worktree-isolated recovery path.
+
+`recovery cancel-job --run-id <id> --job-id <id> --reason <text> [--cascade]
+--json` is the explicit operator cancel for a non-terminal job. It releases any
+active or expired lease, marks the job's queue message canceled, transitions
+the job to `canceled`, and emits a `job.canceled` event. Terminal-state jobs
+(`completed`, `failed`, `canceled`, `skipped`) are refused with exit code 4.
+When the target job has dependents in `blocked` state whose only path was
+through it, the call refuses with exit code 4 and lists the affected
+workflow job ids; rerun with `--cascade` to cancel them in the same
+transaction (transitively, until no more orphaned blocked dependents
+remain). The handler calls `maybe_complete_run` after committing so the run
+finalizes when the cancel removed the last non-terminal work.
+
+`checkpoint resolve --blocker-id <id> --action {continue|cancel}
+[--decision-id <id>] --json` resolves an open `human_checkpoint` blocker.
+`continue` closes the blocker, returns the affected job to a claimable state
+(`queued`, with its existing work message restored to `pending`), and emits a
+`checkpoint.resolved` event. `cancel` closes the blocker, transitions the
+affected job to `canceled`, and emits a `checkpoint.canceled` event;
+downstream blocked jobs are not auto-progressed because their dependency was
+canceled. When `--decision-id` is given, the matching run-level decision
+artifact (kind `decision`, no job or session binding) is validated and its
+artifact id is recorded on the resolution event so audit can link the
+resolution back to the operator's decision artifact. Both refuse if the
+blocker is not in state `open` or its severity is not `human_checkpoint`.
 
 ## Adapter Boundary
 

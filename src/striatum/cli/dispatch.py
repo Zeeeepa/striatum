@@ -35,6 +35,7 @@ from striatum.cli.mutations import (
     ack_work,
     block_work,
     branch_confirm,
+    checkpoint_resolve,
     decision_record,
     heartbeat,
     register_session,
@@ -45,7 +46,7 @@ from striatum.cli.mutations import (
     verdict_work,
 )
 from striatum.cli.parser import build_parser
-from striatum.cli.recovery import requeue_stale, stale_leases
+from striatum.cli.recovery import cancel_job, requeue_stale, stale_leases
 from striatum.cli.run_summary import run_summary_export
 from striatum.cli.supervise import (
     supervise_list,
@@ -243,6 +244,21 @@ def dispatch(args: argparse.Namespace) -> object:
             return stale_leases(conn, run_id=args.run_id)
         if args.command == "recovery" and args.recovery_command == "requeue-stale":
             return requeue_stale(conn, run_id=args.run_id, job_id=args.job_id)
+        if args.command == "recovery" and args.recovery_command == "cancel-job":
+            return cancel_job(
+                conn,
+                run_id=args.run_id,
+                job_id=args.job_id,
+                reason=args.reason,
+                cascade=bool(args.cascade),
+            )
+        if args.command == "checkpoint" and args.checkpoint_command == "resolve":
+            return checkpoint_resolve(
+                conn,
+                blocker_id=args.blocker_id,
+                action=args.action,
+                decision_id=args.decision_id,
+            )
         if args.command == "adapter" and args.adapter_command == "run":
             return run_process_adapter(
                 conn,

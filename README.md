@@ -449,6 +449,29 @@ If an agent cannot proceed:
 Use `--severity blocked` for normal blockers and `human_checkpoint` when the
 run needs explicit human judgment.
 
+To resolve a `human_checkpoint` blocker explicitly once the operator has
+decided, use `striatum checkpoint resolve`:
+
+```bash
+# Continue: closes the blocker and returns the affected job to the queue.
+"$RUNNER" --repo "$TARGET_REPO" checkpoint resolve \
+  --blocker-id <blocker_id> \
+  --action continue \
+  --decision-id <decision_id> \
+  --json
+
+# Cancel: closes the blocker and cancels the affected job.
+"$RUNNER" --repo "$TARGET_REPO" checkpoint resolve \
+  --blocker-id <blocker_id> \
+  --action cancel \
+  --json
+```
+
+`--decision-id` is optional but recommended. When present, it must reference
+an existing run-level decision artifact recorded with `striatum decision
+record`; the resolution event payload then links back to that artifact for
+audit.
+
 ### 11. Inspect And Export Recovery Evidence
 
 ```bash
@@ -456,6 +479,23 @@ run needs explicit human judgment.
 "$RUNNER" --repo "$TARGET_REPO" why <blocker_or_job_or_artifact_id> --json
 "$RUNNER" --repo "$TARGET_REPO" doctor --run-id <run_id> --json
 ```
+
+To explicitly cancel a non-terminal job (and optionally its blocked-only-
+through-this dependents), use `striatum recovery cancel-job`:
+
+```bash
+"$RUNNER" --repo "$TARGET_REPO" recovery cancel-job \
+  --run-id <run_id> \
+  --job-id <job_id> \
+  --reason "operator chose to abandon this work" \
+  --cascade \
+  --json
+```
+
+Without `--cascade` the command refuses with exit code 4 if the job has
+blocked dependents whose only path was through it; rerun with `--cascade` to
+cancel them transitively in the same transaction. Terminal-state jobs
+(`completed`, `failed`, `canceled`, `skipped`) cannot be canceled.
 
 ### Dashboard
 
@@ -615,10 +655,12 @@ striatum status
 striatum why
 striatum doctor
 striatum evidence export
-<<<<<<< HEAD
 striatum recovery stale-leases
 striatum recovery requeue-stale
+striatum recovery cancel-job
+striatum checkpoint resolve
 striatum adapter run
+striatum dashboard
 ```
 
 Per-job worktree isolation (opt-in per lane via `worktree_isolation: per_job`):
@@ -638,9 +680,6 @@ striatum supervise send
 striatum supervise stop
 striatum supervise status
 striatum supervise list
-=======
-striatum dashboard
->>>>>>> aacbeef (Add compact terminal dashboard over SQLite state)
 ```
 
 Stable exit codes:

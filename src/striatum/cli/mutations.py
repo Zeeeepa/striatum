@@ -12,8 +12,10 @@ from striatum.artifacts import publish_artifact
 from striatum.db import (
     JsonObject,
     active_lease_for,
+    enqueue_job,
     insert_event,
     json_loads,
+    maybe_complete_run,
     new_id,
     record_review_verdict,
     repo_relative_path,
@@ -22,7 +24,12 @@ from striatum.db import (
     transaction,
     utc_now,
 )
-from striatum.errors import ArtifactError, InvalidTransitionError, WorkflowError
+from striatum.errors import (
+    ArtifactError,
+    InvalidTransitionError,
+    NotFoundError,
+    WorkflowError,
+)
 
 from striatum.cli.introspect import downstream_jobs
 
@@ -726,3 +733,183 @@ def render_decision_markdown(
     if follow_up is not None and follow_up.strip() != "":
         lines.extend(["## Follow-Up", "", follow_up.strip(), ""])
     return "\n".join(lines)
+
+
+def checkpoint_resolve(
+    conn: sqlite3.Connection,
+    *,
+    blocker_id: str,
+    action: str,
+    decision_id: str | None,
+) -> JsonObject:
+    """Resolve an open ``human_checkpoint`` blocker.
+
+    The ``continue`` action closes the blocker and returns the affected job to
+    a claimable state (``queued`` with its existing message restored to
+    ``pending``); the ``cancel`` action closes the blocker and transitions the
+    affected job to ``canceled``, leaving downstream blocked jobs untouched
+    (they remain blocked because their dependency was canceled). When
+    ``decision_id`` is provided the corresponding run-level decision artifact
+    is validated and its ``decision_id`` is recorded on the resolution event
+    payload so audit can link the resolution back to the operator's decision
+    artifact.
+    """
+    if action not in {"continue", "cancel"}:
+        raise InvalidTransitionError(f"unknown checkpoint resolve action {action!r}")
+    blocker = conn.execute(
+        "SELECT * FROM blockers WHERE blocker_id = ?", (blocker_id,)
+    ).fetchone()
+    if blocker is None:
+        raise NotFoundError(f"blocker {blocker_id!r} not found")
+    if blocker["state"] != "open":
+        raise InvalidTransitionError("blocker is not open")
+    if blocker["severity"] != "human_checkpoint":
+        raise InvalidTransitionError(
+            "checkpoint resolve only applies to human_checkpoint blockers"
+        )
+    run_id = str(blocker["run_id"])
+    blocker_job_id = (
+        str(blocker["job_id"]) if blocker["job_id"] is not None else None
+    )
+    artifact_id: str | None = None
+    if decision_id is not None:
+        artifact_row = conn.execute(
+            """
+            SELECT artifact_id, run_id, job_id, session_id, logical_name
+            FROM artifacts
+            WHERE artifact_kind = 'decision'
+              AND run_id = ?
+              AND logical_name = ?
+            LIMIT 1
+            """,
+            (run_id, decision_id),
+        ).fetchone()
+        if artifact_row is None:
+            raise NotFoundError(
+                f"decision artifact for decision_id={decision_id!r} not found in run"
+            )
+        if artifact_row["job_id"] is not None or artifact_row["session_id"] is not None:
+            raise InvalidTransitionError(
+                "decision artifact must be run-level (no job or session binding)"
+            )
+        artifact_id = str(artifact_row["artifact_id"])
+
+    with transaction(conn):
+        now = utc_now()
+        downstream_payload: list[JsonObject] = []
+        run_state: str | None = None
+        if action == "continue":
+            conn.execute(
+                "UPDATE blockers SET state = 'resolved', resolved_at = ? WHERE blocker_id = ?",
+                (now, blocker_id),
+            )
+            if blocker_job_id is not None:
+                job = row_by_id(conn, "jobs", "job_id", blocker_job_id)
+                if job["state"] != "waiting_human":
+                    raise InvalidTransitionError(
+                        f"checkpoint job is not in waiting_human (state={job['state']!r})"
+                    )
+                message_id = job["current_message_id"]
+                if message_id is not None:
+                    conn.execute(
+                        """
+                        UPDATE queue_messages
+                        SET state = 'pending', current_lease_id = NULL, updated_at = ?
+                        WHERE message_id = ?
+                        """,
+                        (now, message_id),
+                    )
+                    conn.execute(
+                        """
+                        UPDATE jobs
+                        SET state = 'queued', current_lease_id = NULL, ready_at = ?
+                        WHERE job_id = ?
+                        """,
+                        (now, blocker_job_id),
+                    )
+                else:
+                    conn.execute(
+                        "UPDATE jobs SET state = 'blocked', current_lease_id = NULL WHERE job_id = ?",
+                        (blocker_job_id,),
+                    )
+                    enqueue_job(conn, job_id=blocker_job_id)
+                downstream_payload = downstream_jobs(conn, job_id=blocker_job_id)
+            event_payload: JsonObject = {
+                "blocker_id": blocker_id,
+                "action": "continue",
+            }
+            if decision_id is not None:
+                event_payload["decision_id"] = decision_id
+            if artifact_id is not None:
+                event_payload["decision_artifact_id"] = artifact_id
+            insert_event(
+                conn,
+                run_id=run_id,
+                event_type="checkpoint.resolved",
+                job_id=blocker_job_id,
+                artifact_id=artifact_id,
+                payload=event_payload,
+            )
+            next_actions_list = ["claim_available_work", "monitor_run_progress"]
+        else:
+            conn.execute(
+                "UPDATE blockers SET state = 'resolved', resolved_at = ? WHERE blocker_id = ?",
+                (now, blocker_id),
+            )
+            if blocker_job_id is not None:
+                job = row_by_id(conn, "jobs", "job_id", blocker_job_id)
+                if job["state"] != "waiting_human":
+                    raise InvalidTransitionError(
+                        f"checkpoint job is not in waiting_human (state={job['state']!r})"
+                    )
+                message_id = job["current_message_id"]
+                conn.execute(
+                    """
+                    UPDATE jobs
+                    SET state = 'canceled', current_lease_id = NULL,
+                        current_message_id = NULL, completed_at = ?
+                    WHERE job_id = ?
+                    """,
+                    (now, blocker_job_id),
+                )
+                if message_id is not None:
+                    conn.execute(
+                        """
+                        UPDATE queue_messages
+                        SET state = 'canceled', current_lease_id = NULL, updated_at = ?
+                        WHERE message_id = ?
+                        """,
+                        (now, message_id),
+                    )
+                downstream_payload = downstream_jobs(conn, job_id=blocker_job_id)
+            event_payload = {
+                "blocker_id": blocker_id,
+                "action": "cancel",
+            }
+            if decision_id is not None:
+                event_payload["decision_id"] = decision_id
+            if artifact_id is not None:
+                event_payload["decision_artifact_id"] = artifact_id
+            insert_event(
+                conn,
+                run_id=run_id,
+                event_type="checkpoint.canceled",
+                job_id=blocker_job_id,
+                artifact_id=artifact_id,
+                payload=event_payload,
+            )
+            maybe_complete_run(conn, run_id=run_id)
+            next_actions_list = ["inspect_run_state", "export_run_evidence"]
+        run_row = row_by_id(conn, "runs", "run_id", run_id)
+        run_state = str(run_row["state"])
+        return {
+            "status": "resolved",
+            "blocker_id": blocker_id,
+            "job_id": blocker_job_id,
+            "action": action,
+            "decision_id": decision_id,
+            "decision_artifact_id": artifact_id,
+            "run_state": run_state,
+            "downstream_jobs": downstream_payload,
+            "next_actions": next_actions_list,
+        }

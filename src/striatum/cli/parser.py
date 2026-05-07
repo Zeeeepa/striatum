@@ -199,6 +199,31 @@ def build_parser() -> argparse.ArgumentParser:
     requeue_stale.add_argument("--run-id", required=True)
     requeue_stale.add_argument("--job-id", required=True)
     requeue_stale.add_argument("--json", action="store_true")
+    cancel_job_p = recovery_sub.add_parser("cancel-job")
+    cancel_job_p.add_argument("--run-id", required=True)
+    cancel_job_p.add_argument("--job-id", required=True)
+    cancel_job_p.add_argument("--reason", required=True)
+    cancel_job_p.add_argument(
+        "--cascade",
+        action="store_true",
+        help="also cancel downstream blocked jobs whose only path was through this job",
+    )
+    cancel_job_p.add_argument("--json", action="store_true")
+
+    checkpoint = sub.add_parser("checkpoint")
+    checkpoint_sub = checkpoint.add_subparsers(dest="checkpoint_command", required=True)
+    checkpoint_resolve_p = checkpoint_sub.add_parser("resolve")
+    checkpoint_resolve_p.add_argument("--blocker-id", required=True)
+    checkpoint_resolve_p.add_argument(
+        "--action",
+        choices=["continue", "cancel"],
+        required=True,
+    )
+    checkpoint_resolve_p.add_argument(
+        "--decision-id",
+        help="optional decision artifact id to record alongside the resolution",
+    )
+    checkpoint_resolve_p.add_argument("--json", action="store_true")
 
     adapter = sub.add_parser("adapter")
     adapter_sub = adapter.add_subparsers(dest="adapter_command", required=True)

@@ -71,8 +71,17 @@ Completed on 2026-05-07:
    `code-change` styles. Remaining work includes linting output and path
    rewriting for reruns.
 4. Continue human-checkpoint UX. `status` and `why` now include decision
-   context, affected jobs, unblock path, and next actions; remaining work is
-   to keep refining evidence export and any explicit resume flow.
+   context, affected jobs, unblock path, and next actions. The explicit
+   resume flow landed on 2026-05-07 as `striatum checkpoint resolve
+   --blocker-id <id> --action {continue|cancel} [--decision-id <id>]`:
+   `continue` closes the blocker and re-queues the affected job; `cancel`
+   closes the blocker, marks the job canceled, and lets `maybe_complete_run`
+   finalize the run when no other work remains. Optional `--decision-id`
+   validates a run-level decision artifact and records its id on the
+   `checkpoint.resolved`/`checkpoint.canceled` event payload so audit can
+   link the resolution to the operator's decision artifact. Remaining work
+   is any further evidence-export polish that emerges from real operator
+   use.
 5. Explicit decision-artifact support for owner choices was added on
    2026-05-07. `decision record` writes durable Markdown with
    machine-checkable `striatum.decision.v1` front matter for "accepted",
@@ -86,12 +95,20 @@ Completed on 2026-05-07:
 7. Extend redaction tests for evidence export and artifact publication. Cover
    workflow titles, job prompts, model rationales, blocker text, transcript-like
    fields, and path hygiene.
-8. Continue recovery commands. `recovery stale-leases` now reports expired
-   lease recovery context and distinguishes repo-write work from review-only
-   work. `recovery requeue-stale` now provides a bounded operator requeue for
-   expired non-repo-write jobs and refuses repo-write jobs. Remaining work
-   includes abandoned write jobs, blocked review cycles, rerun attempts, and
-   explicit operator resume flows.
+8. Continue recovery commands. `recovery stale-leases` reports expired lease
+   recovery context and distinguishes repo-write work from review-only work.
+   `recovery requeue-stale` provides a bounded operator requeue for expired
+   non-repo-write jobs and refuses repo-write jobs. Explicit operator cancel
+   landed on 2026-05-07 as `striatum recovery cancel-job --run-id <id>
+   --job-id <id> --reason <text> [--cascade]`: it releases active/expired
+   leases, marks the queue message canceled, transitions the job to
+   `canceled`, emits `job.canceled`, and calls `maybe_complete_run`.
+   Terminal-state jobs are refused with exit code 4; jobs with blocked
+   dependents whose only path was through this one are refused unless
+   `--cascade` is set, in which case dependents are canceled transitively
+   in the same transaction. Remaining work includes rerun-attempt support
+   and any further worktree-isolated abandoned-write recovery beyond the
+   bounded paths above.
 9. Compact TUI / local dashboard over the existing SQLite state was delivered
    on 2026-05-07: `striatum dashboard --run-id <id> [--refresh N] [--once]`
    renders a single-screen view of run state, job counts, verdicts, blockers,
