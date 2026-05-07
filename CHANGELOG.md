@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- Split `striatum.cli` from a single ~3.5k-line module into a package
+  (`src/striatum/cli/`) organized by concern: `parser`, `dispatch`,
+  `mutations`, `introspect`, `evidence`, `run_summary`, `recovery`,
+  `worktree`, `supervise`, and `workflow_init`. Public surface is preserved
+  via re-exports in `striatum/cli/__init__.py`; the `striatum.cli:main`
+  console entry point and `python -m striatum.cli` continue to work
+  unchanged. Behavior is identical (pure refactor, all existing tests pass);
+  cross-module helper calls that need to honor `monkeypatch.setattr` against
+  `striatum.cli` use a lazy `from striatum import cli as _cli` lookup.
 - Added optional per-kind Markdown front-matter validation in
   `publish-artifact` for `decision` (`striatum.decision.v1`), `finding`
   (`striatum.finding.v1`), `findings_ledger`
