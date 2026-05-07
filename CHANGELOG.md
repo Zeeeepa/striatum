@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Added `striatum dashboard` command: a compact, dependency-free terminal
+  dashboard over the existing SQLite state that summarizes run state, job
+  counts, verdicts, open blockers, claimable work, deterministic next actions,
+  and the most recent events. Supports `--refresh` for live mode and `--once`
+  for one-shot rendering in scripts and CI.
 - Added long-lived process supervision (RFC 0009). New `striatum supervise
   start | send | stop | status | list` commands hold an agent CLI alive
   across multiple work packets: `start` forks the lane command with

@@ -457,6 +457,28 @@ run needs explicit human judgment.
 "$RUNNER" --repo "$TARGET_REPO" doctor --run-id <run_id> --json
 ```
 
+### Dashboard
+
+For a compact at-a-glance view of a run, use the dashboard. It is a
+dependency-free terminal renderer over the same SQLite state that `status`
+exposes:
+
+```bash
+"$RUNNER" --repo "$TARGET_REPO" dashboard --run-id <run_id>
+```
+
+The dashboard refreshes every 2 seconds by default and clears the screen
+between frames. It shows run state and branch, job counts by state, verdict
+counts, open blockers (including human checkpoints), claimable work grouped by
+role/lane, deterministic next actions, and the most recent events. Use
+`Ctrl-C` to quit.
+
+Useful flags:
+
+- `--refresh <seconds>`: change the refresh cadence.
+- `--once`: render a single frame to stdout and exit. Handy in scripts and CI
+  assertions where a redrawing TUI is not what you want.
+
 To publish a redacted run snapshot:
 
 ```bash
@@ -593,6 +615,7 @@ striatum status
 striatum why
 striatum doctor
 striatum evidence export
+<<<<<<< HEAD
 striatum recovery stale-leases
 striatum recovery requeue-stale
 striatum adapter run
@@ -615,6 +638,9 @@ striatum supervise send
 striatum supervise stop
 striatum supervise status
 striatum supervise list
+=======
+striatum dashboard
+>>>>>>> aacbeef (Add compact terminal dashboard over SQLite state)
 ```
 
 Stable exit codes:

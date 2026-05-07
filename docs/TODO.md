@@ -86,8 +86,11 @@ Completed on 2026-05-07:
    expired non-repo-write jobs and refuses repo-write jobs. Remaining work
    includes abandoned write jobs, blocked review cycles, rerun attempts, and
    explicit operator resume flows.
-9. Add a compact TUI or local dashboard over the existing SQLite state before
-   investing in web or Slack surfaces.
+9. Compact TUI / local dashboard over the existing SQLite state was delivered
+   on 2026-05-07: `striatum dashboard --run-id <id> [--refresh N] [--once]`
+   renders a single-screen view of run state, job counts, verdicts, blockers,
+   claimable work, next actions, and recent events using only the standard
+   library.
 10. Continue local API/MCP support. `striatum.api.invoke` now wraps the same
     CLI parser/dispatcher without direct SQLite writes, `docs/SPEC.md`
     defines the MCP boundary, and a minimal local stdio JSON-RPC wrapper maps

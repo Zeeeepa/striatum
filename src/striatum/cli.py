@@ -526,6 +526,11 @@ def build_parser() -> argparse.ArgumentParser:
     supervise_list_p.add_argument("--state")
     supervise_list_p.add_argument("--json", action="store_true")
 
+    dashboard = sub.add_parser("dashboard")
+    dashboard.add_argument("--run-id", required=True)
+    dashboard.add_argument("--refresh", type=float, default=2.0)
+    dashboard.add_argument("--once", action="store_true")
+
     return parser
 
 
@@ -559,6 +564,16 @@ def dispatch(args: argparse.Namespace) -> object:
         return mermaid
     if args.command == "workflow" and args.workflow_command == "init":
         return workflow_init(Path(args.path), style=args.style)
+    if args.command == "dashboard":
+        from striatum.dashboard import run as run_dashboard
+
+        run_dashboard(
+            repo,
+            run_id=args.run_id,
+            refresh_seconds=float(args.refresh),
+            once=bool(args.once),
+        )
+        return None
     ensure_initialized(repo)
     with connect(repo) as conn:
         if args.command == "run" and args.run_command == "prepare":
@@ -2293,6 +2308,33 @@ def events_for_process(conn: sqlite3.Connection, *, process_id: str) -> list[Jso
             continue
         result.append(dict(row))
     return result
+
+
+def recent_events_for_run(
+    conn: sqlite3.Connection,
+    *,
+    run_id: str,
+    limit: int = 10,
+) -> list[JsonObject]:
+    """Return the most recent events for a run with workflow_job_id context.
+
+    Used by the dashboard renderer; kept as a thin helper so dashboard.py
+    does not have to write SQL directly.
+    """
+    capped = max(1, min(int(limit), 1000))
+    rows = conn.execute(
+        f"""
+        SELECT e.event_id, e.event_type, e.payload_json, e.created_at,
+               e.job_id, j.workflow_job_id
+        FROM events e
+        LEFT JOIN jobs j ON j.job_id = e.job_id
+        WHERE e.run_id = ?
+        ORDER BY e.event_id DESC
+        LIMIT {capped}
+        """,
+        (run_id,),
+    ).fetchall()
+    return list(reversed([dict(row) for row in rows]))
 
 
 def table_exists(conn: sqlite3.Connection, table_name: str) -> bool:
