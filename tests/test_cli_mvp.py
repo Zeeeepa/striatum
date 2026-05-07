@@ -1260,7 +1260,9 @@ def test_why_resolves_blocker_artifact_and_verdict(tmp_path: Path) -> None:
     assert verdict_why["artifact"]["artifact_id"] == artifact["artifact_id"]
 
 
-def test_evidence_redaction_drops_unknown_fields_by_default(tmp_path: Path, monkeypatch) -> None:
+def test_evidence_redaction_drops_unknown_fields_by_default(
+    tmp_path: Path, monkeypatch: Any
+) -> None:
     from striatum import cli as cli_module
     from striatum.db import connect, db_path
 
@@ -1269,7 +1271,7 @@ def test_evidence_redaction_drops_unknown_fields_by_default(tmp_path: Path, monk
     run_id = prepare_started_run(tmp_path, workflow_path=workflow_path)
     real_snapshot = cli_module.evidence_snapshot
 
-    def patched_snapshot(conn, *, run_id):
+    def patched_snapshot(conn: sqlite3.Connection, *, run_id: str) -> JsonDict:
         payload = real_snapshot(conn, run_id=run_id)
         payload["future_unknown_field"] = private_marker
         # Inject a nested unknown field inside a known list element.
