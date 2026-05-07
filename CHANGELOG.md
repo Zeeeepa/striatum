@@ -7,6 +7,11 @@
   `user_version = 1`, `striatum init` and every connect apply pending
   migrations inside a single `BEGIN IMMEDIATE` transaction, and a database
   newer than the runner supports is refused with the new exit code 9.
+- MCP wrapper now speaks LSP-style `Content-Length` framing by default with
+  automatic line-delimited fallback. Real MCP clients (Claude Desktop, IDE
+  MCP integrations) can connect cleanly; existing line-delimited scripts and
+  tests keep working unchanged. Added `python -m striatum.mcp --framing
+  {auto,line,framed}` for operators that need to pin the wire shape.
 - `striatum branch confirm` now honors the previously inert `--create` and
   `--use-current` flags and adds a new `--strict` flag. `--create` runs
   `git checkout -b <branch>` (with idempotent fallback to `git checkout`),
