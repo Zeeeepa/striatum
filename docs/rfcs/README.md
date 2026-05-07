@@ -21,7 +21,7 @@ and, when behavior changes, `docs/SPEC.md`.
 | [0006](0006-sqlite-schema-migration-system.md) | accepted | Forward-only SQLite migrations keyed off `PRAGMA user_version`. |
 | [0007](0007-workflow-visualization.md) | proposed | Export workflow graphs for authoring and review. |
 | [0008](0008-worktree-isolation-for-parallel-jobs.md) | accepted | Opt-in per-job Git worktree isolation for parallel repo-write jobs. |
-| [0009](0009-long-lived-process-supervision.md) | proposed | Architecture for V2 supervised agent processes that span multiple work packets. |
+| [0009](0009-long-lived-process-supervision.md) | accepted | Architecture for V2 supervised agent processes that span multiple work packets. |
 
 ## Template
 

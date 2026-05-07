@@ -344,6 +344,60 @@ metadata plus lifecycle events in SQLite. Stdout and stderr are suppressed
 unless the operator explicitly requests inherited stdio; Striatum does not
 capture transcripts.
 
+### Process Supervision
+
+`adapter run` is single-shot: the child exits with the configured command,
+and the next work packet must spawn a fresh process. Long-lived agent CLIs
+(Codex, Claude Code, Gemini CLI, etc.) need a different shape: one
+persistent process that receives multiple work packets across multiple
+turns. RFC 0009 introduces a `striatum supervise` command group plus a new
+`process_supervisors` table for that flow. The two adapter modes coexist;
+`adapter run` is unchanged.
+
+`process_supervisors` is added by migration version 4 and is separate from
+`process_executions` so single-shot launches and supervised sessions keep
+distinct rows and event streams. State values are
+`('starting','attached','detached','lost','stopped')` and a partial unique
+index on `session_id` enforces "at most one active supervisor per session"
+without blocking historical `stopped` or `lost` rows.
+
+The supervise CLI surface:
+
+- `striatum supervise start --session-id <id>` validates the session is
+  active and that its lane uses the `process` adapter, refuses if the
+  session already has a supervisor in `('starting','attached','detached')`
+  state, creates `.striatum/scratch/<supervisor_id>/stdin.pipe` via
+  `os.mkfifo`, forks the lane command with `start_new_session=True`, sends
+  stdout/stderr to `DEVNULL` (no transcripts, per D028), and transitions
+  the row to `attached` once the child pid is alive. A
+  `supervisor.starting` and `supervisor.started` event are recorded.
+- `striatum supervise send --session-id <id> --packet-id <id>` looks up
+  the stored work packet, writes its `packet_json` plus a trailing newline
+  to the supervisor's named pipe, refreshes `heartbeat_at`, and records a
+  `supervisor.packet_delivered` event with the byte count. The agent reads
+  packets line-by-line from stdin; reactions remain CLI-driven (publish,
+  ack, complete, verdict) so the supervisor never parses agent stdout.
+- `striatum supervise stop --session-id <id> --reason <text>` sends
+  `SIGTERM`, waits up to five seconds, falls back to `SIGKILL` if the
+  process is still present, removes the FIFO, marks the row `stopped`,
+  and records `supervisor.stopped`.
+- `striatum supervise status --session-id <id>` probes liveness via
+  `os.kill(pid, 0)`. An active row whose pid is gone is transitioned to
+  `lost` with a `supervisor.lost` event before returning. Status itself
+  never starts or kills processes.
+- `striatum supervise list --run-id <id> [--state <state>]` lists rows
+  for a run, optionally filtered by state.
+
+Recovery: when a session's lease expires, `expire_leases` marks any
+`attached` supervisor for that session as `lost` and records
+`supervisor.lease_expired_with_supervisor`. The OS process is not
+auto-killed; operator inspection is required, mirroring D036's stale-lease
+policy for repo-write work.
+
+Doctor: `striatum doctor` flags supervisors in `('starting','attached',
+'detached')` whose pid is gone, and `attached` supervisors whose
+`stdin_pipe_path` no longer exists on disk.
+
 ### Worktree Isolation
 
 Lanes may opt into per-job filesystem isolation by setting

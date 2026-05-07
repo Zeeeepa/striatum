@@ -1,6 +1,6 @@
 # RFC 0009: Long-Lived Process Supervision
 
-Status: proposed
+Status: accepted
 Date: 2026-05-07
 Context:
 `src/striatum/process_adapter.py`,
@@ -236,3 +236,87 @@ A passing implementation must demonstrate:
   `release --requeue` first? Forcing `release` first keeps state
   transitions explicit; allowing inline release reduces operator
   steps. Pick one and document.
+
+## Implementation Notes
+
+The implementation that landed here matches the proposal with one schema
+refinement: rather than overloading `process_executions` with a
+`supervisor_state` column, the supervisor flow uses a separate
+`process_supervisors` table introduced as migration version 4. Single-shot
+`adapter run` and supervised flows therefore keep distinct rows and event
+streams — `process.*` events stay tied to single-shot launches, and
+`supervisor.*` events describe long-lived sessions. Both flows coexist; the
+existing `striatum adapter run` command is unchanged.
+
+Schema (migration v4) for `process_supervisors`:
+
+```sql
+CREATE TABLE process_supervisors (
+  supervisor_id TEXT PRIMARY KEY,
+  run_id TEXT NOT NULL REFERENCES runs(run_id),
+  session_id TEXT NOT NULL REFERENCES sessions(session_id),
+  adapter TEXT NOT NULL,
+  command_json TEXT NOT NULL,
+  cwd TEXT NOT NULL,
+  scratch_path TEXT NOT NULL,
+  stdin_pipe_path TEXT,
+  pid INTEGER,
+  state TEXT NOT NULL CHECK (state IN ('starting','attached','detached','lost','stopped')),
+  started_at TEXT NOT NULL,
+  heartbeat_at TEXT,
+  ended_at TEXT,
+  stop_reason TEXT
+);
+CREATE UNIQUE INDEX uq_active_supervisor_per_session
+  ON process_supervisors(session_id) WHERE state IN ('starting','attached','detached');
+CREATE INDEX idx_process_supervisors_run
+  ON process_supervisors(run_id, state);
+```
+
+CLI surface implemented in `src/striatum/supervisor.py` and wired into
+`src/striatum/cli.py`:
+
+- `striatum supervise start --session-id <id>` — validates the session is
+  active and that its lane uses the `process` adapter, refuses if a
+  supervisor row already exists in `('starting','attached','detached')`,
+  creates `.striatum/scratch/<supervisor_id>/stdin.pipe` via `os.mkfifo`,
+  forks the lane command with `start_new_session=True`, redirects
+  stdout/stderr to `DEVNULL` (no transcripts, per D028), and transitions the
+  row to `attached` once the pid is alive.
+- `striatum supervise send --session-id <id> --packet-id <id>` — looks up
+  the stored packet, writes its `packet_json` plus a trailing newline to
+  the named pipe, refreshes `heartbeat_at`, and records a
+  `supervisor.packet_delivered` event with the byte count.
+- `striatum supervise stop --session-id <id> --reason <text>` — sends
+  `SIGTERM`, waits up to 5 seconds, falls back to `SIGKILL` if needed,
+  removes the FIFO, and transitions the row to `stopped`.
+- `striatum supervise status --session-id <id>` — probes liveness with
+  `os.kill(pid, 0)` and transitions an active row to `lost` (with a
+  `supervisor.lost` event) when the pid is gone before returning the row
+  plus a `liveness` field.
+- `striatum supervise list --run-id <id> [--state <state>]` — lists rows
+  for a run, optionally filtered by state.
+
+`expire_leases` (in `src/striatum/db.py`) calls a small recovery hook that
+marks any `attached` supervisor for the expiring lease's session as `lost`
+and emits `supervisor.lease_expired_with_supervisor`. The OS process is not
+auto-killed: operator inspection is required, mirroring the stale-lease
+policy for repo-write work (D036).
+
+The pipe transport opens the FIFO `O_RDWR` in the parent before forking,
+clears `O_NONBLOCK` on the inherited fd so the child sees normal blocking
+stdin semantics, and passes the fd to `subprocess.Popen` as `stdin`. This
+keeps a kernel-level "has writer" reference for the duration of the child
+so subsequent `supervise send` invocations can attach as writers without
+the child seeing premature EOF when no other writer is currently connected.
+
+Doctor checks in `cli.py:doctor()` flag two operator-actionable conditions:
+supervisors in `('starting','attached','detached')` whose pid is gone (the
+process was killed externally or the host was rebooted), and `attached`
+supervisors whose `stdin_pipe_path` no longer exists on disk.
+
+The Open Questions above remain open for follow-up RFCs: the V1 transport
+ships pipe stdin (no PTY), `supervise send` is fire-and-forget (no mid-turn
+guard), tmux attachment is out of scope, no heartbeat ping protocol is
+required, Windows pipe namespaces are not handled, and `supervise stop`
+does not auto-release leases — operators must call `release` separately.

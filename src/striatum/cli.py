@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sqlite3
 import subprocess
 import sys
@@ -44,6 +45,14 @@ from striatum.db import (
 from striatum.errors import ArtifactError, InvalidTransitionError, NotFoundError, StriatumError, WorkflowError
 from striatum.identity import artifact_author_identity
 from striatum.process_adapter import run_process_adapter
+from striatum.supervisor import (
+    SUPERVISOR_ACTIVE_STATES,
+    supervise_list,
+    supervise_send,
+    supervise_start,
+    supervise_status,
+    supervise_stop,
+)
 from striatum.workflow import create_run, load_workflow, plan_workflow, workflow_graph_data, workflow_graph_mermaid
 
 
@@ -496,6 +505,27 @@ def build_parser() -> argparse.ArgumentParser:
     worktree_list.add_argument("--run-id")
     worktree_list.add_argument("--json", action="store_true")
 
+    supervise = sub.add_parser("supervise")
+    supervise_sub = supervise.add_subparsers(dest="supervise_command", required=True)
+    supervise_start_p = supervise_sub.add_parser("start")
+    supervise_start_p.add_argument("--session-id", required=True)
+    supervise_start_p.add_argument("--json", action="store_true")
+    supervise_send_p = supervise_sub.add_parser("send")
+    supervise_send_p.add_argument("--session-id", required=True)
+    supervise_send_p.add_argument("--packet-id", required=True)
+    supervise_send_p.add_argument("--json", action="store_true")
+    supervise_stop_p = supervise_sub.add_parser("stop")
+    supervise_stop_p.add_argument("--session-id", required=True)
+    supervise_stop_p.add_argument("--reason", required=True)
+    supervise_stop_p.add_argument("--json", action="store_true")
+    supervise_status_p = supervise_sub.add_parser("status")
+    supervise_status_p.add_argument("--session-id", required=True)
+    supervise_status_p.add_argument("--json", action="store_true")
+    supervise_list_p = supervise_sub.add_parser("list")
+    supervise_list_p.add_argument("--run-id", required=True)
+    supervise_list_p.add_argument("--state")
+    supervise_list_p.add_argument("--json", action="store_true")
+
     return parser
 
 
@@ -677,6 +707,16 @@ def dispatch(args: argparse.Namespace) -> object:
             return worktree_release(conn, repo=repo, worktree_id=args.worktree_id)
         if args.command == "worktree" and args.worktree_command == "list":
             return worktree_list(conn, run_id=args.run_id)
+        if args.command == "supervise" and args.supervise_command == "start":
+            return supervise_start(conn, repo=repo, session_id=args.session_id)
+        if args.command == "supervise" and args.supervise_command == "send":
+            return supervise_send(conn, session_id=args.session_id, packet_id=args.packet_id)
+        if args.command == "supervise" and args.supervise_command == "stop":
+            return supervise_stop(conn, session_id=args.session_id, reason=args.reason)
+        if args.command == "supervise" and args.supervise_command == "status":
+            return supervise_status(conn, session_id=args.session_id)
+        if args.command == "supervise" and args.supervise_command == "list":
+            return supervise_list(conn, run_id=args.run_id, state=args.state)
     raise StriatumError("unknown command", exit_code=2)
 
 
@@ -3350,6 +3390,38 @@ def doctor(
                 ),
                 context={"worktree_path": row["worktree_path"]},
             )
+    # RFC 0009: surface supervisors whose state claims liveness but whose
+    # OS pid is gone, and attached supervisors whose stdin pipe has been
+    # removed out from under them. Both are operator-actionable signals;
+    # doctor never auto-mutates state.
+    supervisor_active_placeholders = ",".join(["?"] * len(SUPERVISOR_ACTIVE_STATES))
+    active_supervisors = conn.execute(
+        f"""
+        SELECT supervisor_id, pid, state, stdin_pipe_path
+        FROM process_supervisors
+        WHERE state IN ({supervisor_active_placeholders})
+          AND (? IS NULL OR run_id = ?)
+        """,
+        (*SUPERVISOR_ACTIVE_STATES, run_id, run_id),
+    ).fetchall()
+    for row in active_supervisors:
+        pid_value = row["pid"]
+        if pid_value is None:
+            continue
+        try:
+            os.kill(int(pid_value), 0)
+        except ProcessLookupError:
+            problems.append(f"supervisor pid is gone: {row['supervisor_id']}")
+            continue
+        except PermissionError:
+            problems.append(f"supervisor pid is gone: {row['supervisor_id']}")
+            continue
+        if row["state"] == "attached":
+            pipe_path = row["stdin_pipe_path"]
+            if pipe_path is None or not Path(str(pipe_path)).exists():
+                problems.append(
+                    f"supervisor stdin pipe missing: {row['supervisor_id']}"
+                )
     schema_version = conn.execute(
         "SELECT value FROM schema_meta WHERE key = 'schema_version'"
     ).fetchone()

@@ -89,11 +89,49 @@ def _apply_v3_work_packets_index(conn: sqlite3.Connection) -> None:
     )
 
 
+def _apply_v4_process_supervisors(conn: sqlite3.Connection) -> None:
+    """Add the ``process_supervisors`` table for RFC 0009 long-lived supervision.
+
+    The single-shot ``process_executions`` table records one ``Popen.communicate``
+    launch per claimed packet. RFC 0009 introduces a separate, multi-packet
+    supervision flow that holds an agent CLI alive across packets via a named
+    pipe on stdin. The two coexist: ``process_executions`` is unchanged.
+
+    The partial unique index enforces "at most one active supervisor per
+    session" without conflicting with historical ``stopped`` or ``lost`` rows.
+    """
+    conn.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS process_supervisors (
+          supervisor_id TEXT PRIMARY KEY,
+          run_id TEXT NOT NULL REFERENCES runs(run_id),
+          session_id TEXT NOT NULL REFERENCES sessions(session_id),
+          adapter TEXT NOT NULL,
+          command_json TEXT NOT NULL,
+          cwd TEXT NOT NULL,
+          scratch_path TEXT NOT NULL,
+          stdin_pipe_path TEXT,
+          pid INTEGER,
+          state TEXT NOT NULL CHECK (state IN ('starting','attached','detached','lost','stopped')),
+          started_at TEXT NOT NULL,
+          heartbeat_at TEXT,
+          ended_at TEXT,
+          stop_reason TEXT
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS uq_active_supervisor_per_session
+          ON process_supervisors(session_id) WHERE state IN ('starting','attached','detached');
+        CREATE INDEX IF NOT EXISTS idx_process_supervisors_run
+          ON process_supervisors(run_id, state);
+        """
+    )
+
+
 MIGRATIONS: list[Migration] = sorted(
     [
         Migration(version=1, label="v1 baseline schema", apply=_apply_v1),
         Migration(version=2, label="job_worktrees table", apply=_apply_v2_job_worktrees),
         Migration(version=3, label="work_packets fresh-session index", apply=_apply_v3_work_packets_index),
+        Migration(version=4, label="process_supervisors table", apply=_apply_v4_process_supervisors),
     ],
     key=lambda migration: migration.version,
 )

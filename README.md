@@ -606,6 +606,17 @@ striatum worktree release
 striatum worktree list
 ```
 
+Long-lived process supervision (RFC 0009; see `docs/SPEC.md` Process
+Supervision):
+
+```text
+striatum supervise start
+striatum supervise send
+striatum supervise stop
+striatum supervise status
+striatum supervise list
+```
+
 Stable exit codes:
 
 - `0`: success, including `claim-next` with `no_work`;

@@ -302,6 +302,10 @@ def active_lease_for(
 
 def expire_leases(conn: sqlite3.Connection, *, run_id: str) -> None:
     """Expire stale leases lazily during CLI mutations."""
+    # Local import: supervisor.py imports from db.py, so a top-level import
+    # would create a cycle. The recovery hook is small and well-isolated.
+    from striatum.supervisor import mark_supervisor_lost_for_lease
+
     now = utc_now()
     rows = conn.execute(
         "SELECT * FROM leases WHERE run_id = ? AND state = 'active' AND expires_at < ?",
@@ -349,6 +353,16 @@ def expire_leases(conn: sqlite3.Connection, *, run_id: str) -> None:
             message_id=message_id,
             lease_id=str(lease["lease_id"]),
             payload={"job_state": job_state, "message_state": message_state},
+        )
+        # If the session that just lost its lease has an attached supervisor,
+        # mark the supervisor lost without auto-killing the OS process. RFC
+        # 0009 keeps the same operator-inspection policy as stale leases for
+        # repo-write work: state transitions are explicit, not automatic.
+        mark_supervisor_lost_for_lease(
+            conn,
+            run_id=run_id,
+            session_id=str(lease["owner_session_id"]),
+            lease_id=str(lease["lease_id"]),
         )
         worktree = active_worktree_for_job(conn, job_id=str(job["job_id"]))
         if worktree is not None and str(worktree["lease_id"]) == str(lease["lease_id"]):

@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+- Added long-lived process supervision (RFC 0009). New `striatum supervise
+  start | send | stop | status | list` commands hold an agent CLI alive
+  across multiple work packets: `start` forks the lane command with
+  `start_new_session=True` and a per-supervisor named pipe at
+  `.striatum/scratch/<supervisor_id>/stdin.pipe`, `send` delivers a stored
+  work packet as a newline-terminated JSON line through that pipe, `stop`
+  sends `SIGTERM` (then `SIGKILL` after a five-second grace), `status`
+  probes liveness and lazily transitions stuck rows to `lost`, and `list`
+  reports supervisors for a run. The single-shot `striatum adapter run`
+  command is unchanged — both flows coexist. Migration version 4 adds the
+  new `process_supervisors` table with a partial unique index enforcing
+  "at most one active supervisor per session". `expire_leases` marks
+  supervised sessions `lost` without auto-killing the OS process, and
+  `striatum doctor` flags supervisors whose pid is gone or whose stdin
+  pipe is missing from disk. Stdout and stderr are sent to `DEVNULL`; the
+  supervisor never captures transcripts or parses agent output for
+  workflow state, preserving D028 and D037.
 - `striatum doctor --verbose` now augments the historical string `problems`
   list with a `problem_records` list of structured rows. Each record carries a
   stable `check` name (e.g. `active_job_without_active_lease`,

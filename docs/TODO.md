@@ -38,8 +38,16 @@ Completed on 2026-05-07:
 1. Expand the generic process adapter beyond the minimal local command runner
    added on 2026-05-07. The current slice can launch configured process lane
    command arrays for claimed work and record process metadata/events without
-   transcript capture; remaining work includes longer-lived interactive
-   supervision (RFC 0009) and broader adapter recovery UX.
+   transcript capture. Long-lived interactive supervision (RFC 0009) landed
+   on 2026-05-07: a new `process_supervisors` table (migration version 4),
+   `striatum supervise start | send | stop | status | list` commands that
+   fork the lane command in a new session and deliver work packets through
+   a per-supervisor named pipe, lazy lease-expiry recovery that flags
+   supervisors `lost` without auto-killing the OS process, and `doctor`
+   checks for dead pids and missing stdin pipes. Remaining work is a
+   supervised-aware `claim-next` that routes packets through `supervise
+   send` instead of a fresh single-shot launch, PTY support for CLIs that
+   refuse non-tty stdin, and broader adapter recovery UX.
 2. Continue adapter constraint enforcement. Workflow validation now supports
    lane `required_enforcement` on 2026-05-07, records requested and actual
    enforcement as `enforced`, `advisory`, or `unsupported`, and rejects lanes
