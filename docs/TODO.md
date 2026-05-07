@@ -22,7 +22,7 @@ so external references keep resolving even as items move between sections.
 | 3 | Workflow authoring tooling | 🟡 most done |
 | 4 | Human-checkpoint UX | ✅ done |
 | 5 | Decision-artifact support | ✅ done |
-| 6 | Artifact schema (front matter) | 🟡 4 of N kinds |
+| 6 | Artifact schema (front matter) | ✅ 7 kinds + open registry |
 | 7 | Redaction tests | 🟡 coverage continues |
 | 8 | Recovery commands | ✅ done |
 | 9 | TUI / local dashboard | ✅ done |
@@ -36,6 +36,7 @@ so external references keep resolving even as items move between sections.
 | 17 | SQLite migration system (RFC 0006) | ✅ done |
 | F1 | Run historical bootstrap as runner workflow | ⏳ open |
 | F2 | Fuller publication policy | ⏳ open |
+| F3 | Round-6 RFC 0002 + 0003/0004/0005 follow-up | ✅ done |
 
 Legend: ✅ done · 🟡 most done (sub-tasks remain) · ⏳ open
 
