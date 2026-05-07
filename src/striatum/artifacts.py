@@ -402,7 +402,6 @@ def publish_artifact(
             payload={"logical_name": logical_name, "path": path_text, "sha256": digest},
         )
         return {"status": "published", "artifact_id": artifact_id, "sha256": digest}
-<<<<<<< HEAD
 
 
 def validate_optional_markdown_author_line(

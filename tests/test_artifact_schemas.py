@@ -30,7 +30,7 @@ def run_cli(repo: Path, *args: str, check: bool = True) -> dict[str, object]:
         )
     if result.stdout.strip() == "":
         return {}
-    payload = json.loads(result.stdout)
+    payload: dict[str, object] = json.loads(result.stdout)
     payload["returncode"] = result.returncode
     return payload
 
