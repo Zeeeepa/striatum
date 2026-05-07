@@ -44,10 +44,16 @@ Completed on 2026-05-07:
    fork the lane command in a new session and deliver work packets through
    a per-supervisor named pipe, lazy lease-expiry recovery that flags
    supervisors `lost` without auto-killing the OS process, and `doctor`
-   checks for dead pids and missing stdin pipes. Remaining work is a
-   supervised-aware `claim-next` that routes packets through `supervise
-   send` instead of a fresh single-shot launch, PTY support for CLIs that
-   refuse non-tty stdin, and broader adapter recovery UX.
+   checks for dead pids and missing stdin pipes. Supervised-aware
+   `claim-next` was delivered on 2026-05-07: when the claiming session has
+   an `attached` supervisor, `claim_next` writes the freshly built packet
+   through the supervisor's stdin pipe inside the same write transaction,
+   records a `supervisor.packet_delivered` event, and surfaces a
+   `supervisor_delivery: {supervisor_id, bytes_written}` field in the
+   response (or `{supervisor_id, error: "stdin_pipe_missing"}` with the
+   supervisor transitioned to `lost` if the pipe is gone). Sessions without
+   a supervisor see no new field. Remaining work is PTY support for CLIs
+   that refuse non-tty stdin and broader adapter recovery UX.
 2. Continue adapter constraint enforcement. Workflow validation now supports
    lane `required_enforcement` on 2026-05-07, records requested and actual
    enforcement as `enforced`, `advisory`, or `unsupported`, and rejects lanes

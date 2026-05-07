@@ -104,7 +104,15 @@ parent session unless explicitly registered as first-class sessions.
 
 `claim-next` lazily expires active leases, then atomically claims the oldest
 eligible pending work message. It returns a structured work packet and stores
-the packet JSON plus hash.
+the packet JSON plus hash. When the claiming session has an `attached`
+supervisor (RFC 0009), the runner additionally writes the packet through the
+supervisor's stdin pipe inside the same transaction and surfaces a
+`supervisor_delivery: {supervisor_id, bytes_written}` field in the response so
+the caller knows the packet was already delivered. If the pipe is missing or
+the write fails, the supervisor transitions to `lost` and the response
+reports `supervisor_delivery: {supervisor_id, error: "stdin_pipe_missing"}`;
+the packet itself is still returned so the caller can recover. Sessions
+without a supervisor see no `supervisor_delivery` field.
 
 Required transition commands:
 

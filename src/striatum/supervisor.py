@@ -466,6 +466,110 @@ def supervise_list(
     }
 
 
+def deliver_packet_to_attached_supervisor(
+    conn: sqlite3.Connection,
+    *,
+    run_id: str,
+    session_id: str,
+    packet_id: str,
+    packet_json: str,
+) -> JsonObject | None:
+    """Auto-route a freshly claimed packet to this session's supervisor.
+
+    Called from :func:`striatum.db.claim_next` while still inside the claim
+    transaction so packet creation and supervisor bookkeeping land atomically.
+
+    The helper looks for an ``attached`` supervisor row for ``session_id``. If
+    none exists, it returns ``None`` (the caller leaves the response shape
+    unchanged for backwards compatibility). Otherwise it attempts to write the
+    packet payload (plus a trailing newline) to the supervisor's stdin pipe
+    and:
+
+    - On success, refreshes ``heartbeat_at``, records a
+      ``supervisor.packet_delivered`` event, and returns
+      ``{"supervisor_id": ..., "bytes_written": int}``.
+    - If the pipe is missing on disk or the write fails with
+      ``BrokenPipeError``/``OSError``, transitions the supervisor to ``lost``,
+      emits ``supervisor.lost``, and returns
+      ``{"supervisor_id": ..., "error": "stdin_pipe_missing"}``. The packet
+      itself remains valid; the caller can retry once the supervisor is
+      restored.
+
+    All SQL runs on the caller-supplied connection without opening a nested
+    transaction. The caller must already be inside ``transaction(conn)``.
+    """
+    row = conn.execute(
+        """
+        SELECT * FROM process_supervisors
+        WHERE session_id = ? AND state = 'attached'
+        ORDER BY started_at DESC
+        LIMIT 1
+        """,
+        (session_id,),
+    ).fetchone()
+    if row is None:
+        return None
+
+    supervisor_id = str(row["supervisor_id"])
+    pipe_path_text = row["stdin_pipe_path"]
+    pipe_path = Path(str(pipe_path_text)) if pipe_path_text else None
+
+    payload = packet_json if packet_json.endswith("\n") else packet_json + "\n"
+    payload_bytes = payload.encode("utf-8")
+
+    error: str | None = None
+    if pipe_path is None or not pipe_path.exists():
+        error = "stdin_pipe_missing"
+    else:
+        try:
+            bytes_written = _write_to_pipe(pipe_path, payload_bytes)
+        except (InvalidTransitionError, BrokenPipeError, OSError):
+            error = "stdin_pipe_missing"
+
+    if error is not None:
+        now = utc_now()
+        conn.execute(
+            """
+            UPDATE process_supervisors
+            SET state = 'lost', ended_at = ?, stop_reason = ?
+            WHERE supervisor_id = ?
+            """,
+            (now, "stdin pipe missing during auto-delivery", supervisor_id),
+        )
+        insert_event(
+            conn,
+            run_id=run_id,
+            event_type="supervisor.lost",
+            actor_session_id=session_id,
+            payload={
+                "supervisor_id": supervisor_id,
+                "pid": row["pid"],
+                "reason": "stdin pipe missing during auto-delivery",
+                "phase": "claim_next_auto_delivery",
+            },
+        )
+        return {"supervisor_id": supervisor_id, "error": error}
+
+    delivered_at = utc_now()
+    conn.execute(
+        "UPDATE process_supervisors SET heartbeat_at = ? WHERE supervisor_id = ?",
+        (delivered_at, supervisor_id),
+    )
+    insert_event(
+        conn,
+        run_id=run_id,
+        event_type="supervisor.packet_delivered",
+        actor_session_id=session_id,
+        payload={
+            "supervisor_id": supervisor_id,
+            "packet_id": packet_id,
+            "bytes_written": bytes_written,
+            "via": "claim_next_auto_delivery",
+        },
+    )
+    return {"supervisor_id": supervisor_id, "bytes_written": bytes_written}
+
+
 def mark_supervisor_lost_for_lease(
     conn: sqlite3.Connection,
     *,
@@ -694,4 +798,5 @@ __all__ = [
     "supervise_status",
     "supervise_list",
     "mark_supervisor_lost_for_lease",
+    "deliver_packet_to_attached_supervisor",
 ]

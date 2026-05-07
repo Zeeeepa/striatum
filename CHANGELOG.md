@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+- `claim-next` now closes the RFC 0009 supervisor loop: when the claiming
+  session has an `attached` supervisor, the runner writes the freshly built
+  packet through the supervisor's stdin pipe inside the same write
+  transaction, refreshes `heartbeat_at`, and emits a
+  `supervisor.packet_delivered` event tagged
+  `via=claim_next_auto_delivery`. The CLI response gains an optional
+  `supervisor_delivery: {supervisor_id, bytes_written}` field so callers
+  know the packet was already delivered. If the named pipe is missing on
+  disk or the write fails, the supervisor transitions to `lost`, a
+  `supervisor.lost` event with `phase=claim_next_auto_delivery` is recorded,
+  and the response reports `supervisor_delivery: {supervisor_id, error:
+  "stdin_pipe_missing"}`; the packet itself is still committed and returned
+  so the caller can restart the supervisor and retry via `supervise send`.
+  Sessions without a supervisor see no new field, preserving the previous
+  response shape.
 - Split `striatum.cli` from a single ~3.5k-line module into a package
   (`src/striatum/cli/`) organized by concern: `parser`, `dispatch`,
   `mutations`, `introspect`, `evidence`, `run_summary`, `recovery`,

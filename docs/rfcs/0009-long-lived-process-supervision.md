@@ -320,3 +320,38 @@ ships pipe stdin (no PTY), `supervise send` is fire-and-forget (no mid-turn
 guard), tmux attachment is out of scope, no heartbeat ping protocol is
 required, Windows pipe namespaces are not handled, and `supervise stop`
 does not auto-release leases — operators must call `release` separately.
+
+### Supervised-aware `claim-next` (auto-delivery)
+
+`claim_next` (in `src/striatum/db.py`) closes the lifecycle integration loop
+by routing freshly built work packets through any `attached` supervisor for
+the same session. After inserting the `work_packets` row and the
+`queue.claimed` event, and still inside the same write transaction, the
+runner calls
+`striatum.supervisor.deliver_packet_to_attached_supervisor(...)` which:
+
+- Looks for a `process_supervisors` row in state `attached` for the
+  claiming session (the partial unique index already enforces at most one).
+- Writes the stored `packet_json` (plus a trailing newline) to that row's
+  `stdin_pipe_path`, refreshes `heartbeat_at`, and records a
+  `supervisor.packet_delivered` event tagged with
+  `via=claim_next_auto_delivery` and the byte count.
+- If the named pipe is missing on disk or the write fails (broken pipe,
+  unrecoverable `OSError`), transitions the row to `lost`, records a
+  `supervisor.lost` event with `phase=claim_next_auto_delivery`, and
+  surfaces a `supervisor_delivery: {supervisor_id, error:
+  "stdin_pipe_missing"}` envelope in the claim response so the caller can
+  decide whether to restart the supervisor and retry via
+  `supervise send`. The packet itself is still committed and returned.
+
+The CLI envelope from `claim-next` therefore gains an optional
+`supervisor_delivery` field. The `packet` field is unchanged so callers
+that ignore the supervisor flow continue to work; only sessions with an
+attached supervisor see the new field. Sessions without a supervisor see
+exactly the previous response shape.
+
+Because the auto-delivery runs on the same connection inside the existing
+`BEGIN IMMEDIATE` transaction, packet creation and the supervisor
+bookkeeping (heartbeat, delivery event, or lost transition) are atomic
+with the queue claim — there is no window in which a packet exists in
+SQLite without its supervisor side-effects also being recorded.

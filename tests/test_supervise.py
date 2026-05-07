@@ -574,6 +574,131 @@ def test_supervise_refuses_second_start_for_same_session(tmp_path: Path) -> None
         )
 
 
+def test_claim_next_auto_delivers_to_attached_supervisor(tmp_path: Path) -> None:
+    """``claim-next`` routes packets through an attached supervisor's pipe.
+
+    With a supervisor started before the claim, the runner writes the freshly
+    built work packet to the supervisor's stdin pipe inside the same
+    transaction, records a ``supervisor.packet_delivered`` event, and includes
+    a ``supervisor_delivery`` summary in the CLI response. The agent's child
+    process observes the packet exactly as if ``supervise send`` had been
+    invoked separately.
+    """
+    received = tmp_path / "received.txt"
+    workflow_path = supervise_workflow(tmp_path, received)
+    run_id = prepare_started_run(tmp_path, workflow_path)
+    author = register(tmp_path, run_id, "author", "codex")
+
+    started = supervise_start_with_env(tmp_path, author, received_path=received)
+    try:
+        payload = data(run_cli(tmp_path, "claim-next", "--session-id", author))
+        assert payload["status"] == "claimed"
+        assert "supervisor_delivery" in payload, payload
+        delivery = payload["supervisor_delivery"]
+        assert isinstance(delivery, dict)
+        assert delivery["supervisor_id"] == started["supervisor_id"]
+        assert int(delivery["bytes_written"]) > 0
+
+        packet = payload["packet"]
+        assert isinstance(packet, dict)
+        packet_id = str(packet["packet_id"])
+
+        # The supervised child must observe the packet on stdin (it appends
+        # received lines to ``received_path``).
+        assert wait_for(lambda: received.exists() and received.stat().st_size > 0)
+        delivered_lines = received.read_text(encoding="utf-8").splitlines()
+        assert len(delivered_lines) >= 1
+        delivered = json.loads(delivered_lines[0])
+        assert delivered["packet_id"] == packet_id
+
+        events = supervisor_events(tmp_path, str(started["supervisor_id"]))
+        delivered_events = [
+            evt_payload
+            for event_type, evt_payload in events
+            if event_type == "supervisor.packet_delivered"
+        ]
+        assert len(delivered_events) == 1
+        assert delivered_events[0]["packet_id"] == packet_id
+        assert int(delivered_events[0]["bytes_written"]) == int(delivery["bytes_written"])
+        assert delivered_events[0].get("via") == "claim_next_auto_delivery"
+    finally:
+        run_cli(
+            tmp_path,
+            "supervise",
+            "stop",
+            "--session-id",
+            author,
+            "--reason",
+            "test cleanup",
+            check=False,
+        )
+
+
+def test_claim_next_without_supervisor_unchanged(tmp_path: Path) -> None:
+    """Sessions without a supervisor see no ``supervisor_delivery`` field.
+
+    The claim payload still contains ``status`` and ``packet``, exactly as
+    before RFC 0009 auto-delivery landed; this preserves backwards
+    compatibility for callers and tests that do not interact with the
+    supervisor flow.
+    """
+    received = tmp_path / "received.txt"
+    workflow_path = supervise_workflow(tmp_path, received)
+    run_id = prepare_started_run(tmp_path, workflow_path)
+    author = register(tmp_path, run_id, "author", "codex")
+
+    payload = data(run_cli(tmp_path, "claim-next", "--session-id", author))
+    assert payload["status"] == "claimed"
+    assert "supervisor_delivery" not in payload, payload
+
+
+def test_claim_next_marks_supervisor_lost_when_pipe_missing(tmp_path: Path) -> None:
+    """A vanished pipe transitions the supervisor to ``lost`` on claim.
+
+    The packet itself is still returned so the caller can recover (re-start
+    the supervisor and call ``supervise send`` for the packet id), but the
+    supervisor row is no longer ``attached`` and a ``supervisor.lost`` event
+    is recorded with a ``stdin_pipe_missing`` reason.
+    """
+    received = tmp_path / "received.txt"
+    workflow_path = supervise_workflow(tmp_path, received)
+    run_id = prepare_started_run(tmp_path, workflow_path)
+    author = register(tmp_path, run_id, "author", "codex")
+
+    started = supervise_start_with_env(tmp_path, author, received_path=received)
+    pid = int(started["pid"])
+    pipe_path = Path(str(started["stdin_pipe_path"]))
+    try:
+        # External actor (or a crashed environment) removed the FIFO.
+        assert pipe_path.exists()
+        pipe_path.unlink()
+        assert not pipe_path.exists()
+
+        payload = data(run_cli(tmp_path, "claim-next", "--session-id", author))
+        assert payload["status"] == "claimed"
+        assert "packet" in payload, payload
+        delivery = payload.get("supervisor_delivery")
+        assert isinstance(delivery, dict), payload
+        assert delivery["supervisor_id"] == started["supervisor_id"]
+        assert delivery.get("error") == "stdin_pipe_missing"
+        assert "bytes_written" not in delivery
+
+        row = supervisor_row(tmp_path, str(started["supervisor_id"]))
+        assert row is not None
+        assert row["state"] == "lost"
+        assert row["ended_at"] is not None
+
+        events = supervisor_events(tmp_path, str(started["supervisor_id"]))
+        types = [event_type for event_type, _ in events]
+        assert "supervisor.lost" in types
+    finally:
+        # The supervisor row is already lost; reap the orphaned child.
+        try:
+            os.kill(pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+
+
 def test_doctor_flags_supervisor_with_dead_pid(tmp_path: Path) -> None:
     received = tmp_path / "received.txt"
     workflow_path = supervise_workflow(tmp_path, received)

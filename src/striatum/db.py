@@ -631,7 +631,23 @@ def claim_next(conn: sqlite3.Connection, *, repo: Path, session_id: str, lease_s
             message_id=str(chosen["message_id"]),
             lease_id=lease_id,
         )
-        return {"status": "claimed", "packet": packet}
+        # Auto-route the packet through any attached supervisor for this
+        # session so the same OS process keeps receiving packets across
+        # turns. Deferred import avoids a circular dependency between
+        # ``striatum.db`` and ``striatum.supervisor``.
+        from striatum.supervisor import deliver_packet_to_attached_supervisor
+
+        delivery = deliver_packet_to_attached_supervisor(
+            conn,
+            run_id=str(run["run_id"]),
+            session_id=session_id,
+            packet_id=packet_id,
+            packet_json=packet_json,
+        )
+        response: JsonObject = {"status": "claimed", "packet": packet}
+        if delivery is not None:
+            response["supervisor_delivery"] = delivery
+        return response
 
 
 def build_packet(
