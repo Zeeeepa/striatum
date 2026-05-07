@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Added a forward-only SQLite migration system. Schema version is tracked
+  through `PRAGMA user_version`, the current schema is registered as
+  `user_version = 1`, `striatum init` and every connect apply pending
+  migrations inside a single `BEGIN IMMEDIATE` transaction, and a database
+  newer than the runner supports is refused with the new exit code 9.
 - `striatum branch confirm` now honors the previously inert `--create` and
   `--use-current` flags and adds a new `--strict` flag. `--create` runs
   `git checkout -b <branch>` (with idempotent fallback to `git checkout`),

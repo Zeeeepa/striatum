@@ -43,6 +43,12 @@ The schema includes:
 `events` and artifact records are append-only. Mutations use short
 `BEGIN IMMEDIATE` transactions and emit structured events.
 
+Schema upgrades use SQLite's `PRAGMA user_version` together with a registered
+migration list in `striatum.migrations`. `striatum init` and every connect to
+an existing database apply pending migrations in version order inside a single
+`BEGIN IMMEDIATE` transaction. A database whose `user_version` is higher than
+the runner supports is refused with exit code 9.
+
 ## Workflow Config
 
 Workflow config is JSON only. The validator rejects `.yaml` and `.yml` files

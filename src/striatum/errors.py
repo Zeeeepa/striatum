@@ -52,3 +52,10 @@ class WorkflowError(StriatumError):
     def __init__(self, message: str) -> None:
         super().__init__(message, exit_code=8)
 
+
+class SchemaVersionError(StriatumError):
+    """Raised when the local state schema is incompatible with this install."""
+
+    def __init__(self, message: str) -> None:
+        super().__init__(message, exit_code=9)
+

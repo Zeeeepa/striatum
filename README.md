@@ -598,7 +598,8 @@ Stable exit codes:
 - `5`: lease expiry or ownership mismatch;
 - `6`: artifact or write-scope violation;
 - `7`: branch confirmation required before work can be claimed;
-- `8`: workflow config rejected.
+- `8`: workflow config rejected;
+- `9`: local SQLite schema is newer than this Striatum install supports.
 
 ## Documentation Map
 

@@ -101,6 +101,14 @@ Completed on 2026-05-07:
 16. Keep the generic language current. New docs should say "target repository",
     "workflow fixture", "runner state", "artifact", and "adapter" rather than
     assuming Engram-specific paths or marker names.
+17. The local SQLite schema is now migration-aware. `striatum init` and every
+    connect to an existing database apply pending migrations from the
+    `striatum.migrations` registry inside a single `BEGIN IMMEDIATE`
+    transaction, schema version is tracked through `PRAGMA user_version`
+    (current `user_version = 1`), and a database newer than the runner
+    supports is refused with exit code 9. Remaining work includes any
+    data-backfill migrations that arrive with future schema changes and an
+    optional `striatum db status` introspection command.
 
 ## Immediate Follow-Up
 

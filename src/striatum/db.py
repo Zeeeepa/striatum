@@ -20,7 +20,7 @@ from striatum.errors import (
     NotFoundError,
 )
 from striatum.identity import artifact_author_identity
-from striatum.schema import SCHEMA_SQL
+from striatum.migrations import apply_migrations
 
 # JSON columns are intentionally untyped at the SQLite boundary.
 JsonObject = dict[str, Any]
@@ -69,12 +69,26 @@ def db_path(repo: Path) -> Path:
 
 
 def connect(repo: Path) -> sqlite3.Connection:
-    """Connect to the repo-local SQLite database."""
-    conn = sqlite3.connect(db_path(repo))
+    """Connect to the repo-local SQLite database.
+
+    Existing databases are forwarded to the latest schema version through
+    :func:`striatum.migrations.apply_migrations` on every connect, so upgrades
+    are silent and automatic. Connecting to a database whose schema is newer
+    than this install supports raises a clear ``StriatumError``.
+    """
+    target = db_path(repo)
+    already_existed = target.exists()
+    conn = sqlite3.connect(target)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
     conn.execute("PRAGMA journal_mode = WAL")
     conn.execute("PRAGMA busy_timeout = 5000")
+    if already_existed:
+        try:
+            apply_migrations(conn)
+        except Exception:
+            conn.close()
+            raise
     return conn
 
 
@@ -100,7 +114,7 @@ def init_repo(repo: Path) -> None:
         prefix = "" if existing == "" or existing.endswith("\n") else "\n"
         ignore_path.write_text(f"{existing}{prefix}.striatum/\n", encoding="utf-8")
     with connect(repo) as conn:
-        conn.executescript(SCHEMA_SQL)
+        apply_migrations(conn)
 
 
 def ensure_initialized(repo: Path) -> None:
