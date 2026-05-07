@@ -48,6 +48,9 @@ CONSTRAINT_VALUES = {
 
 WORKTREE_ISOLATION_VALUES = {"off", "per_job"}
 
+REVIEWER_ACCESS_SCOPE_VALUES = ("document_only", "artifact_augmented", "repo_level")
+REVIEWER_CONTEXT_POLICY_VALUES = ("fresh", "cross_round")
+
 
 def load_workflow(path: Path) -> JsonObject:
     """Load and validate a workflow JSON file."""
@@ -264,6 +267,7 @@ def validate_workflow(workflow: JsonObject) -> None:
             if not isinstance(path, str) or path.startswith("/") or ".." in Path(path).parts:
                 raise WorkflowError(f"job {job_id!r} has invalid artifact path")
             _validate_artifact_in_write_scope(job_id, job, path)
+        _validate_reviewer_policy(job_id, job)
     _validate_artifact_path_uniqueness(jobs)
     edge_dependency_pairs(workflow)
     validate_needs_match_edges(workflow)
@@ -361,7 +365,7 @@ def create_run(conn: sqlite3.Connection, *, repo: Path, workflow_path: Path) -> 
                     }
                 ),
                 int(job.get("max_attempts", 1)),
-                1 if job.get("fresh_session_required") is True else 0,
+                1 if _effective_fresh_session_required(job) else 0,
                 json_dumps(job.get("write_scope", {})),
                 json_dumps(job.get("expected_artifacts", [])),
                 f"{run_id}:{workflow_job_id}:1",
@@ -665,6 +669,63 @@ def _validate_lane_constraints(lanes: JsonObject) -> None:
                     f"lane {lane_id!r} requires {value!r} enforcement for {key!r}, "
                     f"but adapter provides {actual!r}"
                 )
+
+
+def _effective_fresh_session_required(job: JsonValue) -> bool:
+    """Return whether a job effectively requires a fresh session.
+
+    RFC 0002: ``reviewer_context_policy: "fresh"`` implies
+    ``fresh_session_required: true``. When ``fresh_session_required`` is
+    unset, a fresh-context review is silently treated as fresh-session
+    required. Explicit conflicts are rejected during validation.
+    """
+    if job.get("fresh_session_required") is True:
+        return True
+    if (
+        job.get("type") == "review"
+        and job.get("reviewer_context_policy") == "fresh"
+        and "fresh_session_required" not in job
+    ):
+        return True
+    return False
+
+
+def _validate_reviewer_policy(job_id: str, job: JsonValue) -> None:
+    """Validate optional RFC 0002 reviewer-policy fields on a job.
+
+    Non-review jobs cannot declare these fields. Review jobs accept
+    ``reviewer_access_scope`` and ``reviewer_context_policy`` from a closed
+    set of values. ``reviewer_context_policy: "fresh"`` implies
+    ``fresh_session_required: true``; explicitly setting
+    ``fresh_session_required: false`` alongside it is rejected.
+    """
+    has_access = "reviewer_access_scope" in job
+    has_context = "reviewer_context_policy" in job
+    if not has_access and not has_context:
+        return
+    if job.get("type") != "review":
+        raise WorkflowError(
+            f"non-review job {job_id!r} cannot declare reviewer_access_scope/reviewer_context_policy"
+        )
+    if has_access:
+        access = job.get("reviewer_access_scope")
+        if not isinstance(access, str) or access not in REVIEWER_ACCESS_SCOPE_VALUES:
+            raise WorkflowError(
+                f"review job {job_id!r} has unknown reviewer_access_scope {access!r}; "
+                "allowed: document_only|artifact_augmented|repo_level"
+            )
+    if has_context:
+        context = job.get("reviewer_context_policy")
+        if not isinstance(context, str) or context not in REVIEWER_CONTEXT_POLICY_VALUES:
+            raise WorkflowError(
+                f"review job {job_id!r} has unknown reviewer_context_policy {context!r}; "
+                "allowed: fresh|cross_round"
+            )
+        if context == "fresh" and job.get("fresh_session_required") is False:
+            raise WorkflowError(
+                f"review job {job_id!r} declares reviewer_context_policy=fresh but "
+                "fresh_session_required=false"
+            )
 
 
 def _validate_revision_policy(workflow: JsonObject, *, jobs: list[object]) -> None:

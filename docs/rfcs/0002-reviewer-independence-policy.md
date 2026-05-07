@@ -1,6 +1,6 @@
 # RFC 0002: Reviewer Independence Policy
 
-Status: proposed
+Status: accepted
 Date: 2026-05-06
 Context: ARIS paper review, `docs/SPEC.md`,
 `examples/rfc-0014-operational-artifact-home/workflow.json`
@@ -86,3 +86,30 @@ Validation rules:
   or is warning in the work packet enough for V1?
 - Should cross-model family separation be a first-class policy later, or remain
   workflow documentation?
+
+## Implementation Notes
+
+V1 implementation lives in `src/striatum/workflow.py` and `src/striatum/db.py`:
+
+- `validate_workflow()` accepts the two optional fields on `type: "review"`
+  jobs, rejects unknown values with the documented error strings, rejects the
+  fields on non-review jobs, and rejects the explicit conflict between
+  `reviewer_context_policy: "fresh"` and `fresh_session_required: false`.
+- When a review job declares `reviewer_context_policy: "fresh"` and does not
+  set `fresh_session_required`, `create_run()` silently stores the prepared
+  job row with `fresh_session_required = 1` via
+  `_effective_fresh_session_required()`. This preserves the implication
+  without changing the user's workflow JSON.
+- `db.build_packet()` adds a `review_policy` block to the work packet only
+  when the workflow declared at least one of the fields. The block carries
+  `access_scope`, `context_policy`, and a deterministic `instruction` string
+  built from registered access-scope and context-policy templates. Workflows
+  that do not declare the fields produce packets unchanged.
+- The `examples/rfc-0014-operational-artifact-home/workflow.json` fixture
+  now labels its three independent root reviews as `document_only` and
+  `fresh`. Other fixtures continue to omit the fields and operate exactly as
+  they did before V1 acceptance.
+
+Tests live in `tests/test_reviewer_policy.py`; existing `tests/test_cli_mvp.py`
+fixtures continue to pass without `review_policy` blocks, demonstrating that
+unaffected workflows are unchanged.

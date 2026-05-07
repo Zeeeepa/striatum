@@ -196,4 +196,8 @@ F3. Land the round-6 follow-up integrations (RFC 0002 reviewer-independence
     workflow fields; RFCs 0003/0004/0005 new artifact kinds and
     `support-ledger-flow` fixture). The agent commits forked from a stale
     base and would lose post-round-1 work if cherry-picked as-is; redo
-    against current `main`.
+    against current `main`. RFC 0002 is now landed (D051): the workflow
+    validator accepts `reviewer_access_scope` and `reviewer_context_policy`
+    on review jobs, work packets surface a `review_policy` block when the
+    fields are declared, and the RFC 0014 fixture labels its root reviews
+    as `document_only`/`fresh`. RFCs 0003/0004/0005 remain to be redone.

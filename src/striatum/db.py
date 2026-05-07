@@ -692,7 +692,8 @@ def build_packet(
     author_line = author["line"]
     if author_line is None:
         raise InvalidTransitionError("session author line could not be derived")
-    return {
+    review_policy = _build_review_policy(workflow, workflow_job_id=str(job["workflow_job_id"]))
+    packet: JsonObject = {
         "packet_version": "striatum.work-packet.v1",
         "packet_id": packet_id,
         "run": {
@@ -745,6 +746,77 @@ def build_packet(
             worktree_required=worktree_required,
         ),
         "artifact_policy": {"publish_transcripts": False, "curated_artifacts_only": True},
+    }
+    if review_policy is not None:
+        packet["review_policy"] = review_policy
+    return packet
+
+
+_REVIEWER_ACCESS_INSTRUCTIONS = {
+    "document_only": (
+        "Read only the target documents listed in inputs. Do not consult other "
+        "artifacts, ledgers, reports, or repository contents beyond inputs."
+    ),
+    "artifact_augmented": (
+        "You may read the target documents AND the supporting artifacts/reports/"
+        "ledgers listed in inputs. Do not inspect other repository contents."
+    ),
+    "repo_level": (
+        "You may inspect the repository within the job's declared write_scope."
+        "allowed_paths/forbidden_paths. Stay within that scope."
+    ),
+}
+
+_REVIEWER_CONTEXT_INSTRUCTIONS = {
+    "fresh": (
+        " This is a fresh-context review. Do not rely on prior thread state from "
+        "earlier rounds."
+    ),
+    "cross_round": (
+        " You may retain prior context to verify whether previously raised issues "
+        "were resolved."
+    ),
+}
+
+
+def _build_review_policy(
+    workflow: JsonObject, *, workflow_job_id: str
+) -> JsonObject | None:
+    """Return the RFC 0002 review-policy block for a review job, if declared.
+
+    The block is added to a work packet only when the workflow declares
+    ``reviewer_access_scope`` and/or ``reviewer_context_policy`` on the
+    matching review job. Both fields default through ``document_only`` and
+    ``cross_round`` so the rendered ``instruction`` text always describes
+    the intended reviewer behavior.
+    """
+    jobs = workflow.get("jobs", [])
+    if not isinstance(jobs, list):
+        return None
+    job_def: JsonObject | None = None
+    for entry in jobs:
+        if not isinstance(entry, dict):
+            continue
+        if entry.get("id") == workflow_job_id and entry.get("type") == "review":
+            job_def = cast(JsonObject, entry)
+            break
+    if job_def is None:
+        return None
+    has_access = "reviewer_access_scope" in job_def
+    has_context = "reviewer_context_policy" in job_def
+    if not has_access and not has_context:
+        return None
+    access = job_def.get("reviewer_access_scope") if has_access else "document_only"
+    context = job_def.get("reviewer_context_policy") if has_context else "cross_round"
+    if not isinstance(access, str) or access not in _REVIEWER_ACCESS_INSTRUCTIONS:
+        return None
+    if not isinstance(context, str) or context not in _REVIEWER_CONTEXT_INSTRUCTIONS:
+        return None
+    instruction = _REVIEWER_ACCESS_INSTRUCTIONS[access] + _REVIEWER_CONTEXT_INSTRUCTIONS[context]
+    return {
+        "access_scope": access,
+        "context_policy": context,
+        "instruction": instruction,
     }
 
 

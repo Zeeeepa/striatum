@@ -93,6 +93,33 @@ that intentionally pause for human judgment instead of entering a revision
 loop. `root_review_needs_revision: "declared_cycle"` is accepted only when each
 root review job declares a matching `needs_revision` cycle.
 
+### Reviewer Policy
+
+`type: "review"` jobs may declare two optional policy fields (RFC 0002):
+
+- `reviewer_access_scope` is one of `document_only`, `artifact_augmented`, or
+  `repo_level`. It tells the reviewer what they may inspect: only the target
+  documents listed in `inputs`; those plus supporting artifacts/reports/ledgers
+  also listed in `inputs`; or the repository within the job's declared
+  `write_scope.allowed_paths`/`forbidden_paths`.
+- `reviewer_context_policy` is one of `fresh` or `cross_round`. `fresh` requires
+  a brand-new role/session with no prior thread state; `cross_round` lets the
+  reviewer retain context to verify whether previously raised issues were
+  resolved.
+
+Validation rejects unknown values, non-review jobs that declare either field,
+and the explicit conflict between `reviewer_context_policy: "fresh"` and
+`fresh_session_required: false`. When a review job declares
+`reviewer_context_policy: "fresh"` and does not set `fresh_session_required`,
+the prepared job row is silently stored with `fresh_session_required = 1`.
+
+When a review job declares either field, work packets gain a `review_policy`
+block that exposes `access_scope`, `context_policy`, and a deterministic
+`instruction` string. The instruction is the access-scope sentence followed by
+a single space and the context-policy sentence, so reviewers can be prompted
+without parsing the policy values themselves. Workflows that do not declare
+the fields produce work packets without the block, preserving prior behavior.
+
 ## Sessions
 
 Agents must call `register-session` before claiming work. Database identity is

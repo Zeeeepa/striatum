@@ -4,6 +4,21 @@
 
 ### Added
 
+- Reviewer independence policy fields on review jobs (RFC 0002, D051).
+  `type: "review"` jobs may declare `reviewer_access_scope`
+  (`document_only` | `artifact_augmented` | `repo_level`) and
+  `reviewer_context_policy` (`fresh` | `cross_round`). The validator
+  rejects unknown values, rejects the fields on non-review jobs, and
+  rejects the explicit `reviewer_context_policy: "fresh"` +
+  `fresh_session_required: false` conflict. Setting
+  `reviewer_context_policy: "fresh"` without `fresh_session_required`
+  silently stores the prepared job row with `fresh_session_required = 1`.
+  Work packets gain a `review_policy` block (`access_scope`,
+  `context_policy`, `instruction`) only when the workflow declares at
+  least one of the fields; existing fixtures produce identical packets.
+  The `examples/rfc-0014-operational-artifact-home/workflow.json` fixture
+  now labels its three independent root reviews as `document_only` and
+  `fresh`.
 - `striatum run graph --run-id <id> [--format mermaid|json]` renders the
   workflow graph for an existing run with each node colored by current job
   state. Mermaid output appends a `classDef` palette plus per-node `class`

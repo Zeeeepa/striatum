@@ -89,6 +89,8 @@
       "lane_id": "claude",
       "parallel_group": "independent_reviews",
       "fresh_session_required": true,
+      "reviewer_access_scope": "document_only",
+      "reviewer_context_policy": "fresh",
       "objective": "Review the RFC 0014 spec handoff package for process fit, marker precedence, and operational artifact clarity.",
       "task_prompt": {
         "path": "examples/rfc-0014-operational-artifact-home/prompts/review.md"
@@ -122,6 +124,8 @@
       "lane_id": "codex",
       "parallel_group": "independent_reviews",
       "fresh_session_required": true,
+      "reviewer_access_scope": "document_only",
+      "reviewer_context_policy": "fresh",
       "objective": "Review the RFC 0014 spec handoff package for implementation risk, script migration risk, and runner validation usefulness.",
       "task_prompt": {
         "path": "examples/rfc-0014-operational-artifact-home/prompts/review.md"
@@ -155,6 +159,8 @@
       "lane_id": "gemini",
       "parallel_group": "independent_reviews",
       "fresh_session_required": true,
+      "reviewer_access_scope": "document_only",
+      "reviewer_context_policy": "fresh",
       "objective": "Review the RFC 0014 spec handoff package for portability, process ergonomics, and privacy/redaction risks.",
       "task_prompt": {
         "path": "examples/rfc-0014-operational-artifact-home/prompts/review.md"
