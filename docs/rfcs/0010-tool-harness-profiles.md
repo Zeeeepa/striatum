@@ -1,16 +1,20 @@
 # RFC 0010: Tool Harness Profiles
 
 Status: proposed
-Date: 2026-05-07
+Date: 2026-05-07 (revised 2026-05-08 with per-tool research)
 Context:
 `docs/DECISION_LOG.md` (D003, D015, D021, D022, D037, D054),
 `docs/rfcs/0005-harness-meta-optimization.md`,
 `docs/rfcs/0008-worktree-isolation-for-parallel-jobs.md`,
 `docs/rfcs/0009-long-lived-process-supervision.md`,
+`docs/research/0010-tool-harness-profiles/claude_code.md`,
+`docs/research/0010-tool-harness-profiles/codex.md`,
+`docs/research/0010-tool-harness-profiles/gemini_cli.md`,
 [Claude Code sub-agents](https://code.claude.com/docs/en/sub-agents),
 [Claude Code agent teams](https://code.claude.com/docs/en/agent-teams),
 [Codex](https://openai.com/codex/),
-[Codex agent loop](https://openai.com/index/unrolling-the-codex-agent-loop/)
+[Codex agent loop](https://openai.com/index/unrolling-the-codex-agent-loop/),
+[Gemini CLI subagents](https://geminicli.com/docs/core/subagents/)
 
 ## Problem
 
@@ -182,6 +186,239 @@ This RFC also keeps D015 intact. Striatum's scheduler still requires declared
 parallelism for first-class jobs. Native delegation inside a parent session is
 tool-local optimization, not a new source of claimable Striatum work.
 
+### Schema Additions From 2026-05-08 Tool Research
+
+The research notes under `docs/research/0010-tool-harness-profiles/` (one
+per tool: Claude Code, Codex, Gemini CLI) surfaced fields the original
+schema cannot represent. The three are added at parity:
+
+- **`supervision`** — `{compatible: bool, stdin_format: "newline_delimited_json"|"packet"|"prompt_text", wrapper_required: bool}`. Required because Claude Code's `-p` print mode is **not** compatible with RFC 0009 long-lived supervision (single-shot exit). A wrapper script that reads stdin packets and dispatches into a long-lived `claude` session is needed; the profile records the requirement so workflow validation can refuse a supervised lane that targets `-p` directly.
+- **`workspace_isolation`** — `{state_dir_per_job: bool, rollout_persistence: "off"|"durable"}`. Codex without `CODEX_HOME=$PER_JOB_DIR` + `--ephemeral` corrupts session state when two `codex exec` instances run in parallel ([openai/codex#11435](https://github.com/openai/codex/issues/11435)). RFC 0008 owns the working tree; `workspace_isolation` owns the *agent state directory* and is independent.
+- **`agent_loop_budget`** — `{auto_compact_limit: int, model_reasoning_effort: string, max_iterations: int}`. Codex exposes all three; the field lets workflows encode community-standard guardrails (e.g. 8-iteration cap, 280k token budget) without scattering them across prompts.
+- **`approval_mode`** — `"default"|"auto_edit"|"yolo"|"plan"`. Distinct from `native_delegation.mode`. Gemini CLI's first-class flag; Claude Code/Codex have analogues via permission settings.
+- **`output_format`** — `"text"|"json"|"stream-json"`. Lets the supervisor parse structured output instead of sniffing.
+- **`memory_files`** — list of repo-local memory file names the tool reads on session start (`CLAUDE.md`, `AGENTS.md`, `GEMINI.md`). Striatum already authors `AGENTS.md`; this field documents which other files the tool family expects.
+- **`mcp_servers`** — `[{name, scope, transport, command, args}]` declared at profile scope so workflow validation can sanity-check that the lane will boot with the MCP servers it expects.
+- **`turn_caps`** — `{max_session_turns: int, subagent_max_turns: int, subagent_timeout_mins: int}`. Matters for budget control in parallel subagent fan-outs.
+
+`feature_flags` is extended with explicit values some tools require:
+
+- `headless_print_mode: "forbidden_for_supervised_lanes"|"allowed"` (Claude Code).
+- `ephemeral_sessions: "required_for_parallel"|"allowed"|"off"` (Codex).
+- `remote_subagents_a2a: "forbidden"|"allowed"` (Gemini CLI; clashes with the no-hosted-services boundary unless explicitly allowed).
+- `native_worktree: "forbidden"|"allowed"` (Gemini CLI ships `--worktree`; recommended `forbidden` to keep RFC 0008 authoritative).
+
+### Layered Enforcement
+
+For lanes that declare adapter constraints, the tool's own enforcement may
+exceed the four-level model in `D046`/`D054`. Codex enforces
+`network=forbidden` and `repo_scope=local_only` at the OS level via Landlock
++ seccomp on Linux and Seatbelt on macOS — the actual safety bar is
+`enforced` even though the Striatum process adapter still claims
+`advisory_strict`. Profile authors should not treat the adapter level and
+the tool's level as equivalent; the harness profile's strategy notes
+should call out where layered enforcement applies so reviewers and
+operators can read both.
+
+### Concrete Profile Examples
+
+These are the recommended starting points. Each carries its own
+`strategy_version` so it can evolve independently as the tools change. The
+profiles below are advisory in V1 — workflows opt in by setting
+`harness_profile_id` on a lane.
+
+#### `claude_code_default`
+
+```json
+{
+  "tool_family": "claude_code",
+  "strategy_version": "2026-05-08",
+  "native_delegation": {
+    "mode": "preferred",
+    "instruction": "Spawn the maximum number of useful sub-agents whose work is bounded, independent, and stays inside the packet write scope. Prefer specialist sub-agents (review, research, fixture inspection) over broad repo-write fan-out. Agent teams are experimental; use sub-agents first.",
+    "max_parallel_native_agents": "tool_default"
+  },
+  "feature_flags": {
+    "subagents": "preferred",
+    "agent_teams": "allowed_experimental",
+    "skills": "encouraged",
+    "custom_agent_roles": "allowed",
+    "hooks": "encouraged",
+    "mcp": "allowed",
+    "headless_print_mode": "forbidden_for_supervised_lanes"
+  },
+  "supervision": {
+    "compatible": true,
+    "stdin_format": "newline_delimited_json",
+    "wrapper_required": true
+  },
+  "approval_mode": "auto_edit",
+  "memory_files": ["CLAUDE.md", "AGENTS.md"],
+  "accountability": {
+    "native_subagents": "internal_to_parent_session",
+    "first_class_registration": "not_supported"
+  }
+}
+```
+
+**For Claude Code, do**:
+1. Author `.claude/agents/<role>.md` sub-agent definitions per role used in the lane (reviewer, researcher, fixture inspector); restrict their tool sets in frontmatter so the parent owns repo-write.
+2. Author `.claude/commands/striatum-*.md` slash commands wrapping the common Striatum CLI calls (claim, ack, publish-artifact, complete) so the agent invokes them by name.
+3. Register a `Stop` hook that calls `striatum complete` automatically when the agent finishes, and a `PreToolUse` hook gating tool calls against the packet's write scope.
+4. Use long-lived sessions (NOT `-p` print mode) for supervised lanes; ship a wrapper script that reads newline-delimited JSON packets from stdin and feeds them as user turns.
+5. Treat agent teams as `allowed_experimental`: useful for read-only research fan-out, not yet for repo-write work.
+
+#### `codex_default`
+
+```json
+{
+  "tool_family": "codex",
+  "strategy_version": "2026-05-08",
+  "native_delegation": {
+    "mode": "encouraged",
+    "instruction": "Use sub-agents by routing the parent prompt; ship .codex/agents/<role>.toml definitions. Spawn parallel codex exec instances ONLY when each has its own CODEX_HOME and --ephemeral, otherwise session state corrupts (openai/codex#11435).",
+    "max_parallel_native_agents": "tool_default"
+  },
+  "feature_flags": {
+    "subagents": "allowed_via_natural_language_routing",
+    "agent_teams": "not_supported",
+    "skills": "encouraged",
+    "custom_agent_roles": "allowed",
+    "hooks": "allowed",
+    "mcp": "allowed",
+    "ephemeral_sessions": "required_for_parallel"
+  },
+  "workspace_isolation": {
+    "state_dir_per_job": true,
+    "rollout_persistence": "off"
+  },
+  "agent_loop_budget": {
+    "auto_compact_limit": 280000,
+    "model_reasoning_effort": "medium",
+    "max_iterations": 8
+  },
+  "supervision": {
+    "compatible": true,
+    "stdin_format": "packet",
+    "wrapper_required": false
+  },
+  "output_format": "json",
+  "approval_mode": "default",
+  "memory_files": ["AGENTS.md"],
+  "accountability": {
+    "native_subagents": "internal_to_parent_session",
+    "first_class_registration": "not_supported"
+  }
+}
+```
+
+**For Codex, do**:
+1. Author `.codex/agents/<role>.toml` definitions; the parent invokes them by natural-language routing.
+2. Set `CODEX_HOME=${STRIATUM_SCRATCH_DIR}/codex-home` per job and pass `--ephemeral` to neutralise issue #11435 on parallel `codex exec`.
+3. Use `codex exec --json --ephemeral --skip-git-repo-check --sandbox workspace-write --ask-for-approval never --ignore-user-config -` as the lane command; `-` reads packet on stdin.
+4. Codex enforces `network=forbidden` at the OS level (Landlock+seccomp on Linux, Seatbelt on macOS); the profile keeps Striatum's claim at `advisory_strict` but operators can document layered enforcement is `enforced` in practice.
+5. Pin `agent_loop_budget` to community-standard guardrails (8 iterations, 280k tokens, medium effort) unless a specific lane needs more.
+
+#### `gemini_cli_default`
+
+```json
+{
+  "tool_family": "gemini_cli",
+  "strategy_version": "2026-05-08",
+  "native_delegation": {
+    "mode": "allowed",
+    "instruction": "Use @<agent-name> syntax to invoke local sub-agents authored under .gemini/agents/. Parallel sub-agents are supported but Google's own guidance is to avoid parallel code-write delegations; prefer parallel for read/research/test fan-out.",
+    "max_parallel_native_agents": "tool_default"
+  },
+  "feature_flags": {
+    "subagents": "allowed",
+    "remote_subagents_a2a": "forbidden",
+    "agent_teams": "not_supported",
+    "skills": "allowed",
+    "custom_agent_roles": "allowed",
+    "hooks": "allowed",
+    "mcp": "encouraged",
+    "native_worktree": "forbidden"
+  },
+  "supervision": {
+    "compatible": "verify_pipe_behavior_first",
+    "stdin_format": "prompt_text",
+    "wrapper_required": false
+  },
+  "approval_mode": "auto_edit",
+  "output_format": "stream-json",
+  "turn_caps": {
+    "max_session_turns": null,
+    "subagent_max_turns": 50,
+    "subagent_timeout_mins": 30
+  },
+  "memory_files": ["GEMINI.md"],
+  "accountability": {
+    "native_subagents": "internal_to_parent_session",
+    "first_class_registration": "not_supported"
+  }
+}
+```
+
+**For Gemini CLI, do**:
+1. Author `.gemini/agents/<role>.md` (Markdown + YAML frontmatter) sub-agent definitions; invoke via `@<agent-name>` from the parent prompt.
+2. Author `.gemini/commands/<name>.toml` slash commands wrapping Striatum CLI calls.
+3. Use `gemini --prompt - --output-format stream-json --approval-mode auto_edit` as the lane command. **Verify pipe behavior under `os.mkfifo` before committing the supervisor flow** — Gemini CLI's stdin handling under named pipes is the least-tested path of the three.
+4. Forbid `remote_subagents_a2a: kind: remote` — it requires a hosted A2A endpoint and clashes with Striatum's no-hosted-services boundary.
+5. Forbid `native_worktree`/`--worktree` in the lane command — RFC 0008 owns Striatum's worktree concept; the tool's own worktree feature would shadow it.
+6. Register MCP servers in `.gemini/settings.json:mcpServers` rather than via `gemini mcp add` so the project repo is the source of truth.
+
+### Recommended Lane Configurations
+
+Concrete starting points (operators will tune):
+
+```json
+{
+  "lanes": {
+    "claude_code": {
+      "adapter": "process",
+      "harness_profile_id": "claude_code_default",
+      "command": [".striatum/bin/claude-supervised-wrapper.sh"],
+      "constraints": {"transcripts": "off", "repo_scope": "local_only"},
+      "required_enforcement": {"transcripts": "enforced"}
+    },
+    "codex": {
+      "adapter": "process",
+      "harness_profile_id": "codex_default",
+      "command": [
+        "codex", "exec", "--json", "--ephemeral",
+        "--skip-git-repo-check",
+        "--sandbox", "workspace-write",
+        "--ask-for-approval", "never",
+        "--ignore-user-config", "-"
+      ],
+      "env": {"CODEX_HOME": "${STRIATUM_SCRATCH_DIR}/codex-home"},
+      "constraints": {"network": "forbidden", "transcripts": "off", "repo_scope": "local_only"},
+      "required_enforcement": {"transcripts": "enforced"}
+    },
+    "gemini_cli": {
+      "adapter": "process",
+      "harness_profile_id": "gemini_cli_default",
+      "command": [
+        "gemini", "--prompt", "-",
+        "--output-format", "stream-json",
+        "--approval-mode", "auto_edit"
+      ],
+      "env": {"GEMINI_CLI_TRUST_WORKSPACE": "1"},
+      "constraints": {"transcripts": "off", "repo_scope": "local_only"},
+      "required_enforcement": {"transcripts": "enforced"}
+    }
+  }
+}
+```
+
+Note that `claude_code` references a wrapper script (not a direct `claude`
+invocation): Claude Code's `-p` print mode terminates after one prompt and
+is incompatible with RFC 0009 long-lived supervision. The wrapper reads
+newline-delimited JSON packets from stdin and feeds them to a long-lived
+`claude` session as user turns. Implementation of the wrapper is a
+follow-up under RFC 0009 / supervisor PTY work.
+
 ### Dogfood Path
 
 Dogfood-001 should be used to collect the first practical profile changes:
@@ -216,14 +453,35 @@ Dogfood-001 should be used to collect the first practical profile changes:
 
 - Should profile validation be strict from day one, or should unknown fields
   be accepted as lint warnings while provider capabilities are changing fast?
+  *Updated 2026-05-08:* lint-warning rollout recommended given the breadth of
+  schema additions surfaced by the per-tool research; strict validation can
+  follow once dogfood evidence accumulates.
 - Should `harness_profiles` live directly in workflow JSON, in reusable
   profile files referenced by path, or both?
 - Should Striatum ship built-in profile templates for `codex`,
-  `claude_code`, and `gemini_cli`, or keep all profiles user-authored until
-  dogfood evidence accumulates?
+  `claude_code`, and `gemini_cli`?
+  *Updated 2026-05-08:* the three concrete profiles in this RFC now cover the
+  primary lanes. Question becomes whether they ship as in-repo fixtures
+  under `examples/harness-profiles/` or as defaults built into
+  `striatum.workflow` validation.
 - Should native delegation limits be numeric (`max_native_agents: 4`) or
   semantic (`tool_default`, `bounded_by_write_scope`, `review_only`)?
+  *Updated 2026-05-08:* both. Codex's documented community guardrails are
+  numeric (8 iterations / 280k tokens), while Claude Code's sub-agent budget
+  is semantic (`tool_default`). The schema accepts both; a profile can pin
+  whichever its tool exposes.
 - What evidence should a parent session publish when it uses native
   sub-agents, given the no-transcript default?
 - When, if ever, should native sub-agents graduate into first-class Striatum
   sessions with independent leases and artifacts?
+- Codex enforces `network=forbidden` at the OS level via Landlock/seccomp
+  (Linux) or Seatbelt (macOS). Should the workflow validator surface this
+  layered enforcement, or keep the four-level model as the single source of
+  truth and let operators read the profile's strategy notes? *(New 2026-05-08.)*
+- Gemini CLI ships native `--worktree`. Do we forbid it in profiles to keep
+  RFC 0008 authoritative, or allow it under specific opt-in profiles where
+  the tool's worktree wins? *(New 2026-05-08.)*
+- Claude Code's `-p` print mode is incompatible with RFC 0009 long-lived
+  supervision. Should Striatum ship a standard wrapper script
+  (`.striatum/bin/claude-supervised-wrapper.sh`) under the Striatum repo,
+  or document the pattern and leave authoring to operators? *(New 2026-05-08.)*
