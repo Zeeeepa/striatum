@@ -25,3 +25,27 @@ runner. This log is the lighter-touch register for friction that
 doesn't need a full schema-validated artifact.
 
 ---
+
+## dogfood-006 — RFC 0012 (Local Service API) — 2026-05-08
+
+**Severity:** low
+**Nature:** signal-handler shutdown deadlock under
+`http.server.serve_forever` running in a daemon thread.
+**Status:** resolved during the same run.
+
+Initial `_serve_forever` installed a SIGTERM handler that spawned a
+side thread to call `server.shutdown()`. The chain (signal thread →
+helper thread `shutdown()` waits for serve_forever ack → serve_forever
+thread polls every 0.5s) should have worked, but the
+`test_serve_graceful_shutdown_on_sigterm` test reliably saw the
+process need a SIGKILL fallback (return code -9). Likely cause is a
+subtle interaction with the helper thread's `daemon=True` flag and
+how the runtime drains pending threads after the main thread sees
+the shutdown.
+
+**Mitigation:** Switched to an event-driven main thread:
+`shutdown_event.wait()` then synchronous `server.shutdown()`. Same
+shape as the stdlib's documented pattern for ThreadingHTTPServer.
+Test now returns 0. Documented in
+`src/striatum/service.py:_serve_forever`.
+

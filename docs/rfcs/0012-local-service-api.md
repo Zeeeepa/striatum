@@ -1,7 +1,52 @@
 # RFC 0012: Local Service API
 
-Status: proposed
+Status: accepted (V1)
 Date: 2026-05-08
+
+## V1 Implementation Slice
+
+Implemented under dogfood-006. The V1 build slice landed:
+
+- `src/striatum/service.py` (new) — `ThreadingHTTPServer` for TCP and
+  a Unix-socket variant. Endpoints route every state mutation through
+  `striatum.api.invoke`; the events stream reads the `events` table via
+  a dedicated read connection.
+- `striatum serve` CLI verb with `--unix`, `--host`, `--port`,
+  `--token`, `--allow-mutations`, `--idle-timeout-seconds`, `--web`,
+  `--json` flags.
+- Endpoints: `/v1/health`, `POST /v1/invoke`, `/v1/runs`,
+  `/v1/runs/<id>`, `/v1/runs/<id>/why?id=...`,
+  `/v1/runs/<id>/dashboard`, `/v1/runs/<id>/events` (SSE),
+  `/v1/doctor`.
+- Mutation gate: whitelist of read verbs (`status`, `why`, `doctor`,
+  `list`, `evidence`, `dashboard`, plus subcommand-aware reads under
+  `workflow`, `supervise`, `worktree`, `run`, `recovery`). Anything
+  else returns 405 without `--allow-mutations`.
+- Auth: Unix-socket binds with `0o600`; HTTP loopback supports
+  optional `--token` validated by length-safe constant-time compare
+  (design-review F1).
+- Non-loopback hosts refused at startup with exit 8.
+- Single-instance enforcement via `.striatum/service.pid` (TCP) or
+  `<unix-path>.pid` (Unix). Stale PID files are overwritten.
+- Graceful shutdown on SIGTERM / SIGINT via an event-driven main
+  thread that calls `server.shutdown()` synchronously after the
+  signal fires.
+- 16 tests in `tests/test_service.py` covering health, invoke
+  read/mutation paths both ways, runs/doctor endpoints, non-loopback
+  refusal, token auth, Unix-socket permissions, SSE replay via
+  `?since`, single-instance enforcement, classification unit tests,
+  graceful shutdown.
+
+Findings F1–F3 from the design review folded in: token timing-safe
+compare; SSE connection closes on disconnect/shutdown via
+`try/finally`; `--web` flag is a documented no-op until RFC 0013
+ships static assets, with a startup warning when set.
+
+Deferred per the synthesis: WebSocket support, long-poll fallback,
+multi-process workers, configurable SSE poll cadence, the
+`/v1/tool/<name>` MCP-style endpoint.
+
+
 Context:
 `docs/DECISION_LOG.md` (D006, D007, D020),
 `docs/SPEC.md` § "Local API And MCP Wrapper Boundary",

@@ -659,6 +659,40 @@ status, `why`, doctor output, or stored work packets. MCP remains optional
 and local; the CLI and SQLite invariants are still the product contract. See
 `docs/MCP.md` for the wire shape and tool list.
 
+### Local Service (RFC 0012 V1)
+
+`striatum serve` runs a `ThreadingHTTPServer` on TCP loopback (default
+`127.0.0.1`) or a Unix-domain socket. Non-loopback hosts (`0.0.0.0`, public
+IPs, hostnames that resolve outside loopback) are refused at startup with
+exit 8 — the no-hosted-services boundary (D020) is preserved by
+construction.
+
+Endpoints (all return the same `{ok, data | error}` envelope as
+`striatum.api.invoke`):
+
+- `GET /v1/health` — `{started_at, version, mode}`. No DB hit.
+- `POST /v1/invoke` — body `{argv: [...]}`; routes through
+  `api.invoke`. Returns 405 when the argv falls outside the read-verb
+  whitelist and `--allow-mutations` is off.
+- `GET /v1/runs` — equivalent to `striatum status`.
+- `GET /v1/runs/<id>` — `striatum status --run-id <id>`.
+- `GET /v1/runs/<id>/why?id=<entity>` — `striatum why`.
+- `GET /v1/runs/<id>/dashboard` — JSON the TUI dashboard renders.
+- `GET /v1/runs/<id>/events` — Server-Sent Events stream. Honors
+  `?since=<event_id>` and `Last-Event-ID` for replay. Emits a
+  `striatum.run_terminal` event and closes when the run reaches a
+  terminal state.
+- `GET /v1/doctor` — `striatum doctor --verbose`.
+
+Auth: Unix sockets bind `0o600` (filesystem permissions are the
+boundary); HTTP loopback supports an optional `--token` validated by
+length-safe constant-time compare. Single-instance enforcement via a
+PID file; stale PID files are overwritten. Graceful shutdown on SIGTERM /
+SIGINT. Mutations gate behind `--allow-mutations`; the gate is a
+whitelist of read verbs (`status`, `why`, `doctor`, `list`, `evidence`,
+`dashboard`, plus subcommand-aware reads under `workflow`, `supervise`,
+`worktree`, `run`, `recovery`).
+
 ## Adapter Boundary
 
 The minimum integration contract is process-based: command array, cwd, env,

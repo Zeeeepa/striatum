@@ -312,6 +312,23 @@ def build_parser() -> argparse.ArgumentParser:
     supervise_list_p.add_argument("--state")
     supervise_list_p.add_argument("--json", action="store_true")
 
+    serve = sub.add_parser(
+        "serve",
+        help=(
+            "RFC 0012 V1: run the local HTTP / Unix-socket service. "
+            "Localhost-only by default; non-loopback hosts refused at "
+            "startup with exit 8."
+        ),
+    )
+    serve.add_argument("--unix")
+    serve.add_argument("--host", default=None)
+    serve.add_argument("--port", type=int, default=None)
+    serve.add_argument("--token", default=None)
+    serve.add_argument("--allow-mutations", action="store_true")
+    serve.add_argument("--idle-timeout-seconds", type=int, default=None)
+    serve.add_argument("--web", action="store_true")
+    serve.add_argument("--json", action="store_true")
+
     dashboard = sub.add_parser("dashboard")
     dashboard.add_argument("--run-id", required=True)
     dashboard.add_argument("--refresh", type=float, default=2.0)

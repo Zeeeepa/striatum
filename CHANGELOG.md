@@ -2,8 +2,36 @@
 
 ## Unreleased
 
+## 0.2.0 — 2026-05-08
+
+First tagged release since the V1 scaffolding. The backlog of RFCs
+landed before this point (run recovery / dogfood fixes, reviewer
+independence policy, support ledgers + critique-to-action loops +
+harness meta-optimization, SQLite migrations, workflow
+visualization, worktree isolation, long-lived process supervision,
+tool harness profiles V1+V1.5+V2, session close + auto-close,
+process adapter completion guarantees) is treated as the `0.1.0`
+baseline. `0.2.0` lands RFC 0012 V1 on top of that baseline as the
+first explicitly versioned release. Subsequent RFCs bump the minor
+version on landing.
+
 ### Added
 
+- RFC 0012 V1 (dogfood-006): local HTTP / Unix-socket service. New
+  `striatum serve` command runs a `ThreadingHTTPServer` on TCP
+  loopback (default `127.0.0.1`) or a Unix-domain socket; refuses
+  non-loopback hosts at startup with exit 8. Endpoints:
+  `/v1/health`, `POST /v1/invoke`, `/v1/runs`, `/v1/runs/<id>`,
+  `/v1/runs/<id>/why`, `/v1/runs/<id>/dashboard`,
+  `/v1/runs/<id>/events` (SSE), `/v1/doctor`. Mutations gated
+  behind `--allow-mutations` (whitelist of read verbs); auth via
+  filesystem permissions on Unix sockets or optional `--token` on
+  HTTP (length-safe constant-time compare). Single-instance via
+  PID file; graceful shutdown on SIGTERM/SIGINT. New module
+  `src/striatum/service.py`; tests at `tests/test_service.py` (16
+  cases). Closes the long-standing D006 promise of an "optional
+  Unix-socket / local HTTP API later for Slack, TUI, and web
+  adapters" — the four V1 acceptance criteria all pass.
 - RFC 0014 V1 / issue #1 (dogfood-005): process adapter completion
   guarantees. After every `striatum adapter run` exit (including
   timeout-fired SIGTERMs), the runner inspects required

@@ -145,6 +145,34 @@ def dispatch(args: argparse.Namespace) -> object:
             once=bool(args.once),
         )
         return None
+    if args.command == "serve":
+        from striatum.errors import StriatumError
+        from striatum.service import (
+            ServiceAlreadyRunningError,
+            ServiceConfigError,
+            run_service,
+        )
+
+        if args.unix is not None and (args.host is not None or args.port is not None):
+            raise StriatumError(
+                "--unix and --host/--port are mutually exclusive",
+                exit_code=8,
+            )
+        try:
+            return run_service(
+                repo=repo,
+                host=args.host,
+                port=args.port,
+                unix_path=args.unix,
+                token=args.token,
+                allow_mutations=bool(args.allow_mutations),
+                idle_timeout_seconds=args.idle_timeout_seconds,
+                web_enabled=bool(args.web),
+            )
+        except ServiceConfigError as exc:
+            raise StriatumError(str(exc), exit_code=8) from exc
+        except ServiceAlreadyRunningError as exc:
+            raise StriatumError(str(exc), exit_code=7) from exc
     ensure_initialized(repo)
     with connect(repo) as conn:
         if args.command == "run" and args.run_command == "prepare":
