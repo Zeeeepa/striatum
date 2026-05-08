@@ -386,7 +386,8 @@ variables instead.
 ### 2b. View A Rendered Graph Example
 
 Mermaid-capable Markdown renderers display `workflow graph` output as a visual
-diagram. For example, `examples/code-change-flow/workflow.json` renders as:
+diagram. For example, `examples/code-change-flow/workflow.json` renders as
+(your own workflow renders similarly with its own jobs and edges):
 
 ```mermaid
 flowchart TD
@@ -404,7 +405,9 @@ Generate the same source from the Striatum checkout with:
 "$RUNNER" --repo . workflow graph examples/code-change-flow/workflow.json
 ```
 
-When Graphviz is installed, generate DOT and render an SVG with:
+`--format` accepts `mermaid` (default), `dot` (Graphviz source), or
+`json` (machine-readable graph data). When Graphviz is installed, render
+an SVG with:
 
 ```bash
 "$RUNNER" --repo . workflow graph examples/code-change-flow/workflow.json --format dot \

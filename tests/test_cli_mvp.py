@@ -3650,3 +3650,28 @@ def test_workflow_validate_rejects_auto_without_suggested_name(tmp_path: Path) -
     rejected = run_cli(tmp_path, "workflow", "validate", str(workflow_path), check=False)
     assert rejected["returncode"] == 8
     assert "suggested_name" in str(rejected["error"]["message"])
+
+
+# ----- README graph example drift guard -----------------------------------
+
+
+def test_readme_mermaid_block_matches_code_change_flow_graph() -> None:
+    """README.md § 2b embeds a Mermaid diagram of `examples/code-change-flow`.
+
+    The block is hand-pasted, so a job rename, edge change, or new cycle in
+    the fixture would silently make the README stale. This test regenerates
+    the Mermaid source via ``workflow_graph_mermaid`` and asserts the README
+    contains the exact rendered block — drift fails the suite, not silently.
+    """
+    from striatum.workflow import load_workflow, workflow_graph_mermaid
+
+    workflow = load_workflow(CODE_CHANGE_WORKFLOW)
+    expected = workflow_graph_mermaid(workflow).rstrip("\n")
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    fenced = "```mermaid\n" + expected + "\n```"
+    assert fenced in readme, (
+        "README.md § 2b Mermaid block has drifted from the live "
+        f"`workflow graph examples/code-change-flow/workflow.json` output. "
+        f"Update the README block (or this test) to match.\n\n"
+        f"--- expected (between mermaid fences) ---\n{expected}\n"
+    )

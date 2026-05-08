@@ -16,9 +16,10 @@ Start here:
 
 ## Usage
 
-- [README.md Usage Guide](../README.md#usage-guide) - end-to-end CLI flow,
-  including generic guidance for scaffolding a new target-repository run from an
-  RFC, TODO, bug report, feature request, or other local proposal.
+- [README.md Usage Guide](../README.md#usage-guide) - end-to-end CLI flow.
+- [README.md § 2a. Shape A Custom Run Scaffold](../README.md#2a-shape-a-custom-run-scaffold) -
+  generic guidance for scaffolding a new target-repository run from an RFC,
+  TODO, bug report, feature request, or other local proposal.
 
 ## RFCs
 
