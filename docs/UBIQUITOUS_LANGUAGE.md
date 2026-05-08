@@ -118,6 +118,10 @@ not the product boundary.
 | supervisor pipe | The per-supervisor named FIFO at `.striatum/scratch/<supervisor_id>/stdin.pipe` that `striatum supervise send` writes work packets to as newline-terminated JSON lines. The supervised agent reads packets line-by-line from stdin and reacts through normal CLI commands; the supervisor never parses agent output. |
 | claim auto-delivery | The supervised-session behavior where `claim-next` routes a freshly built work packet through an existing attached supervisor's stdin pipe, records `supervisor.packet_delivered`, and returns a `supervisor_delivery` summary without spawning a fresh single-shot process. |
 | model portability | The design goal that workflows, state, and coordination semantics survive swapping model providers, model versions, and model CLIs. |
+| harness profile | An optional, advisory map of native-tool capabilities and constraints surfaced to a lane via `harness_profile_id` (RFC 0010 V1). The runner exposes the profile body as a `harness_profile` block in work packets but does not branch on it; profiles are configuration, not execution authority. |
+| tool family | The closed RFC 0010 V1 set `{generic, codex, claude_code, gemini_cli}` that names a profile's intended terminal-agent CLI. Validation rejects other values; future families require a separate decision. |
+| native delegation | A tool-internal mechanism (Claude Code sub-agents, Codex custom agents, Gemini CLI `@<agent-name>`) by which a parent session decomposes a task. Native delegation stays internal to the parent Striatum session in V1; it does not register as new Striatum sessions, leases, or artifacts. |
+| harness improvement proposal | A `harness_improvement_proposal` artifact (RFC 0005 / 0010) that records friction in prompts, workflows, defaults, or documentation observed during a dogfood run. Proposals are advisory until reviewed and accepted. |
 
 ## Distinctions
 

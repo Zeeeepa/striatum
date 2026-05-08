@@ -93,6 +93,55 @@ that intentionally pause for human judgment instead of entering a revision
 loop. `root_review_needs_revision: "declared_cycle"` is accepted only when each
 root review job declares a matching `needs_revision` cycle.
 
+### Harness Profiles (RFC 0010 V1)
+
+Workflows may declare an optional `harness_profiles` map at the top level
+and reference one profile per lane via `harness_profile_id`. The map is a
+passthrough projection surfaced to work packets; it does not change
+adapter or scheduler behaviour.
+
+V1 validation rules:
+
+- `tool_family` must be one of `generic`, `codex`, `claude_code`,
+  `gemini_cli`. Other values are rejected.
+- `strategy_version` must be a non-empty string.
+- `accountability.native_subagents`, when set, must equal
+  `internal_to_parent_session`.
+- `accountability.first_class_registration`, when set, must equal
+  `not_supported`.
+- `prompt_envelope_path`, when set, must be a non-empty repo-relative
+  string with no `..` segments. Existence is not checked at validate
+  time.
+- `fallback_profile_id`, when set, must reference a profile declared in
+  the same workflow.
+- A lane's `harness_profile_id`, when set, must reference a profile
+  declared in `harness_profiles`. Unknown references are rejected.
+- Unknown sibling fields on a profile body are accepted as lint
+  warnings, surfaced in `striatum workflow validate --json` and
+  `workflow plan --json` under the `warnings` key. They are not
+  errors in V1; future versions may tighten this.
+
+When a job's lane references a declared profile, `claim-next` adds a
+`harness_profile` block to the work packet:
+
+```json
+{
+  "harness_profile": {
+    "profile_id": "codex_default",
+    "tool_family": "codex",
+    "strategy_version": "2026-05-08",
+    "...": "every other declared profile field, verbatim"
+  }
+}
+```
+
+Lanes without `harness_profile_id` produce work packets with no
+`harness_profile` key — the contract for existing workflows is unchanged.
+
+Profiles are referenced at lane level only; job-level overrides are
+reserved for a future RFC. The reference fixture lives at
+`examples/harness-profiles/workflow.json`.
+
 ### Reviewer Policy
 
 `type: "review"` jobs may declare two optional policy fields (RFC 0002):

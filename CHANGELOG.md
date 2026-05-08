@@ -4,6 +4,23 @@
 
 ### Added
 
+- RFC 0010 V1 (dogfood-003): optional `harness_profiles` workflow map
+  and per-lane `harness_profile_id` reference. When a lane references a
+  declared profile, `claim-next` adds a `harness_profile` block to the
+  work packet (passthrough projection of the profile body plus
+  `profile_id`). Workflows that omit `harness_profiles` produce
+  unchanged packets. Validation accepts the closed tool-family set
+  `{generic, codex, claude_code, gemini_cli}`, requires `tool_family`
+  and `strategy_version`, and enforces D021 accountability
+  (`native_subagents = internal_to_parent_session`,
+  `first_class_registration = not_supported`). Unknown sibling fields
+  on profile bodies are accepted as lint warnings, surfaced under a
+  `warnings` key in `striatum workflow validate --json` and
+  `workflow plan --json`. Reference fixture lives at
+  `examples/harness-profiles/workflow.json`. Tests in
+  `tests/test_harness_profiles.py` cover validation, packet exposure,
+  backwards compatibility, and fixture loading (including the
+  dogfood-003 four-profile fixture).
 - D055 follow-ups (post-RFC-0011): `recovery cancel-job --cascade`
   over a whole run now transitions `runs.state` to `'canceled'`
   (previously `'completed'`) when no job actually completed; auto-close

@@ -1,7 +1,49 @@
 # RFC 0010: Tool Harness Profiles
 
-Status: proposed
-Date: 2026-05-07 (revised 2026-05-08 with per-tool research)
+Status: accepted (V1)
+Date: 2026-05-07 (revised 2026-05-08 with per-tool research; V1
+implementation accepted 2026-05-08 under dogfood-003 acceptance
+decision `dec_6abd3957ab1748949ff0967221b346c4`).
+
+## V1 Implementation Slice
+
+Implemented under dogfood-003. The V1 build slice landed:
+
+- Optional `harness_profiles` workflow map; closed tool-family set
+  `{generic, codex, claude_code, gemini_cli}`; required `tool_family`
+  and `strategy_version` per profile.
+- Per-lane `harness_profile_id` reference, validated against declared
+  profiles.
+- Strict `accountability` enforcement: V1 rejects any value other than
+  `native_subagents = internal_to_parent_session` and
+  `first_class_registration = not_supported`.
+- Lint-warning posture for unknown sibling fields on profile bodies,
+  surfaced via the `warnings` key in `workflow validate --json` and
+  `workflow plan --json`. The supervised-lane and missing-lane-command
+  lints from the RFC's open questions are deferred to V1.5.
+- Work-packet `harness_profile` block: passthrough projection of the
+  declared profile body plus a `profile_id` key. Omitted entirely for
+  lanes without a profile reference (existing workflows are unchanged).
+- Reference fixture at `examples/harness-profiles/workflow.json`
+  covering generic, Codex, and Claude Code profiles. The Gemini CLI
+  profile remains in the dogfood-003 fixture as advisory content; V2
+  promotes it.
+- Tests at `tests/test_harness_profiles.py`.
+
+Deferred to V2 / future RFCs:
+
+- Strict (non-lint) profile validation rollout.
+- Profile reference by file path.
+- Workflow-validate enforcement of `supervision.compatible !=
+  "verify_pipe_behavior_first"` for supervised lanes.
+- Workflow-validate enforcement of `feature_flags.native_worktree:
+  forbidden` by inspecting lane commands.
+- Doctor checks scanning `~/.gemini/agents/*.md` and
+  `~/.codex/agents/*.toml` for remote/A2A subagents.
+- Job-level `harness_profile_id` overrides.
+- First-class registration of native sub-agents as Striatum sessions.
+
+
 Context:
 `docs/DECISION_LOG.md` (D003, D015, D021, D022, D037, D054),
 `docs/rfcs/0005-harness-meta-optimization.md`,

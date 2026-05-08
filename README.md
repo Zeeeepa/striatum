@@ -612,6 +612,31 @@ parent Striatum session accountable for final artifacts and state changes.
 It also carries RFC 0010's proposed `harness_profiles` map as a fixture for
 the implementation job to validate and expose in work packets.
 
+## Harness Profiles (RFC 0010 V1)
+
+Workflows may declare an optional top-level `harness_profiles` map and
+reference one profile per lane via `harness_profile_id`. When set, the
+runner adds a `harness_profile` block to the lane's work packets with the
+profile body verbatim plus a `profile_id` key. Workflows that omit
+`harness_profiles` produce identical packets to before — the field is
+fully additive.
+
+V1 is intentionally small:
+
+- Recognised tool families: `generic`, `codex`, `claude_code`, `gemini_cli`.
+- Profiles must declare `tool_family` and `strategy_version`. Unknown
+  sibling fields are accepted as lint warnings (surfaced in
+  `striatum workflow validate --json` and `workflow plan --json`), not
+  errors, so the schema can grow without breaking workflows.
+- Profiles enforce `accountability.native_subagents =
+  internal_to_parent_session` and
+  `accountability.first_class_registration = not_supported`. Native
+  sub-agents stay internal to the parent Striatum session.
+- Profiles are referenced at lane level; per-job overrides are reserved
+  for a future RFC.
+
+The reference fixture lives at `examples/harness-profiles/workflow.json`.
+
 ## Bootstrap Tmux Harness
 
 The temporary design bootstrap runner remains available for historical design

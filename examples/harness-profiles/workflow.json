@@ -1,0 +1,256 @@
+{
+  "schema_version": "striatum.workflow.v1",
+  "workflow_id": "harness-profiles-fixture",
+  "workflow_version": "2026-05-08",
+  "name": "RFC 0010 V1 Harness Profiles Fixture",
+  "branch": {
+    "mode": "confirm",
+    "suggested_name": "striatum/harness-profiles-fixture",
+    "allow_dirty": false
+  },
+  "coordinator": {
+    "role_id": "author",
+    "lane_id": "codex"
+  },
+  "harness_profiles": {
+    "generic_default": {
+      "tool_family": "generic",
+      "strategy_version": "2026-05-08",
+      "native_delegation": {
+        "mode": "off",
+        "instruction": "Use the standard Striatum work packet. Do not assume native subagents, profile-specific memory files, hooks, or hosted coordination."
+      },
+      "feature_flags": {
+        "subagents": "off",
+        "agent_teams": "not_supported",
+        "skills": "allowed_if_available",
+        "mcp": "allowed_if_configured"
+      },
+      "supervision": {
+        "compatible": true,
+        "stdin_format": "packet",
+        "wrapper_required": false
+      },
+      "approval_mode": "default",
+      "output_format": "text",
+      "memory_files": ["AGENTS.md"],
+      "accountability": {
+        "native_subagents": "internal_to_parent_session",
+        "first_class_registration": "not_supported"
+      }
+    },
+    "codex_default": {
+      "tool_family": "codex",
+      "strategy_version": "2026-05-08",
+      "native_delegation": {
+        "mode": "encouraged",
+        "instruction": "Use sub-agents by routing the parent prompt; ship .codex/agents/<role>.toml definitions. Spawn parallel codex exec instances ONLY when each has its own CODEX_HOME and --ephemeral, otherwise session state corrupts (openai/codex#11435).",
+        "max_parallel_native_agents": "tool_default"
+      },
+      "feature_flags": {
+        "subagents": "allowed_via_natural_language_routing",
+        "agent_teams": "not_supported",
+        "skills": "encouraged",
+        "custom_agent_roles": "allowed",
+        "hooks": "allowed",
+        "mcp": "allowed",
+        "ephemeral_sessions": "required_for_parallel"
+      },
+      "workspace_isolation": {
+        "state_dir_per_job": true,
+        "rollout_persistence": "off"
+      },
+      "agent_loop_budget": {
+        "auto_compact_limit": 280000,
+        "model_reasoning_effort": "medium",
+        "max_iterations": 8
+      },
+      "supervision": {
+        "compatible": true,
+        "stdin_format": "packet",
+        "wrapper_required": false
+      },
+      "output_format": "json",
+      "approval_mode": "default",
+      "memory_files": ["AGENTS.md"],
+      "accountability": {
+        "native_subagents": "internal_to_parent_session",
+        "first_class_registration": "not_supported"
+      }
+    },
+    "claude_code_default": {
+      "tool_family": "claude_code",
+      "strategy_version": "2026-05-08",
+      "native_delegation": {
+        "mode": "preferred",
+        "instruction": "Spawn the maximum number of useful sub-agents whose work is bounded, independent, and stays inside the packet write scope. Prefer specialist sub-agents (review, research, fixture inspection) over broad repo-write fan-out. Agent teams are experimental; use sub-agents first.",
+        "max_parallel_native_agents": "tool_default"
+      },
+      "feature_flags": {
+        "subagents": "preferred",
+        "agent_teams": "allowed_experimental",
+        "skills": "encouraged",
+        "custom_agent_roles": "allowed",
+        "hooks": "encouraged",
+        "mcp": "allowed",
+        "headless_print_mode": "forbidden_for_supervised_lanes"
+      },
+      "supervision": {
+        "compatible": true,
+        "stdin_format": "newline_delimited_json",
+        "wrapper_required": true
+      },
+      "approval_mode": "auto_edit",
+      "memory_files": ["CLAUDE.md", "AGENTS.md"],
+      "accountability": {
+        "native_subagents": "internal_to_parent_session",
+        "first_class_registration": "not_supported"
+      }
+    }
+  },
+  "lanes": {
+    "generic": {
+      "adapter": "process",
+      "display_model": "Generic Agent",
+      "command": ["true"],
+      "capabilities": ["write"],
+      "harness_profile_id": "generic_default"
+    },
+    "codex": {
+      "adapter": "process",
+      "display_model": "Codex GPT-5.5",
+      "command": [
+        "codex", "exec", "--json", "--ephemeral",
+        "--skip-git-repo-check",
+        "--sandbox", "workspace-write",
+        "--ask-for-approval", "never",
+        "--ignore-user-config", "-"
+      ],
+      "capabilities": ["write"],
+      "constraints": {
+        "transcripts": "off",
+        "repo_scope": "local_only",
+        "network": "forbidden"
+      },
+      "required_enforcement": {
+        "transcripts": "enforced"
+      },
+      "harness_profile_id": "codex_default",
+      "env": {
+        "CODEX_HOME": "${STRIATUM_SCRATCH_DIR}/codex-home"
+      }
+    },
+    "claude_code": {
+      "adapter": "process",
+      "display_model": "Claude Opus",
+      "command": [".striatum/bin/claude-supervised-wrapper.sh"],
+      "capabilities": ["write"],
+      "constraints": {
+        "transcripts": "off",
+        "repo_scope": "local_only"
+      },
+      "required_enforcement": {
+        "transcripts": "enforced"
+      },
+      "harness_profile_id": "claude_code_default"
+    }
+  },
+  "roles": {
+    "author": {
+      "definition_path": "examples/harness-profiles/roles/author.md"
+    }
+  },
+  "context_docs": [
+    {"path": "AGENTS.md", "required": true}
+  ],
+  "parallelism": {
+    "mode": "declared",
+    "max_active_jobs": 3,
+    "require_disjoint_write_scopes": true
+  },
+  "jobs": [
+    {
+      "id": "generic_demo",
+      "type": "generic",
+      "title": "Generic-profile demo job",
+      "role_id": "author",
+      "lane_id": "generic",
+      "objective": "Trivial fixture job to exercise the generic_default profile in work-packet exposure tests.",
+      "task_prompt": {
+        "path": "examples/harness-profiles/prompts/demo.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "examples/harness-profiles/out/generic/"
+        ],
+        "forbidden_paths": [".striatum/"]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "generic_out",
+          "kind": "handoff",
+          "path": "examples/harness-profiles/out/generic/OUT.md",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "codex_demo",
+      "type": "generic",
+      "title": "Codex-profile demo job",
+      "role_id": "author",
+      "lane_id": "codex",
+      "objective": "Trivial fixture job to exercise the codex_default profile in work-packet exposure tests.",
+      "task_prompt": {
+        "path": "examples/harness-profiles/prompts/demo.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "examples/harness-profiles/out/codex/"
+        ],
+        "forbidden_paths": [".striatum/"]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "codex_out",
+          "kind": "handoff",
+          "path": "examples/harness-profiles/out/codex/OUT.md",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "claude_demo",
+      "type": "generic",
+      "title": "Claude-profile demo job",
+      "role_id": "author",
+      "lane_id": "claude_code",
+      "objective": "Trivial fixture job to exercise the claude_code_default profile in work-packet exposure tests.",
+      "task_prompt": {
+        "path": "examples/harness-profiles/prompts/demo.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "examples/harness-profiles/out/claude_code/"
+        ],
+        "forbidden_paths": [".striatum/"]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "claude_out",
+          "kind": "handoff",
+          "path": "examples/harness-profiles/out/claude_code/OUT.md",
+          "required": true
+        }
+      ]
+    }
+  ],
+  "edges": [],
+  "cycles": []
+}

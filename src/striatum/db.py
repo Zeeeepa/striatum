@@ -935,7 +935,41 @@ def build_packet(
     }
     if review_policy is not None:
         packet["review_policy"] = review_policy
+    profile_view = _harness_profile_view(workflow, lane_id=lane_id)
+    if profile_view is not None:
+        packet["harness_profile"] = profile_view
     return packet
+
+
+def _harness_profile_view(
+    workflow: JsonObject, *, lane_id: str | None
+) -> JsonObject | None:
+    """Project a lane's RFC 0010 harness profile into the work packet.
+
+    Returns the profile body keyed by ``profile_id`` plus all declared fields
+    (passthrough projection). Returns ``None`` when the lane has no profile
+    reference, the reference is unrecognised, or either side is malformed.
+    """
+    if lane_id is None:
+        return None
+    lanes = workflow.get("lanes")
+    if not isinstance(lanes, dict):
+        return None
+    lane_value = lanes.get(lane_id)
+    if not isinstance(lane_value, dict):
+        return None
+    profile_id = lane_value.get("harness_profile_id")
+    if not isinstance(profile_id, str) or not profile_id:
+        return None
+    profiles = workflow.get("harness_profiles")
+    if not isinstance(profiles, dict):
+        return None
+    body = profiles.get(profile_id)
+    if not isinstance(body, dict):
+        return None
+    view: JsonObject = {"profile_id": profile_id}
+    view.update(body)
+    return view
 
 
 _REVIEWER_ACCESS_INSTRUCTIONS = {

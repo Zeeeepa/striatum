@@ -37,6 +37,7 @@ so external references keep resolving even as items move between sections.
 | F1 | Run historical bootstrap as runner workflow | ⏳ open |
 | F2 | Fuller publication policy | ⏳ open |
 | F3 | Round-6 RFC 0002 + 0003/0004/0005 follow-up | ✅ done |
+| F4 | RFC 0010 V1 (tool harness profiles, dogfood-003) | ✅ done |
 
 Legend: ✅ done · 🟡 most done (sub-tasks remain) · ⏳ open
 

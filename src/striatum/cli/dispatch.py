@@ -25,6 +25,7 @@ from striatum.workflow import (
     create_run,
     load_workflow,
     plan_workflow,
+    validate_workflow,
     workflow_graph_data,
     workflow_graph_dot,
     workflow_graph_mermaid,
@@ -102,7 +103,15 @@ def dispatch(args: argparse.Namespace) -> object:
         return {"state_dir": str(repo / ".striatum"), "db": str(db_path(repo))}
     if args.command == "workflow" and args.workflow_command == "validate":
         workflow = load_workflow(Path(args.path))
-        return {"workflow_id": workflow["workflow_id"], "valid": True}
+        warnings: list[str] = []
+        validate_workflow(workflow, warnings=warnings)
+        validation_result: dict[str, object] = {
+            "workflow_id": workflow["workflow_id"],
+            "valid": True,
+        }
+        if warnings:
+            validation_result["warnings"] = warnings
+        return validation_result
     if args.command == "workflow" and args.workflow_command == "plan":
         workflow = load_workflow(Path(args.path))
         return plan_workflow(workflow)

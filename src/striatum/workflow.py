@@ -53,6 +53,40 @@ WORKTREE_ISOLATION_VALUES = {"off", "per_job"}
 REVIEWER_ACCESS_SCOPE_VALUES = ("document_only", "artifact_augmented", "repo_level")
 REVIEWER_CONTEXT_POLICY_VALUES = ("fresh", "cross_round")
 
+# RFC 0010 V1: closed set of recognised tool families. Profiles that declare
+# any other family are rejected at validation time.
+HARNESS_PROFILE_TOOL_FAMILIES = frozenset({
+    "generic",
+    "codex",
+    "claude_code",
+    "gemini_cli",
+})
+
+# RFC 0010 V1: required-when-declared and known optional fields in a profile
+# body. Unknown sibling fields produce a lint warning rather than an error so
+# the schema can grow without breaking workflows.
+_HARNESS_PROFILE_REQUIRED_FIELDS: frozenset[str] = frozenset({
+    "tool_family",
+    "strategy_version",
+})
+_HARNESS_PROFILE_KNOWN_FIELDS: frozenset[str] = frozenset({
+    "tool_family",
+    "strategy_version",
+    "native_delegation",
+    "feature_flags",
+    "accountability",
+    "supervision",
+    "workspace_isolation",
+    "agent_loop_budget",
+    "approval_mode",
+    "output_format",
+    "memory_files",
+    "mcp_servers",
+    "turn_caps",
+    "prompt_envelope_path",
+    "fallback_profile_id",
+})
+
 
 def load_workflow(path: Path) -> JsonObject:
     """Load and validate a workflow JSON file."""
@@ -74,7 +108,8 @@ def load_workflow(path: Path) -> JsonObject:
 
 def plan_workflow(workflow: JsonObject) -> JsonObject:
     """Return a dry-run execution plan for an already validated workflow."""
-    validate_workflow(workflow)
+    warnings: list[str] = []
+    validate_workflow(workflow, warnings=warnings)
     jobs = workflow_job_map(workflow)
     edges = edge_dependency_pairs(workflow)
     downstream: dict[str, list[str]] = {job_id: [] for job_id in jobs}
@@ -109,7 +144,7 @@ def plan_workflow(workflow: JsonObject) -> JsonObject:
         remaining = sorted(set(jobs).difference(visited))
         raise WorkflowError(f"workflow edges contain a dependency cycle involving: {', '.join(remaining)}")
 
-    return {
+    plan: JsonObject = {
         "workflow_id": workflow["workflow_id"],
         "workflow_version": workflow.get("workflow_version"),
         "valid": True,
@@ -124,6 +159,9 @@ def plan_workflow(workflow: JsonObject) -> JsonObject:
         "cycles": _planned_cycles(workflow),
         "graph": workflow_graph_data(workflow)["graph"],
     }
+    if warnings:
+        plan["warnings"] = warnings
+    return plan
 
 
 def workflow_graph_data(workflow: JsonObject) -> JsonObject:
@@ -321,15 +359,25 @@ def mermaid_state_class(state: str) -> str:
     return "state-pending"
 
 
-def validate_workflow(workflow: JsonObject) -> None:
-    """Validate the V1 workflow shape."""
+def validate_workflow(
+    workflow: JsonObject,
+    *,
+    warnings: list[str] | None = None,
+) -> None:
+    """Validate the V1 workflow shape.
+
+    When ``warnings`` is provided, advisory lint warnings (currently RFC 0010
+    unknown-sibling-field detection on harness profiles) are appended. Hard
+    schema violations always raise ``WorkflowError`` regardless.
+    """
     missing = sorted(REQUIRED_TOP_LEVEL.difference(workflow))
     if missing:
         raise WorkflowError(f"workflow is missing required fields: {', '.join(missing)}")
     if workflow.get("schema_version") != "striatum.workflow.v1":
         raise WorkflowError("workflow schema_version must be striatum.workflow.v1")
     lanes = _object(workflow, "lanes")
-    _validate_lane_constraints(lanes)
+    profile_ids = _validate_harness_profiles(workflow, warnings=warnings)
+    _validate_lane_constraints(lanes, harness_profile_ids=profile_ids)
     roles = _object(workflow, "roles")
     jobs = _list(workflow, "jobs")
     job_map: dict[str, JsonValue] = {}
@@ -704,11 +752,132 @@ def _validate_parallelism(jobs: list[object]) -> None:
             )
 
 
-def _validate_lane_constraints(lanes: JsonObject) -> None:
+def _validate_harness_profiles(
+    workflow: JsonObject,
+    *,
+    warnings: list[str] | None = None,
+) -> frozenset[str]:
+    """Validate the optional RFC 0010 ``harness_profiles`` map.
+
+    Returns the set of declared profile ids (empty if the workflow does not
+    declare any). Hard schema violations raise ``WorkflowError``. Unknown
+    sibling fields on a profile body produce an advisory warning when
+    ``warnings`` is provided; otherwise they are silently accepted (V1
+    lint-warning posture per RFC 0010).
+    """
+    raw = workflow.get("harness_profiles")
+    if raw is None:
+        return frozenset()
+    if not isinstance(raw, dict):
+        raise WorkflowError("harness_profiles must be an object")
+    profile_ids: list[str] = []
+    declared_fallbacks: list[tuple[str, str]] = []
+    for profile_id, body in raw.items():
+        if not isinstance(profile_id, str) or not profile_id:
+            raise WorkflowError("harness_profiles keys must be non-empty strings")
+        if not isinstance(body, dict):
+            raise WorkflowError(
+                f"harness profile {profile_id!r} body must be an object"
+            )
+        missing = sorted(_HARNESS_PROFILE_REQUIRED_FIELDS.difference(body))
+        if missing:
+            raise WorkflowError(
+                f"harness profile {profile_id!r} is missing required fields: "
+                f"{', '.join(missing)}"
+            )
+        tool_family = body.get("tool_family")
+        if tool_family not in HARNESS_PROFILE_TOOL_FAMILIES:
+            raise WorkflowError(
+                f"harness profile {profile_id!r} has unknown tool_family "
+                f"{tool_family!r}; expected one of "
+                f"{sorted(HARNESS_PROFILE_TOOL_FAMILIES)!r}"
+            )
+        strategy_version = body.get("strategy_version")
+        if not isinstance(strategy_version, str) or not strategy_version:
+            raise WorkflowError(
+                f"harness profile {profile_id!r} strategy_version must be a "
+                f"non-empty string"
+            )
+        accountability = body.get("accountability")
+        if accountability is not None:
+            if not isinstance(accountability, dict):
+                raise WorkflowError(
+                    f"harness profile {profile_id!r} accountability must be "
+                    f"an object"
+                )
+            native = accountability.get("native_subagents")
+            if native is not None and native != "internal_to_parent_session":
+                raise WorkflowError(
+                    f"harness profile {profile_id!r} "
+                    f"accountability.native_subagents must be "
+                    f"'internal_to_parent_session' in V1; got {native!r}"
+                )
+            first_class = accountability.get("first_class_registration")
+            if first_class is not None and first_class != "not_supported":
+                raise WorkflowError(
+                    f"harness profile {profile_id!r} "
+                    f"accountability.first_class_registration must be "
+                    f"'not_supported' in V1; got {first_class!r}"
+                )
+        envelope = body.get("prompt_envelope_path")
+        if envelope is not None:
+            if not isinstance(envelope, str) or not envelope:
+                raise WorkflowError(
+                    f"harness profile {profile_id!r} prompt_envelope_path "
+                    f"must be a non-empty string"
+                )
+            if envelope.startswith("/") or ".." in PurePosixPath(envelope).parts:
+                raise WorkflowError(
+                    f"harness profile {profile_id!r} prompt_envelope_path "
+                    f"must be repo-relative without '..' segments"
+                )
+        fallback = body.get("fallback_profile_id")
+        if fallback is not None:
+            if not isinstance(fallback, str) or not fallback:
+                raise WorkflowError(
+                    f"harness profile {profile_id!r} fallback_profile_id must "
+                    f"be a non-empty string"
+                )
+            declared_fallbacks.append((profile_id, fallback))
+        if warnings is not None:
+            unknown_fields = sorted(set(body).difference(_HARNESS_PROFILE_KNOWN_FIELDS))
+            for field in unknown_fields:
+                warnings.append(
+                    f"harness profile {profile_id!r} has unknown field "
+                    f"{field!r}; accepted as lint warning in V1"
+                )
+        profile_ids.append(profile_id)
+    declared_set = frozenset(profile_ids)
+    for profile_id, fallback in declared_fallbacks:
+        if fallback not in declared_set:
+            raise WorkflowError(
+                f"harness profile {profile_id!r} fallback_profile_id "
+                f"{fallback!r} is not a declared profile"
+            )
+    return declared_set
+
+
+def _validate_lane_constraints(
+    lanes: JsonObject,
+    *,
+    harness_profile_ids: frozenset[str] | None = None,
+) -> None:
     """Validate optional lane adapter constraints."""
+    declared_profiles = harness_profile_ids or frozenset()
     for lane_id, lane_value in lanes.items():
         if not isinstance(lane_value, dict):
             raise WorkflowError(f"lane {lane_id!r} must be an object")
+        profile_ref = lane_value.get("harness_profile_id")
+        if profile_ref is not None:
+            if not isinstance(profile_ref, str) or not profile_ref:
+                raise WorkflowError(
+                    f"lane {lane_id!r} harness_profile_id must be a non-empty string"
+                )
+            if profile_ref not in declared_profiles:
+                raise WorkflowError(
+                    f"lane {lane_id!r} references undeclared harness profile "
+                    f"{profile_ref!r}"
+                )
         if lane_value.get("adapter") == "process":
             command = lane_value.get("command")
             if not isinstance(command, list) or not command:
