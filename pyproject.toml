@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "striatum"
-version = "0.2.0"
+version = "0.3.0"
 description = "Local-first orchestration for terminal-based AI coding agents"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -35,6 +35,9 @@ dev = [
 
 [project.scripts]
 striatum = "striatum.cli:main"
+
+[tool.setuptools.package-data]
+"striatum.web.static" = ["*.html", "*.js", "*.css", "*.svg"]
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]

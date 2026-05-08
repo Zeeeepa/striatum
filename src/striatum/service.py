@@ -190,11 +190,19 @@ class StriatumServiceHandler(BaseHTTPRequestHandler):
         if path.startswith("/v1/runs/"):
             self._handle_run_subpath(path[len("/v1/runs/"):], query)
             return
+        if path.startswith("/v1/artifacts/") and path.endswith("/raw"):
+            artifact_id = path[len("/v1/artifacts/"):-len("/raw")]
+            self._handle_artifact_raw(artifact_id)
+            return
+        if self.state.web_enabled and (path == "/" or path == ""):
+            self._serve_static_asset("index.html")
+            return
+        if self.state.web_enabled and path.startswith("/static/"):
+            relative = path[len("/static/"):]
+            self._serve_static_asset(relative)
+            return
         if path == "/" or path == "":
-            if self.state.web_enabled:
-                self._send_json(404, {"ok": False, "error": {"code": 404, "message": "web UI assets not bundled in V1; pass --web with RFC 0013 build to enable"}})
-            else:
-                self._send_json(404, {"ok": False, "error": {"code": 404, "message": "not found"}})
+            self._send_json(404, {"ok": False, "error": {"code": 404, "message": "not found; pass --web to enable the local UI (RFC 0013 V1)"}})
             return
         self._send_json(404, {"ok": False, "error": {"code": 404, "message": "not found"}})
 
@@ -280,6 +288,102 @@ class StriatumServiceHandler(BaseHTTPRequestHandler):
             self._stream_events(run_id, since=since)
             return
         self._send_json(404, {"ok": False, "error": {"code": 404, "message": "not found"}})
+
+    def _handle_artifact_raw(self, artifact_id: str) -> None:
+        """RFC 0013 V1: serve the raw bytes of an artifact for the web UI viewer.
+
+        Looks up the artifact row, opens the file at ``repo_path``, and streams
+        the bytes back. Read-only; no mutation gate. Returns 404 if the row or
+        the file is missing.
+        """
+        if not artifact_id:
+            self._send_json(400, {"ok": False, "error": {"code": 400, "message": "missing artifact id"}})
+            return
+        conn: sqlite3.Connection | None = None
+        try:
+            conn = sqlite3.connect(str(db_path(self.state.repo)))
+            conn.row_factory = sqlite3.Row
+            row = conn.execute(
+                "SELECT artifact_kind, repo_path FROM artifacts WHERE artifact_id = ?",
+                (artifact_id,),
+            ).fetchone()
+        except sqlite3.Error as exc:
+            self._send_json(500, {"ok": False, "error": {"code": 500, "message": str(exc)}})
+            return
+        finally:
+            if conn is not None:
+                conn.close()
+        if row is None:
+            self._send_json(404, {"ok": False, "error": {"code": 404, "message": "artifact not found"}})
+            return
+        repo_path = self.state.repo / str(row["repo_path"])
+        if not repo_path.is_file():
+            self._send_json(404, {"ok": False, "error": {"code": 404, "message": "artifact file missing on disk"}})
+            return
+        try:
+            data = repo_path.read_bytes()
+        except OSError as exc:
+            self._send_json(500, {"ok": False, "error": {"code": 500, "message": str(exc)}})
+            return
+        # Choose a safe content-type. The web UI handles rendering; the
+        # service just streams bytes.
+        suffix = repo_path.suffix.lower()
+        content_type = {
+            ".md": "text/markdown; charset=utf-8",
+            ".markdown": "text/markdown; charset=utf-8",
+            ".json": "application/json",
+            ".txt": "text/plain; charset=utf-8",
+        }.get(suffix, "application/octet-stream")
+        self.send_response(200)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(data)))
+        self.send_header("Content-Security-Policy", "default-src 'none'")
+        self.send_header("Connection", "close")
+        self.end_headers()
+        try:
+            self.wfile.write(data)
+        except BrokenPipeError:
+            return
+
+    def _serve_static_asset(self, relative: str) -> None:
+        """RFC 0013 V1: serve a bundled SPA asset from striatum.web.static."""
+        if not relative or ".." in relative or relative.startswith("/"):
+            self._send_json(400, {"ok": False, "error": {"code": 400, "message": "invalid asset path"}})
+            return
+        try:
+            from importlib.resources import files
+
+            asset = files("striatum.web.static").joinpath(relative)
+            if not asset.is_file():
+                self._send_json(404, {"ok": False, "error": {"code": 404, "message": "asset not found"}})
+                return
+            data = asset.read_bytes()
+        except (FileNotFoundError, ModuleNotFoundError, OSError):
+            self._send_json(404, {"ok": False, "error": {"code": 404, "message": "asset not found"}})
+            return
+        suffix = relative.rsplit(".", 1)[-1].lower()
+        content_type = {
+            "html": "text/html; charset=utf-8",
+            "css": "text/css; charset=utf-8",
+            "js": "application/javascript; charset=utf-8",
+            "json": "application/json",
+            "svg": "image/svg+xml",
+            "png": "image/png",
+        }.get(suffix, "application/octet-stream")
+        self.send_response(200)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(data)))
+        self.send_header(
+            "Content-Security-Policy",
+            "default-src 'self'; script-src 'self'; style-src 'self'; "
+            "img-src 'self' data:; connect-src 'self'",
+        )
+        self.send_header("Connection", "close")
+        self.end_headers()
+        try:
+            self.wfile.write(data)
+        except BrokenPipeError:
+            return
 
     # --- SSE -----------------------------------------------------------
 

@@ -793,6 +793,28 @@ The reference Claude Code supervised wrapper lives at
 Workflows that declare a supervised Claude Code lane can use it as the
 lane command directly.
 
+### Local Web UI (RFC 0013 V1)
+
+`striatum serve --web` activates the bundled web UI. The SPA is
+vanilla ES modules under `src/striatum/web/static/`; no CDN imports,
+no `npm install` at install time. Five views: run list, run detail
+with a live SSE event log, job detail, artifact viewer with
+per-kind front-matter formatting, and doctor. Read-only V1;
+mutation buttons (verdict / decision / claim / block) deferred.
+
+For Unix-socket users, expose the service to the browser with:
+
+```bash
+socat TCP-LISTEN:8080,fork,reuseaddr UNIX-CONNECT:/tmp/striatum.sock
+```
+
+For HTTP users:
+
+```bash
+striatum serve --web --host 127.0.0.1 --port 8080
+# open http://127.0.0.1:8080/
+```
+
 ### Process Adapter Completion Guarantees (RFC 0014 V1)
 
 `striatum adapter run` is single-shot: the child exits with the

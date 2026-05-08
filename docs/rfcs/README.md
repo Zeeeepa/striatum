@@ -25,7 +25,7 @@ and, when behavior changes, `docs/SPEC.md`.
 | [0010](0010-tool-harness-profiles.md) | accepted | Add tool-specific harness profiles for native delegation and provider features. V1+V1.5+V2 implemented (D056). |
 | [0011](0011-session-close-and-run-terminal-auto-close.md) | accepted | Explicit session-close CLI plus auto-close of active sessions on run-terminal transitions. |
 | [0012](0012-local-service-api.md) | accepted | Local HTTP / Unix-socket API on top of `striatum.api.invoke`, with SSE for events. V1 implemented (D058) under dogfood-006. |
-| [0013](0013-local-web-ui.md) | proposed | Static SPA bundled with the runner, served by `striatum serve --web`. Read-only by default; mutations gated. Depends on RFC 0012. |
+| [0013](0013-local-web-ui.md) | accepted | Static SPA bundled with the runner, served by `striatum serve --web`. Read-only V1 implemented (D059) under dogfood-007. |
 | [0014](0014-process-adapter-completion-guarantees.md) | accepted | Post-exit output validation, configurable timeouts, and liveness reconciliation for one-shot `adapter run`. V1 implemented (D057). Closes [#1](https://github.com/halbritt/striatum/issues/1). |
 | [0015](0015-self-contained-agent-skills.md) | proposed | `striatum skills install` generates a self-contained agent skill bundle (Claude Code, Codex, generic) so the runner can be driven without the source repo on disk. |
 | [0016](0016-dashboard-dependency-graph.md) | proposed | Render the run's dependency graph (layered ASCII, state-colored, refresh-driven) inside `striatum dashboard`, reusing the existing graph data path. |

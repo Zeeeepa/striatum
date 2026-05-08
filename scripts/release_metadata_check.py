@@ -1,17 +1,44 @@
-"""Check installed package metadata needed for release readiness."""
+"""Check installed package metadata needed for release readiness.
+
+Sources the expected version from ``pyproject.toml`` so the check stays
+in lockstep with version bumps (memory: bump version + tag release per
+RFC). An ``STRIATUM_RELEASE_VERSION`` env var overrides for CI matrices
+that need to pin a specific build.
+"""
 
 from __future__ import annotations
 
+import os
+import re
+import tomllib
 from importlib import metadata
+from pathlib import Path
+
 
 EXPECTED_NAME = "striatum"
-EXPECTED_VERSION = "0.1.0"
 EXPECTED_LICENSE = "Apache-2.0"
 EXPECTED_CONSOLE_SCRIPT = "striatum"
 EXPECTED_ENTRY_POINT = "striatum.cli:main"
 
 
+def _expected_version() -> str:
+    override = os.environ.get("STRIATUM_RELEASE_VERSION")
+    if override:
+        return override
+    pyproject = Path(__file__).resolve().parents[1] / "pyproject.toml"
+    if not pyproject.is_file():
+        raise SystemExit("release metadata check failed: pyproject.toml missing")
+    data = tomllib.loads(pyproject.read_text(encoding="utf-8"))
+    version = data.get("project", {}).get("version")
+    if not isinstance(version, str) or not re.fullmatch(r"\d+\.\d+\.\d+(?:[+-].+)?", version):
+        raise SystemExit(
+            f"release metadata check failed: invalid pyproject version {version!r}"
+        )
+    return version
+
+
 def main() -> None:
+    expected_version = _expected_version()
     dist = metadata.distribution(EXPECTED_NAME)
     meta = dist.metadata
     entry_points = {
@@ -21,7 +48,7 @@ def main() -> None:
 
     checks = {
         "Name": meta["Name"] == EXPECTED_NAME,
-        "Version": meta["Version"] == EXPECTED_VERSION,
+        "Version": meta["Version"] == expected_version,
         "License-Expression": meta["License-Expression"] == EXPECTED_LICENSE,
         "console_scripts.striatum": entry_points.get(EXPECTED_CONSOLE_SCRIPT)
         == EXPECTED_ENTRY_POINT,

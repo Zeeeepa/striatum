@@ -693,6 +693,30 @@ whitelist of read verbs (`status`, `why`, `doctor`, `list`, `evidence`,
 `dashboard`, plus subcommand-aware reads under `workflow`, `supervise`,
 `worktree`, `run`, `recovery`).
 
+### Local Web UI (RFC 0013 V1)
+
+`striatum serve --web` activates the bundled SPA. Static assets live
+under `src/striatum/web/static/` and ship inside the wheel via
+`[tool.setuptools.package-data]`. The handler resolves assets via
+`importlib.resources.files("striatum.web.static")` so editable installs
+and wheel installs both work.
+
+- `GET /` → `index.html`.
+- `GET /static/<path>` → bundled asset (HTML / JS / CSS / SVG).
+- All static responses set `Content-Security-Policy: default-src 'self';
+  script-src 'self'; style-src 'self'; img-src 'self' data:;
+  connect-src 'self'`.
+- Path traversal (`..`, leading `/`) is rejected with HTTP 400.
+- New endpoint `GET /v1/artifacts/<artifact_id>/raw` streams the raw
+  bytes of a published artifact for the viewer; read-only, no
+  mutation gate.
+
+The SPA is a vanilla ES module (no framework, no CDN imports). Five
+views are implemented: run list, run detail (with live SSE event log),
+job detail, artifact viewer with per-kind front-matter formatting,
+and doctor. Mutation buttons (verdict / decision record / claim /
+block) are deferred to a future RFC; the V1 surface is read-only.
+
 ## Adapter Boundary
 
 The minimum integration contract is process-based: command array, cwd, env,

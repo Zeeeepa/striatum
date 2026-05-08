@@ -1,7 +1,43 @@
 # RFC 0013: Local Web UI
 
-Status: proposed
+Status: accepted (V1)
 Date: 2026-05-08
+
+## V1 Implementation Slice
+
+Implemented under dogfood-007 (v0.3.0). Steps 1–6 of the RFC's
+implementation path landed; step 7 (mutation buttons) deferred.
+
+- `src/striatum/web/static/{index.html,app.js,app.css}` (new) —
+  vanilla ES module SPA with hash-based routing for run list, run
+  detail, job detail, artifact viewer, doctor view. Tiny in-house
+  Markdown renderer (no external dependencies; HTML escaped at the
+  input boundary per design-review F2).
+- `src/striatum/service.py` — `--web` flag now serves the bundled
+  assets; `/` and `/static/<path>` resolve via
+  `importlib.resources.files("striatum.web.static")`.
+  `Content-Security-Policy` headers reinforce the no-third-party
+  origin invariant.
+- New endpoint `GET /v1/artifacts/<id>/raw` streams artifact file
+  bytes for the viewer (design-review F1).
+- `pyproject.toml` ships static assets via
+  `[tool.setuptools.package-data]`.
+- 8 tests in `tests/test_web_ui.py` covering: assets served when
+  `--web` is on, 404 when off, CSP header, path-traversal rejection,
+  artifact-raw endpoint, no-external-URL invariant, importlib
+  resolution, /v1/* endpoints alongside /static.
+
+Per-kind front-matter rendering (decision badge, finding verdict
++ severity chip, harness-improvement-proposal target chip,
+synthesis input list) lands as documented in synthesis § 4.
+Cross-artifact link resolution is best-effort: `art_<hex>` ids
+resolve via `/v1/runs/<id>/why?id=<art>` when present.
+
+Deferred per the synthesis: Mermaid loader for embedded diagrams,
+mutation buttons (step 7), workflow-file viewer, browser
+notifications, full CommonMark renderer, a11y polish.
+
+
 Context:
 RFC 0012 (Local Service API),
 `docs/DECISION_LOG.md` (D006, D007, D020, D028),

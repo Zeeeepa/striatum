@@ -2,6 +2,36 @@
 
 ## Unreleased
 
+## 0.3.0 — 2026-05-08
+
+### Added
+
+- RFC 0013 V1 (dogfood-007): local web UI. Bundled vanilla-JS SPA at
+  `src/striatum/web/static/{index.html,app.js,app.css}` served by
+  `striatum serve --web` (no-op flag in 0.2.0; now serves the real
+  UI). Five views: run list, run detail with live SSE event log,
+  job detail, artifact viewer with per-kind front-matter formatting
+  (decision badge, finding verdict + severity chip,
+  harness-improvement-proposal target chip, synthesis input list),
+  and doctor. Tiny in-house Markdown renderer with HTML escaped at
+  the input boundary; no external CDN imports; CSP header on every
+  static and artifact-raw response. New endpoint
+  `GET /v1/artifacts/<id>/raw` streams artifact bytes for the
+  viewer. Static assets ship inside the wheel via
+  `[tool.setuptools.package-data]`. Tests at
+  `tests/test_web_ui.py` (8 cases). Mutation buttons (step 7 of
+  the RFC) deferred.
+
+### Fixed
+
+- CI release-metadata check now sources the expected version from
+  `pyproject.toml` instead of a hardcoded constant, so version
+  bumps don't require touching the script.
+- Test service-readiness window bumped to 30s so cold imports on
+  macOS GitHub runners don't false-fail.
+- Unix-socket service test uses a short `tempfile.mkdtemp` path so
+  macOS's ~104-byte AF_UNIX limit doesn't trigger.
+
 ## 0.2.0 — 2026-05-08
 
 First tagged release since the V1 scaffolding. The backlog of RFCs

@@ -80,9 +80,14 @@ def _spawn_service(
     if port == 0 and "--unix" not in args:
         # Wait briefly for any startup output and retry from default 0.
         time.sleep(0.5)
+    # macOS GitHub runners can be substantially slower than Linux,
+    # especially for the first invocation in a job (cold imports).
+    # Bump the readiness window to 30s; locally this still resolves
+    # in well under a second.
+    timeout_seconds = 30.0
     if "--unix" in args:
         unix_path = args[args.index("--unix") + 1]
-        deadline = time.time() + 10.0
+        deadline = time.time() + timeout_seconds
         while time.time() < deadline:
             if Path(unix_path).exists():
                 return proc, 0
@@ -93,8 +98,10 @@ def _spawn_service(
                     f"stdout={stdout!r} stderr={stderr!r}"
                 )
             time.sleep(0.1)
-        raise AssertionError("service did not create unix socket within 10s")
-    deadline = time.time() + 10.0
+        raise AssertionError(
+            f"service did not create unix socket within {timeout_seconds}s"
+        )
+    deadline = time.time() + timeout_seconds
     while time.time() < deadline:
         # Use a raw socket connect so that token-protected services
         # don't false-fail the readiness probe (they would 401 the
@@ -110,7 +117,9 @@ def _spawn_service(
                 f"service exited before responding: rc={proc.returncode} "
                 f"stdout={stdout!r} stderr={stderr!r}"
             )
-    raise AssertionError("service did not respond on port within 10s")
+    raise AssertionError(
+        f"service did not respond on port within {timeout_seconds}s"
+    )
 
 
 def _stop_service(proc: subprocess.Popen[bytes]) -> int:
@@ -306,14 +315,26 @@ def test_serve_token_required_with_token_flag(tmp_path: Path) -> None:
 def test_serve_unix_socket_binds_with_0600(tmp_path: Path) -> None:
     _git_init_repo(tmp_path)
     _striatum_init(tmp_path)
-    socket_path = tmp_path / "service.sock"
-    proc, _port = _spawn_service(tmp_path, "--unix", str(socket_path))
+    # macOS limits AF_UNIX paths to ~104 bytes; pytest's tmp_path under
+    # /Users/runner/work/... already pushes the limit. Put the socket
+    # in a short tempdir instead so the test passes on macOS runners.
+    import tempfile
+
+    sock_dir = Path(tempfile.mkdtemp(prefix="strs-"))
+    socket_path = sock_dir / "s.sock"
     try:
-        assert socket_path.exists()
-        mode = socket_path.stat().st_mode & 0o777
-        assert mode == 0o600
+        proc, _port = _spawn_service(tmp_path, "--unix", str(socket_path))
+        try:
+            assert socket_path.exists()
+            mode = socket_path.stat().st_mode & 0o777
+            assert mode == 0o600
+        finally:
+            _stop_service(proc)
     finally:
-        _stop_service(proc)
+        if socket_path.exists():
+            socket_path.unlink()
+        if sock_dir.exists():
+            sock_dir.rmdir()
 
 
 # ----- 10. SSE replay via ?since ------------------------------------------

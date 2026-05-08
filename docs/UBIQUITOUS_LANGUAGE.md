@@ -127,6 +127,7 @@ not the product boundary.
 | harness improvement proposal | A `harness_improvement_proposal` artifact (RFC 0005 / 0010) that records friction in prompts, workflows, defaults, or documentation observed during a dogfood run. Proposals are advisory until reviewed and accepted. |
 | local service | The `striatum serve` HTTP / Unix-socket server (RFC 0012 V1). Localhost-only by default; refuses non-loopback hosts at startup. Endpoints route every state mutation through `striatum.api.invoke`; events stream as SSE. |
 | service mutation gate | The `--allow-mutations` flag on `striatum serve` (RFC 0012 V1). Without it, the service rejects any `POST /v1/invoke` whose argv resolves outside the read-verb whitelist. New mutating CLI verbs default to blocked. |
+| local web UI | The bundled SPA at `src/striatum/web/static/` served by `striatum serve --web` (RFC 0013 V1). Vanilla ES module; no external dependencies; CSP enforces `'self'` for everything. Five views: run list, run detail (with live SSE event log), job detail, artifact viewer, doctor. |
 
 ## Distinctions
 
