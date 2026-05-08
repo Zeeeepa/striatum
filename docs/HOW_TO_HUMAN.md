@@ -50,19 +50,26 @@ Striatum-aware agent how to drive the runner (RFC 0015 V1):
 # Claude Code: writes five SKILL.md files under .claude/skills/striatum-*/
 "$RUNNER" --repo "$TARGET_REPO" init --with-skills claude_code --json
 
-# Codex / Gemini CLI / anything else: writes one
-# striatum-STRIATUM_AGENT_GUIDE.md at the repo root
-"$RUNNER" --repo "$TARGET_REPO" init --json
-"$RUNNER" --repo "$TARGET_REPO" skills install --profile generic --json
+# Codex CLI: writes five flat files under .codex/agents/striatum-*.md
+"$RUNNER" --repo "$TARGET_REPO" init --with-skills codex --json
+
+# Gemini CLI: writes one striatum-STRIATUM_GEMINI_GUIDE.md at the repo root
+"$RUNNER" --repo "$TARGET_REPO" init --with-skills gemini --json
+
+# Anything else: writes one striatum-STRIATUM_AGENT_GUIDE.md at the repo root
+"$RUNNER" --repo "$TARGET_REPO" init --with-skills generic --json
+
+# All four at once (deterministic order, disjoint paths):
+"$RUNNER" --repo "$TARGET_REPO" init --with-skills all --json
 ```
 
-V1 ships two profiles: `claude_code` (auto-discovered by Claude
-Code) and `generic` (a single Markdown guide you can paste into
-any other agent CLI's system prompt). First-class `codex` and
-`gemini` profiles are step 3 of RFC 0015 and remain deferred;
-until they land, those agents use `generic`. Both profiles are
-byte-identical on re-install; operator edits are preserved
-unless you pass `--force`.
+V1.2 ships four skill profiles plus an `all` fan-out:
+`claude_code` (auto-discovered by Claude Code), `codex` (flat
+agent docs at `.codex/agents/`), `gemini` (single guide; will
+graduate to a five-file shape once Gemini CLI's skill-discovery
+convention stabilizes), and `generic` (single Markdown guide for
+any other CLI). All profiles are byte-identical on re-install;
+operator edits are preserved unless you pass `--force`.
 
 ## Author or validate a workflow
 

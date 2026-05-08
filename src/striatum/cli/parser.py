@@ -28,7 +28,9 @@ def build_parser() -> argparse.ArgumentParser:
     skills_sub = skills.add_subparsers(dest="skills_command", required=True)
     skills_install = skills_sub.add_parser("install")
     skills_install.add_argument(
-        "--profile", choices=["claude_code", "generic"], default="claude_code"
+        "--profile",
+        choices=["claude_code", "codex", "gemini", "generic", "all"],
+        default="claude_code",
     )
     skills_install.add_argument(
         "--scope", choices=["project", "user"], default="project"

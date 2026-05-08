@@ -75,21 +75,23 @@ session and claim work — see
 You will install the runner once, install the skill bundle, and
 hand the agent your target repo. The agent does the rest.
 
-V1 ships **two skill profiles**. Pick the one that matches your
-agent CLI; you can also install both side-by-side and let the
-agent decide which one to read.
+V1.2 ships **four skill profiles**, one per supported agent CLI
+plus a fallback for anything else. Pick the one that matches your
+agent. To install everything in one shot, use `--profile all`.
 
 | Agent CLI | Use this profile | Where files land |
 |---|---|---|
 | Claude Code | `claude_code` | `.claude/skills/striatum-*/SKILL.md` (five files; Claude Code auto-discovers them) |
-| Codex CLI | `generic` (V1) | `striatum-STRIATUM_AGENT_GUIDE.md` at the repo root |
-| Gemini CLI | `generic` (V1) | `striatum-STRIATUM_AGENT_GUIDE.md` at the repo root |
+| Codex CLI | `codex` | `.codex/agents/striatum-*.md` (five files) |
+| Gemini CLI | `gemini` | `striatum-STRIATUM_GEMINI_GUIDE.md` at the repo root (single concatenated guide) |
 | Anything else | `generic` | `striatum-STRIATUM_AGENT_GUIDE.md` at the repo root |
+| Multiple CLIs | `all` | All four profiles, deterministic order, no collisions |
 
-`codex` and `gemini` first-class profiles are step 3 of RFC 0015
-and remain deferred; until they land, the `generic` profile
-covers those agents — same content, single concatenated guide
-you can `cat` into a system prompt or feed as a tool input.
+`codex` reuses the Claude Code skill bodies verbatim — same
+content, flat-file layout. `gemini` is a single-guide fallback
+until Gemini CLI's skill-discovery convention stabilizes; the
+distinct filename keeps `--profile all` collision-free with
+`generic`.
 
 ### If your agent is Claude Code
 
@@ -104,31 +106,49 @@ and writes the RFC 0015 skill bundle to
 session how to drive the runner without reading the striatum
 source.
 
-### If your agent is Codex / Gemini CLI / anything else
+### If your agent is Codex CLI
 
 ```bash
 TARGET_REPO=/path/to/your/repo
-striatum --repo "$TARGET_REPO" init --json
-striatum --repo "$TARGET_REPO" skills install --profile generic --json
-# writes a single striatum-STRIATUM_AGENT_GUIDE.md at the repo root.
-# Paste its contents into the agent's system prompt, or load it as
-# a tool input — whatever your CLI's "load this doc as context"
-# convention is.
+striatum --repo "$TARGET_REPO" init --with-skills codex --json
 ```
 
-The generic guide is one Markdown file with the same five-section
-structure as the Claude Code bundle (workflow router, scaffold,
-claim loop, supervise, recover). Any agent that can read a
-Markdown file can drive the runner from it.
+Writes the same five-skill bundle as Claude Code, flat-file at
+`.codex/agents/striatum-{workflow,scaffold,claim-loop,supervise,recover}.md`.
 
-### Install both, if you switch CLIs
+### If your agent is Gemini CLI
 
 ```bash
-striatum --repo "$TARGET_REPO" skills install --profile claude_code --json
-striatum --repo "$TARGET_REPO" skills install --profile generic --json
+TARGET_REPO=/path/to/your/repo
+striatum --repo "$TARGET_REPO" init --with-skills gemini --json
 ```
 
-The two profiles write to disjoint paths and each carries its own
+Writes a single concatenated guide at
+`striatum-STRIATUM_GEMINI_GUIDE.md`. Load it as Gemini CLI's
+system context (paste, or use the CLI's "include this Markdown"
+convention).
+
+### If your agent is anything else
+
+```bash
+TARGET_REPO=/path/to/your/repo
+striatum --repo "$TARGET_REPO" init --with-skills generic --json
+```
+
+Writes `striatum-STRIATUM_AGENT_GUIDE.md` at the repo root — the
+same Markdown shape as the Gemini guide, structurally identical
+to the Claude Code bundle's five sections concatenated.
+
+### Install everything (you switch CLIs, or you want a fallback)
+
+```bash
+striatum --repo "$TARGET_REPO" init --with-skills all --json
+# or, against an existing initialized repo:
+striatum --repo "$TARGET_REPO" skills install --profile all --json
+```
+
+Fans out across all four profiles in deterministic order. The
+profiles write to disjoint paths and each carries its own
 manifest, so they don't collide.
 
 ### Now drive the run

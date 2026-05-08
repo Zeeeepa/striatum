@@ -210,10 +210,19 @@ def test_doctor_reports_skills_outdated_on_template_sha(tmp_path: Path) -> None:
 
 def test_no_external_url_invariant(tmp_path: Path) -> None:
     install_skills(target=tmp_path, profile="claude_code")
+    install_skills(target=tmp_path, profile="codex")
+    install_skills(target=tmp_path, profile="gemini")
     install_skills(target=tmp_path, profile="generic")
     rendered = []
     for path in _claude_paths(tmp_path):
         rendered.append(path.read_text(encoding="utf-8"))
+    for skill in ("workflow", "scaffold", "claim-loop", "supervise", "recover"):
+        rendered.append(
+            (tmp_path / f".codex/agents/striatum-{skill}.md").read_text(encoding="utf-8")
+        )
+    rendered.append(
+        (tmp_path / "striatum-STRIATUM_GEMINI_GUIDE.md").read_text(encoding="utf-8")
+    )
     rendered.append(
         (tmp_path / "striatum-STRIATUM_AGENT_GUIDE.md").read_text(encoding="utf-8")
     )
@@ -250,4 +259,173 @@ def test_install_unknown_profile_raises(tmp_path: Path) -> None:
     from striatum.errors import InvalidTransitionError
 
     with pytest.raises(InvalidTransitionError):
-        install_skills(target=tmp_path, profile="codex")
+        install_skills(target=tmp_path, profile="mystery")
+
+
+# RFC 0015 step 3: codex + gemini profiles + --profile all -----------------
+
+
+def _codex_paths(target: Path, namespace: str = "striatum-") -> list[Path]:
+    return [
+        target / ".codex" / "agents" / f"{namespace}{skill}.md"
+        for skill in ("workflow", "scaffold", "claim-loop", "supervise", "recover")
+    ]
+
+
+def test_install_codex_writes_five_files_and_manifest(tmp_path: Path) -> None:
+    result = install_skills(target=tmp_path, profile="codex")
+    assert result["profile"] == "codex"
+    assert {f["status"] for f in result["files"]} == {"written"}
+    for path in _codex_paths(tmp_path):
+        assert path.exists(), path
+    manifest_path = Path(result["manifest_path"])
+    manifest = load_manifest(manifest_path)
+    assert manifest is not None
+    assert manifest["profile"] == "codex"
+    # The manifest sits next to its content under .codex/agents/.
+    assert manifest_path.parent == tmp_path / ".codex" / "agents"
+    # Codex shares Markdown bodies with claude_code; recorded
+    # template_sha256 should equal claude_code's bundled SHA.
+    for entry in manifest["files"]:
+        assert entry["template"].startswith("claude_code/")
+
+
+def test_install_codex_idempotent_byte_identical(tmp_path: Path) -> None:
+    install_skills(target=tmp_path, profile="codex")
+    snapshot = {p: p.read_bytes() for p in _codex_paths(tmp_path)}
+    second = install_skills(target=tmp_path, profile="codex")
+    assert {f["status"] for f in second["files"]} == {"skipped_unchanged"}
+    for path, data in snapshot.items():
+        assert path.read_bytes() == data
+
+
+def test_install_gemini_writes_single_guide(tmp_path: Path) -> None:
+    result = install_skills(target=tmp_path, profile="gemini")
+    paths = [f["path"] for f in result["files"]]
+    assert paths == ["striatum-STRIATUM_GEMINI_GUIDE.md"]
+    guide = tmp_path / "striatum-STRIATUM_GEMINI_GUIDE.md"
+    assert guide.exists()
+    manifest = load_manifest(Path(result["manifest_path"]))
+    assert manifest is not None
+    assert manifest["profile"] == "gemini"
+    # Distinct filename keeps `--profile all` collision-free with `generic`.
+    assert "STRIATUM_GEMINI_GUIDE" in result["manifest_path"]
+
+
+def test_install_gemini_idempotent_byte_identical(tmp_path: Path) -> None:
+    install_skills(target=tmp_path, profile="gemini")
+    guide = tmp_path / "striatum-STRIATUM_GEMINI_GUIDE.md"
+    snapshot = guide.read_bytes()
+    second = install_skills(target=tmp_path, profile="gemini")
+    assert {f["status"] for f in second["files"]} == {"skipped_unchanged"}
+    assert guide.read_bytes() == snapshot
+
+
+def _all_artifact_paths(target: Path) -> list[Path]:
+    paths = list(_claude_paths(target))
+    paths.extend(_codex_paths(target))
+    paths.append(target / "striatum-STRIATUM_GEMINI_GUIDE.md")
+    paths.append(target / "striatum-STRIATUM_AGENT_GUIDE.md")
+    return paths
+
+
+def test_install_profile_all_writes_every_profile(tmp_path: Path) -> None:
+    import subprocess
+
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(ROOT / "src")
+    proc = subprocess.run(
+        [
+            sys.executable, "-m", "striatum.cli", "--repo", str(tmp_path),
+            "skills", "install", "--profile", "all", "--json",
+        ],
+        env=env, capture_output=True, text=True, check=False,
+    )
+    assert proc.returncode == 0, proc.stderr
+    data = json.loads(proc.stdout)["data"]
+    assert data["profile"] == "all"
+    assert len(data["results"]) == 4
+    assert [r["profile"] for r in data["results"]] == [
+        "claude_code", "codex", "gemini", "generic",
+    ]
+    for path in _all_artifact_paths(tmp_path):
+        assert path.exists(), path
+
+
+def test_install_profile_all_idempotent(tmp_path: Path) -> None:
+    import subprocess
+
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(ROOT / "src")
+    cmd = [
+        sys.executable, "-m", "striatum.cli", "--repo", str(tmp_path),
+        "skills", "install", "--profile", "all", "--json",
+    ]
+    proc1 = subprocess.run(cmd, env=env, capture_output=True, text=True, check=False)
+    assert proc1.returncode == 0
+    snapshot = {p: p.read_bytes() for p in _all_artifact_paths(tmp_path)}
+    proc2 = subprocess.run(cmd, env=env, capture_output=True, text=True, check=False)
+    assert proc2.returncode == 0
+    data = json.loads(proc2.stdout)["data"]
+    statuses = {f["status"] for r in data["results"] for f in r["files"]}
+    assert statuses == {"skipped_unchanged"}
+    for path, data_bytes in snapshot.items():
+        assert path.read_bytes() == data_bytes
+
+
+def test_init_with_skills_all_writes_every_profile(tmp_path: Path) -> None:
+    import subprocess
+
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(ROOT / "src")
+    proc = subprocess.run(
+        [
+            sys.executable, "-m", "striatum.cli", "--repo", str(tmp_path),
+            "init", "--with-skills", "all", "--json",
+        ],
+        env=env, capture_output=True, text=True, check=False,
+    )
+    assert proc.returncode == 0, proc.stderr
+    payload = json.loads(proc.stdout)
+    assert payload["ok"] is True
+    assert payload["data"]["skills"]["profile"] == "all"
+    assert (tmp_path / ".striatum/state.sqlite3").exists()
+    for path in _all_artifact_paths(tmp_path):
+        assert path.exists(), path
+
+
+def test_doctor_reports_skills_missing_for_codex_profile(tmp_path: Path) -> None:
+    from striatum.cli.introspect import doctor
+    from striatum.db import connect, init_repo
+
+    init_repo(tmp_path)
+    install_skills(target=tmp_path, profile="codex")
+    target = tmp_path / ".codex" / "agents" / "striatum-recover.md"
+    target.unlink()
+    with connect(tmp_path) as conn:
+        result = doctor(conn, repo=tmp_path, run_id=None, verbose=True)
+    checks = {row["check"] for row in result["problem_records"]}
+    profile_ids = {
+        row["context"].get("profile")
+        for row in result["problem_records"]
+        if row["check"] == "skills_missing"
+    }
+    assert "skills_missing" in checks
+    assert "codex" in profile_ids
+
+
+def test_doctor_reports_skills_missing_for_gemini_profile(tmp_path: Path) -> None:
+    from striatum.cli.introspect import doctor
+    from striatum.db import connect, init_repo
+
+    init_repo(tmp_path)
+    install_skills(target=tmp_path, profile="gemini")
+    (tmp_path / "striatum-STRIATUM_GEMINI_GUIDE.md").unlink()
+    with connect(tmp_path) as conn:
+        result = doctor(conn, repo=tmp_path, run_id=None, verbose=True)
+    profile_ids = {
+        row["context"].get("profile")
+        for row in result["problem_records"]
+        if row["check"] == "skills_missing"
+    }
+    assert "gemini" in profile_ids

@@ -2,6 +2,29 @@
 
 ## Unreleased
 
+## 1.2.0 — 2026-05-08
+
+### Added
+
+- RFC 0015 step 3 (dogfood-011): codex + gemini skill profiles
+  + `--profile all`. `striatum skills install --profile codex`
+  writes five Markdown files at `.codex/agents/striatum-*.md`
+  reusing the Claude Code skill bodies verbatim.
+  `--profile gemini` writes a single
+  `striatum-STRIATUM_GEMINI_GUIDE.md` (single-guide fallback per
+  RFC 0015 § "Profile coverage" until Gemini CLI's skill
+  convention stabilizes; the dedicated filename keeps
+  `--profile all` collision-free with `generic`).
+  `--profile all` fans out across the four first-class profiles
+  (`claude_code, codex, gemini, generic`) in deterministic
+  order, returning a `{"profile": "all", "results": [...]}`
+  envelope. `striatum init --with-skills all` works the same
+  way. Doctor's `skills_missing` / `skills_outdated` checks now
+  cover every profile. Tests at `tests/test_skills_install.py`
+  (10 new cases, 25 total) cover idempotent regeneration,
+  manifest shape, edit detection, fan-out, and template-SHA
+  parity for the new profiles.
+
 ## 1.1.0 — 2026-05-08
 
 ### Changed

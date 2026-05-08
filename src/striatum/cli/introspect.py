@@ -1450,7 +1450,7 @@ def _check_skill_bundle(*, repo: Path, report: Callable[..., None]) -> None:
         skill_files_present,
     )
 
-    for profile in ("claude_code", "generic"):
+    for profile in ("claude_code", "codex", "gemini", "generic"):
         try:
             path = manifest_path_for(target=repo, profile=profile, scope="project")
         except Exception:  # noqa: BLE001 - doctor must never crash the run

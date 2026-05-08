@@ -30,8 +30,19 @@ from striatum.skills.context import gather_template_context
 
 MANIFEST_SCHEMA_VERSION = "striatum.skills.manifest.v1"
 
-ALLOWED_PROFILES: frozenset[str] = frozenset({"claude_code", "generic"})
+ALLOWED_PROFILES: frozenset[str] = frozenset(
+    {"claude_code", "codex", "gemini", "generic"}
+)
 ALLOWED_SCOPES: frozenset[str] = frozenset({"project", "user"})
+
+# Order in which `--profile all` fans out. Stable so install
+# results are deterministic under serialization.
+ALL_PROFILES_ORDER: tuple[str, ...] = (
+    "claude_code",
+    "codex",
+    "gemini",
+    "generic",
+)
 
 # Bare skill names. Directories are formed as ``<namespace><skill>``,
 # so the default namespace ``striatum-`` produces directories like
@@ -286,9 +297,57 @@ def _build_plan(
 ) -> list[dict[str, Any]]:
     if profile == "claude_code":
         return _plan_claude_code(namespace=namespace, context=context)
+    if profile == "codex":
+        return _plan_codex(namespace=namespace, context=context)
+    if profile == "gemini":
+        return _plan_gemini(namespace=namespace, context=context)
     if profile == "generic":
         return _plan_generic(namespace=namespace, context=context)
     raise InvalidTransitionError(f"unsupported profile {profile!r}")
+
+
+def _plan_codex(*, namespace: str, context: Mapping[str, Any]) -> list[dict[str, Any]]:
+    """Codex CLI: flat agent docs at ``.codex/agents/<ns><skill>.md``.
+
+    Reuses the ``claude_code`` Markdown bodies verbatim — the
+    skill content is identical; only the destination layout
+    differs. The manifest records the same ``template_sha256``
+    as the ``claude_code`` profile would.
+    """
+    plan: list[dict[str, Any]] = []
+    for skill in CLAUDE_CODE_SKILLS:
+        template_rel = f"claude_code/{skill}.md.tmpl"
+        rendered = _render(template_rel=template_rel, context=context)
+        plan.append(
+            {
+                "path": f".codex/agents/{namespace}{skill}.md",
+                "rendered": rendered,
+                "template": template_rel,
+                "template_sha256": bundled_template_sha256(template_rel),
+            }
+        )
+    return plan
+
+
+def _plan_gemini(*, namespace: str, context: Mapping[str, Any]) -> list[dict[str, Any]]:
+    """Gemini CLI: single concatenated guide at the repo root.
+
+    RFC 0015 § "Profile coverage" permits the generic-shape
+    fallback for V1 until Gemini CLI's skill-discovery convention
+    stabilizes; we use a distinct filename
+    (``STRIATUM_GEMINI_GUIDE.md``) so ``--profile all`` does not
+    collide with the ``generic`` profile.
+    """
+    template_rel = "gemini/STRIATUM_GEMINI_GUIDE.md.tmpl"
+    rendered = _render(template_rel=template_rel, context=context)
+    return [
+        {
+            "path": f"{namespace}STRIATUM_GEMINI_GUIDE.md",
+            "rendered": rendered,
+            "template": template_rel,
+            "template_sha256": bundled_template_sha256(template_rel),
+        }
+    ]
 
 
 def _plan_claude_code(*, namespace: str, context: Mapping[str, Any]) -> list[dict[str, Any]]:
@@ -336,6 +395,10 @@ def _manifest_path(
             / f"{namespace}workflow"
             / ".manifest.json"
         )
+    if profile == "codex":
+        return root / ".codex" / "agents" / f"{namespace}workflow.manifest.json"
+    if profile == "gemini":
+        return root / f"{namespace}STRIATUM_GEMINI_GUIDE.manifest.json"
     if profile == "generic":
         return root / f"{namespace}STRIATUM_AGENT_GUIDE.manifest.json"
     raise InvalidTransitionError(f"unsupported profile {profile!r}")

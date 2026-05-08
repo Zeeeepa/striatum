@@ -615,18 +615,18 @@ work was already reclaimable, and refuses repo-write jobs so abandoned write
 work still requires manual inspection or a future worktree-isolated recovery
 path.
 
-### Self-Contained Agent Skills (RFC 0015 V1)
+### Self-Contained Agent Skills (RFC 0015 V1+step 3)
 
-`striatum skills install [--profile {claude_code, generic}] [--scope
-{project, user}] [--namespace <prefix>] [--force] [--dry-run]` writes a
-self-contained agent skill bundle into the target tree. The bundle
-teaches a Striatum-aware agent how to drive the runner without reading
-the source repo: each rendered Markdown file lists the relevant CLI
-verbs, the boundary conditions the runner does not enforce (no SQLite
-writes, no marker files as state, no transcript capture), and a
-copy-pasteable command sequence.
+`striatum skills install [--profile {claude_code, codex, gemini,
+generic, all}] [--scope {project, user}] [--namespace <prefix>]
+[--force] [--dry-run]` writes a self-contained agent skill bundle
+into the target tree. The bundle teaches a Striatum-aware agent how
+to drive the runner without reading the source repo: each rendered
+Markdown file lists the relevant CLI verbs, the boundary conditions
+the runner does not enforce (no SQLite writes, no marker files as
+state, no transcript capture), and a copy-pasteable command sequence.
 
-V1 ships two profiles:
+V1.2 ships four profiles plus an `all` fan-out:
 
 - `claude_code` writes one SKILL.md per skill under
   `.claude/skills/<namespace>striatum-*/SKILL.md`. The five skills are
@@ -637,9 +637,22 @@ V1 ships two profiles:
   `striatum-supervise` (RFC 0009 supervisor lifecycle), and
   `striatum-recover` (status / why / doctor / recovery / checkpoint /
   dashboard).
+- `codex` writes the same five-skill content as flat files at
+  `.codex/agents/<namespace>striatum-*.md`, reusing the Claude Code
+  skill bodies verbatim. Manifest at
+  `.codex/agents/<namespace>striatum-workflow.manifest.json`.
+- `gemini` writes a single concatenated guide at
+  `<namespace>STRIATUM_GEMINI_GUIDE.md`. Single-guide fallback per
+  RFC 0015 § "Profile coverage" until Gemini CLI's skill-discovery
+  convention stabilizes; the dedicated filename keeps `--profile all`
+  collision-free with `generic`.
 - `generic` writes a single concatenated guide at
   `<namespace>STRIATUM_AGENT_GUIDE.md` for any agent CLI without a
   skill-discovery convention.
+- `all` fans out across the four real profiles in deterministic
+  order (`claude_code, codex, gemini, generic`) and returns a
+  `{"profile": "all", "results": [...]}` envelope. Per-profile
+  manifests stay independent; there is no combined "all" manifest.
 
 `--scope user` rewrites the prefix to the user's home directory so a
 developer who works across many target repos installs once. The
@@ -655,11 +668,12 @@ whose hash differs from the manifest is `refused_modified` without
 
 `striatum init [--with-skills [profile]]` runs `init` first and then
 calls the same install pipeline; default profile when the flag is
-present without a value is `claude_code`. The flag is opt-in; default
-`init` behavior is preserved byte-for-byte.
+present without a value is `claude_code`. `--with-skills all` flows
+through the same fan-out as `skills install --profile all`. The flag
+is opt-in; default `init` behavior is preserved byte-for-byte.
 
-`striatum doctor` adds two checks against any installed manifest:
-`skills_missing` (a recorded file is absent on disk) and
+`striatum doctor` checks every installed manifest across all four
+profiles: `skills_missing` (a recorded file is absent on disk) and
 `skills_outdated` (the manifest's runner version is older than the
 running install, or a packaged template's bundled SHA256 differs from
 the recorded `template_sha256`). Both surface a `recovery_command`

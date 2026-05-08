@@ -13,6 +13,8 @@ from __future__ import annotations
 
 from striatum.skills.context import gather_template_context
 from striatum.skills.install import (
+    ALL_PROFILES_ORDER,
+    ALLOWED_PROFILES,
     MANIFEST_SCHEMA_VERSION,
     bundled_template_sha256,
     install,
@@ -22,6 +24,8 @@ from striatum.skills.install import (
 )
 
 __all__ = [
+    "ALLOWED_PROFILES",
+    "ALL_PROFILES_ORDER",
     "MANIFEST_SCHEMA_VERSION",
     "bundled_template_sha256",
     "gather_template_context",

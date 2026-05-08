@@ -100,6 +100,54 @@ def main(argv: Sequence[str] | None = None) -> int:
     return 0
 
 
+def _skills_install_dispatch(
+    *,
+    target: Path,
+    profile: str,
+    scope: str,
+    namespace: str,
+    force: bool,
+    dry_run: bool,
+) -> dict[str, object]:
+    """Run ``skills install`` against one profile, or fan out across all.
+
+    ``profile == "all"`` calls ``install(...)`` once per first-class
+    profile in :data:`striatum.skills.ALL_PROFILES_ORDER` and returns
+    ``{"profile": "all", "scope": ..., "namespace": ..., "results": [...]}``.
+    """
+    from striatum.skills import install as skills_install
+    from striatum.skills.install import ALL_PROFILES_ORDER
+
+    if profile != "all":
+        return skills_install(
+            target=target,
+            profile=profile,
+            scope=scope,
+            namespace=namespace,
+            force=force,
+            dry_run=dry_run,
+        )
+    results: list[dict[str, object]] = []
+    for sub_profile in ALL_PROFILES_ORDER:
+        results.append(
+            skills_install(
+                target=target,
+                profile=sub_profile,
+                scope=scope,
+                namespace=namespace,
+                force=force,
+                dry_run=dry_run,
+            )
+        )
+    return {
+        "profile": "all",
+        "scope": scope,
+        "namespace": namespace,
+        "results": results,
+        "dry_run": dry_run,
+    }
+
+
 def dispatch(args: argparse.Namespace) -> object:
     """Dispatch a parsed command."""
     repo = Path(args.repo).resolve()
@@ -111,16 +159,17 @@ def dispatch(args: argparse.Namespace) -> object:
         }
         with_skills = getattr(args, "with_skills", None)
         if with_skills is not None:
-            from striatum.skills import install as skills_install
-
-            init_result["skills"] = skills_install(
-                target=repo, profile=str(with_skills), scope="project"
+            init_result["skills"] = _skills_install_dispatch(
+                target=repo,
+                profile=str(with_skills),
+                scope="project",
+                namespace="striatum-",
+                force=False,
+                dry_run=False,
             )
         return init_result
     if args.command == "skills" and args.skills_command == "install":
-        from striatum.skills import install as skills_install
-
-        return skills_install(
+        return _skills_install_dispatch(
             target=repo,
             profile=str(args.profile),
             scope=str(args.scope),
