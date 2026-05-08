@@ -95,27 +95,40 @@ repo artifact.
 
 Workflow files are JSON objects with schema version `striatum.workflow.v1`.
 `run prepare` validates the file, stores a canonical JSON snapshot plus
-SHA-256 hash, and creates a run in `needs_branch_confirmation`. Later edits to
-the workflow file do not mutate an already prepared run.
+SHA-256 hash, and either creates the branch immediately (default) or leaves
+the run in `needs_branch_confirmation` for an explicit `branch confirm`
+step. Later edits to the workflow file do not mutate an already prepared run.
 
 ### Branch Gate
 
-No job is claimable until `branch confirm` records explicit human confirmation
-and `run start` starts the run. By default `branch confirm` is records-only:
-it writes the chosen branch and warns when the working tree is on a different
-branch. Three opt-in flags promote the gate from advisory to git-enforcing:
+`branch.mode` controls startup behaviour:
 
-- `--create`: run `git checkout -b <branch>`, falling back to
-  `git checkout <branch>` if it already exists; on failure exits 8 and does
-  NOT record. The response field `created` is true only when a new branch was
-  created.
-- `--use-current`: ignore `--branch` as a target and record the actual current
-  branch. If `--branch` is given and disagrees, exit 8.
-- `--strict`: require the current branch to match `--branch` exactly before
-  recording; otherwise exit 8. Safe default for CI.
+- **`"auto"` (default).** `run prepare` runs `git checkout -b <suggested_name>`
+  (idempotent fallback to `git checkout` if the branch already exists) and
+  transitions the run directly to `ready`. The JSON response includes
+  `branch_mode`, `branch`, `branch_created`, and the `current_git_branch`. If
+  git refuses (dirty tree, conflicting branch), the run remains in
+  `needs_branch_confirmation` and the operator can fix the issue and run
+  `branch confirm` manually. Auto mode requires `branch.suggested_name` to be
+  set.
+- **`"confirm"` (opt-in).** `run prepare` leaves the run in
+  `needs_branch_confirmation`; the operator runs `branch confirm` to
+  record the chosen branch. By default `branch confirm` is records-only:
+  it writes the chosen branch and warns when the working tree is on a
+  different branch. Three opt-in flags promote the gate from advisory to
+  git-enforcing:
 
-The response includes a `mode` field
-(`records_only | create | use_current | strict`).
+  - `--create`: run `git checkout -b <branch>`, falling back to
+    `git checkout <branch>` if it already exists; on failure exits 8 and does
+    NOT record. The response field `created` is true only when a new branch was
+    created.
+  - `--use-current`: ignore `--branch` as a target and record the actual current
+    branch. If `--branch` is given and disagrees, exit 8.
+  - `--strict`: require the current branch to match `--branch` exactly before
+    recording; otherwise exit 8. Safe default for CI.
+
+  The response includes a `mode` field
+  (`records_only | create | use_current | strict`).
 
 ### Sessions And Work Packets
 
@@ -295,6 +308,80 @@ To scaffold a new workflow tree:
 `--style` accepts `minimal`, `review` (default), or `code-change`. The
 generated tree includes `workflow.json` plus `roles/` and `prompts/` stubs and
 validates cleanly. The command refuses to overwrite an existing path.
+
+### 2a. Shape A Custom Run Scaffold
+
+A Striatum run starts from a concrete design proposal, not from a project type.
+The proposal can be an RFC, TODO, bug report, feature request, review finding,
+support note, or any other local artifact that describes the desired change or
+decision. Keep that source artifact in the target repository and reference it
+from `context_docs` or the relevant job `inputs`.
+
+Before editing `workflow.json`, choose the run outcome:
+
+- `review only`: independent reviewers inspect the source proposal, publish
+  findings, and a synthesis job produces the durable recommendation.
+- `produce a spec`: reviewers or researchers feed a spec-authoring job, then a
+  review gate checks the generated spec before the run ends.
+- `produce a spec and implement`: the spec path continues into implementation,
+  build or test verification, and final review.
+- `repair implementation`: a bug report, failing review, or smoke-test finding
+  feeds an implementation job and a focused verification job.
+- `human checkpoint`: the runner records a required owner decision before later
+  jobs become claimable.
+
+Use `workflow init --style review` for proposal review, RFC cleanup, bug triage,
+feature request analysis, and TODO conversion. Use `--style code-change` when
+the same scaffold should also drive repository edits. Use `--style minimal` for
+a single bounded job or when you want to build the graph from scratch.
+
+Choose a repo-relative scaffold root such as `workflows/<slug>/` or
+`docs/workflows/<slug>/` in the target repository. A reusable scaffold usually
+contains:
+
+```text
+<scaffold-root>/workflow.json
+<scaffold-root>/RUNBOOK.md
+<scaffold-root>/SOURCES.md
+<scaffold-root>/roles/*.md
+<scaffold-root>/prompts/*.md
+```
+
+`workflow.json` is the executable contract. `RUNBOOK.md` is for the human
+operator, `SOURCES.md` records the local proposal and context artifacts, and
+role or prompt files hold reusable task wording. Workflow outputs should land
+in durable repo paths such as `docs/reviews/<slug>/`, `docs/specs/<slug>/`,
+`docs/decisions/<slug>/`, or a project-local equivalent. Keep runner state in
+`.striatum/`; do not publish transcripts as workflow artifacts.
+
+Common graph shapes:
+
+```text
+review_a + review_b + review_c -> findings_ledger -> synthesis -> final_review
+proposal_review -> spec_author -> spec_review
+proposal_review -> spec_author -> spec_review -> implement -> build_review
+bug_triage -> implement_fix -> smoke_test -> final_review
+proposal_review -> synthesis -> human_checkpoint -> implement
+```
+
+Give independent reviewers `review_only_artifact` write scopes and
+`fresh_session_required: true`. Give authoring and implementation jobs
+`repo_write` only for the files they are expected to change. Parallel jobs
+should have disjoint output paths, and every expected artifact should have a
+stable path under the target repository and outside `.striatum/`.
+
+Before preparing the run, check the scaffold:
+
+```bash
+"$RUNNER" --repo "$TARGET_REPO" workflow validate path/to/workflow.json --json
+"$RUNNER" --repo "$TARGET_REPO" workflow plan path/to/workflow.json --json
+"$RUNNER" --repo "$TARGET_REPO" workflow graph path/to/workflow.json
+```
+
+Review the plan for the intended branch name, job order, write scopes, required
+artifacts, and any human checkpoints. Avoid absolute home-directory paths in
+workflow fixtures; use repo-relative paths and operator-local environment
+variables instead.
 
 ### 3. Prepare A Run
 

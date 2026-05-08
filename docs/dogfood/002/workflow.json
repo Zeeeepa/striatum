@@ -4,7 +4,7 @@
   "workflow_version": "2026-05-08",
   "name": "Dogfood 002: Land RFC 0011 (session close + run-terminal auto-close)",
   "branch": {
-    "mode": "confirm",
+    "mode": "auto",
     "suggested_name": "striatum/dogfood-002-session-close",
     "allow_dirty": false
   },

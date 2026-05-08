@@ -4,7 +4,7 @@
   "workflow_version": "2026-05-07",
   "name": "Dogfood 001 v2: land HARNESS-001/002/003/004 fixes",
   "branch": {
-    "mode": "confirm",
+    "mode": "auto",
     "suggested_name": "striatum/dogfood-001-v2-harness-fixes",
     "allow_dirty": false
   },

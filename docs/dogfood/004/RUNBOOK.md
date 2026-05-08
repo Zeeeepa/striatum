@@ -90,7 +90,11 @@ Expect the validate output to include exactly one lint warning naming
 the missing `.striatum/bin/claude-supervised-wrapper.sh` path. That
 warning will go away when the implementer ships the wrapper.
 
-## Prepare, Confirm Branch, Start
+## Prepare And Start
+
+The workflow declares `branch.mode: "auto"`, so `run prepare` creates
+the branch and transitions the run to `ready` atomically. No
+separate `branch confirm` step is needed.
 
 ```bash
 PREP=$("$RUNNER" --repo "$TARGET_REPO" run prepare --workflow "$WORKFLOW" --json)
@@ -98,14 +102,14 @@ RUN_ID=$(printf '%s' "$PREP" | python3 -c \
   'import json,sys; print(json.load(sys.stdin)["data"]["run_id"])')
 echo "RUN_ID=$RUN_ID"
 
-"$RUNNER" --repo "$TARGET_REPO" branch confirm \
-  --run-id "$RUN_ID" \
-  --branch striatum/dogfood-004-claude-supervised-wrapper \
-  --create \
-  --json
-
 "$RUNNER" --repo "$TARGET_REPO" run start --run-id "$RUN_ID" --json
 ```
+
+If the working tree is dirty or the branch already exists with a
+conflicting state, `run prepare` falls back to
+`needs_branch_confirmation` and prints a warning. Resolve the issue
+and run `striatum branch confirm --run-id <id> --branch <name>
+--create` manually.
 
 ## Register Sessions
 

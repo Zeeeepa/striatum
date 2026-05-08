@@ -4,6 +4,23 @@
 
 ### Added
 
+- `branch.mode` is now a closed enum (`"auto"` or `"confirm"`) and
+  defaults to `"auto"` when omitted. In auto mode, `run prepare`
+  atomically creates the suggested branch and transitions the run to
+  `ready`, eliminating the separate `striatum branch confirm --create`
+  step that was previously required. The response includes
+  `branch_mode`, `branch`, `branch_created`, `current_git_branch`, and
+  any warning. Workflows that explicitly want the manual gate can set
+  `branch.mode: "confirm"`; behaviour there is unchanged. If git
+  checkout fails during auto mode (dirty tree, conflicting branch),
+  the run falls back to `needs_branch_confirmation` so the operator
+  can resolve the issue and run `branch confirm` manually. Migrated
+  the in-repo dogfood-001/-001-v2/-002/-003/-004 and the
+  `examples/harness-profiles/` workflows to auto mode; remaining
+  example fixtures keep `mode: "confirm"` for test-coverage symmetry.
+  Five new tests in `tests/test_cli_mvp.py` cover the auto path,
+  default-when-omitted, the still-functioning confirm path, unknown
+  mode rejection, and the auto-without-suggested-name guard.
 - RFC 0010 V2 / HARNESS-001 (dogfood-004): reference Claude Code
   supervised wrapper at `.striatum/bin/claude-supervised-wrapper.sh`.
   Bash `while IFS= read -r` loop that spawns a fresh `claude --print`

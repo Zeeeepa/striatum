@@ -3581,3 +3581,72 @@ def test_adapter_unavailable_flow_rejects_at_validation(tmp_path: Path) -> None:
     accepted = data(run_cli(tmp_path, "workflow", "validate", str(relaxed_path)))
     assert accepted["valid"] is True
     assert accepted["workflow_id"] == "adapter-unavailable-flow"
+
+
+# ----- branch.mode: "auto" (default) ---------------------------------------
+
+
+def test_run_prepare_auto_mode_creates_branch_and_returns_ready(tmp_path: Path) -> None:
+    """When workflow.branch.mode is "auto", `run prepare` creates the branch
+    automatically and returns state="ready" — no separate `branch confirm`
+    step required.
+    """
+    _git_init_repo(tmp_path, initial_branch="main")
+    init_repo(tmp_path)
+    workflow = example_workflow()
+    workflow["branch"]["mode"] = "auto"
+    workflow["branch"]["suggested_name"] = "striatum/auto-mode-fixture"
+    workflow_path = temporary_workflow(tmp_path, workflow)
+    prepared = data(run_cli(tmp_path, "run", "prepare", "--workflow", str(workflow_path)))
+    assert prepared["state"] == "ready"
+    assert prepared["branch"] == "striatum/auto-mode-fixture"
+    assert prepared["branch_created"] is True
+    assert prepared["branch_mode"] == "auto"
+    assert _current_branch(tmp_path) == "striatum/auto-mode-fixture"
+
+
+def test_run_prepare_default_mode_is_auto(tmp_path: Path) -> None:
+    """A workflow that omits `branch.mode` defaults to auto."""
+    _git_init_repo(tmp_path, initial_branch="main")
+    init_repo(tmp_path)
+    workflow = example_workflow()
+    workflow["branch"].pop("mode", None)
+    workflow["branch"]["suggested_name"] = "striatum/default-mode-fixture"
+    workflow_path = temporary_workflow(tmp_path, workflow)
+    prepared = data(run_cli(tmp_path, "run", "prepare", "--workflow", str(workflow_path)))
+    assert prepared["state"] == "ready"
+    assert prepared["branch_mode"] == "auto"
+    assert _current_branch(tmp_path) == "striatum/default-mode-fixture"
+
+
+def test_run_prepare_confirm_mode_still_pauses(tmp_path: Path) -> None:
+    """Workflows with `branch.mode: "confirm"` keep the manual gate."""
+    _git_init_repo(tmp_path, initial_branch="main")
+    init_repo(tmp_path)
+    # The `WORKFLOW` fixture (`examples/rfc-ledger-cleanup/workflow.json`)
+    # declares `mode: "confirm"`. Use it directly.
+    prepared = data(run_cli(tmp_path, "run", "prepare", "--workflow", str(WORKFLOW)))
+    assert prepared["state"] == "needs_branch_confirmation"
+    # No branch was checked out implicitly:
+    assert _current_branch(tmp_path) == "main"
+
+
+def test_workflow_validate_rejects_unknown_branch_mode(tmp_path: Path) -> None:
+    init_repo(tmp_path)
+    workflow = example_workflow()
+    workflow["branch"]["mode"] = "frobnicate"
+    workflow_path = temporary_workflow(tmp_path, workflow)
+    rejected = run_cli(tmp_path, "workflow", "validate", str(workflow_path), check=False)
+    assert rejected["returncode"] == 8
+    assert "branch.mode" in str(rejected["error"]["message"])
+
+
+def test_workflow_validate_rejects_auto_without_suggested_name(tmp_path: Path) -> None:
+    init_repo(tmp_path)
+    workflow = example_workflow()
+    workflow["branch"]["mode"] = "auto"
+    workflow["branch"].pop("suggested_name", None)
+    workflow_path = temporary_workflow(tmp_path, workflow)
+    rejected = run_cli(tmp_path, "workflow", "validate", str(workflow_path), check=False)
+    assert rejected["returncode"] == 8
+    assert "suggested_name" in str(rejected["error"]["message"])

@@ -424,13 +424,39 @@ code 8) reject kinds outside that set.
 
 ## Branches And Commits
 
-Workflow startup is confirmation-gated:
+Workflow startup is gated by the workflow's `branch.mode` setting.
 
-1. `run prepare` validates and snapshots workflow JSON and leaves the run in
-   `needs_branch_confirmation`.
-2. `branch confirm` records explicit human confirmation and optionally creates
-   or selects a branch.
+`branch.mode` is a closed enum: `"auto"` (the default when omitted) or
+`"confirm"`.
+
+**Auto mode (default).** When the workflow declares `branch.mode: "auto"`
+or omits the `mode` field, `run prepare` atomically:
+
+1. Validates and snapshots workflow JSON.
+2. Calls `git checkout -b <suggested_name>` (idempotent fallback to
+   `git checkout <suggested_name>` if the branch already exists).
+3. Records the branch and transitions the run to state `ready`.
+
+The response includes `branch_mode: "auto"`, the resolved `branch`,
+`branch_created` (true only when a new branch was created), and the
+`current_git_branch` for cross-check. If git checkout fails (dirty
+working tree, conflicting branch), the run remains in
+`needs_branch_confirmation` and the operator can resolve the issue and
+run `striatum branch confirm` manually. Auto mode requires
+`branch.suggested_name` to be set.
+
+**Confirm mode (opt-in).** When the workflow declares
+`branch.mode: "confirm"`:
+
+1. `run prepare` validates and snapshots workflow JSON and leaves the
+   run in `needs_branch_confirmation`.
+2. `branch confirm` records explicit human confirmation and optionally
+   creates or selects a branch.
 3. `run start` makes eligible root jobs claimable.
+
+Use confirm mode for workflows that require operator review of the
+target repository state before any branch is touched (e.g., RFC-style
+spec reviews where the branch is part of the deliberation).
 
 No job is claimable before branch confirmation. V1 does not commit, push,
 merge, or rebase.

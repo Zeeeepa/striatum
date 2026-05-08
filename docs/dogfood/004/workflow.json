@@ -4,7 +4,7 @@
   "workflow_version": "2026-05-08",
   "name": "Dogfood 004: Author the Claude Code supervised wrapper",
   "branch": {
-    "mode": "confirm",
+    "mode": "auto",
     "suggested_name": "striatum/dogfood-004-claude-supervised-wrapper",
     "allow_dirty": false
   },

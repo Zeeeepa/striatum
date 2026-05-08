@@ -4,7 +4,7 @@
   "workflow_version": "2026-05-08",
   "name": "Dogfood 003: Research and build tool harness profiles",
   "branch": {
-    "mode": "confirm",
+    "mode": "auto",
     "suggested_name": "striatum/dogfood-003-tool-harness-profiles",
     "allow_dirty": false
   },

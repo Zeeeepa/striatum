@@ -144,7 +144,35 @@ def dispatch(args: argparse.Namespace) -> object:
     with connect(repo) as conn:
         if args.command == "run" and args.run_command == "prepare":
             with transaction(conn):
-                return create_run(conn, repo=repo, workflow_path=Path(args.workflow))
+                prepared = create_run(
+                    conn, repo=repo, workflow_path=Path(args.workflow)
+                )
+            # Auto-branch mode (RFC 0010 follow-up): when the workflow's
+            # branch.mode is "auto", drive `branch confirm --create`
+            # implicitly so operators don't have to type a separate step.
+            # Falls back to `needs_branch_confirmation` if git checkout
+            # fails (dirty tree, conflicting branch); the operator can
+            # then resolve the issue and run `branch confirm` manually.
+            if prepared.get("branch_mode") == "auto":
+                suggested = prepared.get("suggested_branch_name")
+                if isinstance(suggested, str) and suggested:
+                    confirmed = branch_confirm(
+                        conn,
+                        repo=repo,
+                        run_id=str(prepared["run_id"]),
+                        branch=suggested,
+                        create=True,
+                    )
+                    return {
+                        "run_id": prepared["run_id"],
+                        "state": confirmed["state"],
+                        "branch": confirmed["branch"],
+                        "branch_mode": "auto",
+                        "branch_created": confirmed.get("created", False),
+                        "current_git_branch": confirmed.get("current_git_branch"),
+                        "warning": confirmed.get("warning"),
+                    }
+            return prepared
         if args.command == "branch" and args.branch_command == "confirm":
             return branch_confirm(
                 conn,

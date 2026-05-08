@@ -4,7 +4,7 @@
   "workflow_version": "2026-05-08",
   "name": "RFC 0010 V1 Harness Profiles Fixture",
   "branch": {
-    "mode": "confirm",
+    "mode": "auto",
     "suggested_name": "striatum/harness-profiles-fixture",
     "allow_dirty": false
   },

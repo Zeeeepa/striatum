@@ -47,18 +47,14 @@ The validate output includes the V1.5 lint warning naming the missing
 wrapper path. That warning is expected — landing the wrapper is the
 goal of the run.
 
-Prepare and start:
+Prepare and start. The workflow declares `branch.mode: "auto"`, so
+`run prepare` creates the branch and transitions the run to `ready`
+in one step:
 
 ```bash
 PREP=$("$RUNNER" --repo "$TARGET_REPO" run prepare --workflow "$WORKFLOW" --json)
 RUN_ID=$(printf '%s' "$PREP" | python3 -c 'import json,sys; print(json.load(sys.stdin)["data"]["run_id"])')
 echo "RUN_ID=$RUN_ID"
-
-"$RUNNER" --repo "$TARGET_REPO" branch confirm \
-  --run-id "$RUN_ID" \
-  --branch striatum/dogfood-004-claude-supervised-wrapper \
-  --create \
-  --json
 
 "$RUNNER" --repo "$TARGET_REPO" run start --run-id "$RUN_ID" --json
 ```

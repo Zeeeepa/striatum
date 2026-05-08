@@ -50,6 +50,16 @@ CONSTRAINT_VALUES = {
 
 WORKTREE_ISOLATION_VALUES = {"off", "per_job"}
 
+# Workflow branch.mode values:
+# - "auto": run prepare creates the suggested branch and transitions the run
+#           directly to state="ready" with no separate branch-confirm step.
+#           Requires `suggested_name` to be set.
+# - "confirm": run prepare returns state="needs_branch_confirmation"; the
+#              operator runs `striatum branch confirm` (with --create / etc.)
+#              to advance.
+# Default when `branch.mode` is omitted: "auto".
+BRANCH_MODE_VALUES = ("auto", "confirm")
+
 REVIEWER_ACCESS_SCOPE_VALUES = ("document_only", "artifact_augmented", "repo_level")
 REVIEWER_CONTEXT_POLICY_VALUES = ("fresh", "cross_round")
 
@@ -383,6 +393,7 @@ def validate_workflow(
         raise WorkflowError(f"workflow is missing required fields: {', '.join(missing)}")
     if workflow.get("schema_version") != "striatum.workflow.v1":
         raise WorkflowError("workflow schema_version must be striatum.workflow.v1")
+    _validate_branch_section(workflow)
     lanes = _object(workflow, "lanes")
     profile_ids = _validate_harness_profiles(workflow, warnings=warnings)
     _validate_lane_constraints(
@@ -547,7 +558,13 @@ def create_run(conn: sqlite3.Connection, *, repo: Path, workflow_path: Path) -> 
         event_type="run.created",
         payload={"workflow_id": workflow["workflow_id"], "workflow_snapshot_id": workflow_snapshot_id},
     )
-    return {"run_id": run_id, "state": "needs_branch_confirmation"}
+    branch_section = _object(workflow, "branch")
+    return {
+        "run_id": run_id,
+        "state": "needs_branch_confirmation",
+        "branch_mode": branch_section.get("mode", "auto"),
+        "suggested_branch_name": branch_section.get("suggested_name"),
+    }
 
 
 def workflow_job_map(workflow: JsonObject) -> dict[str, JsonValue]:
@@ -763,6 +780,38 @@ def _validate_parallelism(jobs: list[object]) -> None:
                 f"parallel group {group!r} mixes repo_write and review-only jobs; "
                 "split them into separate groups"
             )
+
+
+def _validate_branch_section(workflow: JsonObject) -> None:
+    """Validate the workflow ``branch`` block.
+
+    ``branch.mode`` defaults to ``"auto"`` when omitted. Auto mode requires
+    ``suggested_name`` so ``run prepare`` can create the branch atomically.
+    """
+    raw = workflow.get("branch")
+    if raw is None:
+        # `branch` is in REQUIRED_TOP_LEVEL; this branch is unreachable, but
+        # keep the guard for callers that might construct workflows in-memory.
+        return
+    if not isinstance(raw, dict):
+        raise WorkflowError("workflow branch must be an object")
+    mode = raw.get("mode", "auto")
+    if mode not in BRANCH_MODE_VALUES:
+        raise WorkflowError(
+            f"workflow branch.mode must be one of {list(BRANCH_MODE_VALUES)!r}; "
+            f"got {mode!r}"
+        )
+    suggested = raw.get("suggested_name")
+    if mode == "auto" and (not isinstance(suggested, str) or not suggested):
+        raise WorkflowError(
+            "workflow branch.mode 'auto' requires a non-empty suggested_name"
+        )
+    if suggested is not None and (
+        not isinstance(suggested, str) or not suggested
+    ):
+        raise WorkflowError(
+            "workflow branch.suggested_name must be a non-empty string when set"
+        )
 
 
 def _validate_harness_profiles(
