@@ -29,6 +29,7 @@ and, when behavior changes, `docs/SPEC.md`.
 | [0014](0014-process-adapter-completion-guarantees.md) | accepted | Post-exit output validation, configurable timeouts, and liveness reconciliation for one-shot `adapter run`. V1 implemented (D057). Closes [#1](https://github.com/halbritt/striatum/issues/1). |
 | [0015](0015-self-contained-agent-skills.md) | accepted (V1) | `striatum skills install` generates a self-contained agent skill bundle (Claude Code, Codex, generic) so the runner can be driven without the source repo on disk. V1 implemented (D061) under dogfood-009 — Claude Code + generic profiles; codex/gemini deferred. |
 | [0016](0016-dashboard-dependency-graph.md) | accepted (V1) | Render the run's dependency graph (layered ASCII, state-colored, refresh-driven) inside `striatum dashboard`, reusing the existing graph data path. V1 implemented (D060) under dogfood-008. |
+| [0017](0017-readme-and-docs-reorganization.md) | proposed | Slim the README to ~250 lines, split human and coding-agent quick starts, and move behavior-model / sequential-usage / dogfood-history / per-RFC subsections / command reference into dedicated `docs/` files. |
 
 ## Template
 
