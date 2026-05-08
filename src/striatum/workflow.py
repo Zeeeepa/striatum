@@ -106,10 +106,12 @@ def load_workflow(path: Path) -> JsonObject:
     return workflow
 
 
-def plan_workflow(workflow: JsonObject) -> JsonObject:
+def plan_workflow(
+    workflow: JsonObject, *, repo_root: Path | None = None
+) -> JsonObject:
     """Return a dry-run execution plan for an already validated workflow."""
     warnings: list[str] = []
-    validate_workflow(workflow, warnings=warnings)
+    validate_workflow(workflow, warnings=warnings, repo_root=repo_root)
     jobs = workflow_job_map(workflow)
     edges = edge_dependency_pairs(workflow)
     downstream: dict[str, list[str]] = {job_id: [] for job_id in jobs}
@@ -363,12 +365,18 @@ def validate_workflow(
     workflow: JsonObject,
     *,
     warnings: list[str] | None = None,
+    repo_root: Path | None = None,
 ) -> None:
     """Validate the V1 workflow shape.
 
-    When ``warnings`` is provided, advisory lint warnings (currently RFC 0010
-    unknown-sibling-field detection on harness profiles) are appended. Hard
-    schema violations always raise ``WorkflowError`` regardless.
+    When ``warnings`` is provided, advisory lint warnings are appended:
+
+    - RFC 0010: unknown sibling fields on harness profile bodies.
+    - RFC 0010 V1.5 / HARNESS-001: repo-relative process-lane command
+      paths that do not exist under ``repo_root`` (only fired when
+      ``repo_root`` is also provided).
+
+    Hard schema violations always raise ``WorkflowError`` regardless.
     """
     missing = sorted(REQUIRED_TOP_LEVEL.difference(workflow))
     if missing:
@@ -377,7 +385,12 @@ def validate_workflow(
         raise WorkflowError("workflow schema_version must be striatum.workflow.v1")
     lanes = _object(workflow, "lanes")
     profile_ids = _validate_harness_profiles(workflow, warnings=warnings)
-    _validate_lane_constraints(lanes, harness_profile_ids=profile_ids)
+    _validate_lane_constraints(
+        lanes,
+        harness_profile_ids=profile_ids,
+        repo_root=repo_root,
+        warnings=warnings,
+    )
     roles = _object(workflow, "roles")
     jobs = _list(workflow, "jobs")
     job_map: dict[str, JsonValue] = {}
@@ -861,6 +874,8 @@ def _validate_lane_constraints(
     lanes: JsonObject,
     *,
     harness_profile_ids: frozenset[str] | None = None,
+    repo_root: Path | None = None,
+    warnings: list[str] | None = None,
 ) -> None:
     """Validate optional lane adapter constraints."""
     declared_profiles = harness_profile_ids or frozenset()
@@ -890,6 +905,20 @@ def _validate_lane_constraints(
                 or not all(isinstance(key, str) and isinstance(value, str) for key, value in env.items())
             ):
                 raise WorkflowError(f"process lane {lane_id!r} env must be an object of strings")
+            if (
+                warnings is not None
+                and repo_root is not None
+                and isinstance(command, list)
+                and command
+                and isinstance(command[0], str)
+                and _looks_like_repo_relative_path(command[0])
+                and not (repo_root / command[0]).is_file()
+            ):
+                warnings.append(
+                    f"lane {lane_id!r} command path {command[0]!r} does not exist "
+                    f"under {repo_root!s}; supervised use will fail at exec time. "
+                    f"(RFC 0010 V1.5 lint; HARNESS-001 follow-up)"
+                )
         worktree_value = lane_value.get("worktree_isolation")
         if worktree_value is not None:
             if not isinstance(worktree_value, str) or worktree_value not in WORKTREE_ISOLATION_VALUES:
@@ -1198,6 +1227,21 @@ def _normalize_path_string(path_text: str) -> str:
         return ""
     normalized = "/".join(parts)
     return normalized.rstrip("/")
+
+
+def _looks_like_repo_relative_path(value: str) -> bool:
+    """Heuristic: does this command[0] look like a repo-relative file path?
+
+    Returns True for ``./bin/x``, ``bin/x``, ``.striatum/bin/wrapper.sh``,
+    and similar shapes. Returns False for absolute paths (``/usr/bin/x``)
+    and for bare binary names that resolve via ``$PATH`` (``codex``,
+    ``claude``, ``gemini``).
+    """
+    if value.startswith("/"):
+        return False
+    if value.startswith("./") or value.startswith("../"):
+        return True
+    return "/" in value
 
 
 def _path_within(child: str, parent: str) -> bool:

@@ -120,6 +120,13 @@ V1 validation rules:
   warnings, surfaced in `striatum workflow validate --json` and
   `workflow plan --json` under the `warnings` key. They are not
   errors in V1; future versions may tighten this.
+- (V1.5) Repo-relative process-lane command paths that do not exist on
+  disk surface as lint warnings under the same `warnings` key. The
+  check fires when `lane.command[0]` looks like a path (contains a
+  slash or starts with `./`/`../`) and is missing under the workflow's
+  repo root. Bare binary names (`codex`, `claude`, `gemini`) and
+  absolute paths are not checked. The warning is non-blocking; future
+  versions may graduate it to a hard error.
 
 When a job's lane references a declared profile, `claim-next` adds a
 `harness_profile` block to the work packet:

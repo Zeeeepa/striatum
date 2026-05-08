@@ -104,7 +104,7 @@ def dispatch(args: argparse.Namespace) -> object:
     if args.command == "workflow" and args.workflow_command == "validate":
         workflow = load_workflow(Path(args.path))
         warnings: list[str] = []
-        validate_workflow(workflow, warnings=warnings)
+        validate_workflow(workflow, warnings=warnings, repo_root=repo)
         validation_result: dict[str, object] = {
             "workflow_id": workflow["workflow_id"],
             "valid": True,
@@ -114,7 +114,7 @@ def dispatch(args: argparse.Namespace) -> object:
         return validation_result
     if args.command == "workflow" and args.workflow_command == "plan":
         workflow = load_workflow(Path(args.path))
-        return plan_workflow(workflow)
+        return plan_workflow(workflow, repo_root=repo)
     if args.command == "workflow" and args.workflow_command == "graph":
         workflow = load_workflow(Path(args.path))
         if args.format == "json":

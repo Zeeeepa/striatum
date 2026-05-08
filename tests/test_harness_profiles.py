@@ -321,6 +321,68 @@ def test_packet_omits_harness_profile_when_lane_has_no_reference(tmp_path: Path)
     assert "harness_profile" not in packet
 
 
+# ----- V1.5 missing-lane-command-path lint --------------------------------
+
+
+def test_missing_repo_relative_lane_command_emits_warning(tmp_path: Path) -> None:
+    workflow = _minimal_workflow()
+    workflow["lanes"]["alpha"]["command"] = ["./bin/missing.sh"]
+    warnings: list[str] = []
+    validate_workflow(workflow, warnings=warnings, repo_root=tmp_path)
+    assert any("missing.sh" in w for w in warnings)
+
+
+def test_missing_lane_command_warning_skipped_without_repo_root() -> None:
+    """The lint warning only fires when a repo_root is supplied."""
+    workflow = _minimal_workflow()
+    workflow["lanes"]["alpha"]["command"] = ["./bin/missing.sh"]
+    warnings: list[str] = []
+    validate_workflow(workflow, warnings=warnings)
+    assert not any("missing.sh" in w for w in warnings)
+
+
+def test_present_lane_command_does_not_warn(tmp_path: Path) -> None:
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    target = bin_dir / "wrapper.sh"
+    target.write_text("#!/bin/sh\n", encoding="utf-8")
+    workflow = _minimal_workflow()
+    workflow["lanes"]["alpha"]["command"] = ["./bin/wrapper.sh"]
+    warnings: list[str] = []
+    validate_workflow(workflow, warnings=warnings, repo_root=tmp_path)
+    assert not any("wrapper.sh" in w for w in warnings)
+
+
+def test_bare_binary_name_does_not_warn(tmp_path: Path) -> None:
+    """Bare binaries (resolved via $PATH) are not checked."""
+    workflow = _minimal_workflow()
+    workflow["lanes"]["alpha"]["command"] = ["codex", "exec", "-"]
+    warnings: list[str] = []
+    validate_workflow(workflow, warnings=warnings, repo_root=tmp_path)
+    assert not any("codex" in w for w in warnings)
+
+
+def test_absolute_path_does_not_warn(tmp_path: Path) -> None:
+    """Absolute paths are not checked by the lint (system binaries)."""
+    workflow = _minimal_workflow()
+    workflow["lanes"]["alpha"]["command"] = ["/usr/bin/totally-missing-binary"]
+    warnings: list[str] = []
+    validate_workflow(workflow, warnings=warnings, repo_root=tmp_path)
+    assert not any("totally-missing-binary" in w for w in warnings)
+
+
+def test_workflow_validate_cli_surfaces_missing_lane_command_warning(tmp_path: Path) -> None:
+    workflow = _minimal_workflow()
+    workflow["lanes"]["alpha"]["command"] = [".striatum/bin/missing-wrapper.sh"]
+    workflow_path = tmp_path / "workflow.json"
+    workflow_path.write_text(json.dumps(workflow), encoding="utf-8")
+    _run_cli(tmp_path, "init")
+    payload = _data(_run_cli(tmp_path, "workflow", "validate", str(workflow_path)))
+    assert payload["valid"] is True
+    assert "warnings" in payload
+    assert any("missing-wrapper.sh" in w for w in payload["warnings"])
+
+
 # ----- CLI envelope warnings ----------------------------------------------
 
 

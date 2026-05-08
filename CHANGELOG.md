@@ -4,6 +4,14 @@
 
 ### Added
 
+- RFC 0010 V1.5 (HARNESS-001 follow-up): workflow-validate lint warning
+  for missing repo-relative process-lane command paths. Fires when
+  `lane.command[0]` looks like a repo-relative path (contains a slash
+  or starts with `./`/`../`) and the file does not exist under the
+  workflow's repo root. Surfaces under the `warnings` key in
+  `workflow validate --json` and `workflow plan --json`. Non-blocking;
+  bare binary names and absolute paths are not checked. Closes the V1.5
+  step of `docs/dogfood/003/findings/HARNESS-001.md`.
 - RFC 0010 V1 (dogfood-003): optional `harness_profiles` workflow map
   and per-lane `harness_profile_id` reference. When a lane references a
   declared profile, `claim-next` adds a `harness_profile` block to the
