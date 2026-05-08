@@ -24,8 +24,10 @@ the reference customer; the product boundary is generic.
 
 ## Current Status
 
-The V1 MVP is implemented as a Python CLI with no runtime dependencies outside
-the standard library. Today's surface includes:
+`v1.0.0` ships the V1 MVP as a Python CLI with no runtime dependencies outside
+the standard library. Every RFC under `docs/rfcs/` is `accepted` (or
+`accepted (V1)`); the implementation slices for each are on main. Today's
+surface includes:
 
 - repo-local SQLite state (`.striatum/state.sqlite3`) with a forward-only
   migration system (`PRAGMA user_version`); a database newer than this install

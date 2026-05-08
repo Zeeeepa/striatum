@@ -2,6 +2,74 @@
 
 ## Unreleased
 
+## 1.0.0 — 2026-05-08
+
+First stable release. Every RFC under `docs/rfcs/` is now in an
+`accepted` (or `accepted (V1)`) state, and every V1 RFC has shipped
+its implementation slice. The `0.x` line tracked individual RFC
+landings on top of the V1 MVP baseline; `1.0.0` is the version the
+runner exposes once the full V1 surface is on main.
+
+### Highlights since 0.1.0
+
+- **RFC 0006** — forward-only SQLite migration system (`PRAGMA
+  user_version`); a database newer than the runner exits with
+  code 9.
+- **RFC 0007** — workflow visualization (`workflow graph` and
+  `run graph` with Mermaid / JSON / Graphviz DOT / state-annotated
+  ASCII output).
+- **RFC 0008** — opt-in per-job git worktree isolation
+  (`worktree create | release | list`) for parallel repo-write
+  jobs.
+- **RFC 0009** — long-lived process supervision
+  (`supervise start | send | stop | status | list`) so an agent
+  CLI can be held alive across multiple work packets.
+- **RFC 0010 V1+V1.5+V2** — tool harness profiles surfaced on work
+  packets, plus the reference Claude Code supervised wrapper at
+  `.striatum/bin/claude-supervised-wrapper.sh`.
+- **RFC 0011** — explicit session close + run-terminal auto-close
+  (`session close`); doctor's `active_session_on_terminal_run`
+  warning now clears by construction on clean-finish runs.
+- **RFC 0012 V1** — local HTTP / Unix-socket service
+  (`striatum serve`) with SSE for events and a mutation gate
+  (`--allow-mutations`).
+- **RFC 0013 V1** — local web UI: vanilla-JS SPA bundled at
+  `src/striatum/web/static/` and served by `striatum serve --web`.
+- **RFC 0014 V1** — process adapter completion guarantees
+  (post-exit output validation, structured blocker payloads,
+  `recovery process-reconcile`, doctor `process_*` checks). Closed
+  [issue #1](https://github.com/halbritt/striatum/issues/1).
+- **RFC 0015 V1** — self-contained agent skill bundles
+  (`striatum skills install`, `init --with-skills`, doctor
+  `skills_missing` / `skills_outdated`).
+- **RFC 0016 V1** — live dependency graph panel in
+  `striatum dashboard`; `run graph --format ascii` reuses the same
+  pure renderer for one-shot snapshots.
+- **Reviewer policy & artifact contracts** — RFCs 0002/0003/0004/0005
+  shipped reviewer access scope + context policy fields, support
+  ledgers, action-item ledgers, and harness improvement proposals
+  with V1 front-matter schemas under `striatum.artifacts`.
+
+### Tooling
+
+- 50 source modules under `src/striatum/`, 260 tests under
+  `tests/`, lint + mypy clean. The Makefile targets `install`,
+  `lint`, `typecheck`, `test`, `smoke` are the supported entry
+  points.
+- `pyproject.toml`'s `[tool.setuptools.package-data]` ships the
+  web SPA (`striatum.web.static`) and the agent skill templates
+  (`striatum.skills.templates`) with the wheel.
+
+### Notes for upgraders
+
+- The `1.0.0` jump from `0.5.0` is purely a release-naming change;
+  every behavior in `1.0.0` already shipped on main as part of the
+  `0.2.0`–`0.5.0` line.
+- The `striatum.workflow.v1`, `striatum.work-packet.v1`,
+  `striatum.skills.manifest.v1`, and the per-kind front-matter
+  schema versions remain V1; future schema changes will continue
+  to use V1.x suffixes or new V2 schemas behind explicit RFCs.
+
 ## 0.5.0 — 2026-05-08
 
 ### Added
