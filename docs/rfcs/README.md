@@ -26,6 +26,7 @@ and, when behavior changes, `docs/SPEC.md`.
 | [0011](0011-session-close-and-run-terminal-auto-close.md) | accepted | Explicit session-close CLI plus auto-close of active sessions on run-terminal transitions. |
 | [0012](0012-local-service-api.md) | proposed | Local HTTP / Unix-socket API on top of `striatum.api.invoke`, with SSE for events. Operationalizes the "optional local API" D006 promised. |
 | [0013](0013-local-web-ui.md) | proposed | Static SPA bundled with the runner, served by `striatum serve --web`. Read-only by default; mutations gated. Depends on RFC 0012. |
+| [0014](0014-process-adapter-completion-guarantees.md) | proposed | Post-exit output validation, configurable timeouts, and liveness reconciliation for one-shot `adapter run`. Closes [#1](https://github.com/halbritt/striatum/issues/1). |
 
 ## Template
 
