@@ -31,6 +31,7 @@ and, when behavior changes, `docs/SPEC.md`.
 | [0016](0016-dashboard-dependency-graph.md) | accepted (V1) | Render the run's dependency graph (layered ASCII, state-colored, refresh-driven) inside `striatum dashboard`, reusing the existing graph data path. V1 implemented (D060) under dogfood-008. |
 | [0017](0017-readme-and-docs-reorganization.md) | accepted (V1) | Slim the README to ~250 lines, split human and coding-agent quick starts, and move behavior-model / sequential-usage / dogfood-history / per-RFC subsections / command reference into dedicated `docs/` files. V1 implemented (D062) under dogfood-010. |
 | [0018](0018-focused-adversarial-review-postures.md) | proposed | Declare review-job posture (security, threat_model, devils_advocate, etc.) and per-build `required_review_postures` so workflows can require focused adversarial coverage; surfaced on packets, verdicts, and introspection. |
+| [0019](0019-domain-driven-design-foundations.md) | proposed | Document striatum's DDD framing — bounded context, ubiquitous language, aggregate roots, value objects, domain events, CLI-as-only-write-surface — in a new `docs/DDD.md` so readers see *why* the vocabulary is load-bearing rather than reverse-engineering it. |
 
 ## Template
 
