@@ -111,8 +111,8 @@ V1 ships four views, each backed by RFC 0012 read endpoints plus SSE:
 3. **Job detail** (`/runs/<run_id>/jobs/<job_id>`)
    - Work-packet view (the JSON the agent saw).
    - Artifact list with sha256, kind, logical_name, path. Click an
-     artifact to view its body (Markdown rendered; JSON
-     pretty-printed).
+     artifact to open the artifact viewer described under "Artifact
+     rendering" below.
    - Event timeline filtered to this job.
    - Verdict history if it's a review job.
    - Blocker history if it has blockers.
@@ -124,6 +124,111 @@ V1 ships four views, each backed by RFC 0012 read endpoints plus SSE:
    - Reload-on-click; SSE stream for `striatum.doctor` events when
      they exist.
    - Backed by `GET /v1/doctor`.
+
+### Artifact rendering
+
+Striatum's artifact corpus is small and structured: every committed
+artifact has a registered `kind` (per RFC 0003 / 0004 / 0005, plus
+the existing `prompt` / `finding` / `findings_ledger` / `synthesis`
+/ `decision` / `marker` / `handoff`), a sha256, and a logical name
+the workflow author declared. Most kinds carry validated YAML front
+matter. The viewer treats that structure as a first-class signal,
+not as text to render and forget.
+
+The artifact viewer lives at
+`/runs/<run_id>/jobs/<job_id>/artifacts/<artifact_id>` and renders
+in three stacked sections:
+
+1. **Header.** The standard metadata Striatum already records:
+   `kind`, `logical_name`, `path`, `sha256` (truncated, click to
+   expand), `published_at`, publishing session id, and a "view raw"
+   link that returns the file as it was committed (no rendering).
+
+2. **Front-matter panel.** When the artifact's `kind` has a
+   registered front-matter schema (per `striatum.artifacts.
+   FRONT_MATTER_SCHEMAS`), the validated fields render as a
+   structured key/value list above the body. Specific kinds get
+   per-kind formatting:
+
+   - `decision`: `outcome` rendered as a colored badge
+     (`accepted` green, `rejected` red, `accepted_with_follow_up`
+     amber). `follow_up_required` shown as a checkbox-like glyph.
+     `created_at` as a relative timestamp.
+   - `finding`: `verdict_intent` rendered as a badge
+     (`accept` / `accept_with_findings` / `needs_revision` /
+     `reject`); `severity` as a colored chip
+     (`info` / `low` / `medium` / `high` / `critical`).
+   - `findings_ledger`: `summary_count` rendered as a count;
+     `entries_path` linked if present.
+   - `support_ledger`: `audited_artifact` resolved as a link
+     (see "cross-artifact links" below); `claim_count` shown
+     prominently.
+   - `action_item_ledger`: `source_review_artifact` linked;
+     `revision_round` shown as "round N of M" when the workflow
+     declares a max-iterations cycle.
+   - `harness_improvement_proposal`: `target` as a chip
+     (`prompt` / `workflow` / `spec` / `defaults` /
+     `documentation`); `expected_benefit`, `risk`, `rollback`
+     as labelled rows.
+   - `synthesis`: `inputs` rendered as a list of clickable links
+     (each input is either a repo path or another artifact id;
+     resolve when possible).
+
+   Front matter that fails schema validation surfaces as a warning
+   banner in this panel; the rendering does not silently drop it.
+
+3. **Body.** The artifact's text content below the front-matter
+   block.
+
+   - **Markdown.** Default renderer for `.md` artifacts. Standard
+     CommonMark plus GFM tables. No HTML passthrough (XSS
+     posture).
+   - **Embedded Mermaid.** Fenced ```` ```mermaid ```` blocks in
+     the body render as SVG inline using the same Mermaid loader
+     the run-graph view uses. The Mermaid library is shared, not
+     re-imported per artifact.
+   - **JSON.** Default renderer for `.json` artifacts: pretty-
+     printed with collapsible objects/arrays. The header's "view
+     raw" link still serves the original bytes.
+   - **Other text.** Rendered as a `<pre>` block with syntax
+     highlighting when the file extension matches a known
+     language (Python, Bash, TOML, YAML); otherwise plain
+     monospace.
+   - **Unknown / binary.** The body is **not** rendered inline;
+     the viewer shows a placeholder and the size, plus a "view
+     raw" link that triggers a download. V1 does not embed image
+     viewers, log tails, or binary diff tools.
+
+#### Cross-artifact links
+
+When the front matter or body references another artifact (by id
+or by `audited_artifact` / `findings_artifact_id` /
+`source_review_artifact` / synthesis `inputs`), the viewer
+resolves the reference. Resolution rules:
+
+- A pure artifact id (`art_<hex>`): looked up via
+  `POST /v1/invoke {"argv": ["why", "--id", "<id>", "--json"]}`
+  and rendered as a hover-card with kind, logical_name, and a
+  click-through to the artifact viewer.
+- A repo-relative path (`docs/...`): linked to the run-relative
+  artifact viewer when an artifact at that path exists in the
+  current run; otherwise rendered as a plain text path with a
+  tooltip explaining no artifact was found.
+- A workflow id or run id: linked to the corresponding run /
+  workflow page when present.
+
+Unresolved references render as plain text — never as broken
+links. The hover-card and click-through are progressive
+enhancements that fail closed.
+
+#### Bodies the viewer does not change
+
+The viewer never modifies the artifact bytes. Markdown rendering
+is for display only; "view raw" always serves the committed
+content. The viewer also does not re-validate the front-matter
+schema (the publish boundary already does that and stored the
+result in the artifact row); it only re-reads the validated
+shape.
 
 ### Optional write actions (`--allow-mutations`)
 
@@ -204,8 +309,17 @@ striatum serve --web --host 127.0.0.1 --port 8080
 - The run detail page at `/runs/<run_id>` renders the job graph,
   shades nodes by state, and updates live via SSE when an event is
   inserted.
-- The job detail page renders artifact bodies (Markdown + JSON
-  pretty-printed) and the event timeline filtered to the job.
+- The job detail page lists artifacts and links to the artifact
+  viewer; the event timeline filters to the job.
+- The artifact viewer renders the per-kind front-matter panel
+  (decision badge, finding verdict + severity chip, ledger
+  counts, harness-proposal target chip), the body (Markdown with
+  embedded Mermaid SVG, JSON pretty-printed with collapsible
+  nodes, syntax-highlighted text for known languages, placeholder
+  + raw download for binary), and resolves cross-artifact
+  references (`art_<hex>`, `audited_artifact`,
+  `findings_artifact_id`, `source_review_artifact`, synthesis
+  `inputs`) as hover-cards with click-through.
 - Without `--allow-mutations`, no UI button issues a mutation; the
   buttons are absent or disabled with a tooltip explaining the gate.
 - With `--allow-mutations`, "Record verdict" successfully calls
@@ -252,6 +366,28 @@ striatum serve --web --host 127.0.0.1 --port 8080
 - **Open Telemetry / metrics.** D020 forbids hosted telemetry.
   Local-only metrics (`/metrics` endpoint with Prometheus shape)
   are conceivable but out of scope for V1.
+- **Artifact diffing across revision rounds.** When `cycles`
+  produce v1 / v2 / v3 of the same logical artifact, side-by-side
+  diff would be informative for reviewers tracking what changed.
+  The artifact viewer already renders one version at a time; a
+  diff view is additive on top. Out of scope for V1; revisit in a
+  follow-up RFC once the V1 viewer ships and operators ask.
+- **Image and trace artifacts.** V1 treats unknown / binary kinds
+  as "show metadata + raw download." If a future kind adds
+  embedded images (e.g., `striatum.benchmark.v1` with a chart),
+  the viewer will need an image render path. Deferred until a
+  concrete kind motivates it.
+- **Front-matter editing.** The viewer is read-only. A reviewer
+  who wants to tweak `verdict_intent` from a finding's front
+  matter does it via the CLI today and via the
+  "Record verdict" mutation button in V1. Direct front-matter
+  editing in the browser stays out of scope; workflows continue
+  to treat artifacts as immutable once published.
+- **Artifact viewer for `decision` artifacts that did not pass
+  through `publish-artifact`.** `striatum decision record` writes
+  the artifact directly; the viewer should still resolve it via
+  the standard artifact id since `decision record` registers the
+  row. No special-casing needed.
 
 ## Relationship To Other RFCs
 
@@ -279,12 +415,19 @@ V1 builds in this order, each step landable independently:
    real UI yet. (Smallest possible PR.)
 2. **Run list view.** Basic table backed by `GET /v1/runs`.
 3. **Run detail view + SSE.** Job graph, event log live.
-4. **Job detail view.** Artifact bodies, event timeline, verdict
-   history.
-5. **Doctor view.**
-6. **Mutation buttons** (verdict, decision, claim, block) gated by
+4. **Job detail view.** Artifact list, event timeline filtered to
+   the job, verdict history. Artifacts are listed but click-through
+   in this step opens the raw view; the structured viewer lands
+   next.
+5. **Artifact viewer.** Per-kind front-matter panel (decision /
+   finding / ledger / harness-proposal / synthesis / etc.), body
+   rendering for Markdown (with embedded Mermaid), JSON, syntax-
+   highlighted text, and the binary-placeholder fallback.
+   Cross-artifact link resolution. Read-only; bytes never modified.
+6. **Doctor view.**
+7. **Mutation buttons** (verdict, decision, claim, block) gated by
    `--allow-mutations`.
 
 Each step has its own acceptance test in `tests/test_web_ui.py`.
-RFC 0013 is "accepted" once steps 1–5 land; step 6 may land in a
+RFC 0013 is "accepted" once steps 1–6 land; step 7 may land in a
 follow-up RFC if mutation policy needs more deliberation.
