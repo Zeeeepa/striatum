@@ -748,9 +748,16 @@ fails to advance and `doctor` surfaces
 
 A working supervised lane therefore needs an agent that knows the
 Striatum protocol — a project skill, an embedded loop, or a wrapper
-script — not just a raw model invocation. dogfood-001's HARNESS-001
-captured the "default scaffold ships a non-viable lane command"
-foot-gun; this contract is the explicit form of what that proposal
+script — not just a raw model invocation. The reference wrapper for
+Claude Code lives at `.striatum/bin/claude-supervised-wrapper.sh`
+and was authored under dogfood-004 / RFC 0010 V2; it spawns a fresh
+`claude --print` invocation per packet inside a bash `while IFS=
+read -r` loop and traps `SIGTERM` to clean up the in-flight inner
+process. Tests under `tests/test_claude_supervised_wrapper.py`
+verify the loop semantics with a stub `claude` so they do not
+depend on the real binary. dogfood-001's HARNESS-001 captured the
+"default scaffold ships a non-viable lane command" foot-gun; this
+contract is the explicit form of what that proposal
 asked the runner to require.
 
 ### Worktree Isolation

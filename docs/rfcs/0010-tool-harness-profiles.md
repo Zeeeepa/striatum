@@ -5,6 +5,41 @@ Date: 2026-05-07 (revised 2026-05-08 with per-tool research; V1
 implementation accepted 2026-05-08 under dogfood-003 acceptance
 decision `dec_6abd3957ab1748949ff0967221b346c4`).
 
+## V2 Implementation Slice
+
+Implemented under dogfood-004 (decision artifact
+`dec_191214fea393400db73657720b6181bc`). The V2 build slice landed:
+
+- Reference Claude Code supervised wrapper at
+  `.striatum/bin/claude-supervised-wrapper.sh`. Bash `while IFS=
+  read -r` loop that spawns a fresh `claude --print` per packet,
+  redirects inner stdout/stderr to `/dev/null`, and traps SIGTERM
+  to clean up the in-flight inner process.
+- Verification test at `tests/test_claude_supervised_wrapper.py`
+  with four cases: multiple-packet loop, failing-inner survival,
+  empty-input EOF, one-packet-then-EOF (per design-review F3).
+  Tests substitute a stub `claude` on `$PATH` so they do not depend
+  on the real binary.
+- Docs: SPEC's "Supervised Lane Command Contract" subsection points
+  at the reference wrapper; UBIQUITOUS_LANGUAGE adds "supervised
+  lane wrapper".
+- The dogfood-004 and `examples/harness-profiles/` workflows now
+  validate without the V1.5 lint warning naming the missing
+  wrapper path. RFC 0010 V1.5 is closed by the wrapper's existence.
+
+`docs/dogfood/003/findings/HARNESS-001.md` transitions from
+proposed to resolved.
+
+Deferred per the V2 design synthesis (out of scope for V2; future
+work):
+
+- Long-lived `claude` session via `--input-format stream-json`
+  multi-turn input (unverified upstream).
+- MCP-based supervision (Striatum-as-MCP-server).
+- Per-packet skill installation (`.claude/skills/` Striatum bundle).
+- Real-claude smoke test in CI.
+- Worktree-aware wrapper variant.
+
 ## V1 Implementation Slice
 
 Implemented under dogfood-003. The V1 build slice landed:

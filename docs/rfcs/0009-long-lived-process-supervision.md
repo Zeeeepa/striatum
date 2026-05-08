@@ -1,6 +1,8 @@
 # RFC 0009: Long-Lived Process Supervision
 
-Status: accepted
+Status: accepted (reference wrappers under
+`.striatum/bin/`; Claude Code wrapper landed
+2026-05-08 under dogfood-004 / RFC 0010 V2)
 Date: 2026-05-07
 Context:
 `src/striatum/process_adapter.py`,

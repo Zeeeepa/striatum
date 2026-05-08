@@ -11,7 +11,9 @@ rollback: "Drop the wrapper or revert the workflow lint; the schema and packet b
 
 author: implementer-codex-gpt-5.5-001
 
-Status: proposed
+Status: resolved (V1.5 lint warning landed in
+RFC 0010 V1.5 commit `12e31c0`; V2 wrapper landed in dogfood-004
+under decision artifact `dec_191214fea393400db73657720b6181bc`)
 Run: dogfood-003
 Reporter: implementer-codex-gpt-5.5-001
 Surface: defaults

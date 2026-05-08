@@ -4,6 +4,18 @@
 
 ### Added
 
+- RFC 0010 V2 / HARNESS-001 (dogfood-004): reference Claude Code
+  supervised wrapper at `.striatum/bin/claude-supervised-wrapper.sh`.
+  Bash `while IFS= read -r` loop that spawns a fresh `claude --print`
+  per packet — each Striatum work packet is independent, so per-packet
+  fresh-context matches the workflow's `fresh_session_required`
+  defaults and avoids depending on Claude Code's undocumented
+  multi-turn `--input-format stream-json` behaviour. Inner stdout
+  and stderr go to `/dev/null` (RFC 0009 / D028); SIGTERM trap
+  cleans up the in-flight inner process. Verification test at
+  `tests/test_claude_supervised_wrapper.py` (4 cases, stub-claude on
+  `$PATH` so it does not depend on the real binary). Closes
+  `docs/dogfood/003/findings/HARNESS-001.md`.
 - RFC 0010 V1.5 (HARNESS-001 follow-up): workflow-validate lint warning
   for missing repo-relative process-lane command paths. Fires when
   `lane.command[0]` looks like a repo-relative path (contains a slash

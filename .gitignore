@@ -1,4 +1,6 @@
-.striatum/
+.striatum/*
+!.striatum/bin/
+!.striatum/bin/**
 .venv/
 __pycache__/
 .pytest_cache/

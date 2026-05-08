@@ -656,6 +656,11 @@ V1 is intentionally small:
 
 The reference fixture lives at `examples/harness-profiles/workflow.json`.
 
+The reference Claude Code supervised wrapper lives at
+`.striatum/bin/claude-supervised-wrapper.sh` (RFC 0010 V2 / dogfood-004).
+Workflows that declare a supervised Claude Code lane can use it as the
+lane command directly.
+
 ## Bootstrap Tmux Harness
 
 The temporary design bootstrap runner remains available for historical design
