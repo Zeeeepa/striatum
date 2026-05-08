@@ -218,6 +218,7 @@ def dispatch(args: argparse.Namespace) -> object:
             graph_only=bool(getattr(args, "graph_only", False)),
             graph_style=str(getattr(args, "graph_style", "auto")),
             graph_no_cycles=bool(getattr(args, "graph_no_cycles", False)),
+            graph_orient=str(getattr(args, "graph_orient", "tb")),
         )
         return None
     if args.command == "serve":
@@ -296,7 +297,13 @@ def dispatch(args: argparse.Namespace) -> object:
         if args.command == "run" and args.run_command == "summary":
             return run_summary_export(conn, repo=repo, run_id=args.run_id, path_text=args.path)
         if args.command == "run" and args.run_command == "graph":
-            result = run_graph(conn, run_id=args.run_id, output_format=args.format)
+            result = run_graph(
+                conn,
+                run_id=args.run_id,
+                output_format=args.format,
+                graph_orient=str(getattr(args, "graph_orient", "tb")),
+                graph_style=str(getattr(args, "graph_style", "layered")),
+            )
             if args.format == "mermaid" and isinstance(result, str) and args.json:
                 return {"format": "mermaid", "source": result}
             return result

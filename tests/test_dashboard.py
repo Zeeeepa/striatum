@@ -371,6 +371,170 @@ def test_ansi_state_colors_keys_match_mermaid_fills() -> None:
     assert not missing, f"missing ANSI mapping for: {missing}"
 
 
+# RFC 0016 step 3: Unicode `fancy` style + --graph-orient {tb,lr} ----------
+
+
+def test_render_graph_panel_fancy_uses_box_drawing() -> None:
+    dashboard = _import_dashboard()
+    workflow = _three_node_workflow()
+    lines = dashboard.render_graph_panel(
+        workflow=workflow,
+        node_states={"ingest": "completed", "analyze": "running", "review": "queued"},
+        width=120,
+        height_budget=80,
+        style="fancy",
+    )
+    body = "\n".join(lines)
+    assert body.startswith("Graph (fancy):"), body
+    # All four Unicode box-drawing corners should appear.
+    for ch in ("┌", "┐", "└", "┘", "─", "│"):
+        assert ch in body, f"missing {ch!r} in fancy output"
+    # Cycle arrow is the dashed Unicode glyph in fancy mode.
+    assert "╌╌▶" in body
+
+
+def test_render_graph_panel_fancy_falls_back_to_layered_at_narrow_width() -> None:
+    dashboard = _import_dashboard()
+    # Fan-out: 4 nodes per layer, width=40 → slot_width=9 < 14 → layered.
+    workflow = {
+        "jobs": [
+            {"id": "seed", "type": "research", "role_id": "r"},
+            {"id": "fan_a", "type": "research", "role_id": "r"},
+            {"id": "fan_b", "type": "research", "role_id": "r"},
+            {"id": "fan_c", "type": "research", "role_id": "r"},
+            {"id": "fan_d", "type": "research", "role_id": "r"},
+        ],
+        "edges": [
+            {"from": "seed", "to": "fan_a", "on": "completed"},
+            {"from": "seed", "to": "fan_b", "on": "completed"},
+            {"from": "seed", "to": "fan_c", "on": "completed"},
+            {"from": "seed", "to": "fan_d", "on": "completed"},
+        ],
+        "cycles": [],
+    }
+    lines = dashboard.render_graph_panel(
+        workflow=workflow,
+        node_states={},
+        width=40,
+        height_budget=80,
+        style="fancy",
+    )
+    body = "\n".join(lines)
+    # The fancy header should NOT appear; we fall back to layered/list.
+    assert "Graph (fancy):" not in body
+    # Should be either layered or list — neither uses Unicode corners.
+    assert "┌" not in body and "┐" not in body
+
+
+def test_render_graph_panel_orient_lr_renders_columns() -> None:
+    dashboard = _import_dashboard()
+    workflow = _three_node_workflow()
+    lines = dashboard.render_graph_panel(
+        workflow=workflow,
+        node_states={},
+        width=120,
+        height_budget=80,
+        style="layered",
+        orient="lr",
+    )
+    body = "\n".join(lines)
+    assert body.startswith("Graph (lr,"), body
+    # All three layer labels appear on the SAME first content line
+    # (column-major rendering).
+    layer_line = next(line for line in lines if "L0" in line)
+    assert "L1" in layer_line
+    assert "L2" in layer_line
+
+
+def test_render_graph_panel_orient_lr_falls_back_to_tb_at_many_layers() -> None:
+    dashboard = _import_dashboard()
+    # 10-layer chain at width=80 → column_width=7 < 14 → falls back to tb.
+    jobs = [
+        {"id": f"job_{i}", "type": "research", "role_id": "r"}
+        for i in range(10)
+    ]
+    edges = [
+        {"from": f"job_{i}", "to": f"job_{i + 1}", "on": "completed"}
+        for i in range(9)
+    ]
+    workflow = {"jobs": jobs, "edges": edges, "cycles": []}
+    lines = dashboard.render_graph_panel(
+        workflow=workflow,
+        node_states={},
+        width=80,
+        height_budget=120,
+        style="layered",
+        orient="lr",
+    )
+    body = "\n".join(lines)
+    assert "Graph (lr," not in body
+    # Falls back to layered tb (or list) — neither carries the lr header.
+    assert body.startswith("Graph (layered):") or body.startswith("Graph (layers):")
+
+
+def test_render_graph_panel_fancy_color_emits_ansi() -> None:
+    dashboard = _import_dashboard()
+    workflow = _three_node_workflow()
+    lines = dashboard.render_graph_panel(
+        workflow=workflow,
+        node_states={"ingest": "completed"},
+        width=120,
+        height_budget=80,
+        style="fancy",
+        color=True,
+    )
+    body = "\n".join(lines)
+    assert "\x1b[32m" in body  # green for completed
+    assert "\x1b[0m" in body   # reset
+
+
+def test_render_graph_panel_fancy_no_external_url_invariant() -> None:
+    dashboard = _import_dashboard()
+    workflow = _three_node_workflow()
+    lines = dashboard.render_graph_panel(
+        workflow=workflow,
+        node_states={},
+        width=120,
+        height_budget=80,
+        style="fancy",
+    )
+    body = "\n".join(lines)
+    assert "http://" not in body
+    assert "https://" not in body
+
+
+def test_dashboard_graph_orient_flag_is_threaded() -> None:
+    dashboard = _import_dashboard()
+    workflow = _three_node_workflow()
+    payload = _payload_with_workflow(
+        workflow=workflow,
+        node_states={"ingest": "completed"},
+    )
+    output = dashboard.render_frame(
+        payload,
+        terminal_width=120,
+        terminal_height=40,
+        graph=True,
+        graph_only=True,
+        graph_orient="lr",
+        graph_style="layered",
+    )
+    assert "Graph (lr," in output, output
+
+
+def test_run_graph_format_ascii_orient_lr(tmp_path: Path) -> None:
+    run_id = prepare_started_run(tmp_path)
+    out = run_cli_text(
+        tmp_path, "run", "graph",
+        "--run-id", run_id,
+        "--format", "ascii",
+        "--graph-orient", "lr",
+        "--graph-style", "layered",
+    )
+    # The lr header is the load-bearing assertion.
+    assert "Graph (lr," in out, out
+
+
 def test_dashboard_handles_unknown_run_cleanly(tmp_path: Path) -> None:
     # Initialize so the state DB exists; the run id is bogus.
     run_cli(tmp_path, "init")

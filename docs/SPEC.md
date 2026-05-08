@@ -585,13 +585,20 @@ queued/running/completed/blocked/waiting_human/failed/pending/canceled/stale_lea
 `needs_revision` cycles render after the layered grid as dashed `~~>`
 arrows. Auto-detection can be overridden with `--graph` / `--no-graph`;
 `--graph-only` hides the rest of the frame; `--graph-style
-{auto,layered,list,fancy}` forces a layout (`fancy` falls back to
-`layered` in V1); `--graph-no-cycles` suppresses back-edges. ANSI 16
-colors mirror the existing Mermaid state palette and are emitted only on
-TTY output and only when `NO_COLOR` is unset (de-facto standard);
-`--once` is non-TTY by construction. The same renderer powers
-`striatum run graph --run-id <id> --format ascii` for one-shot snapshots
-that share the same shape as the dashboard panel.
+{auto,layered,list,fancy}` forces a layout — `fancy` uses Unicode
+box-drawing characters (`┌`, `┐`, `└`, `┘`, `─`, `│`, with `╌╌▶`
+for cycle back-edges) and falls back to `layered` when the per-slot
+width drops below 14; `--graph-orient {tb,lr}` picks orientation —
+`tb` (default) is top-to-bottom; `lr` arranges layers as columns
+with `─→` separators (or `->` in non-fancy mode) and falls back to
+`tb` when per-column width drops below 14; `--graph-no-cycles`
+suppresses back-edges. ANSI 16 colors mirror the existing Mermaid
+state palette and are emitted only on TTY output and only when
+`NO_COLOR` is unset (de-facto standard); `--once` is non-TTY by
+construction. The same renderer powers `striatum run graph --run-id
+<id> --format ascii [--graph-style ...] [--graph-orient ...]` for
+one-shot snapshots that share the same shape as the dashboard
+panel.
 
 ### Run Summary
 

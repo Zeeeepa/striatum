@@ -120,6 +120,7 @@ def render_frame(
     graph_only: bool = False,
     graph_style: str = "auto",
     graph_no_cycles: bool = False,
+    graph_orient: str = "tb",
     color: bool = False,
 ) -> str:
     """Render one dashboard frame as plain text.
@@ -216,6 +217,7 @@ def render_frame(
             style=graph_style,
             color=color,
             no_cycles=graph_no_cycles,
+            orient=graph_orient,
         )
         lines.extend(graph_lines)
 
@@ -234,12 +236,14 @@ def run(
     graph_only: bool = False,
     graph_style: str = "auto",
     graph_no_cycles: bool = False,
+    graph_orient: str = "tb",
 ) -> None:
     """Render the dashboard until interrupted (or once when ``once=True``).
 
-    RFC 0016 V1: ``graph`` (None=auto, True=force, False=suppress),
-    ``graph_only``, ``graph_style``, ``graph_no_cycles`` plumb to the
-    new graph panel. Color is gated on ``isatty()`` and ``NO_COLOR``.
+    RFC 0016 V1+step 3: ``graph`` (None=auto, True=force, False=suppress),
+    ``graph_only``, ``graph_style``, ``graph_no_cycles``, ``graph_orient``
+    plumb to the graph panel. Color is gated on ``isatty()`` and
+    ``NO_COLOR``.
     """
     import os as _os
 
@@ -263,6 +267,7 @@ def run(
             graph_only=graph_only,
             graph_style=graph_style,
             graph_no_cycles=graph_no_cycles,
+            graph_orient=graph_orient,
             color=color,
         )
 
@@ -607,18 +612,25 @@ def render_graph_panel(
     style: str = "auto",
     color: bool = False,
     no_cycles: bool = False,
+    orient: str = "tb",
 ) -> list[str]:
-    """RFC 0016 V1: render the run dependency graph as ASCII lines.
+    """RFC 0016 V1+step 3: render the run dependency graph.
 
     Pure: deterministic for a given input. Used by both the dashboard
     (live frame) and ``striatum run graph --format ascii`` (one-shot
     snapshot).
+
+    ``style`` ∈ {auto, layered, list, fancy}. ``orient`` ∈ {tb, lr};
+    ``lr`` arranges layers as columns instead of rows. Each
+    requested upgrade has a deterministic fall-back: fancy → layered
+    when the per-slot width can't fit Unicode boxes; lr → tb when
+    too many layers don't fit horizontally; layered → list when
+    slot width drops below 12.
     """
     if style not in {"auto", "layered", "list", "fancy"}:
         style = "auto"
-    # `fancy` is V2 in RFC 0016; V1 falls back to layered.
-    if style == "fancy":
-        style = "layered"
+    if orient not in {"tb", "lr"}:
+        orient = "tb"
 
     nodes, edges, cycles = _graph_topology(workflow)
     if not nodes:
@@ -626,16 +638,22 @@ def render_graph_panel(
 
     layers = _layer_assignment(nodes, edges)
     max_layer_size = max((len(group) for group in layers), default=1)
-    box_width = max(12, (width - 4) // max(1, max_layer_size))
+    num_layers = len(layers)
+    slot_width = (width - 4) // max(1, max_layer_size)
+    column_width = (width - 4) // max(1, num_layers)
+    box_width = max(12, slot_width)
 
-    # Decide layout style.
     chosen = style
     if chosen == "auto":
-        # Layered when there's room for at least 12-char boxes per slot.
-        slot_width = (width - 4) // max(1, max_layer_size)
         chosen = "layered" if slot_width >= 12 else "list"
-    if chosen == "layered" and (width - 4) // max(1, max_layer_size) < 12:
+    if chosen == "fancy" and slot_width < 14:
+        chosen = "layered"
+    if chosen == "layered" and slot_width < 12:
         chosen = "list"
+
+    chosen_orient = orient
+    if chosen in {"layered", "fancy"} and orient == "lr" and column_width < 14:
+        chosen_orient = "tb"
 
     if chosen == "list":
         lines = _render_graph_list(
@@ -644,6 +662,29 @@ def render_graph_panel(
             cycles=cycles,
             node_states=node_states,
             width=width,
+            color=color,
+            no_cycles=no_cycles,
+        )
+    elif chosen_orient == "lr":
+        lines = _render_graph_lr(
+            nodes=nodes,
+            layers=layers,
+            cycles=cycles,
+            node_states=node_states,
+            width=width,
+            column_width=max(12, column_width),
+            fancy=(chosen == "fancy"),
+            color=color,
+            no_cycles=no_cycles,
+        )
+    elif chosen == "fancy":
+        lines = _render_graph_fancy(
+            nodes=nodes,
+            layers=layers,
+            cycles=cycles,
+            node_states=node_states,
+            width=width,
+            box_width=box_width,
             color=color,
             no_cycles=no_cycles,
         )
@@ -883,3 +924,155 @@ def _colorize_box(box: str, state: str, *, color: bool) -> str:
     state_class = _state_class(state)
     code = ANSI_STATE_COLORS.get(state_class, "")
     return f"{code}{box}{ANSI_RESET}" if code else box
+
+
+# RFC 0016 step 3: Unicode `fancy` style + `--graph-orient {tb,lr}`.
+
+# Box-drawing characters (BMP, portable across modern terminals).
+_FANCY_TL = "┌"
+_FANCY_TR = "┐"
+_FANCY_BL = "└"
+_FANCY_BR = "┘"
+_FANCY_H = "─"
+_FANCY_V = "│"
+_FANCY_CYCLE_ARROW = "╌╌▶"  # dashed back-edge marker
+_FANCY_LR_ARROW = "─→"      # left-to-right edge marker
+
+
+def _format_fancy_box(
+    node: Mapping[str, Any],
+    state: str,
+    box_width: int,
+    *,
+    color: bool,
+) -> tuple[str, str, str]:
+    """Return ``(top, mid, bottom)`` strings for a Unicode-box rendering.
+
+    Inner budget is ``box_width - 4`` (two corner glyphs + two pad spaces).
+    Color wraps the inner content (not the frame) to keep the frame
+    uniform across states.
+    """
+    nid = str(node.get("id") or "")
+    state_char = _STATE_CHARS.get(state, _STATE_CHARS.get("pending", "P"))
+    inner_budget = max(1, box_width - 4)
+    label = nid
+    if len(label) > inner_budget - 2:
+        label = label[: inner_budget - 3] + "…"
+    inner = f"{label} {state_char}".ljust(inner_budget)
+    if color:
+        state_class = _state_class(state)
+        code = ANSI_STATE_COLORS.get(state_class, "")
+        if code:
+            inner = f"{code}{inner}{ANSI_RESET}"
+    top = _FANCY_TL + (_FANCY_H * (box_width - 2)) + _FANCY_TR
+    mid = f"{_FANCY_V} {inner} {_FANCY_V}"
+    bot = _FANCY_BL + (_FANCY_H * (box_width - 2)) + _FANCY_BR
+    return top, mid, bot
+
+
+def _render_graph_fancy(
+    *,
+    nodes: Sequence[Mapping[str, Any]],
+    layers: Sequence[Sequence[str]],
+    cycles: Sequence[Mapping[str, Any]],
+    node_states: Mapping[str, str],
+    width: int,
+    box_width: int,
+    color: bool,
+    no_cycles: bool,
+) -> list[str]:
+    """RFC 0016 step 3: Unicode-box top-to-bottom layered renderer."""
+    by_id = {str(n["id"]): n for n in nodes}
+    lines: list[str] = ["Graph (fancy):"]
+    for layer_index, layer_ids in enumerate(layers):
+        if not layer_ids:
+            continue
+        layer_label = f"L{layer_index} "
+        boxes: list[tuple[str, str, str]] = [
+            _format_fancy_box(by_id[nid], node_states.get(nid, "pending"), box_width, color=color)
+            for nid in layer_ids
+        ]
+        tops = " ".join(b[0] for b in boxes)
+        mids = " ".join(b[1] for b in boxes)
+        bots = " ".join(b[2] for b in boxes)
+        lines.append(_truncate(" " * len(layer_label) + tops, width))
+        lines.append(_truncate(layer_label + mids, width))
+        lines.append(_truncate(" " * len(layer_label) + bots, width))
+        if layer_index < len(layers) - 1 and layers[layer_index + 1]:
+            connector = " " * len(layer_label) + " ".join(
+                _FANCY_V.center(box_width) for _ in layer_ids
+            )
+            lines.append(_truncate(connector, width))
+    if cycles and not no_cycles:
+        lines.append("")
+        lines.append("Cycles (needs_revision):")
+        for cycle in cycles:
+            limit = cycle.get("max_iterations")
+            limit_text = f"max {limit}" if limit is not None else ""
+            lines.append(
+                _truncate(
+                    f"  {cycle['from']} {_FANCY_CYCLE_ARROW} {cycle['to']}  {limit_text}".strip(),
+                    width,
+                )
+            )
+    return lines
+
+
+def _render_graph_lr(
+    *,
+    nodes: Sequence[Mapping[str, Any]],
+    layers: Sequence[Sequence[str]],
+    cycles: Sequence[Mapping[str, Any]],
+    node_states: Mapping[str, str],
+    width: int,
+    column_width: int,
+    fancy: bool,
+    color: bool,
+    no_cycles: bool,
+) -> list[str]:
+    """RFC 0016 step 3: left-to-right column-major layered renderer.
+
+    Each layer becomes a vertical column; columns are separated by an
+    arrow glyph (``─→`` in fancy mode, ``->`` in plain).
+    """
+    by_id = {str(n["id"]): n for n in nodes}
+    lines: list[str] = [f"Graph (lr, {'fancy' if fancy else 'layered'}):"]
+    arrow = f"  {_FANCY_LR_ARROW}  " if fancy else "  ->  "
+
+    inner_box = max(8, column_width - len(arrow))
+    column_blocks: list[list[str]] = []
+    for layer_index, layer_ids in enumerate(layers):
+        block: list[str] = [f"L{layer_index}".ljust(inner_box)]
+        for nid in layer_ids or []:
+            state = node_states.get(nid, "pending")
+            if fancy:
+                top, mid, bot = _format_fancy_box(by_id[nid], state, inner_box, color=color)
+                block.extend([top, mid, bot, ""])
+            else:
+                block.append(_format_box(by_id[nid], state, inner_box, color=color))
+                block.append("")
+        column_blocks.append(block)
+
+    height = max((len(c) for c in column_blocks), default=1)
+    for col in column_blocks:
+        col.extend([" " * inner_box] * (height - len(col)))
+
+    for row in range(height):
+        cells = [col[row].ljust(inner_box) for col in column_blocks]
+        line = arrow.join(cells)
+        lines.append(_truncate(line, width))
+
+    if cycles and not no_cycles:
+        lines.append("")
+        lines.append("Cycles (needs_revision):")
+        cycle_arrow = _FANCY_CYCLE_ARROW if fancy else "~~>"
+        for cycle in cycles:
+            limit = cycle.get("max_iterations")
+            limit_text = f"max {limit}" if limit is not None else ""
+            lines.append(
+                _truncate(
+                    f"  {cycle['from']} {cycle_arrow} {cycle['to']}  {limit_text}".strip(),
+                    width,
+                )
+            )
+    return lines

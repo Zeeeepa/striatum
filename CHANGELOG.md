@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+## 1.3.0 — 2026-05-08
+
+### Added
+
+- RFC 0016 step 3 (dogfood-012): Unicode `fancy` graph style +
+  `--graph-orient {tb, lr}`. The dashboard graph panel and
+  `striatum run graph --format ascii` now support box-drawn
+  rendering with portable BMP characters (`┌`, `┐`, `└`, `┘`, `─`,
+  `│`, `╌╌▶` for cycle back-edges) and a left-to-right layout
+  that arranges layers as columns instead of rows. Both upgrades
+  fall back deterministically: `fancy → layered` when per-slot
+  width drops below 14, `lr → tb` when per-column width drops
+  below 14. Color path unchanged; `_format_fancy_box` wraps the
+  inner content (not the box frame) so the frame stays uniform
+  across states. New flags on both `dashboard` and `run graph`:
+  `--graph-orient {tb, lr}` (default `tb`) and the existing
+  `--graph-style` choices now include `fancy` as a real renderer.
+  8 new tests in `tests/test_dashboard.py` (23 total).
+
 ## 1.2.0 — 2026-05-08
 
 ### Added

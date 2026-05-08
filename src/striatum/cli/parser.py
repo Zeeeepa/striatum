@@ -81,6 +81,17 @@ def build_parser() -> argparse.ArgumentParser:
         choices=["mermaid", "json", "ascii"],
         default="mermaid",
     )
+    # RFC 0016 step 3: graph orientation (ignored when --format != ascii).
+    run_graph_p.add_argument(
+        "--graph-orient",
+        choices=["tb", "lr"],
+        default="tb",
+    )
+    run_graph_p.add_argument(
+        "--graph-style",
+        choices=["auto", "layered", "list", "fancy"],
+        default="layered",
+    )
     run_graph_p.add_argument("--json", action="store_true")
 
     branch = sub.add_parser("branch")
@@ -374,6 +385,12 @@ def build_parser() -> argparse.ArgumentParser:
         default="auto",
     )
     dashboard.add_argument("--graph-no-cycles", action="store_true")
+    # RFC 0016 step 3: graph orientation.
+    dashboard.add_argument(
+        "--graph-orient",
+        choices=["tb", "lr"],
+        default="tb",
+    )
 
     list_cmd = sub.add_parser("list")
     list_sub = list_cmd.add_subparsers(dest="list_command", required=True)

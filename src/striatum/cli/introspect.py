@@ -639,6 +639,8 @@ def run_graph(
     *,
     run_id: str,
     output_format: str = "mermaid",
+    graph_orient: str = "tb",
+    graph_style: str = "layered",
 ) -> JsonObject | str:
     """Render the workflow graph for a run, annotated with current job states.
 
@@ -694,7 +696,8 @@ def run_graph(
             node_states=node_states,
             width=80,
             height_budget=10000,
-            style="layered",
+            style=graph_style,
+            orient=graph_orient,
             color=False,
         )
         return "\n".join(lines) + "\n"

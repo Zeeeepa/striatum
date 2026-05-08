@@ -317,14 +317,20 @@ Useful flags:
 - `--graph-only`: hide the rest of the frame and show only the
   graph.
 - `--graph-style {auto,layered,list,fancy}`: pick a layout.
-  `fancy` falls back to `layered` until the Unicode box-drawing
-  follow-up lands.
+  `fancy` uses Unicode box-drawing characters (`┌`, `┐`, `└`,
+  `┘`, `─`, `│`); falls back to `layered` ASCII when the
+  per-slot width drops below 14 columns.
+- `--graph-orient {tb,lr}`: top-to-bottom (default) or
+  left-to-right. LR arranges layers as columns instead of
+  rows; useful for long workflow chains. Falls back to TB when
+  too many layers don't fit horizontally.
 - `--graph-no-cycles`: suppress dashed `~~>` back-edges for
-  revision cycles.
+  revision cycles (or `╌╌▶` in fancy mode).
 
 For a one-shot snapshot outside the dashboard, use
 `striatum run graph --run-id <id> --format ascii`; it reuses the
-same renderer.
+same renderer and accepts the same `--graph-style` and
+`--graph-orient` flags.
 
 To publish a redacted run snapshot:
 
