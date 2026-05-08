@@ -1,0 +1,48 @@
+{
+  "schema_version": "striatum.workflow.v1",
+  "workflow_id": "dogfood-010-readme-and-docs-reorganization",
+  "workflow_version": "2026-05-08",
+  "name": "Dogfood 010: Ship RFC 0017 V1 (README and docs reorganization)",
+  "branch": {"mode": "auto", "suggested_name": "striatum/dogfood-010-readme-and-docs-reorganization", "allow_dirty": false},
+  "coordinator": {"role_id": "coordinator", "lane_id": "codex"},
+  "harness_profiles": {
+    "codex_default": {"tool_family": "codex", "strategy_version": "2026-05-08", "native_delegation": {"mode": "encouraged", "instruction": "Use sub-agents."}, "feature_flags": {"subagents": "allowed_via_natural_language_routing", "skills": "encouraged"}, "supervision": {"compatible": true, "stdin_format": "packet", "wrapper_required": false}, "approval_mode": "default", "memory_files": ["AGENTS.md"], "accountability": {"native_subagents": "internal_to_parent_session", "first_class_registration": "not_supported"}},
+    "claude_code_default": {"tool_family": "claude_code", "strategy_version": "2026-05-08", "native_delegation": {"mode": "preferred", "instruction": "Spawn sub-agents."}, "feature_flags": {"subagents": "preferred", "skills": "encouraged", "headless_print_mode": "forbidden_for_supervised_lanes"}, "supervision": {"compatible": true, "stdin_format": "newline_delimited_json", "wrapper_required": true}, "approval_mode": "auto_edit", "memory_files": ["CLAUDE.md", "AGENTS.md"], "accountability": {"native_subagents": "internal_to_parent_session", "first_class_registration": "not_supported"}}
+  },
+  "lanes": {
+    "codex": {"adapter": "process", "display_model": "Codex GPT-5.5", "command": ["codex", "exec", "--json", "--ephemeral", "--skip-git-repo-check", "--sandbox", "workspace-write", "--ask-for-approval", "never", "--ignore-user-config", "-"], "capabilities": ["write", "review", "synthesis"], "constraints": {"transcripts": "off", "repo_scope": "local_only", "network": "forbidden"}, "required_enforcement": {"transcripts": "enforced"}, "harness_profile_id": "codex_default", "env": {"CODEX_HOME": "${STRIATUM_SCRATCH_DIR}/codex-home"}},
+    "claude_code": {"adapter": "process", "display_model": "Claude Opus", "command": [".striatum/bin/claude-supervised-wrapper.sh"], "capabilities": ["write", "review", "synthesis"], "constraints": {"transcripts": "off", "repo_scope": "local_only"}, "required_enforcement": {"transcripts": "enforced"}, "harness_profile_id": "claude_code_default"}
+  },
+  "roles": {
+    "researcher": {"definition_path": "docs/dogfood/010/roles/researcher.md"},
+    "designer": {"definition_path": "docs/dogfood/010/roles/designer.md"},
+    "reviewer": {"definition_path": "docs/dogfood/010/roles/reviewer.md"},
+    "implementer": {"definition_path": "docs/dogfood/010/roles/implementer.md"},
+    "coordinator": {"definition_path": "docs/dogfood/010/roles/coordinator.md"}
+  },
+  "context_docs": [
+    {"path": "AGENTS.md", "required": true},
+    {"path": "docs/SPEC.md", "required": true},
+    {"path": "docs/rfcs/0017-readme-and-docs-reorganization.md", "required": true},
+    {"path": "README.md", "required": true},
+    {"path": "docs/UBIQUITOUS_LANGUAGE.md", "required": false}
+  ],
+  "parallelism": {"mode": "declared", "max_active_jobs": 1, "require_disjoint_write_scopes": true},
+  "jobs": [
+    {"id": "research_docs", "type": "generic", "title": "Survey README + docs/ for moved content; pin section-by-section migration map", "role_id": "researcher", "lane_id": "codex", "fresh_session_required": true, "objective": "Catalogue every README section, identify which moves to which new doc, and confirm the SPEC already carries each behavior-model paragraph the README will lose.", "task_prompt": {"path": "docs/dogfood/010/prompts/research.md"}, "write_scope": {"mode": "repo_write", "repo_write": true, "allowed_paths": ["docs/dogfood/010/research/"], "forbidden_paths": [".striatum/"]}, "expected_artifacts": [{"logical_name": "research", "kind": "handoff", "path": "docs/dogfood/010/research/MIGRATION_MAP.md", "required": true}]},
+    {"id": "synthesize_v1_design", "type": "synthesis", "title": "Lock RFC 0017 V1 (steps 1+2+3) design", "role_id": "designer", "lane_id": "codex", "objective": "Pin the README section list, the new doc set + their lifted source ranges, the dedupe + cross-link rules, the link-validation test plan, and the acceptance gate.", "task_prompt": {"path": "docs/dogfood/010/prompts/synthesize.md"}, "write_scope": {"mode": "repo_write", "repo_write": true, "allowed_paths": ["docs/dogfood/010/"], "forbidden_paths": [".striatum/"]}, "expected_artifacts": [{"logical_name": "design", "kind": "synthesis", "path": "docs/dogfood/010/DESIGN_SYNTHESIS.md", "required": true}]},
+    {"id": "review_v1_design", "type": "review", "title": "Review RFC 0017 V1 design", "role_id": "reviewer", "lane_id": "claude_code", "fresh_session_required": true, "reviewer_access_scope": "artifact_augmented", "reviewer_context_policy": "fresh", "objective": "Verify section list completeness, dedupe rule correctness, link-validation test scope, no-behavior-change boundary, agent-vs-human split clarity.", "task_prompt": {"path": "docs/dogfood/010/prompts/review_design.md"}, "write_scope": {"mode": "review_only_artifact", "repo_write": false, "allowed_paths": ["docs/dogfood/010/review/design/"], "forbidden_paths": [".striatum/"]}, "expected_artifacts": [{"logical_name": "design_review", "kind": "finding", "path": "docs/dogfood/010/review/design/DESIGN_REVIEW.md", "required": true}]},
+    {"id": "implement_v1", "type": "build", "title": "Implement RFC 0017 V1 (slim README, author new docs, add link-validation test)", "role_id": "implementer", "lane_id": "codex", "objective": "Slim README to seven sections; create docs/{GETTING_STARTED, HOW_TO_HUMAN, HOW_TO_AGENT, WRITING_WORKFLOWS, CLI_REFERENCE, INDEX}.md; move dogfood history to docs/dogfood/HISTORICAL.md; ship tests/test_doc_links.py; dedupe pass against SPEC.", "task_prompt": {"path": "docs/dogfood/010/prompts/implement.md"}, "write_scope": {"mode": "repo_write", "repo_write": true, "allowed_paths": ["src/striatum/", "tests/", "docs/", "AGENTS.md", "README.md", "CHANGELOG.md", "pyproject.toml"], "forbidden_paths": [".striatum/state.sqlite3"]}, "expected_artifacts": [{"logical_name": "build_handoff", "kind": "handoff", "path": "docs/dogfood/010/BUILD_HANDOFF.md", "required": true}]},
+    {"id": "review_v1_build", "type": "review", "title": "Review RFC 0017 V1 build", "role_id": "reviewer", "lane_id": "claude_code", "fresh_session_required": true, "reviewer_access_scope": "repo_level", "reviewer_context_policy": "fresh", "objective": "Verify README ≤ 250 lines + seven sections + both quick-start headings, every new doc exists, dedupe complete, link-validation test passes, full test suite unchanged in count except for the new test, no behavior change.", "task_prompt": {"path": "docs/dogfood/010/prompts/review_build.md"}, "write_scope": {"mode": "review_only_artifact", "repo_write": false, "allowed_paths": ["docs/dogfood/010/review/build/"], "forbidden_paths": [".striatum/"]}, "expected_artifacts": [{"logical_name": "build_review", "kind": "finding", "path": "docs/dogfood/010/review/build/BUILD_REVIEW.md", "required": true}]}
+  ],
+  "edges": [
+    {"from": "research_docs", "to": "synthesize_v1_design", "on": "completed"},
+    {"from": "synthesize_v1_design", "to": "review_v1_design", "on": "completed"},
+    {"from": "review_v1_design", "to": "implement_v1", "on": "completed"},
+    {"from": "implement_v1", "to": "review_v1_build", "on": "completed"}
+  ],
+  "cycles": [
+    {"from": "review_v1_design", "to": "synthesize_v1_design", "on_verdict": "needs_revision", "max_iterations": 1},
+    {"from": "review_v1_build", "to": "implement_v1", "on_verdict": "needs_revision", "max_iterations": 1}
+  ]
+}

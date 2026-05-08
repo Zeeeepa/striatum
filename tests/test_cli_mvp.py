@@ -3655,23 +3655,27 @@ def test_workflow_validate_rejects_auto_without_suggested_name(tmp_path: Path) -
 # ----- README graph example drift guard -----------------------------------
 
 
-def test_readme_mermaid_block_matches_code_change_flow_graph() -> None:
-    """README.md § 2b embeds a Mermaid diagram of `examples/code-change-flow`.
+def test_writing_workflows_mermaid_block_matches_code_change_flow_graph() -> None:
+    """`docs/WRITING_WORKFLOWS.md` embeds a Mermaid diagram of
+    `examples/code-change-flow`.
 
     The block is hand-pasted, so a job rename, edge change, or new cycle in
-    the fixture would silently make the README stale. This test regenerates
-    the Mermaid source via ``workflow_graph_mermaid`` and asserts the README
+    the fixture would silently make the doc stale. This test regenerates
+    the Mermaid source via ``workflow_graph_mermaid`` and asserts the doc
     contains the exact rendered block — drift fails the suite, not silently.
+
+    The block lived in `README.md § 2b` until RFC 0017 (D062) moved
+    workflow-authoring material into `docs/WRITING_WORKFLOWS.md`.
     """
     from striatum.workflow import load_workflow, workflow_graph_mermaid
 
     workflow = load_workflow(CODE_CHANGE_WORKFLOW)
     expected = workflow_graph_mermaid(workflow).rstrip("\n")
-    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    target = (ROOT / "docs" / "WRITING_WORKFLOWS.md").read_text(encoding="utf-8")
     fenced = "```mermaid\n" + expected + "\n```"
-    assert fenced in readme, (
-        "README.md § 2b Mermaid block has drifted from the live "
+    assert fenced in target, (
+        "docs/WRITING_WORKFLOWS.md Mermaid block has drifted from the live "
         f"`workflow graph examples/code-change-flow/workflow.json` output. "
-        f"Update the README block (or this test) to match.\n\n"
+        f"Update the doc block (or this test) to match.\n\n"
         f"--- expected (between mermaid fences) ---\n{expected}\n"
     )

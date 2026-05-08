@@ -11,10 +11,10 @@ behavior, fix the doc.
 Read these first, in order:
 
 1. `README.md`
-2. `docs/README.md`
-3. `docs/DECISION_LOG.md`
-4. `docs/UBIQUITOUS_LANGUAGE.md`
-5. `docs/SPEC.md`
+2. `docs/INDEX.md`
+3. `docs/SPEC.md`
+4. `docs/DECISION_LOG.md`
+5. `docs/UBIQUITOUS_LANGUAGE.md`
 6. `docs/TODO.md`
 
 Treat `docs/ENGRAM_INCUBATION_CONTEXT.md`,
@@ -35,83 +35,34 @@ work on Engram dogfood history.
 
 ## Working As A Striatum Agent
 
-When you are running inside a Striatum workflow (not just editing the repo),
+When you are running inside a striatum workflow (not just editing the repo),
 the runner moves work through structured commands. Do not advance state by
 printing phrases or touching SQLite directly.
 
-### Sessions And Work Packets
+The workflow loop, work-packet shape, supervisor mode, decision artifacts,
+front-matter rules, and stale-lease recovery instructions all live in
+**[`docs/HOW_TO_AGENT.md`](docs/HOW_TO_AGENT.md)**. Read that doc — and the
+RFC 0015 skill bundle when one is installed — before claiming work. The
+short version:
 
-Register a session with `striatum register-session` before claiming work, then
-call `striatum claim-next --session-id <id>`. The returned packet contains
-the lease id, write scope, expected artifacts (with a privacy-safe
-`author: <role>-<model>-<ordinal>` byline), task prompt, and the exact
-follow-up commands you should call: `ack`, `heartbeat`, `publish-artifact`,
-`block`, `verdict` / `submit-review`, `complete`. Use those commands; do not
-mutate state any other way.
-
-### Worktree Isolation
-
-If the work packet contains `worktree_required: true`, the lane has opted
-into per-job filesystem isolation (RFC 0008). Run the
-`commands.worktree_create` invocation included in the packet
-(`striatum worktree create --session-id ... --job-id ... --lease-id ...`)
-before publishing artifacts. The runner does not auto-create the worktree on
-claim. `publish-artifact` reads files from the worktree but records the
-artifact's logical repo-relative path; you do not need to copy files back.
-Release the worktree with `striatum worktree release --worktree-id <id>`
-when the job is complete.
-
-### Supervisor Mode
-
-When an agent CLI is held alive across multiple work packets via
-`striatum supervise start --session-id <id>` (RFC 0009), packets arrive as
-newline-terminated JSON lines on the supervised process's stdin (delivered by
-`striatum supervise send`). Read packets line-by-line, react through the
-normal CLI commands, and never parse the supervisor's own output for
-workflow state. Stdout and stderr are sent to `DEVNULL` so do not rely on
-captured logs. If your session needs to stop, use `striatum supervise stop`
-rather than killing the process directly.
-
-### Decision Artifacts
-
-For owner choices that are not the output of a job (e.g., resolving a human
-checkpoint), call `striatum decision record --run-id ... --path ...
---outcome {accepted|rejected|accepted_with_follow_up} --title ...`. The
-command writes a durable Markdown artifact with `striatum.decision.v1`
-front matter and records it as artifact kind `decision`; it does not require
-an active lease. For artifacts that come out of a claimed job, use
-`publish-artifact` (or `submit-review` for reviews) instead.
-
-### Front-Matter Schemas
-
-Workflow-authored Markdown artifacts of kind `decision`, `finding`,
-`findings_ledger`, and `synthesis` should include valid V1 front matter when
-the artifact carries metadata. Front matter is YAML-style `---`-delimited
-with `key: <json-value>` lines. Files without a front-matter block are
-accepted; files with one are validated against the registered schema and
-the publisher rejects invalid front matter (exit code 6). The publisher
-never rewrites artifact files.
-
-If the artifact title block includes an `author:` line, it must exactly
-match the lowercase byline supplied in the work packet
-(`author: <role>-<model>-<ordinal>`). Do not derive bylines from workflow
-job titles.
-
-### Stale-Lease Recovery
-
-Lease expiry is lazy: normal CLI commands expire stale leases as they run.
-Review-only stale work can be safely requeued via
-`striatum recovery requeue-stale --run-id <id> --job-id <id>`. Repo-write
-stale work is refused by `recovery requeue-stale` and requires explicit
-operator action because the worktree may already be partially modified;
-inspect with `striatum recovery stale-leases --json` and `striatum doctor
---verbose` first.
-
-### Operator UX
+- Use the CLI verbs supplied in each work packet's `commands` block
+  verbatim. Do not derive your own.
+- Stay inside `write_scope.allowed_paths`. Never write to
+  `forbidden_paths` or `.striatum/`.
+- Match `expected_artifacts[].author_line` exactly when an artifact's title
+  block includes `author:`.
+- Front-matter–carrying artifacts (`decision`, `finding`, `findings_ledger`,
+  `synthesis`, `support_ledger`, `action_item_ledger`,
+  `harness_improvement_proposal`) must validate against their V1 schema —
+  the publisher refuses invalid front matter with exit code 6.
+- Lease expiry is lazy. If a normal CLI command refuses with exit code 5,
+  ask the operator to recover stale work via
+  `striatum recovery stale-leases` / `recovery requeue-stale` /
+  `recovery process-reconcile`.
 
 `striatum dashboard --run-id <id>` is the compact terminal view for humans
-watching a run; it reads the same SQLite state as `status` and `why`. Use
-`--once` for scripts and CI assertions that should not redraw a TUI.
+watching a run; `--once` produces a single frame to stdout for scripts and
+CI assertions.
 
 ## Development
 

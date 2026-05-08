@@ -2,6 +2,26 @@
 
 ## Unreleased
 
+## 1.1.0 — 2026-05-08
+
+### Changed
+
+- RFC 0017 V1 (dogfood-010): documentation reorganization. README
+  trimmed from ~1,000 lines to 125 with seven canonical sections
+  (Status, Install, Quick Start (Human Operator), Quick Start
+  (Coding Agent), What It Is For, Documentation Map, License).
+  Behavior model, sequential 1–11 usage walkthrough, dogfood-NNN
+  history, per-RFC subsections, and command reference moved out
+  of the README into `docs/GETTING_STARTED.md`,
+  `docs/HOW_TO_HUMAN.md`, `docs/HOW_TO_AGENT.md`,
+  `docs/WRITING_WORKFLOWS.md`, `docs/CLI_REFERENCE.md`,
+  `docs/INDEX.md`, and `docs/dogfood/HISTORICAL.md`. AGENTS.md
+  slimmed (153 → 104 lines) to point at `docs/HOW_TO_AGENT.md`
+  rather than reciting the verbs inline. Three new tests in
+  `tests/test_doc_links.py` enforce relative-link integrity, the
+  README line budget, and the human/agent quick-start heading
+  split. Documentation only — no behavior change, no schema move.
+
 ## 1.0.0 — 2026-05-08
 
 First stable release. Every RFC under `docs/rfcs/` is now in an

@@ -43,6 +43,7 @@ so external references keep resolving even as items move between sections.
 | F7 | RFC 0013 V1 (local web UI, dogfood-007) | ✅ done |
 | F8 | RFC 0016 V1 (dashboard dependency graph, dogfood-008) | ✅ done |
 | F9 | RFC 0015 V1 (self-contained agent skills, dogfood-009) | ✅ done |
+| F10 | RFC 0017 V1 (README + docs reorganization, dogfood-010) | ✅ done |
 
 Legend: ✅ done · 🟡 most done (sub-tasks remain) · ⏳ open
 

@@ -1,6 +1,6 @@
 # RFC 0017: README And Docs Reorganization
 
-Status: proposed
+Status: accepted (V1)
 Date: 2026-05-08
 Context:
 `README.md` (1,012 lines as of `v1.0.0`),
