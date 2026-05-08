@@ -23,7 +23,7 @@ and, when behavior changes, `docs/SPEC.md`.
 | [0008](0008-worktree-isolation-for-parallel-jobs.md) | accepted | Opt-in per-job Git worktree isolation for parallel repo-write jobs. |
 | [0009](0009-long-lived-process-supervision.md) | accepted | Architecture for V2 supervised agent processes that span multiple work packets. |
 | [0010](0010-tool-harness-profiles.md) | proposed | Add tool-specific harness profiles for native delegation and provider features. |
-| [0011](0011-session-close-and-run-terminal-auto-close.md) | proposed | Explicit session-close CLI plus auto-close of active sessions on run-terminal transitions. |
+| [0011](0011-session-close-and-run-terminal-auto-close.md) | accepted | Explicit session-close CLI plus auto-close of active sessions on run-terminal transitions. |
 
 ## Template
 

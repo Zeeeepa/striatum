@@ -1,6 +1,6 @@
 # RFC 0011: Session Close and Run-Terminal Auto-Close
 
-Status: proposed
+Status: accepted
 Date: 2026-05-08
 Context:
 `src/striatum/cli/mutations.py` (`register_session`),
