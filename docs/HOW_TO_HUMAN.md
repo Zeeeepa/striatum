@@ -47,17 +47,22 @@ To also drop a self-contained agent skill bundle that teaches a
 Striatum-aware agent how to drive the runner (RFC 0015 V1):
 
 ```bash
+# Claude Code: writes five SKILL.md files under .claude/skills/striatum-*/
 "$RUNNER" --repo "$TARGET_REPO" init --with-skills claude_code --json
-# or, against an existing initialized repo:
-"$RUNNER" --repo "$TARGET_REPO" skills install --profile claude_code --json
+
+# Codex / Gemini CLI / anything else: writes one
+# striatum-STRIATUM_AGENT_GUIDE.md at the repo root
+"$RUNNER" --repo "$TARGET_REPO" init --json
 "$RUNNER" --repo "$TARGET_REPO" skills install --profile generic --json
 ```
 
-The Claude Code profile writes five `SKILL.md` files under
-`.claude/skills/striatum-*/`. The generic profile writes a single
-`striatum-STRIATUM_AGENT_GUIDE.md` for any agent CLI without a
-skill-discovery convention. Both profiles are byte-identical on
-re-install; operator edits are preserved unless you pass `--force`.
+V1 ships two profiles: `claude_code` (auto-discovered by Claude
+Code) and `generic` (a single Markdown guide you can paste into
+any other agent CLI's system prompt). First-class `codex` and
+`gemini` profiles are step 3 of RFC 0015 and remain deferred;
+until they land, those agents use `generic`. Both profiles are
+byte-identical on re-install; operator edits are preserved
+unless you pass `--force`.
 
 ## Author or validate a workflow
 

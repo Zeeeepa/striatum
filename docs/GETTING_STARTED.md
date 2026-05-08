@@ -75,31 +75,67 @@ session and claim work — see
 You will install the runner once, install the skill bundle, and
 hand the agent your target repo. The agent does the rest.
 
+V1 ships **two skill profiles**. Pick the one that matches your
+agent CLI; you can also install both side-by-side and let the
+agent decide which one to read.
+
+| Agent CLI | Use this profile | Where files land |
+|---|---|---|
+| Claude Code | `claude_code` | `.claude/skills/striatum-*/SKILL.md` (five files; Claude Code auto-discovers them) |
+| Codex CLI | `generic` (V1) | `striatum-STRIATUM_AGENT_GUIDE.md` at the repo root |
+| Gemini CLI | `generic` (V1) | `striatum-STRIATUM_AGENT_GUIDE.md` at the repo root |
+| Anything else | `generic` | `striatum-STRIATUM_AGENT_GUIDE.md` at the repo root |
+
+`codex` and `gemini` first-class profiles are step 3 of RFC 0015
+and remain deferred; until they land, the `generic` profile
+covers those agents — same content, single concatenated guide
+you can `cat` into a system prompt or feed as a tool input.
+
+### If your agent is Claude Code
+
 ```bash
 TARGET_REPO=/path/to/your/repo
 striatum --repo "$TARGET_REPO" init --with-skills claude_code --json
 ```
 
-That single command does two things:
+That single command initializes `.striatum/` in the target repo
+and writes the RFC 0015 skill bundle to
+`.claude/skills/striatum-*/`. The bundle teaches a Claude Code
+session how to drive the runner without reading the striatum
+source.
 
-1. Initializes `.striatum/` in the target repo.
-2. Writes the RFC 0015 agent skill bundle into the target repo at
-   `.claude/skills/striatum-*/`. The bundle teaches a Claude Code
-   session how to drive the runner without reading the striatum
-   source.
-
-For agents that don't have a skill convention, use the generic
-profile:
+### If your agent is Codex / Gemini CLI / anything else
 
 ```bash
+TARGET_REPO=/path/to/your/repo
+striatum --repo "$TARGET_REPO" init --json
 striatum --repo "$TARGET_REPO" skills install --profile generic --json
-# writes a single striatum-STRIATUM_AGENT_GUIDE.md you can paste
-# into a system prompt
+# writes a single striatum-STRIATUM_AGENT_GUIDE.md at the repo root.
+# Paste its contents into the agent's system prompt, or load it as
+# a tool input — whatever your CLI's "load this doc as context"
+# convention is.
 ```
 
-Now point your agent at `$TARGET_REPO`. Tell it: *"drive the
-workflow at `<path>/workflow.json` using striatum"*. The agent
-loads the bundle, registers a session, claims work, and proceeds.
+The generic guide is one Markdown file with the same five-section
+structure as the Claude Code bundle (workflow router, scaffold,
+claim loop, supervise, recover). Any agent that can read a
+Markdown file can drive the runner from it.
+
+### Install both, if you switch CLIs
+
+```bash
+striatum --repo "$TARGET_REPO" skills install --profile claude_code --json
+striatum --repo "$TARGET_REPO" skills install --profile generic --json
+```
+
+The two profiles write to disjoint paths and each carries its own
+manifest, so they don't collide.
+
+### Now drive the run
+
+Point your agent at `$TARGET_REPO`. Tell it: *"drive the workflow
+at `<path>/workflow.json` using striatum"*. The agent loads the
+bundle, registers a session, claims work, and proceeds.
 For the long-form companion to the bundle, see
 [HOW_TO_AGENT.md](HOW_TO_AGENT.md).
 
