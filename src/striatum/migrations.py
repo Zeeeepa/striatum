@@ -293,6 +293,80 @@ def _apply_v6_independence_and_author_line(conn: sqlite3.Connection) -> None:
     )
 
 
+def _apply_v8_process_state_enum(conn: sqlite3.Connection) -> None:
+    """RFC 0014 V1: extend ``process_executions.state`` with ``timed_out``
+    and ``lost`` for the post-exit completion-guarantee path.
+
+    Uses :func:`rebuild_table` for the CHECK rebuild. The
+    ``process_executions`` table is referenced from ``process_supervisors``
+    (well, indirectly via ``session_id``) but has no self-referential FK,
+    so the rebuild is straightforward. Existing rows preserve their state.
+    """
+    rebuild_table(
+        conn,
+        table="process_executions",
+        temp_table="process_executions_v8",
+        create_temp_sql="""
+            CREATE TABLE process_executions_v8 (
+              process_id TEXT PRIMARY KEY,
+              run_id TEXT NOT NULL REFERENCES runs(run_id),
+              job_id TEXT NOT NULL REFERENCES jobs(job_id),
+              session_id TEXT NOT NULL REFERENCES sessions(session_id),
+              lease_id TEXT NOT NULL REFERENCES leases(lease_id),
+              packet_id TEXT NOT NULL REFERENCES work_packets(packet_id),
+              adapter TEXT NOT NULL,
+              command_json TEXT NOT NULL,
+              cwd TEXT NOT NULL,
+              scratch_path TEXT NOT NULL,
+              stdin_mode TEXT NOT NULL CHECK (stdin_mode IN ('packet','none')),
+              stdio_mode TEXT NOT NULL CHECK (stdio_mode IN ('suppressed','inherit')),
+              pid INTEGER,
+              state TEXT NOT NULL CHECK (state IN (
+                'starting','running','exited','failed','timed_out','lost'
+              )),
+              exit_code INTEGER,
+              started_at TEXT NOT NULL,
+              ended_at TEXT
+            )
+        """,
+        insert_select_sql="""
+            INSERT INTO process_executions_v8
+              SELECT process_id, run_id, job_id, session_id, lease_id,
+                     packet_id, adapter, command_json, cwd, scratch_path,
+                     stdin_mode, stdio_mode, pid, state, exit_code,
+                     started_at, ended_at
+              FROM process_executions
+        """,
+    )
+    conn.executescript(
+        """
+        CREATE INDEX IF NOT EXISTS idx_process_executions_run_job
+          ON process_executions(run_id, job_id, started_at);
+        """
+    )
+
+
+def _apply_v9_blockers_payload_json(conn: sqlite3.Connection) -> None:
+    """RFC 0014 V1: add ``payload_json`` to the ``blockers`` table so the
+    diagnostic envelope from process-adapter completion validation is
+    recorded structurally.
+
+    Forward-only ``ALTER TABLE``; existing rows default to ``'{}'``.
+    Idempotent against a fresh DB whose ``schema.py`` already created
+    the column (the V1 baseline schema is updated alongside the
+    migration so freshly-initialized DBs install the column directly,
+    and a re-run of ``apply_migrations`` would otherwise duplicate it).
+    """
+    cols = [row[1] for row in conn.execute("PRAGMA table_info(blockers)").fetchall()]
+    if "payload_json" in cols:
+        return
+    conn.executescript(
+        """
+        ALTER TABLE blockers ADD COLUMN payload_json TEXT NOT NULL DEFAULT '{}';
+        """
+    )
+
+
 MIGRATIONS: list[Migration] = sorted(
     [
         Migration(version=1, label="v1 baseline schema", apply=_apply_v1),
@@ -309,6 +383,16 @@ MIGRATIONS: list[Migration] = sorted(
             version=7,
             label="sessions closed state and close columns",
             apply=_apply_v7_session_close,
+        ),
+        Migration(
+            version=8,
+            label="process_executions state enum (timed_out, lost)",
+            apply=_apply_v8_process_state_enum,
+        ),
+        Migration(
+            version=9,
+            label="blockers payload_json column",
+            apply=_apply_v9_blockers_payload_json,
         ),
     ],
     key=lambda migration: migration.version,

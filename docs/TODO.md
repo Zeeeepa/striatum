@@ -38,6 +38,7 @@ so external references keep resolving even as items move between sections.
 | F2 | Fuller publication policy | ⏳ open |
 | F3 | Round-6 RFC 0002 + 0003/0004/0005 follow-up | ✅ done |
 | F4 | RFC 0010 V1 (tool harness profiles, dogfood-003) | ✅ done |
+| F5 | RFC 0014 V1 (process adapter completion guarantees, dogfood-005) | ✅ done |
 
 Legend: ✅ done · 🟡 most done (sub-tasks remain) · ⏳ open
 

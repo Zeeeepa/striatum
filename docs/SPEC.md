@@ -694,6 +694,62 @@ turns. RFC 0009 introduces a `striatum supervise` command group plus a new
 `process_supervisors` table for that flow. The two adapter modes coexist;
 `adapter run` is unchanged.
 
+#### Single-Shot Process Adapter Completion Guarantees (RFC 0014 V1)
+
+After every `adapter run` exit (including timeout-fired SIGTERMs), the
+runner inspects required `expected_artifacts` and, for `type: "review"`
+jobs, whether a verdict was recorded. When any required output is
+missing — or the child exited non-zero or hit the timeout — the job
+transitions from `running` to `blocked`, a blocker row is inserted, and
+a privacy-safe diagnostic envelope is recorded as the new
+`blockers.payload_json` column.
+
+`--timeout-seconds <n>` on `adapter run` wraps `process.communicate`
+with a deadline; on expiry the child is SIGTERM'd, then SIGKILL'd
+after a 5-second wait. `lanes.<id>.adapter_timeout_seconds` provides
+a per-lane default (capped at 86400 / 24 hours by workflow validation);
+the CLI flag overrides the lane field; with neither set, behaviour
+stays unbounded for backwards compatibility.
+
+Blocker reasons (`blockers.blocker_kind`):
+
+- `process_outputs_missing` — exit `0`, required artifact(s) missing.
+- `process_review_verdict_missing` — exit `0`, review job without a
+  recorded verdict.
+- `process_exit_nonzero` — non-zero exit (priority over output
+  checks).
+- `process_timeout_exceeded` — `--timeout-seconds` fired.
+- `process_lost_with_outputs_missing` — reconciler found a dead PID
+  whose job had missing required outputs.
+
+`striatum recovery process-reconcile --run-id <id>` walks
+`process_executions.state = 'running'` rows; for each, `os.kill(pid, 0)`
+checks liveness. Externally-killed rows transition to `'lost'` and
+re-run the same output validation; the JSON output mirrors the
+existing `recovery requeue-stale` shape (D036's lazy-on-CLI policy).
+Two doctor checks surface bookkeeping mismatches:
+`process_running_but_pid_gone` and
+`process_running_with_expired_lease`. `striatum status --run-id`
+gains a `process_health` summary key.
+
+The diagnostic envelope contains zero child stdout/stderr (D028
+preserved by construction); it carries only metadata Striatum
+already collected plus output-validation deltas:
+
+```json
+{
+  "envelope_version": "striatum.process_adapter.envelope.v1",
+  "process_id": "proc_<hex>",
+  "command": [],
+  "exit_code": 0,
+  "duration_seconds": 0.0,
+  "timeout_seconds": null,
+  "missing_artifact_paths": [],
+  "review_verdict_missing": false,
+  "recovery_commands": []
+}
+```
+
 `process_supervisors` is added by migration version 4 and is separate from
 `process_executions` so single-shot launches and supervised sessions keep
 distinct rows and event streams. State values are

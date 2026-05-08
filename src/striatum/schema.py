@@ -199,7 +199,8 @@ CREATE TABLE IF NOT EXISTS blockers (
   description TEXT NOT NULL,
   state TEXT NOT NULL CHECK (state IN ('open','resolved','canceled')),
   created_at TEXT NOT NULL,
-  resolved_at TEXT
+  resolved_at TEXT,
+  payload_json TEXT NOT NULL DEFAULT '{}'
 );
 
 CREATE TABLE IF NOT EXISTS command_requests (
@@ -228,7 +229,9 @@ CREATE TABLE IF NOT EXISTS process_executions (
   stdin_mode TEXT NOT NULL CHECK (stdin_mode IN ('packet','none')),
   stdio_mode TEXT NOT NULL CHECK (stdio_mode IN ('suppressed','inherit')),
   pid INTEGER,
-  state TEXT NOT NULL CHECK (state IN ('starting','running','exited','failed')),
+  state TEXT NOT NULL CHECK (state IN (
+    'starting','running','exited','failed','timed_out','lost'
+  )),
   exit_code INTEGER,
   started_at TEXT NOT NULL,
   ended_at TEXT

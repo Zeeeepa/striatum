@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+import os
 import sqlite3
 
 from striatum.db import (
@@ -339,3 +341,120 @@ def cancel_job(
             "run_state": run_row["state"],
             "next_actions": ["inspect_run_state", "export_run_evidence"],
         }
+
+
+def process_reconcile(conn: sqlite3.Connection, *, run_id: str) -> JsonObject:
+    """RFC 0014 V1: walk ``process_executions.state = 'running'`` rows and
+    transition externally-killed processes to ``'lost'``.
+
+    Mirrors the lazy-on-CLI shape of :func:`requeue_stale` (D036). For
+    each row whose pid is gone (``os.kill(pid, 0)`` raises
+    ``ProcessLookupError``), transitions the row to ``'lost'`` and runs
+    the same output validation step the inline path uses, blocking the
+    job with ``process_lost_with_outputs_missing`` when required outputs
+    are absent.
+
+    Returns a JSON envelope with per-row detail and ``next_actions``.
+    """
+    row_by_id(conn, "runs", "run_id", run_id)
+    from striatum.process_adapter import mark_process_lost
+    from striatum.process_completion import evaluate_and_block_after_reconcile
+
+    still_running: list[JsonObject] = []
+    transitioned_to_lost: list[JsonObject] = []
+    rows = conn.execute(
+        """
+        SELECT pe.*
+        FROM process_executions pe
+        WHERE pe.run_id = ? AND pe.state = 'running'
+        ORDER BY pe.started_at
+        """,
+        (run_id,),
+    ).fetchall()
+    for row in rows:
+        pid = row["pid"]
+        if pid is None:
+            # state='running' without pid is degenerate; treat as lost.
+            alive = False
+        else:
+            alive = _pid_alive(int(pid))
+        if alive:
+            still_running.append(
+                {
+                    "process_id": str(row["process_id"]),
+                    "job_id": str(row["job_id"]),
+                    "pid": int(pid) if pid is not None else None,
+                    "started_at": str(row["started_at"]),
+                }
+            )
+            continue
+        mark_process_lost(conn, process_id=str(row["process_id"]))
+        with transaction(conn):
+            process = row_by_id(conn, "process_executions", "process_id", str(row["process_id"]))
+            job = row_by_id(conn, "jobs", "job_id", str(process["job_id"]))
+            try:
+                command = json.loads(str(process["command_json"]))
+            except json.JSONDecodeError:
+                command = []
+            if not isinstance(command, list):
+                command = []
+            started = str(process["started_at"])
+            ended = str(process["ended_at"] or utc_now())
+            duration = _duration_seconds(started, ended)
+            blocker_kind, _envelope = evaluate_and_block_after_reconcile(
+                conn,
+                job=job,
+                session_id=str(process["session_id"]),
+                process_id=str(process["process_id"]),
+                command=command,
+                duration_seconds=duration,
+            )
+        transitioned_to_lost.append(
+            {
+                "process_id": str(row["process_id"]),
+                "job_id": str(row["job_id"]),
+                "pid": int(pid) if pid is not None else None,
+                "blocker_kind": blocker_kind,
+            }
+        )
+    next_actions: list[str] = []
+    if transitioned_to_lost:
+        next_actions.append("inspect_blockers")
+        next_actions.append("decide_recovery_path")
+    return {
+        "run_id": run_id,
+        "still_running": still_running,
+        "transitioned_to_lost": transitioned_to_lost,
+        "next_actions": next_actions,
+    }
+
+
+def _pid_alive(pid: int) -> bool:
+    """Return True when ``pid`` is reachable from this process.
+
+    ``os.kill(pid, 0)`` raises:
+      - ProcessLookupError (ESRCH) → process is gone.
+      - PermissionError (EPERM)    → process exists but not ours.
+      - returns None on success    → process is alive and reachable.
+
+    The reconciler treats EPERM as "still running" (we can't act on it
+    anyway) so an operator-killed-then-replaced PID does not get
+    spuriously reconciled.
+    """
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+def _duration_seconds(started_at: str, ended_at: str) -> float:
+    from datetime import datetime
+
+    def parse(value: str) -> datetime:
+        cleaned = value.replace("Z", "+00:00")
+        return datetime.fromisoformat(cleaned)
+
+    return max(0.0, (parse(ended_at) - parse(started_at)).total_seconds())

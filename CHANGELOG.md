@@ -4,6 +4,32 @@
 
 ### Added
 
+- RFC 0014 V1 / issue #1 (dogfood-005): process adapter completion
+  guarantees. After every `striatum adapter run` exit (including
+  timeout-fired SIGTERMs), the runner inspects required
+  `expected_artifacts` and, for review jobs, the verdict table. When
+  any required output is missing — or the child exited non-zero or
+  hit the timeout — the job transitions from `running` to `blocked`,
+  a blocker row is inserted with a structured `blocker_kind`
+  (`process_outputs_missing`, `process_review_verdict_missing`,
+  `process_exit_nonzero`, `process_timeout_exceeded`,
+  `process_lost_with_outputs_missing`), and a privacy-safe diagnostic
+  envelope is recorded as the new `blockers.payload_json` column.
+  The envelope contains zero child stdout/stderr (D028 preserved); it
+  carries `process_id`, `command`, `exit_code`, `duration_seconds`,
+  `timeout_seconds`, `missing_artifact_paths`, `review_verdict_missing`,
+  and operator-copyable `recovery_commands`. New CLI surface:
+  `striatum adapter run --timeout-seconds <n>` (overrides
+  `lanes.<id>.adapter_timeout_seconds`; capped at 86400) and
+  `striatum recovery process-reconcile --run-id <id>` (mirrors the
+  `recovery requeue-stale` lazy-on-CLI shape from D036). Two new
+  doctor checks (`process_running_but_pid_gone`,
+  `process_running_with_expired_lease`) and a `process_health`
+  summary on `striatum status --run-id`. Migrations v8
+  (`process_executions.state` enum + `'timed_out'` and `'lost'`) and
+  v9 (`blockers.payload_json`); both idempotent against fresh DBs.
+  Tests at `tests/test_process_adapter.py` (15 new cases). Closes
+  [issue #1](https://github.com/halbritt/striatum/issues/1).
 - `branch.mode` is now a closed enum (`"auto"` or `"confirm"`) and
   defaults to `"auto"` when omitted. In auto mode, `run prepare`
   atomically creates the suggested branch and transitions the run to

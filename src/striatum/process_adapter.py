@@ -38,7 +38,9 @@ CREATE TABLE IF NOT EXISTS process_executions (
   stdin_mode TEXT NOT NULL CHECK (stdin_mode IN ('packet','none')),
   stdio_mode TEXT NOT NULL CHECK (stdio_mode IN ('suppressed','inherit')),
   pid INTEGER,
-  state TEXT NOT NULL CHECK (state IN ('starting','running','exited','failed')),
+  state TEXT NOT NULL CHECK (state IN (
+    'starting','running','exited','failed','timed_out','lost'
+  )),
   exit_code INTEGER,
   started_at TEXT NOT NULL,
   ended_at TEXT
@@ -57,10 +59,23 @@ def run_process_adapter(
     lease_id: str,
     stdin_mode: str,
     inherit_stdio: bool,
+    timeout_seconds: int | None = None,
 ) -> JsonObject:
-    """Run the process command configured for a claimed session's lane."""
+    """Run the process command configured for a claimed session's lane.
+
+    RFC 0014 V1: when ``timeout_seconds`` is set, ``communicate`` is wrapped
+    in a try/except for ``subprocess.TimeoutExpired``; on timeout the child
+    is SIGTERM'd, then SIGKILL'd after a 5-second wait, and the job is
+    transitioned to ``blocked`` with the ``process_timeout_exceeded`` reason.
+
+    After every normal exit, ``evaluate_and_block_inline`` runs against the
+    job and inserts a blocker row when required artifacts or review-job
+    verdicts are missing.
+    """
     if stdin_mode not in {"packet", "none"}:
         raise InvalidTransitionError("stdin mode must be packet or none")
+    if timeout_seconds is not None and timeout_seconds <= 0:
+        raise InvalidTransitionError("timeout_seconds must be a positive integer")
     ensure_process_schema(conn)
     launch = prepare_process_launch(
         conn,
@@ -75,6 +90,10 @@ def run_process_adapter(
     scratch_path = Path(str(launch["scratch_path"]))
     scratch_path.mkdir(parents=True, exist_ok=True)
     constraints = cast(dict[str, str], launch.get("lane_constraints") or {})
+    if timeout_seconds is None:
+        lane_timeout = launch.get("lane_timeout_seconds")
+        if isinstance(lane_timeout, int) and lane_timeout > 0:
+            timeout_seconds = int(lane_timeout)
     base_env = dict(os.environ)
     if constraints.get("network") == "forbidden":
         for key in ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY",
@@ -113,9 +132,86 @@ def run_process_adapter(
         mark_process_failed(conn, process_id=process_id, error=str(exc))
         raise InvalidTransitionError(f"process adapter could not launch command: {exc}") from exc
     mark_process_running(conn, process_id=process_id, pid=process.pid)
-    stdout_data, stderr_data = process.communicate(payload)
-    del stdout_data, stderr_data
-    return mark_process_exited(conn, process_id=process_id, exit_code=process.returncode)
+    timed_out = False
+    try:
+        stdout_data, stderr_data = process.communicate(payload, timeout=timeout_seconds)
+        del stdout_data, stderr_data
+    except subprocess.TimeoutExpired:
+        timed_out = True
+        process.terminate()
+        try:
+            stdout_data, stderr_data = process.communicate(timeout=5)
+            del stdout_data, stderr_data
+        except subprocess.TimeoutExpired:
+            process.kill()
+            stdout_data, stderr_data = process.communicate()
+            del stdout_data, stderr_data
+    if timed_out:
+        result = mark_process_timed_out(
+            conn,
+            process_id=process_id,
+            timeout_seconds=int(timeout_seconds) if timeout_seconds else 0,
+        )
+        exit_code: int | None = None
+    else:
+        result = mark_process_exited(conn, process_id=process_id, exit_code=process.returncode)
+        exit_code = int(process.returncode)
+    _evaluate_and_block_after_run(
+        conn,
+        process_id=process_id,
+        session_id=session_id,
+        lease_id=lease_id,
+        command=command,
+        exit_code=exit_code,
+        timed_out=timed_out,
+        timeout_seconds=int(timeout_seconds) if timeout_seconds else None,
+    )
+    return result
+
+
+def _evaluate_and_block_after_run(
+    conn: sqlite3.Connection,
+    *,
+    process_id: str,
+    session_id: str,
+    lease_id: str,
+    command: list[str],
+    exit_code: int | None,
+    timed_out: bool,
+    timeout_seconds: int | None,
+) -> None:
+    """Run RFC 0014 V1 post-exit validation and block the job if needed."""
+    from striatum.process_completion import evaluate_and_block_inline
+
+    with transaction(conn):
+        process = row_by_id(conn, "process_executions", "process_id", process_id)
+        job = row_by_id(conn, "jobs", "job_id", str(process["job_id"]))
+        started = process["started_at"]
+        ended = process["ended_at"] or utc_now()
+        duration = _duration_seconds(str(started), str(ended))
+        evaluate_and_block_inline(
+            conn,
+            job=job,
+            session_id=session_id,
+            process_id=process_id,
+            command=command,
+            exit_code=exit_code,
+            duration_seconds=duration,
+            timed_out=timed_out,
+            timeout_seconds=timeout_seconds,
+        )
+
+
+def _duration_seconds(started_at: str, ended_at: str) -> float:
+    """Return the seconds between two UTC ISO timestamps."""
+    from datetime import datetime
+
+    def parse(value: str) -> datetime:
+        # Accept both '2026-05-08T12:34:56.789Z' and '...+00:00' shapes.
+        cleaned = value.replace("Z", "+00:00")
+        return datetime.fromisoformat(cleaned)
+
+    return max(0.0, (parse(ended_at) - parse(started_at)).total_seconds())
 
 
 def ensure_process_schema(conn: sqlite3.Connection) -> None:
@@ -203,6 +299,9 @@ def prepare_process_launch(
         )
         constraints_value = lane.get("constraints")
         lane_constraints = constraints_value if isinstance(constraints_value, dict) else {}
+        lane_timeout = lane.get("adapter_timeout_seconds")
+        if not isinstance(lane_timeout, int) or isinstance(lane_timeout, bool) or lane_timeout <= 0:
+            lane_timeout = None
         return {
             "process_id": process_id,
             "run_id": run["run_id"],
@@ -216,6 +315,7 @@ def prepare_process_launch(
             "env": env_overrides if isinstance(env_overrides, dict) else {},
             "scratch_path": str(scratch),
             "lane_constraints": lane_constraints,
+            "lane_timeout_seconds": lane_timeout,
         }
 
 
@@ -288,6 +388,93 @@ def mark_process_exited(conn: sqlite3.Connection, *, process_id: str, exit_code:
             "lease_id": process["lease_id"],
             "state": "exited",
             "exit_code": exit_code,
+            "scratch_path": process["scratch_path"],
+        }
+
+
+def mark_process_timed_out(
+    conn: sqlite3.Connection,
+    *,
+    process_id: str,
+    timeout_seconds: int,
+) -> JsonObject:
+    """Record that a process was SIGTERM'd after exceeding its timeout.
+
+    RFC 0014 V1 step 2. The blocker row + envelope are written by
+    :func:`process_completion.evaluate_and_block_inline`; this helper
+    only updates the ``process_executions`` row and records the
+    ``process.timed_out`` event.
+    """
+    with transaction(conn):
+        process = row_by_id(conn, "process_executions", "process_id", process_id)
+        ended_at = utc_now()
+        conn.execute(
+            """
+            UPDATE process_executions
+            SET state = 'timed_out', exit_code = NULL, ended_at = ?
+            WHERE process_id = ?
+            """,
+            (ended_at, process_id),
+        )
+        insert_event(
+            conn,
+            run_id=str(process["run_id"]),
+            event_type="process.timed_out",
+            actor_session_id=str(process["session_id"]),
+            job_id=str(process["job_id"]),
+            lease_id=str(process["lease_id"]),
+            payload={"process_id": process_id, "timeout_seconds": timeout_seconds},
+        )
+        return {
+            "process_id": process_id,
+            "run_id": process["run_id"],
+            "job_id": process["job_id"],
+            "session_id": process["session_id"],
+            "lease_id": process["lease_id"],
+            "state": "timed_out",
+            "exit_code": None,
+            "scratch_path": process["scratch_path"],
+            "timeout_seconds": timeout_seconds,
+        }
+
+
+def mark_process_lost(
+    conn: sqlite3.Connection,
+    *,
+    process_id: str,
+) -> JsonObject:
+    """Record that a process was reconciled to ``lost`` (external kill / runner exit).
+
+    RFC 0014 V1 step 3. Used by ``recovery process-reconcile``.
+    """
+    with transaction(conn):
+        process = row_by_id(conn, "process_executions", "process_id", process_id)
+        ended_at = utc_now()
+        conn.execute(
+            """
+            UPDATE process_executions
+            SET state = 'lost', ended_at = ?
+            WHERE process_id = ?
+            """,
+            (ended_at, process_id),
+        )
+        insert_event(
+            conn,
+            run_id=str(process["run_id"]),
+            event_type="process.lost",
+            actor_session_id=str(process["session_id"]),
+            job_id=str(process["job_id"]),
+            lease_id=str(process["lease_id"]),
+            payload={"process_id": process_id, "pid": process["pid"]},
+        )
+        return {
+            "process_id": process_id,
+            "run_id": process["run_id"],
+            "job_id": process["job_id"],
+            "session_id": process["session_id"],
+            "lease_id": process["lease_id"],
+            "state": "lost",
+            "pid": process["pid"],
             "scratch_path": process["scratch_path"],
         }
 

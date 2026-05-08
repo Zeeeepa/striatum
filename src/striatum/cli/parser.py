@@ -231,6 +231,16 @@ def build_parser() -> argparse.ArgumentParser:
         help="also cancel downstream blocked jobs whose only path was through this job",
     )
     cancel_job_p.add_argument("--json", action="store_true")
+    process_reconcile_p = recovery_sub.add_parser(
+        "process-reconcile",
+        help=(
+            "RFC 0014 V1: walk process_executions rows in 'running' "
+            "state and transition externally-killed processes to 'lost', "
+            "re-running output validation on the newly-lost rows."
+        ),
+    )
+    process_reconcile_p.add_argument("--run-id", required=True)
+    process_reconcile_p.add_argument("--json", action="store_true")
 
     checkpoint = sub.add_parser("checkpoint")
     checkpoint_sub = checkpoint.add_subparsers(dest="checkpoint_command", required=True)
@@ -254,6 +264,17 @@ def build_parser() -> argparse.ArgumentParser:
     adapter_run.add_argument("--lease-id", required=True)
     adapter_run.add_argument("--stdin", choices=["packet", "none"], default="packet")
     adapter_run.add_argument("--inherit-stdio", action="store_true")
+    adapter_run.add_argument(
+        "--timeout-seconds",
+        type=int,
+        default=None,
+        help=(
+            "RFC 0014 V1: SIGTERM the child after N seconds and block the "
+            "job with process_timeout_exceeded. Overrides any "
+            "lanes.<id>.adapter_timeout_seconds default. Omit (or set to "
+            "the lane default) to keep the historical unbounded behaviour."
+        ),
+    )
     adapter_run.add_argument("--json", action="store_true")
 
     worktree = sub.add_parser("worktree")

@@ -793,6 +793,33 @@ The reference Claude Code supervised wrapper lives at
 Workflows that declare a supervised Claude Code lane can use it as the
 lane command directly.
 
+### Process Adapter Completion Guarantees (RFC 0014 V1)
+
+`striatum adapter run` is single-shot: the child exits with the
+configured command. After every exit, the runner validates that the
+job's required `expected_artifacts` were published and (for review
+jobs) a verdict was recorded. When anything is missing, or the child
+exited non-zero, or the timeout fired, the job transitions from
+`running` to `blocked` and a privacy-safe diagnostic envelope is
+recorded as `blockers.payload_json`.
+
+Surfaces:
+
+- `striatum adapter run --timeout-seconds <n>` — SIGTERM the child
+  after N seconds; falls back to SIGKILL after 5s.
+- `lanes.<id>.adapter_timeout_seconds` — per-lane default (capped at
+  86400 by workflow validation).
+- `striatum recovery process-reconcile --run-id <id>` — reconcile
+  externally-killed processes (mirrors `recovery requeue-stale`'s
+  shape from D036).
+- Two new doctor checks: `process_running_but_pid_gone` and
+  `process_running_with_expired_lease`.
+- `striatum status --run-id` adds a `process_health` summary key.
+
+The diagnostic envelope never contains child stdout/stderr
+(D028 preserved). Closes
+[issue #1](https://github.com/halbritt/striatum/issues/1).
+
 ## Bootstrap Tmux Harness
 
 The temporary design bootstrap runner remains available for historical design

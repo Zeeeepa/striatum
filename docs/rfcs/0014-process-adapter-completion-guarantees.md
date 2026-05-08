@@ -1,7 +1,78 @@
 # RFC 0014: Process Adapter Completion Guarantees
 
-Status: proposed
+Status: accepted (V1)
 Date: 2026-05-08
+
+## V1 Implementation Slice
+
+Implemented under dogfood-005 (decision artifact
+`dec_f3cb9562eabb48d2b8db23436719ecf2`). The V1 build slice landed:
+
+- **Migration v8** — `process_executions.state` enum extended with
+  `'timed_out'` and `'lost'` via `rebuild_table` helper. Inline
+  CHECK in `process_adapter.py:PROCESS_SCHEMA_SQL` updated in
+  lockstep.
+- **Migration v9** — `blockers.payload_json` column for the
+  diagnostic envelope. Idempotent against fresh DBs whose
+  baseline `schema.py` already creates the column.
+- **`src/striatum/process_completion.py`** — new module owning
+  `build_diagnostic_envelope`, `validate_outputs`,
+  `pick_inline_blocker_kind`, `build_recovery_commands`,
+  `block_job_with_envelope`, `evaluate_and_block_inline`,
+  `evaluate_and_block_after_reconcile`. Idempotent against an
+  already-blocked job.
+- **`run_process_adapter`** — wraps `process.communicate(payload,
+  timeout=timeout_seconds)` in a `try/except TimeoutExpired` that
+  SIGTERMs and falls back to SIGKILL after 5s. Calls
+  `_evaluate_and_block_after_run` after every exit.
+- **CLI**: `striatum adapter run --timeout-seconds <n>` plus new
+  `striatum recovery process-reconcile --run-id <id>` subcommand.
+- **Workflow validation**: `lanes.<id>.adapter_timeout_seconds`
+  accepted as positive integer ≤ 86400 (24-hour cap).
+- **Doctor**: two new checks —
+  `process_running_but_pid_gone` and
+  `process_running_with_expired_lease`.
+- **Status**: new `process_health` summary key with
+  `running_count`, `stale_running_count`, `lost_count`,
+  `timed_out_count`, `next_actions`.
+- Tests at `tests/test_process_adapter.py` (15 new cases) cover
+  the happy path, every failure mode, lane-default vs CLI-flag
+  precedence, reconciliation against alive and dead pids, doctor
+  surfacing, `process_health` summary, envelope D028 compliance,
+  the issue #1 reproduction, and migration idempotency.
+
+Diagnostic envelope shape recorded as
+`blockers.payload_json` and embedded in
+`process_adapter.outputs_missing` event payloads:
+
+```json
+{
+  "envelope_version": "striatum.process_adapter.envelope.v1",
+  "process_id": "proc_<hex>",
+  "command": ["...lane command array..."],
+  "exit_code": 0,
+  "duration_seconds": 0.0,
+  "timeout_seconds": null,
+  "missing_artifact_paths": ["..."],
+  "review_verdict_missing": false,
+  "recovery_commands": ["striatum publish-artifact ...", "..."]
+}
+```
+
+Blocker reason vocabulary:
+`process_outputs_missing`,
+`process_review_verdict_missing`,
+`process_exit_nonzero`,
+`process_timeout_exceeded`,
+`process_lost_with_outputs_missing`.
+
+Closes [issue #1](https://github.com/halbritt/striatum/issues/1).
+Deferred items per the V1 design synthesis (heartbeat-based
+timeout, adapter result envelope file, auto-reconcile on
+`claim-next` / `status`, lease auto-release on block, multi-run
+reconcile) remain follow-up work.
+
+
 Context:
 [Issue #1](https://github.com/halbritt/striatum/issues/1) (Process
 adapters can exit or hang without completing claimed jobs),

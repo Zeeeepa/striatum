@@ -178,6 +178,18 @@ def status(conn: sqlite3.Connection, *, run_id: str | None) -> JsonObject:
     claimable = claimable_jobs_by_role_lane(conn, run_id=run_id)
     blocked_downstream = blocked_downstream_jobs(conn, run_id=run_id)
     has_orphan_supervisor = _has_supervisor_lost_with_held_lease(conn, run_id=run_id)
+    process_health = _process_health(conn, run_id=run_id)
+    actions = next_actions(
+        open_blockers=open_blockers,
+        human_checkpoints=human_checkpoints,
+        non_accepting_verdicts=non_accepting,
+        claimable_jobs=claimable,
+        has_orphan_supervisor=has_orphan_supervisor,
+    )
+    if process_health["next_actions"]:
+        for extra in process_health["next_actions"]:
+            if extra not in actions:
+                actions.append(extra)
     return {
         "runs": [dict(row) for row in runs],
         "jobs": {str(row["state"]): int(row["count"]) for row in jobs},
@@ -186,13 +198,61 @@ def status(conn: sqlite3.Connection, *, run_id: str | None) -> JsonObject:
         "latest_non_accepting_review_verdicts": non_accepting,
         "claimable_jobs": claimable,
         "blocked_downstream_jobs": blocked_downstream,
-        "next_actions": next_actions(
-            open_blockers=open_blockers,
-            human_checkpoints=human_checkpoints,
-            non_accepting_verdicts=non_accepting,
-            claimable_jobs=claimable,
-            has_orphan_supervisor=has_orphan_supervisor,
-        ),
+        "process_health": process_health,
+        "next_actions": actions,
+    }
+
+
+def _process_health(
+    conn: sqlite3.Connection, *, run_id: str | None
+) -> JsonObject:
+    """RFC 0014 V1: summary of process_executions liveness for a run.
+
+    Returns running/stale_running/lost/timed_out counts plus a
+    next_actions list that recommends ``recovery process-reconcile``
+    when stale_running > 0.
+    """
+    if run_id is None:
+        return {
+            "running_count": 0,
+            "stale_running_count": 0,
+            "lost_count": 0,
+            "timed_out_count": 0,
+            "next_actions": [],
+        }
+    running_total = conn.execute(
+        "SELECT COUNT(*) AS c FROM process_executions WHERE run_id = ? AND state = 'running'",
+        (run_id,),
+    ).fetchone()
+    stale_running = conn.execute(
+        """
+        SELECT COUNT(*) AS c FROM process_executions pe
+        JOIN leases l ON l.lease_id = pe.lease_id
+        WHERE pe.run_id = ? AND pe.state = 'running' AND l.state = 'expired'
+        """,
+        (run_id,),
+    ).fetchone()
+    lost_total = conn.execute(
+        "SELECT COUNT(*) AS c FROM process_executions WHERE run_id = ? AND state = 'lost'",
+        (run_id,),
+    ).fetchone()
+    timed_out_total = conn.execute(
+        "SELECT COUNT(*) AS c FROM process_executions WHERE run_id = ? AND state = 'timed_out'",
+        (run_id,),
+    ).fetchone()
+    running_count = int(running_total["c"]) if running_total else 0
+    stale_running_count = int(stale_running["c"]) if stale_running else 0
+    lost_count = int(lost_total["c"]) if lost_total else 0
+    timed_out_count = int(timed_out_total["c"]) if timed_out_total else 0
+    next_acts: list[str] = []
+    if stale_running_count > 0:
+        next_acts.append("recovery_process_reconcile")
+    return {
+        "running_count": running_count,
+        "stale_running_count": stale_running_count,
+        "lost_count": lost_count,
+        "timed_out_count": timed_out_count,
+        "next_actions": next_acts,
     }
 
 
@@ -827,6 +887,8 @@ def doctor(
         "worktree_orphaned_lease",
         "worktree_path_missing_on_disk",
         "supervisor_lost_with_held_lease",
+        "process_running_but_pid_gone",
+        "process_running_with_expired_lease",
         "editable_install_outside_repo",
         "reviewer_independence_unverified",
     )
@@ -1218,6 +1280,85 @@ def doctor(
                 "lease_expires_at": row["expires_at"],
                 "ended_at": row["ended_at"],
                 "stop_reason": row["stop_reason"],
+            },
+        )
+    # RFC 0014 V1: process_running_but_pid_gone — process_executions rows
+    # in ``running`` state whose pid is no longer reachable from this
+    # process. Surfaced so doctor flags externally-killed processes that
+    # bypassed the runner's bookkeeping; the recommended action is
+    # ``recovery process-reconcile``.
+    process_running_rows = conn.execute(
+        """
+        SELECT pe.process_id, pe.run_id, pe.job_id, pe.pid, pe.started_at, pe.lease_id
+        FROM process_executions pe
+        WHERE pe.state = 'running'
+          AND (? IS NULL OR pe.run_id = ?)
+        """,
+        (run_id, run_id),
+    ).fetchall()
+    import os as _os_for_doctor
+    for row in process_running_rows:
+        pid = row["pid"]
+        if pid is None:
+            alive = False
+        else:
+            try:
+                _os_for_doctor.kill(int(pid), 0)
+                alive = True
+            except ProcessLookupError:
+                alive = False
+            except PermissionError:
+                alive = True
+            except OSError:
+                alive = True
+        if not alive:
+            report(
+                "process_running_but_pid_gone",
+                identifier=str(row["process_id"]),
+                message=(
+                    f"process_executions row {row['process_id']} is in 'running' "
+                    f"state but pid {pid} is gone; run "
+                    f"`striatum recovery process-reconcile --run-id {row['run_id']}` "
+                    "to reconcile"
+                ),
+                context={
+                    "run_id": row["run_id"],
+                    "job_id": row["job_id"],
+                    "pid": pid,
+                    "started_at": row["started_at"],
+                    "lease_id": row["lease_id"],
+                },
+            )
+    # RFC 0014 V1: process_running_with_expired_lease — ``running`` rows
+    # whose lease has expired. The pid may still be alive; doctor surfaces
+    # the bookkeeping mismatch so an operator can decide whether to
+    # reconcile or kill the lingering process.
+    process_lease_rows = conn.execute(
+        """
+        SELECT pe.process_id, pe.run_id, pe.job_id, pe.pid, l.lease_id, l.expires_at
+        FROM process_executions pe
+        JOIN leases l ON l.lease_id = pe.lease_id
+        WHERE pe.state = 'running' AND l.state = 'expired'
+          AND (? IS NULL OR pe.run_id = ?)
+        """,
+        (run_id, run_id),
+    ).fetchall()
+    for row in process_lease_rows:
+        report(
+            "process_running_with_expired_lease",
+            identifier=str(row["process_id"]),
+            message=(
+                f"process_executions row {row['process_id']} is in 'running' "
+                f"state but lease {row['lease_id']} expired at "
+                f"{row['expires_at']}; run "
+                f"`striatum recovery process-reconcile --run-id {row['run_id']}`"
+            ),
+            context={
+                "run_id": row["run_id"],
+                "job_id": row["job_id"],
+                "pid": row["pid"],
+                "lease_id": row["lease_id"],
+                "lease_expires_at": row["expires_at"],
             },
         )
     # HARNESS-002: warn loudly when the running ``striatum`` install is

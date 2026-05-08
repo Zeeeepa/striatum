@@ -919,6 +919,9 @@ def _validate_harness_profiles(
     return declared_set
 
 
+ADAPTER_TIMEOUT_SECONDS_MAX = 86400
+
+
 def _validate_lane_constraints(
     lanes: JsonObject,
     *,
@@ -931,6 +934,20 @@ def _validate_lane_constraints(
     for lane_id, lane_value in lanes.items():
         if not isinstance(lane_value, dict):
             raise WorkflowError(f"lane {lane_id!r} must be an object")
+        timeout = lane_value.get("adapter_timeout_seconds")
+        if timeout is not None:
+            if not isinstance(timeout, int) or isinstance(timeout, bool) or timeout <= 0:
+                raise WorkflowError(
+                    f"lane {lane_id!r} adapter_timeout_seconds must be a "
+                    f"positive integer"
+                )
+            if timeout > ADAPTER_TIMEOUT_SECONDS_MAX:
+                raise WorkflowError(
+                    f"lane {lane_id!r} adapter_timeout_seconds {timeout} "
+                    f"exceeds the V1 cap of {ADAPTER_TIMEOUT_SECONDS_MAX} "
+                    f"(24 hours); override at CLI invocation time with "
+                    f"--timeout-seconds for legitimate >24h needs"
+                )
         profile_ref = lane_value.get("harness_profile_id")
         if profile_ref is not None:
             if not isinstance(profile_ref, str) or not profile_ref:

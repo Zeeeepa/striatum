@@ -56,7 +56,12 @@ from striatum.cli.mutations import (
     verdict_work,
 )
 from striatum.cli.parser import build_parser
-from striatum.cli.recovery import cancel_job, requeue_stale, stale_leases
+from striatum.cli.recovery import (
+    cancel_job,
+    process_reconcile,
+    requeue_stale,
+    stale_leases,
+)
 from striatum.cli.run_summary import run_summary_export
 from striatum.cli.supervise import (
     supervise_list,
@@ -316,6 +321,8 @@ def dispatch(args: argparse.Namespace) -> object:
                 reason=args.reason,
                 cascade=bool(args.cascade),
             )
+        if args.command == "recovery" and args.recovery_command == "process-reconcile":
+            return process_reconcile(conn, run_id=args.run_id)
         if args.command == "checkpoint" and args.checkpoint_command == "resolve":
             return checkpoint_resolve(
                 conn,
@@ -331,6 +338,7 @@ def dispatch(args: argparse.Namespace) -> object:
                 lease_id=args.lease_id,
                 stdin_mode=args.stdin,
                 inherit_stdio=args.inherit_stdio,
+                timeout_seconds=args.timeout_seconds,
             )
         if args.command == "worktree" and args.worktree_command == "create":
             return worktree_create(
