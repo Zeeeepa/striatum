@@ -398,7 +398,9 @@ def test_recovery_cancel_job_with_cascade_cancels_dependents(tmp_path: Path) -> 
         "final_review",
     }
 
-    # Every job is now canceled and the run is completed (no remaining work).
+    # Every job is now canceled and the run is canceled too (D055
+    # follow-up: a run with no completed jobs transitions to
+    # `canceled`, not `completed`).
     for workflow_job_id in (
         "draft",
         "review_codex",
@@ -412,7 +414,7 @@ def test_recovery_cancel_job_with_cascade_cancels_dependents(tmp_path: Path) -> 
             == "canceled"
         )
     status_payload = data(run_cli(tmp_path, "status", "--run-id", run_id))
-    assert status_payload["runs"][0]["state"] == "completed"
+    assert status_payload["runs"][0]["state"] == "canceled"
 
 
 def test_recovery_cancel_job_refuses_terminal_states(tmp_path: Path) -> None:

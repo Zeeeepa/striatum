@@ -164,6 +164,25 @@ run summaries read the actual column, so a missing byline renders as
 prevents the snapshot lying about who reviewed when the operator drove
 a job whose declared lane never executed it (HARNESS-003).
 
+## Run Lifecycle
+
+A run starts in `running` (after `run start`). Terminal transitions
+that `maybe_complete_run` produces:
+
+- `failed` — any job in the run reaches `state = 'failed'`. The run
+  ends with `stop_reason = 'job_failed'`.
+- `completed` — every job is in a terminal state (`completed`,
+  `skipped`, or `canceled`) and at least one job is `completed`.
+  Partial success counts: a run that finished any work is recorded
+  as completed.
+- `canceled` — every job is in a terminal state and none is
+  `completed`. `recovery cancel-job --cascade` over an entire run is
+  the typical trigger; `stop_reason = 'all_jobs_canceled'`.
+
+Auto-close on a run-terminal transition (RFC 0011) records each
+session's `close_reason` from the same vocabulary: `run_completed`,
+`run_failed`, `run_canceled`, or `explicit`.
+
 ## Sessions
 
 Agents must call `register-session` before claiming work. Database identity is

@@ -560,12 +560,23 @@ def latest_verdict(conn: sqlite3.Connection, *, job_id: str) -> str | None:
 
 
 def maybe_complete_run(conn: sqlite3.Connection, *, run_id: str) -> None:
-    """Mark a run completed or failed when terminal job states require it.
+    """Mark a run completed, failed, or canceled when terminal job states require it.
 
-    On either terminal transition, calls :func:`close_remaining_sessions`
+    On any terminal transition, calls :func:`close_remaining_sessions`
     so any still-active sessions are closed in the same transaction
     (RFC 0011). Auto-close skips sessions with active leases; the
     existing recovery flow remains the path for those.
+
+    Run state is determined by the worst-case job state:
+
+    * any ``failed`` job → ``failed`` (preserves the previous behavior)
+    * else any non-terminal job remaining → return without transition
+    * else any ``completed`` job → ``completed`` (partial success counts)
+    * else (every job is ``canceled``/``skipped``) → ``canceled``
+
+    The third branch resolves the D055 follow-up: ``recovery cancel-job
+    --cascade`` over an entire run no longer produces a ``completed``
+    run state. Auto-close uses ``source="run_canceled"`` for that path.
     """
     failed = conn.execute(
         "SELECT 1 FROM jobs WHERE run_id = ? AND state = 'failed' LIMIT 1",
@@ -595,7 +606,29 @@ def maybe_complete_run(conn: sqlite3.Connection, *, run_id: str) -> None:
         return
     if run["state"] != "running":
         return
+    has_completed = conn.execute(
+        "SELECT 1 FROM jobs WHERE run_id = ? AND state = 'completed' LIMIT 1",
+        (run_id,),
+    ).fetchone()
     now = utc_now()
+    if has_completed is None:
+        # Every job is canceled or skipped — no work was completed; the
+        # run did not finish, it was canceled. Source enum value matches
+        # RFC 0011's reserved ``"run_canceled"`` for auto-close.
+        conn.execute(
+            "UPDATE runs SET state = 'canceled', completed_at = ?, stop_reason = ? WHERE run_id = ?",
+            (now, "all_jobs_canceled", run_id),
+        )
+        insert_event(
+            conn,
+            run_id=run_id,
+            event_type="run.canceled",
+            payload={"reason": "all_jobs_canceled"},
+        )
+        close_remaining_sessions(
+            conn, run_id=run_id, source="run_canceled", reason="run_canceled"
+        )
+        return
     conn.execute(
         "UPDATE runs SET state = 'completed', completed_at = ? WHERE run_id = ?",
         (now, run_id),

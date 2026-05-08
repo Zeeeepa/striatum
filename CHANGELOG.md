@@ -4,6 +4,19 @@
 
 ### Added
 
+- D055 follow-ups (post-RFC-0011): `recovery cancel-job --cascade`
+  over a whole run now transitions `runs.state` to `'canceled'`
+  (previously `'completed'`) when no job actually completed; auto-close
+  fires under `source: "run_canceled"`, matching the source enum value
+  RFC 0011 reserved. A new `test_run_failed_auto_closes_active_sessions`
+  rounds out the source-enum matrix by exercising the reject-verdict
+  path that drives a run to `'failed'`. Migration helper
+  `striatum.migrations.rebuild_table()` extracts the FK-safe rebuild
+  pattern (PRAGMA foreign_keys OFF + IF EXISTS partial-state recovery
+  + DROP/RENAME) so future migrations against tables with
+  self-referential FKs do not re-discover the requirement; v7 is
+  retrofitted onto the helper. v5 remains untouched as immutable
+  historical record.
 - RFC 0011 (dogfood-002): explicit session close + run-terminal
   auto-close. New `striatum session close --session-id <id> --reason
   <text>` command transitions an `active` session to a new `closed`

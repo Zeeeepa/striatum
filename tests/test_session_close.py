@@ -394,18 +394,118 @@ def test_run_complete_auto_closes_active_sessions(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Test 4b: auto-close on run-failed transition (D055 follow-up)
+# ---------------------------------------------------------------------------
+
+
+def test_run_failed_auto_closes_active_sessions(tmp_path: Path) -> None:
+    """A reject verdict on a review job triggers ``_fail_review_job``,
+    which calls ``maybe_complete_run`` and lands the run in
+    ``state = 'failed'``. Auto-close must fire under
+    ``source = "run_failed"`` and resolve the doctor warning by
+    construction."""
+    run_id = prepare_started_run(tmp_path)
+    author = register_author(tmp_path, run_id)
+    reviewer = register_reviewer(tmp_path, run_id)
+
+    # Draft happy path so the review job becomes claimable.
+    job_id, lease_id, _msg, packet = claim_ack(tmp_path, author)
+    byline = packet_byline(packet, "draft")
+    draft_path = "docs/reviews/docs-review-flow/DOCS_DRAFT.md"
+    if byline is not None:
+        write_artifact_with_byline(tmp_path, draft_path, byline)
+    else:
+        target = tmp_path / draft_path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text("body\n", encoding="utf-8")
+    run_cli(
+        tmp_path,
+        "publish-artifact",
+        "--session-id",
+        author,
+        "--job-id",
+        job_id,
+        "--lease-id",
+        lease_id,
+        "--kind",
+        "handoff",
+        "--logical-name",
+        "draft",
+        "--path",
+        draft_path,
+    )
+    run_cli(tmp_path, "complete", "--session-id", author, "--job-id", job_id, "--lease-id", lease_id)
+
+    # Review with a reject verdict — drives the run to failed state.
+    review_job_id, review_lease_id, _msg, review_packet = claim_ack(tmp_path, reviewer)
+    review_byline = packet_byline(review_packet, "review")
+    review_path = "docs/reviews/docs-review-flow/review/DOCS_REVIEW.md"
+    if review_byline is not None:
+        write_artifact_with_byline(tmp_path, review_path, review_byline)
+    else:
+        target = tmp_path / review_path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text("body\n", encoding="utf-8")
+    run_cli(
+        tmp_path,
+        "submit-review",
+        "--session-id",
+        reviewer,
+        "--job-id",
+        review_job_id,
+        "--lease-id",
+        review_lease_id,
+        "--path",
+        review_path,
+        "--kind",
+        "finding",
+        "--logical-name",
+        "review",
+        "--verdict",
+        "reject",
+        "--rationale",
+        "test reject for run_failed auto-close",
+    )
+
+    # The run is now failed; both sessions should be auto-closed under
+    # source="run_failed".
+    status = data(run_cli(tmp_path, "status", "--run-id", run_id))
+    assert status["runs"][0]["state"] == "failed"
+
+    author_row = session_row(tmp_path, author)
+    reviewer_row = session_row(tmp_path, reviewer)
+    assert author_row is not None and author_row["state"] == "closed"
+    assert reviewer_row is not None and reviewer_row["state"] == "closed"
+    assert author_row["close_reason"] == "run_failed"
+    assert reviewer_row["close_reason"] == "run_failed"
+
+    events = session_closed_events(tmp_path)
+    sources = [e["source"] for e in events]
+    assert sources.count("run_failed") == 2
+
+    # And doctor is clean for the failed run.
+    doctor_payload = data(run_cli(tmp_path, "doctor", "--run-id", run_id, "--verbose"))
+    records = doctor_payload.get("problem_records", [])
+    assert all(
+        r.get("check") != "active_session_on_terminal_run" for r in records
+    )
+
+
+# ---------------------------------------------------------------------------
 # Test 5: auto-close on run-canceled (via recovery cancel-job cascade)
 # ---------------------------------------------------------------------------
 
 
 def test_run_canceled_auto_closes_active_sessions(tmp_path: Path) -> None:
-    """When ``recovery cancel-job --cascade`` cancels every remaining job
-    on a run, ``maybe_complete_run`` flips the run to ``completed`` (the
-    schema does not yet have a separate canceled-run path) and auto-close
-    fires. Verify auto-close runs end-to-end through the cancel path."""
+    """``recovery cancel-job --cascade`` over an entire run drives every
+    job to ``canceled``; ``maybe_complete_run`` then transitions the run
+    to ``state = 'canceled'`` (D055 follow-up — previously this case
+    transitioned to ``completed`` because canceled jobs were lumped with
+    completed in the terminal-state check). Auto-close fires under
+    ``source = "run_canceled"``."""
     run_id = prepare_started_run(tmp_path)
     author = register_author(tmp_path, run_id)
-    register_reviewer(tmp_path, run_id)
+    reviewer = register_reviewer(tmp_path, run_id)
 
     # Find the queued draft job and cancel it with --cascade so all
     # downstream jobs get canceled too.
@@ -433,16 +533,19 @@ def test_run_canceled_auto_closes_active_sessions(tmp_path: Path) -> None:
         "--cascade",
     )
 
-    # All jobs are now canceled; the run advances to ``completed`` because
-    # ``maybe_complete_run`` treats canceled jobs as terminal. Auto-close
-    # fires under source="run_completed" — that's the current behavior.
-    # When a dedicated canceled-run path is added later, the source will
-    # become "run_canceled"; the test will need updating then.
     status = data(run_cli(tmp_path, "status", "--run-id", run_id))
-    assert status["runs"][0]["state"] in {"completed", "canceled"}
+    assert status["runs"][0]["state"] == "canceled"
 
     author_row = session_row(tmp_path, author)
+    reviewer_row = session_row(tmp_path, reviewer)
     assert author_row is not None and author_row["state"] == "closed"
+    assert reviewer_row is not None and reviewer_row["state"] == "closed"
+    assert author_row["close_reason"] == "run_canceled"
+    assert reviewer_row["close_reason"] == "run_canceled"
+
+    events = session_closed_events(tmp_path)
+    sources = [e["source"] for e in events]
+    assert sources.count("run_canceled") == 2
 
 
 # ---------------------------------------------------------------------------
