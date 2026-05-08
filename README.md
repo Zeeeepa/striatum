@@ -587,6 +587,31 @@ start the author supervisor, claim packets, export evidence, and stop the
 supervisor cleanly. If any step is awkward or surprising, capture it
 immediately with `docs/dogfood/001/HARNESS_PROPOSAL_TEMPLATE.md`.
 
+## Dogfood 003 Usage
+
+`docs/dogfood/003/` scaffolds the RFC 0010 tool-harness-profile dogfood run:
+verify the existing Codex, Claude Code, and Gemini CLI research, synthesize an
+implementation design from the concrete profile candidates, review it, record
+human acceptance, implement the first slice, and review the build.
+
+For a human-run session:
+
+```bash
+less docs/dogfood/003/RUNBOOK.md
+```
+
+For an agent handoff:
+
+```text
+Use the skill at /path/to/striatum/docs/dogfood/003/SKILL.md to start and drive dogfood-003.
+```
+
+The workflow intentionally asks research agents to try native subagents or
+equivalent delegation for independent research subtasks while keeping the
+parent Striatum session accountable for final artifacts and state changes.
+It also carries RFC 0010's proposed `harness_profiles` map as a fixture for
+the implementation job to validate and expose in work packets.
+
 ## Bootstrap Tmux Harness
 
 The temporary design bootstrap runner remains available for historical design
