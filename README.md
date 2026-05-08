@@ -705,6 +705,20 @@ start the author supervisor, claim packets, export evidence, and stop the
 supervisor cleanly. If any step is awkward or surprising, capture it
 immediately with `docs/dogfood/001/HARNESS_PROPOSAL_TEMPLATE.md`.
 
+## Dogfood 005 Usage
+
+`docs/dogfood/005/` scaffolds the run for RFC 0014 V1
+(process-adapter completion guarantees). The workflow is research
+→ design synthesis → review → human acceptance → implementation
+→ build review. Targets closure of
+[issue #1](https://github.com/halbritt/striatum/issues/1).
+
+For an agent handoff:
+
+```text
+Use the skill at /path/to/striatum/docs/dogfood/005/SKILL.md to start and drive dogfood-005.
+```
+
 ## Dogfood 004 Usage
 
 `docs/dogfood/004/` scaffolds the V2 follow-up of dogfood-003's
