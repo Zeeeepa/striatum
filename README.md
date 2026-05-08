@@ -587,6 +587,25 @@ start the author supervisor, claim packets, export evidence, and stop the
 supervisor cleanly. If any step is awkward or surprising, capture it
 immediately with `docs/dogfood/001/HARNESS_PROPOSAL_TEMPLATE.md`.
 
+## Dogfood 004 Usage
+
+`docs/dogfood/004/` scaffolds the V2 follow-up of dogfood-003's
+HARNESS-001 finding: author `.striatum/bin/claude-supervised-wrapper.sh`
+so workflows that declare a supervised Claude Code lane (per RFC 0009)
+actually run. The workflow is research → design → review → human
+acceptance → implementation → build review.
+
+For an agent handoff:
+
+```text
+Use the skill at /path/to/striatum/docs/dogfood/004/SKILL.md to start and drive dogfood-004.
+```
+
+`striatum workflow validate docs/dogfood/004/workflow.json --json`
+intentionally surfaces a single V1.5 lint warning naming the missing
+wrapper path; landing the wrapper is the goal of the run, after which
+the warning goes away.
+
 ## Dogfood 003 Usage
 
 `docs/dogfood/003/` scaffolds the RFC 0010 tool-harness-profile dogfood run:
