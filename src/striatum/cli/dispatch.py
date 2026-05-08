@@ -44,6 +44,7 @@ from striatum.cli.mutations import (
     block_work,
     branch_confirm,
     checkpoint_resolve,
+    close_session,
     decision_record,
     heartbeat,
     register_session,
@@ -165,6 +166,12 @@ def dispatch(args: argparse.Namespace) -> object:
                 parent_session_id=args.parent_session_id,
                 force_non_fresh=args.force_non_fresh,
                 non_fresh_reason=args.reason,
+            )
+        if args.command == "session" and args.session_command == "close":
+            return close_session(
+                conn,
+                session_id=args.session_id,
+                reason=args.reason,
             )
         if args.command == "claim-next":
             return claim_next(

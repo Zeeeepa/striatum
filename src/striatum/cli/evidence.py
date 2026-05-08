@@ -197,7 +197,27 @@ EVIDENCE_POLICY: JsonObject = {
                 "workflow_job_id": "safe",
                 "ordinal": "safe",
                 "line": "safe",
+                "actual_author_line": "safe",
             },
+        },
+    },
+    # RFC 0011: per-session terminal disposition. The role/lane/state/
+    # timestamp fields are project-neutral identifiers; the explicit
+    # close_reason and non_fresh_reason strings are operator-supplied
+    # rationales that should be retained verbatim so evidence captures
+    # the documented breach (HARNESS-003) and close source (RFC 0011).
+    "sessions": {
+        "_each": {
+            "session_id": "safe",
+            "role_id": "safe",
+            "lane_id": "safe",
+            "slug": "safe",
+            "ordinal": "safe",
+            "state": "safe",
+            "registered_at": "safe",
+            "closed_at": "safe",
+            "close_reason": "safe",
+            "non_fresh_reason": "safe",
         },
     },
     "verdicts": {
@@ -369,6 +389,7 @@ def evidence_snapshot(conn: sqlite3.Connection, *, run_id: str) -> JsonObject:
     workflow = json_loads(str(snapshot["workflow_json"]))
     jobs = evidence_job_summaries(conn, run_id=run_id, workflow=workflow)
     artifacts = evidence_artifact_summaries(conn, run_id=run_id, workflow=workflow)
+    sessions = evidence_session_summaries(conn, run_id=run_id)
     verdicts = conn.execute(
         """
         SELECT verdict_id, job_id, session_id, verdict, findings_artifact_id, rationale
@@ -397,10 +418,36 @@ def evidence_snapshot(conn: sqlite3.Connection, *, run_id: str) -> JsonObject:
         },
         "jobs": jobs,
         "artifacts": artifacts,
+        "sessions": sessions,
         "verdicts": [dict(row) for row in verdicts],
         "blockers": [dict(row) for row in blockers],
         "blocked_downstream_jobs": blocked_downstream_jobs(conn, run_id=run_id),
     }
+
+
+def evidence_session_summaries(
+    conn: sqlite3.Connection, *, run_id: str
+) -> list[JsonObject]:
+    """Return per-session terminal disposition for evidence export (RFC 0011).
+
+    The new ``closed_at`` and ``close_reason`` columns are surfaced
+    alongside ``state`` so snapshot consumers can audit how each
+    session ended (auto-close on run-terminal vs explicit operator
+    close vs lease-driven expire). ``non_fresh_reason`` is also
+    included since HARNESS-003 stores the reviewer-independence
+    breach reason there.
+    """
+    rows = conn.execute(
+        """
+        SELECT session_id, role_id, lane_id, slug, ordinal, state,
+               registered_at, closed_at, close_reason, non_fresh_reason
+        FROM sessions
+        WHERE run_id = ?
+        ORDER BY registered_at, session_id
+        """,
+        (run_id,),
+    ).fetchall()
+    return [dict(row) for row in rows]
 
 
 def evidence_job_summaries(

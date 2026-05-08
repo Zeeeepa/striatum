@@ -27,6 +27,7 @@ from striatum.db import (
 from striatum.errors import (
     ArtifactError,
     InvalidTransitionError,
+    LeaseError,
     NotFoundError,
     WorkflowError,
 )
@@ -336,6 +337,95 @@ def _workflow_declares_fresh_reviewer(workflow: JsonObject) -> bool:
         if job.get("fresh_session_required") is True:
             return True
     return False
+
+
+# RFC 0011 — session close + run-terminal auto-close.
+#
+# Both flows transition a session from ``active`` to ``closed`` and emit a
+# ``session.closed`` event. The explicit ``striatum session close`` command
+# surfaces ``close_session``; the auto-close helper
+# ``close_remaining_sessions`` is invoked from every run-terminal transition
+# point (currently only ``maybe_complete_run`` covers ``failed`` and
+# ``completed``; future ``canceled`` transitions should call the helper too).
+
+_SESSION_TERMINAL_STATES = ("expired", "stopped", "lost", "closed")
+
+
+def close_session(
+    conn: sqlite3.Connection,
+    *,
+    session_id: str,
+    reason: str,
+) -> JsonObject:
+    """Explicitly close a session.
+
+    Idempotent against an already-terminal row: returns the existing
+    state plus a ``note`` describing the prior state. Refuses with
+    :class:`LeaseError` when the session is ``active`` and holds an
+    active lease — closing the session out from under a lease would
+    orphan the packet. The error message points the operator at
+    ``striatum release``.
+
+    Emits a ``session.closed`` event whose payload includes
+    ``source: "explicit"`` so evidence consumers can distinguish the
+    explicit-close case from auto-close.
+    """
+    cleaned_reason = (reason or "").strip()
+    if cleaned_reason == "":
+        raise InvalidTransitionError("session close reason must not be empty")
+    with transaction(conn):
+        session = row_by_id(conn, "sessions", "session_id", session_id)
+        if session["state"] in _SESSION_TERMINAL_STATES:
+            return {
+                "session_id": str(session["session_id"]),
+                "run_id": str(session["run_id"]),
+                "role_id": str(session["role_id"]),
+                "lane_id": str(session["lane_id"]),
+                "state": str(session["state"]),
+                "closed_at": session["closed_at"],
+                "close_reason": session["close_reason"],
+                "note": f"session was already {session['state']}",
+            }
+        active_lease = conn.execute(
+            "SELECT lease_id FROM leases WHERE owner_session_id = ? AND state = 'active' LIMIT 1",
+            (session_id,),
+        ).fetchone()
+        if active_lease is not None:
+            raise LeaseError(
+                f"session has an active lease ({active_lease['lease_id']}); "
+                "release the lease (striatum release) before closing the session"
+            )
+        now = utc_now()
+        conn.execute(
+            """
+            UPDATE sessions
+            SET state = 'closed', closed_at = ?, close_reason = ?
+            WHERE session_id = ?
+            """,
+            (now, cleaned_reason, session_id),
+        )
+        insert_event(
+            conn,
+            run_id=str(session["run_id"]),
+            event_type="session.closed",
+            actor_session_id=session_id,
+            payload={
+                "session_id": session_id,
+                "role_id": session["role_id"],
+                "lane_id": session["lane_id"],
+                "reason": cleaned_reason,
+                "source": "explicit",
+            },
+        )
+        return {
+            "session_id": session_id,
+            "run_id": str(session["run_id"]),
+            "role_id": str(session["role_id"]),
+            "lane_id": str(session["lane_id"]),
+            "state": "closed",
+            "closed_at": now,
+            "close_reason": cleaned_reason,
+        }
 
 
 def ack_work(conn: sqlite3.Connection, *, session_id: str, message_id: str, lease_id: str) -> JsonObject:

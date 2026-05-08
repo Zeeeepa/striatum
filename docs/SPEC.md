@@ -173,6 +173,45 @@ Sessions match work by run, role, lane, and capabilities. Jobs can require
 fresh sessions. Native sub-agents spawned inside an agent CLI inherit the
 parent session unless explicitly registered as first-class sessions.
 
+### Session lifecycle and closure (RFC 0011)
+
+Sessions are created `active` by `register-session`. The `state` column
+ranges over `('active','expired','stopped','lost','closed')`:
+
+- `active`: registered and able to claim work.
+- `expired`: an explicit recovery path released the session's lease and
+  marked the session expired. Reserved for the existing recovery surface.
+- `stopped`/`lost`: the session's supervised process exited (RFC 0009).
+- `closed`: the new terminal state introduced by RFC 0011, set either by
+  the explicit `striatum session close` command or by run-terminal
+  auto-close.
+
+`striatum session close --session-id <id> --reason <text>` is idempotent
+against an already-terminal session (returns the existing terminal row
+plus a `note`) and refuses with exit 4 when the session still holds an
+active lease (the message points the operator at `striatum release`).
+On the happy path it transitions the session to `closed`, records
+`closed_at` and `close_reason`, and emits a `session.closed` event with
+payload `{session_id, role_id, lane_id, reason, source: "explicit"}`.
+
+When a run transitions to a terminal state (`completed`, `failed`,
+`canceled`), the runner automatically closes every still-active session
+on the run inside the same transaction. Each auto-close emits a
+`session.closed` event whose `source` is one of `"run_completed"`,
+`"run_failed"`, or `"run_canceled"`. Auto-close skips any session that
+holds an active lease — the existing `expire_leases`/recovery flow
+remains the path for those.
+
+The doctor check `active_session_on_terminal_run` is preserved as the
+residual warning for genuinely anomalous states (transition skipped,
+manual SQLite editing, partial recovery). After auto-close it should
+no longer fire on a clean-finish run.
+
+`evidence export` and `run summary` include a per-session block with
+each session's `state`, `closed_at`, `close_reason`, and (when set by
+HARNESS-003 override) `non_fresh_reason`. The `RUN_SUMMARY.md`
+`## Sessions` section lists one line per session in registration order.
+
 ## Work Queue
 
 `claim-next` lazily expires active leases, then atomically claims the oldest

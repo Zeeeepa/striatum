@@ -174,6 +174,67 @@ def _apply_v4_process_supervisors(conn: sqlite3.Connection) -> None:
     )
 
 
+def _apply_v7_session_close(conn: sqlite3.Connection) -> None:
+    """RFC 0011: add ``closed`` to the sessions state vocabulary plus
+    ``closed_at`` and ``close_reason`` columns.
+
+    SQLite cannot drop a CHECK constraint in place, so the table has to
+    be rebuilt. The ``sessions`` table has a self-referential FK
+    (``parent_session_id REFERENCES sessions(session_id)``), which
+    means the standard ``DROP TABLE old; RENAME new``-pattern fails
+    while ``foreign_keys=ON`` because the new table's FK definition
+    binds to the old table name. SQLite's documented workaround for
+    this is ``PRAGMA foreign_keys = OFF`` around the rebuild followed
+    by ``PRAGMA foreign_key_check`` to verify the result. The toggle
+    must happen outside any open transaction; ``executescript``
+    commits the prior transaction implicitly, which is what we need
+    here.
+
+    The script is also idempotent against partial-state failures: a
+    prior aborted attempt may have left ``sessions_v7`` behind (the
+    INSERT or RENAME failed before completing). ``DROP TABLE IF
+    EXISTS sessions_v7`` clears it before the new attempt.
+    """
+    conn.executescript(
+        """
+        PRAGMA foreign_keys = OFF;
+        DROP TABLE IF EXISTS sessions_v7;
+        CREATE TABLE sessions_v7 (
+          session_id TEXT PRIMARY KEY,
+          run_id TEXT NOT NULL REFERENCES runs(run_id),
+          role_id TEXT NOT NULL,
+          lane_id TEXT NOT NULL,
+          slug TEXT NOT NULL,
+          ordinal INTEGER NOT NULL,
+          capabilities_json TEXT NOT NULL DEFAULT '[]',
+          parent_session_id TEXT REFERENCES sessions(session_id),
+          first_class INTEGER NOT NULL DEFAULT 1 CHECK (first_class IN (0,1)),
+          fresh_context INTEGER NOT NULL DEFAULT 0 CHECK (fresh_context IN (0,1)),
+          state TEXT NOT NULL CHECK (
+            state IN ('active','expired','stopped','lost','closed')
+          ),
+          registered_at TEXT NOT NULL,
+          last_heartbeat_at TEXT,
+          expires_at TEXT,
+          non_fresh_reason TEXT,
+          closed_at TEXT,
+          close_reason TEXT,
+          UNIQUE (run_id, slug),
+          UNIQUE (run_id, role_id, lane_id, ordinal)
+        );
+        INSERT INTO sessions_v7
+          SELECT session_id, run_id, role_id, lane_id, slug, ordinal,
+                 capabilities_json, parent_session_id, first_class,
+                 fresh_context, state, registered_at, last_heartbeat_at,
+                 expires_at, non_fresh_reason, NULL, NULL
+          FROM sessions;
+        DROP TABLE sessions;
+        ALTER TABLE sessions_v7 RENAME TO sessions;
+        PRAGMA foreign_keys = ON;
+        """
+    )
+
+
 def _apply_v6_independence_and_author_line(conn: sqlite3.Connection) -> None:
     """HARNESS-003: surface the operator-driven non-fresh reviewer case.
 
@@ -208,6 +269,11 @@ MIGRATIONS: list[Migration] = sorted(
             version=6,
             label="non_fresh_reason and author_line columns",
             apply=_apply_v6_independence_and_author_line,
+        ),
+        Migration(
+            version=7,
+            label="sessions closed state and close columns",
+            apply=_apply_v7_session_close,
         ),
     ],
     key=lambda migration: migration.version,

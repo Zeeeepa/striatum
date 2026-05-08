@@ -4,6 +4,24 @@
 
 ### Added
 
+- RFC 0011 (dogfood-002): explicit session close + run-terminal
+  auto-close. New `striatum session close --session-id <id> --reason
+  <text>` command transitions an `active` session to a new `closed`
+  terminal state, recording `closed_at` and a non-empty
+  `close_reason` and emitting a `session.closed` event with
+  `source: "explicit"`. Idempotent against already-terminal sessions
+  (returns the existing row plus a `note: "session was already
+  <state>"`); refuses with exit 4 when the session holds an active
+  lease (message points the operator at `striatum release`). When a
+  run transitions to a terminal state, every still-active session on
+  the run is auto-closed inside the same transaction with `source` of
+  `"run_completed"`, `"run_failed"`, or `"run_canceled"` — eliminating
+  the persistent `active_session_on_terminal_run` doctor warning that
+  fired on every clean-finish run before this change. Migration
+  version 7 adds the `closed` state value plus the `closed_at` and
+  `close_reason` columns. `evidence export` and `run summary` carry a
+  per-session block with the new fields; `RUN_SUMMARY.md` gains a
+  `## Sessions` section.
 - HARNESS-001 fixes (dogfood-001 v2): `docs/SPEC.md` "Supervised lane
   command contract" subsection making the three supervised-lane
   requirements explicit (alive across packets, NDJSON stdin, calls back

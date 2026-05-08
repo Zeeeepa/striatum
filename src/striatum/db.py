@@ -560,7 +560,13 @@ def latest_verdict(conn: sqlite3.Connection, *, job_id: str) -> str | None:
 
 
 def maybe_complete_run(conn: sqlite3.Connection, *, run_id: str) -> None:
-    """Mark a run completed or failed when terminal job states require it."""
+    """Mark a run completed or failed when terminal job states require it.
+
+    On either terminal transition, calls :func:`close_remaining_sessions`
+    so any still-active sessions are closed in the same transaction
+    (RFC 0011). Auto-close skips sessions with active leases; the
+    existing recovery flow remains the path for those.
+    """
     failed = conn.execute(
         "SELECT 1 FROM jobs WHERE run_id = ? AND state = 'failed' LIMIT 1",
         (run_id,),
@@ -573,6 +579,9 @@ def maybe_complete_run(conn: sqlite3.Connection, *, run_id: str) -> None:
             (now, "job_failed", run_id),
         )
         insert_event(conn, run_id=run_id, event_type="run.failed", payload={"reason": "job_failed"})
+        close_remaining_sessions(
+            conn, run_id=run_id, source="run_failed", reason="run_failed"
+        )
         return
     remaining = conn.execute(
         """
@@ -592,6 +601,77 @@ def maybe_complete_run(conn: sqlite3.Connection, *, run_id: str) -> None:
         (now, run_id),
     )
     insert_event(conn, run_id=run_id, event_type="run.completed")
+    close_remaining_sessions(
+        conn, run_id=run_id, source="run_completed", reason="run_completed"
+    )
+
+
+def close_remaining_sessions(
+    conn: sqlite3.Connection,
+    *,
+    run_id: str,
+    source: str,
+    reason: str,
+) -> list[JsonObject]:
+    """Auto-close every still-active session on ``run_id`` (RFC 0011).
+
+    Skips any session that holds an active lease — the run reaching a
+    terminal state with held leases is itself anomalous and the
+    existing expire-lease/recovery flow handles that surface;
+    auto-close should not paper over it. Returns one summary dict per
+    closed session.
+
+    Caller is responsible for being inside a transaction (every
+    existing call site is). The function does not open or close
+    transactions.
+    """
+    now = utc_now()
+    rows = conn.execute(
+        """
+        SELECT s.session_id, s.role_id, s.lane_id
+        FROM sessions s
+        LEFT JOIN leases l
+          ON l.owner_session_id = s.session_id AND l.state = 'active'
+        WHERE s.run_id = ? AND s.state = 'active' AND l.lease_id IS NULL
+        ORDER BY s.registered_at
+        """,
+        (run_id,),
+    ).fetchall()
+    closed: list[JsonObject] = []
+    for row in rows:
+        sid = str(row["session_id"])
+        conn.execute(
+            """
+            UPDATE sessions
+            SET state = 'closed', closed_at = ?, close_reason = ?
+            WHERE session_id = ?
+            """,
+            (now, reason, sid),
+        )
+        insert_event(
+            conn,
+            run_id=run_id,
+            event_type="session.closed",
+            actor_session_id=sid,
+            payload={
+                "session_id": sid,
+                "role_id": row["role_id"],
+                "lane_id": row["lane_id"],
+                "reason": reason,
+                "source": source,
+            },
+        )
+        closed.append(
+            {
+                "session_id": sid,
+                "role_id": str(row["role_id"]),
+                "lane_id": str(row["lane_id"]),
+                "closed_at": now,
+                "close_reason": reason,
+                "source": source,
+            }
+        )
+    return closed
 
 
 def claim_next(conn: sqlite3.Connection, *, repo: Path, session_id: str, lease_seconds: int) -> JsonObject:

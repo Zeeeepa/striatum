@@ -84,6 +84,16 @@ def build_parser() -> argparse.ArgumentParser:
     register.add_argument("--reason")
     register.add_argument("--json", action="store_true")
 
+    # RFC 0011: session command group. ``close`` is the only subcommand
+    # for now; future entries (e.g. ``list``, ``inspect``) can extend
+    # the group without polluting the top-level subparser namespace.
+    session = sub.add_parser("session")
+    session_sub = session.add_subparsers(dest="session_command", required=True)
+    session_close = session_sub.add_parser("close")
+    session_close.add_argument("--session-id", required=True)
+    session_close.add_argument("--reason", required=True)
+    session_close.add_argument("--json", action="store_true")
+
     claim = sub.add_parser("claim-next")
     claim.add_argument("--session-id", required=True)
     claim.add_argument("--lease-seconds", type=int, default=1800)

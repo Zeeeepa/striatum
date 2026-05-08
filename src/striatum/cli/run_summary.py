@@ -16,7 +16,7 @@ from striatum.db import (
     utc_now,
 )
 
-from striatum.cli.evidence import evidence_artifact_summaries
+from striatum.cli.evidence import evidence_artifact_summaries, evidence_session_summaries
 from striatum.cli.mutations import current_git_branch
 
 
@@ -56,6 +56,7 @@ def run_summary_snapshot(conn: sqlite3.Connection, *, repo: Path, run_id: str) -
     )
     workflow = json_loads(str(snapshot_row["workflow_json"]))
     artifacts = evidence_artifact_summaries(conn, run_id=run_id, workflow=workflow)
+    sessions = evidence_session_summaries(conn, run_id=run_id)
     verdicts = conn.execute(
         """
         SELECT v.verdict_id, v.job_id, j.workflow_job_id, v.verdict, v.findings_artifact_id,
@@ -100,6 +101,7 @@ def run_summary_snapshot(conn: sqlite3.Connection, *, repo: Path, run_id: str) -
         "status": _cli.status(conn, run_id=run_id),
         "doctor": _cli.doctor(conn, repo=repo, run_id=run_id),
         "artifacts": artifacts,
+        "sessions": sessions,
         "verdicts": verdict_dicts,
         "verdicts_by_workflow_job": grouped_verdicts,
         "blockers": [dict(row) for row in blockers],
@@ -169,6 +171,7 @@ def render_run_summary_markdown(*, run: JsonObject, summary: JsonObject) -> str:
     doctor_payload = summary["doctor"]
     jobs = status_payload["jobs"]
     artifacts = summary["artifacts"]
+    sessions = summary.get("sessions", [])
     grouped_verdicts = summary.get("verdicts_by_workflow_job", [])
     blockers = summary["blockers"]
     branch_context = summary.get("branch_context", {})
@@ -249,6 +252,24 @@ def render_run_summary_markdown(*, run: JsonObject, summary: JsonObject) -> str:
             lines.append(line)
     else:
         lines.append("- No artifacts recorded.")
+    lines.extend(["", "## Sessions", ""])
+    if sessions:
+        for session in sessions:
+            slug = session.get("slug")
+            state = session.get("state")
+            line = f"- `{slug}` `{state}`"
+            closed_at = session.get("closed_at")
+            if isinstance(closed_at, str) and closed_at != "":
+                line += f" (closed_at: `{closed_at}`)"
+            close_reason = session.get("close_reason")
+            if isinstance(close_reason, str) and close_reason != "":
+                line += f" reason: `{close_reason}`"
+            non_fresh_reason = session.get("non_fresh_reason")
+            if isinstance(non_fresh_reason, str) and non_fresh_reason != "":
+                line += f" non_fresh: `{non_fresh_reason}`"
+            lines.append(line)
+    else:
+        lines.append("- No sessions recorded.")
     lines.extend(["", "## Blockers", ""])
     if blockers:
         for blocker in blockers:
