@@ -14,6 +14,12 @@ Start here:
 
 - [TODO.md](TODO.md) - repo split checklist and product improvement backlog.
 
+## Usage
+
+- [README.md Usage Guide](../README.md#usage-guide) - end-to-end CLI flow,
+  including generic guidance for scaffolding a new target-repository run from an
+  RFC, TODO, bug report, feature request, or other local proposal.
+
 ## RFCs
 
 - [rfcs/](rfcs/) - `striatum` product RFCs. Engram RFCs are external

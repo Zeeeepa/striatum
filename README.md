@@ -383,6 +383,34 @@ artifacts, and any human checkpoints. Avoid absolute home-directory paths in
 workflow fixtures; use repo-relative paths and operator-local environment
 variables instead.
 
+### 2b. View A Rendered Graph Example
+
+Mermaid-capable Markdown renderers display `workflow graph` output as a visual
+diagram. For example, `examples/code-change-flow/workflow.json` renders as:
+
+```mermaid
+flowchart TD
+  n0["draft_change<br/>draft author/codex"]
+  n1["review_change<br/>review reviewer/codex"]
+  n2["apply_change<br/>draft author/codex"]
+  n0 -->|completed| n1
+  n1 -->|accepted review| n2
+  n1 -.->|needs_revision max 1| n0
+```
+
+Generate the same source from the Striatum checkout with:
+
+```bash
+"$RUNNER" --repo . workflow graph examples/code-change-flow/workflow.json
+```
+
+When Graphviz is installed, generate DOT and render an SVG with:
+
+```bash
+"$RUNNER" --repo . workflow graph examples/code-change-flow/workflow.json --format dot \
+  | dot -Tsvg -o workflow-graph.svg
+```
+
 ### 3. Prepare A Run
 
 ```bash
