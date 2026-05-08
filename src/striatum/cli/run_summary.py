@@ -238,9 +238,14 @@ def render_run_summary_markdown(*, run: JsonObject, summary: JsonObject) -> str:
                 author_line = author.get("line")
                 # ``line`` already includes the ``author: `` prefix from the
                 # identity helper, so we just wrap it in a code span instead
-                # of re-prefixing.
+                # of re-prefixing. HARNESS-003: explicit "missing" rendering
+                # when the artifact file did not carry an ``author:`` line so
+                # readers cannot mistake the workflow's declared expected
+                # byline for the file's actual content.
                 if isinstance(author_line, str) and author_line != "":
                     line += f" - `{author_line}`"
+                elif "actual_author_line" in author:
+                    line += " - `author: <missing>`"
             lines.append(line)
     else:
         lines.append("- No artifacts recorded.")

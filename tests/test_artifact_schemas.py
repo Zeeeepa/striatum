@@ -55,20 +55,20 @@ def prepare_started_run(repo: Path) -> str:
 
 
 def register(repo: Path, run_id: str, role: str, lane: str) -> str:
-    payload = data(
-        run_cli(
-            repo,
-            "register-session",
-            "--run-id",
-            run_id,
-            "--role",
-            role,
-            "--lane",
-            lane,
-            "--capability",
-            "review",
-        )
-    )
+    args: list[str] = [
+        "register-session",
+        "--run-id",
+        run_id,
+        "--role",
+        role,
+        "--lane",
+        lane,
+        "--capability",
+        "review",
+    ]
+    if role == "reviewer":
+        args += ["--force-non-fresh", "--reason", "test fixture"]
+    payload = data(run_cli(repo, *args))
     return str(payload["session_id"])
 
 

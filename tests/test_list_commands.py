@@ -71,20 +71,22 @@ def prepare_started_run(repo: Path, *, workflow: Path = WORKFLOW) -> str:
 
 
 def register(repo: Path, run_id: str, role: str, lane: str) -> str:
-    payload = data(
-        run_cli(
-            repo,
-            "register-session",
-            "--run-id",
-            run_id,
-            "--role",
-            role,
-            "--lane",
-            lane,
-            "--capability",
-            "review",
-        )
-    )
+    args: list[str] = [
+        "register-session",
+        "--run-id",
+        run_id,
+        "--role",
+        role,
+        "--lane",
+        lane,
+        "--capability",
+        "review",
+    ]
+    # HARNESS-003: tests that drive both lanes from the same operator
+    # use the explicit override.
+    if role == "reviewer":
+        args += ["--force-non-fresh", "--reason", "test fixture"]
+    payload = data(run_cli(repo, *args))
     return str(payload["session_id"])
 
 

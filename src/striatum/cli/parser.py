@@ -74,6 +74,14 @@ def build_parser() -> argparse.ArgumentParser:
     register.add_argument("--capability", action="append", default=[])
     register.add_argument("--fresh", action="store_true")
     register.add_argument("--parent-session-id")
+    # HARNESS-003: operator escape hatch for the fresh-reviewer policy.
+    # When the workflow declares a fresh reviewer and an active author
+    # session already exists on the run, register-session refuses unless
+    # --force-non-fresh is passed with a non-empty --reason. The reason
+    # is stored on the session row (``non_fresh_reason``) so evidence
+    # exports record the breach explicitly.
+    register.add_argument("--force-non-fresh", action="store_true")
+    register.add_argument("--reason")
     register.add_argument("--json", action="store_true")
 
     claim = sub.add_parser("claim-next")

@@ -4,6 +4,53 @@
 
 ### Added
 
+- HARNESS-001 fixes (dogfood-001 v2): `docs/SPEC.md` "Supervised lane
+  command contract" subsection making the three supervised-lane
+  requirements explicit (alive across packets, NDJSON stdin, calls back
+  via `striatum` CLI). New `doctor` problem record
+  `supervisor_lost_with_held_lease` plus the stable `status` next-action
+  `recover_orphan_supervisor` that fires when a supervisor row is
+  `lost` while the session still owns an unexpired active lease.
+  `striatum supervise stop` is idempotent against an already-`lost` or
+  `stopped` supervisor: returns the existing terminal row plus a
+  `note` describing the prior state instead of raising
+  `InvalidTransitionError`.
+- HARNESS-002 fixes (dogfood-001 v2): new `doctor` problem record
+  `editable_install_outside_repo` warns when the running install is
+  outside the repo argument and the repo is itself a Striatum source
+  tree (suppressed when the repo is just a target, to avoid false
+  positives). `striatum init` against a fresh DB now refuses with exit
+  3 when the repo's source-tree `LATEST_VERSION` is higher than the
+  running install's, with a clear message pointing at
+  `pip install -e <repo>`. `Makefile install` resolves the install path
+  via `$(MAKEFILE_DIR)` so `make install` from any cwd installs *this*
+  Makefile's directory in editable mode (the previous `pip install -e
+  .` was cwd-dependent and silently pinned to a Claude Code worktree).
+- HARNESS-003 fixes (dogfood-001 v2): `docs/SPEC.md` "Reviewer
+  Independence (advisory)" and "Byline Integrity" subsections making
+  the runner's enforcement boundary explicit. New `doctor` problem
+  record `reviewer_independence_unverified` flags two observable
+  breaches — sessions that share a supervisor pid, or a reviewer
+  session running unsupervised on a run whose author is supervised.
+  `register-session --role reviewer` refuses when the workflow
+  declares `reviewer_context_policy: fresh` and an active author
+  session already exists, unless `--force-non-fresh --reason "..."` is
+  passed; the reason is recorded in the new
+  `sessions.non_fresh_reason` column. `publish-artifact` records the
+  artifact file's actual `author:` line in the new
+  `artifacts.author_line` column (NULL when the file omits it);
+  evidence exports and run summaries read the actual column so a
+  missing byline renders as `author: <missing>` rather than the
+  workflow's declared expected. Migration version 6 adds both columns.
+- HARNESS-004 fix (dogfood-001 v2): `docs/dogfood/001/roles/reviewer.md`
+  now points reviewer harness proposals at
+  `docs/dogfood/001/review/HARNESS-NNN.md` (inside the review job's
+  `write_scope.allowed_paths`) instead of `docs/dogfood/001/findings/`
+  (which is the author's path and is rejected by the publisher with
+  exit 6). `tests/test_harness_v2_fixes.py::test_reviewer_role_doc_paths_match_write_scope`
+  walks every dogfood reviewer role doc and asserts each
+  `HARNESS-NNN.md` instruction path is contained in the corresponding
+  review job's allowed paths.
 - `striatum workflow graph --format dot <workflow.json>` emits a Graphviz
   `digraph striatum_workflow { ... }` alongside the existing Mermaid
   (default) and JSON outputs. Same nodes, dependency edges, parallel

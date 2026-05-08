@@ -112,15 +112,88 @@ def transaction(conn: sqlite3.Connection) -> Iterator[sqlite3.Connection]:
 
 
 def init_repo(repo: Path) -> None:
-    """Create state storage and initialize schema."""
+    """Create state storage and initialize schema.
+
+    HARNESS-002 guard: when the repo argument carries a Striatum source
+    tree whose ``migrations.LATEST_VERSION`` is higher than the running
+    install's, refuse to create a fresh state DB. The alternative is the
+    silent failure dogfood-001 hit: ``init`` happily creates a stale-
+    schema DB, then the first ``publish-artifact`` for a newer kind
+    crashes on the old SQL CHECK with no useful guidance.
+
+    The check only applies to a fresh init (no existing
+    ``state.sqlite3``); upgrading an already-initialised DB is handled
+    by ``connect``'s ``apply_migrations`` and a stale install would
+    raise ``SchemaVersionError`` there only if the install is *newer*
+    than the DB. The "install is older than the source tree" foot-gun
+    is exactly what HARNESS-002 captured.
+    """
     state_dir(repo).mkdir(parents=True, exist_ok=True)
     ignore_path = repo / ".gitignore"
     existing = ignore_path.read_text(encoding="utf-8") if ignore_path.exists() else ""
     if ".striatum/" not in existing.splitlines():
         prefix = "" if existing == "" or existing.endswith("\n") else "\n"
         ignore_path.write_text(f"{existing}{prefix}.striatum/\n", encoding="utf-8")
+    if not db_path(repo).exists():
+        _refuse_init_when_install_lags_repo(repo)
     with connect(repo) as conn:
         apply_migrations(conn)
+
+
+def _refuse_init_when_install_lags_repo(repo: Path) -> None:
+    """Compare repo source-tree ``LATEST_VERSION`` to the running install."""
+    from striatum.migrations import LATEST_VERSION as install_latest
+
+    repo_latest = _read_repo_latest_version(repo)
+    if repo_latest is None:
+        return
+    if install_latest >= repo_latest:
+        return
+    raise StriatumError(
+        "striatum install is older than the repo source tree: "
+        f"install LATEST_VERSION={install_latest} < repo LATEST_VERSION={repo_latest}. "
+        f"Re-install with `pip install -e {repo}` and try again.",
+        exit_code=3,
+    )
+
+
+def _read_repo_latest_version(repo: Path) -> int | None:
+    """Read ``LATEST_VERSION`` from ``<repo>/src/striatum/migrations.py``.
+
+    Returns ``None`` if the file is missing (the repo arg may be a
+    target repo, not the Striatum source tree itself) or if parsing
+    fails — neither case should refuse init. The check is a foot-gun
+    guard, not a contract.
+    """
+    candidate = repo / "src" / "striatum" / "migrations.py"
+    if not candidate.is_file():
+        return None
+    text = candidate.read_text(encoding="utf-8")
+    namespace: dict[str, Any] = {}
+    try:
+        # Standalone parse of the LATEST_VERSION assignment without
+        # importing (which would re-import the running install). We
+        # only need the integer literal at the end of the file.
+        for line in text.splitlines():
+            stripped = line.strip()
+            if stripped.startswith("LATEST_VERSION") and "=" in stripped:
+                exec(compile(line, str(candidate), "exec"), namespace)
+                value = namespace.get("LATEST_VERSION")
+                if isinstance(value, int):
+                    return value
+                # Could be `LATEST_VERSION: int = MIGRATIONS[-1].version` —
+                # fall through to the harder path.
+        # Fall back: scan for `Migration(version=N, ...)` entries and
+        # take the max. This is enough to keep the guard correct even
+        # when the source uses the dynamic computed form.
+        import re
+
+        versions = [int(match.group(1)) for match in re.finditer(r"Migration\(version=(\d+)", text)]
+        if versions:
+            return max(versions)
+    except (SyntaxError, NameError, ValueError, TypeError):
+        return None
+    return None
 
 
 def ensure_initialized(repo: Path) -> None:

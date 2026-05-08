@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import importlib
 import json
 import os
 import sqlite3
 from pathlib import Path
+from types import ModuleType
 
 from striatum.db import (
     JsonObject,
@@ -22,6 +24,136 @@ from striatum.workflow import (
     workflow_graph_data,
     workflow_graph_mermaid,
 )
+
+
+def _install_module() -> ModuleType:
+    """Return the running ``striatum`` package module.
+
+    Wrapped in a function so tests can monkeypatch the imported
+    ``striatum.__file__`` to simulate an editable install pointing at an
+    out-of-repo path (HARNESS-002).
+    """
+    return importlib.import_module("striatum")
+
+
+def _reviewer_independence_breaches(
+    conn: sqlite3.Connection, *, run_id: str | None
+) -> list[JsonObject]:
+    """Detect observable reviewer-independence breaches (HARNESS-003).
+
+    Two signals:
+
+    1. Two active sessions on the same run whose supervisor rows share a
+       pid. Same OS process is driving both lanes; whatever
+       ``reviewer_context_policy: fresh`` was supposed to mean is broken.
+    2. A reviewer session on a run where the author session has an active
+       supervisor but the reviewer does not. The supervised vs
+       unsupervised mix means the reviewer is almost certainly being
+       driven by the operator from the same shell as the author.
+
+    The runner cannot tell the difference between a deliberate
+    operator-driven workflow and an accidental independence breach.
+    Doctor surfaces the signal; the operator decides.
+    """
+    breaches: list[JsonObject] = []
+    shared_pid_rows = conn.execute(
+        f"""
+        SELECT s1.session_id AS s1_id, s1.role_id AS s1_role,
+               s2.session_id AS s2_id, s2.role_id AS s2_role,
+               sup1.pid AS pid, sup1.run_id AS run_id
+        FROM sessions s1
+        JOIN sessions s2 ON s2.run_id = s1.run_id AND s2.session_id < s1.session_id
+        JOIN process_supervisors sup1
+          ON sup1.session_id = s1.session_id
+         AND sup1.state IN ({_placeholders_csv(SUPERVISOR_ACTIVE_STATES)})
+        JOIN process_supervisors sup2
+          ON sup2.session_id = s2.session_id
+         AND sup2.state IN ({_placeholders_csv(SUPERVISOR_ACTIVE_STATES)})
+         AND sup2.pid = sup1.pid
+        WHERE s1.state = 'active' AND s2.state = 'active'
+          AND (? IS NULL OR s1.run_id = ?)
+        """,
+        (
+            *SUPERVISOR_ACTIVE_STATES,
+            *SUPERVISOR_ACTIVE_STATES,
+            run_id,
+            run_id,
+        ),
+    ).fetchall()
+    for row in shared_pid_rows:
+        breaches.append(
+            {
+                "session_id": str(row["s1_id"]),
+                "message": (
+                    "reviewer-independence unverified: sessions share supervisor pid "
+                    f"{row['pid']} ({row['s1_id']}/{row['s1_role']} vs "
+                    f"{row['s2_id']}/{row['s2_role']})"
+                ),
+                "context": {
+                    "run_id": row["run_id"],
+                    "shared_pid": row["pid"],
+                    "session_a": {
+                        "session_id": row["s1_id"],
+                        "role_id": row["s1_role"],
+                    },
+                    "session_b": {
+                        "session_id": row["s2_id"],
+                        "role_id": row["s2_role"],
+                    },
+                },
+            }
+        )
+    asymmetric_rows = conn.execute(
+        f"""
+        SELECT reviewer.session_id AS reviewer_session,
+               reviewer.role_id AS reviewer_role,
+               author.session_id AS author_session,
+               author.role_id AS author_role,
+               author_sup.pid AS author_pid,
+               reviewer.run_id AS run_id
+        FROM sessions reviewer
+        JOIN sessions author ON author.run_id = reviewer.run_id
+        JOIN process_supervisors author_sup
+          ON author_sup.session_id = author.session_id
+         AND author_sup.state IN ({_placeholders_csv(SUPERVISOR_ACTIVE_STATES)})
+        LEFT JOIN process_supervisors reviewer_sup
+          ON reviewer_sup.session_id = reviewer.session_id
+         AND reviewer_sup.state IN ({_placeholders_csv(SUPERVISOR_ACTIVE_STATES)})
+        WHERE reviewer.state = 'active'
+          AND author.state = 'active'
+          AND reviewer.role_id = 'reviewer'
+          AND author.role_id = 'author'
+          AND reviewer_sup.session_id IS NULL
+          AND (? IS NULL OR reviewer.run_id = ?)
+        """,
+        (
+            *SUPERVISOR_ACTIVE_STATES,
+            *SUPERVISOR_ACTIVE_STATES,
+            run_id,
+            run_id,
+        ),
+    ).fetchall()
+    for row in asymmetric_rows:
+        breaches.append(
+            {
+                "session_id": str(row["reviewer_session"]),
+                "message": (
+                    "reviewer-independence unverified: reviewer session has no supervisor "
+                    f"but author {row['author_session']} runs supervised (pid={row['author_pid']})"
+                ),
+                "context": {
+                    "run_id": row["run_id"],
+                    "reviewer_session_id": row["reviewer_session"],
+                    "author_session_id": row["author_session"],
+                    "author_pid": row["author_pid"],
+                },
+            }
+        )
+    return breaches
+
+
+def _placeholders_csv(values: tuple[str, ...]) -> str:
+    return ",".join(["?"] * len(values))
 
 
 def status(conn: sqlite3.Connection, *, run_id: str | None) -> JsonObject:
@@ -45,6 +177,7 @@ def status(conn: sqlite3.Connection, *, run_id: str | None) -> JsonObject:
     non_accepting = latest_non_accepting_verdicts(conn, run_id=run_id)
     claimable = claimable_jobs_by_role_lane(conn, run_id=run_id)
     blocked_downstream = blocked_downstream_jobs(conn, run_id=run_id)
+    has_orphan_supervisor = _has_supervisor_lost_with_held_lease(conn, run_id=run_id)
     return {
         "runs": [dict(row) for row in runs],
         "jobs": {str(row["state"]): int(row["count"]) for row in jobs},
@@ -58,8 +191,33 @@ def status(conn: sqlite3.Connection, *, run_id: str | None) -> JsonObject:
             human_checkpoints=human_checkpoints,
             non_accepting_verdicts=non_accepting,
             claimable_jobs=claimable,
+            has_orphan_supervisor=has_orphan_supervisor,
         ),
     }
+
+
+def _has_supervisor_lost_with_held_lease(
+    conn: sqlite3.Connection, *, run_id: str | None
+) -> bool:
+    """Cheap precheck for the HARNESS-001 next_action signal.
+
+    Mirrors the doctor query but returns a bool. Kept separate so
+    ``status`` does not depend on the full doctor result every call.
+    """
+    row = conn.execute(
+        """
+        SELECT 1 FROM process_supervisors s
+        JOIN leases l
+          ON l.owner_session_id = s.session_id
+         AND l.state = 'active'
+         AND l.expires_at > ?
+        WHERE s.state = 'lost'
+          AND (? IS NULL OR s.run_id = ?)
+        LIMIT 1
+        """,
+        (utc_now(), run_id, run_id),
+    ).fetchone()
+    return row is not None
 
 
 def why(conn: sqlite3.Connection, *, target_id: str) -> JsonObject:
@@ -361,11 +519,18 @@ def next_actions(
     human_checkpoints: list[JsonObject],
     non_accepting_verdicts: list[JsonObject],
     claimable_jobs: list[JsonObject],
+    has_orphan_supervisor: bool = False,
 ) -> list[str]:
     """Return deterministic coordinator next-action names."""
     actions: list[str] = []
     if claimable_jobs:
         actions.append("claim_available_work")
+    if has_orphan_supervisor:
+        # HARNESS-001: a lost supervisor with a still-held lease silently
+        # blocks the run. Surface a stable action name so dashboards and
+        # scripts can react before the lease expires (default 30 minutes
+        # is a long time to wait if the operator is not watching).
+        actions.append("recover_orphan_supervisor")
     if open_blockers:
         actions.extend(["inspect_blocker", "export_run_evidence"])
     if human_checkpoints:
@@ -661,6 +826,9 @@ def doctor(
         "orphan_work_packet",
         "worktree_orphaned_lease",
         "worktree_path_missing_on_disk",
+        "supervisor_lost_with_held_lease",
+        "editable_install_outside_repo",
+        "reviewer_independence_unverified",
     )
     problems: list[str] = []
     records: list[JsonObject] = []
@@ -1014,6 +1182,85 @@ def doctor(
                 problems.append(
                     f"supervisor stdin pipe missing: {row['supervisor_id']}"
                 )
+    # HARNESS-001: a supervisor whose row is already ``lost`` but whose
+    # session still holds an unexpired lease leaves the run silently
+    # stuck. The pid-gone string-only emission above only fires while the
+    # supervisor row is still in an active state; once the next CLI call
+    # transitions it to ``lost``, that signal disappears. Surface the
+    # held-lease consequence as a structured check so operators see it
+    # via ``doctor --verbose`` and (via ``next_actions``) via ``status``.
+    supervisor_lost_rows = conn.execute(
+        """
+        SELECT s.supervisor_id, s.run_id, s.session_id, s.pid, s.ended_at,
+               s.stop_reason, l.lease_id, l.expires_at, l.resource_id
+        FROM process_supervisors s
+        JOIN leases l
+          ON l.owner_session_id = s.session_id
+         AND l.state = 'active'
+         AND l.expires_at > ?
+        WHERE s.state = 'lost'
+          AND (? IS NULL OR s.run_id = ?)
+        """,
+        (utc_now(), run_id, run_id),
+    ).fetchall()
+    for row in supervisor_lost_rows:
+        report(
+            "supervisor_lost_with_held_lease",
+            identifier=str(row["supervisor_id"]),
+            message=(
+                f"supervisor lost with held lease: {row['supervisor_id']} "
+                f"(session={row['session_id']}, lease={row['lease_id']})"
+            ),
+            context={
+                "run_id": row["run_id"],
+                "session_id": row["session_id"],
+                "lease_id": row["lease_id"],
+                "lease_expires_at": row["expires_at"],
+                "ended_at": row["ended_at"],
+                "stop_reason": row["stop_reason"],
+            },
+        )
+    # HARNESS-002: warn loudly when the running ``striatum`` install is
+    # outside the repo argument. Catches the foot-gun where ``pip install
+    # -e`` silently pinned to a temporary worktree and the runner is now
+    # behind on migrations or allowed-kinds.
+    #
+    # Only fires when the repo argument itself is a Striatum source tree
+    # (carries ``src/striatum/migrations.py``); when the operator is
+    # using the CLI as a tool against a foreign target repo, the install
+    # path is *expected* to live outside the target. Without this guard
+    # the check would be noise on every legitimate non-self-hosting run.
+    if (repo / "src" / "striatum" / "migrations.py").is_file():
+        install_path = Path(str(getattr(_install_module(), "__file__", ""))).resolve()
+        repo_resolved = repo.resolve()
+        try:
+            install_path.relative_to(repo_resolved)
+        except ValueError:
+            report(
+                "editable_install_outside_repo",
+                identifier=str(install_path),
+                message=(
+                    "editable install is outside the repo: "
+                    f"install={install_path} repo={repo_resolved}"
+                ),
+                context={
+                    "install_path": str(install_path),
+                    "repo_path": str(repo_resolved),
+                },
+            )
+    # HARNESS-003: surface reviewer-independence breaches at the
+    # observable layer (shared supervisor pid, or unsupervised reviewer
+    # session co-existing with a supervised author session on the same
+    # run). The runner cannot enforce true context independence; doctor
+    # is the warning surface so the operator at least sees the breach.
+    independence_rows = _reviewer_independence_breaches(conn, run_id=run_id)
+    for breach in independence_rows:
+        report(
+            "reviewer_independence_unverified",
+            identifier=str(breach["session_id"]),
+            message=breach["message"],
+            context=breach["context"],
+        )
     schema_version = conn.execute(
         "SELECT value FROM schema_meta WHERE key = 'schema_version'"
     ).fetchone()

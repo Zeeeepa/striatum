@@ -449,7 +449,7 @@ def evidence_artifact_summaries(
     rows = conn.execute(
         """
         SELECT a.artifact_id, a.job_id, a.session_id, a.logical_name,
-               a.artifact_kind, a.repo_path, a.content_sha256,
+               a.artifact_kind, a.repo_path, a.content_sha256, a.author_line,
                j.workflow_job_id, j.role_id, j.lane_selector_json,
                s.role_id AS session_role_id, s.lane_id AS session_lane_id,
                s.ordinal AS session_ordinal
@@ -480,13 +480,25 @@ def evidence_artifact_summaries(
             author_role = row["session_role_id"] or row["role_id"]
             author_lane = row["session_lane_id"] or lane_id
             author_ordinal = int(row["session_ordinal"]) if row["session_ordinal"] is not None else None
-            artifact["author"] = artifact_author_identity(
+            author = artifact_author_identity(
                 workflow,
                 role_id=str(author_role),
                 lane_id=str(author_lane) if author_lane is not None else None,
                 workflow_job_id=str(row["workflow_job_id"]),
                 ordinal=author_ordinal,
             )
+            # HARNESS-003 byline integrity: prefer the file's actual
+            # author line. ``None`` means the artifact file omitted the
+            # line entirely; render it as "missing" so snapshot readers
+            # can distinguish that from a present-but-different byline.
+            actual = row["author_line"]
+            if actual is None or actual == "":
+                author["line"] = None
+                author["actual_author_line"] = None
+            else:
+                author["line"] = str(actual)
+                author["actual_author_line"] = str(actual)
+            artifact["author"] = author
         artifacts.append(artifact)
     return artifacts
 

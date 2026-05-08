@@ -6,8 +6,14 @@ import re
 from typing import Mapping, TypedDict
 
 
-class ArtifactAuthorIdentity(TypedDict):
-    """Author metadata for evidence export plus optional artifact byline."""
+class ArtifactAuthorIdentity(TypedDict, total=False):
+    """Author metadata for evidence export plus optional artifact byline.
+
+    The required-shape keys are always present; ``actual_author_line`` is
+    populated by the artifact-list path when the snapshot reflects the
+    file's actual byline (HARNESS-003 byline integrity), and absent on
+    the job-list path where there is no published file yet.
+    """
 
     role_id: str
     lane_id: str | None
@@ -15,6 +21,7 @@ class ArtifactAuthorIdentity(TypedDict):
     workflow_job_id: str
     ordinal: int | None
     line: str | None
+    actual_author_line: str | None
 
 
 def artifact_author_identity(

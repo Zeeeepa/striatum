@@ -23,4 +23,10 @@ specifies. The `submit-review` command publishes and records the verdict in
 one shot.
 
 If you hit runner friction during review, file a
-`harness_improvement_proposal` under `docs/dogfood/001/findings/`.
+`harness_improvement_proposal` under
+`docs/dogfood/001/review/HARNESS-NNN.md` (inside the reviewer's
+`write_scope.allowed_paths`). Author-side harness proposals belong in
+`docs/dogfood/001/findings/`; the two paths are deliberately distinct
+because the reviewer's `write_scope` only permits `review/`. Filing a
+reviewer-side proposal under `findings/` is rejected by the publisher
+(HARNESS-004).

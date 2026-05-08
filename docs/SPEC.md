@@ -120,6 +120,50 @@ a single space and the context-policy sentence, so reviewers can be prompted
 without parsing the policy values themselves. Workflows that do not declare
 the fields produce work packets without the block, preserving prior behavior.
 
+#### Reviewer Independence (advisory)
+
+`fresh_session_required: true` and `reviewer_context_policy: fresh` are
+**advisory** beyond what the runner can mechanically observe. The runner
+enforces session-id distinctness (a reviewer session is a different
+`session_id` from the author session) and refuses to register a fresh
+reviewer when an active author session already exists in the run, unless
+`register-session --force-non-fresh --reason "..."` is passed. The reason
+is recorded on the session row (`sessions.non_fresh_reason`) so evidence
+exports document the override explicitly.
+
+What the runner **cannot** verify: whether the OS process driving the
+reviewer session has actually been kept free of the author's context.
+A single human at a single keyboard can satisfy session-id distinctness
+trivially while still having read the entire draft handoff. `striatum
+doctor` surfaces two observable breaches as
+`reviewer_independence_unverified` problem records:
+
+1. Two active sessions in the same run whose supervisor rows share a
+   `pid`. Same OS process is driving both lanes.
+2. An active reviewer session on a run whose author session has an
+   active supervisor but the reviewer does not. The asymmetric
+   supervised/unsupervised mix usually means the operator is driving
+   the reviewer manually from the same shell as the author.
+
+Operator obligation: when running with `--force-non-fresh`, the recorded
+reason should describe how independence was preserved (e.g., "different
+agent CLI invoked from a fresh shell", "review delegated to teammate")
+or explicitly note the breach ("operator drove both lanes; HARNESS-001
+working supervised lane not yet shipped"). The runner records the string
+verbatim; reviewers and auditors read it later.
+
+#### Byline Integrity
+
+Workflow-declared `expected_artifacts.author_line` (or the bylines
+synthesised by `artifact_author_identity`) describe **what the workflow
+expected**. The runner records the **actual** `author:` line read from
+each published Markdown artifact in `artifacts.author_line`; when the
+file omits the line entirely the column is NULL. Evidence exports and
+run summaries read the actual column, so a missing byline renders as
+`author: <missing>` rather than the workflow's expected string. This
+prevents the snapshot lying about who reviewed when the operator drove
+a job whose declared lane never executed it (HARNESS-003).
+
 ## Sessions
 
 Agents must call `register-session` before claiming work. Database identity is
@@ -552,7 +596,48 @@ policy for repo-write work.
 
 Doctor: `striatum doctor` flags supervisors in `('starting','attached',
 'detached')` whose pid is gone, and `attached` supervisors whose
-`stdin_pipe_path` no longer exists on disk.
+`stdin_pipe_path` no longer exists on disk. It also surfaces
+`supervisor_lost_with_held_lease` (HARNESS-001) when a supervisor row
+is in state `lost` while the session still owns an unexpired active
+lease — the symptom that the supervisor exited before the work
+completed and the run is silently stuck. `striatum status` adds the
+stable next-action `recover_orphan_supervisor` for the same condition
+so dashboards and scripts react before the lease default expiry (30
+minutes) is hit. `striatum supervise stop` is idempotent against a
+supervisor whose latest row is already `lost` or `stopped`: rather
+than raising `InvalidTransitionError`, it returns the existing
+terminal row plus a `note` describing the prior state.
+
+#### Supervised Lane Command Contract
+
+The `lanes.<id>.command` array configured for a process-adapter lane
+is the program Striatum forks under `supervise start`. To work with
+the supervised flow, that command must satisfy three requirements
+(absent any of them, `supervise start` happens, but the run silently
+fails to advance and `doctor` surfaces
+`supervisor_lost_with_held_lease`):
+
+1. **Stay alive across packets.** Print-mode CLIs that read a single
+   prompt and exit (e.g. `claude -p`, generic one-shot
+   non-interactive invocations) are not viable supervised lanes. The
+   process must keep stdin open and continue reading newline-
+   terminated packets until SIGTERM.
+2. **Read newline-delimited JSON packets from stdin.** Each delivery
+   is the work packet's `packet_json` followed by a trailing
+   newline. The agent must parse one packet per line.
+3. **Call back via the `striatum` CLI.** The agent advances workflow
+   state by invoking `striatum ack`, `heartbeat`, `publish-artifact`,
+   `block`, `verdict`/`submit-review`, and `complete` with the
+   identifiers from the packet. The supervisor sends stdout and
+   stderr to `DEVNULL`; the agent's only durable output is the
+   artifacts and verdicts it records via the CLI.
+
+A working supervised lane therefore needs an agent that knows the
+Striatum protocol — a project skill, an embedded loop, or a wrapper
+script — not just a raw model invocation. dogfood-001's HARNESS-001
+captured the "default scaffold ships a non-viable lane command"
+foot-gun; this contract is the explicit form of what that proposal
+asked the runner to require.
 
 ### Worktree Isolation
 

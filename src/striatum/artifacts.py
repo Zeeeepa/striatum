@@ -437,14 +437,20 @@ def publish_artifact(
             raise ArtifactError("artifact logical name already exists with different content")
         artifact_id = new_id("art")
         now = utc_now()
+        # HARNESS-003 byline integrity: record the actual ``author:`` line
+        # from the published file (or NULL when absent), not the
+        # workflow's declared expected byline. Snapshot renderers can
+        # then distinguish "the workflow asked for byline X" from "the
+        # artifact file actually carried byline X".
+        actual_author_line = _first_author_line(payload)
         conn.execute(
             """
             INSERT INTO artifacts (
               artifact_id, run_id, job_id, session_id, logical_name,
               artifact_kind, repo_path, content_sha256, size_bytes,
-              publish_mode, created_at
+              publish_mode, created_at, author_line
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'create', ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'create', ?, ?)
             """,
             (
                 artifact_id,
@@ -457,6 +463,7 @@ def publish_artifact(
                 digest,
                 len(payload),
                 now,
+                actual_author_line,
             ),
         )
         insert_event(
@@ -496,19 +503,55 @@ def validate_optional_markdown_author_line(
             raise ArtifactError("markdown artifact author line must match expected work packet author line")
 
 
-def markdown_title_block_author_lines(text: str) -> list[str]:
-    """Return author metadata lines from YAML front matter or a Markdown title block."""
-    lines = text.splitlines()
-    if lines and lines[0].strip() == "---":
-        front_matter: list[str] = []
-        for line in lines[1:]:
-            if line.strip() == "---":
-                break
-            front_matter.append(line)
-        return [line for line in front_matter if line.strip().lower().startswith("author:")]
+def _first_author_line(payload: bytes) -> str | None:
+    """Return the first ``author: ...`` line from a Markdown payload, lower-trimmed.
 
-    title_block = lines[:40]
+    Used by :func:`record_artifact` to populate ``artifacts.author_line``
+    (HARNESS-003). Returns ``None`` when the file has no front matter or
+    title-block author line; that NULL is the durable signal that the
+    artifact did not actually carry the workflow's declared byline.
+    """
+    try:
+        text = payload.decode("utf-8")
+    except UnicodeDecodeError:
+        return None
+    lines = markdown_title_block_author_lines(text)
+    if not lines:
+        return None
+    first = lines[0].strip()
+    # Normalise the prefix casing/whitespace so the stored value is
+    # canonical: ``author: foo``.
+    if first.lower().startswith("author:"):
+        suffix = first.split(":", 1)[1].strip()
+        return f"author: {suffix.lower()}"
+    return first.lower()
+
+
+def markdown_title_block_author_lines(text: str) -> list[str]:
+    """Return author metadata lines from YAML front matter and/or a Markdown title block.
+
+    A Markdown artifact may carry an ``author:`` line in either of two
+    places: inside YAML front matter (between ``---`` markers) or in
+    the Markdown title block (the lines before the first ``## ``
+    section heading). HARNESS-003 byline integrity needs to recognise
+    both — the dogfood handoff convention puts the byline *after* the
+    front matter, in the title block, while some workflow examples put
+    it inside the front matter. Scan both regions and return all
+    author lines found.
+    """
+    lines = text.splitlines()
     author_lines: list[str] = []
+    body_start = 0
+    if lines and lines[0].strip() == "---":
+        for index, line in enumerate(lines[1:], start=1):
+            if line.strip() == "---":
+                body_start = index + 1
+                break
+        front_matter = lines[1:body_start - 1] if body_start > 0 else []
+        author_lines.extend(
+            line for line in front_matter if line.strip().lower().startswith("author:")
+        )
+    title_block = lines[body_start : body_start + 40]
     for line in title_block:
         if line.startswith("## "):
             break

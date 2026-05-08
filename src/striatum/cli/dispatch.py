@@ -163,6 +163,8 @@ def dispatch(args: argparse.Namespace) -> object:
                 capabilities=args.capability,
                 fresh=args.fresh,
                 parent_session_id=args.parent_session_id,
+                force_non_fresh=args.force_non_fresh,
+                non_fresh_reason=args.reason,
             )
         if args.command == "claim-next":
             return claim_next(

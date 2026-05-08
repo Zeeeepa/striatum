@@ -174,6 +174,29 @@ def _apply_v4_process_supervisors(conn: sqlite3.Connection) -> None:
     )
 
 
+def _apply_v6_independence_and_author_line(conn: sqlite3.Connection) -> None:
+    """HARNESS-003: surface the operator-driven non-fresh reviewer case.
+
+    Adds two columns:
+
+    * ``sessions.non_fresh_reason TEXT`` — operator-supplied rationale
+      when ``register-session --force-non-fresh`` is used to bypass the
+      fresh-reviewer policy. NULL on every prior row and on every
+      compliant registration.
+    * ``artifacts.author_line TEXT`` — the actual ``author:`` line read
+      from the published file (lowercased, ``author: `` prefix stripped),
+      or NULL when the file omitted the line. Lets snapshot renderers
+      distinguish "the workflow declared a byline" from "the artifact
+      file actually carried that byline" (HARNESS-003 byline integrity).
+    """
+    conn.executescript(
+        """
+        ALTER TABLE sessions ADD COLUMN non_fresh_reason TEXT;
+        ALTER TABLE artifacts ADD COLUMN author_line TEXT;
+        """
+    )
+
+
 MIGRATIONS: list[Migration] = sorted(
     [
         Migration(version=1, label="v1 baseline schema", apply=_apply_v1),
@@ -181,6 +204,11 @@ MIGRATIONS: list[Migration] = sorted(
         Migration(version=3, label="work_packets fresh-session index", apply=_apply_v3_work_packets_index),
         Migration(version=4, label="process_supervisors table", apply=_apply_v4_process_supervisors),
         Migration(version=5, label="open artifact_kind to python validation", apply=_apply_v5_open_artifact_kinds),
+        Migration(
+            version=6,
+            label="non_fresh_reason and author_line columns",
+            apply=_apply_v6_independence_and_author_line,
+        ),
     ],
     key=lambda migration: migration.version,
 )

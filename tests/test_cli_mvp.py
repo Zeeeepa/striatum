@@ -112,20 +112,25 @@ def prepare_started_run(repo: Path, workflow_path: Path = WORKFLOW) -> str:
 
 
 def register(repo: Path, run_id: str, role: str, lane: str) -> str:
-    payload = data(
-        run_cli(
-            repo,
-            "register-session",
-            "--run-id",
-            run_id,
-            "--role",
-            role,
-            "--lane",
-            lane,
-            "--capability",
-            "review",
-        )
-    )
+    args: list[str] = [
+        "register-session",
+        "--run-id",
+        run_id,
+        "--role",
+        role,
+        "--lane",
+        lane,
+        "--capability",
+        "review",
+    ]
+    # HARNESS-003: when registering a reviewer in a workflow that
+    # declares ``reviewer_context_policy: fresh`` and an active author
+    # session already exists, the runner now refuses unless an explicit
+    # override is provided. Tests that drive both lanes from the same
+    # operator pass the override with a fixed test reason.
+    if role == "reviewer":
+        args += ["--force-non-fresh", "--reason", "test fixture"]
+    payload = data(run_cli(repo, *args))
     return str(payload["session_id"])
 
 
@@ -149,6 +154,28 @@ def write_artifact(repo: Path, path: str, text: str = "artifact\n") -> None:
     target = repo / path
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(text, encoding="utf-8")
+
+
+def _packet_default_artifact_body(packet: JsonDict, logical_name: str) -> str:
+    """Build a default artifact body that carries the workflow-declared byline.
+
+    Looks up ``expected_artifacts`` in the packet for the matching
+    ``logical_name`` and prepends an ``author: ...`` title block when the
+    packet declared one. Tests that want to exercise the missing-byline
+    case skip this helper and write their own body.
+    """
+    expected = packet.get("expected_artifacts")
+    if isinstance(expected, list):
+        for item in expected:
+            if not isinstance(item, dict):
+                continue
+            if item.get("logical_name") != logical_name:
+                continue
+            byline = item.get("author_line")
+            if isinstance(byline, str) and byline.strip():
+                return f"{byline.strip()}\n\nartifact\n"
+            break
+    return "artifact\n"
 
 
 def artifact_count(repo: Path, job_id: str) -> int:
@@ -184,7 +211,12 @@ def complete_claimed_job(
 ) -> None:
     job_id, message_id, lease_id = packet_ids(packet)
     run_cli(repo, "ack", "--session-id", session_id, "--message-id", message_id, "--lease-id", lease_id)
-    write_artifact(repo, path)
+    # HARNESS-003: write the workflow-declared byline into the artifact
+    # body so the new author_line column is populated and evidence
+    # exports preserve model labels in the snapshot. Tests that
+    # specifically exercise the missing-byline path can pass their own
+    # body via the lower-level write_artifact + publish-artifact pair.
+    write_artifact(repo, path, text=_packet_default_artifact_body(packet, logical_name))
     run_cli(
         repo,
         "publish-artifact",
@@ -217,7 +249,8 @@ def verdict_claimed_review(
 ) -> JsonDict:
     job_id, message_id, lease_id = packet_ids(packet)
     run_cli(repo, "ack", "--session-id", session_id, "--message-id", message_id, "--lease-id", lease_id)
-    write_artifact(repo, path, text=f"{verdict}\n")
+    body = _packet_default_artifact_body(packet, logical_name) + f"{verdict}\n"
+    write_artifact(repo, path, text=body)
     artifact = data(
         run_cli(
             repo,

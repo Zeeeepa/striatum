@@ -221,8 +221,20 @@ def register_session(
     capabilities: list[str],
     fresh: bool,
     parent_session_id: str | None,
+    force_non_fresh: bool = False,
+    non_fresh_reason: str | None = None,
 ) -> JsonObject:
-    """Register an agent session."""
+    """Register an agent session.
+
+    HARNESS-003 policy: when the workflow declares any review job with
+    ``reviewer_context_policy: fresh`` and an active author session
+    already exists on the run, refuse a reviewer-role registration
+    unless ``force_non_fresh=True`` is passed with a non-empty
+    ``non_fresh_reason``. The reason is stored on the session row so
+    evidence exports record the explicit breach. The runner cannot tell
+    whether the operator is the same human driving both lanes — this
+    advisory refusal at least forces an explicit override.
+    """
     with transaction(conn):
         run = row_by_id(conn, "runs", "run_id", run_id)
         snapshot = row_by_id(
@@ -238,6 +250,29 @@ def register_session(
             raise InvalidTransitionError(f"unknown role {role!r} for run")
         if not isinstance(lanes, dict) or lane not in lanes:
             raise InvalidTransitionError(f"unknown lane {lane!r} for run")
+        recorded_non_fresh_reason: str | None = None
+        if role == "reviewer" and _workflow_declares_fresh_reviewer(workflow):
+            other_author_active = conn.execute(
+                """
+                SELECT 1 FROM sessions
+                WHERE run_id = ? AND role_id = 'author' AND state = 'active'
+                LIMIT 1
+                """,
+                (run_id,),
+            ).fetchone()
+            if other_author_active is not None:
+                if not force_non_fresh:
+                    raise InvalidTransitionError(
+                        "workflow declares reviewer_context_policy: fresh and an "
+                        "active author session already exists on this run; pass "
+                        "--force-non-fresh --reason \"...\" to register a non-fresh "
+                        "reviewer explicitly"
+                    )
+                if non_fresh_reason is None or not non_fresh_reason.strip():
+                    raise InvalidTransitionError(
+                        "--force-non-fresh requires a non-empty --reason"
+                    )
+                recorded_non_fresh_reason = non_fresh_reason.strip()
         ordinal_row = conn.execute(
             """
             SELECT COALESCE(MAX(ordinal), 0) + 1 AS next_ordinal
@@ -254,9 +289,9 @@ def register_session(
             INSERT INTO sessions (
               session_id, run_id, role_id, lane_id, slug, ordinal,
               capabilities_json, parent_session_id, fresh_context, state,
-              registered_at, last_heartbeat_at
+              registered_at, last_heartbeat_at, non_fresh_reason
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?)
             """,
             (
                 session_id,
@@ -270,16 +305,37 @@ def register_session(
                 1 if fresh else 0,
                 now,
                 now,
+                recorded_non_fresh_reason,
             ),
         )
+        payload: JsonObject = {"role": role, "lane": lane, "slug": slug}
+        if recorded_non_fresh_reason is not None:
+            payload["non_fresh_reason"] = recorded_non_fresh_reason
         insert_event(
             conn,
             run_id=run_id,
             event_type="session.registered",
             actor_session_id=session_id,
-            payload={"role": role, "lane": lane, "slug": slug},
+            payload=payload,
         )
         return {"session_id": session_id, "slug": slug}
+
+
+def _workflow_declares_fresh_reviewer(workflow: JsonObject) -> bool:
+    """Return True when any review job declares ``reviewer_context_policy: fresh``."""
+    jobs = workflow.get("jobs")
+    if not isinstance(jobs, list):
+        return False
+    for job in jobs:
+        if not isinstance(job, dict):
+            continue
+        if job.get("type") != "review":
+            continue
+        if job.get("reviewer_context_policy") == "fresh":
+            return True
+        if job.get("fresh_session_required") is True:
+            return True
+    return False
 
 
 def ack_work(conn: sqlite3.Connection, *, session_id: str, message_id: str, lease_id: str) -> JsonObject:

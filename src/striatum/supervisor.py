@@ -312,7 +312,26 @@ def supervise_stop(
     the process is still present, falls back to ``SIGKILL``. Marks the row
     ``stopped``, records ``ended_at`` and ``stop_reason``, removes the named
     pipe, and emits ``supervisor.stopped``.
+
+    Idempotent against a supervisor whose row is already ``lost`` or
+    ``stopped`` (HARNESS-001): the latest supervisor row is returned with a
+    ``note`` describing the prior terminal state instead of raising
+    ``InvalidTransitionError``. This avoids forcing operators to remember
+    whether a supervisor died on its own before they invoke ``stop``.
     """
+    terminal = _latest_terminal_supervisor(conn, session_id=session_id)
+    if terminal is not None:
+        prior_state = str(terminal["state"])
+        return {
+            "supervisor_id": str(terminal["supervisor_id"]),
+            "session_id": session_id,
+            "pid": terminal["pid"],
+            "state": "stopped",
+            "ended_at": terminal["ended_at"],
+            "stop_reason": terminal["stop_reason"],
+            "signal": None,
+            "note": f"supervisor was already {prior_state}",
+        }
     supervisor = _require_active_supervisor(conn, session_id=session_id)
     pid_value = supervisor["pid"]
     pid: int | None = int(pid_value) if pid_value is not None else None
@@ -697,6 +716,44 @@ def _require_active_supervisor(
             f"no active supervisor for session_id={session_id!r}"
         )
     return cast(sqlite3.Row, row)
+
+
+_TERMINAL_SUPERVISOR_STATES = ("lost", "stopped")
+
+
+def _latest_terminal_supervisor(
+    conn: sqlite3.Connection, *, session_id: str
+) -> sqlite3.Row | None:
+    """Return the most recent terminal supervisor row for ``session_id``.
+
+    Used by :func:`supervise_stop` to make stop idempotent against a
+    supervisor that has already exited (state ``lost``) or already been
+    stopped. Returns ``None`` when the session has an active supervisor or
+    no supervisor at all — in those cases the caller falls through to the
+    normal ``_require_active_supervisor`` path.
+    """
+    active = conn.execute(
+        f"""
+        SELECT 1 FROM process_supervisors
+        WHERE session_id = ?
+          AND state IN ({_placeholders(SUPERVISOR_ACTIVE_STATES)})
+        LIMIT 1
+        """,
+        (session_id, *SUPERVISOR_ACTIVE_STATES),
+    ).fetchone()
+    if active is not None:
+        return None
+    row = conn.execute(
+        f"""
+        SELECT * FROM process_supervisors
+        WHERE session_id = ?
+          AND state IN ({_placeholders(_TERMINAL_SUPERVISOR_STATES)})
+        ORDER BY started_at DESC
+        LIMIT 1
+        """,
+        (session_id, *_TERMINAL_SUPERVISOR_STATES),
+    ).fetchone()
+    return cast(sqlite3.Row, row) if row is not None else None
 
 
 def _mark_failed_to_start(
