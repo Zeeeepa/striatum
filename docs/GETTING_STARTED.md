@@ -118,6 +118,37 @@ After `init`, the target repo contains:
 `.striatum/` (artifacts, decisions, evidence exports) are durable
 provenance and should be committed normally.
 
+### Where will the workflow's output land?
+
+striatum has **no** built-in output directory. The location of
+every artifact comes from the workflow file itself: each job
+declares `expected_artifacts[].path` and
+`write_scope.allowed_paths`. The runner accepts those paths
+verbatim.
+
+If you are trying striatum on a real repo and want the runner's
+output corralled (so a single `rm -rf` cleans up if you change
+your mind), the recommended convention is a top-level
+`striatum/` directory — sibling to the gitignored `.striatum/`
+state directory but committed:
+
+```text
+<your-repo>/
+├── .striatum/             # gitignored runtime state
+└── striatum/              # committed durable output
+    └── <workflow-slug>/
+        ├── RUN_SUMMARY.md
+        ├── RUN_EVIDENCE.md
+        └── ...
+```
+
+This is just a convention — your workflow chooses its own
+paths. See [WRITING_WORKFLOWS.md § "Recommended output
+layout"](WRITING_WORKFLOWS.md#recommended-output-layout) for
+the full pattern, and [HOW_TO_HUMAN.md § "Where artifacts
+land"](HOW_TO_HUMAN.md#where-artifacts-land) for how to adapt
+an existing example fixture.
+
 ## Where to next
 
 - **[HOW_TO_HUMAN.md](HOW_TO_HUMAN.md)** — every CLI verb the

@@ -118,11 +118,71 @@ scaffold usually contains:
 `workflow.json` is the executable contract. `RUNBOOK.md` is for
 the human operator, `SOURCES.md` records the local proposal and
 context artifacts, and role or prompt files hold reusable task
-wording. Workflow outputs should land in durable repo paths such
-as `docs/reviews/<slug>/`, `docs/specs/<slug>/`,
-`docs/decisions/<slug>/`, or a project-local equivalent. Keep
-runner state in `.striatum/`; do not publish transcripts as
+wording. Workflow outputs should land in durable repo paths.
+Keep runner state in `.striatum/`; do not publish transcripts as
 workflow artifacts.
+
+## Recommended output layout
+
+striatum has no built-in output directory. The location of every
+artifact is whatever your workflow's `expected_artifacts[].path`
+and `write_scope.allowed_paths` say. If you don't have a strong
+project-specific opinion about where the runner's output should
+land, the recommended convention is:
+
+```text
+<your-repo>/
+├── .striatum/                 # gitignored; runtime state (sqlite, scratch)
+└── striatum/                  # committed; durable workflow output
+    └── <workflow-slug>/
+        ├── RUN_SUMMARY.md
+        ├── RUN_EVIDENCE.md
+        ├── <draft>.md
+        ├── <reviewer>/
+        │   └── <review>.md
+        └── final/
+            └── <final-review>.md
+```
+
+The pair `.striatum/` (runtime, gitignored) and `striatum/`
+(provenance, committed) is a clean visual reminder of the
+distinction the runner makes between live state and durable
+artifacts. It also makes "remove all striatum output" a single
+`rm -rf striatum/` for first-contact users who want to try the
+runner without scattering files across `docs/`.
+
+If your project already has an artifact convention (`docs/reviews/`,
+`docs/specs/`, `docs/decisions/`, `evidence/`, etc.), use it.
+The runner does not care; it accepts every path the workflow
+declares.
+
+In `workflow.json` this looks like:
+
+```json
+{
+  "id": "draft_change",
+  "type": "build",
+  "write_scope": {
+    "mode": "repo_write",
+    "allowed_paths": ["striatum/<workflow-slug>/"],
+    "forbidden_paths": [".striatum/"]
+  },
+  "expected_artifacts": [
+    {
+      "logical_name": "draft",
+      "kind": "handoff",
+      "path": "striatum/<workflow-slug>/DRAFT.md",
+      "required": true
+    }
+  ]
+}
+```
+
+`evidence export` and `run summary` are operator commands; you
+pass their `--path` on the command line. They have to be inside
+the repo and outside `.striatum/`, but otherwise the runner does
+not enforce a layout. Putting them under
+`striatum/<workflow-slug>/` keeps the convention consistent.
 
 ## Common graph shapes
 

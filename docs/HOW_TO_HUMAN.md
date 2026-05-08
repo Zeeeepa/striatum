@@ -11,12 +11,26 @@ orchestrate some target repository. Set these once:
 RUNNER=.venv/bin/striatum
 TARGET_REPO=/path/to/target/repo
 WORKFLOW=examples/rfc-ledger-cleanup/workflow.json
+OUTPUT_DIR=striatum/rfc-ledger    # see "Where artifacts land" below
 ```
 
-Point `TARGET_REPO` at the repository you want to orchestrate. The
-generic fixture writes under `docs/reviews/rfc-ledger/` in the
-target repo, so use a scratch target if you only want to smoke-test
-the runner.
+Point `TARGET_REPO` at the repository you want to orchestrate.
+
+`OUTPUT_DIR` is **not** a runner setting — striatum has no
+"output directory" flag. The runner accepts each artifact's path
+verbatim from the *workflow file* (every job declares its
+`expected_artifacts[].path` and `write_scope.allowed_paths`). The
+shell variable below is just a convenience for the example
+commands; in your own workflow you choose where artifacts land
+when you author it.
+
+For first-contact use, pick an output directory that is easy to
+delete if you change your mind (see
+[Where artifacts land](#where-artifacts-land)). The example
+workflow `examples/rfc-ledger-cleanup/workflow.json` declares
+`docs/reviews/rfc-ledger/` as its output root; if you don't want
+that path created in your target repo, point `WORKFLOW` at a
+different fixture or copy the example into a scratch tree first.
 
 ## Initialize
 
@@ -147,13 +161,18 @@ After reading the packet:
   --session-id <session_id> --job-id <job_id> --lease-id <lease_id> \
   --kind handoff \
   --logical-name draft \
-  --path docs/reviews/rfc-ledger/RFC_LEDGER_DRAFT.md \
+  --path "$OUTPUT_DIR/RFC_LEDGER_DRAFT.md" \
   --json
 
 "$RUNNER" complete \
   --session-id <session_id> --job-id <job_id> --lease-id <lease_id> \
   --summary "Draft artifact published." --json
 ```
+
+`--path` must match the workflow's declared
+`expected_artifacts[].path` for the job exactly. The publisher
+refuses any path outside `write_scope.allowed_paths` with exit
+code 6.
 
 Completion may enqueue downstream jobs once dependencies are
 satisfied.
@@ -165,7 +184,7 @@ satisfied.
   --session-id <review_session_id> \
   --job-id <review_job_id> \
   --lease-id <review_lease_id> \
-  --path docs/reviews/rfc-ledger/codex/RFC_LEDGER_REVIEW.md \
+  --path "$OUTPUT_DIR/codex/RFC_LEDGER_REVIEW.md" \
   --verdict accept_with_findings --json
 ```
 
@@ -233,9 +252,9 @@ back to that artifact for audit.
 "$RUNNER" why <blocker_or_job_or_artifact_id> --json
 "$RUNNER" doctor --run-id <run_id> --verbose --json
 "$RUNNER" dashboard --run-id <run_id>           # live; --once for one frame
-"$RUNNER" run summary --run-id <run_id> --path docs/reviews/RUN_SUMMARY.md
+"$RUNNER" run summary --run-id <run_id> --path "$OUTPUT_DIR/RUN_SUMMARY.md"
 "$RUNNER" evidence export \
-  --run-id <run_id> --path docs/reviews/rfc-ledger/RUN_EVIDENCE.md --json
+  --run-id <run_id> --path "$OUTPUT_DIR/RUN_EVIDENCE.md" --json
 ```
 
 To explicitly cancel a non-terminal job (and optionally its
@@ -300,12 +319,86 @@ To publish a redacted run snapshot:
 ```bash
 "$RUNNER" --repo "$TARGET_REPO" evidence export \
   --run-id <run_id> \
-  --path docs/reviews/rfc-ledger/RUN_EVIDENCE.md \
+  --path "$OUTPUT_DIR/RUN_EVIDENCE.md" \
   --json
 ```
 
 The export path must be inside the repository and outside
 `.striatum/`.
+
+## Where artifacts land
+
+striatum has no built-in concept of a "default output
+directory." Every output path is named in the workflow file:
+
+- Each job's `expected_artifacts[].path` is the *exact*
+  repo-relative path the publisher writes to.
+- Each job's `write_scope.allowed_paths` is the *set of
+  prefixes* the agent may write inside.
+- `evidence export` and `run summary` use the path you pass on
+  the command line; they have to be inside the repo and outside
+  `.striatum/`.
+
+So if you don't like where a workflow's artifacts land, the fix
+is in the *workflow file*, not the runner.
+
+### Recommended layout for first-contact use
+
+If you are trying striatum on a real repo and want to keep its
+output corralled (so you can `rm -rf` it cleanly without
+disturbing the rest of the tree), put everything under a
+top-level `striatum/` directory — sibling to the runner's
+`.striatum/` state directory but checked in:
+
+```text
+<your-repo>/
+├── .striatum/                 # gitignored runner state (sqlite, scratch)
+│   └── state.sqlite3
+├── striatum/                  # checked-in workflow output (parallel name)
+│   └── <run-slug>/
+│       ├── RUN_SUMMARY.md
+│       ├── RUN_EVIDENCE.md
+│       ├── <draft>.md         # build / synthesis artifacts
+│       ├── <reviewer>/        # one subdir per reviewer lane
+│       │   └── <review>.md
+│       └── final/
+│           └── <final-review>.md
+└── workflow.json              # the workflow itself can live anywhere;
+                               # the example fixtures put it under
+                               # examples/<slug>/ in the runner repo
+```
+
+The directory name `striatum/` is just a convention — pick
+whatever you like in your workflow's `allowed_paths`. The
+parallel naming (`.striatum/` for runtime state, `striatum/` for
+durable output) is a clean visual reminder that:
+
+- `.striatum/` is **not** committed (gitignored by `init`); it's
+  the runner's working state.
+- `striatum/` **is** committed; it's the durable provenance the
+  runner produces.
+
+### Adapting an example workflow
+
+To use this layout with the bundled example, edit
+`examples/rfc-ledger-cleanup/workflow.json` and change every
+`docs/reviews/rfc-ledger/...` path under `expected_artifacts`
+and `write_scope.allowed_paths` to `striatum/rfc-ledger/...`.
+Then re-run `striatum workflow validate` to confirm the edits
+parse cleanly. Better yet, copy the example into your target
+tree first so the bundled fixture stays untouched:
+
+```bash
+mkdir -p striatum/rfc-ledger
+cp -r path/to/striatum/examples/rfc-ledger-cleanup .
+sed -i 's|docs/reviews/rfc-ledger|striatum/rfc-ledger|g' \
+    rfc-ledger-cleanup/workflow.json
+"$RUNNER" --repo "$TARGET_REPO" workflow validate \
+    rfc-ledger-cleanup/workflow.json --json
+```
+
+For new workflows, see
+[WRITING_WORKFLOWS.md § "Recommended output layout"](WRITING_WORKFLOWS.md#recommended-output-layout).
 
 ## See also
 
