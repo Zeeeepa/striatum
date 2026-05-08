@@ -576,6 +576,23 @@ events. `--refresh <seconds>` changes cadence; `--once` renders a single frame
 to stdout and exits, which makes the dashboard useful in scripts and CI
 assertions that should not redraw a TUI.
 
+When the terminal is at least 100 columns wide and 30 lines tall and the
+run's workflow has at least one edge, the dashboard appends a *graph
+panel*: a layered ASCII view of the workflow's job DAG annotated with each
+job's current state (highest-attempt `jobs.state` per `workflow_job_id`).
+State letters are `Q`/`R`/`C`/`B`/`H`/`F`/`P`/`X`/`S` for
+queued/running/completed/blocked/waiting_human/failed/pending/canceled/stale_lease.
+`needs_revision` cycles render after the layered grid as dashed `~~>`
+arrows. Auto-detection can be overridden with `--graph` / `--no-graph`;
+`--graph-only` hides the rest of the frame; `--graph-style
+{auto,layered,list,fancy}` forces a layout (`fancy` falls back to
+`layered` in V1); `--graph-no-cycles` suppresses back-edges. ANSI 16
+colors mirror the existing Mermaid state palette and are emitted only on
+TTY output and only when `NO_COLOR` is unset (de-facto standard);
+`--once` is non-TTY by construction. The same renderer powers
+`striatum run graph --run-id <id> --format ascii` for one-shot snapshots
+that share the same shape as the dashboard panel.
+
 ### Run Summary
 
 `run summary` writes a compact durable Markdown note with run id, branch

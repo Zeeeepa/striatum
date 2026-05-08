@@ -656,8 +656,15 @@ def run_graph(
     )
     workflow = json_loads(str(snapshot["workflow_json"]))
 
-    # Pick the highest-attempt row per workflow_job_id so we report the most
-    # recent state (e.g. after a requeue creates attempt 2).
+    # RFC 0016 V1: shared compute_node_states helper. Workflow jobs that
+    # have not been materialised yet are absent from the dict; callers
+    # fall back to "pending".
+    from striatum.workflow import compute_node_states
+
+    node_states = compute_node_states(conn, run_id=run_id)
+
+    # Some downstream paths still want row-level detail (attempt,
+    # job_type, latest_verdict) for the JSON envelope; build that here.
     job_rows = conn.execute(
         """
         SELECT job_id, workflow_job_id, state, attempt, job_type
@@ -673,12 +680,23 @@ def run_graph(
         if wf_job_id not in latest_by_workflow_job:
             latest_by_workflow_job[wf_job_id] = row
 
-    node_states: dict[str, str] = {
-        wf_id: str(row["state"]) for wf_id, row in latest_by_workflow_job.items()
-    }
-
     if output_format == "mermaid":
         return workflow_graph_mermaid(workflow, node_states=node_states)
+
+    if output_format == "ascii":
+        # RFC 0016 V1: reuse the dashboard's pure renderer for a
+        # one-shot ASCII snapshot.
+        from striatum.dashboard import render_graph_panel
+
+        lines = render_graph_panel(
+            workflow=workflow,
+            node_states=node_states,
+            width=80,
+            height_budget=10000,
+            style="layered",
+            color=False,
+        )
+        return "\n".join(lines) + "\n"
 
     if output_format != "json":
         raise InvalidTransitionError(f"unknown run graph format {output_format!r}")

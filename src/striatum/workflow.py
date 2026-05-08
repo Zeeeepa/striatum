@@ -371,6 +371,36 @@ def mermaid_state_class(state: str) -> str:
     return "state-pending"
 
 
+def compute_node_states(
+    conn: sqlite3.Connection, *, run_id: str
+) -> dict[str, str]:
+    """Return ``{workflow_job_id: current_state}`` for the highest attempt.
+
+    RFC 0016 V1: extracted from ``introspect.run_graph`` so the dashboard
+    and the existing graph CLI share a single source of truth for "current
+    state after a requeue." Workflow jobs that have not been materialised
+    yet are absent from the result; callers fall back to ``"pending"``.
+    """
+    rows = conn.execute(
+        """
+        SELECT workflow_job_id, state, attempt
+        FROM jobs
+        WHERE run_id = ?
+        ORDER BY workflow_job_id, attempt DESC
+        """,
+        (run_id,),
+    ).fetchall()
+    seen: set[str] = set()
+    result: dict[str, str] = {}
+    for row in rows:
+        wf_id = str(row["workflow_job_id"])
+        if wf_id in seen:
+            continue
+        seen.add(wf_id)
+        result[wf_id] = str(row["state"])
+    return result
+
+
 def validate_workflow(
     workflow: JsonObject,
     *,

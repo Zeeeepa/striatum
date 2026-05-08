@@ -41,6 +41,7 @@ so external references keep resolving even as items move between sections.
 | F5 | RFC 0014 V1 (process adapter completion guarantees, dogfood-005) | ✅ done |
 | F6 | RFC 0012 V1 (local service API, dogfood-006) | ✅ done |
 | F7 | RFC 0013 V1 (local web UI, dogfood-007) | ✅ done |
+| F8 | RFC 0016 V1 (dashboard dependency graph, dogfood-008) | ✅ done |
 
 Legend: ✅ done · 🟡 most done (sub-tasks remain) · ⏳ open
 

@@ -50,7 +50,11 @@ def build_parser() -> argparse.ArgumentParser:
     summary.add_argument("--json", action="store_true")
     run_graph_p = run_sub.add_parser("graph")
     run_graph_p.add_argument("--run-id", required=True)
-    run_graph_p.add_argument("--format", choices=["mermaid", "json"], default="mermaid")
+    run_graph_p.add_argument(
+        "--format",
+        choices=["mermaid", "json", "ascii"],
+        default="mermaid",
+    )
     run_graph_p.add_argument("--json", action="store_true")
 
     branch = sub.add_parser("branch")
@@ -333,6 +337,17 @@ def build_parser() -> argparse.ArgumentParser:
     dashboard.add_argument("--run-id", required=True)
     dashboard.add_argument("--refresh", type=float, default=2.0)
     dashboard.add_argument("--once", action="store_true")
+    # RFC 0016 V1: graph panel.
+    graph_group = dashboard.add_mutually_exclusive_group()
+    graph_group.add_argument("--graph", dest="graph", action="store_true", default=None)
+    graph_group.add_argument("--no-graph", dest="graph", action="store_false")
+    dashboard.add_argument("--graph-only", action="store_true")
+    dashboard.add_argument(
+        "--graph-style",
+        choices=["auto", "layered", "list", "fancy"],
+        default="auto",
+    )
+    dashboard.add_argument("--graph-no-cycles", action="store_true")
 
     list_cmd = sub.add_parser("list")
     list_sub = list_cmd.add_subparsers(dest="list_command", required=True)

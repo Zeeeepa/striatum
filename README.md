@@ -610,6 +610,17 @@ Useful flags:
 - `--refresh <seconds>`: change the refresh cadence.
 - `--once`: render a single frame to stdout and exit. Handy in scripts and CI
   assertions where a redrawing TUI is not what you want.
+- `--graph` / `--no-graph`: force the layered dependency-graph panel on or
+  off. Default is auto: rendered when the terminal is at least 100 columns
+  wide and 30 lines tall and the workflow has at least one edge.
+- `--graph-only`: hide the rest of the frame and show only the graph.
+- `--graph-style {auto,layered,list,fancy}`: pick a layout. `fancy` falls
+  back to `layered` until the Unicode box-drawing follow-up lands.
+- `--graph-no-cycles`: suppress dashed `~~>` back-edges for revision cycles.
+
+For a one-shot snapshot outside the dashboard, use
+`striatum run graph --run-id <id> --format ascii`; it reuses the same
+renderer.
 
 To publish a redacted run snapshot:
 

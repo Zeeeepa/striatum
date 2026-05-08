@@ -143,6 +143,10 @@ def dispatch(args: argparse.Namespace) -> object:
             run_id=args.run_id,
             refresh_seconds=float(args.refresh),
             once=bool(args.once),
+            graph=getattr(args, "graph", None),
+            graph_only=bool(getattr(args, "graph_only", False)),
+            graph_style=str(getattr(args, "graph_style", "auto")),
+            graph_no_cycles=bool(getattr(args, "graph_no_cycles", False)),
         )
         return None
     if args.command == "serve":

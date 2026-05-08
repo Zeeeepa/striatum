@@ -1,6 +1,6 @@
 # RFC 0016: Run Dependency Graph On The Dashboard
 
-Status: proposed
+Status: accepted (V1)
 Date: 2026-05-08
 Context:
 `src/striatum/dashboard.py`,

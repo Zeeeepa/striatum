@@ -2,6 +2,31 @@
 
 ## Unreleased
 
+## 0.4.0 — 2026-05-08
+
+### Added
+
+- RFC 0016 V1 (dogfood-008): live dependency graph panel in
+  `striatum dashboard`. The frame now appends a layered ASCII view
+  of the run's workflow graph annotated with current job state
+  (`Q`/`R`/`C`/`B`/`H`/`F`/`P`/`X`/`S`) when the terminal is at
+  least 100 columns wide and 30 lines tall and the workflow has at
+  least one edge. Auto-detection can be overridden with `--graph` /
+  `--no-graph`; `--graph-only` hides the rest of the frame for
+  graph-first viewing; `--graph-style {auto,layered,list,fancy}`
+  forces a layout (`fancy` falls back to `layered` in V1);
+  `--graph-no-cycles` suppresses dashed `~~>` back-edges. ANSI 16
+  colors quantize the existing Mermaid state palette and are gated
+  on `isatty()` plus `NO_COLOR` (de-facto standard). New
+  `striatum run graph --format ascii` reuses the same pure renderer
+  for one-shot snapshots. Refactor: `compute_node_states(conn, *,
+  run_id)` lifted from `cli/introspect.run_graph` to
+  `striatum.workflow` so the dashboard and the existing graph CLI
+  share one source of truth for "current state after a requeue."
+  Tests at `tests/test_dashboard.py` (11 new cases covering
+  layered/list/no-cycles/color/no-color/graph-only/ASCII format
+  parity and an ANSI-table-vs-Mermaid-fills coverage guard).
+
 ## 0.3.0 — 2026-05-08
 
 ### Added
