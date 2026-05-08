@@ -28,6 +28,7 @@ and, when behavior changes, `docs/SPEC.md`.
 | [0013](0013-local-web-ui.md) | proposed | Static SPA bundled with the runner, served by `striatum serve --web`. Read-only by default; mutations gated. Depends on RFC 0012. |
 | [0014](0014-process-adapter-completion-guarantees.md) | accepted | Post-exit output validation, configurable timeouts, and liveness reconciliation for one-shot `adapter run`. V1 implemented (D057). Closes [#1](https://github.com/halbritt/striatum/issues/1). |
 | [0015](0015-self-contained-agent-skills.md) | proposed | `striatum skills install` generates a self-contained agent skill bundle (Claude Code, Codex, generic) so the runner can be driven without the source repo on disk. |
+| [0016](0016-dashboard-dependency-graph.md) | proposed | Render the run's dependency graph (layered ASCII, state-colored, refresh-driven) inside `striatum dashboard`, reusing the existing graph data path. |
 
 ## Template
 
