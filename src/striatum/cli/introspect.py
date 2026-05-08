@@ -8,6 +8,7 @@ import os
 import sqlite3
 from pathlib import Path
 from types import ModuleType
+from typing import Callable
 
 from striatum.db import (
     JsonObject,
@@ -909,6 +910,8 @@ def doctor(
         "process_running_with_expired_lease",
         "editable_install_outside_repo",
         "reviewer_independence_unverified",
+        "skills_missing",
+        "skills_outdated",
     )
     problems: list[str] = []
     records: list[JsonObject] = []
@@ -1420,6 +1423,10 @@ def doctor(
             message=breach["message"],
             context=breach["context"],
         )
+    # RFC 0015: skill-bundle drift checks. Surface missing or outdated
+    # bundles so the operator runs `striatum skills install`. The runner
+    # never auto-regenerates.
+    _check_skill_bundle(repo=repo, report=report)
     schema_version = conn.execute(
         "SELECT value FROM schema_meta WHERE key = 'schema_version'"
     ).fetchone()
@@ -1431,3 +1438,83 @@ def doctor(
     if verbose:
         payload["problem_records"] = records
     return payload
+
+
+def _check_skill_bundle(*, repo: Path, report: Callable[..., None]) -> None:
+    """RFC 0015: surface missing / outdated skill bundles."""
+    from striatum import __version__ as STRIATUM_VERSION
+    from striatum.skills import (
+        bundled_template_sha256,
+        load_manifest,
+        manifest_path_for,
+        skill_files_present,
+    )
+
+    for profile in ("claude_code", "generic"):
+        try:
+            path = manifest_path_for(target=repo, profile=profile, scope="project")
+        except Exception:  # noqa: BLE001 - doctor must never crash the run
+            continue
+        manifest = load_manifest(path)
+        if manifest is None:
+            continue
+        missing = skill_files_present(target=repo, manifest=manifest)
+        if missing:
+            report(
+                "skills_missing",
+                identifier=str(path),
+                message=(
+                    f"skill bundle missing files for profile {profile!r}: "
+                    + ", ".join(missing)
+                    + f" — run `striatum --repo {repo} skills install --profile {profile}`"
+                ),
+                context={
+                    "profile": profile,
+                    "manifest_path": str(path),
+                    "missing": missing,
+                    "recovery_command": (
+                        f"striatum --repo {repo} skills install --profile {profile}"
+                    ),
+                },
+            )
+        recorded_version = str(manifest.get("striatum_version") or "")
+        version_drift = (
+            recorded_version != "" and recorded_version != STRIATUM_VERSION
+        )
+        template_drift: list[str] = []
+        for entry in manifest.get("files", []):
+            if not isinstance(entry, dict):
+                continue
+            tmpl = str(entry.get("template") or "")
+            recorded = str(entry.get("template_sha256") or "")
+            if not tmpl or not recorded:
+                continue
+            try:
+                bundled = bundled_template_sha256(tmpl)
+            except Exception:  # noqa: BLE001 - missing template -> drift
+                template_drift.append(tmpl)
+                continue
+            if bundled != recorded:
+                template_drift.append(tmpl)
+        if version_drift or template_drift:
+            report(
+                "skills_outdated",
+                identifier=str(path),
+                message=(
+                    f"skill bundle outdated for profile {profile!r}: "
+                    f"manifest_version={recorded_version!r} "
+                    f"running_version={STRIATUM_VERSION!r} "
+                    f"templates_changed={template_drift!r} "
+                    f"— run `striatum --repo {repo} skills install --profile {profile}`"
+                ),
+                context={
+                    "profile": profile,
+                    "manifest_path": str(path),
+                    "manifest_version": recorded_version,
+                    "running_version": STRIATUM_VERSION,
+                    "templates_changed": template_drift,
+                    "recovery_command": (
+                        f"striatum --repo {repo} skills install --profile {profile}"
+                    ),
+                },
+            )

@@ -2,6 +2,40 @@
 
 ## Unreleased
 
+## 0.5.0 — 2026-05-08
+
+### Added
+
+- RFC 0015 V1 (dogfood-009): self-contained agent skill bundles.
+  New `striatum skills install [--profile {claude_code, generic}]
+  [--scope {project, user}] [--namespace <prefix>] [--force]
+  [--dry-run]` writes a Markdown bundle into the target tree that
+  teaches a Striatum-aware agent how to drive the runner without
+  reading the source repo. The Claude Code profile produces five
+  skills (`striatum-workflow` router plus `striatum-scaffold`,
+  `striatum-claim-loop`, `striatum-supervise`, `striatum-recover`)
+  under `.claude/skills/<namespace>striatum-*/SKILL.md`; the
+  generic profile produces a single
+  `<namespace>STRIATUM_AGENT_GUIDE.md` for any agent CLI without a
+  skill-discovery convention. Each install records a
+  `striatum.skills.manifest.v1` JSON manifest with the rendered
+  SHA256, the bundled-template SHA256, and the runner version per
+  file. A re-install is byte-identical; an operator-edited file is
+  `refused_modified` without `--force`; `--dry-run` writes nothing
+  and prints the plan. New `striatum init [--with-skills [profile]]`
+  flag runs the same install pipeline immediately after `init`.
+  New doctor checks `skills_missing` (recorded file absent on disk)
+  and `skills_outdated` (manifest version older than running
+  install, or template SHA drift) surface the exact `skills install`
+  invocation that would clear the condition; the runner never
+  auto-regenerates. The bundle emits no external URLs (a unit test
+  enforces no `http://` / `https://`) and ships inside the Python
+  distribution via `[tool.setuptools.package-data]`. Tests at
+  `tests/test_skills_install.py` (16 cases). `__version__` bumped
+  to 0.5.0 (alongside the pyproject bump). The `codex` and
+  `gemini` profiles plus `--profile all` and parser-walked verb
+  tables are step 3 of the RFC's path and remain deferred.
+
 ## 0.4.0 — 2026-05-08
 
 ### Added

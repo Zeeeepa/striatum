@@ -1,6 +1,6 @@
 # RFC 0015: Self-Contained Agent Skills For Striatum
 
-Status: proposed
+Status: accepted (V1)
 Date: 2026-05-08
 Context:
 `docs/AGENTS.md`,

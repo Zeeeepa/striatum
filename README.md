@@ -284,6 +284,22 @@ scratch target if you only want to smoke-test the runner.
 This creates `.striatum/state.sqlite3` under the target repo and adds
 `.striatum/` to that repo's `.gitignore`.
 
+To also drop a self-contained agent skill bundle that teaches a
+Striatum-aware agent how to drive the runner (RFC 0015 V1):
+
+```bash
+"$RUNNER" --repo "$TARGET_REPO" init --with-skills claude_code --json
+# or, against an existing initialized repo:
+"$RUNNER" --repo "$TARGET_REPO" skills install --profile claude_code --json
+"$RUNNER" --repo "$TARGET_REPO" skills install --profile generic --json
+```
+
+The Claude Code profile writes five `SKILL.md` files under
+`.claude/skills/striatum-*/`. The generic profile writes a single
+`striatum-STRIATUM_AGENT_GUIDE.md` for any agent CLI without a
+skill-discovery convention. Both profiles are byte-identical on
+re-install; operator edits are preserved unless you pass `--force`.
+
 ### 2. Validate Or Scaffold A Workflow
 
 ```bash

@@ -13,6 +13,30 @@ def build_parser() -> argparse.ArgumentParser:
 
     init = sub.add_parser("init")
     init.add_argument("--json", action="store_true")
+    init.add_argument(
+        "--with-skills",
+        nargs="?",
+        const="claude_code",
+        default=None,
+        help=(
+            "After init, also write the agent skill bundle for the given "
+            "profile (default: claude_code). RFC 0015."
+        ),
+    )
+
+    skills = sub.add_parser("skills")
+    skills_sub = skills.add_subparsers(dest="skills_command", required=True)
+    skills_install = skills_sub.add_parser("install")
+    skills_install.add_argument(
+        "--profile", choices=["claude_code", "generic"], default="claude_code"
+    )
+    skills_install.add_argument(
+        "--scope", choices=["project", "user"], default="project"
+    )
+    skills_install.add_argument("--namespace", default="striatum-")
+    skills_install.add_argument("--force", action="store_true")
+    skills_install.add_argument("--dry-run", action="store_true")
+    skills_install.add_argument("--json", action="store_true")
 
     workflow = sub.add_parser("workflow")
     workflow_sub = workflow.add_subparsers(dest="workflow_command", required=True)

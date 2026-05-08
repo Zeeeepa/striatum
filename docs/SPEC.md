@@ -615,6 +615,64 @@ work was already reclaimable, and refuses repo-write jobs so abandoned write
 work still requires manual inspection or a future worktree-isolated recovery
 path.
 
+### Self-Contained Agent Skills (RFC 0015 V1)
+
+`striatum skills install [--profile {claude_code, generic}] [--scope
+{project, user}] [--namespace <prefix>] [--force] [--dry-run]` writes a
+self-contained agent skill bundle into the target tree. The bundle
+teaches a Striatum-aware agent how to drive the runner without reading
+the source repo: each rendered Markdown file lists the relevant CLI
+verbs, the boundary conditions the runner does not enforce (no SQLite
+writes, no marker files as state, no transcript capture), and a
+copy-pasteable command sequence.
+
+V1 ships two profiles:
+
+- `claude_code` writes one SKILL.md per skill under
+  `.claude/skills/<namespace>striatum-*/SKILL.md`. The five skills are
+  `striatum-workflow` (router), `striatum-scaffold` (init / workflow
+  init / run prepare / run start / branch confirm), `striatum-claim-loop`
+  (register-session / claim-next / ack / heartbeat / publish-artifact /
+  verdict / submit-review / complete / worktree create / release),
+  `striatum-supervise` (RFC 0009 supervisor lifecycle), and
+  `striatum-recover` (status / why / doctor / recovery / checkpoint /
+  dashboard).
+- `generic` writes a single concatenated guide at
+  `<namespace>STRIATUM_AGENT_GUIDE.md` for any agent CLI without a
+  skill-discovery convention.
+
+`--scope user` rewrites the prefix to the user's home directory so a
+developer who works across many target repos installs once. The
+default `striatum-` namespace can be changed with `--namespace` for
+operators with a collision against an existing skill directory.
+
+Each install writes a `.manifest.json` describing every rendered file
+(rendered SHA256 + bundled-template SHA256 + runner version). A second
+invocation against an unchanged tree is byte-identical. An on-disk file
+whose hash differs from the manifest is `refused_modified` without
+`--force`; `--force` overwrites and updates the manifest;
+`--dry-run` prints the plan without writing.
+
+`striatum init [--with-skills [profile]]` runs `init` first and then
+calls the same install pipeline; default profile when the flag is
+present without a value is `claude_code`. The flag is opt-in; default
+`init` behavior is preserved byte-for-byte.
+
+`striatum doctor` adds two checks against any installed manifest:
+`skills_missing` (a recorded file is absent on disk) and
+`skills_outdated` (the manifest's runner version is older than the
+running install, or a packaged template's bundled SHA256 differs from
+the recorded `template_sha256`). Both surface a `recovery_command`
+with the exact `striatum skills install` invocation that would clear
+the condition; the runner never auto-regenerates.
+
+The bundle is self-contained by construction: the renderer rejects
+external URLs in template output (a unit test enforces no `http://` /
+`https://`), templates ship inside the installed Python distribution
+(`[tool.setuptools.package-data]` for `striatum.skills.templates`), and
+each generated file's header records the runner version that produced
+it.
+
 ## Workflow Authoring Tools
 
 `workflow plan --json` validates a workflow and returns a dry-run plan with

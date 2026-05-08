@@ -105,7 +105,29 @@ def dispatch(args: argparse.Namespace) -> object:
     repo = Path(args.repo).resolve()
     if args.command == "init":
         init_repo(repo)
-        return {"state_dir": str(repo / ".striatum"), "db": str(db_path(repo))}
+        init_result: dict[str, object] = {
+            "state_dir": str(repo / ".striatum"),
+            "db": str(db_path(repo)),
+        }
+        with_skills = getattr(args, "with_skills", None)
+        if with_skills is not None:
+            from striatum.skills import install as skills_install
+
+            init_result["skills"] = skills_install(
+                target=repo, profile=str(with_skills), scope="project"
+            )
+        return init_result
+    if args.command == "skills" and args.skills_command == "install":
+        from striatum.skills import install as skills_install
+
+        return skills_install(
+            target=repo,
+            profile=str(args.profile),
+            scope=str(args.scope),
+            namespace=str(args.namespace),
+            force=bool(args.force),
+            dry_run=bool(args.dry_run),
+        )
     if args.command == "workflow" and args.workflow_command == "validate":
         workflow = load_workflow(Path(args.path))
         warnings: list[str] = []
