@@ -225,6 +225,133 @@ def test_init_without_flag_unchanged(tmp_path: Path) -> None:
     assert not (tmp_path / "docs").exists()
 
 
+# --- V1.5: --force ---------------------------------------------------
+
+
+def test_scaffold_force_overwrites_existing_file(tmp_path: Path) -> None:
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    spec = docs / "SPEC.md"
+    spec.write_text("operator content\n", encoding="utf-8")
+    result = scaffold_ddd_layout(tmp_path, force=True)
+    spec_entry = next(f for f in result["files"] if f["path"] == "docs/SPEC.md")
+    assert spec_entry["status"] == "overwritten"
+    assert "prior_sha256" in spec_entry
+    body = spec.read_text(encoding="utf-8")
+    assert "RFC 0021" in body.splitlines()[0]
+
+
+def test_scaffold_force_does_not_clobber_non_regular_file(tmp_path: Path) -> None:
+    """Even with force=True, a target that exists as a directory must
+    NOT be deleted. The carve-out from V1's Finding 2 still applies."""
+    spec_dir = tmp_path / "docs" / "SPEC.md"
+    spec_dir.mkdir(parents=True)
+    result = scaffold_ddd_layout(tmp_path, force=True)
+    spec_entry = next(f for f in result["files"] if f["path"] == "docs/SPEC.md")
+    assert spec_entry["status"] == "error"
+    assert "not a regular file" in spec_entry["reason"]
+    assert spec_dir.is_dir()
+
+
+# --- V1.5: --dry-run -------------------------------------------------
+
+
+def test_scaffold_dry_run_writes_no_files(tmp_path: Path) -> None:
+    result = scaffold_ddd_layout(tmp_path, dry_run=True)
+    assert result["dry_run"] is True
+    assert not (tmp_path / "docs").exists()
+
+
+def test_scaffold_dry_run_envelope_reflects_flag(tmp_path: Path) -> None:
+    result = scaffold_ddd_layout(tmp_path, dry_run=True)
+    assert result["dry_run"] is True
+
+
+def test_scaffold_dry_run_status_vocabulary_empty_repo(tmp_path: Path) -> None:
+    """Empty repo + dry-run: every file is `would_create`."""
+    result = scaffold_ddd_layout(tmp_path, dry_run=True)
+    statuses = {f["path"]: f["status"] for f in result["files"]}
+    for target in _EXPECTED_TARGETS:
+        assert statuses[target] == "would_create"
+
+
+def test_scaffold_dry_run_status_vocabulary_partial_overlap(tmp_path: Path) -> None:
+    """Partial overlap + dry-run: existing → would_skip, missing → would_create."""
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    (docs / "SPEC.md").write_text("operator", encoding="utf-8")
+    result = scaffold_ddd_layout(tmp_path, dry_run=True)
+    statuses = {f["path"]: f["status"] for f in result["files"]}
+    assert statuses["docs/SPEC.md"] == "would_skip"
+    for target in _EXPECTED_TARGETS:
+        if target == "docs/SPEC.md":
+            continue
+        assert statuses[target] == "would_create"
+
+
+# --- V1.5: --force + --dry-run together ------------------------------
+
+
+def test_scaffold_force_and_dry_run_together_no_writes(tmp_path: Path) -> None:
+    """`force=True, dry_run=True` previews the destructive overwrite
+    without actually writing — the canonical preview-of-clobber flow."""
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    spec = docs / "SPEC.md"
+    spec.write_text("operator content\n", encoding="utf-8")
+    result = scaffold_ddd_layout(tmp_path, force=True, dry_run=True)
+    spec_entry = next(f for f in result["files"] if f["path"] == "docs/SPEC.md")
+    assert spec_entry["status"] == "would_overwrite"
+    assert "prior_sha256" in spec_entry
+    # On-disk content must be unchanged.
+    assert spec.read_text(encoding="utf-8") == "operator content\n"
+
+
+# --- V1.5: CLI flag wiring -------------------------------------------
+
+
+def test_init_cli_flags_thread_through_to_envelope(tmp_path: Path) -> None:
+    """Subprocess test: `--ddd-layout-force` and `--ddd-layout-dry-run`
+    threaded through dispatch into the envelope."""
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    (docs / "SPEC.md").write_text("operator", encoding="utf-8")
+    proc = subprocess.run(
+        [sys.executable, "-m", "striatum.cli",
+         "--repo", str(tmp_path), "init",
+         "--with-ddd-layout", "--ddd-layout-force",
+         "--ddd-layout-dry-run", "--json"],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        env={"PYTHONPATH": str(ROOT / "src"), "PATH": "/usr/bin:/bin"},
+    )
+    assert proc.returncode == 0, f"stderr: {proc.stderr}"
+    payload = json.loads(proc.stdout)
+    layout = payload["data"]["ddd_layout"]
+    assert layout["dry_run"] is True
+    spec_entry = next(f for f in layout["files"] if f["path"] == "docs/SPEC.md")
+    assert spec_entry["status"] == "would_overwrite"
+
+
+def test_init_v15_flags_noop_without_with_ddd_layout(tmp_path: Path) -> None:
+    """Passing --ddd-layout-force or --ddd-layout-dry-run without
+    --with-ddd-layout produces no `ddd_layout` envelope key — the
+    scaffold call is gated by the layout flag."""
+    proc = subprocess.run(
+        [sys.executable, "-m", "striatum.cli",
+         "--repo", str(tmp_path), "init",
+         "--ddd-layout-force", "--ddd-layout-dry-run", "--json"],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        env={"PYTHONPATH": str(ROOT / "src"), "PATH": "/usr/bin:/bin"},
+    )
+    assert proc.returncode == 0, f"stderr: {proc.stderr}"
+    payload = json.loads(proc.stdout)
+    assert "ddd_layout" not in payload["data"]
+
+
 def test_init_composability_with_skills_install(tmp_path: Path) -> None:
     """Both flags together produce both envelopes nested under their
     own keys; the scaffold runs after skills installation."""

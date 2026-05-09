@@ -33,6 +33,27 @@ def build_parser() -> argparse.ArgumentParser:
             "repo. Existing files are preserved. RFC 0021."
         ),
     )
+    init.add_argument(
+        "--ddd-layout-force",
+        action="store_true",
+        help=(
+            "With --with-ddd-layout, overwrite existing regular-file targets "
+            "with the template body. Non-regular-file targets (directories, "
+            "broken symlinks) still error and are not touched. Each "
+            "overwritten file's prior content sha256 is recorded in the "
+            "envelope for audit. RFC 0021 V1.5."
+        ),
+    )
+    init.add_argument(
+        "--ddd-layout-dry-run",
+        action="store_true",
+        help=(
+            "With --with-ddd-layout, report what would happen without "
+            "writing any files. Envelope statuses use the would_* "
+            "vocabulary. Combine with --ddd-layout-force to preview "
+            "destructive overwrites. RFC 0021 V1.5."
+        ),
+    )
 
     skills = sub.add_parser("skills")
     skills_sub = skills.add_subparsers(dest="skills_command", required=True)

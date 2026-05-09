@@ -2,6 +2,38 @@
 
 ## Unreleased
 
+## 1.10.0 — 2026-05-09
+
+### Added
+
+- RFC 0021 V1.5 (dogfood-019): `--ddd-layout-force` and
+  `--ddd-layout-dry-run` flags on `striatum init
+  --with-ddd-layout`.
+  - `--ddd-layout-force` overwrites existing regular-file
+    targets with the template body. The envelope reports
+    `status: "overwritten"` plus a `prior_sha256` field for
+    audit. Non-regular-file targets (directories, broken
+    symlinks) still surface as `status: "error"` regardless
+    of force — the operator must resolve those manually.
+  - `--ddd-layout-dry-run` reports what *would* happen without
+    writing any files. The envelope's top-level `dry_run` flag
+    is True; per-file statuses use a `would_*` vocabulary
+    (`would_create`, `would_skip`, `would_overwrite`,
+    `would_error`). Combine with `--ddd-layout-force` to
+    preview a destructive overwrite.
+  - Both flags without `--with-ddd-layout` are silent no-ops.
+- `scaffold_ddd_layout(repo, *, force, dry_run)` public API
+  signature is unchanged from V1; V1's `force=False,
+  dry_run=False` defaults map to V1's behavior. Callers that
+  pass either flag get the new V1.5 branches without
+  deprecation work.
+
+RFC 0021 status moves from `accepted (V1)` to
+`accepted (V1+V1.5)`. V1.6 candidates (template parameter
+substitution, multi-layout, `striatum scaffold sync`, doctor
+check) remain deferred until operator evidence shows they're
+wanted.
+
 ## 1.9.0 — 2026-05-09
 
 ### Added
