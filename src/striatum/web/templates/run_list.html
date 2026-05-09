@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}Runs · Striatum{% endblock %}
+{% block main %}
+<section class="page-section">
+  <h1>Runs</h1>
+  {% if runs %}
+  <table class="runs-table">
+    <thead>
+      <tr>
+        <th>Run</th>
+        <th>State</th>
+        <th>Branch</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for run in runs %}
+      <tr>
+        <td><a href="/run/{{ run.run_id }}" class="run-link">{{ run.run_id }}</a></td>
+        <td><span class="status-pill status-{{ run.state }}">{{ run.state }}</span></td>
+        <td><code class="branch-name">{{ run.branch_name or "—" }}</code></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="empty-state">No runs recorded. Use <code>striatum run prepare</code> to create one.</p>
+  {% endif %}
+</section>
+{% endblock %}

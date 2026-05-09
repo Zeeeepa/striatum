@@ -53,6 +53,7 @@ so external references keep resolving even as items move between sections.
 | F17 | RFC 0021 V1 (DDD layout scaffold, dogfood-017) | ✅ done |
 | F18 | RFC 0018 step 3 V1.5 (verdicts.posture + introspection, dogfood-018) | ✅ done |
 | F19 | RFC 0021 V1.5 (--force + --dry-run, dogfood-019) | ✅ done |
+| F20 | RFC 0022 V1 (web UI redesign, dogfood-020) | ✅ done |
 
 Legend: ✅ done · 🟡 most done (sub-tasks remain) · ⏳ open
 

@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+{% block title %}Run {{ run.run_id }} · Striatum{% endblock %}
+{% block main %}
+<section class="page-section">
+  <header class="run-header">
+    <h1>Run <code>{{ run.run_id }}</code></h1>
+    <div class="run-meta">
+      <span class="status-pill status-{{ run.state }}">{{ run.state }}</span>
+      {% if run.branch_name %}
+      <span class="muted">on <code>{{ run.branch_name }}</code></span>
+      {% endif %}
+    </div>
+  </header>
+
+  <div class="run-grid">
+    <aside class="run-jobs-rail">
+      <h2>Jobs</h2>
+      <ul class="job-list">
+        {% for job in jobs %}
+        <li>
+          <a href="/run/{{ run.run_id }}/job/{{ job.job_id }}" class="job-link">
+            <span class="status-pill status-{{ job.state }}">{{ job.state }}</span>
+            <span class="job-name">{{ job.workflow_job_id }}</span>
+          </a>
+        </li>
+        {% endfor %}
+      </ul>
+    </aside>
+
+    <article class="run-center">
+      <h2>Status</h2>
+      <dl class="kv-grid">
+        <dt>State</dt><dd>{{ run.state }}</dd>
+        <dt>Created</dt><dd>{{ run.created_at }}</dd>
+        <dt>Started</dt><dd>{{ run.started_at or "—" }}</dd>
+        <dt>Completed</dt><dd>{{ run.completed_at or "—" }}</dd>
+      </dl>
+
+      {% if verdicts_by_posture %}
+      <h2>Verdicts by posture</h2>
+      <ul class="posture-list">
+        {% for posture, count in verdicts_by_posture.items() %}
+        <li><span class="posture-chip">{{ posture }}</span> <span class="muted">{{ count }}</span></li>
+        {% endfor %}
+      </ul>
+      {% endif %}
+
+      {% if next_actions %}
+      <h2>Next actions</h2>
+      <ul class="next-actions">
+        {% for action in next_actions %}
+        <li>{{ action }}</li>
+        {% endfor %}
+      </ul>
+      {% endif %}
+    </article>
+
+    <aside class="run-graph-rail">
+      <h2>Graph</h2>
+      <div class="graph-container">
+        {{ graph_svg | safe }}
+      </div>
+    </aside>
+  </div>
+</section>
+{% endblock %}

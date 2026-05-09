@@ -1,0 +1,318 @@
+/* RFC 0022 V1: refreshed palette via CSS custom properties.
+   Dark mode via prefers-color-scheme; component CSS reads
+   variables only (no hex literals outside the :root blocks). */
+
+:root {
+  --bg-base: #f8f9fb;
+  --bg-elevated: #ffffff;
+  --bg-overlay: #eef0f4;
+  --fg-primary: #0d1117;
+  --fg-secondary: #57606a;
+  --fg-muted: #8b949e;
+  --border: #d0d7de;
+  --accent: #0969da;
+  --status-running: #d29922;
+  --status-completed: #1a7f37;
+  --status-failed: #d1242f;
+  --status-blocked: #cf222e;
+  --status-canceled: #8b949e;
+  --status-queued: #6f42c1;
+  --status-waiting_human: #bf8700;
+  --status-accept: #1a7f37;
+  --status-accept_with_findings: #d29922;
+  --status-needs_revision: #cf222e;
+  --status-reject: #d1242f;
+  --status-pending: #8b949e;
+  --status-claimed: #d29922;
+  --status-failed_to_claim: #cf222e;
+  --status-skipped: #8b949e;
+  --shadow-sm: 0 1px 2px rgba(13,17,23,0.05);
+  --shadow-md: 0 4px 8px rgba(13,17,23,0.08);
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-6: 1.5rem;
+  --space-8: 2rem;
+  --radius: 6px;
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "Roboto",
+               "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, "Cascadia Code",
+               "JetBrains Mono", Consolas, "Liberation Mono", monospace;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg-base: #0d1117;
+    --bg-elevated: #161b22;
+    --bg-overlay: #21262d;
+    --fg-primary: #e6edf3;
+    --fg-secondary: #8b949e;
+    --fg-muted: #6e7681;
+    --border: #30363d;
+    --accent: #2f81f7;
+    --status-running: #d29922;
+    --status-completed: #2ea043;
+    --status-failed: #f85149;
+    --status-blocked: #ff7b72;
+    --status-canceled: #6e7681;
+    --status-queued: #a371f7;
+    --status-waiting_human: #d29922;
+    --status-accept: #2ea043;
+    --status-accept_with_findings: #d29922;
+    --status-needs_revision: #ff7b72;
+    --status-reject: #f85149;
+    --status-pending: #6e7681;
+    --status-claimed: #d29922;
+    --status-failed_to_claim: #ff7b72;
+    --status-skipped: #6e7681;
+    --shadow-sm: 0 1px 2px rgba(0,0,0,0.3);
+    --shadow-md: 0 4px 8px rgba(0,0,0,0.5);
+  }
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background: var(--bg-base);
+  color: var(--fg-primary);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+code, .branch-name, .sha {
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+}
+
+.site-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-6);
+  padding: var(--space-3) var(--space-6);
+  background: var(--bg-elevated);
+  border-bottom: 1px solid var(--border);
+  box-shadow: var(--shadow-sm);
+}
+
+.brand {
+  font-weight: 600;
+  font-size: 16px;
+  color: var(--fg-primary);
+}
+
+.site-header nav { display: flex; gap: var(--space-4); }
+.site-header nav a {
+  color: var(--fg-secondary);
+  font-weight: 500;
+}
+.site-header nav a:hover { color: var(--accent); text-decoration: none; }
+
+.page-main {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: var(--space-6);
+}
+
+.page-section {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: var(--space-6);
+  box-shadow: var(--shadow-sm);
+}
+
+h1, h2, h3 { color: var(--fg-primary); margin-top: 0; }
+h1 { font-size: 22px; margin-bottom: var(--space-4); }
+h2 { font-size: 16px; margin-top: var(--space-6); margin-bottom: var(--space-2); }
+
+.muted { color: var(--fg-muted); }
+
+.status-pill {
+  display: inline-block;
+  padding: 0.1em 0.6em;
+  border-radius: 999px;
+  font-size: 0.8em;
+  font-weight: 500;
+  background: var(--status-pending);
+  color: white;
+  vertical-align: middle;
+}
+
+/* Generated dynamically — one rule per status; we list the common ones. */
+.status-running { background: var(--status-running); color: #0d1117; }
+.status-completed { background: var(--status-completed); color: white; }
+.status-failed { background: var(--status-failed); color: white; }
+.status-blocked { background: var(--status-blocked); color: white; }
+.status-canceled { background: var(--status-canceled); color: white; }
+.status-queued { background: var(--status-queued); color: white; }
+.status-waiting_human { background: var(--status-waiting_human); color: #0d1117; }
+.status-accept { background: var(--status-accept); color: white; }
+.status-accept_with_findings { background: var(--status-accept_with_findings); color: #0d1117; }
+.status-needs_revision { background: var(--status-needs_revision); color: white; }
+.status-reject { background: var(--status-reject); color: white; }
+.status-pending { background: var(--status-pending); color: white; }
+.status-claimed { background: var(--status-claimed); color: #0d1117; }
+.status-skipped { background: var(--status-skipped); color: white; }
+.status-prepared { background: var(--status-pending); color: white; }
+.status-ready { background: var(--status-running); color: #0d1117; }
+
+.posture-chip {
+  display: inline-block;
+  padding: 0.05em 0.5em;
+  border-radius: var(--radius);
+  font-size: 0.78em;
+  background: var(--bg-overlay);
+  color: var(--fg-secondary);
+  border: 1px solid var(--border);
+  max-width: 12em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+
+table.runs-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: var(--space-2);
+}
+table.runs-table th, table.runs-table td {
+  padding: var(--space-2) var(--space-3);
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+}
+table.runs-table th { color: var(--fg-muted); font-weight: 500; font-size: 0.85em; text-transform: uppercase; letter-spacing: 0.05em; }
+table.runs-table tbody tr:hover { background: var(--bg-overlay); }
+
+.empty-state { color: var(--fg-muted); padding: var(--space-4); text-align: center; }
+
+.run-header { margin-bottom: var(--space-4); }
+.run-meta { display: flex; gap: var(--space-3); align-items: center; margin-top: var(--space-1); }
+
+.run-grid {
+  display: grid;
+  grid-template-columns: 240px 1fr 360px;
+  gap: var(--space-6);
+  margin-top: var(--space-4);
+}
+@media (max-width: 1024px) {
+  .run-grid { grid-template-columns: 1fr; }
+}
+
+.run-jobs-rail h2, .run-graph-rail h2 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--fg-muted); }
+
+.job-list { list-style: none; padding: 0; margin: 0; }
+.job-list li { margin-bottom: var(--space-1); }
+.job-link {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2);
+  border-radius: var(--radius);
+  color: var(--fg-primary);
+}
+.job-link:hover { background: var(--bg-overlay); text-decoration: none; }
+.job-name { font-family: var(--font-mono); font-size: 0.9em; }
+
+.kv-grid {
+  display: grid;
+  grid-template-columns: 140px 1fr;
+  gap: var(--space-2) var(--space-4);
+  margin: var(--space-2) 0;
+}
+.kv-grid dt { color: var(--fg-muted); font-size: 0.9em; }
+.kv-grid dd { margin: 0; }
+
+.next-actions { padding-left: var(--space-4); margin: var(--space-2) 0; }
+.next-actions li { margin-bottom: var(--space-1); }
+
+.posture-list { list-style: none; padding: 0; }
+.posture-list li { display: flex; gap: var(--space-2); align-items: center; margin-bottom: var(--space-1); }
+
+.graph-container {
+  background: var(--bg-base);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: var(--space-2);
+  overflow: auto;
+}
+.graph-container svg { display: block; max-width: 100%; }
+
+/* Graph node CSS — fill driven by status custom properties. */
+.graph-node rect {
+  fill: var(--bg-elevated);
+  stroke: var(--border);
+  stroke-width: 1;
+}
+.graph-node-running rect { fill: var(--status-running); }
+.graph-node-completed rect { fill: var(--status-completed); }
+.graph-node-failed rect { fill: var(--status-failed); }
+.graph-node-blocked rect { fill: var(--status-blocked); }
+.graph-node-canceled rect { fill: var(--status-canceled); }
+.graph-node-queued rect { fill: var(--status-queued); }
+.graph-node-pending rect { fill: var(--bg-elevated); stroke-dasharray: 4 2; }
+.graph-node-title {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  fill: var(--fg-primary);
+  font-weight: 600;
+}
+.graph-node-meta {
+  font-size: 10px;
+  fill: var(--fg-secondary);
+}
+.graph-node-completed .graph-node-title,
+.graph-node-completed .graph-node-meta,
+.graph-node-failed .graph-node-title,
+.graph-node-failed .graph-node-meta,
+.graph-node-blocked .graph-node-title,
+.graph-node-blocked .graph-node-meta,
+.graph-node-canceled .graph-node-title,
+.graph-node-canceled .graph-node-meta,
+.graph-node-queued .graph-node-title,
+.graph-node-queued .graph-node-meta {
+  fill: white;
+}
+.graph-node-link:hover .graph-node rect { stroke: var(--accent); stroke-width: 2; }
+
+.graph-edge {
+  fill: none;
+  stroke: var(--border);
+  stroke-width: 1.5;
+}
+
+.breadcrumb {
+  font-size: 0.9em;
+  color: var(--fg-muted);
+  margin: 0 0 var(--space-2) 0;
+}
+.breadcrumb a { color: var(--fg-muted); }
+.breadcrumb a:hover { color: var(--accent); }
+
+.artifact-list { list-style: none; padding: 0; }
+.artifact-list li { margin-bottom: var(--space-1); }
+.artifact-list a {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2);
+  border-radius: var(--radius);
+  color: var(--fg-primary);
+}
+.artifact-list a:hover { background: var(--bg-overlay); text-decoration: none; }
+.artifact-kind {
+  font-size: 0.8em;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--fg-muted);
+}
+
+.check-list { list-style: none; padding: 0; }
+.check-list li { display: flex; gap: var(--space-2); align-items: center; margin-bottom: var(--space-2); }

@@ -115,6 +115,9 @@ def _http_get_raw(port: int, path: str) -> tuple[int, dict[str, str], bytes]:
 
 
 def test_static_assets_served_when_web_enabled(tmp_path: Path) -> None:
+    """RFC 0022 V1: `/` returns the server-rendered run-list page; CSS
+    (`base.css`) is served from `/static/`; the legacy hash-redirect
+    JS island is loaded by base.html."""
     _git_init_repo(tmp_path)
     _striatum_init(tmp_path)
     proc, port = _spawn_service(tmp_path, "--web")
@@ -122,18 +125,20 @@ def test_static_assets_served_when_web_enabled(tmp_path: Path) -> None:
         status, headers, body = _http_get_raw(port, "/")
         assert status == 200
         assert "text/html" in headers.get("Content-Type", "")
-        assert b"<title>Striatum</title>" in body
-        assert b"id=\"app\"" in body
+        # Title contains "Striatum" (per-page prefix may vary).
+        assert b"Striatum" in body
         # CSS
-        status_css, headers_css, body_css = _http_get_raw(port, "/static/app.css")
+        status_css, headers_css, body_css = _http_get_raw(port, "/static/base.css")
         assert status_css == 200
         assert "text/css" in headers_css.get("Content-Type", "")
-        assert b"--bg" in body_css
-        # JS
-        status_js, headers_js, body_js = _http_get_raw(port, "/static/app.js")
+        assert b"--bg-base" in body_css
+        # Legacy hash-redirect JS island
+        status_js, headers_js, body_js = _http_get_raw(
+            port, "/static/legacy_hash_redirect.js",
+        )
         assert status_js == 200
         assert "javascript" in headers_js.get("Content-Type", "")
-        assert b"renderRunList" in body_js
+        assert b"location.replace" in body_js
     finally:
         _stop_service(proc)
 

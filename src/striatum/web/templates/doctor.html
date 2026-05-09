@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block title %}Doctor · Striatum{% endblock %}
+{% block main %}
+<section class="page-section">
+  <h1>Doctor</h1>
+  <p class="run-meta">
+    {% if doctor.ok %}
+    <span class="status-pill status-completed">ok</span>
+    {% else %}
+    <span class="status-pill status-failed">issues found</span>
+    {% endif %}
+  </p>
+
+  {% if doctor.checks %}
+  <h2>Checks</h2>
+  <ul class="check-list">
+    {% for check in doctor.checks %}
+    <li>
+      <span class="status-pill status-{{ 'completed' if check.ok else 'failed' }}">
+        {{ "ok" if check.ok else "fail" }}
+      </span>
+      <strong>{{ check.name }}</strong>
+      {% if check.message %}
+      <span class="muted">{{ check.message }}</span>
+      {% endif %}
+    </li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+</section>
+{% endblock %}

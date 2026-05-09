@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block title %}Job {{ job.workflow_job_id }} · Striatum{% endblock %}
+{% block main %}
+<section class="page-section">
+  <header class="job-header">
+    <p class="breadcrumb"><a href="/run/{{ run.run_id }}">← {{ run.run_id }}</a></p>
+    <h1>Job <code>{{ job.workflow_job_id }}</code></h1>
+    <div class="job-meta">
+      <span class="status-pill status-{{ job.state }}">{{ job.state }}</span>
+      <span class="muted">{{ job.role_id }}{% if job.lane_id %} · {{ job.lane_id }}{% endif %}</span>
+      {% if latest_verdict %}
+      <span class="status-pill status-{{ latest_verdict.verdict }}">{{ latest_verdict.verdict }}</span>
+      {% if latest_verdict.posture and latest_verdict.posture != "neutral" %}
+      <span class="posture-chip" title="{{ latest_verdict.posture }}">{{ latest_verdict.posture }}</span>
+      {% endif %}
+      {% endif %}
+    </div>
+  </header>
+
+  <h2>Details</h2>
+  <dl class="kv-grid">
+    <dt>Job ID</dt><dd><code>{{ job.job_id }}</code></dd>
+    <dt>Type</dt><dd>{{ job.job_type }}</dd>
+    <dt>Attempt</dt><dd>{{ job.attempt }}</dd>
+    <dt>Created</dt><dd>{{ job.created_at }}</dd>
+    <dt>Started</dt><dd>{{ job.started_at or "—" }}</dd>
+    <dt>Completed</dt><dd>{{ job.completed_at or "—" }}</dd>
+  </dl>
+
+  {% if artifacts %}
+  <h2>Artifacts</h2>
+  <ul class="artifact-list">
+    {% for artifact in artifacts %}
+    <li>
+      <a href="/run/{{ run.run_id }}/artifact/{{ artifact.artifact_id }}">
+        <span class="artifact-kind">{{ artifact.artifact_kind }}</span>
+        <code>{{ artifact.repo_path }}</code>
+      </a>
+    </li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+</section>
+{% endblock %}

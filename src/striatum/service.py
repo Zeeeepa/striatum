@@ -36,6 +36,32 @@ SSE_POLL_INTERVAL_SECONDS = 0.25
 SSE_MAX_CONCURRENT_PER_RUN = 32
 SHUTDOWN_DRAIN_SECONDS = 5.0
 
+
+def _jinja_env() -> Any:
+    """Return a cached Jinja2 environment that loads templates from the
+    ``striatum.web.templates`` package.
+
+    RFC 0022 V1: server-rendered multi-page UI uses Jinja2; the
+    environment is constructed lazily and cached on the function via
+    ``functools.lru_cache``.
+    """
+    return _jinja_env_factory()
+
+
+def _jinja_env_factory() -> Any:
+    from functools import lru_cache
+
+    @lru_cache(maxsize=1)
+    def _build() -> Any:
+        from jinja2 import Environment, PackageLoader, select_autoescape
+        return Environment(
+            loader=PackageLoader("striatum.web", "templates"),
+            autoescape=select_autoescape(["html"]),
+            keep_trailing_newline=False,
+        )
+
+    return _build()
+
 # Top-level CLI verbs whose all subcommands are reads. Subcommand-aware
 # whitelists for the four mixed parents follow.
 SERVICE_READ_TOP_COMMANDS = frozenset({
@@ -195,7 +221,13 @@ class StriatumServiceHandler(BaseHTTPRequestHandler):
             self._handle_artifact_raw(artifact_id)
             return
         if self.state.web_enabled and (path == "/" or path == ""):
-            self._serve_static_asset("index.html")
+            self._render_run_list_page()
+            return
+        if self.state.web_enabled and path == "/doctor":
+            self._render_doctor_page()
+            return
+        if self.state.web_enabled and path.startswith("/run/"):
+            self._render_run_subpath(path[len("/run/"):])
             return
         if self.state.web_enabled and path.startswith("/static/"):
             relative = path[len("/static/"):]
@@ -350,6 +382,168 @@ class StriatumServiceHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(data)))
         self.send_header("Content-Security-Policy", "default-src 'none'")
+        self.send_header("Connection", "close")
+        self.end_headers()
+        try:
+            self.wfile.write(data)
+        except BrokenPipeError:
+            return
+
+    # --- RFC 0022 V1 page rendering -----------------------------------
+
+    def _render_run_list_page(self) -> None:
+        """Server-side render the run-list page."""
+        try:
+            with sqlite3.connect(str(db_path(self.state.repo))) as conn:
+                conn.row_factory = sqlite3.Row
+                rows = conn.execute(
+                    "SELECT run_id, state, branch_name, created_at "
+                    "FROM runs ORDER BY created_at DESC"
+                ).fetchall()
+                runs = [dict(row) for row in rows]
+            html = _jinja_env().get_template("run_list.html").render(runs=runs)
+            self._send_html(200, html)
+        except Exception as exc:  # noqa: BLE001
+            self._send_json(500, {"ok": False, "error": {"code": 500, "message": str(exc)}})
+
+    def _render_run_subpath(self, subpath: str) -> None:
+        """Dispatch /run/<run_id> + /run/<run_id>/job/<id> + /run/<run_id>/artifact/<id>."""
+        if not subpath:
+            self._send_json(404, {"ok": False, "error": {"code": 404, "message": "missing run id"}})
+            return
+        parts = subpath.strip("/").split("/")
+        run_id = parts[0]
+        if any(c in run_id for c in ("..", "/", "\x00")):
+            self._send_json(400, {"ok": False, "error": {"code": 400, "message": "invalid run id"}})
+            return
+        if len(parts) == 1:
+            self._render_run_detail_page(run_id)
+            return
+        if len(parts) == 3 and parts[1] == "job":
+            self._render_job_detail_page(run_id, parts[2])
+            return
+        if len(parts) == 3 and parts[1] == "artifact":
+            self._render_artifact_view_page(run_id, parts[2])
+            return
+        self._send_json(404, {"ok": False, "error": {"code": 404, "message": "not found"}})
+
+    def _render_run_detail_page(self, run_id: str) -> None:
+        from striatum.cli.introspect import status as status_command
+        from striatum.web.graph_svg import (
+            compute_node_states_from_jobs,
+            render_run_graph,
+        )
+        try:
+            with sqlite3.connect(str(db_path(self.state.repo))) as conn:
+                conn.row_factory = sqlite3.Row
+                run_row = conn.execute(
+                    "SELECT * FROM runs WHERE run_id = ?", (run_id,)
+                ).fetchone()
+                if run_row is None:
+                    self._send_json(404, {"ok": False, "error": {"code": 404, "message": "run not found"}})
+                    return
+                run = dict(run_row)
+                job_rows = conn.execute(
+                    "SELECT * FROM jobs WHERE run_id = ? ORDER BY workflow_job_id",
+                    (run_id,),
+                ).fetchall()
+                jobs = [dict(row) for row in job_rows]
+                snapshot_row = conn.execute(
+                    "SELECT workflow_json FROM workflow_snapshots WHERE workflow_snapshot_id = ?",
+                    (str(run["workflow_snapshot_id"]),),
+                ).fetchone()
+                workflow = (
+                    json.loads(str(snapshot_row["workflow_json"]))
+                    if snapshot_row is not None else {}
+                )
+                status_payload = status_command(conn, run_id=run_id)
+            node_states = compute_node_states_from_jobs(jobs)
+            graph_svg = render_run_graph(workflow, node_states, run_id=run_id)
+            html = _jinja_env().get_template("run_detail.html").render(
+                run=run,
+                jobs=jobs,
+                graph_svg=graph_svg,
+                next_actions=status_payload.get("next_actions") or [],
+                verdicts_by_posture=status_payload.get("verdicts_by_posture") or {},
+            )
+            self._send_html(200, html)
+        except Exception as exc:  # noqa: BLE001
+            self._send_json(500, {"ok": False, "error": {"code": 500, "message": str(exc)}})
+
+    def _render_job_detail_page(self, run_id: str, job_id: str) -> None:
+        from striatum.cli.introspect import latest_verdict_row
+        try:
+            with sqlite3.connect(str(db_path(self.state.repo))) as conn:
+                conn.row_factory = sqlite3.Row
+                run_row = conn.execute(
+                    "SELECT * FROM runs WHERE run_id = ?", (run_id,)
+                ).fetchone()
+                job_row = conn.execute(
+                    "SELECT * FROM jobs WHERE job_id = ? AND run_id = ?",
+                    (job_id, run_id),
+                ).fetchone()
+                if run_row is None or job_row is None:
+                    self._send_json(404, {"ok": False, "error": {"code": 404, "message": "not found"}})
+                    return
+                run = dict(run_row)
+                job = dict(job_row)
+                artifact_rows = conn.execute(
+                    "SELECT * FROM artifacts WHERE job_id = ? ORDER BY created_at",
+                    (job_id,),
+                ).fetchall()
+                artifacts = [dict(row) for row in artifact_rows]
+                latest_verdict = latest_verdict_row(conn, job_id=job_id)
+            html = _jinja_env().get_template("job_detail.html").render(
+                run=run, job=job, artifacts=artifacts, latest_verdict=latest_verdict,
+            )
+            self._send_html(200, html)
+        except Exception as exc:  # noqa: BLE001
+            self._send_json(500, {"ok": False, "error": {"code": 500, "message": str(exc)}})
+
+    def _render_artifact_view_page(self, run_id: str, artifact_id: str) -> None:
+        try:
+            with sqlite3.connect(str(db_path(self.state.repo))) as conn:
+                conn.row_factory = sqlite3.Row
+                run_row = conn.execute(
+                    "SELECT * FROM runs WHERE run_id = ?", (run_id,)
+                ).fetchone()
+                artifact_row = conn.execute(
+                    "SELECT * FROM artifacts WHERE artifact_id = ? AND run_id = ?",
+                    (artifact_id, run_id),
+                ).fetchone()
+                if run_row is None or artifact_row is None:
+                    self._send_json(404, {"ok": False, "error": {"code": 404, "message": "not found"}})
+                    return
+                run = dict(run_row)
+                artifact = dict(artifact_row)
+            html = _jinja_env().get_template("artifact_view.html").render(
+                run=run, artifact=artifact,
+            )
+            self._send_html(200, html)
+        except Exception as exc:  # noqa: BLE001
+            self._send_json(500, {"ok": False, "error": {"code": 500, "message": str(exc)}})
+
+    def _render_doctor_page(self) -> None:
+        from striatum.cli.introspect import doctor as doctor_command
+        try:
+            with sqlite3.connect(str(db_path(self.state.repo))) as conn:
+                conn.row_factory = sqlite3.Row
+                doctor_payload = doctor_command(conn, repo=self.state.repo, run_id=None)
+            html = _jinja_env().get_template("doctor.html").render(doctor=doctor_payload)
+            self._send_html(200, html)
+        except Exception as exc:  # noqa: BLE001
+            self._send_json(500, {"ok": False, "error": {"code": 500, "message": str(exc)}})
+
+    def _send_html(self, status: int, body: str) -> None:
+        data = body.encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Length", str(len(data)))
+        self.send_header(
+            "Content-Security-Policy",
+            "default-src 'self'; script-src 'self'; style-src 'self'; "
+            "img-src 'self' data:; connect-src 'self'",
+        )
         self.send_header("Connection", "close")
         self.end_headers()
         try:

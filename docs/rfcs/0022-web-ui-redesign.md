@@ -1,6 +1,6 @@
 # RFC 0022: Web UI Redesign
 
-Status: proposed
+Status: accepted (V1)
 Date: 2026-05-09
 Context:
 RFC 0013 (local web UI, accepted V1+step 7) — the existing SPA,

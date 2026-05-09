@@ -2,6 +2,52 @@
 
 ## Unreleased
 
+## 1.11.0 — 2026-05-09
+
+### Added
+
+- RFC 0022 V1 (dogfood-020): web UI redesign. Server-rendered
+  Jinja2 multi-page UI replaces the hash-routed SPA. Five pages:
+  `/`, `/run/<id>`, `/run/<id>/job/<id>`,
+  `/run/<id>/artifact/<id>`, `/doctor`. Each page is real HTML
+  that copy/pastes cleanly and works without JS. The JSON API
+  (`/v1/*`) and SSE feed (`/events`) are unchanged.
+- Refreshed visual palette: CSS custom properties for theme +
+  status colors, `prefers-color-scheme: dark` media query for
+  dark mode (no toggle button — OS preference wins), system
+  font stack, 4px-grid spacing scale. New `base.css` replaces
+  `app.css`.
+- SVG dependency graph on `run_detail.html`: layered top-down
+  layout (longest-path topological depth), state-colored nodes
+  via custom-property `fill`, click-to-navigate to job detail,
+  SVG `<title>` tooltip on hover for accessibility. Cycles
+  (revision loops) are not rendered as edges — only the forward
+  DAG from `workflow_graph_data().graph.edges`.
+- Legacy hash-route redirect: a small JS island in `base.html`
+  reads `window.location.hash` on load and rewrites
+  `#/run/<id>` to `/run/<id>` so bookmarked SPA URLs still
+  work.
+
+### Dependency
+
+- **Jinja2 ≥ 3.1** is now a runtime dependency (the project's
+  first; previously zero-runtime-dep). Adds ~250 KB to the
+  install size, pulls in `markupsafe` (~30 KB transitively).
+  Trade-off taken for HTML correctness over hand-written
+  string-format escaping.
+
+### Removed
+
+- `src/striatum/web/static/app.js`'s hash-router and the
+  associated SPA mount. The mutation-button JS is preserved as
+  a per-page island. The CSP header is byte-identical
+  (`default-src 'self'; …` with no `unsafe-inline` / `unsafe-eval`).
+
+### Deferred to V1.5
+
+- Inline dogfood Markdown rendering on `/run/<id>/artifact/<id>`.
+- SVG graph zoom / pan interactivity.
+
 ## 1.10.0 — 2026-05-09
 
 ### Added

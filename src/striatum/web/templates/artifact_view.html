@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block title %}Artifact · Striatum{% endblock %}
+{% block main %}
+<section class="page-section">
+  <header class="artifact-header">
+    <p class="breadcrumb"><a href="/run/{{ run.run_id }}">← {{ run.run_id }}</a></p>
+    <h1>Artifact</h1>
+    <div class="artifact-meta">
+      <span class="artifact-kind">{{ artifact.artifact_kind }}</span>
+      {% if artifact.logical_name %}
+      <span class="muted">{{ artifact.logical_name }}</span>
+      {% endif %}
+    </div>
+  </header>
+
+  <h2>Path</h2>
+  <p><code>{{ artifact.repo_path }}</code></p>
+
+  <h2>Metadata</h2>
+  <dl class="kv-grid">
+    <dt>Artifact ID</dt><dd><code>{{ artifact.artifact_id }}</code></dd>
+    <dt>SHA-256</dt><dd><code class="sha">{{ artifact.content_sha256 }}</code></dd>
+    <dt>Size</dt><dd>{{ artifact.size_bytes }} bytes</dd>
+    <dt>Created</dt><dd>{{ artifact.created_at }}</dd>
+    {% if artifact.author_line %}
+    <dt>Author</dt><dd>{{ artifact.author_line }}</dd>
+    {% endif %}
+  </dl>
+
+  <p class="muted">Inline Markdown rendering is queued for V1.5 (RFC 0022).
+  For now, view the file via <code>{{ artifact.repo_path }}</code> in the
+  repository or use the raw API: <code>GET /v1/artifacts/{{ artifact.artifact_id }}/raw</code>.</p>
+</section>
+{% endblock %}
