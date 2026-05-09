@@ -93,7 +93,9 @@ that intentionally pause for human judgment instead of entering a revision
 loop. `root_review_needs_revision: "declared_cycle"` is accepted only when each
 root review job declares a matching `needs_revision` cycle.
 
-### Harness Profiles (RFC 0010 V1)
+### Harness Profiles
+
+> Design rationale: [RFC 0010](rfcs/0010-tool-harness-profiles.md).
 
 Workflows may declare an optional `harness_profiles` map at the top level
 and reference one profile per lane via `harness_profile_id`. The map is a
@@ -248,7 +250,9 @@ Sessions match work by run, role, lane, and capabilities. Jobs can require
 fresh sessions. Native sub-agents spawned inside an agent CLI inherit the
 parent session unless explicitly registered as first-class sessions.
 
-### Session lifecycle and closure (RFC 0011)
+### Session lifecycle and closure
+
+> Design rationale: [RFC 0011](rfcs/0011-session-close-and-run-terminal-auto-close.md).
 
 Sessions are created `active` by `register-session`. The `state` column
 ranges over `('active','expired','stopped','lost','closed')`:
@@ -637,7 +641,10 @@ into autonomous behavior and an `escalation_hook` (`marker_file`,
 `recovery_policy` get diagnostic-only output; today's flow is
 preserved byte-for-byte.
 
-### Self-Contained Agent Skills (RFC 0015 V1+step 3)
+### Self-Contained Agent Skills
+
+> Design rationale: [RFC 0015](rfcs/0015-self-contained-agent-skills.md).
+
 
 `striatum skills install [--profile {claude_code, codex, gemini,
 generic, all}] [--scope {project, user}] [--namespace <prefix>]
@@ -770,7 +777,10 @@ status, `why`, doctor output, or stored work packets. MCP remains optional
 and local; the CLI and SQLite invariants are still the product contract. See
 `docs/MCP.md` for the wire shape and tool list.
 
-### Local Service (RFC 0012 V1)
+### Local Service
+
+> Design rationale: [RFC 0012](rfcs/0012-local-service-api.md).
+
 
 `striatum serve` runs a `ThreadingHTTPServer` on TCP loopback (default
 `127.0.0.1`) or a Unix-domain socket. Non-loopback hosts (`0.0.0.0`, public
@@ -804,7 +814,10 @@ whitelist of read verbs (`status`, `why`, `doctor`, `list`, `evidence`,
 `dashboard`, plus subcommand-aware reads under `workflow`, `supervise`,
 `worktree`, `run`, `recovery`).
 
-### Local Web UI (RFC 0013 V1+step 7)
+### Local Web UI
+
+> Design rationale: [RFC 0013](rfcs/0013-local-web-ui.md).
+
 
 `striatum serve --web` activates the bundled SPA. Static assets live
 under `src/striatum/web/static/` and ship inside the wheel via

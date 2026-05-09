@@ -21,6 +21,7 @@ collectively, not individually.
 |---|---|---|
 | [SPEC.md](SPEC.md) | Anyone | The implementation contract for the V1 surface. The source of truth when this index and the runner disagree. |
 | [DDD.md](DDD.md) | Anyone curious about the framing | Why the vocabulary is the model, not bookkeeping; bounded context, aggregate roots, value objects, the events log, and the CLI-as-only-write-surface invariant. |
+| [DOC_MAP.md](DOC_MAP.md) | Anyone editing the docs | The boundary contract: which doc owns what, what each doc deliberately does *not* contain, and the direction citations should flow. |
 | [PRD.md](PRD.md) | Product reader | The product requirements that drove the V1 design. |
 | [DECISION_LOG.md](DECISION_LOG.md) | Product / architecture reader | Every product and architecture decision (`D###` rows) with reason, consequences, and revisit triggers. |
 | [UBIQUITOUS_LANGUAGE.md](UBIQUITOUS_LANGUAGE.md) | Anyone | Glossary of striatum-specific terms (run, session, lease, work packet, lane, etc.). |

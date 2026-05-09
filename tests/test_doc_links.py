@@ -61,3 +61,41 @@ def test_readme_under_line_budget() -> None:
     assert len(lines) <= 250, (
         f"README is {len(lines)} lines; RFC 0017 budget is 250"
     )
+
+
+# DECISION_LOG row word budget. Per docs/DOC_MAP.md, a D-row is a
+# receipt — one to two sentences per cell. The cap exists so the log
+# does not silently grow into RFC reference material; detail belongs
+# in the RFC and the dogfood BUILD_HANDOFF, both of which are linked
+# from the row.
+#
+# Enforced from D055 onward (the cleanup boundary). Earlier rows are
+# grandfathered as-is — rewriting them would scrub historical record.
+DECISION_ROW_WORD_BUDGET = 200
+DECISION_ROW_BUDGET_FROM = 55
+
+
+def test_decision_log_rows_under_word_budget() -> None:
+    text = (ROOT / "docs" / "DECISION_LOG.md").read_text(encoding="utf-8")
+    failures: list[str] = []
+    for line in text.splitlines():
+        if not line.startswith("| D"):
+            continue
+        cells = [c.strip() for c in line.strip("|").split("|")]
+        if not cells:
+            continue
+        row_id = cells[0]
+        try:
+            row_num = int(row_id.lstrip("D"))
+        except ValueError:
+            continue
+        if row_num < DECISION_ROW_BUDGET_FROM:
+            continue
+        prose_cells = cells[2:] if len(cells) > 2 else []
+        word_count = sum(len(c.split()) for c in prose_cells)
+        if word_count > DECISION_ROW_WORD_BUDGET:
+            failures.append(f"{row_id}: {word_count} words")
+    assert not failures, (
+        "DECISION_LOG rows over budget (see docs/DOC_MAP.md): "
+        + ", ".join(failures)
+    )
