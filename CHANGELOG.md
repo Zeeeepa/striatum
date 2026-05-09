@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+## 1.8.1 — 2026-05-09
+
+### Changed
+
+- PyPI distribution renamed from `striatum` (taken on PyPI by an
+  unrelated project) to `striatum-orchestrator`. Module imports
+  (`import striatum`) and the `striatum` console script are
+  unchanged. Operators upgrading from a hypothetical earlier
+  install would `pip uninstall striatum && pip install
+  striatum-orchestrator`; in practice no one was on PyPI before
+  this release.
+
 ## 1.8.0 — 2026-05-09
 
 ### Added
