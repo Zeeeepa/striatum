@@ -60,7 +60,7 @@ def run_summary_snapshot(conn: sqlite3.Connection, *, repo: Path, run_id: str) -
     verdicts = conn.execute(
         """
         SELECT v.verdict_id, v.job_id, j.workflow_job_id, v.verdict, v.findings_artifact_id,
-               v.created_at
+               v.created_at, v.posture
         FROM verdicts v
         JOIN jobs j ON j.job_id = v.job_id
         WHERE v.run_id = ?
@@ -140,6 +140,7 @@ def _group_verdicts_by_workflow_job(verdicts: list[JsonObject]) -> list[JsonObje
                 "attempts": len(items),
                 "latest_verdict": latest["verdict"],
                 "latest_verdict_id": latest["verdict_id"],
+                "latest_posture": latest.get("posture", "neutral"),
                 "prior_verdicts": prior_verdicts,
             }
         )
@@ -208,12 +209,22 @@ def render_run_summary_markdown(*, run: JsonObject, summary: JsonObject) -> str:
     else:
         lines.append("- No jobs recorded.")
     lines.extend(["", "## Verdicts", ""])
+    # RFC 0018 step 3 (V1.5): only render the per-posture suffix when at
+    # least one non-neutral posture exists in the run. Posture-omitting
+    # runs render byte-identically to v1.8.1.
+    has_non_neutral_posture = any(
+        str(entry.get("latest_posture") or "neutral") != "neutral"
+        for entry in grouped_verdicts
+    )
     if grouped_verdicts:
         for entry in grouped_verdicts:
             attempts = int(entry["attempts"])
             latest = str(entry["latest_verdict"])
             prior = list(entry.get("prior_verdicts") or [])
             line = f"- `{entry['workflow_job_id']}` ({attempts} attempts): `{latest}`"
+            if has_non_neutral_posture:
+                posture = str(entry.get("latest_posture") or "neutral")
+                line += f" [posture: `{posture}`]"
             if prior:
                 # Compress like ``2x needs_revision, 1x reject`` so a long
                 # cycle stays readable on one line.

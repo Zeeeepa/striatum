@@ -228,6 +228,7 @@ EVIDENCE_POLICY: JsonObject = {
             "verdict": "safe",
             "findings_artifact_id": "safe",
             "rationale": "redacted",
+            "posture": "safe",
         },
     },
     "blockers": {
@@ -392,7 +393,7 @@ def evidence_snapshot(conn: sqlite3.Connection, *, run_id: str) -> JsonObject:
     sessions = evidence_session_summaries(conn, run_id=run_id)
     verdicts = conn.execute(
         """
-        SELECT verdict_id, job_id, session_id, verdict, findings_artifact_id, rationale
+        SELECT verdict_id, job_id, session_id, verdict, findings_artifact_id, rationale, posture
         FROM verdicts WHERE run_id = ? ORDER BY created_at
         """,
         (run_id,),

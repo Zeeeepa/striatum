@@ -2,6 +2,58 @@
 
 ## Unreleased
 
+## 1.9.0 — 2026-05-09
+
+### Added
+
+- RFC 0018 step 3 V1.5 (dogfood-018): `verdicts.posture` column
+  + introspection surfacing across six paths.
+  - Migration v10 ALTERs `verdicts` to add a `posture TEXT NOT
+    NULL DEFAULT 'neutral'` column and a covering index
+    `idx_verdicts_posture`. Existing rows backfill to
+    `'neutral'`. Forward-only; idempotent.
+  - `record_review_verdict` reads the review job's posture from
+    the workflow snapshot (defaulting to `'neutral'` when
+    omitted) and writes it on INSERT. The `verdict.recorded`
+    event payload now carries `posture` alongside `verdict`.
+  - `status --json` adds a `verdicts_by_posture` dict alongside
+    the existing verdict counts. Always emitted (empty dict
+    when no verdicts) for stable shape.
+  - `run summary` Markdown adds a `[posture: \`<name>\`]` suffix
+    on each per-build verdict line *only* when at least one
+    non-neutral posture exists in the run. Posture-omitting
+    runs render byte-identically to v1.8.1.
+  - `evidence export` JSON snapshot includes `posture` on every
+    verdict row.
+  - `run graph --format json` adds `posture` to each review
+    node's `latest_verdict` block (when a verdict exists).
+  - Dashboard verdicts panel renders a `Postures: <p1>=<n1>,
+    <p2>=<n2>` summary line when at least one non-neutral
+    posture exists. Sorted by count descending, then posture
+    name ascending for deterministic ties; truncates to the
+    top-3 with `+N more` overflow.
+  - Web UI verdict list renders a posture chip alongside each
+    verdict badge for non-neutral postures. New
+    `.posture-chip` CSS class with `max-width: 12em` +
+    `text-overflow: ellipsis` for long `custom:<name>` strings;
+    full posture name shows on hover via `title` attribute.
+
+### Changed (intentional)
+
+- `evidence export` JSON snapshot's per-verdict block now
+  includes a `posture` field. Downstream consumers parsing the
+  redacted snapshot by key name (e.g. `verdict`,
+  `findings_artifact_id`) tolerate the additive field; consumers
+  that rely on a fixed shape may need an update.
+
+### Tests
+
+- `tests/test_review_postures_introspection.py` (15 cases)
+  covering migration idempotency, submit-review backfill across
+  declared/undeclared/custom postures, and each of the six
+  introspection surfaces (including byte-identical zero-
+  regression assertions for posture-omitting runs).
+
 ## 1.8.1 — 2026-05-09
 
 ### Changed

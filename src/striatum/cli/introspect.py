@@ -176,6 +176,7 @@ def status(conn: sqlite3.Connection, *, run_id: str | None) -> JsonObject:
     open_blockers = blocker_summaries(conn, run_id=run_id, severity=None)
     human_checkpoints = blocker_summaries(conn, run_id=run_id, severity="human_checkpoint")
     non_accepting = latest_non_accepting_verdicts(conn, run_id=run_id)
+    verdicts_by_posture = _count_verdicts_by_posture(conn, run_id=run_id)
     claimable = claimable_jobs_by_role_lane(conn, run_id=run_id)
     blocked_downstream = blocked_downstream_jobs(conn, run_id=run_id)
     has_orphan_supervisor = _has_supervisor_lost_with_held_lease(conn, run_id=run_id)
@@ -197,11 +198,34 @@ def status(conn: sqlite3.Connection, *, run_id: str | None) -> JsonObject:
         "open_blockers": open_blockers,
         "human_checkpoints": human_checkpoints,
         "latest_non_accepting_review_verdicts": non_accepting,
+        "verdicts_by_posture": verdicts_by_posture,
         "claimable_jobs": claimable,
         "blocked_downstream_jobs": blocked_downstream,
         "process_health": process_health,
         "next_actions": actions,
     }
+
+
+def _count_verdicts_by_posture(
+    conn: sqlite3.Connection, *, run_id: str | None
+) -> dict[str, int]:
+    """RFC 0018 step 3 (V1.5): aggregate verdict counts by posture.
+
+    Returns a mapping of posture → count of recorded verdicts. Counts
+    *all* verdicts regardless of value (operators want to see whether a
+    posture review even ran). Always emitted (empty dict when no
+    verdicts exist) for stable shape across posture-omitting and
+    posture-declaring runs.
+    """
+    rows = conn.execute(
+        """
+        SELECT posture, COUNT(*) AS count FROM verdicts
+        WHERE (? IS NULL OR run_id = ?)
+        GROUP BY posture
+        """,
+        (run_id, run_id),
+    ).fetchall()
+    return {str(row["posture"]): int(row["count"]) for row in rows}
 
 
 def _process_health(
@@ -733,6 +757,7 @@ def run_graph(
                         "verdict": verdict_row["verdict"],
                         "rationale": verdict_row.get("rationale"),
                         "findings_artifact_id": verdict_row.get("findings_artifact_id"),
+                        "posture": verdict_row.get("posture", "neutral"),
                     }
                 else:
                     annotated["latest_verdict"] = None

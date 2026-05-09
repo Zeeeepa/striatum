@@ -77,6 +77,22 @@ a:hover { text-decoration: underline; }
 .badge-reject { background: var(--failed); color: #0a0d11; }
 .badge-accepted { background: var(--completed); color: #0a0d11; }
 .badge-accepted_with_follow_up { background: var(--blocked); color: #0a0d11; }
+/* RFC 0018 step 3 (V1.5): posture chip alongside verdict badge.
+   Gray background, ellipsis truncation for long custom: postures,
+   tooltip on hover via the title attribute. */
+.posture-chip {
+  display: inline-block;
+  padding: 0.05em 0.5em;
+  border-radius: 0.3em;
+  font-size: 0.8em;
+  background: var(--border);
+  color: var(--fg);
+  max-width: 12em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: middle;
+}
 .badge-rejected { background: var(--failed); color: #0a0d11; }
 .chip {
   display: inline-block;

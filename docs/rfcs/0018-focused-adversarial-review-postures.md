@@ -1,6 +1,6 @@
 # RFC 0018: Focused Adversarial Review Postures
 
-Status: accepted (V1; step 3 deferred)
+Status: accepted (V1+step 3)
 Date: 2026-05-08
 Context:
 RFC 0002 (reviewer independence policy, accepted),

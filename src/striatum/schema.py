@@ -186,8 +186,10 @@ CREATE TABLE IF NOT EXISTS verdicts (
   rationale TEXT,
   findings_artifact_id TEXT REFERENCES artifacts(artifact_id),
   created_at TEXT NOT NULL,
+  posture TEXT NOT NULL DEFAULT 'neutral',
   UNIQUE (job_id, session_id)
 );
+CREATE INDEX IF NOT EXISTS idx_verdicts_posture ON verdicts(posture);
 
 CREATE TABLE IF NOT EXISTS blockers (
   blocker_id TEXT PRIMARY KEY,

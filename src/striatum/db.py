@@ -1238,6 +1238,45 @@ def verify_required_artifacts(conn: sqlite3.Connection, *, job_id: str) -> None:
             )
 
 
+def _resolve_review_posture(
+    conn: sqlite3.Connection, *, job: sqlite3.Row
+) -> str:
+    """RFC 0018 step 3 (V1.5): resolve a review job's posture from its
+    workflow snapshot.
+
+    Returns the literal value of the job's ``review_posture`` field if
+    declared and valid; otherwise ``"neutral"``. Posture lives only in
+    the immutable workflow snapshot, not on the live workflow file or
+    on any per-job table column, so this lookup is the source of truth.
+    """
+    run = row_by_id(conn, "runs", "run_id", str(job["run_id"]))
+    snapshot = row_by_id(
+        conn,
+        "workflow_snapshots",
+        "workflow_snapshot_id",
+        str(run["workflow_snapshot_id"]),
+    )
+    workflow = json_loads(str(snapshot["workflow_json"]))
+    if not isinstance(workflow, dict):
+        return "neutral"
+    jobs = workflow.get("jobs", [])
+    if not isinstance(jobs, list):
+        return "neutral"
+    workflow_job_id = str(job["workflow_job_id"])
+    for entry in jobs:
+        if not isinstance(entry, dict):
+            continue
+        if entry.get("id") != workflow_job_id:
+            continue
+        if entry.get("type") != "review":
+            return "neutral"
+        declared = entry.get("review_posture")
+        if isinstance(declared, str) and declared:
+            return declared
+        return "neutral"
+    return "neutral"
+
+
 def record_review_verdict(
     conn: sqlite3.Connection,
     *,
@@ -1259,15 +1298,17 @@ def record_review_verdict(
         verify_required_artifacts(conn, job_id=job_id)
         verdict_id = new_id("verdict")
         now = utc_now()
+        posture = _resolve_review_posture(conn, job=job)
         conn.execute(
             """
             INSERT INTO verdicts (
               verdict_id, run_id, job_id, session_id, verdict, rationale,
-              findings_artifact_id, created_at
+              findings_artifact_id, created_at, posture
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (verdict_id, job["run_id"], job_id, session_id, verdict, rationale, findings_artifact_id, now),
+            (verdict_id, job["run_id"], job_id, session_id, verdict,
+             rationale, findings_artifact_id, now, posture),
         )
         insert_event(
             conn,
@@ -1276,7 +1317,7 @@ def record_review_verdict(
             actor_session_id=session_id,
             job_id=job_id,
             lease_id=lease_id,
-            payload={"verdict": verdict},
+            payload={"verdict": verdict, "posture": posture},
         )
         if verdict in ("accept", "accept_with_findings"):
             _complete_review_job(conn, job=job, session_id=session_id, lease_id=lease_id, summary=verdict)

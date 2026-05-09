@@ -419,7 +419,14 @@ async function renderJobDetail(runId, jobId) {
   if (Array.isArray(data.verdicts) && data.verdicts.length > 0) {
     html += `<h2>Verdicts</h2><ul>`;
     for (const v of data.verdicts) {
-      html += `<li>${badge(v.verdict)} <span class="muted">${escapeHTML(v.created_at)}</span></li>`;
+      let line = `${badge(v.verdict)} <span class="muted">${escapeHTML(v.created_at)}</span>`;
+      // RFC 0018 step 3 (V1.5): render posture chip alongside the
+      // verdict badge for non-neutral postures. Custom postures get
+      // ellipsis truncation via CSS (max-width 12em).
+      if (typeof v.posture === "string" && v.posture !== "" && v.posture !== "neutral") {
+        line += ` <span class="posture-chip" title="${escapeHTML(v.posture)}">${escapeHTML(v.posture)}</span>`;
+      }
+      html += `<li>${line}</li>`;
     }
     html += "</ul>";
   }

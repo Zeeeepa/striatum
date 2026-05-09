@@ -346,6 +346,27 @@ def _apply_v8_process_state_enum(conn: sqlite3.Connection) -> None:
     )
 
 
+def _apply_v10_verdicts_posture(conn: sqlite3.Connection) -> None:
+    """RFC 0018 step 3 (V1.5): add ``posture`` column to ``verdicts`` and
+    a covering index for per-posture queries.
+
+    Forward-only ``ALTER TABLE``; existing rows backfill to ``'neutral'``
+    via the ``DEFAULT`` clause. Idempotent against a fresh DB whose
+    ``schema.py`` already created the column (the V1.5 baseline schema is
+    updated alongside the migration so freshly-initialized DBs install
+    the column directly, and a re-run of ``apply_migrations`` would
+    otherwise duplicate it).
+    """
+    cols = [row[1] for row in conn.execute("PRAGMA table_info(verdicts)").fetchall()]
+    if "posture" not in cols:
+        conn.executescript(
+            "ALTER TABLE verdicts ADD COLUMN posture TEXT NOT NULL DEFAULT 'neutral';"
+        )
+    conn.executescript(
+        "CREATE INDEX IF NOT EXISTS idx_verdicts_posture ON verdicts(posture);"
+    )
+
+
 def _apply_v9_blockers_payload_json(conn: sqlite3.Connection) -> None:
     """RFC 0014 V1: add ``payload_json`` to the ``blockers`` table so the
     diagnostic envelope from process-adapter completion validation is
@@ -393,6 +414,11 @@ MIGRATIONS: list[Migration] = sorted(
             version=9,
             label="blockers payload_json column",
             apply=_apply_v9_blockers_payload_json,
+        ),
+        Migration(
+            version=10,
+            label="verdicts.posture column + index",
+            apply=_apply_v10_verdicts_posture,
         ),
     ],
     key=lambda migration: migration.version,

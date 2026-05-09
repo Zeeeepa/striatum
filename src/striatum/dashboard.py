@@ -84,6 +84,19 @@ def gather_payload(repo: Path, *, run_id: str) -> dict[str, Any]:
             (run_id,),
         ).fetchall()
         verdict_counts = {str(row["verdict"]): int(row["count"]) for row in verdict_rows}
+        # RFC 0018 step 3 (V1.5): per-posture counts for the dashboard
+        # verdicts panel. Rendered only when at least one non-neutral
+        # posture exists in the run.
+        posture_rows = conn.execute(
+            """
+            SELECT posture, COUNT(*) AS count
+            FROM verdicts
+            WHERE run_id = ?
+            GROUP BY posture
+            """,
+            (run_id,),
+        ).fetchall()
+        posture_counts = {str(row["posture"]): int(row["count"]) for row in posture_rows}
         # RFC 0016 V1: workflow snapshot + node_states for the optional
         # graph panel.
         snapshot_row = conn.execute(
@@ -105,6 +118,7 @@ def gather_payload(repo: Path, *, run_id: str) -> dict[str, Any]:
         "status": status_payload,
         "events": events,
         "verdict_counts": verdict_counts,
+        "posture_counts": posture_counts,
         "updated_at": utc_now(),
         "workflow": workflow_payload,
         "node_states": node_states,
@@ -193,7 +207,10 @@ def render_frame(
 
     if not graph_only:
         left_lines = _render_left_column(job_counts)
-        right_lines = _render_right_column(verdict_counts, blocker_counts)
+        right_lines = _render_right_column(
+            verdict_counts, blocker_counts,
+            posture_counts=payload.get("posture_counts"),
+        )
         for combined in _zip_columns(left_lines, right_lines, left_col_width, right_col_width):
             lines.append(combined)
         lines.append("")
@@ -322,11 +339,33 @@ def _render_left_column(job_counts: Mapping[str, Any]) -> list[str]:
 def _render_right_column(
     verdict_counts: Mapping[str, int],
     blocker_counts: Mapping[str, int],
+    posture_counts: Mapping[str, int] | None = None,
 ) -> list[str]:
     lines: list[str] = ["Verdicts:"]
     for verdict in VERDICT_ORDER:
         count = int(verdict_counts.get(verdict, 0))
         lines.append(f"  {verdict:<20} {count}")
+    # RFC 0018 step 3 (V1.5): per-posture summary line when at least
+    # one non-neutral posture exists. Sort by count desc, then posture
+    # name asc for deterministic tie-break (Finding 3). Truncate to top-3
+    # with `+N more` overflow.
+    if posture_counts:
+        non_neutral = {
+            posture: count
+            for posture, count in posture_counts.items()
+            if posture != "neutral" and count > 0
+        }
+        if non_neutral:
+            ordered = sorted(
+                non_neutral.items(),
+                key=lambda item: (-item[1], item[0]),
+            )
+            head = ordered[:3]
+            extra = len(ordered) - len(head)
+            parts = [f"{posture}={count}" for posture, count in head]
+            if extra > 0:
+                parts.append(f"+{extra} more")
+            lines.append(f"  Postures: {', '.join(parts)}")
     lines.append("")
     lines.append("Blockers (open):")
     for severity in BLOCKER_SEVERITY_ORDER:
