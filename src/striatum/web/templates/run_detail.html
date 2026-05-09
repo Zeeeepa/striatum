@@ -10,6 +10,17 @@
       <span class="muted">on <code>{{ run.branch_name }}</code></span>
       {% endif %}
     </div>
+    {% if run.state == "needs_branch_confirmation" %}
+    <div class="branch-confirm-panel" data-run-id="{{ run.run_id }}" data-branch="{{ suggested_branch_name or run.branch_name or '' }}">
+      <p class="muted">This run is waiting for branch confirmation.</p>
+      <label>Branch <input type="text" id="bc-branch" value="{{ suggested_branch_name or run.branch_name or '' }}"></label>
+      <label><input type="checkbox" id="bc-create" checked> Create if missing</label>
+      <label><input type="checkbox" id="bc-use-current"> Use current git branch</label>
+      <button type="button" id="bc-confirm-btn" class="primary-button">Confirm and start</button>
+      <span id="bc-status" class="muted"></span>
+    </div>
+    <script defer src="/static/run_branch_confirm.js"></script>
+    {% endif %}
   </header>
 
   <div class="run-grid">

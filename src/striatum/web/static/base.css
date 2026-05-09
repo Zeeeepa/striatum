@@ -652,3 +652,17 @@ table.runs-table tbody tr:hover { background: var(--bg-overlay); }
 .workflow-edit-page .field-error textarea {
   border-color: var(--status-failed) !important;
 }
+
+/* RFC 0024 V2.1: branch-confirm panel on /run/<id>. */
+.branch-confirm-panel {
+  margin-top: var(--space-3);
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-overlay);
+}
+.branch-confirm-panel label { display: inline-block; margin-right: var(--space-3); }
+.branch-confirm-panel input[type="text"] {
+  font-family: var(--font-mono);
+  padding: var(--space-1) var(--space-2);
+}

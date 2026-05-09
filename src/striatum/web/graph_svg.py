@@ -106,8 +106,12 @@ def render_run_graph(
     height = PADDING * 2 + (max(layers.keys()) + 1) * NODE_H + max(0, len(layers) - 1) * GAP_Y
 
     parts: list[str] = []
+    # RFC 0024 V2.1: render at natural size — CSS clamps via max-width
+    # for narrow viewports but the SVG no longer scales *up* to fill
+    # the container, which made small graphs look gigantic.
     parts.append(
-        f'<svg viewBox="0 0 {width} {height}" xmlns="http://www.w3.org/2000/svg" '
+        f'<svg viewBox="0 0 {width} {height}" width="{width}" height="{height}" '
+        f'xmlns="http://www.w3.org/2000/svg" '
         f'role="img" aria-label="Workflow dependency graph">'
     )
     parts.append(

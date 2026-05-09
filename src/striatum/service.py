@@ -571,6 +571,10 @@ class StriatumServiceHandler(BaseHTTPRequestHandler):
         if self.state.web_enabled and parsed.path.startswith("/workflows/run/"):
             self._handle_workflow_run_now(parsed.path[len("/workflows/run/"):])
             return
+        if self.state.web_enabled and parsed.path.startswith("/run/") and parsed.path.endswith("/branch-confirm"):
+            run_id = parsed.path[len("/run/"):-len("/branch-confirm")]
+            self._handle_run_branch_confirm(run_id)
+            return
         if self.state.web_enabled and parsed.path.startswith("/chat/") and parsed.path.endswith("/send"):
             session_id = parsed.path[len("/chat/"):-len("/send")]
             self._handle_chat_send(session_id)
@@ -796,12 +800,23 @@ class StriatumServiceHandler(BaseHTTPRequestHandler):
                 status_payload = status_command(conn, run_id=run_id)
             node_states = compute_node_states_from_jobs(jobs)
             graph_svg = render_run_graph(workflow, node_states, run_id=run_id)
+            suggested_branch_name = ""
+            allow_dirty = False
+            try:
+                br = workflow.get("branch") or {}
+                if isinstance(br, dict):
+                    suggested_branch_name = str(br.get("suggested_name") or "")
+                    allow_dirty = bool(br.get("allow_dirty"))
+            except (AttributeError, TypeError):
+                pass
             html = _jinja_env().get_template("run_detail.html").render(
                 run=run,
                 jobs=jobs,
                 graph_svg=graph_svg,
                 next_actions=status_payload.get("next_actions") or [],
                 verdicts_by_posture=status_payload.get("verdicts_by_posture") or {},
+                suggested_branch_name=suggested_branch_name,
+                allow_dirty=allow_dirty,
             )
             self._send_html(200, html)
         except Exception as exc:  # noqa: BLE001
@@ -1217,6 +1232,79 @@ class StriatumServiceHandler(BaseHTTPRequestHandler):
             self._send_json(500, {"ok": False, "error": {"code": 500, "message": f"{type(exc).__name__}: {exc}"}})
             return
         self._send_json(200, {"ok": True, "data": {"run_id": run_id, "status": "running"}})
+
+    def _handle_run_branch_confirm(self, run_id: str) -> None:
+        """RFC 0024 V2.1: confirm a run's branch from the web UI.
+
+        Body: ``{"branch": "<name>", "create": true|false, "use_current": true|false}``.
+        Mutation-gated. After successful confirm, also drives ``run_start``
+        so the run leaves ``needs_branch_confirmation`` immediately.
+        """
+        from striatum.cli.mutations import branch_confirm, run_start
+        from striatum.db import connect
+        from striatum.errors import (
+            BranchConfirmationError,
+            InvalidTransitionError,
+            NotFoundError,
+        )
+
+        if not self.state.allow_mutations:
+            self._send_json(405, {"ok": False, "error": {"code": 405, "message": "branch confirm requires --allow-mutations"}})
+            return
+        ctype = self.headers.get("Content-Type", "")
+        if "application/json" not in ctype:
+            self._send_json(415, {"ok": False, "error": {"code": 415, "message": "Content-Type must be application/json"}})
+            return
+        try:
+            length = int(self.headers.get("Content-Length") or "0")
+        except ValueError:
+            length = 0
+        if length > 64 * 1024:
+            self._send_json(413, {"ok": False, "error": {"code": 413, "message": "body too large"}})
+            return
+        try:
+            raw = self.rfile.read(length).decode("utf-8", errors="replace") if length > 0 else "{}"
+        except OSError as exc:
+            self._send_json(400, {"ok": False, "error": {"code": 400, "message": str(exc)}})
+            return
+        try:
+            body = json.loads(raw or "{}")
+        except json.JSONDecodeError as exc:
+            self._send_json(400, {"ok": False, "error": {"code": 400, "message": f"invalid JSON: {exc}"}})
+            return
+        if not isinstance(body, dict):
+            self._send_json(400, {"ok": False, "error": {"code": 400, "message": "body must be a JSON object"}})
+            return
+        branch_name = body.get("branch")
+        create = bool(body.get("create", True))
+        use_current = bool(body.get("use_current", False))
+        if not isinstance(branch_name, str) or not branch_name:
+            self._send_json(400, {"ok": False, "error": {"code": 400, "message": "branch is required"}})
+            return
+        try:
+            with connect(self.state.repo) as conn:
+                confirmed = branch_confirm(
+                    conn,
+                    repo=self.state.repo,
+                    run_id=run_id,
+                    branch=branch_name,
+                    create=create,
+                    use_current=use_current,
+                )
+                run_start(conn, run_id=run_id)
+        except BranchConfirmationError as exc:
+            self._send_json(409, {"ok": False, "error": {"code": 409, "message": str(exc), "kind": "branch_confirmation"}})
+            return
+        except NotFoundError as exc:
+            self._send_json(404, {"ok": False, "error": {"code": 404, "message": str(exc)}})
+            return
+        except InvalidTransitionError as exc:
+            self._send_json(409, {"ok": False, "error": {"code": 409, "message": str(exc), "kind": "invalid_transition"}})
+            return
+        except Exception as exc:  # noqa: BLE001
+            self._send_json(500, {"ok": False, "error": {"code": 500, "message": f"{type(exc).__name__}: {exc}"}})
+            return
+        self._send_json(200, {"ok": True, "data": {"run_id": run_id, "state": "running", "branch": confirmed.get("branch")}})
 
     def _render_doctor_page(self) -> None:
         from striatum.cli.introspect import doctor as doctor_command

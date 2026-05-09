@@ -2,6 +2,26 @@
 
 ## Unreleased
 
+## 1.16.1 — 2026-05-09
+
+### Added
+
+- RFC 0024 V2.1: branch-confirm button on `/run/<id>` for runs in
+  `needs_branch_confirmation` state. Operator no longer has to drop
+  to the CLI when a `confirm`-mode workflow is started via the
+  Run-now button. POST `/run/<id>/branch-confirm` with
+  `{branch, create, use_current}` calls `branch_confirm` and
+  `run_start` in one transaction; reload reveals the now-running
+  run.
+
+### Fixed
+
+- SVG dependency graph rendered with explicit `width`/`height`
+  attributes instead of relying solely on `viewBox` + CSS
+  `max-width: 100%`. Small graphs no longer scale up to fill the
+  full container width — boxes render at their natural pixel size
+  and the SVG only shrinks for narrow viewports.
+
 ## 1.16.0 — 2026-05-09
 
 ### Added
