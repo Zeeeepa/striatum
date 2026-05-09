@@ -1,7 +1,14 @@
 # Prior Art Notes
 
-Status: draft
+Status: historical reference
 Date: 2026-05-06
+
+> **This is reference material from the incubation phase.** The
+> table below is the survey that informed the original PRD; it
+> is not a list of currently-tracked dependencies or active
+> design influences. Any *current* design rationale lives in
+> the relevant RFC under `docs/rfcs/` and the
+> `docs/DECISION_LOG.md` row that accepts it.
 
 These notes are inspiration, not adopted design. Any product or architecture
 choice still needs promotion into `docs/DECISION_LOG.md`.

@@ -1,9 +1,17 @@
 # RFC 0014 Dogfood Fix Specification
 
-Status: proposed implementation spec
+Status: historical (resolved)
 Date: 2026-05-06
 Source validation:
 `docs/reviews/rfc-0014-operational-artifact-home/STRIATUM_VALIDATION_NOTES.md`
+
+> **This is incubation-era material, not current product spec.**
+> The findings below were the trigger for RFC 0001 (Run Recovery
+> and Dogfood Fixes) and other early RFCs; everything actionable
+> here has long since landed on `main` and been recorded in
+> `docs/DECISION_LOG.md`. Read this file only when researching
+> the historical motivation for RFC 0001 / RFC 0007 / the early
+> recovery work; for current behavior, read `docs/SPEC.md`.
 
 ## Purpose
 

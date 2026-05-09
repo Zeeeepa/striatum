@@ -1,7 +1,16 @@
 # Interview Log
 
-Status: active
+Status: historical (incubation)
 Date: 2026-05-06
+
+> **This is a historical incubation artifact, not active product
+> material.** The interview rounds below produced the original
+> `docs/PRD.md` and the early `docs/DECISION_LOG.md` rows
+> (D001–D040 territory). Decisions made *since* striatum
+> graduated to its own repo land via RFCs and `D###` rows, not
+> via this log. Read this only when you need to understand how
+> a load-bearing decision was originally framed; for current
+> product state, read `docs/SPEC.md` and `docs/DECISION_LOG.md`.
 
 This log captures the interview-driven design process for `striatum`.
 

@@ -864,37 +864,59 @@ whitelist of read verbs (`status`, `why`, `doctor`, `list`, `evidence`,
 
 ### Local Web UI
 
-> Design rationale: [RFC 0013](rfcs/0013-local-web-ui.md).
+> Design rationale: [RFC 0013](rfcs/0013-local-web-ui.md) (V1 surface
+> + JSON API + SSE feed); [RFC 0022](rfcs/0022-web-ui-redesign.md) (V1
+> server-rendered redesign + SVG dependency graph).
 
 
-`striatum serve --web` activates the bundled SPA. Static assets live
-under `src/striatum/web/static/` and ship inside the wheel via
-`[tool.setuptools.package-data]`. The handler resolves assets via
-`importlib.resources.files("striatum.web.static")` so editable installs
-and wheel installs both work.
+`striatum serve --web` activates the bundled UI. As of v1.11.0
+the UI is a server-rendered Jinja2 multi-page app (RFC 0022 V1);
+the prior hash-routed SPA is superseded. Static assets and HTML
+templates ship inside the wheel via
+`[tool.setuptools.package-data]` (`striatum.web.static` for CSS /
+JS islands, `striatum.web.templates` for `.html`). The handler
+resolves both via `importlib.resources.files(...)` so editable
+installs and wheel installs both work.
 
-- `GET /` → `index.html`.
-- `GET /static/<path>` → bundled asset (HTML / JS / CSS / SVG).
-- All static responses set `Content-Security-Policy: default-src 'self';
+Routes:
+
+- `GET /` → server-rendered `run_list.html`.
+- `GET /run/<run_id>` → `run_detail.html`. Includes an inline
+  SVG dependency graph (RFC 0022 step 3) — layered top-down
+  layout, state-colored nodes via CSS custom properties, click
+  to navigate to a job's detail page, SVG `<title>` tooltip on
+  hover for accessibility.
+- `GET /run/<run_id>/job/<job_id>` → `job_detail.html`. Job
+  metadata + verdict + posture chip + artifacts list.
+- `GET /run/<run_id>/artifact/<artifact_id>` →
+  `artifact_view.html`. Metadata + sha256 + raw-API pointer.
+  Inline Markdown rendering is queued for V1.5.
+- `GET /doctor` → `doctor.html`.
+- `GET /static/<path>` → bundled asset (CSS / JS islands).
+- All HTML responses set `Content-Security-Policy: default-src 'self';
   script-src 'self'; style-src 'self'; img-src 'self' data:;
-  connect-src 'self'`.
-- Path traversal (`..`, leading `/`) is rejected with HTTP 400.
+  connect-src 'self'` — byte-identical to v1.10.0.
+- Path traversal (`..`, leading `/`, null bytes) on
+  `/run/<id>/...` paths is rejected with HTTP 400.
 - `GET /v1/artifacts/<artifact_id>/raw` streams the raw bytes of a
-  published artifact for the viewer; read-only, no mutation gate.
+  published artifact; read-only, no mutation gate.
 - `GET /v1/health` includes an `allow_mutations: bool` field
-  (RFC 0013 step 7); the SPA caches it once per page load to
-  decide whether to render mutation buttons.
+  (RFC 0013 step 7); the page reads this on load to decide
+  whether to render mutation buttons.
 - `GET /v1/runs/<id>/artifacts` returns the run's full artifact
-  rollup (wraps `striatum list artifacts --run-id <id>`). The
-  SPA's run-detail view renders this as a table so per-run
-  Markdown (handoffs, syntheses, decisions, findings, run
-  summaries) is reachable without drilling into the publishing
-  job.
+  rollup (wraps `striatum list artifacts --run-id <id>`).
 
-The SPA is a vanilla ES module (no framework, no CDN imports). Five
-read views are implemented: run list, run detail (with live SSE
-event log), job detail, artifact viewer with per-kind front-matter
-formatting, and doctor.
+A small JS island (`/static/legacy_hash_redirect.js`) loaded by
+`base.html` reads `window.location.hash` on page load and
+rewrites legacy `#/run/<id>` SPA URLs to `/run/<id>` so
+bookmarked SPA URLs still reach the right page.
+
+Visual styling: CSS custom-property palette in `base.css` with
+`@media (prefers-color-scheme: dark)` overrides (no toggle
+button — the OS preference is the source of truth). System font
+stack, 4px-grid spacing scale. State-colored status pills and
+posture chips reuse the same CSS variables as the SVG graph
+nodes, so dark-mode rendering inherits consistently.
 
 When the service was started with `--allow-mutations`, the SPA
 also renders five click-driven mutation buttons that POST to

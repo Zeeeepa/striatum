@@ -71,6 +71,35 @@ convention stabilizes), and `generic` (single Markdown guide for
 any other CLI). All profiles are byte-identical on re-install;
 operator edits are preserved unless you pass `--force`.
 
+To also scaffold the seven canonical human-facing DDD documents
+(RFC 0021) into the target repo's `docs/`:
+
+```bash
+# Combined first-time setup (recommended): agent skills + DDD docs.
+"$RUNNER" --repo "$TARGET_REPO" init \
+  --with-skills claude_code \
+  --with-ddd-layout \
+  --json
+
+# Preview what would be written (RFC 0021 V1.5):
+"$RUNNER" --repo "$TARGET_REPO" init \
+  --with-ddd-layout --ddd-layout-dry-run --json
+
+# Force-overwrite existing regular-file targets, recording
+# prior_sha256 for audit (RFC 0021 V1.5):
+"$RUNNER" --repo "$TARGET_REPO" init \
+  --with-ddd-layout --ddd-layout-force --json
+```
+
+`--with-ddd-layout` writes `docs/SPEC.md`, `docs/PRD.md`,
+`docs/DECISION_LOG.md`, `docs/UBIQUITOUS_LANGUAGE.md`,
+`docs/DDD.md`, `docs/rfcs/README.md`, and
+`docs/rfcs/0001-template.md`. Existing files are reported as
+`skipped` with `reason: "exists"` (or `would_skip` under
+`--ddd-layout-dry-run`). Non-regular-file targets (directories,
+broken symlinks) are reported as `error` and are not touched
+even with `--ddd-layout-force`.
+
 ## Author or validate a workflow
 
 ```bash

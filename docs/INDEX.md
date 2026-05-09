@@ -31,24 +31,36 @@ collectively, not individually.
 
 | File | Audience | Summary |
 |---|---|---|
-| [PRIOR_ART.md](PRIOR_ART.md) | Reader curious about lineage | What striatum borrows from and where it diverges. |
-| [INTERVIEW_LOG.md](INTERVIEW_LOG.md) | Historical | The interview rounds that shaped the PRD. |
 | [MCP.md](MCP.md) | MCP integrator | The local stdio JSON-RPC wrapper's framing and tool surface. |
-| [ENGRAM_INCUBATION_CONTEXT.md](ENGRAM_INCUBATION_CONTEXT.md) | Historical | Engram-incubation provenance; not current product material. |
 | [README.md](README.md) | Doc tree reader | Pointer file for `docs/`. |
+
+## Historical (incubation provenance — not current product material)
+
+> Each file below carries a banner at the top calling out its
+> historical status. Read these only when you need to understand
+> how a load-bearing decision was originally framed; for current
+> behavior, the sources of truth are `docs/SPEC.md`,
+> `docs/DECISION_LOG.md`, and `docs/rfcs/`.
+
+| File | Summary |
+|---|---|
+| [PRIOR_ART.md](PRIOR_ART.md) | Pre-PRD survey of orchestration tools that shaped early framing. Not a list of currently-tracked dependencies. |
+| [INTERVIEW_LOG.md](INTERVIEW_LOG.md) | The interview rounds that produced the original PRD and the early `D###` decision rows. |
+| [ENGRAM_INCUBATION_CONTEXT.md](ENGRAM_INCUBATION_CONTEXT.md) | Engram-extraction provenance; striatum was extracted from a parent project. |
+| [RFC_0014_DOGFOOD_FIX_SPEC.md](RFC_0014_DOGFOOD_FIX_SPEC.md) | Pre-RFC-0001 dogfood findings; everything actionable here landed in subsequent RFCs. |
 
 ## RFCs
 
 | File | Summary |
 |---|---|
-| [rfcs/](rfcs/) | All accepted/proposed RFCs (RFC 0001–RFC 0017). Each RFC has its own `.md` file plus an entry in `rfcs/README.md`. |
+| [rfcs/](rfcs/) | All accepted/proposed RFCs (RFC 0001–RFC 0022 as of v1.11.0). Each RFC has its own `.md` file plus an entry in `rfcs/README.md`. |
 
 ## Dogfood material
 
 | Path | Summary |
 |---|---|
 | [dogfood/](dogfood/) | Per-run scaffolds (`<id>/workflow.json` plus `prompts/`, `roles/`, `research/`, `review/`, `decisions/`, `BUILD_HANDOFF.md`, `RUN_SUMMARY.md`). |
-| [dogfood/HISTORICAL.md](dogfood/HISTORICAL.md) | Pointers to the dogfood-001/003/004/005 incubation runs that previously lived in the README. |
+| [dogfood/HISTORICAL.md](dogfood/HISTORICAL.md) | Distinguishes the historical incubation runs (001–013) from the current cadence (014+) and lists what each recent run shipped. |
 | [dogfood/FRICTION_LOG.md](dogfood/FRICTION_LOG.md) | Aggregate friction register across runs. |
 
 ## Repository-level files

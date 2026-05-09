@@ -20,12 +20,22 @@ useful for humans, but they do not advance state.
 
 ## Status
 
-`v1.1.0`. Every RFC under [`docs/rfcs/`](docs/rfcs/) is
-`accepted` (or `accepted (V1)`); the implementation slices for
-each are on main. Per-version release notes live in
-[`CHANGELOG.md`](CHANGELOG.md).
+`v1.11.0`. RFCs 0001–0022 are all `accepted` (some at
+`accepted (V1)` or `accepted (V1+V1.5)`); the implementation
+slices for each are on main. Per-version release notes live in
+[`CHANGELOG.md`](CHANGELOG.md). The package is published to
+PyPI as `striatum-orchestrator` (the bare `striatum` name on
+PyPI is unrelated); the Python module name is still
+`striatum`.
 
 ## Install
+
+From PyPI:
+
+```bash
+pip install striatum-orchestrator
+striatum --help
+```
 
 From a checkout of this repository:
 
@@ -68,23 +78,49 @@ operator playbook is [`docs/HOW_TO_HUMAN.md`](docs/HOW_TO_HUMAN.md).
 
 You will install the runner, install the *agent skill bundle*
 (RFC 0015), and hand the agent a target repo with a workflow
-file in it. The agent does the rest.
+file in it. The agent does the rest. For first-time setup,
+combine `--with-skills` and `--with-ddd-layout` (RFC 0021) so
+the target repo gets both the agent-facing skills and the
+human-facing DDD doc layout in one command:
 
 ```bash
 TARGET_REPO=/path/to/your/repo
-striatum --repo "$TARGET_REPO" init --with-skills claude_code --json
+striatum --repo "$TARGET_REPO" init \
+  --with-skills claude_code \
+  --with-ddd-layout \
+  --json
 # now point your Claude Code session at $TARGET_REPO and tell it:
 #   "drive the workflow at <path>/workflow.json using striatum"
 ```
 
-The single command above initializes `.striatum/` and writes
-five `SKILL.md` files under `.claude/skills/striatum-*/`. The
-bundle teaches the agent how to drive the runner without reading
-the striatum source. For agents without a skill convention,
-`striatum skills install --profile generic` writes a single
-`STRIATUM_AGENT_GUIDE.md` you can paste into a system prompt. The
-long-form companion to the bundle is
+The single command above initializes `.striatum/`, writes the
+agent skill bundle to `.claude/skills/striatum-*/`, and
+scaffolds the seven canonical human-facing DDD documents
+(`docs/SPEC.md`, `docs/PRD.md`, `docs/DECISION_LOG.md`,
+`docs/UBIQUITOUS_LANGUAGE.md`, `docs/DDD.md`,
+`docs/rfcs/README.md`, `docs/rfcs/0001-template.md`).
+Existing files are preserved; pass `--ddd-layout-dry-run` to
+preview, `--ddd-layout-force` to overwrite (records
+`prior_sha256` for audit). For agents without a skill
+convention, `striatum skills install --profile generic`
+writes a single `STRIATUM_AGENT_GUIDE.md` you can paste into a
+system prompt. The long-form companion to the bundle is
 [`docs/HOW_TO_AGENT.md`](docs/HOW_TO_AGENT.md).
+
+## Web UI
+
+```bash
+striatum --repo "$TARGET_REPO" serve --web
+# bound port is in the startup envelope; pass --port for a fixed one
+```
+
+The web UI (RFC 0022) is server-rendered Jinja2: real HTML
+pages at `/`, `/run/<id>`, `/run/<id>/job/<id>`,
+`/run/<id>/artifact/<id>`, `/doctor`. The dependency graph
+renders as inline SVG with state-colored nodes that
+click-navigate. Light + dark mode follow
+`prefers-color-scheme`. Localhost-only by default; mutations
+gated behind `--allow-mutations`.
 
 ## What It Is For
 

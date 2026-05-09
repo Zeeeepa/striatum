@@ -1,5 +1,18 @@
 # Historical Dogfood Runs
 
+> **These are historical incubation artifacts, not the active
+> dogfood cadence.** Runs 001 through 013 belong to the era
+> between RFC 0001 and the v1.4.0 line, when each dogfood was
+> partly an exploration of the harness itself. The current
+> cadence — one dogfood per RFC step, lighter ceremony, well-
+> defined research/synthesis/review/implement/review jobs — is
+> visible in runs 014 onward (each linked from
+> `docs/DECISION_LOG.md` and `docs/rfcs/<NNNN>` index entries).
+> Read the runs here only when you need to understand a
+> specific historical pattern or harness friction; do not copy
+> their workflow shape into a new dogfood without checking a
+> recent run (e.g. run 020) first.
+
 The dogfood runs collected here are the incubation history of
 striatum-on-striatum work between RFC 0001 and the v1.0.0 line.
 Each run's per-id directory under `docs/dogfood/<id>/` carries
@@ -108,10 +121,27 @@ bootstrap MVP design/build work until the generic process adapter
 workflow end-to-end. With v1.0.0 they do; the script is retained
 as provenance.
 
-## Subsequent runs
+## Subsequent runs (current cadence)
 
-Dogfood runs 006 onward (RFC 0012 service, RFC 0013 web UI, RFC
-0016 dashboard graph, RFC 0015 skill bundles, RFC 0017 docs
-reorganization) follow the same scaffold shape under
-`docs/dogfood/<id>/`. See [the dogfood index](.) for the full
-list.
+Dogfood runs **006 onward** are part of the current cadence —
+one per RFC step, with the standard five-job shape (research →
+synthesize → review-design → implement → review-build). They
+land via the `Land RFC NNNN ... (dogfood-NNN)` commit pattern
+in `git log` and are referenced from the matching `D###` row
+in `docs/DECISION_LOG.md`. The full per-run material lives
+under `docs/dogfood/<id>/`.
+
+Recent runs and what they shipped:
+
+| Run | RFC | Tag | Highlights |
+|---|---|---|---|
+| 020 | RFC 0022 V1 | v1.11.0 | Server-rendered Jinja2 multi-page UI, refreshed CSS palette + dark mode, layered SVG dependency graph. |
+| 019 | RFC 0021 V1.5 | v1.10.0 | `--ddd-layout-force` + `--ddd-layout-dry-run` on `striatum init --with-ddd-layout`. |
+| 018 | RFC 0018 step 3 | v1.9.0 | `verdicts.posture` column + introspection across status / run-summary / evidence / run-graph / dashboard / web UI. |
+| 017 | RFC 0021 V1 | v1.8.0 | `striatum init --with-ddd-layout` scaffolds the seven canonical human-facing DDD docs. |
+| 016 | RFC 0018 V1 | v1.7.0 | `review_posture` field + `required_review_postures` reachability gate. |
+| 015 | RFC 0020 step 3 | v1.6.0 | `recovery watch` long-lived sweeper daemon. |
+| 014 | RFC 0020 V1 | v1.5.0 | `recovery auto` one-shot sweeper + `recovery_policy` workflow block + escalation hooks. |
+
+For the index of every run (including the historical 001–013
+above), see `docs/dogfood/`.

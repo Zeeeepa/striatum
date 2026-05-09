@@ -7,7 +7,8 @@
 ## Core lifecycle
 
 ```text
-striatum init
+striatum init [--with-skills <profile>] [--with-ddd-layout]
+              [--ddd-layout-force] [--ddd-layout-dry-run]
 striatum workflow validate
 striatum workflow plan
 striatum workflow graph
@@ -17,6 +18,25 @@ striatum branch confirm
 striatum run start
 striatum run summary
 ```
+
+`striatum init` creates `.striatum/` in the target repo. The
+optional flags scaffold extra material:
+
+- `--with-skills <profile>` (RFC 0015) — write the agent skill
+  bundle for `claude_code` | `codex` | `gemini` | `generic` |
+  `all`. Default profile is `claude_code`.
+- `--with-ddd-layout` (RFC 0021) — scaffold the seven canonical
+  human-facing DDD documents (`docs/SPEC.md`, `docs/PRD.md`,
+  `docs/DECISION_LOG.md`, `docs/UBIQUITOUS_LANGUAGE.md`,
+  `docs/DDD.md`, `docs/rfcs/README.md`,
+  `docs/rfcs/0001-template.md`). Existing files are preserved.
+- `--ddd-layout-force` (RFC 0021 V1.5) — overwrite existing
+  regular-file targets with the template body. Records
+  `prior_sha256` for audit. Non-regular-file targets
+  (directories, broken symlinks) still error and are not
+  touched.
+- `--ddd-layout-dry-run` (RFC 0021 V1.5) — preview without
+  writing. Per-file statuses use the `would_*` vocabulary.
 
 ## Agent / session work loop
 

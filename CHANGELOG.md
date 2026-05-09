@@ -2,6 +2,38 @@
 
 ## Unreleased
 
+## 1.11.1 — 2026-05-09
+
+### Changed (docs only)
+
+- Refresh the documentation set against the current state
+  (RFCs 0001–0022, v1.11.0 features). Mention
+  `--with-ddd-layout` (RFC 0021) + `--ddd-layout-force` /
+  `--ddd-layout-dry-run` (V1.5) in `README.md`,
+  `docs/GETTING_STARTED.md`, `docs/HOW_TO_HUMAN.md`, and
+  `docs/CLI_REFERENCE.md`. Update `README.md` "Status" section
+  from `v1.1.0` to `v1.11.0` + add the PyPI `pip install
+  striatum-orchestrator` instructions. Rewrite `docs/SPEC.md` §
+  "Local Web UI" against the RFC 0022 V1 server-rendered shape
+  (Jinja2 multi-page, SVG dependency graph, dark-mode CSS
+  custom properties).
+- Apply explicit "historical" banners to incubation-era
+  documents per `docs/CONTEXT_HYGIENE.md` § "Failure modes" #1
+  (mixed live/historical material with no label):
+  `docs/INTERVIEW_LOG.md`, `docs/PRIOR_ART.md`,
+  `docs/RFC_0014_DOGFOOD_FIX_SPEC.md`, and
+  `docs/dogfood/HISTORICAL.md`. The `docs/INDEX.md` table-of-
+  contents now lists these in a dedicated "Historical" section
+  with a header-level callout, separating them from active
+  reference material.
+- `docs/dogfood/HISTORICAL.md` extended with a "current
+  cadence" subsection listing recent runs (014–020) and what
+  each shipped (RFC + tag + highlights), so a reader can find
+  a recent canonical run instead of copying patterns from the
+  incubation-era 001–013 directories.
+
+No behavior change; no schema change; no new tests.
+
 ## 1.11.0 — 2026-05-09
 
 ### Added
