@@ -14,6 +14,10 @@ authors = [
   { name = "Hal Britt" },
 ]
 keywords = ["ai-agents", "cli", "local-first", "orchestration", "sqlite"]
+urls.Homepage = "https://github.com/halbritt/striatum"
+urls.Repository = "https://github.com/halbritt/striatum"
+urls.Issues = "https://github.com/halbritt/striatum/issues"
+urls.Changelog = "https://github.com/halbritt/striatum/blob/main/CHANGELOG.md"
 classifiers = [
   "Development Status :: 3 - Alpha",
   "Environment :: Console",
