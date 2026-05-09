@@ -15,11 +15,15 @@
       {% endif %}
       <span class="muted">version: <code>{{ workflow.workflow_version or "—" }}</code></span>
       <a href="/workflows/edit/{{ workflow.path }}" class="muted">Edit</a>
+      {% if workflow.status == "valid" %}
+      <button type="button" id="run-now-btn" class="primary-button" data-rel-path="{{ workflow.path }}">Run this workflow now</button>
+      {% endif %}
     </div>
   </header>
 
   <h2>Path</h2>
   <p><code>{{ workflow.path }}</code></p>
+  <script defer src="/static/workflow_run.js"></script>
 
   {% if workflow.message %}
   <h2>Validation</h2>

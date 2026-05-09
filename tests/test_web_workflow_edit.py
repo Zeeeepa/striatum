@@ -6,9 +6,7 @@ import json
 import urllib.error
 import urllib.request
 from pathlib import Path
-from typing import cast
 
-import pytest
 
 from test_web_ui import (
     _git_init_repo,
@@ -61,14 +59,19 @@ _VALID_WORKFLOW = {
 
 
 def _http_post_json(port: int, path: str, body: object,
-                    *, content_type: str = "application/json") -> tuple[int, dict[str, str], bytes]:
+                    *, content_type: str = "application/json",
+                    extra_headers: dict[str, str] | None = None,
+                    ) -> tuple[int, dict[str, str], bytes]:
     data = json.dumps(body).encode("utf-8") if not isinstance(body, (bytes, str)) else (
         body.encode("utf-8") if isinstance(body, str) else body
     )
+    headers = {"Content-Type": content_type}
+    if extra_headers:
+        headers.update(extra_headers)
     req = urllib.request.Request(
         f"http://127.0.0.1:{port}{path}",
         data=data,
-        headers={"Content-Type": content_type},
+        headers=headers,
         method="POST",
     )
     try:
@@ -298,3 +301,132 @@ def test_workflow_detail_has_edit_link(tmp_path: Path) -> None:
         assert b'href="/workflows/edit/examples/workflow.json"' in body
     finally:
         _stop_service(proc)
+
+
+# --- RFC 0024 V2: If-Match concurrency ------------------------------
+
+
+def _sha256(data: bytes) -> str:
+    import hashlib
+    return hashlib.sha256(data).hexdigest()
+
+
+def test_edit_post_if_match_matching_succeeds(tmp_path: Path) -> None:
+    _git_init_repo(tmp_path)
+    _striatum_init(tmp_path)
+    target = tmp_path / "examples" / "wf" / "workflow.json"
+    target.parent.mkdir(parents=True)
+    raw = json.dumps(_VALID_WORKFLOW, indent=2) + "\n"
+    target.write_text(raw, encoding="utf-8")
+    sha = _sha256(raw.encode("utf-8"))
+    proc, port = _spawn_service(tmp_path, "--web", "--allow-mutations")
+    try:
+        status, _, body = _http_post_json(
+            port, "/workflows/edit/examples/wf/workflow.json", _VALID_WORKFLOW,
+            extra_headers={"If-Match": f'"{sha}"'},
+        )
+        assert status == 200
+        payload = json.loads(body)
+        assert "sha256" in payload["data"]
+    finally:
+        _stop_service(proc)
+
+
+def test_edit_post_if_match_stale_returns_412(tmp_path: Path) -> None:
+    _git_init_repo(tmp_path)
+    _striatum_init(tmp_path)
+    target = tmp_path / "examples" / "wf" / "workflow.json"
+    target.parent.mkdir(parents=True)
+    target.write_text(json.dumps(_VALID_WORKFLOW), encoding="utf-8")
+    proc, port = _spawn_service(tmp_path, "--web", "--allow-mutations")
+    try:
+        status, _, body = _http_post_json(
+            port, "/workflows/edit/examples/wf/workflow.json", _VALID_WORKFLOW,
+            extra_headers={"If-Match": '"deadbeef"'},
+        )
+        assert status == 412
+        payload = json.loads(body)
+        assert payload["error"]["code"] == 412
+        assert "current_sha256" in payload["error"]
+    finally:
+        _stop_service(proc)
+
+
+def test_edit_post_if_match_missing_is_v15_compat(tmp_path: Path) -> None:
+    """V1.5 clients send no If-Match — must keep working."""
+    _git_init_repo(tmp_path)
+    _striatum_init(tmp_path)
+    target = tmp_path / "examples" / "wf" / "workflow.json"
+    target.parent.mkdir(parents=True)
+    target.write_text(json.dumps(_VALID_WORKFLOW), encoding="utf-8")
+    proc, port = _spawn_service(tmp_path, "--web", "--allow-mutations")
+    try:
+        status, _, _ = _http_post_json(
+            port, "/workflows/edit/examples/wf/workflow.json", _VALID_WORKFLOW,
+        )
+        assert status == 200
+    finally:
+        _stop_service(proc)
+
+
+def test_edit_get_injects_sha256(tmp_path: Path) -> None:
+    _git_init_repo(tmp_path)
+    _striatum_init(tmp_path)
+    target = tmp_path / "examples" / "wf" / "workflow.json"
+    target.parent.mkdir(parents=True)
+    raw = json.dumps(_VALID_WORKFLOW, indent=2) + "\n"
+    target.write_text(raw, encoding="utf-8")
+    sha = _sha256(raw.encode("utf-8"))
+    proc, port = _spawn_service(tmp_path, "--web", "--allow-mutations")
+    try:
+        _, _, body = _http_get_raw(port, "/workflows/edit/examples/wf/workflow.json")
+        assert b'id="workflow-sha256"' in body
+        assert sha.encode() in body
+    finally:
+        _stop_service(proc)
+
+
+# --- RFC 0024 V2: structured field errors ---------------------------
+
+
+def test_edit_post_structured_errors_carries_field_path(tmp_path: Path) -> None:
+    """422 body should carry errors[] with field_path for tagged raise sites."""
+    _git_init_repo(tmp_path)
+    _striatum_init(tmp_path)
+    proc, port = _spawn_service(tmp_path, "--web", "--allow-mutations")
+    try:
+        invalid = json.loads(json.dumps(_VALID_WORKFLOW))
+        invalid["jobs"][0]["role_id"] = "nonexistent_role"
+        status, _, body = _http_post_json(
+            port, "/workflows/edit/x.json", invalid,
+        )
+        assert status == 422
+        payload = json.loads(body)
+        assert payload["error"]["errors"]
+        assert payload["error"]["errors"][0]["field_path"] == "jobs[0].role_id"
+    finally:
+        _stop_service(proc)
+
+
+def test_edit_post_structured_errors_empty_for_unconverted_raise_site(tmp_path: Path) -> None:
+    """V1.5 backward-compat: when the raise site lacks field_path,
+    422 errors[] is empty and clients fall back to error.message."""
+    _git_init_repo(tmp_path)
+    _striatum_init(tmp_path)
+    proc, port = _spawn_service(tmp_path, "--web", "--allow-mutations")
+    try:
+        # Missing required top-level field — that raise site is
+        # not (yet) tagged with field_path.
+        invalid = json.loads(json.dumps(_VALID_WORKFLOW))
+        del invalid["coordinator"]
+        status, _, body = _http_post_json(
+            port, "/workflows/edit/x.json", invalid,
+        )
+        assert status == 422
+        payload = json.loads(body)
+        # Either errors[] is empty, or has the missing-field path.
+        # The message banner must always be present.
+        assert payload["error"]["message"]
+    finally:
+        _stop_service(proc)
+

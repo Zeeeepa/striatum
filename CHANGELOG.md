@@ -2,6 +2,57 @@
 
 ## Unreleased
 
+## 1.16.0 — 2026-05-09
+
+### Added
+
+- RFC 0024 V2 (dogfood-025): three editor additions on
+  `/workflows/*` — run-now lifecycle, `If-Match` concurrency
+  guard, and field-level validation errors.
+  - `POST /workflows/run/<path>` — mutation-gated; calls
+    `create_run + branch_confirm(create=True) + run_start`;
+    returns `{run_id}` on 200; 409 on dirty-tree branch refusal;
+    422 on validation failure with structured `errors[]`. When
+    `branch.mode == "confirm"`, returns 200 with status
+    `needs_branch_confirmation` so the operator can finish out of
+    band.
+  - `If-Match: <sha256>` precondition on `POST
+    /workflows/edit/<path>`. GET stamps the disk sha into a hidden
+    `<script id="workflow-sha256">` tag; editor JS echoes it on
+    POST; on stale sha the server returns 412 with
+    `current_sha256` so the editor can prompt for reload. Missing
+    header → V1.5 opt-out (backward compatible).
+  - `WorkflowError` extended with optional `field_path`. 8
+    high-traffic raise sites tagged: `schema_version`, duplicate
+    job id, unknown role, unknown lane, invalid artifact path,
+    cycle references unknown job, cycle `max_iterations < 1`. The
+    422 body now includes `error.errors: [{field_path, message}]`;
+    editor highlights the offending form field via a
+    `data-field-path` attribute. Untagged raise sites keep `None`
+    and the editor falls back to the V1.5 top-of-form banner.
+  - "Run this workflow now" button on `/workflows/<path>` (only
+    rendered when the workflow is `valid`). On 200 navigates to
+    `/run/<run_id>`. CSP-safe: behavior lives in
+    `/static/workflow_run.js`.
+
+### Workflow-trust model
+
+V2 lets any operator with `--allow-mutations` launch a run from any
+committed `workflow.json`. This matches the CLI surface (`striatum
+run prepare --workflow <path>` from a shell). No new attack surface.
+
+### Deferred to V3
+
+- Drag-and-drop graph editor.
+- Workflow templates / marketplace.
+- "Diff against another workflow" view.
+- AI-assisted scaffolding via chat tool that *writes*
+  workflow.json (would require per-tool gating).
+- Multi-error reporting (collect all errors, not just first).
+- Field-path coverage for the remaining ~22 raise sites.
+- `flock()` for hard concurrency guarantees.
+- 409 body carrying `git status --short` output.
+
 ## 1.15.0 — 2026-05-09
 
 ### Added

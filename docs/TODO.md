@@ -58,6 +58,7 @@ so external references keep resolving even as items move between sections.
 | F22 | RFC 0023 V1.5 (chat tool use + briefing, dogfood-022) | ✅ done |
 | F23 | RFC 0024 V1 (workflow browser, dogfood-023) | ✅ done |
 | F24 | RFC 0024 V1.5 (visual builder, dogfood-024) | ✅ done |
+| F25 | RFC 0024 V2 (run-now + If-Match + field-level errors, dogfood-025) | ✅ done |
 
 Legend: ✅ done · 🟡 most done (sub-tasks remain) · ⏳ open
 

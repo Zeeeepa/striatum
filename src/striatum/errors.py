@@ -47,10 +47,18 @@ class BranchConfirmationError(StriatumError):
 
 
 class WorkflowError(StriatumError):
-    """Raised when workflow JSON is invalid."""
+    """Raised when workflow JSON is invalid.
 
-    def __init__(self, message: str) -> None:
+    RFC 0024 V2: ``field_path`` carries an optional dotted/indexed
+    path to the offending field (e.g. ``jobs[2].role_id``,
+    ``cycles[0].max_iterations``) so the visual builder can highlight
+    inline. ``None`` means raise sites have not been updated to carry
+    a path; consumers fall back to the message banner.
+    """
+
+    def __init__(self, message: str, *, field_path: str | None = None) -> None:
         super().__init__(message, exit_code=8)
+        self.field_path = field_path
 
 
 class SchemaVersionError(StriatumError):

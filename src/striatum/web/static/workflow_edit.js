@@ -17,6 +17,13 @@
     state = {};
   }
 
+  // RFC 0024 V2: track the on-disk sha256 so we can echo as If-Match.
+  var diskSha256 = "";
+  var shaScript = document.getElementById("workflow-sha256");
+  if (shaScript) {
+    try { diskSha256 = JSON.parse(shaScript.textContent || '""'); } catch (err) {}
+  }
+
   var ALLOWED_POSTURES = [
     "neutral", "devils_advocate", "security", "threat_model",
     "latency_performance", "ergonomics_dx", "accessibility",
@@ -82,11 +89,18 @@
     try { localStorage.removeItem("workflow_edit_" + relPath); } catch (err) {}
   }
 
+  function ddWithPath(fieldPath, control) {
+    var dd = el("dd", { "data-field-path": fieldPath }, [control]);
+    return dd;
+  }
+
   function renderHeader() {
     var container = document.getElementById("edit-header");
     container.innerHTML = "";
     container.appendChild(el("h2", {}, ["Header"]));
     var dl = el("dl", { className: "kv-grid" });
+    dl.appendChild(el("dt", {}, ["schema_version"]));
+    dl.appendChild(ddWithPath("schema_version", input(state.schema_version, function (v) { state.schema_version = v; persistDraft(); })));
     dl.appendChild(el("dt", {}, ["workflow_id"]));
     dl.appendChild(el("dd", {}, [input(state.workflow_id, function (v) { state.workflow_id = v; persistDraft(); })]));
     dl.appendChild(el("dt", {}, ["workflow_version"]));
@@ -197,20 +211,21 @@
       card.appendChild(summary);
       var body = el("div", { className: "job-card-body" });
       var dl = el("dl", { className: "kv-grid" });
-      function addField(label, control) {
+      function addField(label, control, fieldPath) {
         dl.appendChild(el("dt", {}, [label]));
-        dl.appendChild(el("dd", {}, [control]));
+        var dd = el("dd", fieldPath ? { "data-field-path": fieldPath } : {}, [control]);
+        dl.appendChild(dd);
       }
-      addField("id", input(job.id, function (v) { state.jobs[index].id = v; persistDraft(); summary.firstChild.textContent = v || "(no id)"; }));
+      addField("id", input(job.id, function (v) { state.jobs[index].id = v; persistDraft(); summary.firstChild.textContent = v || "(no id)"; }), "jobs[" + index + "].id");
       addField("type", select(job.type || "generic", JOB_TYPES, function (v) {
         state.jobs[index].type = v; persistDraft(); renderJobs();
       }));
       addField("title", input(job.title, function (v) { state.jobs[index].title = v; persistDraft(); }));
       addField("objective", textarea(job.objective, function (v) { state.jobs[index].objective = v; persistDraft(); }));
       var roleOpts = [""].concat(Object.keys(state.roles || {}));
-      addField("role_id", select(job.role_id || "", roleOpts, function (v) { state.jobs[index].role_id = v; persistDraft(); }));
+      addField("role_id", select(job.role_id || "", roleOpts, function (v) { state.jobs[index].role_id = v; persistDraft(); }), "jobs[" + index + "].role_id");
       var laneOpts = [""].concat(Object.keys(state.lanes || {}));
-      addField("lane_id", select(job.lane_id || "", laneOpts, function (v) { state.jobs[index].lane_id = v; persistDraft(); }));
+      addField("lane_id", select(job.lane_id || "", laneOpts, function (v) { state.jobs[index].lane_id = v; persistDraft(); }), "jobs[" + index + "].lane_id");
       addField("task_prompt.path", input(((job.task_prompt || {}).path) || "", function (v) {
         state.jobs[index].task_prompt = state.jobs[index].task_prompt || {};
         state.jobs[index].task_prompt.path = v;
@@ -389,24 +404,56 @@
     if (status) status.textContent = text || "";
   }
 
+  function clearFieldErrors() {
+    var marked = document.querySelectorAll(".field-error");
+    for (var i = 0; i < marked.length; i++) {
+      marked[i].classList.remove("field-error");
+      marked[i].removeAttribute("title");
+    }
+  }
+
+  function highlightFieldErrors(errors) {
+    if (!errors || !errors.length) return;
+    for (var i = 0; i < errors.length; i++) {
+      var fp = errors[i].field_path;
+      if (!fp) continue;
+      var node = document.querySelector('[data-field-path="' + fp.replace(/"/g, '\\"') + '"]');
+      if (node) {
+        node.classList.add("field-error");
+        node.setAttribute("title", errors[i].message || "");
+      }
+    }
+  }
+
   function save() {
     clearError();
+    clearFieldErrors();
     setStatus("Saving…");
     var saveBtn = document.getElementById("edit-save-btn");
     if (saveBtn) saveBtn.disabled = true;
+    var headers = { "Content-Type": "application/json" };
+    if (diskSha256) headers["If-Match"] = '"' + diskSha256 + '"';
     fetch("/workflows/edit/" + relPath, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: headers,
       body: JSON.stringify(state),
     })
       .then(function (resp) {
         if (resp.status === 200) {
           clearDraft();
           window.location.href = "/workflows/" + relPath;
+        } else if (resp.status === 412) {
+          return resp.json().then(function (body) {
+            var msg = "File changed on disk. Reload to see the new contents (your draft is saved in this browser).";
+            showError(msg);
+            setStatus("");
+          });
         } else {
           return resp.json().then(function (body) {
-            var msg = (body && body.error && body.error.message) || ("Save failed (" + resp.status + ")");
+            var err = body && body.error;
+            var msg = (err && err.message) || ("Save failed (" + resp.status + ")");
             showError(msg);
+            if (err && err.errors) highlightFieldErrors(err.errors);
             setStatus("");
           }, function () {
             showError("Save failed (" + resp.status + ")");

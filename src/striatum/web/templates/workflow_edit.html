@@ -26,5 +26,6 @@
   </div>
 </section>
 <script id="workflow-data" type="application/json">{{ workflow_json | safe }}</script>
+<script id="workflow-sha256" type="application/json">"{{ workflow_sha256 }}"</script>
 <script defer src="/static/workflow_edit.js"></script>
 {% endblock %}
