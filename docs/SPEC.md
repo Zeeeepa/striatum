@@ -622,6 +622,21 @@ work was already reclaimable, and refuses repo-write jobs so abandoned write
 work still requires manual inspection or a future worktree-isolated recovery
 path.
 
+`recovery auto --run-id <id>` (RFC 0020 V1) is a one-shot autonomous
+sweeper composable with cron / systemd timer. It runs lazy lease
+expiry, optional process reconciliation, optional autonomous review-
+only requeue (D036-safe), human-checkpoint timeout escalation, and
+eligible-blocker doctor flagging — and returns a structured envelope
+`{run_id, swept_at, policy_source, dry_run, actions, escalations,
+still_stuck}`. Workflows declare a `recovery_policy` block to opt
+into autonomous behavior and an `escalation_hook` (`marker_file`,
+`webhook`, or `shell`) for genuinely-stuck runs. CLI flags
+(`--autonomous-review-requeue`, `--autonomous-process-reconcile`,
+`--max-requeue`, `--checkpoint-timeout`, `--eligible-after`,
+`--dry-run`) override workflow defaults. Workflows that omit
+`recovery_policy` get diagnostic-only output; today's flow is
+preserved byte-for-byte.
+
 ### Self-Contained Agent Skills (RFC 0015 V1+step 3)
 
 `striatum skills install [--profile {claude_code, codex, gemini,

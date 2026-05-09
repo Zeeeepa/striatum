@@ -283,6 +283,47 @@ def build_parser() -> argparse.ArgumentParser:
     process_reconcile_p.add_argument("--run-id", required=True)
     process_reconcile_p.add_argument("--json", action="store_true")
 
+    # RFC 0020 V1: autonomous-recovery sweeper.
+    recovery_auto = recovery_sub.add_parser(
+        "auto",
+        help=(
+            "RFC 0020 V1: one-shot autonomous-recovery sweep — lazy "
+            "lease expiry, optional process reconcile, optional review-"
+            "only requeue, checkpoint-timeout escalation, eligible-"
+            "blocker doctor flag. Composable with cron / systemd timer."
+        ),
+    )
+    recovery_auto.add_argument("--run-id", required=True)
+    recovery_auto.add_argument("--dry-run", action="store_true")
+    recovery_auto.add_argument(
+        "--autonomous-review-requeue",
+        dest="autonomous_review_requeue",
+        action="store_true",
+        default=None,
+    )
+    recovery_auto.add_argument(
+        "--autonomous-process-reconcile",
+        dest="autonomous_process_reconcile",
+        action="store_true",
+        default=None,
+    )
+    recovery_auto.add_argument(
+        "--max-requeue", dest="max_requeues_per_sweep", type=int, default=None
+    )
+    recovery_auto.add_argument(
+        "--checkpoint-timeout",
+        dest="checkpoint_timeout_seconds",
+        type=int,
+        default=None,
+    )
+    recovery_auto.add_argument(
+        "--eligible-after",
+        dest="eligible_after_seconds",
+        type=int,
+        default=None,
+    )
+    recovery_auto.add_argument("--json", action="store_true")
+
     checkpoint = sub.add_parser("checkpoint")
     checkpoint_sub = checkpoint.add_subparsers(dest="checkpoint_command", required=True)
     checkpoint_resolve_p = checkpoint_sub.add_parser("resolve")

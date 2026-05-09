@@ -108,6 +108,12 @@ does not decide that an agent is done because a terminal printed
 a phrase. Agents and humans move the workflow by calling
 `striatum` commands.
 
+striatum is a domain-driven workflow runner: the vocabulary in
+[`docs/UBIQUITOUS_LANGUAGE.md`](docs/UBIQUITOUS_LANGUAGE.md) is the
+*model*, not just documentation; the CLI verbs are the only legal
+mutations. [`docs/DDD.md`](docs/DDD.md) explains why the
+vocabulary is load-bearing instead of bookkeeping.
+
 ## Documentation Map
 
 | File | When to read |

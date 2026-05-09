@@ -17,6 +17,7 @@ from striatum.db import (
     ensure_initialized,
     init_repo,
     json_dumps,
+    json_loads,
     transaction,
 )
 from striatum.errors import StriatumError
@@ -433,6 +434,54 @@ def dispatch(args: argparse.Namespace) -> object:
             )
         if args.command == "recovery" and args.recovery_command == "process-reconcile":
             return process_reconcile(conn, run_id=args.run_id)
+        if args.command == "recovery" and args.recovery_command == "auto":
+            from striatum.recovery import resolve_policy, run_auto_sweep
+
+            run_row = conn.execute(
+                "SELECT workflow_snapshot_id FROM runs WHERE run_id = ?",
+                (args.run_id,),
+            ).fetchone()
+            workflow_payload = None
+            if run_row is not None:
+                snap = conn.execute(
+                    "SELECT workflow_json FROM workflow_snapshots "
+                    "WHERE workflow_snapshot_id = ?",
+                    (str(run_row["workflow_snapshot_id"]),),
+                ).fetchone()
+                if snap is not None:
+                    try:
+                        wf = json_loads(str(snap["workflow_json"]))
+                    except Exception:  # noqa: BLE001
+                        wf = {}
+                    if isinstance(wf, dict):
+                        workflow_payload = wf.get("recovery_policy")
+            cli_overrides = {
+                "autonomous_review_requeue": getattr(
+                    args, "autonomous_review_requeue", None
+                ),
+                "autonomous_process_reconcile": getattr(
+                    args, "autonomous_process_reconcile", None
+                ),
+                "max_requeues_per_sweep": getattr(
+                    args, "max_requeues_per_sweep", None
+                ),
+                "checkpoint_timeout_seconds": getattr(
+                    args, "checkpoint_timeout_seconds", None
+                ),
+                "eligible_after_seconds": getattr(
+                    args, "eligible_after_seconds", None
+                ),
+            }
+            policy = resolve_policy(
+                workflow_payload=workflow_payload, cli_overrides=cli_overrides
+            )
+            return run_auto_sweep(
+                conn,
+                run_id=args.run_id,
+                repo=repo,
+                policy=policy,
+                dry_run=bool(args.dry_run),
+            )
         if args.command == "checkpoint" and args.checkpoint_command == "resolve":
             return checkpoint_resolve(
                 conn,

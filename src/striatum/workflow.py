@@ -424,6 +424,16 @@ def validate_workflow(
     if workflow.get("schema_version") != "striatum.workflow.v1":
         raise WorkflowError("workflow schema_version must be striatum.workflow.v1")
     _validate_branch_section(workflow)
+    # RFC 0020 V1: optional `recovery_policy` block. Validated here
+    # so a workflow that declares an invalid hook is rejected at
+    # `workflow validate` time, not at sweep time.
+    from striatum.recovery.policy import validate_recovery_policy
+
+    if "recovery_policy" in workflow:
+        validate_recovery_policy(
+            workflow.get("recovery_policy"),
+            workflow_id=str(workflow.get("workflow_id") or ""),
+        )
     lanes = _object(workflow, "lanes")
     profile_ids = _validate_harness_profiles(workflow, warnings=warnings)
     _validate_lane_constraints(

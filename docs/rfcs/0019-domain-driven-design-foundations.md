@@ -1,6 +1,6 @@
 # RFC 0019: Domain-Driven Design Foundations
 
-Status: proposed
+Status: accepted
 Date: 2026-05-08
 Context:
 `docs/UBIQUITOUS_LANGUAGE.md` (already a DDD signature),

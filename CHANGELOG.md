@@ -2,6 +2,43 @@
 
 ## Unreleased
 
+## 1.5.0 — 2026-05-09
+
+### Added
+
+- RFC 0019 (D067): `docs/DDD.md` documents striatum's domain-
+  driven framing — bounded context, ubiquitous language,
+  aggregate roots, value objects, domain events, the
+  CLI-as-only-write-surface invariant, and an "Adding to the
+  model" section that gives future RFCs a citation pattern.
+  README `## What It Is For` cites it; `docs/INDEX.md` lists
+  it; the RFC template gets an optional `## Domain Modeling`
+  section. Documentation only.
+
+- RFC 0020 V1 (dogfood-014): autonomous stalled-run recovery
+  step 1+2. New `striatum recovery auto --run-id <id>` one-shot
+  sweeper composable with cron / systemd timer; runs lazy lease
+  expiry, optional process reconciliation, autonomous review-
+  only requeue (D036-safe), human_checkpoint timeout escalation,
+  and eligible-blocker doctor flagging. Returns a structured
+  envelope `{run_id, swept_at, policy_source, dry_run, actions,
+  escalations, still_stuck}`. New optional top-level
+  `recovery_policy` workflow block with workflow-declared
+  thresholds and an `escalation_hook` (kinds: `marker_file`,
+  `webhook`, `shell`); validator rejects `.striatum/` marker
+  paths, non-http(s) webhook URLs, and negative thresholds.
+  Defaults preserve today's flow byte-for-byte
+  (`autonomous_*` defaults are `false`; CLI flags
+  `--autonomous-review-requeue` and
+  `--autonomous-process-reconcile` opt in per sweep).
+  Hook runners (`marker_file`, `webhook`, `shell`) emit a status
+  dict that folds into the envelope's `escalations[]`; webhook
+  failures continue the sweep without raising. New
+  `src/striatum/recovery/` package (`auto.py`, `hooks.py`,
+  `policy.py`). Tests at `tests/test_recovery_auto.py` (21
+  cases). Step 3 (`recovery watch` daemon) deferred per RFC
+  0020 § 4.
+
 ## 1.4.1 — 2026-05-09
 
 ### Added

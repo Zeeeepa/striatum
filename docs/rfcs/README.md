@@ -31,8 +31,8 @@ and, when behavior changes, `docs/SPEC.md`.
 | [0016](0016-dashboard-dependency-graph.md) | accepted (V1+step 3) | Render the run's dependency graph inside `striatum dashboard` and `run graph --format ascii`. V1 (D060, dogfood-008) shipped layered/list ASCII + state colors; step 3 (D064, dogfood-012) shipped Unicode `fancy` style + `--graph-orient {tb,lr}` left-to-right layout. |
 | [0017](0017-readme-and-docs-reorganization.md) | accepted (V1) | Slim the README to ~250 lines, split human and coding-agent quick starts, and move behavior-model / sequential-usage / dogfood-history / per-RFC subsections / command reference into dedicated `docs/` files. V1 implemented (D062) under dogfood-010. |
 | [0018](0018-focused-adversarial-review-postures.md) | proposed | Declare review-job posture (security, threat_model, devils_advocate, etc.) and per-build `required_review_postures` so workflows can require focused adversarial coverage; surfaced on packets, verdicts, and introspection. |
-| [0019](0019-domain-driven-design-foundations.md) | proposed | Document striatum's DDD framing — bounded context, ubiquitous language, aggregate roots, value objects, domain events, CLI-as-only-write-surface — in a new `docs/DDD.md` so readers see *why* the vocabulary is load-bearing rather than reverse-engineering it. |
-| [0020](0020-autonomous-stalled-run-recovery.md) | proposed | Add `recovery auto` (one-shot sweeper) and `recovery watch` (opt-in daemon) plus a workflow-declared `recovery_policy` block so overnight runs don't sit blocked on safely-recoverable failures. Autonomous review-only requeue (already permitted by D036), autonomous process reconciliation, retry budgets, and an escalation hook (marker file / webhook / shell) for genuine human checkpoints. |
+| [0019](0019-domain-driven-design-foundations.md) | accepted | `docs/DDD.md` (D067) documents striatum's DDD framing — bounded context, ubiquitous language, aggregate roots, value objects, domain events, CLI-as-only-write-surface — so readers see *why* the vocabulary is load-bearing rather than reverse-engineering it. |
+| [0020](0020-autonomous-stalled-run-recovery.md) | accepted (V1; step 3 deferred) | `recovery auto` one-shot sweeper + `recovery_policy` workflow block + escalation hooks (marker_file, webhook, shell). V1 (D066, dogfood-014) shipped steps 1+2; the `recovery watch` daemon (step 3) remains deferred. |
 
 ## Template
 
@@ -51,4 +51,11 @@ Context: links
 ## Proposal
 ## Acceptance Criteria
 ## Open Questions
+## Domain Modeling
 ```
+
+The optional `## Domain Modeling` section identifies which DDD
+pattern the new concept fits (aggregate root, value object,
+domain event, or boundary clarification) and cites
+[`docs/DDD.md § "Adding to the model"`](../DDD.md#adding-to-the-model).
+RFC 0019 is the precedent.

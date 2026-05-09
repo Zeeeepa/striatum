@@ -89,6 +89,7 @@ striatum why
 striatum doctor
 striatum evidence export
 striatum run graph
+striatum recovery auto
 striatum recovery stale-leases
 striatum recovery requeue-stale
 striatum recovery cancel-job

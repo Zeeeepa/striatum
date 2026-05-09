@@ -47,6 +47,7 @@ so external references keep resolving even as items move between sections.
 | F11 | RFC 0015 step 3 (codex + gemini skill profiles, dogfood-011) | ✅ done |
 | F12 | RFC 0016 step 3 (Unicode fancy + --graph-orient, dogfood-012) | ✅ done |
 | F13 | RFC 0013 step 7 (web UI mutation buttons, dogfood-013) | ✅ done |
+| F14 | RFC 0020 V1 (autonomous recovery sweeper, dogfood-014) | ✅ done |
 
 Legend: ✅ done · 🟡 most done (sub-tasks remain) · ⏳ open
 
