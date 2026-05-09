@@ -1,6 +1,6 @@
 # RFC 0013: Local Web UI
 
-Status: accepted (V1)
+Status: accepted (V1+step 7)
 Date: 2026-05-08
 
 ## V1 Implementation Slice

@@ -142,3 +142,81 @@ code {
 .kv { display: grid; grid-template-columns: max-content 1fr; gap: 0.2em 1em; }
 .kv dt { color: var(--muted); }
 .kv dd { margin: 0; }
+
+/* RFC 0013 step 7: mutation buttons + modal + result banners. */
+.mutation-actions {
+  margin-top: 0.8em;
+  display: flex;
+  gap: 0.5em;
+  flex-wrap: wrap;
+}
+.mutation-inline {
+  margin-left: 0.4em;
+  display: inline-flex;
+  gap: 0.3em;
+}
+.mutation-button {
+  font: inherit;
+  cursor: pointer;
+  padding: 0.3em 0.7em;
+  background: var(--running);
+  color: white;
+  border: 1px solid transparent;
+  border-radius: 0.25em;
+}
+.mutation-button:hover { filter: brightness(1.1); }
+.mutation-button.destructive { background: var(--failed); }
+.modal-overlay {
+  position: fixed; inset: 0;
+  background: rgba(0,0,0,0.5);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 1000;
+}
+.modal-dialog {
+  background: var(--bg);
+  color: var(--fg);
+  padding: 1em 1.2em;
+  border-radius: 0.4em;
+  max-width: 38em;
+  border: 1px solid var(--border);
+}
+.modal-dialog h3 { margin-top: 0; }
+.modal-body { margin: 0.6em 0; }
+.modal-argv {
+  background: var(--bg-alt, #f3f3f3);
+  padding: 0.5em;
+  font-family: ui-monospace, monospace;
+  font-size: 0.9em;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+.modal-actions {
+  display: flex; gap: 0.5em; justify-content: flex-end;
+  margin-top: 0.8em;
+}
+.modal-cancel, .modal-confirm {
+  font: inherit;
+  cursor: pointer;
+  padding: 0.4em 0.9em;
+  border-radius: 0.25em;
+  border: 1px solid var(--border);
+}
+.modal-cancel { background: transparent; color: var(--fg); }
+.modal-confirm { background: var(--running); color: white; border-color: transparent; }
+.modal-confirm.destructive { background: var(--failed); }
+.result-banner {
+  padding: 0.5em 0.7em;
+  margin: 0.6em 0;
+  border-radius: 0.25em;
+  border: 1px solid var(--border);
+}
+.result-banner.success { border-color: var(--completed); background: var(--bg); }
+.result-banner.error { border-color: var(--failed); color: var(--failed); }
+.result-banner pre {
+  margin-top: 0.4em;
+  font-size: 0.85em;
+  background: var(--bg-alt, #f3f3f3);
+  padding: 0.4em;
+  white-space: pre-wrap;
+  word-break: break-all;
+}

@@ -1,10 +1,13 @@
-// RFC 0013 V1 - Striatum local web UI.
+// RFC 0013 V1+step 7 - Striatum local web UI.
 // Vanilla ES module; no external dependencies. All data flows through
-// RFC 0012 endpoints under /v1/*. Read-only; mutation buttons land in
-// step 7 / a future RFC.
+// RFC 0012 endpoints under /v1/*. Mutations (step 7) POST to
+// /v1/invoke; the SPA caches `allow_mutations` from /v1/health and
+// hides mutation buttons when the gate is off.
 
 const app = document.querySelector("#app");
 let activeEventSource = null;
+// RFC 0013 step 7: cached gate state. null = not yet probed.
+let allowMutationsCache = null;
 
 function escapeHTML(s) {
   if (s == null) return "";
@@ -117,6 +120,89 @@ async function fetchJson(path) {
   return body;
 }
 
+// RFC 0013 step 7 mutation infrastructure --------------------------
+
+async function mutationsAllowed() {
+  if (allowMutationsCache !== null) return allowMutationsCache;
+  const res = await fetchJson("/v1/health");
+  allowMutationsCache = !!(res.ok && res.data && res.data.allow_mutations);
+  return allowMutationsCache;
+}
+
+async function invokeMutation(argv) {
+  // POST /v1/invoke with body {argv}. Returns the same envelope shape
+  // every other /v1/* endpoint uses: {ok, data | error}.
+  const res = await fetch("/v1/invoke", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ argv }),
+  });
+  const body = await res.json().catch(() => ({
+    ok: false,
+    error: { code: res.status, message: res.statusText },
+  }));
+  return body;
+}
+
+function confirmModal({ title, body, confirmLabel, destructive, argv }) {
+  // Returns a Promise that resolves true (confirmed), false (cancelled).
+  return new Promise((resolve) => {
+    const overlay = document.createElement("div");
+    overlay.className = "modal-overlay";
+    const dialog = document.createElement("div");
+    dialog.className = "modal-dialog";
+    const argvLine = `striatum ${argv.map((a) => /[\s"']/.test(a) ? `'${a.replace(/'/g, "\\'")}'` : a).join(" ")}`;
+    dialog.innerHTML = `
+      <h3>${escapeHTML(title)}</h3>
+      <div class="modal-body">${escapeHTML(body)}</div>
+      <pre class="modal-argv">${escapeHTML(argvLine)}</pre>
+      <div class="modal-actions">
+        <button type="button" class="modal-cancel">Cancel</button>
+        <button type="button" class="modal-confirm ${destructive ? "destructive" : ""}">${escapeHTML(confirmLabel || "Confirm")}</button>
+      </div>
+    `;
+    overlay.appendChild(dialog);
+    document.body.appendChild(overlay);
+
+    const finish = (result) => {
+      overlay.remove();
+      resolve(result);
+    };
+    overlay.addEventListener("click", (e) => {
+      if (e.target === overlay) finish(false);
+    });
+    dialog.querySelector(".modal-cancel").addEventListener("click", () => finish(false));
+    dialog.querySelector(".modal-confirm").addEventListener("click", () => finish(true));
+  });
+}
+
+function showResultBanner(host, result) {
+  const banner = document.createElement("div");
+  banner.className = result.ok ? "result-banner success" : "result-banner error";
+  if (result.ok) {
+    banner.textContent = "OK";
+    if (result.data) {
+      const detail = document.createElement("pre");
+      detail.textContent = JSON.stringify(result.data, null, 2);
+      banner.appendChild(detail);
+    }
+  } else {
+    const err = result.error || {};
+    banner.textContent = `Error (exit ${err.code ?? "?"}): ${err.message ?? ""}`;
+  }
+  host.prepend(banner);
+}
+
+async function runMutation({ host, argv, title, body, confirmLabel, destructive, onSuccess }) {
+  const ok = await confirmModal({ title, body, confirmLabel, destructive, argv });
+  if (!ok) return;
+  const result = await invokeMutation(argv);
+  showResultBanner(host, result);
+  if (result.ok && typeof onSuccess === "function") {
+    onSuccess(result);
+  }
+}
+
 function badge(state) {
   return `<span class="badge badge-${state}">${escapeHTML(state)}</span>`;
 }
@@ -193,7 +279,33 @@ async function renderRunDetail(runId) {
     jobsHtml += `</ul>`;
   }
   jobsHtml += `<p><a href="/v1/runs/${encodeURIComponent(runId)}/dashboard" target="_blank">raw dashboard JSON</a></p>`;
+  // RFC 0013 step 7: record-decision button (run-level; no lease).
+  if (await mutationsAllowed()) {
+    jobsHtml += `<div class="mutation-actions">
+      <button type="button" id="record-decision" class="mutation-button">Record decision</button>
+    </div>`;
+  }
   document.querySelector("#jobs").innerHTML = jobsHtml;
+  const recordBtn = document.querySelector("#record-decision");
+  if (recordBtn) {
+    recordBtn.addEventListener("click", async () => {
+      const path = prompt("Decision artifact path (relative to repo, outside .striatum/):");
+      if (!path) return;
+      const title = prompt("Decision title:");
+      if (!title) return;
+      const outcome = prompt("Outcome (accepted | rejected | accepted_with_follow_up):", "accepted");
+      if (!outcome) return;
+      await runMutation({
+        host: document.querySelector("#jobs"),
+        argv: ["decision", "record", "--run-id", runId, "--path", path,
+               "--outcome", outcome, "--title", title],
+        title: "Record owner decision",
+        body: "Writes a durable Markdown artifact with striatum.decision.v1 front matter.",
+        confirmLabel: "Record",
+        onSuccess: () => renderRunDetail(runId),
+      });
+    });
+  }
 
   // Live SSE.
   closeEventSource();
@@ -271,11 +383,113 @@ async function renderJobDetail(runId, jobId) {
   if (Array.isArray(data.blockers) && data.blockers.length > 0) {
     html += `<h2>Blockers</h2><ul>`;
     for (const b of data.blockers) {
-      html += `<li>${badge(b.severity)} <code>${escapeHTML(b.blocker_kind)}</code> — ${escapeHTML(b.description)}</li>`;
+      const blockerId = escapeHTML(b.blocker_id || "");
+      const open = (b.state === "open" || b.resolved_at == null);
+      const buttons = open
+        ? ` <span class="mutation-inline" data-blocker-id="${blockerId}" data-severity="${escapeHTML(b.severity)}">
+            <button type="button" class="mutation-button mutation-continue" data-blocker-id="${blockerId}">Continue</button>
+            <button type="button" class="mutation-button mutation-cancel" data-blocker-id="${blockerId}">Cancel job</button>
+          </span>`
+        : "";
+      html += `<li>${badge(b.severity)} <code>${escapeHTML(b.blocker_kind)}</code> — ${escapeHTML(b.description)}${buttons}</li>`;
     }
     html += "</ul>";
   }
+  // RFC 0013 step 7: verdict button on review jobs whose state is
+  // running. Requires the active lease + session, fetched via the
+  // job-level read endpoint.
+  if (data.job && data.job.job_type === "review" && data.job.state === "running") {
+    if (await mutationsAllowed()) {
+      html += `<div class="mutation-actions">
+        <button type="button" id="record-verdict" class="mutation-button">Record verdict</button>
+      </div>`;
+    }
+  }
+  // RFC 0013 step 7: requeue stale review-only.
+  if (data.job && data.job.state === "stale_lease") {
+    const writeScope = data.job.write_scope_json
+      ? JSON.parse(data.job.write_scope_json)
+      : {};
+    const reviewOnly = (writeScope.mode === "review_only_artifact"
+                       || writeScope.repo_write === false);
+    if (reviewOnly && await mutationsAllowed()) {
+      html += `<div class="mutation-actions">
+        <button type="button" id="requeue-stale" class="mutation-button">Requeue stale review</button>
+      </div>`;
+    }
+  }
   target.innerHTML = html || `<p class="empty">No data found for ${escapeHTML(jobId)}.</p>`;
+
+  // Wire mutation handlers. We attach after innerHTML so all buttons
+  // exist; CSP disallows inline handlers.
+  if (await mutationsAllowed()) {
+    target.querySelectorAll(".mutation-continue").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        const blockerId = btn.dataset.blockerId;
+        await runMutation({
+          host: target,
+          argv: ["checkpoint", "resolve", "--blocker-id", blockerId, "--action", "continue"],
+          title: "Continue past blocker",
+          body: "Closes the blocker and re-queues the affected job.",
+          confirmLabel: "Continue",
+          onSuccess: () => renderJobDetail(runId, jobId),
+        });
+      });
+    });
+    target.querySelectorAll(".mutation-cancel").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        const blockerId = btn.dataset.blockerId;
+        await runMutation({
+          host: target,
+          argv: ["checkpoint", "resolve", "--blocker-id", blockerId, "--action", "cancel"],
+          title: "Cancel affected job",
+          body: "Closes the blocker and cancels the affected job. This is destructive.",
+          confirmLabel: "Cancel job",
+          destructive: true,
+          onSuccess: () => renderJobDetail(runId, jobId),
+        });
+      });
+    });
+    const verdictBtn = target.querySelector("#record-verdict");
+    if (verdictBtn) {
+      verdictBtn.addEventListener("click", async () => {
+        const verdict = prompt("Verdict (accept | accept_with_findings | needs_revision | reject):", "accept");
+        if (!verdict) return;
+        const rationale = prompt("Rationale (free text):") || "";
+        const sessionId = data.job.current_session_id || prompt("Session id:");
+        const leaseId = data.job.current_lease_id || prompt("Lease id:");
+        if (!sessionId || !leaseId) return;
+        const argv = ["verdict",
+                      "--session-id", sessionId,
+                      "--job-id", jobId,
+                      "--lease-id", leaseId,
+                      "--verdict", verdict];
+        if (rationale) argv.push("--rationale", rationale);
+        await runMutation({
+          host: target,
+          argv,
+          title: "Record verdict",
+          body: `Records a ${verdict} verdict on this review job.`,
+          confirmLabel: "Record",
+          destructive: (verdict === "reject"),
+          onSuccess: () => renderJobDetail(runId, jobId),
+        });
+      });
+    }
+    const requeueBtn = target.querySelector("#requeue-stale");
+    if (requeueBtn) {
+      requeueBtn.addEventListener("click", async () => {
+        await runMutation({
+          host: target,
+          argv: ["recovery", "requeue-stale", "--run-id", runId, "--job-id", jobId],
+          title: "Requeue stale review-only work",
+          body: "Restores the job's work message to pending so a session can claim it.",
+          confirmLabel: "Requeue",
+          onSuccess: () => renderJobDetail(runId, jobId),
+        });
+      });
+    }
+  }
 }
 
 async function renderArtifactView(runId, artifactId) {

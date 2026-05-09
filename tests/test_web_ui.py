@@ -339,3 +339,105 @@ def test_v1_endpoints_still_work_with_web(tmp_path: Path) -> None:
         assert envelope["ok"] is True
     finally:
         _stop_service(proc)
+
+
+# ----- RFC 0013 step 7: mutation buttons ---------------------------------
+
+
+def _http_post_json(port: int, path: str, payload: dict[str, Any]) -> tuple[int, bytes]:
+    req = urllib.request.Request(
+        f"http://127.0.0.1:{port}{path}",
+        data=json.dumps(payload).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            return resp.status, resp.read()
+    except urllib.error.HTTPError as exc:
+        return exc.code, exc.read()
+
+
+def test_health_includes_allow_mutations_flag_off(tmp_path: Path) -> None:
+    _git_init_repo(tmp_path)
+    _striatum_init(tmp_path)
+    proc, port = _spawn_service(tmp_path, "--web")
+    try:
+        status, _, body = _http_get_raw(port, "/v1/health")
+        assert status == 200
+        envelope = json.loads(body)
+        assert envelope["ok"] is True
+        assert envelope["data"]["allow_mutations"] is False
+    finally:
+        _stop_service(proc)
+
+
+def test_health_includes_allow_mutations_flag_on(tmp_path: Path) -> None:
+    _git_init_repo(tmp_path)
+    _striatum_init(tmp_path)
+    proc, port = _spawn_service(tmp_path, "--web", "--allow-mutations")
+    try:
+        status, _, body = _http_get_raw(port, "/v1/health")
+        assert status == 200
+        envelope = json.loads(body)
+        assert envelope["data"]["allow_mutations"] is True
+    finally:
+        _stop_service(proc)
+
+
+def test_invoke_mutation_refused_without_allow_mutations(tmp_path: Path) -> None:
+    """A mutation verb posted to /v1/invoke without --allow-mutations is
+    refused with the documented exit code 8 envelope."""
+    _git_init_repo(tmp_path)
+    _striatum_init(tmp_path)
+    proc, port = _spawn_service(tmp_path, "--web")
+    try:
+        # `decision record` is the simplest mutation that doesn't need an
+        # active lease, so we can exercise the gate without first running
+        # a full workflow.
+        status, body = _http_post_json(
+            port, "/v1/invoke",
+            {"argv": ["decision", "record",
+                      "--run-id", "run_does_not_exist",
+                      "--path", "decisions/test.md",
+                      "--outcome", "accepted",
+                      "--title", "test"]},
+        )
+        envelope = json.loads(body)
+        assert envelope["ok"] is False
+        # The mutation gate refusal returns HTTP 405 with a clear
+        # "command requires --allow-mutations" message; the SPA shows
+        # this inline as the error envelope.
+        assert envelope["error"]["code"] == 405
+        assert "allow-mutations" in envelope["error"]["message"]
+    finally:
+        _stop_service(proc)
+
+
+def test_spa_app_js_has_mutation_button_handlers() -> None:
+    """The bundled SPA must reference the mutation surface (POST /v1/invoke,
+    `decision record`, `verdict`, `checkpoint resolve`, `recovery
+    requeue-stale`) so the buttons can fire. String-grep guard against
+    silently regressing the wiring."""
+    from importlib import resources
+
+    pkg = resources.files("striatum.web.static")
+    js = pkg.joinpath("app.js").read_text(encoding="utf-8")
+    assert "/v1/invoke" in js
+    assert "/v1/health" in js  # gate-state probe
+    assert "mutationsAllowed" in js
+    assert "decision" in js and "record" in js
+    assert "verdict" in js
+    assert "checkpoint" in js and "resolve" in js
+    assert "requeue-stale" in js
+
+
+def test_spa_app_js_no_external_urls() -> None:
+    """RFC 0013 V1 invariant; reasserted after the step-7 additions."""
+    from importlib import resources
+
+    pkg = resources.files("striatum.web.static")
+    for name in ("index.html", "app.js", "app.css"):
+        body = pkg.joinpath(name).read_text(encoding="utf-8")
+        assert "http://" not in body, f"{name} contains http:// URL"
+        assert "https://" not in body, f"{name} contains https:// URL"

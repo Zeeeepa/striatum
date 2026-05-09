@@ -247,6 +247,11 @@ class StriatumServiceHandler(BaseHTTPRequestHandler):
                     "started_at": self.state.started_at,
                     "version": _striatum_version(),
                     "mode": _service_mode(self.server),
+                    # RFC 0013 step 7: SPA reads this to decide whether
+                    # to render mutation buttons. The runner-side gate
+                    # in _dispatch_post is still authoritative; this
+                    # field is the SPA's hint, not a security boundary.
+                    "allow_mutations": bool(self.state.allow_mutations),
                 },
             },
         )

@@ -2,6 +2,37 @@
 
 ## Unreleased
 
+## 1.4.0 — 2026-05-08
+
+### Added
+
+- RFC 0013 step 7 (dogfood-013): web UI mutation buttons.
+  `POST /v1/invoke` was already gated by `--allow-mutations`
+  (RFC 0012); step 7 adds five click-driven buttons to the SPA
+  that POST the same argv shapes:
+  - **Continue blocker** / **Cancel blocker** on the job-detail
+    view (when an open blocker is present); maps to
+    `striatum checkpoint resolve --blocker-id <id> --action {continue, cancel}`.
+  - **Record verdict** on review-job detail (when state =
+    running); collects verdict + rationale + session/lease ids
+    and maps to `striatum verdict ...`.
+  - **Record decision** on the run-detail view (always
+    available; no lease required); maps to
+    `striatum decision record ...`.
+  - **Requeue stale review** on stale-lease review-only jobs;
+    maps to `striatum recovery requeue-stale ...`.
+  Each button opens a confirmation modal showing the literal
+  argv before firing; destructive actions (cancel job, reject
+  verdict) get a red confirm button. `/v1/health` gains an
+  `allow_mutations: bool` field the SPA caches once per page
+  load to hide buttons when the gate is off; the runner-side
+  gate stays authoritative as defence-in-depth. CSP unchanged
+  (no external deps, no `eval`, no inline handlers).
+  Tests at `tests/test_web_ui.py` (5 new cases, 13 total)
+  cover health-flag both states, mutation refusal without the
+  flag (HTTP 405 envelope), SPA wiring grep, and the
+  no-external-URL invariant.
+
 ## 1.3.0 — 2026-05-08
 
 ### Added

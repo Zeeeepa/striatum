@@ -789,7 +789,7 @@ whitelist of read verbs (`status`, `why`, `doctor`, `list`, `evidence`,
 `dashboard`, plus subcommand-aware reads under `workflow`, `supervise`,
 `worktree`, `run`, `recovery`).
 
-### Local Web UI (RFC 0013 V1)
+### Local Web UI (RFC 0013 V1+step 7)
 
 `striatum serve --web` activates the bundled SPA. Static assets live
 under `src/striatum/web/static/` and ship inside the wheel via
@@ -803,15 +803,38 @@ and wheel installs both work.
   script-src 'self'; style-src 'self'; img-src 'self' data:;
   connect-src 'self'`.
 - Path traversal (`..`, leading `/`) is rejected with HTTP 400.
-- New endpoint `GET /v1/artifacts/<artifact_id>/raw` streams the raw
-  bytes of a published artifact for the viewer; read-only, no
-  mutation gate.
+- `GET /v1/artifacts/<artifact_id>/raw` streams the raw bytes of a
+  published artifact for the viewer; read-only, no mutation gate.
+- `GET /v1/health` includes an `allow_mutations: bool` field
+  (RFC 0013 step 7); the SPA caches it once per page load to
+  decide whether to render mutation buttons.
 
 The SPA is a vanilla ES module (no framework, no CDN imports). Five
-views are implemented: run list, run detail (with live SSE event log),
-job detail, artifact viewer with per-kind front-matter formatting,
-and doctor. Mutation buttons (verdict / decision record / claim /
-block) are deferred to a future RFC; the V1 surface is read-only.
+read views are implemented: run list, run detail (with live SSE
+event log), job detail, artifact viewer with per-kind front-matter
+formatting, and doctor.
+
+When the service was started with `--allow-mutations`, the SPA
+also renders five click-driven mutation buttons that POST to
+`/v1/invoke` with the same argv shapes the CLI accepts:
+
+- **Continue blocker** / **Cancel blocker** (job-detail view,
+  open blocker present) → `striatum checkpoint resolve
+  --blocker-id <id> --action {continue, cancel}`.
+- **Record verdict** (review-job detail, state = running) →
+  `striatum verdict --session-id <s> --job-id <j> --lease-id <l>
+  --verdict <v> [--rationale <text>]`.
+- **Record decision** (run-detail view; no lease required) →
+  `striatum decision record --run-id <r> --path <p> --outcome <o>
+  --title <t>`.
+- **Requeue stale review** (job-detail, state = stale_lease,
+  review-only) → `striatum recovery requeue-stale --run-id <r>
+  --job-id <j>`.
+
+Each button opens a confirmation modal showing the literal argv
+before firing. Destructive actions (cancel job, reject verdict)
+get red confirm buttons. The runner-side `--allow-mutations` gate
+remains authoritative; SPA-side hiding is only a UX hint.
 
 ## Adapter Boundary
 
