@@ -62,6 +62,7 @@ so external references keep resolving even as items move between sections.
 | F26 | RFC 0024 V3 (cancel run + dirty-tree visibility, dogfood-026) | ✅ done |
 | F27 | RFC 0024 V4 (pause/resume + per-job cancel/retry, dogfood-027) | ✅ done |
 | F28 | RFC 0025 V1 Step 1 (claude_code plugin, dogfood-028) | ✅ done |
+| F29 | RFC 0025 V1 Steps 2+3 (codex + gemini plugins, dogfood-029) | ✅ done |
 
 Legend: ✅ done · 🟡 most done (sub-tasks remain) · ⏳ open
 

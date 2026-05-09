@@ -1,0 +1,27 @@
+# Striatum Gemini Extension (v{striatum_version})
+
+This file is loaded as Gemini CLI's context when the Striatum
+extension is active.
+
+## Driving a Striatum workflow
+
+1. Register a session for a (role, lane) pair.
+2. Claim the next ready packet via `striatum claim-next`.
+3. Ack the lease, do the work, publish the artifact, complete.
+
+## Skills
+
+- `skills/striatum-workflow/SKILL.md` — workflow scaffolding
+- `skills/striatum-scaffold/SKILL.md` — repo init flow
+- `skills/striatum-claim-loop/SKILL.md` — claim → ack → publish
+- `skills/striatum-supervise/SKILL.md` — long-lived agent CLI
+- `skills/striatum-recover/SKILL.md` — recovery / stale lease
+
+## Slash commands (TOML)
+
+- `claim-next` `status` `why` `dashboard` `doctor` — wrap the
+  corresponding Striatum CLI verbs.
+
+## Sub-agents
+
+- `agents/striatum-recover.md` — focused recovery role.

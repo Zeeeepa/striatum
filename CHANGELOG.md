@@ -2,6 +2,45 @@
 
 ## Unreleased
 
+## 1.20.0 — 2026-05-09
+
+### Added
+
+- RFC 0025 V1 Steps 2+3 (dogfood-029): `codex` and `gemini`
+  plugin profiles, completing the V1 plugin scope.
+  - **`codex` profile**: 14-file Codex plugin bundle under
+    `.striatum/plugins/codex/` with `.codex-plugin/plugin.json`, 5
+    skills (byte-shared with claude_code), 5 Markdown commands,
+    `hooks/hooks.json`, `.mcp.json`, `README.md`, `.manifest.json`.
+    User scope: `~/.codex/plugins/<namespace>/`.
+  - **`gemini` profile** (promotes from RFC 0015 generic
+    fallback): 14-file Gemini extension under
+    `.striatum/plugins/gemini/` with `gemini-extension.json`,
+    `GEMINI.md` context file, 5 skills (byte-shared), 5 TOML
+    commands (bare top-level form per Gemini extension spec),
+    `agents/striatum-recover.md` sub-agent definition,
+    `README.md`, `.manifest.json`. User scope:
+    `~/.gemini/extensions/<namespace>/`.
+  - **`--profile all`** aggregates all three profiles into one
+    install invocation. Result shape: `{"profile": "all",
+    "results": [...]}`.
+  - Marketplace fixture continues to be reentrant; gemini
+    short-circuits with `{"skipped": True, "reason": "gemini has
+    no marketplace concept"}` so JSON callers can detect the skip.
+  - F1 byte-match test extended: skill template trees under all
+    three profiles must match `skills/templates/claude_code/`
+    byte-for-byte.
+
+RFC 0025 status: **accepted (V1)** — three first-class profiles
+shipped.
+
+### Deferred to V2
+
+- Cross-target install (one bundle into many target repos).
+- Hosted marketplace.
+- Codex `apps/` and `assets/`.
+- Per-target git-repo extension format for gemini.
+
 ## 1.19.0 — 2026-05-09
 
 ### Added

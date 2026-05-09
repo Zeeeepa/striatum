@@ -1,6 +1,6 @@
 # RFC 0025: Agent-CLI Plugin Bundles
 
-Status: accepted (V1 step 1)
+Status: accepted (V1)
 Date: 2026-05-09
 Context:
 `docs/SPEC.md` § "Adapter Boundary",

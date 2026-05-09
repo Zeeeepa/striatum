@@ -30,23 +30,27 @@ from striatum.skills.context import gather_template_context
 
 MANIFEST_SCHEMA_VERSION = "striatum.plugins.manifest.v1"
 
-ALLOWED_PROFILES: frozenset[str] = frozenset({"claude_code"})  # codex, gemini in Steps 2-3
+ALLOWED_PROFILES: frozenset[str] = frozenset({"claude_code", "codex", "gemini"})
 ALLOWED_SCOPES: frozenset[str] = frozenset({"project", "user"})
+ALL_PROFILES_ORDER: tuple[str, ...] = ("claude_code", "codex", "gemini")
 
-_CLAUDE_CODE_SKILLS: tuple[str, ...] = (
+_PROFILE_SKILLS: tuple[str, ...] = (
     "workflow",
     "scaffold",
     "claim-loop",
     "supervise",
     "recover",
 )
-_CLAUDE_CODE_COMMANDS: tuple[str, ...] = (
+_PROFILE_COMMANDS: tuple[str, ...] = (
     "claim-next",
     "status",
     "why",
     "dashboard",
     "doctor",
 )
+# Backwards-compat aliases.
+_CLAUDE_CODE_SKILLS = _PROFILE_SKILLS
+_CLAUDE_CODE_COMMANDS = _PROFILE_COMMANDS
 
 
 def install(
@@ -168,11 +172,19 @@ def install(
             json.dumps(manifest_payload, indent=2) + "\n", encoding="utf-8"
         )
 
-    marketplace_result = None
+    marketplace_result: dict[str, Any] | None = None
     if with_marketplace and not dry_run and scope == "project":
-        marketplace_result = _write_marketplace(
-            target=target.resolve(), profile=profile, namespace=namespace, force=force,
-        )
+        if profile == "gemini":
+            # Gemini has no marketplace concept (RFC § 2.3); skip
+            # but surface the decision so JSON callers can detect it.
+            marketplace_result = {
+                "skipped": True,
+                "reason": "gemini has no marketplace concept",
+            }
+        else:
+            marketplace_result = _write_marketplace(
+                target=target.resolve(), profile=profile, namespace=namespace, force=force,
+            )
 
     return {
         "profile": profile,
@@ -255,6 +267,10 @@ def _bundle_root(*, target: Path, profile: str, scope: str, namespace: str, home
         base = (home if home is not None else Path.home()).resolve()
         if profile == "claude_code":
             return base / ".claude" / "plugins" / namespace
+        if profile == "codex":
+            return base / ".codex" / "plugins" / namespace
+        if profile == "gemini":
+            return base / ".gemini" / "extensions" / namespace
         raise InvalidTransitionError(f"user-scope path undefined for profile {profile!r}")
     return target.resolve() / ".striatum" / "plugins" / profile
 
@@ -262,7 +278,53 @@ def _bundle_root(*, target: Path, profile: str, scope: str, namespace: str, home
 def _build_plan(*, profile: str, namespace: str, context: Mapping[str, Any]) -> list[dict[str, Any]]:
     if profile == "claude_code":
         return _plan_claude_code(namespace=namespace, context=context)
+    if profile == "codex":
+        return _plan_codex(namespace=namespace, context=context)
+    if profile == "gemini":
+        return _plan_gemini(namespace=namespace, context=context)
     raise InvalidTransitionError(f"unsupported profile {profile!r}")
+
+
+def _plan_codex(*, namespace: str, context: Mapping[str, Any]) -> list[dict[str, Any]]:
+    plan: list[dict[str, Any]] = []
+    plan.append(_entry("codex/plugin.json.tmpl", ".codex-plugin/plugin.json", context))
+    for skill in _PROFILE_SKILLS:
+        plan.append(_entry(
+            f"codex/skills/{skill}.md.tmpl",
+            f"skills/{namespace}-{skill}/SKILL.md",
+            context,
+        ))
+    for cmd in _PROFILE_COMMANDS:
+        plan.append(_entry(
+            f"codex/commands/{cmd}.md.tmpl",
+            f"commands/{cmd}.md",
+            context,
+        ))
+    plan.append(_entry("codex/hooks/hooks.json.tmpl", "hooks/hooks.json", context))
+    plan.append(_entry("codex/mcp.json.tmpl", ".mcp.json", context))
+    plan.append(_entry("codex/README.md.tmpl", "README.md", context))
+    return plan
+
+
+def _plan_gemini(*, namespace: str, context: Mapping[str, Any]) -> list[dict[str, Any]]:
+    plan: list[dict[str, Any]] = []
+    plan.append(_entry("gemini/gemini-extension.json.tmpl", "gemini-extension.json", context))
+    plan.append(_entry("gemini/GEMINI.md.tmpl", "GEMINI.md", context))
+    for skill in _PROFILE_SKILLS:
+        plan.append(_entry(
+            f"gemini/skills/{skill}.md.tmpl",
+            f"skills/{namespace}-{skill}/SKILL.md",
+            context,
+        ))
+    for cmd in _PROFILE_COMMANDS:
+        plan.append(_entry(
+            f"gemini/commands/{cmd}.toml.tmpl",
+            f"commands/{cmd}.toml",
+            context,
+        ))
+    plan.append(_entry("gemini/agents/striatum-recover.md.tmpl", "agents/striatum-recover.md", context))
+    plan.append(_entry("gemini/README.md.tmpl", "README.md", context))
+    return plan
 
 
 def _plan_claude_code(*, namespace: str, context: Mapping[str, Any]) -> list[dict[str, Any]]:

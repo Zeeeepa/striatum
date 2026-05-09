@@ -6,7 +6,7 @@ import argparse
 import sqlite3
 import sys
 from pathlib import Path
-from typing import Sequence
+from typing import Any, Sequence
 
 from striatum.artifacts import publish_artifact
 from striatum.db import (
@@ -198,7 +198,21 @@ def dispatch(args: argparse.Namespace) -> object:
         )
     if args.command == "plugin" and args.plugin_command == "install":
         from striatum.plugins import install as plugin_install
+        from striatum.plugins.install import ALL_PROFILES_ORDER as _PLUGIN_ALL
         target_arg = args.target if getattr(args, "target", None) else repo
+        if str(args.profile) == "all":
+            install_results: list[dict[str, Any]] = []
+            for prof in _PLUGIN_ALL:
+                install_results.append(plugin_install.install(
+                    target=Path(target_arg),
+                    profile=prof,
+                    scope=str(args.scope),
+                    namespace=str(args.namespace),
+                    force=bool(args.force),
+                    dry_run=bool(args.dry_run),
+                    with_marketplace=bool(args.with_marketplace),
+                ))
+            return {"profile": "all", "results": install_results}
         return plugin_install.install(
             target=Path(target_arg),
             profile=str(args.profile),
@@ -210,7 +224,19 @@ def dispatch(args: argparse.Namespace) -> object:
         )
     if args.command == "plugin" and args.plugin_command == "uninstall":
         from striatum.plugins import install as plugin_install
+        from striatum.plugins.install import ALL_PROFILES_ORDER as _PLUGIN_ALL
         target_arg = args.target if getattr(args, "target", None) else repo
+        if str(args.profile) == "all":
+            uninstall_results: list[dict[str, Any]] = []
+            for prof in _PLUGIN_ALL:
+                uninstall_results.append(plugin_install.uninstall(
+                    target=Path(target_arg),
+                    profile=prof,
+                    scope=str(args.scope),
+                    namespace=str(args.namespace),
+                    force=bool(args.force),
+                ))
+            return {"profile": "all", "results": uninstall_results}
         return plugin_install.uninstall(
             target=Path(target_arg),
             profile=str(args.profile),

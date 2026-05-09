@@ -140,7 +140,7 @@ def test_uninstall_force_removes_modified(tmp_path: Path) -> None:
 
 def test_unknown_profile_raises(tmp_path: Path) -> None:
     with pytest.raises(InvalidTransitionError):
-        install(target=tmp_path, profile="codex")  # Step 2
+        install(target=tmp_path, profile="bogus")
 
 
 def test_unknown_scope_raises(tmp_path: Path) -> None:
@@ -149,9 +149,120 @@ def test_unknown_scope_raises(tmp_path: Path) -> None:
 
 
 def test_skill_templates_match_skills_module(tmp_path: Path) -> None:
-    """F1: skill bodies in plugins/templates must match skills/templates byte-for-byte."""
+    """F1: skill bodies in plugins/templates must match skills/templates byte-for-byte
+    across all three profiles."""
     repo_root = Path(__file__).resolve().parent.parent
     for skill in ("workflow", "scaffold", "claim-loop", "supervise", "recover"):
         skills_path = repo_root / "src/striatum/skills/templates/claude_code" / f"{skill}.md.tmpl"
-        plugins_path = repo_root / "src/striatum/plugins/templates/claude_code/skills" / f"{skill}.md.tmpl"
-        assert skills_path.read_bytes() == plugins_path.read_bytes(), skill
+        for profile in ("claude_code", "codex", "gemini"):
+            plugins_path = (
+                repo_root
+                / f"src/striatum/plugins/templates/{profile}/skills"
+                / f"{skill}.md.tmpl"
+            )
+            assert skills_path.read_bytes() == plugins_path.read_bytes(), (profile, skill)
+
+
+# --- Codex profile (Step 2) ----------------------------------------
+
+
+CODEX_FILES = {
+    ".codex-plugin/plugin.json",
+    "skills/striatum-workflow/SKILL.md",
+    "skills/striatum-scaffold/SKILL.md",
+    "skills/striatum-claim-loop/SKILL.md",
+    "skills/striatum-supervise/SKILL.md",
+    "skills/striatum-recover/SKILL.md",
+    "commands/claim-next.md",
+    "commands/status.md",
+    "commands/why.md",
+    "commands/dashboard.md",
+    "commands/doctor.md",
+    "hooks/hooks.json",
+    ".mcp.json",
+    "README.md",
+}
+
+
+def test_codex_install_writes_full_bundle(tmp_path: Path) -> None:
+    res = install(target=tmp_path, profile="codex")
+    rel_paths = {f["path"] for f in res["files"]}
+    assert rel_paths == CODEX_FILES
+    bundle = tmp_path / ".striatum" / "plugins" / "codex"
+    for rel in CODEX_FILES:
+        assert (bundle / rel).is_file(), rel
+
+
+def test_codex_idempotent_re_install(tmp_path: Path) -> None:
+    install(target=tmp_path, profile="codex")
+    bundle = tmp_path / ".striatum" / "plugins" / "codex"
+    snaps = {rel: (bundle / rel).read_bytes() for rel in CODEX_FILES}
+    install(target=tmp_path, profile="codex")
+    for rel, before in snaps.items():
+        assert before == (bundle / rel).read_bytes(), rel
+
+
+def test_codex_no_external_urls(tmp_path: Path) -> None:
+    install(target=tmp_path, profile="codex")
+    bundle = tmp_path / ".striatum" / "plugins" / "codex"
+    forbidden = re.compile(r"(?:https?|git|file|ssh|ftp)://")
+    for rel in CODEX_FILES:
+        body = (bundle / rel).read_text(encoding="utf-8")
+        assert not forbidden.search(body), rel
+
+
+def test_codex_user_scope_path(tmp_path: Path) -> None:
+    fake_home = tmp_path / "home"
+    fake_home.mkdir()
+    install(target=tmp_path, profile="codex", scope="user", home=fake_home)
+    assert (fake_home / ".codex" / "plugins" / "striatum" / ".codex-plugin" / "plugin.json").is_file()
+
+
+# --- Gemini profile (Step 3) ---------------------------------------
+
+
+GEMINI_FILES = {
+    "gemini-extension.json",
+    "GEMINI.md",
+    "skills/striatum-workflow/SKILL.md",
+    "skills/striatum-scaffold/SKILL.md",
+    "skills/striatum-claim-loop/SKILL.md",
+    "skills/striatum-supervise/SKILL.md",
+    "skills/striatum-recover/SKILL.md",
+    "commands/claim-next.toml",
+    "commands/status.toml",
+    "commands/why.toml",
+    "commands/dashboard.toml",
+    "commands/doctor.toml",
+    "agents/striatum-recover.md",
+    "README.md",
+}
+
+
+def test_gemini_install_writes_full_bundle(tmp_path: Path) -> None:
+    res = install(target=tmp_path, profile="gemini")
+    rel_paths = {f["path"] for f in res["files"]}
+    assert rel_paths == GEMINI_FILES
+
+
+def test_gemini_marketplace_skipped(tmp_path: Path) -> None:
+    res = install(target=tmp_path, profile="gemini")
+    assert res["marketplace"] == {"skipped": True, "reason": "gemini has no marketplace concept"}
+    mp = tmp_path / ".striatum" / "plugins" / "marketplace.json"
+    assert not mp.exists()
+
+
+def test_gemini_no_external_urls(tmp_path: Path) -> None:
+    install(target=tmp_path, profile="gemini")
+    bundle = tmp_path / ".striatum" / "plugins" / "gemini"
+    forbidden = re.compile(r"(?:https?|git|file|ssh|ftp)://")
+    for rel in GEMINI_FILES:
+        body = (bundle / rel).read_text(encoding="utf-8")
+        assert not forbidden.search(body), rel
+
+
+def test_gemini_user_scope_path(tmp_path: Path) -> None:
+    fake_home = tmp_path / "home"
+    fake_home.mkdir()
+    install(target=tmp_path, profile="gemini", scope="user", home=fake_home)
+    assert (fake_home / ".gemini" / "extensions" / "striatum" / "gemini-extension.json").is_file()

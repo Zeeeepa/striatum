@@ -86,7 +86,7 @@ def build_parser() -> argparse.ArgumentParser:
     plugin_install = plugin_sub.add_parser("install")
     plugin_install.add_argument(
         "--profile",
-        choices=["claude_code"],  # codex, gemini in Steps 2-3
+        choices=["claude_code", "codex", "gemini", "all"],
         default="claude_code",
     )
     plugin_install.add_argument(
@@ -106,7 +106,7 @@ def build_parser() -> argparse.ArgumentParser:
     plugin_uninstall = plugin_sub.add_parser("uninstall")
     plugin_uninstall.add_argument(
         "--profile",
-        choices=["claude_code"],
+        choices=["claude_code", "codex", "gemini", "all"],
         default="claude_code",
     )
     plugin_uninstall.add_argument(
