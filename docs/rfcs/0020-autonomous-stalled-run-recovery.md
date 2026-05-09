@@ -1,6 +1,6 @@
 # RFC 0020: Autonomous Stalled-Run Recovery
 
-Status: accepted (V1; step 3 deferred)
+Status: accepted (V1)
 Date: 2026-05-08
 Context:
 `docs/SPEC.md` § "Recovery" + § "Process Supervision" + §

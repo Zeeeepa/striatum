@@ -20,7 +20,7 @@ from striatum.db import (
     json_loads,
     transaction,
 )
-from striatum.errors import StriatumError
+from striatum.errors import InvalidTransitionError, StriatumError
 from striatum.process_adapter import run_process_adapter
 from striatum.workflow import (
     create_run,
@@ -482,6 +482,42 @@ def dispatch(args: argparse.Namespace) -> object:
                 policy=policy,
                 dry_run=bool(args.dry_run),
             )
+        if args.command == "recovery" and args.recovery_command == "watch":
+            from striatum.recovery import run_watch
+
+            cli_overrides = {
+                "autonomous_review_requeue": getattr(
+                    args, "autonomous_review_requeue", None
+                ),
+                "autonomous_process_reconcile": getattr(
+                    args, "autonomous_process_reconcile", None
+                ),
+                "max_requeues_per_sweep": getattr(
+                    args, "max_requeues_per_sweep", None
+                ),
+                "checkpoint_timeout_seconds": getattr(
+                    args, "checkpoint_timeout_seconds", None
+                ),
+                "eligible_after_seconds": getattr(
+                    args, "eligible_after_seconds", None
+                ),
+            }
+            exit_code = run_watch(
+                repo=repo,
+                run_id=args.run_id,
+                interval_seconds=float(args.interval_seconds),
+                exit_on_terminal=bool(args.exit_on_terminal),
+                max_sweeps=getattr(args, "max_sweeps", None),
+                cli_overrides=cli_overrides,
+                json_output=bool(args.json),
+            )
+            if exit_code != 0:
+                # Pidfile collision is the only non-zero exit shape today;
+                # InvalidTransitionError uses exit code 4 by construction.
+                raise InvalidTransitionError(
+                    f"recovery watch refused (exit {exit_code})"
+                )
+            return None
         if args.command == "checkpoint" and args.checkpoint_command == "resolve":
             return checkpoint_resolve(
                 conn,

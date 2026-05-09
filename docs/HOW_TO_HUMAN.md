@@ -288,6 +288,27 @@ with `--cascade` to cancel them transitively in the same
 transaction. Terminal-state jobs (`completed`, `failed`,
 `canceled`, `skipped`) cannot be canceled.
 
+For unattended runs, `recovery watch` is a foreground daemon
+that wraps `recovery auto` in a sleep loop. One pidfile per run
+(`.striatum/scratch/recovery-watch-<run_id>.pid`); `SIGTERM` /
+`SIGINT` shuts it down cleanly. Exits when the run reaches a
+terminal state by default.
+
+```bash
+"$RUNNER" --repo "$TARGET_REPO" recovery watch \
+  --run-id <run_id> \
+  --interval-seconds 60 \
+  --json | tee "$OUTPUT_DIR/watch.jsonl"
+```
+
+Add `--max-sweeps N` to cap iterations (useful for tests and
+probes), `--no-exit-on-terminal` to keep looping past terminal,
+or any of the same overrides as `recovery auto`
+(`--autonomous-review-requeue`, `--checkpoint-timeout`, etc.).
+A pidfile collision with an alive watcher exits 4 with a
+documented message; stale pidfiles (dead PIDs) are overwritten
+cleanly.
+
 ## Dashboards and graphs
 
 For a compact at-a-glance view of a run, use the dashboard. It is

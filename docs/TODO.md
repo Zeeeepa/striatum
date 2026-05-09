@@ -48,6 +48,7 @@ so external references keep resolving even as items move between sections.
 | F12 | RFC 0016 step 3 (Unicode fancy + --graph-orient, dogfood-012) | ✅ done |
 | F13 | RFC 0013 step 7 (web UI mutation buttons, dogfood-013) | ✅ done |
 | F14 | RFC 0020 V1 (autonomous recovery sweeper, dogfood-014) | ✅ done |
+| F15 | RFC 0020 step 3 (`recovery watch` daemon, dogfood-015) | ✅ done |
 
 Legend: ✅ done · 🟡 most done (sub-tasks remain) · ⏳ open
 

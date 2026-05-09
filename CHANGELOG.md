@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+## 1.6.0 — 2026-05-09
+
+### Added
+
+- RFC 0020 step 3 (dogfood-015): `striatum recovery watch
+  --run-id <id>` long-lived sweeper daemon. Wraps the existing
+  `recovery auto` orchestrator in a sleep loop with single-
+  instance pidfile (`.striatum/scratch/recovery-watch-<run_id>.pid`),
+  `SIGTERM`/`SIGINT` signal-driven shutdown, JSONL emission per
+  sweep + a final `watch_exit` envelope, exit-on-terminal default,
+  `--max-sweeps` cap, and the same CLI overrides as `recovery
+  auto`. Stale pidfiles (dead PIDs) are overwritten cleanly;
+  active-PID collisions exit 4 with a clear message. New
+  `src/striatum/recovery/watch.py`. Tests at
+  `tests/test_recovery_watch.py` (8 cases, including a SIGTERM
+  shutdown test that interrupts a long sleep). RFC 0020
+  transitions to `accepted (V1)` — the "step 3 deferred"
+  qualifier drops.
+
 ## 1.5.0 — 2026-05-09
 
 ### Added

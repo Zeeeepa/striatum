@@ -324,6 +324,58 @@ def build_parser() -> argparse.ArgumentParser:
     )
     recovery_auto.add_argument("--json", action="store_true")
 
+    # RFC 0020 step 3: long-lived sweeper daemon.
+    recovery_watch = recovery_sub.add_parser(
+        "watch",
+        help=(
+            "RFC 0020 step 3: long-lived autonomous-recovery sweeper. "
+            "Wraps `recovery auto` in a sleep loop with single-instance "
+            "pidfile + signal-driven shutdown + JSONL emission."
+        ),
+    )
+    recovery_watch.add_argument("--run-id", required=True)
+    recovery_watch.add_argument(
+        "--interval-seconds", type=float, default=60.0,
+        help="seconds between sweeps; default 60",
+    )
+    exit_group = recovery_watch.add_mutually_exclusive_group()
+    exit_group.add_argument(
+        "--exit-on-terminal", dest="exit_on_terminal",
+        action="store_true", default=True,
+        help="exit cleanly when the run reaches a terminal state (default)",
+    )
+    exit_group.add_argument(
+        "--no-exit-on-terminal", dest="exit_on_terminal",
+        action="store_false",
+        help="keep looping even after the run reaches a terminal state",
+    )
+    recovery_watch.add_argument(
+        "--max-sweeps", type=int, default=None,
+        help="cap total sweeps; default unlimited",
+    )
+    recovery_watch.add_argument(
+        "--autonomous-review-requeue",
+        dest="autonomous_review_requeue",
+        action="store_true",
+        default=None,
+    )
+    recovery_watch.add_argument(
+        "--autonomous-process-reconcile",
+        dest="autonomous_process_reconcile",
+        action="store_true",
+        default=None,
+    )
+    recovery_watch.add_argument(
+        "--max-requeue", dest="max_requeues_per_sweep", type=int, default=None,
+    )
+    recovery_watch.add_argument(
+        "--checkpoint-timeout", dest="checkpoint_timeout_seconds", type=int, default=None,
+    )
+    recovery_watch.add_argument(
+        "--eligible-after", dest="eligible_after_seconds", type=int, default=None,
+    )
+    recovery_watch.add_argument("--json", action="store_true")
+
     checkpoint = sub.add_parser("checkpoint")
     checkpoint_sub = checkpoint.add_subparsers(dest="checkpoint_command", required=True)
     checkpoint_resolve_p = checkpoint_sub.add_parser("resolve")

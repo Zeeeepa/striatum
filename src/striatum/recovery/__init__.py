@@ -24,13 +24,21 @@ from striatum.recovery.policy import (
     resolve_policy,
     validate_recovery_policy,
 )
+from striatum.recovery.watch import (
+    PIDFILE_COLLISION_EXIT_CODE,
+    pidfile_path,
+    run_watch,
+)
 
 __all__ = [
     "DEFAULT_POLICY",
+    "PIDFILE_COLLISION_EXIT_CODE",
+    "pidfile_path",
     "resolve_policy",
     "run_auto_sweep",
     "run_marker_file_hook",
     "run_shell_hook",
+    "run_watch",
     "run_webhook_hook",
     "validate_recovery_policy",
 ]

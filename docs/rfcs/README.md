@@ -32,7 +32,7 @@ and, when behavior changes, `docs/SPEC.md`.
 | [0017](0017-readme-and-docs-reorganization.md) | accepted (V1) | Slim the README to ~250 lines, split human and coding-agent quick starts, and move behavior-model / sequential-usage / dogfood-history / per-RFC subsections / command reference into dedicated `docs/` files. V1 implemented (D062) under dogfood-010. |
 | [0018](0018-focused-adversarial-review-postures.md) | proposed | Declare review-job posture (security, threat_model, devils_advocate, etc.) and per-build `required_review_postures` so workflows can require focused adversarial coverage; surfaced on packets, verdicts, and introspection. |
 | [0019](0019-domain-driven-design-foundations.md) | accepted | `docs/DDD.md` (D067) documents striatum's DDD framing — bounded context, ubiquitous language, aggregate roots, value objects, domain events, CLI-as-only-write-surface — so readers see *why* the vocabulary is load-bearing rather than reverse-engineering it. |
-| [0020](0020-autonomous-stalled-run-recovery.md) | accepted (V1; step 3 deferred) | `recovery auto` one-shot sweeper + `recovery_policy` workflow block + escalation hooks (marker_file, webhook, shell). V1 (D066, dogfood-014) shipped steps 1+2; the `recovery watch` daemon (step 3) remains deferred. |
+| [0020](0020-autonomous-stalled-run-recovery.md) | accepted (V1) | `recovery auto` one-shot sweeper + `recovery_policy` workflow block + escalation hooks (marker_file, webhook, shell) + `recovery watch` daemon. V1 closes after dogfood-014 (steps 1+2, D066) and dogfood-015 (step 3, D068). |
 
 ## Template
 

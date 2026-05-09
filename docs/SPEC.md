@@ -641,6 +641,20 @@ into autonomous behavior and an `escalation_hook` (`marker_file`,
 `recovery_policy` get diagnostic-only output; today's flow is
 preserved byte-for-byte.
 
+`recovery watch --run-id <id>` (RFC 0020 step 3) is the long-lived
+counterpart for operators who want one foreground command instead of
+a cron entry. It wraps `run_auto_sweep` in a sleep loop with a per-
+run pidfile (`.striatum/scratch/recovery-watch-<run_id>.pid`),
+`SIGTERM` / `SIGINT` graceful shutdown via interruptible `wait`,
+JSONL emission per sweep plus a final `watch_exit` envelope, exit-
+on-terminal-run-state default (`--no-exit-on-terminal` keeps
+looping), and `--max-sweeps N` for tests / probes. The same CLI
+overrides as `recovery auto` are accepted and resolve once at
+startup. A pidfile collision with an alive watcher exits 4 with
+`another recovery watch is active (pid <N>)`; stale pidfiles (dead
+PIDs) are overwritten cleanly. The watcher does not duplicate sweep
+logic — every sweep is the existing one-shot path.
+
 ### Self-Contained Agent Skills
 
 > Design rationale: [RFC 0015](rfcs/0015-self-contained-agent-skills.md).
