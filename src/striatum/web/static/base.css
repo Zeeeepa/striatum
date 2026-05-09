@@ -639,3 +639,16 @@ table.runs-table tbody tr:hover { background: var(--bg-overlay); }
   font-size: 0.9em;
   white-space: pre-wrap;
 }
+
+/* RFC 0024 V2: field-level error highlighting on the visual builder. */
+.workflow-edit-page .field-error {
+  outline: 2px solid var(--status-failed);
+  outline-offset: 2px;
+  border-radius: var(--radius);
+  position: relative;
+}
+.workflow-edit-page .field-error input,
+.workflow-edit-page .field-error select,
+.workflow-edit-page .field-error textarea {
+  border-color: var(--status-failed) !important;
+}

@@ -485,7 +485,10 @@ def validate_workflow(
     if missing:
         raise WorkflowError(f"workflow is missing required fields: {', '.join(missing)}")
     if workflow.get("schema_version") != "striatum.workflow.v1":
-        raise WorkflowError("workflow schema_version must be striatum.workflow.v1")
+        raise WorkflowError(
+            "workflow schema_version must be striatum.workflow.v1",
+            field_path="schema_version",
+        )
     _validate_branch_section(workflow)
     # RFC 0020 V1: optional `recovery_policy` block. Validated here
     # so a workflow that declares an invalid hook is rejected at
@@ -508,30 +511,44 @@ def validate_workflow(
     roles = _object(workflow, "roles")
     jobs = _list(workflow, "jobs")
     job_map: dict[str, JsonValue] = {}
-    for job_value in jobs:
+    for job_index, job_value in enumerate(jobs):
         if not isinstance(job_value, dict):
-            raise WorkflowError("each job must be an object")
+            raise WorkflowError(
+                "each job must be an object", field_path=f"jobs[{job_index}]"
+            )
         job = cast(JsonValue, job_value)
         job_id = _string(job, "id")
         if job_id in job_map:
-            raise WorkflowError(f"duplicate job id {job_id!r}")
+            raise WorkflowError(
+                f"duplicate job id {job_id!r}",
+                field_path=f"jobs[{job_index}].id",
+            )
         job_map[job_id] = job
         role_id = _string(job, "role_id")
         if role_id not in roles:
-            raise WorkflowError(f"job {job_id!r} references unknown role {role_id!r}")
+            raise WorkflowError(
+                f"job {job_id!r} references unknown role {role_id!r}",
+                field_path=f"jobs[{job_index}].role_id",
+            )
         lane_id = job.get("lane_id")
         if lane_id is not None and lane_id not in lanes:
-            raise WorkflowError(f"job {job_id!r} references unknown lane {lane_id!r}")
+            raise WorkflowError(
+                f"job {job_id!r} references unknown lane {lane_id!r}",
+                field_path=f"jobs[{job_index}].lane_id",
+            )
         for dep in job.get("needs", []):
             if not isinstance(dep, str):
                 raise WorkflowError(f"job {job_id!r} has non-string dependency")
         _validate_write_scope_paths(job_id, job)
-        for artifact in job.get("expected_artifacts", []):
+        for artifact_index, artifact in enumerate(job.get("expected_artifacts", [])):
             if not isinstance(artifact, dict):
                 raise WorkflowError(f"job {job_id!r} expected artifact must be an object")
             path = artifact.get("path")
             if not isinstance(path, str) or path.startswith("/") or ".." in Path(path).parts:
-                raise WorkflowError(f"job {job_id!r} has invalid artifact path")
+                raise WorkflowError(
+                    f"job {job_id!r} has invalid artifact path",
+                    field_path=f"jobs[{job_index}].expected_artifacts[{artifact_index}].path",
+                )
             kind = artifact.get("kind")
             if isinstance(kind, str) and kind not in ALLOWED_ARTIFACT_KINDS:
                 raise WorkflowError(
@@ -545,19 +562,25 @@ def validate_workflow(
     _validate_required_postures_reachable(workflow, job_map=job_map)
     edge_dependency_pairs(workflow)
     validate_needs_match_edges(workflow)
-    for cycle_value in _list(workflow, "cycles"):
+    for cycle_index, cycle_value in enumerate(_list(workflow, "cycles")):
         if not isinstance(cycle_value, dict):
             raise WorkflowError("each cycle must be an object")
         cycle = cast(JsonValue, cycle_value)
         from_id = _string(cycle, "from")
         to_id = _string(cycle, "to")
         if from_id not in job_map or to_id not in job_map:
-            raise WorkflowError("workflow cycle references an unknown job")
+            raise WorkflowError(
+                "workflow cycle references an unknown job",
+                field_path=f"cycles[{cycle_index}].from",
+            )
         if _string(cycle, "on_verdict") != "needs_revision":
             raise WorkflowError("workflow cycles must use on_verdict needs_revision")
         max_iterations = cycle.get("max_iterations")
         if not isinstance(max_iterations, int) or max_iterations < 1:
-            raise WorkflowError("workflow cycles must declare max_iterations >= 1")
+            raise WorkflowError(
+                "workflow cycles must declare max_iterations >= 1",
+                field_path=f"cycles[{cycle_index}].max_iterations",
+            )
     _validate_cycle_targets_feed_sources(workflow, job_map=job_map)
     _validate_parallelism(jobs)
     _validate_revision_policy(workflow, jobs=jobs)

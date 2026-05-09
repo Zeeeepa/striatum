@@ -1,0 +1,1 @@
+Devils advocate. Sweep: run-now bypassing branch hygiene (auto-merge controls? dirty-tree refusal?); If-Match TOCTOU (race between read sha + write); field-level errors going stale after edits; 412 vs 409 semantics; missing-If-Match permissive default risks; implementation-effort vs UX-payoff for field-level errors.

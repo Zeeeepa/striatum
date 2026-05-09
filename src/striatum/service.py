@@ -568,6 +568,9 @@ class StriatumServiceHandler(BaseHTTPRequestHandler):
         if self.state.web_enabled and parsed.path.startswith("/workflows/edit/"):
             self._handle_workflow_edit_save(parsed.path[len("/workflows/edit/"):])
             return
+        if self.state.web_enabled and parsed.path.startswith("/workflows/run/"):
+            self._handle_workflow_run_now(parsed.path[len("/workflows/run/"):])
+            return
         if self.state.web_enabled and parsed.path.startswith("/chat/") and parsed.path.endswith("/send"):
             session_id = parsed.path[len("/chat/"):-len("/send")]
             self._handle_chat_send(session_id)
@@ -983,11 +986,22 @@ class StriatumServiceHandler(BaseHTTPRequestHandler):
                     workflow_data = {}
             except (OSError, json.JSONDecodeError):
                 workflow_data = {}
+        # RFC 0024 V2: stamp file sha256 so the editor can echo it on
+        # POST as If-Match. Empty string for new files (no precondition).
+        import hashlib
+        if is_new:
+            sha256 = ""
+        else:
+            try:
+                sha256 = hashlib.sha256(target.read_bytes()).hexdigest()
+            except OSError:
+                sha256 = ""
         try:
             html = _jinja_env().get_template("workflow_edit.html").render(
                 rel_path=rel_norm,
                 is_new=is_new,
                 workflow_json=json.dumps(workflow_data),
+                workflow_sha256=sha256,
             )
             self._send_html(200, html)
         except Exception as exc:  # noqa: BLE001
@@ -1054,21 +1068,155 @@ class StriatumServiceHandler(BaseHTTPRequestHandler):
         try:
             validate_workflow(data)
         except WorkflowError as exc:
-            self._send_json(422, {"ok": False, "error": {"code": 422, "message": str(exc)}})
+            errors = []
+            if getattr(exc, "field_path", None):
+                errors.append({"field_path": exc.field_path, "message": str(exc)})
+            self._send_json(422, {"ok": False, "error": {"code": 422, "message": str(exc), "errors": errors}})
             return
         except Exception as exc:  # noqa: BLE001
-            self._send_json(422, {"ok": False, "error": {"code": 422, "message": f"{type(exc).__name__}: {exc}"}})
+            self._send_json(422, {"ok": False, "error": {"code": 422, "message": f"{type(exc).__name__}: {exc}", "errors": []}})
             return
+        # RFC 0024 V2: If-Match precondition. Missing header = opt-out
+        # (V1.5 backward compat). Empty header for a new file = no
+        # precondition. Re-read sha *immediately before* rename to
+        # narrow the TOCTOU window.
+        import hashlib
+        if_match = self.headers.get("If-Match", "").strip().strip('"')
+        if if_match and target.is_file():
+            try:
+                current_sha = hashlib.sha256(target.read_bytes()).hexdigest()
+            except OSError as exc:
+                self._send_json(500, {"ok": False, "error": {"code": 500, "message": f"read failed: {exc}"}})
+                return
+            if current_sha != if_match:
+                self._send_json(412, {"ok": False, "error": {"code": 412, "message": "If-Match precondition failed; file changed on disk", "current_sha256": current_sha}})
+                return
         # Atomic write.
         try:
             target.parent.mkdir(parents=True, exist_ok=True)
             tmp = target.with_suffix(target.suffix + ".tmp")
             tmp.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+            # Re-read sha right before rename to catch concurrent edits
+            # that landed during validate.
+            if if_match and target.is_file():
+                try:
+                    final_sha = hashlib.sha256(target.read_bytes()).hexdigest()
+                except OSError:
+                    final_sha = if_match
+                if final_sha != if_match:
+                    tmp.unlink(missing_ok=True)
+                    self._send_json(412, {"ok": False, "error": {"code": 412, "message": "If-Match precondition failed; file changed during validate", "current_sha256": final_sha}})
+                    return
             tmp.replace(target)
         except OSError as exc:
             self._send_json(500, {"ok": False, "error": {"code": 500, "message": f"write failed: {exc}"}})
             return
-        self._send_json(200, {"ok": True, "data": {"path": "/".join(rel_parts), "status": "saved"}})
+        new_sha = hashlib.sha256(target.read_bytes()).hexdigest()
+        self._send_json(200, {"ok": True, "data": {"path": "/".join(rel_parts), "status": "saved", "sha256": new_sha}})
+
+    def _handle_workflow_run_now(self, rel_path: str) -> None:
+        """RFC 0024 V2: POST /workflows/run/<path> — lift workflow.json into a fresh run.
+
+        Mutation-gated. Validates path safety + content-type + body cap.
+        Calls ``create_run`` (which validates the workflow); auto-branch
+        confirms when ``branch.mode == auto``; calls ``run_start``.
+        Returns ``{run_id}`` on 200; ``409`` on dirty-tree branch refusal;
+        ``422`` on validation failure.
+        """
+        from striatum.cli.mutations import branch_confirm, run_start
+        from striatum.db import connect, transaction
+        from striatum.errors import (
+            BranchConfirmationError,
+            InvalidTransitionError,
+            WorkflowError,
+        )
+        from striatum.workflow import create_run
+
+        if not self.state.allow_mutations:
+            self._send_json(405, {"ok": False, "error": {"code": 405, "message": "run requires --allow-mutations"}})
+            return
+        if not rel_path:
+            self._send_json(404, {"ok": False, "error": {"code": 404, "message": "missing path"}})
+            return
+        if rel_path.startswith("/") or "\x00" in rel_path or ".." in Path(rel_path).parts:
+            self._send_json(400, {"ok": False, "error": {"code": 400, "message": "invalid path"}})
+            return
+        ctype = self.headers.get("Content-Type", "")
+        if "application/json" not in ctype:
+            self._send_json(415, {"ok": False, "error": {"code": 415, "message": "Content-Type must be application/json"}})
+            return
+        try:
+            length = int(self.headers.get("Content-Length") or "0")
+        except ValueError:
+            length = 0
+        if length > 1024 * 1024:
+            self._send_json(413, {"ok": False, "error": {"code": 413, "message": "body too large (1 MB cap)"}})
+            return
+        # Body is reserved for V3 overrides; ignored in V2.
+        try:
+            _ = self.rfile.read(length).decode("utf-8", errors="replace") if length > 0 else ""
+        except OSError as exc:
+            self._send_json(400, {"ok": False, "error": {"code": 400, "message": str(exc)}})
+            return
+        repo_root = self.state.repo.resolve()
+        target = (self.state.repo / rel_path).resolve()
+        try:
+            target.relative_to(repo_root)
+        except ValueError:
+            self._send_json(400, {"ok": False, "error": {"code": 400, "message": "path escapes repo"}})
+            return
+        rel_parts = target.relative_to(repo_root).parts
+        if rel_parts and rel_parts[0] in (".git", ".striatum"):
+            self._send_json(404, {"ok": False, "error": {"code": 404, "message": "hidden path"}})
+            return
+        if not target.is_file():
+            self._send_json(404, {"ok": False, "error": {"code": 404, "message": "workflow.json not found"}})
+            return
+        try:
+            with connect(self.state.repo) as conn:
+                with transaction(conn):
+                    prepared = create_run(conn, repo=self.state.repo, workflow_path=target)
+                run_id = str(prepared["run_id"])
+                # Auto-branch: drive branch_confirm so the run can move on.
+                # Manual-branch: stop with state=needs_branch_confirmation;
+                # the operator must confirm separately. (Synthesis F1 for
+                # the "fold the dirty-tree status into the 409" finding is
+                # deferred to V3.)
+                requires_confirm = (
+                    prepared.get("state") == "needs_branch_confirmation"
+                    and prepared.get("branch_mode") != "auto"
+                )
+                if prepared.get("branch_mode") == "auto":
+                    suggested = prepared.get("suggested_branch_name")
+                    if isinstance(suggested, str) and suggested:
+                        try:
+                            branch_confirm(
+                                conn,
+                                repo=self.state.repo,
+                                run_id=run_id,
+                                branch=suggested,
+                                create=True,
+                            )
+                        except BranchConfirmationError as exc:
+                            self._send_json(409, {"ok": False, "error": {"code": 409, "message": str(exc), "kind": "branch_confirmation"}})
+                            return
+                if requires_confirm:
+                    self._send_json(200, {"ok": True, "data": {"run_id": run_id, "status": "needs_branch_confirmation", "suggested_branch_name": prepared.get("suggested_branch_name")}})
+                    return
+                run_start(conn, run_id=run_id)
+        except WorkflowError as exc:
+            errors = []
+            if getattr(exc, "field_path", None):
+                errors.append({"field_path": exc.field_path, "message": str(exc)})
+            self._send_json(422, {"ok": False, "error": {"code": 422, "message": str(exc), "errors": errors}})
+            return
+        except InvalidTransitionError as exc:
+            self._send_json(409, {"ok": False, "error": {"code": 409, "message": str(exc), "kind": "invalid_transition"}})
+            return
+        except Exception as exc:  # noqa: BLE001
+            self._send_json(500, {"ok": False, "error": {"code": 500, "message": f"{type(exc).__name__}: {exc}"}})
+            return
+        self._send_json(200, {"ok": True, "data": {"run_id": run_id, "status": "running"}})
 
     def _render_doctor_page(self) -> None:
         from striatum.cli.introspect import doctor as doctor_command
