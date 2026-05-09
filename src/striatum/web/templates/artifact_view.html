@@ -27,8 +27,15 @@
     {% endif %}
   </dl>
 
-  <p class="muted">Inline Markdown rendering is queued for V1.5 (RFC 0022).
-  For now, view the file via <code>{{ artifact.repo_path }}</code> in the
-  repository or use the raw API: <code>GET /v1/artifacts/{{ artifact.artifact_id }}/raw</code>.</p>
+  {% if rendered_md %}
+  <h2>Body</h2>
+  <div class="md-body">{{ rendered_md | safe }}</div>
+  {% elif body_text %}
+  <h2>Body</h2>
+  <pre class="code-pre"><code>{{ body_text }}</code></pre>
+  {% else %}
+  <p class="muted">Inline rendering is not available for this artifact kind.
+  Use the raw API: <code>GET /v1/artifacts/{{ artifact.artifact_id }}/raw</code>.</p>
+  {% endif %}
 </section>
 {% endblock %}

@@ -19,6 +19,7 @@ import socketserver
 import sqlite3
 import threading
 import time
+import uuid
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
@@ -35,6 +36,106 @@ LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
 SSE_POLL_INTERVAL_SECONDS = 0.25
 SSE_MAX_CONCURRENT_PER_RUN = 32
 SHUTDOWN_DRAIN_SECONDS = 5.0
+
+
+def _is_safe_id(value: str) -> bool:
+    """RFC 0023 V1: chat session ids and similar paths must be ASCII
+    alphanumeric / underscore / hyphen only."""
+    if not value:
+        return False
+    return all(ch.isalnum() or ch in "-_" for ch in value)
+
+
+def _utc_now_iso() -> str:
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _format_ts(epoch_seconds: float) -> str:
+    return datetime.fromtimestamp(epoch_seconds, tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+
+
+def _escape_html(s: str) -> str:
+    return (
+        s.replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+        .replace('"', "&quot;")
+        .replace("'", "&#x27;")
+    )
+
+
+def _append_jsonl(path: Path, entry: dict[str, Any]) -> None:
+    line = json.dumps(entry, ensure_ascii=False) + "\n"
+    with path.open("a", encoding="utf-8") as fh:
+        fh.write(line)
+
+
+def _read_chat_history(path: Path) -> list[dict[str, str]]:
+    """Read the transcript JSONL and project to a chat-completion
+    messages list (only role/content; coalesce streaming chunks)."""
+    if not path.is_file():
+        return []
+    coalesced: list[dict[str, str]] = []
+    pending_assistant: list[str] = []
+    for raw in path.read_text(encoding="utf-8").splitlines():
+        if not raw.strip():
+            continue
+        try:
+            entry = json.loads(raw)
+        except json.JSONDecodeError:
+            continue
+        role = str(entry.get("role") or "")
+        content = str(entry.get("content") or "")
+        if not role or not content:
+            continue
+        if role == "assistant":
+            if entry.get("streaming") is True:
+                pending_assistant.append(content)
+                continue
+            if pending_assistant:
+                # The non-streaming entry is the canonical full message.
+                pending_assistant = []
+            coalesced.append({"role": "assistant", "content": content})
+            continue
+        # Flush any pending streaming chunks before switching role.
+        if pending_assistant:
+            coalesced.append({"role": "assistant", "content": "".join(pending_assistant)})
+            pending_assistant = []
+        if role in ("user", "system"):
+            coalesced.append({"role": role, "content": content})
+    if pending_assistant:
+        coalesced.append({"role": "assistant", "content": "".join(pending_assistant)})
+    return coalesced
+
+
+def _parse_simple_multipart(raw: str, ctype: str) -> dict[str, list[str]]:
+    """Very small multipart/form-data parser sufficient for the one-
+    field chat-input form. Only handles UTF-8 text fields."""
+    boundary_marker = "boundary="
+    if boundary_marker not in ctype:
+        return {}
+    boundary = "--" + ctype.split(boundary_marker, 1)[1].split(";", 1)[0].strip()
+    out: dict[str, list[str]] = {}
+    parts = raw.split(boundary)
+    for part in parts:
+        part = part.strip("\r\n -")
+        if not part or part == "--":
+            continue
+        if "\r\n\r\n" not in part:
+            continue
+        head, body = part.split("\r\n\r\n", 1)
+        headers = head.splitlines()
+        name: str | None = None
+        for hdr in headers:
+            if hdr.lower().startswith("content-disposition:"):
+                for kv in hdr.split(";"):
+                    kv = kv.strip()
+                    if kv.startswith("name="):
+                        name = kv.split("=", 1)[1].strip().strip('"')
+        if not name:
+            continue
+        out.setdefault(name, []).append(body.rstrip("\r\n"))
+    return out
 
 
 def _jinja_env() -> Any:
@@ -226,6 +327,15 @@ class StriatumServiceHandler(BaseHTTPRequestHandler):
         if self.state.web_enabled and path == "/doctor":
             self._render_doctor_page()
             return
+        if self.state.web_enabled and path == "/chat":
+            self._render_chat_index_page()
+            return
+        if self.state.web_enabled and path.startswith("/chat/"):
+            self._render_chat_subpath(path[len("/chat/"):])
+            return
+        if self.state.web_enabled and path.startswith("/view/"):
+            self._render_view_path(path[len("/view/"):])
+            return
         if self.state.web_enabled and path.startswith("/run/"):
             self._render_run_subpath(path[len("/run/"):])
             return
@@ -242,6 +352,17 @@ class StriatumServiceHandler(BaseHTTPRequestHandler):
         if not self._authenticate():
             return
         parsed = urlsplit(self.path)
+        if self.state.web_enabled and parsed.path == "/chat/new":
+            self._handle_chat_new()
+            return
+        if self.state.web_enabled and parsed.path.startswith("/chat/") and parsed.path.endswith("/send"):
+            session_id = parsed.path[len("/chat/"):-len("/send")]
+            self._handle_chat_send(session_id)
+            return
+        if self.state.web_enabled and parsed.path.startswith("/chat/") and parsed.path.endswith("/stop"):
+            session_id = parsed.path[len("/chat/"):-len("/stop")]
+            self._handle_chat_stop(session_id)
+            return
         if parsed.path != "/v1/invoke":
             self._send_json(404, {"ok": False, "error": {"code": 404, "message": "not found"}})
             return
@@ -516,8 +637,24 @@ class StriatumServiceHandler(BaseHTTPRequestHandler):
                     return
                 run = dict(run_row)
                 artifact = dict(artifact_row)
+            # RFC 0023 V1: inline-render Markdown artifacts.
+            rendered_md: str | None = None
+            body_text: str | None = None
+            try:
+                repo_path = artifact.get("repo_path") or ""
+                if isinstance(repo_path, str) and repo_path.endswith(".md"):
+                    full = (self.state.repo / repo_path).resolve()
+                    repo_root = self.state.repo.resolve()
+                    full.relative_to(repo_root)  # raises if escapes
+                    if full.is_file():
+                        from striatum.web.markdown import render as md_render
+                        body = full.read_text(encoding="utf-8", errors="replace")
+                        rendered_md = md_render(body)
+            except (ValueError, OSError):
+                rendered_md = None
             html = _jinja_env().get_template("artifact_view.html").render(
                 run=run, artifact=artifact,
+                rendered_md=rendered_md, body_text=body_text,
             )
             self._send_html(200, html)
         except Exception as exc:  # noqa: BLE001
@@ -533,6 +670,348 @@ class StriatumServiceHandler(BaseHTTPRequestHandler):
             self._send_html(200, html)
         except Exception as exc:  # noqa: BLE001
             self._send_json(500, {"ok": False, "error": {"code": 500, "message": str(exc)}})
+
+    # --- RFC 0023 V1 chat + view ---------------------------------------
+
+    def _chat_config(self) -> Any | None:
+        from striatum.web.chat_provider import ChatProviderConfig, ChatProviderError
+        try:
+            return ChatProviderConfig.from_env(os.environ)
+        except ChatProviderError:
+            return None
+
+    def _chat_scratch_root(self) -> Path:
+        return self.state.repo / ".striatum" / "scratch"
+
+    def _chat_session_path(self, session_id: str) -> Path | None:
+        if not session_id or "/" in session_id or ".." in session_id:
+            return None
+        return self._chat_scratch_root() / f"chat-{session_id}" / "transcript.jsonl"
+
+    def _list_chat_sessions(self) -> list[dict[str, Any]]:
+        root = self._chat_scratch_root()
+        if not root.exists():
+            return []
+        sessions = []
+        for entry in sorted(root.iterdir()):
+            if not entry.is_dir() or not entry.name.startswith("chat-"):
+                continue
+            transcript = entry / "transcript.jsonl"
+            if not transcript.is_file():
+                continue
+            session_id = entry.name[len("chat-"):]
+            try:
+                lines = transcript.read_text(encoding="utf-8").splitlines()
+                count = sum(1 for line in lines if line.strip())
+                started_at = entry.stat().st_mtime
+            except OSError:
+                continue
+            sessions.append(
+                {"id": session_id, "message_count": count, "started_at": _format_ts(started_at)}
+            )
+        return sessions
+
+    def _render_chat_index_page(self) -> None:
+        config = self._chat_config()
+        sessions = self._list_chat_sessions() if config else []
+        try:
+            html = _jinja_env().get_template("chat_index.html").render(
+                chat_configured=config is not None,
+                sessions=sessions,
+                model=getattr(config, "model", None),
+                flavor=getattr(config, "flavor", None),
+                mutations_allowed=self.state.allow_mutations,
+                env_help="",
+            )
+            self._send_html(200, html)
+        except Exception as exc:  # noqa: BLE001
+            self._send_json(500, {"ok": False, "error": {"code": 500, "message": str(exc)}})
+
+    def _render_chat_subpath(self, subpath: str) -> None:
+        if not subpath:
+            self._send_json(404, {"ok": False, "error": {"code": 404, "message": "missing chat session"}})
+            return
+        parts = subpath.strip("/").split("/")
+        session_id = parts[0]
+        if not _is_safe_id(session_id):
+            self._send_json(400, {"ok": False, "error": {"code": 400, "message": "invalid chat session id"}})
+            return
+        if len(parts) == 1:
+            self._render_chat_session_page(session_id)
+            return
+        if len(parts) == 2 and parts[1] == "events":
+            self._stream_chat_events(session_id)
+            return
+        self._send_json(404, {"ok": False, "error": {"code": 404, "message": "not found"}})
+
+    def _render_chat_session_page(self, session_id: str) -> None:
+        from striatum.web.markdown import render as md_render
+        config = self._chat_config()
+        path = self._chat_session_path(session_id)
+        if path is None or not path.is_file():
+            self._send_json(404, {"ok": False, "error": {"code": 404, "message": "chat session not found"}})
+            return
+        messages: list[dict[str, Any]] = []
+        try:
+            for raw in path.read_text(encoding="utf-8").splitlines()[-200:]:
+                if not raw.strip():
+                    continue
+                try:
+                    entry = json.loads(raw)
+                except json.JSONDecodeError:
+                    continue
+                role = str(entry.get("role") or "")
+                content = str(entry.get("content") or "")
+                rendered = md_render(content) if role in ("assistant", "system") else (
+                    "<p>" + _escape_html(content).replace("\n", "<br>") + "</p>"
+                )
+                messages.append(
+                    {
+                        "role": role,
+                        "content": content,
+                        "rendered": rendered,
+                        "created_at": entry.get("created_at") or "",
+                    }
+                )
+        except OSError:
+            pass
+        try:
+            html = _jinja_env().get_template("chat.html").render(
+                session_id=session_id,
+                messages=messages,
+                model=getattr(config, "model", None),
+                flavor=getattr(config, "flavor", None),
+            )
+            self._send_html(200, html)
+        except Exception as exc:  # noqa: BLE001
+            self._send_json(500, {"ok": False, "error": {"code": 500, "message": str(exc)}})
+
+    def _handle_chat_new(self) -> None:
+        if not self.state.allow_mutations:
+            self._send_json(405, {"ok": False, "error": {"code": 405, "message": "chat new requires --allow-mutations"}})
+            return
+        config = self._chat_config()
+        if config is None:
+            self._send_json(412, {"ok": False, "error": {"code": 412, "message": "chat is not configured; set STRIATUM_CHAT_API_BASE_URL / API_KEY / MODEL / API_FLAVOR"}})
+            return
+        # Read but discard the form body if present.
+        self._read_form_body(max_bytes=4096)
+        session_id = uuid.uuid4().hex[:8]
+        target = self._chat_session_path(session_id)
+        if target is None:
+            self._send_json(500, {"ok": False, "error": {"code": 500, "message": "could not allocate chat session"}})
+            return
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text("", encoding="utf-8")
+        self.send_response(303)
+        self.send_header("Location", f"/chat/{session_id}")
+        self.send_header("Content-Length", "0")
+        self.end_headers()
+
+    def _handle_chat_send(self, session_id: str) -> None:
+        if not _is_safe_id(session_id):
+            self._send_json(400, {"ok": False, "error": {"code": 400, "message": "invalid chat session id"}})
+            return
+        if not self.state.allow_mutations:
+            self._send_json(405, {"ok": False, "error": {"code": 405, "message": "chat send requires --allow-mutations"}})
+            return
+        config = self._chat_config()
+        if config is None:
+            self._send_json(412, {"ok": False, "error": {"code": 412, "message": "chat is not configured"}})
+            return
+        path = self._chat_session_path(session_id)
+        if path is None or not path.is_file():
+            self._send_json(404, {"ok": False, "error": {"code": 404, "message": "chat session not found"}})
+            return
+        form = self._read_form_body(max_bytes=64 * 1024)
+        if form is None:
+            return
+        message = (form.get("message") or [""])[0]
+        if not isinstance(message, str) or not message.strip():
+            self._send_json(400, {"ok": False, "error": {"code": 400, "message": "message is required"}})
+            return
+        # Append the user turn.
+        _append_jsonl(path, {"role": "user", "content": message, "created_at": _utc_now_iso()})
+        # Build the conversation history and stream the response.
+        history = _read_chat_history(path)
+        from striatum.web.chat_provider import stream_chat_response, ChatProviderError
+        try:
+            collected: list[str] = []
+            for chunk, is_final in stream_chat_response(config, history):
+                if chunk:
+                    collected.append(chunk)
+                    _append_jsonl(
+                        path,
+                        {"role": "assistant", "content": chunk, "streaming": True,
+                         "created_at": _utc_now_iso()},
+                    )
+                if is_final:
+                    break
+            full = "".join(collected)
+            _append_jsonl(
+                path,
+                {"role": "assistant", "content": full, "streaming": False,
+                 "created_at": _utc_now_iso()},
+            )
+        except ChatProviderError as exc:
+            _append_jsonl(
+                path,
+                {"role": "system", "content": f"[chat error] {exc}",
+                 "created_at": _utc_now_iso()},
+            )
+            self._send_json(502, {"ok": False, "error": {"code": 502, "message": str(exc)}})
+            return
+        except Exception as exc:  # noqa: BLE001
+            _append_jsonl(
+                path,
+                {"role": "system", "content": f"[unexpected error] {type(exc).__name__}",
+                 "created_at": _utc_now_iso()},
+            )
+            self._send_json(500, {"ok": False, "error": {"code": 500, "message": "chat send failed"}})
+            return
+        self.send_response(204)
+        self.send_header("Content-Length", "0")
+        self.end_headers()
+
+    def _handle_chat_stop(self, session_id: str) -> None:
+        if not _is_safe_id(session_id):
+            self._send_json(400, {"ok": False, "error": {"code": 400, "message": "invalid chat session id"}})
+            return
+        if not self.state.allow_mutations:
+            self._send_json(405, {"ok": False, "error": {"code": 405, "message": "chat stop requires --allow-mutations"}})
+            return
+        # V1: stopping is a no-op since each request is independent.
+        # The transcript JSONL persists; cleanup is via `striatum chat purge`
+        # (V1.5).
+        self.send_response(303)
+        self.send_header("Location", "/chat")
+        self.send_header("Content-Length", "0")
+        self.end_headers()
+
+    def _stream_chat_events(self, session_id: str) -> None:
+        if not _is_safe_id(session_id):
+            self._send_json(400, {"ok": False, "error": {"code": 400, "message": "invalid chat session id"}})
+            return
+        path = self._chat_session_path(session_id)
+        if path is None:
+            self._send_json(404, {"ok": False, "error": {"code": 404, "message": "chat session not found"}})
+            return
+        # SSE stream that tails the JSONL file. Send the tail of the
+        # current state, then poll for new lines.
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream")
+        self.send_header("Cache-Control", "no-cache")
+        self.send_header("Connection", "keep-alive")
+        self.send_header(
+            "Content-Security-Policy",
+            "default-src 'self'; script-src 'self'; style-src 'self'; "
+            "img-src 'self' data:; connect-src 'self'",
+        )
+        self.end_headers()
+        last_offset = 0
+        deadline = time.monotonic() + 600.0  # 10 min cap
+        try:
+            while time.monotonic() < deadline:
+                if path.is_file():
+                    size = path.stat().st_size
+                    if size > last_offset:
+                        with path.open("rb") as fh:
+                            fh.seek(last_offset)
+                            chunk = fh.read()
+                        last_offset = size
+                        for raw_line in chunk.decode("utf-8", errors="replace").splitlines():
+                            if not raw_line.strip():
+                                continue
+                            self.wfile.write(b"data: ")
+                            self.wfile.write(raw_line.encode("utf-8"))
+                            self.wfile.write(b"\n\n")
+                            self.wfile.flush()
+                time.sleep(SSE_POLL_INTERVAL_SECONDS)
+        except (BrokenPipeError, ConnectionResetError):
+            return
+
+    def _render_view_path(self, subpath: str) -> None:
+        from striatum.web.markdown import render as md_render
+        if not subpath:
+            self._send_json(404, {"ok": False, "error": {"code": 404, "message": "missing path"}})
+            return
+        rel = subpath
+        if rel.startswith("/") or ".." in Path(rel).parts or "\x00" in rel:
+            self._send_json(400, {"ok": False, "error": {"code": 400, "message": "invalid path"}})
+            return
+        target = (self.state.repo / rel).resolve()
+        repo_root = self.state.repo.resolve()
+        try:
+            target.relative_to(repo_root)
+        except ValueError:
+            self._send_json(400, {"ok": False, "error": {"code": 400, "message": "path escapes repo root"}})
+            return
+        # Hide `.git/` and `.striatum/` by default.
+        rel_parts = target.relative_to(repo_root).parts
+        if rel_parts and rel_parts[0] in (".git", ".striatum"):
+            self._send_json(404, {"ok": False, "error": {"code": 404, "message": "hidden path"}})
+            return
+        if not target.exists():
+            self._send_json(404, {"ok": False, "error": {"code": 404, "message": "path not found"}})
+            return
+        if not target.is_file():
+            self._send_json(404, {"ok": False, "error": {"code": 404, "message": "directory listing not in V1; view a file directly"}})
+            return
+        try:
+            raw = target.read_bytes()
+        except OSError as exc:
+            self._send_json(500, {"ok": False, "error": {"code": 500, "message": str(exc)}})
+            return
+        rel_path = str(target.relative_to(repo_root))
+        ext = target.suffix.lower()
+        binary_exts = {
+            ".png", ".jpg", ".jpeg", ".gif", ".pdf", ".zip", ".tar",
+            ".gz", ".ico", ".woff", ".woff2", ".ttf", ".eot",
+            ".mp3", ".mp4", ".mov", ".bin", ".so",
+        }
+        is_binary = (ext in binary_exts) or (b"\x00" in raw[:1024])
+        ctx: dict[str, Any] = {
+            "rel_path": rel_path,
+            "size_bytes": len(raw),
+            "mode": None,
+            "rendered_html": None,
+            "text_body": None,
+            "lang": ext.lstrip(".") or "text",
+            "message": None,
+        }
+        if is_binary:
+            ctx["message"] = f"Binary file ({len(raw)} bytes); use the raw API to download."
+        elif ext == ".md":
+            ctx["rendered_html"] = md_render(raw.decode("utf-8", errors="replace"))
+        else:
+            ctx["text_body"] = raw.decode("utf-8", errors="replace")
+        try:
+            html = _jinja_env().get_template("view_file.html").render(**ctx)
+            self._send_html(200, html)
+        except Exception as exc:  # noqa: BLE001
+            self._send_json(500, {"ok": False, "error": {"code": 500, "message": str(exc)}})
+
+    def _read_form_body(self, *, max_bytes: int) -> dict[str, list[str]] | None:
+        from urllib.parse import parse_qs as _parse_qs
+        try:
+            length = int(self.headers.get("Content-Length") or "0")
+        except ValueError:
+            length = 0
+        if length > max_bytes:
+            self._send_json(413, {"ok": False, "error": {"code": 413, "message": "form body too large"}})
+            return None
+        if length <= 0:
+            return {}
+        try:
+            raw = self.rfile.read(length).decode("utf-8", errors="replace")
+        except OSError as exc:
+            self._send_json(400, {"ok": False, "error": {"code": 400, "message": str(exc)}})
+            return None
+        ctype = self.headers.get("Content-Type", "")
+        if "multipart/form-data" in ctype:
+            # Minimal multipart parser for our one-field form.
+            return _parse_simple_multipart(raw, ctype)
+        return _parse_qs(raw, keep_blank_values=True)
 
     def _send_html(self, status: int, body: str) -> None:
         data = body.encode("utf-8")
@@ -954,11 +1433,9 @@ def _serve_forever(
         "pid": os.getpid(),
         "web_enabled": web_enabled,
     }
-    if web_enabled:
-        startup["web_warning"] = (
-            "--web flag accepted but the web UI is not yet bundled "
-            "(RFC 0013 not implemented); / will return 404"
-        )
+    # RFC 0022 V1 + RFC 0023 V1: web UI is bundled and active when
+    # --web is passed; no warning needed. Earlier versions emitted
+    # one here; the warning is dropped now that the SSR pages ship.
     try:
         if idle_timeout_seconds is None:
             shutdown_event.wait()

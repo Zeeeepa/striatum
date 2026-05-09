@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block title %}Chat {{ session_id }} · Striatum{% endblock %}
+{% block main %}
+<section class="page-section chat-page" data-session-id="{{ session_id }}">
+  <header class="chat-header">
+    <p class="breadcrumb"><a href="/chat">← Chat sessions</a></p>
+    <h1>Chat <code>{{ session_id }}</code></h1>
+    <div class="run-meta">
+      <span class="muted">{{ messages|length }} messages</span>
+      {% if model %}<span class="muted">· model: <code>{{ model }}</code></span>{% endif %}
+      {% if flavor %}<span class="muted">· flavor: <code>{{ flavor }}</code></span>{% endif %}
+    </div>
+  </header>
+
+  <div class="chat-history" id="chat-history">
+    {% for msg in messages %}
+    <article class="chat-message chat-role-{{ msg.role }}">
+      <header class="chat-message-meta">
+        <strong>{{ msg.role }}</strong>
+        <span class="muted">{{ msg.created_at }}</span>
+      </header>
+      <div class="chat-message-body">{{ msg.rendered | safe }}</div>
+    </article>
+    {% endfor %}
+  </div>
+
+  <form class="chat-input-form" method="post" action="/chat/{{ session_id }}/send">
+    <textarea name="message" rows="3" placeholder="Type a message; Enter to send, Shift+Enter for newline" required></textarea>
+    <div class="chat-input-actions">
+      <button type="submit" class="primary-button">Send</button>
+      <span class="muted chat-status" id="chat-status"></span>
+    </div>
+  </form>
+</section>
+<script defer src="/static/chat.js"></script>
+{% endblock %}

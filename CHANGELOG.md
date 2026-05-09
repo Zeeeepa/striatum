@@ -2,6 +2,55 @@
 
 ## Unreleased
 
+## 1.12.0 — 2026-05-09
+
+### Added
+
+- RFC 0023 V1 (dogfood-021): web chat surface +
+  `/view/<path>` endpoint + inline Markdown rendering on
+  artifact pages. Provider-neutral chat client streams HTTP
+  to an operator-configured endpoint via four env vars
+  (`STRIATUM_CHAT_API_BASE_URL`, `STRIATUM_CHAT_API_KEY`,
+  `STRIATUM_CHAT_MODEL`, `STRIATUM_CHAT_API_FLAVOR`). Two
+  flavors: `anthropic_messages` and `openai_chat` (covers
+  OpenAI, OpenRouter, Ollama, vLLM, LiteLLM proxy, etc.).
+  No default provider; operators opt in explicitly. URL
+  scheme validation refuses non-loopback `http://`. Chat
+  startup is `--allow-mutations`-gated.
+- `/view/<path>` read-only file viewer: `.md` renders as
+  HTML, text as `<pre>`, binaries as a metadata panel.
+  Path traversal refused; `.git/` and `.striatum/` hidden
+  by default. Directory listings deferred to V1.5.
+- `/run/<id>/artifact/<id>` now renders `.md` artifact
+  bodies inline (closes RFC 0022 V1.5 deferred).
+- Chat transcripts in `.striatum/scratch/chat-<id>/transcript.jsonl`
+  (gitignored). SQLite unchanged. No artifacts published.
+
+### Dependency
+
+- **`markdown-it-py` ≥ 4.0** is now a runtime dependency
+  (the project's second after Jinja2). `html: False` at
+  parse time; no separate sanitizer needed for V1.
+
+### Boundary clarification (D074)
+
+- AGENTS.md "no cloud APIs without explicit product
+  decision" gets its first carve-out: outbound HTTP from
+  striatum to an operator-configured endpoint is permitted
+  for chat (and only chat). No hosted striatum service; no
+  default endpoint; no telemetry. D028 (transcripts off)
+  gets a parallel narrow carve-out: chat transcripts live
+  in scratch JSONL only, never SQLite, never artifacts.
+
+### Dogfood pattern (first 3-lane review)
+
+- dogfood-021 declares three parallel design-review jobs
+  (security, devils_advocate, threat_model) and three
+  parallel build-review jobs (security, devils_advocate,
+  ergonomics_dx) — first run to use RFC 0018 V1's
+  `required_review_postures` reachability gate at full
+  3-posture coverage.
+
 ## 1.11.1 — 2026-05-09
 
 ### Changed (docs only)

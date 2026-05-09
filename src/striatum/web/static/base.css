@@ -316,3 +316,149 @@ table.runs-table tbody tr:hover { background: var(--bg-overlay); }
 
 .check-list { list-style: none; padding: 0; }
 .check-list li { display: flex; gap: var(--space-2); align-items: center; margin-bottom: var(--space-2); }
+
+/* RFC 0023 V1: chat surface styles. */
+.chat-page { display: flex; flex-direction: column; min-height: 60vh; }
+.chat-header { margin-bottom: var(--space-3); }
+.chat-history {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--space-3);
+  background: var(--bg-base);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  margin-bottom: var(--space-3);
+  max-height: 60vh;
+}
+.chat-message {
+  margin-bottom: var(--space-3);
+  padding: var(--space-3);
+  border-radius: var(--radius);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+}
+.chat-role-user { background: var(--bg-overlay); }
+.chat-role-system { background: var(--bg-overlay); border-color: var(--status-failed); }
+.chat-message-meta {
+  font-size: 0.85em;
+  margin-bottom: var(--space-1);
+  display: flex;
+  gap: var(--space-2);
+}
+.chat-message-meta strong {
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-size: 0.85em;
+  color: var(--fg-secondary);
+}
+.chat-message-body { line-height: 1.6; }
+.chat-message-body > *:first-child { margin-top: 0; }
+.chat-message-body > *:last-child { margin-bottom: 0; }
+
+.chat-input-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.chat-input-form textarea {
+  width: 100%;
+  padding: var(--space-2);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-elevated);
+  color: var(--fg-primary);
+  resize: vertical;
+}
+.chat-input-form textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.chat-input-actions {
+  display: flex;
+  gap: var(--space-3);
+  align-items: center;
+}
+.primary-button {
+  background: var(--accent);
+  color: white;
+  border: none;
+  padding: var(--space-2) var(--space-4);
+  border-radius: var(--radius);
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+}
+.primary-button:hover { opacity: 0.9; }
+.primary-button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.chat-status { font-size: 0.85em; }
+.chat-new-form { margin: var(--space-3) 0; }
+
+.chat-session-list { list-style: none; padding: 0; }
+.chat-session-list li { margin-bottom: var(--space-1); }
+.chat-session-list a {
+  display: flex;
+  gap: var(--space-3);
+  padding: var(--space-2);
+  border-radius: var(--radius);
+  color: var(--fg-primary);
+  align-items: center;
+}
+.chat-session-list a:hover { background: var(--bg-overlay); text-decoration: none; }
+
+/* RFC 0023 V1: rendered Markdown body (chat / view-file / artifact). */
+.md-body { line-height: 1.6; }
+.md-body p { margin: var(--space-2) 0; }
+.md-body h1, .md-body h2, .md-body h3, .md-body h4 {
+  margin: var(--space-4) 0 var(--space-2) 0;
+}
+.md-body h1 { font-size: 1.5em; }
+.md-body h2 { font-size: 1.3em; }
+.md-body h3 { font-size: 1.1em; }
+.md-body code {
+  background: var(--bg-overlay);
+  padding: 0.1em 0.3em;
+  border-radius: 3px;
+  font-size: 0.9em;
+}
+.md-body pre {
+  background: var(--bg-base);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: var(--space-3);
+  overflow-x: auto;
+  margin: var(--space-2) 0;
+}
+.md-body pre code { background: transparent; padding: 0; }
+.md-body blockquote {
+  border-left: 3px solid var(--border);
+  margin: var(--space-2) 0;
+  padding: 0 var(--space-3);
+  color: var(--fg-secondary);
+}
+.md-body table {
+  border-collapse: collapse;
+  margin: var(--space-2) 0;
+  width: 100%;
+}
+.md-body th, .md-body td {
+  border: 1px solid var(--border);
+  padding: var(--space-1) var(--space-2);
+  text-align: left;
+}
+.md-body th { background: var(--bg-overlay); }
+.md-body ul, .md-body ol {
+  padding-left: var(--space-6);
+  margin: var(--space-2) 0;
+}
+
+/* View-file page */
+.view-file-page .code-pre {
+  background: var(--bg-base);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: var(--space-3);
+  overflow-x: auto;
+}

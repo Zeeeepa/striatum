@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}Chat · Striatum{% endblock %}
+{% block main %}
+<section class="page-section">
+  <h1>Chat</h1>
+  {% if not chat_configured %}
+  <div class="empty-state">
+    <h2>Chat is not configured</h2>
+    <p>Set the four chat-provider environment variables before starting <code>striatum serve</code>:</p>
+    <pre><code>{% if not env_help %}export STRIATUM_CHAT_API_BASE_URL=https://api.anthropic.com
+export STRIATUM_CHAT_API_KEY=sk-ant-...
+export STRIATUM_CHAT_MODEL=claude-opus-4-5
+export STRIATUM_CHAT_API_FLAVOR=anthropic_messages{% else %}{{ env_help }}{% endif %}</code></pre>
+    <p class="muted">Two flavors are supported: <code>anthropic_messages</code> (Anthropic Messages API) and <code>openai_chat</code> (OpenAI / OpenAI-compatible providers including OpenRouter, Ollama, vLLM, LiteLLM proxy).</p>
+    <p class="muted">For HTTP (non-HTTPS) URLs, only loopback hosts (<code>localhost</code>, <code>127.*</code>) are accepted. Remote endpoints must use HTTPS.</p>
+  </div>
+  {% else %}
+  <p class="run-meta">
+    <span class="status-pill status-completed">configured</span>
+    <span class="muted">model: <code>{{ model }}</code> · flavor: <code>{{ flavor }}</code></span>
+  </p>
+  {% if mutations_allowed %}
+  <form method="post" action="/chat/new" class="chat-new-form">
+    <button type="submit" class="primary-button">+ New Chat</button>
+  </form>
+  {% else %}
+  <p class="muted">Mutations are gated. Start the service with <code>--allow-mutations</code> to enable new chat sessions.</p>
+  {% endif %}
+  {% if sessions %}
+  <h2>Sessions</h2>
+  <ul class="chat-session-list">
+    {% for session in sessions %}
+    <li>
+      <a href="/chat/{{ session.id }}">
+        <code>{{ session.id }}</code>
+        <span class="muted">{{ session.message_count }} messages · started {{ session.started_at }}</span>
+      </a>
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p class="empty-state">No chat sessions yet. Click "+ New Chat" to start one.</p>
+  {% endif %}
+  {% endif %}
+</section>
+{% endblock %}

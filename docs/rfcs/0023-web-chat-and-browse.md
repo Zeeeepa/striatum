@@ -1,6 +1,6 @@
 # RFC 0023: Web Chat And Codebase Browse
 
-Status: proposed
+Status: accepted (V1)
 Date: 2026-05-09
 Context:
 RFC 0009 (long-lived process supervision, accepted) — the
