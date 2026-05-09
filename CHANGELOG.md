@@ -2,6 +2,44 @@
 
 ## Unreleased
 
+## 1.7.0 — 2026-05-09
+
+### Added
+
+- RFC 0018 V1 (dogfood-016): focused adversarial review postures.
+  Workflow review jobs accept a new `review_posture` field
+  (closed set of nine first-class values:
+  `neutral | devils_advocate | security | threat_model |
+  latency_performance | ergonomics_dx | accessibility |
+  compliance_license | supply_chain`, plus a `custom:<name>`
+  grammar for off-list flavors). Build jobs accept a new
+  `required_review_postures: [...]` list declaring which postures
+  must cover the build. The work-packet `review_policy` block
+  exposes `posture` when declared and appends a deterministic
+  posture-specific instruction sentence to `instruction` for
+  first-class postures. The workflow validator walks the directed
+  edge graph in both directions from each build with
+  `required_review_postures` and refuses (exit code 8) when any
+  required posture is not the `review_posture` of a reachable
+  review job.
+
+### Design note
+
+The runtime build-completion gate as written in the original RFC
+text deadlocks against striatum's lifecycle (a build's `complete`
+mutation precedes its downstream review's verdict by
+construction); D069 / V1_ACCEPTANCE record the re-cast to a
+workflow-validation gate. Today's edge-verdict mechanism plus
+existing run-completion semantics preserve runtime enforcement.
+RFC 0018's text is patched to match.
+
+### Deferred
+
+RFC 0018 step 3 (`verdicts.posture` column + introspection
+surfacing in `status`, `run summary`, `evidence export`,
+`run graph --format json`, dashboard, web UI) remains deferred
+to V1.5 per the RFC's own implementation path.
+
 ## 1.6.0 — 2026-05-09
 
 ### Added

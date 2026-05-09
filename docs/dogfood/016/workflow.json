@@ -1,0 +1,48 @@
+{
+  "schema_version": "striatum.workflow.v1",
+  "workflow_id": "dogfood-016-review-postures",
+  "workflow_version": "2026-05-09",
+  "name": "Dogfood 016: Ship RFC 0018 V1 (review postures)",
+  "branch": {"mode": "auto", "suggested_name": "striatum/dogfood-016-review-postures", "allow_dirty": false},
+  "coordinator": {"role_id": "coordinator", "lane_id": "codex"},
+  "harness_profiles": {
+    "codex_default": {"tool_family": "codex", "strategy_version": "2026-05-09", "native_delegation": {"mode": "encouraged", "instruction": "Use sub-agents."}, "feature_flags": {"subagents": "allowed_via_natural_language_routing", "skills": "encouraged"}, "supervision": {"compatible": true, "stdin_format": "packet", "wrapper_required": false}, "approval_mode": "default", "memory_files": ["AGENTS.md"], "accountability": {"native_subagents": "internal_to_parent_session", "first_class_registration": "not_supported"}},
+    "claude_code_default": {"tool_family": "claude_code", "strategy_version": "2026-05-09", "native_delegation": {"mode": "preferred", "instruction": "Spawn sub-agents."}, "feature_flags": {"subagents": "preferred", "skills": "encouraged", "headless_print_mode": "forbidden_for_supervised_lanes"}, "supervision": {"compatible": true, "stdin_format": "newline_delimited_json", "wrapper_required": true}, "approval_mode": "auto_edit", "memory_files": ["CLAUDE.md", "AGENTS.md"], "accountability": {"native_subagents": "internal_to_parent_session", "first_class_registration": "not_supported"}}
+  },
+  "lanes": {
+    "codex": {"adapter": "process", "display_model": "Codex GPT-5.5", "command": ["codex", "exec", "--json", "--ephemeral", "--skip-git-repo-check", "--sandbox", "workspace-write", "--ask-for-approval", "never", "--ignore-user-config", "-"], "capabilities": ["write", "review", "synthesis"], "constraints": {"transcripts": "off", "repo_scope": "local_only", "network": "forbidden"}, "required_enforcement": {"transcripts": "enforced"}, "harness_profile_id": "codex_default", "env": {"CODEX_HOME": "${STRIATUM_SCRATCH_DIR}/codex-home"}},
+    "claude_code": {"adapter": "process", "display_model": "Claude Opus", "command": [".striatum/bin/claude-supervised-wrapper.sh"], "capabilities": ["write", "review", "synthesis"], "constraints": {"transcripts": "off", "repo_scope": "local_only"}, "required_enforcement": {"transcripts": "enforced"}, "harness_profile_id": "claude_code_default"}
+  },
+  "roles": {
+    "researcher": {"definition_path": "docs/dogfood/016/roles/researcher.md"},
+    "designer": {"definition_path": "docs/dogfood/016/roles/designer.md"},
+    "reviewer": {"definition_path": "docs/dogfood/016/roles/reviewer.md"},
+    "implementer": {"definition_path": "docs/dogfood/016/roles/implementer.md"},
+    "coordinator": {"definition_path": "docs/dogfood/016/roles/coordinator.md"}
+  },
+  "context_docs": [
+    {"path": "AGENTS.md", "required": true},
+    {"path": "docs/SPEC.md", "required": true},
+    {"path": "docs/rfcs/0018-focused-adversarial-review-postures.md", "required": true},
+    {"path": "src/striatum/workflow.py", "required": false},
+    {"path": "src/striatum/db.py", "required": false}
+  ],
+  "parallelism": {"mode": "declared", "max_active_jobs": 1, "require_disjoint_write_scopes": true},
+  "jobs": [
+    {"id": "research_postures", "type": "generic", "title": "Audit current review-job validator and packet shape", "role_id": "researcher", "lane_id": "codex", "fresh_session_required": true, "objective": "Map the existing _validate_review_job_fields path, build_packet review_policy block, and complete-mutation gate so the V1 patch is surgical.", "task_prompt": {"path": "docs/dogfood/016/prompts/research.md"}, "write_scope": {"mode": "repo_write", "repo_write": true, "allowed_paths": ["docs/dogfood/016/research/"], "forbidden_paths": [".striatum/"]}, "expected_artifacts": [{"logical_name": "research", "kind": "handoff", "path": "docs/dogfood/016/research/POSTURE_SHAPE.md", "required": true}]},
+    {"id": "synthesize_v1_design", "type": "synthesis", "title": "Lock RFC 0018 V1 design (steps 1+2)", "role_id": "designer", "lane_id": "codex", "objective": "Pin the V1 closed posture set, custom: prefix grammar, build-job acceptance gate semantics, and test plan.", "task_prompt": {"path": "docs/dogfood/016/prompts/synthesize.md"}, "write_scope": {"mode": "repo_write", "repo_write": true, "allowed_paths": ["docs/dogfood/016/"], "forbidden_paths": [".striatum/"]}, "expected_artifacts": [{"logical_name": "design", "kind": "synthesis", "path": "docs/dogfood/016/DESIGN_SYNTHESIS.md", "required": true}]},
+    {"id": "review_v1_design", "type": "review", "title": "Review RFC 0018 V1 design", "role_id": "reviewer", "lane_id": "claude_code", "fresh_session_required": true, "reviewer_access_scope": "artifact_augmented", "reviewer_context_policy": "fresh", "objective": "Verify the V1 posture vocabulary is right-sized, the custom: grammar is unambiguous, the acceptance gate composes with existing review-completion rules, and the test plan covers the V1 acceptance criteria.", "task_prompt": {"path": "docs/dogfood/016/prompts/review_design.md"}, "write_scope": {"mode": "review_only_artifact", "repo_write": false, "allowed_paths": ["docs/dogfood/016/review/design/"], "forbidden_paths": [".striatum/"]}, "expected_artifacts": [{"logical_name": "design_review", "kind": "finding", "path": "docs/dogfood/016/review/design/DESIGN_REVIEW.md", "required": true}]},
+    {"id": "implement_v1", "type": "build", "title": "Implement RFC 0018 V1 (steps 1+2)", "role_id": "implementer", "lane_id": "codex", "objective": "Add review_posture validator + POSTURE_INSTRUCTIONS + packet exposure; add required_review_postures validator + complete-mutation acceptance gate; tests at tests/test_review_postures.py.", "task_prompt": {"path": "docs/dogfood/016/prompts/implement.md"}, "write_scope": {"mode": "repo_write", "repo_write": true, "allowed_paths": ["src/striatum/", "tests/", "docs/SPEC.md", "docs/UBIQUITOUS_LANGUAGE.md", "docs/DECISION_LOG.md", "docs/TODO.md", "docs/rfcs/0018-focused-adversarial-review-postures.md", "docs/rfcs/README.md", "docs/dogfood/016/", "docs/dogfood/FRICTION_LOG.md", "docs/HOW_TO_HUMAN.md", "docs/HOW_TO_AGENT.md", "docs/CLI_REFERENCE.md", "examples/", "README.md", "CHANGELOG.md", "pyproject.toml"], "forbidden_paths": [".striatum/state.sqlite3"]}, "expected_artifacts": [{"logical_name": "build_handoff", "kind": "handoff", "path": "docs/dogfood/016/BUILD_HANDOFF.md", "required": true}]},
+    {"id": "review_v1_build", "type": "review", "title": "Review RFC 0018 V1 build", "role_id": "reviewer", "lane_id": "claude_code", "fresh_session_required": true, "reviewer_access_scope": "repo_level", "reviewer_context_policy": "fresh", "objective": "Verify validator rejects unknown postures + posture-on-non-review jobs + required-on-non-build jobs; verify packet exposure; verify the acceptance gate refuses complete with exit 4 when a required posture lacks an accepting verdict; verify zero regression for posture-omitting workflows.", "task_prompt": {"path": "docs/dogfood/016/prompts/review_build.md"}, "write_scope": {"mode": "review_only_artifact", "repo_write": false, "allowed_paths": ["docs/dogfood/016/review/build/"], "forbidden_paths": [".striatum/"]}, "expected_artifacts": [{"logical_name": "build_review", "kind": "finding", "path": "docs/dogfood/016/review/build/BUILD_REVIEW.md", "required": true}]}
+  ],
+  "edges": [
+    {"from": "research_postures", "to": "synthesize_v1_design", "on": "completed"},
+    {"from": "synthesize_v1_design", "to": "review_v1_design", "on": "completed"},
+    {"from": "review_v1_design", "to": "implement_v1", "on": "completed"},
+    {"from": "implement_v1", "to": "review_v1_build", "on": "completed"}
+  ],
+  "cycles": [
+    {"from": "review_v1_design", "to": "synthesize_v1_design", "on_verdict": "needs_revision", "max_iterations": 1},
+    {"from": "review_v1_build", "to": "implement_v1", "on_verdict": "needs_revision", "max_iterations": 1}
+  ]
+}

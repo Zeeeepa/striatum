@@ -1002,14 +1002,19 @@ _REVIEWER_CONTEXT_INSTRUCTIONS = {
 def _build_review_policy(
     workflow: JsonObject, *, workflow_job_id: str
 ) -> JsonObject | None:
-    """Return the RFC 0002 review-policy block for a review job, if declared.
+    """Return the RFC 0002 / RFC 0018 review-policy block for a review job.
 
     The block is added to a work packet only when the workflow declares
-    ``reviewer_access_scope`` and/or ``reviewer_context_policy`` on the
-    matching review job. Both fields default through ``document_only`` and
-    ``cross_round`` so the rendered ``instruction`` text always describes
-    the intended reviewer behavior.
+    ``reviewer_access_scope``, ``reviewer_context_policy``, or
+    ``review_posture`` on the matching review job. Access and context
+    default through ``document_only`` and ``cross_round`` so the rendered
+    ``instruction`` text always describes the intended reviewer behavior.
+    Posture defaults to ``"neutral"`` when omitted; the ``posture`` key is
+    included in the block only when explicitly declared so that a workflow
+    declaring only access/context is byte-identical to today.
     """
+    from striatum.workflow import ALLOWED_POSTURES, POSTURE_INSTRUCTIONS
+
     jobs = workflow.get("jobs", [])
     if not isinstance(jobs, list):
         return None
@@ -1024,20 +1029,34 @@ def _build_review_policy(
         return None
     has_access = "reviewer_access_scope" in job_def
     has_context = "reviewer_context_policy" in job_def
-    if not has_access and not has_context:
+    has_posture = "review_posture" in job_def
+    if not (has_access or has_context or has_posture):
         return None
     access = job_def.get("reviewer_access_scope") if has_access else "document_only"
     context = job_def.get("reviewer_context_policy") if has_context else "cross_round"
+    posture = job_def.get("review_posture") if has_posture else "neutral"
     if not isinstance(access, str) or access not in _REVIEWER_ACCESS_INSTRUCTIONS:
         return None
     if not isinstance(context, str) or context not in _REVIEWER_CONTEXT_INSTRUCTIONS:
         return None
-    instruction = _REVIEWER_ACCESS_INSTRUCTIONS[access] + _REVIEWER_CONTEXT_INSTRUCTIONS[context]
-    return {
+    if not isinstance(posture, str):
+        return None
+    posture_sentence = (
+        POSTURE_INSTRUCTIONS[posture] if posture in ALLOWED_POSTURES else ""
+    )
+    instruction = (
+        _REVIEWER_ACCESS_INSTRUCTIONS[access]
+        + _REVIEWER_CONTEXT_INSTRUCTIONS[context]
+        + posture_sentence
+    )
+    block: JsonObject = {
         "access_scope": access,
         "context_policy": context,
         "instruction": instruction,
     }
+    if has_posture:
+        block["posture"] = posture
+    return block
 
 
 def _build_packet_commands(

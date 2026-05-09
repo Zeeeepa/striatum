@@ -1,6 +1,6 @@
 # RFC 0018: Focused Adversarial Review Postures
 
-Status: proposed
+Status: accepted (V1; step 3 deferred)
 Date: 2026-05-08
 Context:
 RFC 0002 (reviewer independence policy, accepted),
@@ -193,23 +193,38 @@ The validator rejects a `required_review_postures` entry whose
 name is neither in `ALLOWED_POSTURES` nor a `custom:<name>`
 form. It also rejects the field on non-build jobs.
 
-Runtime acceptance rule (in the `complete` mutation path):
+Workflow-validation acceptance rule (re-cast from runtime gate
+per V1_ACCEPTANCE / D069 — see "Implementation note" below):
 
-- Walk the workflow's edges from this build job.
-- Collect every downstream `type: "review"` job's
-  `review_posture` (default `"neutral"` when absent).
-- For each posture in `required_review_postures`, require that at
-  least one of those review jobs has a *currently accepting*
-  verdict (`accept` or `accept_with_findings`) for the build's
-  current attempt.
-- If any required posture is missing an accepting verdict, refuse
-  the `complete` call with `InvalidTransitionError` and exit code
-  4. The error message names the missing postures.
+- The workflow validator walks the directed edge graph in both
+  directions from each build job declaring
+  `required_review_postures`.
+- For each required posture P, it requires at least one
+  *reachable* `type: "review"` job (forward or reverse from the
+  build) whose `review_posture == P`. An undeclared posture on a
+  review job counts as `"neutral"` for this gate.
+- Failure raises `WorkflowError` (exit code 8) at
+  `striatum workflow validate` and `run prepare`, naming the
+  build, the missing posture, and the postures available across
+  reachable reviews.
 
-This is symmetric with today's rule that a build job with
-downstream reviews cannot be marked `completed` until those
-reviews have accepting verdicts; we just refine "any review" to
-"reviews covering each required posture."
+Runtime enforcement is preserved by the existing edge-verdict
+gate (a downstream-of-review job stays blocked until the review
+accepts) and the existing run-completion semantics (a run cannot
+terminate while jobs remain non-terminal). No new runtime gate
+is added in V1; V1.5 may add a run-completion "blocked on
+missing posture" surfacing if dogfood evidence shows operators
+want explicit signaling.
+
+**Implementation note.** The original RFC text described a
+runtime build-completion gate. That gate is a deadlock against
+striatum's lifecycle: a build's `complete` mutation precedes its
+downstream review's verdict by construction, so requiring the
+verdict to gate the build's completion is impossible. The
+workflow-validation gate above delivers the same operator value
+(catches mis-wired workflows whose declared review jobs cannot
+collectively satisfy a build's required postures) at authoring
+time, before any session claims work.
 
 ### Step 3. `posture` column on `verdicts` + introspection surfacing
 

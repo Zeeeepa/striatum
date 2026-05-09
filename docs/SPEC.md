@@ -178,6 +178,40 @@ a single space and the context-policy sentence, so reviewers can be prompted
 without parsing the policy values themselves. Workflows that do not declare
 the fields produce work packets without the block, preserving prior behavior.
 
+#### Review Postures (RFC 0018 V1)
+
+Review jobs may also declare an optional `review_posture` field that names
+the kind of adversarial reading the reviewer is performing. V1 ships nine
+first-class postures plus a `custom:<name>` grammar for off-list flavors:
+
+```
+neutral | devils_advocate | security | threat_model |
+latency_performance | ergonomics_dx | accessibility |
+compliance_license | supply_chain | custom:<non-empty>
+```
+
+When declared, the work packet's `review_policy` block includes a `posture`
+key and the `instruction` string gains a deterministic posture-specific
+sentence (e.g. `security` appends "This is a security-focused review. […]
+verdict acceptance means you actively looked and found nothing actionable.").
+Custom postures expose the literal string but get no auto-appended
+sentence; the workflow author owns the prompt body for off-list flavors.
+
+Build jobs may declare `required_review_postures`: a non-empty list of
+posture names declaring which adversarial coverage the build wants. The
+workflow validator walks the directed edge graph in both directions from
+each such build and refuses (`WorkflowError`, exit code 8) when any
+required posture is not the `review_posture` of a reachable review job.
+This catches mis-wired posture coverage at workflow-validate / run-prepare
+time, before any session claims work. Runtime enforcement is preserved
+by the existing edge-verdict gate (a downstream-of-review job stays
+blocked until the review accepts) plus run-completion semantics; no
+separate runtime gate is added in V1.
+
+> Design rationale: [RFC 0018](rfcs/0018-focused-adversarial-review-postures.md);
+> see also [`docs/dogfood/016/decisions/V1_ACCEPTANCE.md`](dogfood/016/decisions/V1_ACCEPTANCE.md)
+> for the lifecycle re-cast (D069).
+
 #### Reviewer Independence (advisory)
 
 `fresh_session_required: true` and `reviewer_context_policy: fresh` are

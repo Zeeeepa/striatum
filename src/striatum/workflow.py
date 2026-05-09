@@ -63,6 +63,69 @@ BRANCH_MODE_VALUES = ("auto", "confirm")
 REVIEWER_ACCESS_SCOPE_VALUES = ("document_only", "artifact_augmented", "repo_level")
 REVIEWER_CONTEXT_POLICY_VALUES = ("fresh", "cross_round")
 
+# RFC 0018 V1: closed set of first-class review postures. Workflows may also
+# declare a ``custom:<name>`` posture for off-list adversarial flavors; the
+# runner records the literal string and does not normalise.
+ALLOWED_POSTURES = frozenset({
+    "neutral",
+    "devils_advocate",
+    "security",
+    "threat_model",
+    "latency_performance",
+    "ergonomics_dx",
+    "accessibility",
+    "compliance_license",
+    "supply_chain",
+})
+
+# RFC 0018 V1: deterministic instruction sentence appended to a review job's
+# packet ``review_policy.instruction`` for non-neutral first-class postures.
+# Custom postures get no auto-appended sentence; the workflow author owns the
+# prompt body for off-list flavors.
+POSTURE_INSTRUCTIONS: dict[str, str] = {
+    "neutral": "",
+    "devils_advocate": (
+        " This is a devil's-advocate review. Argue against the artifact's "
+        "claims; verdict acceptance means the claims survived your strongest "
+        "counterarguments."
+    ),
+    "security": (
+        " This is a security-focused review. Read the artifact looking for "
+        "security weaknesses; verdict acceptance means you actively looked "
+        "and found nothing actionable."
+    ),
+    "threat_model": (
+        " This is a threat-modeling review. Enumerate the trust boundaries "
+        "and attack surfaces the artifact introduces; verdict acceptance "
+        "means each is acknowledged or mitigated."
+    ),
+    "latency_performance": (
+        " This is a latency / performance review. Evaluate the artifact's "
+        "runtime and resource cost; verdict acceptance means no "
+        "acceptance-blocking regression was found."
+    ),
+    "ergonomics_dx": (
+        " This is a developer-ergonomics review. Evaluate the artifact's "
+        "surface from a first-time-user perspective; verdict acceptance "
+        "means the affordances are discoverable and consistent."
+    ),
+    "accessibility": (
+        " This is an accessibility review. Evaluate the artifact against "
+        "accessibility expectations; verdict acceptance means the "
+        "affordances meet the declared accessibility bar."
+    ),
+    "compliance_license": (
+        " This is a compliance / license review. Evaluate the artifact for "
+        "license, attribution, or compliance issues; verdict acceptance "
+        "means none are unresolved."
+    ),
+    "supply_chain": (
+        " This is a supply-chain review. Evaluate the artifact's external "
+        "dependencies and their provenance; verdict acceptance means each "
+        "is justified and pinned."
+    ),
+}
+
 # RFC 0010 V1: closed set of recognised tool families. Profiles that declare
 # any other family are rejected at validation time.
 HARNESS_PROFILE_TOOL_FAMILIES = frozenset({
@@ -476,7 +539,10 @@ def validate_workflow(
                 )
             _validate_artifact_in_write_scope(job_id, job, path)
         _validate_reviewer_policy(job_id, job)
+        _validate_review_posture(job_id, job)
+        _validate_required_review_postures(job_id, job)
     _validate_artifact_path_uniqueness(jobs)
+    _validate_required_postures_reachable(workflow, job_map=job_map)
     edge_dependency_pairs(workflow)
     validate_needs_match_edges(workflow)
     for cycle_value in _list(workflow, "cycles"):
@@ -1126,6 +1192,149 @@ def _validate_reviewer_policy(job_id: str, job: JsonValue) -> None:
                 f"review job {job_id!r} declares reviewer_context_policy=fresh but "
                 "fresh_session_required=false"
             )
+
+
+def _validate_review_posture(job_id: str, job: JsonValue) -> None:
+    """Validate optional RFC 0018 ``review_posture`` on a review job.
+
+    Non-review jobs cannot declare ``review_posture``. Review jobs accept
+    the closed :data:`ALLOWED_POSTURES` set or a ``custom:<non-empty>``
+    grammar. Empty strings, bare ``"custom:"``, and whitespace-only custom
+    names are rejected.
+    """
+    if "review_posture" not in job:
+        return
+    if job.get("type") != "review":
+        raise WorkflowError(
+            f"non-review job {job_id!r} cannot declare review_posture"
+        )
+    posture = job.get("review_posture")
+    if not isinstance(posture, str) or posture == "":
+        raise WorkflowError(
+            f"review job {job_id!r} review_posture must be a non-empty string"
+        )
+    if posture in ALLOWED_POSTURES:
+        return
+    if not posture.startswith("custom:"):
+        raise WorkflowError(
+            f"review job {job_id!r} has unknown review_posture {posture!r}; "
+            f"allowed: {sorted(ALLOWED_POSTURES)} or custom:<name>"
+        )
+    custom_name = posture[len("custom:"):]
+    if not custom_name.strip():
+        raise WorkflowError(
+            f"review job {job_id!r} review_posture {posture!r} has empty custom name"
+        )
+
+
+def _validate_required_review_postures(job_id: str, job: JsonValue) -> None:
+    """Validate optional RFC 0018 ``required_review_postures`` on a build job.
+
+    Non-build jobs cannot declare the field. Build jobs declare it as a
+    non-empty list of strings, each either in :data:`ALLOWED_POSTURES` or
+    a ``custom:<non-empty>`` value.
+    """
+    if "required_review_postures" not in job:
+        return
+    if job.get("type") != "build":
+        raise WorkflowError(
+            f"non-build job {job_id!r} cannot declare required_review_postures"
+        )
+    postures = job.get("required_review_postures")
+    if not isinstance(postures, list) or not postures:
+        raise WorkflowError(
+            f"build job {job_id!r} required_review_postures must be a non-empty list"
+        )
+    for entry in postures:
+        if not isinstance(entry, str) or entry == "":
+            raise WorkflowError(
+                f"build job {job_id!r} required_review_postures entries must be non-empty strings"
+            )
+        if entry in ALLOWED_POSTURES:
+            continue
+        if not entry.startswith("custom:") or not entry[len("custom:"):].strip():
+            raise WorkflowError(
+                f"build job {job_id!r} required_review_postures contains invalid entry {entry!r}; "
+                f"allowed: {sorted(ALLOWED_POSTURES)} or custom:<name>"
+            )
+
+
+def _validate_required_postures_reachable(
+    workflow: JsonObject, *, job_map: dict[str, JsonValue]
+) -> None:
+    """RFC 0018 V1 § Step 2: each build's required postures must be reachable.
+
+    For every build job ``B`` with ``required_review_postures``, each entry
+    must be the ``review_posture`` of at least one review job ``R`` such
+    that there is a directed edge path from ``B`` to ``R`` *or* from ``R``
+    to ``B``. This catches workflows whose declared review jobs cannot
+    collectively satisfy a build's posture coverage at workflow-validation
+    time (`run prepare` also revalidates), well before any session claims
+    work.
+
+    See ``docs/dogfood/016/decisions/V1_ACCEPTANCE.md`` for the lifecycle
+    rationale (the runtime build-completion gate as originally written
+    in RFC 0018 deadlocks because a build's ``complete`` mutation
+    precedes its downstream review's verdict).
+    """
+    edges_value = workflow.get("edges", [])
+    if not isinstance(edges_value, list):
+        return
+    forward: dict[str, set[str]] = {}
+    reverse: dict[str, set[str]] = {}
+    for edge in edges_value:
+        if not isinstance(edge, dict):
+            continue
+        src = edge.get("from")
+        dst = edge.get("to")
+        if not isinstance(src, str) or not isinstance(dst, str):
+            continue
+        forward.setdefault(src, set()).add(dst)
+        reverse.setdefault(dst, set()).add(src)
+
+    def _reachable(start: str, adjacency: dict[str, set[str]]) -> set[str]:
+        seen: set[str] = set()
+        stack = [start]
+        while stack:
+            node = stack.pop()
+            for neighbor in adjacency.get(node, ()):
+                if neighbor in seen:
+                    continue
+                seen.add(neighbor)
+                stack.append(neighbor)
+        return seen
+
+    for build_id, build in job_map.items():
+        if not isinstance(build, dict):
+            continue
+        if build.get("type") != "build":
+            continue
+        required_value = build.get("required_review_postures")
+        if not isinstance(required_value, list) or not required_value:
+            continue
+        reachable_jobs = _reachable(build_id, forward) | _reachable(build_id, reverse)
+        available_postures: set[str] = set()
+        for candidate_id in reachable_jobs:
+            candidate = job_map.get(candidate_id)
+            if not isinstance(candidate, dict):
+                continue
+            if candidate.get("type") != "review":
+                continue
+            posture = candidate.get("review_posture")
+            if isinstance(posture, str):
+                available_postures.add(posture)
+            else:
+                # An unposted review job covers the implicit "neutral" posture.
+                available_postures.add("neutral")
+        for required in required_value:
+            if not isinstance(required, str):
+                continue
+            if required not in available_postures:
+                raise WorkflowError(
+                    f"build job {build_id!r} requires review posture {required!r} "
+                    f"but no reachable review job declares it; available postures "
+                    f"across reachable reviews: {sorted(available_postures) or ['<none>']}"
+                )
 
 
 def _validate_revision_policy(workflow: JsonObject, *, jobs: list[object]) -> None:
