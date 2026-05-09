@@ -128,6 +128,18 @@ _TOOLS: list[dict[str, Any]] = [
             "additionalProperties": False,
         },
     },
+    {
+        "name": "list_workflows",
+        "description": (
+            "List every workflow.json file in the operator's repo with "
+            "validation status, job count, and workflow_id. Capped at 100 entries."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {},
+            "additionalProperties": False,
+        },
+    },
 ]
 
 
@@ -202,6 +214,8 @@ def execute_tool(name: str, args: dict[str, Any], *, repo: Path) -> str:
         if name == "git_diff":
             path = args.get("path")
             return _tool_git_diff(repo, str(path) if path else None)
+        if name == "list_workflows":
+            return _tool_list_workflows(repo)
     except Exception as exc:  # noqa: BLE001
         return f"[error] {type(exc).__name__}: {exc}"
     return f"[error] tool {name!r} not implemented"
@@ -335,6 +349,24 @@ def _tool_git_log(repo: Path, limit: int) -> str:
     if not output:
         return "[no commits]"
     return output
+
+
+def _tool_list_workflows(repo: Path) -> str:
+    from striatum.web.workflows import discover
+
+    items = discover(repo)
+    if not items:
+        return "[no workflow.json files found]"
+    lines: list[str] = []
+    for item in items[:100]:
+        path = str(item.get("path", ""))
+        status = str(item.get("status", "?"))
+        job_count = item.get("job_count", 0)
+        workflow_id = str(item.get("workflow_id") or "")
+        lines.append(f"{status:<14} {path:<60} jobs={job_count:<3} {workflow_id}")
+    if len(items) > 100:
+        lines.append(f"[truncated at 100; {len(items)} total]")
+    return "\n".join(lines)
 
 
 def _tool_git_diff(repo: Path, rel: str | None) -> str:

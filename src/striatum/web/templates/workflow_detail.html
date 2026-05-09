@@ -1,0 +1,141 @@
+{% extends "base.html" %}
+{% block title %}{{ workflow.workflow_id or workflow.path }} · Striatum{% endblock %}
+{% block main %}
+<section class="page-section">
+  <header>
+    <p class="breadcrumb"><a href="/workflows">← Workflows</a></p>
+    <h1>{{ workflow.workflow_id or workflow.path }}</h1>
+    <div class="run-meta">
+      {% if workflow.status == "valid" %}
+      <span class="status-pill status-completed">valid</span>
+      {% elif workflow.status == "workflow_error" %}
+      <span class="status-pill status-failed">workflow error</span>
+      {% else %}
+      <span class="status-pill status-failed">parse error</span>
+      {% endif %}
+      <span class="muted">version: <code>{{ workflow.workflow_version or "—" }}</code></span>
+    </div>
+  </header>
+
+  <h2>Path</h2>
+  <p><code>{{ workflow.path }}</code></p>
+
+  {% if workflow.message %}
+  <h2>Validation</h2>
+  <pre class="code-pre"><code>{{ workflow.message }}</code></pre>
+  {% endif %}
+
+  {% if graph_svg %}
+  <h2>Graph</h2>
+  <div class="graph-container">
+    {{ graph_svg | safe }}
+  </div>
+  {% endif %}
+
+  {% if workflow.data %}
+  {% set d = workflow.data %}
+
+  {% if d.jobs %}
+  <h2>Jobs</h2>
+  <table class="data-table">
+    <thead>
+      <tr>
+        <th>ID</th><th>Type</th><th>Role</th><th>Lane</th><th>Posture</th><th>Required postures</th><th>Artifacts</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for job in d.jobs %}
+      <tr>
+        <td><code>{{ job.id }}</code></td>
+        <td>{{ job.type }}</td>
+        <td>{{ job.role_id or "—" }}</td>
+        <td>{{ job.lane_id or "—" }}</td>
+        <td>{% if job.review_posture %}<span class="posture-chip">{{ job.review_posture }}</span>{% else %}<span class="muted">—</span>{% endif %}</td>
+        <td>
+          {% if job.required_review_postures %}
+            {% for p in job.required_review_postures %}<span class="posture-chip">{{ p }}</span>{% endfor %}
+          {% else %}<span class="muted">—</span>{% endif %}
+        </td>
+        <td>{{ (job.expected_artifacts or []) | length }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+
+  {% if d.lanes %}
+  <h2>Lanes</h2>
+  <table class="data-table">
+    <thead>
+      <tr><th>ID</th><th>Adapter</th><th>Display model</th><th>Capabilities</th><th>Constraints</th></tr>
+    </thead>
+    <tbody>
+      {% for lane_id, lane in d.lanes.items() %}
+      <tr>
+        <td><code>{{ lane_id }}</code></td>
+        <td>{{ lane.adapter or "—" }}</td>
+        <td>{{ lane.display_model or "—" }}</td>
+        <td>{% for c in (lane.capabilities or []) %}<span class="muted">{{ c }}</span>{% if not loop.last %}, {% endif %}{% endfor %}</td>
+        <td>
+          {% if lane.constraints %}
+            {% for k, v in lane.constraints.items() %}<span class="muted">{{ k }}={{ v }}</span>{% if not loop.last %}, {% endif %}{% endfor %}
+          {% else %}<span class="muted">—</span>{% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+
+  {% if d.roles %}
+  <h2>Roles</h2>
+  <table class="data-table">
+    <thead><tr><th>ID</th><th>Definition path</th></tr></thead>
+    <tbody>
+      {% for role_id, role in d.roles.items() %}
+      <tr>
+        <td><code>{{ role_id }}</code></td>
+        <td><code>{{ role.definition_path or "—" }}</code></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+
+  {% if d.edges %}
+  <h2>Edges</h2>
+  <table class="data-table">
+    <thead><tr><th>From</th><th>To</th><th>On</th><th>Requires verdict</th></tr></thead>
+    <tbody>
+      {% for edge in d.edges %}
+      <tr>
+        <td><code>{{ edge.from }}</code></td>
+        <td><code>{{ edge.to }}</code></td>
+        <td>{{ edge.on or "—" }}</td>
+        <td>{{ edge.requires_verdict or "—" }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+
+  {% if d.cycles %}
+  <h2>Cycles</h2>
+  <table class="data-table">
+    <thead><tr><th>From</th><th>To</th><th>On verdict</th><th>Max iterations</th></tr></thead>
+    <tbody>
+      {% for cycle in d.cycles %}
+      <tr>
+        <td><code>{{ cycle.from }}</code></td>
+        <td><code>{{ cycle.to }}</code></td>
+        <td>{{ cycle.on_verdict or "—" }}</td>
+        <td>{{ cycle.max_iterations or "—" }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+
+  {% endif %}
+</section>
+{% endblock %}

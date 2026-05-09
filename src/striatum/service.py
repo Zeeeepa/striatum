@@ -537,6 +537,12 @@ class StriatumServiceHandler(BaseHTTPRequestHandler):
         if self.state.web_enabled and path.startswith("/view/"):
             self._render_view_path(path[len("/view/"):])
             return
+        if self.state.web_enabled and path == "/workflows":
+            self._render_workflows_index_page()
+            return
+        if self.state.web_enabled and path.startswith("/workflows/"):
+            self._render_workflow_detail_page(path[len("/workflows/"):])
+            return
         if self.state.web_enabled and path.startswith("/run/"):
             self._render_run_subpath(path[len("/run/"):])
             return
@@ -865,6 +871,52 @@ class StriatumServiceHandler(BaseHTTPRequestHandler):
             html = _jinja_env().get_template("artifact_view.html").render(
                 run=run, artifact=artifact,
                 rendered_md=rendered_md, body_text=body_text,
+            )
+            self._send_html(200, html)
+        except Exception as exc:  # noqa: BLE001
+            self._send_json(500, {"ok": False, "error": {"code": 500, "message": str(exc)}})
+
+    def _render_workflows_index_page(self) -> None:
+        from striatum.web.workflows import discover
+        try:
+            workflows = discover(self.state.repo)
+            # Drop the parsed `data` dict per entry to keep the index
+            # response small (the detail page reloads from disk).
+            slim = [
+                {k: v for k, v in entry.items() if k != "data"}
+                for entry in workflows
+            ]
+            html = _jinja_env().get_template("workflows_index.html").render(
+                workflows=slim,
+            )
+            self._send_html(200, html)
+        except Exception as exc:  # noqa: BLE001
+            self._send_json(500, {"ok": False, "error": {"code": 500, "message": str(exc)}})
+
+    def _render_workflow_detail_page(self, rel_path: str) -> None:
+        from striatum.web.graph_svg import render_run_graph
+        from striatum.web.workflows import load_workflow_at
+        if not rel_path:
+            self._send_json(404, {"ok": False, "error": {"code": 404, "message": "missing path"}})
+            return
+        if rel_path.startswith("/") or "\x00" in rel_path or ".." in Path(rel_path).parts:
+            self._send_json(400, {"ok": False, "error": {"code": 400, "message": "invalid path"}})
+            return
+        entry = load_workflow_at(self.state.repo, rel_path)
+        if entry is None:
+            self._send_json(404, {"ok": False, "error": {"code": 404, "message": "workflow not found"}})
+            return
+        graph_svg: str | None = None
+        data = entry.get("data")
+        if isinstance(data, dict) and entry.get("status") == "valid":
+            try:
+                graph_svg = render_run_graph(data, node_states={}, run_id=None)
+            except Exception:  # noqa: BLE001
+                graph_svg = None
+        try:
+            html = _jinja_env().get_template("workflow_detail.html").render(
+                workflow=entry,
+                graph_svg=graph_svg,
             )
             self._send_html(200, html)
         except Exception as exc:  # noqa: BLE001

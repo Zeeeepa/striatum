@@ -2,6 +2,33 @@
 
 ## Unreleased
 
+## 1.14.0 — 2026-05-09
+
+### Added
+
+- RFC 0024 V1 (dogfood-023): workflow browser (read-only).
+  - `GET /workflows` lists every `**/workflow.json` in the
+    target repo with validation status, workflow_id,
+    job/lane/role counts. Hidden dirs (`.git`, `.striatum`,
+    `.venv`, `node_modules`, etc.) excluded from discovery.
+  - `GET /workflows/<repo-path>` renders a detail page with
+    the SVG dependency graph (reusing RFC 0022 V1's renderer)
+    plus tables for jobs, lanes, roles, edges, and cycles.
+    Invalid workflows render their `WorkflowError` message
+    inline; the page never 500s.
+  - Path safety mirrors `/view/<path>`.
+  - New chat tool `list_workflows` extends RFC 0023 V1.5's
+    closed read-only tool set; the model can answer "which
+    workflow produced run X?". Capped at 100 entries.
+- `Workflows` link in the top nav (between Runs and Chat).
+
+### Deferred to V1.5
+
+V1.5 (separate dogfood) ships the *visual builder*: form-driven
+editor at `/workflows/edit/<path>`, save action with server-side
+validation, per-job posture + required_review_postures widgets,
+flash banner + redirect-after-save.
+
 ## 1.13.0 — 2026-05-09
 
 ### Added

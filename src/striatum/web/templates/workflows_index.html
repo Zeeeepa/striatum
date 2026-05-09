@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block title %}Workflows · Striatum{% endblock %}
+{% block main %}
+<section class="page-section">
+  <h1>Workflows</h1>
+  <p class="run-meta"><span class="muted">{{ workflows | length }} workflow.json file{{ "" if workflows | length == 1 else "s" }}</span></p>
+
+  {% if workflows %}
+  <table class="workflows-table">
+    <thead>
+      <tr>
+        <th>Path</th>
+        <th>Workflow ID</th>
+        <th>Status</th>
+        <th>Jobs</th>
+        <th>Lanes</th>
+        <th>Roles</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for wf in workflows %}
+      <tr>
+        <td><a href="/workflows/{{ wf.path }}"><code>{{ wf.path }}</code></a></td>
+        <td>{% if wf.workflow_id %}<code>{{ wf.workflow_id }}</code>{% else %}<span class="muted">—</span>{% endif %}</td>
+        <td>
+          {% if wf.status == "valid" %}
+          <span class="status-pill status-completed">valid</span>
+          {% elif wf.status == "workflow_error" %}
+          <span class="status-pill status-failed" title="{{ wf.message }}">workflow error</span>
+          {% else %}
+          <span class="status-pill status-failed" title="{{ wf.message }}">parse error</span>
+          {% endif %}
+        </td>
+        <td>{{ wf.job_count }}</td>
+        <td>{{ wf.lane_count }}</td>
+        <td>{{ wf.role_count }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="empty-state">No <code>workflow.json</code> files in this repo. See <code>examples/</code> for templates.</p>
+  {% endif %}
+</section>
+{% endblock %}
