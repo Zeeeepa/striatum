@@ -302,6 +302,10 @@ def dispatch(args: argparse.Namespace) -> object:
             )
         if args.command == "run" and args.run_command == "start":
             return run_start(conn, run_id=args.run_id)
+        if args.command == "run" and args.run_command == "cancel":
+            from striatum.db import cancel_run as _cancel_run
+            with transaction(conn):
+                return _cancel_run(conn, run_id=args.run_id, reason=args.reason)
         if args.command == "run" and args.run_command == "summary":
             return run_summary_export(conn, repo=repo, run_id=args.run_id, path_text=args.path)
         if args.command == "run" and args.run_command == "graph":

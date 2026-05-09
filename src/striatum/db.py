@@ -639,6 +639,86 @@ def maybe_complete_run(conn: sqlite3.Connection, *, run_id: str) -> None:
     )
 
 
+def cancel_run(
+    conn: sqlite3.Connection,
+    *,
+    run_id: str,
+    reason: str | None = None,
+) -> JsonObject:
+    """RFC 0024 V3: top-down cancel.
+
+    Releases active leases, marks in-flight jobs canceled, transitions
+    the run to ``canceled``, emits ``run.canceled`` event, and closes
+    remaining sessions. Idempotent: re-cancelling an already-``canceled``
+    run is a no-op (returns the current state).
+
+    Allowed source states: ``prepared``, ``needs_branch_confirmation``,
+    ``ready``, ``running``. Already-``canceled`` → no-op.
+    Other terminal states (``completed``, ``failed``) →
+    :class:`InvalidTransitionError`.
+
+    Caller is responsible for being inside a transaction.
+    """
+    from striatum.errors import InvalidTransitionError, NotFoundError
+
+    run = conn.execute(
+        "SELECT * FROM runs WHERE run_id = ?", (run_id,)
+    ).fetchone()
+    if run is None:
+        raise NotFoundError(f"run not found: {run_id}")
+    state = str(run["state"])
+    if state == "canceled":
+        return {"run_id": run_id, "state": "canceled", "status": "already_canceled"}
+    if state in ("completed", "failed"):
+        raise InvalidTransitionError(
+            f"run is in terminal state {state!r} and cannot be canceled"
+        )
+    now = utc_now()
+    stop_reason = reason or "operator_canceled"
+    # 1) Mark in-flight jobs canceled. Include 'claimed' (between
+    #    claim-next and ack) so a racing ack hits the canceled state.
+    conn.execute(
+        """
+        UPDATE jobs
+        SET state = 'canceled', completed_at = ?
+        WHERE run_id = ?
+          AND state IN ('queued', 'running', 'blocked', 'ready', 'claimed')
+        """,
+        (now, run_id),
+    )
+    # 2) Release active leases held by this run's sessions.
+    conn.execute(
+        """
+        UPDATE leases
+        SET state = 'released', released_at = ?, release_reason = 'run_canceled'
+        WHERE owner_session_id IN (
+            SELECT session_id FROM sessions WHERE run_id = ?
+        )
+        AND state = 'active'
+        """,
+        (now, run_id),
+    )
+    # 3) Transition run to canceled.
+    conn.execute(
+        """
+        UPDATE runs
+        SET state = 'canceled', completed_at = ?, stop_reason = ?
+        WHERE run_id = ?
+        """,
+        (now, stop_reason, run_id),
+    )
+    insert_event(
+        conn,
+        run_id=run_id,
+        event_type="run.canceled",
+        payload={"reason": stop_reason},
+    )
+    close_remaining_sessions(
+        conn, run_id=run_id, source="run_canceled", reason="run_canceled"
+    )
+    return {"run_id": run_id, "state": "canceled", "status": "canceled"}
+
+
 def close_remaining_sessions(
     conn: sqlite3.Connection,
     *,

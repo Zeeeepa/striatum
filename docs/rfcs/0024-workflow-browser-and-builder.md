@@ -1,6 +1,6 @@
 # RFC 0024: Workflow Browser And Visual Builder
 
-Status: accepted (V1+V1.5+V2)
+Status: accepted (V1+V1.5+V2+V3)
 Date: 2026-05-09
 Context:
 RFC 0007 (workflow visualization, accepted) — `workflow_graph_data`

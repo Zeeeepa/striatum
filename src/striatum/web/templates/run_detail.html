@@ -9,6 +9,10 @@
       {% if run.branch_name %}
       <span class="muted">on <code>{{ run.branch_name }}</code></span>
       {% endif %}
+      {% if run.state in ('prepared', 'needs_branch_confirmation', 'ready', 'running') %}
+      <button type="button" id="run-cancel-btn" class="secondary-button" data-run-id="{{ run.run_id }}">Cancel run</button>
+      <script defer src="/static/run_cancel.js"></script>
+      {% endif %}
     </div>
     {% if run.state == "needs_branch_confirmation" %}
     <div class="branch-confirm-panel" data-run-id="{{ run.run_id }}" data-branch="{{ suggested_branch_name or run.branch_name or '' }}">

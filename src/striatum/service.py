@@ -575,6 +575,10 @@ class StriatumServiceHandler(BaseHTTPRequestHandler):
             run_id = parsed.path[len("/run/"):-len("/branch-confirm")]
             self._handle_run_branch_confirm(run_id)
             return
+        if self.state.web_enabled and parsed.path.startswith("/run/") and parsed.path.endswith("/cancel"):
+            run_id = parsed.path[len("/run/"):-len("/cancel")]
+            self._handle_run_cancel(run_id)
+            return
         if self.state.web_enabled and parsed.path.startswith("/chat/") and parsed.path.endswith("/send"):
             session_id = parsed.path[len("/chat/"):-len("/send")]
             self._handle_chat_send(session_id)
@@ -1220,6 +1224,29 @@ class StriatumServiceHandler(BaseHTTPRequestHandler):
                     return
                 run_start(conn, run_id=run_id)
         except WorkflowError as exc:
+            # RFC 0024 V3 (closes V2 design-review F3): dirty-tree
+            # checkout failures bubble up here as WorkflowError. Detect
+            # them and re-emit as a structured 409 with `git status`
+            # so the operator sees what's blocking without dropping
+            # to a terminal.
+            msg = str(exc)
+            if "git checkout failed" in msg:
+                git_status = ""
+                try:
+                    import subprocess
+                    proc = subprocess.run(
+                        ["git", "status", "--short"],
+                        cwd=self.state.repo, capture_output=True, text=True,
+                        timeout=5, check=False,
+                    )
+                    lines = (proc.stdout or "").splitlines()
+                    if len(lines) > 80:
+                        lines = lines[:80] + [f"... ({len(lines) - 80} more lines)"]
+                    git_status = "\n".join(lines)
+                except (OSError, subprocess.SubprocessError):
+                    pass
+                self._send_json(409, {"ok": False, "error": {"code": 409, "message": msg, "kind": "dirty_tree", "git_status": git_status}})
+                return
             errors = []
             if getattr(exc, "field_path", None):
                 errors.append({"field_path": exc.field_path, "message": str(exc)})
@@ -1305,6 +1332,58 @@ class StriatumServiceHandler(BaseHTTPRequestHandler):
             self._send_json(500, {"ok": False, "error": {"code": 500, "message": f"{type(exc).__name__}: {exc}"}})
             return
         self._send_json(200, {"ok": True, "data": {"run_id": run_id, "state": "running", "branch": confirmed.get("branch")}})
+
+    def _handle_run_cancel(self, run_id: str) -> None:
+        """RFC 0024 V3: cancel a run from the web UI.
+
+        Mutation-gated. Idempotent: re-cancelling an already-canceled
+        run returns 200 with the same payload.
+        """
+        from striatum.db import cancel_run, connect, transaction
+        from striatum.errors import InvalidTransitionError, NotFoundError
+
+        if not self.state.allow_mutations:
+            self._send_json(405, {"ok": False, "error": {"code": 405, "message": "cancel run requires --allow-mutations"}})
+            return
+        ctype = self.headers.get("Content-Type", "")
+        if "application/json" not in ctype:
+            self._send_json(415, {"ok": False, "error": {"code": 415, "message": "Content-Type must be application/json"}})
+            return
+        try:
+            length = int(self.headers.get("Content-Length") or "0")
+        except ValueError:
+            length = 0
+        if length > 64 * 1024:
+            self._send_json(413, {"ok": False, "error": {"code": 413, "message": "body too large"}})
+            return
+        try:
+            raw = self.rfile.read(length).decode("utf-8", errors="replace") if length > 0 else "{}"
+        except OSError as exc:
+            self._send_json(400, {"ok": False, "error": {"code": 400, "message": str(exc)}})
+            return
+        try:
+            body = json.loads(raw or "{}")
+        except json.JSONDecodeError as exc:
+            self._send_json(400, {"ok": False, "error": {"code": 400, "message": f"invalid JSON: {exc}"}})
+            return
+        if not isinstance(body, dict):
+            self._send_json(400, {"ok": False, "error": {"code": 400, "message": "body must be a JSON object"}})
+            return
+        reason = body.get("reason") if isinstance(body.get("reason"), str) else None
+        try:
+            with connect(self.state.repo) as conn:
+                with transaction(conn):
+                    result = cancel_run(conn, run_id=run_id, reason=reason)
+        except NotFoundError as exc:
+            self._send_json(404, {"ok": False, "error": {"code": 404, "message": str(exc)}})
+            return
+        except InvalidTransitionError as exc:
+            self._send_json(409, {"ok": False, "error": {"code": 409, "message": str(exc), "kind": "invalid_transition"}})
+            return
+        except Exception as exc:  # noqa: BLE001
+            self._send_json(500, {"ok": False, "error": {"code": 500, "message": f"{type(exc).__name__}: {exc}"}})
+            return
+        self._send_json(200, {"ok": True, "data": result})
 
     def _render_doctor_page(self) -> None:
         from striatum.cli.introspect import doctor as doctor_command

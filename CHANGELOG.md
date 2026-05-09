@@ -2,6 +2,42 @@
 
 ## Unreleased
 
+## 1.17.0 — 2026-05-09
+
+### Added
+
+- RFC 0024 V3 (dogfood-026): cancel-run mutation surface plus the
+  dirty-tree visibility V2 deferred.
+  - `cancel_run(conn, *, run_id, reason)` in `db.py` — top-down
+    cancel that voids active leases, marks in-flight jobs (queued,
+    running, blocked, ready, claimed) as canceled, transitions the
+    run to `canceled`, emits `run.canceled`, and closes remaining
+    sessions. Idempotent on already-canceled; refuses completed /
+    failed via `InvalidTransitionError`.
+  - `striatum run cancel --run-id <id> [--reason <text>]` — CLI.
+  - `POST /run/<id>/cancel` — mutation-gated HTTP endpoint.
+    Returns 200 on success (and on idempotent re-cancel); 405 / 404 /
+    409 / 415 for the other paths.
+  - Cancel button on the run-detail page when state is non-terminal
+    (prepared / needs_branch_confirmation / ready / running). CSP-safe
+    JS island in `/static/run_cancel.js`.
+- Run-now dirty-tree visibility (closes V2 design-review F3):
+  `POST /workflows/run/<path>` now returns 409 with
+  `error.kind: "dirty_tree"` and `error.git_status` (first ~80
+  lines of `git status --short`) when `git_create_or_checkout_branch`
+  fails. Operators see the blocker without context-switching to a
+  terminal.
+
+### Deferred to V4
+
+- Pause / resume runs.
+- Auto-branch suffix (research showed multi-run-per-branch is
+  by-design — the friction operators feel is dirty-tree, which V3
+  fixes directly).
+- Per-job mutation buttons (kill running job, retry).
+- Programmatic re-run with parameter overrides.
+- Recovery integration: cancel-run as an escalation hook target.
+
 ## 1.16.1 — 2026-05-09
 
 ### Added

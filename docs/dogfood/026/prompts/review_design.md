@@ -1,0 +1,1 @@
+Devils advocate. Sweep: cancel cascade integrity (do leases/queues drain cleanly?); branch-suffix collisions (what if `<suggested>-<short>` also exists?); re-run accidental double-clicks; cancel-then-resume semantics (we don't have resume — is that a problem?); status visibility ("did my cancel land?"); idempotency on cancel; race between cancel and complete.
