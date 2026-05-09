@@ -292,6 +292,13 @@ class StriatumServiceHandler(BaseHTTPRequestHandler):
             since = self._sse_since(query)
             self._stream_events(run_id, since=since)
             return
+        if sub == "artifacts":
+            # RFC 0013 step 7 follow-up: run-level artifact rollup so the
+            # SPA can show every published artifact for a run without
+            # navigating per-job. Wraps the existing read-only `list
+            # artifacts` verb.
+            self._handle_invoke(["list", "artifacts", "--run-id", run_id])
+            return
         self._send_json(404, {"ok": False, "error": {"code": 404, "message": "not found"}})
 
     def _handle_artifact_raw(self, artifact_id: str) -> None:

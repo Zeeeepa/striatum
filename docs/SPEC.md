@@ -808,6 +808,12 @@ and wheel installs both work.
 - `GET /v1/health` includes an `allow_mutations: bool` field
   (RFC 0013 step 7); the SPA caches it once per page load to
   decide whether to render mutation buttons.
+- `GET /v1/runs/<id>/artifacts` returns the run's full artifact
+  rollup (wraps `striatum list artifacts --run-id <id>`). The
+  SPA's run-detail view renders this as a table so per-run
+  Markdown (handoffs, syntheses, decisions, findings, run
+  summaries) is reachable without drilling into the publishing
+  job.
 
 The SPA is a vanilla ES module (no framework, no CDN imports). Five
 read views are implemented: run list, run detail (with live SSE

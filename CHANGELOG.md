@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+## 1.4.1 — 2026-05-09
+
+### Added
+
+- Web UI run-level artifact rollup. The run-detail view now
+  shows every published artifact for the run as a table (kind,
+  logical name, path, source job, byline, timestamp, sha256
+  prefix). Clicking the logical name routes to the existing
+  artifact viewer; clicking the source job routes to the
+  job-detail view. New endpoint `GET /v1/runs/<id>/artifacts`
+  wraps the existing read-only `striatum list artifacts
+  --run-id <id>` verb. The change is purely additive — it
+  closes the discoverability gap from RFC 0013 V1+step 7 where
+  per-run Markdown (BUILD_HANDOFF, DESIGN_SYNTHESIS, RUN_SUMMARY,
+  decisions, findings) was reachable only by drilling into the
+  job that produced it. 3 new tests at `tests/test_web_ui.py`
+  (16 total).
+
 ## 1.4.0 — 2026-05-08
 
 ### Added

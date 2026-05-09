@@ -249,7 +249,13 @@ async function renderRunDetail(runId) {
     <div class="layout-2col">
       <section><h2>Jobs</h2><div id="jobs">Loading...</div></section>
       <section><h2>Events <span class="muted">(live)</span></h2><div id="events" class="event-log"></div></section>
-    </div>`;
+    </div>
+    <section><h2>Artifacts</h2><div id="artifacts">Loading...</div></section>`;
+  // Run-level artifact rollup. Read-only; surfaces every published
+  // artifact for the run with kind / logical name / path / sha
+  // truncation / byline / job link, so the user does not have to
+  // navigate per-job to find a build handoff or finding.
+  renderRunArtifacts(runId);
   const result = await fetchJson(`/v1/runs/${encodeURIComponent(runId)}`);
   if (!result.ok) {
     document.querySelector("#jobs").innerHTML = `<div class="error">${escapeHTML(result.error?.message || "")}</div>`;
@@ -332,6 +338,43 @@ async function renderRunDetail(runId) {
   activeEventSource.addEventListener("error", () => {
     closeEventSource();
   });
+}
+
+async function renderRunArtifacts(runId) {
+  const host = document.querySelector("#artifacts");
+  if (!host) return;
+  const result = await fetchJson(`/v1/runs/${encodeURIComponent(runId)}/artifacts`);
+  if (!result.ok) {
+    host.innerHTML = `<div class="error">Failed to load artifacts: ${escapeHTML(result.error?.message || "")}</div>`;
+    return;
+  }
+  const items = (result.data?.items || []);
+  if (items.length === 0) {
+    host.innerHTML = `<p class="empty">No artifacts published yet.</p>`;
+    return;
+  }
+  let html = `<table class="artifact-table"><thead><tr>
+    <th>kind</th><th>name</th><th>path</th><th>job</th>
+    <th>author</th><th>created</th><th>sha</th>
+  </tr></thead><tbody>`;
+  for (const a of items) {
+    const aid = encodeURIComponent(a.artifact_id);
+    const jobLink = a.workflow_job_id
+      ? `<a href="#/runs/${escapeHTML(runId)}/jobs/${escapeHTML(a.job_id || "")}"><code>${escapeHTML(a.workflow_job_id)}</code></a>`
+      : `<span class="muted">—</span>`;
+    const author = a.author_line ? a.author_line.replace(/^author:\s*/, "") : "";
+    html += `<tr>
+      <td><code>${escapeHTML(a.artifact_kind || "")}</code></td>
+      <td><a href="#/runs/${escapeHTML(runId)}/artifacts/${aid}">${escapeHTML(a.logical_name || "")}</a></td>
+      <td><code>${escapeHTML(a.repo_path || "")}</code></td>
+      <td>${jobLink}</td>
+      <td><span class="muted">${escapeHTML(author)}</span></td>
+      <td><span class="muted">${escapeHTML((a.created_at || "").slice(0, 19))}</span></td>
+      <td><code>${escapeHTML((a.sha256 || "").slice(0, 12))}</code></td>
+    </tr>`;
+  }
+  html += "</tbody></table>";
+  host.innerHTML = html;
 }
 
 async function renderJobDetail(runId, jobId) {
