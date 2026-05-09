@@ -462,3 +462,50 @@ table.runs-table tbody tr:hover { background: var(--bg-overlay); }
   padding: var(--space-3);
   overflow-x: auto;
 }
+
+/* RFC 0023 V1.5: tool-call blocks in chat. */
+.chat-tool-call {
+  margin-bottom: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius);
+  background: var(--bg-overlay);
+  border: 1px solid var(--border);
+  font-size: 0.9em;
+}
+.chat-tool-call summary {
+  cursor: pointer;
+  font-family: var(--font-mono);
+  color: var(--fg-secondary);
+}
+.chat-tool-call .tool-result {
+  margin: var(--space-2) 0 0 0;
+  padding: var(--space-2);
+  background: var(--bg-base);
+  border-radius: var(--radius);
+  max-height: 320px;
+  overflow: auto;
+  font-size: 0.85em;
+}
+.chat-role-tool_use { border-left: 3px solid var(--accent); }
+.chat-role-tool_result { border-left: 3px solid var(--status-completed); }
+
+/* Doctor problem list */
+.problem-list { list-style: none; padding: 0; }
+.problem-list li {
+  margin-bottom: var(--space-2);
+  padding: var(--space-2);
+  border-radius: var(--radius);
+  background: var(--bg-overlay);
+  border-left: 3px solid var(--status-failed);
+}
+.problem-check { font-weight: 500; margin-right: var(--space-2); }
+.problem-id { color: var(--fg-secondary); }
+.problem-context { margin-top: var(--space-1); }
+.problem-context pre {
+  margin: var(--space-1) 0 0 0;
+  padding: var(--space-2);
+  background: var(--bg-base);
+  border-radius: var(--radius);
+  overflow-x: auto;
+  font-size: 0.85em;
+}

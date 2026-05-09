@@ -53,7 +53,10 @@
       formData.append("message", message);
       submitBtn.disabled = true;
       setStatus("Sending…");
-      appendMessage("user", message, "");
+      // Don't optimistically append; the SSE stream will deliver
+      // the persisted user turn (including its server-side timestamp)
+      // within the SSE poll interval. Optimistic append produced
+      // a duplicate render in v1.12.0.
       textarea.value = "";
       fetch("/chat/" + encodeURIComponent(sessionId) + "/send", {
         method: "POST",
@@ -85,6 +88,28 @@
     }
   }
 
+  function appendToolBlock(role, data) {
+    if (!history) return;
+    var details = document.createElement("details");
+    details.className = "chat-tool-call chat-role-" + role;
+    var summary = document.createElement("summary");
+    var label = role === "tool_use" ? "🔧 " : "✓ ";
+    var argsText = "";
+    try {
+      argsText = JSON.stringify(data.tool_input || {});
+    } catch (err) { argsText = ""; }
+    summary.textContent = label + (data.tool_name || "") + (argsText ? " " + argsText : "");
+    details.appendChild(summary);
+    var pre = document.createElement("pre");
+    pre.className = "tool-result";
+    pre.textContent = role === "tool_use"
+      ? JSON.stringify(data.tool_input || {}, null, 2)
+      : (data.result || "");
+    details.appendChild(pre);
+    history.appendChild(details);
+    history.scrollTop = history.scrollHeight;
+  }
+
   // SSE feed for incoming transcript events.
   if (typeof EventSource !== "undefined") {
     var es = new EventSource("/chat/" + encodeURIComponent(sessionId) + "/events");
@@ -92,31 +117,35 @@
     es.addEventListener("message", function (e) {
       try {
         var data = JSON.parse(e.data);
-        if (data.role && data.content) {
-          if (data.role === "assistant" && data.streaming) {
-            // Append to the current streaming message.
-            if (!streamingDiv) {
-              streamingDiv = document.createElement("article");
-              streamingDiv.className = "chat-message chat-role-assistant chat-streaming";
-              var header = document.createElement("header");
-              header.className = "chat-message-meta";
-              var rs = document.createElement("strong");
-              rs.textContent = "assistant";
-              header.appendChild(rs);
-              streamingDiv.appendChild(header);
-              var bodyDiv = document.createElement("div");
-              bodyDiv.className = "chat-message-body";
-              streamingDiv.appendChild(bodyDiv);
-              history.appendChild(streamingDiv);
-            }
-            var bd = streamingDiv.querySelector(".chat-message-body");
-            bd.textContent = (bd.textContent || "") + data.content;
-            history.scrollTop = history.scrollHeight;
-          } else {
-            appendMessage(data.role, data.content, data.created_at || "");
-            streamingDiv = null;
-            setStatus("");
+        if (!data.role) return;
+        if (data.role === "tool_use" || data.role === "tool_result") {
+          appendToolBlock(data.role, data);
+          setStatus("");
+          return;
+        }
+        if (!data.content) return;
+        if (data.role === "assistant" && data.streaming) {
+          if (!streamingDiv) {
+            streamingDiv = document.createElement("article");
+            streamingDiv.className = "chat-message chat-role-assistant chat-streaming";
+            var header = document.createElement("header");
+            header.className = "chat-message-meta";
+            var rs = document.createElement("strong");
+            rs.textContent = "assistant";
+            header.appendChild(rs);
+            streamingDiv.appendChild(header);
+            var bodyDiv = document.createElement("div");
+            bodyDiv.className = "chat-message-body";
+            streamingDiv.appendChild(bodyDiv);
+            history.appendChild(streamingDiv);
           }
+          var bd = streamingDiv.querySelector(".chat-message-body");
+          bd.textContent = (bd.textContent || "") + data.content;
+          history.scrollTop = history.scrollHeight;
+        } else {
+          appendMessage(data.role, data.content, data.created_at || "");
+          streamingDiv = null;
+          setStatus("");
         }
       } catch (err) { /* ignore non-JSON */ }
     });

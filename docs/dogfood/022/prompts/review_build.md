@@ -1,0 +1,1 @@
+Devil's-advocate build review. Verify: path-safe tool execution; closed set enforced; tool schemas accepted by both providers in mock tests; briefing renders correctly; loop terminates on no-tool-call response; ride-along fixes verified; lint/typecheck/test pass.

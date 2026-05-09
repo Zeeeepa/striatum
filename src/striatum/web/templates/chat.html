@@ -14,6 +14,17 @@
 
   <div class="chat-history" id="chat-history">
     {% for msg in messages %}
+    {% if msg.role == "tool_use" %}
+    <details class="chat-tool-call chat-role-tool_use">
+      <summary>🔧 {{ msg.tool_name }} {{ msg.tool_input | tojson }}</summary>
+      <pre class="tool-result">{{ msg.tool_input | tojson(indent=2) }}</pre>
+    </details>
+    {% elif msg.role == "tool_result" %}
+    <details class="chat-tool-call chat-role-tool_result">
+      <summary>✓ {{ msg.tool_name }} (result)</summary>
+      <pre class="tool-result">{{ msg.result }}</pre>
+    </details>
+    {% else %}
     <article class="chat-message chat-role-{{ msg.role }}">
       <header class="chat-message-meta">
         <strong>{{ msg.role }}</strong>
@@ -21,6 +32,7 @@
       </header>
       <div class="chat-message-body">{{ msg.rendered | safe }}</div>
     </article>
+    {% endif %}
     {% endfor %}
   </div>
 

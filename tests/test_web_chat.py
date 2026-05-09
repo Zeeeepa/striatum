@@ -289,10 +289,16 @@ def test_chat_send_anthropic_flavor_request_shape(tmp_path: Path) -> None:
             body = FakeAnthropicHandler.received_body
             hdrs = FakeAnthropicHandler.received_headers or {}
             assert "x-api-key" in {k.lower() for k in hdrs}
-            assert any(
-                m.get("role") == "user" and m.get("content") == "hi"
-                for m in body["messages"]
-            )
+            # V1.5 projects user turns to Anthropic content-block shape:
+            #   {"role": "user", "content": [{"type": "text", "text": "hi"}]}
+            user_msgs = [m for m in body["messages"] if m.get("role") == "user"]
+            assert user_msgs
+            content = user_msgs[0]["content"]
+            if isinstance(content, str):
+                assert content == "hi"
+            else:
+                texts = [b.get("text") for b in content if b.get("type") == "text"]
+                assert "hi" in texts
         finally:
             _stop_service(proc)
     finally:

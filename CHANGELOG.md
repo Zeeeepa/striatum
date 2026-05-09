@@ -2,6 +2,63 @@
 
 ## Unreleased
 
+## 1.13.0 — 2026-05-09
+
+### Added
+
+- RFC 0023 V1.5 (dogfood-022): chat tool use + system-prompt briefing.
+  Closes the V1.5 deferral from RFC 0023 V1.
+  - **Six closed-set read-only tools** wired into the chat backend:
+    `read_file(path)`, `list_dir(path)`, `striatum_status(run_id?)`,
+    `striatum_why(target_id)`, `git_log(limit?)`,
+    `git_diff(path?)`. The model decides when to call them; the
+    backend executes server-side and feeds results back. Closed-
+    set membership enforced in `execute_tool`; unknown tool names
+    return error strings rather than executing. No tool that
+    mutates state.
+  - **Tool-call loop** in `_handle_chat_send`: up to 10 iterations
+    of (request → assistant text + tool calls → execute → re-request
+    with results). Loop terminates on a no-tool-calls response.
+  - **System-prompt briefing** at chat-session creation: repo path,
+    current branch, last 10 commits, top-level entries, AGENTS.md
+    content (capped at 8 KB), active-run summary, tool-use
+    guidance. The chat now has bearings on its first turn.
+  - **Per-flavor tool wiring**: Anthropic Messages tool-use shape
+    (content blocks with `type: "tool_use"` + `tool_result`) and
+    OpenAI Chat tool-use shape (`tool_calls` + `role: "tool"`)
+    both supported. Streaming tool calls are accumulated server-
+    side and emitted as discrete events.
+  - **JSONL transcript extensions**: new role values `tool_use`
+    and `tool_result` persist tool calls + their wrapped results.
+    Existing user/assistant/system roles unchanged.
+  - **Prompt-injection defense**: tool results are wrapped in
+    `<tool_result_begin name="..." args="..."> ... <tool_result_end>`
+    delimiters. The system briefing instructs the model to treat
+    content between the delimiters as data, not instructions
+    (defense in depth; closes design-review F1).
+- Chat history page now renders `tool_use` and `tool_result`
+  entries as collapsed-by-default `<details>` blocks alongside
+  user/assistant turns.
+
+### Fixed
+
+- **Graph-node click 404** (RFC 0022 V1 regression): SVG graph
+  nodes link by *workflow* job id (e.g., `research_chat`) but
+  the `/run/<id>/job/<id>` route handler queried by the *full*
+  job id only. The handler now accepts either form.
+- **Doctor page rendered no list**: the template referenced
+  `doctor.checks` but the `doctor()` function returns
+  `doctor.problems` (list[str]) and `doctor.problem_records`
+  (list[dict]). Template rewritten to render the actual shape;
+  CSS for the problem list added.
+- **Chat double-render of user messages**: the JS island
+  optimistically appended the user's message on form submit, then
+  the SSE round-trip rendered the same message a second time
+  (with timestamp). Optimistic append removed; the SSE stream is
+  now the single source of truth for message rendering. ~250ms
+  perceived latency before the user's own message appears, no
+  duplication.
+
 ## 1.12.0 — 2026-05-09
 
 ### Added

@@ -6,24 +6,34 @@
   <p class="run-meta">
     {% if doctor.ok %}
     <span class="status-pill status-completed">ok</span>
+    <span class="muted">no problems detected</span>
     {% else %}
     <span class="status-pill status-failed">issues found</span>
+    <span class="muted">{{ doctor.problems | length }} problem{{ "" if doctor.problems | length == 1 else "s" }}</span>
     {% endif %}
   </p>
 
-  {% if doctor.checks %}
-  <h2>Checks</h2>
-  <ul class="check-list">
-    {% for check in doctor.checks %}
+  {% if doctor.problem_records %}
+  <h2>Problems</h2>
+  <ul class="problem-list">
+    {% for record in doctor.problem_records %}
     <li>
-      <span class="status-pill status-{{ 'completed' if check.ok else 'failed' }}">
-        {{ "ok" if check.ok else "fail" }}
-      </span>
-      <strong>{{ check.name }}</strong>
-      {% if check.message %}
-      <span class="muted">{{ check.message }}</span>
+      <span class="problem-check"><code>{{ record.check }}</code></span>
+      <span class="problem-id"><code>{{ record.id }}</code></span>
+      {% if record.context %}
+      <details class="problem-context">
+        <summary class="muted">context</summary>
+        <pre><code>{{ record.context | tojson(indent=2) }}</code></pre>
+      </details>
       {% endif %}
     </li>
+    {% endfor %}
+  </ul>
+  {% elif doctor.problems %}
+  <h2>Problems</h2>
+  <ul class="problem-list">
+    {% for problem in doctor.problems %}
+    <li>{{ problem }}</li>
     {% endfor %}
   </ul>
   {% endif %}

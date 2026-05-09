@@ -55,6 +55,7 @@ so external references keep resolving even as items move between sections.
 | F19 | RFC 0021 V1.5 (--force + --dry-run, dogfood-019) | ✅ done |
 | F20 | RFC 0022 V1 (web UI redesign, dogfood-020) | ✅ done |
 | F21 | RFC 0023 V1 (web chat + view + artifact md, dogfood-021) | ✅ done |
+| F22 | RFC 0023 V1.5 (chat tool use + briefing, dogfood-022) | ✅ done |
 
 Legend: ✅ done · 🟡 most done (sub-tasks remain) · ⏳ open
 
@@ -205,6 +206,18 @@ Legend: ✅ done · 🟡 most done (sub-tasks remain) · ⏳ open
     repository", "workflow fixture", "runner state", "artifact", and
     "adapter" rather than assuming Engram-specific paths or marker names.
     No active sub-task.
+
+17. **RFC candidate: workflow browser + visual builder.** Web UI surface
+    to browse `*workflow.json` files in the repo (validation status,
+    SVG graph preview, metadata) AND author new ones interactively
+    (widgets to add roles, lanes, jobs, edges, posture/required-posture
+    fields, expected-artifacts blocks). Operator types names; the UI
+    emits the JSON; `workflow validate` runs server-side per save.
+    Closes the gap between the compact CLI authoring flow and what a
+    first-time workflow author wants. Likely RFC 0024 once V1.5 of
+    RFC 0023 (chat tool use, dogfood-022) lands. Pairs naturally with
+    the chat surface: "ask the model to scaffold a workflow, then
+    edit it in the visual builder."
 
 ## Immediate Follow-Up
 
