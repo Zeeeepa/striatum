@@ -306,6 +306,18 @@ def dispatch(args: argparse.Namespace) -> object:
             from striatum.db import cancel_run as _cancel_run
             with transaction(conn):
                 return _cancel_run(conn, run_id=args.run_id, reason=args.reason)
+        if args.command == "run" and args.run_command == "pause":
+            from striatum.db import pause_run as _pause_run
+            with transaction(conn):
+                return _pause_run(conn, run_id=args.run_id, reason=args.reason)
+        if args.command == "run" and args.run_command == "resume":
+            from striatum.db import resume_run as _resume_run
+            with transaction(conn):
+                return _resume_run(conn, run_id=args.run_id)
+        if args.command == "run" and args.run_command == "retry-job":
+            from striatum.db import retry_job as _retry_job
+            with transaction(conn):
+                return _retry_job(conn, run_id=args.run_id, job_id=args.job_id)
         if args.command == "run" and args.run_command == "summary":
             return run_summary_export(conn, repo=repo, run_id=args.run_id, path_text=args.path)
         if args.command == "run" and args.run_command == "graph":

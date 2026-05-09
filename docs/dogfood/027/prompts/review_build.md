@@ -1,0 +1,1 @@
+Devils advocate build review. Verify: migration v11 forward-only + idempotent on fresh DB; pause_run sets columns + emits event; resume_run clears + emits; claim-next refuses paused; resume + claim race safety; cancel-job through web cascades correctly; retry_job clears terminal state and re-enqueues; tests cover idempotency.

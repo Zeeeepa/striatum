@@ -2,6 +2,54 @@
 
 ## Unreleased
 
+## 1.18.0 — 2026-05-09
+
+### Added
+
+- RFC 0024 V4 (dogfood-027): pause/resume + per-job mutations.
+  - **Migration v11** adds `runs.paused_at` and `runs.paused_reason`
+    columns. Forward-only; idempotent against fresh DB whose
+    schema baseline already includes them.
+  - **`pause_run(conn, *, run_id, reason)`** sets the columns;
+    idempotent on already-paused; refuses terminal states.
+  - **`resume_run(conn, *, run_id)`** clears the columns;
+    idempotent on not-paused; refuses terminal states (use
+    `retry_job` to revive a canceled run).
+  - **`claim_next` gate**: runs with `paused_at IS NOT NULL`
+    return `{"status": "no_work", "paused": True}`. Active leases
+    keep ticking; expire-leases at the top of `claim_next`
+    handles paused-with-stale-leases.
+  - **`retry_job(conn, *, run_id, job_id)`** resets a
+    failed/canceled/blocked job to `queued`, increments
+    `attempt`, marks prior `queue_messages` rows as `canceled`
+    (preserving the partial unique index), re-enqueues, and
+    revives canceled/failed runs to `running` with a loud
+    `run.revived` event.
+  - CLI: `striatum run pause/resume/retry-job`.
+  - HTTP: `POST /run/<id>/pause`, `/run/<id>/resume`,
+    `/run/<id>/job/<jid>/cancel`, `/run/<id>/job/<jid>/retry`. All
+    mutation-gated.
+  - UI: Pause/Resume buttons + paused status pill on the run
+    detail page; Cancel/Retry buttons on the job detail page.
+    Cancel confirm reads "Cancel this job AND its dependents…".
+    All islands CSP-safe.
+
+### Run-revival semantics (D078 follow-up)
+
+Per RFC 0024 V4 design-review F1 (option C): when an operator
+retries a job whose run is `canceled` or `failed`, the run
+transitions back to `running` and a `run.revived` event is emitted
+with `previous_run_state` payload. The terminal-state guarantee
+softens for operator-triggered revival but stays loud (event +
+documented). `retry_job` refuses to revive a `completed` run.
+
+### Deferred to V5 if needed
+
+- Pause-with-deadline (auto-resume at timestamp).
+- Per-lane pause.
+- Recovery integration of pause as escalation hook target.
+- Consolidate `_read_json_body` / `_read_json_body_strict` helpers.
+
 ## 1.17.0 — 2026-05-09
 
 ### Added

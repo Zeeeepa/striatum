@@ -639,6 +639,190 @@ def maybe_complete_run(conn: sqlite3.Connection, *, run_id: str) -> None:
     )
 
 
+def pause_run(
+    conn: sqlite3.Connection,
+    *,
+    run_id: str,
+    reason: str | None = None,
+) -> JsonObject:
+    """RFC 0024 V4: suspend claim-next on the run without changing state.
+
+    Sets ``runs.paused_at`` + ``runs.paused_reason`` if not already set.
+    Idempotent: re-pausing returns the current state without re-emitting.
+    Refuses terminal states (completed/failed/canceled).
+
+    Caller is responsible for being inside a transaction.
+    """
+    from striatum.errors import InvalidTransitionError, NotFoundError
+
+    run = conn.execute(
+        "SELECT * FROM runs WHERE run_id = ?", (run_id,)
+    ).fetchone()
+    if run is None:
+        raise NotFoundError(f"run not found: {run_id}")
+    state = str(run["state"])
+    if state in ("completed", "failed", "canceled"):
+        raise InvalidTransitionError(
+            f"run is in terminal state {state!r} and cannot be paused"
+        )
+    if run["paused_at"] is not None:
+        return {"run_id": run_id, "state": state, "paused_at": run["paused_at"], "status": "already_paused"}
+    now = utc_now()
+    paused_reason = reason or "operator_paused"
+    conn.execute(
+        "UPDATE runs SET paused_at = ?, paused_reason = ? WHERE run_id = ? AND paused_at IS NULL",
+        (now, paused_reason, run_id),
+    )
+    insert_event(
+        conn,
+        run_id=run_id,
+        event_type="run.paused",
+        payload={"reason": paused_reason},
+    )
+    return {"run_id": run_id, "state": state, "paused_at": now, "status": "paused"}
+
+
+def resume_run(conn: sqlite3.Connection, *, run_id: str) -> JsonObject:
+    """RFC 0024 V4: clear the paused flag so claim-next resumes work.
+
+    Idempotent: resuming a non-paused run returns current state without
+    re-emitting. Refuses terminal states (use ``retry_job`` to revive).
+
+    Caller is responsible for being inside a transaction.
+    """
+    from striatum.errors import InvalidTransitionError, NotFoundError
+
+    run = conn.execute(
+        "SELECT * FROM runs WHERE run_id = ?", (run_id,)
+    ).fetchone()
+    if run is None:
+        raise NotFoundError(f"run not found: {run_id}")
+    state = str(run["state"])
+    if state in ("completed", "failed", "canceled"):
+        raise InvalidTransitionError(
+            f"run is in terminal state {state!r}; use retry_job to revive"
+        )
+    if run["paused_at"] is None:
+        return {"run_id": run_id, "state": state, "paused_at": None, "status": "not_paused"}
+    conn.execute(
+        "UPDATE runs SET paused_at = NULL, paused_reason = NULL WHERE run_id = ?",
+        (run_id,),
+    )
+    insert_event(
+        conn,
+        run_id=run_id,
+        event_type="run.resumed",
+        payload={},
+    )
+    return {"run_id": run_id, "state": state, "paused_at": None, "status": "resumed"}
+
+
+def retry_job(
+    conn: sqlite3.Connection,
+    *,
+    run_id: str,
+    job_id: str,
+) -> JsonObject:
+    """RFC 0024 V4: reset a failed/canceled/blocked job and re-enqueue.
+
+    If the run is in a terminal failed/canceled state, transitions it
+    back to ``running`` and emits ``run.revived`` (per design-review F1
+    option C: explicit + loud).
+
+    Caller is responsible for being inside a transaction.
+    """
+    from striatum.errors import InvalidTransitionError, NotFoundError
+
+    run = conn.execute(
+        "SELECT * FROM runs WHERE run_id = ?", (run_id,)
+    ).fetchone()
+    if run is None:
+        raise NotFoundError(f"run not found: {run_id}")
+    if str(run["state"]) == "completed":
+        raise InvalidTransitionError(
+            "run is completed; retry would revive a finished run"
+        )
+    job = conn.execute(
+        "SELECT * FROM jobs WHERE job_id = ?", (job_id,)
+    ).fetchone()
+    if job is None:
+        raise NotFoundError(f"job not found: {job_id}")
+    if str(job["run_id"]) != run_id:
+        raise InvalidTransitionError("job does not belong to the requested run")
+    previous_state = str(job["state"])
+    if previous_state not in ("failed", "canceled", "blocked"):
+        raise InvalidTransitionError(
+            f"job state {previous_state!r} is not retriable"
+            " (must be failed, canceled, or blocked)"
+        )
+    # 1. Reset job row. Clear current_message_id too so deleting prior
+    # queue_messages row doesn't break the FK.
+    conn.execute(
+        """
+        UPDATE jobs
+        SET state = 'queued',
+            started_at = NULL,
+            completed_at = NULL,
+            current_lease_id = NULL,
+            current_message_id = NULL,
+            attempt = attempt + 1
+        WHERE job_id = ?
+        """,
+        (job_id,),
+    )
+    # 2. Clear any unresolved blockers tied to this job.
+    conn.execute(
+        "DELETE FROM blockers WHERE job_id = ? AND resolved_at IS NULL",
+        (job_id,),
+    )
+    # 3. Mark prior queue_messages rows as canceled. The partial unique
+    # index `uq_active_work_message_per_job` only covers
+    # state IN ('pending','claimed','acked'); marking them canceled
+    # lets the new enqueue insert a fresh row without FK collisions.
+    conn.execute(
+        """
+        UPDATE queue_messages
+        SET state = 'canceled', updated_at = ?
+        WHERE job_id = ? AND state IN ('pending','claimed','acked')
+        """,
+        (utc_now(), job_id),
+    )
+    # 4. Re-enqueue.
+    enqueue_job(conn, job_id=job_id)
+    # 4. Revive the run if needed (F1 option C).
+    run_revived = False
+    if str(run["state"]) in ("failed", "canceled"):
+        conn.execute(
+            """
+            UPDATE runs
+            SET state = 'running', completed_at = NULL, stop_reason = NULL
+            WHERE run_id = ?
+            """,
+            (run_id,),
+        )
+        insert_event(
+            conn,
+            run_id=run_id,
+            event_type="run.revived",
+            payload={"trigger_job_id": job_id, "previous_run_state": str(run["state"])},
+        )
+        run_revived = True
+    insert_event(
+        conn,
+        run_id=run_id,
+        event_type="job.retried",
+        job_id=job_id,
+        payload={"previous_state": previous_state, "attempt": int(job["attempt"]) + 1},
+    )
+    return {
+        "run_id": run_id,
+        "job_id": job_id,
+        "previous_state": previous_state,
+        "new_state": "queued",
+        "run_revived": run_revived,
+    }
+
+
 def cancel_run(
     conn: sqlite3.Connection,
     *,
@@ -797,6 +981,14 @@ def claim_next(conn: sqlite3.Connection, *, repo: Path, session_id: str, lease_s
             raise BranchConfirmationError("branch confirmation and run start are required before claims")
         if run["state"] != "running":
             return {"status": "no_work"}
+        # RFC 0024 V4: pause gate. Active leases keep ticking;
+        # expire_leases above handles paused-with-stale-leases.
+        try:
+            paused_at = run["paused_at"]
+        except (IndexError, KeyError):
+            paused_at = None
+        if paused_at is not None:
+            return {"status": "no_work", "paused": True}
         chosen = conn.execute(
             """
             SELECT qm.*

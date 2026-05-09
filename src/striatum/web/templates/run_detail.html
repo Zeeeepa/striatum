@@ -9,9 +9,18 @@
       {% if run.branch_name %}
       <span class="muted">on <code>{{ run.branch_name }}</code></span>
       {% endif %}
+      {% if run.paused_at %}
+      <span class="status-pill posture-chip" title="paused at {{ run.paused_at }}">paused</span>
+      {% endif %}
       {% if run.state in ('prepared', 'needs_branch_confirmation', 'ready', 'running') %}
+        {% if run.paused_at %}
+        <button type="button" id="run-resume-btn" class="primary-button" data-run-id="{{ run.run_id }}" data-action="resume">Resume run</button>
+        {% else %}
+        <button type="button" id="run-pause-btn" class="secondary-button" data-run-id="{{ run.run_id }}" data-action="pause">Pause run</button>
+        {% endif %}
       <button type="button" id="run-cancel-btn" class="secondary-button" data-run-id="{{ run.run_id }}">Cancel run</button>
       <script defer src="/static/run_cancel.js"></script>
+      <script defer src="/static/run_pause_resume.js"></script>
       {% endif %}
     </div>
     {% if run.state == "needs_branch_confirmation" %}

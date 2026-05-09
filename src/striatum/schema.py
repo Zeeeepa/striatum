@@ -37,7 +37,9 @@ CREATE TABLE IF NOT EXISTS runs (
   created_at TEXT NOT NULL,
   started_at TEXT,
   completed_at TEXT,
-  stop_reason TEXT
+  stop_reason TEXT,
+  paused_at TEXT,
+  paused_reason TEXT
 );
 
 CREATE TABLE IF NOT EXISTS sessions (

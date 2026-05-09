@@ -14,6 +14,15 @@
       <span class="posture-chip" title="{{ latest_verdict.posture }}">{{ latest_verdict.posture }}</span>
       {% endif %}
       {% endif %}
+      {% if job.state in ('queued', 'running', 'blocked', 'ready', 'claimed') %}
+      <button type="button" class="secondary-button" data-job-action="cancel"
+              data-run-id="{{ run.run_id }}" data-job-id="{{ job.job_id }}">Cancel job</button>
+      {% endif %}
+      {% if job.state in ('failed', 'canceled', 'blocked') %}
+      <button type="button" class="primary-button" data-job-action="retry"
+              data-run-id="{{ run.run_id }}" data-job-id="{{ job.job_id }}">Retry job</button>
+      {% endif %}
+      <script defer src="/static/job_actions.js"></script>
     </div>
   </header>
 

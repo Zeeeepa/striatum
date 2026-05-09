@@ -575,9 +575,20 @@ class StriatumServiceHandler(BaseHTTPRequestHandler):
             run_id = parsed.path[len("/run/"):-len("/branch-confirm")]
             self._handle_run_branch_confirm(run_id)
             return
-        if self.state.web_enabled and parsed.path.startswith("/run/") and parsed.path.endswith("/cancel"):
+        if self.state.web_enabled and parsed.path.startswith("/run/") and parsed.path.endswith("/cancel") and "/job/" not in parsed.path:
             run_id = parsed.path[len("/run/"):-len("/cancel")]
             self._handle_run_cancel(run_id)
+            return
+        if self.state.web_enabled and parsed.path.startswith("/run/") and parsed.path.endswith("/pause"):
+            run_id = parsed.path[len("/run/"):-len("/pause")]
+            self._handle_run_pause(run_id)
+            return
+        if self.state.web_enabled and parsed.path.startswith("/run/") and parsed.path.endswith("/resume"):
+            run_id = parsed.path[len("/run/"):-len("/resume")]
+            self._handle_run_resume(run_id)
+            return
+        if self.state.web_enabled and "/job/" in parsed.path and (parsed.path.endswith("/cancel") or parsed.path.endswith("/retry")):
+            self._handle_job_action(parsed.path)
             return
         if self.state.web_enabled and parsed.path.startswith("/chat/") and parsed.path.endswith("/send"):
             session_id = parsed.path[len("/chat/"):-len("/send")]
@@ -1384,6 +1395,132 @@ class StriatumServiceHandler(BaseHTTPRequestHandler):
             self._send_json(500, {"ok": False, "error": {"code": 500, "message": f"{type(exc).__name__}: {exc}"}})
             return
         self._send_json(200, {"ok": True, "data": result})
+
+    def _handle_run_pause(self, run_id: str) -> None:
+        from striatum.db import connect, pause_run, transaction
+        from striatum.errors import InvalidTransitionError, NotFoundError
+
+        if not self.state.allow_mutations:
+            self._send_json(405, {"ok": False, "error": {"code": 405, "message": "pause requires --allow-mutations"}})
+            return
+        body = self._read_json_body_strict(64 * 1024)
+        if body is None:
+            return
+        reason = body.get("reason") if isinstance(body.get("reason"), str) else None
+        try:
+            with connect(self.state.repo) as conn:
+                with transaction(conn):
+                    result = pause_run(conn, run_id=run_id, reason=reason)
+        except NotFoundError as exc:
+            self._send_json(404, {"ok": False, "error": {"code": 404, "message": str(exc)}})
+            return
+        except InvalidTransitionError as exc:
+            self._send_json(409, {"ok": False, "error": {"code": 409, "message": str(exc), "kind": "invalid_transition"}})
+            return
+        except Exception as exc:  # noqa: BLE001
+            self._send_json(500, {"ok": False, "error": {"code": 500, "message": f"{type(exc).__name__}: {exc}"}})
+            return
+        self._send_json(200, {"ok": True, "data": result})
+
+    def _handle_run_resume(self, run_id: str) -> None:
+        from striatum.db import connect, resume_run, transaction
+        from striatum.errors import InvalidTransitionError, NotFoundError
+
+        if not self.state.allow_mutations:
+            self._send_json(405, {"ok": False, "error": {"code": 405, "message": "resume requires --allow-mutations"}})
+            return
+        body = self._read_json_body_strict(64 * 1024)
+        if body is None:
+            return
+        try:
+            with connect(self.state.repo) as conn:
+                with transaction(conn):
+                    result = resume_run(conn, run_id=run_id)
+        except NotFoundError as exc:
+            self._send_json(404, {"ok": False, "error": {"code": 404, "message": str(exc)}})
+            return
+        except InvalidTransitionError as exc:
+            self._send_json(409, {"ok": False, "error": {"code": 409, "message": str(exc), "kind": "invalid_transition"}})
+            return
+        except Exception as exc:  # noqa: BLE001
+            self._send_json(500, {"ok": False, "error": {"code": 500, "message": f"{type(exc).__name__}: {exc}"}})
+            return
+        self._send_json(200, {"ok": True, "data": result})
+
+    def _handle_job_action(self, path: str) -> None:
+        """RFC 0024 V4: per-job cancel + retry. Path: /run/<id>/job/<jid>/(cancel|retry)."""
+        from striatum.cli.recovery import cancel_job
+        from striatum.db import connect, retry_job, transaction
+        from striatum.errors import InvalidTransitionError, NotFoundError
+
+        if not self.state.allow_mutations:
+            self._send_json(405, {"ok": False, "error": {"code": 405, "message": "job action requires --allow-mutations"}})
+            return
+        # Parse /run/<rid>/job/<jid>/<action>.
+        parts = path.strip("/").split("/")
+        if len(parts) != 5 or parts[0] != "run" or parts[2] != "job":
+            self._send_json(400, {"ok": False, "error": {"code": 400, "message": "invalid job-action path"}})
+            return
+        run_id, job_id, action = parts[1], parts[3], parts[4]
+        body = self._read_json_body_strict(64 * 1024)
+        if body is None:
+            return
+        try:
+            with connect(self.state.repo) as conn:
+                if action == "cancel":
+                    raw_reason = body.get("reason")
+                    reason: str = raw_reason if isinstance(raw_reason, str) and raw_reason else "operator_canceled_via_web"
+                    cascade = bool(body.get("cascade", True))
+                    # cancel_job (recovery) opens its own transaction.
+                    result = cancel_job(
+                        conn, run_id=run_id, job_id=job_id,
+                        reason=reason, cascade=cascade,
+                    )
+                elif action == "retry":
+                    with transaction(conn):
+                        result = retry_job(conn, run_id=run_id, job_id=job_id)
+                else:
+                    self._send_json(400, {"ok": False, "error": {"code": 400, "message": f"unknown job action: {action}"}})
+                    return
+        except NotFoundError as exc:
+            self._send_json(404, {"ok": False, "error": {"code": 404, "message": str(exc)}})
+            return
+        except InvalidTransitionError as exc:
+            self._send_json(409, {"ok": False, "error": {"code": 409, "message": str(exc), "kind": "invalid_transition"}})
+            return
+        except Exception as exc:  # noqa: BLE001
+            self._send_json(500, {"ok": False, "error": {"code": 500, "message": f"{type(exc).__name__}: {exc}"}})
+            return
+        self._send_json(200, {"ok": True, "data": result})
+
+    def _read_json_body_strict(self, max_bytes: int) -> "dict[str, Any] | None":
+        """RFC 0024 V4 helper: validate Content-Type, cap body, parse JSON
+        as object. Sends error response and returns None on failure."""
+        ctype = self.headers.get("Content-Type", "")
+        if "application/json" not in ctype:
+            self._send_json(415, {"ok": False, "error": {"code": 415, "message": "Content-Type must be application/json"}})
+            return None
+        try:
+            length = int(self.headers.get("Content-Length") or "0")
+        except ValueError:
+            length = 0
+        if length > max_bytes:
+            self._send_json(413, {"ok": False, "error": {"code": 413, "message": "body too large"}})
+            return None
+        try:
+            raw = self.rfile.read(length).decode("utf-8", errors="replace") if length > 0 else "{}"
+        except OSError as exc:
+            self._send_json(400, {"ok": False, "error": {"code": 400, "message": str(exc)}})
+            return None
+        try:
+            body = json.loads(raw or "{}")
+        except json.JSONDecodeError as exc:
+            self._send_json(400, {"ok": False, "error": {"code": 400, "message": f"invalid JSON: {exc}"}})
+            return None
+        if not isinstance(body, dict):
+            self._send_json(400, {"ok": False, "error": {"code": 400, "message": "body must be a JSON object"}})
+            return None
+        return body
 
     def _render_doctor_page(self) -> None:
         from striatum.cli.introspect import doctor as doctor_command

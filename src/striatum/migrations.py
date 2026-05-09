@@ -388,6 +388,23 @@ def _apply_v9_blockers_payload_json(conn: sqlite3.Connection) -> None:
     )
 
 
+def _apply_v11_runs_paused_columns(conn: sqlite3.Connection) -> None:
+    """RFC 0024 V4: add ``paused_at`` and ``paused_reason`` columns to
+    ``runs`` so the visual builder's Pause/Resume buttons can suspend
+    claim-next without changing the run state machine.
+
+    Forward-only ``ALTER TABLE``; existing rows default to ``NULL``.
+    Idempotent against a fresh DB whose ``schema.py`` already created
+    the columns (the V1 baseline schema is updated alongside the
+    migration so freshly-initialized DBs install the columns directly).
+    """
+    cols = [row[1] for row in conn.execute("PRAGMA table_info(runs)").fetchall()]
+    if "paused_at" not in cols:
+        conn.execute("ALTER TABLE runs ADD COLUMN paused_at TEXT")
+    if "paused_reason" not in cols:
+        conn.execute("ALTER TABLE runs ADD COLUMN paused_reason TEXT")
+
+
 MIGRATIONS: list[Migration] = sorted(
     [
         Migration(version=1, label="v1 baseline schema", apply=_apply_v1),
@@ -419,6 +436,11 @@ MIGRATIONS: list[Migration] = sorted(
             version=10,
             label="verdicts.posture column + index",
             apply=_apply_v10_verdicts_posture,
+        ),
+        Migration(
+            version=11,
+            label="runs.paused_at + runs.paused_reason columns",
+            apply=_apply_v11_runs_paused_columns,
         ),
     ],
     key=lambda migration: migration.version,
