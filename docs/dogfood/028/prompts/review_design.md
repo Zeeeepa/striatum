@@ -1,0 +1,1 @@
+Devils advocate. Sweep: manifest schema collisions with skills' `.manifest.json` (different paths? key collisions?); idempotency gaps (timestamp embedded in templates); --with-marketplace default behavior (write or skip when file exists); init --with-plugins ordering; URL-leak detection rigor (false positives on `://` in code blocks).

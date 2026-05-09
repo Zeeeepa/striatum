@@ -940,6 +940,8 @@ def doctor(
         "reviewer_independence_unverified",
         "skills_missing",
         "skills_outdated",
+        "plugin_missing",
+        "plugin_outdated",
     )
     problems: list[str] = []
     records: list[JsonObject] = []
@@ -1543,6 +1545,84 @@ def _check_skill_bundle(*, repo: Path, report: Callable[..., None]) -> None:
                     "templates_changed": template_drift,
                     "recovery_command": (
                         f"striatum --repo {repo} skills install --profile {profile}"
+                    ),
+                },
+            )
+
+    # RFC 0025 V1 Step 1: plugin bundle health.
+    from striatum.plugins.install import (
+        ALLOWED_PROFILES as PLUGIN_PROFILES,
+        _bundled_template_sha256 as plugin_template_sha256,
+        _load_manifest as load_plugin_manifest,
+    )
+    for plugin_profile in PLUGIN_PROFILES:
+        bundle_root = repo / ".striatum" / "plugins" / plugin_profile
+        plugin_manifest = load_plugin_manifest(bundle_root / ".manifest.json")
+        if plugin_manifest is None:
+            continue
+        plugin_missing_files: list[str] = []
+        for entry in plugin_manifest.get("files", []):
+            if not isinstance(entry, dict):
+                continue
+            rel_path = str(entry.get("path") or "")
+            if rel_path and not (bundle_root / rel_path).is_file():
+                plugin_missing_files.append(rel_path)
+        if plugin_missing_files:
+            report(
+                "plugin_missing",
+                identifier=str(bundle_root / ".manifest.json"),
+                message=(
+                    f"plugin bundle missing files for profile {plugin_profile!r}: "
+                    + ", ".join(plugin_missing_files)
+                    + f" — run `striatum --repo {repo} plugin install --profile {plugin_profile}`"
+                ),
+                context={
+                    "profile": plugin_profile,
+                    "manifest_path": str(bundle_root / ".manifest.json"),
+                    "missing": plugin_missing_files,
+                    "recovery_command": (
+                        f"striatum --repo {repo} plugin install --profile {plugin_profile}"
+                    ),
+                },
+            )
+        plugin_recorded_version = str(plugin_manifest.get("striatum_version") or "")
+        plugin_version_drift = (
+            plugin_recorded_version != "" and plugin_recorded_version != STRIATUM_VERSION
+        )
+        plugin_template_drift: list[str] = []
+        for entry in plugin_manifest.get("files", []):
+            if not isinstance(entry, dict):
+                continue
+            tmpl = str(entry.get("template") or "")
+            recorded = str(entry.get("template_sha256") or "")
+            if not tmpl or not recorded:
+                continue
+            try:
+                bundled = plugin_template_sha256(tmpl)
+            except Exception:  # noqa: BLE001
+                plugin_template_drift.append(tmpl)
+                continue
+            if bundled != recorded:
+                plugin_template_drift.append(tmpl)
+        if plugin_version_drift or plugin_template_drift:
+            report(
+                "plugin_outdated",
+                identifier=str(bundle_root / ".manifest.json"),
+                message=(
+                    f"plugin bundle outdated for profile {plugin_profile!r}: "
+                    f"manifest_version={plugin_recorded_version!r} "
+                    f"running_version={STRIATUM_VERSION!r} "
+                    f"templates_changed={plugin_template_drift!r} "
+                    f"— run `striatum --repo {repo} plugin install --profile {plugin_profile}`"
+                ),
+                context={
+                    "profile": plugin_profile,
+                    "manifest_path": str(bundle_root / ".manifest.json"),
+                    "manifest_version": plugin_recorded_version,
+                    "running_version": STRIATUM_VERSION,
+                    "templates_changed": plugin_template_drift,
+                    "recovery_command": (
+                        f"striatum --repo {repo} plugin install --profile {plugin_profile}"
                     ),
                 },
             )

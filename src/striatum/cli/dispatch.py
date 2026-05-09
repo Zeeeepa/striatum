@@ -168,6 +168,17 @@ def dispatch(args: argparse.Namespace) -> object:
                 force=False,
                 dry_run=False,
             )
+        with_plugins = getattr(args, "with_plugins", None)
+        if with_plugins is not None:
+            from striatum.plugins import install as plugin_install
+            init_result["plugins"] = plugin_install.install(
+                target=repo,
+                profile=str(with_plugins),
+                scope="project",
+                namespace="striatum",
+                force=False,
+                dry_run=False,
+            )
         if getattr(args, "with_ddd_layout", False):
             from striatum.scaffold import scaffold_ddd_layout
             init_result["ddd_layout"] = scaffold_ddd_layout(
@@ -184,6 +195,28 @@ def dispatch(args: argparse.Namespace) -> object:
             namespace=str(args.namespace),
             force=bool(args.force),
             dry_run=bool(args.dry_run),
+        )
+    if args.command == "plugin" and args.plugin_command == "install":
+        from striatum.plugins import install as plugin_install
+        target_arg = args.target if getattr(args, "target", None) else repo
+        return plugin_install.install(
+            target=Path(target_arg),
+            profile=str(args.profile),
+            scope=str(args.scope),
+            namespace=str(args.namespace),
+            force=bool(args.force),
+            dry_run=bool(args.dry_run),
+            with_marketplace=bool(args.with_marketplace),
+        )
+    if args.command == "plugin" and args.plugin_command == "uninstall":
+        from striatum.plugins import install as plugin_install
+        target_arg = args.target if getattr(args, "target", None) else repo
+        return plugin_install.uninstall(
+            target=Path(target_arg),
+            profile=str(args.profile),
+            scope=str(args.scope),
+            namespace=str(args.namespace),
+            force=bool(args.force),
         )
     if args.command == "workflow" and args.workflow_command == "validate":
         workflow = load_workflow(Path(args.path))

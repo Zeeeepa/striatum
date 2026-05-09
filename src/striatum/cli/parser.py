@@ -24,6 +24,16 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     init.add_argument(
+        "--with-plugins",
+        nargs="?",
+        const="claude_code",
+        default=None,
+        help=(
+            "After init, also write the agent-CLI plugin bundle for the "
+            "given profile (default: claude_code). RFC 0025."
+        ),
+    )
+    init.add_argument(
         "--with-ddd-layout",
         action="store_true",
         help=(
@@ -70,6 +80,42 @@ def build_parser() -> argparse.ArgumentParser:
     skills_install.add_argument("--force", action="store_true")
     skills_install.add_argument("--dry-run", action="store_true")
     skills_install.add_argument("--json", action="store_true")
+
+    plugin = sub.add_parser("plugin")
+    plugin_sub = plugin.add_subparsers(dest="plugin_command", required=True)
+    plugin_install = plugin_sub.add_parser("install")
+    plugin_install.add_argument(
+        "--profile",
+        choices=["claude_code"],  # codex, gemini in Steps 2-3
+        default="claude_code",
+    )
+    plugin_install.add_argument(
+        "--scope", choices=["project", "user"], default="project"
+    )
+    plugin_install.add_argument("--namespace", default="striatum")
+    plugin_install.add_argument("--target", default=None)
+    plugin_install.add_argument("--force", action="store_true")
+    plugin_install.add_argument("--dry-run", action="store_true")
+    plugin_install.add_argument(
+        "--with-marketplace", dest="with_marketplace", action="store_true", default=True,
+    )
+    plugin_install.add_argument(
+        "--no-marketplace", dest="with_marketplace", action="store_false",
+    )
+    plugin_install.add_argument("--json", action="store_true")
+    plugin_uninstall = plugin_sub.add_parser("uninstall")
+    plugin_uninstall.add_argument(
+        "--profile",
+        choices=["claude_code"],
+        default="claude_code",
+    )
+    plugin_uninstall.add_argument(
+        "--scope", choices=["project", "user"], default="project"
+    )
+    plugin_uninstall.add_argument("--namespace", default="striatum")
+    plugin_uninstall.add_argument("--target", default=None)
+    plugin_uninstall.add_argument("--force", action="store_true")
+    plugin_uninstall.add_argument("--json", action="store_true")
 
     workflow = sub.add_parser("workflow")
     workflow_sub = workflow.add_subparsers(dest="workflow_command", required=True)

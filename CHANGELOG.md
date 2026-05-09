@@ -2,6 +2,45 @@
 
 ## Unreleased
 
+## 1.19.0 — 2026-05-09
+
+### Added
+
+- RFC 0025 V1 Step 1 (dogfood-028): `claude_code` plugin profile.
+  - `striatum plugin install --profile claude_code` emits a
+    14-file Claude Code plugin bundle under
+    `.striatum/plugins/claude_code/`. Layout: `.claude-plugin/plugin.json`,
+    `skills/striatum-{workflow,scaffold,claim-loop,supervise,recover}/SKILL.md`,
+    `commands/{claim-next,status,why,dashboard,doctor}.md`,
+    `hooks/hooks.json`, `.mcp.json`, `README.md`, `.manifest.json`.
+  - `striatum plugin uninstall --profile claude_code` reads the
+    bundle's manifest and deletes only manifest-tracked files;
+    refuses to delete operator-edited files without `--force`.
+  - `striatum init --with-plugins [profile]` mirrors
+    `--with-skills`. Default profile is `claude_code`.
+  - `--with-marketplace` (default on) writes
+    `.striatum/plugins/marketplace.json` with a `local-striatum`
+    fixture entry; reentrant — re-installs update in place.
+  - Doctor checks `plugin_missing` and `plugin_outdated` walk every
+    installed bundle's `.manifest.json` and surface the exact
+    `striatum plugin install --profile <id>` invocation that fixes
+    the drift.
+  - Skill bodies are byte-shared with `skills/templates/claude_code/`
+    via a CI test (`test_skill_templates_match_skills_module`)
+    so future skill edits propagate to both surfaces.
+  - URL-leak invariant: `test_claude_code_no_external_urls`
+    forbids `https?://`, `git://`, `file://`, `ssh://`, `ftp://`
+    in any rendered file.
+
+### Deferred to V1 Step 2 / Step 3
+
+- `codex` plugin profile (`.codex-plugin/plugin.json` + Codex
+  commands).
+- `gemini` profile promotion (split the current single-guide shape
+  into the same five-skill structure used by claude_code).
+- `--profile all` aggregation.
+- Cross-target install (one bundle, many target repos).
+
 ## 1.18.0 — 2026-05-09
 
 ### Added
