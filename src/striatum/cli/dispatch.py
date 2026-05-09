@@ -168,6 +168,9 @@ def dispatch(args: argparse.Namespace) -> object:
                 force=False,
                 dry_run=False,
             )
+        if getattr(args, "with_ddd_layout", False):
+            from striatum.scaffold import scaffold_ddd_layout
+            init_result["ddd_layout"] = scaffold_ddd_layout(repo)
         return init_result
     if args.command == "skills" and args.skills_command == "install":
         return _skills_install_dispatch(

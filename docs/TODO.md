@@ -50,6 +50,7 @@ so external references keep resolving even as items move between sections.
 | F14 | RFC 0020 V1 (autonomous recovery sweeper, dogfood-014) | ✅ done |
 | F15 | RFC 0020 step 3 (`recovery watch` daemon, dogfood-015) | ✅ done |
 | F16 | RFC 0018 V1 (review postures, dogfood-016) | ✅ done |
+| F17 | RFC 0021 V1 (DDD layout scaffold, dogfood-017) | ✅ done |
 
 Legend: ✅ done · 🟡 most done (sub-tasks remain) · ⏳ open
 

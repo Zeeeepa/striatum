@@ -1,6 +1,6 @@
 # RFC 0021: DDD Layout Scaffold On Init
 
-Status: proposed
+Status: accepted (V1)
 Date: 2026-05-09
 Context:
 RFC 0019 (DDD foundations, accepted, D067) — `docs/DDD.md` names

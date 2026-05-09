@@ -23,6 +23,16 @@ def build_parser() -> argparse.ArgumentParser:
             "profile (default: claude_code). RFC 0015."
         ),
     )
+    init.add_argument(
+        "--with-ddd-layout",
+        action="store_true",
+        help=(
+            "After init, also scaffold the DDD-shaped human-facing doc layout "
+            "(docs/SPEC.md, PRD.md, DECISION_LOG.md, UBIQUITOUS_LANGUAGE.md, "
+            "DDD.md, rfcs/README.md, rfcs/0001-template.md) into the target "
+            "repo. Existing files are preserved. RFC 0021."
+        ),
+    )
 
     skills = sub.add_parser("skills")
     skills_sub = skills.add_subparsers(dest="skills_command", required=True)

@@ -2,6 +2,39 @@
 
 ## Unreleased
 
+## 1.8.0 — 2026-05-09
+
+### Added
+
+- RFC 0021 V1 (dogfood-017): `striatum init --with-ddd-layout`
+  scaffolds the seven canonical human-facing DDD documents
+  (`docs/SPEC.md`, `docs/PRD.md`, `docs/DECISION_LOG.md`,
+  `docs/UBIQUITOUS_LANGUAGE.md`, `docs/DDD.md`,
+  `docs/rfcs/README.md`, `docs/rfcs/0001-template.md`) into the
+  target repo. Mirrors RFC 0015's `--with-skills` for agent-
+  facing files: opt-in (default off, plain `striatum init`
+  unchanged), idempotent (existing files reported as `skipped`
+  with `reason: "exists"`), composable (both flags can be
+  combined; scaffold runs after skills install). New
+  `src/striatum/scaffold/` package with seven `.md.tmpl`
+  templates shipped via setuptools package-data; `scaffold_ddd_
+  layout(repo, *, force, dry_run) -> dict` envelope shape:
+  `{"layout": "ddd", "files": [...], "dry_run": bool}`.
+- Per-file safety: a target that exists but is *not* a regular
+  file (directory, broken symlink, etc.) returns
+  `{"status": "error", "reason": "target exists but is not a
+  regular file"}` rather than silently `skipped`. OSError during
+  write surfaces per-file as `status: "error"` without aborting
+  the rest of the scaffold.
+
+### Dogfooded
+
+The dogfood-017 workflow itself uses RFC 0018 V1 fields for the
+first time end-to-end: both review jobs declare
+`review_posture: "devils_advocate"`, the build job declares
+`required_review_postures: ["devils_advocate"]`, and the
+workflow validator's reachability gate accepts the run.
+
 ## 1.7.0 — 2026-05-09
 
 ### Added
