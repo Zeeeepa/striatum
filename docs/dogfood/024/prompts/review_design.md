@@ -1,0 +1,1 @@
+Devils advocate. Sweep: data loss on validation failure (operator typed for 30 min, save fails, do they lose work?); JS island scope (~400 LoC?); CSP fetch with application/json works; concurrent-edit risk; auto-save vs explicit-save UX.

@@ -1,0 +1,1 @@
+Pin: form architecture (recommended JS-island JSON POST). JS state model. POST endpoint shape (path-safe). Validation error rendering (per-field where possible). Mutation gate (--allow-mutations required). Save semantics (overwrite on success; render errors otherwise). Concurrency (last writer wins, no lock). Test plan.

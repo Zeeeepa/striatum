@@ -14,6 +14,7 @@
       <span class="status-pill status-failed">parse error</span>
       {% endif %}
       <span class="muted">version: <code>{{ workflow.workflow_version or "—" }}</code></span>
+      <a href="/workflows/edit/{{ workflow.path }}" class="muted">Edit</a>
     </div>
   </header>
 

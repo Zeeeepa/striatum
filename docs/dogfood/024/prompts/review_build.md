@@ -1,0 +1,1 @@
+Devils advocate build review. Verify: path safety on edit endpoint; mutation gating on POST (405 without --allow-mutations); valid save overwrites; invalid save returns 422 with errors; happy path E2E; lint/typecheck/test.

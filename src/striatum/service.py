@@ -540,6 +540,9 @@ class StriatumServiceHandler(BaseHTTPRequestHandler):
         if self.state.web_enabled and path == "/workflows":
             self._render_workflows_index_page()
             return
+        if self.state.web_enabled and path.startswith("/workflows/edit/"):
+            self._render_workflow_edit_page(path[len("/workflows/edit/"):])
+            return
         if self.state.web_enabled and path.startswith("/workflows/"):
             self._render_workflow_detail_page(path[len("/workflows/"):])
             return
@@ -561,6 +564,9 @@ class StriatumServiceHandler(BaseHTTPRequestHandler):
         parsed = urlsplit(self.path)
         if self.state.web_enabled and parsed.path == "/chat/new":
             self._handle_chat_new()
+            return
+        if self.state.web_enabled and parsed.path.startswith("/workflows/edit/"):
+            self._handle_workflow_edit_save(parsed.path[len("/workflows/edit/"):])
             return
         if self.state.web_enabled and parsed.path.startswith("/chat/") and parsed.path.endswith("/send"):
             session_id = parsed.path[len("/chat/"):-len("/send")]
@@ -921,6 +927,148 @@ class StriatumServiceHandler(BaseHTTPRequestHandler):
             self._send_html(200, html)
         except Exception as exc:  # noqa: BLE001
             self._send_json(500, {"ok": False, "error": {"code": 500, "message": str(exc)}})
+
+    def _render_workflow_edit_page(self, rel_path: str) -> None:
+        """RFC 0024 V1.5: render the visual builder for a workflow path.
+
+        Existing files load their parsed JSON (even if invalid — the
+        editor opens so the user can fix). Non-existent paths render an
+        empty scaffold derived from the path stem.
+        """
+        if not rel_path:
+            self._send_json(404, {"ok": False, "error": {"code": 404, "message": "missing path"}})
+            return
+        if rel_path.startswith("/") or "\x00" in rel_path or ".." in Path(rel_path).parts:
+            self._send_json(400, {"ok": False, "error": {"code": 400, "message": "invalid path"}})
+            return
+        # Resolve safety; the path may not exist yet (new-workflow case).
+        repo_root = self.state.repo.resolve()
+        target = (self.state.repo / rel_path).resolve()
+        try:
+            target.relative_to(repo_root)
+        except ValueError:
+            self._send_json(400, {"ok": False, "error": {"code": 400, "message": "path escapes repo"}})
+            return
+        rel_parts = target.relative_to(repo_root).parts
+        if rel_parts and rel_parts[0] in (".git", ".striatum"):
+            self._send_json(404, {"ok": False, "error": {"code": 404, "message": "hidden path"}})
+            return
+        rel_norm = "/".join(rel_parts)
+        is_new = not target.is_file()
+        if is_new:
+            stem = rel_parts[-2] if len(rel_parts) >= 2 else (rel_parts[0] if rel_parts else "new-workflow")
+            workflow_data: dict[str, Any] = {
+                "schema_version": "striatum.workflow.v1",
+                "workflow_id": stem,
+                "workflow_version": "1",
+                "name": "",
+                "branch": {"mode": "confirm", "suggested_name": f"wf/{stem}", "allow_dirty": False},
+                "coordinator": {"role_id": "", "lane_id": ""},
+                "lanes": {},
+                "roles": {},
+                "context_docs": [],
+                "parallelism": {
+                    "mode": "declared",
+                    "max_active_jobs": 1,
+                    "require_disjoint_write_scopes": True,
+                },
+                "jobs": [],
+                "edges": [],
+                "cycles": [],
+            }
+        else:
+            try:
+                workflow_data = json.loads(target.read_text(encoding="utf-8"))
+                if not isinstance(workflow_data, dict):
+                    workflow_data = {}
+            except (OSError, json.JSONDecodeError):
+                workflow_data = {}
+        try:
+            html = _jinja_env().get_template("workflow_edit.html").render(
+                rel_path=rel_norm,
+                is_new=is_new,
+                workflow_json=json.dumps(workflow_data),
+            )
+            self._send_html(200, html)
+        except Exception as exc:  # noqa: BLE001
+            self._send_json(500, {"ok": False, "error": {"code": 500, "message": str(exc)}})
+
+    def _handle_workflow_edit_save(self, rel_path: str) -> None:
+        """RFC 0024 V1.5: POST endpoint for the visual builder.
+
+        Mutation-gated. Validates the body via ``validate_workflow``;
+        on failure returns 422 with the error message; on success
+        atomically writes ``<path>.tmp`` then renames into place and
+        returns 200.
+        """
+        from striatum.errors import WorkflowError
+        from striatum.workflow import validate_workflow
+
+        if not self.state.allow_mutations:
+            self._send_json(405, {"ok": False, "error": {"code": 405, "message": "workflow edit requires --allow-mutations"}})
+            return
+        if not rel_path:
+            self._send_json(404, {"ok": False, "error": {"code": 404, "message": "missing path"}})
+            return
+        if rel_path.startswith("/") or "\x00" in rel_path or ".." in Path(rel_path).parts:
+            self._send_json(400, {"ok": False, "error": {"code": 400, "message": "invalid path"}})
+            return
+        # F1 (design review): refuse non-JSON content-types and cap body size.
+        ctype = self.headers.get("Content-Type", "")
+        if "application/json" not in ctype:
+            self._send_json(415, {"ok": False, "error": {"code": 415, "message": "Content-Type must be application/json"}})
+            return
+        try:
+            length = int(self.headers.get("Content-Length") or "0")
+        except ValueError:
+            length = 0
+        if length > 1024 * 1024:
+            self._send_json(413, {"ok": False, "error": {"code": 413, "message": "body too large (1 MB cap)"}})
+            return
+        try:
+            raw = self.rfile.read(length).decode("utf-8", errors="replace") if length > 0 else ""
+        except OSError as exc:
+            self._send_json(400, {"ok": False, "error": {"code": 400, "message": str(exc)}})
+            return
+        try:
+            data = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            self._send_json(400, {"ok": False, "error": {"code": 400, "message": f"invalid JSON: {exc}"}})
+            return
+        if not isinstance(data, dict):
+            self._send_json(400, {"ok": False, "error": {"code": 400, "message": "body must be a JSON object"}})
+            return
+        # Resolve target path safely.
+        repo_root = self.state.repo.resolve()
+        target = (self.state.repo / rel_path).resolve()
+        try:
+            target.relative_to(repo_root)
+        except ValueError:
+            self._send_json(400, {"ok": False, "error": {"code": 400, "message": "path escapes repo"}})
+            return
+        rel_parts = target.relative_to(repo_root).parts
+        if rel_parts and rel_parts[0] in (".git", ".striatum"):
+            self._send_json(404, {"ok": False, "error": {"code": 404, "message": "hidden path"}})
+            return
+        # Validate.
+        try:
+            validate_workflow(data)
+        except WorkflowError as exc:
+            self._send_json(422, {"ok": False, "error": {"code": 422, "message": str(exc)}})
+            return
+        except Exception as exc:  # noqa: BLE001
+            self._send_json(422, {"ok": False, "error": {"code": 422, "message": f"{type(exc).__name__}: {exc}"}})
+            return
+        # Atomic write.
+        try:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            tmp = target.with_suffix(target.suffix + ".tmp")
+            tmp.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+            tmp.replace(target)
+        except OSError as exc:
+            self._send_json(500, {"ok": False, "error": {"code": 500, "message": f"write failed: {exc}"}})
+            return
+        self._send_json(200, {"ok": True, "data": {"path": "/".join(rel_parts), "status": "saved"}})
 
     def _render_doctor_page(self) -> None:
         from striatum.cli.introspect import doctor as doctor_command

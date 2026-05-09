@@ -2,6 +2,46 @@
 
 ## Unreleased
 
+## 1.15.0 — 2026-05-09
+
+### Added
+
+- RFC 0024 V1.5 (dogfood-024): workflow visual builder.
+  - `GET /workflows/edit/<path>` renders a form-driven editor
+    for any repo-relative `workflow.json`. Existing files load
+    their parsed JSON (even invalid — the editor opens so the
+    operator can fix); non-existent paths render an empty
+    scaffold with the workflow_id derived from the path stem.
+  - `POST /workflows/edit/<path>` saves: validates the body
+    via `validate_workflow`; on success atomically writes via
+    `<path>.tmp` + rename; on validation failure returns 422
+    with the WorkflowError message (file unchanged).
+  - Mutation-gated (`--allow-mutations` required for POST).
+  - Body capped at 1 MB; non-`application/json` content-types
+    rejected with 415 (per design-review F1).
+  - Path safety mirrors `/view/<path>`: `..`, leading `/`, null
+    bytes, hidden dirs (`.git`, `.striatum`) refused.
+  - JS island (`workflow_edit.js`) renders form sections from
+    in-memory state: header, roles, lanes, jobs, edges, cycles.
+    Add/remove buttons mutate state; save POSTs the full state
+    as JSON; on success redirects to the detail page.
+  - localStorage backup persists the in-progress draft so a
+    browser-crash doesn't lose work; recovered with operator
+    confirmation on reload.
+  - "Edit" link added to the workflow detail page.
+
+### Deferred to V2
+
+- Drag-and-drop graph editor.
+- Workflow templates / marketplace.
+- "Diff against another workflow" view.
+- "Run this workflow now" full lifecycle button.
+- Field-level error highlighting (requires `validate_workflow`
+  API change).
+- `If-Match: <sha256>` precondition for safe concurrent edits.
+- AI-assisted scaffolding via chat tool that *writes*
+  workflow.json (would require per-tool gating).
+
 ## 1.14.0 — 2026-05-09
 
 ### Added
