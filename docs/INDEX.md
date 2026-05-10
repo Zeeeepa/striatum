@@ -53,7 +53,7 @@ collectively, not individually.
 
 | File | Summary |
 |---|---|
-| [rfcs/](rfcs/) | All accepted/proposed RFCs (RFC 0001–RFC 0022 as of v1.11.0). Each RFC has its own `.md` file plus an entry in `rfcs/README.md`. |
+| [rfcs/](rfcs/) | All accepted/proposed RFCs (RFC 0001–RFC 0027 as of v1.20.1). Each RFC has its own `.md` file plus an entry in `rfcs/README.md`. |
 
 ## Dogfood material
 

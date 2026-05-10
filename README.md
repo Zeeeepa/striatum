@@ -20,9 +20,9 @@ useful for humans, but they do not advance state.
 
 ## Status
 
-`v1.11.0`. RFCs 0001–0022 are all `accepted` (some at
-`accepted (V1)` or `accepted (V1+V1.5)`); the implementation
-slices for each are on main. Per-version release notes live in
+`v1.20.1`. RFCs 0001–0025 are accepted (some at
+`accepted (V1)` or later staged statuses); RFCs 0026–0027 are
+proposed. Per-version release notes live in
 [`CHANGELOG.md`](CHANGELOG.md). The package is published to
 PyPI as `striatum-orchestrator` (the bare `striatum` name on
 PyPI is unrelated); the Python module name is still
