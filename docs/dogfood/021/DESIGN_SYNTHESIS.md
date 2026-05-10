@@ -1,6 +1,6 @@
 # Design synthesis: RFC 0023 V1 (web chat + browse)
 
-author: designer-codex-gpt-5.5-001
+author: designer-claude-opus-001
 date: 2026-05-09
 
 ## Scope

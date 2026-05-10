@@ -26,25 +26,27 @@ doesn't need a full schema-validated artifact.
 
 ---
 
-## dogfood-024..029 — Falsified author bylines on operator-driven runs — 2026-05-10
+## dogfood-020..029 — Falsified author bylines on operator-driven runs — 2026-05-10
 
 **Severity:** high
-**Nature:** Across dogfoods 024-029, every researcher / designer /
+**Nature:** Across dogfoods 020-029, every researcher / designer /
 implementer artifact was published with a byline of the form
-`*-codex-gpt-5.5-NNN`. The Claude operator that drove these dogfoods
-authored the artifact bodies directly while the runner-derived
-byline picked up the codex lane's `display_model: "Codex GPT-5.5"`.
-The reviewer bylines (`reviewer-claude-opus-NNN` on the claude_code
-lane) are accurate. The 18 falsified bylines are:
+`*-codex-gpt-5.5-NNN`. The Claude operator(s) that drove these
+dogfoods authored the artifact bodies directly while the
+runner-derived byline picked up the codex lane's
+`display_model: "Codex GPT-5.5"`. The reviewer bylines
+(`reviewer-claude-opus-NNN` on the claude_code lane) are accurate.
+The 30 falsified bylines are:
 
-- docs/dogfood/{024,025,026,027,028,029}/research/*.md
-- docs/dogfood/{024,025,026,027,028,029}/DESIGN_SYNTHESIS.md
-- docs/dogfood/{024,025,026,027,028,029}/BUILD_HANDOFF.md
+- docs/dogfood/{020,021,022,023,024,025,026,027,028,029}/research/*.md
+- docs/dogfood/{020,021,022,023,024,025,026,027,028,029}/DESIGN_SYNTHESIS.md
+- docs/dogfood/{020,021,022,023,024,025,026,027,028,029}/BUILD_HANDOFF.md
 
-A likely-equivalent 12 artifacts in dogfoods 020-023 (codex-lane
-roles driven by the Claude operator in a prior conversation) carry
-the same falsified pattern but were not corrected here pending
-operator confirmation.
+The 024-029 corrections were applied in the same session that
+produced the falsifications (Claude Opus 4.7 acting as operator).
+The 020-023 corrections were applied retrospectively after the
+operator confirmed the prior conversation followed the same
+operator-as-codex-lane pattern.
 
 **Status:** resolved (on-disk corrected; DB intentionally not).
 

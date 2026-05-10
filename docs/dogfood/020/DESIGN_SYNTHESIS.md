@@ -1,6 +1,6 @@
 # Design synthesis: RFC 0022 V1 (web UI redesign)
 
-author: designer-codex-gpt-5.5-001
+author: designer-claude-opus-001
 date: 2026-05-09
 
 ## Scope

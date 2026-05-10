@@ -1,6 +1,6 @@
 # Research: web chat + browse touchpoints
 
-author: researcher-codex-gpt-5.5-001
+author: researcher-claude-opus-001
 date: 2026-05-09
 
 ## Existing surfaces
