@@ -24,3 +24,7 @@ verification commands before running it.
   operator session when it must drive Striatum control-plane commands without
   doing any workflow role's design, implementation, review, or synthesis work
   inline.
+- [`RFC_0026_0027_SCAFFOLD_PROMPT.md`](RFC_0026_0027_SCAFFOLD_PROMPT.md):
+  paste into a fresh CLI agent session to install/load Striatum guidance,
+  scaffold a full three-lane design plus adversarial-review dogfood workflow
+  for RFC 0026 and RFC 0027, validate it, and stop before run start.
