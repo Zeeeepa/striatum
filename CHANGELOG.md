@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+## 1.20.1 — 2026-05-10
+
+### Added
+
+- "Verdicts by posture" chips on `/run/<id>` are now clickable.
+  New route `GET /run/<id>/posture/<posture>` lists every verdict
+  recorded with that posture for the run: verdict value, review
+  job, role/lane, session slug, finding artifact link, and
+  rationale. Page also shows a one-paragraph "what does this
+  posture mean?" explanation per RFC 0018's posture vocabulary
+  (`devils_advocate`, `security`, `threat_model`, etc.).
+
 ## 1.20.0 — 2026-05-09
 
 ### Added

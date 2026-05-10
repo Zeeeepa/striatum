@@ -64,7 +64,12 @@
       <h2>Verdicts by posture</h2>
       <ul class="posture-list">
         {% for posture, count in verdicts_by_posture.items() %}
-        <li><span class="posture-chip">{{ posture }}</span> <span class="muted">{{ count }}</span></li>
+        <li>
+          <a href="/run/{{ run.run_id }}/posture/{{ posture }}" class="posture-chip-link">
+            <span class="posture-chip">{{ posture }}</span>
+          </a>
+          <span class="muted">{{ count }}</span>
+        </li>
         {% endfor %}
       </ul>
       {% endif %}

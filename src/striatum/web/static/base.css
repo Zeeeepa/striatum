@@ -178,6 +178,15 @@ h2 { font-size: 16px; margin-top: var(--space-6); margin-bottom: var(--space-2);
   vertical-align: middle;
 }
 
+/* RFC 0024 V4.1: posture chip drill-down link. */
+.posture-chip-link {
+  text-decoration: none;
+}
+.posture-chip-link:hover .posture-chip {
+  background: var(--bg-overlay-hover, var(--bg-overlay));
+  filter: brightness(1.1);
+}
+
 table.runs-table {
   width: 100%;
   border-collapse: collapse;

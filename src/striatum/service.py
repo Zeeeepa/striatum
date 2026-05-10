@@ -781,7 +781,59 @@ class StriatumServiceHandler(BaseHTTPRequestHandler):
         if len(parts) == 3 and parts[1] == "artifact":
             self._render_artifact_view_page(run_id, parts[2])
             return
+        if len(parts) == 3 and parts[1] == "posture":
+            self._render_run_posture_verdicts_page(run_id, parts[2])
+            return
         self._send_json(404, {"ok": False, "error": {"code": 404, "message": "not found"}})
+
+    def _render_run_posture_verdicts_page(self, run_id: str, posture: str) -> None:
+        """RFC 0024 V4.1: drill-down for `verdicts_by_posture` chips.
+
+        Lists every verdict for `(run_id, posture)` with links to the
+        review job and (when present) the finding artifact.
+        """
+        if any(c in posture for c in ("/", "\x00", "..")) or not posture:
+            self._send_json(400, {"ok": False, "error": {"code": 400, "message": "invalid posture"}})
+            return
+        try:
+            with sqlite3.connect(str(db_path(self.state.repo))) as conn:
+                conn.row_factory = sqlite3.Row
+                run_row = conn.execute(
+                    "SELECT run_id, state, branch_name FROM runs WHERE run_id = ?", (run_id,),
+                ).fetchone()
+                if run_row is None:
+                    self._send_json(404, {"ok": False, "error": {"code": 404, "message": "run not found"}})
+                    return
+                rows = conn.execute(
+                    """
+                    SELECT v.verdict_id, v.verdict, v.rationale, v.created_at,
+                           v.job_id, v.findings_artifact_id, v.session_id,
+                           j.workflow_job_id, j.role_id, j.lane_selector_json,
+                           s.slug AS session_slug
+                    FROM verdicts v
+                    JOIN jobs j ON j.job_id = v.job_id
+                    JOIN sessions s ON s.session_id = v.session_id
+                    WHERE v.run_id = ? AND v.posture = ?
+                    ORDER BY v.created_at DESC
+                    """,
+                    (run_id, posture),
+                ).fetchall()
+            verdicts = []
+            for r in rows:
+                d = dict(r)
+                try:
+                    d["lane_id"] = (json.loads(d.get("lane_selector_json") or "{}")).get("lane_id")
+                except (json.JSONDecodeError, TypeError):
+                    d["lane_id"] = None
+                verdicts.append(d)
+            html = _jinja_env().get_template("run_posture_verdicts.html").render(
+                run=dict(run_row),
+                posture=posture,
+                verdicts=verdicts,
+            )
+            self._send_html(200, html)
+        except Exception as exc:  # noqa: BLE001
+            self._send_json(500, {"ok": False, "error": {"code": 500, "message": str(exc)}})
 
     def _render_run_detail_page(self, run_id: str) -> None:
         from striatum.cli.introspect import status as status_command
