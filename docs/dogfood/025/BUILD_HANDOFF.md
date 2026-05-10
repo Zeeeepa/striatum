@@ -5,7 +5,7 @@ date: 2026-05-09
 
 # Build handoff: RFC 0024 V2 (run-now + If-Match + field-level errors)
 
-author: implementer-codex-gpt-5.5-001
+author: implementer-claude-opus-001
 
 ## Scope
 

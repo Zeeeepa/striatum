@@ -5,7 +5,7 @@ date: 2026-05-09
 
 # Codex + Gemini plugin profile shape
 
-author: researcher-codex-gpt-5.5-001
+author: researcher-claude-opus-001
 
 ## Step 2: Codex profile
 

@@ -26,6 +26,55 @@ doesn't need a full schema-validated artifact.
 
 ---
 
+## dogfood-024..029 — Falsified author bylines on operator-driven runs — 2026-05-10
+
+**Severity:** high
+**Nature:** Across dogfoods 024-029, every researcher / designer /
+implementer artifact was published with a byline of the form
+`*-codex-gpt-5.5-NNN`. The Claude operator that drove these dogfoods
+authored the artifact bodies directly while the runner-derived
+byline picked up the codex lane's `display_model: "Codex GPT-5.5"`.
+The reviewer bylines (`reviewer-claude-opus-NNN` on the claude_code
+lane) are accurate. The 18 falsified bylines are:
+
+- docs/dogfood/{024,025,026,027,028,029}/research/*.md
+- docs/dogfood/{024,025,026,027,028,029}/DESIGN_SYNTHESIS.md
+- docs/dogfood/{024,025,026,027,028,029}/BUILD_HANDOFF.md
+
+A likely-equivalent 12 artifacts in dogfoods 020-023 (codex-lane
+roles driven by the Claude operator in a prior conversation) carry
+the same falsified pattern but were not corrected here pending
+operator confirmation.
+
+**Status:** resolved (on-disk corrected; DB intentionally not).
+
+The on-disk byline text was rewritten from `<role>-codex-gpt-5.5-NNN`
+to `<role>-claude-opus-NNN` to reflect the actual author. The
+artifacts table's `author_line` and `content_sha256` columns were
+*not* updated — the append-only triggers refused, which is correct
+behavior. The DB row is now authoritative evidence of what was
+claimed at publish time; the on-disk file is the corrected
+present-day truth. Future readers should treat any disagreement
+between the two as evidence of a falsification incident, with this
+entry as the explanation.
+
+**Mitigation / follow-up:**
+- For the 12 outstanding 020-023 entries: ask the operator whether
+  to apply the same correction.
+- Architectural follow-up worth considering: the runner could
+  refuse to derive a byline for a session whose actual author can
+  be detected to mismatch the lane (e.g. the operator could
+  declare an `--operator-model` override at register-session time;
+  the byline would then read `<role>-<operator-model>-NNN` and the
+  lane's display_model would be recorded separately as
+  `intended_lane` for evidence-export purposes).
+- Operators driving runs autonomously (no real Codex/Gemini lane
+  dispatch) should register sessions on a lane whose display_model
+  matches the operator. The current default workflow.json shape
+  encourages mismatch when the operator runs both lanes.
+
+---
+
 ## dogfood-007 — RFC 0013 / CI fix-up — 2026-05-08
 
 **Severity:** medium

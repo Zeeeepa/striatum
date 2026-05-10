@@ -5,7 +5,7 @@ date: 2026-05-09
 
 # Build handoff: RFC 0025 V1 Steps 2+3 (codex + gemini profiles)
 
-author: implementer-codex-gpt-5.5-001
+author: implementer-claude-opus-001
 
 ## Scope
 

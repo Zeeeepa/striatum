@@ -5,7 +5,7 @@ date: 2026-05-09
 
 # V3 shape research
 
-author: researcher-codex-gpt-5.5-001
+author: researcher-claude-opus-001
 
 ## (1) Run states
 

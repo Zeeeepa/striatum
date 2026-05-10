@@ -1,6 +1,6 @@
 # Design synthesis: RFC 0024 V1.5 (visual builder)
 
-author: designer-codex-gpt-5.5-001
+author: designer-claude-opus-001
 date: 2026-05-09
 
 ## Scope

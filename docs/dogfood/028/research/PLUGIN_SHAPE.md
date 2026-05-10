@@ -5,7 +5,7 @@ date: 2026-05-09
 
 # Plugin install shape research
 
-author: researcher-codex-gpt-5.5-001
+author: researcher-claude-opus-001
 
 ## (1) RFC 0015 install pipeline (`skills/install.py`)
 

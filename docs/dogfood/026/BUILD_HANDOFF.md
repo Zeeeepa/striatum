@@ -5,7 +5,7 @@ date: 2026-05-09
 
 # Build handoff: RFC 0024 V3 (cancel run + dirty-tree visibility + design-review F1/F3)
 
-author: implementer-codex-gpt-5.5-001
+author: implementer-claude-opus-001
 
 ## Scope
 

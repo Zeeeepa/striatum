@@ -5,7 +5,7 @@ artifact_kind: "synthesis"
 
 # RFC 0024 V2 design
 
-author: designer-codex-gpt-5.5-002
+author: designer-claude-opus-002
 
 ## Scope
 
