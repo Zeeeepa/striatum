@@ -28,3 +28,7 @@ verification commands before running it.
   paste into a fresh CLI agent session to install/load Striatum guidance,
   scaffold a full three-lane design plus adversarial-review dogfood workflow
   for RFC 0026 and RFC 0027, validate it, and stop before run start.
+- [`STRIATUM_DAEMON_RESEARCH_PROMPT.md`](STRIATUM_DAEMON_RESEARCH_PROMPT.md):
+  paste into outside LLMs to critique the proposed long-running daemon,
+  multi-repository control plane, MCP server, storage, runtime, and migration
+  direction from first principles.
