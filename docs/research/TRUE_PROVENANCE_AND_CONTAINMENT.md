@@ -9,9 +9,13 @@ RFC 0026 ("Lane Attestation and Operator Byline Honesty") secured the *bottom* o
 
 However, this leaves a massive loophole at the *top* of the workflow.
 
-When a human delegates orchestration to a highly capable AI operator (like Gemini CLI, Claude Code, or Codex), that AI has access to general-purpose coding tools (`replace_file`, `write_file`, `run_shell_command`). If tasked with "Use Striatum to fix the parser bug," the AI operator might optimize for speed and token efficiency. It might simply use its own tools to edit the parser code directly, completely bypassing the multi-lane review, the adversarial checks, and the entire Striatum control plane.
+When a human delegates orchestration to a cloud-based **frontier model** running in its own optimized coding harness (e.g., Gemini CLI, Claude Code, or Codex), that AI acts as the **Operator**. These models are frequently fine-tuned for their specific harnesses and use a **Striatum Driver Plugin** to interact with the local control plane.
 
-To achieve "true provenance"—where every line of code can be cryptographically traced back to a specific, attested workflow job, allowing us to safely remove the human from the loop—we must move from "advisory" guidelines to **hard containment** for the AI operator.
+While the orchestrator is **local-first** (storing state, enforcing gates, and managing the repository locally), the inference is remote. The AI Operator has access to its own harness-native coding tools (`replace_file`, `write_file`, `run_shell_command`) which often bypass the local plugin. 
+
+If tasked with "Use Striatum to fix the parser bug," the AI operator might optimize for speed and token efficiency. It might use its native tools to edit the parser code directly, completely bypassing the multi-lane review, the adversarial checks, and the entire Striatum local control plane—all while using the plugin to record a "success" event.
+
+To achieve "true provenance"—where every line of code can be cryptographically traced back to a specific, attested workflow job, allowing us to safely remove the human from the loop—we must move from "advisory" plugin adherence to **hard containment** for the AI operator's native harness.
 
 Below are four novel strategies to mitigate this operator-bypass problem, ranging from cryptographic enforcement to OS-level isolation.
 
