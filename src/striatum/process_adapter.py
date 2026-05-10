@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import os
 import sqlite3
+import string
 import subprocess
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, cast
 
@@ -21,6 +23,22 @@ from striatum.db import (
     utc_now,
 )
 from striatum.errors import InvalidTransitionError
+
+
+def _expand_lane_env_values(
+    raw_env: Mapping[str, str], expansion: Mapping[str, str]
+) -> dict[str, str]:
+    """Expand ``${VAR}`` / ``$VAR`` references in lane env values.
+
+    Subprocess does not perform shell substitution on env values, so a lane
+    config like ``CODEX_HOME=${STRIATUM_SCRATCH_DIR}/codex-home`` would otherwise
+    reach the child literally. Unknown variables are left untouched, matching
+    ``os.path.expandvars`` semantics.
+    """
+    return {
+        key: string.Template(value).safe_substitute(expansion)
+        for key, value in raw_env.items()
+    }
 
 
 PROCESS_SCHEMA_SQL = """
@@ -99,9 +117,7 @@ def run_process_adapter(
         for key in ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY",
                     "http_proxy", "https_proxy", "all_proxy", "no_proxy"):
             base_env.pop(key, None)
-    env = {
-        **base_env,
-        **cast(dict[str, str], launch["env"]),
+    striatum_env: dict[str, str] = {
         "STRIATUM_RUN_ID": str(launch["run_id"]),
         "STRIATUM_JOB_ID": str(launch["job_id"]),
         "STRIATUM_WORKFLOW_JOB_ID": str(launch["workflow_job_id"]),
@@ -113,9 +129,12 @@ def run_process_adapter(
         "STRIATUM_SCRATCH_DIR": str(scratch_path),
     }
     if constraints.get("network") == "forbidden":
-        env["STRIATUM_NETWORK_POLICY"] = "forbidden"
+        striatum_env["STRIATUM_NETWORK_POLICY"] = "forbidden"
     if constraints.get("repo_scope") == "local_only":
-        env["STRIATUM_REPO_SCOPE"] = "local_only"
+        striatum_env["STRIATUM_REPO_SCOPE"] = "local_only"
+    lane_env_raw = cast(dict[str, str], launch["env"]) or {}
+    lane_env = _expand_lane_env_values(lane_env_raw, {**base_env, **striatum_env})
+    env = {**base_env, **lane_env, **striatum_env}
     payload = str(launch["packet_json"]) if stdin_mode == "packet" else None
     stdio = None if inherit_stdio else subprocess.DEVNULL
     try:

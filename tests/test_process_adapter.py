@@ -558,6 +558,33 @@ def test_issue_one_reproduction(tmp_path: Path) -> None:
     )
 
 
+# ----- 12b. Lane env variable expansion ----------------------------------
+
+
+def test_lane_env_expands_striatum_scratch_dir() -> None:
+    """Lane env values like ``${STRIATUM_SCRATCH_DIR}/codex-home`` must reach
+    the child fully expanded; subprocess does not perform shell substitution."""
+    from striatum.process_adapter import _expand_lane_env_values
+
+    expanded = _expand_lane_env_values(
+        {"CODEX_HOME": "${STRIATUM_SCRATCH_DIR}/codex-home"},
+        {"STRIATUM_SCRATCH_DIR": "/tmp/scratch-abc"},
+    )
+    assert expanded == {"CODEX_HOME": "/tmp/scratch-abc/codex-home"}
+
+
+def test_lane_env_unknown_variable_is_left_in_place() -> None:
+    """Unknown ``${VAR}`` references are preserved verbatim so failures are
+    obvious downstream rather than silently turning into an empty string."""
+    from striatum.process_adapter import _expand_lane_env_values
+
+    expanded = _expand_lane_env_values(
+        {"FOO": "${UNDEFINED_THING}/bar"},
+        {"STRIATUM_SCRATCH_DIR": "/tmp/x"},
+    )
+    assert expanded == {"FOO": "${UNDEFINED_THING}/bar"}
+
+
 # ----- 13. Migration idempotency -----------------------------------------
 
 

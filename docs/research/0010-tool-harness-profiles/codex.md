@@ -50,9 +50,11 @@ Stdin / stdout / stderr semantics for `codex exec`:
   (default `read-only` per upstream reference; the interactive default is
   documented as auto/workspace-write but `codex exec`'s default is
   read-only unless overridden).
-- **Approvals**: `--ask-for-approval untrusted|on-request|never` and
-  `--dangerously-bypass-approvals-and-sandbox` / `--yolo` for
-  policy-bypass.
+- **Approvals**: configure via `-c approval_policy=untrusted|on-request|never`
+  (Codex 0.130.0 removed the standalone `--ask-for-approval` flag on
+  `codex exec`; the `approval_policy` config key remains). The
+  `--dangerously-bypass-approvals-and-sandbox` / `--yolo` flags remain
+  for full policy-bypass.
 
 A separate **Codex SDK** (`@openai/codex-sdk` / Python `AsyncCodex`,
 experimental) talks to a local app-server over JSON-RPC and exposes
@@ -582,7 +584,7 @@ Workflow lane block, including the new `harness_profile_id`:
         "--ephemeral",
         "--skip-git-repo-check",
         "--sandbox", "workspace-write",
-        "--ask-for-approval", "never",
+        "-c", "approval_policy=never",
         "--ignore-user-config",
         "-"
       ],
@@ -622,8 +624,10 @@ Why each piece:
   worktree. With `sandbox_workspace_write.network_access = false` (in
   the per-job config.toml or via `--config`), network is denied at the
   OS level on Linux/macOS.
-- `--ask-for-approval never` — Striatum is the operator; the human is
-  not at the terminal.
+- `-c approval_policy=never` — Striatum is the operator; the human is
+  not at the terminal. (Codex 0.130.0 removed the `--ask-for-approval`
+  flag from `codex exec`; the `approval_policy` config key still works
+  via `-c`.)
 - `--ignore-user-config` — pin behaviour to the per-job CODEX_HOME's
   config; ignore whatever the operator has in their home.
 - Trailing `-` — consume the work packet from stdin (stdin_mode

@@ -392,7 +392,7 @@ profiles below are advisory in V1 — workflows opt in by setting
 **For Codex, do**:
 1. Author `.codex/agents/<role>.toml` definitions; the parent invokes them by natural-language routing.
 2. Set `CODEX_HOME=${STRIATUM_SCRATCH_DIR}/codex-home` per job and pass `--ephemeral` to neutralise issue #11435 on parallel `codex exec`.
-3. Use `codex exec --json --ephemeral --skip-git-repo-check --sandbox workspace-write --ask-for-approval never --ignore-user-config -` as the lane command; `-` reads packet on stdin.
+3. Use `codex exec --json --ephemeral --skip-git-repo-check --sandbox workspace-write -c approval_policy=never --ignore-user-config -` as the lane command; `-` reads packet on stdin. (Codex 0.130.0 removed the `--ask-for-approval` flag; configure approval policy via `-c approval_policy=...` instead.)
 4. Codex enforces `network=forbidden` at the OS level (Landlock+seccomp on Linux, Seatbelt on macOS); the profile keeps Striatum's claim at `advisory_strict` but operators can document layered enforcement is `enforced` in practice.
 5. Pin `agent_loop_budget` to community-standard guardrails (8 iterations, 280k tokens, medium effort) unless a specific lane needs more.
 
@@ -466,7 +466,7 @@ Concrete starting points (operators will tune):
         "codex", "exec", "--json", "--ephemeral",
         "--skip-git-repo-check",
         "--sandbox", "workspace-write",
-        "--ask-for-approval", "never",
+        "-c", "approval_policy=never",
         "--ignore-user-config", "-"
       ],
       "env": {"CODEX_HOME": "${STRIATUM_SCRATCH_DIR}/codex-home"},
