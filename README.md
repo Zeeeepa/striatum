@@ -20,10 +20,9 @@ useful for humans, but they do not advance state.
 
 ## Status
 
-`v1.20.1`. RFCs 0001–0026 are accepted (some at
+`v1.20.1`. RFCs 0001–0026 and RFC 0028 V1 are accepted (some at
 `accepted (V1)` or later staged statuses); RFC 0027 is partially
-implemented through fail-closed mode surfacing, and RFC 0028 remains
-proposed. Per-version release notes live in
+implemented through fail-closed mode surfacing. Per-version release notes live in
 [`CHANGELOG.md`](CHANGELOG.md). The package is published to
 PyPI as `striatum-orchestrator` (the bare `striatum` name on
 PyPI is unrelated); the Python module name is still
@@ -122,6 +121,30 @@ renders as inline SVG with state-colored nodes that
 click-navigate. Light + dark mode follow
 `prefers-color-scheme`. Localhost-only by default; mutations
 gated behind `--allow-mutations`.
+
+## Optional Multi-Repo Registry And Sweep
+
+```bash
+striatumd --max-sweeps 1 --json              # foreground sweep process
+striatum repo add /path/to/target --json
+striatum dashboard --all --json
+striatum --daemon --repo /path/to/target status --json
+```
+
+RFC 0028 V1 is local-first and optional. It adds registry-backed
+multi-repository read visibility, daemon audit metadata, resources-only
+daemon MCP, and a foreground recovery sweep process. It does not ship a
+daemon RPC server in V1: CLI and MCP clients open the owner-only registry
+SQLite directly under token/capability checks. Direct repo-local CLI mode
+remains the default. `dashboard --all` is registry-backed and requires a
+daemon token; run `repo add` or `daemon start` first to bootstrap the local
+admin token, or pass an explicit token through the client surface.
+`repo add` registers an already-initialized repository by default; use
+`repo add --init` only when you intentionally want registration to
+initialize the target. V1 does not add daemon-owned supervision, MCP
+mutation tools, sealed apply/signing, hosted service semantics, audit
+retention/rotation, or stronger provenance than the selected workflow
+`provenance_mode` already provides.
 
 ## What It Is For
 

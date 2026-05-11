@@ -64,6 +64,7 @@ so external references keep resolving even as items move between sections.
 | F28 | RFC 0025 V1 Step 1 (claude_code plugin, dogfood-028) | ✅ done |
 | F29 | RFC 0025 V1 Steps 2+3 (codex + gemini plugins, dogfood-029) | ✅ done |
 | F30 | RFC 0026 V1 + RFC 0027 Phase 2 guardrails (dogfood-030) | ✅ done |
+| F31 | RFC 0028 V1 registry-backed multi-repo read/sweep slice (dogfood-031) | ✅ done |
 
 Legend: ✅ done · 🟡 most done (sub-tasks remain) · ⏳ open
 
@@ -250,3 +251,13 @@ F30. ~~Land lane-liveness attestation and provenance-mode guardrails.~~ Done:
     are constrained and self-declared, review jobs can require an attached lane
     supervisor, and `sealed_patch` workflows validate structurally but refuse
     to start until real containment exists.
+
+F31. ~~Land the RFC 0028 V1 daemon acceptance slice.~~ Done: optional
+    `striatumd` / `striatum daemon start`, daemon registry, repo
+    add/list/remove with explicit `--init`, explicit daemon read routing,
+    global dashboard, resources-only daemon MCP with explicit token
+    parameters and repo-scope filtering, metadata-only audit with segment
+    checks, and foreground recovery sweep events bylined
+    `striatumd-<instance-id>` are in place. Deferred: daemon-owned
+    supervision, MCP mutation tools, sealed apply/signing, cross-repository workflows,
+    service-manager install, Windows daemon support, and operator tenancy.

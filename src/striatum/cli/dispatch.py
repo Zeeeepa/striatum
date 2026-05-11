@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import sqlite3
 import sys
 from pathlib import Path
@@ -153,6 +154,21 @@ def _skills_install_dispatch(
 def dispatch(args: argparse.Namespace) -> object:
     """Dispatch a parsed command."""
     repo = Path(args.repo).resolve()
+    daemon_forced = bool(getattr(args, "daemon", False)) or (
+        os.environ.get("STRIATUM_DAEMON") == "1"
+        and not bool(getattr(args, "no_daemon", False))
+    )
+    if args.command == "daemon":
+        return _dispatch_daemon(args)
+    if args.command == "repo":
+        return _dispatch_daemon_repo(args)
+    if daemon_forced and args.command in {"status", "why", "doctor", "dashboard"}:
+        return _dispatch_daemon_read(args, repo)
+    if daemon_forced:
+        raise StriatumError(
+            f"--daemon does not support `{args.command}` in V1; use --no-daemon for direct repo-local mode",
+            exit_code=12,
+        )
     if args.command == "init":
         init_repo(repo)
         init_result: dict[str, object] = {
@@ -275,6 +291,12 @@ def dispatch(args: argparse.Namespace) -> object:
     if args.command == "workflow" and args.workflow_command == "init":
         return workflow_init(Path(args.path), style=args.style)
     if args.command == "dashboard":
+        if bool(getattr(args, "all", False)):
+            from striatum.daemon import dashboard_all
+
+            return dashboard_all()
+        if not args.run_id:
+            raise StriatumError("dashboard requires --run-id unless --all is used", exit_code=2)
         from striatum.dashboard import run as run_dashboard
 
         run_dashboard(
@@ -290,7 +312,6 @@ def dispatch(args: argparse.Namespace) -> object:
         )
         return None
     if args.command == "serve":
-        from striatum.errors import StriatumError
         from striatum.service import (
             ServiceAlreadyRunningError,
             ServiceConfigError,
@@ -684,3 +705,62 @@ def dispatch(args: argparse.Namespace) -> object:
         if args.command == "list" and args.list_command == "workflows":
             return list_workflows(conn, limit=args.limit)
     raise StriatumError("unknown command", exit_code=2)
+
+
+def _dispatch_daemon(args: argparse.Namespace) -> object:
+    from striatum import daemon as daemon_mod
+
+    if args.daemon_command == "start":
+        return daemon_mod.run_daemon_foreground(
+            sweep_interval_seconds=float(args.sweep_interval_seconds),
+            max_sweeps=args.max_sweeps,
+        )
+    if args.daemon_command == "status":
+        return daemon_mod.daemon_status()
+    if args.daemon_command == "stop":
+        return daemon_mod.daemon_stop()
+    if args.daemon_command == "health":
+        return daemon_mod.health()
+    if args.daemon_command == "audit":
+        return daemon_mod.daemon_audit(limit=int(args.limit))
+    if args.daemon_command == "sweep":
+        return daemon_mod.daemon_sweep_once(require_client_auth=True)
+    raise StriatumError("unknown daemon command", exit_code=2)
+
+
+def _dispatch_daemon_repo(args: argparse.Namespace) -> object:
+    from striatum import daemon as daemon_mod
+
+    if args.repo_command == "add":
+        return daemon_mod.repo_add(
+            Path(args.path),
+            display_name=args.display_name,
+            no_migrate=bool(args.no_migrate),
+            init=bool(args.init),
+        )
+    if args.repo_command == "list":
+        return daemon_mod.repo_list()
+    if args.repo_command == "remove":
+        return daemon_mod.repo_remove(str(args.id))
+    raise StriatumError("unknown repo command", exit_code=2)
+
+
+def _dispatch_daemon_read(args: argparse.Namespace, repo: Path) -> object:
+    from striatum import daemon as daemon_mod
+
+    if args.command == "status":
+        return daemon_mod.read_status(repo, run_id=args.run_id)
+    if args.command == "why":
+        return daemon_mod.read_why(repo, target_id=args.id)
+    if args.command == "doctor":
+        return daemon_mod.read_doctor(repo, run_id=args.run_id, verbose=bool(args.verbose))
+    if args.command == "dashboard":
+        if bool(getattr(args, "all", False)):
+            return daemon_mod.dashboard_all()
+        if not args.run_id:
+            raise StriatumError("dashboard requires --run-id unless --all is used", exit_code=2)
+        raise StriatumError(
+            "--daemon dashboard --run-id is not a V1 daemon route; use --no-daemon dashboard --run-id or --daemon status --run-id",
+            exit_code=12,
+        )
+    raise StriatumError("command is not daemon-routable in V1", exit_code=12)

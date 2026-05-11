@@ -48,6 +48,7 @@ def run_auto_sweep(
     dry_run: bool = False,
     hook_runner: Callable[..., dict[str, Any]] | None = None,
     now: Callable[[], str] = utc_now,
+    recovery_author: str | None = None,
 ) -> JsonObject:
     """Perform a single autonomous-recovery sweep against ``run_id``.
 
@@ -134,7 +135,10 @@ def run_auto_sweep(
             requeued += 1
             continue
         result = requeue_stale(
-            conn, run_id=run_id, job_id=str(entry.get("job_id"))
+            conn,
+            run_id=run_id,
+            job_id=str(entry.get("job_id")),
+            recovery_author=recovery_author,
         )
         actions.append({
             "kind": "review_requeued",

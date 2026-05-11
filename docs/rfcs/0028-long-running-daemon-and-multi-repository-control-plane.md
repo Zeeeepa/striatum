@@ -1,6 +1,6 @@
 # RFC 0028: Long-Running Daemon and Multi-Repository Control Plane
 
-Status: proposed
+Status: accepted (V1)
 Date: 2026-05-10
 Context:
 [`docs/SPEC.md`](../SPEC.md),
@@ -356,10 +356,12 @@ large-scale rewrite.
 Daemon mode must not strand existing users. The migration should be phased:
 
 1. Add daemon registry and read-only multi-repo dashboard.
-2. Add daemon-backed CLI client mode while direct CLI mode remains default.
+2. Add daemon-backed CLI client mode while direct CLI mode remains default
+   (V1 shipped registry-backed read mode; RPC client mode is deferred).
 3. Move recovery scheduling and global doctor into the daemon.
 4. Move supervision into the daemon.
-5. Add daemon-backed MCP with read-only default capabilities.
+5. Add daemon-backed MCP with read-only default capabilities (V1 shipped
+   registry-backed resources-only MCP; RPC transport is deferred).
 6. Add mutation capabilities for trusted clients.
 7. Decide whether direct SQLite CLI mode remains a supported fallback or
    becomes a compatibility mode.
@@ -463,6 +465,40 @@ slice should demonstrate:
 - Docs clearly state that daemon mode is local-first and optional, and that
   provenance guarantees still depend on the selected provenance mode.
 
+## V1 Implementation Notes
+
+Dogfood-031 accepted and implemented the V1 acceptance-criteria slice.
+The shipped surface is intentionally narrower than the full proposal:
+`striatumd` / `striatum daemon start`, daemon registry, `repo
+add/list/remove`, explicit `--daemon` read routing for `status`,
+`doctor`, `why`, global `dashboard --all`, resources-only daemon MCP,
+metadata-only hash-chained audit, and a foreground daemon sweep over
+active registered runs.
+
+Revision round 3 further narrowed the honesty boundary: V1 is
+registry-backed multi-repository coordination plus a foreground sweep loop,
+not a daemon RPC server. CLI and MCP clients open the owner-only registry
+SQLite directly under token/capability checks; the `striatumd` Unix socket
+is a lifecycle marker in this implementation, not a request router. The
+full daemon-mediated socket/HTTP protocol described by this RFC is deferred
+to a follow-up RFC.
+
+Revision round 2 tightened the V1 implementation boundary: unsupported
+forced-daemon verbs now refuse instead of falling back to direct mode,
+`repo add` authorizes before repo-local access and requires explicit
+`--init` for absent state databases, daemon MCP resource requests carry an
+explicit token and filter repo-scoped reads, closed audit segment manifests
+are guarded and checked by doctor, and foreground sweeps write repo-local
+`daemon.recovery_sweep` events with `author: striatumd-<instance-id>`.
+Sweep cursors can enter `sweep_degraded`, and doctor surfaces both degraded
+sweeps and duplicate `recovery watch` schedulers for registered runs.
+
+Deferred from V1: cross-repository workflows, ordinary workflow
+mutations through the daemon, a daemon RPC server, daemon-owned
+supervision, MCP mutation tools, sealed apply, signing keys,
+service-manager installation, audit retention/rotation, Windows daemon
+support, hosted semantics, and local multi-user operator tenancy.
+
 ## Open Questions
 
 - Is the long-term product "CLI with optional daemon" or "daemon with CLI
@@ -486,9 +522,11 @@ slice should demonstrate:
 This RFC adds terms that should land in `docs/UBIQUITOUS_LANGUAGE.md` only
 after acceptance.
 
-- **Striatum daemon** - a local long-running deterministic control plane
-  process that owns scheduling, supervision, recovery, event streaming, and
-  client authorization across registered repositories.
+- **Striatum daemon** - long-term term for a local deterministic control
+  plane process. In the shipped V1 implementation this term means a shared
+  owner-only registry SQLite plus foreground recovery sweep loop; scheduling
+  over RPC, supervision, event streaming, and daemon-mediated client routing
+  are deferred.
 - **Repository tenant** - a registered target repository managed by the
   daemon, with its own workflows, runs, policies, state, and artifacts.
 - **Operator tenant** - a local operator identity or trust zone with
@@ -498,7 +536,7 @@ after acceptance.
   commands.
 - **Daemon registry** - central daemon state for registered repositories,
   clients, capabilities, active supervisors, and global scheduling metadata.
-- **Global dashboard** - a daemon-backed view over all registered
+- **Global dashboard** - a registry-backed view over all registered
   repositories and active runs.
 
 The daemon is not a new domain authority that invents workflow truth. It is a

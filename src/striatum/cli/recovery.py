@@ -81,7 +81,13 @@ def stale_leases(conn: sqlite3.Connection, *, run_id: str) -> JsonObject:
     }
 
 
-def requeue_stale(conn: sqlite3.Connection, *, run_id: str, job_id: str) -> JsonObject:
+def requeue_stale(
+    conn: sqlite3.Connection,
+    *,
+    run_id: str,
+    job_id: str,
+    recovery_author: str | None = None,
+) -> JsonObject:
     """Requeue stale review-only work after lazy lease expiry."""
     row_by_id(conn, "runs", "run_id", run_id)
     from striatum.db import enqueue_job, is_repo_write
@@ -129,6 +135,9 @@ def requeue_stale(conn: sqlite3.Connection, *, run_id: str, job_id: str) -> Json
                 """,
                 (now, message_id),
             )
+        payload: JsonObject = {"already_reclaimable": already_reclaimable, "repo_write": False}
+        if recovery_author is not None:
+            payload["author"] = recovery_author
         insert_event(
             conn,
             run_id=run_id,
@@ -136,7 +145,7 @@ def requeue_stale(conn: sqlite3.Connection, *, run_id: str, job_id: str) -> Json
             job_id=job_id,
             message_id=str(message_id),
             lease_id=str(row["lease_id"]),
-            payload={"already_reclaimable": already_reclaimable, "repo_write": False},
+            payload=payload,
         )
         return {
             "status": "already_reclaimable" if already_reclaimable else "requeued",

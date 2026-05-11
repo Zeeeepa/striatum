@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 1.21.0 — 2026-05-11
+
 ### Added
 
 - RFC 0026 V1 lane-liveness attestation: work-packet and publish-time
@@ -14,6 +16,26 @@
   `provenance_mode` (`advisory`, `attested_bylines`, `sealed_patch`).
   `sealed_patch` validates path policy but refuses to start until real
   source containment ships.
+- RFC 0028 V1 registry-backed multi-repo acceptance slice: optional
+  `striatumd` / `striatum daemon start` foreground sweep process, daemon
+  registry, `repo add/list/remove`, explicit `--daemon` read routing,
+  `dashboard --all`, resources-only daemon MCP, metadata-only hash-chained
+  audit, and recovery sweeping across registered active runs. V1 does not
+  ship a daemon RPC server; CLI and MCP clients open the owner-only
+  registry SQLite directly under token/capability checks.
+- Dogfood-031 revision round 2 hardens the daemon slice: unsupported
+  forced-daemon verbs refuse instead of falling back to direct mode,
+  `repo add` authorizes before repo-local access and requires `--init`
+  for absent state databases, daemon MCP uses explicit tokens with
+  repo-scope filtering, audit segment manifests are guarded and checked
+  by doctor, and foreground sweeps write repo-local
+  `daemon.recovery_sweep` events bylined `striatumd-<instance-id>`.
+- Dogfood-031 revision round 3 removes `STRIATUM_DAEMON_TOKEN` plaintext
+  env-var support, uses realpath/inode-based repository identity for new
+  registrations, admin-gates manual `daemon sweep`, audits denied
+  dashboard/MCP aggregate reads with client attribution on allowed reads,
+  and documents RPC server, audit retention/rotation, HTTP transport, and
+  full underlying recovery-byline propagation as follow-up RFC scope.
 
 ## 1.20.1 — 2026-05-10
 

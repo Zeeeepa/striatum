@@ -457,6 +457,57 @@ class LocalRpcServer:
         return invoke(cast(list[str], args_value), repo=repo)
 
 
+class DaemonRpcServer:
+    """RFC 0028 V1 daemon MCP surface: resources only, no tools."""
+
+    def handle_request(self, request: JsonObject) -> JsonObject | None:
+        request_id = request.get("id")
+        response_id = request_id if isinstance(request_id, str | int) or request_id is None else None
+        if request.get("jsonrpc") != JSONRPC_VERSION:
+            return error_response(response_id, ERROR_INVALID_REQUEST, "jsonrpc must be '2.0'")
+        method = request.get("method")
+        if not isinstance(method, str):
+            return error_response(response_id, ERROR_INVALID_REQUEST, "method is required")
+        params = request.get("params", {})
+        if params is None:
+            params = {}
+        if not isinstance(params, dict):
+            return error_response(response_id, ERROR_INVALID_PARAMS, "params must be an object")
+        try:
+            if method == "initialize":
+                result = initialize_result()
+            elif method == "tools/list":
+                result = {"tools": []}
+            elif method == "resources/list":
+                from striatum.daemon import daemon_mcp_resources
+
+                token_value = params.get("token")
+                if token_value is not None and not isinstance(token_value, str):
+                    raise ValueError("token must be a string")
+                result = {"resources": daemon_mcp_resources(token=token_value)}
+            elif method == "resources/read":
+                result = self.read_resource(cast(JsonObject, params))
+            else:
+                return error_response(response_id, ERROR_METHOD_NOT_FOUND, f"unknown method {method!r}")
+        except ValueError as exc:
+            return error_response(response_id, ERROR_INVALID_PARAMS, str(exc))
+        except Exception as exc:  # pragma: no cover - defensive JSON-RPC boundary
+            return error_response(response_id, ERROR_INTERNAL, str(exc))
+        if "id" not in request:
+            return None
+        return {"jsonrpc": JSONRPC_VERSION, "id": response_id, "result": result}
+
+    def read_resource(self, params: JsonObject) -> JsonObject:
+        uri = required_string(params, "uri")
+        token_value = params.get("token")
+        if token_value is not None and not isinstance(token_value, str):
+            raise ValueError("token must be a string")
+        from striatum.daemon import daemon_mcp_read_resource
+
+        result = daemon_mcp_read_resource(uri, token=token_value)
+        return {"contents": [{"uri": uri, "mimeType": "application/json", "text": json_dumps(result)}]}
+
+
 def initialize_result() -> JsonObject:
     """Return a small MCP-compatible initialize payload."""
     return {

@@ -145,3 +145,33 @@ Example:
 The wrapper deliberately avoids hosted services, sockets, telemetry,
 transcript capture, external persistence, and direct SQLite writes. It is a
 local adapter over the existing CLI/API semantics.
+
+## Daemon MCP Surface
+
+RFC 0028 V1 adds a separate MCP handler for the optional local
+multi-repo registry. It is resources-only in V1: `tools/list` returns an
+empty list, `tools/call` has no mutation route, and `striatum/invoke` is
+not part of the daemon MCP surface. The handler opens the owner-only
+registry SQLite directly; it does not connect to a daemon RPC server in
+V1.
+
+Daemon resources:
+
+- `striatum://daemon/repos`
+- `striatum://daemon/dashboard`
+- `striatum://repo/<repository_id>/status`
+- `striatum://repo/<repository_id>/doctor`
+- `striatum://repo/<repository_id>/runs`
+- `striatum://repo/<repository_id>/run/<run_id>`
+- `striatum://repo/<repository_id>/run/<run_id>/why?id=<id>`
+- `striatum://repo/<repository_id>/blockers`
+- `striatum://repo/<repository_id>/stale-leases`
+
+Every daemon MCP `resources/list` and `resources/read` request requires
+an explicit `token` parameter. The token must have `read` capability:
+global read tokens see every active repository, while repo-scoped read
+tokens see only resources for their repository ids and are denied when
+reading another repository. The daemon runtime fallback token is not
+implicitly applied to MCP clients. `striatum://daemon/audit` is
+intentionally absent in V1; audit is available only through daemon admin
+CLI registry surfaces.

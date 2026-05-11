@@ -10,9 +10,11 @@ This specification binds the V1 MVP described in
 ## Product Boundary
 
 `striatum` V1 is a local Python CLI for orchestrating terminal-agent
-workflow state inside one repository. It does not provide hosted services,
-external persistence, telemetry, Slack, web, TUI, a long-running MCP server,
-plugin marketplaces, or automatic commits.
+workflow state inside one repository. It also includes optional RFC
+0028 V1 registry-backed multi-repository read visibility and a
+foreground recovery sweep process. It does not provide hosted services,
+external persistence, telemetry, Slack, remote serving, sealed source
+apply, daemon-owned supervision, or automatic commits.
 
 The authoritative live state is SQLite under `.striatum/state.sqlite3`.
 Repository artifacts are durable provenance only. Marker files, tmux panes,
@@ -924,6 +926,111 @@ SIGINT. Mutations gate behind `--allow-mutations`; the gate is a
 whitelist of read verbs (`status`, `why`, `doctor`, `list`, `evidence`,
 `dashboard`, plus subcommand-aware reads under `workflow`, `supervise`,
 `worktree`, `run`, `recovery`).
+
+### Registry-Backed Multi-Repo Coordination
+
+> Design rationale: [RFC 0028](rfcs/0028-long-running-daemon-and-multi-repository-control-plane.md).
+
+`striatum daemon start` (also exposed as the `striatumd` console
+script) starts an optional local foreground sweep process. In V1 it does
+not host an RPC server for CLI clients: CLI and MCP callers open the
+owner-only daemon registry SQLite directly under token/capability
+checks. The Unix socket bound by `striatumd` is a lifecycle marker, not a
+request router. Direct CLI mode remains the default and does not inspect
+the registry unless a registry-specific command is used. Explicit
+registry-backed read mode is selected with `--daemon` or
+`STRIATUM_DAEMON=1`; unsupported forced-daemon verbs refuse instead of
+falling back to direct mode. `--no-daemon` forces the repo-local path.
+
+Daemon V1 uses a hybrid storage model. `.striatum/state.sqlite3` in
+each target repository remains authoritative for runs, jobs, sessions,
+leases, artifacts, verdicts, blockers, worktrees, process supervisors,
+and repo-local events. The daemon registry stores only daemon-global
+concerns: registered repositories, clients, `read`/`admin` capability
+grants, metadata-only hash-chained audit rows, audit segment manifests,
+scheduler cursors, and daemon metadata.
+
+Registry location is platform-local and overrideable for tests with
+`STRIATUM_DAEMON_REGISTRY`; runtime files are overrideable with
+`STRIATUM_DAEMON_RUNTIME_DIR`. Linux uses XDG state/runtime locations;
+macOS uses Application Support for registry state and Caches for
+runtime files. Windows daemon support is not claimed in V1.
+
+`striatum repo add <path>` registers an initialized target repository.
+It authorizes the daemon admin token before opening the repo-local state
+database. If `.striatum/state.sqlite3` is absent, registration refuses
+unless `--init` is passed; `--init` is the explicit opt-in that runs the
+same initialization as `striatum init`. With `--no-migrate`, registration
+checks whether repo-local migrations would be needed before connecting
+through the migrating repo-local path. The command canonicalizes the
+repository root, refuses symlink/path-traversal ambiguity including
+symlinked parent components and state-database symlink escapes, derives a
+realpath/inode-based repository identity from the root and state DB, and
+refuses active path re-occupation by a different identity. `repo remove` is
+idempotent, marks the repository removed, revokes live repo-scoped
+capabilities, preserves audit rows, and never reuses `repository_id`;
+re-adding allocates a fresh id.
+
+Every non-health registry-backed request requires a token. Both
+`striatum daemon start` and `repo add` bootstrap one admin token when the
+registry has no clients and write the local runtime fallback file with
+`0600` permissions. Operators should treat runtime-file token storage as
+degraded compared with an OS keyring. Plaintext token secrets are not read
+from environment variables and are never stored in the registry or audit
+log. Authorization vocabulary is only `read` and `admin` in V1.
+
+Daemon audit rows are metadata-only. They include client id when known,
+repository id when scoped, command, authorization result, denial reason
+when safe, transport, request id when supplied, exit code when known,
+payload hash, and a continuous hash chain across retained rows. Audit
+segment manifests record row ranges and hash anchors; closed segment rows
+are SQL-guarded against daemon-API updates/deletes, and `daemon doctor`
+checks retained segment manifests against retained rows. Audit does not
+contain request bodies, response bodies, artifact text, blocker prose,
+model rationales, terminal output, token secrets, salts, or tracebacks.
+It is per-machine daemon evidence, not transcript evidence, authorship
+proof, human identity proof, model proof, source provenance, or
+resistance to a local filesystem writer.
+
+Registry-backed read surfaces in V1 are `status`, `doctor`, `why`, and
+`dashboard --all`. Forced daemon mode for unsupported verbs refuses with
+capability-denied semantics instead of falling back to direct mode;
+`--daemon dashboard --run-id` is refused rather than substituting the
+`status` payload. `dashboard --all` fans out over registered repo-local
+state stores and degrades individual bad repositories rather than treating
+registry copies as live run truth. It is registry-backed even without
+`--daemon`, so it requires a daemon token bootstrapped by `repo add`,
+`daemon start`, or otherwise supplied through the client surface. Daemon MCP is
+resources-only; `tools/list` is empty and `striatum://daemon/audit` is not
+exposed as a V1 MCP resource. Daemon MCP clients must pass an explicit
+token parameter; repo-scoped read tokens filter resource lists and are
+denied when reading other repositories.
+
+The foreground sweep process uses the existing `recovery auto` policy
+against active registered runs without requiring one `recovery watch`
+process per run. The running process uses internal authority for its
+periodic sweep. The manual `striatum daemon sweep` CLI verb is admin-gated
+and audited. V1 does not auto-resolve human checkpoints, does not requeue
+repo-write stale work, and does not take over process supervision.
+Each per-run sweep writes a repo-local `daemon.recovery_sweep` event with
+payload `author: striatumd-<instance-id>`; review-only stale requeue
+events produced by this path carry the same payload author. Other
+underlying recovery event bylines remain direct-recovery semantics and are
+deferred to a follow-up RFC. The first sweep iteration is in registration
+order; later iterations order repositories by last sweep time where cursor
+data is available. Per-run ordering inside one repository remains
+`runs.created_at` order. A per-run timeout marks the scheduler cursor
+`sweep_degraded`, and `daemon doctor` surfaces degraded cursors and an
+active `recovery watch` pidfile for the same registered run as duplicate
+recovery scheduling.
+
+Audit segment append-only manifests are implemented, but production
+retention/rotation policy is deferred; the active registry can grow until
+an operator or future RFC supplies rotation/export behavior.
+
+Registry-backed mode does not strengthen lane attestation and does not implement
+`sealed_patch`; sealed runs remain unsupported/unstartable until a
+future containment design ships.
 
 ### Local Web UI
 

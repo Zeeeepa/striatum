@@ -9,6 +9,17 @@ def build_parser() -> argparse.ArgumentParser:
     """Build the top-level argument parser."""
     parser = argparse.ArgumentParser(prog="striatum")
     parser.add_argument("--repo", default=".", help="repository root")
+    daemon_group = parser.add_mutually_exclusive_group()
+    daemon_group.add_argument(
+        "--daemon",
+        action="store_true",
+        help="route supported read commands through the RFC 0028 registry-backed mode",
+    )
+    daemon_group.add_argument(
+        "--no-daemon",
+        action="store_true",
+        help="force direct repo-local mode even when STRIATUM_DAEMON=1",
+    )
     sub = parser.add_subparsers(dest="command", required=True)
 
     init = sub.add_parser("init")
@@ -116,6 +127,42 @@ def build_parser() -> argparse.ArgumentParser:
     plugin_uninstall.add_argument("--target", default=None)
     plugin_uninstall.add_argument("--force", action="store_true")
     plugin_uninstall.add_argument("--json", action="store_true")
+
+    daemon = sub.add_parser("daemon")
+    daemon_sub = daemon.add_subparsers(dest="daemon_command", required=True)
+    daemon_start = daemon_sub.add_parser("start")
+    daemon_start.add_argument("--sweep-interval-seconds", type=float, default=60.0)
+    daemon_start.add_argument("--max-sweeps", type=int, default=None)
+    daemon_start.add_argument("--json", action="store_true")
+    daemon_status = daemon_sub.add_parser("status")
+    daemon_status.add_argument("--json", action="store_true")
+    daemon_stop = daemon_sub.add_parser("stop")
+    daemon_stop.add_argument("--json", action="store_true")
+    daemon_health = daemon_sub.add_parser("health")
+    daemon_health.add_argument("--json", action="store_true")
+    daemon_audit = daemon_sub.add_parser("audit")
+    daemon_audit.add_argument("--limit", type=_positive_int, default=100)
+    daemon_audit.add_argument("--json", action="store_true")
+    daemon_sweep = daemon_sub.add_parser("sweep")
+    daemon_sweep.add_argument("--json", action="store_true")
+
+    repo_cmd = sub.add_parser("repo")
+    repo_sub = repo_cmd.add_subparsers(dest="repo_command", required=True)
+    repo_add = repo_sub.add_parser("add")
+    repo_add.add_argument("path")
+    repo_add.add_argument("--display-name")
+    repo_add.add_argument(
+        "--init",
+        action="store_true",
+        help="initialize .striatum/state.sqlite3 before registering when absent",
+    )
+    repo_add.add_argument("--no-migrate", action="store_true")
+    repo_add.add_argument("--json", action="store_true")
+    repo_list = repo_sub.add_parser("list")
+    repo_list.add_argument("--json", action="store_true")
+    repo_remove = repo_sub.add_parser("remove")
+    repo_remove.add_argument("id")
+    repo_remove.add_argument("--json", action="store_true")
 
     workflow = sub.add_parser("workflow")
     workflow_sub = workflow.add_subparsers(dest="workflow_command", required=True)
@@ -599,9 +646,12 @@ def build_parser() -> argparse.ArgumentParser:
     serve.add_argument("--json", action="store_true")
 
     dashboard = sub.add_parser("dashboard")
-    dashboard.add_argument("--run-id", required=True)
+    dash_target = dashboard.add_mutually_exclusive_group()
+    dash_target.add_argument("--run-id")
+    dash_target.add_argument("--all", action="store_true")
     dashboard.add_argument("--refresh", type=float, default=2.0)
     dashboard.add_argument("--once", action="store_true")
+    dashboard.add_argument("--json", action="store_true")
     # RFC 0016 V1: graph panel.
     graph_group = dashboard.add_mutually_exclusive_group()
     graph_group.add_argument("--graph", dest="graph", action="store_true", default=None)
