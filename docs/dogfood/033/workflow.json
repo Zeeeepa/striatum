@@ -1,0 +1,382 @@
+{
+  "schema_version": "striatum.workflow.v1",
+  "workflow_id": "dogfood-033-rfc-0033-storage-substrate",
+  "workflow_version": "2026-05-11",
+  "name": "Dogfood 033: RFC 0033 storage substrate rewrite for daemon V2",
+  "branch": {
+    "mode": "auto",
+    "suggested_name": "striatum/dogfood-033-rfc-0033-substrate",
+    "allow_dirty": false
+  },
+  "coordinator": {
+    "role_id": "coordinator",
+    "lane_id": "codex"
+  },
+  "harness_profiles": {
+    "codex_default": {
+      "tool_family": "codex",
+      "strategy_version": "2026-05-11",
+      "native_delegation": {
+        "mode": "encouraged",
+        "instruction": "Use native delegation only for bounded sidecar analysis or review. The parent session remains accountable for Striatum artifacts, write scope, and completion."
+      },
+      "feature_flags": {
+        "subagents": "allowed_via_natural_language_routing",
+        "skills": "encouraged",
+        "mcp": "allowed_if_configured"
+      },
+      "supervision": {
+        "compatible": true,
+        "stdin_format": "packet",
+        "wrapper_required": true
+      },
+      "approval_mode": "default",
+      "memory_files": [
+        "AGENTS.md"
+      ],
+      "accountability": {
+        "native_subagents": "internal_to_parent_session",
+        "first_class_registration": "not_supported"
+      }
+    },
+    "claude_code_default": {
+      "tool_family": "claude_code",
+      "strategy_version": "2026-05-11",
+      "native_delegation": {
+        "mode": "preferred",
+        "instruction": "Use sub-agents for bounded independent research or review. Do not let native delegation obscure the parent session's artifact and verdict accountability."
+      },
+      "feature_flags": {
+        "subagents": "preferred",
+        "skills": "encouraged",
+        "headless_print_mode": "forbidden_for_supervised_lanes",
+        "mcp": "allowed"
+      },
+      "supervision": {
+        "compatible": true,
+        "stdin_format": "newline_delimited_json",
+        "wrapper_required": true
+      },
+      "approval_mode": "auto_edit",
+      "memory_files": [
+        "CLAUDE.md",
+        "AGENTS.md"
+      ],
+      "accountability": {
+        "native_subagents": "internal_to_parent_session",
+        "first_class_registration": "not_supported"
+      }
+    },
+    "gemini_cli_default": {
+      "tool_family": "gemini_cli",
+      "strategy_version": "2026-05-11",
+      "native_delegation": {
+        "mode": "allowed",
+        "instruction": "Use local sub-agents only for bounded independent work. Do not rely on remote agent-to-agent delegation or hidden state as provenance."
+      },
+      "feature_flags": {
+        "subagents": "allowed",
+        "remote_subagents_a2a": "forbidden",
+        "skills": "allowed",
+        "mcp": "allowed",
+        "native_worktree": "forbidden"
+      },
+      "supervision": {
+        "compatible": "verify_pipe_behavior_first",
+        "stdin_format": "prompt_text",
+        "wrapper_required": true
+      },
+      "approval_mode": "auto_edit",
+      "memory_files": [
+        "GEMINI.md"
+      ],
+      "accountability": {
+        "native_subagents": "internal_to_parent_session",
+        "first_class_registration": "not_supported"
+      }
+    }
+  },
+  "lanes": {
+    "codex": {
+      "adapter": "process",
+      "display_model": "Codex GPT-5.5",
+      "command": [
+        "bash",
+        "-lc",
+        "PYTHONPATH=src python3 -m striatum.cli skills install --profile all --scope user --force --json >/dev/null && export PATH=\"$PWD/.venv/bin:$PATH\" && exec .striatum/bin/codex-supervised-wrapper.sh"
+      ],
+      "capabilities": [
+        "write",
+        "review",
+        "synthesis"
+      ],
+      "constraints": {
+        "transcripts": "off",
+        "repo_scope": "local_only",
+        "network": "forbidden"
+      },
+      "required_enforcement": {
+        "transcripts": "enforced"
+      },
+      "harness_profile_id": "codex_default"
+    },
+    "claude_code": {
+      "adapter": "process",
+      "display_model": "Claude Opus",
+      "command": [
+        "bash",
+        "-lc",
+        "PYTHONPATH=src python3 -m striatum.cli skills install --profile all --scope user --force --json >/dev/null && export PATH=\"$PWD/.venv/bin:$PATH\" && exec .striatum/bin/claude-supervised-wrapper.sh"
+      ],
+      "capabilities": [
+        "write",
+        "review",
+        "synthesis"
+      ],
+      "constraints": {
+        "transcripts": "off",
+        "repo_scope": "local_only"
+      },
+      "required_enforcement": {
+        "transcripts": "enforced"
+      },
+      "harness_profile_id": "claude_code_default"
+    },
+    "gemini": {
+      "adapter": "process",
+      "display_model": "Gemini Pro",
+      "command": [
+        "bash",
+        "-lc",
+        "PYTHONPATH=src python3 -m striatum.cli skills install --profile all --scope user --force --json >/dev/null && export PATH=\"$PWD/.venv/bin:$PATH\" && exec .striatum/bin/gemini-supervised-wrapper.sh"
+      ],
+      "capabilities": [
+        "write",
+        "review",
+        "synthesis"
+      ],
+      "constraints": {
+        "transcripts": "off",
+        "repo_scope": "local_only"
+      },
+      "required_enforcement": {
+        "transcripts": "enforced"
+      },
+      "harness_profile_id": "gemini_cli_default",
+      "env": {
+        "GEMINI_CLI_TRUST_WORKSPACE": "1"
+      }
+    }
+  },
+  "roles": {
+    "coordinator": {"definition_path": "docs/dogfood/033/roles/coordinator.md"},
+    "designer": {"definition_path": "docs/dogfood/033/roles/designer.md"},
+    "reviewer": {"definition_path": "docs/dogfood/033/roles/reviewer.md"},
+    "implementer": {"definition_path": "docs/dogfood/033/roles/implementer.md"}
+  },
+  "context_docs": [
+    {"path": "AGENTS.md", "required": true},
+    {"path": "README.md", "required": true},
+    {"path": "docs/INDEX.md", "required": true},
+    {"path": "docs/SPEC.md", "required": true},
+    {"path": "docs/DECISION_LOG.md", "required": true},
+    {"path": "docs/UBIQUITOUS_LANGUAGE.md", "required": true},
+    {"path": "docs/TODO.md", "required": true},
+    {"path": "docs/MCP.md", "required": true},
+    {"path": "docs/rfcs/0033-storage-substrate-rewrite-for-daemon-v2.md", "required": true},
+    {"path": "docs/rfcs/0028-long-running-daemon-and-multi-repository-control-plane.md", "required": true},
+    {"path": "docs/rfcs/0030-daemon-rpc-server-and-version-skew-protocol.md", "required": true},
+    {"path": "docs/rfcs/0031-daemon-owned-supervision-and-sealed-apply-boundary.md", "required": true},
+    {"path": "docs/rfcs/0032-cross-repo-workflows-and-mcp-mutation-capabilities.md", "required": true},
+    {"path": "docs/rfcs/0006-sqlite-schema-migration-system.md", "required": false},
+    {"path": "docs/dogfood/031/workflow.json", "required": false},
+    {"path": "docs/dogfood/031/DESIGN_SYNTHESIS.md", "required": false},
+    {"path": "docs/dogfood/031/BUILD_HANDOFF.md", "required": false},
+    {"path": "src/striatum/daemon.py", "required": false},
+    {"path": "src/striatum/migrations.py", "required": false},
+    {"path": "src/striatum/db.py", "required": false},
+    {"path": "src/striatum/schema.py", "required": false}
+  ],
+  "parallelism": {
+    "mode": "declared",
+    "max_active_jobs": 3,
+    "require_disjoint_write_scopes": true
+  },
+  "jobs": [
+    {
+      "id": "design_codex",
+      "type": "generic",
+      "title": "Design RFC 0033 substrate from Codex",
+      "role_id": "designer",
+      "lane_id": "codex",
+      "parallel_group": "fresh_design",
+      "fresh_session_required": true,
+      "objective": "Produce an implementation design for the RFC 0033 storage substrate rewrite for daemon V2. Cover schema migration model, audit-chain mapping, V1 SQLite → V2 Postgres cutover, daemon doctor verification, test infrastructure, and risk surfacing for the system-Postgres requirement.",
+      "task_prompt": {"path": "docs/dogfood/033/prompts/design_codex.md"},
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": ["docs/dogfood/033/design/codex/"],
+        "forbidden_paths": [".striatum/"]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "codex_design",
+          "kind": "handoff",
+          "path": "docs/dogfood/033/design/codex/DESIGN.md",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "design_claude_code",
+      "type": "generic",
+      "title": "Design RFC 0033 substrate from Claude Code",
+      "role_id": "designer",
+      "lane_id": "claude_code",
+      "parallel_group": "fresh_design",
+      "fresh_session_required": true,
+      "objective": "Produce an implementation design for the RFC 0033 storage substrate rewrite. Emphasize trust boundaries (daemon-owned schema, role-enforced append-only audit), schema/migration honesty (forward-only, no down migrations), operator onboarding UX for system Postgres, and integration with the existing V1 daemon registry SQLite for cutover.",
+      "task_prompt": {"path": "docs/dogfood/033/prompts/design_claude_code.md"},
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": ["docs/dogfood/033/design/claude_code/"],
+        "forbidden_paths": [".striatum/"]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "claude_code_design",
+          "kind": "handoff",
+          "path": "docs/dogfood/033/design/claude_code/DESIGN.md",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "design_gemini",
+      "type": "generic",
+      "title": "Design RFC 0033 substrate from Gemini",
+      "role_id": "designer",
+      "lane_id": "gemini",
+      "parallel_group": "fresh_design",
+      "fresh_session_required": true,
+      "objective": "Produce an implementation design for the RFC 0033 storage substrate rewrite. Emphasize cross-platform reality (macOS, Linux, Windows-via-WSL operator install paths for system Postgres), packaging/distribution implications, daemon doctor onboarding hints, and operational lifecycle (PG version drift, role privileges, connection pooling).",
+      "task_prompt": {"path": "docs/dogfood/033/prompts/design_gemini.md"},
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": ["docs/dogfood/033/design/gemini/"],
+        "forbidden_paths": [".striatum/"]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "gemini_design",
+          "kind": "handoff",
+          "path": "docs/dogfood/033/design/gemini/DESIGN.md",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "synthesize_design",
+      "type": "synthesis",
+      "title": "Synthesize RFC 0033 substrate implementation plan",
+      "role_id": "designer",
+      "lane_id": "codex",
+      "objective": "Reconcile all three fresh design artifacts into one implementation plan for RFC 0033. Pick concrete schema layout, migration ordering, audit-chain Postgres mapping, V1 cutover UX, test harness shape, and document the system-Postgres operator onboarding story. Make deferrals explicit (bundled/Dockerized distribution, signing-key migration, etc.).",
+      "task_prompt": {"path": "docs/dogfood/033/prompts/synthesize_design.md"},
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": ["docs/dogfood/033/"],
+        "forbidden_paths": [".striatum/"]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "design_synthesis",
+          "kind": "synthesis",
+          "path": "docs/dogfood/033/DESIGN_SYNTHESIS.md",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "review_design_threat",
+      "type": "review",
+      "title": "Threat-model review of RFC 0033 substrate design",
+      "role_id": "reviewer",
+      "lane_id": "gemini",
+      "fresh_session_required": true,
+      "reviewer_access_scope": "artifact_augmented",
+      "reviewer_context_policy": "fresh",
+      "review_posture": "threat_model",
+      "objective": "Review the synthesized substrate plan against explicit threat boundaries: daemon-to-Postgres trust, role-privilege escalation paths, schema/user-version tamper, audit-chain integrity across migration, V1→V2 cutover correctness, cross-platform PG version drift, and operator onboarding errors that produce data-loss footguns. Scope is over-eager AI agents and operator mistakes; per RFC 0031 threat model, malicious-local-root is out of scope.",
+      "task_prompt": {"path": "docs/dogfood/033/prompts/review_design.md"},
+      "write_scope": {
+        "mode": "review_only_artifact",
+        "repo_write": false,
+        "allowed_paths": ["docs/dogfood/033/review/design/threat/"],
+        "forbidden_paths": [".striatum/"]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "design_review_threat",
+          "kind": "finding",
+          "path": "docs/dogfood/033/review/design/threat/REVIEW.md",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "implement",
+      "type": "build",
+      "title": "Implement RFC 0033 substrate V2 slice",
+      "role_id": "implementer",
+      "lane_id": "codex",
+      "required_review_postures": ["threat_model"],
+      "objective": "Implement only the reviewed and accepted RFC 0033 V2 slice from docs/dogfood/033/DESIGN_SYNTHESIS.md. This job is blocked until review_design_threat returns an accepting verdict. Devil's-advocate and security reviews are deliberately post-implementation (operator decision) and not gated by this dogfood; the implementation must still pass make lint/typecheck/test/smoke.",
+      "task_prompt": {"path": "docs/dogfood/033/prompts/implement.md"},
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "src/striatum/",
+          "tests/",
+          "docs/SPEC.md",
+          "docs/UBIQUITOUS_LANGUAGE.md",
+          "docs/DECISION_LOG.md",
+          "docs/TODO.md",
+          "docs/MCP.md",
+          "docs/CLI_REFERENCE.md",
+          "docs/HOW_TO_HUMAN.md",
+          "docs/rfcs/0033-storage-substrate-rewrite-for-daemon-v2.md",
+          "docs/rfcs/README.md",
+          "docs/dogfood/033/",
+          "README.md",
+          "CHANGELOG.md",
+          "pyproject.toml"
+        ],
+        "forbidden_paths": [".striatum/"]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "build_handoff",
+          "kind": "handoff",
+          "path": "docs/dogfood/033/BUILD_HANDOFF.md",
+          "required": true
+        }
+      ]
+    }
+  ],
+  "edges": [
+    {"from": "design_codex", "to": "synthesize_design", "on": "completed"},
+    {"from": "design_claude_code", "to": "synthesize_design", "on": "completed"},
+    {"from": "design_gemini", "to": "synthesize_design", "on": "completed"},
+    {"from": "synthesize_design", "to": "review_design_threat", "on": "completed"},
+    {"from": "review_design_threat", "to": "implement", "on": "completed"}
+  ],
+  "cycles": [
+    {"from": "review_design_threat", "to": "synthesize_design", "on_verdict": "needs_revision", "max_iterations": 2}
+  ]
+}
