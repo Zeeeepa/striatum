@@ -378,6 +378,13 @@ terminal job transition.
 artifact, records the verdict, applies review-gate behavior, and returns the
 artifact, verdict, blocker, run, and downstream state.
 
+`override-verdict` is an explicit operator recovery command for a completed or
+`waiting_human` review job whose latest verdict is non-accepting. It requires a
+fresh active session on the same run, appends a newer `accept` or
+`accept_with_findings` verdict without editing prior verdict rows, resolves
+revision-routing human checkpoints when present, and re-evaluates downstream
+gates.
+
 `evidence export` writes a redacted Markdown snapshot of run, job, blocker,
 verdict, artifact, status, doctor, and downstream-blocking state. Export paths
 must stay inside the repository and outside `.striatum/`; SQLite state is
@@ -549,6 +556,7 @@ striatum publish-artifact
 striatum submit-review
 striatum complete
 striatum verdict
+striatum override-verdict
 striatum decision record
 
 # Worktree (opt-in per lane)

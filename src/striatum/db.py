@@ -1607,6 +1607,174 @@ def record_review_verdict(
         raise InvalidTransitionError(f"unknown verdict {verdict!r}")
 
 
+def override_review_verdict(
+    conn: sqlite3.Connection,
+    *,
+    session_id: str,
+    job_id: str,
+    verdict: str,
+    rationale: str,
+    findings_artifact_id: str | None,
+) -> JsonObject:
+    """Append an operator accepting verdict for a completed review job.
+
+    This is the explicit escape hatch for runs where a review recorded
+    ``needs_revision`` but the operator chooses to accept the work with
+    findings instead of taking the revision loop. It never edits the prior
+    verdict row; it appends a newer accepting verdict so audit history stays
+    intact and dependency gates can re-evaluate from the latest verdict.
+    """
+    if verdict not in {"accept", "accept_with_findings"}:
+        raise InvalidTransitionError(
+            "override verdict must be 'accept' or 'accept_with_findings'"
+        )
+    cleaned_rationale = rationale.strip()
+    if cleaned_rationale == "":
+        raise InvalidTransitionError("override rationale must not be empty")
+
+    with transaction(conn):
+        job = row_by_id(conn, "jobs", "job_id", job_id)
+        if job["job_type"] != "review":
+            raise InvalidTransitionError("verdict override is valid only for review jobs")
+        if job["state"] not in {"completed", "waiting_human"}:
+            raise InvalidTransitionError(
+                "verdict override requires a completed or waiting_human review job"
+            )
+        session = row_by_id(conn, "sessions", "session_id", session_id)
+        if str(session["run_id"]) != str(job["run_id"]):
+            raise InvalidTransitionError("override session does not belong to the job run")
+        if session["state"] != "active":
+            raise InvalidTransitionError("override session must be active")
+        existing_for_session = conn.execute(
+            "SELECT 1 FROM verdicts WHERE job_id = ? AND session_id = ? LIMIT 1",
+            (job_id, session_id),
+        ).fetchone()
+        if existing_for_session is not None:
+            raise InvalidTransitionError(
+                "override session already has a verdict for this job; register a fresh session"
+            )
+        previous = conn.execute(
+            "SELECT * FROM verdicts WHERE job_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 1",
+            (job_id,),
+        ).fetchone()
+        if previous is None:
+            raise InvalidTransitionError("review job has no prior verdict to override")
+        previous_verdict = str(previous["verdict"])
+        if previous_verdict in {"accept", "accept_with_findings"}:
+            return {
+                "status": "already_accepting",
+                "job_id": job_id,
+                "previous_verdict": previous_verdict,
+            }
+
+        effective_findings_artifact_id = findings_artifact_id
+        if effective_findings_artifact_id is None and previous["findings_artifact_id"] is not None:
+            effective_findings_artifact_id = str(previous["findings_artifact_id"])
+        if effective_findings_artifact_id is not None:
+            artifact = row_by_id(
+                conn, "artifacts", "artifact_id", effective_findings_artifact_id
+            )
+            if str(artifact["run_id"]) != str(job["run_id"]):
+                raise InvalidTransitionError("findings artifact belongs to a different run")
+            if str(artifact["job_id"]) != job_id:
+                raise InvalidTransitionError("findings artifact belongs to a different job")
+
+        now = _after_timestamp(str(previous["created_at"]), utc_now())
+        verdict_id = new_id("verdict")
+        posture = _resolve_review_posture(conn, job=job)
+        conn.execute(
+            """
+            INSERT INTO verdicts (
+              verdict_id, run_id, job_id, session_id, verdict, rationale,
+              findings_artifact_id, created_at, posture
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                verdict_id,
+                job["run_id"],
+                job_id,
+                session_id,
+                verdict,
+                cleaned_rationale,
+                effective_findings_artifact_id,
+                now,
+                posture,
+            ),
+        )
+
+        resolved_blockers = 0
+        if job["state"] == "waiting_human":
+            message_id = job["current_message_id"]
+            conn.execute(
+                """
+                UPDATE jobs
+                SET state = 'completed', completed_at = ?
+                WHERE job_id = ?
+                """,
+                (now, job_id),
+            )
+            if message_id is not None:
+                conn.execute(
+                    """
+                    UPDATE queue_messages
+                    SET state = 'completed', completed_at = ?, updated_at = ?
+                    WHERE message_id = ?
+                    """,
+                    (now, now, message_id),
+                )
+            cursor = conn.execute(
+                """
+                UPDATE blockers
+                SET state = 'resolved', resolved_at = ?
+                WHERE job_id = ? AND state = 'open'
+                  AND severity = 'human_checkpoint'
+                  AND blocker_kind = 'revision_routing'
+                """,
+                (now, job_id),
+            )
+            resolved_blockers = int(cursor.rowcount)
+
+        insert_event(
+            conn,
+            run_id=str(job["run_id"]),
+            event_type="verdict.overridden",
+            actor_session_id=session_id,
+            job_id=job_id,
+            artifact_id=effective_findings_artifact_id,
+            payload={
+                "previous_verdict": previous_verdict,
+                "verdict": verdict,
+                "previous_verdict_id": previous["verdict_id"],
+                "verdict_id": verdict_id,
+                "resolved_blockers": resolved_blockers,
+            },
+        )
+        maybe_enqueue_downstream(conn, completed_job_id=job_id)
+        maybe_complete_run(conn, run_id=str(job["run_id"]))
+        return {
+            "status": "overridden",
+            "job_id": job_id,
+            "previous_verdict": previous_verdict,
+            "verdict": verdict,
+            "verdict_id": verdict_id,
+            "findings_artifact_id": effective_findings_artifact_id,
+            "resolved_blockers": resolved_blockers,
+        }
+
+
+def _after_timestamp(previous: str, candidate: str) -> str:
+    """Return ``candidate`` unless it would not sort after ``previous``."""
+    if candidate > previous:
+        return candidate
+    cleaned = previous.replace("Z", "+00:00")
+    try:
+        parsed = datetime.fromisoformat(cleaned)
+    except ValueError:
+        return candidate
+    return (parsed + timedelta(seconds=1)).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
 def request_revision_for_cycle(
     conn: sqlite3.Connection,
     *,

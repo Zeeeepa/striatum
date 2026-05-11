@@ -1423,6 +1423,132 @@ def test_blocked_review_verdict_appears_in_status(tmp_path: Path) -> None:
     assert "resolve_human_checkpoint" in status["next_actions"]
 
 
+def test_override_verdict_accepts_completed_needs_revision_with_findings(
+    tmp_path: Path,
+) -> None:
+    run_id = prepare_started_run(tmp_path)
+    author = register(tmp_path, run_id, "author", "codex")
+    complete_claimed_job(
+        tmp_path,
+        author,
+        claim(tmp_path, author),
+        logical_name="draft",
+        kind="handoff",
+        path="docs/reviews/rfc-ledger/RFC_LEDGER_DRAFT.md",
+    )
+    codex = register(tmp_path, run_id, "reviewer", "codex")
+    packet = claim(tmp_path, codex)
+    review_job_id, _message_id, _lease_id = packet_ids(packet)
+    verdict_claimed_review(
+        tmp_path,
+        codex,
+        packet,
+        verdict="needs_revision",
+        path="docs/reviews/rfc-ledger/codex/RFC_LEDGER_REVIEW.md",
+    )
+    gemini = register(tmp_path, run_id, "reviewer", "gemini")
+    verdict_claimed_review(
+        tmp_path,
+        gemini,
+        claim(tmp_path, gemini),
+        verdict="accept",
+        path="docs/reviews/rfc-ledger/gemini/RFC_LEDGER_REVIEW.md",
+    )
+    ledger = register(tmp_path, run_id, "ledger", "codex")
+    assert data(run_cli(tmp_path, "claim-next", "--session-id", ledger))["status"] == "no_work"
+
+    operator = register(tmp_path, run_id, "reviewer", "codex")
+    override = data(
+        run_cli(
+            tmp_path,
+            "override-verdict",
+            "--session-id",
+            operator,
+            "--job-id",
+            review_job_id,
+            "--verdict",
+            "accept_with_findings",
+            "--rationale",
+            "Operator accepts with findings instead of taking the revision loop.",
+        )
+    )
+
+    assert override["status"] == "overridden"
+    assert override["previous_verdict"] == "needs_revision"
+    assert override["verdict"] == "accept_with_findings"
+    status = data(run_cli(tmp_path, "status", "--run-id", run_id))
+    assert status["human_checkpoints"] == []
+    assert status["latest_non_accepting_review_verdicts"] == []
+    packet = claim(tmp_path, ledger)
+    assert packet["job"]["workflow_job_id"] == "findings_ledger"
+
+
+def test_override_verdict_accepts_already_completed_needs_revision_review(
+    tmp_path: Path,
+) -> None:
+    run_id = prepare_started_run(tmp_path)
+    author = register(tmp_path, run_id, "author", "codex")
+    complete_claimed_job(
+        tmp_path,
+        author,
+        claim(tmp_path, author),
+        logical_name="draft",
+        kind="handoff",
+        path="docs/reviews/rfc-ledger/RFC_LEDGER_DRAFT.md",
+    )
+    codex = register(tmp_path, run_id, "reviewer", "codex")
+    packet = claim(tmp_path, codex)
+    review_job_id, _message_id, _lease_id = packet_ids(packet)
+    verdict_claimed_review(
+        tmp_path,
+        codex,
+        packet,
+        verdict="needs_revision",
+        path="docs/reviews/rfc-ledger/codex/RFC_LEDGER_REVIEW.md",
+    )
+    conn = sqlite3.connect(tmp_path / ".striatum" / "state.sqlite3")
+    try:
+        conn.execute(
+            "UPDATE jobs SET state = 'completed' WHERE job_id = ?",
+            (review_job_id,),
+        )
+        conn.execute(
+            "UPDATE blockers SET state = 'resolved', resolved_at = '2026-05-10T00:00:00Z' WHERE job_id = ?",
+            (review_job_id,),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    gemini = register(tmp_path, run_id, "reviewer", "gemini")
+    verdict_claimed_review(
+        tmp_path,
+        gemini,
+        claim(tmp_path, gemini),
+        verdict="accept",
+        path="docs/reviews/rfc-ledger/gemini/RFC_LEDGER_REVIEW.md",
+    )
+
+    operator = register(tmp_path, run_id, "reviewer", "codex")
+    data(
+        run_cli(
+            tmp_path,
+            "override-verdict",
+            "--session-id",
+            operator,
+            "--job-id",
+            review_job_id,
+            "--verdict",
+            "accept_with_findings",
+            "--rationale",
+            "Operator accepts with findings after reading the completed review.",
+        )
+    )
+
+    ledger = register(tmp_path, run_id, "ledger", "codex")
+    packet = claim(tmp_path, ledger)
+    assert packet["job"]["workflow_job_id"] == "findings_ledger"
+
+
 def test_why_resolves_blocker_artifact_and_verdict(tmp_path: Path) -> None:
     run_id = prepare_started_run(tmp_path)
     author = register(tmp_path, run_id, "author", "codex")

@@ -470,6 +470,17 @@ def dispatch(args: argparse.Namespace) -> object:
                 findings_artifact_id=args.findings_artifact_id,
                 rationale=args.rationale,
             )
+        if args.command == "override-verdict":
+            from striatum.db import override_review_verdict
+
+            return override_review_verdict(
+                conn,
+                session_id=args.session_id,
+                job_id=args.job_id,
+                verdict=args.verdict,
+                rationale=args.rationale,
+                findings_artifact_id=args.findings_artifact_id,
+            )
         if args.command == "submit-review":
             return submit_review(
                 conn,

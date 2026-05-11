@@ -290,6 +290,18 @@ def build_parser() -> argparse.ArgumentParser:
     verdict.add_argument("--rationale")
     verdict.add_argument("--json", action="store_true")
 
+    override_verdict = sub.add_parser("override-verdict")
+    override_verdict.add_argument("--session-id", required=True)
+    override_verdict.add_argument("--job-id", required=True)
+    override_verdict.add_argument(
+        "--verdict",
+        choices=["accept", "accept_with_findings"],
+        required=True,
+    )
+    override_verdict.add_argument("--findings-artifact-id")
+    override_verdict.add_argument("--rationale", required=True)
+    override_verdict.add_argument("--json", action="store_true")
+
     submit_review = sub.add_parser("submit-review")
     submit_review.add_argument("--session-id", required=True)
     submit_review.add_argument("--job-id", required=True)

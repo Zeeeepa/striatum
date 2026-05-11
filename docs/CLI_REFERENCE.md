@@ -117,6 +117,7 @@ striatum recovery cancel-job
 striatum recovery process-reconcile
 striatum recovery resume
 striatum checkpoint resolve
+striatum override-verdict
 ```
 
 `run graph --run-id <id> [--format mermaid|json|dot|ascii]`
