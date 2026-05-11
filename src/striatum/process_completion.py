@@ -150,11 +150,13 @@ def build_recovery_commands(
     blocker_kind: str,
     missing_artifact_paths: list[str],
     review_verdict_missing: bool,
+    blocker_id: str | None = None,
 ) -> list[str]:
     """Return shell-string operator suggestions for the given failure mode.
 
-    Always includes ``recovery process-reconcile`` so operators know how
-    to reconcile externally-killed processes from the same envelope.
+    Process-adapter blockers keep the claimed lease in place. The recovery
+    path therefore resolves the blocker back to ``running`` instead of trying
+    the stale-lease requeue path, which intentionally refuses repo-write work.
     """
     cmds: list[str] = []
     for path in missing_artifact_paths:
@@ -170,10 +172,20 @@ def build_recovery_commands(
             f"--session-id {session_id} --job-id {job_id} "
             f"--lease-id <lease_id> --verdict <accept|accept_with_findings|needs_revision|reject>"
         )
-    cmds.append(
-        f"striatum recovery requeue-stale --run-id {run_id} --job-id {job_id}"
+    blocker_arg = blocker_id if blocker_id is not None else "<blocker_id>"
+    force_arg = (
+        " --force"
+        if blocker_kind in {"process_exit_nonzero", "process_timeout_exceeded"}
+        else ""
     )
-    cmds.append(f"striatum recovery process-reconcile --run-id {run_id}")
+    cmds.append(f"striatum recovery resume --blocker-id {blocker_arg}{force_arg}")
+    if not review_verdict_missing:
+        cmds.append(
+            f"striatum recovery resume --blocker-id {blocker_arg}{force_arg} "
+            f"--complete --session-id {session_id} --summary \"<summary>\""
+        )
+    if blocker_kind == "process_lost_with_outputs_missing":
+        cmds.append(f"striatum recovery process-reconcile --run-id {run_id}")
     return cmds
 
 
@@ -196,7 +208,23 @@ def block_job_with_envelope(
     """
     now = utc_now()
     blocker_id = new_id("blk")
-    envelope_json = json.dumps(envelope, sort_keys=True)
+    missing_paths = [
+        str(path)
+        for path in envelope.get("missing_artifact_paths", [])
+        if isinstance(path, str)
+    ]
+    review_verdict_missing = bool(envelope.get("review_verdict_missing"))
+    final_envelope = dict(envelope)
+    final_envelope["recovery_commands"] = build_recovery_commands(
+        run_id=str(job["run_id"]),
+        job_id=str(job["job_id"]),
+        session_id=session_id,
+        blocker_kind=blocker_kind,
+        missing_artifact_paths=missing_paths,
+        review_verdict_missing=review_verdict_missing,
+        blocker_id=blocker_id,
+    )
+    envelope_json = json.dumps(final_envelope, sort_keys=True)
     conn.execute(
         """
         INSERT INTO blockers (
@@ -226,7 +254,7 @@ def block_job_with_envelope(
         event_type="process_adapter.outputs_missing",
         actor_session_id=session_id,
         job_id=str(job["job_id"]),
-        payload={"blocker_id": blocker_id, "envelope": envelope},
+        payload={"blocker_id": blocker_id, "envelope": final_envelope},
     )
     return blocker_id
 

@@ -50,6 +50,7 @@ VERB_TABLE: dict[str, dict[str, str]] = {
         "recovery stale-leases": "Lazy-expire and report stale leases.",
         "recovery requeue-stale": "Requeue an expired non-repo-write job.",
         "recovery process-reconcile": "Reconcile externally-killed processes.",
+        "recovery resume": "Resolve remediated process-adapter blockers.",
         "checkpoint resolve": "Resolve a `human_checkpoint` blocker.",
         "dashboard --once": "Render a single dashboard frame for scripts.",
     },

@@ -115,6 +115,7 @@ striatum recovery stale-leases
 striatum recovery requeue-stale
 striatum recovery cancel-job
 striatum recovery process-reconcile
+striatum recovery resume
 striatum checkpoint resolve
 ```
 

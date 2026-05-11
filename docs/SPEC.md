@@ -573,6 +573,7 @@ striatum doctor
 striatum evidence export
 striatum recovery stale-leases
 striatum recovery requeue-stale
+striatum recovery resume
 
 # Adapter
 striatum adapter run
@@ -659,6 +660,15 @@ restores the job's work message to `pending` when needed, reports when the
 work was already reclaimable, and refuses repo-write jobs so abandoned write
 work still requires manual inspection or a future worktree-isolated recovery
 path.
+
+`recovery resume --blocker-id <id> --json` resolves an open process-adapter
+blocker after the operator has remediated missing outputs. It revalidates
+required artifacts, extends the preserved process-adapter lease, marks the
+blocker resolved, and returns the job to `running`. Review jobs whose only
+remaining gap is the verdict can then use the normal `verdict --verdict
+accept_with_findings` path. `--complete --session-id <id>` additionally
+completes remediated non-review work after validation; nonzero-exit and
+timeout blockers require `--force`.
 
 `recovery auto --run-id <id>` (RFC 0020 V1) is a one-shot autonomous
 sweeper composable with cron / systemd timer. It runs lazy lease

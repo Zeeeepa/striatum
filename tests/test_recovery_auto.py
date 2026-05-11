@@ -9,6 +9,7 @@ hook runners under sandboxed conditions.
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -186,7 +187,7 @@ def test_webhook_hook_rejects_non_http_scheme() -> None:
 def test_shell_hook_runs_through_subprocess(tmp_path: Path) -> None:
     from striatum.recovery.hooks import run_shell_hook
 
-    result = run_shell_hook(command=["/bin/true"], cwd=tmp_path)
+    result = run_shell_hook(command=[sys.executable, "-c", ""], cwd=tmp_path)
     assert result["wrote"] is True
     assert result["exit_code"] == 0
 

@@ -36,12 +36,14 @@ striatum --repo $REPO dashboard --run-id $RUN --once
 striatum --repo $REPO recovery stale-leases --run-id $RUN --json
 striatum --repo $REPO recovery requeue-stale --run-id $RUN --job-id $JOB --json
 striatum --repo $REPO recovery process-reconcile --run-id $RUN --json
+striatum --repo $REPO recovery resume --blocker-id $BLOCKER --json
 striatum --repo $REPO checkpoint resolve --blocker-id $BLOCKER --action continue
 ```
 
 `recovery requeue-stale` refuses repo-write jobs (D036). For
 abandoned repo-write work, inspect with `recovery stale-leases
---json` and `doctor --verbose` first.
+For remediated process-adapter blockers, use `recovery resume`; if a
+review verdict is missing, resume first and then record the verdict normally.
 
 ## Where to look next
 

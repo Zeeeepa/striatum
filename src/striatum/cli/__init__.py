@@ -69,7 +69,7 @@ from striatum.cli.list_commands import (
     list_workflows,
 )
 from striatum.cli.parser import add_work_identity, build_parser
-from striatum.cli.recovery import cancel_job, requeue_stale, stale_leases
+from striatum.cli.recovery import cancel_job, requeue_stale, resume_blocker, stale_leases
 from striatum.cli.run_summary import (
     render_run_summary_markdown,
     run_summary_export,
@@ -137,6 +137,7 @@ __all__ = [
     "render_evidence_markdown",
     "render_run_summary_markdown",
     "requeue_stale",
+    "resume_blocker",
     "run_graph",
     "run_start",
     "run_summary_export",

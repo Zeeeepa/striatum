@@ -5,9 +5,11 @@ from __future__ import annotations
 import json
 import os
 import sqlite3
+from datetime import UTC, datetime, timedelta
 
 from striatum.db import (
     JsonObject,
+    complete_job,
     expire_leases,
     insert_event,
     maybe_complete_run,
@@ -16,6 +18,7 @@ from striatum.db import (
     utc_now,
 )
 from striatum.errors import InvalidTransitionError
+from striatum.process_completion import validate_outputs
 
 
 def stale_leases(conn: sqlite3.Connection, *, run_id: str) -> JsonObject:
@@ -149,6 +152,20 @@ def requeue_stale(conn: sqlite3.Connection, *, run_id: str, job_id: str) -> Json
 
 CANCELABLE_JOB_STATES = frozenset(
     {"blocked", "queued", "claimed", "running", "stale_lease", "waiting_human"}
+)
+
+PROCESS_ADAPTER_BLOCKER_KINDS = frozenset(
+    {
+        "process_outputs_missing",
+        "process_review_verdict_missing",
+        "process_exit_nonzero",
+        "process_timeout_exceeded",
+        "process_lost_with_outputs_missing",
+    }
+)
+
+PROCESS_EXIT_BLOCKER_KINDS = frozenset(
+    {"process_exit_nonzero", "process_timeout_exceeded"}
 )
 
 
@@ -341,6 +358,198 @@ def cancel_job(
             "run_state": run_row["state"],
             "next_actions": ["inspect_run_state", "export_run_evidence"],
         }
+
+
+def resume_blocker(
+    conn: sqlite3.Connection,
+    *,
+    blocker_id: str,
+    complete: bool,
+    session_id: str | None,
+    summary: str | None,
+    force: bool,
+    extend_seconds: int,
+) -> JsonObject:
+    """Resolve a process-adapter blocker after operator remediation.
+
+    Plain ``resume`` returns the job to ``running`` using the existing
+    claimed lease. For review blockers, that is the missing bridge that lets
+    the operator record the normal ``accept_with_findings`` verdict. With
+    ``--complete``, the function also completes the job after revalidation.
+    """
+    if complete and not session_id:
+        raise InvalidTransitionError("--complete requires --session-id")
+    if extend_seconds <= 0:
+        raise InvalidTransitionError("--extend-seconds must be positive")
+
+    complete_args: JsonObject | None = None
+    with transaction(conn):
+        blocker = row_by_id(conn, "blockers", "blocker_id", blocker_id)
+        blocker_kind = str(blocker["blocker_kind"])
+        if blocker_kind not in PROCESS_ADAPTER_BLOCKER_KINDS:
+            raise InvalidTransitionError(
+                "recovery resume supports only process-adapter blockers"
+            )
+        job_id = str(blocker["job_id"]) if blocker["job_id"] is not None else None
+        if job_id is None:
+            raise InvalidTransitionError("process-adapter blocker is not job-bound")
+        job = row_by_id(conn, "jobs", "job_id", job_id)
+        run_id = str(job["run_id"])
+        if str(blocker["run_id"]) != run_id:
+            raise InvalidTransitionError("blocker does not belong to the job run")
+
+        if blocker["state"] != "open":
+            return {
+                "status": "already_resolved",
+                "run_id": run_id,
+                "job_id": job_id,
+                "workflow_job_id": job["workflow_job_id"],
+                "blocker_id": blocker_id,
+                "blocker_kind": blocker_kind,
+                "completed_inline": False,
+                "next_actions": ["inspect_job_state"],
+            }
+        if job["state"] != "blocked":
+            raise InvalidTransitionError(
+                f"job must be blocked before recovery resume (state={job['state']!r})"
+            )
+        if blocker_kind in PROCESS_EXIT_BLOCKER_KINDS and not force:
+            raise InvalidTransitionError(
+                f"{blocker_kind} requires --force after operator inspection"
+            )
+
+        missing_paths, review_verdict_missing = validate_outputs(conn, job=job)
+        if missing_paths:
+            raise InvalidTransitionError(
+                "process-adapter blocker still has missing required artifacts: "
+                + ", ".join(missing_paths)
+            )
+        if complete and review_verdict_missing:
+            raise InvalidTransitionError(
+                "process-adapter blocker cannot complete while review verdict is missing"
+            )
+        if (
+            review_verdict_missing
+            and str(job["job_type"]) != "review"
+        ):
+            raise InvalidTransitionError(
+                "process-adapter blocker still has a missing review verdict"
+            )
+
+        lease_id = job["current_lease_id"]
+        if lease_id is None:
+            raise InvalidTransitionError(
+                "process-adapter blocker job has no current lease to resume"
+            )
+        lease = row_by_id(conn, "leases", "lease_id", str(lease_id))
+        if lease["state"] != "active":
+            raise InvalidTransitionError(
+                f"process-adapter blocker lease is not active (state={lease['state']!r})"
+            )
+        lease_owner = str(lease["owner_session_id"])
+        if session_id is not None and session_id != lease_owner:
+            raise InvalidTransitionError("session does not own the process-adapter lease")
+
+        now = utc_now()
+        expires_at = (
+            datetime.now(UTC) + timedelta(seconds=extend_seconds)
+        ).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+        conn.execute(
+            """
+            UPDATE leases
+            SET last_heartbeat_at = ?, expires_at = ?
+            WHERE lease_id = ?
+            """,
+            (now, expires_at, str(lease_id)),
+        )
+        conn.execute(
+            "UPDATE blockers SET state = 'resolved', resolved_at = ? WHERE blocker_id = ?",
+            (now, blocker_id),
+        )
+        conn.execute(
+            "UPDATE jobs SET state = 'running' WHERE job_id = ?",
+            (job_id,),
+        )
+
+        actor_session_id = session_id or str(blocker["session_id"] or lease_owner)
+        payload = _blocker_payload(blocker)
+        event_payload: JsonObject = {
+            "blocker_id": blocker_id,
+            "blocker_kind": blocker_kind,
+            "verb": "recovery resume",
+            "force": force,
+            "completed_inline": complete,
+            "missing_artifact_paths": missing_paths,
+            "review_verdict_missing": review_verdict_missing,
+            "lease_extended_until": expires_at,
+        }
+        if payload:
+            event_payload["original_envelope"] = payload
+        insert_event(
+            conn,
+            run_id=run_id,
+            event_type="recovery.process_blocker_resolved",
+            actor_session_id=actor_session_id,
+            job_id=job_id,
+            lease_id=str(lease_id),
+            payload=event_payload,
+        )
+
+        result: JsonObject = {
+            "status": "resumed",
+            "run_id": run_id,
+            "job_id": job_id,
+            "workflow_job_id": job["workflow_job_id"],
+            "blocker_id": blocker_id,
+            "blocker_kind": blocker_kind,
+            "lease_id": str(lease_id),
+            "lease_extended_until": expires_at,
+            "force": force,
+            "completed_inline": False,
+            "review_verdict_missing": review_verdict_missing,
+            "next_actions": (
+                ["record_review_verdict"]
+                if review_verdict_missing
+                else ["complete_job", "monitor_run_progress"]
+            ),
+        }
+        if complete:
+            complete_args = {
+                "session_id": str(session_id),
+                "job_id": job_id,
+                "lease_id": str(lease_id),
+                "summary": summary,
+                "resume_result": result,
+            }
+        else:
+            return result
+
+    assert complete_args is not None
+    completion = complete_job(
+        conn,
+        session_id=str(complete_args["session_id"]),
+        job_id=str(complete_args["job_id"]),
+        lease_id=str(complete_args["lease_id"]),
+        summary=summary,
+    )
+    resume_result = complete_args["resume_result"]
+    assert isinstance(resume_result, dict)
+    resume_result["status"] = "resumed_completed"
+    resume_result["completed_inline"] = True
+    resume_result["completion"] = completion
+    resume_result["next_actions"] = ["monitor_run_progress", "export_run_evidence"]
+    return resume_result
+
+
+def _blocker_payload(blocker: sqlite3.Row) -> JsonObject:
+    raw = blocker["payload_json"]
+    if raw is None:
+        return {}
+    try:
+        loaded = json.loads(str(raw))
+    except json.JSONDecodeError:
+        return {}
+    return loaded if isinstance(loaded, dict) else {}
 
 
 def process_reconcile(conn: sqlite3.Connection, *, run_id: str) -> JsonObject:

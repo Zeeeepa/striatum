@@ -374,6 +374,36 @@ def build_parser() -> argparse.ArgumentParser:
     )
     process_reconcile_p.add_argument("--run-id", required=True)
     process_reconcile_p.add_argument("--json", action="store_true")
+    resume_p = recovery_sub.add_parser(
+        "resume",
+        help=(
+            "Resolve a process-adapter blocker after operator remediation "
+            "and return the job to running, optionally completing it."
+        ),
+    )
+    resume_p.add_argument("--blocker-id", required=True)
+    resume_p.add_argument(
+        "--complete",
+        action="store_true",
+        help="complete the resumed job after revalidation",
+    )
+    resume_p.add_argument(
+        "--session-id",
+        help="lease-owning session id; required with --complete",
+    )
+    resume_p.add_argument("--summary")
+    resume_p.add_argument(
+        "--force",
+        action="store_true",
+        help="required for nonzero-exit or timeout blockers",
+    )
+    resume_p.add_argument(
+        "--extend-seconds",
+        type=int,
+        default=1800,
+        help="extend the existing process-adapter lease while resuming",
+    )
+    resume_p.add_argument("--json", action="store_true")
 
     # RFC 0020 V1: autonomous-recovery sweeper.
     recovery_auto = recovery_sub.add_parser(

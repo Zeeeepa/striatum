@@ -61,6 +61,7 @@ from striatum.cli.recovery import (
     cancel_job,
     process_reconcile,
     requeue_stale,
+    resume_blocker,
     stale_leases,
 )
 from striatum.cli.run_summary import run_summary_export
@@ -516,6 +517,16 @@ def dispatch(args: argparse.Namespace) -> object:
             )
         if args.command == "recovery" and args.recovery_command == "process-reconcile":
             return process_reconcile(conn, run_id=args.run_id)
+        if args.command == "recovery" and args.recovery_command == "resume":
+            return resume_blocker(
+                conn,
+                blocker_id=args.blocker_id,
+                complete=bool(args.complete),
+                session_id=args.session_id,
+                summary=args.summary,
+                force=bool(args.force),
+                extend_seconds=int(args.extend_seconds),
+            )
         if args.command == "recovery" and args.recovery_command == "auto":
             from striatum.recovery import resolve_policy, run_auto_sweep
 

@@ -550,10 +550,9 @@ def test_issue_one_reproduction(tmp_path: Path) -> None:
     blocker = _open_blocker(tmp_path, job_id)
     assert blocker is not None
     assert blocker["blocker_kind"] == "process_outputs_missing"
-    # Recovery commands must include the reconcile pointer for the
-    # operator to learn how to reconcile related runs.
+    # Recovery commands must include the concrete blocker resume path.
     assert any(
-        "process-reconcile" in cmd
+        "recovery resume --blocker-id" in cmd
         for cmd in blocker["payload"]["recovery_commands"]
     )
 
