@@ -119,13 +119,7 @@
     "codex": {
       "adapter": "process",
       "display_model": "Codex GPT-5.5",
-      "command": [
-        "codex", "exec", "--json", "--ephemeral",
-        "--skip-git-repo-check",
-        "--sandbox", "workspace-write",
-        "-c", "approval_policy=never",
-        "--ignore-user-config", "-"
-      ],
+      "command": [".striatum/bin/codex-supervised-wrapper.sh"],
       "capabilities": ["write"],
       "constraints": {
         "transcripts": "off",

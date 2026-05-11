@@ -317,8 +317,15 @@ with `--cascade` to cancel them transitively in the same
 transaction. Terminal-state jobs (`completed`, `failed`,
 `canceled`, `skipped`) cannot be canceled.
 
-For unattended runs, `recovery watch` is a foreground daemon
-that wraps `recovery auto` in a sleep loop. One pidfile per run
+For unattended runs across **multiple** registered repositories,
+prefer `striatum daemon start` (RFC 0028 V1) which sweeps recovery
+across every active run in every registered repo from one
+foreground process — see "Daemon / multi-repo coordination"
+below.
+
+For unattended runs against a **single** repo, `recovery watch`
+is a foreground daemon that wraps `recovery auto` in a sleep
+loop. One pidfile per run
 (`.striatum/scratch/recovery-watch-<run_id>.pid`); `SIGTERM` /
 `SIGINT` shuts it down cleanly. Exits when the run reaches a
 terminal state by default.
@@ -337,6 +344,95 @@ or any of the same overrides as `recovery auto`
 A pidfile collision with an alive watcher exits 4 with a
 documented message; stale pidfiles (dead PIDs) are overwritten
 cleanly.
+
+## Daemon / multi-repo coordination (RFC 0028 V1)
+
+`striatum daemon` adds optional registry-backed coordination
+across multiple repositories without changing direct
+repo-local CLI behavior. In V1 the daemon is a foreground
+sweep process plus a shared owner-only registry SQLite; CLI
+and MCP clients open the registry directly under token /
+capability checks. There is **no daemon RPC server** in V1
+and the Unix socket bound by `striatumd` is a lifecycle
+marker, not a request router.
+
+Start the daemon and register two target repos:
+
+```bash
+# Foreground sweep process (also exposed as `striatumd`).
+"$RUNNER" daemon start --json &
+
+# Register repos. The first `repo add` (or `daemon start`)
+# bootstraps one admin token and writes a 0600 fallback file
+# under the runtime directory; treat that file as degraded
+# storage compared with an OS keyring.
+"$RUNNER" repo add /path/to/repo-a --json
+"$RUNNER" repo add /path/to/repo-b --json   # repeat per repo
+
+"$RUNNER" repo list --json
+```
+
+`repo add` is admin-gated. It canonicalizes the repository
+root, refuses symlink/path-traversal ambiguity (including
+symlinked parent components or state-database symlink
+escapes), derives a realpath/inode-based repository identity,
+and refuses active path re-occupation by a different
+identity. If `.striatum/state.sqlite3` is absent the command
+refuses unless `--init` is passed; `--no-migrate` refuses
+registration when repo-local migrations would be needed.
+
+`repo remove <path>` is idempotent, revokes live repo-scoped
+capabilities, preserves audit rows, and never reuses
+`repository_id` (re-adding allocates a fresh id).
+
+Read across registered repos with `--daemon`:
+
+```bash
+"$RUNNER" --daemon status --json
+"$RUNNER" --daemon doctor --json
+"$RUNNER" --daemon why <job-or-blocker-id> --json
+"$RUNNER" --daemon dashboard --all
+```
+
+`--daemon` (or `STRIATUM_DAEMON=1`) opens the registry
+SQLite under a read token. V1 read surfaces supported under
+`--daemon`: `status`, `doctor`, `why`, `dashboard --all`. The
+CLI refuses (does not silently fall back to direct mode) on
+forced-daemon verbs that are not registry-backed.
+`--no-daemon` forces direct repo-local mode.
+
+`dashboard --all` is registry-backed even without `--daemon`
+because it fans out across the registry; it requires the same
+`read` token bootstrapped by `repo add` / `daemon start`.
+
+Audit shape:
+
+- Audit rows are metadata-only: command, authorization
+  result, client/repository ids when known, payload hash,
+  and a continuous hash chain across retained rows.
+- Closed segment manifests are SQL-guarded against
+  daemon-API rewrites and checked by `daemon doctor`.
+- Audit deliberately excludes transcripts, request/response
+  bodies, artifact text, blocker prose, token secrets, and
+  tracebacks. It is per-machine daemon evidence, not
+  transcript evidence or authorship proof.
+
+What V1 daemon mode does **not** do:
+
+- It does not host a daemon RPC server. CLI and MCP clients
+  open the registry SQLite directly.
+- It does not own workflow mutations. Ordinary
+  `register-session`, `claim-next`, `publish-artifact`,
+  `verdict`, `complete`, and `recovery` calls continue to
+  mutate repo-local SQLite directly.
+- It does not own supervised processes. `striatum supervise
+  start` still spawns lane processes under repo-local
+  bookkeeping.
+- It does not ship Windows daemon support, sealed-apply
+  authority, signing keys, mutation MCP tools, hosted
+  semantics, cross-repository workflows, or remote serving.
+- It is not a replacement for `recovery watch` against a
+  single repo, only for multi-repo sweeping.
 
 ## Dashboards and graphs
 

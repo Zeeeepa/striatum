@@ -103,7 +103,7 @@
       "command": [
         "bash",
         "-lc",
-        "PYTHONPATH=src python3 -m striatum.cli skills install --profile all --scope user --force --json >/dev/null && export PATH=\"$PWD/.venv/bin:$PATH\" && exec codex exec --json --ephemeral --skip-git-repo-check --dangerously-bypass-approvals-and-sandbox -c approval_policy=never --ignore-user-config -"
+        "PYTHONPATH=src python3 -m striatum.cli skills install --profile all --scope user --force --json >/dev/null && export PATH=\"$PWD/.venv/bin:$PATH\" && exec .striatum/bin/codex-supervised-wrapper.sh"
       ],
       "capabilities": [
         "write",

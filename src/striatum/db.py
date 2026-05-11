@@ -1899,7 +1899,14 @@ def request_revision_for_cycle(
         (next_review_id, review_job["job_id"]),
     )
     _complete_review_job(conn, job=review_job, session_id=session_id, lease_id=lease_id, summary="needs_revision")
-    enqueue_job(conn, job_id=next_target_id)
+    # Only enqueue the shared cycle target the first time we land its clone.
+    # When a parallel reviewer reuses the same clone, it is already queued,
+    # and a second enqueue would create a duplicate queue_message.
+    target_state_row = conn.execute(
+        "SELECT state FROM jobs WHERE job_id = ?", (next_target_id,)
+    ).fetchone()
+    if target_state_row is not None and str(target_state_row["state"]) == "blocked":
+        enqueue_job(conn, job_id=next_target_id)
     insert_event(
         conn,
         run_id=str(review_job["run_id"]),
@@ -2088,7 +2095,24 @@ def _latest_job_for_workflow_id(
 
 
 def _clone_job_attempt(conn: sqlite3.Connection, *, source: sqlite3.Row, attempt: int) -> str:
-    """Create a blocked clone for the next bounded revision attempt."""
+    """Create a blocked clone for the next bounded revision attempt.
+
+    Idempotent on `(run_id, workflow_job_id, attempt)`: when two parallel
+    `needs_revision` verdicts fire against the same upstream cycle target
+    (e.g. several review postures all routing back to one synthesizer),
+    the second caller reuses the already-cloned attempt instead of
+    colliding on the `jobs.idempotency_key` UNIQUE constraint. The shared
+    clone receives whichever set of incoming dependency edges the
+    callers add; the callers remain responsible for adding their own
+    edges idempotently.
+    """
+    existing = conn.execute(
+        "SELECT job_id FROM jobs WHERE run_id = ? AND workflow_job_id = ? AND attempt = ?",
+        (source["run_id"], source["workflow_job_id"], attempt),
+    ).fetchone()
+    if existing is not None:
+        return str(existing["job_id"])
+
     job_id = f"job_{source['run_id']}_{source['workflow_job_id']}_a{attempt}"
     now = utc_now()
     conn.execute(

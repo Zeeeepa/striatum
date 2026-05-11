@@ -77,7 +77,74 @@ striatum supervise list
 
 ```text
 striatum dashboard
+striatum dashboard --all
 ```
+
+`dashboard --all` (RFC 0028 V1) groups registered repositories and
+reports repo-local runs, blockers, claimable jobs, stale leases,
+and degraded repositories. It is registry-backed and requires a
+daemon `read` capability token (bootstrapped by `repo add` or
+`daemon start`) even when `--daemon` is not passed.
+
+## Daemon and multi-repo registry (RFC 0028 V1)
+
+```text
+striatum daemon start
+striatum daemon status
+striatum daemon stop
+striatum daemon sweep
+striatumd                     # console-script alias for `daemon start`
+striatum repo add <path> [--init] [--no-migrate]
+striatum repo list
+striatum repo remove <path>
+```
+
+`striatum daemon start` / `striatumd` runs a foreground sweep
+process: it does not host an RPC server for clients in V1; CLI and
+MCP callers open the owner-only daemon registry SQLite directly
+under token/capability checks. The Unix socket bound by
+`striatumd` is a lifecycle marker, not a request router.
+
+Both `daemon start` and the first `repo add` bootstrap a single
+admin token when the registry has no clients and write a
+`0600` runtime-fallback file. Token secrets are never read from
+environment variables, never logged to audit, and never stored in
+the registry. Authorization vocabulary in V1 is `read` and
+`admin` only.
+
+`repo add` canonicalizes the repository root, refuses
+symlink/path-traversal ambiguity (including symlinked parent
+components and state-database symlink escapes), derives a
+realpath/inode-based repository identity, and refuses active
+path re-occupation by a different identity. `--init` is required
+when `.striatum/state.sqlite3` is absent; `--no-migrate` refuses
+registration if repo-local migrations would be needed.
+
+`repo remove` is idempotent, revokes live repo-scoped
+capabilities, preserves audit rows, and never reuses
+`repository_id`; re-adding allocates a fresh id.
+
+`daemon sweep` is admin-gated and runs the sweep loop manually
+across registered active runs; the normal recovery sweep also
+runs from the foreground daemon process.
+
+## Daemon-routed read mode
+
+Pass `--daemon` (or set `STRIATUM_DAEMON=1`) on a read verb to
+explicitly route through the daemon registry under token
+authorization:
+
+```text
+striatum --daemon status [--run-id <id>]
+striatum --daemon doctor
+striatum --daemon why <job-id>
+striatum --daemon dashboard --all
+```
+
+V1 read surfaces supported under `--daemon`: `status`, `doctor`,
+`why`, `dashboard --all`. Forced-daemon mutation verbs refuse
+with capability-denied semantics; the CLI does not fall back to
+direct repo-local mode. `--no-daemon` forces direct mode.
 
 ## Skills (RFC 0015)
 

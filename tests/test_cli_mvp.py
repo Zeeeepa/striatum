@@ -1308,6 +1308,170 @@ def test_accepting_review_verdict_unblocks_downstream(tmp_path: Path) -> None:
     assert packet["job"]["workflow_job_id"] == "findings_ledger"
 
 
+def test_verdict_needs_revision_parallel_reviewers_share_cycle_target(tmp_path: Path) -> None:
+    """Two parallel reviewers firing needs_revision on the same upstream
+    must share one cycle-target attempt instead of colliding on
+    ``jobs.idempotency_key`` UNIQUE. Reproduces the dogfood-031 collision
+    where claude_code devils and codex security both routed back to
+    ``synthesize_design`` and the second ``submit-review`` raised
+    ``UNIQUE constraint failed: jobs.run_id, jobs.idempotency_key``.
+    """
+
+    workflow = example_workflow()
+    # Add a parallel second final reviewer on a different lane that also
+    # cycles back to synthesis. Both reviewers fan out from synthesis.
+    final_codex_review = {
+        "id": "final_review_codex",
+        "type": "review",
+        "title": "Final review (codex)",
+        "role_id": "reviewer",
+        "lane_id": "codex",
+        "parallel_group": "final_reviews",
+        "fresh_session_required": True,
+        "objective": "Second parallel final review of the synthesis.",
+        "task_prompt": {"path": "prompts/final_review.md"},
+        "write_scope": {
+            "mode": "review_only_artifact",
+            "repo_write": False,
+            "allowed_paths": ["docs/reviews/rfc-ledger/final-codex/"],
+            "forbidden_paths": [".striatum/"],
+        },
+        "expected_artifacts": [
+            {
+                "logical_name": "review",
+                "kind": "finding",
+                "path": "docs/reviews/rfc-ledger/final-codex/RFC_LEDGER_FINAL_REVIEW.md",
+                "required": True,
+            }
+        ],
+        "needs": ["synthesis"],
+    }
+    # Mark the existing claude final reviewer as part of the same parallel
+    # group so both can run concurrently.
+    for job in workflow["jobs"]:
+        if job["id"] == "final_review":
+            job["parallel_group"] = "final_reviews"
+    workflow["jobs"].append(final_codex_review)
+    workflow["edges"].append({"from": "synthesis", "to": "final_review_codex", "on": "completed"})
+    # Bump both cycles to allow at least two iterations so the parallel
+    # reviewers each pass the max_iterations gate on their first round and
+    # exercise the cycle-target clone idempotency, not the exhaustion path.
+    for cycle in workflow["cycles"]:
+        if cycle.get("to") == "synthesis":
+            cycle["max_iterations"] = 2
+    workflow["cycles"].append({
+        "from": "final_review_codex",
+        "to": "synthesis",
+        "on_verdict": "needs_revision",
+        "max_iterations": 2,
+    })
+    workflow_path = temporary_workflow(tmp_path, workflow)
+    init_repo(tmp_path)
+    run_id = str(data(run_cli(tmp_path, "run", "prepare", "--workflow", str(workflow_path)))["run_id"])
+    run_cli(tmp_path, "branch", "confirm", "--run-id", run_id, "--branch", "striatum/v1-test")
+    run_cli(tmp_path, "run", "start", "--run-id", run_id)
+
+    author = register(tmp_path, run_id, "author", "codex")
+    complete_claimed_job(
+        tmp_path,
+        author,
+        claim(tmp_path, author),
+        logical_name="draft",
+        kind="handoff",
+        path="docs/reviews/rfc-ledger/RFC_LEDGER_DRAFT.md",
+    )
+    codex = register(tmp_path, run_id, "reviewer", "codex")
+    gemini = register(tmp_path, run_id, "reviewer", "gemini")
+    verdict_claimed_review(
+        tmp_path,
+        codex,
+        claim(tmp_path, codex),
+        verdict="accept",
+        path="docs/reviews/rfc-ledger/codex/RFC_LEDGER_REVIEW.md",
+    )
+    verdict_claimed_review(
+        tmp_path,
+        gemini,
+        claim(tmp_path, gemini),
+        verdict="accept",
+        path="docs/reviews/rfc-ledger/gemini/RFC_LEDGER_REVIEW.md",
+    )
+    ledger = register(tmp_path, run_id, "ledger", "codex")
+    complete_claimed_job(
+        tmp_path,
+        ledger,
+        claim(tmp_path, ledger),
+        logical_name="ledger",
+        kind="findings_ledger",
+        path="docs/reviews/rfc-ledger/RFC_LEDGER_FINDINGS_LEDGER.md",
+    )
+    synth = register(tmp_path, run_id, "synthesizer", "claude")
+    complete_claimed_job(
+        tmp_path,
+        synth,
+        claim(tmp_path, synth),
+        logical_name="synthesis",
+        kind="synthesis",
+        path="docs/reviews/rfc-ledger/RFC_LEDGER_SYNTHESIS.md",
+    )
+
+    # Both final reviewers claim and fire needs_revision against synthesis.
+    final_claude = register(tmp_path, run_id, "reviewer", "claude")
+    final_codex = register(tmp_path, run_id, "reviewer", "codex")
+    first_verdict = verdict_claimed_review(
+        tmp_path,
+        final_claude,
+        claim(tmp_path, final_claude),
+        verdict="needs_revision",
+        path="docs/reviews/rfc-ledger/final/RFC_LEDGER_FINAL_REVIEW.md",
+    )
+    assert first_verdict["status"] == "revision_requested"
+
+    # Before the fix this raised ``UNIQUE constraint failed:
+    # jobs.run_id, jobs.idempotency_key`` because the second clone tried
+    # to insert another ``synthesis_a2`` row.
+    second_verdict = verdict_claimed_review(
+        tmp_path,
+        final_codex,
+        claim(tmp_path, final_codex),
+        verdict="needs_revision",
+        path="docs/reviews/rfc-ledger/final-codex/RFC_LEDGER_FINAL_REVIEW.md",
+    )
+    assert second_verdict["status"] == "revision_requested"
+    assert second_verdict["next_job_id"] == first_verdict["next_job_id"], (
+        "parallel reviewers should share one synthesis attempt"
+    )
+
+    # Exactly one synthesis attempt-2 row and one queue message for it.
+    conn = sqlite3.connect(tmp_path / ".striatum" / "state.sqlite3")
+    try:
+        synth_a2 = conn.execute(
+            "SELECT COUNT(*) FROM jobs WHERE run_id = ? AND workflow_job_id = 'synthesis' AND attempt = 2",
+            (run_id,),
+        ).fetchone()[0]
+        assert synth_a2 == 1
+        # One pending queue message for synthesis attempt 2.
+        queued = conn.execute(
+            """
+            SELECT COUNT(*) FROM queue_messages q
+            JOIN jobs j ON q.job_id = j.job_id
+            WHERE j.run_id = ?
+              AND j.workflow_job_id = 'synthesis'
+              AND j.attempt = 2
+              AND q.state = 'pending'
+            """,
+            (run_id,),
+        ).fetchone()[0]
+        assert queued == 1, f"expected exactly one pending synthesis_a2 queue message, got {queued}"
+    finally:
+        conn.close()
+
+    next_synth = register(tmp_path, run_id, "synthesizer", "claude")
+    packet = claim(tmp_path, next_synth)
+    assert packet["job"]["workflow_job_id"] == "synthesis"
+    assert packet["job"]["attempt"] == 2
+
+
 def test_verdict_needs_revision_uses_declared_cycle(tmp_path: Path) -> None:
     run_id = prepare_started_run(tmp_path)
     author = register(tmp_path, run_id, "author", "codex")

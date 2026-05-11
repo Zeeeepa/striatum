@@ -2,6 +2,40 @@
 
 ## Unreleased
 
+## 1.21.1 — 2026-05-11
+
+### Fixed
+
+- Parallel-reviewer cascade-child UNIQUE collision: when two
+  reviewer postures fan out from a single cycle target (e.g. three
+  parallel design-review postures all routing back to one
+  `synthesize_design` via `needs_revision` cycles), the second
+  `submit-review` no longer raises
+  `UNIQUE constraint failed: jobs.run_id, jobs.idempotency_key`.
+  Cycle-target cloning is now idempotent on
+  `(run_id, workflow_job_id, attempt)`; parallel reviewers share a
+  single revision attempt of the shared cycle target. Surfaced in
+  dogfood-031 by `dec_operator_security_cascade_collision_2026_05_11`.
+
+### Added
+
+- `.striatum/bin/codex-supervised-wrapper.sh` mirroring the existing
+  claude/gemini supervised wrappers. Codex `exec ... -` hangs on
+  empty FIFO stdin in supervised mode in some environments
+  (observed during dogfood-031); the wrapper spawns a fresh
+  `codex exec` per packet, matching the RFC 0010 V2 one-packet-per-
+  invocation model. Updated the bundled `examples/harness-profiles/`
+  workflow and `docs/dogfood/031/workflow.json` reference to use
+  the wrapper so future runs avoid the FIFO hang.
+- `docs/CLI_REFERENCE.md` and `docs/HOW_TO_HUMAN.md` now document
+  the RFC 0028 V1 daemon/repo/dashboard verbs (`striatum daemon
+  start/status/stop/sweep`, `striatumd` console script, `repo
+  add/list/remove`, `--daemon` read routing, `dashboard --all`,
+  bootstrap admin token semantics, audit shape, and the V1
+  deferrals: no RPC server, no daemon-owned supervision, no
+  mutation MCP tools, no Windows daemon support, no
+  cross-repository workflows).
+
 ## 1.21.0 — 2026-05-11
 
 ### Added
