@@ -20,7 +20,7 @@ useful for humans, but they do not advance state.
 
 ## Status
 
-`v1.20.1`. RFCs 0001–0026 and RFC 0028 V1 are accepted (some at
+`v1.20.1`. RFCs 0001–0026, RFC 0028 V1, and RFC 0033 V2 are accepted (some at
 `accepted (V1)` or later staged statuses); RFC 0027 is partially
 implemented through fail-closed mode surfacing. Per-version release notes live in
 [`CHANGELOG.md`](CHANGELOG.md). The package is published to
@@ -145,6 +145,17 @@ initialize the target. V1 does not add daemon-owned supervision, MCP
 mutation tools, sealed apply/signing, hosted service semantics, audit
 retention/rotation, or stronger provenance than the selected workflow
 `provenance_mode` already provides.
+
+RFC 0033 V2 accepts system PostgreSQL as the future daemon-owned storage
+substrate for daemon-global registry, audit, capability, scheduler, and
+future RPC-session state. Configure it with `STRIATUM_DAEMON_DB_URL`,
+daemon config, or an explicit `--postgres-url` client surface. The
+cutover command is `striatum daemon migrate --from sqlite --to pg`
+(`--dry-run` inspects first; `--keep-sqlite-readonly` keeps the V1 file
+as an audit tombstone). Repo-local `.striatum/state.sqlite3` remains the
+authoritative workflow state store. RFC 0033 does not add daemon RPC,
+MCP mutation tools, daemon-owned supervision, cross-repository workflow
+mutation, or sealed apply.
 
 ## What It Is For
 

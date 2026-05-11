@@ -2,6 +2,27 @@
 
 ## Unreleased
 
+## 1.22.0 — 2026-05-11
+
+### Added
+
+- RFC 0033 daemon PostgreSQL substrate scaffolding: optional
+  `striatum-orchestrator[daemon-pg]` driver dependency, packaged
+  forward-only daemon DB baseline migration, `daemon doctor`
+  PostgreSQL onboarding checks, `daemon start --postgres-url`, and
+  `daemon migrate --from sqlite --to pg` cutover wiring with V1 audit
+  hash preservation.
+
+### Documentation
+
+- RFC 0033 is now documented as accepted V2: daemon-owned state moves to
+  operator-supplied system PostgreSQL, with forward-only daemon DB
+  migrations and `striatum daemon migrate --from sqlite --to pg` for the
+  V1 registry cutover. The docs keep repo-local
+  `.striatum/state.sqlite3` as workflow truth and avoid claiming daemon
+  RPC, MCP mutations, daemon-owned supervision, cross-repo mutation, or
+  sealed apply before their later RFCs.
+
 ## 1.21.1 — 2026-05-11
 
 ### Fixed

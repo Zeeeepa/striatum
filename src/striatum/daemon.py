@@ -152,6 +152,14 @@ def connect_registry() -> sqlite3.Connection:
             os.chmod(path, 0o600)
         except PermissionError:
             pass
+    cutover = conn.execute(
+        "SELECT value FROM daemon_meta WHERE key = 'pg_cutover_completed_at'"
+    ).fetchone()
+    if cutover is not None:
+        conn.close()
+        raise DaemonRegistryError(
+            "daemon SQLite registry has been cut over to PostgreSQL; configure STRIATUM_DAEMON_DB_URL or pass --postgres-url"
+        )
     return conn
 
 
@@ -851,7 +859,19 @@ def daemon_stop() -> dict[str, Any]:
     return {"stopped": True, "pid": pid}
 
 
-def run_daemon_foreground(*, sweep_interval_seconds: float = 60.0, max_sweeps: int | None = None) -> dict[str, Any]:
+def run_daemon_foreground(
+    *,
+    sweep_interval_seconds: float = 60.0,
+    max_sweeps: int | None = None,
+    postgres_url: str | None = None,
+) -> dict[str, Any]:
+    pg_doctor: dict[str, Any] | None = None
+    if postgres_url is not None or os.environ.get("STRIATUM_DAEMON_DB_URL"):
+        from striatum.daemon_pg.connection import doctor as daemon_pg_doctor
+
+        pg_doctor = daemon_pg_doctor(postgres_url=postgres_url, apply=True)
+        if not pg_doctor.get("ok"):
+            raise DaemonRegistryError("daemon PostgreSQL doctor failed; refusing daemon start")
     conn = connect_registry()
     with conn:
         bootstrap = _bootstrap_admin_if_needed(conn)
@@ -906,6 +926,7 @@ def run_daemon_foreground(*, sweep_interval_seconds: float = 60.0, max_sweeps: i
         "registry_path": str(registry_path()),
         "socket_path": str(socket_path()),
         "bootstrap_admin": bootstrap,
+        "postgres": pg_doctor,
     }
 
 

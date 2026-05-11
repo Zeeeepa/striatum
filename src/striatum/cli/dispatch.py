@@ -714,6 +714,35 @@ def _dispatch_daemon(args: argparse.Namespace) -> object:
         return daemon_mod.run_daemon_foreground(
             sweep_interval_seconds=float(args.sweep_interval_seconds),
             max_sweeps=args.max_sweeps,
+            postgres_url=getattr(args, "postgres_url", None),
+        )
+    if args.daemon_command == "doctor":
+        from striatum.daemon_pg.connection import doctor as pg_doctor
+
+        pg = pg_doctor(
+            postgres_url=getattr(args, "postgres_url", None),
+            apply=bool(getattr(args, "apply_migrations", False)),
+        )
+        try:
+            v1 = daemon_mod.read_doctor(repo=None, verbose=True)
+        except Exception as exc:  # noqa: BLE001 - daemon doctor must still report PG onboarding.
+            v1 = {"ok": False, "error": str(exc)}
+        return {"mode": "daemon", "postgres": pg, "sqlite_registry": v1}
+    if args.daemon_command == "migrate":
+        from striatum.daemon_pg.config import resolve_config
+        from striatum.daemon_pg.cutover import CutoverOptions, migrate
+
+        config = resolve_config(postgres_url=getattr(args, "postgres_url", None))
+        if config.url is None:
+            raise StriatumError("daemon PostgreSQL URL is not configured", exit_code=13)
+        source = Path(args.source_registry) if args.source_registry else daemon_mod.registry_path()
+        return migrate(
+            CutoverOptions(
+                source_registry=source,
+                postgres_url=config.url,
+                dry_run=bool(args.dry_run),
+                keep_sqlite_readonly=bool(args.keep_sqlite_readonly),
+            )
         )
     if args.daemon_command == "status":
         return daemon_mod.daemon_status()

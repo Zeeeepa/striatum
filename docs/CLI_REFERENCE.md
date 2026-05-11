@@ -93,6 +93,8 @@ striatum daemon start
 striatum daemon status
 striatum daemon stop
 striatum daemon sweep
+striatum daemon migrate --from sqlite --to pg [--dry-run]
+                         [--keep-sqlite-readonly]
 striatumd                     # console-script alias for `daemon start`
 striatum repo add <path> [--init] [--no-migrate]
 striatum repo list
@@ -127,6 +129,27 @@ capabilities, preserves audit rows, and never reuses
 `daemon sweep` is admin-gated and runs the sweep loop manually
 across registered active runs; the normal recovery sweep also
 runs from the foreground daemon process.
+
+RFC 0033 V2 accepts system PostgreSQL as the daemon-owned
+storage substrate for daemon-global state. Configure it with
+`STRIATUM_DAEMON_DB_URL`, daemon config, or an explicit
+`--postgres-url` client surface. The daemon owns schema
+migrations and roles, but it does not install, start, stop, or
+upgrade PostgreSQL. Bundled, embedded, and Dockerized Postgres
+distributions are deferred.
+
+`daemon migrate --from sqlite --to pg --dry-run` reports the V1
+registry rows that would be exported. Without `--dry-run`, it
+writes the V2 daemon DB schema, imports the V1 registry rows,
+replays the metadata-only audit chain, verifies hash continuity,
+and writes a cutover marker. Once the marker exists, V1 registry
+reads are refused. `--keep-sqlite-readonly` keeps the V1 SQLite
+file as an audit tombstone while blocking V1 writes. Repo-local
+`.striatum/state.sqlite3` is untouched.
+
+RFC 0033 does not add daemon RPC routing, daemon-owned
+supervision, MCP mutation tools, cross-repository workflow
+mutation, or sealed apply. Those remain in later RFCs.
 
 ## Daemon-routed read mode
 

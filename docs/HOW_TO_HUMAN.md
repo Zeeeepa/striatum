@@ -434,6 +434,44 @@ What V1 daemon mode does **not** do:
 - It is not a replacement for `recovery watch` against a
   single repo, only for multi-repo sweeping.
 
+### Daemon V2 storage substrate (RFC 0033)
+
+RFC 0033 accepts system PostgreSQL as the daemon-owned storage
+substrate for V2 daemon-global state. This is a daemon storage
+cutover only: repo-local `.striatum/state.sqlite3` remains the
+live run state for each target repository, and ordinary workflow
+mutations continue to use the repo-local path until RFC 0030
+ships daemon RPC routing.
+
+The operator provides PostgreSQL. Striatum connects through
+`STRIATUM_DAEMON_DB_URL`, daemon config, or an explicit
+`--postgres-url` client surface; the daemon owns schema
+migrations and roles, but it does not install, start, stop, or
+upgrade PostgreSQL. Bundled, embedded, and Dockerized Postgres
+distributions are deferred.
+
+Cut over a V1 daemon registry with:
+
+```bash
+# Inspect what would be imported.
+"$RUNNER" daemon migrate --from sqlite --to pg --dry-run --json
+
+# Import the V1 registry into the V2 daemon DB.
+"$RUNNER" daemon migrate --from sqlite --to pg --json
+```
+
+The migration writes the V2 schema, imports registered
+repositories, clients, capabilities, scheduler cursors, and
+metadata-only audit rows, verifies hash continuity, and writes a
+cutover marker. Once the marker exists, V1 registry reads are
+refused and operators are pointed at the V2 daemon DB. Add
+`--keep-sqlite-readonly` when you want to retain the old registry
+file as an audit tombstone while blocking V1 writes.
+
+RFC 0033 does not add MCP mutation tools, daemon RPC, daemon-owned
+supervision, cross-repository workflow mutation, or sealed apply.
+Those remain later RFC scope.
+
 ## Dashboards and graphs
 
 For a compact at-a-glance view of a run, use the dashboard. It is

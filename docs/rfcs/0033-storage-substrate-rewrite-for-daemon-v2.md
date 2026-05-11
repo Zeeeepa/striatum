@@ -1,6 +1,6 @@
 # RFC 0033: Storage Substrate Rewrite for Daemon V2
 
-Status: proposed
+Status: accepted (V2)
 Date: 2026-05-11
 Context:
 [`RFC 0028`](0028-long-running-daemon-and-multi-repository-control-plane.md),
@@ -108,10 +108,12 @@ Downsides:
   contention story, just buffers it.
 - Implies Turso brand commitment in docs.
 
-#### Option C: Embedded PostgreSQL
+#### Option C: System PostgreSQL
 
-`postgresql-embedded` or similar ship a Postgres binary that the daemon
-launches as a child process or links statically.
+The daemon connects to an operator-installed PostgreSQL service through a
+configured connection URL. The daemon owns its schema, migrations, roles,
+and audit semantics, but it does not manage the PostgreSQL process
+lifecycle.
 
 Benefits:
 - Real MVCC; concurrent readers and writers.
@@ -122,9 +124,8 @@ Benefits:
 - Mature Go driver (`pgx`).
 
 Downsides:
-- Heavyweight on disk; daemon installer ships a Postgres binary or
-  depends on a system Postgres.
-- Process supervision now nests: daemon → embedded Postgres → its workers.
+- Requires operators to install or provide a system Postgres before daemon
+  V2 can start.
 - Backup/export story is no longer "copy one file."
 
 #### Option D: RocksDB / BoltDB / Pebble (KV)
@@ -210,8 +211,9 @@ Rationale:
   ship without the daemon installer growing a Postgres lifecycle
   manager.
 
-The five options are documented above so reviewers can challenge the
-recommendation in the dogfood-033 design phase.
+The five options are documented above as the accepted decision record for
+why daemon V2 uses system PostgreSQL instead of SQLite, libSQL, embedded
+Postgres, a key-value store, or a custom event log.
 
 ### 3. Schema and migration model
 
@@ -305,9 +307,10 @@ The daemon may not assume single-writer semantics anymore:
 
 ### 9. Provenance and trust implications
 
-- Daemon owns Postgres lifecycle, so daemon process compromise implies DB
-  compromise. Same blast radius as V1 (registry SQLite is also
-  daemon-owned), but the daemon is now a longer-running, larger target.
+- The daemon owns the Postgres schema and runtime credentials, not the
+  Postgres service lifecycle. Daemon process compromise therefore implies
+  daemon DB compromise. Same blast radius as V1 registry SQLite, but the
+  daemon is now a longer-running, larger target.
 - Audit append-only is enforced by Postgres roles, which is stronger than
   V1's SQL triggers (operator with raw write access to the SQLite file
   can still mutate). It is not stronger than an operator who can read
@@ -321,8 +324,8 @@ The daemon may not assume single-writer semantics anymore:
 - V1 SQLite registry remains readable until the operator runs `daemon
   migrate`. After migration, V1 reads are refused.
 - Repo-local `.striatum/state.sqlite3` is unaffected; existing workflows
-  continue to mutate it directly while RFC 0030 routes mutations through
-  the daemon RPC. V1 dogfood workflows do not need re-running.
+  continue to mutate it directly until RFC 0030 defines and ships daemon
+  RPC routing. V1 dogfood workflows do not need re-running.
 - Direct CLI mode (`--no-daemon`) continues to use repo-local SQLite only
   and is unaffected by this RFC.
 

@@ -16,6 +16,13 @@ foreground recovery sweep process. It does not provide hosted services,
 external persistence, telemetry, Slack, remote serving, sealed source
 apply, daemon-owned supervision, or automatic commits.
 
+RFC 0033 V2 accepts system PostgreSQL as the future daemon-owned storage
+substrate. That decision affects daemon-global registry, audit,
+capability, scheduler, and future RPC-session state only. It does not
+replace repo-local run state, does not introduce hosted persistence, and
+does not by itself add daemon RPC, MCP mutation tools, daemon-owned
+supervision, cross-repository workflow mutation, or sealed apply.
+
 The authoritative live state is SQLite under `.striatum/state.sqlite3`.
 Repository artifacts are durable provenance only. Marker files, tmux panes,
 terminal output, and provider hooks are never live control-plane state.
@@ -950,6 +957,26 @@ concerns: registered repositories, clients, `read`/`admin` capability
 grants, metadata-only hash-chained audit rows, audit segment manifests,
 scheduler cursors, and daemon metadata.
 
+RFC 0033 V2 keeps the same authority split but changes the daemon-global
+substrate from the V1 owner-only registry SQLite file to a daemon DB on
+operator-installed system PostgreSQL. The daemon connects through
+`STRIATUM_DAEMON_DB_URL`, `~/.config/striatum/daemon.toml`, or an
+explicit `--postgres-url` client surface. The daemon owns schema
+migrations and database roles, but it does not start, stop, install, or
+upgrade PostgreSQL. Bundled, embedded, and Dockerized Postgres
+distributions are deferred product choices.
+
+Daemon DB migrations are forward-only and daemon-owned. Startup applies
+pending migrations and refuses to run when the on-disk daemon schema is
+newer than the daemon binary. `daemon doctor` reports substrate version,
+schema version, audit-chain status, and segment-manifest verification.
+The cutover command is `striatum daemon migrate --from sqlite --to pg`
+with `--dry-run` for inspection and `--keep-sqlite-readonly` when the
+operator wants the V1 registry file retained as an audit tombstone. After
+a successful cutover marker is present, V1 registry reads are refused and
+operators are pointed at the V2 daemon DB. Repo-local
+`.striatum/state.sqlite3` is untouched.
+
 Registry location is platform-local and overrideable for tests with
 `STRIATUM_DAEMON_REGISTRY`; runtime files are overrideable with
 `STRIATUM_DAEMON_RUNTIME_DIR`. Linux uses XDG state/runtime locations;
@@ -1005,6 +1032,11 @@ resources-only; `tools/list` is empty and `striatum://daemon/audit` is not
 exposed as a V1 MCP resource. Daemon MCP clients must pass an explicit
 token parameter; repo-scoped read tokens filter resource lists and are
 denied when reading other repositories.
+
+RFC 0033 does not change the daemon MCP contract. Daemon MCP remains
+resources-only until a later RFC explicitly ships mutation capabilities,
+and RFC 0030 remains responsible for any daemon RPC server or
+daemon-mediated client routing.
 
 The foreground sweep process uses the existing `recovery auto` policy
 against active registered runs without requiring one `recovery watch`
