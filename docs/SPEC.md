@@ -18,10 +18,12 @@ apply, daemon-owned supervision, or automatic commits.
 
 RFC 0033 V2 accepts system PostgreSQL as the future daemon-owned storage
 substrate. That decision affects daemon-global registry, audit,
-capability, scheduler, and future RPC-session state only. It does not
-replace repo-local run state, does not introduce hosted persistence, and
-does not by itself add daemon RPC, MCP mutation tools, daemon-owned
-supervision, cross-repository workflow mutation, or sealed apply.
+capability, scheduler, and RPC-session state only. It does not replace
+repo-local run state or introduce hosted persistence. RFC 0030 and RFC
+0031 build on that substrate with a daemon RPC foundation,
+daemon-owned-supervisor metadata, and apply receipts; MCP mutation tools,
+cross-repository workflow mutation, hosted service semantics, and
+malicious-local-operator-resistant sealed apply remain out of scope.
 
 The authoritative live state is SQLite under `.striatum/state.sqlite3`.
 Repository artifacts are durable provenance only. Marker files, tmux panes,
@@ -51,6 +53,7 @@ The schema includes:
 - `events`
 - `job_worktrees` (added in migration version 2)
 - `process_supervisors` (added in migration version 4)
+- `process_supervisor_pointers` (added in migration version 13)
 
 `events` and artifact records are append-only. Mutations use short
 `BEGIN IMMEDIATE` transactions and emit structured events.
@@ -317,11 +320,12 @@ byline derivation and optional review-job gates. It still does not prove
 artifact bytes came from a model process and does not prevent direct
 source edits.
 
-`sealed_patch` is reserved for a future hard-containment mode. The
-workflow validator accepts structurally valid `sealed_patch` workflows
-with non-overlapping repo-relative `protected_paths` and
-`operator_writable_paths`, but `run start` refuses them on every platform
-until a containment mechanism is implemented. Silent downgrade to
+`sealed_patch` is the reserved hard-containment mode. The workflow
+validator accepts structurally valid `sealed_patch` workflows with
+non-overlapping repo-relative `protected_paths` and
+`operator_writable_paths`. Direct repo-local `run start` still refuses
+sealed runs; daemon-mediated sealed apply is represented by RFC 0031
+apply receipts and fail-closed apply authority. Silent downgrade to
 `advisory` is a correctness bug.
 
 ## Run Lifecycle
@@ -1048,10 +1052,43 @@ exposed as a V1 MCP resource. Daemon MCP clients must pass an explicit
 token parameter; repo-scoped read tokens filter resource lists and are
 denied when reading other repositories.
 
-RFC 0033 does not change the daemon MCP contract. Daemon MCP remains
-resources-only until a later RFC explicitly ships mutation capabilities,
-and RFC 0030 remains responsible for any daemon RPC server or
-daemon-mediated client routing.
+RFC 0030 adds the daemon V2 RPC server-side foundation. The envelope is JSON
+`schema_version: 1` with client-supplied `request_id`, dotted `method`,
+object `params`, optional `capability_token`, and `deadline_ms`.
+Responses echo the envelope version and request id, set `ok`, and carry
+either data or a stable error object. `daemon.hello` / `daemon.welcome`
+negotiate envelope version and framing; no ordinary route may run before
+the handshake. Incompatible envelope or framing is refused with exit code
+10 and must not silently downgrade to direct mode.
+
+The method registry is the code source of truth for daemon V2 routes and
+publishes a stable `methods_etag` through `daemon.describe`. The closed
+capability vocabulary for the RFC 0030/0031 foundation is `read`,
+`write`, `review`, `claim`, `apply`, and `admin`. Every authorized or
+denied RPC request records metadata-only PostgreSQL request/audit
+helpers: method, decision, denial reason where safe, transport, request
+id, canonical params hash, row hash, and audit-chain linkage. The audit
+contract still excludes request/response bodies, transcripts, artifact
+contents, token secrets, salts, tracebacks, and model prose.
+
+This foundation does not yet make the installed CLI route ordinary
+operator commands through the daemon by default. Existing direct
+repo-local CLI mode remains the live compatibility path while daemon
+accept loops and client routing move method by method.
+
+RFC 0031 adds daemon-owned supervision and sealed-apply foundation
+state. The daemon DB contains `daemon_supervisors` and `apply_receipts`;
+repo-local SQLite contains `process_supervisor_pointers` so existing
+packet delivery, lane-attestation, and evidence paths continue to read
+repo-local workflow truth. The daemon `apply.reviewed_patch` route is an
+AI guardrail and fails closed without signing-key/apply authority; it is
+not a cryptographic non-repudiation claim against a malicious local
+operator.
+
+Daemon MCP remains resources-only in this release. MCP mutation
+capability expansion is RFC 0032 scope; it must route through the same
+RPC/capability/audit boundary rather than reintroducing a global
+`--allow-mutations` trust shortcut.
 
 The foreground sweep process uses the existing `recovery auto` policy
 against active registered runs without requiring one `recovery watch`
@@ -1075,9 +1112,11 @@ Audit segment append-only manifests are implemented, but production
 retention/rotation policy is deferred; the active registry can grow until
 an operator or future RFC supplies rotation/export behavior.
 
-Registry-backed mode does not strengthen lane attestation and does not implement
-`sealed_patch`; sealed runs remain unsupported/unstartable until a
-future containment design ships.
+Registry-backed mode alone does not strengthen lane attestation. RFC 0031
+adds daemon-owned supervisor metadata and repo-local pointers as the V2
+schema/API foundation for future stronger supervision. Existing direct
+repo-local supervision remains the compatibility path until daemon
+spawn, reattach, and routing take over method by method.
 
 ### Local Web UI
 

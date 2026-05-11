@@ -1,10 +1,10 @@
 # RFC 0030: Daemon RPC Server and Version Skew Protocol
 
-Status: proposed
+Status: accepted (V2)
 Date: 2026-05-11
 Context:
 [`RFC 0028`](0028-long-running-daemon-and-multi-repository-control-plane.md),
-[`RFC 0033`](0033-storage-substrate-rewrite-for-daemon-v2.md) (proposed),
+[`RFC 0033`](0033-storage-substrate-rewrite-for-daemon-v2.md) (accepted V2),
 [`RFC 0012`](0012-local-service-api.md),
 [`RFC 0013`](0013-local-web-ui.md),
 [`docs/DECISION_LOG.md`](../DECISION_LOG.md) (D082, D083, D084, D086, D006, D009),
@@ -16,6 +16,13 @@ Context:
 RFC 0030 is the spine of daemon V2. It is gated on RFC 0033 (substrate)
 landing first because the wire protocol, audit framing, and request log
 key off the substrate choice.
+
+Implementation status: dogfood-034 lands the envelope-v1 codec, JSON
+framing helpers, owner-local transport guards, `daemon.hello` /
+`daemon.welcome`, `daemon.describe`, the capability-bound method registry,
+and PostgreSQL request/audit helper wiring. Full daemon accept-loop CLI
+routing remains behind the daemon V2 transition path; direct repo-local mode
+continues as the compatibility fallback until a later retirement decision.
 
 ## Problem
 

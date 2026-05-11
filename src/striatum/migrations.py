@@ -417,6 +417,36 @@ def _apply_v12_lane_attestation_columns(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE process_supervisors ADD COLUMN pid_start_time TEXT")
 
 
+def _apply_v13_daemon_supervisor_pointers(conn: sqlite3.Connection) -> None:
+    """RFC 0031: repo-local pointers for daemon-owned supervisors.
+
+    The daemon owns the OS child in V2, but repo-local workflow state remains
+    authoritative. This table records the relationship between a daemon-owned
+    supervisor row and the compatible repo-local supervisor identity used by
+    packet delivery, lane attestation, evidence, and doctor checks.
+    """
+    conn.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS process_supervisor_pointers (
+          supervisor_id TEXT PRIMARY KEY,
+          daemon_supervisor_id TEXT NOT NULL,
+          run_id TEXT NOT NULL REFERENCES runs(run_id),
+          session_id TEXT NOT NULL REFERENCES sessions(session_id),
+          pid INTEGER,
+          pid_start_time TEXT,
+          state TEXT NOT NULL CHECK (state IN ('starting','attached','detached','lost','stopped')),
+          updated_at TEXT NOT NULL,
+          metadata_json TEXT NOT NULL
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS uq_active_daemon_supervisor_pointer_per_session
+          ON process_supervisor_pointers(session_id)
+          WHERE state IN ('starting','attached','detached');
+        CREATE INDEX IF NOT EXISTS idx_process_supervisor_pointers_run
+          ON process_supervisor_pointers(run_id, state);
+        """
+    )
+
+
 MIGRATIONS: list[Migration] = sorted(
     [
         Migration(version=1, label="v1 baseline schema", apply=_apply_v1),
@@ -458,6 +488,11 @@ MIGRATIONS: list[Migration] = sorted(
             version=12,
             label="lane attestation operator_label + pid_start_time columns",
             apply=_apply_v12_lane_attestation_columns,
+        ),
+        Migration(
+            version=13,
+            label="daemon supervisor pointers",
+            apply=_apply_v13_daemon_supervisor_pointers,
         ),
     ],
     key=lambda migration: migration.version,

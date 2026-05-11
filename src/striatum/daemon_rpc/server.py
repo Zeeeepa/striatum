@@ -1,0 +1,206 @@
+"""Minimal daemon RPC router."""
+
+from __future__ import annotations
+
+from dataclasses import replace
+from pathlib import Path
+from typing import Any, Callable, Mapping
+
+from striatum.api import invoke
+from striatum.daemon_apply.signing_key import key_loaded
+from striatum.daemon_rpc.capability import RpcAuthContext, authorize, require_allowed
+from striatum.daemon_rpc.envelope import RpcEnvelope, RpcError, RpcResponse
+from striatum.daemon_rpc.handshake import build_welcome
+from striatum.daemon_rpc.registry import METHOD_REGISTRY, METHODS_ETAG, describe_methods
+from striatum.daemon_rpc.request_log import append_audit_row, append_request_log, request_id_seen
+
+
+Handler = Callable[[RpcEnvelope], Mapping[str, Any]]
+
+CLI_ROUTES: dict[str, tuple[str, ...]] = {
+    "status": ("status",),
+    "why": ("why",),
+    "doctor": ("doctor",),
+    "dashboard": ("dashboard",),
+    "workflow.validate": ("workflow", "validate"),
+    "run.prepare": ("run", "prepare"),
+    "run.start": ("run", "start"),
+    "session.register": ("register-session",),
+    "claim_next": ("claim-next",),
+    "ack": ("ack",),
+    "block": ("block",),
+    "heartbeat": ("heartbeat",),
+    "publish_artifact": ("publish-artifact",),
+    "complete": ("complete",),
+    "release": ("release",),
+    "verdict": ("verdict",),
+    "submit_review": ("submit-review",),
+    "supervise.start": ("supervise", "start"),
+    "supervise.send": ("supervise", "send"),
+    "supervise.stop": ("supervise", "stop"),
+    "supervise.status": ("supervise", "status"),
+    "supervise.list": ("supervise", "list"),
+}
+
+
+class DaemonRpcRouter:
+    def __init__(self, *, pg_conn: Any | None = None, repo_root: Path | None = None, substrate_schema: int = 1) -> None:
+        self.pg_conn = pg_conn
+        self.repo_root = (repo_root or Path.cwd()).resolve()
+        self.substrate_schema = substrate_schema
+        self._handshaken_connections: set[str] = set()
+
+    def handle(self, envelope: RpcEnvelope, *, connection_id: str = "default") -> RpcResponse:
+        auth = RpcAuthContext(None, None, _repository_id(envelope.params), None, "allowed")
+        if self.pg_conn is not None and request_id_seen(self.pg_conn, request_id=envelope.request_id):
+            error = RpcError("duplicate_request", "daemon RPC request_id was already used")
+            return RpcResponse.error_response(request_id=envelope.request_id, error=error)
+        try:
+            if envelope.method != "daemon.hello" and connection_id not in self._handshaken_connections:
+                auth = _denied_auth(auth, "version_incompatible")
+                raise RpcError("version_incompatible", "daemon.hello must run before ordinary RPC routes")
+            entry = METHOD_REGISTRY.get(envelope.method)
+            if entry is None:
+                auth = _denied_auth(auth, "method_unknown")
+                raise RpcError("method_unknown", f"unknown daemon RPC method: {envelope.method}")
+            if entry.repository_scope and _repository_id(envelope.params) is None:
+                auth = _denied_auth(auth, "repo_not_registered")
+                raise RpcError("repo_not_registered", "daemon RPC route requires repository_id")
+            if envelope.method == "daemon.hello":
+                loaded = key_loaded()
+                data = build_welcome(
+                    envelope.params,
+                    methods_etag=METHODS_ETAG,
+                    substrate_schema=self.substrate_schema,
+                    sealed_apply_supported=loaded,
+                    key_loaded=loaded,
+                )
+                self._handshaken_connections.add(connection_id)
+            else:
+                if self.pg_conn is None and entry.required_capability is not None:
+                    auth = _denied_auth(auth, "token_missing")
+                    raise RpcError("token_missing", "daemon RPC authorization requires a daemon DB connection")
+                if self.pg_conn is not None:
+                    auth = authorize(
+                        self.pg_conn,
+                        required=entry.required_capability,
+                        repository_id=_repository_id(envelope.params),
+                        token=envelope.capability_token,
+                    )
+                require_allowed(auth)
+                repo_root = self._repo_root_for(envelope, auth=auth)
+                data = self._route(envelope, repo_root=repo_root)
+            response = RpcResponse.ok_response(request_id=envelope.request_id, data=data)
+        except RpcError as exc:
+            auth = _denied_auth(auth, exc.code)
+            response = RpcResponse.error_response(request_id=envelope.request_id, error=exc)
+        return self._record_and_return(envelope, auth=auth, response=response)
+
+    def _record_and_return(self, envelope: RpcEnvelope, *, auth: RpcAuthContext, response: RpcResponse) -> RpcResponse:
+        if self.pg_conn is None:
+            return response
+        audit_value = append_audit_row(
+            self.pg_conn,
+            auth=auth,
+            method=envelope.method,
+            transport="rpc",
+            request_id=envelope.request_id,
+            params=envelope.params,
+            exit_code=None if response.ok else 10,
+        )
+        response_with_audit = replace(response, audit_id=f"aud_{audit_value}" if audit_value is not None else None)
+        append_request_log(
+            self.pg_conn,
+            request_id=envelope.request_id,
+            method=envelope.method,
+            params=envelope.params,
+            auth=auth,
+            decision=auth.decision,
+            response=response_with_audit.to_mapping(),
+            audit_id=audit_value,
+        )
+        return response_with_audit
+
+    def _repo_root_for(self, envelope: RpcEnvelope, *, auth: RpcAuthContext) -> Path:
+        repository_id = auth.repository_id or _repository_id(envelope.params)
+        if self.pg_conn is None or repository_id is None:
+            return self.repo_root
+        with self.pg_conn.cursor() as cur:
+            cur.execute(
+                "SELECT repo_root FROM striatumd.repositories WHERE repository_id = %s AND state = 'active'",
+                (repository_id,),
+            )
+            row = cur.fetchone()
+        if row is None:
+            raise RpcError("repo_not_registered", "daemon RPC repository is not registered")
+        repo_root = Path(str(_row_value(row, "repo_root"))).expanduser().resolve()
+        if repo_root != self.repo_root:
+            raise RpcError("repo_not_registered", "daemon RPC repository does not match this router")
+        return repo_root
+
+    def _route(self, envelope: RpcEnvelope, *, repo_root: Path) -> dict[str, Any]:
+        if envelope.method == "daemon.describe":
+            return describe_methods()
+        if envelope.method == "dashboard.all":
+            from striatum.daemon import dashboard_all
+
+            return dashboard_all(token=envelope.capability_token)
+        if envelope.method.startswith("apply."):
+            from striatum.daemon_apply.apply_service import handle_apply_rpc
+
+            return handle_apply_rpc(envelope.method, envelope.params)
+        prefix = CLI_ROUTES.get(envelope.method)
+        if prefix is None:
+            raise RpcError("method_unknown", f"method has no handler: {envelope.method}")
+        args = [*prefix, *_params_to_args(envelope.params)]
+        result = invoke(args, repo=repo_root)
+        if not result.get("ok"):
+            error = result.get("error")
+            if isinstance(error, dict):
+                raise RpcError("command_failed", str(error.get("message", "daemon RPC command failed")), exit_code=int(error.get("code", 1)))
+            raise RpcError("command_failed", "daemon RPC command failed", exit_code=1)
+        data = result.get("data")
+        return data if isinstance(data, dict) else {"result": data}
+
+
+def _repository_id(params: Mapping[str, Any]) -> str | None:
+    value = params.get("repository_id")
+    return str(value) if value is not None else None
+
+
+def _denied_auth(auth: RpcAuthContext, reason: str) -> RpcAuthContext:
+    return RpcAuthContext(
+        auth.client_id,
+        auth.token_id,
+        auth.repository_id,
+        auth.capability,
+        "denied",
+        reason,
+    )
+
+
+def _row_value(row: Any, key: str) -> Any:
+    if isinstance(row, dict):
+        return row[key]
+    if hasattr(row, "keys"):
+        return row[key]
+    if isinstance(row, (tuple, list)):
+        return row[0]
+    raise TypeError("database row must expose mapping-like keys or sequence values")
+
+
+def _params_to_args(params: Mapping[str, Any]) -> list[str]:
+    args: list[str] = []
+    for key, value in params.items():
+        if key in {"repository_id", "capability_token"} or value is None:
+            continue
+        flag = "--" + key.replace("_", "-")
+        if isinstance(value, bool):
+            if value:
+                args.append(flag)
+        elif isinstance(value, list):
+            for item in value:
+                args.extend([flag, str(item)])
+        else:
+            args.extend([flag, str(value)])
+    return args

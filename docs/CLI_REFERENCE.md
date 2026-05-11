@@ -155,9 +155,12 @@ reads are refused. `--keep-sqlite-readonly` keeps the V1 SQLite
 file as an audit tombstone while blocking V1 writes. Repo-local
 `.striatum/state.sqlite3` is untouched.
 
-RFC 0033 does not add daemon RPC routing, daemon-owned
-supervision, MCP mutation tools, cross-repository workflow
-mutation, or sealed apply. Those remain in later RFCs.
+RFC 0030/0031 add the daemon V2 RPC and supervision/apply foundation on
+top of RFC 0033. The wire envelope is versioned JSON; `daemon.hello`
+negotiates envelope/framing, `daemon.describe` publishes the method
+registry and `methods_etag`, and incompatible clients refuse with exit
+code 10. Direct repo-local mode remains the compatibility path while
+daemon routing moves method by method.
 
 ## Daemon-routed read mode
 
@@ -176,6 +179,12 @@ V1 read surfaces supported under `--daemon`: `status`, `doctor`,
 `why`, `dashboard --all`. Forced-daemon mutation verbs refuse
 with capability-denied semantics; the CLI does not fall back to
 direct repo-local mode. `--no-daemon` forces direct mode.
+
+Daemon RPC method capabilities use the closed vocabulary `read`,
+`write`, `review`, `claim`, `apply`, and `admin`. `supervise.*` and
+`apply.*` are daemon RPC routes; sealed apply fails closed unless a
+daemon signing key and `apply` capability are present. Daemon MCP remains
+resources-only until RFC 0032 adds mutation tools.
 
 ## Skills (RFC 0015)
 
@@ -252,6 +261,7 @@ striatum session close
   when a requested git operation cannot be performed).
 - `9`: local SQLite schema is newer than this striatum install
   supports.
+- `10`: daemon RPC transport, handshake, or version-skew refusal.
 
 ## See also
 

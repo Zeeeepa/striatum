@@ -66,6 +66,7 @@ so external references keep resolving even as items move between sections.
 | F29 | RFC 0025 V1 Steps 2+3 (codex + gemini plugins, dogfood-029) | ✅ done |
 | F30 | RFC 0026 V1 + RFC 0027 Phase 2 guardrails (dogfood-030) | ✅ done |
 | F31 | RFC 0028 V1 registry-backed multi-repo read/sweep slice (dogfood-031) | ✅ done |
+| F32 | RFC 0030 + RFC 0031 V2 RPC/supervision/apply foundation (dogfood-034) | ✅ done |
 
 Legend: ✅ done · 🟡 most done (sub-tasks remain) · ⏳ open
 
@@ -258,6 +259,13 @@ F31. ~~Land the RFC 0028 V1 daemon acceptance slice.~~ Done: optional
     global dashboard, resources-only daemon MCP with explicit token
     parameters and repo-scope filtering, metadata-only audit with segment
     checks, and foreground recovery sweep events bylined
-    `striatumd-<instance-id>` are in place. Deferred: daemon-owned
-    supervision, MCP mutation tools, sealed apply/signing, cross-repository workflows,
-    service-manager install, Windows daemon support, and operator tenancy.
+    `striatumd-<instance-id>` are in place. Deferred at V1: daemon-owned
+    supervision, MCP mutation tools, sealed apply/signing,
+    cross-repository workflows, service-manager install, Windows daemon
+    support, and operator tenancy.
+
+F32. ~~Land the RFC 0030 + RFC 0031 daemon V2 foundation.~~ Done:
+    envelope-v1 daemon RPC codec, handshake, method registry, owner-local
+    transport guards, PostgreSQL request/audit helpers, daemon DB
+    supervisor/apply receipt tables, repo-local supervisor pointers, and
+    fail-closed sealed-apply authority helpers.

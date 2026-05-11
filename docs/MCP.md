@@ -155,12 +155,11 @@ not part of the daemon MCP surface. The handler opens the owner-only
 registry SQLite directly; it does not connect to a daemon RPC server in
 V1.
 
-RFC 0033 V2 changes only the daemon-owned storage substrate: daemon-global
-registry, audit, capability, scheduler, and future RPC-session state move
-to a daemon DB on operator-installed system PostgreSQL. It does not add
-MCP mutation tools, a daemon RPC route, a subscription API, or sealed
-apply authority. Those remain deferred to RFC 0030, RFC 0031, and RFC
-0032 as applicable.
+RFC 0033 V2 changes the daemon-owned storage substrate, and RFC 0030/0031
+add the daemon RPC/supervision/apply foundation on top of it. Daemon MCP
+still remains resources-only in this release: mutation tools are RFC 0032
+scope and must use the same RPC capability/audit boundary when they land.
+There is no MCP-specific trust shortcut.
 
 Daemon resources:
 

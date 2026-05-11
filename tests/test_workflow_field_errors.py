@@ -120,3 +120,76 @@ def test_unconverted_raise_site_keeps_none() -> None:
 
 def test_valid_workflow_does_not_raise() -> None:
     validate_workflow(_VALID)
+
+
+def test_require_daemon_must_be_boolean() -> None:
+    bad = _copy()
+    bad["require_daemon"] = "yes"
+    with pytest.raises(WorkflowError) as exc_info:
+        validate_workflow(bad)
+    assert exc_info.value.field_path == "require_daemon"
+
+
+def test_sealed_patch_rejects_explicit_require_daemon_false() -> None:
+    bad = _copy()
+    bad["provenance_mode"] = "sealed_patch"
+    bad["protected_paths"] = ["src/"]
+    bad["operator_writable_paths"] = ["docs/"]
+    bad["require_daemon"] = False
+    with pytest.raises(WorkflowError) as exc_info:
+        validate_workflow(bad)
+    assert exc_info.value.field_path == "require_daemon"
+
+
+def test_sealed_patch_provider_is_closed_and_sealed_only() -> None:
+    bad = _copy()
+    bad["provenance_mode"] = "sealed_patch"
+    bad["protected_paths"] = ["src/"]
+    bad["operator_writable_paths"] = ["docs/"]
+    bad["sealed_patch_provider"] = "magic"
+    with pytest.raises(WorkflowError) as exc_info:
+        validate_workflow(bad)
+    assert exc_info.value.field_path == "sealed_patch_provider"
+
+    bad = _copy()
+    bad["sealed_patch_provider"] = "refuse"
+    with pytest.raises(WorkflowError) as exc_info:
+        validate_workflow(bad)
+    assert exc_info.value.field_path == "sealed_patch_provider"
+
+
+def test_apply_gate_field_validation() -> None:
+    bad = _copy()
+    bad["jobs"][0]["apply_gate"] = "true"
+    with pytest.raises(WorkflowError) as exc_info:
+        validate_workflow(bad)
+    assert exc_info.value.field_path == "jobs[0].apply_gate"
+
+    bad = _copy()
+    bad["jobs"][0]["apply_gate"] = True
+    with pytest.raises(WorkflowError) as exc_info:
+        validate_workflow(bad)
+    assert exc_info.value.field_path == "jobs[0].apply_gate"
+
+
+def test_apply_gate_accepts_build_with_patch_summary_artifact() -> None:
+    workflow = _copy()
+    job = workflow["jobs"][0]
+    job["type"] = "build"
+    job["write_scope"] = {
+        "mode": "repo_write",
+        "repo_write": True,
+        "allowed_paths": ["docs/reviews/"],
+        "forbidden_paths": [".striatum/"],
+    }
+    job["expected_artifacts"] = [
+        {
+            "logical_name": "patch_summary",
+            "kind": "patch_summary",
+            "path": "docs/reviews/PATCH_SUMMARY.md",
+            "required": True,
+        },
+    ]
+    job["apply_gate"] = True
+
+    validate_workflow(workflow)

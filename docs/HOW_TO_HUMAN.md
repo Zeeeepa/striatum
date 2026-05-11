@@ -468,9 +468,23 @@ refused and operators are pointed at the V2 daemon DB. Add
 `--keep-sqlite-readonly` when you want to retain the old registry
 file as an audit tombstone while blocking V1 writes.
 
-RFC 0033 does not add MCP mutation tools, daemon RPC, daemon-owned
-supervision, cross-repository workflow mutation, or sealed apply.
-Those remain later RFC scope.
+RFC 0030/0031 add the daemon V2 RPC and supervision/apply foundation on
+top of this storage substrate. The daemon RPC envelope is versioned JSON;
+`daemon.hello` / `daemon.welcome` negotiate envelope and framing, and
+`daemon.describe` publishes the capability-bound method registry. Version
+or framing incompatibility refuses with exit code 10 and does not silently
+fall back to direct mode.
+
+Daemon-owned supervision is represented by daemon DB supervisor rows plus
+repo-local supervisor pointers. The compatibility `striatum supervise`
+verbs still work in direct mode, and future daemon-routed `supervise.*`
+calls use the same packet/FIFO and lane-attestation invariants.
+
+Sealed apply is intentionally fail-closed. `apply.reviewed_patch` requires
+daemon apply authority and a loadable daemon signing key, and it records
+apply receipts in daemon-owned state. The receipt is an AI guardrail: it
+does not prove model-token authorship or resistance to a malicious local
+operator with filesystem or database access.
 
 ## Dashboards and graphs
 

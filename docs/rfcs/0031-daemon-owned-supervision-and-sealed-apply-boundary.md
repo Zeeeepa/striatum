@@ -1,11 +1,11 @@
 # RFC 0031: Daemon-Owned Supervision and Sealed-Apply Boundary
 
-Status: proposed
+Status: accepted (V2 foundation)
 Date: 2026-05-11
 Context:
 [`RFC 0028`](0028-long-running-daemon-and-multi-repository-control-plane.md),
-[`RFC 0030`](0030-daemon-rpc-server-and-version-skew-protocol.md) (proposed),
-[`RFC 0033`](0033-storage-substrate-rewrite-for-daemon-v2.md) (proposed),
+[`RFC 0030`](0030-daemon-rpc-server-and-version-skew-protocol.md) (accepted V2),
+[`RFC 0033`](0033-storage-substrate-rewrite-for-daemon-v2.md) (accepted V2),
 [`RFC 0009`](0009-long-lived-process-supervision.md),
 [`RFC 0010`](0010-tool-harness-profiles.md),
 [`RFC 0014`](0014-process-adapter-completion-guarantees.md),
@@ -19,6 +19,13 @@ Context:
 RFC 0031 is sequenced after RFC 0030 lands because daemon-owned supervision
 and sealed-apply authority both flow over the RPC trust boundary RFC 0030
 establishes.
+
+Implementation status: dogfood-034 adds daemon DB tables for daemon-owned
+supervisors and apply receipts, a repo-local pointer table that preserves
+`.striatum/state.sqlite3` as workflow truth, daemon RPC method declarations
+for `supervise.*` and `apply.*`, and fail-closed apply-key/refusal helpers.
+The first production apply path remains explicitly capability-gated and must
+not be described as third-party cryptographic non-repudiation.
 
 ## Problem
 

@@ -50,6 +50,8 @@ CONSTRAINT_VALUES = {
 
 WORKTREE_ISOLATION_VALUES = {"off", "per_job"}
 PROVENANCE_MODES = frozenset({"advisory", "attested_bylines", "sealed_patch"})
+SEALED_PATCH_PROVIDERS = frozenset({"daemon", "refuse"})
+APPLY_GATE_JOB_TYPES = frozenset({"build", "handoff"})
 
 # Workflow branch.mode values:
 # - "auto": run prepare creates the suggested branch and transitions the run
@@ -561,6 +563,7 @@ def validate_workflow(
         _validate_review_posture(job_id, job)
         _validate_required_review_postures(job_id, job)
         _validate_require_attested_lane(job_id, job)
+        _validate_apply_gate(job_index, job_id, job)
     _validate_artifact_path_uniqueness(jobs)
     _validate_required_postures_reachable(workflow, job_map=job_map)
     edge_dependency_pairs(workflow)
@@ -947,6 +950,24 @@ def _validate_branch_section(workflow: JsonObject) -> None:
 
 
 def _validate_provenance_mode(workflow: JsonObject) -> None:
+    require_daemon = workflow.get("require_daemon")
+    if require_daemon is not None and not isinstance(require_daemon, bool):
+        raise WorkflowError(
+            "workflow require_daemon must be a boolean when set",
+            field_path="require_daemon",
+        )
+    provider = workflow.get("sealed_patch_provider")
+    if provider is not None:
+        if not isinstance(provider, str) or provider not in SEALED_PATCH_PROVIDERS:
+            raise WorkflowError(
+                f"workflow sealed_patch_provider must be one of {sorted(SEALED_PATCH_PROVIDERS)!r}; got {provider!r}",
+                field_path="sealed_patch_provider",
+            )
+        if workflow.get("provenance_mode", "advisory") != "sealed_patch":
+            raise WorkflowError(
+                "workflow sealed_patch_provider is valid only when provenance_mode is sealed_patch",
+                field_path="sealed_patch_provider",
+            )
     mode = workflow.get("provenance_mode", "advisory")
     if not isinstance(mode, str) or mode not in PROVENANCE_MODES:
         raise WorkflowError(
@@ -955,6 +976,11 @@ def _validate_provenance_mode(workflow: JsonObject) -> None:
         )
     if mode != "sealed_patch":
         return
+    if require_daemon is False:
+        raise WorkflowError(
+            "sealed_patch workflows require require_daemon to be true or omitted",
+            field_path="require_daemon",
+        )
     protected = workflow.get("protected_paths", [])
     operator_writable = workflow.get("operator_writable_paths", [])
     if not isinstance(protected, list) or not all(isinstance(item, str) for item in protected):
@@ -980,6 +1006,44 @@ def _validate_provenance_mode(workflow: JsonObject) -> None:
                     "sealed_patch protected_paths and operator_writable_paths must not overlap",
                     field_path="protected_paths",
                 )
+
+
+def _validate_apply_gate(job_index: int, job_id: str, job: JsonValue) -> None:
+    value = job.get("apply_gate")
+    if value is None:
+        return
+    if not isinstance(value, bool):
+        raise WorkflowError(
+            "job apply_gate must be a boolean when set",
+            field_path=f"jobs[{job_index}].apply_gate",
+        )
+    if value is False:
+        return
+    job_type = job.get("type")
+    if job_type not in APPLY_GATE_JOB_TYPES:
+        raise WorkflowError(
+            f"job {job_id!r} may set apply_gate only on {sorted(APPLY_GATE_JOB_TYPES)!r} jobs",
+            field_path=f"jobs[{job_index}].apply_gate",
+        )
+    artifacts = job.get("expected_artifacts", [])
+    if not isinstance(artifacts, list) or not any(_artifact_is_patch_summary(item) for item in artifacts):
+        raise WorkflowError(
+            f"job {job_id!r} with apply_gate must declare a patch-summary expected artifact",
+            field_path=f"jobs[{job_index}].apply_gate",
+        )
+
+
+def _artifact_is_patch_summary(value: Any) -> bool:
+    if not isinstance(value, dict):
+        return False
+    logical_name = str(value.get("logical_name") or "")
+    kind = str(value.get("kind") or "")
+    path = str(value.get("path") or "")
+    return (
+        kind == "patch_summary"
+        or logical_name in {"patch", "patch_summary"}
+        or "patch" in PurePosixPath(path).name.lower()
+    )
 
 
 def _validate_path_policy(field_name: str, paths: list[str]) -> None:

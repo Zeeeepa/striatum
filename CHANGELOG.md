@@ -1,6 +1,26 @@
 # Changelog
 
-## Unreleased
+## 1.23.0 — 2026-05-11
+
+### Added
+
+- RFC 0030 daemon RPC foundation: envelope-v1 codec, newline JSON
+  framing helpers, owner-local Unix socket and loopback HTTP guards,
+  `daemon.hello` / `daemon.welcome`, `daemon.describe`, a
+  capability-bound method registry, and PostgreSQL request/audit helper
+  wiring.
+- RFC 0031 daemon-owned supervision/apply foundation: daemon DB
+  migration v2 for method metadata, daemon supervisor ownership, and
+  apply receipts; repo-local migration v13 for supervisor pointers; and
+  fail-closed apply-key/refusal helpers.
+
+### Documentation
+
+- RFC 0030 and RFC 0031 are now marked accepted for the V2 foundation.
+  Docs distinguish the landed RPC/schema boundary from deferred
+  cross-repo workflows, MCP mutation expansion, hosted services,
+  Windows daemon support, and any claim of third-party cryptographic
+  non-repudiation.
 
 ## 1.22.1 — 2026-05-11
 
