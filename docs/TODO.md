@@ -34,6 +34,7 @@ so external references keep resolving even as items move between sections.
 | 15 | `run summary` polish | ✅ done |
 | 16 | Keep generic language current | ⏳ open |
 | 17 | SQLite migration system (RFC 0006) | ✅ done |
+| 18 | Workflow type catalog and chooser | ⏳ open |
 | F1 | Run historical bootstrap as runner workflow | ⏳ open |
 | F2 | Fuller publication policy | ⏳ open |
 | F3 | Round-6 RFC 0002 + 0003/0004/0005 follow-up | ✅ done |
@@ -216,17 +217,15 @@ Legend: ✅ done · 🟡 most done (sub-tasks remain) · ⏳ open
     "adapter" rather than assuming Engram-specific paths or marker names.
     No active sub-task.
 
-17. **RFC candidate: workflow browser + visual builder.** Web UI surface
-    to browse `*workflow.json` files in the repo (validation status,
-    SVG graph preview, metadata) AND author new ones interactively
-    (widgets to add roles, lanes, jobs, edges, posture/required-posture
-    fields, expected-artifacts blocks). Operator types names; the UI
-    emits the JSON; `workflow validate` runs server-side per save.
-    Closes the gap between the compact CLI authoring flow and what a
-    first-time workflow author wants. Likely RFC 0024 once V1.5 of
-    RFC 0023 (chat tool use, dogfood-022) lands. Pairs naturally with
-    the chat surface: "ask the model to scaffold a workflow, then
-    edit it in the visual builder."
+18. **Workflow type and lane catalog chooser.** The web UI can already
+    browse, edit, run, cancel, pause/resume, and retry workflows via
+    RFC 0024, but the product still lacks a first-class choice surface
+    for "which workflow should I start from, and which lanes should run
+    it?" Promote the documented workflow types and lane-set options in
+    `docs/WORKFLOW_TYPES.md` into a small metadata catalog, expose CLI
+    verbs such as `workflow templates list/show` and
+    `workflow init --template <id>`, then add a UI chooser that
+    generates a workflow and opens it in the existing visual builder.
 
 ## Immediate Follow-Up
 

@@ -84,9 +84,24 @@ Required workflow fields:
 
 The V1 schema version is `striatum.workflow.v1`.
 
+The runner does not infer or select a default workflow for a target
+repository. `run prepare` requires an explicit workflow file path, and
+the workflow snapshot for a run is taken from that file. `workflow init`
+is only a scaffold generator; it currently supports `minimal`, `review`,
+and `code-change` starter styles and uses `review` when `--style` is
+omitted. Checked-in `examples/` are fixtures or starting points, not
+runtime defaults.
+
 The validator enforces unique job ids, resolved role/lane references, valid
 edges, bounded cycles, repo-relative artifact paths, and declared parallelism
 with disjoint write scopes or review-only unique artifact paths.
+
+Lane selection is workflow-authored. There is no provider-default lane and
+lane ids have no built-in semantic meaning. A job with `lane_id` is queued for
+that lane; a job without `lane_id` is queued without a lane target and can be
+claimed by a session with the matching role. `register-session` records the
+session's `lane_id`, and `claim-next` matches pending work by run, role,
+fresh-session rules, and lane target when one is present.
 
 Lane configs may declare adapter constraints for network access, transcript
 handling, and repository scope. The validator accepts only known constraint

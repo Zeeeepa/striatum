@@ -17,6 +17,7 @@ not the product boundary.
 |------|------------|
 | agent | A terminal-based AI coding process launched or supervised by `striatum`, such as Claude Code, Codex, Gemini CLI, or another configured model/runtime command. |
 | agent lane | A named, portable launch configuration for an agent, including command template, adapter, capabilities, and optional default role. Lanes are configuration, not product identity. |
+| lane selection | The workflow-authoring choice of which lanes exist and which jobs bind to them. Lane selection controls model/tool routing, review independence, supervision, worktree isolation, and adapter constraints; it is explicit workflow configuration, not an inferred default. |
 | agent identity | The registered identity of an agent session, including session id, role, lane, capabilities, run id, and optional human-readable name. |
 | agent slug | A human-readable session name, recommended as `<role>-<lane>-<ordinal>`, used for tmux windows, dashboards, logs, and prompts. It is not the database primary key. |
 | adapter | Code that connects `striatum` to an external execution or interaction surface, such as tmux, a subprocess, Slack, or a model CLI. |
@@ -55,6 +56,9 @@ not the product boundary.
 | synthesis job | A workflow job that combines findings, reviews, or intermediate artifacts into a new durable artifact. It is intentionally separate from the AI coordinator role to avoid attention dilution. |
 | workflow | A configured graph of jobs, dependencies, gates, allowed write scopes, agent lanes, expected artifacts, and stop conditions. |
 | workflow config | The user-authored JSON file that defines a workflow. V1 requires `striatum.workflow.v1` JSON and rejects YAML. |
+| workflow type | A documentation and product-planning category that helps an operator choose a graph shape before editing `workflow.json`, such as minimal bounded job, review and synthesis, code change with bounded revision, human checkpoint, evidence-backed artifact, or multi-review synthesis. It is not a workflow schema field. |
+| starter workflow style | One of the built-in `striatum workflow init --style` scaffold shapes. V1 supports `minimal`, `review`, and `code-change`; the CLI defaults to `review` only for scaffold generation, not for `run prepare`. |
+| workflow template catalog | A planned product surface that would promote selected starter/example shapes into named templates with metadata, graph previews, and UI/CLI selection. Until that catalog exists, examples remain fixtures or starting points, not automatic defaults. |
 | workflow cycle | An explicit bounded loop in a workflow graph, such as revision -> re-review -> proceed/stop. Unbounded autonomous cycles are out of scope for v1. |
 | workflow snapshot | The immutable JSON workflow body and hash loaded into SQLite for one run, so later file edits do not silently change the run contract. |
 | workflow fixture | A checked-in example workflow used to validate orchestration behavior without live model calls. |

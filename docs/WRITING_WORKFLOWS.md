@@ -5,6 +5,15 @@ from a starter scaffold) and validating it against the runner.
 For the operator-side commands that consume a workflow, see
 [HOW_TO_HUMAN.md](HOW_TO_HUMAN.md).
 
+## Choose the workflow type first
+
+Start with [WORKFLOW_TYPES.md](WORKFLOW_TYPES.md) before editing
+JSON. It explains the current workflow families, shows the graph
+shapes, distinguishes starter scaffolds from examples, and states the
+current default behavior: striatum never auto-selects a runtime
+workflow for a repository, while `workflow init` defaults to the
+`review` scaffold style when `--style` is omitted.
+
 ## Start from an example
 
 Start from `examples/rfc-ledger-cleanup/workflow.json`. For
@@ -40,6 +49,61 @@ overwrite an existing path.
 `forbidden_paths`), `expected_artifacts` (`logical_name`, `kind`,
 `path`, `required`), `fresh_session_required`, and
 `parallel_group`.
+
+## Choose lanes deliberately
+
+Workflow type chooses the graph; lane selection chooses the execution
+surface. A lane is a named adapter configuration, not a provider
+identity. The runner does not infer that a lane named `codex` or
+`reviewer` has any special behavior; behavior comes from the lane's
+adapter, command, constraints, capabilities, and optional harness
+profile.
+
+For real runs, prefer explicit `lane_id` values on jobs. If a job
+omits `lane_id`, the queued work is not lane-constrained and any
+matching role session may claim it. That can be useful for manual
+operation, but it makes later audit and repeatability weaker.
+
+Common lane sets:
+
+- **single-lane starter**: one lane handles authoring, review, and
+  synthesis. Good for small or manual runs.
+- **author plus reviewer**: author jobs and review jobs bind to
+  separate lanes, usually with `fresh_session_required: true` on the
+  review jobs.
+- **multi-review fan-out**: several review jobs bind to distinct
+  lanes, often different model families, and converge into a ledger or
+  synthesis job.
+- **supervised lane**: a process-adapter lane driven by
+  `striatum supervise`; use only with a command or wrapper that can
+  read newline-delimited work packets from stdin.
+- **worktree-isolated lane**: a repo-write lane with
+  `worktree_isolation: "per_job"` when parallel writes need isolated
+  git worktrees.
+- **constrained lane**: a lane with `constraints` and
+  `required_enforcement` when network, transcript, or repo-scope policy
+  should be visible and validation-checked.
+
+Minimal process lane:
+
+```json
+{
+  "lanes": {
+    "agent": {
+      "adapter": "process",
+      "display_model": "Your Agent Model",
+      "command": ["your-agent-cli", "run-from-stdin"],
+      "capabilities": ["write", "review", "synthesis"]
+    }
+  }
+}
+```
+
+Replace the placeholder command with the actual invocation shape your
+agent CLI expects.
+
+For the operator-facing lane selection matrix, see
+[WORKFLOW_TYPES.md § "Lane Selection Heuristic"](WORKFLOW_TYPES.md#lane-selection-heuristic).
 
 ## Adapter constraints
 
@@ -78,7 +142,9 @@ artifact that describes the desired change or decision. Keep that
 source artifact in the target repository and reference it from
 `context_docs` or the relevant job `inputs`.
 
-Before editing `workflow.json`, choose the run outcome:
+Before editing `workflow.json`, choose the run outcome. For the
+full selection guide and diagrams, see
+[WORKFLOW_TYPES.md](WORKFLOW_TYPES.md). The short version:
 
 - **review only**: independent reviewers inspect the source
   proposal, publish findings, and a synthesis job produces the
@@ -185,6 +251,10 @@ not enforce a layout. Putting them under
 `striatum/<workflow-slug>/` keeps the convention consistent.
 
 ## Common graph shapes
+
+These are shorthand reminders. For the more complete selection
+guide with Mermaid diagrams, see
+[WORKFLOW_TYPES.md](WORKFLOW_TYPES.md).
 
 ```text
 review_a + review_b + review_c -> findings_ledger -> synthesis -> final_review

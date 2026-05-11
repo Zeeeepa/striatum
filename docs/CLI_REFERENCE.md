@@ -19,6 +19,14 @@ striatum run start
 striatum run summary
 ```
 
+`workflow init [--style minimal|review|code-change] <path>`
+scaffolds a starter workflow tree; when `--style` is omitted, the
+scaffold style is `review`. This does not create a runtime default:
+`run prepare` still requires an explicit `--workflow <path>`. The
+generated tree uses a single `local` process lane as a valid
+placeholder; edit lanes and job `lane_id` bindings for real agent
+runs.
+
 `striatum init` creates `.striatum/` in the target repo. The
 optional flags scaffold extra material:
 

@@ -53,9 +53,17 @@ For the rest of this guide, `striatum` refers to either invocation.
 
 You will run striatum yourself.
 
+There is no repository-wide default workflow. The quick start below
+uses the bundled code-change fixture so you can see the lifecycle
+quickly; for choosing the right shape for your own run, see
+[WORKFLOW_TYPES.md](WORKFLOW_TYPES.md). That guide also covers lane
+selection: whether to use one lane, separate author/reviewer lanes,
+multiple model-family review lanes, supervised lanes, or constrained
+lanes.
+
 ```bash
 TARGET_REPO=/path/to/your/repo
-WORKFLOW=examples/code-change-flow/workflow.json   # or your own
+WORKFLOW=examples/code-change-flow/workflow.json   # or choose a type in WORKFLOW_TYPES.md
 
 striatum --repo "$TARGET_REPO" init --json
 striatum --repo "$TARGET_REPO" workflow validate "$WORKFLOW" --json
@@ -231,6 +239,9 @@ an existing example fixture.
   examples.
 - **[HOW_TO_AGENT.md](HOW_TO_AGENT.md)** — long-form companion to
   the skill bundle.
+- **[WORKFLOW_TYPES.md](WORKFLOW_TYPES.md)** — choose a workflow
+  shape and lane set; explains current starter styles, examples, and
+  defaults.
 - **[WRITING_WORKFLOWS.md](WRITING_WORKFLOWS.md)** — author your
   own `workflow.json` from scratch.
 - **[CLI_REFERENCE.md](CLI_REFERENCE.md)** — every CLI verb,

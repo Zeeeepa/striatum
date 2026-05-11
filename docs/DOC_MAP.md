@@ -133,6 +133,19 @@ When two docs disagree, the home wins.
   contracts; they don't *redefine* them. If the verb shape
   changes, edit SPEC and the playbook in the same PR.
 
+### `docs/WORKFLOW_TYPES.md` — workflow selection guide
+
+- **What it is:** the current operator-facing map of workflow
+  families and lane-set choices: what each type is for, what graph
+  shape it has, which starter or example is closest, which lane shapes
+  fit common runs, and what "default workflow" means today.
+- **What it owns:** workflow and lane selection guidance,
+  starter-vs-example language, and the roadmap from current examples
+  to a future template chooser.
+- **What it doesn't:** validator rules (SPEC), verb sequences
+  (HOW_TO_*), or historical rationale for the browser/editor surface
+  (RFC 0024).
+
 ### `docs/dogfood/<id>/BUILD_HANDOFF.md` — implementer notes
 
 - **What it is:** the implementer's notes from a specific

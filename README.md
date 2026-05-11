@@ -62,7 +62,7 @@ You will run `striatum` commands by hand.
 
 ```bash
 TARGET_REPO=/path/to/your/repo
-WORKFLOW=examples/code-change-flow/workflow.json   # or your own
+WORKFLOW=examples/code-change-flow/workflow.json   # or choose a type in docs/WORKFLOW_TYPES.md
 
 striatum --repo "$TARGET_REPO" init --json
 striatum --repo "$TARGET_REPO" workflow validate "$WORKFLOW" --json
@@ -192,6 +192,7 @@ vocabulary is load-bearing instead of bookkeeping.
 | [docs/GETTING_STARTED.md](docs/GETTING_STARTED.md) | First 15 minutes; forks human-operator vs. coding-agent setup. |
 | [docs/HOW_TO_HUMAN.md](docs/HOW_TO_HUMAN.md) | The operator's long-form playbook; every CLI verb in the order you use it. |
 | [docs/HOW_TO_AGENT.md](docs/HOW_TO_AGENT.md) | Long-form companion to the RFC 0015 agent skill bundle. |
+| [docs/WORKFLOW_TYPES.md](docs/WORKFLOW_TYPES.md) | Which workflow shape and lane set to choose; current starters, examples, defaults, and chooser roadmap. |
 | [docs/WRITING_WORKFLOWS.md](docs/WRITING_WORKFLOWS.md) | How to author your own `workflow.json`. |
 | [docs/CLI_REFERENCE.md](docs/CLI_REFERENCE.md) | Flat list of every CLI verb and stable exit codes. |
 | [docs/SPEC.md](docs/SPEC.md) | The implementation contract; the source of truth when this page disagrees with the runner. |
