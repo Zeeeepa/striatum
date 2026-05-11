@@ -2,6 +2,45 @@
 
 ## Unreleased
 
+## 1.22.1 — 2026-05-11
+
+### Fixed
+
+- Byline tolerance: a Markdown-decorated byline like
+  `**Author:** value`, `# Author: value`, or `_author_: value` is now
+  recognised by the publisher and stored in `artifacts.author_line`
+  as the canonical lowercase `author: value` form. Models seen in
+  dogfood-031 and dogfood-033 produced the bold-decorated form, which
+  previously caused the publisher to silently drop the byline (stored
+  as NULL); the canonicaliser now normalises decoration before
+  matching. Mismatched bylines still refuse with the documented error.
+
+### Added
+
+- `publish-artifact` auto-attaches default front matter for the
+  `synthesis` artifact kind when the file omits the `---` block. The
+  publisher prepends `schema_version: "striatum.synthesis.v1"` and
+  `artifact_kind: "synthesis"` (the only required fields, both
+  constants the publisher already knows from `--kind synthesis`),
+  rewrites the file on disk so the stored SHA agrees with downstream
+  reads, and proceeds with the rest of validation. The agent's body
+  is preserved verbatim after the prepended block. Other
+  schema-bearing kinds (`finding`, `decision`, `findings_ledger`,
+  `support_ledger`, `action_item_ledger`,
+  `harness_improvement_proposal`) have semantic required fields the
+  publisher cannot invent (`verdict_intent`, `outcome`, etc.) and
+  continue to silently accept missing front matter — adding an
+  explicit refusal there would be a policy break and should land
+  behind a workflow-level opt-in.
+
+- Hard byline + front matter discipline section in every dogfood-033
+  design prompt (`design_codex.md`, `design_claude_code.md`,
+  `design_gemini.md`, `synthesize_design.md`): forbid Markdown bold
+  (`**Author:**`), heading prefix (`# author`), italics (`_author_`),
+  and quotes around the value; require lowercase `author:` exactly;
+  include the JSON-encoded front matter template for schema-bearing
+  kinds.
+
 ## 1.22.0 — 2026-05-11
 
 ### Added

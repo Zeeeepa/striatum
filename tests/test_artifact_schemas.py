@@ -926,3 +926,138 @@ def test_support_ledger_flow_publishes_three_kinds(tmp_path: Path) -> None:
         conn.close()
     assert "synthesis" in kinds
     assert "support_ledger" in kinds
+
+
+def test_synthesis_without_front_matter_auto_attaches_defaults(tmp_path: Path) -> None:
+    """Synthesis kind has only-constant required fields; the publisher
+    auto-attaches the front matter block when the file omits it, rather
+    than refusing or silently dropping the metadata. The file on disk is
+    rewritten so the stored SHA and the file content agree downstream.
+
+    The author session in this test is unattested (no supervisor), so the
+    expected byline under RFC 0026 attestation rules is
+    ``author: operator``.
+    """
+    author, job_id, lease_id, _ = claim_author(tmp_path)
+    body_without_front_matter = (
+        "# Synthesis Without Front Matter\n"
+        "\n"
+        "author: operator\n"
+        "\n"
+        "## Body\n"
+        "\n"
+        "Some prose.\n"
+    )
+    path = f"{DRAFT_DIR}/SYNTHESIS_NO_FM.md"
+    write_artifact(tmp_path, path, body_without_front_matter)
+    result = publish(
+        tmp_path,
+        session_id=author,
+        job_id=job_id,
+        lease_id=lease_id,
+        kind="synthesis",
+        logical_name="auto_attached_synthesis",
+        path=path,
+    )
+    assert result["returncode"] == 0
+    # File on disk now starts with the canonical block.
+    final = (tmp_path / path).read_text(encoding="utf-8")
+    assert final.startswith(
+        '---\nschema_version: "striatum.synthesis.v1"\nartifact_kind: "synthesis"\n---\n'
+    )
+    # Agent's body is preserved verbatim after the prepended block.
+    assert "# Synthesis Without Front Matter" in final
+    assert "author: operator" in final
+    # Stored author_line reflects the original byline.
+    import sqlite3
+    conn = sqlite3.connect(tmp_path / ".striatum" / "state.sqlite3")
+    try:
+        row = conn.execute(
+            "SELECT author_line FROM artifacts WHERE logical_name = ?",
+            ("auto_attached_synthesis",),
+        ).fetchone()
+        assert row is not None
+        assert row[0] == "author: operator"
+    finally:
+        conn.close()
+
+
+def test_bolded_author_line_matches_expected_byline(tmp_path: Path) -> None:
+    """A byline written as Markdown bold (``**Author:** value``) is
+    recognised by the publisher and stored as the canonical
+    ``author: value`` form, rather than being silently dropped or
+    rejected as a mismatch. Models seen in dogfood-033 produced this
+    decorated form; the canonicaliser normalises it before comparison.
+
+    The author session in this test is unattested (no supervisor), so
+    the expected byline value is ``operator``.
+    """
+    from striatum.artifacts import _canonical_byline_form
+    author, job_id, lease_id, _ = claim_author(tmp_path)
+    expected_canonical = "author: operator"
+    suffix = expected_canonical.split(":", 1)[1].strip()
+    bolded = (
+        "# Bolded Byline Survives\n"
+        "\n"
+        f"**Author:** {suffix}\n"
+        "\n"
+        "## Body\n"
+        "Some prose.\n"
+    )
+    path = f"{DRAFT_DIR}/BOLDED_BYLINE.md"
+    write_artifact(tmp_path, path, bolded)
+    result = publish(
+        tmp_path,
+        session_id=author,
+        job_id=job_id,
+        lease_id=lease_id,
+        kind="handoff",
+        logical_name="bolded_byline_handoff",
+        path=path,
+    )
+    assert result["returncode"] == 0
+    import sqlite3
+    conn = sqlite3.connect(tmp_path / ".striatum" / "state.sqlite3")
+    try:
+        row = conn.execute(
+            "SELECT author_line FROM artifacts WHERE logical_name = ?",
+            ("bolded_byline_handoff",),
+        ).fetchone()
+        assert row is not None
+        # Stored canonical form is lowercased ``author: <value>``.
+        assert row[0] == expected_canonical
+    finally:
+        conn.close()
+    # And the canonicaliser used internally agrees.
+    assert _canonical_byline_form(f"**Author:** {suffix}") == expected_canonical
+
+
+def test_decorated_author_line_mismatch_still_refuses(tmp_path: Path) -> None:
+    """Decoration tolerance must not let a mismatched byline through. A
+    decorated byline whose canonical form differs from the expected
+    work-packet byline is refused with the documented error.
+    """
+    author, job_id, lease_id, _ = claim_author(tmp_path)
+    body = (
+        "# Decorated Wrong Byline\n"
+        "\n"
+        "**Author:** someone-else-author-0001\n"
+        "\n"
+        "## Body\n"
+    )
+    path = f"{DRAFT_DIR}/WRONG_BOLDED.md"
+    write_artifact(tmp_path, path, body)
+    rejected = publish(
+        tmp_path,
+        session_id=author,
+        job_id=job_id,
+        lease_id=lease_id,
+        kind="handoff",
+        logical_name="wrong_bolded_handoff",
+        path=path,
+        check=False,
+    )
+    assert rejected["returncode"] == 6
+    error = rejected["error"]
+    assert isinstance(error, dict)
+    assert "author line must match" in str(error.get("message", ""))

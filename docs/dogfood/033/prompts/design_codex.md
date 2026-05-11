@@ -22,4 +22,15 @@ Explicitly mark as deferred (do NOT design them):
 - Python → Go substrate port (D084; named, not designed);
 - repo-local `.striatum/state.sqlite3` changes (out of RFC 0033 scope).
 
-If the work packet supplies an `author:` line, copy it exactly into the artifact title block (lowercase). Do not call striatum CLI; the operator publishes on your behalf.
+## Byline discipline (hard constraint)
+
+The work packet supplies an exact `author: <slug>` line. Copy it verbatim into the artifact title block.
+
+- The byline must be a plain Markdown line with NO bold (`**`), NO italics, NO heading prefix (`#`), NO quotes around the value, NO trailing punctuation.
+- The line must start with lowercase `author:` exactly.
+- Correct: `author: designer-codex-gpt-5.5-001`
+- Wrong: `**Author:** ...`, `Author: ...`, `# author: ...`, `author: "..."`.
+
+The `handoff` artifact kind does not require YAML front matter. Future packets for `finding`, `synthesis`, `decision`, or other schema-bearing kinds will require a JSON-quoted `key: <value>` front matter block at the very top of the file; follow the example the packet provides.
+
+Do not call striatum CLI unless your harness profile already permits it; the operator publishes on your behalf otherwise.

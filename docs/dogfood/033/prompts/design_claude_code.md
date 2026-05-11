@@ -14,4 +14,15 @@ Design an implementation plan for the RFC 0033 storage substrate rewrite for dae
 
 Explicitly state what cannot be claimed: the substrate rewrite does not prove model-token authorship, does not provide cryptographic non-repudiation against a malicious operator, and does not change repo-local provenance guarantees. Apply receipts (RFC 0031) and lane attestation (RFC 0026) keep their own scope.
 
-If the work packet supplies an `author:` line, copy it exactly into the artifact title block (lowercase). Do not call striatum CLI.
+## Byline discipline (hard constraint)
+
+The work packet supplies an exact `author: <slug>` line. Copy it verbatim into the artifact title block.
+
+- The byline must be a plain Markdown line with NO bold (`**`), NO italics, NO heading prefix (`#`), NO quotes around the value, NO trailing punctuation.
+- The line must start with lowercase `author:` exactly.
+- Correct: `author: designer-claude-opus-001`
+- Wrong: `**Author:** ...`, `Author: ...`, `# author: ...`, `author: "..."`.
+
+The `handoff` artifact kind does not require YAML front matter. Future packets for `finding`, `synthesis`, `decision`, or other schema-bearing kinds will require a JSON-quoted `key: <value>` front matter block at the very top of the file; follow the example the packet provides.
+
+Do not call striatum CLI unless your harness profile permits it; the operator publishes otherwise.

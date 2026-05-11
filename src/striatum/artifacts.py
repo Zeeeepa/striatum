@@ -342,13 +342,75 @@ def _validate_front_matter(parsed: dict[str, object], schema: FrontMatterSchema)
         )
 
 
+def ensure_required_front_matter(
+    *, kind: str, path: Path, payload: bytes
+) -> bytes:
+    """Auto-attach default front matter for schema-bearing kinds with only-constant requirements.
+
+    Currently exercises the ``synthesis`` kind: its required fields
+    (``schema_version`` and ``artifact_kind``) are constants the
+    publisher already knows from the ``--kind synthesis`` flag, so
+    refusing because the agent did not echo them back is friction with
+    no provenance benefit. When the file omits the front matter block,
+    the publisher prepends the canonical block to the file and returns
+    the new payload; the agent's body is preserved verbatim after the
+    block.
+
+    Other schema-bearing kinds (``finding``, ``decision``,
+    ``findings_ledger``, ``support_ledger``, ``action_item_ledger``,
+    ``harness_improvement_proposal``) carry semantic required fields
+    (``verdict_intent``, ``outcome``, ``audited_artifact``, etc.) that
+    the publisher cannot invent. For backward compatibility with
+    artifacts authored before V1 front matter became conventional, the
+    publisher continues to silently accept those kinds when front
+    matter is absent; downstream renderers record ``actual_author_line``
+    as NULL for the missing metadata case. Adding an explicit refusal
+    here would be a policy break; if that is desired, it should land
+    behind a workflow-level opt-in and a deprecation window.
+
+    Schema-less kinds and non-Markdown files are passed through
+    unchanged.
+    """
+    schema = FRONT_MATTER_SCHEMAS.get(kind)
+    if schema is None:
+        return payload
+    if path.suffix.lower() not in _MARKDOWN_SUFFIXES:
+        return payload
+    try:
+        text = payload.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise ArtifactError(
+            f"{kind} artifact must be UTF-8 to validate front matter"
+        ) from exc
+    if _front_matter_block(text) is not None:
+        # Front matter already present; validate path takes over.
+        return payload
+    if schema.artifact_kind == "synthesis":
+        # Only-constant required fields; safe to auto-attach.
+        prepend = (
+            "---\n"
+            f'schema_version: "{schema.schema_version}"\n'
+            f'artifact_kind: "{schema.artifact_kind}"\n'
+            "---\n\n"
+        )
+        new_text = prepend + text
+        new_payload = new_text.encode("utf-8")
+        path.write_bytes(new_payload)
+        return new_payload
+    # Other schema-bearing kinds: preserve historic silent-accept behavior.
+    return payload
+
+
 def validate_artifact_front_matter(
     *, kind: str, path: Path, payload: bytes
 ) -> None:
-    """Validate optional Markdown front matter for kinds with a registered schema.
+    """Validate Markdown front matter for kinds with a registered schema.
 
     No-op when the artifact kind has no schema, when the file is not Markdown,
-    or when the file does not start with a `---` block.
+    or when the file does not start with a `---` block. Callers should run
+    :func:`ensure_required_front_matter` first to auto-attach defaults for
+    synthesis and to refuse missing front matter for other schema-bearing
+    kinds with a template error.
     """
     schema = FRONT_MATTER_SCHEMAS.get(kind)
     if schema is None:
@@ -420,6 +482,12 @@ def publish_artifact(
         if not path.exists() or not path.is_file():
             raise ArtifactError("artifact file does not exist")
         payload = path.read_bytes()
+        # For schema-bearing kinds without front matter, either auto-attach
+        # defaults (synthesis: only-constant required fields) or refuse with
+        # a kind-specific template (semantic required fields). The on-disk
+        # file may be modified in the auto-attach branch so the recorded
+        # SHA and the file content agree downstream.
+        payload = ensure_required_front_matter(kind=kind, path=path, payload=payload)
         validate_optional_markdown_author_line(
             conn,
             job=job,
@@ -484,6 +552,44 @@ def publish_artifact(
         return {"status": "published", "artifact_id": artifact_id, "sha256": digest}
 
 
+def _strip_markdown_decoration(line: str) -> str:
+    """Strip leading and inline Markdown decoration around a byline.
+
+    Models seen in dogfood runs include ``**Author:** value``,
+    ``# Author: value``, ``_author:_ value``, and combinations. The
+    canonical byline is plain ``author: value``; this helper normalizes
+    the surface forms so downstream matching and storage agree.
+    """
+    stripped = line.lstrip()
+    # Drop leading Markdown heading markers like ``# `` or ``### ``.
+    while stripped.startswith("#"):
+        stripped = stripped[1:]
+    stripped = stripped.lstrip()
+    # Drop leading/trailing bold/italic markers around the entire line.
+    stripped = stripped.strip()
+    # Remove all asterisk and underscore decoration so ``**Author:**`` ->
+    # ``Author:`` and ``_author_:`` -> ``author:``. The byline value itself
+    # is constrained by ``author_part`` to ``[a-z0-9.-]+``, so stripping
+    # these characters from the entire string is safe.
+    stripped = stripped.replace("*", "").replace("_", "")
+    return stripped.strip()
+
+
+def _canonical_byline_form(line: str) -> str | None:
+    """Return the canonical ``author: <lowercase-value>`` form, or None.
+
+    Returns None when the line does not name an author after stripping
+    Markdown decoration. The canonical form is what the publisher stores
+    in ``artifacts.author_line`` and what byline-equality checks compare
+    against.
+    """
+    normalized = _strip_markdown_decoration(line)
+    if not normalized.lower().startswith("author:"):
+        return None
+    suffix = normalized.split(":", 1)[1].strip()
+    return f"author: {suffix.lower()}"
+
+
 def validate_optional_markdown_author_line(
     conn: sqlite3.Connection,
     *,
@@ -504,17 +610,34 @@ def validate_optional_markdown_author_line(
         return
     expected = expected_author_line(conn, job=job, session_id=session_id)
     for line in author_lines:
-        if line.strip() != expected:
-            raise ArtifactError("markdown artifact author line must match expected work packet author line")
+        canonical = _canonical_byline_form(line)
+        if canonical is None:
+            # Should not happen: ``markdown_title_block_author_lines`` only
+            # appends lines that recognise as bylines. If decoration changes
+            # the canonical form materially, treat as a mismatch rather than
+            # silently dropping.
+            raise ArtifactError(
+                "markdown artifact author line must match expected work "
+                "packet author line"
+            )
+        if canonical != expected:
+            raise ArtifactError(
+                "markdown artifact author line must match expected work "
+                "packet author line"
+            )
 
 
 def _first_author_line(payload: bytes) -> str | None:
-    """Return the first ``author: ...`` line from a Markdown payload, lower-trimmed.
+    """Return the first ``author: ...`` line from a Markdown payload, canonicalized.
 
     Used by :func:`record_artifact` to populate ``artifacts.author_line``
     (HARNESS-003). Returns ``None`` when the file has no front matter or
     title-block author line; that NULL is the durable signal that the
     artifact did not actually carry the workflow's declared byline.
+
+    Markdown decoration around the byline (``**Author:**``, ``# author:``,
+    ``_author_:``) is stripped to the canonical ``author: <lowercase>``
+    form so storage and downstream rendering agree.
     """
     try:
         text = payload.decode("utf-8")
@@ -523,13 +646,13 @@ def _first_author_line(payload: bytes) -> str | None:
     lines = markdown_title_block_author_lines(text)
     if not lines:
         return None
-    first = lines[0].strip()
-    # Normalise the prefix casing/whitespace so the stored value is
-    # canonical: ``author: foo``.
-    if first.lower().startswith("author:"):
-        suffix = first.split(":", 1)[1].strip()
-        return f"author: {suffix.lower()}"
-    return first.lower()
+    canonical = _canonical_byline_form(lines[0])
+    if canonical is not None:
+        return canonical
+    # Fall back to the historic lowercase pass-through so legacy artifacts
+    # whose byline cannot be normalised still produce a deterministic stored
+    # value rather than NULL.
+    return lines[0].strip().lower()
 
 
 def markdown_title_block_author_lines(text: str) -> list[str]:
@@ -543,6 +666,12 @@ def markdown_title_block_author_lines(text: str) -> list[str]:
     front matter, in the title block, while some workflow examples put
     it inside the front matter. Scan both regions and return all
     author lines found.
+
+    Markdown decoration (``**Author:**``, ``# Author``, ``_author_``)
+    is tolerated: a line is recognised as a byline iff its canonical
+    form starts with ``author:`` after decoration is stripped. The
+    original line text is returned so callers can render it; equality
+    checks should canonicalise both sides.
     """
     lines = text.splitlines()
     author_lines: list[str] = []
@@ -553,15 +682,14 @@ def markdown_title_block_author_lines(text: str) -> list[str]:
                 body_start = index + 1
                 break
         front_matter = lines[1:body_start - 1] if body_start > 0 else []
-        author_lines.extend(
-            line for line in front_matter if line.strip().lower().startswith("author:")
-        )
+        for line in front_matter:
+            if _canonical_byline_form(line) is not None:
+                author_lines.append(line)
     title_block = lines[body_start : body_start + 40]
     for line in title_block:
         if line.startswith("## "):
             break
-        stripped = line.strip()
-        if stripped.lower().startswith("author:"):
+        if _canonical_byline_form(line) is not None:
             author_lines.append(line)
     return author_lines
 

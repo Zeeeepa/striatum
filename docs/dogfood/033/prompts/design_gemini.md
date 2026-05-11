@@ -19,4 +19,36 @@ Your plan must cover:
 
 State which parts of the design require platform-specific work and which are cross-platform. Bundled / Dockerized distribution is deferred; do not design it.
 
-If the work packet supplies an `author:` line, copy it exactly into the artifact title block (lowercase). Do not call striatum CLI.
+## Byline and front matter discipline (hard constraints)
+
+These are HARD constraints. Do not improvise variations.
+
+**Byline format:**
+
+- The work packet supplies an exact `author: <slug>` line. Copy it verbatim into the artifact title block.
+- The byline must be a plain Markdown line with NO bold (no `**`), NO italics (no `*` or `_`), NO heading prefix (no `#`), NO quotes around the value, NO trailing punctuation.
+- The line must start with lowercase `author:` exactly (not `Author:`, not `**Author:**`, not `# Author`).
+- Correct: `author: designer-gemini-pro-001`
+- Wrong: `**Author:** designer-gemini-pro-001` (this is what failed in dogfood-031 and dogfood-033)
+- Wrong: `Author: designer-gemini-pro-001` (capital A)
+- Wrong: `author: "designer-gemini-pro-001"` (quoted)
+
+**Front matter (when required):**
+
+This `handoff` artifact does NOT require front matter. Skip this section for design.
+
+For OTHER artifact kinds you may produce in future packets (`finding`, `synthesis`, `decision`, `findings_ledger`, `support_ledger`, `action_item_ledger`, `harness_improvement_proposal`), the publisher requires a YAML-style front matter block at the very top of the file. Each line is `key: <JSON-value>` (strings must be JSON-quoted, lists are JSON arrays, bools are `true`/`false`). Example for `finding`:
+
+```
+---
+schema_version: "striatum.finding.v1"
+artifact_kind: "finding"
+verdict_intent: "accept_with_findings"
+severity: "medium"
+tags: ["threat_model", "rfc-NNNN"]
+---
+```
+
+The byline appears AFTER the front matter block and a blank line, not inside it.
+
+Do not call striatum CLI; the operator publishes on your behalf.

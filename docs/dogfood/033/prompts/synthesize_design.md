@@ -1,6 +1,16 @@
 # Synthesize Design Prompt
 
-Produce `docs/dogfood/033/DESIGN_SYNTHESIS.md` with valid `striatum.synthesis.v1` front matter (JSON-encoded values; quote strings; JSON arrays for lists).
+Produce `docs/dogfood/033/DESIGN_SYNTHESIS.md`. The file must start with a `striatum.synthesis.v1` front matter block (JSON-encoded values; quote strings; JSON arrays for lists). Example shape (verbatim, with your concrete inputs):
+
+```
+---
+schema_version: "striatum.synthesis.v1"
+artifact_kind: "synthesis"
+inputs: ["docs/dogfood/033/design/codex/DESIGN.md", "docs/dogfood/033/design/claude_code/DESIGN.md", "docs/dogfood/033/design/gemini/DESIGN.md"]
+---
+```
+
+The byline appears AFTER the front matter block, as a plain Markdown line `author: <slug>` (lowercase, no bold/italics/heading/quotes).
 
 Read all three design artifacts and synthesize one implementation plan for the RFC 0033 substrate rewrite. The synthesis must explicitly choose, not just enumerate.
 
@@ -22,4 +32,11 @@ Required sections:
 
 If the three designs disagree, pick one path and explain the tradeoff. If a guarantee is advisory, label it advisory. Do not silently expand scope; the operator decision is to keep V2 substrate scope tight so RFC 0030 can ship.
 
-If the work packet supplies an `author:` line, copy it exactly into the artifact title block (lowercase). Do not call striatum CLI.
+## Byline discipline (hard constraint)
+
+The work packet supplies an exact `author: <slug>` line. Copy it verbatim into the artifact title block AFTER the front matter and a blank line.
+
+- The byline must be a plain Markdown line with NO bold (`**`), NO italics, NO heading prefix (`#`), NO quotes around the value, NO trailing punctuation.
+- The line must start with lowercase `author:` exactly.
+
+Do not call striatum CLI unless your harness profile permits it; the operator publishes otherwise.
