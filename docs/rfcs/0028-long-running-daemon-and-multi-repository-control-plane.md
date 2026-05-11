@@ -501,21 +501,57 @@ support, hosted semantics, and local multi-user operator tenancy.
 
 ## Open Questions
 
-- Is the long-term product "CLI with optional daemon" or "daemon with CLI
-  client"?
-- Should daemon mode become required for sealed provenance?
-- Is Option C storage enough, or should daemon mode move immediately to a
-  central event log?
+Status after V1 (2026-05-11): four product-level questions are resolved as
+plain decisions; four become the spine of follow-up RFCs; one stays an open
+TODO.
+
+Resolved as decisions:
+
+- ~~Is the long-term product "CLI with optional daemon" or "daemon with CLI
+  client"?~~ **Resolved by D082**: daemon with CLI client. Daemon mode is the
+  primary product surface for sealed provenance, cross-repo coordination,
+  supervised agent ownership, and MCP mutation. Direct CLI mode is a
+  compatibility shim retired by a future RFC.
+- ~~Does local multi-user mode matter, or is one human/operator per machine
+  sufficient?~~ **Resolved by D083**: single OS user per machine for daemon
+  V2. Multi-user is deferred to a dedicated future RFC.
+- ~~Is Python acceptable for a long-running control plane, or should a Go core
+  be designed before implementation starts?~~ **Resolved by D084**: plan a Go
+  core. RFC 0030 designs a language-agnostic protocol so a Go daemon can
+  replace the Python daemon cleanly; the first daemon-first RPC server may
+  still ship in Python.
+- ~~How should daemon logs be stored without becoming transcript-like
+  sensitive material?~~ **Resolved by D085**: metadata-only audit by default;
+  opt-in `--verbose-log` flag for operator debugging with a session-scoped
+  rotated file and automatic deletion timer.
+
+Becomes the follow-up RFC trio:
+
+- Should daemon mode become required for sealed provenance? → **RFC 0031**
+  (daemon-owned supervision + sealed-apply boundary). Daemon-first product
+  positioning makes daemon-required-for-sealed the natural alignment.
+- What is the upgrade story when CLI and daemon versions differ? → **RFC
+  0030** (daemon RPC server + version skew protocol). Wire-protocol version
+  handshake, capability binding to RPC routes, and explicit refusal /
+  downgrade semantics across daemon-CLI version pairs.
 - Should cross-repository workflows be in scope, or is multi-repository
-  introspection enough for V1?
-- Which capabilities are safe to expose through MCP by default?
-- Does local multi-user mode matter, or is one human/operator per machine
-  sufficient?
-- What is the upgrade story when CLI and daemon versions differ?
-- Is Python acceptable for a long-running control plane, or should a Go core
-  be designed before implementation starts?
-- How should daemon logs be stored without becoming transcript-like
-  sensitive material?
+  introspection enough for V1? → **RFC 0032** (cross-repo workflows + MCP
+  mutation capabilities). Daemon-first transactions make cross-repo possible;
+  scope and semantics need their own design + dogfood cycle.
+- Which capabilities are safe to expose through MCP by default? → **RFC
+  0032**, alongside cross-repo. MCP mutation defaults depend on daemon RPC
+  capability vocabulary and audit guarantees from RFC 0030.
+
+Storage substrate joins the follow-up RFC set:
+
+- ~~Is Option C storage enough, or should daemon mode move immediately to a
+  central event log?~~ **Resolved by D086**: daemon V2 will not stay on
+  SQLite. **RFC 0033** evaluates non-SQLite substrates (event-sourced log,
+  libSQL/Turso, embedded Postgres, RocksDB/BoltDB, ...) and picks one. RFC
+  0033 lands first because RFC 0030's wire protocol, schema migrations, and
+  audit-chain format key off the substrate choice. Repo-local
+  `.striatum/state.sqlite3` may stay SQLite indefinitely; the rewrite is for
+  daemon-owned state, not repo-owned state.
 
 ## Domain Modeling
 
