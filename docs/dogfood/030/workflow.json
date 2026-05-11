@@ -101,17 +101,9 @@
       "adapter": "process",
       "display_model": "Codex GPT-5.5",
       "command": [
-        "codex",
-        "exec",
-        "--json",
-        "--ephemeral",
-        "--skip-git-repo-check",
-        "--sandbox",
-        "workspace-write",
-        "-c",
-        "approval_policy=never",
-        "--ignore-user-config",
-        "-"
+        "bash",
+        "-lc",
+        "PYTHONPATH=src python3 -m striatum.cli skills install --profile all --scope user --force --json >/dev/null && export PATH=\"$PWD/.venv/bin:$PATH\" && exec codex exec --json --ephemeral --skip-git-repo-check --dangerously-bypass-approvals-and-sandbox -c approval_policy=never --ignore-user-config -"
       ],
       "capabilities": [
         "write",
@@ -126,16 +118,15 @@
       "required_enforcement": {
         "transcripts": "enforced"
       },
-      "harness_profile_id": "codex_default",
-      "env": {
-        "CODEX_HOME": "${STRIATUM_SCRATCH_DIR}/codex-home"
-      }
+      "harness_profile_id": "codex_default"
     },
     "claude_code": {
       "adapter": "process",
       "display_model": "Claude Opus",
       "command": [
-        ".striatum/bin/claude-supervised-wrapper.sh"
+        "bash",
+        "-lc",
+        "PYTHONPATH=src python3 -m striatum.cli skills install --profile all --scope user --force --json >/dev/null && export PATH=\"$PWD/.venv/bin:$PATH\" && exec claude --print --permission-mode bypassPermissions --dangerously-skip-permissions"
       ],
       "capabilities": [
         "write",
@@ -155,13 +146,9 @@
       "adapter": "process",
       "display_model": "Gemini Pro",
       "command": [
-        "gemini",
-        "--prompt",
-        "-",
-        "--output-format",
-        "stream-json",
-        "--approval-mode",
-        "auto_edit"
+        "bash",
+        "-lc",
+        "PYTHONPATH=src python3 -m striatum.cli skills install --profile all --scope user --force --json >/dev/null && export PATH=\"$PWD/.venv/bin:$PATH\" && exec gemini --prompt - --output-format stream-json --approval-mode auto_edit"
       ],
       "capabilities": [
         "write",
