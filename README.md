@@ -20,8 +20,9 @@ useful for humans, but they do not advance state.
 
 ## Status
 
-`v1.20.1`. RFCs 0001–0025 are accepted (some at
-`accepted (V1)` or later staged statuses); RFCs 0026–0028 are
+`v1.20.1`. RFCs 0001–0026 are accepted (some at
+`accepted (V1)` or later staged statuses); RFC 0027 is partially
+implemented through fail-closed mode surfacing, and RFC 0028 remains
 proposed. Per-version release notes live in
 [`CHANGELOG.md`](CHANGELOG.md). The package is published to
 PyPI as `striatum-orchestrator` (the bare `striatum` name on

@@ -17,7 +17,7 @@ from striatum.db import (
     sha256_bytes,
     utc_now,
 )
-from striatum.identity import artifact_author_identity
+from striatum.identity import artifact_author_identity, session_lane_attestation
 
 from striatum.cli.introspect import (
     blocked_downstream_jobs,
@@ -441,14 +441,23 @@ def evidence_session_summaries(
     rows = conn.execute(
         """
         SELECT session_id, role_id, lane_id, slug, ordinal, state,
-               registered_at, closed_at, close_reason, non_fresh_reason
+               registered_at, closed_at, close_reason, non_fresh_reason,
+               operator_label
         FROM sessions
         WHERE run_id = ?
         ORDER BY registered_at, session_id
         """,
         (run_id,),
     ).fetchall()
-    return [dict(row) for row in rows]
+    result: list[JsonObject] = []
+    for row in rows:
+        item = dict(row)
+        attestation = session_lane_attestation(conn, session_id=str(row["session_id"]))
+        item["lane_attestation"] = attestation.state
+        item["lane_attestation_reason"] = attestation.reason
+        item["supervisor_id"] = attestation.supervisor_id
+        result.append(item)
+    return result
 
 
 def evidence_job_summaries(
@@ -500,7 +509,7 @@ def evidence_artifact_summaries(
                a.artifact_kind, a.repo_path, a.content_sha256, a.author_line,
                j.workflow_job_id, j.role_id, j.lane_selector_json,
                s.role_id AS session_role_id, s.lane_id AS session_lane_id,
-               s.ordinal AS session_ordinal
+               s.ordinal AS session_ordinal, s.operator_label AS session_operator_label
         FROM artifacts a
         LEFT JOIN jobs j ON j.job_id = a.job_id
         LEFT JOIN sessions s ON s.session_id = a.session_id
@@ -534,6 +543,10 @@ def evidence_artifact_summaries(
                 lane_id=str(author_lane) if author_lane is not None else None,
                 workflow_job_id=str(row["workflow_job_id"]),
                 ordinal=author_ordinal,
+                attested=session_lane_attestation(
+                    conn, session_id=str(row["session_id"])
+                ).attested if row["session_id"] is not None else False,
+                operator_label=row["session_operator_label"],
             )
             # HARNESS-003 byline integrity: prefer the file's actual
             # author line. ``None`` means the artifact file omitted the

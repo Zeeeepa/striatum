@@ -405,6 +405,18 @@ def _apply_v11_runs_paused_columns(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE runs ADD COLUMN paused_reason TEXT")
 
 
+def _apply_v12_lane_attestation_columns(conn: sqlite3.Connection) -> None:
+    """RFC 0026: operator labels and PID identity for lane attestation."""
+    session_cols = [row[1] for row in conn.execute("PRAGMA table_info(sessions)").fetchall()]
+    if "operator_label" not in session_cols:
+        conn.execute("ALTER TABLE sessions ADD COLUMN operator_label TEXT")
+    supervisor_cols = [
+        row[1] for row in conn.execute("PRAGMA table_info(process_supervisors)").fetchall()
+    ]
+    if "pid_start_time" not in supervisor_cols:
+        conn.execute("ALTER TABLE process_supervisors ADD COLUMN pid_start_time TEXT")
+
+
 MIGRATIONS: list[Migration] = sorted(
     [
         Migration(version=1, label="v1 baseline schema", apply=_apply_v1),
@@ -441,6 +453,11 @@ MIGRATIONS: list[Migration] = sorted(
             version=11,
             label="runs.paused_at + runs.paused_reason columns",
             apply=_apply_v11_runs_paused_columns,
+        ),
+        Migration(
+            version=12,
+            label="lane attestation operator_label + pid_start_time columns",
+            apply=_apply_v12_lane_attestation_columns,
         ),
     ],
     key=lambda migration: migration.version,

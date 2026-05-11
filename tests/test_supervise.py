@@ -214,6 +214,21 @@ def supervisor_row(repo: Path, supervisor_id: str) -> sqlite3.Row | None:
     return cast(sqlite3.Row | None, row)
 
 
+def set_supervisor_fields(repo: Path, supervisor_id: str, **fields: object) -> None:
+    assert fields
+    assignments = ", ".join(f"{name} = ?" for name in fields)
+    values = [*fields.values(), supervisor_id]
+    conn = sqlite3.connect(repo / ".striatum" / "state.sqlite3")
+    try:
+        conn.execute(
+            f"UPDATE process_supervisors SET {assignments} WHERE supervisor_id = ?",
+            values,
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
 def supervisor_events(repo: Path, supervisor_id: str) -> list[tuple[str, JsonDict]]:
     conn = sqlite3.connect(repo / ".striatum" / "state.sqlite3")
     try:
@@ -253,12 +268,114 @@ def test_supervise_start_creates_attached_session(tmp_path: Path) -> None:
         assert row is not None
         assert row["state"] == "attached"
         assert row["pid"] == pid
+        assert row["pid_start_time"] is not None
+        assert started["lane_attestation"] == "attested"
+        packet = claim(tmp_path, author)
+        author_info = packet["job"]["author"]
+        assert isinstance(author_info, dict)
+        assert author_info["line"] == "author: author-codex-gpt-5.5-001"
         # Lifecycle events recorded.
         events = supervisor_events(tmp_path, str(started["supervisor_id"]))
         types = [event_type for event_type, _ in events]
         assert "supervisor.starting" in types
         assert "supervisor.started" in types
     finally:
+        run_cli(
+            tmp_path,
+            "supervise",
+            "stop",
+            "--session-id",
+            author,
+            "--reason",
+            "test cleanup",
+            check=False,
+        )
+
+
+def test_lane_attestation_requires_pid_identity_match(tmp_path: Path) -> None:
+    received = tmp_path / "received.txt"
+    workflow_path = supervise_workflow(tmp_path, received)
+    run_id = prepare_started_run(tmp_path, workflow_path)
+    author = register(tmp_path, run_id, "author", "codex")
+
+    started = supervise_start_with_env(tmp_path, author, received_path=received)
+    try:
+        set_supervisor_fields(
+            tmp_path,
+            str(started["supervisor_id"]),
+            pid_start_time="not-the-recorded-process",
+        )
+        packet = claim(tmp_path, author)
+        assert packet["lane_attestation"]["state"] == "unattested"
+        assert packet["lane_attestation"]["reason"] == "pid_identity_mismatch"
+        author_info = packet["job"]["author"]
+        assert isinstance(author_info, dict)
+        assert author_info["line"] == "author: operator"
+        row = supervisor_row(tmp_path, str(started["supervisor_id"]))
+        assert row is not None
+        assert row["state"] == "attached"
+    finally:
+        run_cli(
+            tmp_path,
+            "supervise",
+            "stop",
+            "--session-id",
+            author,
+            "--reason",
+            "test cleanup",
+            check=False,
+        )
+
+
+def test_lane_attestation_requires_snapshot_lane_command_match(tmp_path: Path) -> None:
+    received = tmp_path / "received.txt"
+    workflow_path = supervise_workflow(tmp_path, received)
+    run_id = prepare_started_run(tmp_path, workflow_path)
+    author = register(tmp_path, run_id, "author", "codex")
+
+    started = supervise_start_with_env(tmp_path, author, received_path=received)
+    try:
+        set_supervisor_fields(
+            tmp_path,
+            str(started["supervisor_id"]),
+            command_json=json.dumps([sys.executable, "-c", "import time; time.sleep(60)"]),
+        )
+        packet = claim(tmp_path, author)
+        assert packet["lane_attestation"]["state"] == "unattested"
+        assert packet["lane_attestation"]["reason"] == "lane_command_mismatch"
+        author_info = packet["job"]["author"]
+        assert isinstance(author_info, dict)
+        assert author_info["line"] == "author: operator"
+    finally:
+        run_cli(
+            tmp_path,
+            "supervise",
+            "stop",
+            "--session-id",
+            author,
+            "--reason",
+            "test cleanup",
+            check=False,
+        )
+
+
+def test_starting_supervisor_does_not_attest_lane(tmp_path: Path) -> None:
+    received = tmp_path / "received.txt"
+    workflow_path = supervise_workflow(tmp_path, received)
+    run_id = prepare_started_run(tmp_path, workflow_path)
+    author = register(tmp_path, run_id, "author", "codex")
+
+    started = supervise_start_with_env(tmp_path, author, received_path=received)
+    try:
+        set_supervisor_fields(tmp_path, str(started["supervisor_id"]), state="starting")
+        packet = claim(tmp_path, author)
+        assert packet["lane_attestation"]["state"] == "unattested"
+        assert packet["lane_attestation"]["reason"] == "no_attached_supervisor"
+        author_info = packet["job"]["author"]
+        assert isinstance(author_info, dict)
+        assert author_info["line"] == "author: operator"
+    finally:
+        set_supervisor_fields(tmp_path, str(started["supervisor_id"]), state="attached")
         run_cli(
             tmp_path,
             "supervise",

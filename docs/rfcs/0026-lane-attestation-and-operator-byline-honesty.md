@@ -1,6 +1,6 @@
 # RFC 0026: Lane Attestation and Operator Byline Honesty
 
-Status: proposed
+Status: accepted (V1)
 Date: 2026-05-09
 Context:
 [`docs/UBIQUITOUS_LANGUAGE.md`](../UBIQUITOUS_LANGUAGE.md)
@@ -384,3 +384,21 @@ The artifacts aggregate gains a stronger invariant: every attested-lane
 byline corresponds to a real, runner-spawned process binding at the
 moment of publish. Forgery becomes a deliberate act (start a real
 supervisor, then ghost-write under it) rather than a frictionless slip.
+
+## V1 Implementation Notes
+
+Dogfood-030 accepted the prevention layer with the stricter review
+findings folded in. V1 uses attached-only lane-liveness attestation:
+`starting` supervisors are not attested, the pid must still be alive, the
+Linux process start-time token captured in `process_supervisors.pid_start_time`
+must still match, and the supervisor command must equal the session
+lane's command from the immutable workflow snapshot.
+
+The shipped guarantee remains deliberately narrow. It does not prove
+artifact bytes came from model output, and it does not prevent a local
+operator from editing source bytes directly. Unattested sessions derive
+`author: operator`; `--operator-label` adds a constrained
+`[self-declared: ...]` suffix and rejects labels that resemble lane
+bylines, reserved attestation words, or active lane ids. Review jobs may
+set `require_attested_lane: true`; V1 rejects that field on non-review
+jobs until producer-side patch semantics exist.

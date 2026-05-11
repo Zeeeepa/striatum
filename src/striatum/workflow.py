@@ -49,6 +49,7 @@ CONSTRAINT_VALUES = {
 }
 
 WORKTREE_ISOLATION_VALUES = {"off", "per_job"}
+PROVENANCE_MODES = frozenset({"advisory", "attested_bylines", "sealed_patch"})
 
 # Workflow branch.mode values:
 # - "auto": run prepare creates the suggested branch and transitions the run
@@ -489,6 +490,7 @@ def validate_workflow(
             "workflow schema_version must be striatum.workflow.v1",
             field_path="schema_version",
         )
+    _validate_provenance_mode(workflow)
     _validate_branch_section(workflow)
     # RFC 0020 V1: optional `recovery_policy` block. Validated here
     # so a workflow that declares an invalid hook is rejected at
@@ -558,6 +560,7 @@ def validate_workflow(
         _validate_reviewer_policy(job_id, job)
         _validate_review_posture(job_id, job)
         _validate_required_review_postures(job_id, job)
+        _validate_require_attested_lane(job_id, job)
     _validate_artifact_path_uniqueness(jobs)
     _validate_required_postures_reachable(workflow, job_map=job_map)
     edge_dependency_pairs(workflow)
@@ -943,6 +946,63 @@ def _validate_branch_section(workflow: JsonObject) -> None:
         )
 
 
+def _validate_provenance_mode(workflow: JsonObject) -> None:
+    mode = workflow.get("provenance_mode", "advisory")
+    if not isinstance(mode, str) or mode not in PROVENANCE_MODES:
+        raise WorkflowError(
+            f"workflow provenance_mode must be one of {sorted(PROVENANCE_MODES)!r}; got {mode!r}",
+            field_path="provenance_mode",
+        )
+    if mode != "sealed_patch":
+        return
+    protected = workflow.get("protected_paths", [])
+    operator_writable = workflow.get("operator_writable_paths", [])
+    if not isinstance(protected, list) or not all(isinstance(item, str) for item in protected):
+        raise WorkflowError(
+            "sealed_patch workflows must declare protected_paths as a list of repo-relative strings",
+            field_path="protected_paths",
+        )
+    if not isinstance(operator_writable, list) or not all(
+        isinstance(item, str) for item in operator_writable
+    ):
+        raise WorkflowError(
+            "sealed_patch workflows must declare operator_writable_paths as a list of repo-relative strings",
+            field_path="operator_writable_paths",
+        )
+    _validate_path_policy("protected_paths", protected)
+    _validate_path_policy("operator_writable_paths", operator_writable)
+    for left in protected:
+        left_path = PurePosixPath(left)
+        for right in operator_writable:
+            right_path = PurePosixPath(right)
+            if _path_prefix(left_path, right_path) or _path_prefix(right_path, left_path):
+                raise WorkflowError(
+                    "sealed_patch protected_paths and operator_writable_paths must not overlap",
+                    field_path="protected_paths",
+                )
+
+
+def _validate_path_policy(field_name: str, paths: list[str]) -> None:
+    for index, value in enumerate(paths):
+        path = PurePosixPath(value)
+        if value == "" or value.startswith("/") or ".." in path.parts:
+            raise WorkflowError(
+                f"{field_name} entries must be repo-relative without '..'",
+                field_path=f"{field_name}[{index}]",
+            )
+        if path.parts and path.parts[0] == ".striatum":
+            raise WorkflowError(
+                f"{field_name} must not protect .striatum/ as source",
+                field_path=f"{field_name}[{index}]",
+            )
+
+
+def _path_prefix(left: PurePosixPath, right: PurePosixPath) -> bool:
+    left_parts = left.parts
+    right_parts = right.parts
+    return len(left_parts) <= len(right_parts) and right_parts[: len(left_parts)] == left_parts
+
+
 def _validate_harness_profiles(
     workflow: JsonObject,
     *,
@@ -1280,6 +1340,20 @@ def _validate_required_review_postures(job_id: str, job: JsonValue) -> None:
                 f"build job {job_id!r} required_review_postures contains invalid entry {entry!r}; "
                 f"allowed: {sorted(ALLOWED_POSTURES)} or custom:<name>"
             )
+
+
+def _validate_require_attested_lane(job_id: str, job: JsonValue) -> None:
+    if "require_attested_lane" not in job:
+        return
+    value = job.get("require_attested_lane")
+    if not isinstance(value, bool):
+        raise WorkflowError(
+            f"job {job_id!r} require_attested_lane must be a boolean"
+        )
+    if value is True and job.get("type") != "review":
+        raise WorkflowError(
+            f"job {job_id!r} require_attested_lane is supported only on review jobs in V1"
+        )
 
 
 def _validate_required_postures_reachable(

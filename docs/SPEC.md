@@ -246,15 +246,59 @@ verbatim; reviewers and auditors read it later.
 
 #### Byline Integrity
 
-Workflow-declared `expected_artifacts.author_line` (or the bylines
-synthesised by `artifact_author_identity`) describe **what the workflow
-expected**. The runner records the **actual** `author:` line read from
-each published Markdown artifact in `artifacts.author_line`; when the
-file omits the line entirely the column is NULL. Evidence exports and
-run summaries read the actual column, so a missing byline renders as
-`author: <missing>` rather than the workflow's expected string. This
-prevents the snapshot lying about who reviewed when the operator drove
-a job whose declared lane never executed it (HARNESS-003).
+Workflow-declared `expected_artifacts.author_line` is computed at packet
+and publish time from the session's current lane-liveness attestation
+(RFC 0026). A session is lane-attested only when it has an attached
+`process_supervisors` row for the same run and session, the recorded pid
+is alive, the recorded Linux `/proc/<pid>/stat` start-time token still
+matches, and the supervisor command equals the session lane command from
+the immutable workflow snapshot. `starting` supervisors do not attest a
+lane. Platforms that cannot provide a stable process-start token are
+unattested rather than silently upgraded.
+
+Attestation is not model-token authorship proof and is not source-byte
+provenance. It means only that the runner has a live process binding for
+the declared lane. Unattested sessions publish under `author: operator`
+or, when registered with `--operator-label <label>`, under
+`author: operator [self-declared: <label>]`. Operator labels must match
+`^[a-z0-9._-]{1,64}$` and may not be reserved attestation terms, lane
+ids, or role/model/ordinal-shaped bylines.
+
+The runner records the **actual** `author:` line read from each published
+Markdown artifact in `artifacts.author_line`; when the file omits the
+line entirely the column is NULL. Evidence exports and run summaries read
+the actual column, so a missing byline renders as `author: <missing>`
+rather than the workflow's expected string. This prevents the snapshot
+lying about who reviewed when the operator drove a job whose declared
+lane never executed it (HARNESS-003).
+
+Review jobs may declare `require_attested_lane: true`. In V1 this field
+is valid only on review jobs. When set, `publish-artifact`, `verdict`,
+and `submit-review` refuse before side effects unless the calling
+session is lane-attested, and the error points operators at
+`striatum supervise start --session-id <id>`.
+
+### Provenance Modes
+
+Workflows may declare `provenance_mode`. The closed set is `advisory`,
+`attested_bylines`, and `sealed_patch`; absent mode defaults to
+`advisory`.
+
+`advisory` is the current local CLI mode: Striatum records workflow
+state, artifacts, verdicts, and evidence, but it does not prevent an
+operator with native file tools from editing source bytes directly.
+
+`attested_bylines` means RFC 0026 lane-liveness attestation affects
+byline derivation and optional review-job gates. It still does not prove
+artifact bytes came from a model process and does not prevent direct
+source edits.
+
+`sealed_patch` is reserved for a future hard-containment mode. The
+workflow validator accepts structurally valid `sealed_patch` workflows
+with non-overlapping repo-relative `protected_paths` and
+`operator_writable_paths`, but `run start` refuses them on every platform
+until a containment mechanism is implemented. Silent downgrade to
+`advisory` is a correctness bug.
 
 ## Run Lifecycle
 
@@ -321,8 +365,9 @@ manual SQLite editing, partial recovery). After auto-close it should
 no longer fire on a clean-finish run.
 
 `evidence export` and `run summary` include a per-session block with
-each session's `state`, `closed_at`, `close_reason`, and (when set by
-HARNESS-003 override) `non_fresh_reason`. The `RUN_SUMMARY.md`
+each session's `state`, `closed_at`, `close_reason`,
+`lane_attestation`, `operator_label`, and (when set by HARNESS-003
+override) `non_fresh_reason`. The `RUN_SUMMARY.md`
 `## Sessions` section lists one line per session in registration order.
 
 ## Work Queue
@@ -362,8 +407,8 @@ creation timestamp. It records the file as a run-level artifact of kind
 text.
 
 Durable Markdown artifacts should include the work packet's privacy-safe
-`author: <role-name>-<model-name>-<ordinal>` line in their title block when
-one is provided.
+`author:` line in their title block when one is provided. For unattested
+sessions this line is `author: operator`, not a lane/model byline.
 
 `publish-artifact` validates file existence, repo-relative path, write scope,
 artifact kind, and content hash. Transcript artifacts are rejected by default.

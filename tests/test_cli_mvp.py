@@ -661,7 +661,7 @@ def test_branch_confirmation_blocks_claims(tmp_path: Path) -> None:
     assert job["workflow_job_id"] == "draft"
     author = job["author"]
     assert isinstance(author, dict)
-    assert author["line"] == "author: author-codex-gpt-5.5-001"
+    assert author["line"] == "author: operator"
     assert "draft" not in str(author["line"])
     expected_artifacts = packet["expected_artifacts"]
     assert isinstance(expected_artifacts, list)
@@ -696,6 +696,46 @@ def test_register_session_rejects_unknown_role_or_lane(tmp_path: Path) -> None:
         check=False,
     )
     assert bad_lane["returncode"] == 4
+
+
+def test_register_session_surfaces_unattested_operator_identity(tmp_path: Path) -> None:
+    run_id = prepare_started_run(tmp_path)
+    payload = data(
+        run_cli(
+            tmp_path,
+            "register-session",
+            "--run-id",
+            run_id,
+            "--role",
+            "author",
+            "--lane",
+            "codex",
+            "--operator-label",
+            "codex-driver",
+        )
+    )
+    assert payload["lane_attestation"] == "unattested"
+    assert payload["lane_attestation_reason"] == "no_attached_supervisor"
+    assert payload["operator_label"] == "codex-driver"
+
+
+def test_register_session_rejects_deceptive_operator_labels(tmp_path: Path) -> None:
+    run_id = prepare_started_run(tmp_path)
+    for label in ("reviewer-codex-gpt-5.5-001", "attested", "codex", "has space"):
+        rejected = run_cli(
+            tmp_path,
+            "register-session",
+            "--run-id",
+            run_id,
+            "--role",
+            "author",
+            "--lane",
+            "codex",
+            "--operator-label",
+            label,
+            check=False,
+        )
+        assert rejected["returncode"] == 4
 
 
 def test_complete_requires_ack(tmp_path: Path) -> None:
@@ -976,7 +1016,7 @@ def test_publish_artifact_validates_optional_markdown_author_line(tmp_path: Path
     write_artifact(
         tmp_path,
         path,
-        text="# Draft\n\nStatus: draft\nDate: 2026-05-07\nauthor: author-codex-gpt-5.5-001\n",
+        text="# Draft\n\nStatus: draft\nDate: 2026-05-07\nauthor: operator\n",
     )
     published = data(
         run_cli(
@@ -998,6 +1038,132 @@ def test_publish_artifact_validates_optional_markdown_author_line(tmp_path: Path
     )
     assert published["status"] == "published"
     assert artifact_count(tmp_path, job_id) == 1
+
+
+def test_require_attested_lane_refuses_unattested_review_side_effects(tmp_path: Path) -> None:
+    workflow = example_workflow()
+    jobs = workflow["jobs"]
+    assert isinstance(jobs, list)
+    for job in jobs:
+        if isinstance(job, dict) and job.get("id") == "review_codex":
+            job["require_attested_lane"] = True
+    workflow_path = temporary_workflow(tmp_path, workflow)
+    run_id = prepare_started_run(tmp_path, workflow_path)
+    author = register(tmp_path, run_id, "author", "codex")
+    complete_claimed_job(
+        tmp_path,
+        author,
+        claim(tmp_path, author),
+        logical_name="draft",
+        kind="handoff",
+        path="docs/reviews/rfc-ledger/RFC_LEDGER_DRAFT.md",
+    )
+    reviewer = register(tmp_path, run_id, "reviewer", "codex")
+    packet = claim(tmp_path, reviewer)
+    job_id, message_id, lease_id = packet_ids(packet)
+    run_cli(tmp_path, "ack", "--session-id", reviewer, "--message-id", message_id, "--lease-id", lease_id)
+    path = "docs/reviews/rfc-ledger/codex/RFC_LEDGER_REVIEW.md"
+    write_artifact(tmp_path, path, text=_packet_default_artifact_body(packet, "review"))
+    rejected_publish = run_cli(
+        tmp_path,
+        "publish-artifact",
+        "--session-id",
+        reviewer,
+        "--job-id",
+        job_id,
+        "--lease-id",
+        lease_id,
+        "--kind",
+        "finding",
+        "--logical-name",
+        "review",
+        "--path",
+        path,
+        check=False,
+    )
+    assert rejected_publish["returncode"] == 6
+    rejected_verdict = run_cli(
+        tmp_path,
+        "verdict",
+        "--session-id",
+        reviewer,
+        "--job-id",
+        job_id,
+        "--lease-id",
+        lease_id,
+        "--verdict",
+        "accept",
+        check=False,
+    )
+    assert rejected_verdict["returncode"] == 4
+    assert artifact_count(tmp_path, job_id) == 0
+
+
+def test_workflow_validate_rejects_require_attested_lane_on_non_review(tmp_path: Path) -> None:
+    workflow = example_workflow()
+    jobs = workflow["jobs"]
+    assert isinstance(jobs, list)
+    first = jobs[0]
+    assert isinstance(first, dict)
+    first["require_attested_lane"] = True
+    rejected = run_cli(
+        tmp_path,
+        "workflow",
+        "validate",
+        str(temporary_workflow(tmp_path, workflow)),
+        check=False,
+    )
+    assert rejected["returncode"] == 8
+
+
+def test_sealed_patch_mode_validates_but_refuses_to_start_without_containment(tmp_path: Path) -> None:
+    workflow = example_workflow()
+    workflow["provenance_mode"] = "sealed_patch"
+    workflow["protected_paths"] = ["src/", "tests/"]
+    workflow["operator_writable_paths"] = ["docs/"]
+    workflow_path = temporary_workflow(tmp_path, workflow)
+    init_repo(tmp_path)
+    valid = data(run_cli(tmp_path, "workflow", "validate", str(workflow_path)))
+    assert valid["workflow_id"] == workflow["workflow_id"]
+    prepared = data(run_cli(tmp_path, "run", "prepare", "--workflow", str(workflow_path)))
+    run_id = str(prepared["run_id"])
+    run_cli(tmp_path, "branch", "confirm", "--run-id", run_id, "--branch", "striatum/v1-test")
+    rejected = run_cli(tmp_path, "run", "start", "--run-id", run_id, check=False)
+    assert rejected["returncode"] == 8
+
+
+def test_doctor_flags_unsupported_sealed_patch_run(tmp_path: Path) -> None:
+    workflow = example_workflow()
+    workflow["provenance_mode"] = "sealed_patch"
+    workflow["protected_paths"] = ["src/"]
+    workflow["operator_writable_paths"] = ["docs/"]
+    workflow_path = temporary_workflow(tmp_path, workflow)
+    init_repo(tmp_path)
+    prepared = data(run_cli(tmp_path, "run", "prepare", "--workflow", str(workflow_path)))
+    run_id = str(prepared["run_id"])
+    report = data(run_cli(tmp_path, "doctor", "--run-id", run_id, "--verbose"))
+    assert report["ok"] is False
+    records = report["problem_records"]
+    assert isinstance(records, list)
+    assert any(
+        isinstance(record, dict) and record.get("check") == "sealed_patch_unsupported"
+        for record in records
+    )
+
+
+def test_workflow_validate_rejects_bad_provenance_mode_paths(tmp_path: Path) -> None:
+    workflow = example_workflow()
+    workflow["provenance_mode"] = "sealed_patch"
+    workflow["protected_paths"] = ["src/"]
+    workflow["operator_writable_paths"] = ["src/docs/"]
+    rejected = run_cli(
+        tmp_path,
+        "workflow",
+        "validate",
+        str(temporary_workflow(tmp_path, workflow)),
+        check=False,
+    )
+    assert rejected["returncode"] == 8
 
 
 def test_decision_record_writes_run_level_decision_artifact_without_lease(tmp_path: Path) -> None:
@@ -1691,7 +1857,7 @@ def test_evidence_redaction_preserves_safe_fields(tmp_path: Path) -> None:
     # Author identity metadata stays safe.
     assert "reviewer" in evidence
     assert "codex" in evidence
-    assert "gpt-5.5" in evidence
+    assert "author: operator" in evidence
     # Job ids and workflow job ids stay safe.
     assert "draft" in evidence
     # Content hash is preserved.
@@ -1781,7 +1947,7 @@ def test_evidence_export_writes_redacted_markdown_and_rejects_bad_paths(tmp_path
     assert "/tmp/private-notes" not in evidence
     assert private_job_title not in evidence
     assert '"title"' not in evidence
-    assert "author: reviewer-codex-gpt-5.5-001" in evidence
+    assert "author: operator" in evidence
     assert "Author:" not in evidence
     assert "<redacted-free-text>" in evidence
     assert "state.sqlite3" not in evidence
@@ -1852,7 +2018,7 @@ def test_run_summary_export_writes_compact_note(tmp_path: Path) -> None:
     assert "`finding` `review`: `docs/reviews/rfc-ledger/codex/RFC_LEDGER_REVIEW.md`" in summary
     # Each artifact carries the structured author byline so a reader can see
     # which role/model produced it without opening the artifact file.
-    assert "author: reviewer-codex-gpt-5.5-001" in summary
+    assert "author: operator" in summary
     assert "`human_checkpoint`" in summary
     # Branch context records what the run was prepared with; without a real
     # git checkout the current branch is None and the recorded branch is

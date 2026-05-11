@@ -19,7 +19,7 @@ from striatum.errors import (
     LeaseError,
     NotFoundError,
 )
-from striatum.identity import artifact_author_identity
+from striatum.identity import artifact_author_identity, session_lane_attestation
 from striatum.migrations import apply_migrations
 
 # JSON columns are intentionally untyped at the SQLite boundary.
@@ -1146,6 +1146,8 @@ def build_packet(
         lane_id=lane_id,
         workflow_job_id=str(job["workflow_job_id"]),
         ordinal=int(session["ordinal"]),
+        attested=session_lane_attestation(conn, session_id=str(session["session_id"])).attested,
+        operator_label=session["operator_label"] if "operator_label" in session.keys() else None,
     )
     author_line = author["line"]
     if author_line is None:
@@ -1167,6 +1169,7 @@ def build_packet(
             "lane_id": session["lane_id"],
             "capabilities": json.loads(str(session["capabilities_json"])),
         },
+        "lane_attestation": _lane_attestation_view(conn, session_id=str(session["session_id"])),
         "lease": {
             "lease_id": lease_id,
             "message_id": message_id,
@@ -1242,6 +1245,17 @@ def _harness_profile_view(
     view: JsonObject = {"profile_id": profile_id}
     view.update(body)
     return view
+
+
+def _lane_attestation_view(conn: sqlite3.Connection, *, session_id: str) -> JsonObject:
+    attestation = session_lane_attestation(conn, session_id=session_id)
+    return {
+        "state": attestation.state,
+        "attested": attestation.attested,
+        "supervisor_id": attestation.supervisor_id,
+        "pid": attestation.pid,
+        "reason": attestation.reason,
+    }
 
 
 _REVIEWER_ACCESS_INSTRUCTIONS = {
@@ -1567,6 +1581,7 @@ def record_review_verdict(
         active_lease_for(conn, lease_id=lease_id, session_id=session_id, job_id=job_id)
         if job["state"] != "running":
             raise InvalidTransitionError("review job must be running before verdict")
+        _enforce_required_attestation_for_verdict(conn, job=job, session_id=session_id)
         verify_required_artifacts(conn, job_id=job_id)
         verdict_id = new_id("verdict")
         now = utc_now()
@@ -1589,7 +1604,13 @@ def record_review_verdict(
             actor_session_id=session_id,
             job_id=job_id,
             lease_id=lease_id,
-            payload={"verdict": verdict, "posture": posture},
+            payload={
+                "verdict": verdict,
+                "posture": posture,
+                "lane_attestation": session_lane_attestation(
+                    conn, session_id=session_id
+                ).state,
+            },
         )
         if verdict in ("accept", "accept_with_findings"):
             _complete_review_job(conn, job=job, session_id=session_id, lease_id=lease_id, summary=verdict)
@@ -1773,6 +1794,36 @@ def _after_timestamp(previous: str, candidate: str) -> str:
     except ValueError:
         return candidate
     return (parsed + timedelta(seconds=1)).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def _enforce_required_attestation_for_verdict(
+    conn: sqlite3.Connection,
+    *,
+    job: sqlite3.Row,
+    session_id: str,
+) -> None:
+    workflow = _workflow_for_run(conn, run_id=str(job["run_id"]))
+    job_def = _workflow_job_def(workflow, workflow_job_id=str(job["workflow_job_id"]))
+    if not isinstance(job_def, dict) or job_def.get("require_attested_lane") is not True:
+        return
+    attestation = session_lane_attestation(conn, session_id=session_id, mark_lost=True)
+    if attestation.attested:
+        return
+    reason = f" ({attestation.reason})" if attestation.reason else ""
+    raise InvalidTransitionError(
+        "review job requires an attached lane supervisor before recording a verdict"
+        f"{reason}; recovery: striatum supervise start --session-id {session_id}"
+    )
+
+
+def _workflow_job_def(workflow: JsonObject, *, workflow_job_id: str) -> JsonObject | None:
+    jobs = workflow.get("jobs")
+    if not isinstance(jobs, list):
+        return None
+    for item in jobs:
+        if isinstance(item, dict) and item.get("id") == workflow_job_id:
+            return cast(JsonObject, item)
+    return None
 
 
 def request_revision_for_cycle(

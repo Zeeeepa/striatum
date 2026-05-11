@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+### Added
+
+- RFC 0026 V1 lane-liveness attestation: work-packet and publish-time
+  bylines now downgrade unattested sessions to `author: operator`;
+  attached supervised sessions regain lane/model bylines only when the
+  pid identity and snapshot command binding match. Added
+  `register-session --operator-label`, per-session attestation surfacing,
+  and review-job `require_attested_lane: true` gates.
+- RFC 0027 provenance-mode guardrails: workflows may declare
+  `provenance_mode` (`advisory`, `attested_bylines`, `sealed_patch`).
+  `sealed_patch` validates path policy but refuses to start until real
+  source containment ships.
+
 ## 1.20.1 — 2026-05-10
 
 ### Added

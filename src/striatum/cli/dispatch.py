@@ -402,6 +402,7 @@ def dispatch(args: argparse.Namespace) -> object:
                 parent_session_id=args.parent_session_id,
                 force_non_fresh=args.force_non_fresh,
                 non_fresh_reason=args.reason,
+                operator_label=args.operator_label,
             )
         if args.command == "session" and args.session_command == "close":
             return close_session(

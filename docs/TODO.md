@@ -63,6 +63,7 @@ so external references keep resolving even as items move between sections.
 | F27 | RFC 0024 V4 (pause/resume + per-job cancel/retry, dogfood-027) | ✅ done |
 | F28 | RFC 0025 V1 Step 1 (claude_code plugin, dogfood-028) | ✅ done |
 | F29 | RFC 0025 V1 Steps 2+3 (codex + gemini plugins, dogfood-029) | ✅ done |
+| F30 | RFC 0026 V1 + RFC 0027 Phase 2 guardrails (dogfood-030) | ✅ done |
 
 Legend: ✅ done · 🟡 most done (sub-tasks remain) · ⏳ open
 
@@ -243,3 +244,9 @@ F3. ~~Land the round-6 follow-up integrations.~~ Done: RFC 0002 landed
     `harness_improvement_proposal`) registered with v1 front-matter schemas,
     workflow + publish validation reject unknown kinds, and
     `examples/support-ledger-flow/` ships as the reference fixture.
+
+F30. ~~Land lane-liveness attestation and provenance-mode guardrails.~~ Done:
+    unattested sessions now publish under `author: operator`, operator labels
+    are constrained and self-declared, review jobs can require an attached lane
+    supervisor, and `sealed_patch` workflows validate structurally but refuse
+    to start until real containment exists.

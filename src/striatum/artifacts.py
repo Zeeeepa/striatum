@@ -22,7 +22,7 @@ from striatum.db import (
     utc_now,
 )
 from striatum.errors import ArtifactError
-from striatum.identity import artifact_author_identity
+from striatum.identity import artifact_author_identity, session_lane_attestation
 
 
 MARKDOWN_SUFFIXES = {".md", ".markdown"}
@@ -392,6 +392,11 @@ def publish_artifact(
             raise ArtifactError(
                 f"artifact kind {kind!r} is not in the allowed kinds list: {allowed}"
             )
+        _enforce_required_attestation_for_artifact(
+            conn,
+            job=job,
+            session_id=session_id,
+        )
         write_scope = json_loads(str(job["write_scope_json"]))
         if not path_allowed(repo, path_text, write_scope):
             raise ArtifactError("artifact path is outside the job write scope")
@@ -571,6 +576,7 @@ def expected_author_line(conn: sqlite3.Connection, *, job: sqlite3.Row, session_
         str(run["workflow_snapshot_id"]),
     )
     session = row_by_id(conn, "sessions", "session_id", session_id)
+    attestation = session_lane_attestation(conn, session_id=session_id, mark_lost=True)
     lane = json_loads(str(job["lane_selector_json"])).get("lane_id")
     lane_id = lane if isinstance(lane, str) else None
     author = artifact_author_identity(
@@ -579,8 +585,48 @@ def expected_author_line(conn: sqlite3.Connection, *, job: sqlite3.Row, session_
         lane_id=lane_id,
         workflow_job_id=str(job["workflow_job_id"]),
         ordinal=int(session["ordinal"]),
+        attested=attestation.attested,
+        operator_label=session["operator_label"] if "operator_label" in session.keys() else None,
     )
     line = author["line"]
     if line is None:
         raise ArtifactError("expected artifact author line could not be derived")
     return line
+
+
+def _enforce_required_attestation_for_artifact(
+    conn: sqlite3.Connection,
+    *,
+    job: sqlite3.Row,
+    session_id: str,
+) -> None:
+    if not _job_requires_attested_lane(conn, job=job):
+        return
+    attestation = session_lane_attestation(conn, session_id=session_id, mark_lost=True)
+    if attestation.attested:
+        return
+    reason = f" ({attestation.reason})" if attestation.reason else ""
+    raise ArtifactError(
+        "job requires an attached lane supervisor before publishing artifacts"
+        f"{reason}; recovery: striatum supervise start --session-id {session_id}"
+    )
+
+
+def _job_requires_attested_lane(conn: sqlite3.Connection, *, job: sqlite3.Row) -> bool:
+    run = row_by_id(conn, "runs", "run_id", str(job["run_id"]))
+    snapshot = row_by_id(
+        conn,
+        "workflow_snapshots",
+        "workflow_snapshot_id",
+        str(run["workflow_snapshot_id"]),
+    )
+    workflow = json_loads(str(snapshot["workflow_json"]))
+    jobs = workflow.get("jobs")
+    if not isinstance(jobs, list):
+        return False
+    workflow_job_id = str(job["workflow_job_id"])
+    for item in jobs:
+        if not isinstance(item, dict) or item.get("id") != workflow_job_id:
+            continue
+        return item.get("require_attested_lane") is True
+    return False

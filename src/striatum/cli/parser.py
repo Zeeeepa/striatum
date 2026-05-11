@@ -215,6 +215,7 @@ def build_parser() -> argparse.ArgumentParser:
     # exports record the breach explicitly.
     register.add_argument("--force-non-fresh", action="store_true")
     register.add_argument("--reason")
+    register.add_argument("--operator-label")
     register.add_argument("--json", action="store_true")
 
     # RFC 0011: session command group. ``close`` is the only subcommand

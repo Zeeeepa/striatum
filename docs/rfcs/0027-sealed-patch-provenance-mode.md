@@ -1,6 +1,6 @@
 # RFC 0027: Sealed Patch Provenance Mode
 
-Status: proposed
+Status: proposed (phase 2 guardrails shipped)
 Date: 2026-05-10
 Context:
 [`docs/research/P005_SYNTHESIS.md`](../research/P005_SYNTHESIS.md),
@@ -347,6 +347,21 @@ happy paths:
 - **Mode naming.** This RFC proposes JSON value `sealed_patch` because the
   honest guarantee is patch provenance. The user-facing label may be
   "sealed provenance" if the docs keep the scope explicit.
+
+## Current Implementation Status
+
+Dogfood-030 shipped only the honest mode-surfacing guardrail for this RFC.
+Workflow validation accepts `provenance_mode` values `advisory`,
+`attested_bylines`, and `sealed_patch`; absent mode defaults to
+`advisory`. Structurally valid `sealed_patch` workflows must declare
+repo-relative, non-overlapping `protected_paths` and
+`operator_writable_paths`.
+
+No patch capture, hash-bound review target, apply gate, receipt signing,
+source containment, or signed local commit behavior has shipped. `run
+start` refuses `sealed_patch` runs on every platform with an unsupported
+containment error so the runner cannot silently downgrade sealed claims to
+advisory behavior.
 
 ## Domain Modeling
 

@@ -24,6 +24,7 @@ from striatum.db import (
     json_loads,
 )
 from striatum.errors import NotFoundError, StriatumError
+from striatum.identity import session_lane_attestation
 
 
 # Stable state vocabularies, kept in lockstep with the CHECK constraints in
@@ -39,7 +40,7 @@ RUN_STATES: tuple[str, ...] = (
     "canceled",
 )
 
-SESSION_STATES: tuple[str, ...] = ("active", "expired", "stopped", "lost")
+SESSION_STATES: tuple[str, ...] = ("active", "expired", "stopped", "lost", "closed")
 
 JOB_STATES: tuple[str, ...] = (
     "blocked",
@@ -137,7 +138,8 @@ def list_sessions(
     _ensure_run_exists(conn, run_id=run_id)
     sql = """
         SELECT session_id, role_id, lane_id, slug, ordinal, state,
-               capabilities_json, registered_at, last_heartbeat_at
+               capabilities_json, registered_at, last_heartbeat_at,
+               operator_label
         FROM sessions
         WHERE run_id = ?
           AND (? IS NULL OR state = ?)
@@ -158,6 +160,10 @@ def list_sessions(
         except json.JSONDecodeError:
             parsed = []
         item["capabilities"] = parsed if isinstance(parsed, list) else []
+        attestation = session_lane_attestation(conn, session_id=str(item["session_id"]))
+        item["lane_attestation"] = attestation.state
+        item["lane_attestation_reason"] = attestation.reason
+        item["supervisor_id"] = attestation.supervisor_id
         items.append(item)
     return _envelope(items)
 

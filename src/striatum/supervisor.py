@@ -38,6 +38,7 @@ from striatum.db import (
     workflow_for_run,
 )
 from striatum.errors import InvalidTransitionError, NotFoundError
+from striatum.identity import process_start_time, session_lane_attestation
 
 
 SUPERVISOR_ACTIVE_STATES = ("starting", "attached", "detached")
@@ -166,6 +167,7 @@ def supervise_start(
         os.close(pipe_fd)
 
     pid = child.pid
+    pid_start_time = process_start_time(pid)
     if not _pid_alive(pid):
         # Child exited before we could attach — record as lost rather than
         # leaving the row stuck in starting.
@@ -197,10 +199,10 @@ def supervise_start(
         conn.execute(
             """
             UPDATE process_supervisors
-            SET state = 'attached', pid = ?, heartbeat_at = ?
+            SET state = 'attached', pid = ?, pid_start_time = ?, heartbeat_at = ?
             WHERE supervisor_id = ?
             """,
-            (pid, now, supervisor_id),
+            (pid, pid_start_time, now, supervisor_id),
         )
         insert_event(
             conn,
@@ -217,8 +219,10 @@ def supervise_start(
     return {
         "supervisor_id": supervisor_id,
         "pid": pid,
+        "pid_start_time": pid_start_time,
         "stdin_pipe_path": str(pipe_path),
         "state": "attached",
+        "lane_attestation": "attested" if pid_start_time is not None else "unattested",
     }
 
 
@@ -450,6 +454,9 @@ def supervise_status(
     elif pid_value is not None and state == "stopped":
         liveness = "alive" if _pid_alive(int(pid_value)) else "gone"
     supervisor["liveness"] = liveness
+    attestation = session_lane_attestation(conn, session_id=session_id, mark_lost=True)
+    supervisor["lane_attestation"] = attestation.state
+    supervisor["lane_attestation_reason"] = attestation.reason
     return supervisor
 
 

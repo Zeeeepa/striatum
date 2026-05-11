@@ -23,6 +23,7 @@ from striatum.db import (
     sha256_bytes,
     transaction,
     utc_now,
+    workflow_for_run,
 )
 from striatum.errors import (
     ArtifactError,
@@ -31,6 +32,7 @@ from striatum.errors import (
     NotFoundError,
     WorkflowError,
 )
+from striatum.identity import session_lane_attestation, validate_operator_label
 
 from striatum.cli.introspect import downstream_jobs
 
@@ -186,6 +188,12 @@ def run_start(conn: sqlite3.Connection, *, run_id: str) -> JsonObject:
     """Start a prepared run and enqueue root jobs."""
     with transaction(conn):
         run = row_by_id(conn, "runs", "run_id", run_id)
+        workflow = workflow_for_run(conn, run_id=run_id)
+        if workflow.get("provenance_mode", "advisory") == "sealed_patch":
+            raise WorkflowError(
+                "provenance_mode sealed_patch is unsupported: no containment mechanism shipped; "
+                "sealed runs refuse to start rather than silently downgrading to advisory"
+            )
         if run["state"] == "needs_branch_confirmation":
             raise WorkflowError("branch confirmation is required before run start")
         if run["state"] not in ("ready", "running"):
@@ -224,6 +232,7 @@ def register_session(
     parent_session_id: str | None,
     force_non_fresh: bool = False,
     non_fresh_reason: str | None = None,
+    operator_label: str | None = None,
 ) -> JsonObject:
     """Register an agent session.
 
@@ -251,6 +260,15 @@ def register_session(
             raise InvalidTransitionError(f"unknown role {role!r} for run")
         if not isinstance(lanes, dict) or lane not in lanes:
             raise InvalidTransitionError(f"unknown lane {lane!r} for run")
+        recorded_operator_label: str | None = None
+        if operator_label is not None:
+            try:
+                recorded_operator_label = validate_operator_label(
+                    operator_label,
+                    workflow=workflow,
+                )
+            except ValueError as exc:
+                raise InvalidTransitionError(str(exc)) from exc
         recorded_non_fresh_reason: str | None = None
         if role == "reviewer" and _workflow_declares_fresh_reviewer(workflow):
             other_author_active = conn.execute(
@@ -290,9 +308,9 @@ def register_session(
             INSERT INTO sessions (
               session_id, run_id, role_id, lane_id, slug, ordinal,
               capabilities_json, parent_session_id, fresh_context, state,
-              registered_at, last_heartbeat_at, non_fresh_reason
+              registered_at, last_heartbeat_at, non_fresh_reason, operator_label
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?)
             """,
             (
                 session_id,
@@ -307,11 +325,14 @@ def register_session(
                 now,
                 now,
                 recorded_non_fresh_reason,
+                recorded_operator_label,
             ),
         )
         payload: JsonObject = {"role": role, "lane": lane, "slug": slug}
         if recorded_non_fresh_reason is not None:
             payload["non_fresh_reason"] = recorded_non_fresh_reason
+        if recorded_operator_label is not None:
+            payload["operator_label"] = recorded_operator_label
         insert_event(
             conn,
             run_id=run_id,
@@ -319,7 +340,15 @@ def register_session(
             actor_session_id=session_id,
             payload=payload,
         )
-        return {"session_id": session_id, "slug": slug}
+        attestation = session_lane_attestation(conn, session_id=session_id)
+        return {
+            "session_id": session_id,
+            "slug": slug,
+            "lane_attestation": attestation.state,
+            "lane_attestation_reason": attestation.reason,
+            "operator_label": recorded_operator_label,
+            "supervise_hint": f"striatum supervise start --session-id {session_id}",
+        }
 
 
 def _workflow_declares_fresh_reviewer(workflow: JsonObject) -> bool:
@@ -722,6 +751,9 @@ def prevalidate_submit_review(
     if job["state"] == "claimed" and job["current_message_id"] is None:
         raise InvalidTransitionError("claimed review job is missing its current message")
     active_lease_for(conn, lease_id=lease_id, session_id=session_id, job_id=str(job["job_id"]))
+    from striatum.db import _enforce_required_attestation_for_verdict
+
+    _enforce_required_attestation_for_verdict(conn, job=job, session_id=session_id)
     expected = json.loads(str(job["expected_artifacts_json"]))
     if not isinstance(expected, list):
         raise InvalidTransitionError("expected artifacts must be a list")

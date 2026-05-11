@@ -17,6 +17,7 @@ from striatum.db import (
     latest_verdict,
     row_by_id,
 )
+from striatum.identity import session_lane_attestation
 from striatum.errors import InvalidTransitionError, NotFoundError
 from striatum.supervisor import SUPERVISOR_ACTIVE_STATES
 from striatum.db import utc_now
@@ -194,6 +195,8 @@ def status(conn: sqlite3.Connection, *, run_id: str | None) -> JsonObject:
                 actions.append(extra)
     return {
         "runs": [dict(row) for row in runs],
+        "provenance_mode": _provenance_mode_for_status(conn, run_id=run_id),
+        "sessions": _session_attestation_summaries(conn, run_id=run_id),
         "jobs": {str(row["state"]): int(row["count"]) for row in jobs},
         "open_blockers": open_blockers,
         "human_checkpoints": human_checkpoints,
@@ -204,6 +207,69 @@ def status(conn: sqlite3.Connection, *, run_id: str | None) -> JsonObject:
         "process_health": process_health,
         "next_actions": actions,
     }
+
+
+def _provenance_mode_for_status(
+    conn: sqlite3.Connection, *, run_id: str | None
+) -> str | dict[str, str]:
+    rows = conn.execute(
+        """
+        SELECT r.run_id, ws.workflow_json
+        FROM runs r
+        JOIN workflow_snapshots ws
+          ON ws.workflow_snapshot_id = r.workflow_snapshot_id
+        WHERE (? IS NULL OR r.run_id = ?)
+        ORDER BY r.created_at
+        """,
+        (run_id, run_id),
+    ).fetchall()
+    modes: dict[str, str] = {}
+    for row in rows:
+        try:
+            workflow = json.loads(str(row["workflow_json"]))
+        except json.JSONDecodeError:
+            mode = "advisory"
+        else:
+            mode = workflow.get("provenance_mode", "advisory") if isinstance(workflow, dict) else "advisory"
+            if not isinstance(mode, str):
+                mode = "advisory"
+        modes[str(row["run_id"])] = mode
+    if run_id is not None:
+        return modes.get(run_id, "advisory")
+    return modes
+
+
+def _session_attestation_summaries(
+    conn: sqlite3.Connection, *, run_id: str | None
+) -> list[JsonObject]:
+    rows = conn.execute(
+        """
+        SELECT session_id, run_id, role_id, lane_id, slug, state, operator_label
+        FROM sessions
+        WHERE (? IS NULL OR run_id = ?)
+        ORDER BY registered_at
+        """,
+        (run_id, run_id),
+    ).fetchall()
+    result: list[JsonObject] = []
+    for row in rows:
+        attestation = session_lane_attestation(conn, session_id=str(row["session_id"]))
+        result.append(
+            {
+                "session_id": row["session_id"],
+                "run_id": row["run_id"],
+                "role_id": row["role_id"],
+                "lane_id": row["lane_id"],
+                "slug": row["slug"],
+                "state": row["state"],
+                "operator_label": row["operator_label"],
+                "lane_attestation": attestation.state,
+                "lane_attestation_reason": attestation.reason,
+                "supervisor_id": attestation.supervisor_id,
+                "pid": attestation.pid,
+            }
+        )
+    return result
 
 
 def _count_verdicts_by_posture(
@@ -942,6 +1008,7 @@ def doctor(
         "skills_outdated",
         "plugin_missing",
         "plugin_outdated",
+        "sealed_patch_unsupported",
     )
     problems: list[str] = []
     records: list[JsonObject] = []
@@ -952,6 +1019,41 @@ def doctor(
         assert check in DOCTOR_CHECKS, f"unknown doctor check: {check}"
         problems.append(message)
         records.append({"check": check, "id": identifier, "context": context})
+
+    sealed_rows = conn.execute(
+        """
+        SELECT r.run_id, r.state, ws.workflow_json
+        FROM runs r
+        JOIN workflow_snapshots ws
+          ON ws.workflow_snapshot_id = r.workflow_snapshot_id
+        WHERE r.state NOT IN ('completed','failed','canceled')
+          AND (? IS NULL OR r.run_id = ?)
+        """,
+        (run_id, run_id),
+    ).fetchall()
+    for row in sealed_rows:
+        try:
+            workflow = json.loads(str(row["workflow_json"]))
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(workflow, dict):
+            continue
+        if workflow.get("provenance_mode", "advisory") != "sealed_patch":
+            continue
+        report(
+            "sealed_patch_unsupported",
+            identifier=str(row["run_id"]),
+            message=(
+                "sealed_patch run cannot start on this runner: no hard "
+                f"containment mechanism is available for run {row['run_id']}"
+            ),
+            context={
+                "run_id": row["run_id"],
+                "run_state": row["state"],
+                "provenance_mode": "sealed_patch",
+                "reason": "containment_unsupported",
+            },
+        )
 
     orphan_jobs = conn.execute(
         """
