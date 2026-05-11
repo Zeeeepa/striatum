@@ -217,15 +217,16 @@ Legend: ✅ done · 🟡 most done (sub-tasks remain) · ⏳ open
     "adapter" rather than assuming Engram-specific paths or marker names.
     No active sub-task.
 
-18. **Workflow type and lane catalog chooser.** The web UI can already
+18. **Workflow type and lane catalog chooser.** RFC 0034 proposes the
+    implementation path. The web UI can already
     browse, edit, run, cancel, pause/resume, and retry workflows via
     RFC 0024, but the product still lacks a first-class choice surface
     for "which workflow should I start from, and which lanes should run
     it?" Promote the documented workflow types and lane-set options in
     `docs/WORKFLOW_TYPES.md` into a small metadata catalog, expose CLI
     verbs such as `workflow templates list/show` and
-    `workflow init --template <id>`, then add a UI chooser that
-    generates a workflow and opens it in the existing visual builder.
+    `workflow generate`, then add a UI chooser that generates a workflow
+    and opens it in the existing visual builder.
 
 ## Immediate Follow-Up
 
