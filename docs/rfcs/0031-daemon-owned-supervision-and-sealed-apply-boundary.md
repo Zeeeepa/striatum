@@ -73,6 +73,55 @@ without daemon-owned authority.
   remain).
 - Hosting signing keys outside the local machine. Keys live in OS
   keyring or a `0600` fallback file.
+- **Resistance to a malicious local-root attacker.** Daemon-owned
+  supervision, the signing key, and the apply receipts are not designed
+  to defend against an operator who deliberately reads the daemon's
+  files, kills the daemon, or impersonates the daemon process. See the
+  threat-model section below.
+
+## Threat Model
+
+The provenance machinery in this RFC defends against **over-eager AI
+agents** acting through the documented interfaces. It does not defend
+against a malicious local operator.
+
+In scope:
+
+- An agent process that exits its lane scope and tries to write outside
+  its declared `write_scope.allowed_paths`. The daemon refuses.
+- An agent process that publishes an artifact whose claimed byline does
+  not match the supervisor it ran under (RFC 0026 attestation). The
+  daemon refuses; the byline downgrades to `author: operator`.
+- An agent process that requests `apply.reviewed_patch` without a
+  matching reviewer verdict / patch digest / base-tree hash. The daemon
+  refuses and records the denial in the audit chain.
+- An agent process that crashes or exits silently mid-job. RFC 0014
+  process-completion guarantees apply; the daemon does not invent
+  success.
+- An MCP client that holds a token without the `apply` capability and
+  tries to call `apply.reviewed_patch`. The daemon refuses.
+
+Out of scope:
+
+- An operator who runs `cat ~/.striatum/daemon/signing_key` and uses the
+  key elsewhere. The signing key is local-only and operator-readable by
+  design.
+- An operator who runs `pg_dump` against the daemon DB and edits the
+  audit chain. Audit append-only enforcement uses Postgres roles for
+  protection against accidental updates through the daemon API; an
+  operator with the database superuser role can bypass it.
+- An operator who modifies `.striatum/state.sqlite3` directly or
+  modifies the daemon's worktree directly. Repo-local provenance has
+  always been "operator can edit; we record artifacts so reviewers can
+  notice."
+- An adversary with code execution as the daemon's OS user. That
+  adversary is the daemon's trust zone; we do not claim to defend
+  against them.
+
+The boundary this RFC enforces is "the AI did what its work packet
+said, and an apply receipt corresponds to a real reviewer verdict
+against the real patch." Not "no human can ever forge an apply
+receipt." Sealed mode is a guardrail, not a cryptographic proof.
 
 ## Proposal
 
@@ -277,13 +326,17 @@ When the daemon crashes:
 
 - Daemon process compromise now affects supervised processes and
   sealed-apply authority. Mitigations: socket permissions, signing
-  key custody, audit chain, version-handshake refusal.
-- The signing key is local-only. Sealed mode does not claim model-
-  token authorship, independent human decision provenance, or
-  resistance to a local-root attacker.
+  key custody, audit chain, version-handshake refusal. None of these
+  defend against the operator themselves; see Threat Model above.
+- The signing key is local-only and operator-readable by design (see
+  Non-Goals and Threat Model). Sealed mode is an AI-guardrail, not a
+  cryptographic proof of authorship or a defense against a malicious
+  operator.
 - RFC 0026 attestation rules still apply: bylines downgrade to
   `author: operator` when supervisors are unattested or missing.
-- Apply receipts are local evidence, not external proof.
+- Apply receipts are local evidence that the AI did what its work
+  packet claimed, not external proof that the operator can present to
+  a third party.
 
 ## Compatibility and Migration
 
@@ -298,14 +351,17 @@ When the daemon crashes:
 
 - Daemon is now in the critical path for supervised lanes. A daemon
   bug can affect every supervised run on the machine.
-- Sealed-apply authority is a real attack target. Documentation must
-  resist overclaim ("the daemon signs apply receipts; it does not
-  prove the operator who triggered apply").
+- Sealed-apply authority can be misread as a cryptographic proof.
+  Documentation must resist overclaim. The Threat Model section is the
+  authoritative scope statement; SPEC.md and README.md must reflect it
+  exactly.
 - Crash-during-apply requires careful idempotency: the apply receipt
   is recorded before the worktree write so a crash mid-apply produces
   a missing-receipt + clean worktree, not a half-applied patch.
-- Operators with local root can read the signing key; this is not
-  a security claim against a local attacker.
+- The operator-readable signing key is a deliberate non-goal (see
+  Threat Model). If the product later needs an external-proof story,
+  that is a separate RFC introducing a different key custody model;
+  this RFC's "AI guardrail" framing does not need to bend.
 
 ## Benefits
 
@@ -353,8 +409,11 @@ When the daemon crashes:
   `provenance_mode: sealed_patch`? Recommendation: implicit; the
   workflow validator rewrites with a documented warning.
 - What happens when an `apply` token is leaked? Recommendation:
-  `daemon.token.revoke` plus operator-recorded incident decision; no
-  automatic mitigations in V2.
+  `daemon.token.revoke` plus operator-recorded decision. Per the
+  Threat Model section, token theft by an attacker with code execution
+  as the daemon's OS user is out of scope; this open question is about
+  the more mundane "operator accidentally pasted the token into a
+  chat" case.
 - How does the daemon-applied worktree integrate with the operator's
   git history? Recommendation: the daemon writes to a private worktree
   and emits a patch + receipt; the operator merges via their normal

@@ -168,22 +168,28 @@ Downsides:
 
 ### 2. Recommendation
 
-Adopt **Option C (embedded PostgreSQL)** for daemon V2, with the following
+Adopt **Option C (system PostgreSQL)** for daemon V2, with the following
 guardrails:
 
-- Daemon installer ships a known-good Postgres binary inside its
-  distribution, or detects and refuses to start against a system Postgres
-  whose major version is unsupported.
-- Postgres lives inside `${XDG_STATE_HOME}/striatum/daemon/postgres/`
-  (Linux) or platform equivalents; ownership is the daemon-installed OS
-  user only.
-- Daemon owns Postgres lifecycle: start/stop/reload, log rotation, vacuum,
-  and version check. Operators never run `psql` against the daemon DB
-  unless they pass an explicit `--unsafe-direct` flag the daemon refuses
-  by default.
-- Schema is migrated via daemon-owned versioned migrations; the V1 SQLite
-  registry has an explicit "export to PG" path during the V1→V2 cutover
-  (see §4).
+- The daemon connects to an operator-installed system PostgreSQL via a
+  configurable URL (`STRIATUM_DAEMON_DB_URL`,
+  `~/.config/striatum/daemon.toml`, or a `--postgres-url` flag).
+- `striatum daemon doctor` verifies that the URL is reachable, the
+  Postgres major version is supported, and the daemon role has the
+  expected privileges; refuses to start otherwise.
+- The daemon does NOT manage the Postgres lifecycle. Operators run
+  Postgres via the package manager / service manager they already use.
+  This keeps the daemon a single process and avoids nesting Postgres
+  supervision inside daemon supervision.
+- Schema migrations are daemon-owned and forward-only (RFC 0033 §3); the
+  V1 SQLite registry has an explicit "export to PG" path during the
+  V1→V2 cutover (§4).
+- Bundled PostgreSQL is **deferred** to a follow-up RFC. The two
+  plausible bundling paths are a Dockerized distribution (daemon +
+  Postgres in one compose) and an embedded-binary distribution (daemon
+  ships its own `pg_ctl`-managed Postgres). Both add packaging /
+  distribution surface area that we can avoid in V2 by requiring system
+  Postgres.
 
 Rationale:
 
@@ -195,9 +201,14 @@ Rationale:
 - SQL keeps doctor/dashboard/why introspection ergonomic; we are not
   prepared to author the query tooling Option D/E demand.
 - Go ecosystem (`pgx`, `pgxpool`) is mature.
-- The "ship the Postgres binary" tax is real but tractable; the existing
-  Python distribution already vendors `striatumd`, claude/gemini/codex
-  wrappers, plugin templates, and migration logic.
+- Requiring system Postgres keeps the daemon's distribution simple: one
+  Python wheel today, one Go binary tomorrow. Operators on workstations
+  already have Postgres available via Homebrew / apt / pacman / WSL.
+  Operators who don't can install it once.
+- Bundled / Dockerized distribution is a real product question, but it
+  is orthogonal to the substrate decision. Deferring it lets RFC 0030
+  ship without the daemon installer growing a Postgres lifecycle
+  manager.
 
 The five options are documented above so reviewers can challenge the
 recommendation in the dogfood-033 design phase.
@@ -271,16 +282,26 @@ The daemon may not assume single-writer semantics anymore:
 
 ### 8. Packaging and distribution
 
-- The Python daemon distribution adds a `postgres/` subdir with the
-  bundled binary plus a small launcher script. Total disk footprint
-  increases by 30–50 MiB depending on platform.
-- The future Go daemon (D084) embeds Postgres the same way or, more
-  likely, drops to a static-linked alternative (DuckDB? libSQL after
-  more maturity? to be decided by a follow-up RFC if the bundled-binary
-  story becomes painful).
-- Operators may opt into a system Postgres with
-  `--external-postgres-url`; the daemon checks compatibility and refuses
-  to start if the version is wrong.
+- The Python daemon distribution does **not** bundle Postgres. The
+  daemon wheel stays small (no `postgres/` subdir). Operators install
+  Postgres via their platform package manager (Homebrew, apt, pacman,
+  pkg, ...) or use a system service.
+- `daemon doctor` documents the minimum supported Postgres major
+  version and refuses to start against an unsupported version.
+- The future Go daemon (D084) inherits the same "system Postgres
+  required" stance unless a follow-up RFC changes it.
+- Bundled / Dockerized distribution is documented as a deferred
+  follow-up RFC. Two paths are plausible:
+  - **Dockerized**: ship a `docker compose` that brings up daemon +
+    Postgres + (optionally) MCP server as one unit. Easiest for
+    onboarding new users; adds Docker as a hard dependency.
+  - **Embedded binary**: ship a `pg_ctl`-managed Postgres alongside
+    the daemon binary, similar to how some desktop apps embed
+    Postgres. Avoids Docker; grows the distribution footprint by
+    30–50 MiB and pushes Postgres lifecycle into the daemon.
+
+  Both are real product choices that benefit from their own RFC; V2
+  ships with system Postgres only.
 
 ### 9. Provenance and trust implications
 
@@ -307,19 +328,25 @@ The daemon may not assume single-writer semantics anymore:
 
 ## Downsides and risks
 
-- Bundling Postgres adds 30–50 MiB to daemon distribution; users on
-  metered installs notice.
-- Daemon installer complexity rises: install, upgrade, uninstall must
-  manage a Postgres lifecycle.
-- Operators who break the bundled Postgres data directory have a worse
-  recovery story than "delete `.striatum/state.sqlite3` and re-run
-  `daemon migrate`." We need to document recovery explicitly.
+- System Postgres is a real first-time-setup ask. Operators new to
+  Striatum need to install Postgres (or use an existing service) before
+  `daemon start` works. The deferred bundled / Dockerized distribution
+  RFC addresses onboarding friction; V2 documents the system-PG
+  requirement clearly and provides a `daemon doctor` story that points
+  at platform-specific install instructions.
+- Operators with multiple unrelated Postgres deployments (one for a
+  hobby app, one for Striatum) must keep them isolated. The daemon role
+  is named distinctly; the database name is configurable. This is
+  documented but not enforced by code.
 - The schema-version-in-every-audit-row promise constrains future audit
   redesigns. We accept that cost.
-- The Go core port (D084) inherits the embedded-Postgres choice; if Go
+- The Go core port (D084) inherits the system-Postgres choice; if Go
   daemon designers prefer something else, this RFC may need a partner
   RFC re-evaluating substrate at port time. We document that explicitly
   rather than pretend it cannot happen.
+- Daemon installer complexity stays low because the daemon does not
+  manage Postgres. The cost shows up in the operator's machine setup
+  instead.
 
 ## Benefits
 
@@ -332,34 +359,43 @@ The daemon may not assume single-writer semantics anymore:
 
 ## Acceptance Criteria
 
-- A daemon binary can start against an embedded Postgres data directory
-  it created itself and successfully apply V2 schema migrations.
+- A daemon binary can connect to a system Postgres via a configured URL,
+  apply V2 schema migrations forward, and report the resulting schema
+  version via `daemon doctor`.
+- `daemon doctor` refuses to start if the Postgres major version is
+  unsupported, the role is missing required privileges, or the daemon
+  binary is older than the on-disk schema.
 - `striatum daemon migrate --from sqlite --to pg` imports a V1 daemon
   registry SQLite into the V2 Postgres schema with a byte-equivalent
   audit chain (hash anchors match end-to-end).
 - After migration the daemon refuses V1 SQLite registry reads with a
   documented error.
-- Per-test Postgres harness teardown leaves no zombie processes and no
-  leftover data directories after a full test run.
+- Per-test Postgres harness teardown leaves no zombie connections and
+  no leftover schemas after a full test run.
 - `daemon doctor` reports substrate version, schema version, audit chain
   status, and segment manifest verification.
 - Supervisor heartbeat, audit append, and capability check write paths
   each have at least one concurrency test that exercises overlapping
   transactions without deadlock under serializable isolation.
-- Documentation in `docs/SPEC.md`, `docs/MCP.md`, and
-  `docs/UBIQUITOUS_LANGUAGE.md` is updated to name the substrate and
-  describe operator UX for `daemon migrate`.
+- Documentation in `docs/SPEC.md`, `docs/MCP.md`,
+  `docs/UBIQUITOUS_LANGUAGE.md`, `docs/CLI_REFERENCE.md`, and
+  `docs/HOW_TO_HUMAN.md` is updated to name the substrate, the system-PG
+  requirement, the `STRIATUM_DAEMON_DB_URL` env var, and operator UX
+  for `daemon migrate`.
 
 ## Open Questions
 
-- Should the daemon bundle Postgres or always require a system Postgres?
-  Recommendation is bundle, but reviewers should challenge.
-- What is the supported Postgres major-version range? Pick one major
-  version at V2 release; bump with each major daemon release.
-- Should `--external-postgres-url` be in V2 scope, or deferred? Adding
-  it complicates the daemon installer; recommendation defers it to a
-  follow-up RFC.
-- Does the embedded-Postgres choice survive the Python→Go port (D084),
+- ~~Should the daemon bundle Postgres or always require a system
+  Postgres?~~ **Resolved**: V2 requires system Postgres. Bundled /
+  Dockerized distribution is deferred to a follow-up RFC.
+- What is the supported Postgres major-version range? Pick one minimum
+  major version at V2 release (recommendation: PG 14+); bump with each
+  major daemon release. Reviewers should challenge the floor.
+- What does the daemon-onboarding UX look like for an operator who has
+  never installed Postgres? Recommendation: `daemon doctor` emits
+  platform-specific install hints (Homebrew, apt, pacman, pkg). The
+  bundled / Dockerized follow-up RFC will lower this bar further.
+- Does the system-Postgres choice survive the Python→Go port (D084),
   or do we re-evaluate substrate at port time?
 - If the operator wipes the daemon DB, what is the recovery story for
   the audit chain? Document that audit cannot be reconstructed from
@@ -378,6 +414,9 @@ Terms to add to `docs/UBIQUITOUS_LANGUAGE.md` after acceptance:
 - **Substrate version** — the schema-version integer recorded in every
   audit row and surfaced by `daemon doctor`. Distinct from daemon binary
   version and from repo-local state DB version.
-- **External Postgres** — operator-supplied Postgres URL accepted via
-  `--external-postgres-url`. Not in V2 scope; documented as a future
-  follow-up.
+- **System Postgres** — the operator-installed PostgreSQL instance the
+  daemon connects to via `STRIATUM_DAEMON_DB_URL` or `--postgres-url`.
+  V2 requires it; daemon does not manage Postgres lifecycle.
+- **Bundled distribution** — a deferred follow-up packaging shape that
+  ships the daemon together with Postgres (Dockerized or
+  embedded-binary). Out of V2 scope.
