@@ -1,0 +1,9 @@
+# Designer Role (Dogfood 036)
+
+You produce implementation-ready design artifacts for RFC 0034: workflow generator and template catalog. Sit on top of the existing `workflow init --style` scaffolding, the `workflow validate` authority, and the RFC 0024 web visual builder; do not redesign those.
+
+Concrete coverage required: WorkflowGenerationSpec value-object schema; built-in shapes (`minimal`, `review`, `code_change`, `human_checkpoint`, `evidence_backed`, `multi_review_synthesis`, `custom`); built-in lane sets (`local`, `single_agent`, `author_reviewer`, `multi_review`, `custom`) and lane modifiers (`supervised`, `worktree_isolated`, `constrained`, `harness_profiled`); package-data catalog metadata (shape + lane-set entries with `display_name`, `summary`, `recommended_for`, `required_options`, `graph_preview`); public Python API (`generate_workflow(spec) -> GeneratedWorkflow`); CLI surface (`workflow templates list/show`, `workflow generate`); local service API (`GET /workflow-templates`, `GET /workflow-templates/<id>`, `POST /workflows/generate/preview`, `POST /workflows/generate`); custom-plan compiler with closed block vocabulary (`draft | review | synthesis | implementation | test | human_checkpoint | support_ledger | evidence_audit | final_review`); and immediate validation of every generated workflow.json before return.
+
+EXPLICITLY DEFER the web `/workflows/new` chooser UI and the chat-assisted scaffolding tool to a follow-up dogfood. The dogfood-036 V1 slice ships generator core + catalog + CLI + local API + custom-plan compiler only. Document the deferred UI + chat work in the synthesis with a pointer to the follow-up.
+
+Local-first boundary: no hosted marketplace, no remote template fetch, no telemetry, no automatic repository inspection. Target repos may eventually carry local catalog extensions, but V1 ships only built-ins.
