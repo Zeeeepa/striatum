@@ -16,6 +16,8 @@ GitHub issues
 [#2](https://github.com/halbritt/striatum/issues/2),
 [#3](https://github.com/halbritt/striatum/issues/3)
 
+Implemented in dogfood-030 (V1, paired with RFC 0027 phase 2 guardrails).
+
 ## Problem
 
 Multiple operator surrogates running striatum workflows have been observed

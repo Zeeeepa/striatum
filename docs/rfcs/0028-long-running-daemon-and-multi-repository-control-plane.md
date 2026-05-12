@@ -16,6 +16,13 @@ Context:
 D020, D028, D036, D049, D058, D059, D066, D068, D074, D075,
 D076-D080)
 
+Implemented in dogfood-031 (V1 acceptance-criteria slice: registry +
+foreground sweep, resources-only daemon MCP, metadata-only audit, no
+RPC server). Daemon V2 follow-ups land in dogfood-033 (RFC 0033
+substrate) and dogfood-034 (RFC 0030 RPC server + RFC 0031 daemon-owned
+supervision and sealed-apply boundary). Cross-repo workflows and MCP
+mutation capability expansion (RFC 0032) remain queued.
+
 ## Problem
 
 Striatum's current center of gravity is a short-lived CLI process over a

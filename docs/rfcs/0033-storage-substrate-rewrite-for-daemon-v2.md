@@ -14,6 +14,12 @@ RFC 0033 lands first in the daemon V2 follow-up sequence because RFC 0030's
 wire protocol, schema migrations, and audit-chain format all key off the
 substrate choice.
 
+Implemented in dogfood-033 (V2 scaffold: system Postgres requirement,
+`src/striatum/daemon_pg/` package, `daemon migrate --from sqlite --to pg`
+cutover, audit-chain mapping with byte-equivalent V1 anchors). The live
+Postgres CI harness for migration apply, role privilege enforcement, and
+concurrency races is the next hardening pass.
+
 ## Problem
 
 D086 commits to a non-SQLite substrate for daemon-owned state in V2. RFC

@@ -15,6 +15,12 @@ Context:
 [`docs/DECISION_LOG.md`](../DECISION_LOG.md) (D006, D009,
 D020, D028, D036, D048, D049)
 
+Implementation status: dogfood-030 shipped phase 2 guardrails
+(`provenance_mode` workflow field + fail-closed `sealed_patch` startup
+refusal). dogfood-034 added daemon-side sealed-apply RPC scaffold +
+signing-key custody under RFC 0031; the full apply gate + receipt
+pipeline remains a follow-up.
+
 ## Problem
 
 Striatum can record durable provenance for work submitted through its

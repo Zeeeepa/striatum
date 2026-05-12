@@ -16,6 +16,9 @@ Context:
 [Gemini CLI extensions](https://geminicli.com/docs/extensions/),
 [Gemini CLI extension reference](https://geminicli.com/docs/extensions/reference/)
 
+Implemented in dogfood-028 (V1 step 1: `claude_code` plugin profile) and
+dogfood-029 (V1 steps 2+3: `codex` and `gemini` plugin profiles).
+
 ## Problem
 
 RFC 0015 ships per-tool **skills** for Claude Code, Codex (custom-agent
