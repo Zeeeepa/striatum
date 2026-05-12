@@ -225,9 +225,9 @@ Legend: ✅ done · 🟡 most done (sub-tasks remain) · ⏳ open
     generator core, package-data catalog, CLI `workflow templates
     list/show`, CLI `workflow generate`, local service catalog and
     generation endpoints, custom-plan compiler, and `workflow init
-    --style` rewire. **Remaining:** web `/workflows/new` chooser UI,
-    chat-assisted scaffolding tool, and any future target-repo catalog
-    extension decision.
+    --style` rewire. **Remaining:** web `/workflows/new` chooser UI;
+    chat-assisted scaffolding tool now scoped by RFC 0036 (proposed);
+    any future target-repo catalog extension decision.
 
 19. **RFC for multi-repo / cross-repo test harness.** ✅ RFC 0035
     drafted (proposed). Scopes `tests/_harness/MultiRepoHarness` that
