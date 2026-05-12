@@ -1,0 +1,344 @@
+{
+  "schema_version": "striatum.workflow.v1",
+  "workflow_id": "dogfood-037-rfc-0035-multi-repo-test-harness",
+  "workflow_version": "2026-05-13",
+  "name": "Dogfood 037: RFC 0035 multi-repo test harness for cross-repo workflows",
+  "branch": {
+    "mode": "auto",
+    "suggested_name": "striatum/dogfood-037-rfc-0035-multi-repo-test-harness",
+    "allow_dirty": false
+  },
+  "coordinator": {
+    "role_id": "coordinator",
+    "lane_id": "codex"
+  },
+  "harness_profiles": {
+    "codex_default": {
+      "tool_family": "codex",
+      "strategy_version": "2026-05-13",
+      "native_delegation": {
+        "mode": "encouraged",
+        "instruction": "Use native delegation aggressively for parallelizable work that meets the criteria in the implement prompt. The parent session remains accountable for Striatum artifacts, write scope, verification, and completion. Long-running `make test` invocations should be reasonably bounded — break large test files into smaller verifications if the run risks lease expiry beyond the documented ~30-minute window."
+      },
+      "feature_flags": {
+        "subagents": "allowed_via_natural_language_routing",
+        "skills": "encouraged",
+        "mcp": "allowed_if_configured"
+      },
+      "supervision": {
+        "compatible": true,
+        "stdin_format": "packet",
+        "wrapper_required": true
+      },
+      "approval_mode": "default",
+      "memory_files": ["AGENTS.md"],
+      "accountability": {
+        "native_subagents": "internal_to_parent_session",
+        "first_class_registration": "not_supported"
+      }
+    },
+    "claude_code_default": {
+      "tool_family": "claude_code",
+      "strategy_version": "2026-05-13",
+      "native_delegation": {
+        "mode": "preferred",
+        "instruction": "Use sub-agents aggressively for bounded independent research, review, and code/test/doc authorship. Do not let native delegation obscure the parent session's artifact and verdict accountability."
+      },
+      "feature_flags": {
+        "subagents": "preferred",
+        "skills": "encouraged",
+        "headless_print_mode": "forbidden_for_supervised_lanes",
+        "mcp": "allowed"
+      },
+      "supervision": {
+        "compatible": true,
+        "stdin_format": "newline_delimited_json",
+        "wrapper_required": true
+      },
+      "approval_mode": "auto_edit",
+      "memory_files": ["CLAUDE.md", "AGENTS.md"],
+      "accountability": {
+        "native_subagents": "internal_to_parent_session",
+        "first_class_registration": "not_supported"
+      }
+    },
+    "gemini_cli_default": {
+      "tool_family": "gemini_cli",
+      "strategy_version": "2026-05-13",
+      "native_delegation": {
+        "mode": "allowed",
+        "instruction": "Use local sub-agents only for bounded independent work. Do not rely on remote agent-to-agent delegation or hidden state as provenance. When asked to write a review artifact, write the file directly; do not surface strategy and exit without producing the artifact (see dogfood-036 OPERATOR_REPORT.md for the friction pattern this constraint addresses). When writing finding artifacts, use the EXACT `striatum.finding.v1` front-matter shape: `verdict_intent` (not `verdict`); `severity` from {low,medium,high,critical} (not `none`); `tags` as a JSON array; the `author: ...` byline is a plain markdown line AFTER the front-matter block, not a key inside it."
+      },
+      "feature_flags": {
+        "subagents": "allowed",
+        "remote_subagents_a2a": "forbidden",
+        "skills": "allowed",
+        "mcp": "allowed",
+        "native_worktree": "forbidden"
+      },
+      "supervision": {
+        "compatible": "verify_pipe_behavior_first",
+        "stdin_format": "prompt_text",
+        "wrapper_required": true
+      },
+      "approval_mode": "auto_edit",
+      "memory_files": ["GEMINI.md"],
+      "accountability": {
+        "native_subagents": "internal_to_parent_session",
+        "first_class_registration": "not_supported"
+      }
+    }
+  },
+  "lanes": {
+    "codex": {
+      "adapter": "process",
+      "display_model": "Codex GPT-5.5",
+      "command": [
+        "bash",
+        "-lc",
+        "PYTHONPATH=src python3 -m striatum.cli skills install --profile all --scope user --force --json >/dev/null && export PATH=\"$PWD/.venv/bin:$PATH\" && exec .striatum/bin/codex-supervised-wrapper.sh"
+      ],
+      "capabilities": ["write", "review", "synthesis"],
+      "constraints": {"transcripts": "off", "repo_scope": "local_only", "network": "forbidden"},
+      "required_enforcement": {"transcripts": "enforced"},
+      "harness_profile_id": "codex_default"
+    },
+    "claude_code": {
+      "adapter": "process",
+      "display_model": "Claude Opus",
+      "command": [
+        "bash",
+        "-lc",
+        "PYTHONPATH=src python3 -m striatum.cli skills install --profile all --scope user --force --json >/dev/null && export PATH=\"$PWD/.venv/bin:$PATH\" && exec .striatum/bin/claude-supervised-wrapper.sh"
+      ],
+      "capabilities": ["write", "review", "synthesis"],
+      "constraints": {"transcripts": "off", "repo_scope": "local_only"},
+      "required_enforcement": {"transcripts": "enforced"},
+      "harness_profile_id": "claude_code_default"
+    },
+    "gemini": {
+      "adapter": "process",
+      "display_model": "Gemini Pro",
+      "command": [
+        "bash",
+        "-lc",
+        "PYTHONPATH=src python3 -m striatum.cli skills install --profile all --scope user --force --json >/dev/null && export PATH=\"$PWD/.venv/bin:$PATH\" && exec .striatum/bin/gemini-supervised-wrapper.sh"
+      ],
+      "capabilities": ["write", "review", "synthesis"],
+      "constraints": {"transcripts": "off", "repo_scope": "local_only"},
+      "required_enforcement": {"transcripts": "enforced"},
+      "harness_profile_id": "gemini_cli_default",
+      "env": {"GEMINI_CLI_TRUST_WORKSPACE": "1"}
+    }
+  },
+  "roles": {
+    "coordinator": {"definition_path": "docs/dogfood/037/roles/coordinator.md"},
+    "designer": {"definition_path": "docs/dogfood/037/roles/designer.md"},
+    "reviewer": {"definition_path": "docs/dogfood/037/roles/reviewer.md"},
+    "implementer": {"definition_path": "docs/dogfood/037/roles/implementer.md"}
+  },
+  "context_docs": [
+    {"path": "AGENTS.md", "required": true},
+    {"path": "README.md", "required": true},
+    {"path": "docs/INDEX.md", "required": true},
+    {"path": "docs/SPEC.md", "required": true},
+    {"path": "docs/DECISION_LOG.md", "required": true},
+    {"path": "docs/UBIQUITOUS_LANGUAGE.md", "required": true},
+    {"path": "docs/TODO.md", "required": true},
+    {"path": "docs/rfcs/0035-multi-repo-test-harness-for-cross-repo-workflows.md", "required": true},
+    {"path": "docs/rfcs/0032-cross-repo-workflows-and-mcp-mutation-capabilities.md", "required": true},
+    {"path": "docs/rfcs/0030-daemon-rpc-server-and-version-skew-protocol.md", "required": true},
+    {"path": "docs/rfcs/0031-daemon-owned-supervision-and-sealed-apply-boundary.md", "required": true},
+    {"path": "docs/rfcs/0033-storage-substrate-rewrite-for-daemon-v2.md", "required": true},
+    {"path": "docs/dogfood/035/DESIGN_SYNTHESIS.md", "required": false},
+    {"path": "docs/dogfood/035/BUILD_HANDOFF.md", "required": false},
+    {"path": "tests/conftest.py", "required": false},
+    {"path": "tests/test_cross_repo_lifecycle.py", "required": false},
+    {"path": "tests/test_workflow_cross_repo.py", "required": false},
+    {"path": "tests/test_daemon_rpc_registry.py", "required": false},
+    {"path": "tests/test_mcp_mutation_capabilities.py", "required": false},
+    {"path": "src/striatum/cross_repo.py", "required": false},
+    {"path": "src/striatum/workflow.py", "required": false},
+    {"path": "src/striatum/daemon_rpc/registry.py", "required": false},
+    {"path": "src/striatum/daemon_rpc/capability.py", "required": false},
+    {"path": "src/striatum/daemon_pg/migrations.py", "required": false},
+    {"path": "src/striatum/mcp.py", "required": false},
+    {"path": "Makefile", "required": false}
+  ],
+  "parallelism": {
+    "mode": "declared",
+    "max_active_jobs": 3,
+    "require_disjoint_write_scopes": true
+  },
+  "jobs": [
+    {
+      "id": "design_codex",
+      "type": "generic",
+      "title": "Design RFC 0035 multi-repo test harness from Codex",
+      "role_id": "designer",
+      "lane_id": "codex",
+      "parallel_group": "fresh_design",
+      "fresh_session_required": true,
+      "objective": "Produce an implementation design for RFC 0035: the `tests/_harness/MultiRepoHarness` fixture + five end-to-end test files (prepare/lifecycle/crash-recovery/MCP-capability-scope/per-repo-write-scope). Cover: harness module layout (`tests/_harness/{__init__.py, multi_repo.py, daemon.py, repos.py, pg.py, mcp.py}`), `MultiRepoHarness.start()` / `.stop()` / `.reset_daemon_db()` lifecycle, ephemeral Postgres database creation against the existing system PG (RFC 0033 substrate), daemon subprocess boot with ephemeral Unix socket, per-test repo init + register, per-test database reset semantics, the five e2e test files' coverage matrices, CI integration (`make test-multi-repo`, skip-with-message when PG unavailable), and the harness smoke test (`tests/test_multi_repo_harness.py`). Scope is developer/test infrastructure — no product code, no public API.",
+      "task_prompt": {"path": "docs/dogfood/037/prompts/design_codex.md"},
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": ["docs/dogfood/037/design/codex/"],
+        "forbidden_paths": [".striatum/"]
+      },
+      "expected_artifacts": [
+        {"logical_name": "codex_design", "kind": "handoff", "path": "docs/dogfood/037/design/codex/DESIGN.md", "required": true}
+      ]
+    },
+    {
+      "id": "design_claude_code",
+      "type": "generic",
+      "title": "Design RFC 0035 multi-repo test harness from Claude Code",
+      "role_id": "designer",
+      "lane_id": "claude_code",
+      "parallel_group": "fresh_design",
+      "fresh_session_required": true,
+      "objective": "Produce an implementation design for RFC 0035 emphasizing trust boundaries the e2e tests will exercise: capability scope mismatch (token scoped to repo A used against repo B), `tools/list` capability-filtering correctness, default-deny on unknown methods, audit chain integrity across allow/deny paths, crash recovery (daemon SIGKILL mid-prepare/start/cancel), per-repo write-scope enforcement (job targeting repo B refused from writing repo A's paths), one-repo-unreachable-mid-run pause + human checkpoint. Be specific about how the harness simulates these without leaving residue between test runs (per-test DB reset semantics).",
+      "task_prompt": {"path": "docs/dogfood/037/prompts/design_claude_code.md"},
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": ["docs/dogfood/037/design/claude_code/"],
+        "forbidden_paths": [".striatum/"]
+      },
+      "expected_artifacts": [
+        {"logical_name": "claude_code_design", "kind": "handoff", "path": "docs/dogfood/037/design/claude_code/DESIGN.md", "required": true}
+      ]
+    },
+    {
+      "id": "design_gemini",
+      "type": "generic",
+      "title": "Design RFC 0035 multi-repo test harness from Gemini",
+      "role_id": "designer",
+      "lane_id": "gemini",
+      "parallel_group": "fresh_design",
+      "fresh_session_required": true,
+      "objective": "Produce an implementation design for RFC 0035 with attention to cross-platform reality (Linux + macOS PG, no Windows daemon), CI matrix integration (existing PG-extras jobs + macOS-no-PG skip path), wall-clock budget (< 60s added to local `make test`), determinism + cleanup hygiene (ephemeral DB dropped, scratch dir removed, Unix socket deleted on stop), port/socket collision avoidance (subprocess + Unix socket so no port conflicts), and how the harness exposes assertion helpers for daemon-DB row inspection + per-repo SQLite row inspection.",
+      "task_prompt": {"path": "docs/dogfood/037/prompts/design_gemini.md"},
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": ["docs/dogfood/037/design/gemini/"],
+        "forbidden_paths": [".striatum/"]
+      },
+      "expected_artifacts": [
+        {"logical_name": "gemini_design", "kind": "handoff", "path": "docs/dogfood/037/design/gemini/DESIGN.md", "required": true}
+      ]
+    },
+    {
+      "id": "synthesize_design",
+      "type": "synthesis",
+      "title": "Synthesize RFC 0035 multi-repo test harness implementation plan",
+      "role_id": "designer",
+      "lane_id": "codex",
+      "objective": "Reconcile all three fresh design artifacts into one implementation plan for RFC 0035. Pick the concrete harness module layout, `MultiRepoHarness` API shape, per-test DB reset semantics, fixture scope (per-class default + per-function escape hatch), the five e2e test files' exact case lists, CI integration shape, and `make test-multi-repo` recipe. Explicitly defer: a Go-client testing surface (RFC 0035 §Open Questions; D084 future); the two-repos-with-worktree-isolated-lanes example workflow (follow-up). State the staging plan: harness skeleton + smoke test first, then prepare + lifecycle e2e, then crash recovery e2e, then MCP capability scope e2e, then per-repo write-scope e2e, then CI wiring + docs.",
+      "task_prompt": {"path": "docs/dogfood/037/prompts/synthesize_design.md"},
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": ["docs/dogfood/037/"],
+        "forbidden_paths": [".striatum/"]
+      },
+      "expected_artifacts": [
+        {"logical_name": "design_synthesis", "kind": "synthesis", "path": "docs/dogfood/037/DESIGN_SYNTHESIS.md", "required": true}
+      ]
+    },
+    {
+      "id": "review_design_threat",
+      "type": "review",
+      "title": "Threat-model review of RFC 0035 design",
+      "role_id": "reviewer",
+      "lane_id": "gemini",
+      "fresh_session_required": true,
+      "reviewer_access_scope": "artifact_augmented",
+      "reviewer_context_policy": "fresh",
+      "review_posture": "threat_model",
+      "objective": "Review the synthesized multi-repo test harness plan under threat_model posture. Verdict acceptance means the harness will actually exercise the threat surfaces RFC 0032 V2 introduced: capability scope mismatch refused with `capability_missing` and audited; default-deny on unknown methods + missing capability; audit chain integrity across allow/deny paths; daemon-crash reconciliation (preparing → started or aborted); one-repo-unreachable pause + human checkpoint; per-repo write-scope enforcement. Scope per RFC 0031 §Threat Model: defend against over-eager AI agents acting through documented interfaces and operator-mistake footguns; malicious-local-root is OUT OF SCOPE. Also check: deterministic cleanup hygiene (no residue between tests), no flaky-on-CI patterns (subprocess + Unix socket means no port conflicts), and that the harness does NOT introduce a parallel production-code path. IMPORTANT — write the REVIEW.md artifact directly in this single supervised invocation. Use the EXACT `striatum.finding.v1` front-matter shape: `verdict_intent` (not `verdict`); `severity` from {low,medium,high,critical}; `tags` as a JSON array; the `author: <slug>` byline is a plain markdown line AFTER the front-matter block, NOT a key inside it.",
+      "task_prompt": {"path": "docs/dogfood/037/prompts/review_design.md"},
+      "write_scope": {
+        "mode": "review_only_artifact",
+        "repo_write": false,
+        "allowed_paths": ["docs/dogfood/037/review/design/threat/"],
+        "forbidden_paths": [".striatum/"]
+      },
+      "expected_artifacts": [
+        {"logical_name": "design_review_threat", "kind": "finding", "path": "docs/dogfood/037/review/design/threat/REVIEW.md", "required": true}
+      ]
+    },
+    {
+      "id": "implement",
+      "type": "build",
+      "title": "Implement RFC 0035 multi-repo test harness V1",
+      "role_id": "implementer",
+      "lane_id": "codex",
+      "required_review_postures": ["threat_model"],
+      "objective": "Implement only the reviewed and accepted V1 slice from docs/dogfood/037/DESIGN_SYNTHESIS.md. Ship the `tests/_harness/` module skeleton + `MultiRepoHarness` fixture, ephemeral Postgres + daemon boot/teardown, per-test DB reset semantics, the harness smoke test, the five end-to-end test files, `make test-multi-repo` target, and `tests/conftest.py` integration. Use sub-agents aggressively for parallelizable work. Document deferred scope (Go-client testing surface, example workflow) in BUILD_HANDOFF.md. Cycle exhaustion at max_iterations=2 → operator records a decision artifact and continues with the latest verdict.",
+      "task_prompt": {"path": "docs/dogfood/037/prompts/implement.md"},
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "src/striatum/",
+          "tests/",
+          "docs/SPEC.md",
+          "docs/UBIQUITOUS_LANGUAGE.md",
+          "docs/DECISION_LOG.md",
+          "docs/TODO.md",
+          "docs/CLI_REFERENCE.md",
+          "docs/HOW_TO_HUMAN.md",
+          "docs/rfcs/0035-multi-repo-test-harness-for-cross-repo-workflows.md",
+          "docs/rfcs/README.md",
+          "docs/dogfood/037/",
+          "Makefile",
+          "README.md",
+          "CHANGELOG.md",
+          "pyproject.toml"
+        ],
+        "forbidden_paths": [".striatum/"]
+      },
+      "expected_artifacts": [
+        {"logical_name": "build_handoff", "kind": "handoff", "path": "docs/dogfood/037/BUILD_HANDOFF.md", "required": true}
+      ]
+    },
+    {
+      "id": "review_build_threat",
+      "type": "review",
+      "title": "Threat-model review of RFC 0035 V1 build",
+      "role_id": "reviewer",
+      "lane_id": "claude_code",
+      "fresh_session_required": true,
+      "reviewer_access_scope": "repo_level",
+      "reviewer_context_policy": "fresh",
+      "review_posture": "threat_model",
+      "objective": "Review the implementation under threat_model posture. Verify: every e2e test file exercises the threat surfaces it claims (read each test's assertions); the harness smoke test exercises the actual lifecycle (start → register → reset → stop); per-test DB reset truncates the right tables (audit chain rows must be cleared cleanly between tests); ephemeral Postgres + daemon scratch dir are deterministically cleaned up; `make test-multi-repo` correctly skips when PG is unavailable with a clear message; no flaky-on-CI patterns; the harness does NOT introduce a parallel production-code path. Tests cover happy + denial + revoked + expired + scope-mismatch + unknown-method paths.",
+      "task_prompt": {"path": "docs/dogfood/037/prompts/review_build.md"},
+      "write_scope": {
+        "mode": "review_only_artifact",
+        "repo_write": false,
+        "allowed_paths": ["docs/dogfood/037/review/build/threat/"],
+        "forbidden_paths": [".striatum/"]
+      },
+      "expected_artifacts": [
+        {"logical_name": "build_review_threat", "kind": "finding", "path": "docs/dogfood/037/review/build/threat/REVIEW.md", "required": true}
+      ]
+    }
+  ],
+  "edges": [
+    {"from": "design_codex", "to": "synthesize_design", "on": "completed"},
+    {"from": "design_claude_code", "to": "synthesize_design", "on": "completed"},
+    {"from": "design_gemini", "to": "synthesize_design", "on": "completed"},
+    {"from": "synthesize_design", "to": "review_design_threat", "on": "completed"},
+    {"from": "review_design_threat", "to": "implement", "on": "completed"},
+    {"from": "implement", "to": "review_build_threat", "on": "completed"}
+  ],
+  "cycles": [
+    {"from": "review_design_threat", "to": "synthesize_design", "on_verdict": "needs_revision", "max_iterations": 2},
+    {"from": "review_build_threat", "to": "implement", "on_verdict": "needs_revision", "max_iterations": 2}
+  ]
+}
