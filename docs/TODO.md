@@ -226,19 +226,14 @@ Legend: ✅ done · 🟡 most done (sub-tasks remain) · ⏳ open
     chat-assisted scaffolding tool, and any future target-repo catalog
     extension decision.
 
-19. **RFC for multi-repo / cross-repo test harness.** RFC 0032
-    (cross-repo workflows + MCP mutation capabilities) cannot be
-    exercised end-to-end by the current single-repo test fixtures.
-    Author a follow-up RFC scoping a multi-repo test harness:
-    per-test daemon instance with two or more registered repositories,
-    fixture generators for the `repositories` workflow block,
-    assertion helpers for cross-repo state coordination (best-effort
-    consistency on crash, per-repo write-scope enforcement, cross-repo
-    cycle accounting), and daemon RPC client testing patterns. Scope
-    is developer/test infrastructure, not product code. Land before
-    dogfood-035 implements RFC 0032 so the implementer has a
-    documented harness target rather than improvising
-    cross-repo fixtures during the dogfood run.
+19. **RFC for multi-repo / cross-repo test harness.** ✅ RFC 0035
+    drafted (proposed). Scopes `tests/_harness/MultiRepoHarness` that
+    boots a daemon + N registered target repositories with ephemeral
+    Postgres so RFC 0032 cross-repo workflow + MCP capability scope
+    behavior can be exercised end-to-end. Covers prepare/lifecycle/
+    crash-recovery/MCP-capability-scope/per-repo-write-scope.
+    **Remaining:** implement the harness + the five e2e test files in a
+    follow-up dogfood.
 
 ## Immediate Follow-Up
 
