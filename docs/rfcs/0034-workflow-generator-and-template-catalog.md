@@ -1,6 +1,6 @@
 # RFC 0034: Workflow Generator And Template Catalog
 
-Status: proposed
+Status: accepted (V1)
 Date: 2026-05-11
 Context:
 [`docs/WORKFLOW_TYPES.md`](../WORKFLOW_TYPES.md),
@@ -98,6 +98,13 @@ anything that violates Striatum's local-first boundary.
   through an external API.
 
 ## Proposal
+
+V1 implementation note: the generator core, built-in package-data
+catalog, CLI `workflow templates` / `workflow generate` surface, local
+service catalog and generation endpoints, custom-plan compiler, and
+`workflow init --style` compatibility rewire are accepted for this
+slice. The web chooser UI and chat-assisted scaffolding tool remain
+deferred to a follow-up dogfood.
 
 ### 1. Generator concepts
 

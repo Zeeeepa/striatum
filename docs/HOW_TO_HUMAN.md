@@ -130,6 +130,21 @@ overwrite an existing path.
 For deeper authoring guidance, see
 [WRITING_WORKFLOWS.md](WRITING_WORKFLOWS.md).
 
+To choose from the bundled generator catalog instead of a fixed starter:
+
+```bash
+"$RUNNER" workflow templates list --kind shape --json
+"$RUNNER" workflow generate workflows/my-change \
+  --shape code_change \
+  --lane-set local \
+  --artifact-root striatum/my-change \
+  --dry-run --json
+```
+
+The preview writes nothing. Remove `--dry-run` to create the workflow
+tree, then validate or edit `workflows/my-change/workflow.json` before
+`run prepare`.
+
 ## Prepare a run
 
 ```bash

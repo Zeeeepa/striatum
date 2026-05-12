@@ -1,0 +1,137 @@
+{
+  "schema_version": "striatum.workflow_templates.v1",
+  "shapes": [
+    {
+      "template_id": "code_change",
+      "kind": "shape",
+      "display_name": "Code change with bounded revision",
+      "summary": "Draft, review, revise at most once if needed, then apply.",
+      "recommended_for": ["small code or docs edits that need an explicit review gate"],
+      "default_lane_sets": ["author_reviewer", "single_agent"],
+      "required_options": ["workflow_id", "artifact_root"],
+      "graph_preview": {
+        "nodes": [{"id": "draft", "label": "Draft"}, {"id": "review", "label": "Review"}, {"id": "apply", "label": "Apply"}],
+        "edges": [{"from": "draft", "to": "review"}, {"from": "review", "to": "apply"}],
+        "cycles": [{"from": "review", "to": "draft", "on_verdict": "needs_revision"}]
+      }
+    },
+    {
+      "template_id": "custom",
+      "kind": "shape",
+      "display_name": "Custom safe block plan",
+      "summary": "Compose a workflow from known block kinds without raw workflow JSON.",
+      "recommended_for": ["advanced operators who need a graph not covered by a built-in shape"],
+      "default_lane_sets": ["custom"],
+      "required_options": ["plan", "workflow_id", "artifact_root"],
+      "graph_preview": {"nodes": [], "edges": [], "cycles": []}
+    },
+    {
+      "template_id": "evidence_backed",
+      "kind": "shape",
+      "display_name": "Evidence-backed artifact",
+      "summary": "Produce claims with a support ledger and audit review.",
+      "recommended_for": ["artifacts whose claims need explicit evidence checking"],
+      "default_lane_sets": ["author_reviewer"],
+      "required_options": ["workflow_id", "artifact_root"],
+      "graph_preview": {
+        "nodes": [{"id": "draft", "label": "Draft"}, {"id": "support_ledger", "label": "Support ledger"}, {"id": "evidence_audit", "label": "Evidence audit"}, {"id": "final_review", "label": "Final review"}],
+        "edges": [{"from": "draft", "to": "support_ledger"}, {"from": "support_ledger", "to": "evidence_audit"}, {"from": "evidence_audit", "to": "final_review"}],
+        "cycles": []
+      }
+    },
+    {
+      "template_id": "human_checkpoint",
+      "kind": "shape",
+      "display_name": "Human checkpoint",
+      "summary": "Require owner judgment before downstream work proceeds.",
+      "recommended_for": ["runs that need an explicit operator decision gate"],
+      "default_lane_sets": ["author_reviewer", "single_agent"],
+      "required_options": ["workflow_id", "artifact_root"],
+      "graph_preview": {
+        "nodes": [{"id": "analysis", "label": "Analysis"}, {"id": "checkpoint", "label": "Checkpoint"}, {"id": "apply", "label": "Apply"}],
+        "edges": [{"from": "analysis", "to": "checkpoint"}, {"from": "checkpoint", "to": "apply"}],
+        "cycles": []
+      }
+    },
+    {
+      "template_id": "minimal",
+      "kind": "shape",
+      "display_name": "Minimal bounded job",
+      "summary": "One bounded job for a small report or starter artifact.",
+      "recommended_for": ["small reports", "narrow inspections", "first drafts"],
+      "default_lane_sets": ["local", "single_agent"],
+      "required_options": ["workflow_id", "artifact_root"],
+      "graph_preview": {"nodes": [{"id": "draft", "label": "Draft"}], "edges": [], "cycles": []}
+    },
+    {
+      "template_id": "multi_review_synthesis",
+      "kind": "shape",
+      "display_name": "Multi-review synthesis",
+      "summary": "Collect several independent reviews before a final recommendation.",
+      "recommended_for": ["productive disagreement", "RFC or proposal review"],
+      "default_lane_sets": ["multi_review"],
+      "required_options": ["workflow_id", "artifact_root"],
+      "graph_preview": {
+        "nodes": [{"id": "review_1", "label": "Review 1"}, {"id": "review_2", "label": "Review 2"}, {"id": "synthesis", "label": "Synthesis"}, {"id": "final_review", "label": "Final review"}],
+        "edges": [{"from": "review_1", "to": "synthesis"}, {"from": "review_2", "to": "synthesis"}, {"from": "synthesis", "to": "final_review"}],
+        "cycles": []
+      }
+    },
+    {
+      "template_id": "review",
+      "kind": "shape",
+      "display_name": "Review and synthesis",
+      "summary": "Draft, fresh review, then final synthesis.",
+      "recommended_for": ["proposal review", "bug triage", "documentation review"],
+      "default_lane_sets": ["author_reviewer", "single_agent", "local"],
+      "required_options": ["workflow_id", "artifact_root"],
+      "graph_preview": {
+        "nodes": [{"id": "draft", "label": "Draft"}, {"id": "review", "label": "Review"}, {"id": "apply", "label": "Synthesis"}],
+        "edges": [{"from": "draft", "to": "review"}, {"from": "review", "to": "apply"}],
+        "cycles": []
+      }
+    }
+  ],
+  "lane_sets": [
+    {
+      "template_id": "author_reviewer",
+      "kind": "lane_set",
+      "display_name": "Separate author and reviewer",
+      "summary": "Authoring jobs and review jobs bind to separate lanes.",
+      "recommended_for": ["independent review for a code or docs change"],
+      "required_options": ["lanes.author.command", "lanes.reviewer.command"]
+    },
+    {
+      "template_id": "custom",
+      "kind": "lane_set",
+      "display_name": "Custom lane bindings",
+      "summary": "Advanced lane topology with every binding declared.",
+      "recommended_for": ["custom plans with explicit job-to-lane bindings"],
+      "required_options": ["lanes", "plan.job_lane_bindings"]
+    },
+    {
+      "template_id": "local",
+      "kind": "lane_set",
+      "display_name": "Local fixture lane",
+      "summary": "Fixture/manual starter lane that validates without a real model command.",
+      "recommended_for": ["tests", "manual operator runs", "starter scaffolds"],
+      "required_options": []
+    },
+    {
+      "template_id": "multi_review",
+      "kind": "lane_set",
+      "display_name": "Multiple reviewers",
+      "summary": "One author lane plus several reviewer lanes.",
+      "recommended_for": ["productive disagreement through multiple review postures"],
+      "required_options": ["lanes.author.command"]
+    },
+    {
+      "template_id": "single_agent",
+      "kind": "lane_set",
+      "display_name": "Single agent",
+      "summary": "One real agent session handles the whole workflow.",
+      "recommended_for": ["small low-risk work", "early adoption"],
+      "required_options": ["lanes.agent.command"]
+    }
+  ]
+}

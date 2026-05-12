@@ -33,7 +33,9 @@ runtime default:
 | `--style code-change` | Draft -> review -> apply, with one bounded `needs_revision` cycle back to draft. |
 | `examples/` | Runnable fixtures and reference workflows. They are useful starting points, but the runner never auto-selects them. |
 | Historical fixtures | Incubation provenance. Read them for context, not as current default workflows. |
-| Web UI | The workflow browser and editor can list, preview, edit, and run existing workflow files; a template chooser/catalog is still future work. |
+| `striatum workflow templates` | Lists and shows the bundled local catalog of workflow shapes and lane sets. |
+| `striatum workflow generate` | Generates a complete workflow tree from a shape, lane set, artifact root, and options; validates immediately; never runs the workflow. |
+| Web UI | The workflow browser and editor can list, preview, edit, and run existing workflow files; a template chooser UI is still future work, but service endpoints expose catalog and generation previews. |
 
 The scaffolded workflows use a single `local` process lane as a
 placeholder. That lane is valid JSON and useful for fixture tests, but
@@ -45,6 +47,20 @@ deliberately and bind jobs to those lanes.
 Start from the run outcome, not from the project type. A Python repo,
 a docs repo, and a personal notes repo can all use the same workflow
 type if the desired outcome is the same.
+
+For a new workflow, prefer the generator before hand-editing JSON:
+
+```bash
+striatum workflow templates list --kind shape
+striatum workflow generate workflows/my-change \
+  --shape code_change \
+  --lane-set local \
+  --artifact-root striatum/my-change \
+  --dry-run --json
+```
+
+Drop `--dry-run` once the preview is right. `run prepare` still needs
+the generated `workflow.json` path explicitly.
 
 | Desired outcome | Use this type | Closest current starter |
 |---|---|---|

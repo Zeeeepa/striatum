@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import sqlite3
 import sys
@@ -85,7 +86,17 @@ def main(argv: Sequence[str] | None = None) -> int:
         result = dispatch(args)
     except StriatumError as exc:
         if getattr(args, "json", False):
-            print(json_dumps({"ok": False, "error": {"message": str(exc), "code": exc.exit_code}}))
+            error: dict[str, object] = {"message": str(exc), "code": exc.exit_code}
+            field_path = getattr(exc, "field_path", None)
+            if isinstance(field_path, str):
+                error["field_path"] = field_path
+            hint = getattr(exc, "hint", None)
+            if isinstance(hint, str):
+                error["hint"] = hint
+            ref = getattr(exc, "ref", None)
+            if isinstance(ref, str):
+                error["ref"] = ref
+            print(json_dumps({"ok": False, "error": error}))
         else:
             print(str(exc), file=sys.stderr)
         return exc.exit_code
@@ -292,6 +303,15 @@ def dispatch(args: argparse.Namespace) -> object:
         return mermaid
     if args.command == "workflow" and args.workflow_command == "init":
         return workflow_init(Path(args.path), style=args.style)
+    if args.command == "workflow" and args.workflow_command == "templates":
+        from striatum.workflow_generator.catalog import get_template, list_templates
+
+        if args.templates_command == "list":
+            return {"templates": list_templates(kind=args.kind)}
+        if args.templates_command == "show":
+            return get_template(str(args.template_id))
+    if args.command == "workflow" and args.workflow_command == "generate":
+        return _workflow_generate(args, repo)
     if args.command == "dashboard":
         if bool(getattr(args, "all", False)):
             from striatum.daemon import dashboard_all
@@ -707,6 +727,104 @@ def dispatch(args: argparse.Namespace) -> object:
         if args.command == "list" and args.list_command == "workflows":
             return list_workflows(conn, limit=args.limit)
     raise StriatumError("unknown command", exit_code=2)
+
+
+def _workflow_generate(args: argparse.Namespace, repo: Path) -> object:
+    from striatum.workflow_generator import generate_workflow
+    from striatum.workflow_generator.core import default_spec, slugify
+    from striatum.workflow_generator.write import write_generated_workflow
+
+    lane_commands = _parse_keyed_json_arrays(args.lane_command, "lane-command")
+    lane_models = _parse_keyed_strings(args.lane_display_model, "lane-display-model")
+    lanes: dict[str, dict[str, object]] = {}
+    for lane_id, command in lane_commands.items():
+        lanes.setdefault(lane_id, {})["command"] = command
+    for lane_id, display_model in lane_models.items():
+        lanes.setdefault(lane_id, {})["display_model"] = display_model
+    plan = None
+    if args.plan:
+        loaded = json.loads(Path(args.plan).read_text(encoding="utf-8"))
+        if not isinstance(loaded, dict):
+            from striatum.workflow_generator import GeneratorError
+
+            raise GeneratorError("--plan must point to a JSON object", field_path="spec.plan")
+        plan = loaded
+    workflow_id = args.workflow_id or slugify(Path(args.path).name)
+    spec = default_spec(
+        scaffold_root=str(args.path).rstrip("/"),
+        artifact_root=str(args.artifact_root).rstrip("/"),
+        shape=str(args.shape),
+        lane_set=str(args.lane_set),
+        workflow_id=workflow_id,
+        name=args.name or workflow_id.replace("-", " ").title(),
+        workflow_version=args.workflow_version,
+        branch_suggestion=args.branch_suggestion,
+        lanes={key: dict(value) for key, value in lanes.items()},
+        lane_modifiers=list(args.lane_modifier or []),
+        options=_parse_options(args.option),
+        plan=plan,
+    )
+    generated = generate_workflow(spec)
+    if args.dry_run:
+        return generated.to_json()
+    return write_generated_workflow(generated, repo=repo)
+
+
+def _parse_keyed_json_arrays(values: list[str], flag: str) -> dict[str, list[str]]:
+    from striatum.workflow_generator import GeneratorError
+
+    parsed: dict[str, list[str]] = {}
+    for raw in values:
+        if "=" not in raw:
+            raise GeneratorError(f"--{flag} must be <lane_id>=<json-array>", field_path=f"cli.{flag}")
+        key, value = raw.split("=", 1)
+        loaded = json.loads(value)
+        if not isinstance(loaded, list) or not all(isinstance(item, str) for item in loaded) or not loaded:
+            raise GeneratorError(
+                f"--{flag} value must be a non-empty JSON string array",
+                field_path=f"cli.{flag}.{key}",
+            )
+        parsed[key] = loaded
+    return parsed
+
+
+def _parse_keyed_strings(values: list[str], flag: str) -> dict[str, str]:
+    from striatum.workflow_generator import GeneratorError
+
+    parsed: dict[str, str] = {}
+    for raw in values:
+        if "=" not in raw:
+            raise GeneratorError(f"--{flag} must be <lane_id>=<value>", field_path=f"cli.{flag}")
+        key, value = raw.split("=", 1)
+        if not key or not value:
+            raise GeneratorError(f"--{flag} requires non-empty key and value", field_path=f"cli.{flag}")
+        parsed[key] = value
+    return parsed
+
+
+def _parse_options(values: list[str]) -> dict[str, object]:
+    from striatum.workflow_generator import GeneratorError
+
+    options: dict[str, object] = {}
+    for raw in values:
+        if "=" not in raw:
+            raise GeneratorError("--option must be <dotted.key>=<json-value>", field_path="cli.option")
+        key, value = raw.split("=", 1)
+        loaded = json.loads(value)
+        parts = key.split(".")
+        if any(part == "" for part in parts):
+            raise GeneratorError("--option keys must be non-empty", field_path="cli.option")
+        target = options
+        for part in parts[:-1]:
+            nested = target.setdefault(part, {})
+            if not isinstance(nested, dict):
+                raise GeneratorError(
+                    "--option path conflicts with an existing value",
+                    field_path=f"cli.option.{key}",
+                )
+            target = nested
+        target[parts[-1]] = loaded
+    return options
 
 
 def _dispatch_daemon(args: argparse.Namespace) -> object:

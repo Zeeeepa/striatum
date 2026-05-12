@@ -98,6 +98,29 @@ and `code-change` starter styles and uses `review` when `--style` is
 omitted. Checked-in `examples/` are fixtures or starting points, not
 runtime defaults.
 
+RFC 0034 V1 adds a workflow generator over the same schema. The public
+Python API is `striatum.workflow_generator.generate_workflow(spec)`,
+where `spec.schema_version` is `striatum.workflow_generator.v1`. The
+generator is pure: it writes no files, performs no network access, and
+does not touch SQLite. It compiles a workflow shape, lane set, optional
+lane modifiers, and optional closed-vocabulary custom plan into an
+ordinary `striatum.workflow.v1` JSON object, then calls the existing
+workflow validator before returning success. `workflow init --style`
+is compatibility sugar over this generator with `lane_set: "local"`.
+
+The bundled template catalog is package data under
+`striatum.workflow_templates/catalog.json`; V1 does not fetch remote
+templates and does not load target-repository catalog extensions.
+`workflow templates list/show` expose catalog metadata.
+`workflow generate` writes the generated tree only after the same
+immediate validation pass and refuses to overwrite existing generated
+files. The local service exposes read endpoints
+`GET /workflow-templates` and `GET /workflow-templates/<id>`, plus
+generation endpoints `POST /workflows/generate/preview` and
+`POST /workflows/generate`. Preview writes nothing and is not mutation
+gated; generation requires `--allow-mutations` and
+`confirm_write: true`. No database migration is part of RFC 0034 V1.
+
 The validator enforces unique job ids, resolved role/lane references, valid
 edges, bounded cycles, repo-relative artifact paths, and declared parallelism
 with disjoint write scopes or review-only unique artifact paths.

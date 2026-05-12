@@ -34,6 +34,25 @@ The generated tree includes `workflow.json` plus `roles/` and
 `prompts/` stubs and validates cleanly. The command refuses to
 overwrite an existing path.
 
+For more control, generate from the template catalog:
+
+```bash
+striatum workflow templates list
+striatum workflow generate workflows/my-change \
+  --shape code_change \
+  --lane-set author_reviewer \
+  --artifact-root striatum/my-change \
+  --lane-command author='["codex","exec"]' \
+  --lane-command reviewer='["codex","exec"]' \
+  --dry-run --json
+```
+
+The dry-run envelope contains the compiled workflow, generated files,
+graph metadata, warnings, and validation result. Removing `--dry-run`
+writes `workflow.json`, role stubs, and prompt stubs, then revalidates
+the written file. V1 refuses overwrites; edit the generated workflow
+afterward when you need fields the generator does not expose.
+
 ## Required top-level fields
 
 `schema_version`, `workflow_id`, `workflow_version`, `name`,
@@ -166,6 +185,13 @@ conversion. Use `--style code-change` when the same scaffold
 should also drive repository edits. Use `--style minimal` for a
 single bounded job or when you want to build the graph from
 scratch.
+
+`shape: "custom"` is not raw workflow JSON. It accepts a
+`striatum.workflow_plan.v1` plan with closed block kinds:
+`draft`, `review`, `synthesis`, `implementation`, `test`,
+`human_checkpoint`, `support_ledger`, `evidence_audit`, and
+`final_review`. Base edges must be acyclic; loops are declared only
+through bounded `cycles`; every custom block must have a lane binding.
 
 ## Scaffold layout
 

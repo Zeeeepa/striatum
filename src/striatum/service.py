@@ -24,7 +24,7 @@ from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from typing import Any
-from urllib.parse import parse_qs, urlsplit
+from urllib.parse import parse_qs, unquote, urlsplit
 
 from striatum.api import invoke
 from striatum.db import db_path
@@ -376,7 +376,7 @@ SERVICE_READ_TOP_COMMANDS = frozenset({
 })
 
 SERVICE_READ_SUBCOMMANDS: dict[str, frozenset[str]] = {
-    "workflow": frozenset({"validate", "plan", "graph"}),
+    "workflow": frozenset({"validate", "plan", "graph", "templates"}),
     "supervise": frozenset({"status", "list"}),
     "worktree": frozenset({"list"}),
     "run": frozenset({"summary", "graph"}),
@@ -522,6 +522,13 @@ class StriatumServiceHandler(BaseHTTPRequestHandler):
             artifact_id = path[len("/v1/artifacts/"):-len("/raw")]
             self._handle_artifact_raw(artifact_id)
             return
+        if path == "/workflow-templates":
+            kind = query.get("kind", [None])[0]
+            self._handle_workflow_templates(kind)
+            return
+        if path.startswith("/workflow-templates/"):
+            self._handle_workflow_template_show(path[len("/workflow-templates/"):])
+            return
         if self.state.web_enabled and (path == "/" or path == ""):
             self._render_run_list_page()
             return
@@ -570,6 +577,12 @@ class StriatumServiceHandler(BaseHTTPRequestHandler):
             return
         if self.state.web_enabled and parsed.path.startswith("/workflows/run/"):
             self._handle_workflow_run_now(parsed.path[len("/workflows/run/"):])
+            return
+        if parsed.path == "/workflows/generate/preview":
+            self._handle_workflow_generate(preview=True)
+            return
+        if parsed.path == "/workflows/generate":
+            self._handle_workflow_generate(preview=False)
             return
         if self.state.web_enabled and parsed.path.startswith("/run/") and parsed.path.endswith("/branch-confirm"):
             run_id = parsed.path[len("/run/"):-len("/branch-confirm")]
@@ -648,6 +661,76 @@ class StriatumServiceHandler(BaseHTTPRequestHandler):
         result = invoke(argv, repo=self.state.repo)
         status = 200 if result.get("ok") else 500
         self._send_json(status, result)
+
+    def _handle_workflow_templates(self, kind: str | None) -> None:
+        from striatum.workflow_generator import GeneratorError
+        from striatum.workflow_generator.catalog import list_templates
+
+        try:
+            self._send_json(200, {"ok": True, "data": {"templates": list_templates(kind=kind)}})
+        except GeneratorError as exc:
+            self._send_generator_error(exc)
+
+    def _handle_workflow_template_show(self, raw_template_id: str) -> None:
+        from striatum.workflow_generator import GeneratorError
+        from striatum.workflow_generator.catalog import get_template
+
+        template_id = unquote(raw_template_id)
+        try:
+            self._send_json(200, {"ok": True, "data": get_template(template_id)})
+        except GeneratorError as exc:
+            self._send_generator_error(exc, status=404)
+
+    def _handle_workflow_generate(self, *, preview: bool) -> None:
+        from striatum.workflow_generator import GeneratorError, WorkflowGenerationSpec, generate_workflow
+        from striatum.workflow_generator.write import write_generated_workflow
+
+        body = self._read_json_body()
+        if body is None:
+            return
+        spec_body = body.get("spec")
+        if not isinstance(spec_body, dict):
+            self._send_json(400, {"ok": False, "error": {"code": 8, "message": "missing spec object", "field_path": "spec"}})
+            return
+        if not preview:
+            if not self.state.allow_mutations:
+                self._send_json(
+                    405,
+                    {
+                        "ok": False,
+                        "error": {
+                            "code": 405,
+                            "message": "workflow generation requires --allow-mutations",
+                            "field_path": "server.allow_mutations",
+                        },
+                    },
+                )
+                return
+            if body.get("confirm_write") is not True:
+                self._send_json(400, {"ok": False, "error": {"code": 8, "message": "confirm_write must be true", "field_path": "confirm_write"}})
+                return
+        try:
+            spec = WorkflowGenerationSpec.from_json(spec_body)
+            generated = generate_workflow(spec)
+            if preview:
+                self._send_json(200, {"ok": True, "data": generated.to_json()})
+                return
+            self._send_json(200, {"ok": True, "data": write_generated_workflow(generated, repo=self.state.repo)})
+        except GeneratorError as exc:
+            self._send_generator_error(exc)
+
+    def _send_generator_error(self, exc: Exception, *, status: int = 400) -> None:
+        error: JsonObject = {"code": getattr(exc, "exit_code", 8), "message": str(exc)}
+        field_path = getattr(exc, "field_path", None)
+        if isinstance(field_path, str):
+            error["field_path"] = field_path
+        hint = getattr(exc, "hint", None)
+        if isinstance(hint, str):
+            error["hint"] = hint
+        ref = getattr(exc, "ref", None)
+        if isinstance(ref, str):
+            error["ref"] = ref
+        self._send_json(status, {"ok": False, "error": error})
 
     def _handle_doctor(self, query: dict[str, list[str]]) -> None:
         argv = ["doctor", "--verbose"]

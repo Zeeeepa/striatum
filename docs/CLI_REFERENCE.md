@@ -13,6 +13,9 @@ striatum workflow validate
 striatum workflow plan
 striatum workflow graph
 striatum workflow init
+striatum workflow templates list
+striatum workflow templates show
+striatum workflow generate
 striatum run prepare
 striatum branch confirm
 striatum run start
@@ -26,6 +29,17 @@ scaffold style is `review`. This does not create a runtime default:
 generated tree uses a single `local` process lane as a valid
 placeholder; edit lanes and job `lane_id` bindings for real agent
 runs.
+
+`workflow templates list [--kind shape|lane_set]` and
+`workflow templates show <template_id>` expose the bundled local
+workflow-template catalog. `workflow generate <path> --shape <shape>
+--lane-set <lane_set> --artifact-root <path>` compiles a concrete
+workflow tree from that catalog and immediately validates the generated
+`workflow.json`. Add `--dry-run --json` to preview the full envelope
+without writing files. Real lane sets require lane commands such as
+`--lane-command author='["codex","exec"]'`; the `local` lane set keeps
+the placeholder fixture command. V1 refuses overwrites and does not
+run the workflow automatically.
 
 `striatum init` creates `.striatum/` in the target repo. The
 optional flags scaffold extra material:

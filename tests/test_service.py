@@ -232,6 +232,70 @@ def test_serve_invoke_mutation_with_flag(tmp_path: Path) -> None:
         _stop_service(proc)
 
 
+def test_service_workflow_template_and_generate_endpoints(tmp_path: Path) -> None:
+    proc, port = _spawn_service(tmp_path)
+    spec: dict[str, Any] = {
+        "schema_version": "striatum.workflow_generator.v1",
+        "shape": "review",
+        "lane_set": "local",
+        "workflow_id": "demo",
+        "name": "Demo",
+        "workflow_version": "2026-05-12",
+        "branch": {"mode": "confirm", "suggested_name": "striatum/demo", "allow_dirty": False},
+        "scaffold_root": "workflows/demo",
+        "artifact_root": "striatum/demo",
+        "lanes": {},
+        "options": {},
+    }
+    try:
+        status, body = _http_get(port, "/workflow-templates?kind=shape")
+        assert status == 200
+        assert any(item["template_id"] == "review" for item in body["data"]["templates"])
+
+        status, body = _http_post_json(port, "/workflows/generate/preview", {"spec": spec})
+        assert status == 200
+        assert body["data"]["workflow"]["workflow_id"] == "demo"
+        assert not (tmp_path / "workflows" / "demo").exists()
+
+        status, body = _http_post_json(
+            port,
+            "/workflows/generate",
+            {"spec": spec, "confirm_write": True},
+        )
+        assert status == 405
+        assert body["error"]["field_path"] == "server.allow_mutations"
+    finally:
+        _stop_service(proc)
+
+
+def test_service_workflow_generate_writes_when_mutation_gated(tmp_path: Path) -> None:
+    proc, port = _spawn_service(tmp_path, "--allow-mutations")
+    spec: dict[str, Any] = {
+        "schema_version": "striatum.workflow_generator.v1",
+        "shape": "minimal",
+        "lane_set": "local",
+        "workflow_id": "demo",
+        "name": "Demo",
+        "workflow_version": "2026-05-12",
+        "branch": {"mode": "confirm", "suggested_name": "striatum/demo", "allow_dirty": False},
+        "scaffold_root": "workflows/demo",
+        "artifact_root": "striatum/demo",
+        "lanes": {},
+        "options": {},
+    }
+    try:
+        status, body = _http_post_json(
+            port,
+            "/workflows/generate",
+            {"spec": spec, "confirm_write": True},
+        )
+        assert status == 200
+        assert body["data"]["status"] == "created"
+        assert (tmp_path / "workflows" / "demo" / "workflow.json").exists()
+    finally:
+        _stop_service(proc)
+
+
 # ----- 5. /v1/runs mirrors status -----------------------------------------
 
 

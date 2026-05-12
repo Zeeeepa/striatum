@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+## 1.25.0 — 2026-05-12
+
+### Added
+
+- RFC 0034 V1 workflow generator: bundled shape/lane-set catalog,
+  `workflow templates list/show`, `workflow generate`, local service
+  catalog and generation endpoints, custom-plan compilation, and
+  `workflow init --style` compatibility over the generator.
+
+### Decided
+
+- D091: OPERATOR_REPORT.md is written incrementally during a dogfood
+  run, not only at the end. Refines D089. The operator appends a dated
+  entry per intervention (publish-on-behalf, recovery sweep,
+  override-verdict, decision recording) at the moment it occurs;
+  end-of-run only writes the wrap-up sections.
+
 ## 1.24.0 — 2026-05-12
 
 ### Added

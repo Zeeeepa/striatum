@@ -34,7 +34,7 @@ so external references keep resolving even as items move between sections.
 | 15 | `run summary` polish | ✅ done |
 | 16 | Keep generic language current | ⏳ open |
 | 17 | SQLite migration system (RFC 0006) | ✅ done |
-| 18 | Workflow type catalog and chooser | ⏳ open |
+| 18 | Workflow type catalog and chooser | 🟡 most done |
 | F1 | Run historical bootstrap as runner workflow | ⏳ open |
 | F2 | Fuller publication policy | ⏳ open |
 | F3 | Round-6 RFC 0002 + 0003/0004/0005 follow-up | ✅ done |
@@ -218,16 +218,13 @@ Legend: ✅ done · 🟡 most done (sub-tasks remain) · ⏳ open
     "adapter" rather than assuming Engram-specific paths or marker names.
     No active sub-task.
 
-18. **Workflow type and lane catalog chooser.** RFC 0034 proposes the
-    implementation path. The web UI can already
-    browse, edit, run, cancel, pause/resume, and retry workflows via
-    RFC 0024, but the product still lacks a first-class choice surface
-    for "which workflow should I start from, and which lanes should run
-    it?" Promote the documented workflow types and lane-set options in
-    `docs/WORKFLOW_TYPES.md` into a small metadata catalog, expose CLI
-    verbs such as `workflow templates list/show` and
-    `workflow generate`, then add a UI chooser that generates a workflow
-    and opens it in the existing visual builder.
+18. **Workflow type and lane catalog chooser.** RFC 0034 V1 ships the
+    generator core, package-data catalog, CLI `workflow templates
+    list/show`, CLI `workflow generate`, local service catalog and
+    generation endpoints, custom-plan compiler, and `workflow init
+    --style` rewire. **Remaining:** web `/workflows/new` chooser UI,
+    chat-assisted scaffolding tool, and any future target-repo catalog
+    extension decision.
 
 19. **RFC for multi-repo / cross-repo test harness.** RFC 0032
     (cross-repo workflows + MCP mutation capabilities) cannot be

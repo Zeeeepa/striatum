@@ -217,6 +217,39 @@ def build_parser() -> argparse.ArgumentParser:
         help="template style for the generated workflow",
     )
     workflow_init.add_argument("--json", action="store_true")
+    templates = workflow_sub.add_parser("templates")
+    templates_sub = templates.add_subparsers(dest="templates_command", required=True)
+    templates_list = templates_sub.add_parser("list")
+    templates_list.add_argument("--kind", choices=["shape", "lane_set"])
+    templates_list.add_argument("--json", action="store_true")
+    templates_show = templates_sub.add_parser("show")
+    templates_show.add_argument("template_id")
+    templates_show.add_argument("--json", action="store_true")
+    generate = workflow_sub.add_parser(
+        "generate",
+        description=(
+            "Generate a workflow tree from the local template catalog. "
+            "Start with `striatum workflow templates list`; example: "
+            "striatum workflow generate workflows/my-change --shape code_change "
+            "--lane-set local --artifact-root striatum/my-change --dry-run --json. "
+            "`workflow validate` remains authoritative."
+        ),
+    )
+    generate.add_argument("path")
+    generate.add_argument("--shape", required=True)
+    generate.add_argument("--lane-set", required=True)
+    generate.add_argument("--artifact-root", required=True)
+    generate.add_argument("--lane-modifier", action="append", default=[])
+    generate.add_argument("--plan")
+    generate.add_argument("--workflow-id")
+    generate.add_argument("--name")
+    generate.add_argument("--workflow-version")
+    generate.add_argument("--branch-suggestion")
+    generate.add_argument("--lane-command", action="append", default=[])
+    generate.add_argument("--lane-display-model", action="append", default=[])
+    generate.add_argument("--option", action="append", default=[])
+    generate.add_argument("--dry-run", action="store_true")
+    generate.add_argument("--json", action="store_true")
 
     run = sub.add_parser("run")
     run_sub = run.add_subparsers(dest="run_command", required=True)
