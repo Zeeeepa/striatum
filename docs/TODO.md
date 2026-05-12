@@ -71,6 +71,7 @@ so external references keep resolving even as items move between sections.
 | F34 | RFC 0032 V2 cross-repo workflows + MCP mutation capabilities (dogfood-035) | ✅ done |
 | F35 | RFC 0034 V1 workflow generator + template catalog (dogfood-036) | ✅ done |
 | F36 | RFC 0036 V1 MCP harness + chat workflow generation tools (dogfood-038) | ✅ done |
+| F37 | RFC 0035 V1 multi-repo test harness (dogfood-037) | ✅ done |
 
 Legend: ✅ done · 🟡 most done (sub-tasks remain) · ⏳ open
 
@@ -230,14 +231,12 @@ Legend: ✅ done · 🟡 most done (sub-tasks remain) · ⏳ open
     chat-assisted scaffolding tool delivered by RFC 0036 V1;
     any future target-repo catalog extension decision.
 
-19. **RFC for multi-repo / cross-repo test harness.** ✅ RFC 0035
-    drafted (proposed). Scopes `tests/_harness/MultiRepoHarness` that
-    boots a daemon + N registered target repositories with ephemeral
-    Postgres so RFC 0032 cross-repo workflow + MCP capability scope
-    behavior can be exercised end-to-end. Covers prepare/lifecycle/
-    crash-recovery/MCP-capability-scope/per-repo-write-scope.
-    **Remaining:** implement the harness + the five e2e test files in a
-    follow-up dogfood.
+19. ~~**RFC for multi-repo / cross-repo test harness.** RFC 0035 V1
+    landed in dogfood-037. `tests/_harness/MultiRepoHarness` boots a
+    daemon + N registered target repositories with ephemeral Postgres,
+    resets daemon DB state between tests, and supports prepare/lifecycle/
+    crash-recovery/MCP-capability-scope/per-repo-write-scope e2e
+    coverage through `make test-multi-repo`.~~
 
 ## Immediate Follow-Up
 

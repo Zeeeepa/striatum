@@ -8,7 +8,7 @@ PYTHON ?= $(VENV)/bin/python
 # when invoked from a Claude Code worktree (or any other cwd).
 MAKEFILE_DIR := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
 
-.PHONY: install lint typecheck test metadata-check package-smoke smoke check release-check
+.PHONY: install lint typecheck pg-test test-multi-repo metadata-check package-smoke smoke check release-check
 
 $(PYTHON):
 	python3 -m venv $(VENV)
@@ -28,6 +28,18 @@ typecheck: $(VENV)/.installed
 
 test: $(VENV)/.installed
 	$(PYTHON) -m pytest
+
+pg-test: $(VENV)/.installed
+	$(PYTHON) -m pytest tests/test_daemon_pg.py -q
+
+test-multi-repo: $(VENV)/.installed
+	$(PYTHON) -m pytest -m multi_repo \
+		tests/test_multi_repo_harness.py \
+		tests/test_cross_repo_prepare_e2e.py \
+		tests/test_cross_repo_lifecycle_e2e.py \
+		tests/test_cross_repo_crash_recovery_e2e.py \
+		tests/test_mcp_capability_scope_e2e.py \
+		tests/test_per_repo_write_scope_e2e.py
 
 metadata-check: $(VENV)/.installed
 	$(PYTHON) scripts/release_metadata_check.py

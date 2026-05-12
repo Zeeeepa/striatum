@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+## 1.27.0 — 2026-05-13
+
+### Added
+
+- RFC 0035 V1 test infrastructure: `tests/_harness/MultiRepoHarness`
+  for ephemeral Postgres + daemon + multi-repository e2e coverage, five
+  cross-repo harness-backed test modules, and `make test-multi-repo`.
+
 ## 1.26.0 — 2026-05-13
 
 ### Added

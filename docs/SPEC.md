@@ -1149,9 +1149,13 @@ RFC 0032 also adds daemon DB tables for `cross_repo_runs`,
 back-reference. The daemon DB is canonical for the cross-repo run; each
 participant repository keeps its own local run state. Cross-repo lifecycle
 coordination is best-effort across local repos, not distributed
-filesystem atomicity. The dogfood-035 implementation ships unit and
-mock-based lifecycle coverage; the full two-repo daemon end-to-end test
-harness is explicitly deferred to TODO Open item 19.
+filesystem atomicity. The dogfood-035 implementation shipped unit and
+mock-based lifecycle coverage. Dogfood-037 adds developer-only
+end-to-end coverage under `tests/_harness/`: `MultiRepoHarness` boots a
+daemon plus multiple registered target repositories on an ephemeral
+PostgreSQL daemon DB and exercises the RFC 0032 prepare/lifecycle/
+recovery/MCP capability/write-scope seams. The harness is test
+infrastructure, not a public operator API.
 
 The foreground sweep process uses the existing `recovery auto` policy
 against active registered runs without requiring one `recovery watch`
