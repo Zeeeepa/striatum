@@ -67,6 +67,9 @@ so external references keep resolving even as items move between sections.
 | F30 | RFC 0026 V1 + RFC 0027 Phase 2 guardrails (dogfood-030) | ✅ done |
 | F31 | RFC 0028 V1 registry-backed multi-repo read/sweep slice (dogfood-031) | ✅ done |
 | F32 | RFC 0030 + RFC 0031 V2 RPC/supervision/apply foundation (dogfood-034) | ✅ done |
+| F33 | RFC 0033 V2 system-Postgres daemon substrate (dogfood-033) | ✅ done |
+| F34 | RFC 0032 V2 cross-repo workflows + MCP mutation capabilities (dogfood-035) | ✅ done |
+| F35 | RFC 0034 V1 workflow generator + template catalog (dogfood-036) | ✅ done |
 
 Legend: ✅ done · 🟡 most done (sub-tasks remain) · ⏳ open
 

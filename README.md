@@ -20,10 +20,12 @@ useful for humans, but they do not advance state.
 
 ## Status
 
-`v1.24.0`. RFCs 0001–0026, RFC 0028 V1, RFC 0030 V2 foundation, RFC
-0031 V2 foundation, RFC 0033 V2, and RFC 0034 V1 are accepted (some at
-`accepted (V1)` or later staged statuses); RFC 0027 is partially
-implemented through fail-closed mode and apply-receipt foundation surfacing. Per-version release notes live in
+`v1.25.0`. RFCs 0001–0026, RFC 0028 V1, RFC 0030 V2 foundation, RFC
+0031 V2 foundation, RFC 0032 V2, RFC 0033 V2, and RFC 0034 V1 are
+accepted (some at `accepted (V1)` or later staged statuses); RFC 0027
+is partially implemented through fail-closed mode and apply-receipt
+foundation surfacing; RFC 0035 is proposed (multi-repo test harness).
+Per-version release notes live in
 [`CHANGELOG.md`](CHANGELOG.md). The package is published to
 PyPI as `striatum-orchestrator` (the bare `striatum` name on
 PyPI is unrelated); the Python module name is still
