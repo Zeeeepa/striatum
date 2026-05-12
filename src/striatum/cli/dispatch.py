@@ -74,6 +74,7 @@ from striatum.cli.supervise import (
     supervise_status,
     supervise_stop,
 )
+from striatum.cli.workflow import workflow_upgrade
 from striatum.cli.workflow_init import workflow_init
 from striatum.cli.worktree import worktree_create, worktree_list, worktree_release
 
@@ -303,6 +304,13 @@ def dispatch(args: argparse.Namespace) -> object:
         return mermaid
     if args.command == "workflow" and args.workflow_command == "init":
         return workflow_init(Path(args.path), style=args.style)
+    if args.command == "workflow" and args.workflow_command == "upgrade":
+        return workflow_upgrade(
+            Path(args.path),
+            repo=repo,
+            force=bool(args.force),
+            dry_run=bool(args.dry_run),
+        )
     if args.command == "workflow" and args.workflow_command == "templates":
         from striatum.workflow_generator.catalog import get_template, list_templates
 

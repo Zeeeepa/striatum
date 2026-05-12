@@ -608,7 +608,37 @@ def _harness_profiles(spec: WorkflowGenerationSpec) -> JsonObject:
         family = body.get("tool_family")
         if family not in HARNESS_PROFILE_TOOL_FAMILIES:
             raise GeneratorError("harness profile has unknown tool_family", field_path=f"spec.options.harness_profiles.{profile_id}.tool_family")
-    return {str(key): dict(value) for key, value in profiles.items() if isinstance(value, dict)}
+    return {
+        str(key): _enrich_harness_profile_body(dict(value))
+        for key, value in profiles.items()
+        if isinstance(value, dict)
+    }
+
+
+def _enrich_harness_profile_body(body: JsonObject) -> JsonObject:
+    """Fill the RFC 0040 V1 ``native_delegation`` defaults from the catalog.
+
+    Looks up the per-tool-family fragment in the workflow-template catalog
+    and applies ``native_delegation.mode`` + ``native_delegation.instruction``
+    when the caller didn't already specify them. Other keys are preserved
+    verbatim.
+    """
+    from striatum.workflow_generator.catalog import get_harness_fragment_by_tool_family
+
+    fragment = get_harness_fragment_by_tool_family(str(body.get("tool_family", "")))
+    if fragment is None:
+        return body
+    native = body.get("native_delegation")
+    if not isinstance(native, dict):
+        native = {}
+    else:
+        native = dict(native)
+    if "instruction" not in native or not isinstance(native.get("instruction"), str) or not str(native["instruction"]).strip():
+        native["instruction"] = str(fragment["native_delegation_instruction"])
+    if "mode" not in native and isinstance(fragment.get("native_delegation_mode"), str):
+        native["mode"] = str(fragment["native_delegation_mode"])
+    body["native_delegation"] = native
+    return body
 
 
 def _constraints(spec: WorkflowGenerationSpec) -> JsonObject:

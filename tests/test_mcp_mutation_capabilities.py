@@ -19,6 +19,28 @@ def test_daemon_mcp_tools_list_filters_by_capability(monkeypatch) -> None:  # ty
     assert "status" in names
     assert "publish_artifact" not in names
     assert "apply.reviewed_patch" not in names
+    assert "dogfood.surgical_recovery" not in names
+
+
+def test_daemon_mcp_tools_list_exposes_surgical_recovery_only_for_matching_capability(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    def fake_authorize(conn: object, *, required: str | None, repository_id: str | None, token: str | None) -> RpcAuthContext:
+        decision = "allowed" if required == "surgical_recovery" else "denied"
+        return RpcAuthContext(
+            "client",
+            "token",
+            repository_id,
+            required if decision == "allowed" else None,
+            decision,
+            None if decision == "allowed" else "capability_missing",
+        )
+
+    monkeypatch.setattr("striatum.daemon_rpc.capability.authorize", fake_authorize)
+
+    tools = DaemonRpcServer(pg_conn=object()).daemon_tool_specs({"token": "dtok.secret", "repository_id": "repo_a"})
+
+    names = {tool["name"] for tool in tools}
+    assert "dogfood.surgical_recovery" in names
+    assert "dogfood.publish_on_behalf" not in names
 
 
 def test_daemon_mcp_tools_call_reauthorizes_and_audits_denial(monkeypatch) -> None:  # type: ignore[no-untyped-def]

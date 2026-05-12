@@ -217,6 +217,28 @@ def build_parser() -> argparse.ArgumentParser:
         help="template style for the generated workflow",
     )
     workflow_init.add_argument("--json", action="store_true")
+    workflow_upgrade_p = workflow_sub.add_parser(
+        "upgrade",
+        description=(
+            "RFC 0040 V1: backport the per-model harness-profile fragments "
+            "from the bundled template catalog into an existing workflow.json. "
+            "Refuse-on-conflict default; pass --force to overwrite a "
+            "non-default instruction. --dry-run reports the change set without "
+            "writing. Refuses if any non-terminal run references the workflow."
+        ),
+    )
+    workflow_upgrade_p.add_argument("path")
+    workflow_upgrade_p.add_argument(
+        "--force",
+        action="store_true",
+        help="overwrite native_delegation.instruction even when it conflicts with the catalog default",
+    )
+    workflow_upgrade_p.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="report the change set without writing the workflow.json",
+    )
+    workflow_upgrade_p.add_argument("--json", action="store_true")
     templates = workflow_sub.add_parser("templates")
     templates_sub = templates.add_subparsers(dest="templates_command", required=True)
     templates_list = templates_sub.add_parser("list")

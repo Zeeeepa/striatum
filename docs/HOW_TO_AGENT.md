@@ -75,6 +75,25 @@ When `claim-next` returns no work, check `striatum status` — the
 run may be done, blocked on a human checkpoint, or waiting on a
 dependency.
 
+### Driving dogfoods via the MCP chat tools (RFC 0040 V1)
+
+If you are the *operator session* (the AI session that supervises a
+dogfood, not the supervised role itself) and the operator has
+configured `striatum serve --web --allow-mutations`, prefer the MCP
+chat tools listed in
+[`docs/MCP.md`](MCP.md#dogfood-lifecycle-tools) over shelling out to
+the bash CLI. Each tool is a thin shell over the matching CLI verb,
+but the chat surface keeps session/lease/message ids structured so
+you do not have to copy them between turns. Dogfood-lifecycle tools
+that mutate runner state are hidden when `--allow-mutations` is not
+in force; `run_summary` and `evidence_export` are read-shaped and
+stay available either way.
+
+If you are the *supervised role*, the bash CLI commands supplied in
+the work packet's `commands` block are still the only thing you
+should call. Do not bypass them with chat tools; doing so circumvents
+the runner's verbatim-command guarantees.
+
 ## Reading the work packet
 
 Every claimed packet is a JSON object with these keys you must

@@ -8,9 +8,11 @@ from typing import Literal
 
 from striatum.db import json_dumps
 
-Capability = Literal["read", "write", "review", "claim", "apply", "admin", "recovery"]
+Capability = Literal["read", "write", "review", "claim", "apply", "admin", "recovery", "surgical_recovery"]
 RepositoryScopeMode = Literal["single_repo", "cross_repo", "daemon_global"]
-CAPABILITIES: frozenset[str] = frozenset({"read", "write", "review", "claim", "apply", "admin", "recovery"})
+CAPABILITIES: frozenset[str] = frozenset(
+    {"read", "write", "review", "claim", "apply", "admin", "recovery", "surgical_recovery"}
+)
 
 
 @dataclass(frozen=True)
@@ -72,6 +74,8 @@ _ENTRIES: tuple[MethodEntry, ...] = (
     MethodEntry("claim_next", "claim", True),
     MethodEntry("verdict", "review", True),
     MethodEntry("submit_review", "review", True),
+    MethodEntry("dogfood.publish_on_behalf", "write", True),
+    MethodEntry("dogfood.surgical_recovery", "surgical_recovery", True),
     MethodEntry("supervise.start", "write", True),
     MethodEntry("supervise.send", "write", True),
     MethodEntry("supervise.stop", "write", True),

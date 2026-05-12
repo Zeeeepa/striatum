@@ -13,7 +13,7 @@ MIN_POSTGRES_VERSION_NUM = 140000
 
 def connect(url: str) -> Any:
     try:
-        import psycopg  # type: ignore[import-not-found]
+        import psycopg
     except ImportError as exc:
         raise StriatumError(
             "daemon PostgreSQL support requires the optional psycopg package; install striatum-orchestrator[daemon-pg]",

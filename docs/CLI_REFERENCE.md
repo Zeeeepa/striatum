@@ -16,6 +16,7 @@ striatum workflow init
 striatum workflow templates list
 striatum workflow templates show
 striatum workflow generate
+striatum workflow upgrade
 striatum run prepare
 striatum branch confirm
 striatum run start
@@ -40,6 +41,19 @@ without writing files. Real lane sets require lane commands such as
 `--lane-command author='["codex","exec"]'`; the `local` lane set keeps
 the placeholder fixture command. V1 refuses overwrites and does not
 run the workflow automatically.
+
+`workflow upgrade <path> [--dry-run] [--force]` (RFC 0040 V1)
+backports the per-model harness-profile fragments from the bundled
+template catalog into an existing `workflow.json`. Default behaviour
+fills `harness_profiles[*].native_delegation.instruction` when the
+field is empty or already matches the catalog default; a non-default
+custom instruction is reported as a `refused_conflict` unless
+`--force` is supplied. `--dry-run` emits the change set without
+writing. The verb refuses to mutate a workflow that has any
+non-terminal run referencing it in the target repository's
+`.striatum/state.sqlite3`; cancel or complete the run first. V1 is
+scoped to harness-profile fragments only; other corrections will
+land as separate verbs.
 
 `striatum init` creates `.striatum/` in the target repo. The
 optional flags scaffold extra material:

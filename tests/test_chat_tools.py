@@ -15,6 +15,7 @@ from typing import Any
 
 from striatum.web.chat_tools import (
     ANTHROPIC_TOOLS,
+    DOGFOOD_LIFECYCLE_TOOL_NAMES,
     OPENAI_TOOLS,
     TOOL_NAMES,
     execute_tool,
@@ -242,3 +243,145 @@ def test_wrap_tool_result_arg_serialization_stable() -> None:
     a = wrap_tool_result("foo", {"a": 1, "b": 2}, "r")
     b = wrap_tool_result("foo", {"b": 2, "a": 1}, "r")
     assert a == b
+
+
+# --- RFC 0040 V1 dogfood-lifecycle tools ----------------------------
+
+
+def test_dogfood_lifecycle_tool_set_is_registered() -> None:
+    """All twelve dogfood-lifecycle tools are present in the closed set."""
+    expected = {
+        "run_prepare",
+        "run_start",
+        "register_session",
+        "supervise_start",
+        "claim_next",
+        "ack",
+        "publish_artifact",
+        "verdict",
+        "complete",
+        "supervise_stop",
+        "run_summary",
+        "evidence_export",
+    }
+    assert DOGFOOD_LIFECYCLE_TOOL_NAMES == expected
+    assert expected.issubset(TOOL_NAMES)
+
+
+def test_dogfood_lifecycle_mutation_gate_filters_writes() -> None:
+    """The ten state-mutating dogfood tools are hidden when mutations disabled."""
+    disabled = tool_names(allow_mutations=False)
+    enabled = tool_names(allow_mutations=True)
+    write_tools = {
+        "run_prepare", "run_start", "register_session", "supervise_start",
+        "claim_next", "ack", "publish_artifact", "verdict", "complete",
+        "supervise_stop",
+    }
+    for name in write_tools:
+        assert name not in disabled, f"{name} should be gated by mutation flag"
+        assert name in enabled, f"{name} should appear with mutations enabled"
+    # Read-shaped tools stay available with mutations off.
+    assert "run_summary" in disabled
+    assert "evidence_export" in disabled
+
+
+def test_dogfood_lifecycle_mutating_tools_refuse_when_disabled(tmp_path: Path) -> None:
+    out = execute_tool(
+        "ack",
+        {"session_id": "s", "message_id": "m", "lease_id": "l"},
+        repo=tmp_path,
+        allow_mutations=False,
+    )
+    assert "mutations_disabled" in out
+
+
+def test_dogfood_lifecycle_missing_argument_reports_clean_error(tmp_path: Path) -> None:
+    out = execute_tool(
+        "ack",
+        {"session_id": "s", "message_id": "m"},
+        repo=tmp_path,
+        allow_mutations=True,
+    )
+    assert "missing_argument" in out
+    assert "lease_id" in out
+
+
+def test_dogfood_lifecycle_verdict_enum_validated(tmp_path: Path) -> None:
+    out = execute_tool(
+        "verdict",
+        {
+            "session_id": "s",
+            "job_id": "j",
+            "lease_id": "l",
+            "verdict": "thumbs_up",
+        },
+        repo=tmp_path,
+        allow_mutations=True,
+    )
+    assert "invalid_argument" in out
+    assert "thumbs_up" in out
+
+
+def test_dogfood_lifecycle_run_summary_returns_invoke_envelope(tmp_path: Path) -> None:
+    """run_summary is read-shaped: callable without --allow-mutations and
+    routes through striatum.api.invoke. Without a real run the underlying
+    CLI returns a structured error envelope, which is what we serialize.
+    """
+    _git_init(tmp_path)
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(Path(__file__).resolve().parents[1] / "src")
+    import sys
+    subprocess.run(
+        [sys.executable, "-m", "striatum.cli", "--repo", str(tmp_path), "init"],
+        cwd=tmp_path, env=env, check=True, capture_output=True,
+    )
+    out = execute_tool(
+        "run_summary",
+        {"run_id": "run_missing", "path": "scratch/summary.json"},
+        repo=tmp_path,
+        allow_mutations=False,
+    )
+    parsed = json.loads(out)
+    assert parsed.get("ok") is False
+    assert "error" in parsed
+
+
+def test_dogfood_lifecycle_schemas_round_trip_through_both_flavors() -> None:
+    """All dogfood tools surface in both Anthropic and OpenAI schemas."""
+    anthropic_names = {
+        t["name"]
+        for t in tool_schemas(allow_mutations=True, flavor="anthropic_messages")
+    }
+    openai_names = {
+        t["function"]["name"]
+        for t in tool_schemas(allow_mutations=True, flavor="openai_chat")
+    }
+    assert DOGFOOD_LIFECYCLE_TOOL_NAMES.issubset(anthropic_names)
+    assert DOGFOOD_LIFECYCLE_TOOL_NAMES.issubset(openai_names)
+
+
+def test_register_session_argv_default_is_fresh(tmp_path: Path) -> None:
+    """register_session defaults to --fresh per RFC 0040 §1 tool signature."""
+    from striatum.web.chat_tools import _dogfood_argv  # type: ignore[attr-defined]
+
+    argv = _dogfood_argv(
+        "register_session",
+        {"run_id": "r", "role": "author", "lane": "claude_code"},
+    )
+    assert "--fresh" in argv
+
+    argv_no_fresh = _dogfood_argv(
+        "register_session",
+        {"run_id": "r", "role": "author", "lane": "claude_code", "fresh": False},
+    )
+    assert "--fresh" not in argv_no_fresh
+
+
+def test_claim_next_lease_seconds_validated(tmp_path: Path) -> None:
+    out = execute_tool(
+        "claim_next",
+        {"session_id": "s", "lease_seconds": 5},
+        repo=tmp_path,
+        allow_mutations=True,
+    )
+    assert "invalid_argument" in out

@@ -265,13 +265,23 @@ def test_method_registry_declares_expected_capabilities() -> None:
     assert METHOD_REGISTRY["submit_review"].required_capability == "review"
     assert METHOD_REGISTRY["apply.reviewed_patch"].required_capability == "apply"
     assert METHOD_REGISTRY["recovery.cancel_job"].required_capability == "recovery"
+    assert METHOD_REGISTRY["dogfood.publish_on_behalf"].required_capability == "write"
+    assert METHOD_REGISTRY["dogfood.surgical_recovery"].required_capability == "surgical_recovery"
     assert METHOD_REGISTRY["daemon.key.rotate"].required_capability == "admin"
 
     described = describe_methods()
     assert described["methods_etag"] == METHODS_ETAG
     described_methods = cast(list[dict[str, Any]], described["methods"])
     methods = {row["method"] for row in described_methods}
-    assert {"daemon.hello", "daemon.describe", "supervise.start", "apply.reviewed_patch", "cross_repo.describe"} <= methods
+    assert {
+        "daemon.hello",
+        "daemon.describe",
+        "supervise.start",
+        "apply.reviewed_patch",
+        "cross_repo.describe",
+        "dogfood.publish_on_behalf",
+        "dogfood.surgical_recovery",
+    } <= methods
 
 
 def test_rpc_transports_are_owner_local_only(tmp_path: Path) -> None:
@@ -291,7 +301,7 @@ def test_rpc_transports_are_owner_local_only(tmp_path: Path) -> None:
 
 
 def test_daemon_pg_v2_migration_names_rpc_supervisor_and_apply_tables() -> None:
-    assert LATEST_DAEMON_DB_VERSION == 3
+    assert LATEST_DAEMON_DB_VERSION == 4
     sql = "\n".join(migration.sql for migration in MIGRATIONS)
 
     for table in (
@@ -301,6 +311,7 @@ def test_daemon_pg_v2_migration_names_rpc_supervisor_and_apply_tables() -> None:
     ):
         assert table in sql
     assert "cross_repo_runs" in sql
+    assert "surgical_recovery" in sql
     assert "mutation_queue" not in sql
 
 

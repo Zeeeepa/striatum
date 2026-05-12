@@ -473,6 +473,54 @@ def test_chat_provider_url_scheme_validation_rejects_remote_http(tmp_path: Path)
     validate_base_url("http://127.0.0.1:8080")
 
 
+def test_chat_send_exposes_dogfood_lifecycle_tools_when_mutations_enabled(
+    tmp_path: Path,
+) -> None:
+    """RFC 0040 V1: when serve runs with --allow-mutations, the request body
+    forwarded to the LLM lists the new dogfood-lifecycle tools alongside the
+    existing closed-set. The capability-token-gated daemon path is daemon-
+    side; this checks the local chat surface wiring.
+    """
+    _git_init_repo(tmp_path)
+    _striatum_init(tmp_path)
+    FakeOpenAIChatHandler.received_body = None
+    server, prov_port = _start_fake_server(FakeOpenAIChatHandler)
+    try:
+        proc, port = _spawn_service_with_chat(
+            tmp_path,
+            base_url=f"http://127.0.0.1:{prov_port}",
+            flavor="openai_chat",
+        )
+        try:
+            status, headers, _ = _http_post_form(port, "/chat/new", {})
+            session_id = headers["Location"][len("/chat/"):]
+            _http_post_form(
+                port, f"/chat/{session_id}/send", {"message": "hello"},
+            )
+            assert FakeOpenAIChatHandler.received_body is not None
+            tools = FakeOpenAIChatHandler.received_body.get("tools") or []
+            names = {t.get("function", {}).get("name") for t in tools}
+            # RFC 0040 V1 dogfood-lifecycle tools must be exposed.
+            assert {
+                "ack",
+                "publish_artifact",
+                "verdict",
+                "complete",
+                "run_prepare",
+                "register_session",
+                "supervise_start",
+                "supervise_stop",
+                "claim_next",
+                "run_start",
+                "run_summary",
+                "evidence_export",
+            }.issubset(names)
+        finally:
+            _stop_service(proc)
+    finally:
+        server.shutdown()
+
+
 def test_chat_provider_unknown_flavor_refused(tmp_path: Path) -> None:
     from striatum.web.chat_provider import ChatProviderConfig, ChatProviderError
     env = {

@@ -127,6 +127,61 @@ The generated tree includes `workflow.json` plus `roles/` and
 `prompts/` stubs and validates cleanly. The command refuses to
 overwrite an existing path.
 
+### Backport harness-profile fragments
+
+RFC 0040 V1 bakes the "no-questions" and gemini front-matter
+completeness fragments into the bundled template catalog (see
+[`docs/HARNESS_FRICTION_PATTERNS.md`](HARNESS_FRICTION_PATTERNS.md)).
+New workflows scaffolded via `workflow generate` pick them up
+automatically. Existing workflows can be upgraded in place:
+
+```bash
+# Preview the change set without writing.
+"$RUNNER" --repo "$TARGET_REPO" workflow upgrade path/to/workflow.json --dry-run --json
+
+# Apply the catalog fragments where the existing instruction is empty
+# or already matches the catalog default; refuse on conflict.
+"$RUNNER" --repo "$TARGET_REPO" workflow upgrade path/to/workflow.json --json
+
+# Override a conflicting custom instruction. The change set records
+# `forced: true` on each overwritten field.
+"$RUNNER" --repo "$TARGET_REPO" workflow upgrade path/to/workflow.json --force --json
+```
+
+`workflow upgrade` refuses to mutate a workflow that has any non-
+terminal run referencing it; cancel or complete the run first, or
+duplicate the workflow if the active run should be left alone. The
+verb is scoped to harness-profile fragments in V1; other corrections
+will land as separate verbs.
+
+## Drive a dogfood through the MCP chat surface (RFC 0040 V1)
+
+When the operator's AI session is connected to `striatum serve --web
+--allow-mutations`, the chat surface exposes the dogfood-lifecycle
+verbs as structured tool calls (see
+[`docs/MCP.md`](MCP.md#dogfood-lifecycle-tools)) so the operator no
+longer has to copy session/lease/message ids between bash
+invocations:
+
+```text
+run_prepare(workflow_path="…/workflow.json")
+run_start(run_id=…)
+register_session(run_id=…, role="implementer", lane="claude_code")
+supervise_start(session_id=…)
+claim_next(session_id=…)
+ack(session_id=…, message_id=…, lease_id=…)
+publish_artifact(session_id=…, job_id=…, lease_id=…, kind=…, logical_name=…, path=…)
+complete(session_id=…, job_id=…, lease_id=…, summary="…")
+supervise_stop(session_id=…, reason="…")
+run_summary(run_id=…, path="…")
+evidence_export(run_id=…, path="…")
+```
+
+The bash CLI surface stays canonical (RFC 0040 §"Non-Goals"); the
+chat tools are an additive surface for the operator session, not a
+replacement. Anything the chat tools do is also available as a
+bash CLI command.
+
 For deeper authoring guidance, see
 [WRITING_WORKFLOWS.md](WRITING_WORKFLOWS.md).
 

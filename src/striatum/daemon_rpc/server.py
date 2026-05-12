@@ -156,6 +156,8 @@ class DaemonRpcRouter:
             from striatum.daemon_apply.apply_service import handle_apply_rpc
 
             return handle_apply_rpc(envelope.method, envelope.params)
+        if envelope.method.startswith("dogfood."):
+            return self._route_dogfood(envelope, repo_root=repo_root)
         prefix = CLI_ROUTES.get(envelope.method)
         if prefix is None:
             raise RpcError("method_unknown", f"method has no handler: {envelope.method}")
@@ -195,6 +197,34 @@ class DaemonRpcRouter:
             )
         raise RpcError("method_unknown", f"method has no handler: {envelope.method}")
 
+    def _route_dogfood(self, envelope: RpcEnvelope, *, repo_root: Path) -> dict[str, Any]:
+        from striatum.db import connect
+        from striatum.dogfood.operator_tools import publish_on_behalf, surgical_recovery
+
+        with connect(repo_root) as conn:
+            if envelope.method == "dogfood.publish_on_behalf":
+                return publish_on_behalf(
+                    conn,
+                    repo=repo_root,
+                    session_id=str(envelope.params.get("session_id") or ""),
+                    artifact_path=str(envelope.params.get("artifact_path") or ""),
+                    artifact_kind=str(envelope.params.get("artifact_kind") or ""),
+                    logical_name=str(envelope.params.get("logical_name") or ""),
+                    reason=str(envelope.params.get("reason") or ""),
+                    verdict=_optional_str(envelope.params.get("verdict")),
+                    findings_artifact_id=_optional_str(envelope.params.get("findings_artifact_id")),
+                    verdict_rationale=_optional_str(envelope.params.get("verdict_rationale")),
+                    summary=_optional_str(envelope.params.get("summary")),
+                )
+            if envelope.method == "dogfood.surgical_recovery":
+                return surgical_recovery(
+                    conn,
+                    job_id=str(envelope.params.get("job_id") or ""),
+                    reason=str(envelope.params.get("reason") or ""),
+                    extend_lease_seconds=int(envelope.params.get("extend_lease_seconds") or 900),
+                )
+        raise RpcError("method_unknown", f"method has no handler: {envelope.method}")
+
 
 def _repository_id(params: Mapping[str, Any]) -> str | None:
     value = params.get("repository_id")
@@ -220,6 +250,13 @@ def _row_value(row: Any, key: str) -> Any:
     if isinstance(row, (tuple, list)):
         return row[0]
     raise TypeError("database row must expose mapping-like keys or sequence values")
+
+
+def _optional_str(value: Any) -> str | None:
+    if value is None:
+        return None
+    text = str(value)
+    return text if text else None
 
 
 def _params_to_args(params: Mapping[str, Any]) -> list[str]:

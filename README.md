@@ -132,6 +132,16 @@ Chat workflow generation follows preview-then-confirm: the preview tool
 writes nothing, and the write tool is hidden unless mutations are enabled
 and still requires a separate browser-side operator confirmation.
 
+Operator AI sessions can drive a dogfood end-to-end through the
+[MCP dogfood-lifecycle chat tools](docs/MCP.md#dogfood-lifecycle-tools)
+(RFC 0040 V1) instead of bash CLI invocations with hand-copied
+session/lease/message ids. New workflows pick up the per-model
+"no-questions" harness-profile fragments automatically; existing
+workflows can be backported with `striatum workflow upgrade <path>`.
+See [`docs/HARNESS_FRICTION_PATTERNS.md`](docs/HARNESS_FRICTION_PATTERNS.md)
+for the long-form record of the operator-side friction patterns
+addressed by V1.
+
 ## Optional Multi-Repo Registry And Sweep
 
 ```bash

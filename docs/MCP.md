@@ -124,6 +124,70 @@ The JSON-RPC result includes `structuredContent`, which is the
 Command validation and workflow errors are returned inside that envelope rather
 than by bypassing Striatum's normal exit-code semantics.
 
+## Dogfood-Lifecycle Tools
+
+RFC 0040 V1 adds twelve chat-tool entries that mirror the operator
+sequence used to drive a dogfood end-to-end. The local web chat
+surface (`striatum serve --web --allow-mutations`) exposes them in
+its tool list; ten are mutation-gated and require `--allow-mutations`,
+two are read-shaped and stay available without it.
+
+| Tool | Mutation? | Underlying CLI verb | Required capability* |
+|------|-----------|---------------------|----------------------|
+| `run_prepare(workflow_path)` | yes | `striatum run prepare --workflow` | `write` |
+| `run_start(run_id)` | yes | `striatum run start --run-id` | `write` |
+| `register_session(run_id, role, lane, fresh?, parent_session_id?, operator_label?, capabilities?)` | yes | `striatum register-session` | `write` |
+| `supervise_start(session_id)` | yes | `striatum supervise start --session-id` | `write` |
+| `claim_next(session_id, lease_seconds?)` | yes | `striatum claim-next` | `claim` |
+| `ack(session_id, message_id, lease_id)` | yes | `striatum ack` | `write` |
+| `publish_artifact(session_id, job_id, lease_id, kind, logical_name, path)` | yes | `striatum publish-artifact` | `write` |
+| `verdict(session_id, job_id, lease_id, verdict, findings_artifact_id?, rationale?)` | yes | `striatum verdict` | `review` |
+| `complete(session_id, job_id, lease_id, summary?)` | yes | `striatum complete` | `write` |
+| `supervise_stop(session_id, reason)` | yes | `striatum supervise stop` | `write` |
+| `run_summary(run_id, path)` | no | `striatum run summary` | `read` |
+| `evidence_export(run_id, path)` | no | `striatum evidence export` | `read` |
+
+\* The `required capability` column lists the daemon-RPC capability
+the matching RPC method already requires (see
+[`src/striatum/daemon_rpc/registry.py`](../src/striatum/daemon_rpc/registry.py)).
+The local web chat surface is owner-only and reuses the mutation gate
+instead of token capabilities; when the daemon serves these tools
+through its MCP transport, `tools/list` filtering applies normally.
+
+Each tool is a thin shell over the existing CLI verb (via
+`striatum.api.invoke`); the daemon's audit chain records the same
+rows whether the operator ran the CLI directly or called the chat
+tool. RFC 0040 §2/§3 also scope composite operator tools
+(`dogfood.publish_on_behalf`, `dogfood.surgical_recovery`) that
+compose `ack` + `publish-artifact` + `verdict`/`complete` (or
+recovery + lease reactivation) into single audit-chain entries; those
+land in the daemon-side systems half of the RFC.
+
+### Example chat-tool sequence
+
+The operator session would call these in order to drive a one-job
+dogfood through to completion:
+
+1. `run_prepare(workflow_path="docs/dogfood/0NN/workflow.json")`
+   → `{"run_id": "run_…"}`.
+2. `run_start(run_id="run_…")`.
+3. `register_session(run_id="run_…", role="implementer", lane="claude_code", fresh=true)`
+   → `{"session_id": "sess_…"}`.
+4. `supervise_start(session_id="sess_…")`.
+5. `claim_next(session_id="sess_…")`
+   → `{"packet_id": …, "lease": {"lease_id": "lease_…"}, "message_id": …}`.
+6. (Implementer writes the artifact; if `striatum ack` is denied:)
+   `ack(session_id, message_id, lease_id)` from the operator session.
+7. `publish_artifact(session_id, job_id, lease_id, kind, logical_name, path)`.
+8. `complete(session_id, job_id, lease_id, summary="…")`.
+9. `supervise_stop(session_id, reason="…")`, then
+   `run_summary` + `evidence_export` to capture the artifacts.
+
+When `tools/list` is consulted by the chat session, mutating entries
+are hidden unless `serve --allow-mutations` is in force. Local-MCP
+clients can still discover the read-shaped pair (`run_summary`,
+`evidence_export`) even with mutations disabled.
+
 ## Resources
 
 The wrapper exposes read-only resources that also map to existing commands:

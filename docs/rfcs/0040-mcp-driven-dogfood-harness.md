@@ -1,7 +1,16 @@
 # RFC 0040: MCP-Driven Dogfood Harness for Operator Sessions
 
-Status: proposed
+Status: accepted (V1)
 Date: 2026-05-13
+Landed: 2026-05-12 (v1.29.0; D093). V1 ships the operator-side slice: the
+twelve dogfood-lifecycle chat-tool entries, the per-model harness-profile
+fragments in the bundled template catalog, generator enrichment by default,
+and `striatum workflow upgrade`. The composite tools
+(`dogfood.publish_on_behalf`, `dogfood.surgical_recovery`) and the daemon-
+side supervised-progress heartbeat are scoped to the systems half and land
+under the same RFC. See [`docs/HARNESS_FRICTION_PATTERNS.md`](../HARNESS_FRICTION_PATTERNS.md)
+for the long-form record of the four observed friction patterns and the
+fixes that landed.
 Context:
 [`RFC 0028`](0028-long-running-daemon-and-multi-repository-control-plane.md),
 [`RFC 0030`](0030-daemon-rpc-server-and-version-skew-protocol.md),

@@ -139,6 +139,14 @@ def test_cross_repo_migration_sql_names_expected_tables() -> None:
     assert "'recovery'" in sql
 
 
+def test_dogfood_surgical_recovery_migration_extends_capability_constraints() -> None:
+    sql = MIGRATIONS[3].sql
+
+    assert "rpc_methods_required_capability_check" in sql
+    assert "client_capabilities_capability_check" in sql
+    assert "'surgical_recovery'" in sql
+
+
 def test_sqlite_registry_refuses_after_pg_cutover_marker(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     env = _env(tmp_path)
     monkeypatch.setenv(daemon.ENV_REGISTRY, env[daemon.ENV_REGISTRY])

@@ -72,6 +72,8 @@ so external references keep resolving even as items move between sections.
 | F35 | RFC 0034 V1 workflow generator + template catalog (dogfood-036) | ✅ done |
 | F36 | RFC 0036 V1 MCP harness + chat workflow generation tools (dogfood-038) | ✅ done |
 | F37 | RFC 0035 V1 multi-repo test harness (dogfood-037) | ✅ done |
+| F38 | RFC 0037 V1 web UI ergonomic improvements (dogfood-039) | ✅ done |
+| F39 | RFC 0040 V1 MCP-driven dogfood harness (operator-side slice; dogfood-040) | ✅ done |
 
 Legend: ✅ done · 🟡 most done (sub-tasks remain) · ⏳ open
 
@@ -222,6 +224,22 @@ Legend: ✅ done · 🟡 most done (sub-tasks remain) · ⏳ open
     repository", "workflow fixture", "runner state", "artifact", and
     "adapter" rather than assuming Engram-specific paths or marker names.
     No active sub-task.
+
+20. **RFC 0040 V1.5 follow-up.** Six codex findings (F1-F6) from
+    dogfood-040 build review iteration 2, deferred by cycle-exhaustion
+    override (decision `dec_af557de1402d44489c0b9af7c93b0a5c`):
+    (F1) daemon MCP `tools/call` authorizes + audits but doesn't
+    dispatch through the method registry → composite tools
+    `dogfood.publish_on_behalf` + `dogfood.surgical_recovery` are
+    non-functional through the MCP path; (F2/F3) `publish_on_behalf`
+    atomicity + verdict-recording semantics; (F4) supervised-progress
+    watcher module exists but isn't invoked by daemon supervisor
+    lifecycle; (F5) watcher race + signal hardening incomplete; (F6)
+    tests cover mocked gating, not end-to-end execution paths. Land
+    via a future dogfood (probably dogfood-044 after the 041/042/043
+    chain). Future harness improvement: avoid same-lane implementer
+    ↔ reviewer pairs to prevent the codex/codex tight-feedback loop
+    observed in dogfood-040 iteration 2.
 
 18. **Workflow type and lane catalog chooser.** RFC 0034 V1 ships the
     generator core, package-data catalog, CLI `workflow templates

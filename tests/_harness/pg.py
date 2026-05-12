@@ -60,7 +60,10 @@ def create_ephemeral_database(base_url: str) -> EphemeralPostgres:
     try:
         admin_conn.autocommit = True
         with admin_conn.cursor() as cur:
-            cur.execute(f'CREATE DATABASE "{db_name}"')
+            try:
+                cur.execute(f'CREATE DATABASE "{db_name}"')
+            except Exception as exc:
+                pytest.skip(f"multi-repo harness requires CREATE DATABASE privilege: {exc}")
     finally:
         admin_conn.close()
     database_url = _database_url(base_url, db_name)
@@ -123,7 +126,15 @@ def reset_daemon_db(conn: Any) -> None:
 
 def _database_url(url: str, database: str) -> str:
     parsed = urlsplit(url)
-    path = "/" + _quote_database_name(database)
+    quoted = _quote_database_name(database)
+    path = "/" + quoted
+    if parsed.netloc == "" and parsed.scheme in {"postgresql", "postgres"}:
+        suffix = ""
+        if parsed.query:
+            suffix += f"?{parsed.query}"
+        if parsed.fragment:
+            suffix += f"#{parsed.fragment}"
+        return f"{parsed.scheme}:///{quoted}{suffix}"
     return urlunsplit((parsed.scheme, parsed.netloc, path, parsed.query, parsed.fragment))
 
 

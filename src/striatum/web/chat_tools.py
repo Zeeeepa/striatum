@@ -1,6 +1,6 @@
-"""RFC 0023 V1.5/RFC 0036: closed-set tools for the chat surface.
+"""RFC 0023 V1.5 / RFC 0036 / RFC 0040: closed-set tools for the chat surface.
 
-Six tools, all read-only:
+Read-only tools (always available):
 
 - ``read_file(path)`` — read a repo-relative file.
 - ``list_dir(path)`` — list directory entries.
@@ -8,6 +8,17 @@ Six tools, all read-only:
 - ``striatum_why(target_id)`` — investigate a job/artifact/blocker.
 - ``git_log(limit?)`` — recent commits.
 - ``git_diff(path?)`` — working-tree diff.
+- ``list_workflows()`` — every workflow.json in the repo.
+- ``generate_workflow_preview(spec)`` — preview a generated workflow.
+- ``run_summary(run_id, path)`` — export a JSON run summary.
+- ``evidence_export(run_id, path)`` — export the evidence bundle.
+
+Mutating tools (require ``--allow-mutations``):
+
+- ``generate_workflow_write(spec, confirm_write)`` — RFC 0036 V1.
+- RFC 0040 dogfood-lifecycle tools: ``run_prepare``, ``run_start``,
+  ``register_session``, ``supervise_start``, ``claim_next``, ``ack``,
+  ``publish_artifact``, ``verdict``, ``complete``, ``supervise_stop``.
 
 The closed set is enforced in :func:`execute_tool`; unknown tool names
 return an error string rather than executing. Path safety mirrors the
@@ -15,6 +26,14 @@ return an error string rather than executing. Path safety mirrors the
 ``BEGIN/END`` delimiters per design-review F1 so the system prompt can
 instruct the model to treat content between the delimiters as data,
 not instructions (prompt-injection defense in depth).
+
+Dogfood-lifecycle tools are thin shells over the existing CLI verbs
+through :func:`striatum.api.invoke`; they do not implement their own
+state transitions. Per RFC 0040 §1 each chat-tool entry reuses the
+existing capability bound to its underlying RPC method; the chat
+surface's mutation gate (the ``mutation`` field on each entry plus
+``--allow-mutations`` at the service) is the local-MCP equivalent of
+the daemon's capability-token filtering.
 """
 
 from __future__ import annotations
@@ -26,6 +45,7 @@ from typing import Any
 
 __all__ = [
     "ANTHROPIC_TOOLS",
+    "DOGFOOD_LIFECYCLE_TOOL_NAMES",
     "OPENAI_TOOLS",
     "TOOL_NAMES",
     "execute_tool",
@@ -185,7 +205,255 @@ _TOOLS: list[dict[str, Any]] = [
             "additionalProperties": False,
         },
     },
+    # RFC 0040 V1: dogfood-lifecycle chat tools.
+    {
+        "name": "run_prepare",
+        "description": (
+            "Prepare a workflow run from a repo-relative workflow.json path. "
+            "Wraps `striatum run prepare`. State-mutating; requires --allow-mutations."
+        ),
+        "mutation": True,
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "workflow_path": {
+                    "type": "string",
+                    "description": "Repo-relative path to the workflow.json file.",
+                },
+            },
+            "required": ["workflow_path"],
+            "additionalProperties": False,
+        },
+    },
+    {
+        "name": "run_start",
+        "description": (
+            "Start a previously-prepared run. Wraps `striatum run start --run-id`."
+        ),
+        "mutation": True,
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "run_id": {"type": "string", "description": "Run id returned by run_prepare."},
+            },
+            "required": ["run_id"],
+            "additionalProperties": False,
+        },
+    },
+    {
+        "name": "register_session",
+        "description": (
+            "Register an agent session against a run. Wraps `striatum register-session`."
+        ),
+        "mutation": True,
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "run_id": {"type": "string"},
+                "role": {"type": "string", "description": "Role id (author/reviewer/...)."},
+                "lane": {"type": "string", "description": "Lane id from the workflow."},
+                "fresh": {"type": "boolean", "default": True},
+                "parent_session_id": {"type": "string"},
+                "operator_label": {"type": "string"},
+                "capabilities": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Optional capability list (write/review/...).",
+                },
+            },
+            "required": ["run_id", "role", "lane"],
+            "additionalProperties": False,
+        },
+    },
+    {
+        "name": "supervise_start",
+        "description": (
+            "Start the supervised wrapper for a registered session. "
+            "Wraps `striatum supervise start --session-id`."
+        ),
+        "mutation": True,
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "session_id": {"type": "string"},
+            },
+            "required": ["session_id"],
+            "additionalProperties": False,
+        },
+    },
+    {
+        "name": "claim_next",
+        "description": (
+            "Claim the next work packet for a session. Wraps `striatum claim-next`."
+        ),
+        "mutation": True,
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "session_id": {"type": "string"},
+                "lease_seconds": {
+                    "type": "integer",
+                    "minimum": 60,
+                    "maximum": 7200,
+                    "default": 1800,
+                },
+            },
+            "required": ["session_id"],
+            "additionalProperties": False,
+        },
+    },
+    {
+        "name": "ack",
+        "description": "Acknowledge a claimed packet. Wraps `striatum ack`.",
+        "mutation": True,
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "session_id": {"type": "string"},
+                "message_id": {"type": "string"},
+                "lease_id": {"type": "string"},
+            },
+            "required": ["session_id", "message_id", "lease_id"],
+            "additionalProperties": False,
+        },
+    },
+    {
+        "name": "publish_artifact",
+        "description": (
+            "Publish a job artifact. Wraps `striatum publish-artifact`. The "
+            "operator-on-behalf composite is documented in RFC 0040; V1 keeps "
+            "the primitive chat-tool shape and lets the operator chain "
+            "publish + complete or publish + verdict."
+        ),
+        "mutation": True,
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "session_id": {"type": "string"},
+                "job_id": {"type": "string"},
+                "lease_id": {"type": "string"},
+                "kind": {"type": "string"},
+                "logical_name": {"type": "string"},
+                "path": {"type": "string"},
+            },
+            "required": [
+                "session_id",
+                "job_id",
+                "lease_id",
+                "kind",
+                "logical_name",
+                "path",
+            ],
+            "additionalProperties": False,
+        },
+    },
+    {
+        "name": "verdict",
+        "description": "Record a reviewer verdict. Wraps `striatum verdict`.",
+        "mutation": True,
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "session_id": {"type": "string"},
+                "job_id": {"type": "string"},
+                "lease_id": {"type": "string"},
+                "verdict": {
+                    "type": "string",
+                    "enum": [
+                        "accept",
+                        "accept_with_findings",
+                        "needs_revision",
+                        "reject",
+                    ],
+                },
+                "findings_artifact_id": {"type": "string"},
+                "rationale": {"type": "string"},
+            },
+            "required": ["session_id", "job_id", "lease_id", "verdict"],
+            "additionalProperties": False,
+        },
+    },
+    {
+        "name": "complete",
+        "description": "Complete a job. Wraps `striatum complete`.",
+        "mutation": True,
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "session_id": {"type": "string"},
+                "job_id": {"type": "string"},
+                "lease_id": {"type": "string"},
+                "summary": {"type": "string"},
+            },
+            "required": ["session_id", "job_id", "lease_id"],
+            "additionalProperties": False,
+        },
+    },
+    {
+        "name": "supervise_stop",
+        "description": "Stop a supervised wrapper. Wraps `striatum supervise stop`.",
+        "mutation": True,
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "session_id": {"type": "string"},
+                "reason": {"type": "string"},
+            },
+            "required": ["session_id", "reason"],
+            "additionalProperties": False,
+        },
+    },
+    {
+        "name": "run_summary",
+        "description": (
+            "Export a JSON run summary to a repo-relative path. "
+            "Wraps `striatum run summary`. Read-shaped: not gated."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "run_id": {"type": "string"},
+                "path": {"type": "string", "description": "Repo-relative destination path."},
+            },
+            "required": ["run_id", "path"],
+            "additionalProperties": False,
+        },
+    },
+    {
+        "name": "evidence_export",
+        "description": (
+            "Export the evidence bundle for a run. Wraps `striatum evidence export`. "
+            "Read-shaped: not gated."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "run_id": {"type": "string"},
+                "path": {"type": "string", "description": "Repo-relative destination path."},
+            },
+            "required": ["run_id", "path"],
+            "additionalProperties": False,
+        },
+    },
 ]
+
+
+# RFC 0040 V1: dogfood-lifecycle chat-tool names (kept as a separate
+# constant so tests and docs can refer to the closed set explicitly).
+DOGFOOD_LIFECYCLE_TOOL_NAMES: frozenset[str] = frozenset({
+    "run_prepare",
+    "run_start",
+    "register_session",
+    "supervise_start",
+    "claim_next",
+    "ack",
+    "publish_artifact",
+    "verdict",
+    "complete",
+    "supervise_stop",
+    "run_summary",
+    "evidence_export",
+})
 
 
 TOOL_NAMES: frozenset[str] = frozenset(t["name"] for t in _TOOLS)
@@ -313,6 +581,10 @@ def execute_tool(
                 confirm_write=args.get("confirm_write") is True,
                 allow_mutations=allow_mutations,
                 operator_confirmed=operator_confirmed,
+            )
+        if name in DOGFOOD_LIFECYCLE_TOOL_NAMES:
+            return _tool_dogfood_lifecycle(
+                name, args, repo=repo, allow_mutations=allow_mutations
             )
     except Exception as exc:  # noqa: BLE001
         return f"[error] {type(exc).__name__}: {exc}"
@@ -539,6 +811,185 @@ def _tool_generate_workflow_write(
     except GeneratorError as exc:
         return _generator_error("workflow_generate_write_failed", exc)
     return json.dumps({"ok": True, "data": written}, indent=2, sort_keys=True)
+
+
+# --- RFC 0040 V1: dogfood-lifecycle dispatch ------------------------
+
+
+# Tools that mutate runner state. Held in a tuple so the mapping below
+# is easy to inspect from tests.
+_DOGFOOD_MUTATING: frozenset[str] = frozenset({
+    "run_prepare",
+    "run_start",
+    "register_session",
+    "supervise_start",
+    "claim_next",
+    "ack",
+    "publish_artifact",
+    "verdict",
+    "complete",
+    "supervise_stop",
+})
+
+
+def _tool_dogfood_lifecycle(
+    name: str,
+    args: dict[str, Any],
+    *,
+    repo: Path,
+    allow_mutations: bool,
+) -> str:
+    """Thin shell over the existing CLI verb for one dogfood-lifecycle tool.
+
+    Each tool builds a CLI argv list and routes it through
+    :func:`striatum.api.invoke`. The shaped JSON envelope from invoke
+    (``{"ok": bool, ...}``) is serialized verbatim so the model can
+    reason about errors the same way it would over the daemon RPC.
+    """
+    if name in _DOGFOOD_MUTATING and not allow_mutations:
+        return (
+            "[error] mutations_disabled: service started without "
+            "--allow-mutations; restart with --allow-mutations to use "
+            f"the {name} dogfood-lifecycle tool"
+        )
+    try:
+        argv = _dogfood_argv(name, args)
+    except _ArgError as exc:
+        return f"[error] {exc.code}: {exc}"
+    from striatum.api import invoke
+
+    result = invoke(argv, repo=repo)
+    return json.dumps(result, indent=2, sort_keys=True, default=str)
+
+
+class _ArgError(Exception):
+    def __init__(self, code: str, message: str) -> None:
+        super().__init__(message)
+        self.code = code
+
+
+def _require_str(args: dict[str, Any], key: str) -> str:
+    value = args.get(key)
+    if not isinstance(value, str) or not value:
+        raise _ArgError("missing_argument", f"argument {key!r} is required (non-empty string)")
+    return value
+
+
+def _optional_str(args: dict[str, Any], key: str) -> str | None:
+    value = args.get(key)
+    if value is None:
+        return None
+    if not isinstance(value, str) or not value:
+        raise _ArgError("invalid_argument", f"argument {key!r} must be a non-empty string when supplied")
+    return value
+
+
+def _dogfood_argv(name: str, args: dict[str, Any]) -> list[str]:
+    if name == "run_prepare":
+        return ["run", "prepare", "--workflow", _require_str(args, "workflow_path")]
+    if name == "run_start":
+        return ["run", "start", "--run-id", _require_str(args, "run_id")]
+    if name == "register_session":
+        argv = [
+            "register-session",
+            "--run-id", _require_str(args, "run_id"),
+            "--role", _require_str(args, "role"),
+            "--lane", _require_str(args, "lane"),
+        ]
+        # Default `fresh` to True (matches RFC 0040 §1 tool signature).
+        fresh = args.get("fresh")
+        if fresh is None or fresh is True:
+            argv.append("--fresh")
+        elif fresh is not False:
+            raise _ArgError("invalid_argument", "argument 'fresh' must be a boolean")
+        parent = _optional_str(args, "parent_session_id")
+        if parent is not None:
+            argv.extend(["--parent-session-id", parent])
+        label = _optional_str(args, "operator_label")
+        if label is not None:
+            argv.extend(["--operator-label", label])
+        capabilities = args.get("capabilities")
+        if capabilities is not None:
+            if not isinstance(capabilities, list) or not all(isinstance(c, str) and c for c in capabilities):
+                raise _ArgError("invalid_argument", "argument 'capabilities' must be a list of non-empty strings")
+            for cap in capabilities:
+                argv.extend(["--capability", cap])
+        return argv
+    if name == "supervise_start":
+        return ["supervise", "start", "--session-id", _require_str(args, "session_id")]
+    if name == "claim_next":
+        argv = ["claim-next", "--session-id", _require_str(args, "session_id")]
+        lease = args.get("lease_seconds")
+        if lease is not None:
+            if not isinstance(lease, int) or lease < 60:
+                raise _ArgError("invalid_argument", "argument 'lease_seconds' must be an integer >= 60")
+            argv.extend(["--lease-seconds", str(lease)])
+        return argv
+    if name == "ack":
+        return [
+            "ack",
+            "--session-id", _require_str(args, "session_id"),
+            "--message-id", _require_str(args, "message_id"),
+            "--lease-id", _require_str(args, "lease_id"),
+        ]
+    if name == "publish_artifact":
+        return [
+            "publish-artifact",
+            "--session-id", _require_str(args, "session_id"),
+            "--job-id", _require_str(args, "job_id"),
+            "--lease-id", _require_str(args, "lease_id"),
+            "--kind", _require_str(args, "kind"),
+            "--logical-name", _require_str(args, "logical_name"),
+            "--path", _require_str(args, "path"),
+        ]
+    if name == "verdict":
+        verdict_value = _require_str(args, "verdict")
+        if verdict_value not in {"accept", "accept_with_findings", "needs_revision", "reject"}:
+            raise _ArgError("invalid_argument", f"unknown verdict {verdict_value!r}")
+        argv = [
+            "verdict",
+            "--session-id", _require_str(args, "session_id"),
+            "--job-id", _require_str(args, "job_id"),
+            "--lease-id", _require_str(args, "lease_id"),
+            "--verdict", verdict_value,
+        ]
+        findings = _optional_str(args, "findings_artifact_id")
+        if findings is not None:
+            argv.extend(["--findings-artifact-id", findings])
+        rationale = _optional_str(args, "rationale")
+        if rationale is not None:
+            argv.extend(["--rationale", rationale])
+        return argv
+    if name == "complete":
+        argv = [
+            "complete",
+            "--session-id", _require_str(args, "session_id"),
+            "--job-id", _require_str(args, "job_id"),
+            "--lease-id", _require_str(args, "lease_id"),
+        ]
+        summary = _optional_str(args, "summary")
+        if summary is not None:
+            argv.extend(["--summary", summary])
+        return argv
+    if name == "supervise_stop":
+        return [
+            "supervise", "stop",
+            "--session-id", _require_str(args, "session_id"),
+            "--reason", _require_str(args, "reason"),
+        ]
+    if name == "run_summary":
+        return [
+            "run", "summary",
+            "--run-id", _require_str(args, "run_id"),
+            "--path", _require_str(args, "path"),
+        ]
+    if name == "evidence_export":
+        return [
+            "evidence", "export",
+            "--run-id", _require_str(args, "run_id"),
+            "--path", _require_str(args, "path"),
+        ]
+    raise _ArgError("unknown_tool", f"dogfood-lifecycle tool {name!r} has no argv mapping")
 
 
 def _generator_error(code: str, exc: Exception) -> str:

@@ -2,6 +2,50 @@
 
 ## Unreleased
 
+## 1.29.0 — 2026-05-12
+
+### Added
+
+- RFC 0040 V1 operator-side slice of the MCP-driven dogfood harness:
+  twelve dogfood-lifecycle chat-tool entries (`run_prepare`,
+  `run_start`, `register_session`, `supervise_start`, `claim_next`,
+  `ack`, `publish_artifact`, `verdict`, `complete`, `supervise_stop`,
+  `run_summary`, `evidence_export`) over `striatum.api.invoke`. Ten
+  state-mutating tools are gated behind `serve --allow-mutations`; two
+  read-shaped tools (`run_summary`, `evidence_export`) stay available
+  unconditionally.
+- Per-model harness-profile fragments baked into the bundled workflow
+  template catalog (`claude_code_default`, `codex_default`,
+  `gemini_default`, `generic_default`). `workflow generate` enriches
+  any user-supplied profile body with the catalog defaults when
+  `native_delegation.instruction` is missing; existing instructions
+  are preserved verbatim.
+- `striatum workflow upgrade <path>` CLI verb that backports the
+  catalog fragments into existing workflow.json files. Refuse-on-
+  conflict default with `--force` to overwrite; `--dry-run` reports
+  the change set without writing; refuses when any non-terminal run
+  references the workflow.
+- New `docs/HARNESS_FRICTION_PATTERNS.md` documenting the four
+  observed friction patterns (036 strategy-then-exit, 037 ask-and-
+  exit, 038 lease-expiry-under-active-load, 038/039 front-matter
+  completeness) and the V1 fixes.
+- `docs/MCP.md` "Dogfood-Lifecycle Tools" section listing each new
+  tool, its capability requirement, and an example sequence.
+- `docs/HOW_TO_HUMAN.md` walkthrough of driving a dogfood through the
+  MCP chat tools instead of bash CLI, plus a `workflow upgrade`
+  recipe.
+- `docs/HOW_TO_AGENT.md` note for operator-AI sessions to prefer the
+  MCP chat tools over shelling out to bash; supervised roles still
+  use the work-packet `commands` block verbatim.
+
+### Decided
+
+- D093: Accept RFC 0040 V1 as the operator-side slice. Composite
+  tools (`dogfood.publish_on_behalf`, `dogfood.surgical_recovery`)
+  and the daemon-side supervised-progress heartbeat land in the
+  systems half of the RFC. See `docs/HARNESS_FRICTION_PATTERNS.md`
+  for the long-form record.
+
 ## 1.28.0 — 2026-05-13
 
 ### Added

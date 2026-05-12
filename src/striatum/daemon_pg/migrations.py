@@ -9,7 +9,7 @@ from typing import Any
 
 from striatum.errors import SchemaVersionError, StriatumError
 
-LATEST_DAEMON_DB_VERSION = 3
+LATEST_DAEMON_DB_VERSION = 4
 MIGRATION_LOCK_KEY = 332933
 
 
@@ -32,6 +32,7 @@ MIGRATIONS: tuple[PgMigration, ...] = (
     PgMigration(1, "baseline daemon postgres substrate", "0001_baseline.sql"),
     PgMigration(2, "daemon rpc supervision and apply receipts", "0002_rpc_supervision_apply.sql"),
     PgMigration(3, "cross-repo workflows and MCP mutation scope", "0003_cross_repo_mcp.sql"),
+    PgMigration(4, "dogfood surgical recovery capability", "0004_dogfood_surgical_recovery.sql"),
 )
 
 

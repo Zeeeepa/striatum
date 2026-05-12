@@ -32,7 +32,8 @@ collectively, not individually.
 
 | File | Audience | Summary |
 |---|---|---|
-| [MCP.md](MCP.md) | MCP integrator | The local stdio JSON-RPC wrapper's framing and tool surface. |
+| [MCP.md](MCP.md) | MCP integrator | The local stdio JSON-RPC wrapper's framing and tool surface, plus the RFC 0040 V1 dogfood-lifecycle chat tools served by `striatum serve --web`. |
+| [HARNESS_FRICTION_PATTERNS.md](HARNESS_FRICTION_PATTERNS.md) | Maintainer / RFC author | Long-form record of recurring dogfood friction shapes (036-039) and the V1 fixes that landed; companion to RFC 0040. |
 | [README.md](README.md) | Doc tree reader | Pointer file for `docs/`. |
 
 ## Historical (incubation provenance — not current product material)
