@@ -215,6 +215,10 @@ real cross-repo end-to-end progression are deferred to TODO Open item
 capabilities and scope, and `tools/call` re-checks authorization and
 audits denials.
 
+RFC 0036 adds no new CLI verb. Regenerate agent-facing MCP guidance with
+`striatum skills install` or `striatum plugin install`; chat workflow
+generation uses the existing local service and RFC 0034 generator paths.
+
 ## Skills (RFC 0015)
 
 ```text

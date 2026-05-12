@@ -23,11 +23,11 @@ from striatum.skills import (  # noqa: E402
 def _claude_paths(target: Path, namespace: str = "striatum-") -> list[Path]:
     return [
         target / ".claude" / "skills" / f"{namespace}{skill}" / "SKILL.md"
-        for skill in ("workflow", "scaffold", "claim-loop", "supervise", "recover")
+        for skill in ("workflow", "scaffold", "claim-loop", "supervise", "recover", "mcp")
     ]
 
 
-def test_install_claude_code_writes_five_skills_and_manifest(tmp_path: Path) -> None:
+def test_install_claude_code_writes_skills_and_manifest(tmp_path: Path) -> None:
     result = install_skills(target=tmp_path, profile="claude_code")
     assert result["profile"] == "claude_code"
     assert {f["status"] for f in result["files"]} == {"written"}
@@ -40,7 +40,7 @@ def test_install_claude_code_writes_five_skills_and_manifest(tmp_path: Path) -> 
     assert manifest["striatum_version"] == STRIATUM_VERSION
     assert {entry["path"] for entry in manifest["files"]} == {
         f".claude/skills/striatum-{skill}/SKILL.md"
-        for skill in ("workflow", "scaffold", "claim-loop", "supervise", "recover")
+        for skill in ("workflow", "scaffold", "claim-loop", "supervise", "recover", "mcp")
     }
 
 
@@ -216,7 +216,7 @@ def test_no_external_url_invariant(tmp_path: Path) -> None:
     rendered = []
     for path in _claude_paths(tmp_path):
         rendered.append(path.read_text(encoding="utf-8"))
-    for skill in ("workflow", "scaffold", "claim-loop", "supervise", "recover"):
+    for skill in ("workflow", "scaffold", "claim-loop", "supervise", "recover", "mcp"):
         rendered.append(
             (tmp_path / f".codex/agents/striatum-{skill}.md").read_text(encoding="utf-8")
         )
@@ -229,6 +229,23 @@ def test_no_external_url_invariant(tmp_path: Path) -> None:
     for body in rendered:
         assert "http://" not in body
         assert "https://" not in body
+
+
+def test_mcp_skill_body_contains_required_guidance(tmp_path: Path) -> None:
+    install_skills(target=tmp_path, profile="claude_code")
+    body = (tmp_path / ".claude/skills/striatum-mcp/SKILL.md").read_text(encoding="utf-8")
+    for expected in (
+        "tools/list",
+        "tools/call",
+        "confirm_write",
+        "capability_missing",
+        "token_revoked",
+        "token_expired",
+        "method_unknown",
+        "mutations_disabled",
+        "audit",
+    ):
+        assert expected in body
 
 
 def test_manifest_excludes_itself(tmp_path: Path) -> None:
@@ -268,11 +285,11 @@ def test_install_unknown_profile_raises(tmp_path: Path) -> None:
 def _codex_paths(target: Path, namespace: str = "striatum-") -> list[Path]:
     return [
         target / ".codex" / "agents" / f"{namespace}{skill}.md"
-        for skill in ("workflow", "scaffold", "claim-loop", "supervise", "recover")
+        for skill in ("workflow", "scaffold", "claim-loop", "supervise", "recover", "mcp")
     ]
 
 
-def test_install_codex_writes_five_files_and_manifest(tmp_path: Path) -> None:
+def test_install_codex_writes_files_and_manifest(tmp_path: Path) -> None:
     result = install_skills(target=tmp_path, profile="codex")
     assert result["profile"] == "codex"
     assert {f["status"] for f in result["files"]} == {"written"}

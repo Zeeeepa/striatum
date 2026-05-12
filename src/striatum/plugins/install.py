@@ -40,6 +40,7 @@ _PROFILE_SKILLS: tuple[str, ...] = (
     "claim-loop",
     "supervise",
     "recover",
+    "mcp",
 )
 _PROFILE_COMMANDS: tuple[str, ...] = (
     "claim-next",

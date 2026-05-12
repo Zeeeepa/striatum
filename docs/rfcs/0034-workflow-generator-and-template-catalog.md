@@ -103,8 +103,8 @@ V1 implementation note: the generator core, built-in package-data
 catalog, CLI `workflow templates` / `workflow generate` surface, local
 service catalog and generation endpoints, custom-plan compiler, and
 `workflow init --style` compatibility rewire are accepted for this
-slice. The web chooser UI and chat-assisted scaffolding tool remain
-deferred to a follow-up dogfood.
+slice. The web chooser UI remains deferred; the chat-assisted
+scaffolding tool landed in RFC 0036 V1.
 
 ### 1. Generator concepts
 
@@ -422,12 +422,12 @@ the underlying generation or validation semantics.
 
 ### 10. Chat-assisted scaffolding
 
-Later chat tooling may call the generator, but only through a closed tool
-that wraps the local API endpoints. The default chat/tool behavior should
-call preview, show the generated graph/file list, and require explicit
-operator confirmation before calling the write endpoint. A chat model may
-suggest shape/lane options or fill fields, but the generator and validator
-remain the authority.
+RFC 0036 V1 implements chat-assisted scaffolding through the closed tools
+`generate_workflow_preview` and `generate_workflow_write`. The default
+chat/tool behavior calls preview, shows the generated file list, and
+requires explicit operator confirmation before executing the write. A chat
+model may suggest shape/lane options or fill fields, but the generator and
+validator remain the authority.
 
 ## Acceptance Criteria
 

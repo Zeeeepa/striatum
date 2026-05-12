@@ -1,0 +1,13 @@
+## MCP Mutation Surface
+
+Call `tools/list` first. It returns the effective tool set for the current
+token. `tools/call` re-authorizes every call; mutating calls append
+metadata-only audit rows, including denials.
+
+Use `generate_workflow_preview` before any workflow write. The write path
+requires `confirm_write: true`, `--allow-mutations`, and a separate
+operator confirmation gesture in the chat UI.
+
+Recover from `capability_missing`, `token_revoked`, `token_expired`,
+`method_unknown`, and `mutations_disabled` by stopping and asking the
+operator for the narrow correction named by the denial.

@@ -1,6 +1,6 @@
 # RFC 0036: MCP Harness for Daemon V2 Mutation Surface
 
-Status: proposed
+Status: accepted (V1 implemented)
 Date: 2026-05-12
 Context:
 [`RFC 0015`](0015-self-contained-agent-skills.md),

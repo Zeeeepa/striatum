@@ -24,6 +24,19 @@
       <summary>✓ {{ msg.tool_name }} (result)</summary>
       <pre class="tool-result">{{ msg.result }}</pre>
     </details>
+    {% elif msg.role == "tool_confirmation" %}
+    <details class="chat-tool-call chat-role-tool_confirmation" open>
+      <summary>Operator confirmation required: {{ msg.tool_name }}</summary>
+      <p class="muted">Spec {{ msg.spec_hash }} · state: <code>{{ msg.state }}</code></p>
+      {% if msg.state == "pending" %}
+      <form class="chat-confirm-tool-form" method="post" action="/chat/{{ session_id }}/confirm-tool/{{ msg.tool_use_id }}">
+        <input type="hidden" name="token" value="{{ msg.confirmation_token }}">
+        <button type="submit" name="action" value="confirm" class="primary-button">Confirm write</button>
+        <button type="submit" name="action" value="cancel">Cancel</button>
+      </form>
+      {% endif %}
+      <pre class="tool-result">{{ msg.tool_input | tojson(indent=2) }}</pre>
+    </details>
     {% else %}
     <article class="chat-message chat-role-{{ msg.role }}">
       <header class="chat-message-meta">

@@ -70,6 +70,7 @@ so external references keep resolving even as items move between sections.
 | F33 | RFC 0033 V2 system-Postgres daemon substrate (dogfood-033) | ✅ done |
 | F34 | RFC 0032 V2 cross-repo workflows + MCP mutation capabilities (dogfood-035) | ✅ done |
 | F35 | RFC 0034 V1 workflow generator + template catalog (dogfood-036) | ✅ done |
+| F36 | RFC 0036 V1 MCP harness + chat workflow generation tools (dogfood-038) | ✅ done |
 
 Legend: ✅ done · 🟡 most done (sub-tasks remain) · ⏳ open
 
@@ -226,7 +227,7 @@ Legend: ✅ done · 🟡 most done (sub-tasks remain) · ⏳ open
     list/show`, CLI `workflow generate`, local service catalog and
     generation endpoints, custom-plan compiler, and `workflow init
     --style` rewire. **Remaining:** web `/workflows/new` chooser UI;
-    chat-assisted scaffolding tool now scoped by RFC 0036 (proposed);
+    chat-assisted scaffolding tool delivered by RFC 0036 V1;
     any future target-repo catalog extension decision.
 
 19. **RFC for multi-repo / cross-repo test harness.** ✅ RFC 0035

@@ -121,6 +121,13 @@ generation endpoints `POST /workflows/generate/preview` and
 gated; generation requires `--allow-mutations` and
 `confirm_write: true`. No database migration is part of RFC 0034 V1.
 
+RFC 0036 V1 adds the chat-assisted scaffolding harness over the same
+generator path. The chat closed set includes `generate_workflow_preview`
+at all times and includes `generate_workflow_write` only when the local
+service was started with `--allow-mutations`. The write tool still fails
+closed unless `confirm_write: true` is present and a separate operator
+confirmation gesture is recorded by the web UI.
+
 The validator enforces unique job ids, resolved role/lane references, valid
 edges, bounded cycles, repo-relative artifact paths, and declared parallelism
 with disjoint write scopes or review-only unique artifact paths.

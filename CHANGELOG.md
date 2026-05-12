@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+## 1.26.0 — 2026-05-13
+
+### Added
+
+- RFC 0036 V1: `striatum-mcp` skill coverage for loose skill installs
+  and plugin bundles, plus chat tools `generate_workflow_preview` and
+  `generate_workflow_write` over the RFC 0034 workflow generator.
+- Chat workflow writes are hidden when `serve` lacks
+  `--allow-mutations`; crafted write calls fail with
+  `mutations_disabled`.
+- Chat workflow writes queue a one-shot operator confirmation in the web
+  UI before generated workflow files are written.
+
 ## 1.25.0 — 2026-05-12
 
 ### Added

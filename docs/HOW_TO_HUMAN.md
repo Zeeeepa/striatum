@@ -487,6 +487,13 @@ only read tools. Mutation grants (`write`, `review`, `claim`, `apply`,
 `recovery`, or `admin`) must be granted deliberately, should usually be
 short-lived, and are re-checked on every `tools/call`. Prompt-injected
 tool arguments cannot escalate beyond the token's grants.
+
+For chat-assisted workflow generation, start the web service with
+`--allow-mutations` only when you want the browser to be able to write
+generated workflow files. The model may call `generate_workflow_preview`
+freely. `generate_workflow_write` is hidden without the mutation flag and,
+when enabled, still pauses for your browser confirmation before Striatum
+writes files.
 - It is not a replacement for `recovery watch` against a
   single repo, only for multi-repo sweeping.
 

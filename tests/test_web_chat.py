@@ -63,6 +63,60 @@ class FakeOpenAIChatHandler(BaseHTTPRequestHandler):
             self.wfile.flush()
 
 
+class FakeOpenAIWorkflowWriteHandler(BaseHTTPRequestHandler):
+    """Streams one generate_workflow_write tool call."""
+
+    received_body: dict[str, object] | None = None
+
+    def log_message(self, format: str, *args: object) -> None:  # noqa: A002
+        pass
+
+    def do_POST(self) -> None:  # noqa: N802
+        length = int(self.headers.get("Content-Length", 0))
+        raw = self.rfile.read(length)
+        FakeOpenAIWorkflowWriteHandler.received_body = json.loads(raw)
+        spec = {
+            "schema_version": "striatum.workflow_generator.v1",
+            "shape": "minimal",
+            "lane_set": "local",
+            "workflow_id": "chat-demo",
+            "name": "Chat Demo",
+            "workflow_version": "2026-05-12",
+            "branch": {"mode": "confirm", "suggested_name": "striatum/chat-demo", "allow_dirty": False},
+            "scaffold_root": "workflows/chat-demo",
+            "artifact_root": "striatum/chat-demo",
+            "lanes": {},
+            "options": {},
+        }
+        args = json.dumps({"spec": spec, "confirm_write": True}, separators=(",", ":"))
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream")
+        self.end_headers()
+        payload = {
+            "choices": [
+                {
+                    "delta": {
+                        "tool_calls": [
+                            {
+                                "index": 0,
+                                "id": "call_write",
+                                "type": "function",
+                                "function": {
+                                    "name": "generate_workflow_write",
+                                    "arguments": args,
+                                },
+                            }
+                        ]
+                    }
+                }
+            ]
+        }
+        self.wfile.write(("data: " + json.dumps(payload) + "\n\n").encode("utf-8"))
+        self.wfile.write('data: {"choices":[{"finish_reason":"tool_calls","delta":{}}]}\n\n'.encode("utf-8"))
+        self.wfile.write(b"data: [DONE]\n\n")
+        self.wfile.flush()
+
+
 class FakeAnthropicHandler(BaseHTTPRequestHandler):
     received_body: dict[str, object] | None = None
     received_headers: dict[str, object] | None = None
@@ -260,6 +314,48 @@ def test_chat_send_openai_flavor_request_shape(tmp_path: Path) -> None:
             ).read_text(encoding="utf-8")
             assert "hello world" in transcript
             assert "Hel" in transcript or "lo" in transcript
+        finally:
+            _stop_service(proc)
+    finally:
+        server.shutdown()
+
+
+def test_chat_workflow_write_requires_operator_confirmation(tmp_path: Path) -> None:
+    _git_init_repo(tmp_path)
+    _striatum_init(tmp_path)
+    FakeOpenAIWorkflowWriteHandler.received_body = None
+    server, prov_port = _start_fake_server(FakeOpenAIWorkflowWriteHandler)
+    try:
+        proc, port = _spawn_service_with_chat(
+            tmp_path,
+            base_url=f"http://127.0.0.1:{prov_port}",
+            flavor="openai_chat",
+        )
+        try:
+            status, headers, _ = _http_post_form(port, "/chat/new", {})
+            session_id = headers["Location"][len("/chat/"):]
+            status, _, _ = _http_post_form(
+                port, f"/chat/{session_id}/send", {"message": "write a workflow"},
+            )
+            assert status == 204
+            workflow_path = tmp_path / "workflows" / "chat-demo" / "workflow.json"
+            assert not workflow_path.exists()
+            transcript = (
+                tmp_path / ".striatum" / "scratch" / f"chat-{session_id}" / "transcript.jsonl"
+            )
+            pending = None
+            for raw in transcript.read_text(encoding="utf-8").splitlines():
+                entry = json.loads(raw)
+                if entry.get("role") == "tool_confirmation":
+                    pending = entry
+            assert pending is not None
+            status, _, body = _http_post_form(
+                port,
+                f"/chat/{session_id}/confirm-tool/{pending['tool_use_id']}",
+                {"token": str(pending["confirmation_token"]), "action": "confirm"},
+            )
+            assert status == 200, body
+            assert workflow_path.exists()
         finally:
             _stop_service(proc)
     finally:

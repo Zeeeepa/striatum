@@ -29,6 +29,13 @@ Always prefer the bundle's command shapes over this doc; they
 were rendered from the runner version installed in this
 environment.
 
+Recent bundles also include `striatum-mcp`, the daemon MCP/chat workflow
+generation skill. Use it when the operator gives you a capability token or
+asks you to preview/write generated workflows through chat tools. It does
+not replace the claim loop; it teaches the MCP `tools/list` /
+`tools/call` capability boundary and the preview-then-operator-confirm
+write posture.
+
 ## What you are looking at
 
 Striatum is a local-first runner whose live state is

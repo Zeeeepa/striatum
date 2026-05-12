@@ -11,12 +11,15 @@ import json
 import os
 import subprocess
 from pathlib import Path
+from typing import Any
 
 from striatum.web.chat_tools import (
     ANTHROPIC_TOOLS,
     OPENAI_TOOLS,
     TOOL_NAMES,
     execute_tool,
+    tool_names,
+    tool_schemas,
     wrap_tool_result,
 )
 
@@ -44,6 +47,20 @@ def test_tool_names_match_schemas() -> None:
     anthropic_names = {t["name"] for t in ANTHROPIC_TOOLS}
     openai_names = {t["function"]["name"] for t in OPENAI_TOOLS}
     assert anthropic_names == TOOL_NAMES == openai_names
+
+
+def test_tool_schemas_filter_write_by_mutation_gate() -> None:
+    disabled = tool_names(allow_mutations=False)
+    enabled = tool_names(allow_mutations=True)
+    assert "generate_workflow_preview" in disabled
+    assert "generate_workflow_write" not in disabled
+    assert "generate_workflow_write" in enabled
+    anthropic = {t["name"] for t in tool_schemas(allow_mutations=False, flavor="anthropic_messages")}
+    openai = {
+        t["function"]["name"]
+        for t in tool_schemas(allow_mutations=False, flavor="openai_chat")
+    }
+    assert anthropic == openai == disabled
 
 
 # --- read_file -------------------------------------------------------
@@ -155,6 +172,59 @@ def test_striatum_status_in_initialized_repo(tmp_path: Path) -> None:
     out = execute_tool("striatum_status", {}, repo=tmp_path)
     parsed = json.loads(out)
     assert parsed.get("ok") is True
+
+
+def _workflow_spec() -> dict[str, Any]:
+    return {
+        "schema_version": "striatum.workflow_generator.v1",
+        "shape": "minimal",
+        "lane_set": "local",
+        "workflow_id": "demo",
+        "name": "Demo",
+        "workflow_version": "2026-05-12",
+        "branch": {"mode": "confirm", "suggested_name": "striatum/demo", "allow_dirty": False},
+        "scaffold_root": "workflows/demo",
+        "artifact_root": "striatum/demo",
+        "lanes": {},
+        "options": {},
+    }
+
+
+def test_generate_workflow_preview_tool_writes_nothing(tmp_path: Path) -> None:
+    _git_init(tmp_path)
+    out = execute_tool("generate_workflow_preview", {"spec": _workflow_spec()}, repo=tmp_path)
+    parsed = json.loads(out)
+    assert parsed["ok"] is True
+    assert parsed["data"]["workflow"]["workflow_id"] == "demo"
+    assert not (tmp_path / "workflows" / "demo").exists()
+
+
+def test_generate_workflow_write_requires_mutation_gate_and_operator_gesture(tmp_path: Path) -> None:
+    _git_init(tmp_path)
+    args = {"spec": _workflow_spec(), "confirm_write": True}
+    disabled = execute_tool(
+        "generate_workflow_write",
+        args,
+        repo=tmp_path,
+        allow_mutations=False,
+    )
+    assert "mutations_disabled" in disabled
+    missing_gesture = execute_tool(
+        "generate_workflow_write",
+        args,
+        repo=tmp_path,
+        allow_mutations=True,
+    )
+    assert "operator_gesture_missing" in missing_gesture
+    written = execute_tool(
+        "generate_workflow_write",
+        args,
+        repo=tmp_path,
+        allow_mutations=True,
+        operator_confirmed=True,
+    )
+    assert json.loads(written)["ok"] is True
+    assert (tmp_path / "workflows" / "demo" / "workflow.json").exists()
 
 
 # --- wrap_tool_result -----------------------------------------------

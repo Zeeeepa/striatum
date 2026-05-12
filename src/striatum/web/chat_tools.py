@@ -1,4 +1,4 @@
-"""RFC 0023 V1.5: closed-set read-only tools for the chat surface.
+"""RFC 0023 V1.5/RFC 0036: closed-set tools for the chat surface.
 
 Six tools, all read-only:
 
@@ -29,6 +29,8 @@ __all__ = [
     "OPENAI_TOOLS",
     "TOOL_NAMES",
     "execute_tool",
+    "tool_names",
+    "tool_schemas",
     "wrap_tool_result",
 ]
 
@@ -140,6 +142,49 @@ _TOOLS: list[dict[str, Any]] = [
             "additionalProperties": False,
         },
     },
+    {
+        "name": "generate_workflow_preview",
+        "description": (
+            "Preview a generated Striatum workflow from a WorkflowGenerationSpec. "
+            "Writes nothing and returns workflow JSON, files, graph metadata, "
+            "warnings, and validation."
+        ),
+        "mutation": False,
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "spec": {
+                    "type": "object",
+                    "description": "WorkflowGenerationSpec JSON object with schema_version striatum.workflow_generator.v1.",
+                },
+            },
+            "required": ["spec"],
+            "additionalProperties": False,
+        },
+    },
+    {
+        "name": "generate_workflow_write",
+        "description": (
+            "Write generated workflow files after preview. Requires confirm_write: true, "
+            "--allow-mutations, and a separate operator confirmation gesture in the chat UI."
+        ),
+        "mutation": True,
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "spec": {
+                    "type": "object",
+                    "description": "WorkflowGenerationSpec JSON object with schema_version striatum.workflow_generator.v1.",
+                },
+                "confirm_write": {
+                    "type": "boolean",
+                    "description": "Must be true. Necessary but not sufficient; the chat UI also requires an operator confirmation gesture.",
+                },
+            },
+            "required": ["spec", "confirm_write"],
+            "additionalProperties": False,
+        },
+    },
 ]
 
 
@@ -171,6 +216,40 @@ OPENAI_TOOLS: list[dict[str, Any]] = [
 ]
 
 
+def tool_names(*, allow_mutations: bool) -> frozenset[str]:
+    """Return the effective chat tool set for a service mutation posture."""
+    return frozenset(
+        str(t["name"])
+        for t in _TOOLS
+        if allow_mutations or not bool(t.get("mutation"))
+    )
+
+
+def tool_schemas(*, allow_mutations: bool, flavor: str) -> list[dict[str, Any]]:
+    """Return provider-shaped schemas, hiding mutating tools when disabled."""
+    selected = [t for t in _TOOLS if allow_mutations or not bool(t.get("mutation"))]
+    if flavor == "anthropic_messages":
+        return [
+            {
+                "name": t["name"],
+                "description": t["description"],
+                "input_schema": t["parameters"],
+            }
+            for t in selected
+        ]
+    return [
+        {
+            "type": "function",
+            "function": {
+                "name": t["name"],
+                "description": t["description"],
+                "parameters": t["parameters"],
+            },
+        }
+        for t in selected
+    ]
+
+
 def wrap_tool_result(name: str, args: dict[str, Any], result: str) -> str:
     """Per design-review F1: wrap tool results in BEGIN/END delimiters
     so the model treats content between them as data, not instructions.
@@ -186,7 +265,14 @@ def wrap_tool_result(name: str, args: dict[str, Any], result: str) -> str:
     )
 
 
-def execute_tool(name: str, args: dict[str, Any], *, repo: Path) -> str:
+def execute_tool(
+    name: str,
+    args: dict[str, Any],
+    *,
+    repo: Path,
+    allow_mutations: bool = True,
+    operator_confirmed: bool = False,
+) -> str:
     """Closed-set dispatch. Returns the tool result as a string.
 
     On error: returns a short error string the model can reason about.
@@ -216,6 +302,18 @@ def execute_tool(name: str, args: dict[str, Any], *, repo: Path) -> str:
             return _tool_git_diff(repo, str(path) if path else None)
         if name == "list_workflows":
             return _tool_list_workflows(repo)
+        if name == "generate_workflow_preview":
+            spec = args.get("spec")
+            return _tool_generate_workflow_preview(spec if isinstance(spec, dict) else None)
+        if name == "generate_workflow_write":
+            spec = args.get("spec")
+            return _tool_generate_workflow_write(
+                repo,
+                spec if isinstance(spec, dict) else None,
+                confirm_write=args.get("confirm_write") is True,
+                allow_mutations=allow_mutations,
+                operator_confirmed=operator_confirmed,
+            )
     except Exception as exc:  # noqa: BLE001
         return f"[error] {type(exc).__name__}: {exc}"
     return f"[error] tool {name!r} not implemented"
@@ -397,3 +495,61 @@ def _tool_git_diff(repo: Path, rel: str | None) -> str:
     if truncated:
         output += f"\n\n[truncated at {GIT_DIFF_MAX_BYTES} bytes]"
     return output
+
+
+def _tool_generate_workflow_preview(spec_body: dict[str, Any] | None) -> str:
+    from striatum.workflow_generator import GeneratorError, WorkflowGenerationSpec, generate_workflow
+
+    if spec_body is None:
+        return "[error] missing spec object"
+    try:
+        spec = WorkflowGenerationSpec.from_json(spec_body)
+        generated = generate_workflow(spec)
+    except GeneratorError as exc:
+        return _generator_error("workflow_generate_preview_failed", exc)
+    return json.dumps({"ok": True, "data": generated.to_json()}, indent=2, sort_keys=True)
+
+
+def _tool_generate_workflow_write(
+    repo: Path,
+    spec_body: dict[str, Any] | None,
+    *,
+    confirm_write: bool,
+    allow_mutations: bool,
+    operator_confirmed: bool,
+) -> str:
+    from striatum.workflow_generator import GeneratorError, WorkflowGenerationSpec, generate_workflow
+    from striatum.workflow_generator.write import write_generated_workflow
+
+    if not allow_mutations:
+        return (
+            "[error] mutations_disabled: service started without --allow-mutations; "
+            "ask the operator to restart with --allow-mutations before writing workflows"
+        )
+    if not confirm_write:
+        return "[error] confirm_write_missing: generate_workflow_write requires confirm_write: true"
+    if not operator_confirmed:
+        return "[error] operator_gesture_missing: chat workflow writes require an operator confirmation gesture"
+    if spec_body is None:
+        return "[error] missing spec object"
+    try:
+        spec = WorkflowGenerationSpec.from_json(spec_body)
+        generated = generate_workflow(spec)
+        written = write_generated_workflow(generated, repo=repo)
+    except GeneratorError as exc:
+        return _generator_error("workflow_generate_write_failed", exc)
+    return json.dumps({"ok": True, "data": written}, indent=2, sort_keys=True)
+
+
+def _generator_error(code: str, exc: Exception) -> str:
+    error: dict[str, Any] = {"ok": False, "error": {"code": code, "message": str(exc)}}
+    field_path = getattr(exc, "field_path", None)
+    if isinstance(field_path, str):
+        error["error"]["field_path"] = field_path
+    hint = getattr(exc, "hint", None)
+    if isinstance(hint, str):
+        error["error"]["hint"] = hint
+    ref = getattr(exc, "ref", None)
+    if isinstance(ref, str):
+        error["error"]["ref"] = ref
+    return json.dumps(error, indent=2, sort_keys=True)

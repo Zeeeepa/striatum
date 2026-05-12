@@ -19,6 +19,7 @@ CLAUDE_CODE_FILES = {
     "skills/striatum-claim-loop/SKILL.md",
     "skills/striatum-supervise/SKILL.md",
     "skills/striatum-recover/SKILL.md",
+    "skills/striatum-mcp/SKILL.md",
     "commands/claim-next.md",
     "commands/status.md",
     "commands/why.md",
@@ -152,7 +153,7 @@ def test_skill_templates_match_skills_module(tmp_path: Path) -> None:
     """F1: skill bodies in plugins/templates must match skills/templates byte-for-byte
     across all three profiles."""
     repo_root = Path(__file__).resolve().parent.parent
-    for skill in ("workflow", "scaffold", "claim-loop", "supervise", "recover"):
+    for skill in ("workflow", "scaffold", "claim-loop", "supervise", "recover", "mcp"):
         skills_path = repo_root / "src/striatum/skills/templates/claude_code" / f"{skill}.md.tmpl"
         for profile in ("claude_code", "codex", "gemini"):
             plugins_path = (
@@ -173,6 +174,7 @@ CODEX_FILES = {
     "skills/striatum-claim-loop/SKILL.md",
     "skills/striatum-supervise/SKILL.md",
     "skills/striatum-recover/SKILL.md",
+    "skills/striatum-mcp/SKILL.md",
     "commands/claim-next.md",
     "commands/status.md",
     "commands/why.md",
@@ -229,6 +231,7 @@ GEMINI_FILES = {
     "skills/striatum-claim-loop/SKILL.md",
     "skills/striatum-supervise/SKILL.md",
     "skills/striatum-recover/SKILL.md",
+    "skills/striatum-mcp/SKILL.md",
     "commands/claim-next.toml",
     "commands/status.toml",
     "commands/why.toml",

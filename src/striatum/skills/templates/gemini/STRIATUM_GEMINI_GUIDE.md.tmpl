@@ -88,6 +88,39 @@ striatum --repo $REPO why $JOB_OR_RUN --json
 striatum --repo $REPO doctor --run-id $RUN --verbose --json
 ```
 
+## MCP Mutation Surface
+
+Use this section when an operator gives you a capability token and asks you
+to use daemon MCP, or when chat workflow generation needs preview/write
+tool calls.
+
+Call `tools/list` first. It returns the effective tool set for the current
+token. `tools/call` re-authorizes every call; mutating calls append
+metadata-only audit rows, including denials. Use `daemon.hello` /
+`daemon.welcome` for version handshake and `daemon.describe` when the
+operator needs to inspect the broader method registry.
+
+Preview generated workflows before writing them. `workflow.generate.preview`
+returns the workflow, file list, graph metadata, warnings, and validation
+without writing files. `workflow.generate` requires `confirm_write: true`;
+in web chat, that is necessary but not sufficient because the UI must also
+record an operator confirmation gesture.
+
+Denial recovery:
+
+| Denial | Agent response |
+|---|---|
+| `capability_missing` | Stop and ask the operator for a short-lived token with the named capability and correct repository scope. |
+| `token_revoked` | Stop retrying; treat revocation as an operator decision. |
+| `token_expired` | Ask for a fresh token with the same narrow scope. |
+| `method_unknown` | Re-read `tools/list`; if absent, ask the operator to inspect `daemon.describe` for version skew. |
+| `mutations_disabled` | Do not retry. The operator must restart the service with `--allow-mutations` to permit writes. |
+
+A repo-scoped write token for repo A cannot write repo B. Do not request
+wildcard or admin capabilities for ordinary generation, do not write
+`.striatum/state.sqlite3` directly, and do not treat audit as
+malicious-local-root-resistant proof.
+
 ## What not to do
 
 {boundaries_bulletlist}

@@ -123,6 +123,16 @@
           setStatus("");
           return;
         }
+        if (data.role === "tool_confirmation") {
+          appendMessage(
+            "system",
+            "Operator confirmation required for " + (data.tool_name || "tool") +
+              ". Reload the page to confirm or cancel the pending write.",
+            data.created_at || ""
+          );
+          setStatus("");
+          return;
+        }
         if (!data.content) return;
         if (data.role === "assistant" && data.streaming) {
           if (!streamingDiv) {

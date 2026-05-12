@@ -21,7 +21,8 @@ useful for humans, but they do not advance state.
 ## Status
 
 `v1.25.0`. RFCs 0001–0026, RFC 0028 V1, RFC 0030 V2 foundation, RFC
-0031 V2 foundation, RFC 0032 V2, RFC 0033 V2, and RFC 0034 V1 are
+0031 V2 foundation, RFC 0032 V2, RFC 0033 V2, RFC 0034 V1, and RFC
+0036 V1 are
 accepted (some at `accepted (V1)` or later staged statuses); RFC 0027
 is partially implemented through fail-closed mode and apply-receipt
 foundation surfacing; RFC 0035 is proposed (multi-repo test harness).
@@ -124,6 +125,10 @@ renders as inline SVG with state-colored nodes that
 click-navigate. Light + dark mode follow
 `prefers-color-scheme`. Localhost-only by default; mutations
 gated behind `--allow-mutations`.
+
+Chat workflow generation follows preview-then-confirm: the preview tool
+writes nothing, and the write tool is hidden unless mutations are enabled
+and still requires a separate browser-side operator confirmation.
 
 ## Optional Multi-Repo Registry And Sweep
 

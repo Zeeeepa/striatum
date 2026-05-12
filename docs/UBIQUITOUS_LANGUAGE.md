@@ -178,6 +178,9 @@ not the product boundary.
 | MCP mutation capability | A daemon capability that permits MCP `tools/call` to mutate state, such as `write`, `review`, `claim`, `apply`, `admin`, or `recovery`. `read` remains introspection-only. |
 | effective tool set | The daemon MCP tool list visible to a token after intersecting the method registry with the token's capability grants and repository scope. `tools/call` still re-authorizes; visibility is not the security boundary. |
 | repository scope mode | A daemon method-registry property describing whether a method is `single_repo`, `cross_repo`, or `daemon_global`. Authorization uses it to decide whether a repo-scoped token is sufficient. |
+| MCP mutation surface | The agent-facing daemon/chat tool surface that exposes capability-gated methods through `tools/list` and `tools/call`. RFC 0036 teaches it through the `striatum-mcp` skill and preserves the rule that direct SQLite writes are never allowed. |
+| operator-confirmed chat mutation | A web-chat mutation that requires `--allow-mutations`, a model-supplied `confirm_write: true` where applicable, and a separate browser-side operator gesture before the server executes the write. |
+| mutation-not-allowed path | The fail-closed behavior when the service lacks mutation authority: mutating chat tools are hidden from the tool list, and stale or crafted write calls return `mutations_disabled` without writing files. |
 
 ## Distinctions
 

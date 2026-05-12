@@ -198,3 +198,25 @@ fails closed for unknown methods, missing tokens, revoked/expired tokens,
 missing capabilities, expired capabilities, and repository scope
 mismatches. Repo-scoped `apply` grants remain single-repo; a token that
 can apply in repo A cannot apply in repo B.
+
+## Mutation Surface For Agents
+
+RFC 0036 adds an agent-facing `striatum-mcp` skill and chat workflow
+generation tools over the existing surfaces. Agents should call
+`tools/list` first because it is the effective tool set for the current
+token. `tools/call` remains the authorization boundary and re-checks every
+call.
+
+Workflow generation follows preview-then-write. `generate_workflow_preview`
+writes nothing and returns the generated workflow, files, graph metadata,
+warnings, and validation. `generate_workflow_write` is hidden unless the
+service was started with `--allow-mutations`; if a stale or crafted call
+reaches the server anyway, it returns `mutations_disabled`. Even when
+visible, writes require `confirm_write: true` and a separate operator
+confirmation gesture in the chat UI.
+
+Denials are recovery instructions, not retry loops: ask for a narrow token
+on `capability_missing`, stop on `token_revoked`, ask for a fresh token on
+`token_expired`, inspect `tools/list` / `daemon.describe` on
+`method_unknown`, and restart the local service with `--allow-mutations`
+only if the operator actually wants writes.

@@ -54,6 +54,7 @@ CLAUDE_CODE_SKILLS: tuple[str, ...] = (
     "claim-loop",
     "supervise",
     "recover",
+    "mcp",
 )
 
 

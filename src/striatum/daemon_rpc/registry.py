@@ -53,6 +53,8 @@ _ENTRIES: tuple[MethodEntry, ...] = (
     MethodEntry("dashboard.all", "read", False),
     MethodEntry("evidence.export", "read", True),
     MethodEntry("workflow.validate", "write", True),
+    MethodEntry("workflow.generate.preview", "read", True),
+    MethodEntry("workflow.generate", "write", True),
     MethodEntry("run.prepare", "write", True),
     MethodEntry("run.start", "write", True),
     MethodEntry("session.register", "write", True),
