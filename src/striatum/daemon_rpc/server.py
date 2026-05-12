@@ -33,6 +33,11 @@ CLI_ROUTES: dict[str, tuple[str, ...]] = {
     "publish_artifact": ("publish-artifact",),
     "complete": ("complete",),
     "release": ("release",),
+    "recovery.stale_leases": ("recovery", "stale-leases"),
+    "recovery.requeue_stale": ("recovery", "requeue-stale"),
+    "recovery.cancel_job": ("recovery", "cancel-job"),
+    "recovery.process_reconcile": ("recovery", "process-reconcile"),
+    "recovery.resume": ("recovery", "resume"),
     "verdict": ("verdict",),
     "submit_review": ("submit-review",),
     "supervise.start": ("supervise", "start"),
@@ -145,6 +150,8 @@ class DaemonRpcRouter:
             from striatum.daemon import dashboard_all
 
             return dashboard_all(token=envelope.capability_token)
+        if envelope.method.startswith("cross_repo."):
+            return self._route_cross_repo(envelope)
         if envelope.method.startswith("apply."):
             from striatum.daemon_apply.apply_service import handle_apply_rpc
 
@@ -161,6 +168,32 @@ class DaemonRpcRouter:
             raise RpcError("command_failed", "daemon RPC command failed", exit_code=1)
         data = result.get("data")
         return data if isinstance(data, dict) else {"result": data}
+
+    def _route_cross_repo(self, envelope: RpcEnvelope) -> dict[str, Any]:
+        from striatum.cross_repo import describe_cross_repo_run, list_cross_repo_runs
+
+        if self.pg_conn is None:
+            raise RpcError("daemon_db_missing", "cross-repo routes require daemon PostgreSQL")
+        if envelope.method == "cross_repo.list":
+            return list_cross_repo_runs(self.pg_conn)
+        run_id = str(envelope.params.get("cross_repo_run_id") or envelope.params.get("run_id") or "")
+        if not run_id:
+            raise RpcError("schema_invalid", "cross-repo route requires cross_repo_run_id")
+        if envelope.method == "cross_repo.describe":
+            return describe_cross_repo_run(self.pg_conn, cross_repo_run_id=run_id)
+        if envelope.method == "cross_repo.why":
+            described = describe_cross_repo_run(self.pg_conn, cross_repo_run_id=run_id)
+            return {
+                "cross_repo_run_id": run_id,
+                "state": described["state"],
+                "participants": described["participants"],
+            }
+        if envelope.method == "cross_repo.cancel":
+            raise RpcError(
+                "not_implemented",
+                "cross-repo cancel requires the daemon lifecycle service; full E2E harness is deferred",
+            )
+        raise RpcError("method_unknown", f"method has no handler: {envelope.method}")
 
 
 def _repository_id(params: Mapping[str, Any]) -> str | None:

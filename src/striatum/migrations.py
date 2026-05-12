@@ -447,6 +447,20 @@ def _apply_v13_daemon_supervisor_pointers(conn: sqlite3.Connection) -> None:
     )
 
 
+def _apply_v14_cross_repo_run_pointer(conn: sqlite3.Connection) -> None:
+    """RFC 0032: repo-local back-reference to daemon-owned cross-repo runs."""
+    run_cols = [row[1] for row in conn.execute("PRAGMA table_info(runs)").fetchall()]
+    if "cross_repo_run_id" not in run_cols:
+        conn.execute("ALTER TABLE runs ADD COLUMN cross_repo_run_id TEXT")
+    conn.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_runs_cross_repo_run_id
+          ON runs(cross_repo_run_id)
+          WHERE cross_repo_run_id IS NOT NULL
+        """
+    )
+
+
 MIGRATIONS: list[Migration] = sorted(
     [
         Migration(version=1, label="v1 baseline schema", apply=_apply_v1),
@@ -493,6 +507,11 @@ MIGRATIONS: list[Migration] = sorted(
             version=13,
             label="daemon supervisor pointers",
             apply=_apply_v13_daemon_supervisor_pointers,
+        ),
+        Migration(
+            version=14,
+            label="cross-repo run pointer",
+            apply=_apply_v14_cross_repo_run_pointer,
         ),
     ],
     key=lambda migration: migration.version,

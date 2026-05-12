@@ -162,6 +162,8 @@ def dispatch(args: argparse.Namespace) -> object:
         return _dispatch_daemon(args)
     if args.command == "repo":
         return _dispatch_daemon_repo(args)
+    if args.command == "cross-repo":
+        return _dispatch_cross_repo(args)
     if daemon_forced and args.command in {"status", "why", "doctor", "dashboard"}:
         return _dispatch_daemon_read(args, repo)
     if daemon_forced:
@@ -772,6 +774,40 @@ def _dispatch_daemon_repo(args: argparse.Namespace) -> object:
     if args.repo_command == "remove":
         return daemon_mod.repo_remove(str(args.id))
     raise StriatumError("unknown repo command", exit_code=2)
+
+
+def _dispatch_cross_repo(args: argparse.Namespace) -> object:
+    from striatum.cross_repo import describe_cross_repo_run, list_cross_repo_runs
+    from striatum.daemon_pg.connection import connect_and_migrate
+
+    conn = connect_and_migrate(postgres_url=getattr(args, "postgres_url", None))
+    try:
+        if args.cross_repo_command == "list":
+            return list_cross_repo_runs(conn)
+        if args.cross_repo_command == "describe":
+            return describe_cross_repo_run(
+                conn, cross_repo_run_id=str(args.cross_repo_run_id)
+            )
+        if args.cross_repo_command == "why":
+            described = describe_cross_repo_run(
+                conn, cross_repo_run_id=str(args.cross_repo_run_id)
+            )
+            return {
+                "cross_repo_run_id": args.cross_repo_run_id,
+                "state": described["state"],
+                "participants": described["participants"],
+            }
+        if args.cross_repo_command == "cancel":
+            raise StriatumError(
+                "cross-repo cancel requires the daemon lifecycle service; "
+                "the full multi-repo daemon harness is deferred to TODO Open item 19",
+                exit_code=12,
+            )
+    finally:
+        close = getattr(conn, "close", None)
+        if callable(close):
+            close()
+    raise StriatumError("unknown cross-repo command", exit_code=2)
 
 
 def _dispatch_daemon_read(args: argparse.Namespace, repo: Path) -> object:

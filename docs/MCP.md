@@ -156,10 +156,13 @@ registry SQLite directly; it does not connect to a daemon RPC server in
 V1.
 
 RFC 0033 V2 changes the daemon-owned storage substrate, and RFC 0030/0031
-add the daemon RPC/supervision/apply foundation on top of it. Daemon MCP
-still remains resources-only in this release: mutation tools are RFC 0032
-scope and must use the same RPC capability/audit boundary when they land.
-There is no MCP-specific trust shortcut.
+add the daemon RPC/supervision/apply foundation on top of it. RFC 0032
+adds the daemon MCP mutation foundation when the PostgreSQL daemon
+substrate is active. Mutation tools are generated from the daemon RPC
+method registry, filtered by the caller's effective capability/scope, and
+re-authorized on every `tools/call`. Denied calls append metadata-only
+audit/request-log rows with `transport = "mcp"`. There is no MCP-specific
+trust shortcut and no daemon-MCP equivalent of `serve --allow-mutations`.
 
 Daemon resources:
 
@@ -186,3 +189,12 @@ When the RFC 0033 V2 substrate is active, daemon MCP resources read from
 the daemon DB instead of the V1 registry SQLite. The authorization and
 resources-only boundaries above remain the same unless a later accepted
 RFC changes them.
+
+Daemon MCP mutation capabilities use the closed RFC 0032 vocabulary:
+`read`, `write`, `review`, `claim`, `apply`, `admin`, and `recovery`.
+`tools/list` returns the effective tool set: method registry entries
+intersected with the token's grants and repository scope. `tools/call`
+fails closed for unknown methods, missing tokens, revoked/expired tokens,
+missing capabilities, expired capabilities, and repository scope
+mismatches. Repo-scoped `apply` grants remain single-repo; a token that
+can apply in repo A cannot apply in repo B.

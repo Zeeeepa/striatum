@@ -21,9 +21,12 @@ substrate. That decision affects daemon-global registry, audit,
 capability, scheduler, and RPC-session state only. It does not replace
 repo-local run state or introduce hosted persistence. RFC 0030 and RFC
 0031 build on that substrate with a daemon RPC foundation,
-daemon-owned-supervisor metadata, and apply receipts; MCP mutation tools,
-cross-repository workflow mutation, hosted service semantics, and
-malicious-local-operator-resistant sealed apply remain out of scope.
+daemon-owned-supervisor metadata, and apply receipts. RFC 0032 adds the
+V2 schema/migration and capability-gating foundation for cross-repository
+workflow mutation and daemon MCP mutation tools; full multi-repo
+end-to-end daemon harness coverage remains deferred to TODO Open item 19.
+Hosted service semantics and malicious-local-operator-resistant sealed
+apply remain out of scope.
 
 The authoritative live state is SQLite under `.striatum/state.sqlite3`.
 Repository artifacts are durable provenance only. Marker files, tmux panes,
@@ -98,6 +101,20 @@ runtime defaults.
 The validator enforces unique job ids, resolved role/lane references, valid
 edges, bounded cycles, repo-relative artifact paths, and declared parallelism
 with disjoint write scopes or review-only unique artifact paths.
+
+Workflows may opt into RFC 0032 cross-repo shape with a top-level
+`repositories` object and required `primary_repository` alias. Each
+repository entry names a daemon-registered `repo_id`. Cross-repo jobs must
+declare a `repository` alias explicitly; single-repo workflows must not
+declare job-level `repository`. Artifact path uniqueness and parallel
+write-scope overlap are checked per repository alias, not globally across
+all participants. `reviewer_access_scope:
+"cross_repo_artifact_augmented"` is valid only for review jobs in
+cross-repo workflows. Cross-repo cycles must opt in with
+`cross_repo_cycle: true`, and `parallelism.per_repo_max_active_jobs` may
+declare per-alias positive integer limits. Plain `workflow validate`
+checks shape only; daemon-backed `run prepare` owns live repository
+registration and accessibility checks.
 
 Lane selection is workflow-authored. There is no provider-default lane and
 lane ids have no built-in semantic meaning. A job with `lane_id` is queued for
@@ -1085,10 +1102,26 @@ AI guardrail and fails closed without signing-key/apply authority; it is
 not a cryptographic non-repudiation claim against a malicious local
 operator.
 
-Daemon MCP remains resources-only in this release. MCP mutation
-capability expansion is RFC 0032 scope; it must route through the same
-RPC/capability/audit boundary rather than reintroducing a global
-`--allow-mutations` trust shortcut.
+RFC 0032 extends the daemon V2 capability vocabulary to `read`, `write`,
+`review`, `claim`, `apply`, `admin`, and `recovery`, and each registry
+method declares a repository scope mode: `single_repo`, `cross_repo`, or
+`daemon_global`. Daemon MCP mutation tools are derived from that method
+registry when the PostgreSQL daemon substrate is active. `tools/list`
+returns only the effective tool set allowed by the token's capability and
+scope, while `tools/call` re-authorizes every request even if the tool was
+listed earlier. Denials are metadata-audited with transport `mcp`; hidden
+tools are not treated as authorized. There is no V2 daemon MCP equivalent
+of `serve --allow-mutations`.
+
+RFC 0032 also adds daemon DB tables for `cross_repo_runs`,
+`cross_repo_run_repositories`, `cross_repo_cycle_counters`, and
+`audit_repositories`, plus a repo-local nullable `runs.cross_repo_run_id`
+back-reference. The daemon DB is canonical for the cross-repo run; each
+participant repository keeps its own local run state. Cross-repo lifecycle
+coordination is best-effort across local repos, not distributed
+filesystem atomicity. The dogfood-035 implementation ships unit and
+mock-based lifecycle coverage; the full two-repo daemon end-to-end test
+harness is explicitly deferred to TODO Open item 19.
 
 The foreground sweep process uses the existing `recovery auto` policy
 against active registered runs without requiring one `recovery watch`

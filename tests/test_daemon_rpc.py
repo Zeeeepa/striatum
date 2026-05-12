@@ -264,13 +264,14 @@ def test_method_registry_declares_expected_capabilities() -> None:
     assert METHOD_REGISTRY["claim_next"].required_capability == "claim"
     assert METHOD_REGISTRY["submit_review"].required_capability == "review"
     assert METHOD_REGISTRY["apply.reviewed_patch"].required_capability == "apply"
+    assert METHOD_REGISTRY["recovery.cancel_job"].required_capability == "recovery"
     assert METHOD_REGISTRY["daemon.key.rotate"].required_capability == "admin"
 
     described = describe_methods()
     assert described["methods_etag"] == METHODS_ETAG
     described_methods = cast(list[dict[str, Any]], described["methods"])
     methods = {row["method"] for row in described_methods}
-    assert {"daemon.hello", "daemon.describe", "supervise.start", "apply.reviewed_patch"} <= methods
+    assert {"daemon.hello", "daemon.describe", "supervise.start", "apply.reviewed_patch", "cross_repo.describe"} <= methods
 
 
 def test_rpc_transports_are_owner_local_only(tmp_path: Path) -> None:
@@ -290,7 +291,7 @@ def test_rpc_transports_are_owner_local_only(tmp_path: Path) -> None:
 
 
 def test_daemon_pg_v2_migration_names_rpc_supervisor_and_apply_tables() -> None:
-    assert LATEST_DAEMON_DB_VERSION == 2
+    assert LATEST_DAEMON_DB_VERSION == 3
     sql = "\n".join(migration.sql for migration in MIGRATIONS)
 
     for table in (
@@ -299,7 +300,7 @@ def test_daemon_pg_v2_migration_names_rpc_supervisor_and_apply_tables() -> None:
         "striatumd.apply_receipts",
     ):
         assert table in sql
-    assert "cross_repo_runs" not in sql
+    assert "cross_repo_runs" in sql
     assert "mutation_queue" not in sql
 
 
@@ -314,4 +315,6 @@ def test_repo_local_migration_adds_daemon_supervisor_pointer_table(tmp_path: Pat
         ).fetchone()
         assert row is not None
         version = conn.execute("PRAGMA user_version").fetchone()
-        assert int(version[0]) >= 13
+        assert int(version[0]) >= 14
+        row = conn.execute("PRAGMA table_info(runs)").fetchall()
+        assert "cross_repo_run_id" in {item[1] for item in row}

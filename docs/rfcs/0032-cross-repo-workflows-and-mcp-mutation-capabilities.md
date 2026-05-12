@@ -1,6 +1,6 @@
 # RFC 0032: Cross-Repo Workflows and MCP Mutation Capabilities
 
-Status: proposed
+Status: accepted (V2 slice)
 Date: 2026-05-11
 Context:
 [`RFC 0028`](0028-long-running-daemon-and-multi-repository-control-plane.md),
@@ -15,6 +15,16 @@ Context:
 RFC 0032 is the last RFC in the daemon V2 follow-up sequence. It depends on
 RFC 0030 (daemon RPC server) being in place because both cross-repo
 operations and MCP mutation flow over that boundary.
+
+Implementation status: dogfood-035 lands the accepted V2 slice: workflow
+schema validation for `repositories` / per-job `repository`, daemon DB
+migration v3 for cross-repo run metadata, repo-local migration v14 for
+`runs.cross_repo_run_id`, method-registry scope modes, the `recovery`
+capability, daemon MCP `tools/list` filtering and `tools/call`
+re-authorization/audit scaffolding, and mocked lifecycle helpers for
+prepare/start/cancel/reconcile. The real two-repo daemon end-to-end test
+harness and live scheduler progression are explicitly deferred to
+`docs/TODO.md` Open item 19.
 
 ## Problem
 

@@ -63,7 +63,12 @@ APPLY_GATE_JOB_TYPES = frozenset({"build", "handoff"})
 # Default when `branch.mode` is omitted: "auto".
 BRANCH_MODE_VALUES = ("auto", "confirm")
 
-REVIEWER_ACCESS_SCOPE_VALUES = ("document_only", "artifact_augmented", "repo_level")
+REVIEWER_ACCESS_SCOPE_VALUES = (
+    "document_only",
+    "artifact_augmented",
+    "repo_level",
+    "cross_repo_artifact_augmented",
+)
 REVIEWER_CONTEXT_POLICY_VALUES = ("fresh", "cross_round")
 
 # RFC 0018 V1: closed set of first-class review postures. Workflows may also
@@ -492,6 +497,7 @@ def validate_workflow(
             "workflow schema_version must be striatum.workflow.v1",
             field_path="schema_version",
         )
+    cross_repo = _validate_repositories_block(workflow)
     _validate_provenance_mode(workflow)
     _validate_branch_section(workflow)
     # RFC 0020 V1: optional `recovery_policy` block. Validated here
@@ -540,6 +546,7 @@ def validate_workflow(
                 f"job {job_id!r} references unknown lane {lane_id!r}",
                 field_path=f"jobs[{job_index}].lane_id",
             )
+        _validate_job_repository(job_index, job_id, job, cross_repo=cross_repo)
         for dep in job.get("needs", []):
             if not isinstance(dep, str):
                 raise WorkflowError(f"job {job_id!r} has non-string dependency")
@@ -559,7 +566,7 @@ def validate_workflow(
                     f"job {job_id} declares unknown artifact kind {kind}"
                 )
             _validate_artifact_in_write_scope(job_id, job, path)
-        _validate_reviewer_policy(job_id, job)
+        _validate_reviewer_policy(job_id, job, cross_repo=cross_repo is not None)
         _validate_review_posture(job_id, job)
         _validate_required_review_postures(job_id, job)
         _validate_require_attested_lane(job_id, job)
@@ -587,8 +594,15 @@ def validate_workflow(
                 "workflow cycles must declare max_iterations >= 1",
                 field_path=f"cycles[{cycle_index}].max_iterations",
             )
+        if cross_repo is not None and _jobs_cross_repositories(job_map, from_id, to_id):
+            if cycle.get("cross_repo_cycle") is not True:
+                raise WorkflowError(
+                    "cross-repo cycles must declare cross_repo_cycle=true",
+                    field_path=f"cycles[{cycle_index}].cross_repo_cycle",
+                )
     _validate_cycle_targets_feed_sources(workflow, job_map=job_map)
     _validate_parallelism(jobs)
+    _validate_parallelism_config(workflow, cross_repo=cross_repo)
     _validate_revision_policy(workflow, jobs=jobs)
 
 
@@ -885,8 +899,8 @@ def _validate_parallelism(jobs: list[object]) -> None:
         if isinstance(group, str):
             groups.setdefault(group, []).append(job)
     for group, members in groups.items():
-        artifact_paths: set[str] = set()
-        write_paths: set[str] = set()
+        artifact_paths: set[tuple[str | None, str]] = set()
+        write_paths: set[tuple[str | None, str]] = set()
         repo_write_modes: set[bool] = set()
         for job in members:
             for artifact in job.get("expected_artifacts", []):
@@ -895,9 +909,10 @@ def _validate_parallelism(jobs: list[object]) -> None:
                 path = artifact.get("path")
                 if not isinstance(path, str):
                     continue
-                if path in artifact_paths:
+                key = (_job_repository_alias(job), _normalize_path_string(path))
+                if key in artifact_paths:
                     raise WorkflowError(f"parallel group {group!r} reuses artifact path {path!r}")
-                artifact_paths.add(path)
+                artifact_paths.add(key)
             scope = job.get("write_scope", {})
             if not isinstance(scope, dict):
                 continue
@@ -907,13 +922,46 @@ def _validate_parallelism(jobs: list[object]) -> None:
             for allowed in scope.get("allowed_paths", []):
                 if not isinstance(allowed, str):
                     continue
-                if allowed in write_paths:
+                key = (_job_repository_alias(job), _normalize_path_string(allowed))
+                if key in write_paths:
                     raise WorkflowError(f"parallel group {group!r} has overlapping write scope")
-                write_paths.add(allowed)
+                write_paths.add(key)
         if len(repo_write_modes) > 1:
             raise WorkflowError(
                 f"parallel group {group!r} mixes repo_write and review-only jobs; "
                 "split them into separate groups"
+            )
+
+
+def _validate_parallelism_config(
+    workflow: JsonObject, *, cross_repo: dict[str, str] | None
+) -> None:
+    parallelism = workflow.get("parallelism")
+    if not isinstance(parallelism, dict):
+        return
+    per_repo = parallelism.get("per_repo_max_active_jobs")
+    if per_repo is None:
+        return
+    if cross_repo is None:
+        raise WorkflowError(
+            "parallelism.per_repo_max_active_jobs is valid only for cross-repo workflows",
+            field_path="parallelism.per_repo_max_active_jobs",
+        )
+    if not isinstance(per_repo, dict):
+        raise WorkflowError(
+            "parallelism.per_repo_max_active_jobs must be an object",
+            field_path="parallelism.per_repo_max_active_jobs",
+        )
+    for alias, value in per_repo.items():
+        if alias not in cross_repo:
+            raise WorkflowError(
+                f"parallelism.per_repo_max_active_jobs references unknown repository alias {alias!r}",
+                field_path="parallelism.per_repo_max_active_jobs",
+            )
+        if not isinstance(value, int) or isinstance(value, bool) or value < 1:
+            raise WorkflowError(
+                "parallelism.per_repo_max_active_jobs values must be positive integers",
+                field_path=f"parallelism.per_repo_max_active_jobs.{alias}",
             )
 
 
@@ -1006,6 +1054,102 @@ def _validate_provenance_mode(workflow: JsonObject) -> None:
                     "sealed_patch protected_paths and operator_writable_paths must not overlap",
                     field_path="protected_paths",
                 )
+
+
+def _validate_repositories_block(workflow: JsonObject) -> dict[str, str] | None:
+    """Validate RFC 0032's opt-in cross-repo workflow block.
+
+    The validator stays shape-only. Daemon-backed ``run prepare`` owns the
+    live check that each ``repo_id`` is registered and active.
+    """
+    raw = workflow.get("repositories")
+    primary = workflow.get("primary_repository")
+    if raw is None:
+        if primary is not None:
+            raise WorkflowError(
+                "workflow primary_repository is valid only with repositories",
+                field_path="primary_repository",
+            )
+        for job_index, job_value in enumerate(workflow.get("jobs", [])):
+            if isinstance(job_value, dict) and "repository" in job_value:
+                raise WorkflowError(
+                    "single-repo workflows must not declare job repository",
+                    field_path=f"jobs[{job_index}].repository",
+                )
+        return None
+    if not isinstance(raw, dict):
+        raise WorkflowError("workflow repositories must be an object", field_path="repositories")
+    if len(raw) < 2:
+        raise WorkflowError(
+            "cross-repo workflows must declare at least two repositories",
+            field_path="repositories",
+        )
+    aliases: dict[str, str] = {}
+    repo_ids: dict[str, str] = {}
+    for alias, body in raw.items():
+        if not isinstance(alias, str) or alias == "":
+            raise WorkflowError("repository aliases must be non-empty strings", field_path="repositories")
+        if not isinstance(body, dict):
+            raise WorkflowError(
+                f"repository alias {alias!r} body must be an object",
+                field_path=f"repositories.{alias}",
+            )
+        repo_id = body.get("repo_id")
+        if not isinstance(repo_id, str) or repo_id == "":
+            raise WorkflowError(
+                f"repository alias {alias!r} must declare non-empty repo_id",
+                field_path=f"repositories.{alias}.repo_id",
+            )
+        if repo_id in repo_ids:
+            raise WorkflowError(
+                f"repositories {repo_ids[repo_id]!r} and {alias!r} share repo_id {repo_id!r}",
+                field_path=f"repositories.{alias}.repo_id",
+            )
+        aliases[alias] = repo_id
+        repo_ids[repo_id] = alias
+    if not isinstance(primary, str) or primary == "":
+        raise WorkflowError(
+            "cross-repo workflows must declare primary_repository",
+            field_path="primary_repository",
+        )
+    if primary not in aliases:
+        raise WorkflowError(
+            f"primary_repository {primary!r} is not a declared repository alias",
+            field_path="primary_repository",
+        )
+    if workflow.get("require_daemon") is False:
+        raise WorkflowError(
+            "cross-repo workflows require daemon mode; require_daemon cannot be false",
+            field_path="require_daemon",
+        )
+    return aliases
+
+
+def _validate_job_repository(
+    job_index: int,
+    job_id: str,
+    job: JsonValue,
+    *,
+    cross_repo: dict[str, str] | None,
+) -> None:
+    value = job.get("repository")
+    if cross_repo is None:
+        if value is not None:
+            raise WorkflowError(
+                "single-repo workflows must not declare job repository",
+                field_path=f"jobs[{job_index}].repository",
+            )
+        return
+    if not isinstance(value, str) or value == "":
+        raise WorkflowError(
+            f"cross-repo job {job_id!r} must declare repository",
+            field_path=f"jobs[{job_index}].repository",
+        )
+    if value not in cross_repo:
+        raise WorkflowError(
+            f"job {job_id!r} references unknown repository alias {value!r}",
+            field_path=f"jobs[{job_index}].repository",
+        )
 
 
 def _validate_apply_gate(job_index: int, job_id: str, job: JsonValue) -> None:
@@ -1303,7 +1447,7 @@ def _effective_fresh_session_required(job: JsonValue) -> bool:
     return False
 
 
-def _validate_reviewer_policy(job_id: str, job: JsonValue) -> None:
+def _validate_reviewer_policy(job_id: str, job: JsonValue, *, cross_repo: bool) -> None:
     """Validate optional RFC 0002 reviewer-policy fields on a job.
 
     Non-review jobs cannot declare these fields. Review jobs accept
@@ -1325,7 +1469,12 @@ def _validate_reviewer_policy(job_id: str, job: JsonValue) -> None:
         if not isinstance(access, str) or access not in REVIEWER_ACCESS_SCOPE_VALUES:
             raise WorkflowError(
                 f"review job {job_id!r} has unknown reviewer_access_scope {access!r}; "
-                "allowed: document_only|artifact_augmented|repo_level"
+                "allowed: document_only|artifact_augmented|repo_level|cross_repo_artifact_augmented"
+            )
+        if access == "cross_repo_artifact_augmented" and not cross_repo:
+            raise WorkflowError(
+                f"review job {job_id!r} may use reviewer_access_scope "
+                "cross_repo_artifact_augmented only in cross-repo workflows"
             )
     if has_context:
         context = job.get("reviewer_context_policy")
@@ -1567,7 +1716,7 @@ def _string(value: JsonValue, key: str) -> str:
 
 def _validate_artifact_path_uniqueness(jobs: list[object]) -> None:
     """Reject workflows where two jobs declare the same expected artifact path."""
-    seen: dict[str, str] = {}
+    seen: dict[tuple[str | None, str], str] = {}
     for job_value in jobs:
         if not isinstance(job_value, dict):
             continue
@@ -1581,13 +1730,26 @@ def _validate_artifact_path_uniqueness(jobs: list[object]) -> None:
             path = artifact.get("path")
             if not isinstance(path, str):
                 continue
-            normalized = _normalize_path_string(path)
+            normalized = (_job_repository_alias(job), _normalize_path_string(path))
             if normalized in seen and seen[normalized] != job_id:
                 raise WorkflowError(
                     f"jobs {seen[normalized]!r} and {job_id!r} both declare expected "
                     f"artifact path {path!r}"
                 )
             seen.setdefault(normalized, job_id)
+
+
+def _job_repository_alias(job: JsonValue) -> str | None:
+    value = job.get("repository")
+    return value if isinstance(value, str) and value != "" else None
+
+
+def _jobs_cross_repositories(
+    job_map: dict[str, JsonValue], left_id: str, right_id: str
+) -> bool:
+    left = _job_repository_alias(job_map[left_id])
+    right = _job_repository_alias(job_map[right_id])
+    return left is not None and right is not None and left != right
 
 
 def _validate_write_scope_paths(job_id: str, job: JsonValue) -> None:

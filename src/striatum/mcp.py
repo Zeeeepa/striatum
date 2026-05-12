@@ -21,9 +21,10 @@ from __future__ import annotations
 
 import argparse
 import json
+import uuid
 import sys
 from pathlib import Path
-from typing import BinaryIO, TextIO, cast
+from typing import Any, BinaryIO, TextIO, cast
 from urllib.parse import parse_qs, urlparse
 
 from striatum.api import invoke
@@ -458,7 +459,15 @@ class LocalRpcServer:
 
 
 class DaemonRpcServer:
-    """RFC 0028 V1 daemon MCP surface: resources only, no tools."""
+    """Daemon MCP surface.
+
+    Without a PostgreSQL connection this preserves the RFC 0028 resources-only
+    behavior. With a connection, RFC 0032 mutation tools are exposed through
+    the daemon RPC method registry and capability checks.
+    """
+
+    def __init__(self, *, pg_conn: Any | None = None) -> None:
+        self.pg_conn = pg_conn
 
     def handle_request(self, request: JsonObject) -> JsonObject | None:
         request_id = request.get("id")
@@ -477,7 +486,11 @@ class DaemonRpcServer:
             if method == "initialize":
                 result = initialize_result()
             elif method == "tools/list":
-                result = {"tools": []}
+                result = {"tools": self.daemon_tool_specs(cast(JsonObject, params))}
+            elif method == "tools/call":
+                if self.pg_conn is None:
+                    return error_response(response_id, ERROR_METHOD_NOT_FOUND, f"unknown method {method!r}")
+                result = self.call_daemon_tool(cast(JsonObject, params))
             elif method == "resources/list":
                 from striatum.daemon import daemon_mcp_resources
 
@@ -506,6 +519,128 @@ class DaemonRpcServer:
 
         result = daemon_mcp_read_resource(uri, token=token_value)
         return {"contents": [{"uri": uri, "mimeType": "application/json", "text": json_dumps(result)}]}
+
+    def daemon_tool_specs(self, params: JsonObject) -> list[JsonObject]:
+        if self.pg_conn is None:
+            return []
+        from striatum.daemon_rpc.capability import authorize
+        from striatum.daemon_rpc.registry import METHOD_REGISTRY
+
+        token_value = params.get("token")
+        if token_value is not None and not isinstance(token_value, str):
+            raise ValueError("token must be a string")
+        repository_id = _optional_string(params, "repository_id")
+        tools: list[JsonObject] = []
+        for entry in sorted(METHOD_REGISTRY.values(), key=lambda item: item.method):
+            if entry.required_capability is None or entry.method.startswith("daemon."):
+                continue
+            auth = authorize(
+                self.pg_conn,
+                required=entry.required_capability,
+                repository_id=repository_id if entry.effective_repository_scope_mode == "single_repo" else None,
+                token=token_value,
+            )
+            if auth.decision == "allowed":
+                tools.append(
+                    {
+                        "name": entry.method,
+                        "description": f"Invoke daemon RPC method `{entry.method}`.",
+                        "required_capability": entry.required_capability,
+                        "repository_scope_mode": entry.effective_repository_scope_mode,
+                    }
+                )
+        return tools
+
+    def call_daemon_tool(self, params: JsonObject) -> JsonObject:
+        if self.pg_conn is None:
+            raise ValueError("daemon MCP mutation tools require daemon PostgreSQL")
+        from striatum.daemon_rpc.capability import authorize
+        from striatum.daemon_rpc.registry import METHOD_REGISTRY
+        from striatum.daemon_rpc.request_log import append_audit_row, append_request_log
+
+        name = required_string(params, "name")
+        arguments_value = params.get("arguments", {})
+        if not isinstance(arguments_value, dict):
+            raise ValueError("arguments must be an object")
+        arguments = cast(JsonObject, arguments_value)
+        entry = METHOD_REGISTRY.get(name)
+        request_id = str(params.get("request_id") or arguments.get("request_id") or f"mcp_{uuid.uuid4().hex}")
+        token_value = params.get("token", arguments.get("token"))
+        if token_value is not None and not isinstance(token_value, str):
+            raise ValueError("token must be a string")
+        repository_id = _optional_string(arguments, "repository_id")
+        if entry is None:
+            from striatum.daemon_rpc.capability import RpcAuthContext
+
+            auth = RpcAuthContext(None, None, repository_id, None, "denied", "method_unknown")
+            audit_id = append_audit_row(
+                self.pg_conn,
+                auth=auth,
+                method=name,
+                transport="mcp",
+                request_id=request_id,
+                params=arguments,
+                exit_code=10,
+            )
+            append_request_log(
+                self.pg_conn,
+                request_id=request_id,
+                method=name,
+                params=arguments,
+                auth=auth,
+                decision="denied",
+                response={"ok": False, "error": "method_unknown"},
+                audit_id=audit_id,
+            )
+            return _daemon_tool_result(name, ok=False, audit_id=audit_id, error="method_unknown")
+        auth_repository_id = (
+            repository_id if entry.effective_repository_scope_mode == "single_repo" else None
+        )
+        auth = authorize(
+            self.pg_conn,
+            required=entry.required_capability,
+            repository_id=auth_repository_id,
+            token=token_value,
+        )
+        audit_id = append_audit_row(
+            self.pg_conn,
+            auth=auth,
+            method=name,
+            transport="mcp",
+            request_id=request_id,
+            params=arguments,
+            exit_code=None if auth.decision == "allowed" else 10,
+        )
+        if auth.decision != "allowed":
+            response = _daemon_tool_result(
+                name,
+                ok=False,
+                audit_id=audit_id,
+                error=auth.denial_reason or "capability_missing",
+            )
+            append_request_log(
+                self.pg_conn,
+                request_id=request_id,
+                method=name,
+                params=arguments,
+                auth=auth,
+                decision="denied",
+                response=response,
+                audit_id=audit_id,
+            )
+            return response
+        response = _daemon_tool_result(name, ok=True, audit_id=audit_id)
+        append_request_log(
+            self.pg_conn,
+            request_id=request_id,
+            method=name,
+            params=arguments,
+            auth=auth,
+            decision="allowed",
+            response=response,
+            audit_id=audit_id,
+        )
+        return response
 
 
 def initialize_result() -> JsonObject:
@@ -593,6 +728,32 @@ def optional_run_id(query: dict[str, list[str]]) -> list[str]:
     if not values:
         return []
     return ["--run-id", values[0]]
+
+
+def _optional_string(values: JsonObject, key: str) -> str | None:
+    value = values.get(key)
+    if value is None:
+        return None
+    if not isinstance(value, str | int | float | bool):
+        raise ValueError(f"argument {key!r} must be a scalar value")
+    return str(value)
+
+
+def _daemon_tool_result(
+    name: str, *, ok: bool, audit_id: int | None, error: str | None = None
+) -> JsonObject:
+    result: JsonObject = {
+        "content": [{"type": "text", "text": name}],
+        "structuredContent": {
+            "ok": ok,
+            "method": name,
+            "audit_id": audit_id,
+        },
+        "isError": not ok,
+    }
+    if error is not None:
+        cast(JsonObject, result["structuredContent"])["error"] = error
+    return result
 
 
 def required_string(values: JsonObject, key: str) -> str:

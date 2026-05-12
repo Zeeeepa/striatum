@@ -431,6 +431,47 @@ What V1 daemon mode does **not** do:
 - It does not ship Windows daemon support, sealed-apply
   authority, signing keys, mutation MCP tools, hosted
   semantics, cross-repository workflows, or remote serving.
+
+## Cross-repo workflow foundation
+
+RFC 0032 adds the V2 foundation for local cross-repo workflows on the
+daemon PostgreSQL substrate. A cross-repo workflow declares at least two
+registered repositories:
+
+```json
+{
+  "repositories": {
+    "primary": {"repo_id": "repo_primary"},
+    "consumer": {"repo_id": "repo_consumer"}
+  },
+  "primary_repository": "primary"
+}
+```
+
+Every job in that workflow declares its `repository` alias explicitly.
+Artifact paths and write scopes are interpreted relative to that job's
+target repo. The daemon DB owns the `cross_repo_run_id`; each
+participant repo keeps its own repo-local run state and records a
+`runs.cross_repo_run_id` back-reference.
+
+Operator inspection commands:
+
+```bash
+"$RUNNER" cross-repo list --json
+"$RUNNER" cross-repo describe <cross_repo_run_id> --json
+"$RUNNER" cross-repo why <cross_repo_run_id> --json
+```
+
+If a participant repository disappears mid-run, the daemon pauses the
+cross-repo run and the operator must re-register the same repository id
+or cancel the run. Cross-repo coordination is best-effort local
+orchestration, not atomic file mutation across repositories.
+
+Daemon MCP mutation tools follow least privilege. A read-only token sees
+only read tools. Mutation grants (`write`, `review`, `claim`, `apply`,
+`recovery`, or `admin`) must be granted deliberately, should usually be
+short-lived, and are re-checked on every `tools/call`. Prompt-injected
+tool arguments cannot escalate beyond the token's grants.
 - It is not a replacement for `recovery watch` against a
   single repo, only for multi-repo sweeping.
 

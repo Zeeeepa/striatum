@@ -8,8 +8,9 @@ from typing import Literal
 
 from striatum.db import json_dumps
 
-Capability = Literal["read", "write", "review", "claim", "apply", "admin"]
-CAPABILITIES: frozenset[str] = frozenset({"read", "write", "review", "claim", "apply", "admin"})
+Capability = Literal["read", "write", "review", "claim", "apply", "admin", "recovery"]
+RepositoryScopeMode = Literal["single_repo", "cross_repo", "daemon_global"]
+CAPABILITIES: frozenset[str] = frozenset({"read", "write", "review", "claim", "apply", "admin", "recovery"})
 
 
 @dataclass(frozen=True)
@@ -17,6 +18,7 @@ class MethodEntry:
     method: str
     required_capability: Capability | None
     repository_scope: bool
+    repository_scope_mode: RepositoryScopeMode | None = None
     params_schema_version: int = 1
     audit_class: str = "metadata"
     min_envelope: int = 1
@@ -27,11 +29,18 @@ class MethodEntry:
             "method": self.method,
             "required_capability": self.required_capability,
             "repository_scope": self.repository_scope,
+            "repository_scope_mode": self.effective_repository_scope_mode,
             "params_schema_version": self.params_schema_version,
             "audit_class": self.audit_class,
             "min_envelope": self.min_envelope,
             "deprecated": self.deprecated,
         }
+
+    @property
+    def effective_repository_scope_mode(self) -> RepositoryScopeMode:
+        if self.repository_scope_mode is not None:
+            return self.repository_scope_mode
+        return "single_repo" if self.repository_scope else "daemon_global"
 
 
 _ENTRIES: tuple[MethodEntry, ...] = (
@@ -53,6 +62,11 @@ _ENTRIES: tuple[MethodEntry, ...] = (
     MethodEntry("publish_artifact", "write", True),
     MethodEntry("complete", "write", True),
     MethodEntry("release", "write", True),
+    MethodEntry("recovery.stale_leases", "recovery", True),
+    MethodEntry("recovery.requeue_stale", "recovery", True),
+    MethodEntry("recovery.cancel_job", "recovery", True),
+    MethodEntry("recovery.process_reconcile", "recovery", True),
+    MethodEntry("recovery.resume", "recovery", True),
     MethodEntry("claim_next", "claim", True),
     MethodEntry("verdict", "review", True),
     MethodEntry("submit_review", "review", True),
@@ -69,6 +83,11 @@ _ENTRIES: tuple[MethodEntry, ...] = (
     MethodEntry("repo.remove", "admin", False),
     MethodEntry("daemon.token.create", "admin", False),
     MethodEntry("daemon.token.revoke", "admin", False),
+    MethodEntry("daemon.token.rotate", "admin", False),
+    MethodEntry("cross_repo.list", "read", False, repository_scope_mode="cross_repo"),
+    MethodEntry("cross_repo.describe", "read", False, repository_scope_mode="cross_repo"),
+    MethodEntry("cross_repo.why", "read", False, repository_scope_mode="cross_repo"),
+    MethodEntry("cross_repo.cancel", "recovery", False, repository_scope_mode="cross_repo"),
     MethodEntry("daemon.key.rotate", "admin", False),
     MethodEntry("daemon.shutdown", "admin", False),
     MethodEntry("daemon.migrate", "admin", False),

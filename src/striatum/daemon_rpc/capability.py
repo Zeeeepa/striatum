@@ -66,6 +66,29 @@ def authorize(
         )
         cap = cur.fetchone()
     if cap is None:
+        if repository_id is not None:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT repository_id FROM striatumd.client_capabilities
+                    WHERE client_id = %s AND capability = %s
+                      AND repository_id IS NOT NULL
+                      AND repository_id <> %s
+                      AND revoked_at IS NULL
+                    LIMIT 1
+                    """,
+                    (client_id, required, repository_id),
+                )
+                scoped_elsewhere = cur.fetchone()
+            if scoped_elsewhere is not None:
+                return RpcAuthContext(
+                    client_id,
+                    token_id,
+                    repository_id,
+                    None,
+                    "denied",
+                    "capability_scope_mismatch",
+                )
         return RpcAuthContext(client_id, token_id, repository_id, None, "denied", "capability_missing")
     cap_record = _row_dict(cap)
     if _expired(cap_record.get("expires_at")):

@@ -39,8 +39,13 @@ CREATE TABLE IF NOT EXISTS runs (
   completed_at TEXT,
   stop_reason TEXT,
   paused_at TEXT,
-  paused_reason TEXT
+  paused_reason TEXT,
+  cross_repo_run_id TEXT
 );
+
+CREATE INDEX IF NOT EXISTS idx_runs_cross_repo_run_id
+  ON runs(cross_repo_run_id)
+  WHERE cross_repo_run_id IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS sessions (
   session_id TEXT PRIMARY KEY,

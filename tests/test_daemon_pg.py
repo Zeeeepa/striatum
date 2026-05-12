@@ -125,6 +125,20 @@ def test_baseline_migration_sql_names_expected_v2_tables() -> None:
     assert "mutation_queue" not in sql
 
 
+def test_cross_repo_migration_sql_names_expected_tables() -> None:
+    sql = MIGRATIONS[2].sql
+
+    for table in (
+        "cross_repo_runs",
+        "cross_repo_run_repositories",
+        "cross_repo_cycle_counters",
+        "audit_repositories",
+    ):
+        assert f"striatumd.{table}" in sql
+    assert "repository_scope_mode" in sql
+    assert "'recovery'" in sql
+
+
 def test_sqlite_registry_refuses_after_pg_cutover_marker(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     env = _env(tmp_path)
     monkeypatch.setenv(daemon.ENV_REGISTRY, env[daemon.ENV_REGISTRY])

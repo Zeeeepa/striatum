@@ -107,6 +107,10 @@ striatumd                     # console-script alias for `daemon start`
 striatum repo add <path> [--init] [--no-migrate]
 striatum repo list
 striatum repo remove <path>
+striatum cross-repo list
+striatum cross-repo describe <cross_repo_run_id>
+striatum cross-repo why <cross_repo_run_id>
+striatum cross-repo cancel <cross_repo_run_id>
 ```
 
 `striatum daemon start` / `striatumd` runs a foreground sweep
@@ -181,10 +185,21 @@ with capability-denied semantics; the CLI does not fall back to
 direct repo-local mode. `--no-daemon` forces direct mode.
 
 Daemon RPC method capabilities use the closed vocabulary `read`,
-`write`, `review`, `claim`, `apply`, and `admin`. `supervise.*` and
-`apply.*` are daemon RPC routes; sealed apply fails closed unless a
-daemon signing key and `apply` capability are present. Daemon MCP remains
-resources-only until RFC 0032 adds mutation tools.
+`write`, `review`, `claim`, `apply`, `admin`, and `recovery`.
+`supervise.*` and `apply.*` are daemon RPC routes; sealed apply fails
+closed unless a daemon signing key and `apply` capability are present.
+
+RFC 0032 adds cross-repo workflow schema and daemon MCP mutation
+capability gating on the PostgreSQL daemon substrate. Cross-repo
+workflow files declare `repositories`, `primary_repository`, and
+per-job `repository` aliases. The daemon DB records canonical
+`cross_repo_run_id` rows and each participant repo keeps a local
+`runs.cross_repo_run_id` pointer. `cross-repo list|describe|why`
+read those daemon records; the full live two-repo daemon harness and
+real cross-repo end-to-end progression are deferred to TODO Open item
+19. Daemon MCP `tools/list` is filtered by each token's effective
+capabilities and scope, and `tools/call` re-checks authorization and
+audits denials.
 
 ## Skills (RFC 0015)
 

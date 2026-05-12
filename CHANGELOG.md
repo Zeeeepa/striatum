@@ -1,5 +1,23 @@
 # Changelog
 
+## Unreleased
+
+## 1.24.0 — 2026-05-12
+
+### Added
+
+- RFC 0032 V2 slice: cross-repo workflow schema validation, repo-local
+  `runs.cross_repo_run_id`, daemon DB migration v3 for cross-repo run
+  metadata, daemon RPC method scope modes, `recovery` capability, daemon
+  MCP `tools/list` filtering and `tools/call` re-authorization/audit
+  scaffolding, and mocked cross-repo lifecycle helpers.
+
+### Documentation
+
+- Documented the dogfood-035 deferral: real two-repo daemon end-to-end
+  integration tests and live scheduler progression wait for TODO Open
+  item 19, the multi-repo test harness RFC.
+
 ## 1.23.0 — 2026-05-11
 
 ### Added

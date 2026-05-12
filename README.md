@@ -159,10 +159,11 @@ authoritative workflow state store.
 RFC 0030 and RFC 0031 add the daemon V2 RPC/supervision/apply
 foundation on top of that substrate: envelope-v1 JSON, version
 handshake, method registry, request/audit helpers, daemon supervisor
-metadata, repo-local supervisor pointers, and apply receipts. MCP
-mutation tools, cross-repository workflow mutation, hosted service
-semantics, and malicious-local-operator-resistant sealed apply remain
-deferred.
+metadata, repo-local supervisor pointers, and apply receipts. RFC 0032
+adds the V2 cross-repo schema/migration and daemon MCP mutation
+capability-gating foundation; the full two-repo daemon end-to-end test
+harness remains deferred. Hosted service semantics and
+malicious-local-operator-resistant sealed apply remain out of scope.
 
 ## What It Is For
 
