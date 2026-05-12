@@ -9,6 +9,7 @@ the index page + chat tool consume.
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -36,6 +37,14 @@ _SKIP_DIRS = frozenset({
 })
 
 
+def _modified_at(path: Path) -> str | None:
+    try:
+        modified = datetime.fromtimestamp(path.stat().st_mtime, tz=UTC)
+        return modified.isoformat().replace("+00:00", "Z")
+    except OSError:
+        return None
+
+
 def discover(repo: Path) -> list[dict[str, Any]]:
     """Discover every ``workflow.json`` under ``repo`` and report
     validation status per file. Never raises."""
@@ -55,7 +64,10 @@ def discover(repo: Path) -> list[dict[str, Any]]:
         if any(part in _SKIP_DIRS for part in rel_parts):
             continue
         rel = "/".join(rel_parts)
-        entry: dict[str, Any] = {"path": rel}
+        entry: dict[str, Any] = {
+            "path": rel,
+            "modified_at": _modified_at(path),
+        }
         try:
             raw = path.read_text(encoding="utf-8")
         except OSError as exc:
@@ -134,7 +146,10 @@ def load_workflow_at(repo: Path, rel_path: str) -> dict[str, Any] | None:
     if not target.is_file():
         return None
     rel = "/".join(rel_parts)
-    entry: dict[str, Any] = {"path": rel}
+    entry: dict[str, Any] = {
+        "path": rel,
+        "modified_at": _modified_at(target),
+    }
     try:
         raw = target.read_text(encoding="utf-8")
     except OSError as exc:

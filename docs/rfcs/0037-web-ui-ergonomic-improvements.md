@@ -1,6 +1,6 @@
 # RFC 0037: Web UI Ergonomic Improvements
 
-Status: proposed
+Status: accepted (V1)
 Date: 2026-05-13
 Context:
 [`RFC 0013`](0013-local-web-ui.md),

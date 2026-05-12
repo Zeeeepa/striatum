@@ -25,6 +25,7 @@ def render_run_graph(
     node_states: Mapping[str, str] | None = None,
     *,
     run_id: str | None = None,
+    jobs: Sequence[Mapping[str, Any]] | None = None,
 ) -> str:
     """Return an SVG string for the workflow graph.
 
@@ -41,6 +42,9 @@ def render_run_graph(
         When supplied, each node renders as an ``<a
         href="/run/<run_id>/job/<id>">`` link. When ``None``,
         nodes render without links (still styled).
+    jobs:
+        Optional job rows for tooltip metadata. When supplied,
+        ``workflow_job_id`` rows provide role and timestamp data.
     """
     from striatum.workflow import workflow_graph_data
 
@@ -50,6 +54,13 @@ def render_run_graph(
     edges_in = list(graph.get("edges", []))
     if not nodes_in:
         return '<svg viewBox="0 0 100 60" xmlns="http://www.w3.org/2000/svg"><text x="10" y="35" font-size="11" fill="currentColor">(no jobs)</text></svg>'
+
+    job_meta: dict[str, Mapping[str, Any]] = {}
+    if jobs is not None:
+        for job in jobs:
+            wf_id = job.get("workflow_job_id")
+            if isinstance(wf_id, str):
+                job_meta[wf_id] = job
 
     # Layered topological depth: longest path from any source.
     incoming: dict[str, list[str]] = {}
@@ -145,11 +156,23 @@ def render_run_graph(
         state = "pending"
         if node_states is not None:
             state = str(node_states.get(node_id, "pending"))
-        role = str(node.get("role_id") or "")
+        meta = job_meta.get(node_id, {})
+        role = str(meta.get("role_id") or node.get("role_id") or "")
+        started_at = str(meta.get("started_at") or "")
+        completed_at = str(meta.get("completed_at") or "")
+        created_at = str(meta.get("created_at") or "")
         title_text = html_escape(f"{node_id}: {state} ({role})")
         node_cls = f"graph-node graph-node-{html_escape(state)}"
+        data_attrs = (
+            f' data-job-id="{html_escape(node_id)}"'
+            f' data-role-id="{html_escape(role)}"'
+            f' data-state="{html_escape(state)}"'
+            f' data-created-at="{html_escape(created_at)}"'
+            f' data-started-at="{html_escape(started_at)}"'
+            f' data-completed-at="{html_escape(completed_at)}"'
+        )
         node_inner = (
-            f'<g class="{node_cls}" transform="translate({x} {y})">'
+            f'<g class="{node_cls}" transform="translate({x} {y})"{data_attrs}>'
             f'<rect width="{NODE_W}" height="{NODE_H}" rx="6" />'
             f'<text x="12" y="18" class="graph-node-title">{html_escape(node_id)}</text>'
             f'<text x="12" y="34" class="graph-node-meta">{html_escape(role)} · {html_escape(state)}</text>'

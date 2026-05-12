@@ -36,6 +36,17 @@
     {% endif %}
   </header>
 
+  {% if next_actions and run.state not in ('completed', 'failed', 'canceled') %}
+  <section class="next-actions-banner" role="region" aria-label="Next actions" tabindex="0">
+    <h2>Next actions</h2>
+    <ul class="next-actions">
+      {% for action in next_actions %}
+      <li>{{ action }}</li>
+      {% endfor %}
+    </ul>
+  </section>
+  {% endif %}
+
   <div class="run-grid">
     <aside class="run-jobs-rail">
       <h2>Jobs</h2>
@@ -55,9 +66,9 @@
       <h2>Status</h2>
       <dl class="kv-grid">
         <dt>State</dt><dd>{{ run.state }}</dd>
-        <dt>Created</dt><dd>{{ run.created_at }}</dd>
-        <dt>Started</dt><dd>{{ run.started_at or "—" }}</dd>
-        <dt>Completed</dt><dd>{{ run.completed_at or "—" }}</dd>
+        <dt>Created</dt><dd>{% if run.created_at %}<time datetime="{{ run.created_at }}">{{ run.created_at }}</time>{% else %}—{% endif %}</dd>
+        <dt>Started</dt><dd>{% if run.started_at %}<time datetime="{{ run.started_at }}">{{ run.started_at }}</time>{% else %}—{% endif %}</dd>
+        <dt>Completed</dt><dd>{% if run.completed_at %}<time datetime="{{ run.completed_at }}">{{ run.completed_at }}</time>{% else %}—{% endif %}</dd>
       </dl>
 
       {% if verdicts_by_posture %}
@@ -74,14 +85,6 @@
       </ul>
       {% endif %}
 
-      {% if next_actions %}
-      <h2>Next actions</h2>
-      <ul class="next-actions">
-        {% for action in next_actions %}
-        <li>{{ action }}</li>
-        {% endfor %}
-      </ul>
-      {% endif %}
     </article>
 
     <aside class="run-graph-rail">
@@ -92,4 +95,7 @@
     </aside>
   </div>
 </section>
+{% endblock %}
+{% block scripts %}
+<script defer src="/static/run_detail.js"></script>
 {% endblock %}

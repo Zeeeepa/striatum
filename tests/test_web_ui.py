@@ -20,6 +20,16 @@ from typing import Any, cast
 
 
 ROOT = Path(__file__).resolve().parents[1]
+WEB_STATIC_ASSETS = (
+    "index.html",
+    "app.js",
+    "app.css",
+    "base.js",
+    "run_list.js",
+    "workflows_index.js",
+    "doctor.js",
+    "run_detail.js",
+)
 
 
 def _git_init_repo(repo: Path) -> None:
@@ -132,13 +142,18 @@ def test_static_assets_served_when_web_enabled(tmp_path: Path) -> None:
         assert status_css == 200
         assert "text/css" in headers_css.get("Content-Type", "")
         assert b"--bg-base" in body_css
-        # Legacy hash-redirect JS island
-        status_js, headers_js, body_js = _http_get_raw(
-            port, "/static/legacy_hash_redirect.js",
-        )
-        assert status_js == 200
-        assert "javascript" in headers_js.get("Content-Type", "")
-        assert b"location.replace" in body_js
+        for asset_name in (
+            "legacy_hash_redirect.js",
+            "base.js",
+            "run_list.js",
+            "workflows_index.js",
+            "doctor.js",
+            "run_detail.js",
+        ):
+            status_js, headers_js, body_js = _http_get_raw(port, f"/static/{asset_name}")
+            assert status_js == 200
+            assert "javascript" in headers_js.get("Content-Type", "")
+            assert body_js
     finally:
         _stop_service(proc)
 
@@ -301,7 +316,7 @@ def test_static_assets_no_external_urls() -> None:
 
     pkg = files("striatum.web.static")
     forbidden = re.compile(r"https?://(?!127\.0\.0\.1|localhost|::1)\S*", re.IGNORECASE)
-    for name in ("index.html", "app.js", "app.css"):
+    for name in WEB_STATIC_ASSETS:
         asset = pkg.joinpath(name)
         text = asset.read_text(encoding="utf-8")
         # Strip CSP/comment lines that legitimately mention http(s):// for
@@ -324,7 +339,7 @@ def test_assets_resolvable_via_importlib_resources() -> None:
     from importlib.resources import files
 
     pkg = files("striatum.web.static")
-    for name in ("index.html", "app.js", "app.css"):
+    for name in WEB_STATIC_ASSETS:
         asset = pkg.joinpath(name)
         assert asset.is_file(), f"missing bundled asset: {name}"
         assert len(asset.read_bytes()) > 0

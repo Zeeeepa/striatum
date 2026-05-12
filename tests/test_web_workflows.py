@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 from striatum.web.workflows import discover, load_workflow_at
@@ -71,6 +72,16 @@ def test_discover_finds_workflow_json(tmp_path: Path) -> None:
     assert found[0]["status"] == "valid"
     assert found[0]["workflow_id"] == "wf-test-valid"
     assert found[0]["job_count"] == 1
+    assert found[0]["modified_at"].endswith("Z")
+
+
+def test_discover_reports_modified_at_utc(tmp_path: Path) -> None:
+    (tmp_path / "examples").mkdir()
+    workflow_path = tmp_path / "examples" / "workflow.json"
+    workflow_path.write_text(json.dumps(_VALID_WORKFLOW), encoding="utf-8")
+    os.utime(workflow_path, (1_700_000_000, 1_700_000_000))
+    found = discover(tmp_path)
+    assert found[0]["modified_at"] == "2023-11-14T22:13:20Z"
 
 
 def test_discover_skips_hidden_dirs(tmp_path: Path) -> None:
@@ -126,6 +137,17 @@ def test_load_workflow_at_valid(tmp_path: Path) -> None:
     assert entry is not None
     assert entry["status"] == "valid"
     assert "data" in entry
+    assert str(entry["modified_at"]).endswith("Z")
+
+
+def test_load_workflow_at_reports_modified_at_utc(tmp_path: Path) -> None:
+    (tmp_path / "wf").mkdir()
+    workflow_path = tmp_path / "wf" / "workflow.json"
+    workflow_path.write_text(json.dumps(_VALID_WORKFLOW), encoding="utf-8")
+    os.utime(workflow_path, (1_700_000_000, 1_700_000_000))
+    entry = load_workflow_at(tmp_path, "wf/workflow.json")
+    assert entry is not None
+    assert entry["modified_at"] == "2023-11-14T22:13:20Z"
 
 
 def test_load_workflow_at_traversal_refused(tmp_path: Path) -> None:
@@ -159,6 +181,10 @@ def test_workflows_index_renders(tmp_path: Path) -> None:
         assert b"<h1>Workflows</h1>" in body
         assert b"examples/workflow.json" in body
         assert b"valid" in body
+        assert b"Last modified" in body
+        assert b"<time datetime=" in body
+        assert b"workflows-index-data" in body
+        assert b"/static/workflows_index.js" in body
     finally:
         _stop_service(proc)
 
@@ -170,7 +196,7 @@ def test_workflows_index_empty_state(tmp_path: Path) -> None:
     try:
         status, _, body = _http_get_raw(port, "/workflows")
         assert status == 200
-        assert b"No <code>workflow.json</code> files" in body
+        assert b"No workflow.json files found" in body
     finally:
         _stop_service(proc)
 

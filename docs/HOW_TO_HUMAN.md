@@ -338,6 +338,31 @@ across every active run in every registered repo from one
 foreground process — see "Daemon / multi-repo coordination"
 below.
 
+### Doctor triage and recovery
+
+`striatum doctor --verbose --json` returns both the legacy
+`problems` strings and structured `problem_records`. The web UI
+groups those records by problem kind and links each group back to
+this section, so start by reading the group name, then inspect the
+record `context` for the run id, job id, lease id, blocker id, or
+session id involved.
+
+Common recovery paths are:
+
+- `stale_queue_message_claim`, `unreaped_expired_lease`, and
+  other stale-lease symptoms: run `striatum recovery stale-leases`
+  first, then use `striatum recovery requeue-stale` only for
+  review-only work the runner says is safe to requeue.
+- `active_session_on_terminal_run`: close the session with
+  `striatum session close` as described in
+  [Close active sessions](#close-active-sessions).
+- `open_blocker_on_terminal_run`: inspect the blocker with `why`
+  and decide whether it should be resolved, canceled, or left as
+  audit evidence.
+- `process_*` supervisor issues: run
+  `striatum recovery process-reconcile --run-id <run_id> --json`
+  before requeueing anything.
+
 For unattended runs against a **single** repo, `recovery watch`
 is a foreground daemon that wraps `recovery auto` in a sleep
 loop. One pidfile per run
@@ -359,6 +384,22 @@ or any of the same overrides as `recovery auto`
 A pidfile collision with an alive watcher exits 4 with a
 documented message; stale pidfiles (dead PIDs) are overwritten
 cleanly.
+
+### Close active sessions
+
+When a run is terminal but a session is still active, close the
+session explicitly:
+
+```bash
+"$RUNNER" --repo "$TARGET_REPO" session close \
+  --session-id <session_id> \
+  --reason terminal-run-cleanup \
+  --json
+```
+
+Closing a session records the lifecycle transition; it does not
+delete artifacts, verdicts, or events. If `doctor` reports several
+active sessions on terminal runs, close each listed `session_id`.
 
 ## Daemon / multi-repo coordination (RFC 0028 V1)
 
@@ -548,6 +589,52 @@ daemon apply authority and a loadable daemon signing key, and it records
 apply receipts in daemon-owned state. The receipt is an AI guardrail: it
 does not prove model-token authorship or resistance to a malicious local
 operator with filesystem or database access.
+
+## Web UI
+
+Start the local web UI with:
+
+```bash
+"$RUNNER" --repo "$TARGET_REPO" serve --web
+```
+
+The startup envelope prints the bound URL. The UI is
+server-rendered HTML with vanilla-JS enhancements and the same
+localhost-first mutation gate as the service API. Important routes:
+`/` for runs, `/run/<run_id>` for a run, `/run/<run_id>/job/<id>`
+for a job, `/run/<run_id>/artifact/<id>` for an artifact,
+`/workflows` for workflow files, `/chat` for configured chat
+sessions, and `/doctor` for health checks.
+
+The run list supports free-text search over run id, branch, and
+workflow id; state filters; date ranges; and a duration column. The
+workflow list supports path/workflow-id search, valid/invalid
+filters, and a last-modified column. Filter preferences are stored
+in browser `localStorage`, not in the repository or SQLite.
+
+The doctor page groups structured problem records by kind. Use the
+`Hide problems on terminal runs` toggle to suppress completed,
+failed, or canceled run noise when you are focused on active work.
+The toggle is also stored in browser `localStorage`.
+
+The header timestamp toggle switches visible `<time>` elements
+between raw UTC and the browser's local timezone. Keyboard
+shortcuts are available when focus is not inside an editable
+control:
+
+| Shortcut | Destination |
+|---|---|
+| `g r` | Runs |
+| `g w` | Workflows |
+| `g c` | Chat |
+| `g d` | Doctor |
+| `?` | Shortcut help |
+| `Esc` | Close shortcut help |
+
+On a run detail page, non-terminal runs show deterministic next
+actions immediately below the run header. Graph nodes are clickable
+and expose job id, role, state, and duration on hover or keyboard
+focus.
 
 ## Dashboards and graphs
 

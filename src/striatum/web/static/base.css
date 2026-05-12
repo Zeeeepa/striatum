@@ -113,6 +113,36 @@ code, .branch-name, .sha {
   font-weight: 500;
 }
 .site-header nav a:hover { color: var(--accent); text-decoration: none; }
+.site-header nav { margin-right: auto; }
+
+.skip-link {
+  position: absolute;
+  left: var(--space-3);
+  top: -100px;
+  z-index: 100;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius);
+  background: var(--accent);
+  color: white;
+}
+.skip-link:focus { top: var(--space-3); }
+
+.header-tool,
+.secondary-button {
+  background: var(--bg-elevated);
+  color: var(--fg-primary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: var(--space-2) var(--space-3);
+  cursor: pointer;
+  font: inherit;
+}
+.header-tool:hover,
+.secondary-button:hover {
+  background: var(--bg-overlay);
+  text-decoration: none;
+}
+.compact-button { padding: var(--space-1) var(--space-2); }
 
 .page-main {
   max-width: 1200px;
@@ -162,6 +192,7 @@ h2 { font-size: 16px; margin-top: var(--space-6); margin-bottom: var(--space-2);
 .status-skipped { background: var(--status-skipped); color: white; }
 .status-prepared { background: var(--status-pending); color: white; }
 .status-ready { background: var(--status-running); color: #0d1117; }
+.status-failed_to_claim { background: var(--status-failed_to_claim); color: white; }
 
 .posture-chip {
   display: inline-block;
@@ -201,6 +232,91 @@ table.runs-table th { color: var(--fg-muted); font-weight: 500; font-size: 0.85e
 table.runs-table tbody tr:hover { background: var(--bg-overlay); }
 
 .empty-state { color: var(--fg-muted); padding: var(--space-4); text-align: center; }
+.rich-empty {
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-base);
+}
+.rich-empty svg {
+  width: 48px;
+  height: 48px;
+  fill: none;
+  stroke: var(--fg-muted);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  margin-bottom: var(--space-2);
+}
+.rich-empty h2 {
+  color: var(--fg-primary);
+  margin-bottom: var(--space-1);
+}
+.filtered-empty {
+  margin-top: var(--space-3);
+  padding: var(--space-3);
+  color: var(--fg-muted);
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
+  text-align: center;
+}
+
+.filter-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  align-items: end;
+  margin: var(--space-4) 0;
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-base);
+}
+.filter-toolbar label,
+.filter-toolbar fieldset {
+  margin: 0;
+}
+.filter-search,
+.filter-select {
+  display: grid;
+  gap: var(--space-1);
+  color: var(--fg-secondary);
+  font-size: 0.9em;
+}
+.filter-search input,
+.filter-select select {
+  min-width: 240px;
+  padding: var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-elevated);
+  color: var(--fg-primary);
+  font: inherit;
+}
+.segmented-control {
+  display: flex;
+  gap: var(--space-1);
+  padding: 0;
+  border: 0;
+  align-items: center;
+}
+.segmented-control legend {
+  color: var(--fg-secondary);
+  font-size: 0.9em;
+  padding: 0 var(--space-1) 0 0;
+}
+.segmented-control button {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-elevated);
+  color: var(--fg-secondary);
+  padding: var(--space-1) var(--space-2);
+  cursor: pointer;
+}
+.segmented-control button[aria-pressed="true"] {
+  background: var(--accent);
+  color: white;
+  border-color: var(--accent);
+}
 
 .run-header { margin-bottom: var(--space-4); }
 .run-meta { display: flex; gap: var(--space-3); align-items: center; margin-top: var(--space-1); }
@@ -241,6 +357,15 @@ table.runs-table tbody tr:hover { background: var(--bg-overlay); }
 
 .next-actions { padding-left: var(--space-4); margin: var(--space-2) 0; }
 .next-actions li { margin-bottom: var(--space-1); }
+.next-actions-banner {
+  margin: var(--space-4) 0;
+  padding: var(--space-4);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius);
+  background: var(--bg-base);
+  box-shadow: var(--shadow-sm);
+}
+.next-actions-banner h2 { margin-top: 0; }
 
 .posture-list { list-style: none; padding: 0; }
 .posture-list li { display: flex; gap: var(--space-2); align-items: center; margin-bottom: var(--space-1); }
@@ -295,6 +420,20 @@ table.runs-table tbody tr:hover { background: var(--bg-overlay); }
   fill: none;
   stroke: var(--border);
   stroke-width: 1.5;
+}
+.graph-tooltip {
+  position: fixed;
+  z-index: 50;
+  pointer-events: none;
+  white-space: pre-line;
+  max-width: 260px;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-elevated);
+  color: var(--fg-primary);
+  box-shadow: var(--shadow-md);
+  font-size: 0.9em;
 }
 
 .breadcrumb {
@@ -517,6 +656,60 @@ table.runs-table tbody tr:hover { background: var(--bg-overlay); }
   border-radius: var(--radius);
   overflow-x: auto;
   font-size: 0.85em;
+}
+.doctor-toolbar { margin: var(--space-3) 0; }
+.toggle-label {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--fg-secondary);
+}
+.doctor-group {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  margin-bottom: var(--space-2);
+  background: var(--bg-base);
+}
+.doctor-group summary {
+  display: flex;
+  gap: var(--space-3);
+  align-items: center;
+  padding: var(--space-2) var(--space-3);
+  cursor: pointer;
+}
+.doctor-group .problem-list { margin: 0; padding: 0 var(--space-3) var(--space-3); }
+
+.shortcut-dialog {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-elevated);
+  color: var(--fg-primary);
+  box-shadow: var(--shadow-md);
+  max-width: 360px;
+}
+.shortcut-dialog::backdrop { background: rgba(13,17,23,0.45); }
+.dialog-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+}
+.shortcut-list {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: var(--space-2) var(--space-4);
+}
+.shortcut-list dt,
+.shortcut-list dd { margin: 0; }
+kbd {
+  display: inline-block;
+  min-width: 1.6em;
+  padding: 0 var(--space-1);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg-base);
+  font-family: var(--font-mono);
+  text-align: center;
 }
 
 /* RFC 0024 V1: workflow browser tables. */

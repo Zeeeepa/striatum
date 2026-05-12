@@ -6,12 +6,28 @@
   <p class="run-meta"><span class="muted">{{ workflows | length }} workflow.json file{{ "" if workflows | length == 1 else "s" }}</span></p>
 
   {% if workflows %}
+  <form class="filter-toolbar" id="workflows-index-filter" aria-label="Workflow filters">
+    <label class="filter-search">
+      <span>Search</span>
+      <input type="search" id="workflow-search" placeholder="Search workflows by path or workflow id..." autocomplete="off">
+    </label>
+    <button type="button" class="secondary-button compact-button" id="workflow-search-clear">Clear search</button>
+    <fieldset class="segmented-control" aria-label="Workflow status">
+      <legend>Status</legend>
+      {% for status in ["all", "valid", "invalid"] %}
+      <button type="button" data-status-filter="{{ status }}" aria-pressed="{{ 'true' if status == 'all' else 'false' }}">{{ status }}</button>
+      {% endfor %}
+    </fieldset>
+    <button type="button" class="secondary-button compact-button" id="workflow-filter-clear">Clear filters</button>
+  </form>
+  <script type="application/json" id="workflows-index-data">{{ workflows | tojson }}</script>
   <table class="workflows-table">
     <thead>
       <tr>
         <th>Path</th>
         <th>Workflow ID</th>
         <th>Status</th>
+        <th>Last modified</th>
         <th>Jobs</th>
         <th>Lanes</th>
         <th>Roles</th>
@@ -19,7 +35,7 @@
     </thead>
     <tbody>
       {% for wf in workflows %}
-      <tr>
+      <tr data-path="{{ wf.path }}" data-workflow-id="{{ wf.workflow_id or '' }}" data-status="{{ 'valid' if wf.status == 'valid' else 'invalid' }}">
         <td><a href="/workflows/{{ wf.path }}"><code>{{ wf.path }}</code></a></td>
         <td>{% if wf.workflow_id %}<code>{{ wf.workflow_id }}</code>{% else %}<span class="muted">—</span>{% endif %}</td>
         <td>
@@ -31,6 +47,7 @@
           <span class="status-pill status-failed" title="{{ wf.message }}">parse error</span>
           {% endif %}
         </td>
+        <td>{% if wf.modified_at %}<time datetime="{{ wf.modified_at }}">{{ wf.modified_at }}</time>{% else %}<span class="muted">—</span>{% endif %}</td>
         <td>{{ wf.job_count }}</td>
         <td>{{ wf.lane_count }}</td>
         <td>{{ wf.role_count }}</td>
@@ -38,8 +55,16 @@
       {% endfor %}
     </tbody>
   </table>
+  <div class="filtered-empty" id="workflow-filtered-empty" hidden>No workflows match the current filters.</div>
   {% else %}
-  <p class="empty-state">No <code>workflow.json</code> files in this repo. See <code>examples/</code> for templates.</p>
+  <div class="empty-state rich-empty">
+    <svg aria-hidden="true" viewBox="0 0 48 48"><path d="M12 10h15l9 9v19H12zM27 10v9h9M17 26h14M17 31h14" /></svg>
+    <h2>No workflow.json files found.</h2>
+    <p>Run <code>striatum workflow generate &lt;path&gt; --shape minimal --lane-set local --artifact-root striatum/&lt;name&gt;</code> to create one; see <a href="/view/docs/HOW_TO_HUMAN.md">docs/HOW_TO_HUMAN.md</a>.</p>
+  </div>
   {% endif %}
 </section>
+{% endblock %}
+{% block scripts %}
+<script defer src="/static/workflows_index.js"></script>
 {% endblock %}

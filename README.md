@@ -20,12 +20,12 @@ useful for humans, but they do not advance state.
 
 ## Status
 
-`v1.25.0`. RFCs 0001–0026, RFC 0028 V1, RFC 0030 V2 foundation, RFC
-0031 V2 foundation, RFC 0032 V2, RFC 0033 V2, RFC 0034 V1, and RFC
-0036 V1 are
+`v1.27.0`. RFCs 0001–0026, RFC 0028 V1, RFC 0030 V2 foundation, RFC
+0031 V2 foundation, RFC 0032 V2, RFC 0033 V2, RFC 0034 V1, RFC
+0035 V1, RFC 0036 V1, and RFC 0037 V1 are
 accepted (some at `accepted (V1)` or later staged statuses); RFC 0027
 is partially implemented through fail-closed mode and apply-receipt
-foundation surfacing; RFC 0035 is proposed (multi-repo test harness).
+foundation surfacing.
 Per-version release notes live in
 [`CHANGELOG.md`](CHANGELOG.md). The package is published to
 PyPI as `striatum-orchestrator` (the bare `striatum` name on
@@ -120,11 +120,13 @@ striatum --repo "$TARGET_REPO" serve --web
 
 The web UI (RFC 0022) is server-rendered Jinja2: real HTML
 pages at `/`, `/run/<id>`, `/run/<id>/job/<id>`,
-`/run/<id>/artifact/<id>`, `/doctor`. The dependency graph
-renders as inline SVG with state-colored nodes that
-click-navigate. Light + dark mode follow
-`prefers-color-scheme`. Localhost-only by default; mutations
-gated behind `--allow-mutations`.
+`/run/<id>/artifact/<id>`, `/workflows`, `/chat`, and `/doctor`.
+Run/workflow filters, localtime toggle, graph tooltips, keyboard
+shortcuts, and doctor grouping are built as vanilla-JS progressive
+enhancements. The dependency graph renders as inline SVG with
+state-colored nodes that click-navigate. Light + dark mode follow
+`prefers-color-scheme`. Localhost-only by default; mutations gated
+behind `--allow-mutations`.
 
 Chat workflow generation follows preview-then-confirm: the preview tool
 writes nothing, and the write tool is hidden unless mutations are enabled

@@ -869,10 +869,27 @@ class StriatumServiceHandler(BaseHTTPRequestHandler):
             with sqlite3.connect(str(db_path(self.state.repo))) as conn:
                 conn.row_factory = sqlite3.Row
                 rows = conn.execute(
-                    "SELECT run_id, state, branch_name, created_at "
-                    "FROM runs ORDER BY created_at DESC"
+                    """
+                    SELECT r.run_id, r.state, r.branch_name, r.created_at,
+                           r.started_at, r.completed_at, ws.workflow_json
+                    FROM runs r
+                    LEFT JOIN workflow_snapshots ws
+                      ON ws.workflow_snapshot_id = r.workflow_snapshot_id
+                    ORDER BY r.created_at DESC
+                    """
                 ).fetchall()
-                runs = [dict(row) for row in rows]
+                runs = []
+                for row in rows:
+                    run = dict(row)
+                    workflow_id = ""
+                    try:
+                        workflow = json.loads(str(run.pop("workflow_json") or "{}"))
+                        if isinstance(workflow, dict):
+                            workflow_id = str(workflow.get("workflow_id") or "")
+                    except json.JSONDecodeError:
+                        run.pop("workflow_json", None)
+                    run["workflow_id"] = workflow_id
+                    runs.append(run)
             html = _jinja_env().get_template("run_list.html").render(runs=runs)
             self._send_html(200, html)
         except Exception as exc:  # noqa: BLE001
@@ -982,7 +999,12 @@ class StriatumServiceHandler(BaseHTTPRequestHandler):
                 )
                 status_payload = status_command(conn, run_id=run_id)
             node_states = compute_node_states_from_jobs(jobs)
-            graph_svg = render_run_graph(workflow, node_states, run_id=run_id)
+            graph_svg = render_run_graph(
+                workflow,
+                node_states,
+                run_id=run_id,
+                jobs=jobs,
+            )
             suggested_branch_name = ""
             allow_dirty = False
             try:
@@ -1695,8 +1717,15 @@ class StriatumServiceHandler(BaseHTTPRequestHandler):
         try:
             with sqlite3.connect(str(db_path(self.state.repo))) as conn:
                 conn.row_factory = sqlite3.Row
-                doctor_payload = doctor_command(conn, repo=self.state.repo, run_id=None)
-            html = _jinja_env().get_template("doctor.html").render(doctor=doctor_payload)
+                doctor_payload = doctor_command(conn, repo=self.state.repo, run_id=None, verbose=True)
+            groups: dict[str, list[dict[str, Any]]] = {}
+            for record in doctor_payload.get("problem_records") or []:
+                if isinstance(record, dict):
+                    groups.setdefault(str(record.get("check") or "unknown"), []).append(record)
+            html = _jinja_env().get_template("doctor.html").render(
+                doctor=doctor_payload,
+                problem_groups=groups,
+            )
             self._send_html(200, html)
         except Exception as exc:  # noqa: BLE001
             self._send_json(500, {"ok": False, "error": {"code": 500, "message": str(exc)}})

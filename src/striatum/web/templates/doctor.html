@@ -13,22 +13,45 @@
     {% endif %}
   </p>
 
-  {% if doctor.problem_records %}
+  {% if problem_groups %}
+  <div class="doctor-toolbar">
+    <label class="toggle-label">
+      <input type="checkbox" id="doctor-hide-terminal">
+      Hide problems on terminal runs
+    </label>
+  </div>
   <h2>Problems</h2>
-  <ul class="problem-list">
-    {% for record in doctor.problem_records %}
-    <li>
-      <span class="problem-check"><code>{{ record.check }}</code></span>
-      <span class="problem-id"><code>{{ record.id }}</code></span>
-      {% if record.context %}
-      <details class="problem-context">
-        <summary class="muted">context</summary>
-        <pre><code>{{ record.context | tojson(indent=2) }}</code></pre>
-      </details>
-      {% endif %}
-    </li>
+  <div class="doctor-groups" data-problem-count="{{ doctor.problem_records | length }}">
+    {% for check, records in problem_groups.items() %}
+    <details class="doctor-group" data-check="{{ check }}" {% if records | length <= 5 %}open{% endif %}>
+      <summary>
+        <span><code>{{ check }}</code></span>
+        <span class="muted">{{ records | length }} problem{{ "" if records | length == 1 else "s" }}</span>
+        {% if check == "active_session_on_terminal_run" %}
+        <a href="/view/docs/HOW_TO_HUMAN.md#close-active-sessions">docs</a>
+        {% else %}
+        <a href="/view/docs/HOW_TO_HUMAN.md#doctor-triage-and-recovery">docs</a>
+        {% endif %}
+      </summary>
+      <ul class="problem-list">
+        {% for record in records %}
+        {% set run_state = record.context.run_state if record.context and record.context.run_state else "" %}
+        <li data-terminal-run="{{ 'true' if run_state in ('completed', 'failed', 'canceled') else 'false' }}" data-run-state="{{ run_state }}">
+          <span class="problem-check"><code>{{ record.check }}</code></span>
+          <span class="problem-id"><code>{{ record.id }}</code></span>
+          {% if record.context %}
+          <details class="problem-context">
+            <summary class="muted">context</summary>
+            <pre><code>{{ record.context | tojson(indent=2) }}</code></pre>
+          </details>
+          {% endif %}
+        </li>
+        {% endfor %}
+      </ul>
+    </details>
     {% endfor %}
-  </ul>
+  </div>
+  <div class="filtered-empty" id="doctor-filtered-empty" hidden>No visible problems with the current filter.</div>
   {% elif doctor.problems %}
   <h2>Problems</h2>
   <ul class="problem-list">
@@ -36,6 +59,15 @@
     <li>{{ problem }}</li>
     {% endfor %}
   </ul>
+  {% else %}
+  <div class="empty-state rich-empty">
+    <svg aria-hidden="true" viewBox="0 0 48 48"><path d="M14 24l7 7 14-15M24 4a20 20 0 1020 20A20 20 0 0024 4z" /></svg>
+    <h2>0 problems found.</h2>
+    <p>Nothing to triage.</p>
+  </div>
   {% endif %}
 </section>
+{% endblock %}
+{% block scripts %}
+<script defer src="/static/doctor.js"></script>
 {% endblock %}

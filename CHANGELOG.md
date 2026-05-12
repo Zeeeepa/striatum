@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+## 1.28.0 — 2026-05-13
+
+### Added
+
+- RFC 0037 V1 web UI ergonomics: run/workflow filters, run duration
+  and workflow last-modified columns, grouped doctor problems with a
+  terminal-run filter, UTC/local timestamp toggle, graph tooltips,
+  keyboard shortcuts, app-specific dark-mode parity, promoted run next
+  actions, and empty states for the main triage pages.
+
 ## 1.27.0 — 2026-05-13
 
 ### Added

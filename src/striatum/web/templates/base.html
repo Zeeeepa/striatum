@@ -8,6 +8,7 @@
   <link rel="stylesheet" href="/static/base.css">
 </head>
 <body>
+  <a class="skip-link" href="#main-content">Skip to main content</a>
   <header class="site-header">
     <a class="brand" href="/">Striatum</a>
     <nav>
@@ -16,11 +17,30 @@
       <a href="/chat">Chat</a>
       <a href="/doctor">Doctor</a>
     </nav>
+    <button type="button" id="time-mode-toggle" class="header-tool" aria-pressed="false">UTC</button>
+    <button type="button" id="shortcut-help-button" class="header-tool" aria-label="Keyboard shortcuts">?</button>
   </header>
-  <main class="page-main">
+  <main id="main-content" class="page-main" tabindex="-1">
     {% block main %}{% endblock %}
   </main>
+  <dialog id="shortcut-help" class="shortcut-dialog" aria-labelledby="shortcut-help-title">
+    <form method="dialog">
+      <header class="dialog-header">
+        <h2 id="shortcut-help-title">Keyboard Shortcuts</h2>
+        <button type="submit" class="secondary-button" value="close">Close</button>
+      </header>
+      <dl class="shortcut-list">
+        <dt><kbd>g</kbd> <kbd>r</kbd></dt><dd>Runs</dd>
+        <dt><kbd>g</kbd> <kbd>w</kbd></dt><dd>Workflows</dd>
+        <dt><kbd>g</kbd> <kbd>c</kbd></dt><dd>Chat</dd>
+        <dt><kbd>g</kbd> <kbd>d</kbd></dt><dd>Doctor</dd>
+        <dt><kbd>?</kbd></dt><dd>Show this help</dd>
+        <dt><kbd>Esc</kbd></dt><dd>Close this help</dd>
+      </dl>
+    </form>
+  </dialog>
   <script defer src="/static/legacy_hash_redirect.js"></script>
+  <script defer src="/static/base.js"></script>
   {% block scripts %}{% endblock %}
 </body>
 </html>

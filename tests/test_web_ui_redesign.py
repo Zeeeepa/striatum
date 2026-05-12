@@ -31,7 +31,7 @@ def test_run_list_page_renders_html(tmp_path: Path) -> None:
         # Server-rendered: heading present, no JS-rendered placeholder.
         assert b"<h1>Runs</h1>" in body
         # Empty-state copy when no runs exist.
-        assert b"No runs recorded" in body
+        assert b"No runs yet" in body
     finally:
         _stop_service(proc)
 
@@ -55,7 +55,8 @@ def test_csp_header_unchanged(tmp_path: Path) -> None:
     _striatum_init(tmp_path)
     proc, port = _spawn_service(tmp_path, "--web")
     try:
-        for path in ("/", "/doctor"):
+        run_id = _prepare_run(tmp_path)
+        for path in ("/", "/workflows", "/doctor", f"/run/{run_id}"):
             _, headers, _ = _http_get_raw(port, path)
             csp = headers.get("Content-Security-Policy", "")
             assert "default-src 'self'" in csp

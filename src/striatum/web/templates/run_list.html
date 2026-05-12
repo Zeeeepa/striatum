@@ -4,26 +4,64 @@
 <section class="page-section">
   <h1>Runs</h1>
   {% if runs %}
+  <form class="filter-toolbar" id="run-list-filter" aria-label="Run filters">
+    <label class="filter-search">
+      <span>Search</span>
+      <input type="search" id="run-search" placeholder="Search runs by id, branch, workflow id..." autocomplete="off">
+    </label>
+    <button type="button" class="secondary-button compact-button" id="run-search-clear">Clear search</button>
+    <fieldset class="segmented-control" aria-label="Run state">
+      <legend>State</legend>
+      {% for state in ["all", "running", "completed", "canceled", "failed", "paused"] %}
+      <button type="button" data-state-filter="{{ state }}" aria-pressed="{{ 'true' if state == 'all' else 'false' }}">{{ state }}</button>
+      {% endfor %}
+    </fieldset>
+    <label class="filter-select">
+      <span>Date</span>
+      <select id="run-date-filter">
+        <option value="all">All time</option>
+        <option value="24h">Last 24h</option>
+        <option value="7d">Last 7 days</option>
+        <option value="30d">Last 30 days</option>
+      </select>
+    </label>
+    <button type="button" class="secondary-button compact-button" id="run-filter-clear">Clear filters</button>
+  </form>
+  <script type="application/json" id="run-list-data">{{ runs | tojson }}</script>
   <table class="runs-table">
     <thead>
       <tr>
         <th>Run</th>
         <th>State</th>
         <th>Branch</th>
+        <th>Workflow</th>
+        <th>Created</th>
+        <th>Duration</th>
       </tr>
     </thead>
     <tbody>
       {% for run in runs %}
-      <tr>
+      <tr data-run-id="{{ run.run_id }}" data-state="{{ run.state }}" data-branch="{{ run.branch_name or '' }}" data-workflow-id="{{ run.workflow_id or '' }}" data-created-at="{{ run.created_at or '' }}" data-started-at="{{ run.started_at or '' }}" data-completed-at="{{ run.completed_at or '' }}">
         <td><a href="/run/{{ run.run_id }}" class="run-link">{{ run.run_id }}</a></td>
         <td><span class="status-pill status-{{ run.state }}">{{ run.state }}</span></td>
         <td><code class="branch-name">{{ run.branch_name or "—" }}</code></td>
+        <td>{% if run.workflow_id %}<code>{{ run.workflow_id }}</code>{% else %}<span class="muted">—</span>{% endif %}</td>
+        <td><time datetime="{{ run.created_at }}">{{ run.created_at }}</time></td>
+        <td class="run-duration">—</td>
       </tr>
       {% endfor %}
     </tbody>
   </table>
+  <div class="filtered-empty" id="run-filtered-empty" hidden>No runs match the current filters.</div>
   {% else %}
-  <p class="empty-state">No runs recorded. Use <code>striatum run prepare</code> to create one.</p>
+  <div class="empty-state rich-empty">
+    <svg aria-hidden="true" viewBox="0 0 48 48"><path d="M10 12h28v24H10zM15 18h18M15 24h12M15 30h16" /></svg>
+    <h2>No runs yet.</h2>
+    <p>Run <code>striatum run prepare --workflow &lt;workflow.json&gt;</code> to create your first run; see <a href="/view/docs/HOW_TO_HUMAN.md">docs/HOW_TO_HUMAN.md</a>.</p>
+  </div>
   {% endif %}
 </section>
+{% endblock %}
+{% block scripts %}
+<script defer src="/static/run_list.js"></script>
 {% endblock %}

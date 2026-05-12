@@ -259,3 +259,104 @@ code {
   font-size: 0.9em;
   word-break: break-all;
 }
+
+/* RFC 0037: dark-mode parity audit for app-specific components.
+   The active server-rendered UI uses base.css; this legacy bundle keeps
+   the same component classes readable when it is loaded directly. */
+@media (prefers-color-scheme: dark) {
+  .job-list {
+    background: var(--card);
+    border-color: var(--border);
+  }
+
+  .job-link {
+    color: var(--fg);
+  }
+  .job-link:hover {
+    background: var(--border);
+  }
+
+  .status-pill {
+    color: #0a0d11;
+  }
+  .status-pill.status-completed,
+  .status-pill.status-failed,
+  .status-pill.status-blocked,
+  .status-pill.status-canceled,
+  .status-pill.status-queued {
+    color: #0a0d11;
+  }
+
+  .posture-chip {
+    background: var(--border);
+    border-color: var(--border);
+    color: var(--fg);
+  }
+
+  .run-grid {
+    background: transparent;
+    border-color: var(--border);
+  }
+
+  .run-jobs-rail {
+    background: var(--card);
+    border-color: var(--border);
+  }
+
+  .run-meta,
+  .run-meta .muted {
+    color: var(--muted);
+  }
+
+  .run-events,
+  .event-log {
+    background: var(--card);
+    border-color: var(--border);
+  }
+  .run-events .event-row,
+  .event-row {
+    border-color: var(--border);
+  }
+
+  .workflow-graph,
+  .graph-container {
+    background: var(--card);
+    border-color: var(--border);
+  }
+  .workflow-graph svg text,
+  .graph-container svg text {
+    fill: var(--fg);
+  }
+  .workflow-graph .graph-edge,
+  .graph-container .graph-edge {
+    stroke: var(--border);
+  }
+
+  .workflow-edit-form,
+  .workflow-edit-page .job-card,
+  .workflow-edit-page .edit-list li {
+    background: var(--card);
+    border-color: var(--border);
+    color: var(--fg);
+  }
+  .workflow-edit-form input,
+  .workflow-edit-form select,
+  .workflow-edit-form textarea,
+  .workflow-edit-page input,
+  .workflow-edit-page select,
+  .workflow-edit-page textarea {
+    background: var(--bg);
+    border-color: var(--border);
+    color: var(--fg);
+  }
+
+  .next-actions-banner,
+  .filter-toolbar,
+  .filtered-empty,
+  .graph-tooltip,
+  .doctor-group {
+    background: var(--card);
+    border-color: var(--border);
+    color: var(--fg);
+  }
+}
