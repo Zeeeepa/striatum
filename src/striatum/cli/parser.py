@@ -472,6 +472,13 @@ def build_parser() -> argparse.ArgumentParser:
     evidence_export.add_argument("--path", required=True)
     evidence_export.add_argument("--json", action="store_true")
 
+    corpus = sub.add_parser("corpus")
+    corpus_sub = corpus.add_subparsers(dest="corpus_command", required=True)
+    corpus_export = corpus_sub.add_parser("export")
+    corpus_export.add_argument("--since", required=True)
+    corpus_export.add_argument("--out", required=True)
+    corpus_export.add_argument("--json", action="store_true")
+
     decision = sub.add_parser("decision")
     decision_sub = decision.add_subparsers(dest="decision_command", required=True)
     decision_record = decision_sub.add_parser("record")

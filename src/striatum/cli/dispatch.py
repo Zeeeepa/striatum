@@ -550,6 +550,15 @@ def dispatch(args: argparse.Namespace) -> object:
             )
         if args.command == "evidence" and args.evidence_command == "export":
             return evidence_export(conn, repo=repo, run_id=args.run_id, path_text=args.path)
+        if args.command == "corpus" and args.corpus_command == "export":
+            from striatum.corpus import export_corpus_bundle
+
+            return export_corpus_bundle(
+                conn,
+                repo=repo,
+                since=args.since,
+                out_text=args.out,
+            )
         if args.command == "decision" and args.decision_command == "record":
             return decision_record(
                 conn,

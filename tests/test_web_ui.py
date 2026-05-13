@@ -378,7 +378,7 @@ def test_island_bundles_have_no_placeholder_sentinel() -> None:
 
     pkg = files("striatum.web.static")
     for name in _STABLE_ISLAND_ENTRIES:
-        body = pkg.joinpath(name).read_text(encoding="utf-8", errors="ignore")
+        body = pkg.joinpath(name).read_bytes().decode("utf-8", errors="ignore")
         assert _PLACEHOLDER_SENTINEL not in body, (
             f"{name} still contains the V1 placeholder sentinel; "
             "rebuild with `make ui-build` (RFC 0038 V1.5 F1)."

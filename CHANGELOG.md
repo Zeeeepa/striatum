@@ -1,5 +1,152 @@
 # Changelog
 
+## v1.35.0 — 2026-05-13
+
+### Added
+
+- RFC 0044 V1 — Striatum-side corpus export landed under dogfood-046.
+  New `striatum corpus export --since <ref> --out <dir> [--json]` CLI
+  verb wired in `src/striatum/cli/parser.py` and dispatched through
+  `src/striatum/cli/dispatch.py`. New `src/striatum/corpus/` package
+  splits the export into focused modules: `types.py`
+  (`SUB_KINDS` / `JSONL_FILES` closed mapping for the nine JSONL
+  bundle files; `CorpusBundleResult.to_json` shape with
+  `status="exported"`, repo-relative `manifest_path`, `out`, `since`
+  ref + resolved commit, `row_counts`, `bundle_sha256`), `git.py`
+  (`resolve_commit` via `git rev-parse --verify <ref>^{commit}`),
+  `enumerator.py` (durable-provenance source enumeration over RFCs,
+  decisions, commits, operator reports, changelog, ubiquitous-language
+  terms, harness-friction rows, run summaries; no SQLite blobs, no
+  `FROM runs|FROM verdicts|FROM artifacts|FROM jobs|FROM sessions`
+  queries from the live state DB), `redaction.py` (denylist-based
+  source-path refusal for `.env`, `.env.local`, `keys/private.pem`,
+  `.striatum/state.sqlite3`, `transcripts/`, `raw_model_output/`,
+  `docs/transcript.txt`; co-author-email + 64-char-token scrubbing on
+  commit messages; redaction policy enforces no-secrets/no-PII so the
+  JSONL bundle is Engram-compatible), `writer.py` (deterministic
+  JSONL emission with canonical UTF-8 newline normalization),
+  `manifest.py` (per-file SHA-256 + row counts + repo HEAD +
+  dirty-tree flag + `since` ref + schema version + `generated_at` —
+  manifest hashes cover post-redaction bytes), and `export.py`
+  (orchestrator that refuses `--out` outside the repo, under
+  `.striatum/`, or pointing at a file; resolves `--since` before
+  writing; verifies row counts and SHA-256s after emission; returns
+  the standard CLI JSON envelope). Tests:
+  `tests/test_corpus_enumerator.py`, `tests/test_corpus_redaction.py`,
+  `tests/test_corpus_writer.py`, `tests/test_corpus_manifest.py`,
+  `tests/test_cli_corpus_export.py` (incl.
+  `test_corpus_export_cli_success_and_manifest`,
+  `test_corpus_export_invalid_since_returns_json_error_code_8`,
+  `test_corpus_export_rejects_bad_output_targets`,
+  `test_no_engram_imports_or_memory_capabilities_in_striatum`),
+  `tests/test_corpus_export_integration.py` (incl.
+  `test_corpus_export_replays_with_stable_jsonl_hashes` — the
+  RFC 0044 §3 acceptance test: byte-equality on JSONLs across two
+  CLI invocations into different `--out` dirs, manifest equality
+  after stripping `generated_at`). 31/31 corpus-targeted tests
+  green; full suite 739 passed / 33 skipped with one pre-existing
+  documentation-budget failure in `tests/test_doc_links.py` outside
+  this packet's write scope. The corpus package is imported lazily
+  from the dispatch branch so unrelated verbs do not pay its
+  startup cost. Augmentation-not-dependency boundary is pinned by
+  `test_no_engram_imports_or_memory_capabilities_in_striatum` —
+  asserts `import engram` / `from engram` / `memory.` absent across
+  `src/striatum/corpus/`, `src/striatum/cli/`,
+  `src/striatum/daemon_rpc/`, `src/striatum/daemon_pg/`,
+  `src/striatum/mcp.py`, `src/striatum/service.py`, and
+  `pyproject.toml`. Scope was **Striatum-side ONLY**; the
+  Engram-side ingester (`engram ingest-striatum`), the standalone
+  `engram-mcp-stdio` MCP server, the four read-only retrieval tools
+  (`engram.search`, `engram.fetch_reference`, `engram.describe_corpus`,
+  `engram.health`), and the Engram-local `memory.*` capabilities are
+  explicitly out of scope and live in `~/git/engram/` as a separate
+  effort. Implementer was **codex** (Python) — 5th consecutive
+  codex-as-implementer dogfood where the codex/codex reviewer
+  pairing converged on its own findings (precedents D095 dogfood-042
+  Track A, D096 dogfood-042 Track C, D097 dogfood-043, D098
+  dogfood-044). Files:
+  `src/striatum/cli/parser.py`, `src/striatum/cli/dispatch.py`,
+  `src/striatum/corpus/__init__.py`, `src/striatum/corpus/types.py`,
+  `src/striatum/corpus/git.py`, `src/striatum/corpus/enumerator.py`,
+  `src/striatum/corpus/redaction.py`, `src/striatum/corpus/writer.py`,
+  `src/striatum/corpus/manifest.py`, `src/striatum/corpus/export.py`,
+  `tests/test_corpus_enumerator.py`, `tests/test_corpus_redaction.py`,
+  `tests/test_corpus_writer.py`, `tests/test_corpus_manifest.py`,
+  `tests/test_cli_corpus_export.py`,
+  `tests/test_corpus_export_integration.py`, `tests/test_web_ui.py`
+  (test-only `Traversable.read_text(errors=...)` → `read_bytes().
+  decode(..., errors=...)` compatibility adjustment so `make
+  typecheck` passes under the current `importlib.resources` typing
+  surface).
+
+### Decided
+
+- D100 (`dec_b3b26d4c86df408ab75f4cf515a82d1e`,
+  `accepted_with_follow_up`): cycle-exhaustion override for
+  dogfood-046 build review. **5th codex/codex anti-pattern
+  instance.** Codex `review_build_codex` returned
+  `needs_revision severity=high` under the threat_model posture on
+  redaction completeness + JSONL secret leakage. Gemini
+  `review_build_gemini` returned `needs_revision severity=medium`
+  under threat_model posture — but every gemini finding (A1
+  contradictory capability spec, A2 lack of authorization in
+  `fetch_reference`, A3 cross-repository context leakage via shared
+  `corpus_id`, A4 redaction bypass in curated artifacts via memory
+  poisoning, A5 `describe_corpus` metadata leakage) targeted the
+  Engram-side surface (MCP server, ingester, capability model)
+  which is **OUT OF SCOPE** for this dogfood — none of those
+  components ship in `src/striatum/` this run. Claude
+  `review_build_claude` returned `accept_with_findings severity=low`
+  on the in-scope Striatum-side surface (ergonomics_dx posture:
+  five discoverability findings F1-F5, all low, none blocking
+  function). Single accepting verdict + 2 out-of-scope/anti-pattern
+  needs_revisions; impl meets V1 scope acceptance criteria. Codex
+  findings (redaction policy specification, manifest privacy-safe
+  paths, canonical JSONL serialization + hash coverage, MCP output
+  redaction) are absorbed back into RFC 0044's threat model and
+  forwarded to the Engram-side follow-up. Gemini findings are
+  forwarded to `~/git/engram/` since they describe the Engram-side
+  threat surface Striatum is not building.
+
+### Notes
+
+- Dogfood-046 ran the multi-track design + build + review workflow
+  for RFC 0044 V1 with the Striatum-side scope only. As with
+  dogfood-044/045, the `consolidate` job was not part of the
+  workflow; the operator wrote this changelog entry, the
+  `docs/rfcs/README.md` status update, the `docs/TODO.md` item-23
+  promotion + new F47 row, `docs/dogfood/046/BUILD_HANDOFF.md`, and
+  `docs/dogfood/046/PHASE_1_OPERATOR_NOTES.md` out-of-band after
+  the run.
+- **Claude reviewer produced no on-disk artifact** — only a 3.8 KB
+  packet log was emitted. The operator composed a minimal
+  `accept_with_findings` review at
+  `docs/dogfood/046/review/build/claude/REVIEW.md` from the
+  packet-log content to unblock the workflow. This is the **6th
+  distinct anti-pattern instance** the dogfood loop has
+  surfaced — distinct from both the codex/codex co-blindness
+  (D095-D098, D100) and the codex-threat_model-reviewer harshness
+  (D099). The reviewer-emits-no-artifact pattern is a new harness
+  failure mode: the run cannot proceed without a published review
+  artifact, and there is no current operator-recovery surface short
+  of writing the artifact by hand. Forwarded to the harness
+  improvement RFC backlog along with the codex/codex anti-pattern
+  (TODO item 26).
+- **Gemini byline-prefix bug surfaced AGAIN.** This is a recurrence
+  of the dogfood-044 gemini reviewer profile bug: gemini emitted
+  no front-matter YAML block at all, and used the non-conformant
+  byline `**Author:** Gemini (Reviewer)` (markdown bold form)
+  instead of the required plain `author: <slug>` byline.
+  `docs/dogfood/046/review/build/gemini/REVIEW.md` was therefore
+  operator-rewritten to preserve gemini's substantive review
+  content while adding the required `striatum.finding.v1` front
+  matter + a plain `author: reviewer-unknown-model-001` byline.
+  The dogfood-044 gemini reviewer profile fragment update did not
+  fully fix this — gemini still drops the front matter and still
+  reaches for markdown-bold author lines. Forwarded to the
+  reviewer-profile audit follow-up alongside the codex
+  threat_model harshness pattern from D099.
+
 ## v1.34.0 — 2026-05-13
 
 ### Added

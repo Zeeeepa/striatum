@@ -81,6 +81,7 @@ so external references keep resolving even as items move between sections.
 | F44 | RFC 0045 V1 multi-phase workflow schema + React Flow editor (dogfood-043) | ✅ done |
 | F45 | RFC 0040 V1.5 daemon-dispatch + composite tools + watcher (dogfood-044) | ✅ done |
 | F46 | RFC 0038 V1.5 web UI integration gaps (F1-F4 + supply-chain, dogfood-045) | ✅ done |
+| F47 | RFC 0044 V1 Striatum-side corpus export (dogfood-046; Engram-side separate) | ✅ done |
 
 Legend: ✅ done · 🟡 most done (sub-tasks remain) · ⏳ open
 
@@ -330,13 +331,39 @@ Legend: ✅ done · 🟡 most done (sub-tasks remain) · ⏳ open
     Multi-tenancy (`tenant_id` column add) and hosted mode are separate
     follow-up RFCs.
 
-23. **Implement RFC 0044 V1 (Engram Phase 1 read-only MCP).** RFC drafted
+23. ~~**Implement RFC 0044 V1 (Engram Phase 1 read-only MCP).** RFC drafted
     under dogfood-042 Track B; build review 3-of-3 accept (codex,
     claude, gemini). Implementation lands: Striatum-owned redacted
     JSONL export, Engram-owned `ingest-striatum`, standalone
     `engram-mcp-stdio` MCP server, four read-only retrieval tools,
     Engram-local `memory.*` capabilities, and the hard augmentation-
-    not-dependency boundary (Striatum runs with Engram unavailable).
+    not-dependency boundary (Striatum runs with Engram unavailable).~~
+    🟡 Striatum-side V1 done under dogfood-046 (v1.35.0):
+    `striatum corpus export --since <ref> --out <dir>` ships the
+    redacted JSONL bundle (nine files + `manifest.json`) backed by
+    `src/striatum/corpus/` (types, git helpers, enumerator, redactor,
+    JSONL writer, manifest, export orchestration). The augmentation
+    boundary is pinned by
+    `tests/test_cli_corpus_export.py::test_no_engram_imports_or_memory_capabilities_in_striatum`
+    (no `import engram`, no `from engram`, no `memory.*` capabilities
+    across `corpus/`, `cli/`, `daemon_rpc/`, `daemon_pg/`, `mcp.py`,
+    `service.py`, and `pyproject.toml`). D100 cycle-exhaustion
+    override applied: codex `needs_revision` (5th codex/codex
+    anti-pattern instance after D095/D096/D097/D098) + gemini
+    `needs_revision` (focused entirely on out-of-scope Engram-side
+    attack surface — MCP server, ingester, capability model — none of
+    which ship in this dogfood); single accepting verdict claude
+    `accept_with_findings` low covered the in-scope Striatum-side
+    surface. Engram-side (ingester `engram ingest-striatum`,
+    standalone `engram-mcp-stdio` server, four read-only retrieval
+    tools, `memory.*` capabilities) remains a separate follow-up at
+    `~/git/engram/` and is explicitly NOT in Striatum's TODO scope.
+    Engram-side adversarial findings from gemini (RFC 0044 §6
+    contradiction on `memory.read_personal` default, `corpus_id`
+    isolation, indirect prompt injection memory poisoning, manifest
+    forgery without cryptographic signing, secret leakage through
+    curated artifacts) are forwarded to the Engram-side
+    implementation effort.
 
 24. **RFC 0039 V1.5: address Track A build review findings.** Cycle-
     exhaustion override per D095 (decision
