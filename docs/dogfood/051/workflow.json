@@ -1,0 +1,47 @@
+{
+  "schema_version": "striatum.workflow.v1",
+  "workflow_id": "dogfood-051-rfc-0039-v1-6",
+  "workflow_version": "1",
+  "name": "dogfood-051: RFC 0039 V1.6 — Go daemon hardening",
+  "context_docs": [
+    "docs/rfcs/0039-go-daemon-core.md",
+    "docs/dogfood/049/review/build/codex/REVIEW.md",
+    "docs/dogfood/049/review/build/claude/REVIEW.md",
+    "docs/dogfood/049/review/build/gemini/REVIEW.md",
+    "CHANGELOG.md"
+  ],
+  "coordinator": {"lane": "codex"},
+  "parallelism": {"max_active_jobs": 6},
+  "branch": {"mode": "auto", "suggested_name": "striatum/dogfood-051-052-v1-6"},
+  "lanes": {
+    "codex": {"adapter": "process", "command": ["bash", "-lc", "PYTHONPATH=src python3 -m striatum.cli skills install --profile all --scope user --force --json >/dev/null && export PATH=\"$PWD/.venv/bin:$PATH\" && exec .striatum/bin/codex-supervised-wrapper.sh"], "model": "codex", "strategy_version": "2026-05-13", "supervision": {"compatible": true, "stdin_format": "newline_delimited_json", "wrapper_required": true}},
+    "claude_code": {"adapter": "process", "command": ["bash", "-lc", "PYTHONPATH=src python3 -m striatum.cli skills install --profile all --scope user --force --json >/dev/null && export PATH=\"$PWD/.venv/bin:$PATH\" && exec .striatum/bin/claude-supervised-wrapper.sh"], "model": "claude_code", "strategy_version": "2026-05-13", "supervision": {"compatible": "verify_pipe_behavior_first", "stdin_format": "prompt_text", "wrapper_required": true}},
+    "gemini": {"adapter": "process", "command": ["bash", "-lc", "PYTHONPATH=src python3 -m striatum.cli skills install --profile all --scope user --force --json >/dev/null && export PATH=\"$PWD/.venv/bin:$PATH\" && exec .striatum/bin/gemini-supervised-wrapper.sh"], "model": "gemini", "strategy_version": "2026-05-13", "supervision": {"compatible": true, "stdin_format": "prompt_text", "wrapper_required": true}}
+  },
+  "roles": {"coordinator": {"description": "Op"}, "designer": {"description": "D"}, "implementer": {"description": "I"}, "reviewer": {"description": "R"}},
+  "jobs": [
+    {"id": "design_codex", "type": "generic", "title": "Design codex", "role_id": "designer", "lane_id": "codex", "parallel_group": "design", "fresh_session_required": true, "objective": "Design RFC 0039 V1.6 deltas: F1 creack/pty integration (replace pty.go not-wired sentinel); F2 PID-recycling protection (/proc/<pid>/stat start-time pair); F3 scratch-dir perm tightening (0700/0600); F4 Postgres-backed PointerStore concrete; F5 CI hard-fail-on-missing-go-binary when CORE=go.", "task_prompt": {"path": "docs/dogfood/051/prompts/design.md"}, "write_scope": {"mode": "repo_write", "repo_write": true, "allowed_paths": ["docs/dogfood/051/design/codex/"], "forbidden_paths": [".striatum/"]}, "expected_artifacts": [{"logical_name": "codex_design", "kind": "handoff", "path": "docs/dogfood/051/design/codex/DESIGN.md", "required": true}]},
+    {"id": "design_claude", "type": "generic", "title": "Design claude", "role_id": "designer", "lane_id": "claude_code", "parallel_group": "design", "fresh_session_required": true, "objective": "Same.", "task_prompt": {"path": "docs/dogfood/051/prompts/design.md"}, "write_scope": {"mode": "repo_write", "repo_write": true, "allowed_paths": ["docs/dogfood/051/design/claude_code/"], "forbidden_paths": [".striatum/"]}, "expected_artifacts": [{"logical_name": "claude_design", "kind": "handoff", "path": "docs/dogfood/051/design/claude_code/DESIGN.md", "required": true}]},
+    {"id": "design_gemini", "type": "generic", "title": "Design gemini", "role_id": "designer", "lane_id": "gemini", "parallel_group": "design", "fresh_session_required": true, "objective": "Same.", "task_prompt": {"path": "docs/dogfood/051/prompts/design.md"}, "write_scope": {"mode": "repo_write", "repo_write": true, "allowed_paths": ["docs/dogfood/051/design/gemini/"], "forbidden_paths": [".striatum/"]}, "expected_artifacts": [{"logical_name": "gemini_design", "kind": "handoff", "path": "docs/dogfood/051/design/gemini/DESIGN.md", "required": true}]},
+    {"id": "synth", "type": "synthesis", "title": "Synth codex", "role_id": "designer", "lane_id": "codex", "objective": "Reconcile.", "task_prompt": {"path": "docs/dogfood/051/prompts/synth.md"}, "write_scope": {"mode": "repo_write", "repo_write": true, "allowed_paths": ["docs/dogfood/051/"], "forbidden_paths": [".striatum/", "docs/dogfood/051/design/"]}, "expected_artifacts": [{"logical_name": "synthesis", "kind": "synthesis", "path": "docs/dogfood/051/DESIGN_SYNTHESIS.md", "required": true}]},
+    {"id": "review_design", "type": "review", "title": "Review design claude", "role_id": "reviewer", "lane_id": "claude_code", "fresh_session_required": true, "reviewer_context_policy": "fresh", "review_posture": "ergonomics_dx", "objective": "Review.", "task_prompt": {"path": "docs/dogfood/051/prompts/review_design.md"}, "write_scope": {"mode": "review_only_artifact", "repo_write": false, "allowed_paths": ["docs/dogfood/051/review/design/"], "forbidden_paths": [".striatum/"]}, "expected_artifacts": [{"logical_name": "design_review", "kind": "finding", "path": "docs/dogfood/051/review/design/REVIEW.md", "required": true}]},
+    {"id": "implement", "type": "build", "title": "Implement claude (Go hardening)", "role_id": "implementer", "lane_id": "claude_code", "required_review_postures": ["ergonomics_dx"], "objective": "Implement V1.6 deltas per synthesis. Claude impl (NOT codex — avoid 6th codex/codex anti-pattern). Sub-agents per F-finding.", "task_prompt": {"path": "docs/dogfood/051/prompts/implement.md"}, "write_scope": {"mode": "repo_write", "repo_write": true, "allowed_paths": ["go/", "tests/", "Makefile", ".github/workflows/", "docs/rfcs/0039-go-daemon-core.md", "docs/dogfood/051/build/"], "forbidden_paths": [".striatum/"]}, "expected_artifacts": [{"logical_name": "implementation", "kind": "handoff", "path": "docs/dogfood/051/build/HANDOFF.md", "required": true}]},
+    {"id": "review_build_codex", "type": "review", "title": "Build review codex threat_model", "role_id": "reviewer", "lane_id": "codex", "parallel_group": "build_review", "fresh_session_required": true, "reviewer_context_policy": "fresh", "review_posture": "threat_model", "objective": "Threat model.", "task_prompt": {"path": "docs/dogfood/051/prompts/review_build.md"}, "write_scope": {"mode": "review_only_artifact", "repo_write": false, "allowed_paths": ["docs/dogfood/051/review/build/codex/"], "forbidden_paths": [".striatum/"]}, "expected_artifacts": [{"logical_name": "build_review_codex", "kind": "finding", "path": "docs/dogfood/051/review/build/codex/REVIEW.md", "required": true}]},
+    {"id": "review_build_claude", "type": "review", "title": "Build review claude ergonomics_dx", "role_id": "reviewer", "lane_id": "claude_code", "parallel_group": "build_review", "fresh_session_required": true, "reviewer_context_policy": "fresh", "review_posture": "ergonomics_dx", "objective": "Ergonomics.", "task_prompt": {"path": "docs/dogfood/051/prompts/review_build.md"}, "write_scope": {"mode": "review_only_artifact", "repo_write": false, "allowed_paths": ["docs/dogfood/051/review/build/claude/"], "forbidden_paths": [".striatum/"]}, "expected_artifacts": [{"logical_name": "build_review_claude", "kind": "finding", "path": "docs/dogfood/051/review/build/claude/REVIEW.md", "required": true}]},
+    {"id": "review_build_gemini", "type": "review", "title": "Build review gemini adversarial", "role_id": "reviewer", "lane_id": "gemini", "parallel_group": "build_review", "fresh_session_required": true, "reviewer_context_policy": "fresh", "review_posture": "threat_model", "objective": "Adversarial.", "task_prompt": {"path": "docs/dogfood/051/prompts/review_build.md"}, "write_scope": {"mode": "review_only_artifact", "repo_write": false, "allowed_paths": ["docs/dogfood/051/review/build/gemini/"], "forbidden_paths": [".striatum/"]}, "expected_artifacts": [{"logical_name": "build_review_gemini", "kind": "finding", "path": "docs/dogfood/051/review/build/gemini/REVIEW.md", "required": true}]}
+  ],
+  "edges": [
+    {"from": "design_codex", "to": "synth", "on": "completed"},
+    {"from": "design_claude", "to": "synth", "on": "completed"},
+    {"from": "design_gemini", "to": "synth", "on": "completed"},
+    {"from": "synth", "to": "review_design", "on": "completed"},
+    {"from": "review_design", "to": "implement", "on": "completed"},
+    {"from": "implement", "to": "review_build_codex", "on": "completed"},
+    {"from": "implement", "to": "review_build_claude", "on": "completed"},
+    {"from": "implement", "to": "review_build_gemini", "on": "completed"}
+  ],
+  "cycles": [
+    {"from": "review_design", "to": "synth", "on_verdict": "needs_revision", "max_iterations": 1},
+    {"from": "review_build_claude", "to": "implement", "on_verdict": "needs_revision", "max_iterations": 1, "allow_same_lane": true}
+  ]
+}
