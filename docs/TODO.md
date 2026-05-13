@@ -264,18 +264,25 @@ Legend: ✅ done · 🟡 most done (sub-tasks remain) · ⏳ open
     prop-contract schema, both implementers cite + validate before
     publish).
 
-22. **Implement RFC 0042 V1 (repo-local state to Postgres).** RFC drafted
-    under dogfood-042 Track C; build review 2-of-3 accept-equivalent
-    (codex needs_revision overridden per D096, claude accept, gemini
-    accept_with_findings). Implementation lands: eighteen application
-    tables in daemon Postgres keyed by `repository_id`, composite-key
-    rules, `striatum daemon migrate-repo-local --from sqlite --to pg
-    --repo <path>` migration verb, daemon-unavailable refusal behavior,
-    audit-chain preservation across the cutover, and removal of
-    `.striatum/state.sqlite3` as the authoritative live state. Repo-
-    local `.striatum/` stays for operational scratch only (logs,
-    transcripts, supervisor pointers). Supersedes D006/D007/D028 per
-    D093.
+22. **Implement RFC 0043 V1 (Postgres as Sole Substrate, daemon-required).**
+    Per D094 (accepted; supersedes D006/D007/D036 and SQLite half of D009).
+    The original dogfood-042 Track C draft (`docs/rfcs/0042-repo-local-
+    state-to-postgres.md`) was absorbed by main's RFC 0043 from the
+    parallel session — Track C dogfood artifacts retained as historical
+    provenance under `docs/dogfood/042/track_c/`. Implementation lands:
+    move all repo-local workflow tables (runs, jobs, sessions,
+    queue_messages, leases, work_packets, artifacts, verdicts, blockers,
+    command_requests, process_executions, events, job_worktrees,
+    process_supervisors, process_supervisor_pointers) into daemon-owned
+    Postgres under `repository_id` scope; retire `--no-daemon` direct
+    CLI mode; `striatum daemon migrate-repo-local --dry-run / --keep-
+    sqlite-readonly / --confirm-delete` migration verb; daemon-
+    unreachable refuses with exit code 11 + remediation; unmigrated repo
+    exit code 12; `.striatum/` survives as operational scratch only;
+    expands RFC 0030 method registry to cover every existing CLI
+    mutation; revises RFC 0039 scope to drop SQLite from Go core.
+    Multi-tenancy (`tenant_id` column add) and hosted mode are separate
+    follow-up RFCs.
 
 23. **Implement RFC 0044 V1 (Engram Phase 1 read-only MCP).** RFC drafted
     under dogfood-042 Track B; build review 3-of-3 accept (codex,

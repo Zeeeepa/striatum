@@ -604,6 +604,7 @@ def validate_workflow(
     _validate_parallelism(jobs)
     _validate_parallelism_config(workflow, cross_repo=cross_repo)
     _validate_revision_policy(workflow, jobs=jobs)
+    _warn_same_lane_review_implement_cycles(workflow, job_map=job_map, warnings=warnings)
 
 
 def create_run(conn: sqlite3.Connection, *, repo: Path, workflow_path: Path) -> JsonObject:
@@ -1830,6 +1831,50 @@ def _validate_cycle_targets_feed_sources(workflow: JsonObject, *, job_map: dict[
             raise WorkflowError(
                 f"workflow cycle from {from_id!r} to {to_id!r} is unsound: "
                 f"{to_id!r} does not feed back into {from_id!r} through workflow edges"
+            )
+
+
+def _warn_same_lane_review_implement_cycles(
+    workflow: JsonObject,
+    *,
+    job_map: dict[str, JsonValue],
+    warnings: list[str] | None,
+) -> None:
+    """Warn when a needs_revision cycle pairs a reviewer and an implementer on
+    the same lane.
+
+    Dogfood-042 D095/D096 documented the codex/codex anti-pattern: when the
+    cycle's `from` (review job) and `to` (implementer job) share a lane, the
+    iteration loops back into the same lane's voice and tends not to converge
+    on the same findings the cross-lane reviewers consider acceptable. This
+    is a soft warning, not a hard refusal — operators may explicitly opt in
+    by setting `cycle.allow_same_lane: true`.
+    """
+    if warnings is None:
+        return
+    for cycle_value in workflow.get("cycles", []):
+        if not isinstance(cycle_value, dict):
+            continue
+        if cycle_value.get("allow_same_lane") is True:
+            continue
+        from_id = cycle_value.get("from")
+        to_id = cycle_value.get("to")
+        if not isinstance(from_id, str) or not isinstance(to_id, str):
+            continue
+        from_job = job_map.get(from_id)
+        to_job = job_map.get(to_id)
+        if not isinstance(from_job, dict) or not isinstance(to_job, dict):
+            continue
+        from_lane = from_job.get("lane_id")
+        to_lane = to_job.get("lane_id")
+        if not isinstance(from_lane, str) or not isinstance(to_lane, str):
+            continue
+        if from_lane == to_lane:
+            warnings.append(
+                f"cycle from {from_id!r} to {to_id!r} pairs reviewer and "
+                f"implementer on the same lane ({from_lane!r}); per "
+                f"dogfood-042 D095/D096 this often fails to converge. "
+                f"Set cycle.allow_same_lane=true to suppress."
             )
 
 
