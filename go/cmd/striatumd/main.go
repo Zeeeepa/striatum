@@ -15,7 +15,63 @@ import (
 	"github.com/halbritt/striatum/go/pkg/crossrepo"
 	"github.com/halbritt/striatum/go/pkg/db"
 	"github.com/halbritt/striatum/go/pkg/rpc"
+	"github.com/halbritt/striatum/go/pkg/supervisor"
 )
+
+// supervisorPointerStore is the daemon's boot-time handle on the
+// Postgres-backed supervisor.PointerStore implementation. Construction is
+// gated on the Postgres pool being present; consumers (e.g. supervise.list
+// + supervise.status handlers — RFC 0048 Phase B follow-up) read it via
+// the Server's free-form attachments. V1.7 ships the wire-up; the
+// not_implemented handlers stay until RFC 0048 Phase B lands the real
+// handler ports.
+var supervisorPointerStore *db.SupervisorPointerStore
+var _ supervisor.PointerStore = (*supervisorPointerStoreAdapter)(nil)
+
+// supervisorPointerStoreAdapter bridges db.PointerRow ↔ supervisor.PointerRow.
+// They are the same wire shape; the adapter exists only so the supervisor
+// package interface compiles against the db-side concrete store without
+// pulling the supervisor import into the db package (would create an
+// import cycle).
+type supervisorPointerStoreAdapter struct {
+	store *db.SupervisorPointerStore
+}
+
+func (a *supervisorPointerStoreAdapter) UpsertSupervisorPointer(ctx context.Context, row supervisor.PointerRow) error {
+	return a.store.UpsertSupervisorPointer(ctx, db.PointerRow{
+		SupervisorID:    row.SupervisorID,
+		RepositoryID:    row.RepositoryID,
+		SessionID:       row.SessionID,
+		PID:             row.PID,
+		StartedAt:       row.StartedAt,
+		LastHeartbeatAt: row.LastHeartbeatAt,
+		StdinPipePath:   row.StdinPipePath,
+		State:           row.State,
+		LostReason:      row.LostReason,
+	})
+}
+
+func (a *supervisorPointerStoreAdapter) MarkSupervisorLost(ctx context.Context, supervisorID string, reason string) error {
+	return a.store.MarkSupervisorLost(ctx, supervisorID, reason)
+}
+
+func (a *supervisorPointerStoreAdapter) GetSupervisorPointer(ctx context.Context, supervisorID string) (supervisor.PointerRow, error) {
+	row, err := a.store.GetSupervisorPointer(ctx, supervisorID)
+	if err != nil {
+		return supervisor.PointerRow{}, err
+	}
+	return supervisor.PointerRow{
+		SupervisorID:    row.SupervisorID,
+		RepositoryID:    row.RepositoryID,
+		SessionID:       row.SessionID,
+		PID:             row.PID,
+		StartedAt:       row.StartedAt,
+		LastHeartbeatAt: row.LastHeartbeatAt,
+		StdinPipePath:   row.StdinPipePath,
+		State:           row.State,
+		LostReason:      row.LostReason,
+	}, nil
+}
 
 const daemonVersion = "go-dev"
 
@@ -71,7 +127,11 @@ func main() {
 		runner = pool.Runner
 		recorder = &db.AuditRecorder{Runner: pool.Runner, DaemonVersion: daemonVersion}
 		authorizer = &rpc.PostgresAuthorizer{Runner: pool.Runner, Clock: time.Now}
+		if pool.RawPool != nil {
+			supervisorPointerStore = db.NewSupervisorPointerStore(pool.RawPool)
+		}
 	}
+	_ = supervisorPointerStore // RFC 0048 Phase B will wire supervise.* handlers
 
 	server := rpc.NewServer()
 	server.DaemonVersion = daemonVersion

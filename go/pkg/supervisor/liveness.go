@@ -5,9 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"runtime"
-	"strconv"
-	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -184,59 +181,11 @@ func processAliveAtStartTime(pid int, expectedStart time.Time) bool {
 }
 
 // readProcessStartTime returns the kernel-reported process start time for
-// pid. On Linux this reads field 22 of /proc/<pid>/stat (clock ticks since
-// boot) and converts to absolute time using btime from /proc/stat and the
-// CLK_TCK from sysconf (assumed 100Hz on standard kernels). Returns ok=false
-// on platforms that don't have a stable reader yet; the V1.6 acceptance gate
-// covers Linux explicitly.
+// pid. The actual reader is per-OS: Linux reads /proc/<pid>/stat field 22 +
+// /proc/stat btime; darwin uses `ps -o lstart=` (V1.7); unsupported OSes
+// return ok=false so the caller falls back to signal-0 only.
 func readProcessStartTime(pid int) (time.Time, bool) {
-	if runtime.GOOS != "linux" {
-		return time.Time{}, false
-	}
-	statPath := fmt.Sprintf("/proc/%d/stat", pid)
-	data, err := os.ReadFile(statPath)
-	if err != nil {
-		return time.Time{}, false
-	}
-	// Format: pid (comm) state ppid ... starttime ... — comm may contain
-	// spaces and parens, so anchor on the last ')'.
-	endComm := strings.LastIndex(string(data), ")")
-	if endComm < 0 || endComm+2 >= len(data) {
-		return time.Time{}, false
-	}
-	fields := strings.Fields(string(data[endComm+1:]))
-	// After the ')' we have: state(1) ppid(2) ... starttime is field 22
-	// in the full layout, which here is index 22 - 2 = 20 (state is field
-	// 3 of full, here index 0).
-	const starttimeIdx = 22 - 3
-	if len(fields) <= starttimeIdx {
-		return time.Time{}, false
-	}
-	clockTicks, err := strconv.ParseUint(fields[starttimeIdx], 10, 64)
-	if err != nil {
-		return time.Time{}, false
-	}
-	// Read btime from /proc/stat (seconds since epoch when the kernel booted).
-	statData, err := os.ReadFile("/proc/stat")
-	if err != nil {
-		return time.Time{}, false
-	}
-	var btime int64
-	for _, line := range strings.Split(string(statData), "\n") {
-		if strings.HasPrefix(line, "btime ") {
-			btime, err = strconv.ParseInt(strings.TrimSpace(line[len("btime "):]), 10, 64)
-			if err != nil {
-				return time.Time{}, false
-			}
-			break
-		}
-	}
-	if btime == 0 {
-		return time.Time{}, false
-	}
-	const clkTck = 100 // standard sysconf(_SC_CLK_TCK) on Linux x86_64 / arm64
-	seconds := int64(clockTicks) / clkTck
-	return time.Unix(btime+seconds, 0).UTC(), true
+	return readProcessStartTimeOS(pid)
 }
 
 func signalSIGTERM(pid int) error {

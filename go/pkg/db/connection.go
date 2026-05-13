@@ -94,10 +94,16 @@ type TxRunner interface {
 
 // Pool wraps a pgxpool.Pool with the Runner surface and a Close helper. The
 // caller owns the pool lifetime and must invoke Close on shutdown.
+//
+// V1.7: RawPool exposes the underlying pgxpool.Pool so consumers that need
+// pgx-typed access (e.g. SupervisorPointerStore for transactional reads
+// with explicit row scanning) can construct against it without forcing
+// the Runner abstraction to grow surface area.
 type Pool struct {
-	URL    string
-	Runner Runner
-	Close  func()
+	URL     string
+	Runner  Runner
+	RawPool *pgxpool.Pool
+	Close   func()
 }
 
 // PgxRunner is a thin adapter from a pgx connection pool to the Runner
@@ -208,9 +214,10 @@ func Connect(ctx context.Context, postgresURL string, daemonVersion string) (*Po
 		return nil, err
 	}
 	return &Pool{
-		URL:    postgresURL,
-		Runner: PgxRunner{Pool: pool},
-		Close:  pool.Close,
+		URL:     postgresURL,
+		Runner:  PgxRunner{Pool: pool},
+		RawPool: pool,
+		Close:   pool.Close,
 	}, nil
 }
 

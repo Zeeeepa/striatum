@@ -36,7 +36,6 @@ import ReactFlow, {
   Controls,
   MiniMap,
   ReactFlowProvider,
-  ViewportPortal,
   addEdge,
   applyEdgeChanges,
   applyNodeChanges,
@@ -367,45 +366,20 @@ interface PhaseBandsProps {
 
 function PhaseBands({ layout, selectedPhaseId, onSelectPhase }: PhaseBandsProps) {
   if (!layout.hasExplicit) return null;
-  return (
-    <ViewportPortal>
-      {layout.phases.map((entry) => {
-        const bandStyle: CSSProperties = {
-          top: entry.bandTop,
-          width: PHASE_BAND_WIDTH,
-          height: PHASE_BAND_HEIGHT,
-        };
-        const headerStyle: CSSProperties = {
-          top: entry.bandTop + 8,
-          left: 12,
-          height: PHASE_HEADER_HEIGHT,
-        };
-        const isSelected = selectedPhaseId === entry.phase.id;
-        return (
-          <div
-            key={entry.phase.id}
-            className={`graph-editor-phase-band phase-band-palette-${entry.paletteIndex}`}
-            style={bandStyle}
-            aria-hidden
-          >
-            <button
-              type="button"
-              className="graph-editor-phase-band-header"
-              style={headerStyle}
-              aria-selected={isSelected}
-              onClick={(ev) => {
-                ev.stopPropagation();
-                onSelectPhase(entry.phase.id);
-              }}
-            >
-              <strong>{phaseDisplayName(entry.phase)}</strong>
-              <span className="phase-id">{entry.phase.id}</span>
-            </button>
-          </div>
-        );
-      })}
-    </ViewportPortal>
-  );
+  // GH #6: reactflow 11.11.4 does not export `ViewportPortal` (added in v12).
+  // The phase-band overlay needs the viewport transform to pan/zoom with the
+  // graph, which requires either v12 or a manual `useViewport()` rebuild.
+  // V1 ships without the overlay so the editor renders cleanly; the
+  // overlay returns as RFC 0045 V1.5 polish (tracked in CHANGELOG +
+  // RFC 0046/0047/0048 V1.7 backlog reflections).
+  void layout;
+  void selectedPhaseId;
+  void onSelectPhase;
+  void phaseDisplayName;
+  void PHASE_BAND_WIDTH;
+  void PHASE_BAND_HEIGHT;
+  void PHASE_HEADER_HEIGHT;
+  return null;
 }
 
 interface PhaseInspectorProps {

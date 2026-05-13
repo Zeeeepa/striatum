@@ -264,7 +264,11 @@ func TestLaunchPTYEchoTable(t *testing.T) {
 			case <-time.After(3 * time.Second):
 				t.Fatal("timed out waiting for PTY echo read")
 			}
-			if !bytes.Contains(buf[:n], []byte(tc.payload[:len(tc.payload)-1])) {
+			// PTY mode translates LF → CRLF on output. Compare with
+			// CR-stripped echo so the substring assertion is
+			// portable across PTY and pipe modes.
+			got := bytes.ReplaceAll(buf[:n], []byte{'\r'}, nil)
+			if !bytes.Contains(got, []byte(tc.payload[:len(tc.payload)-1])) {
 				t.Fatalf("echo mismatch: got %q want substring %q", buf[:n], tc.payload)
 			}
 			_ = res.StdinWriter.Close()
