@@ -9,7 +9,7 @@ import type {
   GeneratedWorkflow,
   RepoTreeResponse,
   WorkflowDocument,
-  WorkflowTemplateCatalog,
+  WorkflowTemplateListResponse,
 } from "./types";
 
 async function handle<T>(resp: Response): Promise<ApiResult<T>> {
@@ -55,12 +55,12 @@ export async function fetchRepoTree(
 
 export async function fetchWorkflowTemplates(
   url: string = "/workflow-templates",
-): Promise<ApiResult<WorkflowTemplateCatalog>> {
+): Promise<ApiResult<WorkflowTemplateListResponse>> {
   const resp = await fetch(url, {
     credentials: "same-origin",
     headers: { Accept: "application/json" },
   });
-  return handle<WorkflowTemplateCatalog>(resp);
+  return handle<WorkflowTemplateListResponse>(resp);
 }
 
 export interface GenerationSpec {

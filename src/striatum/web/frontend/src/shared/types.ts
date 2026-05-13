@@ -74,31 +74,27 @@ export interface TreeBrowserProps {
 // Workflow chooser wizard island
 // ---------------------------------------------------------------------------
 
-export interface WorkflowShape {
-  id: string;
-  label: string;
+/**
+ * One row of the workflow template catalog, mirroring
+ * `striatum.workflow_generator.catalog.list_templates()` output.
+ *
+ * The server returns shapes and lane sets in a single flat array; consumers
+ * partition by `kind`. V1.5 dropped the `{shapes, lane_sets, modifiers}`
+ * wrapper that never existed on the server (RFC 0038 V1.5 F2).
+ */
+export interface WorkflowTemplate {
+  template_id: string;
+  kind: "shape" | "lane_set";
+  display_name: string;
   summary: string;
-  recommended_for: string;
-  default_lane_sets: string[];
-  modifiers?: string[];
+  recommended_for: string | string[];
+  default_lane_sets?: string[];
+  required_options?: string[];
+  graph_preview?: unknown;
 }
 
-export interface WorkflowLaneSet {
-  id: string;
-  label: string;
-  summary: string;
-  recommended_for: string;
-}
-
-export interface WorkflowTemplateCatalog {
-  shapes: WorkflowShape[];
-  lane_sets: WorkflowLaneSet[];
-  modifiers?: Array<{
-    id: string;
-    label: string;
-    summary: string;
-    incompatible_with?: string[];
-  }>;
+export interface WorkflowTemplateListResponse {
+  templates: WorkflowTemplate[];
 }
 
 export interface GeneratedWorkflowFile {

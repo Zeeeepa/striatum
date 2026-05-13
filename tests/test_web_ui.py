@@ -359,6 +359,44 @@ def test_assets_resolvable_via_importlib_resources() -> None:
         assert len(asset.read_bytes()) > 0
 
 
+# RFC 0038 V1.5 F1 — placeholder bundles must never reach the package.
+# `make ui-check-bundle` already greps the working tree, but installed
+# wheels must also be free of the V1 placeholder so the sentinel cannot
+# pass through `pip install`.
+_PLACEHOLDER_SENTINEL = "Striatum frontend island placeholder loaded"
+_STABLE_ISLAND_ENTRIES = (
+    "build/island-shared.js",
+    "build/island-tree-browser.js",
+    "build/island-workflow-chooser.js",
+    "build/island-workflow-graph-editor.js",
+    "build/island-code-viewer.js",
+)
+
+
+def test_island_bundles_have_no_placeholder_sentinel() -> None:
+    from importlib.resources import files
+
+    pkg = files("striatum.web.static")
+    for name in _STABLE_ISLAND_ENTRIES:
+        body = pkg.joinpath(name).read_text(encoding="utf-8", errors="ignore")
+        assert _PLACEHOLDER_SENTINEL not in body, (
+            f"{name} still contains the V1 placeholder sentinel; "
+            "rebuild with `make ui-build` (RFC 0038 V1.5 F1)."
+        )
+
+
+def test_island_workflow_chooser_bundle_resolvable_for_chooser_route() -> None:
+    """RFC 0038 V1.5 F4 — packaging tests assert the chooser bundle is
+    available through importlib.resources. The named-resource lookup
+    mirrors what `service._serve_static_file` does in production."""
+    from importlib.resources import files
+
+    pkg = files("striatum.web.static")
+    chooser = pkg.joinpath("build/island-workflow-chooser.js")
+    assert chooser.is_file()
+    assert len(chooser.read_bytes()) > 0
+
+
 # ----- 8. /v1/* endpoints still work when --web is set ------------------
 
 

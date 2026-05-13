@@ -203,6 +203,26 @@ def test_workflows_new_renders_chooser_island(tmp_path: Path) -> None:
         _stop_service(proc)
 
 
+def test_workflows_edit_renders_graph_editor_island(tmp_path: Path) -> None:
+    """RFC 0038 V1.5 regression — `/workflows/edit/<path>` ships the graph
+    editor island bundle. Pins the bundle URL so packaging and template
+    surface stay aligned with `/static/build/`."""
+    _git_init_repo(tmp_path)
+    _striatum_init(tmp_path)
+    (tmp_path / "examples").mkdir()
+    (tmp_path / "examples" / "workflow.json").write_text(
+        json.dumps(_VALID_WORKFLOW), encoding="utf-8",
+    )
+    proc, port = _spawn_service(tmp_path, "--web")
+    try:
+        status, _, body = _http_get_raw(port, "/workflows/edit/examples/workflow.json")
+        assert status == 200
+        assert b'id="island-workflow-graph-editor"' in body
+        assert b"/static/build/island-workflow-graph-editor.js" in body
+    finally:
+        _stop_service(proc)
+
+
 def test_workflows_index_empty_state(tmp_path: Path) -> None:
     _git_init_repo(tmp_path)
     _striatum_init(tmp_path)

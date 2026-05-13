@@ -80,6 +80,7 @@ so external references keep resolving even as items move between sections.
 | F43 | RFC 0042 draft repo-local state to Postgres (dogfood-042 Track C) | ✅ done |
 | F44 | RFC 0045 V1 multi-phase workflow schema + React Flow editor (dogfood-043) | ✅ done |
 | F45 | RFC 0040 V1.5 daemon-dispatch + composite tools + watcher (dogfood-044) | ✅ done |
+| F46 | RFC 0038 V1.5 web UI integration gaps (F1-F4 + supply-chain, dogfood-045) | ✅ done |
 
 Legend: ✅ done · 🟡 most done (sub-tasks remain) · ⏳ open
 
@@ -264,25 +265,50 @@ Legend: ✅ done · 🟡 most done (sub-tasks remain) · ⏳ open
     refuse-by-default validator rule (TODO item 26) remains the
     deferred half.
 
-21. **RFC 0038 V1.5 follow-up.** Codex attempt-2 findings (F1-F4)
+21. ~~**RFC 0038 V1.5 follow-up.** Codex attempt-2 findings (F1-F4)
     from dogfood-041 build review iteration 2 + gemini attempt-1
     findings, deferred by cycle-exhaustion override (decision
-    `dec_251e8a5f3d674c409de0dad9eacd5844`): (F1) committed island
-    bundles are placeholder-only assets — `placeholderIslandPlugin`
-    still in `vite.config.ts` masks missing real builds. (F2)
-    `/workflows/new` chooser uses an incompatible catalog and
-    generation API contract: server returns `{"templates": ...}`,
-    React component expects different field shape. (F3) Global
-    `island-shared.js` entry will double-mount islands after a real
-    build because `vite.config.ts` maps `island-shared` to
-    `src/main.ts`. (F4) Vite output semantics conflict with the
-    package-data layout. Plus gemini attempt-1 supply-chain hygiene
-    findings (lockfile + npm audit baseline + dependency tree
-    review). Plus claude attempt-2 medium-severity ergonomics polish.
-    Land via a future dogfood, ideally with the codex/claude split-
-    implementer pattern PLUS an explicit integration handshake (shared
-    prop-contract schema, both implementers cite + validate before
-    publish).
+    `dec_251e8a5f3d674c409de0dad9eacd5844`).~~ ✅ Done: shipped under
+    dogfood-045 (v1.34.0). (F1) `placeholderIslandPlugin` removed from
+    `vite.config.ts`; new `make ui-verify-bundle` + Python sentinel
+    test refuse placeholder bundles. (F2) `/workflows/new` chooser
+    rewritten around the server-stable `{"templates": [...]}` shape;
+    `types.ts` / `api-client.ts` / `WorkflowChooser.tsx` realigned;
+    modifier step removed. (F3) New
+    `src/striatum/web/frontend/src/shared/island-shared-entry.ts`
+    non-mounting entry is now the Rollup input for `island-shared`;
+    vitest regression `island-shared-no-mount.test.ts` pins the
+    single-mount guarantee. (F4) Vite output semantics aligned with
+    package-data layout (`manifest: false`; sub-package entry already
+    matches). Supply-chain hygiene: `npm ci` in `ui-install`,
+    `ui-update-lock`, `ui-audit`, `npm-audit-baseline.json` committed.
+    Implementer was **claude** (not codex) — first dogfood deliberately
+    avoiding the codex/codex anti-pattern after 4 instances (D095-D098).
+    Codex reviewer still came back harsh (`reject` critical,
+    threat_model); cross-lane majority disagreed (claude
+    `accept_with_findings` medium, gemini `accept` low); D099
+    (`dec_ccfa1685878d41d69ccc6496cd6612fd`) overrode the codex reject.
+    Codex critical findings (placeholder bundles still committed
+    pending operator `make ui-update-lock` + `make ui-build`; supply-chain
+    polish items) absorbed into RFC 0038 V1.6 follow-up (item 29 below).
+
+29. **RFC 0038 V1.6 follow-up.** Codex reject-override deltas from
+    dogfood-045 build review (decision `dec_ccfa1685878d41d69ccc6496cd6612fd`,
+    D099): (a) committed bundles under `src/striatum/web/static/build/`
+    are still the V1 placeholders pending operator-side
+    `make ui-update-lock` + `make ui-build` + lockfile/bundle commit
+    (HANDOFF.md Deviation: real-bundle commit); (b) move
+    `@vitejs/plugin-react` to `devDependencies` during the same
+    lockfile regeneration; (c) verify build verification gates
+    (`make lint` / `make typecheck` / `make test` / `make ui-test`)
+    pass against real output. Cross-lane majority accepted the source-side
+    fixes; codex `reject critical` (threat_model posture) overridden because
+    the missing real-bundle step is an operator-side mechanical follow-up
+    explicitly documented in the HANDOFF, not an architectural defect. Land
+    the real-bundle commit + supply-chain polish via a near-term operator
+    sweep rather than a full dogfood cycle. This is the first reject-severity
+    override (D099) on the books — prior cycle-exhaustion overrides
+    (D095/D096/D097/D098) all overrode `needs_revision`.
 
 22. **Implement RFC 0043 V1 (Postgres as Sole Substrate, daemon-required).**
     Per D094 (accepted; supersedes D006/D007/D036 and SQLite half of D009).

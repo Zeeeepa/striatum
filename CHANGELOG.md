@@ -1,5 +1,120 @@
 # Changelog
 
+## v1.34.0 — 2026-05-13
+
+### Added
+
+- RFC 0038 V1.5 — web UI integration gaps landed under dogfood-045.
+  (F1) `placeholderIslandPlugin` removed from
+  `src/striatum/web/frontend/vite.config.ts`; `plugins` is now
+  `[react()]`. `manifest` flipped to `false` so the build no longer
+  emits `.vite/manifest.json`; the existing `manifest.sha256` remains
+  the single committed manifest. A new `make ui-verify-bundle` target
+  rejects (a) any stable island entry whose body contains the V1
+  sentinel `Striatum frontend island placeholder loaded`, (b) any
+  `island-shared-*.js` chunk containing the same sentinel, and
+  (c) any stable island entry under 1024 bytes (unless a sibling
+  `island-shared-*.js` chunk ≥ 1024 bytes covers the legitimate
+  factored-chunk case). `make ui-check-bundle` now depends on both
+  `ui-build` and `ui-verify-bundle`. Python sentinel guard
+  `tests/test_web_ui.py::test_island_bundles_have_no_placeholder_sentinel`
+  reads each stable island bundle through `importlib.resources` and
+  asserts the sentinel is absent so the guard survives `pip install`.
+  (F2) `/workflows/new` chooser prop-contract fix: the
+  `/workflow-templates` route is unchanged (it already returns
+  `{"ok": true, "data": {"templates": list_templates(kind=kind)}}`);
+  `src/striatum/web/frontend/src/shared/types.ts` adds
+  `WorkflowTemplate` + `WorkflowTemplateListResponse` mirroring the
+  server fields and removes the dead `WorkflowShape` /
+  `WorkflowLaneSet` / `WorkflowTemplateCatalog` types.
+  `WorkflowChooser.tsx` reads `res.data.templates`, partitions by
+  `kind`, derives `shape` from the picked `kind: "shape"` row's
+  `template_id`, pre-fills `lane_set` from the first overlapping
+  `default_lane_sets` entry, and drops the V1 modifier UI (the server
+  never returned `catalog.modifiers`). Wizard is now four steps:
+  Template → Details → Preview → Save. `__testing` exports `buildSpec`
+  + `recommendedForText`; the V1 `isModifierEnabled` export is gone.
+  (F3) Island-shared double-mount fix: new
+  `src/striatum/web/frontend/src/shared/island-shared-entry.ts`
+  (`import "./theme.css"; export {};`) is the new Rollup input for the
+  `island-shared` bundle. `src/main.ts` still exists for the Vite dev
+  server (`make ui-dev`) but is no longer a production Rollup input,
+  so it cannot mount islands twice. Vitest regression
+  `src/striatum/web/frontend/src/__tests__/island-shared-no-mount.test.ts`
+  mocks `react-dom/client.createRoot`, imports the shared entry plus
+  the chooser entry into a JSDOM page with only
+  `#island-workflow-chooser`, and asserts `createRoot` is called
+  exactly once. (F4) Vite output semantics aligned with the
+  package-data layout: output stays at `src/striatum/web/static/build/`,
+  public URLs unchanged, and `pyproject.toml`
+  `[tool.setuptools.package-data]` already matches the `manifest: false`
+  layout (`"striatum.web.static" = [..., "build/*.js", "build/*.css",
+  "build/*.sha256"]` + explicit `"striatum.web.static.build" = ["*.js",
+  "*.css", "*.sha256"]` sub-package entry). New
+  `tests/test_web_workflows.py::test_workflows_edit_renders_graph_editor_island`
+  pins `/workflows/edit/<path>`. Supply-chain hygiene: `ui-install`
+  now uses `npm ci` (lockfile-reproducible installs); new
+  `ui-update-lock` for intentional dependency bumps; new `ui-audit`
+  runs `npm audit --audit-level=high`;
+  `src/striatum/web/frontend/npm-audit-baseline.json` ships as the
+  accepted-findings tracker.
+  Files: `Makefile`, `src/striatum/web/frontend/vite.config.ts`,
+  `src/striatum/web/frontend/src/shared/api-client.ts`,
+  `src/striatum/web/frontend/src/shared/types.ts`,
+  `src/striatum/web/frontend/src/shared/island-shared-entry.ts` (new),
+  `src/striatum/web/frontend/src/islands/workflow-chooser/WorkflowChooser.tsx`,
+  `src/striatum/web/frontend/src/__tests__/workflow-chooser.test.ts`,
+  `src/striatum/web/frontend/src/__tests__/workflow-chooser-fetch.test.tsx` (new),
+  `src/striatum/web/frontend/src/__tests__/island-shared-no-mount.test.ts` (new),
+  `src/striatum/web/frontend/npm-audit-baseline.json` (new),
+  `tests/test_web_ui.py`, `tests/test_web_workflows.py`. Implementer
+  was **claude** (TypeScript/Vite work), the first dogfood deliberately
+  not using codex as implementer to avoid the codex/codex anti-pattern
+  (precedents D095-D098). Real-bundle commit and `make` verification
+  remain operator-side follow-up — the new sentinel/size guard + Python
+  resource test refuse another placeholder commit from reaching CI.
+
+### Decided
+
+- D099: Reject override for the dogfood-045 build review
+  (`dec_ccfa1685878d41d69ccc6496cd6612fd`, `accepted_with_follow_up`).
+  Codex `review_build_codex` returned `reject severity=critical` under
+  the threat_model posture; cross-lane consensus disagreed (claude
+  `accept_with_findings` medium, gemini `accept` low). Codex critical
+  rests on (a) committed bundles still being V1 placeholders pending
+  operator-side rebuild, (b) build verification gates not executed in
+  the implementer run, and (c) source-side mitigations being unproven
+  against real output. The HANDOFF explicitly documents the
+  real-bundle commit as an operator follow-up and the new sentinel
+  guard refuses to ship another placeholder commit, so the
+  cross-lane 2-of-3 majority overrides. Codex findings absorbed into
+  RFC 0038 V1.6 follow-up (TODO item 29). First dogfood with a
+  codex-reviewer-of-claude-implementer pattern (not codex/codex);
+  the harsh codex verdict suggests codex-as-reviewer baseline
+  conservatism is independent of the codex/codex convergent
+  blind-spot anti-pattern. Recovery path on this run was non-trivial:
+  the codex reject pushed the run state to `failed`, requiring SQL
+  surgery + `striatum verdict --override` to recover.
+
+### Notes
+
+- Dogfood-045 ran the 9-job single-track workflow for RFC 0038 V1.5
+  (F1-F4 + supply-chain hygiene findings from dogfood-041 deferred
+  under cycle-exhaustion override
+  `dec_251e8a5f3d674c409de0dad9eacd5844`). Like dogfood-044, the
+  `consolidate` job was not in the workflow; the operator authored
+  this changelog entry, `docs/rfcs/README.md` status update,
+  `docs/TODO.md` follow-ups, `docs/dogfood/045/BUILD_HANDOFF.md`, and
+  `docs/dogfood/045/PHASE_1_OPERATOR_NOTES.md` out-of-band.
+- The codex review verdict surfaced an operator-facing harness gap:
+  a reviewer `reject` verdict transitions the run state to `failed`
+  before the operator can decide whether to override. Recovery here
+  required SQL surgery on the verdict + run state followed by
+  `striatum verdict --override` (the override-accepting verdict path
+  landed in v1.32.x). A future RFC could plumb an explicit
+  "operator-pending" run state distinct from `failed` so verdicts
+  awaiting override do not require manual SQL recovery.
+
 ## v1.33.0 — 2026-05-13
 
 ### Added

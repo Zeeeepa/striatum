@@ -1,0 +1,5 @@
+{
+  "schema_version": "striatum.npm-audit-baseline.v1",
+  "rationale": "Tracks accepted high/critical npm-audit findings for src/striatum/web/frontend. Empty when `make ui-audit` is clean. Each accepted finding records package, advisory id, severity, reason, and review_date so the cadence trigger (any package.json or package-lock.json change, plus every RFC that adds a browser dependency) has a written audit trail.",
+  "accepted_findings": []
+}

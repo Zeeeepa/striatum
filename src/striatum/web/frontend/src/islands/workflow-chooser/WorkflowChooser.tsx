@@ -1,17 +1,23 @@
 /**
- * RFC 0038 V1 — `/workflows/new` chooser wizard island.
+ * RFC 0038 V1.5 — `/workflows/new` chooser wizard island.
  *
- * Fetches the workflow template catalog from `templatesUrl` (default
- * `/workflow-templates`) on mount, then walks the operator through six
- * steps: shape → lane set → lane modifiers → required details →
- * preview (`POST` to `previewUrl`) → confirm + save (`POST` to
- * `generateUrl` with `confirm_write: true`).
+ * V1.5 consumes the flat `{ templates: WorkflowTemplate[] }` response that
+ * the server's `/workflow-templates` route has always emitted (see
+ * `service._handle_workflow_templates` → `catalog.list_templates`). The
+ * V1 component expected a `{ shapes, lane_sets, modifiers }` envelope that
+ * never existed; that mismatch left the chooser stuck on the loading state
+ * in production.
  *
- * Each step's Next button is disabled until required selections are made.
- * Editing any field on steps 1–4 after visiting step 5 invalidates the
- * preview and forces a fresh preview request when step 5 is re-entered.
- * The save step always runs through a `<dialog>`-driven operator
- * confirmation.
+ * The wizard walks the operator through four steps:
+ *   1. Template — pick a `kind: "shape"` row, which derives the workflow
+ *      `shape` and the candidate `default_lane_sets`.
+ *   2. Details — workflow_id, name, scaffold_root, artifact_root,
+ *      branch_suggestion, lane_set.
+ *   3. Preview — POST `previewUrl` and render `GeneratedWorkflow.files`.
+ *   4. Save — confirm + POST `generateUrl` with `confirm_write: true`.
+ *
+ * Editing any field after visiting the preview step invalidates the
+ * preview; the save step always runs through a `<dialog>` confirmation.
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -24,15 +30,12 @@ import {
 import type {
   GeneratedWorkflow,
   WorkflowChooserProps,
-  WorkflowLaneSet,
-  WorkflowShape,
-  WorkflowTemplateCatalog,
+  WorkflowTemplate,
 } from "../../shared/types";
 
 interface FormState {
   shape: string;
   laneSet: string;
-  modifiers: string[];
   workflowId: string;
   name: string;
   scaffoldRoot: string;
@@ -50,25 +53,15 @@ interface PreviewState {
 
 interface CatalogState {
   status: "idle" | "loading" | "ready" | "error";
-  catalog?: WorkflowTemplateCatalog;
+  templates?: WorkflowTemplate[];
   error?: string;
 }
 
-const STEP_LABELS = [
-  "Shape",
-  "Lane set",
-  "Modifiers",
-  "Details",
-  "Preview",
-  "Save",
-];
+const STEP_LABELS = ["Template", "Details", "Preview", "Save"];
 
-function isModifierEnabled(
-  mod: { id: string; incompatible_with?: string[] },
-  selected: string[],
-): boolean {
-  if (!mod.incompatible_with) return true;
-  return mod.incompatible_with.every((id) => !selected.includes(id));
+function recommendedForText(value: string | string[] | undefined): string {
+  if (!value) return "";
+  return Array.isArray(value) ? value.join("; ") : value;
 }
 
 function buildSpec(form: FormState): GenerationSpec {
@@ -83,7 +76,7 @@ function buildSpec(form: FormState): GenerationSpec {
   return {
     shape: form.shape,
     lane_set: form.laneSet,
-    modifiers: form.modifiers,
+    modifiers: [],
     workflow_id: form.workflowId,
     name: form.name || form.workflowId,
     scaffold_root: form.scaffoldRoot,
@@ -99,7 +92,6 @@ export default function WorkflowChooser(props: WorkflowChooserProps) {
   const [form, setForm] = useState<FormState>({
     shape: "",
     laneSet: "",
-    modifiers: [],
     workflowId: "",
     name: "",
     scaffoldRoot: props.defaultScaffoldRoot ?? "docs/dogfood/<id>/",
@@ -121,31 +113,31 @@ export default function WorkflowChooser(props: WorkflowChooserProps) {
         setCatalogState({ status: "error", error: res.error.message });
         return;
       }
-      setCatalogState({ status: "ready", catalog: res.data });
+      setCatalogState({ status: "ready", templates: res.data.templates });
     });
   }, [props.templatesUrl]);
 
-  const catalog = catalogState.catalog;
-
-  const selectedShape: WorkflowShape | null = useMemo(
-    () =>
-      catalog ? catalog.shapes.find((s) => s.id === form.shape) ?? null : null,
-    [catalog, form.shape],
+  const templates = catalogState.templates ?? [];
+  const shapes = useMemo(
+    () => templates.filter((t) => t.kind === "shape"),
+    [templates],
+  );
+  const laneSets = useMemo(
+    () => templates.filter((t) => t.kind === "lane_set"),
+    [templates],
   );
 
-  const filteredLaneSets: WorkflowLaneSet[] = useMemo(() => {
-    if (!catalog) return [];
-    if (!selectedShape) return catalog.lane_sets;
-    if (
-      !selectedShape.default_lane_sets ||
-      selectedShape.default_lane_sets.length === 0
-    ) {
-      return catalog.lane_sets;
-    }
-    return catalog.lane_sets.filter((ls) =>
-      selectedShape.default_lane_sets.includes(ls.id),
-    );
-  }, [catalog, selectedShape]);
+  const selectedShape: WorkflowTemplate | null = useMemo(
+    () => shapes.find((s) => s.template_id === form.shape) ?? null,
+    [shapes, form.shape],
+  );
+
+  const filteredLaneSets: WorkflowTemplate[] = useMemo(() => {
+    if (!selectedShape) return laneSets;
+    const ids = selectedShape.default_lane_sets ?? [];
+    if (ids.length === 0) return laneSets;
+    return laneSets.filter((ls) => ids.includes(ls.template_id));
+  }, [laneSets, selectedShape]);
 
   const updateForm = (patch: Partial<FormState>) => {
     setForm((prev) => ({ ...prev, ...patch }));
@@ -159,16 +151,13 @@ export default function WorkflowChooser(props: WorkflowChooserProps) {
       case 0:
         return Boolean(form.shape);
       case 1:
-        return Boolean(form.laneSet);
-      case 2:
-        return true;
-      case 3:
         return (
+          Boolean(form.laneSet) &&
           Boolean(form.workflowId.trim()) &&
           Boolean(form.scaffoldRoot.trim()) &&
           Boolean(form.artifactRoot.trim())
         );
-      case 4:
+      case 2:
         return preview.status === "ready";
       default:
         return false;
@@ -176,7 +165,7 @@ export default function WorkflowChooser(props: WorkflowChooserProps) {
   }, [step, form, preview.status]);
 
   useEffect(() => {
-    if (step !== 4) return;
+    if (step !== 2) return;
     if (preview.status === "ready" || preview.status === "loading") return;
     setPreview({ status: "loading" });
     void generateWorkflowPreview(buildSpec(form), props.previewUrl).then((res) => {
@@ -226,7 +215,7 @@ export default function WorkflowChooser(props: WorkflowChooserProps) {
       </div>
     );
   }
-  if (catalogState.status === "error" || !catalog) {
+  if (catalogState.status === "error") {
     return (
       <div className="island-root chooser">
         <div className="island-error" role="alert">
@@ -236,98 +225,65 @@ export default function WorkflowChooser(props: WorkflowChooserProps) {
       </div>
     );
   }
-
-  const renderShapeStep = () => (
-    <div role="radiogroup" aria-label="Workflow shape" className="chooser-cards">
-      {catalog.shapes.map((shape) => (
-        <button
-          type="button"
-          role="radio"
-          aria-checked={form.shape === shape.id}
-          key={shape.id}
-          className="chooser-card"
-          onClick={() => updateForm({ shape: shape.id, laneSet: "" })}
-        >
-          <h3>{shape.label}</h3>
-          <div className="summary">{shape.summary}</div>
-          <div className="recommended-for">Use it for: {shape.recommended_for}</div>
-        </button>
-      ))}
-    </div>
-  );
-
-  const renderLaneSetStep = () => (
-    <div role="radiogroup" aria-label="Lane set" className="chooser-cards">
-      {filteredLaneSets.map((ls) => (
-        <button
-          type="button"
-          role="radio"
-          aria-checked={form.laneSet === ls.id}
-          key={ls.id}
-          className="chooser-card"
-          onClick={() => updateForm({ laneSet: ls.id })}
-        >
-          <h3>{ls.label}</h3>
-          <div className="summary">{ls.summary}</div>
-          <div className="recommended-for">Use it for: {ls.recommended_for}</div>
-        </button>
-      ))}
-      {filteredLaneSets.length === 0 && (
-        <div className="island-loading">
-          No lane sets are recommended for this shape.
-        </div>
-      )}
-    </div>
-  );
-
-  const renderModifierStep = () => {
-    const mods = catalog.modifiers ?? [];
-    if (mods.length === 0) {
-      return (
-        <div className="island-loading">
-          No optional modifiers exist for this catalog version.
-        </div>
-      );
-    }
+  if (shapes.length === 0) {
     return (
-      <ul className="chooser-cards" role="group" aria-label="Lane modifiers">
-        {mods.map((mod) => {
-          const enabled = isModifierEnabled(mod, form.modifiers);
-          const checked = form.modifiers.includes(mod.id);
-          return (
-            <li key={mod.id} style={{ listStyle: "none" }}>
-              <button
-                type="button"
-                aria-checked={checked}
-                aria-disabled={!enabled}
-                role="checkbox"
-                className="chooser-card"
-                onClick={() => {
-                  if (!enabled) return;
-                  updateForm({
-                    modifiers: checked
-                      ? form.modifiers.filter((m) => m !== mod.id)
-                      : [...form.modifiers, mod.id],
-                  });
-                }}
-              >
-                <h3>{mod.label}</h3>
-                <div className="summary">{mod.summary}</div>
-                {!enabled && (
-                  <div className="recommended-for">
-                    Incompatible with current modifier selection.
-                  </div>
-                )}
-              </button>
-            </li>
-          );
-        })}
-      </ul>
+      <div className="island-root chooser">
+        <div className="island-error" role="alert">
+          The workflow template catalog returned no shapes.
+        </div>
+      </div>
     );
-  };
+  }
+
+  const renderTemplateStep = () => (
+    <div role="radiogroup" aria-label="Workflow template" className="chooser-cards">
+      {shapes.map((shape) => (
+        <button
+          type="button"
+          role="radio"
+          aria-checked={form.shape === shape.template_id}
+          key={shape.template_id}
+          className="chooser-card"
+          onClick={() => {
+            const firstLaneSet =
+              (shape.default_lane_sets ?? []).find((id) =>
+                laneSets.some((ls) => ls.template_id === id),
+              ) ?? "";
+            updateForm({ shape: shape.template_id, laneSet: firstLaneSet });
+          }}
+        >
+          <h3>{shape.display_name}</h3>
+          <div className="summary">{shape.summary}</div>
+          <div className="recommended-for">
+            Use it for: {recommendedForText(shape.recommended_for)}
+          </div>
+        </button>
+      ))}
+    </div>
+  );
 
   const renderDetailsStep = () => (
     <div className="chooser-fields">
+      <label htmlFor="chooser-lane-set">lane_set</label>
+      <select
+        id="chooser-lane-set"
+        value={form.laneSet}
+        onChange={(e) => updateForm({ laneSet: e.target.value })}
+      >
+        <option value="" disabled>
+          — select a lane set —
+        </option>
+        {filteredLaneSets.map((ls) => (
+          <option key={ls.template_id} value={ls.template_id}>
+            {ls.display_name}
+          </option>
+        ))}
+      </select>
+      {filteredLaneSets.length === 0 && (
+        <div className="island-loading">
+          No lane sets are recommended for this template.
+        </div>
+      )}
       <label htmlFor="chooser-workflow-id">workflow_id</label>
       <input
         id="chooser-workflow-id"
@@ -421,12 +377,10 @@ export default function WorkflowChooser(props: WorkflowChooserProps) {
           </li>
         ))}
       </ol>
-      {step === 0 && renderShapeStep()}
-      {step === 1 && renderLaneSetStep()}
-      {step === 2 && renderModifierStep()}
-      {step === 3 && renderDetailsStep()}
-      {step === 4 && renderPreviewStep()}
-      {step === 5 && (
+      {step === 0 && renderTemplateStep()}
+      {step === 1 && renderDetailsStep()}
+      {step === 2 && renderPreviewStep()}
+      {step === 3 && (
         <div className="chooser-preview">
           <p>
             Confirm to call <code>POST /workflows/generate</code> with{" "}
@@ -459,7 +413,7 @@ export default function WorkflowChooser(props: WorkflowChooserProps) {
         >
           Back
         </button>
-        {step < 5 && (
+        {step < 3 && (
           <button
             type="button"
             className="primary-button"
@@ -469,7 +423,7 @@ export default function WorkflowChooser(props: WorkflowChooserProps) {
             Next
           </button>
         )}
-        {step === 5 && (
+        {step === 3 && (
           <button
             type="button"
             className="primary-button"
@@ -508,4 +462,4 @@ export default function WorkflowChooser(props: WorkflowChooserProps) {
   );
 }
 
-export const __testing = { buildSpec, isModifierEnabled };
+export const __testing = { buildSpec, recommendedForText };

@@ -1,14 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { __testing } from "../islands/workflow-chooser";
 
-const { buildSpec, isModifierEnabled } = __testing;
+const { buildSpec, recommendedForText } = __testing;
 
 describe("workflow-chooser.buildSpec", () => {
   it("trims lane commands and drops empty entries", () => {
     const spec = buildSpec({
       shape: "review",
       laneSet: "single_agent",
-      modifiers: [],
       workflowId: "demo",
       name: "",
       scaffoldRoot: "docs/demo",
@@ -30,7 +29,6 @@ describe("workflow-chooser.buildSpec", () => {
     const spec = buildSpec({
       shape: "review",
       laneSet: "single_agent",
-      modifiers: [],
       workflowId: "demo",
       name: "",
       scaffoldRoot: "docs/demo",
@@ -45,7 +43,6 @@ describe("workflow-chooser.buildSpec", () => {
     const spec = buildSpec({
       shape: "review",
       laneSet: "single_agent",
-      modifiers: [],
       workflowId: "demo",
       name: "Demo",
       scaffoldRoot: "docs/demo",
@@ -55,24 +52,35 @@ describe("workflow-chooser.buildSpec", () => {
     });
     expect(spec.branch_suggestion).toBeUndefined();
   });
+
+  it("sends an empty modifiers array regardless of input", () => {
+    const spec = buildSpec({
+      shape: "review",
+      laneSet: "single_agent",
+      workflowId: "demo",
+      name: "",
+      scaffoldRoot: "docs/demo",
+      artifactRoot: "docs/demo",
+      branchSuggestion: "",
+      laneCommands: {},
+    });
+    expect(spec.modifiers).toEqual([]);
+  });
 });
 
-describe("workflow-chooser.isModifierEnabled", () => {
-  it("disables a modifier when an incompatible peer is selected", () => {
-    const ok = isModifierEnabled(
-      { id: "human_checkpoint", incompatible_with: ["autonomous"] },
-      ["other"],
-    );
-    expect(ok).toBe(true);
-
-    const blocked = isModifierEnabled(
-      { id: "human_checkpoint", incompatible_with: ["autonomous"] },
-      ["autonomous"],
-    );
-    expect(blocked).toBe(false);
+describe("workflow-chooser.recommendedForText", () => {
+  it("joins array recommended_for entries with semicolons", () => {
+    expect(recommendedForText(["a", "b"]).split(";").map((s) => s.trim())).toEqual([
+      "a",
+      "b",
+    ]);
   });
 
-  it("treats modifiers without incompatibility lists as always enabled", () => {
-    expect(isModifierEnabled({ id: "evidence_audit" }, ["anything"])).toBe(true);
+  it("passes through string recommended_for unchanged", () => {
+    expect(recommendedForText("plain")).toBe("plain");
+  });
+
+  it("returns empty string for undefined", () => {
+    expect(recommendedForText(undefined)).toBe("");
   });
 });
