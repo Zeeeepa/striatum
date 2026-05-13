@@ -170,24 +170,50 @@ def build_parser() -> argparse.ArgumentParser:
             "migrate one repo-local .striatum/state.sqlite3 into daemon "
             "PostgreSQL state"
         ),
+        description=(
+            "Migrate a repo's local SQLite workflow state into the "
+            "daemon's PostgreSQL substrate. Runs in a single serializable "
+            "Postgres transaction with byte-equivalent audit-chain "
+            "re-anchor. After commit the source is finalized as a 0444 "
+            "tombstone (default) or deleted (with --no-keep-sqlite-readonly "
+            "+ --confirm-delete)."
+        ),
     )
     daemon_migrate_repo.add_argument(
-        "--from", dest="from_substrate", choices=["sqlite"], required=True
+        "--from",
+        dest="from_substrate",
+        choices=["sqlite"],
+        required=True,
+        help="source substrate; only 'sqlite' is supported in V1.6",
     )
     daemon_migrate_repo.add_argument(
-        "--to", dest="to_substrate", choices=["pg"], required=True
+        "--to",
+        dest="to_substrate",
+        choices=["pg"],
+        required=True,
+        help="destination substrate; only 'pg' is supported in V1.6",
     )
     daemon_migrate_repo.add_argument(
-        "--repo", dest="repo_local_repo", default=None
+        "--repo",
+        dest="repo_local_repo",
+        default=None,
+        help="path to the target repo's working tree; defaults to the top-level --repo",
     )
-    daemon_migrate_repo.add_argument("--postgres-url")
-    daemon_migrate_repo.add_argument("--dry-run", action="store_true")
+    daemon_migrate_repo.add_argument(
+        "--postgres-url",
+        help="override STRIATUM_DAEMON_DB_URL for this migration only",
+    )
+    daemon_migrate_repo.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="report what would be migrated without writing to Postgres or finalizing SQLite",
+    )
     daemon_migrate_repo.add_argument(
         "--keep-sqlite-readonly",
         dest="keep_sqlite_readonly",
         action="store_true",
         default=True,
-        help="rename state.sqlite3 to state.sqlite3.tombstone and chmod it 0444",
+        help="rename state.sqlite3 to state.sqlite3.tombstone and chmod it 0444 (default)",
     )
     daemon_migrate_repo.add_argument(
         "--no-keep-sqlite-readonly",
@@ -195,8 +221,16 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_false",
         help="delete state.sqlite3 after migration; requires --confirm-delete",
     )
-    daemon_migrate_repo.add_argument("--confirm-delete", action="store_true")
-    daemon_migrate_repo.add_argument("--json", action="store_true")
+    daemon_migrate_repo.add_argument(
+        "--confirm-delete",
+        action="store_true",
+        help="acknowledgement required when --no-keep-sqlite-readonly is used",
+    )
+    daemon_migrate_repo.add_argument(
+        "--json",
+        action="store_true",
+        help="emit machine-readable JSON output to stdout instead of text",
+    )
     daemon_status = daemon_sub.add_parser("status")
     daemon_status.add_argument("--json", action="store_true")
     daemon_stop = daemon_sub.add_parser("stop")

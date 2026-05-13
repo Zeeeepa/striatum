@@ -81,9 +81,28 @@ def connect(repo: Path) -> sqlite3.Connection:
     :func:`striatum.migrations.apply_migrations` on every connect, so upgrades
     are silent and automatic. Connecting to a database whose schema is newer
     than this install supports raises a clear ``StriatumError``.
+
+    RFC 0043 V1.6 F-split-brain: refuse to create a fresh SQLite when the
+    repo has already been migrated to Postgres (sentinel
+    ``.striatum/state.sqlite3.migrated`` present) but the source file has
+    been finalized. The exit-code-12 ``repo_not_migrated`` refusal text
+    matches the daemon-required path so operators see one consistent
+    remediation.
     """
     target = db_path(repo)
     already_existed = target.exists()
+    if not already_existed:
+        sentinel = repo / ".striatum" / "state.sqlite3.migrated"
+        tombstone = repo / ".striatum" / "state.sqlite3.tombstone"
+        if sentinel.exists() or tombstone.exists():
+            raise StriatumError(
+                f"repo_not_migrated: {repo} was migrated to daemon "
+                f"PostgreSQL state but the fresh SQLite path is being "
+                f"opened; this indicates a split-brain. Run: striatum "
+                f"daemon migrate-repo-local --from sqlite --to pg --repo "
+                f"{repo} (or use the daemon socket directly).",
+                exit_code=12,
+            )
     conn = sqlite3.connect(target)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")

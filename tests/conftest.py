@@ -12,16 +12,20 @@ from _harness.multi_repo import MultiRepoHarness, pg_available_url
 
 @pytest.fixture(autouse=True, scope="session")
 def _legacy_sqlite_fixtures_opt_out() -> Iterator[None]:
-    """RFC 0043 V1.5: daemon-required is the default in production.
+    """RFC 0043 V1.6: daemon-required is the default in production and the
+    bare ``STRIATUM_DAEMON_REQUIRED=0`` opt-out no longer bypasses it.
 
-    The current test suite still has SQLite-backed fixtures that should
-    migrate incrementally rather than by a single disruptive rewrite, so
-    the session-level opt-out keeps them green. Tests that exercise the
-    daemon-required surface directly (`tests/exit_codes/test_rfc0043_refusals.py`)
-    delete or override the env at function scope to assert enforcement.
+    The test harness pairs ``STRIATUM_DAEMON_REQUIRED=0`` with
+    ``STRIATUM_TEST_HARNESS=1`` so legacy SQLite-backed fixtures stay green
+    during the incremental migration. Production callers without the
+    harness marker stay enforced. Tests that exercise the daemon-required
+    surface directly (`tests/exit_codes/test_rfc0043_refusals.py`) clear
+    or override either env var at function scope to assert enforcement.
     """
     previous = os.environ.get("STRIATUM_DAEMON_REQUIRED")
+    previous_harness = os.environ.get("STRIATUM_TEST_HARNESS")
     os.environ["STRIATUM_DAEMON_REQUIRED"] = "0"
+    os.environ["STRIATUM_TEST_HARNESS"] = "1"
     try:
         yield
     finally:
@@ -29,6 +33,10 @@ def _legacy_sqlite_fixtures_opt_out() -> Iterator[None]:
             os.environ.pop("STRIATUM_DAEMON_REQUIRED", None)
         else:
             os.environ["STRIATUM_DAEMON_REQUIRED"] = previous
+        if previous_harness is None:
+            os.environ.pop("STRIATUM_TEST_HARNESS", None)
+        else:
+            os.environ["STRIATUM_TEST_HARNESS"] = previous_harness
 
 
 @pytest.fixture(scope="session")

@@ -7,6 +7,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+
+	"github.com/creack/pty"
 )
 
 // LaunchSpec describes a supervised child process. The fields mirror the
@@ -31,29 +33,27 @@ type LaunchResult struct {
 	Cmd         *exec.Cmd
 }
 
-// Launch starts the supervised child. UsePTY is a placeholder for the
-// creack/pty integration; this minimal path uses os.Pipe + os/exec so the
-// supervisor surface compiles and the FIFO/stdin path is exercised by tests
-// that do not require terminal semantics.
-//
-// The PTY branch is intentionally returning a not-yet-wired sentinel so
-// callers can detect the gap and Track A's CLI integration can probe
-// capability via build tags during the V2.0 PTY landing.
+// Launch starts the supervised child. UsePTY=true allocates a pseudo-tty
+// via creack/pty and threads the master back as the daemon's stdin handle
+// for packet delivery (V1.6 F-pty closure). UsePTY=false uses os.Pipe +
+// os/exec so the FIFO/stdin path is exercised by tests that do not require
+// terminal semantics.
 func Launch(ctx context.Context, scratchDir string, supervisorID string, spec LaunchSpec) (*LaunchResult, error) {
 	if len(spec.Command) == 0 {
 		return nil, fmt.Errorf("supervisor: empty command")
 	}
+
+	if err := ensureFIFO(scratchDir, supervisorID, spec.StdinPipePath); err != nil {
+		return nil, err
+	}
+
 	if spec.UsePTY {
-		return nil, fmt.Errorf("supervisor: PTY launch not yet wired in Go core; set USE_PTY=false or fall back to Python supervisor (RFC 0039 V1.6 follow-up)")
+		return launchPTY(ctx, spec)
 	}
 
 	cmd := exec.CommandContext(ctx, spec.Command[0], spec.Command[1:]...)
 	cmd.Dir = spec.WorkingDir
 	cmd.Env = append(os.Environ(), spec.Env...)
-
-	if err := ensureFIFO(scratchDir, supervisorID, spec.StdinPipePath); err != nil {
-		return nil, err
-	}
 
 	stdinR, stdinW, err := os.Pipe()
 	if err != nil {
@@ -93,7 +93,27 @@ func Launch(ctx context.Context, scratchDir string, supervisorID string, spec La
 // to write progress markers + pidfile.
 func ensureFIFO(scratchDir string, supervisorID string, fifoPath string) error {
 	dir := filepath.Join(scratchDir, supervisorID)
-	return os.MkdirAll(dir, 0o755)
+	return os.MkdirAll(dir, 0o700)
+}
+
+// launchPTY allocates a pseudo-tty via creack/pty (RFC 0039 V1.6 F-pty).
+// pty.Start sets up the child's stdin/stdout/stderr on the slave side and
+// returns the master file we hand back to the daemon as StdinWriter — the
+// daemon writes packets to the master, the child reads them off the slave
+// as ordinary stdin.
+func launchPTY(ctx context.Context, spec LaunchSpec) (*LaunchResult, error) {
+	cmd := exec.CommandContext(ctx, spec.Command[0], spec.Command[1:]...)
+	cmd.Dir = spec.WorkingDir
+	cmd.Env = append(os.Environ(), spec.Env...)
+	ptmx, err := pty.Start(cmd)
+	if err != nil {
+		return nil, fmt.Errorf("supervisor: pty.Start: %w", err)
+	}
+	return &LaunchResult{
+		PID:         cmd.Process.Pid,
+		StdinWriter: ptmx,
+		Cmd:         cmd,
+	}, nil
 }
 
 // openDevNullOr returns the file at path if non-empty, else os.DevNull.
@@ -102,5 +122,5 @@ func openDevNullOr(path string) (*os.File, error) {
 	if target == "" {
 		target = os.DevNull
 	}
-	return os.OpenFile(target, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0o644)
+	return os.OpenFile(target, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0o600)
 }

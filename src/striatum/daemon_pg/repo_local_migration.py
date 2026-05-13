@@ -2,15 +2,18 @@
 
 from __future__ import annotations
 
+import errno
+import fcntl
 import hashlib
 import json
 import os
 import sqlite3
 import uuid
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
 
 from striatum import daemon as daemon_registry
 from striatum.db import db_path, json_dumps, utc_now
@@ -18,6 +21,44 @@ from striatum.daemon_pg.connection import connect
 from striatum.daemon_pg.migrations import apply_migrations
 from striatum.errors import SchemaVersionError, StriatumError
 from striatum.migrations import LATEST_VERSION, current_user_version
+
+
+class MigrationInProgressError(StriatumError):
+    """Raised when migrate-repo-local cannot acquire the exclusive lock."""
+
+    exit_code = 14
+
+
+@contextmanager
+def _exclusive_migrate_lock(repo: Path) -> Iterator[Path]:
+    """RFC 0043 V1.6 F-lock: hold an exclusive flock on a sidecar lock file
+    for the entire migrate-repo-local body. Concurrent migrate invocations
+    against the same repo refuse with exit code 14.
+
+    Sidecar (not the source SQLite itself) so we don't fight SQLite's own
+    locking mode and so the lock survives across renames during
+    finalization.
+    """
+    lock_path = repo / ".striatum" / "state.sqlite3.migrate.lock"
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    fd = os.open(str(lock_path), os.O_RDWR | os.O_CREAT, 0o600)
+    try:
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError as exc:
+            if exc.errno in (errno.EWOULDBLOCK, errno.EACCES, errno.EAGAIN):
+                raise MigrationInProgressError(
+                    f"migrate_in_progress: another striatum daemon "
+                    f"migrate-repo-local is holding {lock_path}; wait for "
+                    f"it to finish or remove the stale lock file."
+                ) from exc
+            raise
+        yield lock_path
+    finally:
+        try:
+            fcntl.flock(fd, fcntl.LOCK_UN)
+        finally:
+            os.close(fd)
 
 
 @dataclass(frozen=True)
@@ -351,6 +392,13 @@ TABLE_BY_NAME = {spec.name: spec for spec in TABLE_SPECS}
 
 def migrate_repo_local(options: RepoLocalMigrationOptions) -> dict[str, Any]:
     repo = options.repo.resolve()
+    with _exclusive_migrate_lock(repo):
+        return _migrate_repo_local_locked(options, repo)
+
+
+def _migrate_repo_local_locked(
+    options: RepoLocalMigrationOptions, repo: Path
+) -> dict[str, Any]:
     source_path = db_path(repo)
     sentinel_path = repo / ".striatum" / "state.sqlite3.migrated"
     _verify_delete_options(options)

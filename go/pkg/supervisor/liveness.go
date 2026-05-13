@@ -5,6 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"runtime"
+	"strconv"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -108,11 +111,11 @@ func (l *Liveness) run(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case now := <-tick.C:
-			alive := processAlive(l.pid)
 			row, err := l.store.GetSupervisorPointer(ctx, l.supervisorID)
 			if err != nil {
 				continue
 			}
+			alive := processAliveAtStartTime(l.pid, row.StartedAt)
 			row.LastHeartbeatAt = now.UTC()
 			if alive {
 				row.State = "running"
@@ -136,9 +139,22 @@ func (l *Liveness) LastHeartbeat() time.Time {
 	return l.lastBeat
 }
 
-// processAlive returns true if the pid is signalable (signal-0). False if the
-// process has exited.
+// processAlive returns true if the pid is signalable (signal-0) AND the
+// kernel-reported process start time is consistent with the supervised
+// row's StartedAt. Pairing the signal-0 probe with start-time validation
+// closes the gemini F1 PID-recycling finding from dogfood-049 (a freshly
+// reused PID can pass signal-0 while being an entirely unrelated process).
+//
+// If startedAt is zero (legacy callers without recorded start time) the
+// check falls back to signal-0 only, preserving prior behavior.
 func processAlive(pid int) bool {
+	return processAliveAtStartTime(pid, time.Time{})
+}
+
+// processAliveAtStartTime is the V1.6 form: pass in the recorded
+// PointerRow.StartedAt so the probe can compare the kernel-reported
+// start time and refuse if they diverge by more than the tolerance.
+func processAliveAtStartTime(pid int, expectedStart time.Time) bool {
 	if pid <= 0 {
 		return false
 	}
@@ -149,7 +165,78 @@ func processAlive(pid int) bool {
 	if err := proc.Signal(syscall.Signal(0)); err != nil {
 		return false
 	}
-	return true
+	if expectedStart.IsZero() {
+		return true
+	}
+	actualStart, ok := readProcessStartTime(pid)
+	if !ok {
+		// platforms without a reliable start-time reader fall back to
+		// signal-0 only; the caller's heartbeat record is still useful
+		// as a soft signal.
+		return true
+	}
+	const tolerance = 2 * time.Second
+	delta := actualStart.Sub(expectedStart)
+	if delta < 0 {
+		delta = -delta
+	}
+	return delta <= tolerance
+}
+
+// readProcessStartTime returns the kernel-reported process start time for
+// pid. On Linux this reads field 22 of /proc/<pid>/stat (clock ticks since
+// boot) and converts to absolute time using btime from /proc/stat and the
+// CLK_TCK from sysconf (assumed 100Hz on standard kernels). Returns ok=false
+// on platforms that don't have a stable reader yet; the V1.6 acceptance gate
+// covers Linux explicitly.
+func readProcessStartTime(pid int) (time.Time, bool) {
+	if runtime.GOOS != "linux" {
+		return time.Time{}, false
+	}
+	statPath := fmt.Sprintf("/proc/%d/stat", pid)
+	data, err := os.ReadFile(statPath)
+	if err != nil {
+		return time.Time{}, false
+	}
+	// Format: pid (comm) state ppid ... starttime ... — comm may contain
+	// spaces and parens, so anchor on the last ')'.
+	endComm := strings.LastIndex(string(data), ")")
+	if endComm < 0 || endComm+2 >= len(data) {
+		return time.Time{}, false
+	}
+	fields := strings.Fields(string(data[endComm+1:]))
+	// After the ')' we have: state(1) ppid(2) ... starttime is field 22
+	// in the full layout, which here is index 22 - 2 = 20 (state is field
+	// 3 of full, here index 0).
+	const starttimeIdx = 22 - 3
+	if len(fields) <= starttimeIdx {
+		return time.Time{}, false
+	}
+	clockTicks, err := strconv.ParseUint(fields[starttimeIdx], 10, 64)
+	if err != nil {
+		return time.Time{}, false
+	}
+	// Read btime from /proc/stat (seconds since epoch when the kernel booted).
+	statData, err := os.ReadFile("/proc/stat")
+	if err != nil {
+		return time.Time{}, false
+	}
+	var btime int64
+	for _, line := range strings.Split(string(statData), "\n") {
+		if strings.HasPrefix(line, "btime ") {
+			btime, err = strconv.ParseInt(strings.TrimSpace(line[len("btime "):]), 10, 64)
+			if err != nil {
+				return time.Time{}, false
+			}
+			break
+		}
+	}
+	if btime == 0 {
+		return time.Time{}, false
+	}
+	const clkTck = 100 // standard sysconf(_SC_CLK_TCK) on Linux x86_64 / arm64
+	seconds := int64(clockTicks) / clkTck
+	return time.Unix(btime+seconds, 0).UTC(), true
 }
 
 func signalSIGTERM(pid int) error {

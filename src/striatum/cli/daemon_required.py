@@ -10,9 +10,12 @@ V1.5: daemon-required enforcement is the default. The two refusal paths:
   but the target repo has no ``repo_migrations`` row yet. Stderr names
   ``striatum daemon migrate-repo-local --from sqlite --to pg --repo <path>``.
 
-Opt-out: :envvar:`STRIATUM_DAEMON_REQUIRED` ``= "0"`` keeps SQLite-backed
-fixtures and legacy integration tests running unchanged while they migrate
-incrementally. Any other value (including unset) enforces daemon-required.
+Opt-out: V1.6 narrows this to test-only. Setting
+:envvar:`STRIATUM_DAEMON_REQUIRED` ``= "0"`` opts out **only when paired
+with** :envvar:`STRIATUM_TEST_HARNESS` ``= "1"`` (set by
+``tests/conftest.py``). The bare env var no longer bypasses
+enforcement — closes the codex threat-model finding from dogfood-050
+that flagged the documented operator escape path.
 """
 
 from __future__ import annotations
@@ -27,6 +30,7 @@ from striatum.errors import DaemonUnreachableError, RepoNotMigratedError
 
 ENV_DAEMON_REQUIRED = "STRIATUM_DAEMON_REQUIRED"
 ENV_DAEMON_SOCKET = "STRIATUM_DAEMON_SOCKET"
+ENV_TEST_HARNESS = "STRIATUM_TEST_HARNESS"
 
 # Commands that legitimately run without a reachable daemon. ``--help`` and
 # ``--version`` short-circuit inside argparse and never enter dispatch.
@@ -53,15 +57,21 @@ class DaemonRequirement:
 def resolve_requirement(command: str | None) -> DaemonRequirement | None:
     """Decide whether the daemon-required check applies to *command*.
 
-    V1.5: enforcement is the default. Returns ``None`` only when
-    *command* is on the lifecycle allowlist or the operator has
-    explicitly opted out via :envvar:`STRIATUM_DAEMON_REQUIRED` ``= "0"``.
-    Any other env value (including unset) yields a populated
-    :class:`DaemonRequirement`.
+    V1.6: enforcement is the default. Returns ``None`` only when
+    *command* is on the lifecycle allowlist OR the operator has
+    explicitly opted out via :envvar:`STRIATUM_DAEMON_REQUIRED` ``= "0"``
+    **paired with** :envvar:`STRIATUM_TEST_HARNESS` ``= "1"``.
+    The bare ``STRIATUM_DAEMON_REQUIRED=0`` opt-out (without the test
+    harness marker) no longer bypasses enforcement — closes the codex
+    dogfood-050 threat-model finding that documented the bare env var
+    as an operator migration path.
     """
     if command in DAEMON_OPTIONAL_COMMANDS:
         return None
-    if os.environ.get(ENV_DAEMON_REQUIRED) == "0":
+    if (
+        os.environ.get(ENV_DAEMON_REQUIRED) == "0"
+        and os.environ.get(ENV_TEST_HARNESS) == "1"
+    ):
         return None
     return DaemonRequirement(enforced=True, socket_path=resolve_socket_path())
 

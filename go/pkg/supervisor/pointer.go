@@ -45,12 +45,12 @@ type PointerRow struct {
 // the two implementations produce interchangeable on-disk hints.
 func WritePidfile(scratchDir string, supervisorID string, pid int) (string, error) {
 	dir := filepath.Join(scratchDir, supervisorID)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return "", fmt.Errorf("supervisor: mkdir scratch: %w", err)
 	}
 	pidPath := filepath.Join(dir, "pid")
 	tmp := pidPath + ".tmp"
-	if err := os.WriteFile(tmp, []byte(strconv.Itoa(pid)+"\n"), 0o644); err != nil {
+	if err := os.WriteFile(tmp, []byte(strconv.Itoa(pid)+"\n"), 0o600); err != nil {
 		return "", fmt.Errorf("supervisor: write pid tmp: %w", err)
 	}
 	if err := os.Rename(tmp, pidPath); err != nil {

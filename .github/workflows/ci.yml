@@ -37,6 +37,17 @@ jobs:
       - name: Build Go daemon
         if: matrix.daemon-core == 'go'
         run: make daemon-go-build
+      - name: Verify Go binary present (RFC 0039 V1.6 F-ci)
+        if: matrix.daemon-core == 'go'
+        # dogfood-049 gemini F6: don't let a silent no-op make-build cause
+        # an all-skipped pass on the go matrix axis. Hard-fail here if
+        # go/bin/striatumd is missing after the build step.
+        run: |
+          if [ ! -x go/bin/striatumd ]; then
+            echo "::error::CORE=go selected but go/bin/striatumd is missing after make daemon-go-build" >&2
+            exit 1
+          fi
+          echo "ok: go/bin/striatumd $(go/bin/striatumd --version 2>/dev/null || echo present)"
       - name: Go tests
         if: matrix.daemon-core == 'go'
         run: make daemon-go-test

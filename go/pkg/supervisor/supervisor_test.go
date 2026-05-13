@@ -158,14 +158,24 @@ func TestLaunchEmptyCommandRejected(t *testing.T) {
 	}
 }
 
-func TestLaunchPTYReturnsNotWired(t *testing.T) {
-	_, err := Launch(context.Background(), t.TempDir(), "sup_x", LaunchSpec{
+func TestLaunchPTYWired(t *testing.T) {
+	// V1.6: PTY path is functional. Spawn /bin/true under PTY and assert
+	// we got a PID + StdinWriter back; the master fd is the writer.
+	res, err := Launch(context.Background(), t.TempDir(), "sup_pty_001", LaunchSpec{
 		Command: []string{"/bin/true"},
 		UsePTY:  true,
 	})
-	if err == nil {
-		t.Fatal("expected not-wired error for PTY launch")
+	if err != nil {
+		t.Fatalf("Launch PTY: %v", err)
 	}
+	if res.PID <= 0 {
+		t.Fatalf("expected positive PID, got %d", res.PID)
+	}
+	if res.StdinWriter == nil {
+		t.Fatal("expected non-nil StdinWriter from PTY launch")
+	}
+	_ = res.StdinWriter.Close()
+	_ = res.Cmd.Wait()
 }
 
 func TestLaunchPipeMode(t *testing.T) {

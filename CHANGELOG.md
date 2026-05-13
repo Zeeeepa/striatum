@@ -1,5 +1,78 @@
 # Changelog
 
+## v1.40.0 — 2026-05-13
+
+### Added — RFC 0039 V1.6 Go daemon hardening (dogfood-051)
+
+Closes the V1.6 follow-ups recorded in v1.39.0 across F-pty,
+F-pid-recycling, F-perms, F-store, F-ci. Implementer slot was
+operator-driven (recurring 5+-instance claude-no-publish anti-pattern;
+harness backlog item).
+
+- **F-pty** — `github.com/creack/pty v1.1.24` integrated into
+  `go/go.mod` + `go/go.sum`. `go/pkg/supervisor/pty.go::launchPTY`
+  uses `pty.Start(cmd)` returning the master fd as `StdinWriter`. The
+  not-wired sentinel is removed; the supervisor test now asserts
+  functional PTY launch against `/bin/true`.
+- **F-pid-recycling** — `go/pkg/supervisor/liveness.go` adds
+  `processAliveAtStartTime` + `readProcessStartTime` reading
+  `/proc/<pid>/stat` field 22 plus `/proc/stat`'s `btime` with 2s
+  tolerance. Liveness goroutine passes `row.StartedAt` on each tick.
+  Non-Linux falls back to signal-0 only (V1.7 macOS path with
+  `proc_pidinfo` / sysctl).
+- **F-perms** — `go/pkg/supervisor/pointer.go` + `pty.go` scratch dir
+  `0o700`, pidfile `0o600`, stdout/stderr fallback `0o600`.
+- **F-store** — new `go/pkg/db/supervisor_pointers.go`:
+  `SupervisorPointerStore{pool *pgxpool.Pool}` implementing
+  `supervisor.PointerStore` (`Upsert` / `MarkLost` / `Get`) via UPSERT
+  on `striatumd.process_supervisor_pointers`. Typed
+  `ErrSupervisorNotFound` returned from `Get` and `MarkLost` when
+  rows-affected is zero.
+- **F-ci** — `.github/workflows/ci.yml` adds a "Verify Go binary
+  present" step under `daemon-core == 'go'` that fails fast with
+  `::error::` annotation if `go/bin/striatumd` is missing after
+  `make daemon-go-build`. Closes dogfood-049 gemini F6 (CI matrix
+  bypass risk).
+
+### Added — RFC 0043 V1.6 substrate hardening (dogfood-052)
+
+Closes the V1.6 follow-ups recorded in v1.38.0 across F-escape,
+F-split-brain, F-lock, F-help. Gemini A1 (daemon-side substrate
+migration) **stays deferred to V2.0** as a separate phase RFC.
+
+- **F-escape** — `src/striatum/cli/daemon_required.py`:
+  `resolve_requirement` opt-out now requires
+  `STRIATUM_DAEMON_REQUIRED == "0"` **and**
+  `STRIATUM_TEST_HARNESS == "1"`. The bare env var no longer
+  bypasses production enforcement. `tests/conftest.py` exports both.
+  Closes codex dogfood-050 threat-model finding.
+- **F-split-brain** — `src/striatum/db.connect`: before creating a
+  fresh SQLite (file absent), checks for sentinel
+  `.striatum/state.sqlite3.migrated` OR tombstone
+  `.striatum/state.sqlite3.tombstone`. Raises `StriatumError(exit_code=12)`
+  with `repo_not_migrated` remediation text. Closes gemini A2.
+- **F-lock** —
+  `src/striatum/daemon_pg/repo_local_migration.py`: new
+  `MigrationInProgressError(StriatumError, exit_code=14)` and
+  `_exclusive_migrate_lock(repo)` context manager taking an exclusive
+  `fcntl.flock` on `.striatum/state.sqlite3.migrate.lock` (sidecar).
+  Concurrent invocations refuse cleanly. Closes gemini A3.
+- **F-help** — `src/striatum/cli/parser.py` registers
+  `description=` + `help=` on every `migrate-repo-local` flag
+  (`--from`, `--to`, `--repo`, `--postgres-url`, `--dry-run`,
+  `--confirm-delete`, `--keep-sqlite-readonly`,
+  `--no-keep-sqlite-readonly`, `--json`). Closes claude
+  dogfood-050 F-dx-1.
+
+### Known follow-ups
+
+- **V1.7 (RFC 0039):** macOS process start-time reader (proc_pidinfo
+  / sysctl); wire Postgres-backed `SupervisorPointerStore` into
+  `cmd/striatumd/main.go` boot path.
+- **V2.0 (RFC 0043):** daemon-side single-repo business logic on
+  Postgres (gemini A1) — full substrate flip at the daemon RPC
+  business-logic layer.
+
 ## v1.39.0 — 2026-05-13
 
 ### Added
