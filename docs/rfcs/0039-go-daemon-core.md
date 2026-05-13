@@ -1,6 +1,6 @@
 # RFC 0039: Go Daemon Core
 
-Status: proposed
+Status: proposed (Phase 1 Steps 1+2 landed in dogfood-042; Steps 3-6 deferred to a Phase 2 dogfood)
 Date: 2026-05-13
 Context:
 [`RFC 0028`](0028-long-running-daemon-and-multi-repository-control-plane.md),
@@ -385,6 +385,19 @@ Existing CI matrix gains:
 
 This is a large rewrite. Six phases land independently with green
 test parity at each step.
+
+> Status (dogfood-042): Steps 1+2 are landed per the
+> [Track A synthesis](../dogfood/042/track_a/DESIGN_SYNTHESIS.md). The
+> Go daemon now exposes the read-only RPC envelope-v1 method registry
+> (`daemon.hello`, `daemon.welcome`, `daemon.describe`, `daemon.status`,
+> `daemon.version`, `audit.show`, `repo.list`) on top of the RFC 0033
+> PostgreSQL substrate, with a cross-language v2 audit-row hash that
+> the Python verifier accepts. The RFC 0035 multi-repo test harness
+> gained a `daemon_core` parameter (`"python"` default; `"go"` opts in)
+> so e2e fixtures can target either core. Steps 3-6 — the Python CLI
+> `striatum daemon start --core go` flag, mutating verbs / apply,
+> supervised processes, and distribution / CI matrix — are deferred to
+> a Phase 2 dogfood.
 
 ### Step 1. Skeleton + envelope-v1
 

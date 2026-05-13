@@ -18,13 +18,20 @@ from striatum.cross_repo import (
 from striatum.daemon_pg.connection import connect
 
 from _harness import audit, pg, repos, tokens
-from _harness.daemon import DaemonProcess, PauseHook
+from _harness.daemon import DaemonCore, DaemonProcess, PauseHook
 from _harness.mcp import McpClient
 from _harness.repos import RepoDescriptor, RepoLocalRunner
 
 
 class MultiRepoHarness:
-    def __init__(self, daemon_pg_url: str, repo_count: int = 2, scratch_dir: Path | None = None) -> None:
+    def __init__(
+        self,
+        daemon_pg_url: str,
+        repo_count: int = 2,
+        scratch_dir: Path | None = None,
+        *,
+        daemon_core: DaemonCore = "python",
+    ) -> None:
         self._base_pg_url = daemon_pg_url
         self._scratch_root = Path(scratch_dir) if scratch_dir is not None else Path.cwd() / ".tmp-multi-repo"
         self._ephemeral: pg.EphemeralPostgres | None = None
@@ -33,8 +40,13 @@ class MultiRepoHarness:
         self.daemon: DaemonProcess | None = None
         self.admin_token: str | None = None
         self._repo_count = repo_count
+        self._daemon_core: DaemonCore = daemon_core
         self._running = False
         self.local_runner: RepoLocalRunner | None = None
+
+    @property
+    def daemon_core(self) -> DaemonCore:
+        return self._daemon_core
 
     @property
     def socket_path(self) -> Path:
@@ -48,7 +60,11 @@ class MultiRepoHarness:
         self._scratch_root.mkdir(parents=True, exist_ok=True)
         self._ephemeral = pg.create_ephemeral_database(self._base_pg_url)
         self.daemon_pg_url = self._ephemeral.database_url
-        self.daemon = DaemonProcess(scratch_dir=self._scratch_root, postgres_url=self.daemon_pg_url)
+        self.daemon = DaemonProcess(
+            scratch_dir=self._scratch_root,
+            postgres_url=self.daemon_pg_url,
+            daemon_core=self._daemon_core,
+        )
         self.daemon.start()
         self.repos = repos.init_repositories(self._scratch_root, self._repo_count)
         self.register_all()
@@ -208,7 +224,11 @@ class MultiRepoHarness:
 
     def restart_daemon(self) -> None:
         if self.daemon is None:
-            self.daemon = DaemonProcess(scratch_dir=self._scratch_root, postgres_url=self.daemon_pg_url)
+            self.daemon = DaemonProcess(
+                scratch_dir=self._scratch_root,
+                postgres_url=self.daemon_pg_url,
+                daemon_core=self._daemon_core,
+            )
         self.daemon.start()
 
     def install_pause_hook(self, stage: str) -> PauseHook:

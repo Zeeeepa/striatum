@@ -645,6 +645,64 @@ apply receipts in daemon-owned state. The receipt is an AI guardrail: it
 does not prove model-token authorship or resistance to a malicious local
 operator with filesystem or database access.
 
+### Running the Go daemon (developer preview, RFC 0039 Phase 1)
+
+> Status: opt-in developer preview. The Python daemon (`striatum daemon
+> start`) remains the default and only supported core for production use.
+
+RFC 0039 ships a second daemon implementation in Go that speaks the same
+RFC 0030 envelope-v1 wire protocol over the same RFC 0033 PostgreSQL
+substrate. Phase 1 (Steps 1+2) lands the read-only RPC skeleton and the
+PostgreSQL connection/migration/audit layer; mutating verbs, supervised
+processes, and the `striatum daemon start --core go` CLI flag are deferred
+to a Phase 2 dogfood.
+
+Build the binary from a contributor checkout:
+
+```bash
+make -C go build
+ls go/bin/striatumd
+```
+
+The build requires Go 1.23+ and the system `make`. The binary is not
+shipped with `pip install striatum-orchestrator` and is not packaged by
+release tooling in Phase 1.
+
+Run it directly (no Python CLI flag yet):
+
+```bash
+./go/bin/striatumd \
+  --socket "${XDG_RUNTIME_DIR:-/tmp}/striatum/daemon.sock" \
+  --db-url "$STRIATUM_DAEMON_DB_URL" \
+  --migrations-dir src/striatum/daemon_pg/sql
+```
+
+The Phase 1 read-only method registry exposes `daemon.hello`,
+`daemon.welcome`, `daemon.describe`, `daemon.status`, `daemon.version`,
+`audit.show`, and `repo.list`. Other verbs return `method_not_found`
+until Phase 2 lands.
+
+Coexistence rule: only one daemon may own the PostgreSQL substrate at a
+time. **Stop the Python daemon before starting the Go daemon** (and vice
+versa). The Go binary refuses to start with exit code 14
+`daemon_already_running` when it detects another `striatumd-*`
+connection in `pg_stat_activity`.
+
+The RFC 0035 multi-repo test harness can target either core through the
+`daemon_core` parameter; Python remains the default:
+
+```python
+from _harness.multi_repo import MultiRepoHarness
+
+# Existing default — Python core.
+harness = MultiRepoHarness(daemon_pg_url=...)
+
+# Opt into the Go core. The harness invokes `make -C go build` if the
+# binary is missing; set STRIATUMD_GO_BIN=/path/to/striatumd to skip the
+# build step and reuse a prebuilt binary.
+harness = MultiRepoHarness(daemon_pg_url=..., daemon_core="go")
+```
+
 ## Web UI
 
 Start the local web UI with:

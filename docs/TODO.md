@@ -75,6 +75,9 @@ so external references keep resolving even as items move between sections.
 | F38 | RFC 0037 V1 web UI ergonomic improvements (dogfood-039) | ✅ done |
 | F39 | RFC 0040 V1 MCP-driven dogfood harness (operator-side slice; dogfood-040) | ✅ done |
 | F40 | RFC 0038 V1 web UI feature additions + frontend toolchain (dogfood-041) | ✅ done |
+| F41 | RFC 0039 V1 Steps 1+2 Go daemon core (dogfood-042 Track A) | ✅ done |
+| F42 | RFC 0044 draft Engram Phase 1 implementation spec (dogfood-042 Track B) | ✅ done |
+| F43 | RFC 0042 draft repo-local state to Postgres (dogfood-042 Track C) | ✅ done |
 
 Legend: ✅ done · 🟡 most done (sub-tasks remain) · ⏳ open
 
@@ -260,6 +263,56 @@ Legend: ✅ done · 🟡 most done (sub-tasks remain) · ⏳ open
     implementer pattern PLUS an explicit integration handshake (shared
     prop-contract schema, both implementers cite + validate before
     publish).
+
+22. **Implement RFC 0042 V1 (repo-local state to Postgres).** RFC drafted
+    under dogfood-042 Track C; build review 2-of-3 accept-equivalent
+    (codex needs_revision overridden per D095, claude accept, gemini
+    accept_with_findings). Implementation lands: eighteen application
+    tables in daemon Postgres keyed by `repository_id`, composite-key
+    rules, `striatum daemon migrate-repo-local --from sqlite --to pg
+    --repo <path>` migration verb, daemon-unavailable refusal behavior,
+    audit-chain preservation across the cutover, and removal of
+    `.striatum/state.sqlite3` as the authoritative live state. Repo-
+    local `.striatum/` stays for operational scratch only (logs,
+    transcripts, supervisor pointers). Supersedes D006/D007/D028 per
+    D093.
+
+23. **Implement RFC 0044 V1 (Engram Phase 1 read-only MCP).** RFC drafted
+    under dogfood-042 Track B; build review 3-of-3 accept (codex,
+    claude, gemini). Implementation lands: Striatum-owned redacted
+    JSONL export, Engram-owned `ingest-striatum`, standalone
+    `engram-mcp-stdio` MCP server, four read-only retrieval tools,
+    Engram-local `memory.*` capabilities, and the hard augmentation-
+    not-dependency boundary (Striatum runs with Engram unavailable).
+
+24. **RFC 0039 V1.5: address Track A build review findings.** Cycle-
+    exhaustion override per D094 (decision
+    `dec_b75d66f38a3d40228891248c91a27774`). 2-of-3 reviewers
+    accept_with_findings (claude, gemini); codex needs_revision
+    overridden because the codex/codex implementer+reviewer pairing
+    converged on its own findings (anti-pattern documented in D094
+    follow-up). Land the codex / claude / gemini findings deltas via
+    a future dogfood folded into Phase 2.
+
+25. **Phase 2 (RFC 0039 Steps 3-6).** CLI integration (`striatum daemon
+    start --core go`), mutating workflow verbs on the Go core,
+    supervised processes in Go, and distribution (release artifacts,
+    macOS/Linux CI matrix across `daemon_core={python,go}`,
+    `make` wiring for end users). Depends on RFC 0042 V1 (repo-local
+    state to Postgres) so the Go core has a single canonical substrate.
+
+26. **Harness improvement: forbid codex/codex implementer+reviewer
+    pairing in workflow validator.** Cycle-exhaustion observed twice
+    in a single run (dogfood-042 Track A per D094; dogfood-042 Track C
+    per D095). When the implementer and a reviewer are both the same
+    model (codex+codex specifically observed), the reviewer's
+    findings cluster around the implementer's same blind spots,
+    producing apparent "needs_revision" verdicts that 2-of-3 majority
+    overrides. Add a workflow validator rule that warns or rejects
+    same-model implementer↔reviewer pairs; alternative is a workflow-
+    authoring guideline plus catalog-template enforcement. Pair with
+    the dogfood-040 F39 note already documenting the same anti-
+    pattern.
 
 18. **Workflow type and lane catalog chooser.** RFC 0034 V1 ships the
     generator core, package-data catalog, CLI `workflow templates

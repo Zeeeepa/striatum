@@ -1185,6 +1185,29 @@ schema/API foundation for future stronger supervision. Existing direct
 repo-local supervision remains the compatibility path until daemon
 spawn, reattach, and routing take over method by method.
 
+RFC 0039 introduces a second daemon implementation in Go (`go/cmd/striatumd`)
+behind the same RFC 0030 envelope-v1 wire protocol and the same RFC 0033
+PostgreSQL substrate. The Python daemon (`striatum daemon start` /
+`striatumd` console script) and the Go daemon (`go install
+github.com/halbritt/striatum/go/cmd/striatumd`) are mutually exclusive
+implementations of the same daemon contract; the operator-facing
+`daemon core` field enumerates which language is running. V1 closed set
+is `{python, go}` and V1 default is `python`. Mutual exclusion is
+enforced at the PostgreSQL layer: a daemon refuses to start with exit
+code 14 `daemon_already_running` when `pg_stat_activity` already lists a
+`striatumd-*` connection. RFC 0039 Phase 1 (dogfood-042) lands Steps 1+2
+only — the Go daemon's envelope-v1 RPC skeleton with a read-only method
+registry (`daemon.hello`, `daemon.welcome`, `daemon.describe`,
+`daemon.status`, `daemon.version`, `audit.show`, `repo.list`) plus the
+PostgreSQL connection, migration, and audit-chain layer that reads the
+Python migrations under `src/striatum/daemon_pg/sql/` directly. CLI
+selection via `striatum daemon start --core go`, mutating verbs,
+supervised processes, distribution binaries, and the default-core flip
+are deferred to Phase 2 / future RFCs. The audit-chain v2 row hash is
+byte-for-byte compatible across cores (cross-language hash parity is a
+release blocker), so audit chains written by either core verify with
+either core's verifier.
+
 ### Local Web UI
 
 > Design rationale: [RFC 0013](rfcs/0013-local-web-ui.md) (V1 surface

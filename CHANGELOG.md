@@ -1,6 +1,71 @@
 # Changelog
 
-## Unreleased
+## v1.31.0 — 2026-05-13
+
+### Added
+
+- Track A (dogfood-042): RFC 0039 V1 Steps 1+2 Go daemon core landed
+  under `go/`. New `go/cmd/striatumd` entry point, `go/pkg/rpc`
+  (envelope-v1 validation/serialization, RFC 0030 method registry,
+  capability vocabulary, in-memory capability helpers, handshake,
+  `daemon.describe`, duplicate request detection, RPC server framework
+  for read-only routes), `go/pkg/db` (daemon Postgres config
+  resolution/redaction, dependency-free `psql` runner, migration
+  loading/application, embedded SQL migrations, audit hash/recording),
+  `go/go.mod` + `go/go.sum` + `go/Makefile`, and root `Makefile`
+  `daemon-go-build` / `daemon-go-test` / `daemon-go-lint` targets.
+  Python harness gained `daemon_core: Literal["python","go"]` parameter
+  on `DaemonProcess` and `MultiRepoHarness` (default `"python"`,
+  backward-compatible); Go invocation resolves the binary via
+  `STRIATUMD_GO_BIN` or `<repo>/go/bin/striatumd` and runs
+  `make -C go build` on demand. Phase 1 partial — Steps 3-6 (CLI
+  integration, mutating verbs, supervised processes, distribution)
+  deferred to a Phase 2 dogfood per RFC 0039 §9. Documentation
+  updated in `docs/HOW_TO_HUMAN.md`, `docs/SPEC.md`, and
+  `docs/UBIQUITOUS_LANGUAGE.md`.
+- Track B (dogfood-042): RFC 0044 drafted as the Engram Phase 1
+  implementation spec — Engram as an optional read-only memory
+  augmentation for Striatum operators. Pull-mode ingestion with
+  Striatum-owned redacted JSONL export, Engram-owned
+  `ingest-striatum`, standalone `engram-mcp-stdio` MCP server, four
+  read-only retrieval tools, Engram-local `memory.*` capabilities,
+  and a hard augmentation-not-dependency boundary. RFC text only;
+  implementation lands via a future dogfood.
+- Track C (dogfood-042): RFC 0042 drafted to move authoritative live
+  workflow state from per-repository `.striatum/state.sqlite3` into
+  daemon Postgres keyed by `repository_id`. Eighteen application
+  tables migrate, `striatum daemon migrate-repo-local --from sqlite
+  --to pg --repo <path>` migration verb, daemon-unavailable refusal
+  behavior, audit-chain preservation, and a revision to RFC 0039
+  scope so the Go core assumes Postgres-only repo-local state.
+  Supersedes D006/D007/D028 per D093. RFC text only; implementation
+  lands via a future dogfood.
+
+### Decided
+
+- D094: Cycle-exhaustion override for Track A Go daemon build.
+  2-of-3 reviewers accept_with_findings (claude, gemini); codex
+  needs_revision overridden because the codex/codex
+  implementer+reviewer pairing converged on its own findings. Codex
+  findings absorbed into RFC 0039 V1.5 follow-up (TODO item 24).
+  Follow-up: forbid codex/codex implementer+reviewer pairs in the
+  workflow validator (TODO item 26).
+- D095: Cycle-exhaustion override for Track C RFC 0042 build.
+  2-of-3 reviewers accept-equivalent (claude accept, gemini
+  accept_with_findings); codex needs_revision overridden because the
+  same codex/codex anti-pattern recurred and the RFC is design-shape.
+  Codex findings absorbed into the future RFC 0042 V1 implementation
+  dogfood (TODO item 22).
+
+### Notes
+
+- The dogfood-042 multi-phase workflow with three parallel tracks
+  completed with two cycle-exhaustion overrides (D094 Track A, D095
+  Track C). The `consolidate_phase_1` job was cascaded into
+  cancellation; the operator wrote this changelog entry, the
+  `docs/rfcs/README.md` index updates, the `docs/TODO.md` follow-ups,
+  and the `docs/dogfood/042/BUILD_HANDOFF.md` cross-track handoff in
+  its place.
 
 ## 1.30.0 — 2026-05-13
 

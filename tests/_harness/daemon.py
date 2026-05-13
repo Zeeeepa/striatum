@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 import signal
 import subprocess
 import sys
@@ -10,35 +11,87 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from types import FrameType
+from typing import Literal
 
 from striatum import daemon
 
 ROOT = Path(__file__).resolve().parents[2]
+
+DaemonCore = Literal["python", "go"]
+
+_GO_BIN_ENV = "STRIATUMD_GO_BIN"
+_DEFAULT_GO_BIN = ROOT / "go" / "bin" / "striatumd"
+_GO_DIR = ROOT / "go"
+
+
+def _resolve_go_binary() -> Path:
+    """Locate the Go daemon binary, building it via `make -C go build` if missing."""
+    override = os.environ.get(_GO_BIN_ENV)
+    if override:
+        binary = Path(override)
+        if not binary.exists():
+            raise RuntimeError(
+                f"{_GO_BIN_ENV}={override} but the binary is not present on disk"
+            )
+        return binary
+    binary = _DEFAULT_GO_BIN
+    if binary.exists():
+        return binary
+    if not _GO_DIR.is_dir():
+        raise RuntimeError(
+            f"Go daemon source tree is missing at {_GO_DIR}; cannot build striatumd"
+        )
+    if shutil.which("make") is None or shutil.which("go") is None:
+        raise RuntimeError(
+            "make and go must be available to build the striatumd binary; "
+            f"set {_GO_BIN_ENV} to a prebuilt binary to skip the build step"
+        )
+    subprocess.run(
+        ["make", "-C", str(_GO_DIR), "build"],
+        check=True,
+        cwd=ROOT,
+    )
+    if not binary.exists():
+        raise RuntimeError(
+            f"`make -C {_GO_DIR} build` completed but {binary} is missing"
+        )
+    return binary
 
 
 @dataclass
 class DaemonProcess:
     scratch_dir: Path
     postgres_url: str
+    daemon_core: DaemonCore = "python"
     env: dict[str, str] = field(init=False)
     process: subprocess.Popen[str] | None = field(default=None, init=False)
+    _socket_path: Path = field(init=False)
 
     def __post_init__(self) -> None:
-        registry = self.scratch_dir / "daemon-registry.sqlite3"
+        if self.daemon_core not in ("python", "go"):
+            raise ValueError(f"unknown daemon_core: {self.daemon_core!r}")
         runtime = self.scratch_dir / "runtime"
+        registry = self.scratch_dir / "daemon-registry.sqlite3"
         self.env = os.environ.copy()
         self.env["PYTHONPATH"] = str(ROOT / "src")
         self.env[daemon.ENV_REGISTRY] = str(registry)
         self.env[daemon.ENV_RUNTIME] = str(runtime)
+        self._socket_path = runtime / "striatumd.sock"
 
     @property
     def socket_path(self) -> Path:
-        return Path(self.env[daemon.ENV_RUNTIME]) / "striatumd.sock"
+        return self._socket_path
 
     def start(self) -> None:
         if self.process is not None and self.process.poll() is None:
             raise RuntimeError("daemon process is already running")
         self.socket_path.parent.mkdir(parents=True, exist_ok=True)
+        if self.daemon_core == "go":
+            self._start_go()
+        else:
+            self._start_python()
+
+    def _start_python(self) -> None:
         self.process = subprocess.Popen(
             [
                 sys.executable,
@@ -56,11 +109,41 @@ class DaemonProcess:
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
         )
+        self._wait_for_socket()
+
+    def _start_go(self) -> None:
+        binary = _resolve_go_binary()
+        migrations_dir = ROOT / "src" / "striatum" / "daemon_pg" / "sql"
+        cmd = [
+            str(binary),
+            "--socket",
+            str(self.socket_path),
+            "--db-url",
+            self.postgres_url,
+            "--migrations-dir",
+            str(migrations_dir),
+        ]
+        self.process = subprocess.Popen(
+            cmd,
+            cwd=ROOT,
+            env=self.env,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        self._wait_for_socket()
+
+    def _wait_for_socket(self) -> None:
+        proc = self.process
+        assert proc is not None
         deadline = time.monotonic() + 10
         while time.monotonic() < deadline:
-            if self.process.poll() is not None:
-                stdout, stderr = self.process.communicate(timeout=1)
-                raise RuntimeError(f"daemon exited during startup\nstdout={stdout}\nstderr={stderr}")
+            if proc.poll() is not None:
+                stdout, stderr = proc.communicate(timeout=1)
+                raise RuntimeError(
+                    f"daemon ({self.daemon_core}) exited during startup\n"
+                    f"stdout={stdout}\nstderr={stderr}"
+                )
             if self.socket_path.exists():
                 return
             time.sleep(0.05)

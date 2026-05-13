@@ -8,7 +8,7 @@ PYTHON ?= $(VENV)/bin/python
 # when invoked from a Claude Code worktree (or any other cwd).
 MAKEFILE_DIR := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
 
-.PHONY: install lint typecheck pg-test test-multi-repo metadata-check package-smoke smoke check release-check ui-install ui-build ui-dev ui-test ui-bundle-hash ui-check-bundle
+.PHONY: install lint typecheck pg-test test-multi-repo metadata-check package-smoke smoke check release-check ui-install ui-build ui-dev ui-test ui-bundle-hash ui-check-bundle daemon-go-build daemon-go-test daemon-go-lint
 
 $(PYTHON):
 	python3 -m venv $(VENV)
@@ -47,6 +47,15 @@ ui-bundle-hash:
 
 ui-check-bundle: ui-build
 	git -C "$(MAKEFILE_DIR)" diff --exit-code -- src/striatum/web/static/build
+
+daemon-go-build:
+	$(MAKE) -C "$(MAKEFILE_DIR)/go" build
+
+daemon-go-test:
+	$(MAKE) -C "$(MAKEFILE_DIR)/go" test
+
+daemon-go-lint:
+	$(MAKE) -C "$(MAKEFILE_DIR)/go" lint
 
 pg-test: $(VENV)/.installed
 	$(PYTHON) -m pytest tests/test_daemon_pg.py -q
