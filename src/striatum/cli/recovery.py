@@ -420,9 +420,51 @@ def resume_blocker(
                 "completed_inline": False,
                 "next_actions": ["inspect_job_state"],
             }
+        # GH #7: when the job has already reached a terminal state and a
+        # process-adapter blocker is still open (legacy state from
+        # before the v1.41 post-completion guard), close the blocker as
+        # a no-op without changing the job's terminal state. The
+        # blocker is a stale trailing signal — the workflow completed
+        # successfully.
+        terminal_states = {"completed", "failed", "canceled", "skipped"}
+        if str(job["state"]) in terminal_states and force:
+            conn.execute(
+                "UPDATE blockers SET state = 'resolved', resolved_at = ? "
+                "WHERE blocker_id = ?",
+                (utc_now(), blocker_id),
+            )
+            insert_event(
+                conn,
+                run_id=run_id,
+                event_type="recovery.blocker_dismissed_terminal",
+                actor_session_id=session_id,
+                job_id=job_id,
+                payload={
+                    "blocker_id": blocker_id,
+                    "blocker_kind": blocker_kind,
+                    "job_state": str(job["state"]),
+                    "reason": (
+                        "process-adapter blocker dismissed against terminal "
+                        "job (GH #7 legacy state)"
+                    ),
+                },
+            )
+            return {
+                "status": "resolved_terminal_no_op",
+                "run_id": run_id,
+                "job_id": job_id,
+                "workflow_job_id": job["workflow_job_id"],
+                "blocker_id": blocker_id,
+                "blocker_kind": blocker_kind,
+                "completed_inline": False,
+                "job_state": str(job["state"]),
+                "next_actions": ["inspect_job_state"],
+            }
         if job["state"] != "blocked":
             raise InvalidTransitionError(
-                f"job must be blocked before recovery resume (state={job['state']!r})"
+                f"job must be blocked before recovery resume "
+                f"(state={job['state']!r}); pass --force for GH #7 legacy "
+                f"process-adapter blockers on terminal jobs"
             )
         if blocker_kind in PROCESS_EXIT_BLOCKER_KINDS and not force:
             raise InvalidTransitionError(

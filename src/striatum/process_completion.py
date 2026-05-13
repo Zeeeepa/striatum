@@ -282,6 +282,15 @@ def evaluate_and_block_inline(
     exists for this job, it returns ``(None, None)`` without inserting
     a duplicate.
     """
+    # GH #7: when the job has already reached a terminal state (the
+    # adapter session naturally acked + verdict-recorded + completed
+    # before exiting nonzero), skip the post-completion blocker. The
+    # outputs are by definition present (job.completed required them),
+    # and no recovery is needed — the nonzero exit is a benign trailing
+    # signal from the supervised process, not a workflow failure.
+    job_state = str(job["state"]) if "state" in job.keys() else ""
+    if job_state in {"completed", "failed", "canceled", "skipped"}:
+        return None, None
     missing_paths, verdict_missing = validate_outputs(conn, job=job)
     blocker_kind = pick_inline_blocker_kind(
         exit_code=exit_code,

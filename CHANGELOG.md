@@ -1,5 +1,49 @@
 # Changelog
 
+## v1.42.0 — 2026-05-13
+
+### Fixed — GH #7: process-adapter post-completion blocker
+
+Closes the recurring "adapter session naturally completed, then exited
+nonzero, blocker stuck on terminal job" pattern.
+
+- `evaluate_and_block_inline` in `src/striatum/process_completion.py`
+  now short-circuits when the job state is already terminal
+  (`completed`, `failed`, `canceled`, `skipped`). The nonzero exit is
+  treated as a benign trailing signal from the supervised process,
+  not a workflow failure.
+- `recovery resume --force` in `src/striatum/cli/recovery.py` now
+  dismisses a legacy open process-adapter blocker against a terminal
+  job as a no-op (resolves the blocker, preserves terminal state,
+  emits `recovery.blocker_dismissed_terminal` event). Closes the
+  "no current lease" recovery dead-end on already-affected runs.
+- Regression: `tests/test_gh7_terminal_blocker.py` pins the guard
+  for all four terminal states.
+
+### Backlog (triaged from open GH issues)
+
+The remaining open issues need design work beyond this surgical
+release. Each is documented for the next session:
+
+- **GH #2** (operator-asserted lane treated as attested): the byline
+  path already differentiates via `attestation.attested` →
+  `operator_author_line`, so unattested sessions DO get `author:
+  operator`. Investigation: confirm whether attestation drift
+  mid-flight can re-introduce model bylines. If so, treat as a
+  regression here. If not, the issue is downstream consumer
+  documentation, not byline forgery.
+- **GH #3** (decision record propagation): needs a `run.state =
+  'compromised'` enum value, byline-rewrite path, and status/why
+  surface changes. Multi-file design. V1.42 documents the gap;
+  V1.7 implements.
+- **GH #5** (publish-artifact without process_execution): related
+  to GH #2; add a publish-time guard event
+  `provenance.publish_without_process_execution` and an
+  `--allow-no-process-execution` opt-in. V1.7.
+- **GH #6** (web UI placeholder bundles): mechanical — `make
+  ui-build`, commit real Vite output. Blocked by node/npm
+  availability in the operator environment. V1.7.
+
 ## v1.41.0 — 2026-05-13
 
 ### Added — harness friction burn-down
