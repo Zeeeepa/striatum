@@ -83,6 +83,7 @@ so external references keep resolving even as items move between sections.
 | F46 | RFC 0038 V1.5 web UI integration gaps (F1-F4 + supply-chain, dogfood-045) | ✅ done |
 | F47 | RFC 0044 V1 Striatum-side corpus export (dogfood-046; Engram-side separate) | ✅ done |
 | F48 | RFC 0039 V1.5 Go daemon F1-F5 deltas (dogfood-047; D101 override) | ✅ done |
+| F49 | RFC 0043 V1 Postgres-as-sole-substrate + daemon-required (dogfood-048; D102 override) | ✅ done |
 
 Legend: ✅ done · 🟡 most done (sub-tasks remain) · ⏳ open
 
@@ -347,25 +348,71 @@ Legend: ✅ done · 🟡 most done (sub-tasks remain) · ⏳ open
     override (D099) on the books — prior cycle-exhaustion overrides
     (D095/D096/D097/D098) all overrode `needs_revision`.
 
-22. **Implement RFC 0043 V1 (Postgres as Sole Substrate, daemon-required).**
-    Per D094 (accepted; supersedes D006/D007/D036 and SQLite half of D009).
-    The original dogfood-042 Track C draft (`docs/rfcs/0042-repo-local-
-    state-to-postgres.md`) was absorbed by main's RFC 0043 from the
-    parallel session — Track C dogfood artifacts retained as historical
-    provenance under `docs/dogfood/042/track_c/`. Implementation lands:
-    move all repo-local workflow tables (runs, jobs, sessions,
-    queue_messages, leases, work_packets, artifacts, verdicts, blockers,
-    command_requests, process_executions, events, job_worktrees,
-    process_supervisors, process_supervisor_pointers) into daemon-owned
-    Postgres under `repository_id` scope; retire `--no-daemon` direct
-    CLI mode; `striatum daemon migrate-repo-local --dry-run / --keep-
-    sqlite-readonly / --confirm-delete` migration verb; daemon-
-    unreachable refuses with exit code 11 + remediation; unmigrated repo
-    exit code 12; `.striatum/` survives as operational scratch only;
-    expands RFC 0030 method registry to cover every existing CLI
-    mutation; revises RFC 0039 scope to drop SQLite from Go core.
-    Multi-tenancy (`tenant_id` column add) and hosted mode are separate
-    follow-up RFCs.
+22. ~~**Implement RFC 0043 V1 (Postgres as Sole Substrate, daemon-required).**
+    Per D094 (accepted; supersedes D006/D007/D036 and SQLite half of D009).~~
+    ✅ Done: shipped under dogfood-048 (v1.37.0). Two-track split:
+    **Track A (codex)** landed daemon-side schema migration v5
+    (`src/striatum/daemon_pg/sql/0005_repo_local_workflow_state.sql`)
+    creating the 17 repo-local tables (`workflow_snapshots`, `runs`,
+    `sessions`, `jobs`, `job_dependencies`, `queue_messages`, `leases`,
+    `work_packets`, `artifacts`, `verdicts`, `blockers`,
+    `command_requests`, `process_executions`, `events`, `job_worktrees`,
+    `process_supervisors`, `process_supervisor_pointers`) under
+    `repository_id text NOT NULL REFERENCES striatumd.repositories`,
+    plus `striatumd.repo_migrations` checkpoint table and append-only
+    `events`/`artifacts` triggers. Daemon DB version bumped 4 → 5.
+    Migration body in `src/striatum/daemon_pg/repo_local_migration.py`
+    (`RepoLocalMigrationOptions`, `migrate_repo_local`,
+    `compute_repo_local_reanchor`) opens source SQLite read-only,
+    verifies `PRAGMA user_version == LATEST_VERSION`, copies rows in
+    dependency order inside one `SERIALIZABLE` Postgres transaction,
+    writes the repo-migration checkpoint, then renames
+    `.striatum/state.sqlite3 → state.sqlite3.tombstone` (mode `0444`)
+    unless `--confirm-delete` is set. Byte-equivalent audit-chain
+    re-anchor compares canonical `events` and `artifacts` row manifests
+    between SQLite and Postgres via SHA-256. Daemon command helper at
+    `src/striatum/cli/daemon.py`. **Track B (claude)** retired
+    `--no-daemon` (argparse exit 2 `unrecognized arguments: --no-daemon`),
+    introduced `DaemonUnreachableError` (exit 11) and
+    `RepoNotMigratedError` (exit 12) in `src/striatum/errors.py` with
+    canonical stderr remediation templates (Linux systemd, macOS
+    launchd, foreground, Postgres) + JSON envelope `hint` field,
+    wired env-gated `enforce_daemon_required` in
+    `src/striatum/cli/daemon_required.py` + `src/striatum/cli/dispatch.py`
+    with `DAEMON_OPTIONAL_COMMANDS` allowlist (`daemon`, `init`,
+    `skills`, `plugin`), renumbered legacy V1 daemon errors
+    (auth → 14, capability → 15) so codes 11 and 12 stay unambiguous
+    for the RFC 0043 entry layer, and expanded
+    `src/striatum/daemon_rpc/registry.py` + `server.py::CLI_ROUTES`
+    to cover every mutation in `cli/mutations.py` per RFC 0043 §5
+    (dotted vocabulary: `session.*`, `work.*`, `artifact.publish`,
+    `review.*`, `decision.record`, `checkpoint.resolve`,
+    `branch.confirm`, `run.*`, `worktree.*`, `recovery.*`,
+    `supervise.*`, `workflow.*` + daemon-global `repo.list` +
+    `daemon.migrate_repo_local`), keeping legacy undotted aliases as
+    `deprecated=True`. New test suites: `tests/cli/test_no_daemon_retired.py`,
+    `tests/cli/test_daemon_doctor_without_daemon.py`,
+    `tests/exit_codes/test_rfc0043_refusals.py`,
+    `tests/daemon_rpc/test_registry_rfc0043_coverage.py`,
+    `tests/daemon_pg/test_repo_local_migration.py`,
+    `tests/fixtures/v1_repo_local_sqlite/`. D102 cycle-exhaustion
+    override applied: codex `needs_revision` high + gemini
+    `needs_revision` medium (both with real findings on crash-recovery
+    persistence gap, CLI escape path closure, migrate-repo-local
+    subcommand wiring) overridden by single accepting verdict (claude
+    `accept_with_findings` low). **D102 is distinct from D095-D101 in
+    finding character**: both codex+gemini hit `needs_revision` with
+    real findings rather than the codex/codex co-blindness anti-pattern
+    (D095-D098, D100) or the codex-reviewer-of-claude-implementer
+    pattern (D099, D101). Two run-quality regressions surfaced: the
+    3rd `claude-no-artifact` instance (claude reviewer composed no
+    REVIEW.md — operator-composed to recover) and the 3rd
+    `gemini-no-frontmatter` instance (gemini REVIEW.md missing v1
+    front matter — operator-fixed). Operator also performed SQL
+    surgery on the `artifacts.logical_name` because the
+    publish-on-behalf call passed the wrong logical name during the
+    recovery. Findings folded into RFC 0043 V1.5 follow-up (item 31
+    below).
 
 23. ~~**Implement RFC 0044 V1 (Engram Phase 1 read-only MCP).** RFC drafted
     under dogfood-042 Track B; build review 3-of-3 accept (codex,
@@ -501,8 +548,9 @@ Legend: ✅ done · 🟡 most done (sub-tasks remain) · ⏳ open
     start --core go`), mutating workflow verbs on the Go core,
     supervised processes in Go, and distribution (release artifacts,
     macOS/Linux CI matrix across `daemon_core={python,go}`,
-    `make` wiring for end users). Depends on RFC 0042 V1 (repo-local
-    state to Postgres) so the Go core has a single canonical substrate.
+    `make` wiring for end users). **Now unblocked**: RFC 0043 V1 landed
+    in dogfood-048, so the Go core has a single canonical Postgres
+    substrate (no SQLite half remaining) and Phase 2 can proceed.
 
 26. **Harness improvement: forbid codex/codex implementer+reviewer
     pairing in workflow validator.** Cycle-exhaustion observed three
@@ -531,6 +579,52 @@ Legend: ✅ done · 🟡 most done (sub-tasks remain) · ⏳ open
     implementer+reviewer pairing produced the third instance of the
     convergent-blind-spot anti-pattern (D095, D096, D097). Land the
     codex findings deltas via a future dogfood.
+
+31. **RFC 0043 V1.5 follow-up.** Codex + gemini needs_revision findings
+    from dogfood-048 build review, deferred under D102 (decision
+    `dec_0b953435368e40109e793378e1a75054`). Distinct from prior
+    cycle-exhaustion overrides — both overridden verdicts carried real
+    findings, not codex/codex co-blindness (D095-D098, D100) or codex-
+    reviewer-of-claude-implementer baseline (D099, D101). Land the
+    deltas via a future dogfood:
+    (a) **Crash-recovery persistence gap (codex F1, gemini F2).**
+    `migrate_repo_local()` performs the SQLite → Postgres copy inside
+    one `SERIALIZABLE` transaction but the tombstone rename + repo
+    deletion happen post-commit. If the daemon crashes between commit
+    and rename, the repo is migrated in Postgres but
+    `.striatum/state.sqlite3` remains writable; a re-run would refuse
+    on the `repo_migrations` row but operators cannot tell from disk.
+    Add a two-phase post-commit tombstone with a sentinel
+    (`.striatum/state.sqlite3.migrated`) written before commit so
+    crash-during-rename is detectable on next startup.
+    (b) **CLI escape path closure (codex F2).** Track B's
+    `enforce_daemon_required` runs at dispatch top; allowlist exits
+    via `DAEMON_OPTIONAL_COMMANDS`. But the env-gated activation
+    (`STRIATUM_DAEMON_REQUIRED=1`) means the default path is the
+    pre-RFC-0043 SQLite fallback. RFC 0043 §3 specifies the
+    daemon-required mode is the default. Flip the default to enforced
+    once Track A's `daemon migrate-repo-local` subcommand is fully
+    wired and the test suite green under enforcement.
+    (c) **migrate-repo-local subcommand wiring (gemini F1).** Track A
+    shipped `src/striatum/cli/daemon.py` as the dispatch helper but
+    Track B's parser owns `src/striatum/cli/parser.py` and did not add
+    the `daemon migrate-repo-local` subparser in this dogfood (the
+    `_dispatch_daemon` delegation point exists but the subcommand is
+    not yet reachable from the CLI surface). Wire the subparser with
+    `--from sqlite --to pg --repo --postgres-url --dry-run
+    --keep-sqlite-readonly --confirm-delete --json` flags per RFC 0043
+    §4, exposing the migration body that already exists in
+    `daemon_pg/repo_local_migration.py`.
+    (d) **Test gaps (claude F1/F2).** Track A's
+    `tests/daemon_pg/test_repo_local_migration.py` ships 11 passing
+    cases but 5 skip absent a system Postgres URL; the
+    `tests/exit_codes/test_rfc0043_refusals.py` suite covers the
+    refusal templates but does not exercise the actual end-to-end
+    `dispatch.main(...)` path with a live daemon socket. Add a
+    `make test-rfc0043` target that requires `STRIATUM_PG_TEST_URL`
+    and asserts the migration round-trip (dry-run → full-run → re-run
+    refusal → manifest verification) plus exit code 11/12 stderr +
+    JSON envelope smoke against a foreground daemon.
 
 19. ~~**RFC for multi-repo / cross-repo test harness.** RFC 0035 V1
     landed in dogfood-037. `tests/_harness/MultiRepoHarness` boots a

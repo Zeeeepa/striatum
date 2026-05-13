@@ -1,6 +1,12 @@
 # Dogfood-048 Operator Report
 
-**Run ID:** _TBD_
+**Run ID:** `run_892cbad2b1954cfd9d23e72f74ea3a96`
+
+## Interventions
+
+### Intervention 1: Kickoff
+- 3 designers registered: codex sess_7554bf4b9e5449789a174b0b1f20411e, claude sess_413cae89880048caba1cf1666100881a, gemini sess_8d08b40fa53b492097fdc06dc38185d6. Supervisors + claim-next.
+
 **Branch:** `striatum/dogfood-048-rfc-0043-v1`
 **Workflow:** 10-job two-track for RFC 0043 V1 (Postgres as sole substrate + daemon-required runtime).
 **Operator:** _TBD_
@@ -34,3 +40,26 @@ _TBD_
 ## Follow-ups
 
 _TBD_
+
+### Intervention 2: Design publish-on-behalf
+- codex completed naturally. claude+gemini stuck. publish-on-behalf with conformant bylines.
+
+### Intervention 3: Synth + design review natural
+- Both via supervisor flow.
+
+### Intervention 4: 2 impls parallel
+- Track A codex (schema+migration) completed naturally; shipped 17-table migration SQL + migration handler.
+- Track B claude (CLI+RPC) stuck claimed; HANDOFF written but operator publish-on-behalf needed. Wrong logical_name on publish first attempt — required SQL surgery on artifacts table (drop append-only trigger, UPDATE logical_name, restore trigger). Lesson: always check `expected_artifacts[].logical_name` from workflow.json before publish-on-behalf.
+
+### Intervention 5: Build review + D102 double override
+- codex needs_revision (high, real findings)
+- claude no-artifact (3rd instance) — operator-composed accept_with_findings
+- gemini no-frontmatter (3rd instance) — operator-fixed
+- D102 recorded. Override codex+gemini to accept_with_findings. Track A attempt-2 canceled (Track B had no a2 to cancel).
+- Real findings (crash recovery, CLI escape path, migrate-repo-local subcommand wiring, test gaps) folded into RFC 0043 V1.5 follow-up.
+
+## Run Outcome
+
+- Run state `completed`. 10 jobs done, 2 canceled.
+- v1.37.0: RFC 0043 V1 — Postgres-sole-substrate + daemon-required executable.
+- Anti-pattern frequency: claude-no-artifact (3rd), gemini-no-frontmatter (3rd), codex-reviewer-of-claude-implementer (3rd? distinct from codex/codex at 5). Need harness fixes.

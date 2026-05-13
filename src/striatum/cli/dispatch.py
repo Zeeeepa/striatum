@@ -22,7 +22,13 @@ from striatum.db import (
     json_loads,
     transaction,
 )
-from striatum.errors import InvalidTransitionError, StriatumError
+from striatum.cli.daemon_required import enforce_daemon_required
+from striatum.errors import (
+    DaemonUnreachableError,
+    InvalidTransitionError,
+    RepoNotMigratedError,
+    StriatumError,
+)
 from striatum.process_adapter import run_process_adapter
 from striatum.workflow import (
     create_run,
@@ -85,6 +91,22 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         result = dispatch(args)
+    except (DaemonUnreachableError, RepoNotMigratedError) as exc:
+        # RFC 0043 §3 refusals get the multi-line stderr remediation block
+        # in human mode and the structured envelope (with ``hint``) in JSON
+        # mode. The constructed message already carries the block.
+        if getattr(args, "json", False):
+            error_envelope: dict[str, object] = {
+                "message": str(exc).splitlines()[0],
+                "code": exc.exit_code,
+            }
+            hint = getattr(exc, "hint", None)
+            if isinstance(hint, str):
+                error_envelope["hint"] = hint
+            print(json_dumps({"ok": False, "error": error_envelope}))
+        else:
+            print(str(exc), file=sys.stderr)
+        return exc.exit_code
     except StriatumError as exc:
         if getattr(args, "json", False):
             error: dict[str, object] = {"message": str(exc), "code": exc.exit_code}
@@ -166,9 +188,13 @@ def _skills_install_dispatch(
 def dispatch(args: argparse.Namespace) -> object:
     """Dispatch a parsed command."""
     repo = Path(args.repo).resolve()
+    # RFC 0043 §3: when daemon-required enforcement is on, fail fast with
+    # exit code 11 (daemon socket unreachable) or 12 (repo not migrated)
+    # before the SQLite-backed fallback is touched. Default off — the
+    # historical SQLite path remains usable for tests and existing setups.
+    enforce_daemon_required(getattr(args, "command", None), repo)
     daemon_forced = bool(getattr(args, "daemon", False)) or (
         os.environ.get("STRIATUM_DAEMON") == "1"
-        and not bool(getattr(args, "no_daemon", False))
     )
     if args.command == "daemon":
         return _dispatch_daemon(args)
@@ -179,9 +205,14 @@ def dispatch(args: argparse.Namespace) -> object:
     if daemon_forced and args.command in {"status", "why", "doctor", "dashboard"}:
         return _dispatch_daemon_read(args, repo)
     if daemon_forced:
+        # The legacy V1 --daemon flag only routes the four read verbs above.
+        # Any other command under --daemon is a routing gap, not the new
+        # RFC 0043 §3 refusal — surface it as WorkflowError (exit code 8)
+        # so the new exit-code-12 (repo_not_migrated) semantic stays clean.
         raise StriatumError(
-            f"--daemon does not support `{args.command}` in V1; use --no-daemon for direct repo-local mode",
-            exit_code=12,
+            f"--daemon does not yet route `{args.command}`; "
+            "set STRIATUM_DAEMON_REQUIRED=1 once the daemon-mediated path lands",
+            exit_code=8,
         )
     if args.command == "init":
         init_repo(repo)
@@ -938,7 +969,7 @@ def _dispatch_cross_repo(args: argparse.Namespace) -> object:
             raise StriatumError(
                 "cross-repo cancel requires the daemon lifecycle service; "
                 "the full multi-repo daemon harness is deferred to TODO Open item 19",
-                exit_code=12,
+                exit_code=8,
             )
     finally:
         close = getattr(conn, "close", None)
@@ -962,7 +993,8 @@ def _dispatch_daemon_read(args: argparse.Namespace, repo: Path) -> object:
         if not args.run_id:
             raise StriatumError("dashboard requires --run-id unless --all is used", exit_code=2)
         raise StriatumError(
-            "--daemon dashboard --run-id is not a V1 daemon route; use --no-daemon dashboard --run-id or --daemon status --run-id",
-            exit_code=12,
+            "--daemon dashboard --run-id is not a V1 daemon route; "
+            "drop --daemon for the dashboard verb or use --daemon status --run-id",
+            exit_code=8,
         )
-    raise StriatumError("command is not daemon-routable in V1", exit_code=12)
+    raise StriatumError("command is not daemon-routable in V1", exit_code=8)

@@ -33,7 +33,15 @@ from striatum.db import (
     transaction,
     utc_now,
 )
-from striatum.errors import NotFoundError, SchemaVersionError, StriatumError
+from striatum.errors import (
+    EXIT_DAEMON_AUTH,
+    EXIT_DAEMON_CAPABILITY,
+    EXIT_DAEMON_REGISTRY,
+    EXIT_RPC_VERSION_INCOMPATIBLE,
+    NotFoundError,
+    SchemaVersionError,
+    StriatumError,
+)
 from striatum.process_progress import progress_loop_once
 from striatum.recovery.auto import run_auto_sweep
 
@@ -49,23 +57,31 @@ ENV_RUNTIME = "STRIATUM_DAEMON_RUNTIME_DIR"
 
 
 class DaemonUnreachableError(StriatumError):
+    """V1 RFC 0028 registry-unreachable; predates the RFC 0043 socket error.
+
+    Kept under the legacy ``daemon`` module name so RFC 0028 callers and
+    tests keep working. The RFC 0043 §3 ``daemon_unreachable`` (exit 11)
+    is :class:`striatum.errors.DaemonUnreachableError` and is raised at
+    the CLI entry layer before any RFC 0028 path runs.
+    """
+
     def __init__(self, message: str) -> None:
-        super().__init__(message, exit_code=10)
+        super().__init__(message, exit_code=EXIT_RPC_VERSION_INCOMPATIBLE)
 
 
 class DaemonAuthError(StriatumError):
     def __init__(self, message: str) -> None:
-        super().__init__(message, exit_code=11)
+        super().__init__(message, exit_code=EXIT_DAEMON_AUTH)
 
 
 class DaemonCapabilityError(StriatumError):
     def __init__(self, message: str) -> None:
-        super().__init__(message, exit_code=12)
+        super().__init__(message, exit_code=EXIT_DAEMON_CAPABILITY)
 
 
 class DaemonRegistryError(StriatumError):
     def __init__(self, message: str) -> None:
-        super().__init__(message, exit_code=13)
+        super().__init__(message, exit_code=EXIT_DAEMON_REGISTRY)
 
 
 @dataclass(frozen=True)

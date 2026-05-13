@@ -1,6 +1,232 @@
 # Changelog
 
-## v1.36.0 — 2026-05-13
+## v1.37.0 — 2026-05-13
+
+### Added
+
+- RFC 0043 V1 — Postgres as Sole Substrate + Daemon-Required Runtime
+  landed under dogfood-048. Per D094, supersedes the local-SQLite
+  assumption in D006/D007/D036 and the SQLite half of D009. The
+  substrate flip lands on a two-track split so schema and CLI surface
+  could proceed in parallel once the shared design synthesis fixed the
+  schema name and method vocabulary.
+  - **15 repo-local workflow tables in daemon-owned Postgres.**
+    `src/striatum/daemon_pg/sql/0005_repo_local_workflow_state.sql`
+    creates the full repo-local workflow surface under the existing
+    `striatumd.*` schema with `repository_id text NOT NULL REFERENCES
+    striatumd.repositories(repository_id)` on every repo-scoped table:
+    `workflow_snapshots`, `runs`, `sessions`, `jobs`,
+    `job_dependencies`, `queue_messages`, `leases`, `work_packets`,
+    `artifacts`, `verdicts`, `blockers`, `command_requests`,
+    `process_executions`, `events`, `job_worktrees`,
+    `process_supervisors`, `process_supervisor_pointers`. (The prompt
+    named 15 tables; `workflow_snapshots` and `job_dependencies` are
+    required structural tables in `src/striatum/schema.py` and were
+    added by the synthesis to avoid breaking
+    `runs.workflow_snapshot_id` and job gating.) Index strategy is
+    repository-prefixed versions of the current SQLite access paths
+    plus the partial-unique constraints from prior migrations
+    (`leases(repository_id, resource_type, resource_id) WHERE state =
+    'active'`, `queue_messages` partial unique on
+    `(repository_id, job_id) WHERE kind = 'work' AND state IN
+    ('pending','claimed','acked')`, `process_supervisor*` partial
+    unique on `(repository_id, session_id) WHERE state IN
+    ('starting','attached','detached')`, etc). Same SQL file creates
+    `striatumd.repo_migrations` checkpoint table
+    (`repository_id`, `source_substrate`, `target_substrate`,
+    `source_user_version`, `source_event_manifest_sha256`,
+    `source_artifact_manifest_sha256`, `source_state_db_sha256`,
+    `migrated_at`, `tombstone_path`, `row_counts jsonb`) and installs
+    append-only trigger functions on `events` and `artifacts`,
+    revoking `UPDATE` / `DELETE` on those tables from the daemon
+    runtime role. `src/striatum/daemon_pg/migrations.py` bumps
+    `LATEST_DAEMON_DB_VERSION` from 4 to 5 and registers the migration
+    as `PgMigration(5, "repo-local workflow state",
+    "0005_repo_local_workflow_state.sql")`.
+  - **`striatum daemon migrate-repo-local` migration verb** with
+    `--from sqlite --to pg --repo <path> --postgres-url <url>
+    [--dry-run] [--keep-sqlite-readonly] [--confirm-delete] [--json]`.
+    Body in `src/striatum/daemon_pg/repo_local_migration.py`
+    (separate from `cutover.py` so daemon-registry cutover and
+    repo-local workflow cutover stay distinct):
+    `RepoLocalMigrationOptions`, `migrate_repo_local()`, and
+    `compute_repo_local_reanchor()`. Algorithm: authorize daemon
+    admin → resolve or implicitly register the repository → refuse if
+    a `repo_migrations` row already exists (returns
+    `already_migrated: true`) → open `.striatum/state.sqlite3`
+    read-only → verify `PRAGMA user_version ==
+    striatum.migrations.LATEST_VERSION` → for full runs, copy every
+    repo-scoped row in dependency order inside one `SERIALIZABLE`
+    Postgres transaction → write the `repo_migrations` checkpoint
+    inside the same transaction → commit → rename
+    `.striatum/state.sqlite3 → state.sqlite3.tombstone` with mode
+    `0444` (default `--keep-sqlite-readonly`). If
+    `--no-keep-sqlite-readonly` is supplied, deletion still requires
+    `--confirm-delete`; otherwise the command refuses with exit code
+    8. Dry-run path applies pending daemon migrations if needed, then
+    reports source counts and manifest hashes without inserting
+    repo-local rows. `compute_repo_local_reanchor` defines the
+    byte-equivalence check: canonical JSON arrays of source rows
+    ordered by stable primary key for `events` and `artifacts`,
+    projected to source-column names and compact UTF-8 JSON, SHA-256
+    must match between SQLite and Postgres. Daemon-command helper at
+    `src/striatum/cli/daemon.py` (Track A) — full parser wiring of
+    the subparser deferred to V1.5.
+  - **Exit code 11 `daemon_unreachable` + exit code 12
+    `repo_not_migrated` with named remediation.** `src/striatum/errors.py`
+    introduces `DaemonUnreachableError` and `RepoNotMigratedError`
+    plus an `EXIT_*` integer constant table for codes 1–15;
+    `src/striatum/cli/daemon_required.py` (new) defines
+    `enforce_daemon_required(command, repo)` and the canonical
+    stderr / JSON-envelope refusal shapes. Exit 11 stderr lists four
+    remediation channels (Linux systemd: `systemctl --user start
+    striatumd`; macOS launchd: `launchctl bootstrap gui/$UID
+    ~/Library/LaunchAgents/io.striatum.striatumd.plist`; foreground:
+    `striatumd --foreground`; Postgres: `striatum daemon doctor
+    --postgres-url <url>` or `STRIATUM_DAEMON_DB_URL`). Exit 12
+    stderr names the single fix (`striatum daemon migrate-repo-local
+    --from sqlite --to pg --repo <path>`). JSON envelope under
+    `--json` carries `{"ok": false, "error": {"message": "...",
+    "code": 11|12, "hint": "..."}}`. Activation is currently
+    env-gated on `STRIATUM_DAEMON_REQUIRED=1`; flipping the default
+    to enforced is part of the V1.5 follow-up (closes the CLI escape
+    path). `DAEMON_OPTIONAL_COMMANDS` allowlist (`daemon`, `init`,
+    `skills`, `plugin`) keeps doctor and lifecycle commands reachable
+    without a daemon (RFC 0043 §3 acceptance criterion). Legacy V1
+    RFC 0028 daemon errors renumbered to free codes 11 and 12
+    (`DaemonAuthError → 14`, `DaemonCapabilityError → 15`); the older
+    `DaemonUnreachableError` from `src/striatum/daemon.py` stays at
+    code 10 with a docstring pointing at the new entry-layer error.
+    Tests assert daemon errors by class name, not numeric exit code,
+    so no test fixture broke on renumbering.
+  - **`--no-daemon` retired.** Removed from
+    `src/striatum/cli/parser.py`'s daemon mutual-exclusion group; no
+    hidden alias. Argparse now exits 2 with `unrecognized arguments:
+    --no-daemon` for the retired flag. `--daemon` remains as the V1
+    RFC 0028 read-mode opt-in until daemon-mediated CLI dispatch
+    absorbs it. New `tests/cli/test_no_daemon_retired.py` covers the
+    rejection plus `--help` absence assertion.
+  - **`.striatum/state.sqlite3` retained read-only when
+    `--keep-sqlite-readonly` is set** (mode `0444` tombstone at
+    `.striatum/state.sqlite3.tombstone`); otherwise the
+    `--confirm-delete` flag deletes the source DB after the
+    checkpoint commits. Post-migration `.striatum/` survives as
+    operational scratch only — FIFOs, pidfiles, supervisor stdout,
+    token cache, marker files — never as the live message bus.
+  - **RFC 0030 method registry expanded for repo-local mutations.**
+    `src/striatum/daemon_rpc/registry.py::_ENTRIES` and
+    `src/striatum/daemon_rpc/server.py::CLI_ROUTES` widened to cover
+    every mutation in `src/striatum/cli/mutations.py` per RFC 0043
+    §5. New dotted vocabulary: `session.register`, `session.close`,
+    `work.claim_next`, `work.ack`, `work.heartbeat`, `work.complete`,
+    `work.block`, `work.release`, `work.send_message`,
+    `artifact.publish`, `review.submit`, `review.verdict`,
+    `review.override`, `decision.record`, `checkpoint.resolve`,
+    `branch.confirm`, `run.prepare`, `run.start`, `run.pause`,
+    `run.resume`, `run.cancel`, `run.retry_job`, `worktree.create`,
+    `worktree.release`, `worktree.list`, `recovery.stale_leases`,
+    `recovery.requeue_stale`, `recovery.cancel_job`,
+    `recovery.process_reconcile`, `recovery.resume`, `recovery.auto`,
+    `recovery.watch`, `supervise.start`, `supervise.send`,
+    `supervise.stop`, `supervise.status`, `supervise.list`,
+    `supervise.reattach_status`, plus the `workflow.*` and read-side
+    surface (`status`, `why`, `doctor`, `dashboard`, `dashboard.all`,
+    `evidence.export`, `corpus.export`, `run.summary`, `run.graph`,
+    `list.*`). Daemon-global additions: `repo.list`,
+    `daemon.migrate_repo_local`. Legacy undotted names (`ack`,
+    `heartbeat`, `release`, `block`, `complete`, `publish_artifact`,
+    `claim_next`, `verdict`, `submit_review`) kept as
+    `deprecated=True` entries so in-flight clients keep resolving
+    while callers migrate. New `tests/daemon_rpc/test_registry_rfc0043_coverage.py`
+    is the exhaustiveness test: static map of mutation function names
+    → RFC 0043 §5 method names, asserts every mutation has a
+    registered method, every method's required capability matches §5,
+    every canonical method either routes via `CLI_ROUTES` or sits in
+    the inline allowlist, legacy aliases are flagged
+    `deprecated=True`, and repo-scope modes (single_repo /
+    cross_repo / daemon_global) match the synthesis.
+  - **D094 supersession of D006 / D007 / D036 / SQLite half of D009
+    is now executable.** The local-SQLite assumption baked into those
+    earlier decisions no longer holds for repo-local workflow state;
+    `.striatum/state.sqlite3` is migration source or read-only
+    tombstone only. RFC 0039's Go-core scope can now drop SQLite
+    entirely (TODO item 25 marked unblocked).
+  - **Files (uncommitted in this branch at merge time):** Track A —
+    `src/striatum/daemon_pg/sql/0005_repo_local_workflow_state.sql`
+    (new), `src/striatum/daemon_pg/repo_local_migration.py` (new),
+    `src/striatum/daemon_pg/migrations.py` (modified for v5
+    registration), `src/striatum/cli/daemon.py` (new daemon-command
+    helper), `tests/daemon_pg/test_repo_local_migration.py` (new),
+    `tests/fixtures/v1_repo_local_sqlite/` (new SQLite fixture).
+    Track B — `src/striatum/cli/dispatch.py` (modified for
+    `enforce_daemon_required` hook + dedicated `DaemonUnreachableError /
+    RepoNotMigratedError` except arm + retired `args.no_daemon`),
+    `src/striatum/cli/parser.py` (modified for `--no-daemon` removal),
+    `src/striatum/cli/daemon_required.py` (new),
+    `src/striatum/daemon.py` (modified for V1 daemon error
+    renumbering 11/12 → 14/15), `src/striatum/daemon_rpc/registry.py`
+    (modified for §5 vocabulary expansion),
+    `src/striatum/daemon_rpc/server.py` (modified for `CLI_ROUTES`
+    expansion), `src/striatum/errors.py` (modified for new error
+    classes + `EXIT_*` constants), `tests/cli/__init__.py`,
+    `tests/cli/test_no_daemon_retired.py`,
+    `tests/cli/test_daemon_doctor_without_daemon.py`,
+    `tests/exit_codes/__init__.py`,
+    `tests/exit_codes/test_rfc0043_refusals.py`,
+    `tests/daemon_rpc/__init__.py`,
+    `tests/daemon_rpc/test_registry_rfc0043_coverage.py` (all new).
+    Handoffs at `docs/dogfood/048/build/track_a/HANDOFF.md` and
+    `docs/dogfood/048/build/track_b/HANDOFF.md`; combined handoff at
+    `docs/dogfood/048/BUILD_HANDOFF.md`; operator narrative at
+    `docs/dogfood/048/PHASE_1_OPERATOR_NOTES.md`.
+
+### Decided
+
+- D102 (`dec_0b953435368e40109e793378e1a75054`,
+  `accepted_with_follow_up`): cycle-exhaustion override for the
+  dogfood-048 build review. Codex `review_build_codex` returned
+  `needs_revision severity=high` and gemini `review_build_gemini`
+  returned `needs_revision severity=medium` — both with real findings
+  (crash-recovery persistence gap between Postgres commit and SQLite
+  tombstone rename; CLI escape path remains under the env-gated
+  enforcement default; `daemon migrate-repo-local` subcommand body
+  exists in `daemon_pg/repo_local_migration.py` but the parser
+  subparser is not yet wired). Single accepting verdict claude
+  `accept_with_findings` low (cross-lane scope-met envelope).
+  **D102 is distinct from D095-D101 in finding character.** Prior
+  cycle-exhaustion overrides have fallen into two anti-pattern
+  families: (a) codex/codex implementer+reviewer co-blindness
+  (D095 dogfood-042 Track A, D096 dogfood-042 Track C, D097
+  dogfood-043, D098 dogfood-044, D100 dogfood-046) where the
+  reviewer's findings cluster around the implementer's same blind
+  spots; (b) codex-reviewer-of-claude-implementer baseline
+  conservatism (D099 dogfood-045 reject critical, D101 dogfood-047
+  needs_revision high) where codex applies threat_model-posture
+  conservatism to a different model's work. D102 belongs to neither —
+  the codex/codex pairing in Track A and the gemini reviewer both
+  produced real findings on real scope gaps that the operator
+  acknowledged and folded into V1.5 (TODO item 31). Codex+gemini
+  findings absorbed into RFC 0043 V1.5; ships at V1 because the
+  in-scope substrate-flip correctness contract is met and the
+  remaining deltas are operator-side wiring + crash-recovery
+  hardening, not architectural defects. Two run-quality regressions
+  surfaced and were operator-recovered: (1) **3rd
+  `claude-no-artifact` instance** — claude reviewer's session
+  composed no REVIEW.md artifact in `docs/dogfood/048/review/build/
+  claude/`; operator composed the verdict on-behalf with attribution
+  preserved. (2) **3rd `gemini-no-frontmatter` instance** — gemini
+  reviewer's REVIEW.md was missing `striatum.finding.v1` front
+  matter; operator-fixed inline. Operator also performed SQL surgery
+  on `artifacts.logical_name` in the live `.striatum/state.sqlite3`
+  because the on-behalf publish call had passed the wrong logical
+  name during recovery (the artifact's underlying file path was
+  correct but the `logical_name` column needed a one-row UPDATE to
+  align with the workflow's `expected_artifacts[]` entry). All three
+  recurrences are now well-characterized enough that the operator
+  recovery scripts under `striatum recovery resume / surgical_recovery`
+  should grow targeted helpers for them in a future pass.
+
+
 
 ### Added
 

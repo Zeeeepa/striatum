@@ -17,16 +17,15 @@ def build_parser() -> argparse.ArgumentParser:
         help="print the running Striatum version and exit",
     )
     parser.add_argument("--repo", default=".", help="repository root")
-    daemon_group = parser.add_mutually_exclusive_group()
-    daemon_group.add_argument(
+    # RFC 0043 §3: --no-daemon retired; the daemon-required CLI is the only
+    # supported mode. Parsing `--no-daemon` returns the standard argparse
+    # "unrecognized arguments" error (exit code 2). --daemon remains as the
+    # opt-in for V1 RFC 0028 daemon-read routing until that path is fully
+    # absorbed by the RFC 0030 method registry.
+    parser.add_argument(
         "--daemon",
         action="store_true",
         help="route supported read commands through the RFC 0028 registry-backed mode",
-    )
-    daemon_group.add_argument(
-        "--no-daemon",
-        action="store_true",
-        help="force direct repo-local mode even when STRIATUM_DAEMON=1",
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
