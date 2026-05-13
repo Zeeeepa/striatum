@@ -1,5 +1,107 @@
 # Changelog
 
+## v1.33.0 — 2026-05-13
+
+### Added
+
+- RFC 0040 V1.5 — daemon-side dispatch + composite tools + watcher
+  invocation landed under dogfood-044. (F1) Daemon MCP `tools/call`
+  now dispatches through the RFC 0030 method registry via new
+  `src/striatum/daemon_pg/mcp_dispatch.py::dispatch_mcp_tool_call`
+  which owns lookup, capability authorization, envelope build, and
+  routing through `DaemonRpcRouter.handle(...)`; the previous stub
+  that returned a fake `ok: true` is gone. `DaemonRpcRouter.handle`
+  accepts `transport` (default `"rpc"`; MCP passes `"mcp"`) and
+  `require_handshake` (default `True`; MCP passes `False`). Audit
+  rows are post-dispatch: unknown methods + authorization denials
+  emit one `transport="mcp"` deny row; allowed calls emit exactly
+  one row carrying the real handler exit code. MCP response shape
+  `{content, structuredContent, isError}` preserved; structuredContent
+  carries `ok`, `method`, `audit_id`, and `data` on success.
+  (F2/F3) `dogfood.publish_on_behalf` runs ack/publish/verdict inside
+  one outer `with transaction(conn):` block via new transaction-free
+  helpers `_ack_on_behalf_locked`, `_publish_artifact_locked`,
+  `_record_verdict_locked`, and `_complete_locked`; review jobs
+  require `verdict` up front (validated against the same enum the
+  direct-Python helper accepts); `findings_artifact_id` defaults to
+  the published artifact id when kind=`finding`; on success exactly
+  one `dogfood.publish_on_behalf` event is inserted in-transaction
+  with `composition_steps` covering ack/publish/verdict-or-complete;
+  on failure the transaction rolls back and a best-effort
+  `dogfood.publish_on_behalf_failed` event is written tagged
+  `outcome: "rolled_back"`. (F4) New
+  `src/striatum/process_progress.py::progress_loop_once` runs one
+  bounded supervised-progress pass per repository joined to the
+  `runs` table so only attached supervisors under running/paused
+  runs tick; called from `daemon.daemon_sweep_once` inside
+  `connect_repo(repo)` immediately before per-run auto-sweep work
+  and folded into the sweep return payload as `"progress"`. The
+  loop materializes each row as a `SupervisedProgressTarget` and
+  ticks `SupervisedProgressWatcher`, whose heartbeat callback calls
+  `striatum.cli.mutations.heartbeat` on the same repo connection.
+  Metadata-only events:
+  `supervisor.progress_watcher_heartbeat`,
+  `supervisor.progress_watcher_idle`,
+  `supervisor.progress_watcher_lost`. Log contents are never read.
+  (F5) `ProcessProgressConfig.startup_grace_seconds` defaults to
+  60 s; within grace a missing scratch path returns `waiting_for_log`
+  with no warning; watcher catches `FileNotFoundError`/`OSError`
+  while scanning `*.log` files so rotated logs follow without
+  recreating the target; loop accepts a `should_stop` predicate and
+  checks it between supervisors so SIGTERM cannot start a new
+  heartbeat after shutdown; `progress_advisory_lock(repo,
+  job_id=...)` is shared with `surgical_recovery` (watcher tick
+  returns `lock_busy`, surgical recovery returns
+  `progress_lock_busy`); PID-reuse guard via `process_start_time(pid)`
+  flips the row to `state='lost'` on mismatch versus stored
+  `pid_start_time` and emits `supervisor.progress_watcher_lost`.
+  (F6) New `tests/test_mcp_dogfood_e2e.py` drives MCP `tools/call`
+  round-trips for `dogfood.publish_on_behalf` covering completion
+  and review-verdict paths (marked `pytest.mark.multi_repo`);
+  `tests/test_supervised_progress_watcher.py` extended with
+  `test_progress_loop_once_heartbeats_attached_supervisor` +
+  `test_progress_loop_once_refuses_pid_identity_mismatch`. Files:
+  `src/striatum/mcp.py`, `src/striatum/process_progress.py`,
+  `src/striatum/db.py`, `src/striatum/daemon.py`,
+  `src/striatum/daemon_pg/mcp_dispatch.py` (new),
+  `src/striatum/daemon_rpc/server.py`,
+  `src/striatum/dogfood/operator_tools.py`. Tests: 42 passed,
+  10 skipped (multi_repo skips without PG harness).
+
+### Decided
+
+- D098: Cycle-exhaustion override for the dogfood-044 build review.
+  4th instance of the codex/codex implementer+reviewer
+  convergent-blind-spot anti-pattern (precedents D095 dogfood-042
+  Track A, D096 dogfood-042 Track C, D097 dogfood-043 Python
+  build). Codex needs_revision overridden; cross-lane claude
+  accept_with_findings (medium), gemini accept (low). Codex
+  findings absorbed into RFC 0040 V1.6 follow-up (TODO item 28).
+  Anti-pattern now well-characterized across four independent
+  runs; refuse-by-default validator rule (TODO item 26) remains
+  the deferred half.
+
+### Notes
+
+- Dogfood-044 ran the 9-job single-track workflow for RFC 0040
+  V1.5 (F1-F6 codex findings from dogfood-040). The `consolidate`
+  job was not present in the workflow; the operator authored this
+  changelog entry, `docs/rfcs/README.md` status update,
+  `docs/TODO.md` follow-ups, `docs/dogfood/044/BUILD_HANDOFF.md`,
+  and `docs/dogfood/044/PHASE_1_OPERATOR_NOTES.md` out-of-band
+  (dogfood-043 lesson applied).
+- Stale-lease intervention: codex finished writing code, but the
+  supervisor lease expired at ~30 min default before the
+  HANDOFF.md was published; operator composed the build HANDOFF
+  on behalf of the implementer (per-finding status read from
+  source). 30-min default-lease issue noted as a harness gap
+  separate from the V1.5 implementation scope.
+- Byline-prefix bug observed in 3 of 4 reviewed dogfoods now:
+  both gemini and claude reviewers emit
+  `(role)-lane-unknown-model-NN` instead of
+  `(role)-unknown-model-NN`. Operator hand-edited the bylines
+  before publication.
+
 ## v1.32.0 — 2026-05-13
 
 ### Added

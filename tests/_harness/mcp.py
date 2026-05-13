@@ -3,14 +3,15 @@
 from __future__ import annotations
 
 import uuid
+from pathlib import Path
 from typing import Any
 
 from striatum.mcp import DaemonRpcServer
 
 
 class McpClient:
-    def __init__(self, *, pg_conn: Any, token: str) -> None:
-        self._server = DaemonRpcServer(pg_conn=pg_conn)
+    def __init__(self, *, pg_conn: Any, token: str, repo_root: Path | None = None) -> None:
+        self._server = DaemonRpcServer(pg_conn=pg_conn, repo_root=repo_root)
         self._token = token
 
     def list_tools(self, *, repository_id: str | None = None, **extra: object) -> list[dict[str, object]]:

@@ -123,8 +123,9 @@ class MultiRepoHarness:
         finally:
             conn.close()
 
-    def mcp_client(self, token: str) -> McpClient:
-        return McpClient(pg_conn=self.pg_conn(), token=token)
+    def mcp_client(self, token: str, repo_index: int | None = None) -> McpClient:
+        repo_root = self.repos[repo_index].path if repo_index is not None else None
+        return McpClient(pg_conn=self.pg_conn(), token=token, repo_root=repo_root)
 
     def audit_rows(self, *, transport: str | None = None) -> list[dict[str, object]]:
         conn = self.pg_conn()

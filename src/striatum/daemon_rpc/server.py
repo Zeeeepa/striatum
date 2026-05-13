@@ -55,13 +55,24 @@ class DaemonRpcRouter:
         self.substrate_schema = substrate_schema
         self._handshaken_connections: set[str] = set()
 
-    def handle(self, envelope: RpcEnvelope, *, connection_id: str = "default") -> RpcResponse:
+    def handle(
+        self,
+        envelope: RpcEnvelope,
+        *,
+        connection_id: str = "default",
+        transport: str = "rpc",
+        require_handshake: bool = True,
+    ) -> RpcResponse:
         auth = RpcAuthContext(None, None, _repository_id(envelope.params), None, "allowed")
         if self.pg_conn is not None and request_id_seen(self.pg_conn, request_id=envelope.request_id):
             error = RpcError("duplicate_request", "daemon RPC request_id was already used")
             return RpcResponse.error_response(request_id=envelope.request_id, error=error)
         try:
-            if envelope.method != "daemon.hello" and connection_id not in self._handshaken_connections:
+            if (
+                require_handshake
+                and envelope.method != "daemon.hello"
+                and connection_id not in self._handshaken_connections
+            ):
                 auth = _denied_auth(auth, "version_incompatible")
                 raise RpcError("version_incompatible", "daemon.hello must run before ordinary RPC routes")
             entry = METHOD_REGISTRY.get(envelope.method)
@@ -99,16 +110,23 @@ class DaemonRpcRouter:
         except RpcError as exc:
             auth = _denied_auth(auth, exc.code)
             response = RpcResponse.error_response(request_id=envelope.request_id, error=exc)
-        return self._record_and_return(envelope, auth=auth, response=response)
+        return self._record_and_return(envelope, auth=auth, response=response, transport=transport)
 
-    def _record_and_return(self, envelope: RpcEnvelope, *, auth: RpcAuthContext, response: RpcResponse) -> RpcResponse:
+    def _record_and_return(
+        self,
+        envelope: RpcEnvelope,
+        *,
+        auth: RpcAuthContext,
+        response: RpcResponse,
+        transport: str = "rpc",
+    ) -> RpcResponse:
         if self.pg_conn is None:
             return response
         audit_value = append_audit_row(
             self.pg_conn,
             auth=auth,
             method=envelope.method,
-            transport="rpc",
+            transport=transport,
             request_id=envelope.request_id,
             params=envelope.params,
             exit_code=None if response.ok else 10,

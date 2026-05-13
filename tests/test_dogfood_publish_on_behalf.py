@@ -10,6 +10,7 @@ from typing import Any, cast
 
 from striatum.db import connect
 from striatum.dogfood import publish_on_behalf
+from striatum.errors import InvalidTransitionError
 
 ROOT = Path(__file__).resolve().parents[1]
 JsonDict = dict[str, Any]
@@ -153,6 +154,26 @@ def _job_state(repo: Path, job_id: str) -> str:
         db.close()
 
 
+def _row_state(repo: Path, table: str, id_column: str, row_id: str) -> str:
+    db = sqlite3.connect(repo / ".striatum" / "state.sqlite3")
+    try:
+        row = db.execute(f"SELECT state FROM {table} WHERE {id_column} = ?", (row_id,)).fetchone()
+        assert row is not None
+        return str(row[0])
+    finally:
+        db.close()
+
+
+def _count(repo: Path, table: str, where: str, args: tuple[str, ...]) -> int:
+    db = sqlite3.connect(repo / ".striatum" / "state.sqlite3")
+    try:
+        row = db.execute(f"SELECT COUNT(*) FROM {table} WHERE {where}", args).fetchone()
+        assert row is not None
+        return int(row[0])
+    finally:
+        db.close()
+
+
 def test_publish_on_behalf_acks_publishes_and_completes_claimed_work(tmp_path: Path) -> None:
     _run_id, session_id, packet = _start_and_claim(tmp_path)
     job_id, message_id, lease_id = _packet_ids(packet)
@@ -249,6 +270,38 @@ def test_publish_on_behalf_records_review_verdict(tmp_path: Path) -> None:
     assert verdict_row is not None
     assert verdict_row["verdict"] == "accept_with_findings"
     assert verdict_row["findings_artifact_id"] == result["artifact_id"]
+
+
+def test_publish_on_behalf_rolls_back_when_completion_fails(tmp_path: Path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    _run_id, session_id, packet = _start_and_claim(tmp_path)
+    job_id, message_id, lease_id = _packet_ids(packet)
+    _write_artifact(tmp_path)
+
+    def fail_complete(*args: object, **kwargs: object) -> JsonDict:
+        raise InvalidTransitionError("forced complete failure")
+
+    monkeypatch.setattr("striatum.dogfood.operator_tools._complete_locked", fail_complete)
+
+    with connect(tmp_path) as conn:
+        result = publish_on_behalf(
+            conn,
+            repo=tmp_path,
+            session_id=session_id,
+            artifact_path="docs/out/OUT.md",
+            artifact_kind="handoff",
+            logical_name="out",
+            reason="agent denied ack from supervised wrapper",
+        )
+
+    assert result["ok"] is False
+    assert result["error"]["code"] == "composite_failed"
+    assert _job_state(tmp_path, job_id) == "claimed"
+    assert _row_state(tmp_path, "queue_messages", "message_id", message_id) == "claimed"
+    assert _row_state(tmp_path, "leases", "lease_id", lease_id) == "active"
+    assert _count(tmp_path, "artifacts", "job_id = ?", (job_id,)) == 0
+    assert _count(tmp_path, "verdicts", "job_id = ?", (job_id,)) == 0
+    assert _count(tmp_path, "events", "job_id = ? AND event_type = 'job.completed'", (job_id,)) == 0
+    assert _count(tmp_path, "events", "job_id = ? AND event_type = 'dogfood.publish_on_behalf_failed'", (job_id,)) == 1
 
 
 def test_publish_on_behalf_denies_without_active_lease(tmp_path: Path) -> None:

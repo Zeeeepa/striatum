@@ -14,21 +14,39 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path, PurePosixPath
 from typing import Any, cast
 
-from striatum.artifacts import publish_artifact
-from striatum.cli.mutations import ack_work
+from striatum.artifacts import (
+    ALLOWED_ARTIFACT_KINDS,
+    _enforce_required_attestation_for_artifact,
+    _first_author_line,
+    ensure_required_front_matter,
+    validate_artifact_front_matter,
+    validate_optional_markdown_author_line,
+)
 from striatum.db import (
     JsonObject,
     active_lease_for,
-    complete_job,
+    active_worktree_for_job,
     insert_event,
-    record_review_verdict,
+    json_loads,
+    maybe_complete_run,
+    maybe_enqueue_downstream,
+    new_id,
+    path_allowed,
+    repo_relative_path,
+    request_revision_for_cycle,
     row_by_id,
+    sha256_bytes,
     transaction,
     utc_now,
+    verify_required_artifacts,
+    _complete_review_job,
+    _enforce_required_attestation_for_verdict,
+    _fail_review_job,
+    _resolve_review_posture,
 )
 from striatum.daemon_supervisor.progress_watcher import progress_advisory_lock
-from striatum.errors import InvalidTransitionError
-from striatum.identity import process_start_time
+from striatum.errors import ArtifactError, InvalidTransitionError
+from striatum.identity import process_start_time, session_lane_attestation
 
 _ACTIVE_SUPERVISOR_STATES = ("starting", "attached", "detached")
 _TERMINAL_JOB_STATES = {"completed", "failed", "canceled", "skipped"}
@@ -89,101 +107,413 @@ def publish_on_behalf(
         return _failure("verdict_required", "review publish-on-behalf requires a verdict")
     if str(job["job_type"]) != "review" and verdict is not None:
         return _failure("verdict_not_allowed", "verdict is valid only for review jobs")
-
-    composition_steps: list[JsonObject] = []
-    ack_result: JsonObject | None = None
-    if str(job["state"]) == "claimed":
-        if message_id is None:
-            return _failure("queue_message_missing", "claimed job has no current message")
-        ack_result = ack_work(
-            conn,
-            session_id=session_id,
-            message_id=message_id,
-            lease_id=lease_id,
+    if verdict is not None and verdict not in {"accept", "accept_with_findings", "needs_revision", "reject"}:
+        return _failure("invalid_verdict", f"unknown verdict {verdict!r}")
+    if str(job["job_type"]) == "review" and artifact_kind != "finding" and not findings_artifact_id:
+        return _failure(
+            "findings_artifact_required",
+            "review publish-on-behalf requires an explicit findings_artifact_id unless publishing a finding artifact",
         )
-        composition_steps.append({"step": "ack", "status": str(ack_result["status"])})
-    else:
-        composition_steps.append({"step": "ack", "status": "already_acked"})
+    if findings_artifact_id:
+        findings_check = _validate_findings_artifact(conn, job_id=job_id, artifact_id=findings_artifact_id)
+        if findings_check.get("ok") is not True:
+            return findings_check
 
-    artifact = publish_artifact(
-        conn,
-        repo=repo,
-        session_id=session_id,
-        job_id=job_id,
-        lease_id=lease_id,
-        kind=artifact_kind,
-        logical_name=logical_name,
-        path_text=artifact_path,
-    )
-    artifact_id = str(artifact["artifact_id"])
-    composition_steps.append({"step": "publish_artifact", "status": str(artifact["status"])})
+    try:
+        with transaction(conn):
+            composition_steps: list[JsonObject] = []
+            ack_result: JsonObject | None = None
+            if str(job["state"]) == "claimed":
+                if message_id is None:
+                    raise InvalidTransitionError("claimed job has no current message")
+                ack_result = _ack_on_behalf_locked(
+                    conn,
+                    session_id=session_id,
+                    message_id=message_id,
+                    lease_id=lease_id,
+                )
+                composition_steps.append({"step": "ack", "status": str(ack_result["status"])})
+            else:
+                composition_steps.append({"step": "ack", "status": "already_acked"})
 
-    result: JsonObject = {
-        "ok": True,
-        "status": "published_on_behalf",
-        "operation": "publish_on_behalf",
-        "job_id": job_id,
-        "session_id": session_id,
-        "lease_id": lease_id,
-        "message_id": message_id,
-        "artifact_id": artifact_id,
-        "artifact": artifact,
-        "composition_steps": composition_steps,
-        "reason": reason,
-    }
-    if ack_result is not None:
-        result["ack"] = ack_result
+            artifact = _publish_artifact_locked(
+                conn,
+                repo=repo,
+                session_id=session_id,
+                job_id=job_id,
+                lease_id=lease_id,
+                kind=artifact_kind,
+                logical_name=logical_name,
+                path_text=artifact_path,
+            )
+            artifact_id = str(artifact["artifact_id"])
+            composition_steps.append({"step": "publish_artifact", "status": str(artifact["status"])})
 
-    job = row_by_id(conn, "jobs", "job_id", job_id)
-    if str(job["job_type"]) == "review":
-        assert verdict is not None
-        verdict_result = record_review_verdict(
-            conn,
-            session_id=session_id,
-            job_id=job_id,
-            lease_id=lease_id,
-            verdict=verdict,
-            findings_artifact_id=findings_artifact_id or artifact_id,
-            rationale=verdict_rationale,
-        )
-        result["status"] = "published_on_behalf_reviewed"
-        result["verdict"] = verdict_result
-        if "verdict_id" in verdict_result:
-            result["verdict_id"] = verdict_result["verdict_id"]
-        composition_steps.append({"step": "verdict", "status": str(verdict_result["status"])})
-    else:
-        completion = complete_job(
-            conn,
-            session_id=session_id,
-            job_id=job_id,
-            lease_id=lease_id,
-            summary=summary or f"Published on behalf: {reason}",
-        )
-        result["status"] = "published_on_behalf_completed"
-        result["completion"] = completion
-        composition_steps.append({"step": "complete", "status": str(completion["status"])})
+            result: JsonObject = {
+                "ok": True,
+                "status": "published_on_behalf",
+                "operation": "publish_on_behalf",
+                "job_id": job_id,
+                "session_id": session_id,
+                "lease_id": lease_id,
+                "message_id": message_id,
+                "artifact_id": artifact_id,
+                "artifact": artifact,
+                "composition_steps": composition_steps,
+                "reason": reason,
+            }
+            if ack_result is not None:
+                result["ack"] = ack_result
 
-    with transaction(conn):
-        insert_event(
+            refreshed_job = row_by_id(conn, "jobs", "job_id", job_id)
+            if str(refreshed_job["job_type"]) == "review":
+                assert verdict is not None
+                effective_findings_artifact_id = findings_artifact_id or artifact_id
+                verdict_result = _record_verdict_locked(
+                    conn,
+                    session_id=session_id,
+                    job_id=job_id,
+                    lease_id=lease_id,
+                    verdict=verdict,
+                    findings_artifact_id=effective_findings_artifact_id,
+                    rationale=verdict_rationale,
+                )
+                result["status"] = "published_on_behalf_reviewed"
+                result["verdict"] = verdict_result
+                result["findings_artifact_id"] = effective_findings_artifact_id
+                if "verdict_id" in verdict_result:
+                    result["verdict_id"] = verdict_result["verdict_id"]
+                composition_steps.append({"step": "verdict", "status": str(verdict_result["status"])})
+            else:
+                completion = _complete_locked(
+                    conn,
+                    session_id=session_id,
+                    job_id=job_id,
+                    lease_id=lease_id,
+                    summary=summary or f"Published on behalf: {reason}",
+                )
+                result["status"] = "published_on_behalf_completed"
+                result["completion"] = completion
+                composition_steps.append({"step": "complete", "status": str(completion["status"])})
+
+            event_job = row_by_id(conn, "jobs", "job_id", job_id)
+            insert_event(
+                conn,
+                run_id=str(event_job["run_id"]),
+                event_type="dogfood.publish_on_behalf",
+                actor_session_id=session_id,
+                job_id=job_id,
+                message_id=message_id,
+                lease_id=lease_id,
+                artifact_id=artifact_id,
+                payload={
+                    "operation": "publish_on_behalf",
+                    "operator_reason": reason,
+                    "artifact_path": artifact_path,
+                    "artifact_kind": artifact_kind,
+                    "logical_name": logical_name,
+                    "verdict": verdict,
+                    "composition_steps": composition_steps,
+                    "outcome": "committed",
+                },
+            )
+            return result
+    except (ArtifactError, InvalidTransitionError, sqlite3.Error) as exc:
+        _record_publish_on_behalf_failure(
             conn,
             run_id=str(job["run_id"]),
-            event_type="dogfood.publish_on_behalf",
-            actor_session_id=session_id,
+            session_id=session_id,
             job_id=job_id,
             message_id=message_id,
             lease_id=lease_id,
-            artifact_id=artifact_id,
-            payload={
-                "operation": "publish_on_behalf",
-                "operator_reason": reason,
-                "artifact_path": artifact_path,
-                "artifact_kind": artifact_kind,
-                "logical_name": logical_name,
-                "verdict": verdict,
-                "composition_steps": composition_steps,
-            },
+            reason=reason,
+            error=str(exc),
         )
-    return result
+        return _failure("composite_failed", str(exc))
+
+
+def _record_publish_on_behalf_failure(
+    conn: sqlite3.Connection,
+    *,
+    run_id: str,
+    session_id: str,
+    job_id: str,
+    message_id: str | None,
+    lease_id: str,
+    reason: str,
+    error: str,
+) -> None:
+    try:
+        with transaction(conn):
+            insert_event(
+                conn,
+                run_id=run_id,
+                event_type="dogfood.publish_on_behalf_failed",
+                actor_session_id=session_id,
+                job_id=job_id,
+                message_id=message_id,
+                lease_id=lease_id,
+                payload={
+                    "operation": "publish_on_behalf",
+                    "operator_reason": reason,
+                    "outcome": "rolled_back",
+                    "error": error,
+                },
+            )
+    except sqlite3.Error:
+        return
+
+
+def _ack_on_behalf_locked(
+    conn: sqlite3.Connection, *, session_id: str, message_id: str, lease_id: str
+) -> JsonObject:
+    message = row_by_id(conn, "queue_messages", "message_id", message_id)
+    job = row_by_id(conn, "jobs", "job_id", str(message["job_id"]))
+    active_lease_for(conn, lease_id=lease_id, session_id=session_id, job_id=str(job["job_id"]))
+    if message["state"] == "acked":
+        return {"status": "acked", "job_id": job["job_id"]}
+    if message["state"] != "claimed" or job["state"] != "claimed":
+        raise InvalidTransitionError("work must be claimed before ack")
+    now = utc_now()
+    conn.execute(
+        "UPDATE queue_messages SET state = 'acked', acked_at = ?, updated_at = ? WHERE message_id = ?",
+        (now, now, message_id),
+    )
+    conn.execute("UPDATE jobs SET state = 'running', started_at = ? WHERE job_id = ?", (now, job["job_id"]))
+    insert_event(
+        conn,
+        run_id=str(job["run_id"]),
+        event_type="queue.acked",
+        actor_session_id=session_id,
+        job_id=str(job["job_id"]),
+        message_id=message_id,
+        lease_id=lease_id,
+    )
+    return {"status": "acked", "job_id": job["job_id"]}
+
+
+def _publish_artifact_locked(
+    conn: sqlite3.Connection,
+    *,
+    repo: Path,
+    session_id: str,
+    job_id: str,
+    lease_id: str,
+    kind: str,
+    logical_name: str,
+    path_text: str,
+) -> dict[str, object]:
+    job = conn.execute("SELECT * FROM jobs WHERE job_id = ?", (job_id,)).fetchone()
+    if job is None:
+        raise ArtifactError("job does not exist")
+    active_lease_for(conn, lease_id=lease_id, session_id=session_id, job_id=job_id)
+    if kind == "transcript":
+        raise ArtifactError("transcript artifacts are not allowed by default")
+    if kind not in ALLOWED_ARTIFACT_KINDS:
+        allowed = ", ".join(sorted(ALLOWED_ARTIFACT_KINDS))
+        raise ArtifactError(f"artifact kind {kind!r} is not in the allowed kinds list: {allowed}")
+    _enforce_required_attestation_for_artifact(conn, job=job, session_id=session_id)
+    write_scope = json_loads(str(job["write_scope_json"]))
+    if not path_allowed(repo, path_text, write_scope):
+        raise ArtifactError("artifact path is outside the job write scope")
+    repo_relative_path(repo, path_text)
+    worktree = active_worktree_for_job(conn, job_id=job_id)
+    if worktree is not None:
+        path = (Path(str(worktree["worktree_path"])) / path_text).resolve()
+        worktree_root = Path(str(worktree["worktree_path"])).resolve()
+        try:
+            path.relative_to(worktree_root)
+        except ValueError as exc:
+            raise ArtifactError("artifact path must stay inside the active worktree") from exc
+    else:
+        path = repo_relative_path(repo, path_text)
+    if not path.exists() or not path.is_file():
+        raise ArtifactError("artifact file does not exist")
+    payload = path.read_bytes()
+    payload = ensure_required_front_matter(kind=kind, path=path, payload=payload)
+    validate_optional_markdown_author_line(conn, job=job, session_id=session_id, path=path, payload=payload)
+    validate_artifact_front_matter(kind=kind, path=path, payload=payload)
+    digest = sha256_bytes(payload)
+    existing = conn.execute(
+        """
+        SELECT * FROM artifacts
+        WHERE run_id = ? AND job_id = ? AND logical_name = ?
+        """,
+        (job["run_id"], job_id, logical_name),
+    ).fetchone()
+    if existing is not None:
+        if existing["content_sha256"] == digest and existing["repo_path"] == path_text:
+            return {"status": "already_published", "artifact_id": existing["artifact_id"]}
+        raise ArtifactError("artifact logical name already exists with different content")
+    artifact_id = new_id("art")
+    now = utc_now()
+    actual_author_line = _first_author_line(payload)
+    conn.execute(
+        """
+        INSERT INTO artifacts (
+          artifact_id, run_id, job_id, session_id, logical_name,
+          artifact_kind, repo_path, content_sha256, size_bytes,
+          publish_mode, created_at, author_line
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'create', ?, ?)
+        """,
+        (
+            artifact_id,
+            job["run_id"],
+            job_id,
+            session_id,
+            logical_name,
+            kind,
+            path_text,
+            digest,
+            len(payload),
+            now,
+            actual_author_line,
+        ),
+    )
+    insert_event(
+        conn,
+        run_id=str(job["run_id"]),
+        event_type="artifact.published",
+        actor_session_id=session_id,
+        job_id=job_id,
+        artifact_id=artifact_id,
+        lease_id=lease_id,
+        payload={"logical_name": logical_name, "path": path_text, "sha256": digest},
+    )
+    return {"status": "published", "artifact_id": artifact_id, "sha256": digest}
+
+
+def _complete_locked(
+    conn: sqlite3.Connection,
+    *,
+    session_id: str,
+    job_id: str,
+    lease_id: str,
+    summary: str | None,
+) -> JsonObject:
+    job = row_by_id(conn, "jobs", "job_id", job_id)
+    active_lease_for(conn, lease_id=lease_id, session_id=session_id, job_id=job_id)
+    if job["state"] != "running":
+        raise InvalidTransitionError("job must be running before completion")
+    verify_required_artifacts(conn, job_id=job_id)
+    now = utc_now()
+    message_id = job["current_message_id"]
+    conn.execute(
+        "UPDATE jobs SET state = 'completed', completed_at = ?, current_lease_id = NULL WHERE job_id = ?",
+        (now, job_id),
+    )
+    if message_id is not None:
+        conn.execute(
+            """
+            UPDATE queue_messages
+            SET state = 'completed', completed_at = ?, updated_at = ?,
+                current_lease_id = NULL
+            WHERE message_id = ?
+            """,
+            (now, now, message_id),
+        )
+    conn.execute(
+        """
+        UPDATE leases
+        SET state = 'released', released_at = ?, release_reason = 'completed'
+        WHERE lease_id = ?
+        """,
+        (now, lease_id),
+    )
+    insert_event(
+        conn,
+        run_id=str(job["run_id"]),
+        event_type="job.completed",
+        actor_session_id=session_id,
+        job_id=job_id,
+        message_id=message_id,
+        lease_id=lease_id,
+        payload={"summary": summary},
+    )
+    maybe_enqueue_downstream(conn, completed_job_id=job_id)
+    maybe_complete_run(conn, run_id=str(job["run_id"]))
+    return {"status": "completed", "job_id": job_id}
+
+
+def _record_verdict_locked(
+    conn: sqlite3.Connection,
+    *,
+    session_id: str,
+    job_id: str,
+    lease_id: str,
+    verdict: str,
+    findings_artifact_id: str | None,
+    rationale: str | None,
+) -> JsonObject:
+    job = row_by_id(conn, "jobs", "job_id", job_id)
+    if job["job_type"] != "review":
+        raise InvalidTransitionError("verdict is valid only for review jobs")
+    active_lease_for(conn, lease_id=lease_id, session_id=session_id, job_id=job_id)
+    if job["state"] != "running":
+        raise InvalidTransitionError("review job must be running before verdict")
+    _enforce_required_attestation_for_verdict(conn, job=job, session_id=session_id)
+    verify_required_artifacts(conn, job_id=job_id)
+    verdict_id = new_id("verdict")
+    now = utc_now()
+    posture = _resolve_review_posture(conn, job=job)
+    conn.execute(
+        """
+        INSERT INTO verdicts (
+          verdict_id, run_id, job_id, session_id, verdict, rationale,
+          findings_artifact_id, created_at, posture
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (verdict_id, job["run_id"], job_id, session_id, verdict, rationale, findings_artifact_id, now, posture),
+    )
+    insert_event(
+        conn,
+        run_id=str(job["run_id"]),
+        event_type="verdict.recorded",
+        actor_session_id=session_id,
+        job_id=job_id,
+        lease_id=lease_id,
+        payload={
+            "verdict": verdict,
+            "posture": posture,
+            "lane_attestation": session_lane_attestation(
+                conn, session_id=session_id
+            ).state,
+        },
+    )
+    if verdict in ("accept", "accept_with_findings"):
+        _complete_review_job(conn, job=job, session_id=session_id, lease_id=lease_id, summary=verdict)
+        maybe_enqueue_downstream(conn, completed_job_id=job_id)
+        maybe_complete_run(conn, run_id=str(job["run_id"]))
+        return {"status": "completed", "job_id": job_id, "verdict": verdict, "verdict_id": verdict_id}
+    if verdict == "needs_revision":
+        result = request_revision_for_cycle(conn, review_job=job, session_id=session_id, lease_id=lease_id)
+        result["verdict_id"] = verdict_id
+        return result
+    if verdict == "reject":
+        _fail_review_job(conn, job=job, session_id=session_id, lease_id=lease_id)
+        maybe_complete_run(conn, run_id=str(job["run_id"]))
+        return {"status": "failed", "job_id": job_id, "verdict": verdict, "verdict_id": verdict_id}
+    raise InvalidTransitionError(f"unknown verdict {verdict!r}")
+
+
+def _validate_findings_artifact(conn: sqlite3.Connection, *, job_id: str, artifact_id: str) -> JsonObject:
+    row = conn.execute(
+        """
+        SELECT artifact_id FROM artifacts
+        WHERE artifact_id = ? AND job_id = ?
+        LIMIT 1
+        """,
+        (artifact_id, job_id),
+    ).fetchone()
+    if row is None:
+        return _failure(
+            "findings_artifact_not_found",
+            "findings_artifact_id must reference an artifact for the same job",
+            details={"artifact_id": artifact_id, "job_id": job_id},
+        )
+    return {"ok": True}
 
 
 def _active_work_for_artifact(

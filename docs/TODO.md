@@ -79,6 +79,7 @@ so external references keep resolving even as items move between sections.
 | F42 | RFC 0044 draft Engram Phase 1 implementation spec (dogfood-042 Track B) | ✅ done |
 | F43 | RFC 0042 draft repo-local state to Postgres (dogfood-042 Track C) | ✅ done |
 | F44 | RFC 0045 V1 multi-phase workflow schema + React Flow editor (dogfood-043) | ✅ done |
+| F45 | RFC 0040 V1.5 daemon-dispatch + composite tools + watcher (dogfood-044) | ✅ done |
 
 Legend: ✅ done · 🟡 most done (sub-tasks remain) · ⏳ open
 
@@ -230,20 +231,38 @@ Legend: ✅ done · 🟡 most done (sub-tasks remain) · ⏳ open
     "adapter" rather than assuming Engram-specific paths or marker names.
     No active sub-task.
 
-20. **RFC 0040 V1.5 follow-up.** Six codex findings (F1-F6) from
-    dogfood-040 build review iteration 2, deferred by cycle-exhaustion
-    override (decision `dec_af557de1402d44489c0b9af7c93b0a5c`):
-    (F1) daemon MCP `tools/call` authorizes + audits but doesn't
-    dispatch through the method registry → composite tools
-    `dogfood.publish_on_behalf` + `dogfood.surgical_recovery` are
-    non-functional through the MCP path; (F2/F3) `publish_on_behalf`
-    atomicity + verdict-recording semantics; (F4) supervised-progress
-    watcher module exists but isn't invoked by daemon supervisor
-    lifecycle; (F5) watcher race + signal hardening incomplete; (F6)
-    tests cover mocked gating, not end-to-end execution paths. Land
-    via a future dogfood. Future harness improvement: avoid same-lane
-    implementer ↔ reviewer pairs to prevent the codex/codex tight-
-    feedback loop observed in dogfood-040 iteration 2.
+20. ~~**RFC 0040 V1.5 follow-up.** Six codex findings (F1-F6) from
+    dogfood-040 build review iteration 2.~~ ✅ Done: shipped under
+    dogfood-044 (v1.33.0). (F1) daemon MCP `tools/call` now dispatches
+    through `daemon_pg/mcp_dispatch.py::dispatch_mcp_tool_call` →
+    composite tools `dogfood.publish_on_behalf` +
+    `dogfood.surgical_recovery` are now functional through the MCP
+    path; (F2/F3) `publish_on_behalf` runs ack/publish/verdict inside
+    one outer transaction with rollback-event emission on failure, and
+    review verdicts are validated + recorded with `findings_artifact_id`
+    defaulting from the published artifact when kind=`finding`; (F4)
+    `process_progress.progress_loop_once` is invoked from
+    `daemon.daemon_sweep_once` and folds results into the sweep
+    payload; (F5) `startup_grace_seconds=60` default, `FileNotFoundError`
+    /`OSError` on log scan tolerated, `should_stop` predicate checked
+    between supervisors, shared `progress_advisory_lock`, and PID-reuse
+    guard via `process_start_time`; (F6) `tests/test_mcp_dogfood_e2e.py`
+    + new `test_progress_loop_once_*` cases. 4th codex/codex
+    anti-pattern instance (D098 cycle-exhaustion override). Codex
+    needs_revision findings absorbed into RFC 0040 V1.6 (item 28
+    below).
+
+28. **RFC 0040 V1.6 follow-up.** Codex needs_revision findings from
+    dogfood-044 build review, deferred by cycle-exhaustion override
+    per D098 (decision `dec_242ea0b026d547c9baad9b353b149033`). 4th
+    instance of the codex/codex implementer+reviewer anti-pattern
+    (precedents D095 dogfood-042 Track A, D096 dogfood-042 Track C,
+    D097 dogfood-043). 2-of-3 cross-lane verdicts: claude
+    accept_with_findings (medium), gemini accept (low). Land the
+    codex needs_revision delta via a future dogfood. The anti-pattern
+    is now well-characterized across four independent runs; the
+    refuse-by-default validator rule (TODO item 26) remains the
+    deferred half.
 
 21. **RFC 0038 V1.5 follow-up.** Codex attempt-2 findings (F1-F4)
     from dogfood-041 build review iteration 2 + gemini attempt-1

@@ -15,12 +15,15 @@ def test_repo_scoped_write_token_allows_repo_a_write_and_audits_allowed(
     harness.register_all()
     token = harness.issue_token(["write"], repo_id=str(harness.repos[0].repository_id))
 
-    result = harness.mcp_client(token).call_tool("publish_artifact", repository_id=str(harness.repos[0].repository_id))
+    result = harness.mcp_client(token, repo_index=0).call_tool(
+        "dogfood.publish_on_behalf",
+        repository_id=str(harness.repos[0].repository_id),
+    )
 
     assert result["isError"] is False
     row = harness.audit_rows(transport="mcp")[-1]
     assert row["decision"] == "allowed"
-    assert row["method"] == "publish_artifact"
+    assert row["method"] == "dogfood.publish_on_behalf"
 
 
 def test_repo_scoped_write_token_denied_against_repo_b_and_audits_scope_mismatch(
@@ -31,7 +34,10 @@ def test_repo_scoped_write_token_denied_against_repo_b_and_audits_scope_mismatch
     harness.register_all()
     token = harness.issue_token(["write"], repo_id=str(harness.repos[0].repository_id))
 
-    result = harness.mcp_client(token).call_tool("publish_artifact", repository_id=str(harness.repos[1].repository_id))
+    result = harness.mcp_client(token, repo_index=0).call_tool(
+        "dogfood.publish_on_behalf",
+        repository_id=str(harness.repos[1].repository_id),
+    )
 
     assert result["isError"] is True
     assert result["structuredContent"]["error"] == "capability_scope_mismatch"
@@ -63,7 +69,10 @@ def test_read_only_token_cannot_call_write_tool(
     harness.register_all()
     token = harness.issue_token(["read"], repo_id=str(harness.repos[0].repository_id))
 
-    result = harness.mcp_client(token).call_tool("publish_artifact", repository_id=str(harness.repos[0].repository_id))
+    result = harness.mcp_client(token, repo_index=0).call_tool(
+        "dogfood.publish_on_behalf",
+        repository_id=str(harness.repos[0].repository_id),
+    )
 
     assert result["isError"] is True
     assert result["structuredContent"]["error"] == "capability_missing"
@@ -94,7 +103,10 @@ def test_revoked_token_denied_and_audited(
     token = harness.issue_token(["write"], repo_id=str(harness.repos[0].repository_id))
     harness.revoke_token(token)
 
-    result = harness.mcp_client(token).call_tool("publish_artifact", repository_id=str(harness.repos[0].repository_id))
+    result = harness.mcp_client(token, repo_index=0).call_tool(
+        "dogfood.publish_on_behalf",
+        repository_id=str(harness.repos[0].repository_id),
+    )
 
     assert result["structuredContent"]["error"] == "token_revoked"
     assert harness.audit_rows(transport="mcp")[-1]["denial_reason"] == "token_revoked"
@@ -109,7 +121,10 @@ def test_expired_token_denied_and_audited(
     token = harness.issue_token(["write"], repo_id=str(harness.repos[0].repository_id))
     harness.expire_token(token)
 
-    result = harness.mcp_client(token).call_tool("publish_artifact", repository_id=str(harness.repos[0].repository_id))
+    result = harness.mcp_client(token, repo_index=0).call_tool(
+        "dogfood.publish_on_behalf",
+        repository_id=str(harness.repos[0].repository_id),
+    )
 
     assert result["structuredContent"]["error"] == "token_expired"
     assert harness.audit_rows(transport="mcp")[-1]["denial_reason"] == "token_expired"
@@ -122,10 +137,10 @@ def test_audit_chain_continuous_across_allowed_and_denied_calls(
     harness = multi_repo_harness
     harness.register_all()
     token = harness.issue_token(["write"], repo_id=str(harness.repos[0].repository_id))
-    client = harness.mcp_client(token)
+    client = harness.mcp_client(token, repo_index=0)
 
-    client.call_tool("publish_artifact", repository_id=str(harness.repos[0].repository_id))
-    client.call_tool("publish_artifact", repository_id=str(harness.repos[1].repository_id))
+    client.call_tool("dogfood.publish_on_behalf", repository_id=str(harness.repos[0].repository_id))
+    client.call_tool("dogfood.publish_on_behalf", repository_id=str(harness.repos[1].repository_id))
     client.call_tool("not.a.method", repository_id=str(harness.repos[0].repository_id))
 
     harness.assert_audit_chain()

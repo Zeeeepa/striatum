@@ -17,6 +17,8 @@ from striatum.daemon_supervisor.progress_watcher import (
     progress_advisory_lock,
     check_progress_once,
 )
+from striatum.identity import process_start_time
+from striatum.process_progress import ProcessProgressConfig, progress_loop_once
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -72,6 +74,7 @@ def _claimed_packet(repo: Path) -> tuple[str, dict[str, Any]]:
     job = cast(dict[str, Any], packet["job"])
     packet["lease_id"] = str(lease["lease_id"])
     packet["job_id"] = str(job["job_id"])
+    packet["run_id"] = run_id
     return str(session["session_id"]), packet
 
 
@@ -219,3 +222,113 @@ def test_db_aware_progress_watcher_respects_progress_lock(tmp_path: Path) -> Non
             )
 
     assert result.status == "lock_busy"
+
+
+def _insert_attached_supervisor(
+    conn: Any,
+    *,
+    run_id: str,
+    session_id: str,
+    scratch: Path,
+    pid_start_time: str | None = None,
+) -> None:
+    columns = {row["name"] for row in conn.execute("PRAGMA table_info(process_supervisors)").fetchall()}
+    field_names = [
+        "supervisor_id",
+        "run_id",
+        "session_id",
+        "adapter",
+        "command_json",
+        "cwd",
+        "scratch_path",
+        "stdin_pipe_path",
+        "pid",
+        "state",
+        "started_at",
+        "heartbeat_at",
+    ]
+    values: list[object] = [
+        "sup_test",
+        run_id,
+        session_id,
+        "process",
+        '["sleep","60"]',
+        str(scratch.parent),
+        str(scratch),
+        str(scratch / "stdin.pipe"),
+        os.getpid(),
+        "attached",
+        "2026-05-13T00:00:00Z",
+        "2026-05-13T00:00:00Z",
+    ]
+    if "pid_start_time" in columns:
+        field_names.append("pid_start_time")
+        values.append(pid_start_time if pid_start_time is not None else process_start_time(os.getpid()))
+    placeholders = ",".join(["?"] * len(field_names))
+    conn.execute(
+        f"INSERT INTO process_supervisors({','.join(field_names)}) VALUES ({placeholders})",
+        values,
+    )
+
+
+def test_progress_loop_once_heartbeats_attached_supervisor(tmp_path: Path) -> None:
+    session_id, packet = _claimed_packet(tmp_path)
+    scratch = tmp_path / ".striatum" / "scratch" / "sup_test"
+    scratch.mkdir(parents=True)
+    log_path = scratch / "packet-0001.log"
+    log_path.write_text("progress\n", encoding="utf-8")
+
+    with connect(tmp_path) as conn:
+        _insert_attached_supervisor(
+            conn,
+            run_id=str(packet["run_id"]),
+            session_id=session_id,
+            scratch=scratch,
+        )
+        conn.commit()
+        before = conn.execute(
+            "SELECT expires_at FROM leases WHERE lease_id = ?",
+            (str(packet["lease_id"]),),
+        ).fetchone()
+        result = progress_loop_once(conn, repo=tmp_path)
+        after = conn.execute(
+            "SELECT expires_at FROM leases WHERE lease_id = ?",
+            (str(packet["lease_id"]),),
+        ).fetchone()
+        event = conn.execute(
+            "SELECT event_type FROM events WHERE event_type = 'supervisor.progress_watcher_heartbeat'"
+        ).fetchone()
+
+    assert result["counts"]["heartbeat"] == 1
+    assert before is not None and after is not None
+    assert after["expires_at"] != before["expires_at"]
+    assert event is not None
+
+
+def test_progress_loop_once_refuses_pid_identity_mismatch(tmp_path: Path) -> None:
+    session_id, packet = _claimed_packet(tmp_path)
+    scratch = tmp_path / ".striatum" / "scratch" / "sup_test"
+    scratch.mkdir(parents=True)
+    (scratch / "packet-0001.log").write_text("progress\n", encoding="utf-8")
+
+    with connect(tmp_path) as conn:
+        _insert_attached_supervisor(
+            conn,
+            run_id=str(packet["run_id"]),
+            session_id=session_id,
+            scratch=scratch,
+            pid_start_time="definitely-not-this-process",
+        )
+        conn.commit()
+        result = progress_loop_once(
+            conn,
+            repo=tmp_path,
+            config=ProcessProgressConfig(),
+        )
+        supervisor = conn.execute(
+            "SELECT state FROM process_supervisors WHERE supervisor_id = 'sup_test'"
+        ).fetchone()
+
+    assert result["counts"]["process_identity_changed"] == 1
+    assert supervisor is not None
+    assert supervisor["state"] == "lost"
