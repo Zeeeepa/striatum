@@ -8,16 +8,19 @@ stderr templates, JSON-envelope hints, and the env-gated dispatch hook.
 
 from __future__ import annotations
 
+import importlib
 import json
 from pathlib import Path
 
 import pytest
 
-from striatum.cli import dispatch as dispatch_mod
-from striatum.cli.daemon_required import (
+dispatch_mod = importlib.import_module("striatum.cli.dispatch")
+
+from striatum.cli.daemon_required import (  # noqa: E402  (must follow importlib bind)
     DaemonRequirement,
     ENV_DAEMON_REQUIRED,
     ENV_DAEMON_SOCKET,
+    ENV_TEST_HARNESS,
     enforce_daemon_required,
     render_daemon_unreachable_hint,
     render_daemon_unreachable_message,
@@ -26,7 +29,7 @@ from striatum.cli.daemon_required import (
     resolve_requirement,
     resolve_socket_path,
 )
-from striatum.errors import (
+from striatum.errors import (  # noqa: E402  (must follow importlib bind)
     EXIT_DAEMON_UNREACHABLE,
     EXIT_REPO_NOT_MIGRATED,
     DaemonUnreachableError,
@@ -39,8 +42,12 @@ def _clear_daemon_required_env(monkeypatch: pytest.MonkeyPatch) -> None:
     # V1.5: daemon-required is the default. Removing the env at function
     # scope (which overrides the session-level opt-out from
     # ``tests/conftest.py``) exercises the new mandatory enforcement.
+    # V1.6 F-escape: also clear ``STRIATUM_TEST_HARNESS`` so each test
+    # asserts the production code path; tests that exercise the paired
+    # opt-out set both vars explicitly.
     monkeypatch.delenv(ENV_DAEMON_REQUIRED, raising=False)
     monkeypatch.delenv(ENV_DAEMON_SOCKET, raising=False)
+    monkeypatch.delenv(ENV_TEST_HARNESS, raising=False)
 
 
 def test_daemon_unreachable_message_lists_remediation(tmp_path: Path) -> None:
@@ -189,11 +196,68 @@ def test_resolve_requirement_enforces_by_default_when_env_unset() -> None:
     assert requirement.enforced is True
 
 
-def test_resolve_requirement_opt_out_with_env_zero(monkeypatch: pytest.MonkeyPatch) -> None:
-    # STRIATUM_DAEMON_REQUIRED=0 is the explicit opt-out for legacy
-    # SQLite-backed test fixtures and incremental migration.
+def test_resolve_requirement_paired_opt_out_is_recognized(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """V1.6 F-escape: the opt-out requires BOTH env vars.
+
+    ``STRIATUM_DAEMON_REQUIRED=0`` paired with ``STRIATUM_TEST_HARNESS=1``
+    returns ``None`` so the legacy SQLite-backed test fixtures stay green
+    during the V1.6 → V2.0 substrate migration.
+    """
     monkeypatch.setenv(ENV_DAEMON_REQUIRED, "0")
+    monkeypatch.setenv(ENV_TEST_HARNESS, "1")
     assert resolve_requirement("status") is None
+
+
+def test_resolve_requirement_bare_env_zero_still_enforces(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """V1.6 F-escape regression: the bare ``STRIATUM_DAEMON_REQUIRED=0``
+    opt-out without the test-harness marker is **not** honored anymore.
+
+    Closes the codex dogfood-050 threat-model finding that flagged the
+    documented operator escape path. Production environments that
+    accidentally export the env var (e.g. shell rc, CI matrix) still see
+    enforced daemon-required mode.
+    """
+    monkeypatch.setenv(ENV_DAEMON_REQUIRED, "0")
+    # STRIATUM_TEST_HARNESS deliberately unset (autouse fixture).
+    requirement = resolve_requirement("status")
+    assert isinstance(requirement, DaemonRequirement)
+    assert requirement.enforced is True
+
+
+def test_resolve_requirement_bare_test_harness_does_not_opt_out(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``STRIATUM_TEST_HARNESS=1`` alone does not opt out either; the
+    paired form is the only opt-out shape.
+    """
+    monkeypatch.setenv(ENV_TEST_HARNESS, "1")
+    requirement = resolve_requirement("status")
+    assert isinstance(requirement, DaemonRequirement)
+    assert requirement.enforced is True
+
+
+def test_dispatch_bare_env_zero_still_exits_11(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """End-to-end: bare ``STRIATUM_DAEMON_REQUIRED=0`` (no test harness
+    marker) still refuses with exit code 11 when the socket is missing.
+
+    The previous V1.5 behavior treated the bare env var as the operator
+    escape hatch and would have returned 0 by skipping the gate. The
+    V1.6 F-escape change removes that bypass.
+    """
+    monkeypatch.setenv(ENV_DAEMON_REQUIRED, "0")
+    monkeypatch.setenv(ENV_DAEMON_SOCKET, str(tmp_path / "no-socket"))
+    rc = dispatch_mod.main(["--repo", str(tmp_path), "status"])
+    assert rc == 11
+    captured = capsys.readouterr()
+    assert "daemon_unreachable" in captured.err
 
 
 def test_resolve_socket_path_respects_override(monkeypatch: pytest.MonkeyPatch) -> None:

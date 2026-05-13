@@ -1,5 +1,58 @@
 # Changelog
 
+## v1.41.0 — 2026-05-13
+
+### Added — harness friction burn-down
+
+Closes the recurring operator-on-behalf frictions observed across
+dogfoods 048-052 (claude-no-explicit-publish 6+ instances, gemini
+byline-drift 4 instances, override-fresh-session dance, etc.). No
+new dogfood ceremony — this *is* the burn-down.
+
+- **A1 — `striatum recovery auto-publish --run-id`** (`src/striatum/cli/recovery.py`).
+  Walks stale leases. For each, if the work-packet's `expected_artifacts[].path`
+  is present on disk and the on-disk byline canonicalises exactly to the
+  `expected_author_line`, auto-runs ack + publish-artifact + complete on
+  behalf of the dead session. Two-condition gate (byline + path) prevents
+  misfiring. Dry-run mode reports without writing.
+- **A2 — front-matter author wins** (`src/striatum/artifacts.py`).
+  `markdown_title_block_author_lines` returns front-matter author lines
+  exclusively when present; in title block, only the *first* canonical
+  byline counts. Closes the gemini `Author: <real-name>` body-mention
+  competing pattern.
+- **A3 — `publish-artifact` defaults from `expected_artifacts`**
+  (`src/striatum/cli/dispatch.py::_resolve_publish_defaults`). When
+  `--path` matches a declared `expected_artifacts[].path` and only one
+  declared artifact matches, `--kind` and `--logical-name` default from
+  the workflow. Ambiguity errors list declared paths.
+- **A4 — `striatum byline --session-id --job-id`**. Prints the exact
+  `expected_author_line`; replaces the manual python -c spelunking.
+- **C1 — `striatum inbox --session-id`**. Prints the current packet's
+  ids + expected artifacts + byline; replaces the multi-step `striatum
+  why <sid> --json` parsing operators were doing.
+- **B1 — `override-verdict --auto-fresh-session`**. When the supplied
+  session already has a verdict for the job (so override-verdict would
+  refuse), the flag registers a fresh operator reviewer session on the
+  same lane and uses it. Removes the manual two-step dance.
+
+### Regression tests
+
+- `tests/test_harness_friction_burndown.py` — front-matter-wins scanner
+  + canonical byline form.
+- `tests/exit_codes/test_rfc0043_split_brain.py` — `db.connect` refuses
+  fresh SQLite when sentinel/tombstone present.
+- `tests/daemon_pg/test_repo_local_migration_locking.py` — concurrent
+  `migrate-repo-local` refuses with exit code 8.
+- `tests/cli/test_parser_help.py` — per-flag help on
+  `daemon migrate-repo-local`.
+
+### Out of scope (still backlog)
+
+- Default workflow-artifact-output path (TODO #30).
+- `striatum self-update` (separate feature).
+- Operator sub-agent workflows as first-class skill (memory item).
+- Daemon-side substrate migration (RFC 0043 V2.0).
+
 ## v1.40.0 — 2026-05-13
 
 ### Added — RFC 0039 V1.6 Go daemon hardening (dogfood-051)
@@ -53,10 +106,15 @@ migration) **stays deferred to V2.0** as a separate phase RFC.
   with `repo_not_migrated` remediation text. Closes gemini A2.
 - **F-lock** —
   `src/striatum/daemon_pg/repo_local_migration.py`: new
-  `MigrationInProgressError(StriatumError, exit_code=14)` and
-  `_exclusive_migrate_lock(repo)` context manager taking an exclusive
-  `fcntl.flock` on `.striatum/state.sqlite3.migrate.lock` (sidecar).
-  Concurrent invocations refuse cleanly. Closes gemini A3.
+  `MigrationInProgressError(StriatumError, exit_code=8)` and
+  `_exclusive_migrate_lock(repo)` context manager taking a non-blocking
+  exclusive `fcntl.flock` on `.striatum/state.sqlite3.migrate.lock`
+  (sidecar — survives the source-file rename during finalization and
+  does not fight SQLite's own POSIX byte-range locks). Refusal message
+  names the source SQLite path. Exit code reuses the V1.5
+  ``migrate-repo-local`` refusal code per the V1.6 design synthesis
+  ("avoid introducing a new exit code for this narrow V1.6 slice").
+  Closes gemini A3.
 - **F-help** — `src/striatum/cli/parser.py` registers
   `description=` + `help=` on every `migrate-repo-local` flag
   (`--from`, `--to`, `--repo`, `--postgres-url`, `--dry-run`,

@@ -568,3 +568,73 @@ audit chain. The CI shape is intentionally two explicit jobs
 (`CORE=python`, `CORE=go`) rather than in-process parametrization, so
 the Go-core evidence is intentional rather than implied.
 
+## V1.6 Deltas (supervisor + CI hardening)
+
+V1.6 closes the five named follow-ups from v1.39.0 against the Go
+supervisor surface and the CI matrix. Implementation lives in
+dogfood-051; the design synthesis at
+`docs/dogfood/051/DESIGN_SYNTHESIS.md` is the binding spec.
+
+### F-pty — `creack/pty` master fd wiring
+
+`go/pkg/supervisor/pty.go::launchPTY` replaces the V1.5 not-wired
+sentinel with `pty.Start(cmd)` from `github.com/creack/pty v1.1.24`.
+The PTY master `*os.File` becomes the daemon's `StdinWriter`; the
+slave side is wired automatically by creack/pty as the child's
+stdin/stdout/stderr. The `UsePTY=false` branch is unchanged. The new
+dependency adds no further transitive Go modules.
+
+### F-pid-recycling — start-time pairing
+
+`go/pkg/supervisor/liveness.go::processAliveAtStartTime` pairs the
+signal-0 probe with a kernel-reported start time. The Linux reader
+parses `/proc/<pid>/stat` field 22 (clock-ticks-since-boot) and
+converts via `/proc/stat` `btime` + 100Hz `CLK_TCK`. A 2-second
+tolerance absorbs clock-resolution jitter against
+`PointerRow.StartedAt`. On non-Linux the reader returns `(_, false)`
+and the probe falls back to signal-0 only — the V1.6 acceptance gate
+is Linux explicitly per §6 above. The heartbeat goroutine passes
+`row.StartedAt` to the probe on each tick. Closes dogfood-049 gemini
+F1.
+
+### F-perms — `0700` / `0600` on scratch state
+
+`go/pkg/supervisor/pointer.go::WritePidfile` and
+`go/pkg/supervisor/pty.go::ensureFIFO` now `MkdirAll` with `0o700`;
+the pidfile is written `0o600`; `openDevNullOr` opens stdout/stderr
+fallback files at `0o600`. Closes dogfood-049 claude F-perms.
+
+### F-store — Postgres-backed `PointerStore`
+
+`go/pkg/db/supervisor_pointers.go` exports
+`SupervisorPointerStore{pool *pgxpool.Pool}` with three methods —
+`UpsertSupervisorPointer`, `MarkSupervisorLost`,
+`GetSupervisorPointer` — backed by UPSERT against
+`striatumd.process_supervisor_pointers`. A locally-defined
+`PointerRow` mirrors `supervisor.PointerRow` to keep `go/pkg/db`
+free of the supervisor import (avoids the obvious cycle). Typed
+`ErrSupervisorNotFound` flows out of `Get` and `MarkLost` when no
+row matches. Boot-time wire-up into `cmd/striatumd/main.go` is a
+V1.7 follow-up.
+
+### F-ci — verify Go binary present
+
+`.github/workflows/ci.yml` adds a "Verify Go binary present" step
+on the `daemon-core == 'go'` matrix axis that runs
+`test -x go/bin/striatumd` immediately after `make daemon-go-build`.
+A missing binary now fails with an `::error::` annotation and a
+clear remediation message rather than silently passing through to a
+no-op test run. Closes dogfood-049 gemini F6 (CI matrix bypass
+risk).
+
+### Known follow-ups (V1.7)
+
+- **macOS process start-time reader.** Replace the Linux-only
+  `/proc/<pid>/stat` path with `proc_pidinfo` /
+  `sysctl kern.proc.pid.<pid>` so darwin gets the same PID-recycling
+  guarantee.
+- **Wire Postgres-backed `SupervisorPointerStore` into `cmd/striatumd/main.go`.**
+  The store is implemented but not yet dependency-injected into the
+  daemon boot path; lands when the daemon switches from in-memory
+  fakes to PG-backed in V1.7.
+

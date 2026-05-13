@@ -528,14 +528,26 @@ def dispatch(args: argparse.Namespace) -> object:
                 description=args.description,
             )
         if args.command == "publish-artifact":
+            # V1.41: default --kind and --logical-name from the workflow's
+            # expected_artifacts when --path matches a declared artifact
+            # path. Eliminates the recurring operator drift where
+            # publish-on-behalf had to guess the logical_name (caused SQL
+            # surgery in dogfoods 048 and 051).
+            kind, logical_name = _resolve_publish_defaults(
+                conn,
+                job_id=args.job_id,
+                kind=args.kind,
+                logical_name=args.logical_name,
+                path_text=args.path,
+            )
             return publish_artifact(
                 conn,
                 repo=repo,
                 session_id=args.session_id,
                 job_id=args.job_id,
                 lease_id=args.lease_id,
-                kind=args.kind,
-                logical_name=args.logical_name,
+                kind=kind,
+                logical_name=logical_name,
                 path_text=args.path,
             )
         if args.command == "complete":
@@ -559,9 +571,24 @@ def dispatch(args: argparse.Namespace) -> object:
         if args.command == "override-verdict":
             from striatum.db import override_review_verdict
 
+            # V1.41: --auto-fresh-session takes the operator's named
+            # session and, if it already has a verdict for this job
+            # (so override-verdict would refuse), registers a fresh
+            # operator reviewer session on the same lane and uses it.
+            # Removes the two-step "register fresh, then override"
+            # dance that operator-on-behalf flows have required since
+            # dogfood-049.
+            session_id = args.session_id
+            if getattr(args, "auto_fresh_session", False):
+                session_id = _resolve_override_session(
+                    conn,
+                    requested_session_id=args.session_id,
+                    job_id=args.job_id,
+                    rationale=args.rationale,
+                )
             return override_review_verdict(
                 conn,
-                session_id=args.session_id,
+                session_id=session_id,
                 job_id=args.job_id,
                 verdict=args.verdict,
                 rationale=args.rationale,
@@ -681,6 +708,19 @@ def dispatch(args: argparse.Namespace) -> object:
                 policy=policy,
                 dry_run=bool(args.dry_run),
             )
+        if args.command == "recovery" and args.recovery_command == "auto-publish":
+            from striatum.cli.recovery import auto_publish_stale_artifacts
+
+            return auto_publish_stale_artifacts(
+                conn,
+                repo=repo,
+                run_id=args.run_id,
+                dry_run=bool(args.dry_run),
+            )
+        if args.command == "byline":
+            return _cli_byline(conn, session_id=args.session_id, job_id=args.job_id)
+        if args.command == "inbox":
+            return _cli_inbox(conn, session_id=args.session_id)
         if args.command == "recovery" and args.recovery_command == "watch":
             from striatum.recovery import run_watch
 
@@ -1001,3 +1041,171 @@ def _dispatch_daemon_read(args: argparse.Namespace, repo: Path) -> object:
             exit_code=8,
         )
     raise StriatumError("command is not daemon-routable in V1", exit_code=8)
+
+
+def _resolve_publish_defaults(
+    conn: sqlite3.Connection,
+    *,
+    job_id: str,
+    kind: str | None,
+    logical_name: str | None,
+    path_text: str,
+) -> tuple[str, str]:
+    """V1.41: derive --kind / --logical-name from expected_artifacts.
+
+    When the operator passes `--path` and the path matches a
+    declared `expected_artifacts[].path` for the job, fall back to
+    that artifact's declared `kind` / `logical_name`. Pass-through
+    if the operator already supplied them, or if the path is
+    ambiguous / unmatched.
+    """
+    from striatum.db import json_loads
+    if kind and logical_name:
+        return kind, logical_name
+    row = conn.execute(
+        "SELECT expected_artifacts_json FROM jobs WHERE job_id = ?",
+        (job_id,),
+    ).fetchone()
+    if row is None:
+        if not kind or not logical_name:
+            raise StriatumError(
+                "publish-artifact requires --kind and --logical-name "
+                "for unknown jobs",
+                exit_code=2,
+            )
+        return kind, logical_name
+    declared_raw = json_loads(str(row["expected_artifacts_json"] or "[]"))
+    declared_list: list[dict[str, object]] = (
+        [d for d in declared_raw if isinstance(d, dict)]
+        if isinstance(declared_raw, list)
+        else []
+    )
+    matches = [d for d in declared_list if d.get("path") == path_text]
+    if len(matches) != 1:
+        if not kind or not logical_name:
+            expected = ", ".join(
+                f"{d.get('path')} ({d.get('logical_name')}/{d.get('kind')})"
+                for d in declared_list
+            ) or "(none declared)"
+            raise StriatumError(
+                f"publish-artifact could not default --kind/--logical-name: "
+                f"path {path_text!r} matches {len(matches)} declared "
+                f"artifacts; expected exactly 1. Declared: {expected}",
+                exit_code=2,
+            )
+        return kind, logical_name
+    declared_artifact = matches[0]
+    resolved_kind = kind or str(declared_artifact.get("kind", ""))
+    resolved_logical = logical_name or str(declared_artifact.get("logical_name", ""))
+    return resolved_kind, resolved_logical
+
+
+def _resolve_override_session(
+    conn: sqlite3.Connection,
+    *,
+    requested_session_id: str,
+    job_id: str,
+    rationale: str,
+) -> str:
+    """V1.41: if requested_session_id already has a verdict for job_id,
+    register a fresh operator reviewer session on the same lane and
+    return its id. Otherwise return requested_session_id unchanged.
+
+    The override path requires a session distinct from the one that
+    submitted the original verdict; before V1.41 this was a manual
+    two-step (register-session + override-verdict).
+    """
+    existing = conn.execute(
+        "SELECT 1 FROM verdicts WHERE job_id = ? AND session_id = ?",
+        (job_id, requested_session_id),
+    ).fetchone()
+    if existing is None:
+        return requested_session_id
+    session_row = conn.execute(
+        "SELECT run_id, lane_id FROM sessions WHERE session_id = ?",
+        (requested_session_id,),
+    ).fetchone()
+    if session_row is None:
+        return requested_session_id
+    from striatum.cli.mutations import register_session
+
+    label = f"operator-override-{job_id[-12:]}"
+    result = register_session(
+        conn,
+        run_id=str(session_row["run_id"]),
+        role="reviewer",
+        lane=str(session_row["lane_id"]),
+        capabilities=[],
+        fresh=True,
+        parent_session_id=None,
+        operator_label=label,
+    )
+    return str(result["session_id"])
+
+
+def _cli_byline(conn: sqlite3.Connection, *, session_id: str, job_id: str) -> object:
+    """V1.41: print the expected author line for a (session, job) pair."""
+    from striatum.artifacts import expected_author_line
+    job = conn.execute(
+        "SELECT * FROM jobs WHERE job_id = ?", (job_id,)
+    ).fetchone()
+    if job is None:
+        raise StriatumError(f"job {job_id!r} not found", exit_code=2)
+    line = expected_author_line(conn, job=job, session_id=session_id)
+    return {"session_id": session_id, "job_id": job_id, "byline": line}
+
+
+def _cli_inbox(conn: sqlite3.Connection, *, session_id: str) -> object:
+    """V1.41: print the current packet for a session.
+
+    Returns the workflow_job_id, message_id, lease_id, expected_artifacts,
+    and the expected author line. Designed for operator-on-behalf flows
+    that previously required parsing `striatum why <sid> --json`.
+    """
+    from striatum.artifacts import expected_author_line
+    from striatum.db import json_loads
+    session = conn.execute(
+        "SELECT * FROM sessions WHERE session_id = ?", (session_id,)
+    ).fetchone()
+    if session is None:
+        raise StriatumError(f"session {session_id!r} not found", exit_code=2)
+    job = conn.execute(
+        """
+        SELECT * FROM jobs
+         WHERE current_message_id IS NOT NULL
+           AND current_lease_id IS NOT NULL
+           AND state IN ('claimed', 'running')
+           AND job_id IN (
+                 SELECT job_id FROM leases
+                  WHERE owner_session_id = ? AND state = 'active'
+           )
+         ORDER BY started_at DESC LIMIT 1
+        """,
+        (session_id,),
+    ).fetchone()
+    if job is None:
+        return {
+            "session_id": session_id,
+            "lane_id": session["lane_id"],
+            "role_id": session["role_id"],
+            "current_packet": None,
+        }
+    expected_raw = json_loads(str(job["expected_artifacts_json"] or "[]"))
+    expected: list[object] = list(expected_raw) if isinstance(expected_raw, list) else []
+    try:
+        byline = expected_author_line(conn, job=job, session_id=session_id)
+    except Exception:  # noqa: BLE001
+        byline = None
+    return {
+        "session_id": session_id,
+        "lane_id": session["lane_id"],
+        "role_id": session["role_id"],
+        "current_packet": {
+            "workflow_job_id": job["workflow_job_id"],
+            "job_id": job["job_id"],
+            "message_id": job["current_message_id"],
+            "lease_id": job["current_lease_id"],
+            "expected_artifacts": expected,
+            "expected_author_line": byline,
+        },
+    }

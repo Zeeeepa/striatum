@@ -6,12 +6,14 @@ import json
 import os
 import sqlite3
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
 from striatum.db import (
     JsonObject,
     complete_job,
     expire_leases,
     insert_event,
+    json_loads,
     maybe_complete_run,
     row_by_id,
     transaction,
@@ -676,3 +678,220 @@ def _duration_seconds(started_at: str, ended_at: str) -> float:
         return datetime.fromisoformat(cleaned)
 
     return max(0.0, (parse(ended_at) - parse(started_at)).total_seconds())
+
+
+def _declared_get(declared: object, key: str, default: object = None) -> object:
+    """V1.41 helper: tolerant get from json_loads'd expected_artifacts."""
+    if isinstance(declared, dict):
+        return declared.get(key, default)
+    return default
+
+
+def auto_publish_stale_artifacts(
+    conn: sqlite3.Connection,
+    *,
+    repo: Path,
+    run_id: str,
+    dry_run: bool = False,
+) -> JsonObject:
+    """V1.41 (harness friction burn-down): drive down the recurring
+    claude-no-explicit-publish anti-pattern (6+ instances).
+
+    Walk stale leases in *run_id*. For each, check whether the session
+    wrote the work-packet's `expected_artifacts[].path` file conformantly
+    to disk. If so — and only if the on-disk file's byline matches the
+    expected_author_line exactly AND the path matches the declared
+    expected_artifacts path exactly — auto-publish the artifact and
+    complete the job on the dead session's behalf.
+
+    Two-condition gate prevents misfiring: if either the byline or the
+    path doesn't match, fall through to the existing stale-lease blocker
+    so the operator still sees the gap.
+    """
+    from striatum.artifacts import (
+        expected_author_line,
+        markdown_title_block_author_lines,
+        publish_artifact,
+        _canonical_byline_form,
+    )
+
+    row_by_id(conn, "runs", "run_id", run_id)
+    with transaction(conn):
+        expire_leases(conn, run_id=run_id)
+
+    # Find jobs with expired leases that still hold expected_artifacts.
+    candidates = conn.execute(
+        """
+        SELECT j.*, l.lease_id, l.owner_session_id, l.expires_at,
+               qm.message_id, qm.state AS message_state
+          FROM jobs j
+          LEFT JOIN leases l ON l.lease_id = j.current_lease_id
+             OR (l.resource_id = j.job_id AND l.state = 'expired')
+          LEFT JOIN queue_messages qm ON qm.message_id = j.current_message_id
+         WHERE j.run_id = ?
+           AND j.state IN ('claimed', 'running', 'stale_lease')
+           AND l.state = 'expired'
+         ORDER BY j.workflow_job_id
+        """,
+        (run_id,),
+    ).fetchall()
+
+    published: list[JsonObject] = []
+    skipped: list[JsonObject] = []
+    seen: set[tuple[str, str]] = set()
+    for row in candidates:
+        key = (str(row["job_id"]), str(row["lease_id"]) if row["lease_id"] is not None else "")
+        if key in seen:
+            continue
+        seen.add(key)
+        job_id = str(row["job_id"])
+        workflow_job_id = str(row["workflow_job_id"])
+        session_id = str(row["owner_session_id"]) if row["owner_session_id"] is not None else None
+        lease_id = str(row["lease_id"]) if row["lease_id"] is not None else None
+        message_id = str(row["message_id"]) if row["message_id"] is not None else None
+        expected_artifacts_raw = json_loads(str(row["expected_artifacts_json"] or "[]"))
+        expected_artifacts: list[object] = (
+            list(expected_artifacts_raw)
+            if isinstance(expected_artifacts_raw, list)
+            else []
+        )
+        if not expected_artifacts:
+            skipped.append({
+                "workflow_job_id": workflow_job_id,
+                "reason": "no expected_artifacts declared",
+            })
+            continue
+        if session_id is None or lease_id is None or message_id is None:
+            skipped.append({
+                "workflow_job_id": workflow_job_id,
+                "reason": "no recoverable session/lease/message triple",
+            })
+            continue
+        # Resolve the expected_author_line for this (job, session).
+        try:
+            expected_byline = expected_author_line(conn, job=row, session_id=session_id)
+        except Exception as exc:  # noqa: BLE001
+            skipped.append({
+                "workflow_job_id": workflow_job_id,
+                "reason": f"could not derive expected byline: {exc}",
+            })
+            continue
+        publishable: list[dict[str, object]] = []
+        for declared_obj in expected_artifacts:
+            if not isinstance(declared_obj, dict):
+                continue
+            declared = declared_obj
+            if not _declared_get(declared, "required", True):
+                continue
+            path_text = _declared_get(declared, "path")
+            if not isinstance(path_text, str) or not path_text:
+                continue
+            disk_path = repo / path_text
+            if not disk_path.is_file():
+                continue
+            try:
+                payload = disk_path.read_bytes().decode("utf-8")
+            except (OSError, UnicodeDecodeError):
+                continue
+            byline_lines = markdown_title_block_author_lines(payload)
+            canonical_match = False
+            for line in byline_lines:
+                if _canonical_byline_form(line) == expected_byline:
+                    canonical_match = True
+                    break
+            if not canonical_match:
+                continue
+            publishable.append(declared)
+        if not publishable:
+            skipped.append({
+                "workflow_job_id": workflow_job_id,
+                "reason": "no required expected_artifact found on disk with matching byline",
+            })
+            continue
+        if dry_run:
+            published.append({
+                "workflow_job_id": workflow_job_id,
+                "session_id": session_id,
+                "would_publish": [
+                    {
+                        "path": _declared_get(d, "path"),
+                        "kind": _declared_get(d, "kind"),
+                        "logical_name": _declared_get(d, "logical_name"),
+                    }
+                    for d in publishable
+                ],
+            })
+            continue
+        # Auto-publish path: ack the existing message + re-activate the
+        # expired lease for the duration of this transaction. The
+        # publish_artifact + complete_job flow then writes through normally.
+        from striatum.cli.mutations import ack_work
+        try:
+            ack_work(
+                conn,
+                session_id=session_id,
+                message_id=message_id,
+                lease_id=lease_id,
+            )
+        except Exception:  # noqa: BLE001
+            # Ack may legitimately fail if the message has already been
+            # acked once but the implementer never completed. Continue;
+            # publish_artifact will succeed against the active lease row.
+            pass
+        artifact_results: list[object] = []
+        for declared in publishable:
+            try:
+                result = publish_artifact(
+                    conn,
+                    repo=repo,
+                    session_id=session_id,
+                    job_id=job_id,
+                    lease_id=lease_id,
+                    kind=str(_declared_get(declared, "kind")),
+                    logical_name=str(_declared_get(declared, "logical_name")),
+                    path_text=str(_declared_get(declared, "path")),
+                )
+                artifact_results.append(result)
+            except Exception as exc:  # noqa: BLE001
+                artifact_results.append({"error": str(exc), "path": _declared_get(declared, "path")})
+        try:
+            complete_result = complete_job(
+                conn,
+                session_id=session_id,
+                job_id=job_id,
+                lease_id=lease_id,
+                summary="auto-published on stale lease (V1.41 harness friction burn-down)",
+            )
+        except Exception as exc:  # noqa: BLE001
+            complete_result = {"error": str(exc)}
+        with transaction(conn):
+            insert_event(
+                conn,
+                run_id=run_id,
+                event_type="recovery.auto_published",
+                actor_session_id=session_id,
+                job_id=job_id,
+                lease_id=lease_id,
+                payload={
+                    "workflow_job_id": workflow_job_id,
+                    "artifacts": [a.get("path") if isinstance(a, dict) else None for a in publishable],
+                    "byline": expected_byline,
+                },
+            )
+        published.append({
+            "workflow_job_id": workflow_job_id,
+            "session_id": session_id,
+            "artifacts": artifact_results,
+            "complete": complete_result,
+        })
+    # Try to advance run state if all jobs are terminal now.
+    with transaction(conn):
+        maybe_complete_run(conn, run_id=run_id)
+    return {
+        "run_id": run_id,
+        "dry_run": bool(dry_run),
+        "published_count": len(published),
+        "published": published,
+        "skipped_count": len(skipped),
+        "skipped": skipped,
+    }

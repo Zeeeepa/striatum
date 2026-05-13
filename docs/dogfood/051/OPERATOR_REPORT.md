@@ -26,4 +26,15 @@
 
 - macOS process start-time reader.
 - Wire `SupervisorPointerStore` into `cmd/striatumd/main.go` boot path.
-- Auto-publish-on-stale-lease harness improvement.
+- ~~Auto-publish-on-stale-lease harness improvement.~~ **Shipped v1.41.0**
+  (`striatum recovery auto-publish`).
+
+## Harness burn-down (v1.41.0)
+
+The recurring operator-on-behalf frictions observed across this and
+prior dogfoods are addressed in v1.41.0 as a non-dogfood burn-down:
+auto-publish-on-stale-lease, front-matter byline precedence,
+publish-artifact defaults from `expected_artifacts`, the `byline` +
+`inbox` operator helpers, and `override-verdict --auto-fresh-session`.
+Future dogfoods should observe operator-on-behalf as a rare exception,
+not the norm. If it recurs, treat as a regression in this burn-down.

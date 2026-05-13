@@ -493,12 +493,28 @@ def build_parser() -> argparse.ArgumentParser:
     block.add_argument("--description", required=True)
     block.add_argument("--json", action="store_true")
 
-    publish = sub.add_parser("publish-artifact")
+    publish = sub.add_parser(
+        "publish-artifact",
+        help="record an artifact reference for a claimed packet",
+        description=(
+            "Record an artifact reference for a claimed packet. V1.41: "
+            "--kind and --logical-name default from the workflow's "
+            "expected_artifacts when --path matches a declared artifact "
+            "path. Pass them explicitly only to override or when the path "
+            "doesn't match a declared artifact."
+        ),
+    )
     publish.add_argument("--session-id", required=True)
     publish.add_argument("--job-id", required=True)
     publish.add_argument("--lease-id", required=True)
-    publish.add_argument("--kind", required=True)
-    publish.add_argument("--logical-name", required=True)
+    publish.add_argument(
+        "--kind",
+        help="artifact kind; defaults from expected_artifacts when --path matches",
+    )
+    publish.add_argument(
+        "--logical-name",
+        help="logical name; defaults from expected_artifacts when --path matches",
+    )
     publish.add_argument("--path", required=True)
     publish.add_argument("--json", action="store_true")
 
@@ -522,7 +538,16 @@ def build_parser() -> argparse.ArgumentParser:
     verdict.add_argument("--rationale")
     verdict.add_argument("--json", action="store_true")
 
-    override_verdict = sub.add_parser("override-verdict")
+    override_verdict = sub.add_parser(
+        "override-verdict",
+        help="operator override of a reviewer's verdict",
+        description=(
+            "Operator override of a reviewer's verdict. V1.41: "
+            "--auto-fresh-session registers a fresh operator session "
+            "when the supplied --session-id already has a verdict for "
+            "this job (the override path requires a different session)."
+        ),
+    )
     override_verdict.add_argument("--session-id", required=True)
     override_verdict.add_argument("--job-id", required=True)
     override_verdict.add_argument(
@@ -532,6 +557,15 @@ def build_parser() -> argparse.ArgumentParser:
     )
     override_verdict.add_argument("--findings-artifact-id")
     override_verdict.add_argument("--rationale", required=True)
+    override_verdict.add_argument(
+        "--auto-fresh-session",
+        action="store_true",
+        help=(
+            "if --session-id already has a verdict for this job, "
+            "automatically register a fresh operator reviewer session "
+            "on the same lane and use it for the override"
+        ),
+    )
     override_verdict.add_argument("--json", action="store_true")
 
     submit_review = sub.add_parser("submit-review")
@@ -696,6 +730,28 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
     )
     recovery_auto.add_argument("--json", action="store_true")
+
+    # V1.41 (harness friction burn-down): auto-publish on stale lease when
+    # a session wrote the expected_artifact to disk but never called
+    # ack/publish/complete. Drives down the recurring claude-no-publish
+    # anti-pattern that has shown up across 6+ dogfoods.
+    recovery_auto_publish = recovery_sub.add_parser(
+        "auto-publish",
+        help=(
+            "V1.41 burn-down: walk stale leases and auto-publish "
+            "on-disk artifacts when the expected_artifacts path is "
+            "present and conformant. Two-condition gate: artifact "
+            "byline must match expected_author_line exactly and path "
+            "must match the workflow's declared path exactly."
+        ),
+    )
+    recovery_auto_publish.add_argument("--run-id", required=True)
+    recovery_auto_publish.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="report what would be published without writing",
+    )
+    recovery_auto_publish.add_argument("--json", action="store_true")
 
     # RFC 0020 step 3: long-lived sweeper daemon.
     recovery_watch = recovery_sub.add_parser(
@@ -890,6 +946,36 @@ def build_parser() -> argparse.ArgumentParser:
     list_workflows_p = list_sub.add_parser("workflows")
     list_workflows_p.add_argument("--limit", type=_positive_int, default=100)
     list_workflows_p.add_argument("--json", action="store_true")
+
+    # V1.41 (harness friction burn-down): byline helper. Operators
+    # publishing-on-behalf need the exact expected_author_line without
+    # spelunking `python3 -c "from striatum.artifacts import ..."`.
+    byline = sub.add_parser(
+        "byline",
+        help=(
+            "print the exact expected author line for a (session, job) "
+            "pair; useful when publishing artifacts on behalf of a "
+            "stalled session"
+        ),
+    )
+    byline.add_argument("--session-id", required=True)
+    byline.add_argument("--job-id", required=True)
+    byline.add_argument("--json", action="store_true")
+
+    # V1.41: inbox helper. Operators publishing-on-behalf need the
+    # current packet's message_id, lease_id, and expected_artifacts.
+    # `striatum why <sid> --json` returns these but requires parsing;
+    # `inbox` is a thin focused alternative.
+    inbox = sub.add_parser(
+        "inbox",
+        help=(
+            "print the current packet for a session: workflow_job_id, "
+            "message_id, lease_id, expected_artifacts, and the "
+            "expected author line"
+        ),
+    )
+    inbox.add_argument("--session-id", required=True)
+    inbox.add_argument("--json", action="store_true")
 
     return parser
 

@@ -661,11 +661,17 @@ def markdown_title_block_author_lines(text: str) -> list[str]:
     A Markdown artifact may carry an ``author:`` line in either of two
     places: inside YAML front matter (between ``---`` markers) or in
     the Markdown title block (the lines before the first ``## ``
-    section heading). HARNESS-003 byline integrity needs to recognise
-    both — the dogfood handoff convention puts the byline *after* the
-    front matter, in the title block, while some workflow examples put
-    it inside the front matter. Scan both regions and return all
-    author lines found.
+    section heading). The dogfood handoff convention puts the byline
+    *after* the front matter, in the title block; some workflow
+    examples put it inside the front matter.
+
+    V1.41 (harness friction burn-down): **front matter wins**. When
+    front matter declares an ``author:`` line, title-block lines are
+    ignored — this keeps body-text mentions like ``Author: <real-name>``
+    (capitalised, in a title block) from competing with the canonical
+    byline and tripping the publisher's equality check. Title-block
+    bylines remain the source-of-truth only when no front-matter
+    author line exists.
 
     Markdown decoration (``**Author:**``, ``# Author``, ``_author_``)
     is tolerated: a line is recognised as a byline iff its canonical
@@ -674,7 +680,8 @@ def markdown_title_block_author_lines(text: str) -> list[str]:
     checks should canonicalise both sides.
     """
     lines = text.splitlines()
-    author_lines: list[str] = []
+    front_matter_lines: list[str] = []
+    title_block_lines: list[str] = []
     body_start = 0
     if lines and lines[0].strip() == "---":
         for index, line in enumerate(lines[1:], start=1):
@@ -684,14 +691,25 @@ def markdown_title_block_author_lines(text: str) -> list[str]:
         front_matter = lines[1:body_start - 1] if body_start > 0 else []
         for line in front_matter:
             if _canonical_byline_form(line) is not None:
-                author_lines.append(line)
+                front_matter_lines.append(line)
     title_block = lines[body_start : body_start + 40]
+    # Title-block scan: only accept the FIRST canonical author line. This
+    # prevents body-text mentions like ``Author: designer-gemini-1`` from
+    # competing with the canonical lowercase byline that immediately
+    # follows the front matter. Decoration tolerance still applies so
+    # workflows that put ``# Author: ...`` in the title block continue
+    # to work.
     for line in title_block:
         if line.startswith("## "):
             break
         if _canonical_byline_form(line) is not None:
-            author_lines.append(line)
-    return author_lines
+            title_block_lines.append(line)
+            break
+    # Front-matter author lines take precedence; title-block lines only
+    # contribute when front matter has none.
+    if front_matter_lines:
+        return front_matter_lines
+    return title_block_lines
 
 
 def expected_author_line(conn: sqlite3.Connection, *, job: sqlite3.Row, session_id: str) -> str:

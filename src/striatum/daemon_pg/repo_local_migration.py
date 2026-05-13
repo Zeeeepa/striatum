@@ -24,21 +24,30 @@ from striatum.migrations import LATEST_VERSION, current_user_version
 
 
 class MigrationInProgressError(StriatumError):
-    """Raised when migrate-repo-local cannot acquire the exclusive lock."""
+    """Raised when migrate-repo-local cannot acquire the exclusive lock.
 
-    exit_code = 14
+    Uses exit code 8 (the V1.5 ``migrate-repo-local`` refusal code) per the
+    dogfood-052 V1.6 design synthesis ("avoid introducing a new exit code
+    for this narrow V1.6 slice").
+    """
+
+    def __init__(self, message: str) -> None:
+        super().__init__(message, exit_code=8)
 
 
 @contextmanager
 def _exclusive_migrate_lock(repo: Path) -> Iterator[Path]:
-    """RFC 0043 V1.6 F-lock: hold an exclusive flock on a sidecar lock file
-    for the entire migrate-repo-local body. Concurrent migrate invocations
-    against the same repo refuse with exit code 14.
+    """RFC 0043 V1.6 F-lock: hold an exclusive ``fcntl.flock`` for the
+    entire ``migrate-repo-local`` body. Concurrent migrate invocations
+    against the same repo refuse with exit code 8.
 
-    Sidecar (not the source SQLite itself) so we don't fight SQLite's own
-    locking mode and so the lock survives across renames during
-    finalization.
+    The lock is taken on a sidecar (``state.sqlite3.migrate.lock``) rather
+    than the source SQLite itself so it (a) does not fight SQLite's own
+    POSIX byte-range locks, and (b) survives the source-file rename during
+    finalization. The error message names the source SQLite path so the
+    operator can correlate the refusal to the repo's state file.
     """
+    source_path = repo / ".striatum" / "state.sqlite3"
     lock_path = repo / ".striatum" / "state.sqlite3.migrate.lock"
     lock_path.parent.mkdir(parents=True, exist_ok=True)
     fd = os.open(str(lock_path), os.O_RDWR | os.O_CREAT, 0o600)
@@ -49,8 +58,9 @@ def _exclusive_migrate_lock(repo: Path) -> Iterator[Path]:
             if exc.errno in (errno.EWOULDBLOCK, errno.EACCES, errno.EAGAIN):
                 raise MigrationInProgressError(
                     f"migrate_in_progress: another striatum daemon "
-                    f"migrate-repo-local is holding {lock_path}; wait for "
-                    f"it to finish or remove the stale lock file."
+                    f"migrate-repo-local is holding the lock for source "
+                    f"SQLite {source_path} (lock file: {lock_path}); wait "
+                    f"for it to finish or remove the stale lock file."
                 ) from exc
             raise
         yield lock_path
