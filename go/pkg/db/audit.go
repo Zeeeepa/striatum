@@ -5,7 +5,9 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/halbritt/striatum/go/pkg/rpc"
@@ -46,7 +48,16 @@ type AuditRecorder struct {
 	DaemonVersion string
 }
 
-func (a AuditRecorder) RecordRPC(ctx context.Context, envelope rpc.Envelope, auth rpc.AuthContext, response rpc.Response) (string, error) {
+// RecordRPC appends a single audit row inside a transaction that locks the
+// singleton audit_chain_head row for the duration of the append. The
+// hash-chain link cannot diverge under concurrent RPC traffic because the
+// row-level lock serializes the read-then-write on the contended row.
+func (a AuditRecorder) RecordRPC(
+	ctx context.Context,
+	envelope rpc.Envelope,
+	auth rpc.AuthContext,
+	response rpc.Response,
+) (string, error) {
 	if a.Runner == nil {
 		return "", nil
 	}
@@ -54,17 +65,68 @@ func (a AuditRecorder) RecordRPC(ctx context.Context, envelope rpc.Envelope, aut
 	if err != nil {
 		return "", err
 	}
-	previousHash, _ := a.Runner.QueryScalar(ctx, "SELECT last_hash FROM striatumd.audit_chain_head WHERE singleton = true")
-	segmentID, _ := a.Runner.QueryScalar(ctx, "SELECT segment_id FROM striatumd.audit_segments WHERE state = 'open' ORDER BY segment_id DESC LIMIT 1")
+
+	tx, err := a.Runner.BeginTx(ctx)
+	if err != nil {
+		return "", err
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback(context.Background())
+		}
+	}()
+
+	// FOR UPDATE locks the singleton chain head row so the previous_hash we
+	// observe is the one we will overwrite, end-to-end, in this transaction.
+	var lastHash *string
+	if err := tx.QueryRow(
+		ctx,
+		"SELECT last_hash FROM striatumd.audit_chain_head WHERE singleton = true FOR UPDATE",
+	).Scan(&lastHash); err != nil {
+		return "", fmt.Errorf("lock audit_chain_head: %w", err)
+	}
+
+	segmentID, err := tx.QueryScalar(
+		ctx,
+		"SELECT segment_id FROM striatumd.audit_segments WHERE state = 'open' ORDER BY segment_id DESC LIMIT 1",
+	)
+	if err != nil {
+		return "", err
+	}
 	if segmentID == "" {
-		segmentID = "1"
+		if err := tx.Exec(
+			ctx,
+			"INSERT INTO striatumd.audit_segments(opened_at, state, retention_state) VALUES (now(), 'open', 'active')",
+		); err != nil {
+			return "", err
+		}
+		segmentID, err = tx.QueryScalar(
+			ctx,
+			"SELECT segment_id FROM striatumd.audit_segments WHERE state = 'open' ORDER BY segment_id DESC LIMIT 1",
+		)
+		if err != nil {
+			return "", err
+		}
+		if segmentID == "" {
+			return "", errors.New("daemon audit segment could not be created")
+		}
 	}
-	exitCode := "NULL"
+	segmentInt, err := strconv.ParseInt(segmentID, 10, 64)
+	if err != nil {
+		return "", fmt.Errorf("parse segment id %q: %w", segmentID, err)
+	}
+
+	var exitCodeValue any
+	var exitCodeForHash any
 	if !response.OK {
-		exitCode = "10"
+		exitCodeValue = 10
+		exitCodeForHash = 10
 	}
+
+	tsString := time.Now().UTC().Truncate(time.Second).Format(time.RFC3339)
 	row := map[string]any{
-		"ts":                  time.Now().UTC().Truncate(time.Second).Format(time.RFC3339),
+		"ts":                  tsString,
 		"schema_version":      1,
 		"hash_format_version": 2,
 		"daemon_version":      a.DaemonVersion,
@@ -75,50 +137,63 @@ func (a AuditRecorder) RecordRPC(ctx context.Context, envelope rpc.Envelope, aut
 		"denial_reason":       nullString(auth.DenialReason),
 		"transport":           "rpc",
 		"request_id":          envelope.RequestID,
-		"exit_code":           exitCode,
+		"exit_code":           exitCodeForHash,
 		"params_sha256":       paramsHash,
-		"previous_hash":       nullString(previousHash),
-		"segment_id":          segmentID,
+		"previous_hash":       nullableFromPtr(lastHash),
+		"segment_id":          segmentInt,
 	}
 	rowHash, err := V2RowHash(row)
 	if err != nil {
 		return "", err
 	}
-	sql := fmt.Sprintf(`
-WITH inserted AS (
-  INSERT INTO striatumd.audit_log (
-    ts, schema_version, hash_format_version, daemon_version,
-    client_id, repository_id, method, decision, denial_reason,
-    transport, request_id, exit_code, params_sha256, previous_hash,
-    row_hash, segment_id
-  )
-  VALUES (
-    %s, 1, 2, %s, %s, %s, %s, %s, %s, 'rpc', %s, %s, %s, %s, %s, %s
-  )
-  RETURNING audit_id, row_hash
-)
-UPDATE striatumd.audit_chain_head
-SET last_audit_id = inserted.audit_id, last_hash = inserted.row_hash, updated_at = now()
-FROM inserted
-WHERE singleton = true;`,
-		quoteLiteral(row["ts"].(string)),
-		quoteLiteral(a.DaemonVersion),
-		sqlNullable(row["client_id"]),
-		sqlNullable(row["repository_id"]),
-		quoteLiteral(envelope.Method),
-		quoteLiteral(auth.Decision),
-		sqlNullable(row["denial_reason"]),
-		quoteLiteral(envelope.RequestID),
-		exitCode,
-		quoteLiteral(paramsHash),
-		sqlNullable(row["previous_hash"]),
-		quoteLiteral(rowHash),
-		segmentID,
-	)
-	if err := a.Runner.Exec(ctx, sql); err != nil {
+
+	var auditID int64
+	if err := tx.QueryRow(
+		ctx,
+		`INSERT INTO striatumd.audit_log (
+			ts, schema_version, hash_format_version, daemon_version,
+			client_id, repository_id, method, decision, denial_reason,
+			transport, request_id, exit_code, params_sha256, previous_hash,
+			row_hash, segment_id
+		) VALUES (
+			$1, 1, 2, $2,
+			$3, $4, $5, $6, $7,
+			'rpc', $8, $9, $10, $11,
+			$12, $13
+		) RETURNING audit_id`,
+		tsString,
+		a.DaemonVersion,
+		nullString(auth.ClientID),
+		nullString(auth.RepositoryID),
+		envelope.Method,
+		auth.Decision,
+		nullString(auth.DenialReason),
+		envelope.RequestID,
+		exitCodeValue,
+		paramsHash,
+		nullableFromPtr(lastHash),
+		rowHash,
+		segmentInt,
+	).Scan(&auditID); err != nil {
+		return "", fmt.Errorf("insert audit row: %w", err)
+	}
+
+	if err := tx.Exec(
+		ctx,
+		`UPDATE striatumd.audit_chain_head
+		 SET last_audit_id = $1, last_hash = $2, updated_at = now()
+		 WHERE singleton = true`,
+		auditID,
+		rowHash,
+	); err != nil {
+		return "", fmt.Errorf("update audit_chain_head: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
 		return "", err
 	}
-	return "", nil
+	committed = true
+	return strconv.FormatInt(auditID, 10), nil
 }
 
 func VerifyRows(rows []map[string]any) []map[string]any {
@@ -155,9 +230,9 @@ func nullString(value string) any {
 	return value
 }
 
-func sqlNullable(value any) string {
+func nullableFromPtr(value *string) any {
 	if value == nil {
-		return "NULL"
+		return nil
 	}
-	return quoteLiteral(fmt.Sprint(value))
+	return *value
 }

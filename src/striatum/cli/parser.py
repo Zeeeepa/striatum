@@ -4,10 +4,18 @@ from __future__ import annotations
 
 import argparse
 
+from striatum import __version__
+
 
 def build_parser() -> argparse.ArgumentParser:
     """Build the top-level argument parser."""
     parser = argparse.ArgumentParser(prog="striatum")
+    parser.add_argument(
+        "--version",
+        action="version",
+        version=f"striatum {__version__}",
+        help="print the running Striatum version and exit",
+    )
     parser.add_argument("--repo", default=".", help="repository root")
     daemon_group = parser.add_mutually_exclusive_group()
     daemon_group.add_argument(

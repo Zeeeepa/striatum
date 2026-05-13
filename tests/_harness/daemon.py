@@ -118,9 +118,9 @@ class DaemonProcess:
             str(binary),
             "--socket",
             str(self.socket_path),
-            "--db-url",
+            "--postgres-url",
             self.postgres_url,
-            "--migrations-dir",
+            "--migrations-sha-source",
             str(migrations_dir),
         ]
         self.process = subprocess.Popen(

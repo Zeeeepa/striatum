@@ -1,5 +1,6 @@
 VENV ?= .venv
 PYTHON ?= $(VENV)/bin/python
+CORE ?= python
 
 # HARNESS-002 fix: resolve the install path explicitly so
 # ``make install`` invoked from any cwd installs *this* Makefile's
@@ -79,13 +80,16 @@ pg-test: $(VENV)/.installed
 	$(PYTHON) -m pytest tests/test_daemon_pg.py -q
 
 test-multi-repo: $(VENV)/.installed
+	STRIATUM_MULTI_REPO_DAEMON_CORE=$(CORE) \
 	$(PYTHON) -m pytest -m multi_repo \
 		tests/test_multi_repo_harness.py \
 		tests/test_cross_repo_prepare_e2e.py \
 		tests/test_cross_repo_lifecycle_e2e.py \
 		tests/test_cross_repo_crash_recovery_e2e.py \
 		tests/test_mcp_capability_scope_e2e.py \
-		tests/test_per_repo_write_scope_e2e.py
+		tests/test_per_repo_write_scope_e2e.py \
+		tests/test_daemon_go_smoke.py \
+		tests/test_daemon_go_audit.py
 
 metadata-check: $(VENV)/.installed
 	$(PYTHON) scripts/release_metadata_check.py

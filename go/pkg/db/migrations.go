@@ -6,6 +6,8 @@ import (
 	"embed"
 	"encoding/hex"
 	"fmt"
+	"os"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -65,13 +67,13 @@ func Migrations() ([]Migration, error) {
 }
 
 func ApplyMigrations(ctx context.Context, runner Runner, daemonVersion string) (int, error) {
-	if err := runner.Exec(ctx, fmt.Sprintf("SELECT pg_advisory_lock(%d)", MigrationLockKey)); err != nil {
+	if err := runner.Exec(ctx, "SELECT pg_advisory_lock($1)", MigrationLockKey); err != nil {
 		return 0, err
 	}
 	unlocked := false
 	defer func() {
 		if !unlocked {
-			_ = runner.Exec(context.Background(), fmt.Sprintf("SELECT pg_advisory_unlock(%d)", MigrationLockKey))
+			_ = runner.Exec(context.Background(), "SELECT pg_advisory_unlock($1)", MigrationLockKey)
 		}
 	}()
 	if err := ensureMetaTable(ctx, runner); err != nil {
@@ -100,7 +102,7 @@ func ApplyMigrations(ctx context.Context, runner Runner, daemonVersion string) (
 		}
 		current = migration.Version
 	}
-	if err := runner.Exec(ctx, fmt.Sprintf("SELECT pg_advisory_unlock(%d)", MigrationLockKey)); err != nil {
+	if err := runner.Exec(ctx, "SELECT pg_advisory_unlock($1)", MigrationLockKey); err != nil {
 		return current, err
 	}
 	unlocked = true
@@ -124,6 +126,30 @@ func (m Migration) SHA256() string {
 	return hex.EncodeToString(sum[:])
 }
 
+// VerifyMigrationsSHASource compares the embedded migration SHAs against the
+// SQL files on disk at the supplied path. The comparison is by-filename and
+// guards against drift between the Go-embedded SQL and the Python source-of-
+// truth tree. Returns a non-nil error if any file is missing or differs.
+func VerifyMigrationsSHASource(path string) error {
+	migrations, err := Migrations()
+	if err != nil {
+		return err
+	}
+	for _, migration := range migrations {
+		name := filepath.Base(migration.Path)
+		body, err := os.ReadFile(filepath.Join(path, name))
+		if err != nil {
+			return fmt.Errorf("read source migration %s: %w", name, err)
+		}
+		sum := sha256.Sum256(body)
+		actual := hex.EncodeToString(sum[:])
+		if actual != migration.SHA256() {
+			return fmt.Errorf("migration %s sha mismatch: embedded=%s source=%s", name, migration.SHA256(), actual)
+		}
+	}
+	return nil
+}
+
 func ensureMetaTable(ctx context.Context, runner Runner) error {
 	return runner.Exec(ctx, `
 CREATE SCHEMA IF NOT EXISTS striatumd;
@@ -134,8 +160,7 @@ CREATE TABLE IF NOT EXISTS striatumd.schema_meta (
 }
 
 func verifyRecordedHash(ctx context.Context, runner Runner, migration Migration) error {
-	sql := fmt.Sprintf("SELECT sha256 FROM striatumd.schema_migrations WHERE version = %d", migration.Version)
-	value, err := runner.QueryScalar(ctx, sql)
+	value, err := runner.QueryScalar(ctx, "SELECT sha256 FROM striatumd.schema_migrations WHERE version = $1", migration.Version)
 	if err != nil || value == "" {
 		return nil
 	}
@@ -149,22 +174,23 @@ func applyOne(ctx context.Context, runner Runner, migration Migration, daemonVer
 	if err := runner.Exec(ctx, migration.SQL); err != nil {
 		return err
 	}
-	record := fmt.Sprintf(`
-INSERT INTO striatumd.schema_migrations(version, label, sha256, daemon_version)
-VALUES (%d, %s, %s, %s)
-ON CONFLICT (version) DO NOTHING;
-INSERT INTO striatumd.schema_meta(key, value)
-VALUES ('substrate_version', %s)
-ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value;`,
+	if err := runner.Exec(
+		ctx,
+		`INSERT INTO striatumd.schema_migrations(version, label, sha256, daemon_version)
+VALUES ($1, $2, $3, $4)
+ON CONFLICT (version) DO NOTHING`,
 		migration.Version,
-		quoteLiteral(migration.Label),
-		quoteLiteral(migration.SHA256()),
-		quoteLiteral(daemonVersion),
-		quoteLiteral(strconv.Itoa(migration.Version)),
+		migration.Label,
+		migration.SHA256(),
+		daemonVersion,
+	); err != nil {
+		return err
+	}
+	return runner.Exec(
+		ctx,
+		`INSERT INTO striatumd.schema_meta(key, value)
+VALUES ('substrate_version', $1)
+ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`,
+		strconv.Itoa(migration.Version),
 	)
-	return runner.Exec(ctx, record)
-}
-
-func quoteLiteral(value string) string {
-	return "'" + strings.ReplaceAll(value, "'", "''") + "'"
 }

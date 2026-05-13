@@ -19,7 +19,7 @@ so external references keep resolving even as items move between sections.
 | R5 | Engram retains incubation copy + pointer | ✅ done |
 | 1 | Process adapter (single-shot + supervised) | 🟡 most done |
 | 2 | Adapter constraint enforcement | 🟡 most done |
-| 3 | Workflow authoring tooling | 🟡 most done |
+| 3 | Workflow authoring tooling | ✅ done |
 | 4 | Human-checkpoint UX | ✅ done |
 | 5 | Decision-artifact support | ✅ done |
 | 6 | Artifact schema (front matter) | ✅ 7 kinds + open registry |
@@ -30,11 +30,11 @@ so external references keep resolving even as items move between sections.
 | 11 | Worktree isolation (RFC 0008) | ✅ done |
 | 12 | Richer fixture suite | ✅ done |
 | 13 | Replace bootstrap scripts | 🟡 most done |
-| 14 | Packaging and release | 🟡 most done |
+| 14 | Packaging and release | ✅ done |
 | 15 | `run summary` polish | ✅ done |
 | 16 | Keep generic language current | ⏳ open |
 | 17 | SQLite migration system (RFC 0006) | ✅ done |
-| 18 | Workflow type catalog and chooser | 🟡 most done |
+| 18 | Workflow type catalog and chooser | ✅ done |
 | F1 | Run historical bootstrap as runner workflow | ⏳ open |
 | F2 | Fuller publication policy | ⏳ open |
 | F3 | Round-6 RFC 0002 + 0003/0004/0005 follow-up | ✅ done |
@@ -82,6 +82,7 @@ so external references keep resolving even as items move between sections.
 | F45 | RFC 0040 V1.5 daemon-dispatch + composite tools + watcher (dogfood-044) | ✅ done |
 | F46 | RFC 0038 V1.5 web UI integration gaps (F1-F4 + supply-chain, dogfood-045) | ✅ done |
 | F47 | RFC 0044 V1 Striatum-side corpus export (dogfood-046; Engram-side separate) | ✅ done |
+| F48 | RFC 0039 V1.5 Go daemon F1-F5 deltas (dogfood-047; D101 override) | ✅ done |
 
 Legend: ✅ done · 🟡 most done (sub-tasks remain) · ⏳ open
 
@@ -110,6 +111,20 @@ Legend: ✅ done · 🟡 most done (sub-tasks remain) · ⏳ open
   archive, subtree, or submodule it.~~
 
 ### Product Improvements (delivered)
+
+- ~~**3. Workflow authoring tooling.** All authoring verbs ship: `workflow
+  validate`, `plan`, `graph` (mermaid/json/dot), `init` with styles,
+  `upgrade` (`--force` / `--dry-run` / `--add-phases` / `--apply`),
+  `templates list/show`, `generate` (shape + lane-set + artifact-root +
+  modifiers), and stateful `run graph`. Implementations live in
+  `src/striatum/workflow.py:259-380` plus
+  `src/striatum/workflow_generator/{core,catalog,write}.py` (1266 lines).
+  Validator covers cross-job artifact path collisions,
+  write-scope/forbidden-path overlap, artifact-in-write-scope, unsound
+  cycle target, parallel-group repo_write/review-only consistency, and a
+  `needs` deprecation warning. Lint-style warnings already surface through
+  the `warnings` channel. Deferred minor: dedicated `workflow lint` verb
+  separating style from validation errors.~~
 
 - ~~**4. Human-checkpoint UX.** `status` and `why` carry decision context,
   affected jobs, unblock path, and next actions. `striatum checkpoint resolve
@@ -154,6 +169,16 @@ Legend: ✅ done · 🟡 most done (sub-tasks remain) · ⏳ open
   flow resolved by `decision record`, and adapter-unavailable rejected at
   validation. All listed gaps delivered.~~
 
+- ~~**14. Packaging and release.** `pyproject.toml` declares setuptools
+  build, console scripts (`striatum`, `striatumd`), and `[dev]`
+  ruff/mypy/pytest extras. `.github/workflows/ci.yml` runs ruff + mypy +
+  pytest + UI build/test + `release_metadata_check.py` + `package_smoke.sh`
+  + `fresh_clone_smoke.sh` across ubuntu/macOS and py3.11/py3.12.
+  `.github/workflows/release.yml` builds wheel+sdist on `v*` tags, runs
+  `twine check --strict`, publishes to PyPI via OIDC trusted publishing,
+  and cuts a GitHub Release. Documentation policy items (signing,
+  security disclosure, release cadence) tracked separately.~~
+
 - ~~**15. `run summary` polish.** Markdown groups verdicts by review job with
   attempt counts, appends the structured author byline to each artifact,
   surfaces recorded vs. current git branch with `(MISMATCH)` when they
@@ -165,35 +190,46 @@ Legend: ✅ done · 🟡 most done (sub-tasks remain) · ⏳ open
   apply pending migrations inside a single `BEGIN IMMEDIATE` transaction;
   databases newer than the runner exit with code 9.~~
 
+- ~~**18. Workflow type catalog and chooser.**
+  `src/striatum/workflow_generator/{catalog.py,core.py,write.py}` plus
+  `src/striatum/workflow_templates/catalog.json` provide the generator
+  core. CLI verbs `workflow templates list/show` and `workflow generate`
+  are wired through `src/striatum/cli/parser.py:255-267`. Web chooser
+  lives at
+  `src/striatum/web/frontend/src/islands/workflow-chooser/WorkflowChooser.tsx`
+  with template `src/striatum/web/templates/workflow_new.html` and tests
+  `workflow-chooser*.test.ts*`. Chat-assisted scaffolding ships via RFC
+  0036 V1 (`generate_workflow_preview`, `generate_workflow_write`).
+  Future target-repo catalog extensions remain a separate decision.~~
+
 ## In Progress
 
-1. **Process adapter.** Single-shot `adapter run` is shipped. Long-lived
-   supervision (RFC 0009, accepted) landed: `process_supervisors` table
-   (migration version 4), `striatum supervise start | send | stop | status |
-   list`, lazy lease-expiry recovery that flags supervisors `lost` without
-   auto-killing the OS process, supervised-aware `claim-next` that
-   auto-delivers the freshly built packet through the supervisor's stdin pipe
-   and lazily marks pipe-missing/write-fail supervisors `lost`, `doctor`
-   checks for dead pids and missing stdin pipes. **Remaining:** PTY support
-   for CLIs that refuse non-tty stdin; broader adapter recovery UX.
+1. **Process adapter.** Single-shot `adapter run` is shipped
+   (`src/striatum/process_adapter.py`). Long-lived supervision (RFC 0009,
+   accepted) landed in `src/striatum/supervisor.py` plus
+   `.striatum/bin/{claude,codex,gemini}-supervised-wrapper.sh`:
+   `process_supervisors` table (migration version 4), `striatum supervise
+   start | send | stop | status | list`, lazy lease-expiry recovery that
+   flags supervisors `lost` without auto-killing the OS process,
+   supervised-aware `claim-next` that auto-delivers the freshly built packet
+   through the supervisor's stdin pipe and lazily marks pipe-missing/write-fail
+   supervisors `lost`, `doctor` checks for dead pids and missing stdin pipes.
+   **Remaining:** no PTY path — `grep pty src/striatum/` returns nothing, so
+   CLIs that refuse non-TTY stdin still can't be supervised; `recovery
+   process-reconcile` UX is partial.
 
 2. **Adapter constraint enforcement.** Workflow validation supports lane
-   `required_enforcement` and rejects lanes whose adapters cannot satisfy it.
-   The four-level model (`enforced`, `advisory_strict`, `advisory`,
-   `unsupported`) is in place; the process adapter graduates `network` and
-   `repo_scope` to `advisory_strict` via proxy-env scrubbing and sentinel env
-   vars. **Remaining:** richer sandbox/worktree adapters that can
-   mechanically enforce more than transcript-off (network namespacing,
-   filesystem isolation beyond cwd-pinning).
-
-3. **Workflow authoring tooling.** Dry-run planner, Mermaid/JSON graph
-   export, stateful `striatum run graph --run-id <id>` (RFC 0007, accepted),
-   and `workflow init` (`minimal`, `review`, `code-change` styles) are
-   shipped. Validator covers cross-job artifact path collisions,
-   write-scope/forbidden-path overlap, artifact-in-write-scope, unsound cycle
-   target, parallel-group repo_write/review-only consistency, and a `needs`
-   deprecation warning. **Remaining:** linting output (style hints distinct
-   from validation errors) and path rewriting for reruns.
+   `required_enforcement` and rejects lanes whose adapters cannot satisfy it
+   (`src/striatum/workflow.py:1576-1682` `_validate_lane_constraints`
+   rejects unknown constraint keys + unsatisfiable enforcement levels;
+   constraint vocabulary at `workflow.py:55-57`; adapter-side matrix at
+   `src/striatum/db.py:1422-1438`). The four-level model (`enforced`,
+   `advisory_strict`, `advisory`, `unsupported`) is in place; the process
+   adapter graduates `network` and `repo_scope` to `advisory_strict` via
+   proxy-env scrubbing and sentinel env vars. **Remaining:** only the
+   `process` adapter is modeled — no sandbox/worktree adapter exists to
+   mechanically promote `network`/`repo_scope` from `advisory_strict` →
+   `enforced` (filesystem isolation, network namespacing).
 
 6. **Artifact schema support.** Optional Markdown `author:` metadata is
    machine-validated; per-kind front-matter schemas exist for seven kinds:
@@ -217,14 +253,14 @@ Legend: ✅ done · 🟡 most done (sub-tasks remain) · ⏳ open
 
 13. **Replace bootstrap scripts with runner-owned workflows.** The minimal
     process adapter and supervised sessions cover claimed-work launch.
-    **Remaining:** represent the historical bootstrap design workflow
-    end-to-end with the runner so the tmux harness can retire from active
-    guidance.
-
-14. **Packaging and release.** `ruff`, `mypy`, wheel/sdist build, installed
-    console-script smoke, installed package metadata check, and macOS/Linux
-    CI are in place. **Remaining:** fuller publication policy (PyPI release
-    cadence, signing, security disclosure) before a public release.
+    `scripts/` is now CI-smoke-only (`fresh_clone_smoke.sh`,
+    `package_smoke.sh`); `.striatum/bin/*-supervised-wrapper.sh` are
+    supervisor wrappers, not bootstrappers; no P00* prompt is referenced
+    from `src/`. **Remaining:** no `examples/` runner-owned workflow fixture
+    yet reproduces the historical P001 three-lane design+build+review flow;
+    tmux mention only survives in `src/striatum/skills/context.py:63` as
+    "do not trust" framing, so the design-workflow fixture is the last step
+    before the tmux harness fully retires from active guidance.
 
 ## Open
 
@@ -365,14 +401,101 @@ Legend: ✅ done · 🟡 most done (sub-tasks remain) · ⏳ open
     curated artifacts) are forwarded to the Engram-side
     implementation effort.
 
-24. **RFC 0039 V1.5: address Track A build review findings.** Cycle-
+24. ~~**RFC 0039 V1.5: address Track A build review findings.** Cycle-
     exhaustion override per D095 (decision
     `dec_b75d66f38a3d40228891248c91a27774`). 2-of-3 reviewers
     accept_with_findings (claude, gemini); codex needs_revision
     overridden because the codex/codex implementer+reviewer pairing
     converged on its own findings (anti-pattern documented in D095
     follow-up). Land the codex / claude / gemini findings deltas via
-    a future dogfood folded into Phase 2.
+    a future dogfood folded into Phase 2.~~ ✅ Done: shipped under
+    dogfood-047 (v1.36.0). All five synthesis findings (F1-F5)
+    landed in implementation order **F5 → F4 → F1 → F2 → F3**:
+    (F5) `go/pkg/db/connection.go` rewritten on top of
+    `github.com/jackc/pgx/v5 v5.7.2` — the Go daemon's first
+    third-party runtime dependency; `PsqlRunner` /
+    `exec.Command("psql", ...)` removed from production code paths;
+    `db.Runner` + `db.TxRunner` interfaces expose parameterized
+    `Exec`/`QueryRow`/`QueryScalar`/`BeginTx`; pool configured with
+    `application_name="striatumd-go/<daemon_version>"` and default
+    `statement_timeout=60000`. (F4) `go/pkg/db/audit.go::RecordRPC`
+    opens one `READ COMMITTED` transaction via the F5 runner, locks
+    the singleton `striatumd.audit_chain_head` row with
+    `SELECT ... FOR UPDATE`, derives the open audit segment, computes
+    the v2 row hash from the locked `previous_hash`, inserts with
+    `INSERT ... RETURNING audit_id`, updates the chain head, commits,
+    and returns the audit id (closes the V1 envelope-shape regression
+    that returned empty `audit_id` to clients). (F1)
+    `go/pkg/rpc/auth_pg.go` introduces `PostgresAuthorizer`; tokens
+    are HMAC-SHA256(salt, secret) compared via
+    `subtle.ConstantTimeCompare`; capability lookup mirrors
+    `src/striatum/daemon_rpc/capability.py` exactly (same WHERE,
+    wildcard ordering, scope-mismatch fallback); denial vocabulary
+    matches Python so clients cannot tell the two cores apart from
+    the refusal envelope; `go/cmd/striatumd/main.go` wires it
+    whenever a Postgres URL is configured. (F2)
+    `go/cmd/striatumd/main.go` flag surface is the synthesis-locked
+    `--socket / --postgres-url / --migrate / --describe /
+    --migrations-sha-source`; `go/Makefile` writes
+    `go/bin/striatumd`; `tests/_harness/daemon.py::_start_go`
+    launches with the locked argv. (F3) top-level `Makefile` exposes
+    `CORE ?= python` and forwards as
+    `STRIATUM_MULTI_REPO_DAEMON_CORE`; `tests/conftest.py` adds a
+    class-scoped `daemon_core` fixture; CI shape is the
+    synthesis-locked **two explicit jobs** (`CORE=python`,
+    `CORE=go`). New tests:
+    `tests/test_daemon_go_smoke.py` (boot + `daemon.hello` +
+    `daemon.describe` + audit-chain-head moved),
+    `tests/test_daemon_go_audit.py` (concurrent audit-emitting RPC
+    calls against `MultiRepoHarness(daemon_core="go")`),
+    `go/pkg/db/audit_race_test.go` (opt-in on
+    `STRIATUM_PG_TEST_URL`). Implementer was **claude** (Go +
+    Python harness mix), deliberately not codex — second dogfood
+    avoiding the codex/codex anti-pattern (precedents D095-D098,
+    D100). D101 override applied: codex `needs_revision` high
+    (codex-reviewer-of-claude-implementer pattern, distinct from
+    codex/codex co-blindness — same axis as D099 dogfood-045)
+    overridden via 2-of-3 cross-lane consensus (claude
+    `accept_with_findings` low ergonomics_dx, gemini
+    `accept_with_findings` medium threat_model). Codex
+    needs_revision findings F1-F5 (`go.sum` unchecksummed,
+    unauthenticated/no-audit production fallback when no
+    `--postgres-url` is configured, `CORE=go` matrix can pass with
+    all tests skipped, smoke-test asserts no denial reason on
+    unauthenticated `daemon.describe`, audit-append regression not
+    executable without `STRIATUM_PG_TEST_URL`) absorbed into RFC
+    0039 V1.6 follow-up (item 30 below).
+
+30. **RFC 0039 V1.6 follow-up.** Codex needs_revision findings from
+    dogfood-047 build review, deferred under D101 (decision
+    `dec_f8d268f392ca44dd8a9bccb634249979`). Codex
+    reviewer-of-claude-implementer pattern (distinct from codex/codex
+    co-blindness; same axis as D099 dogfood-045). Land the codex
+    F1-F5 deltas via a future dogfood: (F1) `(cd go && go mod tidy)`
+    and commit `go.sum` so `pgx/v5` and indirect dependencies are
+    cryptographically pinned and `make daemon-go-build` succeeds;
+    (F2) remove the unauthenticated/no-audit production fallback in
+    `go/cmd/striatumd/main.go:49` — a serving daemon without a
+    Postgres URL must refuse to bind a socket rather than installing
+    `AllowAllAuthorizer{}` with no `AuditRecorder` (or install a
+    deny-all/no-db authorizer that audits a startup/config failure
+    through a known safe path); (F3) make `make test-multi-repo
+    CORE=go` hard-fail when the required Postgres harness is
+    unavailable (or split a separate non-optional Go-core CI target),
+    plus a sentinel assertion that
+    `tests/test_daemon_go_smoke.py` / `tests/test_daemon_go_audit.py`
+    actually executed rather than skipping; (F4) extend
+    `tests/test_daemon_go_smoke.py` to assert unauthenticated
+    `daemon.describe` is denied with the expected error/denial
+    reason and that the denial row is present in the audit chain;
+    (F5) make `go/pkg/db/audit_race_test.go` +
+    `tests/test_daemon_go_audit.py` actually run in CI (require
+    `STRIATUM_PG_TEST_URL` or equivalent ephemeral Postgres for the
+    Go-core matrix job). Gemini accept_with_findings medium
+    threat_model also flagged dependency-budget hygiene (`go mod
+    verify` in the `CORE=go` matrix) and migration-advisory-lock
+    persistence under the new `pgx` pool — both forwarded to this
+    follow-up alongside the codex deltas.
 
 25. **Phase 2 (RFC 0039 Steps 3-6).** CLI integration (`striatum daemon
     start --core go`), mutating workflow verbs on the Go core,
@@ -408,14 +531,6 @@ Legend: ✅ done · 🟡 most done (sub-tasks remain) · ⏳ open
     implementer+reviewer pairing produced the third instance of the
     convergent-blind-spot anti-pattern (D095, D096, D097). Land the
     codex findings deltas via a future dogfood.
-
-18. **Workflow type and lane catalog chooser.** RFC 0034 V1 ships the
-    generator core, package-data catalog, CLI `workflow templates
-    list/show`, CLI `workflow generate`, local service catalog and
-    generation endpoints, custom-plan compiler, and `workflow init
-    --style` rewire. **Remaining:** web `/workflows/new` chooser UI;
-    chat-assisted scaffolding tool delivered by RFC 0036 V1;
-    any future target-repo catalog extension decision.
 
 19. ~~**RFC for multi-repo / cross-repo test harness.** RFC 0035 V1
     landed in dogfood-037. `tests/_harness/MultiRepoHarness` boots a

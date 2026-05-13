@@ -489,3 +489,82 @@ the operator-facing configuration enumerating which language
 implementation is running. V1 closed set: `{python, go}`. V1 default:
 `python`. The operator sees `striatum daemon describe` reflect the
 current core; the CLI client behavior is identical against either.
+
+## V1.5 Deltas (correctness slice)
+
+V1 shipped a Go daemon that bound the envelope-v1 socket and applied
+migrations but had five correctness gaps that blocked promotion of the
+Go core to operator workloads. V1.5 closes those gaps and is the merge
+slice before mutating routes land in Step 4.
+
+The findings are pinned to dogfood-047 designs and the implementation
+order is locked by `docs/dogfood/047/DESIGN_SYNTHESIS.md`. F5 lands
+before F4 and F1 because those two correctness fixes need the
+parameter-binding and transaction support of the new driver; F2 and F3
+land after the daemon can authorize and audit requests correctly.
+
+### F5 — Pure-Go PostgreSQL driver
+
+`go/pkg/db/connection.go` no longer shells out to `psql`. The connection
+pool is `pgx/v5` (the first third-party Go runtime dependency for this
+repository — `go/go.mod` now requires `github.com/jackc/pgx/v5 v5.7.2`,
+with five indirect modules). The pool is configured with
+`application_name = "striatumd-go/<daemon_version>"`, a default
+`statement_timeout`, and the PostgreSQL simple protocol so the embedded
+multi-statement migration files keep working unchanged while parameters
+are still bound through the driver. `db.Runner` is the
+parameter-aware database surface used by the rest of the daemon, and
+`db.TxRunner` is its transactional sibling.
+
+### F4 — Transactional audit append
+
+`go/pkg/db/audit.go` no longer races. `AuditRecorder.RecordRPC` opens
+one `READ COMMITTED` transaction, locks the singleton
+`striatumd.audit_chain_head` row with `FOR UPDATE`, computes the row
+hash from the locked `previous_hash`, inserts the new audit row with
+`RETURNING audit_id`, updates the chain head, and commits. The returned
+audit id flows back into the RFC 0030 response so the chain remains
+linear under concurrent RPC traffic. The opt-in Go race test in
+`go/pkg/db/audit_race_test.go` exercises this against an ephemeral
+Postgres URL (`STRIATUM_PG_TEST_URL`); the Python cross-core regression
+lives in `tests/test_daemon_go_audit.py` and runs under
+`make test-multi-repo CORE=go`.
+
+### F1 — PostgreSQL-backed RPC authorization
+
+`go/pkg/rpc/auth_pg.go` introduces `PostgresAuthorizer`, which validates
+Python-issued capability tokens against the same `striatumd.clients` /
+`striatumd.client_capabilities` rows the Python authorizer uses. Token
+secrets are HMAC-SHA256 compared with `subtle.ConstantTimeCompare`
+against the stored salt+hash, and the capability lookup mirrors the
+Python query (including the `repository_id IS NULL OR repository_id =
+$3` wildcard rule and the scope-mismatch fallback). Denial reasons line
+up one-for-one with `src/striatum/daemon_rpc/capability.py` so clients
+cannot tell the two cores apart from the refusal envelope. The serving
+daemon in `go/cmd/striatumd/main.go` wires this authorizer when a
+PostgreSQL URL is configured; `AllowAllAuthorizer` is now test-only.
+
+### F2 — Go harness launch contract
+
+The Go binary is the canonical CLI: it accepts `--socket`,
+`--postgres-url`, `--migrate`, `--describe`, and the new optional
+`--migrations-sha-source`. The SHA-source flag compares the embedded
+migration file hashes against the SQL files on disk before serving and
+exits non-zero on drift — that replaces V1's `--migrations-dir`
+re-loader without giving up the drift signal. `go/Makefile` writes
+`go/bin/striatumd` so `tests/_harness/daemon.py` can locate the binary
+without an environment override; `STRIATUMD_GO_BIN` remains a trusted
+developer-environment override.
+
+### F3 — `make test-multi-repo CORE=go`
+
+`Makefile` accepts `CORE ?= python` and forwards it through
+`STRIATUM_MULTI_REPO_DAEMON_CORE`. The class-scoped `daemon_core`
+fixture in `tests/conftest.py` reads that variable and passes it to
+`MultiRepoHarness`; the test list now includes
+`tests/test_daemon_go_smoke.py` and `tests/test_daemon_go_audit.py` so
+the Go-core matrix exercises a real boot, a read-only RPC, and the F4
+audit chain. The CI shape is intentionally two explicit jobs
+(`CORE=python`, `CORE=go`) rather than in-process parametrization, so
+the Go-core evidence is intentional rather than implied.
+

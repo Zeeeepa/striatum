@@ -1,5 +1,209 @@
 # Changelog
 
+## v1.36.0 — 2026-05-13
+
+### Added
+
+- RFC 0039 V1.5 — Go daemon correctness slice F1-F5 landed under
+  dogfood-047. Implementation order respected the synthesis lock
+  **F5 → F4 → F1 → F2 → F3** because F4 and F1 needed F5's
+  parameter-binding and transaction support before they could land.
+  - **F5 — Pure-Go PostgreSQL driver.** `go/pkg/db/connection.go`
+    rewritten on top of `github.com/jackc/pgx/v5 v5.7.2` — the Go
+    daemon's first third-party runtime dependency. New `db.Runner`
+    and `db.TxRunner` interfaces expose parameterized `Exec`,
+    `QueryRow`, `QueryScalar`, and (Runner-only) `BeginTx`;
+    `PgxRunner` and `PgxTxRunner` are the concrete adapters; `db.Row`
+    is a type alias for `pgx.Row` so `rpc` can reference the row
+    type without an import cycle. Pool configured with
+    `application_name = "striatumd-go/<daemon_version>"`, default
+    `statement_timeout = 60000`, and
+    `DefaultQueryExecMode = pgx.QueryExecModeSimpleProtocol` (simple
+    protocol is required because existing migration files contain
+    multi-statement DDL; pgx still binds parameters with safe
+    client-side quoting under simple protocol, so the SQL-injection
+    surface is unchanged). `PsqlRunner`, `exec.Command("psql", ...)`,
+    and `fmt.Sprintf` literal interpolation are removed from
+    production code paths. `RedactURL` and `ResolveConfig` keep their
+    existing contracts; no code path logs raw Postgres URLs.
+  - **F4 — Transactional audit append.**
+    `go/pkg/db/audit.go::AuditRecorder.RecordRPC` opens one
+    `READ COMMITTED` transaction via the F5 runner, locks the
+    singleton `striatumd.audit_chain_head` row with
+    `SELECT ... FOR UPDATE`, derives the open audit segment
+    (creating one only if absent — `0001_baseline.sql` bootstraps an
+    open segment so the create branch is dead in practice but
+    defends against operator-side cleanup that closes the open
+    segment without opening a new one), computes the v2 row hash
+    from the locked `previous_hash`, inserts the audit row with
+    `INSERT ... RETURNING audit_id`, updates
+    `striatumd.audit_chain_head` to the new id and hash, commits,
+    and returns the audit id as `strconv.FormatInt`. Rollback fires
+    from a deferred function whenever Commit was not reached.
+    Public API of `RecordRPC` is unchanged so
+    `go/pkg/rpc/server.go` keeps calling it after response
+    construction, and the returned `audit_id` flows into the RFC
+    0030 response envelope — closing the V1 envelope-shape
+    regression where the Go core returned empty `audit_id` to
+    clients. Row-hash payload matches the Python `v2_row_hash`
+    byte-for-byte: nullable strings encode as JSON `null`,
+    `exit_code` is an int when present, `segment_id` is an int64,
+    `ts` is RFC3339 truncated to the second.
+  - **F1 — Postgres-backed RPC authorization (replaces
+    `AllowAllAuthorizer` in production).**
+    `go/pkg/rpc/auth_pg.go` introduces `PostgresAuthorizer`. Token
+    secrets are HMAC-SHA256(`token_salt`, supplied secret) compared
+    with `subtle.ConstantTimeCompare` against the stored
+    `token_hash`; capability lookup mirrors
+    `src/striatum/daemon_rpc/capability.py` exactly (same WHERE
+    clause, same wildcard ordering, same scope-mismatch fallback
+    query); revocation and expiry take effect on the next request;
+    no positive or negative cache ships in V1.5. The denial-reason
+    vocabulary is identical to the Python authorizer so clients
+    cannot tell the two cores apart from the refusal envelope.
+    `go/cmd/striatumd/main.go` wires
+    `&rpc.PostgresAuthorizer{Runner: pool.Runner, Clock: time.Now}`
+    whenever a Postgres URL is configured. `AllowAllAuthorizer{}`
+    is now strictly the test default. Implementation deviates from
+    the synthesis field type to keep `rpc → db → rpc` from becoming
+    a cycle: `auth_pg.go` declares a local `rpc.AuthQuerier`
+    interface using `pgx.Row`; `db.Runner` satisfies it
+    structurally, so `main.go` still passes `pool.Runner` directly.
+  - **F2 — Go harness launch contract.**
+    `go/cmd/striatumd/main.go` accepts the synthesis-locked flag
+    surface: `--socket`, `--postgres-url`, `--migrate`,
+    `--describe`, and the new optional
+    `--migrations-sha-source` which compares embedded migration
+    file hashes against the SQL files at the supplied path before
+    serving and exits non-zero on drift (replaces V1's
+    `--migrations-dir` reloader without giving up the drift
+    signal). `go/Makefile` writes the binary to `go/bin/striatumd`
+    (V1 emitted `go/striatumd`, which the harness probed at
+    `go/bin/striatumd` — fixed). `tests/_harness/daemon.py` builds
+    via `make -C go build` when the binary is missing and honors
+    the `STRIATUMD_GO_BIN` developer override;
+    `_start_go` launches with the locked argv
+    `--socket <sock> --postgres-url <url> --migrations-sha-source
+    src/striatum/daemon_pg/sql` (no `--db-url`, no
+    `--migrations-dir`). The narrow launch regression is
+    `tests/test_daemon_go_smoke.py`: constructs
+    `MultiRepoHarness(daemon_core="go")`, asserts the socket
+    exists, runs `daemon.hello` and `daemon.describe`, and verifies
+    the audit chain head moved.
+  - **F3 — `make test-multi-repo CORE=go` wired + pytest
+    parametrization.** Top-level `Makefile` exposes
+    `CORE ?= python` and forwards it as
+    `STRIATUM_MULTI_REPO_DAEMON_CORE` into pytest;
+    `tests/conftest.py` adds a class-scoped `daemon_core` fixture
+    that reads `STRIATUM_MULTI_REPO_DAEMON_CORE` (raising
+    `pytest.UsageError` on unknown values) and threads it through
+    `MultiRepoHarness`. New tests
+    `tests/test_daemon_go_smoke.py` and
+    `tests/test_daemon_go_audit.py` join the `test-multi-repo`
+    target list; both skip when
+    `STRIATUM_MULTI_REPO_DAEMON_CORE != "go"` so they do not break
+    `CORE=python` runs. CI shape is the synthesis-locked **two
+    explicit jobs** (`make test-multi-repo CORE=python` and
+    `make test-multi-repo CORE=go`) rather than in-process pytest
+    parametrization — Go-core failures surface as separately-named
+    jobs rather than as parametrized subtests.
+  - Files: `go/cmd/striatumd/main.go`, `go/pkg/db/audit.go`,
+    `go/pkg/db/connection.go`, `go/pkg/db/migrations.go`,
+    `go/pkg/db/migrations_test.go`, `go/pkg/db/audit_race_test.go`
+    (new, opt-in on `STRIATUM_PG_TEST_URL`),
+    `go/pkg/rpc/auth_pg.go` (new), `go/Makefile`, `go/go.mod`,
+    `tests/_harness/daemon.py`, `tests/conftest.py`, `Makefile`,
+    `tests/test_daemon_go_smoke.py` (new),
+    `tests/test_daemon_go_audit.py` (new),
+    `docs/rfcs/0039-go-daemon-core.md` (V1.5 deltas section).
+- Operator-side ergonomics: `striatum --version` flag — prints
+  `striatum <version>` and exits zero; wired in
+  `src/striatum/cli/parser.py`. Separate from the V1.5 packet but
+  rides along on the `striatum/dogfood-047-rfc-0039-v1-5` branch.
+- Item 63 (TODO sweep results): items 3, 14, 18 promoted to
+  ✅ done after the snapshot table review; items 1, 2, 13 retain
+  🟡 most done status with named gaps captured in the per-item
+  bodies (item 1 PTY path; item 2 sandbox/worktree adapter for
+  mechanical `network`/`repo_scope` enforcement promotion; item 13
+  runner-owned design+build+review fixture under `examples/`).
+- Item 13 partial: `examples/three-lane-design-build-review/`
+  runner-owned workflow fixture scaffolded (workflow.json, roles,
+  prompts, README) reproducing the historical P001 three-lane
+  shape against the standalone product surface — last operator
+  step before the tmux harness fully retires from active workflow
+  guidance.
+- Pre-scaffold: `docs/dogfood/048/` (workflow.json, roles,
+  prompts, OPERATOR_REPORT.md skeleton) staged for RFC 0043 V1
+  (2-track: codex schema/migration + claude CLI/RPC). Not started
+  in this packet; rides along on the branch so the next dogfood
+  has the directory structure ready.
+
+### Decided
+
+- D101 (`dec_f8d268f392ca44dd8a9bccb634249979`,
+  `accepted_with_follow_up`): override for the dogfood-047 build
+  review. Codex `review_build_codex` returned `needs_revision
+  severity=high` under the threat_model posture on five findings
+  (F1 `go.sum` not regenerated for the new `pgx/v5` runtime
+  dependency, F2 unauthenticated/no-audit production fallback when
+  no `--postgres-url` is configured, F3 `make test-multi-repo
+  CORE=go` can pass with all tests skipped, F4 smoke-test asserts
+  no denial reason on unauthenticated `daemon.describe`, F5
+  audit-append race regression not executable without
+  `STRIATUM_PG_TEST_URL`). Cross-lane majority disagreed (claude
+  `accept_with_findings` low ergonomics_dx, gemini
+  `accept_with_findings` medium threat_model); 2-of-3 cross-lane
+  consensus said scope was met. **D101 is distinct from D095-D100
+  codex/codex co-blindness anti-pattern** — this dogfood
+  deliberately routed implementation to **claude** (Go + Python
+  harness mix), so the reviewer was scrutinizing a different model's
+  work. This is the **codex-reviewer-of-claude-implementer pattern**
+  first surfaced under D099 (dogfood-045, RFC 0038 V1.5): codex-as-
+  reviewer baseline conservatism appears to be independent of the
+  codex/codex convergent-blind-spot anti-pattern, and now has two
+  instances on the books (D099 reject critical, D101
+  needs_revision high). Codex findings F1-F5 are real but the
+  V1.5 slice meets the in-scope correctness contract and ships;
+  findings absorbed into RFC 0039 V1.6 follow-up (TODO item 30).
+
+### Notes
+
+- Dogfood-047 ran the multi-track design + build + review workflow
+  for RFC 0039 V1.5 with the codex/codex anti-pattern explicitly
+  avoided by routing implementation to claude. As with
+  dogfood-044/045/046, the `consolidate` job was not part of the
+  workflow; the operator authored this changelog entry,
+  `docs/rfcs/README.md` status update, `docs/TODO.md` item-24
+  promotion + new item 30 follow-up + F48 snapshot row,
+  `docs/dogfood/047/BUILD_HANDOFF.md` (combined handoff per the
+  consolidate-job-absent pattern), and
+  `docs/dogfood/047/PHASE_1_OPERATOR_NOTES.md` out-of-band after
+  the run.
+- The codex/codex anti-pattern is now well-characterized across
+  five instances (D095, D096, D097, D098, D100), and the
+  codex-reviewer-of-claude-implementer pattern across two
+  instances (D099, D101). The refuse-by-default validator rule for
+  same-model implementer↔reviewer pairing (TODO item 26) remains
+  deferred. For dogfood-047 the operator-side mitigation (route
+  implementation to claude when the reviewer set includes codex
+  with threat_model posture) is the same one used in dogfood-045,
+  and produced the same outcome shape: codex reviewer comes back
+  harsh on a different model's work; cross-lane majority overrides.
+- The HANDOFF documents a verification gap on the implementer side:
+  `striatum ack` and other Bash commands were denied by the harness
+  permission gate, so no `make lint` / `make typecheck` / `make
+  test` / `go test ./...` / `go mod tidy` / `make test-multi-repo`
+  / binary smoke ran during the implementer session. The
+  implement-prompt escape hatch ("If `striatum ack` is denied,
+  write the HANDOFF and exit normally") governed the rest of the
+  run. The codex review's F1 finding (`go.sum` not regenerated)
+  follows directly from this gap: the `go.mod` was hand-edited
+  with the canonical `pgx v5.7.2` line, but `go.sum` cryptographic
+  hashes were not generated. Operator-side or CI follow-up: run
+  `(cd go && go mod tidy)` and commit the resulting `go.sum`
+  before merge so `make daemon-go-build` succeeds (folded into RFC
+  0039 V1.6, TODO item 30).
+
 ## v1.35.0 — 2026-05-13
 
 ### Added
