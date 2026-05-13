@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import sqlite3
 import uuid
 from dataclasses import dataclass
@@ -351,6 +352,7 @@ TABLE_BY_NAME = {spec.name: spec for spec in TABLE_SPECS}
 def migrate_repo_local(options: RepoLocalMigrationOptions) -> dict[str, Any]:
     repo = options.repo.resolve()
     source_path = db_path(repo)
+    sentinel_path = repo / ".striatum" / "state.sqlite3.migrated"
     _verify_delete_options(options)
     if not source_path.exists():
         pg_conn = connect(options.postgres_url)
@@ -359,13 +361,26 @@ def migrate_repo_local(options: RepoLocalMigrationOptions) -> dict[str, Any]:
             registered = _lookup_registered(pg_conn, repo)
             checkpoint = _existing_checkpoint(pg_conn, registered) if registered is not None else None
             if checkpoint is not None:
-                return {
+                resume_result = None
+                if not options.dry_run:
+                    resume_result = _resume_sqlite_finalization_after_checkpoint(
+                        repo,
+                        source_path=source_path,
+                        sentinel_path=sentinel_path,
+                        checkpoint=checkpoint,
+                        keep_sqlite_readonly=options.keep_sqlite_readonly,
+                        confirm_delete=options.confirm_delete,
+                    )
+                response: dict[str, Any] = {
                     "mode": "repo_local_migration",
                     "dry_run": bool(options.dry_run),
                     "already_migrated": True,
                     "repository_id": registered,
                     "checkpoint": checkpoint,
                 }
+                if resume_result is not None:
+                    response["sqlite_finalization"] = resume_result
+                return response
         finally:
             pg_conn.close()
     source_state_db_sha256 = _file_sha256(source_path)
@@ -399,6 +414,7 @@ def migrate_repo_local(options: RepoLocalMigrationOptions) -> dict[str, Any]:
                 pg_conn,
                 repo=repo,
                 source_path=source_path,
+                sentinel_path=sentinel_path,
                 source_user_version=source_user_version,
                 source_state_db_sha256=source_state_db_sha256,
                 counts=counts,
@@ -429,6 +445,7 @@ def _migrate_full(
     *,
     repo: Path,
     source_path: Path,
+    sentinel_path: Path,
     source_user_version: int,
     source_state_db_sha256: str,
     counts: dict[str, int],
@@ -446,13 +463,24 @@ def _migrate_full(
         checkpoint = _existing_checkpoint(pg_conn, repository_id)
         if checkpoint is not None:
             pg_conn.commit()
-            return {
+            resume_result = _resume_sqlite_finalization_after_checkpoint(
+                repo,
+                source_path=source_path,
+                sentinel_path=sentinel_path,
+                checkpoint=checkpoint,
+                keep_sqlite_readonly=keep_sqlite_readonly,
+                confirm_delete=confirm_delete,
+            )
+            response: dict[str, Any] = {
                 "mode": "repo_local_migration",
                 "dry_run": False,
                 "already_migrated": True,
                 "repository_id": repository_id,
                 "checkpoint": checkpoint,
             }
+            if resume_result is not None:
+                response["sqlite_finalization"] = resume_result
+            return response
         imported_counts = _copy_repo_rows(sqlite_conn, pg_conn, repository_id)
         reanchor = compute_repo_local_reanchor(sqlite_conn, pg_conn, repository_id)
         tombstone_path = str(source_path.with_name(source_path.name + ".tombstone")) if keep_sqlite_readonly else None
@@ -470,11 +498,22 @@ def _migrate_full(
     except Exception:
         pg_conn.rollback()
         raise
+    # V1.5 F-crash: write the sentinel atomically between the Postgres
+    # commit and the SQLite tombstone/delete so an interrupted finalization
+    # can be resumed idempotently on the next ``migrate_repo_local`` call.
+    _write_sentinel_atomically(
+        sentinel_path,
+        repository_id=repository_id,
+        source_state_db_sha256=source_state_db_sha256,
+        keep_sqlite_readonly=keep_sqlite_readonly,
+        confirm_delete=confirm_delete,
+    )
     tombstone_result = _tombstone_or_delete_state_db(
         repo,
         keep_sqlite_readonly=keep_sqlite_readonly,
         confirm_delete=confirm_delete,
     )
+    _clear_sentinel(sentinel_path)
     return {
         "mode": "repo_local_migration",
         "dry_run": False,
@@ -488,6 +527,106 @@ def _migrate_full(
         "source_state_db_sha256": source_state_db_sha256,
         "sqlite_finalization": tombstone_result,
     }
+
+
+def _resume_sqlite_finalization_after_checkpoint(
+    repo: Path,
+    *,
+    source_path: Path,
+    sentinel_path: Path,
+    checkpoint: dict[str, Any],
+    keep_sqlite_readonly: bool,
+    confirm_delete: bool,
+) -> dict[str, Any] | None:
+    """Finish the SQLite-side finalization after a crashed migration.
+
+    Called from both ``already_migrated`` early-return paths. Inspects the
+    ``state.sqlite3`` / sentinel pair and resumes the tombstone/delete
+    action idempotently:
+
+    * ``state.sqlite3`` present → verify the SHA against the checkpoint
+      and resume the original action recorded in the sentinel (falling
+      back to *keep_sqlite_readonly* + *confirm_delete* if the sentinel
+      is missing). The sentinel is cleared after the action succeeds.
+    * ``state.sqlite3`` absent but sentinel present → orphan; clear the
+      sentinel and return.
+    * Neither present → fully finalized; return ``None``.
+
+    A SHA mismatch raises :class:`StriatumError` with exit code 8 so the
+    operator can investigate without losing data.
+    """
+    sentinel_payload = _read_sentinel(sentinel_path)
+    if source_path.exists():
+        observed_sha = _file_sha256(source_path)
+        expected_sha = checkpoint.get("source_state_db_sha256")
+        if isinstance(expected_sha, str) and observed_sha != expected_sha:
+            raise StriatumError(
+                "repo-local SQLite state changed since the Postgres checkpoint; "
+                "refusing to finalize. "
+                f"expected sha256={expected_sha} observed={observed_sha}",
+                exit_code=8,
+            )
+        resume_keep = keep_sqlite_readonly
+        resume_confirm = confirm_delete
+        if sentinel_payload is not None:
+            if "keep_sqlite_readonly" in sentinel_payload:
+                resume_keep = bool(sentinel_payload["keep_sqlite_readonly"])
+            if "confirm_delete" in sentinel_payload:
+                resume_confirm = bool(sentinel_payload["confirm_delete"])
+        result = _tombstone_or_delete_state_db(
+            repo,
+            keep_sqlite_readonly=resume_keep,
+            confirm_delete=resume_confirm,
+        )
+        result = {**result, "resumed_from_checkpoint": True}
+        _clear_sentinel(sentinel_path)
+        return result
+    if sentinel_path.exists():
+        _clear_sentinel(sentinel_path)
+        return {"action": "cleared_orphan_sentinel", "sentinel": str(sentinel_path)}
+    return None
+
+
+def _write_sentinel_atomically(
+    sentinel_path: Path,
+    *,
+    repository_id: str,
+    source_state_db_sha256: str,
+    keep_sqlite_readonly: bool,
+    confirm_delete: bool,
+) -> None:
+    payload = {
+        "repository_id": repository_id,
+        "source_state_db_sha256": source_state_db_sha256,
+        "keep_sqlite_readonly": bool(keep_sqlite_readonly),
+        "confirm_delete": bool(confirm_delete),
+        "written_at": utc_now().isoformat().replace("+00:00", "Z"),
+    }
+    body = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    sentinel_path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path = sentinel_path.with_name(sentinel_path.name + ".tmp")
+    with tmp_path.open("wb") as handle:
+        handle.write(body)
+        handle.flush()
+        os.fsync(handle.fileno())
+    tmp_path.replace(sentinel_path)
+
+
+def _read_sentinel(sentinel_path: Path) -> dict[str, Any] | None:
+    if not sentinel_path.exists():
+        return None
+    try:
+        loaded = json.loads(sentinel_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    return loaded if isinstance(loaded, dict) else None
+
+
+def _clear_sentinel(sentinel_path: Path) -> None:
+    try:
+        sentinel_path.unlink()
+    except FileNotFoundError:
+        pass
 
 
 def _open_source_readonly(path: Path) -> sqlite3.Connection:

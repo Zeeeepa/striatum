@@ -1,5 +1,57 @@
 # Changelog
 
+## v1.38.0 — 2026-05-13
+
+### Added
+
+- RFC 0043 V1.5 — D102 follow-up findings closure under dogfood-050.
+  Single-track claude implementer (deliberately not codex per D102
+  anti-pattern note). Four named findings closed:
+  - **F-crash:** Transactional rollback + checkpointed resume of
+    `striatum daemon migrate-repo-local` after a kill-9 between
+    Postgres commit and SQLite finalization. Adds atomic `.migrated`
+    sentinel write after commit and before tombstone/delete; resume
+    helper re-enters from the early-return path on rerun.
+    (`src/striatum/daemon_pg/repo_local_migration.py`,
+    `tests/daemon_pg/test_repo_local_migration_crash_resume.py`.)
+  - **F-escape:** `STRIATUM_DAEMON_REQUIRED` default flip — unset env
+    now enforces daemon-required; only `STRIATUM_DAEMON_REQUIRED == "0"`
+    opts out. `resolve_requirement` in
+    `src/striatum/cli/daemon_required.py` returns enforcement by
+    default; per-command optional list and explicit-zero remain the
+    only bypass surfaces.
+  - **F-parser:** `striatum daemon migrate-repo-local` subcommand
+    wired into argparse + dispatch end-to-end
+    (`src/striatum/cli/parser.py:167-199`,
+    `src/striatum/cli/dispatch.py:881-887`,
+    `src/striatum/cli/daemon.py:24-44`).
+  - **F-test:** Exit-code-12 (`repo_not_migrated`) e2e regression
+    against real dispatch
+    (`tests/exit_codes/test_rfc0043_refusals.py:207-243`) — runs
+    `dispatch.main(["--repo", str(tmp), "status"])` against a tmp
+    repo with a `.striatum/state.sqlite3` plus listening daemon
+    socket, asserts rc == 12 and that the remediation line names
+    `striatum daemon migrate-repo-local --from sqlite --to pg --repo`.
+
+### Known follow-ups (V1.6)
+
+- Codex threat-model finding: `STRIATUM_DAEMON_REQUIRED=0` is still
+  documented as an operator migration path. V1.6 will remove the
+  runtime escape entirely (test-only gating or removal).
+- Gemini adversarial findings A1/A2/A3:
+  - A1 (critical): server-side substrate mismatch — daemon RPC
+    delegates single-repo verbs back to SQLite-backed CLI logic;
+    actual substrate flip is incomplete at the daemon business-logic
+    layer. V1.6 will port daemon-internal single-repo logic onto
+    Postgres directly.
+  - A2 (high): split-brain — `striatum.db.connect` creates a fresh
+    SQLite when the file is missing post-migration. V1.6 will refuse
+    to create when a migration checkpoint exists.
+  - A3 (medium): no exclusive lock on the source SQLite during
+    migrate-repo-local. V1.6 will add explicit locking.
+- Claude ergonomics finding F-dx-1: per-flag help text on
+  `migrate-repo-local` is sparse (only two flags carry `help=`).
+
 ## v1.37.0 — 2026-05-13
 
 ### Added

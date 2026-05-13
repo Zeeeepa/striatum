@@ -599,3 +599,118 @@ to "daemon Postgres, namespaced by repository." Aggregate roots
 in their identity and invariants; their storage substrate is the
 implementation detail this RFC moves. The CLI-as-only-write-surface
 invariant (D009 first half) is preserved.
+
+## V1.5 deltas
+
+V1.5 closes the four follow-up findings folded under decision D102
+(cycle-exhaustion override on dogfood-048). The shape and product
+boundary of V1 are unchanged — V1.5 is purely the gap closure list.
+See `docs/dogfood/050/DESIGN_SYNTHESIS.md` for the design notes.
+
+### F-parser — wire `daemon migrate-repo-local`
+
+V1 shipped the migration body (`migrate_repo_local()`) and the
+`src/striatum/cli/daemon.py` helper but did not register the
+subparser in `src/striatum/cli/parser.py`, so the operator command
+`striatum daemon migrate-repo-local --help` returned an unknown
+subcommand. V1.5 adds the subparser under `daemon` and a dispatch
+arm in `dispatch._dispatch_daemon` that routes the verb into
+`striatum.cli.daemon:dispatch_daemon`. The subparser exposes
+`--from {sqlite}`, `--to {pg}`, `--repo` (falls back to the
+top-level `--repo`), `--postgres-url`, `--dry-run`,
+`--keep-sqlite-readonly` (default true), `--no-keep-sqlite-readonly`,
+`--confirm-delete`, and `--json`.
+
+### F-escape — daemon-required is the default
+
+V1 left `resolve_requirement` in `src/striatum/cli/daemon_required.py`
+env-gated on `STRIATUM_DAEMON_REQUIRED=1`, so the default CLI
+behavior silently fell through to the SQLite path — directly
+contradicting §3 of this RFC. V1.5 flips the resolver:
+
+* `STRIATUM_DAEMON_REQUIRED=0` is now the explicit opt-out for
+  legacy SQLite-backed test fixtures and incremental migration of
+  in-tree fixtures.
+* Any other value, including the env var being unset, returns a
+  populated `DaemonRequirement` and the dispatcher enforces the
+  exit-code-11/12 refusals before any SQLite-backed code runs.
+
+The CLI escape-path audit (`src/striatum/cli/`) confirmed the
+top-level `enforce_daemon_required()` gate is the only silent-
+fallback gate; the per-verb mutation, introspection, recovery, and
+worktree slices are reached only after the dispatcher calls
+`enforce_daemon_required(args.command, repo)`.
+
+### F-test — end-to-end exit-code-12 coverage
+
+V1 had no end-to-end test that proved a real `striatum --repo
+<unmigrated> status` invocation exits with code 12 and the
+`striatum daemon migrate-repo-local …` remediation hint. V1.5 adds
+two cases in `tests/exit_codes/test_rfc0043_refusals.py`:
+
+* `test_dispatch_returns_exit_12_for_unmigrated_repo` — binds a
+  Unix socket so the daemon-reachability check passes, drops an
+  empty `.striatum/state.sqlite3` to present the pre-cutover disk
+  signal, then asserts `dispatch_mod.main(["--repo", str(tmp_path),
+  "status"])` returns `12`, that stderr contains
+  `repo_not_migrated`, and that the remediation line names
+  `striatum daemon migrate-repo-local --from sqlite --to pg --repo`
+  with the resolved repo path.
+* `test_dispatch_exit_12_json_envelope` — same fixture, asserts the
+  `--json` envelope `{"ok": false, "error": {"code": 12, ...}}`
+  carries the structured `hint` naming the migrate command.
+
+The existing `test_resolve_requirement_returns_none_without_env`
+case is replaced by
+`test_resolve_requirement_enforces_by_default_when_env_unset` plus
+`test_resolve_requirement_opt_out_with_env_zero` to lock in the
+flipped default.
+
+### F-crash — sentinel-based crash-resume
+
+V1 committed Postgres state then performed the SQLite tombstone or
+delete outside the transaction. A crash between those two steps
+left the operator with a migrated repo plus a still-writable
+`.striatum/state.sqlite3` — a silent split-brain. V1.5 hardens this
+with a checkpointed-resume design (transactional rollback was
+rejected because the SQLite filesystem rename cannot participate
+in the Postgres transaction):
+
+1. After the Postgres `SERIALIZABLE` transaction commits, the
+   migration writes the sentinel
+   `.striatum/state.sqlite3.migrated` atomically — JSON body
+   containing `repository_id`, `source_state_db_sha256`,
+   `keep_sqlite_readonly`, `confirm_delete`, and `written_at`.
+   The write uses a `*.tmp` file + `os.fsync` + `replace` so a
+   crash between the Postgres commit and the SQLite finalization
+   leaves either the old state or the fully-written sentinel.
+2. The original `_tombstone_or_delete_state_db` call runs.
+3. On success, the sentinel is removed.
+
+Both `already_migrated` early-return paths (the SQLite-missing
+branch in `migrate_repo_local` and the in-transaction branch in
+`_migrate_full`) call the new helper
+`_resume_sqlite_finalization_after_checkpoint()` before returning:
+
+* If `state.sqlite3` is still on disk, the helper verifies its
+  SHA against `checkpoint["source_state_db_sha256"]` (refusing
+  with exit code 8 on mismatch — non-destructive), then resumes
+  the original tombstone/delete action recorded in the sentinel,
+  clears the sentinel, and returns the `sqlite_finalization`
+  result with `resumed_from_checkpoint: true`.
+* If only the sentinel remains, it clears the orphan and reports
+  `cleared_orphan_sentinel`.
+* If neither exists, it returns `None` (fully finalized).
+
+The regression coverage is at
+`tests/daemon_pg/test_repo_local_migration_crash_resume.py` —
+pure-Python helper tests plus a Postgres-backed end-to-end test
+that monkeypatches `_tombstone_or_delete_state_db` to simulate the
+mid-finalization crash and asserts that the rerun lands the
+`0444` tombstone idempotently.
+
+No new SQL file is required under `src/striatum/daemon_pg/sql/`;
+V1.5 is schema-additive but this fix needs no schema change. The
+existing `--keep-sqlite-readonly` tombstone semantics are preserved
+in normal migration, resumed migration, dry-run, and
+already-migrated paths.

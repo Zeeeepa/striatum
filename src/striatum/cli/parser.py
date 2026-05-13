@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 
 from striatum import __version__
 
@@ -138,6 +139,15 @@ def build_parser() -> argparse.ArgumentParser:
     daemon = sub.add_parser("daemon")
     daemon_sub = daemon.add_subparsers(dest="daemon_command", required=True)
     daemon_start = daemon_sub.add_parser("start")
+    daemon_start.add_argument(
+        "--core",
+        choices=["python", "go"],
+        default=os.environ.get("STRIATUM_DAEMON_CORE"),
+        help=(
+            "daemon implementation to launch; defaults to "
+            "STRIATUM_DAEMON_CORE or python"
+        ),
+    )
     daemon_start.add_argument("--sweep-interval-seconds", type=float, default=60.0)
     daemon_start.add_argument("--max-sweeps", type=int, default=None)
     daemon_start.add_argument("--postgres-url")
@@ -154,6 +164,39 @@ def build_parser() -> argparse.ArgumentParser:
     daemon_migrate.add_argument("--dry-run", action="store_true")
     daemon_migrate.add_argument("--keep-sqlite-readonly", action="store_true")
     daemon_migrate.add_argument("--json", action="store_true")
+    daemon_migrate_repo = daemon_sub.add_parser(
+        "migrate-repo-local",
+        help=(
+            "migrate one repo-local .striatum/state.sqlite3 into daemon "
+            "PostgreSQL state"
+        ),
+    )
+    daemon_migrate_repo.add_argument(
+        "--from", dest="from_substrate", choices=["sqlite"], required=True
+    )
+    daemon_migrate_repo.add_argument(
+        "--to", dest="to_substrate", choices=["pg"], required=True
+    )
+    daemon_migrate_repo.add_argument(
+        "--repo", dest="repo_local_repo", default=None
+    )
+    daemon_migrate_repo.add_argument("--postgres-url")
+    daemon_migrate_repo.add_argument("--dry-run", action="store_true")
+    daemon_migrate_repo.add_argument(
+        "--keep-sqlite-readonly",
+        dest="keep_sqlite_readonly",
+        action="store_true",
+        default=True,
+        help="rename state.sqlite3 to state.sqlite3.tombstone and chmod it 0444",
+    )
+    daemon_migrate_repo.add_argument(
+        "--no-keep-sqlite-readonly",
+        dest="keep_sqlite_readonly",
+        action="store_false",
+        help="delete state.sqlite3 after migration; requires --confirm-delete",
+    )
+    daemon_migrate_repo.add_argument("--confirm-delete", action="store_true")
+    daemon_migrate_repo.add_argument("--json", action="store_true")
     daemon_status = daemon_sub.add_parser("status")
     daemon_status.add_argument("--json", action="store_true")
     daemon_stop = daemon_sub.add_parser("stop")

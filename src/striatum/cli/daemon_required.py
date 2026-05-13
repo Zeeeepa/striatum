@@ -1,6 +1,6 @@
 """RFC 0043 §3 daemon-required CLI plumbing.
 
-Track B wires two refusal paths:
+V1.5: daemon-required enforcement is the default. The two refusal paths:
 
 - :data:`EXIT_DAEMON_UNREACHABLE` (11) — raised when the daemon socket
   cannot be reached. Stderr names the socket path tried plus platform
@@ -10,16 +10,9 @@ Track B wires two refusal paths:
   but the target repo has no ``repo_migrations`` row yet. Stderr names
   ``striatum daemon migrate-repo-local --from sqlite --to pg --repo <path>``.
 
-The actual socket round-trip + checkpoint lookup land in subsequent
-tracks. Track B owns the surface area, the env-gated activation, and the
-remediation message vocabulary so the CLI fails uniformly the moment a
-later track flips ``STRIATUM_DAEMON_REQUIRED``-style enforcement on.
-
-Backward compatibility: the helpers are inert unless the operator opts in
-via :envvar:`STRIATUM_DAEMON_REQUIRED` ``= "1"`` (or by explicit caller
-choice — e.g., the future ``daemon-mediated CLI dispatch``). Existing
-SQLite-backed test fixtures and integration tests run unchanged because
-the helpers default to a no-op pass-through.
+Opt-out: :envvar:`STRIATUM_DAEMON_REQUIRED` ``= "0"`` keeps SQLite-backed
+fixtures and legacy integration tests running unchanged while they migrate
+incrementally. Any other value (including unset) enforces daemon-required.
 """
 
 from __future__ import annotations
@@ -60,14 +53,15 @@ class DaemonRequirement:
 def resolve_requirement(command: str | None) -> DaemonRequirement | None:
     """Decide whether the daemon-required check applies to *command*.
 
-    Returns ``None`` when enforcement is inactive (the historical
-    SQLite-backed path remains usable). Returns a populated
-    :class:`DaemonRequirement` when the operator opted into RFC 0043
-    daemon-required mode via :envvar:`STRIATUM_DAEMON_REQUIRED`.
+    V1.5: enforcement is the default. Returns ``None`` only when
+    *command* is on the lifecycle allowlist or the operator has
+    explicitly opted out via :envvar:`STRIATUM_DAEMON_REQUIRED` ``= "0"``.
+    Any other env value (including unset) yields a populated
+    :class:`DaemonRequirement`.
     """
     if command in DAEMON_OPTIONAL_COMMANDS:
         return None
-    if os.environ.get(ENV_DAEMON_REQUIRED) != "1":
+    if os.environ.get(ENV_DAEMON_REQUIRED) == "0":
         return None
     return DaemonRequirement(enforced=True, socket_path=resolve_socket_path())
 

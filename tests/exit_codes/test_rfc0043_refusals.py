@@ -8,16 +8,14 @@ stderr templates, JSON-envelope hints, and the env-gated dispatch hook.
 
 from __future__ import annotations
 
-import io
 import json
-import os
-import sys
 from pathlib import Path
 
 import pytest
 
 from striatum.cli import dispatch as dispatch_mod
 from striatum.cli.daemon_required import (
+    DaemonRequirement,
     ENV_DAEMON_REQUIRED,
     ENV_DAEMON_SOCKET,
     enforce_daemon_required,
@@ -38,6 +36,9 @@ from striatum.errors import (
 
 @pytest.fixture(autouse=True)
 def _clear_daemon_required_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    # V1.5: daemon-required is the default. Removing the env at function
+    # scope (which overrides the session-level opt-out from
+    # ``tests/conftest.py``) exercises the new mandatory enforcement.
     monkeypatch.delenv(ENV_DAEMON_REQUIRED, raising=False)
     monkeypatch.delenv(ENV_DAEMON_SOCKET, raising=False)
 
@@ -97,19 +98,12 @@ def test_repo_not_migrated_error_uses_exit_code_12(tmp_path: Path) -> None:
     assert err.hint is not None
 
 
-def test_enforce_daemon_required_no_op_by_default(tmp_path: Path) -> None:
-    # Without the env flag the helper is inert so the historical SQLite
-    # path keeps working.
-    enforce_daemon_required("status", tmp_path)
-
-
 def test_enforce_daemon_required_skips_lifecycle_commands(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     # ``daemon``, ``init``, ``skills``, ``plugin`` must run even when
     # enforcement is on and the socket is missing (they manage the daemon
     # itself or touch installer files only).
-    monkeypatch.setenv(ENV_DAEMON_REQUIRED, "1")
     monkeypatch.setenv(ENV_DAEMON_SOCKET, str(tmp_path / "does-not-exist"))
     for command in ("daemon", "init", "skills", "plugin"):
         enforce_daemon_required(command, tmp_path)
@@ -118,7 +112,7 @@ def test_enforce_daemon_required_skips_lifecycle_commands(
 def test_enforce_daemon_required_raises_unreachable_when_socket_missing(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setenv(ENV_DAEMON_REQUIRED, "1")
+    # V1.5: enforcement is the default — no env opt-in needed.
     monkeypatch.setenv(ENV_DAEMON_SOCKET, str(tmp_path / "no-socket"))
     with pytest.raises(DaemonUnreachableError) as exc:
         enforce_daemon_required("status", tmp_path)
@@ -136,7 +130,6 @@ def test_enforce_daemon_required_raises_repo_not_migrated_when_socket_listens(
     try:
         listener.bind(str(socket_path))
         listener.listen(1)
-        monkeypatch.setenv(ENV_DAEMON_REQUIRED, "1")
         monkeypatch.setenv(ENV_DAEMON_SOCKET, str(socket_path))
         # Repo presents the pre-cutover signal: a .striatum/state.sqlite3
         # without a tombstone marker. Track B's helper uses that as the
@@ -157,7 +150,6 @@ def test_dispatch_emits_remediation_block_in_stderr(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    monkeypatch.setenv(ENV_DAEMON_REQUIRED, "1")
     monkeypatch.setenv(ENV_DAEMON_SOCKET, str(tmp_path / "no-socket"))
     rc = dispatch_mod.main(["--repo", str(tmp_path), "status"])
     assert rc == 11
@@ -171,7 +163,6 @@ def test_dispatch_json_envelope_includes_hint(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    monkeypatch.setenv(ENV_DAEMON_REQUIRED, "1")
     monkeypatch.setenv(ENV_DAEMON_SOCKET, str(tmp_path / "no-socket"))
     rc = dispatch_mod.main(
         ["--repo", str(tmp_path), "status", "--json"]
@@ -190,10 +181,91 @@ def test_dispatch_json_envelope_includes_hint(
     assert "striatum daemon doctor" in payload["error"]["hint"]
 
 
-def test_resolve_requirement_returns_none_without_env(tmp_path: Path) -> None:
+def test_resolve_requirement_enforces_by_default_when_env_unset() -> None:
+    # V1.5: daemon-required is the default. With the env var unset the
+    # resolver returns a populated DaemonRequirement, not None.
+    requirement = resolve_requirement("status")
+    assert isinstance(requirement, DaemonRequirement)
+    assert requirement.enforced is True
+
+
+def test_resolve_requirement_opt_out_with_env_zero(monkeypatch: pytest.MonkeyPatch) -> None:
+    # STRIATUM_DAEMON_REQUIRED=0 is the explicit opt-out for legacy
+    # SQLite-backed test fixtures and incremental migration.
+    monkeypatch.setenv(ENV_DAEMON_REQUIRED, "0")
     assert resolve_requirement("status") is None
 
 
 def test_resolve_socket_path_respects_override(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv(ENV_DAEMON_SOCKET, "/tmp/custom.sock")
     assert resolve_socket_path() == Path("/tmp/custom.sock")
+
+
+# RFC 0043 V1.5 F-test: end-to-end exit-code-12 coverage --------------
+
+
+def test_dispatch_returns_exit_12_for_unmigrated_repo(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """End-to-end: an unmigrated repo with a reachable daemon socket
+    exits with code 12 and the operator-facing migrate-repo-local hint.
+
+    The default flip means we exercise this without setting
+    ``STRIATUM_DAEMON_REQUIRED=1`` — the unset env reaches the
+    enforcement path.
+    """
+    import socket as socket_mod
+
+    socket_path = tmp_path / "striatumd.sock"
+    listener = socket_mod.socket(socket_mod.AF_UNIX, socket_mod.SOCK_STREAM)
+    try:
+        listener.bind(str(socket_path))
+        listener.listen(1)
+        monkeypatch.setenv(ENV_DAEMON_SOCKET, str(socket_path))
+        # Pre-cutover disk signal — a state.sqlite3 with no tombstone.
+        (tmp_path / ".striatum").mkdir()
+        (tmp_path / ".striatum" / "state.sqlite3").write_bytes(b"")
+
+        rc = dispatch_mod.main(["--repo", str(tmp_path), "status"])
+        assert rc == 12
+        captured = capsys.readouterr()
+        assert "repo_not_migrated" in captured.err
+        assert (
+            "striatum daemon migrate-repo-local --from sqlite --to pg --repo"
+            in captured.err
+        )
+        # The hint names the resolved repo path so operators can copy the
+        # command verbatim.
+        assert str(tmp_path.resolve()) in captured.err
+    finally:
+        listener.close()
+
+
+def test_dispatch_exit_12_json_envelope(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The --json error envelope for exit 12 carries the structured hint."""
+    import socket as socket_mod
+
+    socket_path = tmp_path / "striatumd.sock"
+    listener = socket_mod.socket(socket_mod.AF_UNIX, socket_mod.SOCK_STREAM)
+    try:
+        listener.bind(str(socket_path))
+        listener.listen(1)
+        monkeypatch.setenv(ENV_DAEMON_SOCKET, str(socket_path))
+        (tmp_path / ".striatum").mkdir()
+        (tmp_path / ".striatum" / "state.sqlite3").write_bytes(b"")
+
+        rc = dispatch_mod.main(["--repo", str(tmp_path), "status", "--json"])
+        assert rc == 12
+        payload = json.loads(capsys.readouterr().out)
+        assert payload["ok"] is False
+        assert payload["error"]["code"] == 12
+        assert payload["error"]["message"].startswith("repo_not_migrated:")
+        assert "striatum daemon migrate-repo-local" in payload["error"]["hint"]
+    finally:
+        listener.close()

@@ -188,10 +188,11 @@ def _skills_install_dispatch(
 def dispatch(args: argparse.Namespace) -> object:
     """Dispatch a parsed command."""
     repo = Path(args.repo).resolve()
-    # RFC 0043 §3: when daemon-required enforcement is on, fail fast with
-    # exit code 11 (daemon socket unreachable) or 12 (repo not migrated)
-    # before the SQLite-backed fallback is touched. Default off — the
-    # historical SQLite path remains usable for tests and existing setups.
+    # RFC 0043 §3 (V1.5): daemon-required enforcement is the default. Fail
+    # fast with exit code 11 (daemon socket unreachable) or 12 (repo not
+    # migrated) before the SQLite-backed fallback is touched. The
+    # ``STRIATUM_DAEMON_REQUIRED=0`` opt-out exists for SQLite-backed
+    # test fixtures and incremental legacy-fixture migration.
     enforce_daemon_required(getattr(args, "command", None), repo)
     daemon_forced = bool(getattr(args, "daemon", False)) or (
         os.environ.get("STRIATUM_DAEMON") == "1"
@@ -880,6 +881,10 @@ def _parse_options(values: list[str]) -> dict[str, object]:
 def _dispatch_daemon(args: argparse.Namespace) -> object:
     from striatum import daemon as daemon_mod
 
+    if args.daemon_command == "migrate-repo-local":
+        from striatum.cli.daemon import dispatch_daemon
+
+        return dispatch_daemon(args)
     if args.daemon_command == "start":
         return daemon_mod.run_daemon_foreground(
             sweep_interval_seconds=float(args.sweep_interval_seconds),

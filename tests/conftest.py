@@ -10,6 +10,27 @@ from _harness.daemon import DaemonCore
 from _harness.multi_repo import MultiRepoHarness, pg_available_url
 
 
+@pytest.fixture(autouse=True, scope="session")
+def _legacy_sqlite_fixtures_opt_out() -> Iterator[None]:
+    """RFC 0043 V1.5: daemon-required is the default in production.
+
+    The current test suite still has SQLite-backed fixtures that should
+    migrate incrementally rather than by a single disruptive rewrite, so
+    the session-level opt-out keeps them green. Tests that exercise the
+    daemon-required surface directly (`tests/exit_codes/test_rfc0043_refusals.py`)
+    delete or override the env at function scope to assert enforcement.
+    """
+    previous = os.environ.get("STRIATUM_DAEMON_REQUIRED")
+    os.environ["STRIATUM_DAEMON_REQUIRED"] = "0"
+    try:
+        yield
+    finally:
+        if previous is None:
+            os.environ.pop("STRIATUM_DAEMON_REQUIRED", None)
+        else:
+            os.environ["STRIATUM_DAEMON_REQUIRED"] = previous
+
+
 @pytest.fixture(scope="session")
 def postgres_url() -> str:
     return pg_available_url()
