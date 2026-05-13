@@ -478,6 +478,68 @@ def _apply_v15_attestation_override_rationale(conn: sqlite3.Connection) -> None:
         )
 
 
+def _apply_v16_decision_propagation(conn: sqlite3.Connection) -> None:
+    """RFC 0047 V1: decision-record propagation.
+
+    Adds the ``compromised`` value to the ``runs.state`` CHECK
+    constraint and the ``superseded_by_decision_id`` /
+    ``superseded_at`` columns to ``verdicts``. SQLite cannot alter a
+    CHECK constraint in place; the runs table is rebuilt with the new
+    constraint and existing rows are copied across.
+    """
+    verdict_cols = [
+        row[1] for row in conn.execute("PRAGMA table_info(verdicts)").fetchall()
+    ]
+    if "superseded_by_decision_id" not in verdict_cols:
+        conn.execute(
+            "ALTER TABLE verdicts ADD COLUMN superseded_by_decision_id TEXT"
+        )
+    if "superseded_at" not in verdict_cols:
+        conn.execute("ALTER TABLE verdicts ADD COLUMN superseded_at TEXT")
+
+    # Rebuild runs with the extended state CHECK that admits 'compromised'.
+    runs_sql = conn.execute(
+        "SELECT sql FROM sqlite_master WHERE type='table' AND name='runs'"
+    ).fetchone()
+    if runs_sql is None or "compromised" in str(runs_sql[0]):
+        return
+    rebuild_table(
+        conn,
+        table="runs",
+        temp_table="runs_new",
+        create_temp_sql="""
+        CREATE TABLE runs_new (
+          run_id TEXT PRIMARY KEY,
+          workflow_snapshot_id TEXT NOT NULL REFERENCES workflow_snapshots(workflow_snapshot_id),
+          repo_root TEXT NOT NULL,
+          state TEXT NOT NULL CHECK (state IN (
+            'needs_branch_confirmation','ready','running','blocked',
+            'completed','failed','canceled','compromised'
+          )),
+          branch_name TEXT,
+          branch_base TEXT,
+          branch_confirmed_at TEXT,
+          branch_confirmed_by TEXT,
+          created_at TEXT NOT NULL,
+          started_at TEXT,
+          completed_at TEXT,
+          stop_reason TEXT,
+          paused_at TEXT,
+          paused_reason TEXT,
+          cross_repo_run_id TEXT
+        )
+        """,
+        insert_select_sql="INSERT INTO runs_new SELECT * FROM runs",
+    )
+    conn.executescript(
+        """
+        CREATE INDEX IF NOT EXISTS idx_runs_cross_repo_run_id
+          ON runs(cross_repo_run_id)
+          WHERE cross_repo_run_id IS NOT NULL;
+        """
+    )
+
+
 MIGRATIONS: list[Migration] = sorted(
     [
         Migration(version=1, label="v1 baseline schema", apply=_apply_v1),
@@ -534,6 +596,11 @@ MIGRATIONS: list[Migration] = sorted(
             version=15,
             label="attestation override rationale (RFC 0046 V1)",
             apply=_apply_v15_attestation_override_rationale,
+        ),
+        Migration(
+            version=16,
+            label="decision propagation + compromised run state (RFC 0047 V1)",
+            apply=_apply_v16_decision_propagation,
         ),
     ],
     key=lambda migration: migration.version,

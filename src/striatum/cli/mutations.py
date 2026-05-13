@@ -970,6 +970,19 @@ def decision_record(
                 "sha256": digest,
             },
         )
+        # RFC 0047 V1: propagate the decision outcome to runs.state and
+        # verdicts.superseded_by_decision_id. The audit event above stays
+        # authoritative; these surfaces are *projections* so downstream
+        # consumers (status / why / dashboard / evidence export) don't have
+        # to walk the events table looking for decision.recorded entries.
+        propagation = _propagate_decision_outcome(
+            conn,
+            run_id=run_id,
+            decision_id=resolved_decision_id,
+            outcome=outcome,
+            decision_path=path_text,
+            now=created_at,
+        )
     return {
         "status": "recorded",
         "run_id": run_id,
@@ -978,6 +991,99 @@ def decision_record(
         "path": path_text,
         "outcome": outcome,
         "sha256": digest,
+        **propagation,
+    }
+
+
+def _propagate_decision_outcome(
+    conn: sqlite3.Connection,
+    *,
+    run_id: str,
+    decision_id: str,
+    outcome: str,
+    decision_path: str,
+    now: str,
+) -> dict[str, object]:
+    """RFC 0047 V1: propagate ``decision record`` outcomes to first-class
+    surfaces.
+
+    ``rejected`` flips ``runs.state = 'compromised'`` and marks every
+    accepting verdict for the run as superseded by *decision_id*.
+    ``accepted`` against a compromised run reopens it to ``completed``
+    (verdicts stay marked superseded; the rejection trail is preserved).
+    ``accepted_with_follow_up`` does not change run state; the
+    follow-up is tracked through the existing artifact + event.
+
+    Idempotent: re-running the same outcome against a run already in
+    that state is a no-op (no extra event emitted).
+    """
+    run = row_by_id(conn, "runs", "run_id", run_id)
+    current_state = str(run["state"])
+    if outcome == "rejected":
+        if current_state == "compromised":
+            return {
+                "run_state_transition": None,
+                "superseded_verdict_count": 0,
+            }
+        conn.execute(
+            "UPDATE runs SET state = 'compromised' WHERE run_id = ?",
+            (run_id,),
+        )
+        cursor = conn.execute(
+            """
+            UPDATE verdicts
+               SET superseded_by_decision_id = ?,
+                   superseded_at = ?
+             WHERE run_id = ?
+               AND verdict IN ('accept', 'accept_with_findings')
+               AND superseded_by_decision_id IS NULL
+            """,
+            (decision_id, now, run_id),
+        )
+        superseded_count = cursor.rowcount or 0
+        insert_event(
+            conn,
+            run_id=run_id,
+            event_type="run.compromised",
+            payload={
+                "decision_id": decision_id,
+                "decision_path": decision_path,
+                "previous_state": current_state,
+                "superseded_verdict_count": int(superseded_count),
+            },
+        )
+        return {
+            "run_state_transition": {
+                "from": current_state,
+                "to": "compromised",
+            },
+            "superseded_verdict_count": int(superseded_count),
+        }
+    if outcome == "accepted" and current_state == "compromised":
+        conn.execute(
+            "UPDATE runs SET state = 'completed' WHERE run_id = ?",
+            (run_id,),
+        )
+        insert_event(
+            conn,
+            run_id=run_id,
+            event_type="run.reopened_after_compromised",
+            payload={
+                "decision_id": decision_id,
+                "decision_path": decision_path,
+                "previous_state": current_state,
+            },
+        )
+        return {
+            "run_state_transition": {
+                "from": current_state,
+                "to": "completed",
+            },
+            "superseded_verdict_count": 0,
+        }
+    return {
+        "run_state_transition": None,
+        "superseded_verdict_count": 0,
     }
 
 

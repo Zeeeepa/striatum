@@ -1,5 +1,70 @@
 # Changelog
 
+## v1.44.0 — 2026-05-13
+
+### Added — RFC 0047 V1: decision-record propagation (closes GH #3)
+
+`striatum decision record --outcome rejected` now propagates the
+rejection to first-class surfaces. Downstream consumers no longer
+have to walk the events table looking for `decision.recorded` —
+status, why, dashboard, and evidence export all read the projection.
+
+- **Schema migration v16** (`src/striatum/migrations.py`):
+  - `runs.state` CHECK widened to include `compromised`. Table
+    rebuilt in place via the standard SQLite drop-and-recreate idiom.
+  - `verdicts.superseded_by_decision_id` + `superseded_at` columns
+    added. NULL = not superseded; non-null = superseded by the named
+    decision at the named time.
+- **Propagation** (`src/striatum/cli/mutations.py::_propagate_decision_outcome`):
+  - `outcome=rejected` against a non-compromised run → flips
+    `runs.state` to `compromised`, marks every accepting verdict
+    (`accept`, `accept_with_findings`) as superseded by the
+    decision id, emits a `run.compromised` event with the
+    superseded-verdict count.
+  - `outcome=accepted` against a compromised run → reopens to
+    `completed`, emits `run.reopened_after_compromised`. Existing
+    verdict supersession trail is preserved (the rejection
+    history stays in the audit chain).
+  - `outcome=rejected` against an already-compromised run is a
+    no-op (no extra event emitted).
+  - `outcome=accepted_with_follow_up` and `outcome=accepted` against
+    a non-compromised run do not change run state — the follow-up
+    is tracked through the existing decision artifact + event.
+- **Idempotency:** re-running the same outcome against a run already
+  in that state is a no-op.
+- **Audit chain:** the existing `decision.recorded` event stays
+  authoritative; the new `run.compromised` /
+  `run.reopened_after_compromised` events extend the audit-chain
+  payload shape but not its hashing strategy.
+
+### Regression tests
+
+- `tests/test_decision_propagation.py` — 7/7 pass.
+  - Migration v16 admits `compromised` in CHECK + adds supersession
+    columns.
+  - Rejected propagates + supersedes accepting verdicts + emits
+    event.
+  - Rejected against compromised is a no-op.
+  - Accepted reopens compromised → completed; supersession trail
+    preserved.
+  - Accepted against completed run is a no-op.
+  - Accepted_with_follow_up does not change state.
+
+### Backlog after v1.44.0
+
+- **GH #2** (operator-asserted lane attestation): broader trust-model
+  framing concern. The V1 lane evidence guard (RFC 0046, v1.43.0)
+  significantly reduces the practical attack surface; full closure
+  needs RFC 0046 V1.7 (path-specific check) + RFC 0048 Phase B
+  (Go-core attestation).
+- **RFC 0046 V1.7 polish:** add `observed_output_paths_json` to the
+  `process_executions` schema; tighten `_lane_evidence_present` to
+  path-specific. Web UI `LaneEvidenceChip` + dashboard `evid:`
+  column.
+- **RFC 0048 V2.0 phase:** the substrate flip — port single-repo
+  business logic to PG-backed daemon-internal handlers + Go core
+  parity + remove the TEST_HARNESS escape.
+
 ## v1.43.0 — 2026-05-13
 
 ### Added — V1.7 backlog batch
