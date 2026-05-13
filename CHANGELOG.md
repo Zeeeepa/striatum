@@ -1,5 +1,29 @@
 # Changelog
 
+## v1.44.1 — 2026-05-13
+
+### Fixed — GH #8: v16 runs rebuild leaves runs_new residue
+
+Engram operator runs on 2026-05-13 hit a real bug in the v1.44.0 v16
+migration: the SQLite rebuild ran with `PRAGMA foreign_keys = ON`,
+the `DROP TABLE runs` step failed because other tables reference
+`runs`, and `runs_new` was left behind. Every subsequent CLI command
+then failed with `table runs_new already exists`.
+
+Fix:
+- `_apply_v16_decision_propagation` now routes through the existing
+  `rebuild_table` helper, which toggles `PRAGMA foreign_keys` around
+  the rebuild and `DROP TABLE IF EXISTS` any prior temp-table
+  residue. Operator-side checkouts hit the GH #8 wedge had to apply
+  the same patch locally before commands recovered.
+- `tests/test_gh8_v16_rebuild_idempotent.py` pins both halves:
+  (1) a clean v16 leaves no `runs_new` behind; (2) a DB with the
+  post-failure residue migrates cleanly on the second attempt.
+
+Affected production runs (per GH #8):
+- RFC0038 UI rework run_468b22aff5e54a9280a867d3c81314e6
+- RFC0044 tenant isolation run_322110269dfb4ec98fc6f7ea818448c0
+
 ## v1.44.0 — 2026-05-13
 
 ### Added — RFC 0047 V1: decision-record propagation (closes GH #3)
