@@ -13,7 +13,6 @@ from striatum.db import (
     complete_job,
     expire_leases,
     insert_event,
-    json_loads,
     maybe_complete_run,
     row_by_id,
     transaction,
@@ -791,7 +790,12 @@ def auto_publish_stale_artifacts(
         session_id = str(row["owner_session_id"]) if row["owner_session_id"] is not None else None
         lease_id = str(row["lease_id"]) if row["lease_id"] is not None else None
         message_id = str(row["message_id"]) if row["message_id"] is not None else None
-        expected_artifacts_raw = json_loads(str(row["expected_artifacts_json"] or "[]"))
+        # expected_artifacts_json is a JSON array — raw json.loads, not
+        # the strict striatum.db.json_loads helper which only accepts dicts.
+        try:
+            expected_artifacts_raw = json.loads(str(row["expected_artifacts_json"] or "[]"))
+        except (json.JSONDecodeError, TypeError):
+            expected_artifacts_raw = []
         expected_artifacts: list[object] = (
             list(expected_artifacts_raw)
             if isinstance(expected_artifacts_raw, list)

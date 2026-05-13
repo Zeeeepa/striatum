@@ -530,9 +530,7 @@ def dispatch(args: argparse.Namespace) -> object:
         if args.command == "publish-artifact":
             # V1.41: default --kind and --logical-name from the workflow's
             # expected_artifacts when --path matches a declared artifact
-            # path. Eliminates the recurring operator drift where
-            # publish-on-behalf had to guess the logical_name (caused SQL
-            # surgery in dogfoods 048 and 051).
+            # path.
             kind, logical_name = _resolve_publish_defaults(
                 conn,
                 job_id=args.job_id,
@@ -540,6 +538,21 @@ def dispatch(args: argparse.Namespace) -> object:
                 logical_name=args.logical_name,
                 path_text=args.path,
             )
+            allow_no_proc = bool(getattr(args, "allow_no_process_execution", False))
+            override_rationale = getattr(args, "override_rationale", None)
+            # RFC 0046 V1: explicit refusal at the CLI boundary when
+            # --allow-no-process-execution lands without a non-empty
+            # --override-rationale. Exit code 2 (invalid args) per
+            # argparse convention, before the publish-artifact write
+            # transaction opens.
+            if allow_no_proc and not (
+                override_rationale and override_rationale.strip()
+            ):
+                raise StriatumError(
+                    "publish-artifact --allow-no-process-execution "
+                    "requires a non-empty --override-rationale",
+                    exit_code=2,
+                )
             return publish_artifact(
                 conn,
                 repo=repo,
@@ -549,6 +562,8 @@ def dispatch(args: argparse.Namespace) -> object:
                 kind=kind,
                 logical_name=logical_name,
                 path_text=args.path,
+                allow_no_process_execution=allow_no_proc,
+                override_rationale=override_rationale,
             )
         if args.command == "complete":
             return complete_job(
@@ -595,6 +610,16 @@ def dispatch(args: argparse.Namespace) -> object:
                 findings_artifact_id=args.findings_artifact_id,
             )
         if args.command == "submit-review":
+            allow_no_proc = bool(getattr(args, "allow_no_process_execution", False))
+            override_rationale = getattr(args, "override_rationale", None)
+            if allow_no_proc and not (
+                override_rationale and override_rationale.strip()
+            ):
+                raise StriatumError(
+                    "submit-review --allow-no-process-execution "
+                    "requires a non-empty --override-rationale",
+                    exit_code=2,
+                )
             return submit_review(
                 conn,
                 repo=repo,
@@ -606,6 +631,8 @@ def dispatch(args: argparse.Namespace) -> object:
                 logical_name=args.logical_name,
                 kind=args.kind,
                 rationale=args.rationale,
+                allow_no_process_execution=allow_no_proc,
+                override_rationale=override_rationale,
             )
         if args.command == "evidence" and args.evidence_command == "export":
             return evidence_export(conn, repo=repo, run_id=args.run_id, path_text=args.path)
@@ -1059,7 +1086,7 @@ def _resolve_publish_defaults(
     if the operator already supplied them, or if the path is
     ambiguous / unmatched.
     """
-    from striatum.db import json_loads
+    import json
     if kind and logical_name:
         return kind, logical_name
     row = conn.execute(
@@ -1074,7 +1101,12 @@ def _resolve_publish_defaults(
                 exit_code=2,
             )
         return kind, logical_name
-    declared_raw = json_loads(str(row["expected_artifacts_json"] or "[]"))
+    # expected_artifacts_json stores a JSON array; raw json.loads (not the
+    # strict striatum.db.json_loads which only accepts objects).
+    try:
+        declared_raw = json.loads(str(row["expected_artifacts_json"] or "[]"))
+    except (json.JSONDecodeError, TypeError):
+        declared_raw = []
     declared_list: list[dict[str, object]] = (
         [d for d in declared_raw if isinstance(d, dict)]
         if isinstance(declared_raw, list)
@@ -1162,8 +1194,8 @@ def _cli_inbox(conn: sqlite3.Connection, *, session_id: str) -> object:
     and the expected author line. Designed for operator-on-behalf flows
     that previously required parsing `striatum why <sid> --json`.
     """
+    import json
     from striatum.artifacts import expected_author_line
-    from striatum.db import json_loads
     session = conn.execute(
         "SELECT * FROM sessions WHERE session_id = ?", (session_id,)
     ).fetchone()
@@ -1190,7 +1222,12 @@ def _cli_inbox(conn: sqlite3.Connection, *, session_id: str) -> object:
             "role_id": session["role_id"],
             "current_packet": None,
         }
-    expected_raw = json_loads(str(job["expected_artifacts_json"] or "[]"))
+    # expected_artifacts_json is a JSON array, not an object — use raw
+    # json.loads here, not the strict striatum.db.json_loads helper.
+    try:
+        expected_raw = json.loads(str(job["expected_artifacts_json"] or "[]"))
+    except (json.JSONDecodeError, TypeError):
+        expected_raw = []
     expected: list[object] = list(expected_raw) if isinstance(expected_raw, list) else []
     try:
         byline = expected_author_line(conn, job=job, session_id=session_id)

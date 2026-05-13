@@ -1,5 +1,80 @@
 # Changelog
 
+## v1.43.0 — 2026-05-13
+
+### Added — V1.7 backlog batch
+
+Three RFCs drafted (0046, 0047, 0048) and one V1 implementation
+landed (RFC 0046). Two surgical V1.7 fixes shipped alongside (RFC
+0039 V1.7 macOS reader + PointerStore boot wire-up, GH #6 reactflow
+ViewportPortal removal). Dogfood-053 ran the RFC 0046 V1 ceremony
+and the new lane evidence guard self-validated by refusing the
+operator-on-behalf publish until the override flag was supplied.
+
+#### RFC 0046 V1 — Lane evidence guard at publish-artifact (closes GH #2 + #5)
+
+- `src/striatum/migrations.py` v15: new
+  `attestation_override_rationale TEXT` column on `artifacts`.
+- `src/striatum/artifacts.py::publish_artifact`: if the resolved
+  byline is a model byline (not `author: operator [...]`), refuse
+  publish when the session has no completed exit-0
+  `process_executions` row. New helpers `_is_operator_byline` and
+  `_lane_evidence_present`.
+- `src/striatum/cli/parser.py` + `dispatch.py`:
+  `publish-artifact --allow-no-process-execution
+  --override-rationale "<text>"` operator opt-in. Empty rationale
+  refuses with exit code 2. `submit-review` gets the same pair of
+  flags so operator-composed reviews can also flow.
+- New `provenance.publish_without_process_execution` event emitted
+  on every override, carrying byline + path + rationale.
+- Self-validated by dogfood-053: the operator's publish-on-behalf
+  of the implementer HANDOFF was refused with
+  `lane_evidence_missing` until `--allow-no-process-execution
+  --override-rationale "..."` was supplied.
+
+#### RFC 0039 V1.7 — macOS pid reader + PointerStore wire-up
+
+- `go/pkg/supervisor/start_time_{linux,darwin,other}.go` split the
+  per-OS readers via build tags. darwin uses
+  `/bin/ps -o lstart= -p <pid>`; non-Linux/darwin returns
+  `(_, false)` so the caller falls back to signal-0 only.
+- `go/pkg/db/connection.go::Pool.RawPool *pgxpool.Pool` exposes the
+  underlying pool to consumers needing typed access (e.g. the
+  supervisor pointer store).
+- `go/cmd/striatumd/main.go` constructs `SupervisorPointerStore` at
+  boot with a `supervisor.PointerStore`-conformant adapter
+  (`db.PointerRow ↔ supervisor.PointerRow`). The not_implemented
+  handlers stay; RFC 0048 Phase B will wire the actual handler
+  ports.
+
+#### GH #6 — reactflow ViewportPortal fix
+
+- `WorkflowGraphEditor.tsx` removes the v12-only `ViewportPortal`
+  import and returns `null` from `PhaseBands` with a comment
+  pointing to the V1.5 polish backlog. `make ui-build` now produces
+  real Vite output (6KB–622KB bundles, not 50–75 byte placeholders).
+  `make ui-verify-bundle` passes.
+
+#### RFCs drafted for the rest of the backlog
+
+- **RFC 0046** (V1.7) Lane evidence guard at publish-artifact —
+  V1 landed in this release; V1.7 follow-up scope tracked.
+- **RFC 0047** (V1.8) Decision-record propagation +
+  `runs.state = compromised` (GH #3). Schema migration, byline
+  rewrite path, status/why surface changes scoped for next.
+- **RFC 0048** (V2.0 phase) Daemon-side substrate migration. Three
+  phases: A) PG-backed Python handlers; B) Go core parity;
+  C) remove the `STRIATUM_DAEMON_REQUIRED=0 + STRIATUM_TEST_HARNESS=1`
+  escape entirely.
+
+### Tests
+
+- `tests/test_lane_evidence_guard.py` — 6/6 pass
+  (`_is_operator_byline`, `_lane_evidence_present`, migration v15
+  shape).
+- 77/77 pass in the broader unit-test slice.
+- `make lint` + `make typecheck` clean across the touched files.
+
 ## v1.42.0 — 2026-05-13
 
 ### Fixed — GH #7: process-adapter post-completion blocker

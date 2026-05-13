@@ -516,6 +516,27 @@ def build_parser() -> argparse.ArgumentParser:
         help="logical name; defaults from expected_artifacts when --path matches",
     )
     publish.add_argument("--path", required=True)
+    publish.add_argument(
+        "--allow-no-process-execution",
+        dest="allow_no_process_execution",
+        action="store_true",
+        help=(
+            "RFC 0046 V1: opt out of the lane evidence guard. Required "
+            "when publishing under a model byline for a session that "
+            "has no matching process_executions row covering the "
+            "artifact path. Must be paired with --override-rationale."
+        ),
+    )
+    publish.add_argument(
+        "--override-rationale",
+        dest="override_rationale",
+        default=None,
+        help=(
+            "non-empty operator explanation written to the artifact's "
+            "attestation_override_rationale column and to a "
+            "provenance.publish_without_process_execution event"
+        ),
+    )
     publish.add_argument("--json", action="store_true")
 
     complete = sub.add_parser("complete")
@@ -581,6 +602,22 @@ def build_parser() -> argparse.ArgumentParser:
     submit_review.add_argument("--logical-name", default="review")
     submit_review.add_argument("--kind", default="finding")
     submit_review.add_argument("--rationale")
+    submit_review.add_argument(
+        "--allow-no-process-execution",
+        dest="allow_no_process_execution",
+        action="store_true",
+        help=(
+            "RFC 0046 V1: opt out of the lane evidence guard for this "
+            "submit-review (operator-on-behalf flows). Must be paired "
+            "with --override-rationale."
+        ),
+    )
+    submit_review.add_argument(
+        "--override-rationale",
+        dest="override_rationale",
+        default=None,
+        help="non-empty operator explanation recorded with the artifact",
+    )
     submit_review.add_argument("--json", action="store_true")
 
     evidence = sub.add_parser("evidence")

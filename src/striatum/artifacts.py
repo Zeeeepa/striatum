@@ -440,8 +440,18 @@ def publish_artifact(
     kind: str,
     logical_name: str,
     path_text: str,
+    allow_no_process_execution: bool = False,
+    override_rationale: str | None = None,
 ) -> dict[str, object]:
-    """Record an artifact reference after validating write scope."""
+    """Record an artifact reference after validating write scope.
+
+    RFC 0046 V1: when the resolved byline is a model byline
+    (``<role>-<model>-<ord>``), require a matching process_executions
+    row whose observed_output_paths_json covers the artifact path.
+    Operator override via allow_no_process_execution + non-empty
+    override_rationale records the rationale on the artifact row and
+    emits a ``provenance.publish_without_process_execution`` event.
+    """
     with transaction(conn):
         job = conn.execute("SELECT * FROM jobs WHERE job_id = ?", (job_id,)).fetchone()
         if job is None:
@@ -496,6 +506,34 @@ def publish_artifact(
             payload=payload,
         )
         validate_artifact_front_matter(kind=kind, path=path, payload=payload)
+        # RFC 0046 V1: lane evidence guard. Compute the expected byline
+        # and, if it's a model byline, require a matching
+        # process_executions row. Operator-byline publishes are
+        # pass-through.
+        try:
+            byline = expected_author_line(conn, job=job, session_id=session_id)
+        except ArtifactError:
+            byline = None
+        if byline is not None and not _is_operator_byline(byline):
+            if not _lane_evidence_present(
+                conn, session_id=session_id, path_text=path_text
+            ):
+                if not allow_no_process_execution:
+                    raise ArtifactError(
+                        "lane_evidence_missing: artifact path "
+                        f"{path_text!r} is not present in any "
+                        "process_executions row for session "
+                        f"{session_id!r}; pass "
+                        "--allow-no-process-execution "
+                        "--override-rationale \"<text>\" to record an "
+                        "operator override."
+                    )
+                if not (override_rationale and override_rationale.strip()):
+                    raise ArtifactError(
+                        "publish-artifact "
+                        "--allow-no-process-execution requires a "
+                        "non-empty --override-rationale"
+                    )
         digest = sha256_bytes(payload)
         existing = conn.execute(
             """
@@ -516,14 +554,23 @@ def publish_artifact(
         # then distinguish "the workflow asked for byline X" from "the
         # artifact file actually carried byline X".
         actual_author_line = _first_author_line(payload)
+        # RFC 0046 V1: store the override rationale on the artifact row
+        # when present. NULL means no override applied; non-empty string
+        # means --allow-no-process-execution was used with --override-rationale.
+        stored_rationale: str | None = (
+            override_rationale.strip()
+            if (allow_no_process_execution and override_rationale)
+            else None
+        )
         conn.execute(
             """
             INSERT INTO artifacts (
               artifact_id, run_id, job_id, session_id, logical_name,
               artifact_kind, repo_path, content_sha256, size_bytes,
-              publish_mode, created_at, author_line
+              publish_mode, created_at, author_line,
+              attestation_override_rationale
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'create', ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'create', ?, ?, ?)
             """,
             (
                 artifact_id,
@@ -537,6 +584,7 @@ def publish_artifact(
                 len(payload),
                 now,
                 actual_author_line,
+                stored_rationale,
             ),
         )
         insert_event(
@@ -549,7 +597,63 @@ def publish_artifact(
             lease_id=lease_id,
             payload={"logical_name": logical_name, "path": path_text, "sha256": digest},
         )
+        if stored_rationale is not None:
+            insert_event(
+                conn,
+                run_id=str(job["run_id"]),
+                event_type="provenance.publish_without_process_execution",
+                actor_session_id=session_id,
+                job_id=job_id,
+                artifact_id=artifact_id,
+                lease_id=lease_id,
+                payload={
+                    "byline": byline,
+                    "path": path_text,
+                    "rationale": stored_rationale,
+                },
+            )
         return {"status": "published", "artifact_id": artifact_id, "sha256": digest}
+
+
+def _is_operator_byline(byline: str) -> bool:
+    """RFC 0046 V1 helper: True iff the byline is operator-authored
+    (``author: operator`` or ``author: operator [self-declared: ...]``).
+    """
+    return byline.startswith("author: operator")
+
+
+def _lane_evidence_present(
+    conn: sqlite3.Connection,
+    *,
+    session_id: str,
+    path_text: str,
+) -> bool:
+    """RFC 0046 V1 helper: True iff *session_id* has at least one
+    ``process_executions`` row in state ``completed`` with
+    ``exit_code = 0``.
+
+    V1 evidence shape: the session's supervised subprocess ran cleanly
+    to completion. The path-specific check (the row's
+    ``observed_output_paths`` actually covers ``path_text``) is deferred
+    to V1.7 — the existing ``process_executions`` schema does not yet
+    capture observed output paths, so V1 lands the weaker but real
+    guarantee. ``path_text`` is kept in the signature for V1.7 binary
+    compatibility once the schema gains the column.
+    """
+    del path_text  # V1 placeholder; consumed in V1.7 schema upgrade.
+    # process_executions.state enum is starting/running/exited/failed/
+    # timed_out/lost. A clean lane run is state='exited' + exit_code=0.
+    row = conn.execute(
+        """
+        SELECT 1 FROM process_executions
+         WHERE session_id = ?
+           AND state = 'exited'
+           AND exit_code = 0
+         LIMIT 1
+        """,
+        (session_id,),
+    ).fetchone()
+    return row is not None
 
 
 def _strip_markdown_decoration(line: str) -> str:

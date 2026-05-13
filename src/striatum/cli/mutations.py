@@ -774,8 +774,16 @@ def submit_review(
     logical_name: str,
     kind: str,
     rationale: str | None,
+    allow_no_process_execution: bool = False,
+    override_rationale: str | None = None,
 ) -> JsonObject:
-    """Publish a review artifact and record its verdict in one command."""
+    """Publish a review artifact and record its verdict in one command.
+
+    RFC 0046 V1: optional ``allow_no_process_execution`` +
+    ``override_rationale`` flow through to ``publish_artifact``'s lane
+    evidence guard. Operators submitting reviews on behalf of a stalled
+    reviewer session use this path to record the override.
+    """
     job = row_by_id(conn, "jobs", "job_id", job_id)
     prevalidate_submit_review(
         conn,
@@ -802,6 +810,8 @@ def submit_review(
         kind=kind,
         logical_name=logical_name,
         path_text=path_text,
+        allow_no_process_execution=allow_no_process_execution,
+        override_rationale=override_rationale,
     )
     verdict_result = verdict_work(
         conn,

@@ -461,6 +461,23 @@ def _apply_v14_cross_repo_run_pointer(conn: sqlite3.Connection) -> None:
     )
 
 
+def _apply_v15_attestation_override_rationale(conn: sqlite3.Connection) -> None:
+    """RFC 0046 V1 F-schema: capture operator override rationale when
+    publish-artifact runs with --allow-no-process-execution.
+
+    Empty-string vs NULL contract (per design review F-dx-1): NULL means
+    no override applied; non-empty string means the operator passed
+    --allow-no-process-execution + a non-empty --override-rationale.
+    Empty string is intentionally not allowed by the CLI surface
+    (publish-artifact refuses with exit code 2).
+    """
+    art_cols = [row[1] for row in conn.execute("PRAGMA table_info(artifacts)").fetchall()]
+    if "attestation_override_rationale" not in art_cols:
+        conn.execute(
+            "ALTER TABLE artifacts ADD COLUMN attestation_override_rationale TEXT"
+        )
+
+
 MIGRATIONS: list[Migration] = sorted(
     [
         Migration(version=1, label="v1 baseline schema", apply=_apply_v1),
@@ -512,6 +529,11 @@ MIGRATIONS: list[Migration] = sorted(
             version=14,
             label="cross-repo run pointer",
             apply=_apply_v14_cross_repo_run_pointer,
+        ),
+        Migration(
+            version=15,
+            label="attestation override rationale (RFC 0046 V1)",
+            apply=_apply_v15_attestation_override_rationale,
         ),
     ],
     key=lambda migration: migration.version,
