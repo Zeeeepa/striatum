@@ -451,6 +451,121 @@
   stroke-dasharray: 4 3;
 }
 
+/* RFC 0045 v1.1 — cross-phase edges win over the default thin grey stroke;
+ * cycle dash continues to render when both classes are present. */
+.react-flow__edge.cross-phase-edge .react-flow__edge-path {
+  stroke: #000;
+  stroke-width: 3;
+}
+
+/* ---------- RFC 0045 phase bands ---------- */
+
+.graph-editor-phase-band {
+  position: absolute;
+  left: 0;
+  pointer-events: none;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+
+.graph-editor-phase-band.phase-band-palette-0 {
+  background: rgba(102, 187, 255, 0.10);
+}
+.graph-editor-phase-band.phase-band-palette-1 {
+  background: rgba(168, 230, 207, 0.10);
+}
+.graph-editor-phase-band.phase-band-palette-2 {
+  background: rgba(255, 211, 165, 0.10);
+}
+.graph-editor-phase-band.phase-band-palette-3 {
+  background: rgba(204, 173, 255, 0.10);
+}
+
+.graph-editor-phase-band-header {
+  position: absolute;
+  left: 0;
+  top: 0;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0 var(--space-2);
+  background: var(--bg-overlay);
+  color: var(--fg-muted);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+  pointer-events: auto;
+  cursor: pointer;
+}
+
+.graph-editor-phase-band-header[aria-selected="true"] {
+  border-color: var(--accent);
+  color: var(--fg-primary);
+}
+
+.graph-editor-phase-band-header:hover {
+  color: var(--fg-primary);
+}
+
+.graph-editor-phase-band-header .phase-id {
+  color: var(--fg-secondary);
+}
+
+.graph-editor-phase-drag-error {
+  position: absolute;
+  left: var(--space-2);
+  bottom: var(--space-2);
+  max-width: 540px;
+  padding: var(--space-2) var(--space-3);
+  background: var(--bg-overlay);
+  color: var(--fg-primary);
+  border-left: 3px solid var(--status-failed);
+  border-radius: var(--radius);
+  font-size: 0.85em;
+  z-index: 5;
+}
+
+/* ---------- RFC 0045 phase inspector ---------- */
+
+.graph-editor-inspector .phase-inspector-jobs {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: var(--space-1);
+}
+
+.graph-editor-inspector .phase-inspector-jobs li button {
+  width: 100%;
+  text-align: left;
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-base);
+  color: var(--fg-primary);
+  cursor: pointer;
+  font: inherit;
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+}
+
+.graph-editor-inspector .phase-inspector-jobs li button:hover {
+  border-color: var(--accent);
+}
+
+.graph-editor-inspector .phase-inspector-jobs li button[aria-current="true"] {
+  border-color: var(--accent);
+  background: var(--bg-overlay);
+}
+
+.graph-editor-inspector .phase-inspector-meta {
+  font-size: 0.85em;
+  color: var(--fg-secondary);
+  margin: 0 0 var(--space-2) 0;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .react-flow__node,
   .react-flow__edge {

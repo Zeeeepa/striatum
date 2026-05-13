@@ -12,6 +12,29 @@ from striatum.workflow import HARNESS_PROFILE_TOOL_FAMILIES
 from striatum.workflow_generator.core import GeneratorError
 
 CATALOG_SCHEMA_VERSION = "striatum.workflow_templates.v1"
+MULTI_PHASE_SHAPE_ENTRY: JsonObject = {
+    "template_id": "multi_phase",
+    "kind": "shape",
+    "display_name": "Multi-phase workflow",
+    "summary": "Run phase-scoped parallel tracks behind explicit synthesis gates.",
+    "recommended_for": ["large work split into ordered design, build, review, or release phases"],
+    "default_lane_sets": ["author_reviewer", "multi_review", "single_agent"],
+    "required_options": ["workflow_id", "artifact_root", "phases"],
+    "graph_preview": {
+        "nodes": [
+            {"id": "phase_1_track", "label": "Phase 1 track"},
+            {"id": "phase_1__synthesis", "label": "Phase 1 synthesis"},
+            {"id": "phase_2_track", "label": "Phase 2 track"},
+            {"id": "phase_2__synthesis", "label": "Phase 2 synthesis"},
+        ],
+        "edges": [
+            {"from": "phase_1_track", "to": "phase_1__synthesis"},
+            {"from": "phase_1__synthesis", "to": "phase_2_track"},
+            {"from": "phase_2_track", "to": "phase_2__synthesis"},
+        ],
+        "cycles": [],
+    },
+}
 
 
 @lru_cache(maxsize=1)
@@ -64,6 +87,7 @@ def load_catalog() -> JsonObject:
             raise GeneratorError(
                 f"harness_profile_fragments[{index}] missing non-empty native_delegation_instruction"
             )
+    _ensure_multi_phase_shape(catalog)
     return catalog
 
 
@@ -128,3 +152,8 @@ def get_harness_fragment_by_tool_family(tool_family: str) -> JsonObject | None:
 def _copy_entries(entries: Any) -> list[JsonObject]:
     return [dict(entry) for entry in entries]
 
+
+def _ensure_multi_phase_shape(catalog: JsonObject) -> None:
+    shapes = catalog["shapes"]
+    if not any(isinstance(entry, dict) and entry.get("template_id") == "multi_phase" for entry in shapes):
+        shapes.append(MULTI_PHASE_SHAPE_ENTRY)

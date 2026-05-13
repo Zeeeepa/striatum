@@ -36,6 +36,8 @@ from striatum.identity import session_lane_attestation, validate_operator_label
 
 from striatum.cli.introspect import downstream_jobs
 
+VERDICT_JOB_TYPES = frozenset({"review", "phase_synthesis"})
+
 
 def branch_confirm(
     conn: sqlite3.Connection,
@@ -659,7 +661,18 @@ def verdict_work(
     findings_artifact_id: str | None,
     rationale: str | None,
 ) -> JsonObject:
-    """Record a review verdict and apply review-gate behavior."""
+    """Record a verdict and apply verdict-gate behavior."""
+    job = row_by_id(conn, "jobs", "job_id", job_id)
+    if job["job_type"] == "phase_synthesis":
+        return _record_phase_synthesis_verdict(
+            conn,
+            job=job,
+            session_id=session_id,
+            lease_id=lease_id,
+            verdict=verdict,
+            findings_artifact_id=findings_artifact_id,
+            rationale=rationale,
+        )
     return record_review_verdict(
         conn,
         session_id=session_id,
@@ -669,6 +682,84 @@ def verdict_work(
         findings_artifact_id=findings_artifact_id,
         rationale=rationale,
     )
+
+
+def _record_phase_synthesis_verdict(
+    conn: sqlite3.Connection,
+    *,
+    job: sqlite3.Row,
+    session_id: str,
+    lease_id: str,
+    verdict: str,
+    findings_artifact_id: str | None,
+    rationale: str | None,
+) -> JsonObject:
+    """Record a neutral-posture verdict for a phase_synthesis job."""
+    from striatum.db import (
+        _complete_review_job,
+        _fail_review_job,
+        maybe_enqueue_downstream,
+        request_revision_for_cycle,
+        verify_required_artifacts,
+    )
+
+    job_id = str(job["job_id"])
+    with transaction(conn):
+        active_lease_for(conn, lease_id=lease_id, session_id=session_id, job_id=job_id)
+        if job["state"] != "running":
+            raise InvalidTransitionError("phase_synthesis job must be running before verdict")
+        verify_required_artifacts(conn, job_id=job_id)
+        verdict_id = new_id("verdict")
+        now = utc_now()
+        conn.execute(
+            """
+            INSERT INTO verdicts (
+              verdict_id, run_id, job_id, session_id, verdict, rationale,
+              findings_artifact_id, created_at, posture
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                verdict_id,
+                job["run_id"],
+                job_id,
+                session_id,
+                verdict,
+                rationale,
+                findings_artifact_id,
+                now,
+                "neutral",
+            ),
+        )
+        insert_event(
+            conn,
+            run_id=str(job["run_id"]),
+            event_type="verdict.recorded",
+            actor_session_id=session_id,
+            job_id=job_id,
+            lease_id=lease_id,
+            payload={
+                "verdict": verdict,
+                "posture": "neutral",
+                "lane_attestation": session_lane_attestation(
+                    conn, session_id=session_id
+                ).state,
+            },
+        )
+        if verdict in ("accept", "accept_with_findings"):
+            _complete_review_job(conn, job=job, session_id=session_id, lease_id=lease_id, summary=verdict)
+            maybe_enqueue_downstream(conn, completed_job_id=job_id)
+            maybe_complete_run(conn, run_id=str(job["run_id"]))
+            return {"status": "completed", "job_id": job_id, "verdict": verdict, "verdict_id": verdict_id}
+        if verdict == "needs_revision":
+            result = request_revision_for_cycle(conn, review_job=job, session_id=session_id, lease_id=lease_id)
+            result["verdict_id"] = verdict_id
+            return result
+        if verdict == "reject":
+            _fail_review_job(conn, job=job, session_id=session_id, lease_id=lease_id)
+            maybe_complete_run(conn, run_id=str(job["run_id"]))
+            return {"status": "failed", "job_id": job_id, "verdict": verdict, "verdict_id": verdict_id}
+        raise InvalidTransitionError(f"unknown verdict {verdict!r}")
 
 
 def submit_review(
@@ -712,7 +803,7 @@ def submit_review(
         logical_name=logical_name,
         path_text=path_text,
     )
-    verdict_result = record_review_verdict(
+    verdict_result = verdict_work(
         conn,
         session_id=session_id,
         job_id=job_id,
@@ -744,12 +835,18 @@ def prevalidate_submit_review(
     path_text: str,
 ) -> None:
     """Reject submit-review calls that would fail after artifact publication."""
-    if job["job_type"] != "review":
-        raise InvalidTransitionError("submit-review is valid only for review jobs")
+    if job["job_type"] not in VERDICT_JOB_TYPES:
+        raise InvalidTransitionError(
+            "submit-review is valid only for verdict-capable jobs"
+        )
     if job["state"] not in {"claimed", "running"}:
-        raise InvalidTransitionError("review job must be claimed or running before submit-review")
+        raise InvalidTransitionError(
+            "verdict-capable job must be claimed or running before submit-review"
+        )
     if job["state"] == "claimed" and job["current_message_id"] is None:
-        raise InvalidTransitionError("claimed review job is missing its current message")
+        raise InvalidTransitionError(
+            "claimed verdict-capable job is missing its current message"
+        )
     active_lease_for(conn, lease_id=lease_id, session_id=session_id, job_id=str(job["job_id"]))
     from striatum.db import _enforce_required_attestation_for_verdict
 

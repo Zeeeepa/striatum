@@ -25,6 +25,15 @@ from striatum.errors import WorkflowError
 
 # JSON workflow files are user-authored and need dynamic validation.
 JsonValue = dict[str, Any]
+PhaseIndex = dict[str, Any]
+
+WORKFLOW_SCHEMA_VERSION_V1 = "striatum.workflow.v1"
+WORKFLOW_SCHEMA_VERSION_V1_1 = "striatum.workflow.v1.1"
+ACCEPTED_WORKFLOW_SCHEMA_VERSIONS = frozenset({
+    WORKFLOW_SCHEMA_VERSION_V1,
+    WORKFLOW_SCHEMA_VERSION_V1_1,
+})
+VERDICT_JOB_TYPES = frozenset({"review", "phase_synthesis"})
 
 REQUIRED_TOP_LEVEL = {
     "schema_version",
@@ -492,9 +501,11 @@ def validate_workflow(
     missing = sorted(REQUIRED_TOP_LEVEL.difference(workflow))
     if missing:
         raise WorkflowError(f"workflow is missing required fields: {', '.join(missing)}")
-    if workflow.get("schema_version") != "striatum.workflow.v1":
+    schema_version = workflow.get("schema_version")
+    if schema_version not in ACCEPTED_WORKFLOW_SCHEMA_VERSIONS:
         raise WorkflowError(
-            "workflow schema_version must be striatum.workflow.v1",
+            "workflow schema_version must be one of: "
+            f"{', '.join(sorted(ACCEPTED_WORKFLOW_SCHEMA_VERSIONS))}",
             field_path="schema_version",
         )
     cross_repo = _validate_repositories_block(workflow)
@@ -573,7 +584,9 @@ def validate_workflow(
         _validate_apply_gate(job_index, job_id, job)
     _validate_artifact_path_uniqueness(jobs)
     _validate_required_postures_reachable(workflow, job_map=job_map)
-    edge_dependency_pairs(workflow)
+    phase_index = _validate_phases(workflow, job_map=job_map)
+    explicit_edges = edge_dependency_pairs(workflow, include_phase_materialized=False)
+    _validate_phase_edges(explicit_edges, job_map=job_map, phase_index=phase_index)
     validate_needs_match_edges(workflow)
     for cycle_index, cycle_value in enumerate(_list(workflow, "cycles")):
         if not isinstance(cycle_value, dict):
@@ -657,6 +670,7 @@ def create_run(conn: sqlite3.Connection, *, repo: Path, workflow_path: Path) -> 
         job_id = f"job_{run_id}_{workflow_job_id}"
         job_map[workflow_job_id] = job_id
         lane_id = job.get("lane_id")
+        stored_job_type = "review" if job.get("type") == "phase_synthesis" else job.get("type", "generic")
         conn.execute(
             """
             INSERT INTO jobs (
@@ -672,7 +686,7 @@ def create_run(conn: sqlite3.Connection, *, repo: Path, workflow_path: Path) -> 
                 run_id,
                 workflow_job_id,
                 job.get("title", workflow_job_id),
-                job.get("type", "generic"),
+                stored_job_type,
                 job["role_id"],
                 json_dumps({"lane_id": lane_id} if lane_id is not None else {}),
                 json_dumps(
@@ -693,7 +707,7 @@ def create_run(conn: sqlite3.Connection, *, repo: Path, workflow_path: Path) -> 
     for upstream_id, downstream_id, gate in edge_dependency_pairs(workflow):
         upstream_job = workflow_jobs[upstream_id]
         gate_json = dict(gate)
-        if upstream_job.get("type") == "review":
+        if upstream_job.get("type") in VERDICT_JOB_TYPES:
             gate_json["requires_verdict"] = ["accept", "accept_with_findings"]
         conn.execute(
             """
@@ -728,10 +742,221 @@ def workflow_job_map(workflow: JsonObject) -> dict[str, JsonValue]:
     return result
 
 
-def edge_dependency_pairs(workflow: JsonObject) -> list[tuple[str, str, JsonObject]]:
+def workflow_phase_index(workflow: JsonObject) -> PhaseIndex:
+    """Return validated phase metadata for a workflow.
+
+    Workflows without declared phases return ``{"declared": False, ...}``
+    with empty maps. This helper is intentionally JSON-safe so CLI/status
+    code can reuse it directly.
+    """
+    return _validate_phases(workflow, job_map=workflow_job_map(workflow))
+
+
+def _empty_phase_index() -> PhaseIndex:
+    return {
+        "declared": False,
+        "phase_order": [],
+        "phase_by_id": {},
+        "phase_position": {},
+        "job_phase": {},
+        "synthesis_by_phase": {},
+    }
+
+
+def _validate_phases(
+    workflow: JsonObject,
+    *,
+    job_map: dict[str, JsonValue],
+) -> PhaseIndex:
+    schema_version = workflow.get("schema_version")
+    phases_value = workflow.get("phases")
+    jobs = list(job_map.values())
+
+    if schema_version == WORKFLOW_SCHEMA_VERSION_V1:
+        if phases_value is not None:
+            raise WorkflowError(
+                "striatum.workflow.v1 workflows must not declare phases",
+                field_path="phases",
+            )
+        for job_index, job in enumerate(jobs):
+            job_id = str(job.get("id") or f"jobs[{job_index}]")
+            if "phase_id" in job:
+                raise WorkflowError(
+                    f"striatum.workflow.v1 job {job_id!r} must not declare phase_id",
+                    field_path=f"jobs[{job_index}].phase_id",
+                )
+            if job.get("type") == "phase_synthesis":
+                raise WorkflowError(
+                    f"striatum.workflow.v1 job {job_id!r} must not use type phase_synthesis",
+                    field_path=f"jobs[{job_index}].type",
+                )
+        return _empty_phase_index()
+
+    if phases_value is None or phases_value == []:
+        for job_index, job in enumerate(jobs):
+            job_id = str(job.get("id") or f"jobs[{job_index}]")
+            if "phase_id" in job:
+                raise WorkflowError(
+                    f"job {job_id!r} may declare phase_id only when workflow phases are declared",
+                    field_path=f"jobs[{job_index}].phase_id",
+                )
+            if job.get("type") == "phase_synthesis":
+                raise WorkflowError(
+                    f"job {job_id!r} may use type phase_synthesis only when workflow phases are declared",
+                    field_path=f"jobs[{job_index}].type",
+                )
+        return _empty_phase_index()
+
+    if not isinstance(phases_value, list):
+        raise WorkflowError("workflow field 'phases' must be a list", field_path="phases")
+
+    phase_order: list[str] = []
+    phase_by_id: dict[str, JsonObject] = {}
+    for phase_index, phase_value in enumerate(phases_value):
+        if not isinstance(phase_value, dict):
+            raise WorkflowError(
+                "each phase must be an object",
+                field_path=f"phases[{phase_index}]",
+            )
+        phase = cast(JsonObject, phase_value)
+        phase_id = phase.get("id")
+        if not isinstance(phase_id, str) or phase_id == "":
+            raise WorkflowError(
+                "phase id must be a non-empty string",
+                field_path=f"phases[{phase_index}].id",
+            )
+        if phase_id in phase_by_id:
+            raise WorkflowError(
+                f"duplicate phase id {phase_id!r}",
+                field_path=f"phases[{phase_index}].id",
+            )
+        name = phase.get("name")
+        if not isinstance(name, str) or name == "":
+            raise WorkflowError(
+                f"phase {phase_id!r} name must be a non-empty string",
+                field_path=f"phases[{phase_index}].name",
+            )
+        for optional_key in ("color", "description"):
+            optional_value = phase.get(optional_key)
+            if optional_value is not None and not isinstance(optional_value, str):
+                raise WorkflowError(
+                    f"phase {phase_id!r} {optional_key} must be a string when set",
+                    field_path=f"phases[{phase_index}].{optional_key}",
+                )
+        phase_order.append(phase_id)
+        phase_by_id[phase_id] = phase
+
+    phase_position = {phase_id: index for index, phase_id in enumerate(phase_order)}
+    job_phase: dict[str, str] = {}
+    synthesis_by_phase: dict[str, str] = {}
+    job_count_by_phase: dict[str, int] = {phase_id: 0 for phase_id in phase_order}
+    review_only_fields = {
+        "reviewer_access_scope",
+        "reviewer_context_policy",
+        "review_posture",
+        "required_review_postures",
+    }
+
+    for job_index, job in enumerate(jobs):
+        job_id = _string(job, "id")
+        phase_id = job.get("phase_id")
+        if not isinstance(phase_id, str) or phase_id == "":
+            raise WorkflowError(
+                f"job {job_id!r} must declare phase_id when workflow phases are declared",
+                field_path=f"jobs[{job_index}].phase_id",
+            )
+        if phase_id not in phase_by_id:
+            raise WorkflowError(
+                f"job {job_id!r} references unknown phase_id {phase_id!r}",
+                field_path=f"jobs[{job_index}].phase_id",
+            )
+        job_phase[job_id] = phase_id
+        job_count_by_phase[phase_id] += 1
+        if job.get("type") != "phase_synthesis":
+            continue
+        declared_review_fields = sorted(review_only_fields.intersection(job))
+        if declared_review_fields:
+            raise WorkflowError(
+                f"phase_synthesis job {job_id!r} cannot declare review-only fields: "
+                f"{', '.join(declared_review_fields)}",
+                field_path=f"jobs[{job_index}].type",
+            )
+        existing = synthesis_by_phase.get(phase_id)
+        if existing is not None:
+            raise WorkflowError(
+                f"phase {phase_id!r} has multiple phase_synthesis jobs: {existing}, {job_id}",
+                field_path=f"jobs[{job_index}].type",
+            )
+        synthesis_by_phase[phase_id] = job_id
+
+    for phase_id in phase_order:
+        synthesis_id = synthesis_by_phase.get(phase_id)
+        if synthesis_id is None:
+            raise WorkflowError(f"phase {phase_id!r} must declare exactly one phase_synthesis job")
+        if job_count_by_phase[phase_id] < 2:
+            raise WorkflowError(
+                f"phase {phase_id!r} phase_synthesis job must have at least one peer job"
+            )
+
+    return {
+        "declared": True,
+        "phase_order": phase_order,
+        "phase_by_id": phase_by_id,
+        "phase_position": phase_position,
+        "job_phase": job_phase,
+        "synthesis_by_phase": synthesis_by_phase,
+    }
+
+
+def _validate_phase_edges(
+    edges: list[tuple[str, str, JsonObject]],
+    *,
+    job_map: dict[str, JsonValue],
+    phase_index: PhaseIndex,
+) -> None:
+    if not phase_index["declared"]:
+        return
+    job_phase = cast(dict[str, str], phase_index["job_phase"])
+    phase_position = cast(dict[str, int], phase_index["phase_position"])
+    synthesis_by_phase = cast(dict[str, str], phase_index["synthesis_by_phase"])
+    for from_id, to_id, _gate in edges:
+        from_phase = job_phase[from_id]
+        to_phase = job_phase[to_id]
+        if from_phase == to_phase:
+            continue
+        from_position = phase_position[from_phase]
+        to_position = phase_position[to_phase]
+        if to_position < from_position:
+            raise WorkflowError(
+                f"workflow edge {from_id!r} -> {to_id!r} points from later phase "
+                f"{from_phase!r} to earlier phase {to_phase!r}"
+            )
+        if to_position != from_position + 1:
+            raise WorkflowError(
+                f"workflow edge {from_id!r} -> {to_id!r} skips phases; "
+                "cross-phase edges may target only the immediate next phase"
+            )
+        if synthesis_by_phase[from_phase] != from_id:
+            raise WorkflowError(
+                f"workflow edge {from_id!r} -> {to_id!r} crosses phases without "
+                f"using source phase {from_phase!r} synthesis job"
+            )
+        if job_map[to_id].get("type") == "phase_synthesis":
+            raise WorkflowError(
+                f"workflow edge {from_id!r} -> {to_id!r} cannot target a later "
+                "phase_synthesis job"
+            )
+
+
+def edge_dependency_pairs(
+    workflow: JsonObject,
+    *,
+    include_phase_materialized: bool = True,
+) -> list[tuple[str, str, JsonObject]]:
     """Return normalized dependency pairs from top-level edges."""
     jobs = workflow_job_map(workflow)
     pairs: list[tuple[str, str, JsonObject]] = []
+    seen: set[tuple[str, str]] = set()
     for edge_value in _list(workflow, "edges"):
         if not isinstance(edge_value, dict):
             raise WorkflowError("each edge must be an object")
@@ -742,14 +967,42 @@ def edge_dependency_pairs(workflow: JsonObject) -> list[tuple[str, str, JsonObje
             raise WorkflowError("workflow edge references an unknown job")
         if edge.get("on") != "completed":
             raise WorkflowError("workflow edges must use on completed")
+        edge_key = (from_id, to_id)
+        if edge_key in seen:
+            continue
+        seen.add(edge_key)
         pairs.append((from_id, to_id, {"on": "completed", "from": from_id, "to": to_id}))
+    if include_phase_materialized:
+        phase_index = workflow_phase_index(workflow)
+        if phase_index["declared"]:
+            synthesis_by_phase = cast(dict[str, str], phase_index["synthesis_by_phase"])
+            job_phase = cast(dict[str, str], phase_index["job_phase"])
+            for job_id in jobs:
+                phase_id = job_phase[job_id]
+                synthesis_id = synthesis_by_phase[phase_id]
+                if job_id == synthesis_id:
+                    continue
+                edge_key = (job_id, synthesis_id)
+                if edge_key in seen:
+                    continue
+                seen.add(edge_key)
+                pairs.append(
+                    (
+                        job_id,
+                        synthesis_id,
+                        {"on": "completed", "from": job_id, "to": synthesis_id},
+                    )
+                )
     return pairs
 
 
 def validate_needs_match_edges(workflow: JsonObject) -> None:
     """Reject workflows where legacy needs diverge from authoritative edges."""
     edge_needs: dict[str, set[str]] = {}
-    for from_id, to_id, _gate in edge_dependency_pairs(workflow):
+    for from_id, to_id, _gate in edge_dependency_pairs(
+        workflow,
+        include_phase_materialized=False,
+    ):
         edge_needs.setdefault(to_id, set()).add(from_id)
     deprecated_jobs: list[str] = []
     for job_id, job in workflow_job_map(workflow).items():
@@ -803,7 +1056,7 @@ def _planned_job(job: JsonValue) -> JsonObject:
 
 def _planned_edge(jobs: dict[str, JsonValue], *, from_id: str, to_id: str) -> JsonObject:
     gate: JsonObject = {"on": "completed"}
-    if jobs[from_id].get("type") == "review":
+    if jobs[from_id].get("type") in VERDICT_JOB_TYPES:
         gate["requires_verdict"] = ["accept", "accept_with_findings"]
     return {"from": from_id, "to": to_id, "gate": gate}
 
@@ -821,7 +1074,7 @@ def _planned_review_gates(
     }
     downstream_by_review: dict[str, list[str]] = {}
     for from_id, to_id, _gate in edges:
-        if jobs[from_id].get("type") == "review":
+        if jobs[from_id].get("type") in VERDICT_JOB_TYPES:
             downstream_by_review.setdefault(from_id, []).append(to_id)
 
     policy = workflow.get("review_revision_policy")
@@ -1810,14 +2063,10 @@ def _validate_artifact_in_write_scope(job_id: str, job: JsonValue, artifact_path
 
 def _validate_cycle_targets_feed_sources(workflow: JsonObject, *, job_map: dict[str, JsonValue]) -> None:
     """Reject cycles whose target does not feed back into the cycle source via edges."""
-    edges: list[tuple[str, str]] = []
-    for edge in workflow.get("edges", []):
-        if not isinstance(edge, dict):
-            continue
-        from_id = edge.get("from")
-        to_id = edge.get("to")
-        if isinstance(from_id, str) and isinstance(to_id, str):
-            edges.append((from_id, to_id))
+    edges = [
+        (from_id, to_id)
+        for from_id, to_id, _gate in edge_dependency_pairs(workflow)
+    ]
     for cycle_value in workflow.get("cycles", []):
         if not isinstance(cycle_value, dict):
             continue

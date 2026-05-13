@@ -186,6 +186,7 @@ def render_frame(
         _as_list(status_payload.get("open_blockers")),
         _as_list(status_payload.get("human_checkpoints")),
     )
+    phases = _as_list(status_payload.get("phases"))
     claimable = _as_list(status_payload.get("claimable_jobs"))
     next_actions = _as_list(status_payload.get("next_actions"))
 
@@ -214,6 +215,10 @@ def render_frame(
         for combined in _zip_columns(left_lines, right_lines, left_col_width, right_col_width):
             lines.append(combined)
         lines.append("")
+
+        lines.extend(_render_phases(phases, width))
+        if phases:
+            lines.append("")
 
         claim_lines = _render_claimable(claimable)
         next_lines = _render_next_actions(next_actions, right_col_width - 4)
@@ -397,6 +402,23 @@ def _render_next_actions(actions: Sequence[Any], width: int) -> list[str]:
         text = str(action)
         lines.append("  - " + _truncate(text, max(8, width)))
     return lines
+
+
+def _render_phases(phases: Sequence[Any], width: int) -> list[str]:
+    if not phases:
+        return []
+    entries: list[str] = []
+    for raw_phase in phases:
+        if not isinstance(raw_phase, Mapping):
+            continue
+        name = str(raw_phase.get("name") or raw_phase.get("id") or "?")
+        completed = int(raw_phase.get("jobs_completed") or 0)
+        total = int(raw_phase.get("jobs_total") or 0)
+        state = str(raw_phase.get("state") or "pending")
+        entries.append(f"{name} {completed}/{total} {state}")
+    if not entries:
+        return []
+    return [_truncate("Phases: " + " | ".join(entries), width)]
 
 
 def _render_events(events: Sequence[Mapping[str, Any]], width: int) -> list[str]:

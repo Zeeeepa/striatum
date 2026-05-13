@@ -7,7 +7,10 @@ __pycache__/
 .mypy_cache/
 .ruff_cache/
 *.egg-info/
-build/
+# build/
 dist/
 .claude/
 main.log
+
+!docs/dogfood/043/build/python/HANDOFF.md
+!docs/dogfood/043/build/frontend/HANDOFF.md

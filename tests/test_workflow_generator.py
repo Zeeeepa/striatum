@@ -50,6 +50,7 @@ def test_catalog_lists_and_shows_templates() -> None:
     templates = list_templates()
     ids = [item["template_id"] for item in templates]
     assert "code_change" in ids
+    assert "multi_phase" in ids
     assert get_template("author_reviewer")["kind"] == "lane_set"
 
 
@@ -67,6 +68,52 @@ def test_builtin_shapes_validate() -> None:
         validate_workflow(generated.workflow)
         assert generated.validation["ok"] is True
         assert generated.metadata["shape"] == shape
+
+
+def test_multi_phase_shape_emits_v1_1_phased_graph() -> None:
+    spec = _spec("multi_phase", "author_reviewer")
+    spec["options"] = {
+        "phases": [
+            {
+                "id": "phase_1_design",
+                "name": "Design",
+                "description": "Parallel design tracks",
+                "color": "#6b7280",
+                "tracks": [
+                    {"id": "python", "shape": "minimal", "lane_id": "author"},
+                    {"id": "docs", "shape": "review", "lane_id": "author"},
+                ],
+                "synthesis_lane_id": "reviewer",
+            },
+            {
+                "id": "phase_2_build",
+                "name": "Build",
+                "tracks": [
+                    {"id": "python", "shape": "minimal", "lane_id": "author"},
+                    {"id": "docs", "shape": "minimal", "lane_id": "author"},
+                ],
+                "synthesis_lane_id": "reviewer",
+            },
+        ]
+    }
+    generated = generate_workflow(spec)
+    workflow = generated.workflow
+
+    validate_workflow(workflow)
+    assert workflow["schema_version"] == "striatum.workflow.v1.1"
+    assert [phase["id"] for phase in workflow["phases"]] == ["phase_1_design", "phase_2_build"]
+
+    jobs = {job["id"]: job for job in workflow["jobs"]}
+    assert jobs["phase_1_design__python__draft"]["phase_id"] == "phase_1_design"
+    assert jobs["phase_1_design__python__draft"]["parallel_group"] == "phase_1_design:python"
+    assert jobs["phase_1_design__synthesis"]["type"] == "phase_synthesis"
+    assert jobs["phase_1_design__synthesis"]["phase_id"] == "phase_1_design"
+    assert jobs["phase_2_build__synthesis"]["type"] == "phase_synthesis"
+
+    edges = {(edge["from"], edge["to"]) for edge in workflow["edges"]}
+    assert ("phase_1_design__synthesis", "phase_2_build__python__draft") in edges
+    assert ("phase_1_design__synthesis", "phase_2_build__docs__draft") in edges
+    assert ("phase_1_design__python__draft", "phase_1_design__synthesis") in edges
 
 
 def test_modifier_refusal_carries_field_path() -> None:

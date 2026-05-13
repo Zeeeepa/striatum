@@ -23,6 +23,87 @@ from typing import Any, cast
 ROOT = Path(__file__).resolve().parents[1]
 
 
+def _insert_phased_run(repo: Path) -> str:
+    sys.path.insert(0, str(ROOT / "src"))
+    try:
+        from striatum.db import init_repo
+    finally:
+        sys.path.pop(0)
+
+    init_repo(repo)
+    workflow = {
+        "schema_version": "striatum.workflow.v1.1",
+        "workflow_id": "wf_phased",
+        "workflow_version": "v1",
+        "name": "Phased",
+        "phases": [
+            {"id": "phase_design", "name": "Design", "description": "Design work", "color": "#6b7280"},
+            {"id": "phase_build", "name": "Build"},
+        ],
+        "jobs": [
+            {"id": "design_a", "type": "generic", "role_id": "author", "phase_id": "phase_design"},
+            {"id": "synthesize_design", "type": "phase_synthesis", "role_id": "author", "phase_id": "phase_design"},
+            {"id": "build_a", "type": "generic", "role_id": "author", "phase_id": "phase_build"},
+            {"id": "synthesize_build", "type": "phase_synthesis", "role_id": "author", "phase_id": "phase_build"},
+        ],
+        "edges": [],
+        "cycles": [],
+    }
+    db = repo / ".striatum" / "state.sqlite3"
+    conn = sqlite3.connect(db)
+    try:
+        conn.execute(
+            """
+            INSERT INTO workflow_snapshots (
+              workflow_snapshot_id, workflow_id, workflow_version, source_path,
+              content_sha256, workflow_json, loaded_at
+            )
+            VALUES ('wfs_phased', 'wf_phased', 'v1', 'workflow.json', 'abc', ?, '2026-05-13T00:00:00Z')
+            """,
+            (json.dumps(workflow),),
+        )
+        conn.execute(
+            """
+            INSERT INTO runs (
+              run_id, workflow_snapshot_id, repo_root, state, branch_name,
+              branch_base, created_at
+            )
+            VALUES ('run_phased', 'wfs_phased', ?, 'running', 'main', NULL, '2026-05-13T00:00:00Z')
+            """,
+            (str(repo),),
+        )
+        for workflow_job_id, job_type, state in (
+            ("design_a", "generic", "completed"),
+            ("synthesize_design", "generic", "blocked"),
+            ("build_a", "generic", "blocked"),
+            ("synthesize_build", "generic", "blocked"),
+        ):
+            conn.execute(
+                """
+                INSERT INTO jobs (
+                  job_id, run_id, workflow_job_id, title, job_type, role_id,
+                  lane_selector_json, capability_requirements_json, state,
+                  attempt, max_attempts, fresh_session_required, write_scope_json,
+                  expected_artifacts_json, idempotency_key, created_at
+                )
+                VALUES (?, 'run_phased', ?, ?, ?, 'author', '{}', '[]', ?,
+                        1, 1, 0, '{}', '[]', ?, '2026-05-13T00:00:00Z')
+                """,
+                (
+                    f"job_run_phased_{workflow_job_id}",
+                    workflow_job_id,
+                    workflow_job_id,
+                    job_type,
+                    state,
+                    f"run_phased:{workflow_job_id}:1",
+                ),
+            )
+        conn.commit()
+    finally:
+        conn.close()
+    return "run_phased"
+
+
 def _git_init_repo(repo: Path) -> None:
     subprocess.run(["git", "init"], cwd=repo, check=True, capture_output=True)
     subprocess.run(["git", "checkout", "-b", "main"], cwd=repo, check=True, capture_output=True)
@@ -350,6 +431,92 @@ def test_serve_runs_endpoint(tmp_path: Path) -> None:
         assert "runs" in body["data"]
     finally:
         _stop_service(proc)
+
+
+def test_status_derives_phase_progress_from_snapshot(tmp_path: Path) -> None:
+    run_id = _insert_phased_run(tmp_path)
+    sys.path.insert(0, str(ROOT / "src"))
+    try:
+        from striatum.cli.introspect import phase_progress_for_run
+        from striatum.db import connect
+    finally:
+        sys.path.pop(0)
+
+    with connect(tmp_path) as conn:
+        progress = phase_progress_for_run(conn, run_id=run_id)
+
+    assert progress is not None
+    assert progress["current_phase_id"] == "phase_design"
+    assert progress["phases"][0] == {
+        "id": "phase_design",
+        "name": "Design",
+        "index": 0,
+        "state": "active",
+        "jobs_total": 2,
+        "jobs_completed": 1,
+        "jobs_by_state": {"completed": 1, "blocked": 1},
+        "synthesis_job_id": "synthesize_design",
+        "synthesis_state": "blocked",
+        "synthesis_verdict": None,
+        "description": "Design work",
+        "color": "#6b7280",
+    }
+    assert progress["phases"][1]["state"] == "active"
+
+
+def test_service_run_detail_passes_phase_progress_context(tmp_path: Path, monkeypatch: Any) -> None:
+    run_id = _insert_phased_run(tmp_path)
+    sys.path.insert(0, str(ROOT / "src"))
+    try:
+        import striatum.service as service
+        import striatum.web.graph_svg as graph_svg
+    finally:
+        sys.path.pop(0)
+
+    captured: dict[str, Any] = {}
+
+    class FakeTemplate:
+        def render(self, **kwargs: Any) -> str:
+            captured.update(kwargs)
+            return "ok"
+
+    class FakeEnvironment:
+        def get_template(self, name: str) -> FakeTemplate:
+            assert name == "run_detail.html"
+            return FakeTemplate()
+
+    handler = object.__new__(service.StriatumServiceHandler)
+    handler.state = service.ServiceState(
+        repo=tmp_path,
+        allow_mutations=False,
+        token=None,
+        web_enabled=True,
+    )
+    sent: dict[str, Any] = {}
+    monkeypatch.setattr(
+        handler,
+        "_send_html",
+        lambda status, body: sent.update({"status": status, "body": body}),
+    )
+    monkeypatch.setattr(
+        handler,
+        "_send_json",
+        lambda status, body: sent.update({"status": status, "body": body}),
+    )
+    monkeypatch.setattr(service, "_jinja_env", lambda: FakeEnvironment())
+    monkeypatch.setattr(graph_svg, "compute_node_states_from_jobs", lambda jobs: {})
+    monkeypatch.setattr(
+        graph_svg,
+        "render_run_graph",
+        lambda workflow, node_states, *, run_id, jobs: "<svg></svg>",
+    )
+
+    handler._render_run_detail_page(run_id)
+
+    assert sent == {"status": 200, "body": "ok"}
+    assert captured["current_phase_id"] == "phase_design"
+    assert captured["phase_progress"][0]["name"] == "Design"
+    assert captured["phase_progress"][0]["jobs_completed"] == 1
 
 
 # ----- 6. Doctor endpoint --------------------------------------------------

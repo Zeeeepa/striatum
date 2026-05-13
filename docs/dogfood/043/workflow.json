@@ -113,7 +113,7 @@
   "jobs": [
     {
       "id": "design_python_codex",
-      "type": "design",
+      "type": "generic",
       "title": "Track A (Python core) design \u2014 codex",
       "role_id": "designer",
       "lane_id": "codex",
@@ -144,7 +144,7 @@
     },
     {
       "id": "design_python_claude",
-      "type": "design",
+      "type": "generic",
       "title": "Track A design \u2014 claude",
       "role_id": "designer",
       "lane_id": "claude_code",
@@ -175,7 +175,7 @@
     },
     {
       "id": "design_python_gemini",
-      "type": "design",
+      "type": "generic",
       "title": "Track A design \u2014 gemini",
       "role_id": "designer",
       "lane_id": "gemini",
@@ -206,7 +206,7 @@
     },
     {
       "id": "synth_python",
-      "type": "build",
+      "type": "synthesis",
       "title": "Track A synthesis \u2014 codex",
       "role_id": "designer",
       "lane_id": "codex",
@@ -236,7 +236,7 @@
     },
     {
       "id": "design_frontend_codex",
-      "type": "design",
+      "type": "generic",
       "title": "Track B (frontend) design \u2014 codex",
       "role_id": "designer",
       "lane_id": "codex",
@@ -267,7 +267,7 @@
     },
     {
       "id": "design_frontend_claude",
-      "type": "design",
+      "type": "generic",
       "title": "Track B design \u2014 claude",
       "role_id": "designer",
       "lane_id": "claude_code",
@@ -298,7 +298,7 @@
     },
     {
       "id": "design_frontend_gemini",
-      "type": "design",
+      "type": "generic",
       "title": "Track B design \u2014 gemini",
       "role_id": "designer",
       "lane_id": "gemini",
@@ -329,7 +329,7 @@
     },
     {
       "id": "synth_frontend",
-      "type": "build",
+      "type": "synthesis",
       "title": "Track B synthesis \u2014 codex",
       "role_id": "designer",
       "lane_id": "codex",

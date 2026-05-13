@@ -362,7 +362,7 @@ def test_dogfood_lifecycle_schemas_round_trip_through_both_flavors() -> None:
 
 def test_register_session_argv_default_is_fresh(tmp_path: Path) -> None:
     """register_session defaults to --fresh per RFC 0040 §1 tool signature."""
-    from striatum.web.chat_tools import _dogfood_argv  # type: ignore[attr-defined]
+    from striatum.web.chat_tools import _dogfood_argv
 
     argv = _dogfood_argv(
         "register_session",

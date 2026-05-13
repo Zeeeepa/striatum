@@ -71,6 +71,39 @@ def _baseline_workflow(profile_instruction: str | None = None) -> dict[str, Any]
     }
 
 
+def _parallel_group_workflow() -> dict[str, Any]:
+    workflow = _baseline_workflow()
+    workflow["roles"]["reviewer"] = {"definition_path": "roles/reviewer.md"}
+    workflow["jobs"] = [
+        {
+            "id": "design_python",
+            "type": "draft",
+            "title": "Python Design",
+            "role_id": "author",
+            "lane_id": "claude_code",
+            "parallel_group": "design_python",
+            "objective": "Draft design.",
+            "task_prompt": {"path": "prompts/design.md"},
+            "write_scope": {"mode": "repo_write", "repo_write": True, "allowed_paths": ["scratch/design/"], "forbidden_paths": [".striatum/"]},
+            "expected_artifacts": [{"logical_name": "design", "kind": "handoff", "path": "scratch/design/DESIGN.md", "required": True}],
+        },
+        {
+            "id": "build_python",
+            "type": "build",
+            "title": "Python Build",
+            "role_id": "author",
+            "lane_id": "claude_code",
+            "parallel_group": "build_python",
+            "objective": "Build implementation.",
+            "task_prompt": {"path": "prompts/build.md"},
+            "write_scope": {"mode": "repo_write", "repo_write": True, "allowed_paths": ["scratch/build/"], "forbidden_paths": [".striatum/"]},
+            "expected_artifacts": [{"logical_name": "build", "kind": "handoff", "path": "scratch/build/BUILD.md", "required": True}],
+        },
+    ]
+    workflow["edges"] = [{"from": "design_python", "to": "build_python", "on": "completed"}]
+    return workflow
+
+
 def _write_workflow(repo: Path, workflow: dict[str, Any]) -> Path:
     path = repo / "workflow.json"
     path.write_text(json.dumps(workflow, indent=2) + "\n", encoding="utf-8")
@@ -129,8 +162,10 @@ def test_upgrade_dry_run_writes_nothing(tmp_path: Path) -> None:
 def test_upgrade_already_default_is_no_op(tmp_path: Path) -> None:
     _git_init_repo(tmp_path)
     _striatum_init(tmp_path)
-    catalog_instruction = get_harness_fragment("claude_code_default")["native_delegation_instruction"]
-    path = _write_workflow(tmp_path, _baseline_workflow(profile_instruction=catalog_instruction))
+    fragment = get_harness_fragment("claude_code_default")
+    workflow = _baseline_workflow(profile_instruction=fragment["native_delegation_instruction"])
+    workflow["harness_profiles"]["claude_code_default"]["native_delegation"]["mode"] = fragment["native_delegation_mode"]
+    path = _write_workflow(tmp_path, workflow)
     result = workflow_upgrade(path, repo=tmp_path)
     assert result["status"] == "no_changes"
     assert not result["changes"]
@@ -209,6 +244,7 @@ def test_upgrade_handles_workflow_with_no_harness_profiles(tmp_path: Path) -> No
     _git_init_repo(tmp_path)
     workflow = _baseline_workflow()
     workflow.pop("harness_profiles")
+    workflow["lanes"]["claude_code"].pop("harness_profile_id")
     path = _write_workflow(tmp_path, workflow)
     result = workflow_upgrade(path, repo=tmp_path)
     assert result["status"] == "no_changes"
@@ -222,3 +258,59 @@ def test_upgrade_via_cli_dispatch(tmp_path: Path) -> None:
     result = invoke(["workflow", "upgrade", str(path), "--dry-run"], repo=tmp_path)
     assert result["ok"] is True
     assert result["data"]["status"] == "would_update"
+
+
+# --- RFC 0045 add-phases ---------------------------------------------
+
+
+def test_upgrade_add_phases_preview_writes_nothing_without_apply(tmp_path: Path) -> None:
+    _git_init_repo(tmp_path)
+    _striatum_init(tmp_path)
+    path = _write_workflow(tmp_path, _parallel_group_workflow())
+    snapshot = path.read_text(encoding="utf-8")
+    result = workflow_upgrade(path, repo=tmp_path, add_phases=True)
+    assert result["status"] == "would_update"
+    assert result["mode"] == "add_phases"
+    assert result["phases_added"] == [
+        {"id": "phase_design", "name": "Design"},
+        {"id": "phase_build", "name": "Build"},
+    ]
+    assert {"job_id": "design_python", "phase_id": "phase_design"} in result["jobs_relabelled"]
+    assert path.read_text(encoding="utf-8") == snapshot
+
+
+def test_upgrade_add_phases_apply_rewrites_to_v1_1(tmp_path: Path) -> None:
+    _git_init_repo(tmp_path)
+    _striatum_init(tmp_path)
+    path = _write_workflow(tmp_path, _parallel_group_workflow())
+    result = workflow_upgrade(path, repo=tmp_path, add_phases=True, apply=True)
+    assert result["status"] == "updated"
+    on_disk = json.loads(path.read_text(encoding="utf-8"))
+    assert on_disk["schema_version"] == "striatum.workflow.v1.1"
+    assert on_disk["phases"] == [
+        {"id": "phase_design", "name": "Design"},
+        {"id": "phase_build", "name": "Build"},
+    ]
+    jobs = {job["id"]: job for job in on_disk["jobs"]}
+    assert jobs["design_python"]["phase_id"] == "phase_design"
+    assert jobs["build_python"]["phase_id"] == "phase_build"
+    assert jobs["phase_design__synthesis"]["type"] == "phase_synthesis"
+    assert jobs["phase_build__synthesis"]["type"] == "phase_synthesis"
+    edges = {(edge["from"], edge["to"]) for edge in on_disk["edges"]}
+    assert ("design_python", "phase_design__synthesis") in edges
+    assert ("phase_design__synthesis", "build_python") in edges
+    assert ("build_python", "phase_build__synthesis") in edges
+
+
+def test_upgrade_add_phases_via_cli_dispatch_requires_apply_to_write(tmp_path: Path) -> None:
+    _git_init_repo(tmp_path)
+    _striatum_init(tmp_path)
+    path = _write_workflow(tmp_path, _parallel_group_workflow())
+    preview = invoke(["workflow", "upgrade", str(path), "--add-phases"], repo=tmp_path)
+    assert preview["ok"] is True
+    assert preview["data"]["status"] == "would_update"
+    assert json.loads(path.read_text(encoding="utf-8"))["schema_version"] == "striatum.workflow.v1"
+    applied = invoke(["workflow", "upgrade", str(path), "--add-phases", "--apply"], repo=tmp_path)
+    assert applied["ok"] is True
+    assert applied["data"]["status"] == "updated"
+    assert json.loads(path.read_text(encoding="utf-8"))["schema_version"] == "striatum.workflow.v1.1"

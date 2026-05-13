@@ -159,7 +159,28 @@ export interface WorkflowJob {
   fresh_session_required?: boolean;
   required_review_postures?: string[];
   parallel_group?: string;
+  /** RFC 0045 v1.1 — canonical phase pointer (must match a `phases[].id`). */
+  phase?: string;
+  /** RFC 0045 v1.1 read-compat — early fixtures emitted `phase_id`; the
+   *  editor normalises both via `jobPhaseId(job)` but writes only `phase`. */
+  phase_id?: string;
   [key: string]: unknown;
+}
+
+/**
+ * RFC 0045 v1.1 phase descriptor. Phases are an ordered, opt-in top-level
+ * field on the workflow document; v1 workflows carry no `phases` array and
+ * the editor renders them with the legacy single-phase layout.
+ */
+export interface WorkflowPhase {
+  id: string;
+  title?: string;
+  name?: string;
+  description?: string;
+  /** Job id whose accepting verdict gates the next phase. */
+  synthesis_job_id?: string;
+  /** Optional explicit band colour; falls back to a deterministic palette. */
+  color?: string;
 }
 
 export interface WorkflowEdge {
@@ -193,6 +214,9 @@ export interface WorkflowDocument {
   jobs?: WorkflowJob[];
   edges?: WorkflowEdge[];
   cycles?: WorkflowCycle[];
+  /** RFC 0045 v1.1 — ordered phase list. Absent or empty means v1
+   *  single-phase rendering. */
+  phases?: WorkflowPhase[];
   [key: string]: unknown;
 }
 

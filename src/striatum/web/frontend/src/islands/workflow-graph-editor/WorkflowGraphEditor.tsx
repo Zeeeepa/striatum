@@ -1,5 +1,5 @@
 /**
- * RFC 0038 V1 — drag-drop workflow graph editor island.
+ * RFC 0038 V1 + RFC 0045 V1 — drag-drop workflow graph editor island.
  *
  * Renders a React Flow canvas over the workflow JSON loaded from a
  * `<script id="workflow-data" type="application/json">` payload that the
@@ -8,6 +8,15 @@
  * distinct styling. A left palette adds new jobs from the closed RFC 0034
  * block vocabulary; a right inspector edits the selected job with structured
  * widgets per RFC 0038 design synthesis F5.
+ *
+ * RFC 0045 v1.1: when the workflow declares a top-level `phases` array the
+ * canvas renders horizontal colour bands per phase, lays nodes inside the
+ * matching band, draws cross-phase dependency edges with a thick black
+ * stroke, and exposes a phase metadata inspector on band-header click. Drags
+ * that would move a node into a different band are refused with an inline
+ * message; the inspector's `phase` field is the only way to change a job's
+ * phase. v1 workflows (no `phases` array) keep the original square-grid
+ * layout, thin grey edges, and job-only inspector.
  *
  * Coordinates are UI-only and are never persisted to workflow JSON.
  * Save calls the `POST` `saveUrl` (typically `/workflows/edit/<path>`)
@@ -27,6 +36,7 @@ import ReactFlow, {
   Controls,
   MiniMap,
   ReactFlowProvider,
+  ViewportPortal,
   addEdge,
   applyEdgeChanges,
   applyNodeChanges,
@@ -50,6 +60,7 @@ import {
   type WorkflowEdge,
   type WorkflowGraphEditorProps,
   type WorkflowJob,
+  type WorkflowPhase,
 } from "../../shared/types";
 
 const PALETTE_BLOCKS: Array<{ kind: string; label: string; jobType: string }> = [
@@ -64,47 +75,195 @@ const PALETTE_BLOCKS: Array<{ kind: string; label: string; jobType: string }> = 
   { kind: "final_review", label: "Final review", jobType: "review" },
 ];
 
+const PHASE_BAND_HEIGHT = 320;
+const PHASE_HEADER_HEIGHT = 36;
+const PHASE_NODE_TOP = 72;
+const PHASE_COLUMN_WIDTH = 260;
+const PHASE_ROW_HEIGHT = 96;
+const PHASE_BAND_WIDTH = 4000;
+const PHASE_PALETTE_LEN = 4;
+
 interface InternalEdge extends WorkflowEdge {
   isCycle?: boolean;
   maxIterations?: number;
+  crossPhase?: boolean;
+  sourcePhase?: string;
+  targetPhase?: string;
+}
+
+interface PhaseLayoutEntry {
+  phase: WorkflowPhase;
+  index: number;
+  paletteIndex: number;
+  bandTop: number;
+  jobIds: string[];
+}
+
+interface PhaseLayout {
+  phases: PhaseLayoutEntry[];
+  byPhaseId: Map<string, PhaseLayoutEntry>;
+  jobPhaseMap: Map<string, string>;
+  hasExplicit: boolean;
+}
+
+function jobPhaseId(job: WorkflowJob): string {
+  const raw =
+    typeof job.phase === "string"
+      ? job.phase
+      : typeof job.phase_id === "string"
+        ? job.phase_id
+        : "";
+  return raw;
+}
+
+function hasExplicitPhases(workflow: WorkflowDocument): boolean {
+  return (workflow.phases ?? []).length > 0;
+}
+
+function phaseDisplayName(phase: WorkflowPhase): string {
+  return phase.title ?? phase.name ?? phase.id;
+}
+
+function buildPhaseLayout(workflow: WorkflowDocument): PhaseLayout {
+  const phases = workflow.phases ?? [];
+  const jobs = workflow.jobs ?? [];
+  const hasExplicit = phases.length > 0;
+
+  const entries: PhaseLayoutEntry[] = phases.map((phase, index) => ({
+    phase,
+    index,
+    paletteIndex: index % PHASE_PALETTE_LEN,
+    bandTop: index * PHASE_BAND_HEIGHT,
+    jobIds: [],
+  }));
+
+  const byPhaseId = new Map<string, PhaseLayoutEntry>();
+  for (const entry of entries) {
+    byPhaseId.set(entry.phase.id, entry);
+  }
+
+  const jobPhaseMap = new Map<string, string>();
+  if (!hasExplicit) {
+    return { phases: entries, byPhaseId, jobPhaseMap, hasExplicit };
+  }
+
+  const firstPhaseId = entries[0].phase.id;
+  for (const job of jobs) {
+    const declared = jobPhaseId(job);
+    const resolved = declared && byPhaseId.has(declared) ? declared : firstPhaseId;
+    jobPhaseMap.set(job.id, resolved);
+    byPhaseId.get(resolved)!.jobIds.push(job.id);
+  }
+
+  return { phases: entries, byPhaseId, jobPhaseMap, hasExplicit };
 }
 
 function jobsToNodes(workflow: WorkflowDocument): Node[] {
   const jobs = workflow.jobs ?? [];
-  const cols = Math.max(1, Math.ceil(Math.sqrt(jobs.length)));
-  return jobs.map((job, index) => ({
-    id: job.id,
-    type: "default",
-    position: {
-      x: (index % cols) * 220,
-      y: Math.floor(index / cols) * 140,
-    },
-    data: { label: `${job.id}\n${job.type ?? "generic"}` },
-  }));
+  if (!hasExplicitPhases(workflow)) {
+    const cols = Math.max(1, Math.ceil(Math.sqrt(jobs.length)));
+    return jobs.map((job, index) => ({
+      id: job.id,
+      type: "default",
+      position: {
+        x: (index % cols) * 220,
+        y: Math.floor(index / cols) * 140,
+      },
+      data: { label: `${job.id}\n${job.type ?? "generic"}` },
+    }));
+  }
+
+  const layout = buildPhaseLayout(workflow);
+  const nodes: Node[] = [];
+  for (const phaseEntry of layout.phases) {
+    const phaseJobs = phaseEntry.jobIds
+      .map((id) => jobs.find((j) => j.id === id))
+      .filter((j): j is WorkflowJob => Boolean(j));
+
+    const groupOrder: string[] = [];
+    const groupRows = new Map<string, WorkflowJob[]>();
+    for (const job of phaseJobs) {
+      const groupKey = job.parallel_group ?? `__solo__:${job.id}`;
+      if (!groupRows.has(groupKey)) {
+        groupOrder.push(groupKey);
+        groupRows.set(groupKey, []);
+      }
+      groupRows.get(groupKey)!.push(job);
+    }
+
+    groupOrder.forEach((groupKey, groupIndex) => {
+      const rows = groupRows.get(groupKey)!;
+      rows.forEach((job, rowIndex) => {
+        const x = groupIndex * PHASE_COLUMN_WIDTH + rowIndex * 24;
+        const y =
+          phaseEntry.bandTop + PHASE_NODE_TOP + rowIndex * PHASE_ROW_HEIGHT;
+        nodes.push({
+          id: job.id,
+          type: "default",
+          position: { x, y },
+          data: { label: `${job.id}\n${job.type ?? "generic"}` },
+        });
+      });
+    });
+  }
+  return nodes;
 }
 
 function workflowToEdges(workflow: WorkflowDocument): Edge[] {
+  const layout = buildPhaseLayout(workflow);
   const out: Edge[] = [];
   for (const e of workflow.edges ?? []) {
-    out.push({
+    const sourcePhase = layout.jobPhaseMap.get(e.from) ?? "";
+    const targetPhase = layout.jobPhaseMap.get(e.to) ?? "";
+    const crossPhase =
+      layout.hasExplicit &&
+      sourcePhase !== "" &&
+      targetPhase !== "" &&
+      sourcePhase !== targetPhase;
+    const baseEdge: Edge = {
       id: `e-${e.from}->${e.to}-${e.on ?? "completed"}`,
       source: e.from,
       target: e.to,
       label: e.on ?? "completed",
       data: { on: e.on ?? "completed" },
-    });
+    };
+    if (crossPhase) {
+      out.push({
+        ...baseEdge,
+        className: "cross-phase-edge",
+        style: { stroke: "#000", strokeWidth: 3 },
+        data: {
+          on: e.on ?? "completed",
+          crossPhase: true,
+          sourcePhase,
+          targetPhase,
+        },
+      });
+    } else {
+      out.push(baseEdge);
+    }
   }
   for (const c of workflow.cycles ?? []) {
+    const sourcePhase = layout.jobPhaseMap.get(c.from) ?? "";
+    const targetPhase = layout.jobPhaseMap.get(c.to) ?? "";
+    const crossPhase =
+      layout.hasExplicit &&
+      sourcePhase !== "" &&
+      targetPhase !== "" &&
+      sourcePhase !== targetPhase;
+    const className = crossPhase ? "cycle-edge cross-phase-edge" : "cycle-edge";
     out.push({
       id: `c-${c.from}->${c.to}`,
       source: c.from,
       target: c.to,
       label: `↻ ${c.on_verdict ?? "needs_revision"} ×${c.max_iterations ?? 1}`,
-      className: "cycle-edge",
+      className,
+      style: crossPhase ? { stroke: "#000", strokeWidth: 3 } : undefined,
       data: {
         isCycle: true,
         on_verdict: c.on_verdict ?? "needs_revision",
         max_iterations: c.max_iterations ?? 1,
+        ...(crossPhase ? { crossPhase: true, sourcePhase, targetPhase } : {}),
       },
     });
   }
@@ -137,6 +296,8 @@ function syncWorkflowEdges(
       });
     } else {
       const verdict = (data.on as WorkflowEdge["on"]) ?? "completed";
+      // RFC 0045: derived cross-phase metadata is presentation-only and must
+      // not be written back to workflow.json. Strip it here.
       repoEdges.push({ from: e.source, to: e.target, on: verdict });
     }
   }
@@ -178,6 +339,157 @@ function safeArr<T>(v: T[] | undefined): T[] {
   return Array.isArray(v) ? v : [];
 }
 
+/**
+ * Compute the phase id that a Y coordinate falls into. Returns `null` when
+ * Y lies outside any band (above the first / below the last). Pure helper
+ * exported for unit coverage.
+ */
+function phaseIdForY(layout: PhaseLayout, y: number): string | null {
+  if (!layout.hasExplicit) return null;
+  for (const entry of layout.phases) {
+    const top = entry.bandTop;
+    const bottom = top + PHASE_BAND_HEIGHT;
+    if (y >= top && y < bottom) return entry.phase.id;
+  }
+  return null;
+}
+
+type GraphSelection =
+  | { kind: "job"; id: string }
+  | { kind: "phase"; id: string }
+  | null;
+
+interface PhaseBandsProps {
+  layout: PhaseLayout;
+  selectedPhaseId: string | null;
+  onSelectPhase: (id: string) => void;
+}
+
+function PhaseBands({ layout, selectedPhaseId, onSelectPhase }: PhaseBandsProps) {
+  if (!layout.hasExplicit) return null;
+  return (
+    <ViewportPortal>
+      {layout.phases.map((entry) => {
+        const bandStyle: CSSProperties = {
+          top: entry.bandTop,
+          width: PHASE_BAND_WIDTH,
+          height: PHASE_BAND_HEIGHT,
+        };
+        const headerStyle: CSSProperties = {
+          top: entry.bandTop + 8,
+          left: 12,
+          height: PHASE_HEADER_HEIGHT,
+        };
+        const isSelected = selectedPhaseId === entry.phase.id;
+        return (
+          <div
+            key={entry.phase.id}
+            className={`graph-editor-phase-band phase-band-palette-${entry.paletteIndex}`}
+            style={bandStyle}
+            aria-hidden
+          >
+            <button
+              type="button"
+              className="graph-editor-phase-band-header"
+              style={headerStyle}
+              aria-selected={isSelected}
+              onClick={(ev) => {
+                ev.stopPropagation();
+                onSelectPhase(entry.phase.id);
+              }}
+            >
+              <strong>{phaseDisplayName(entry.phase)}</strong>
+              <span className="phase-id">{entry.phase.id}</span>
+            </button>
+          </div>
+        );
+      })}
+    </ViewportPortal>
+  );
+}
+
+interface PhaseInspectorProps {
+  phase: WorkflowPhase;
+  jobs: WorkflowJob[];
+  synthesisJob: WorkflowJob | undefined;
+  selectedJobId?: string;
+  onSelectJob: (jobId: string) => void;
+  onChangePhase: (phaseId: string, patch: Partial<WorkflowPhase>) => void;
+}
+
+function PhaseInspector({
+  phase,
+  jobs,
+  synthesisJob,
+  selectedJobId,
+  onSelectJob,
+  onChangePhase,
+}: PhaseInspectorProps) {
+  return (
+    <div className="graph-editor-inspector">
+      <h3>Phase — {phase.id}</h3>
+      <p className="phase-inspector-meta">
+        {jobs.length} job{jobs.length === 1 ? "" : "s"}
+        {synthesisJob ? ` · synthesis: ${synthesisJob.id}` : ""}
+      </p>
+
+      <div className="inspector-field">
+        <label htmlFor={`phase-title-${phase.id}`}>title</label>
+        <input
+          id={`phase-title-${phase.id}`}
+          value={phase.title ?? ""}
+          onChange={(e) => onChangePhase(phase.id, { title: e.target.value })}
+        />
+      </div>
+
+      <div className="inspector-field">
+        <label htmlFor={`phase-description-${phase.id}`}>description</label>
+        <textarea
+          id={`phase-description-${phase.id}`}
+          rows={3}
+          value={phase.description ?? ""}
+          onChange={(e) =>
+            onChangePhase(phase.id, { description: e.target.value })
+          }
+        />
+      </div>
+
+      <div className="inspector-field">
+        <label>synthesis_job_id</label>
+        <p className="phase-inspector-meta">
+          {phase.synthesis_job_id ?? "(none)"}
+        </p>
+      </div>
+
+      <div className="inspector-field">
+        <label>jobs in phase</label>
+        <ul className="phase-inspector-jobs" aria-label={`jobs in ${phase.id}`}>
+          {jobs.map((job) => (
+            <li key={job.id}>
+              <button
+                type="button"
+                aria-current={selectedJobId === job.id}
+                onClick={() => onSelectJob(job.id)}
+              >
+                <strong>{job.id}</strong>
+                {" — "}
+                {job.type ?? "generic"}
+                {job.lane_id ? ` · ${job.lane_id}` : ""}
+                {job.parallel_group ? ` · ${job.parallel_group}` : ""}
+              </button>
+            </li>
+          ))}
+          {jobs.length === 0 && (
+            <li>
+              <span className="phase-inspector-meta">No jobs in this phase.</span>
+            </li>
+          )}
+        </ul>
+      </div>
+    </div>
+  );
+}
+
 interface InspectorProps {
   job: WorkflowJob | undefined;
   workflow: WorkflowDocument;
@@ -196,6 +508,7 @@ function Inspector({ job, workflow, onChange, onDelete }: InspectorProps) {
   }
   const roleOptions = [""].concat(Object.keys(workflow.roles ?? {}));
   const laneOptions = [""].concat(Object.keys(workflow.lanes ?? {}));
+  const phases = workflow.phases ?? [];
   const allowedPaths = safeArr(job.write_scope?.allowed_paths);
   const forbiddenPaths = safeArr(job.write_scope?.forbidden_paths);
   const requiredPostures = safeArr(job.required_review_postures);
@@ -284,6 +597,26 @@ function Inspector({ job, workflow, onChange, onDelete }: InspectorProps) {
           ))}
         </select>
       </div>
+
+      {phases.length > 0 && (
+        <div className="inspector-field">
+          <label htmlFor={`inspector-phase-${job.id}`}>phase</label>
+          <select
+            id={`inspector-phase-${job.id}`}
+            value={jobPhaseId(job)}
+            onChange={(e) =>
+              onChange(job.id, { phase: e.target.value || undefined })
+            }
+          >
+            <option value="">(unset)</option>
+            {phases.map((p) => (
+              <option key={p.id} value={p.id}>
+                {phaseDisplayName(p)}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
 
       <div className="inspector-field">
         <label>write_scope.mode</label>
@@ -672,18 +1005,58 @@ function WorkflowGraphEditorImpl(props: WorkflowGraphEditorProps) {
   const [edges, setEdges] = useState<Edge[]>(() =>
     workflowToEdges(initialWorkflow),
   );
-  const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
+  const [selection, setSelection] = useState<GraphSelection>(null);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [stale, setStale] = useState(false);
+  const [dragError, setDragError] = useState<string | null>(null);
+
+  const layout = useMemo(() => buildPhaseLayout(workflow), [workflow]);
 
   useEffect(() => {
     setWorkflow((prev) => syncWorkflowEdges(prev, edges));
   }, [edges]);
 
   const onNodesChange = useCallback(
-    (changes: NodeChange[]) => setNodes((ns) => applyNodeChanges(changes, ns)),
-    [],
+    (changes: NodeChange[]) => {
+      if (!layout.hasExplicit) {
+        setNodes((ns) => applyNodeChanges(changes, ns));
+        return;
+      }
+      let refusedJobId: string | null = null;
+      setNodes((ns) => {
+        const priorById = new Map(
+          ns.map((n) => [n.id, { x: n.position.x, y: n.position.y }]),
+        );
+        const filtered = changes.map((change) => {
+          if (change.type === "position" && change.position) {
+            const declared = layout.jobPhaseMap.get(change.id);
+            const destPhase = phaseIdForY(layout, change.position.y);
+            if (destPhase && declared && destPhase !== declared) {
+              refusedJobId = change.id;
+              const prior = priorById.get(change.id) ?? change.position;
+              return {
+                ...change,
+                position: { x: prior.x, y: prior.y },
+              };
+            }
+          }
+          return change;
+        });
+        return applyNodeChanges(filtered, ns);
+      });
+      if (refusedJobId) {
+        const declared = layout.jobPhaseMap.get(refusedJobId) ?? "?";
+        setDragError(
+          `Drag refused: ${refusedJobId} belongs to phase ${declared}. Use the inspector phase field to move it, then add the required phase_synthesis dependency.`,
+        );
+      } else if (
+        changes.some((c) => c.type === "position" && c.dragging === false)
+      ) {
+        setDragError(null);
+      }
+    },
+    [layout],
   );
   const onEdgesChange = useCallback(
     (changes: EdgeChange[]) => setEdges((es) => applyEdgeChanges(changes, es)),
@@ -714,6 +1087,7 @@ function WorkflowGraphEditorImpl(props: WorkflowGraphEditorProps) {
       const nextJobs = [...jobs, job];
       const next = syncWorkflowJobs(prev, nextJobs);
       setNodes(jobsToNodes(next));
+      setEdges(workflowToEdges(next));
       return next;
     });
   };
@@ -725,31 +1099,17 @@ function WorkflowGraphEditorImpl(props: WorkflowGraphEditorProps) {
       );
       const renamed = patch.id && patch.id !== jobId;
       const next = syncWorkflowJobs(prev, jobs);
+      const phaseTouched = Object.prototype.hasOwnProperty.call(patch, "phase");
       if (renamed) {
-        setNodes((ns) =>
-          ns.map((n) =>
-            n.id === jobId
-              ? {
-                  ...n,
-                  id: patch.id as string,
-                  data: {
-                    ...n.data,
-                    label: `${patch.id}\n${
-                      jobs.find((j) => j.id === patch.id)?.type ?? "generic"
-                    }`,
-                  },
-                }
-              : n,
-          ),
-        );
-        setEdges((es) =>
-          es.map((e) => ({
-            ...e,
-            source: e.source === jobId ? (patch.id as string) : e.source,
-            target: e.target === jobId ? (patch.id as string) : e.target,
-          })),
-        );
-        setSelectedJobId(patch.id as string);
+        // A rename means existing node/edge ids need to follow. Re-derive both
+        // from the workflow so phase-aware layout and cross-phase edge
+        // tagging stay consistent.
+        setNodes(jobsToNodes(next));
+        setEdges(workflowToEdges(next));
+        setSelection({ kind: "job", id: patch.id as string });
+      } else if (phaseTouched) {
+        setNodes(jobsToNodes(next));
+        setEdges(workflowToEdges(next));
       } else {
         setNodes((ns) =>
           ns.map((n) =>
@@ -777,8 +1137,22 @@ function WorkflowGraphEditorImpl(props: WorkflowGraphEditorProps) {
       const next = syncWorkflowJobs(prev, jobs);
       setNodes((ns) => ns.filter((n) => n.id !== jobId));
       setEdges((es) => es.filter((e) => e.source !== jobId && e.target !== jobId));
-      setSelectedJobId((curr) => (curr === jobId ? null : curr));
+      setSelection((curr) =>
+        curr && curr.kind === "job" && curr.id === jobId ? null : curr,
+      );
       return next;
+    });
+  };
+
+  const handlePhaseChange = (
+    phaseId: string,
+    patch: Partial<WorkflowPhase>,
+  ) => {
+    setWorkflow((prev) => {
+      const phases = (prev.phases ?? []).map((p) =>
+        p.id === phaseId ? { ...p, ...patch } : p,
+      );
+      return { ...prev, phases };
     });
   };
 
@@ -801,12 +1175,23 @@ function WorkflowGraphEditorImpl(props: WorkflowGraphEditorProps) {
     setError(errBody?.message ?? `Save failed (${res.status})`);
   };
 
-  const selectedJob = workflow.jobs?.find((j) => j.id === selectedJobId);
+  const selectedJob =
+    selection?.kind === "job"
+      ? workflow.jobs?.find((j) => j.id === selection.id)
+      : undefined;
+  const selectedPhaseEntry =
+    selection?.kind === "phase" ? layout.byPhaseId.get(selection.id) : undefined;
 
   const textualSummary = useMemo(() => {
     const lines: string[] = [];
+    for (const p of safeArr(workflow.phases)) {
+      lines.push(`Phase ${p.id} (${phaseDisplayName(p)})`);
+    }
     for (const j of safeArr(workflow.jobs)) {
-      lines.push(`Job ${j.id} (${j.type ?? "generic"})`);
+      const phase = jobPhaseId(j);
+      lines.push(
+        `Job ${j.id} (${j.type ?? "generic"})${phase ? ` phase=${phase}` : ""}`,
+      );
     }
     for (const e of safeArr(workflow.edges)) {
       lines.push(`Edge ${e.from} -> ${e.to} on ${e.on ?? "completed"}`);
@@ -822,6 +1207,17 @@ function WorkflowGraphEditorImpl(props: WorkflowGraphEditorProps) {
   }, [workflow]);
 
   const flowStyle: CSSProperties = { width: "100%", height: "100%" };
+
+  const phaseJobs = selectedPhaseEntry
+    ? safeArr(workflow.jobs).filter(
+        (j) => layout.jobPhaseMap.get(j.id) === selectedPhaseEntry.phase.id,
+      )
+    : [];
+  const synthesisJob = selectedPhaseEntry?.phase.synthesis_job_id
+    ? safeArr(workflow.jobs).find(
+        (j) => j.id === selectedPhaseEntry.phase.synthesis_job_id,
+      )
+    : undefined;
 
   return (
     <div className="island-root">
@@ -845,15 +1241,33 @@ function WorkflowGraphEditorImpl(props: WorkflowGraphEditorProps) {
             onNodesChange={onNodesChange}
             onEdgesChange={onEdgesChange}
             onConnect={onConnect}
-            onNodeClick={(_, node) => setSelectedJobId(node.id)}
-            onPaneClick={() => setSelectedJobId(null)}
+            onNodeClick={(_, node) =>
+              setSelection({ kind: "job", id: node.id })
+            }
+            onPaneClick={() => setSelection(null)}
             fitView
             style={flowStyle}
           >
+            <PhaseBands
+              layout={layout}
+              selectedPhaseId={
+                selection?.kind === "phase" ? selection.id : null
+              }
+              onSelectPhase={(id) => setSelection({ kind: "phase", id })}
+            />
             <Background />
             <MiniMap pannable zoomable />
             <Controls />
           </ReactFlow>
+          {dragError && (
+            <div
+              className="graph-editor-phase-drag-error"
+              role="alert"
+              aria-live="polite"
+            >
+              {dragError}
+            </div>
+          )}
           <div
             className="graph-editor-textual"
             role="region"
@@ -862,12 +1276,25 @@ function WorkflowGraphEditorImpl(props: WorkflowGraphEditorProps) {
             {textualSummary}
           </div>
         </div>
-        <Inspector
-          job={selectedJob}
-          workflow={workflow}
-          onChange={handleJobChange}
-          onDelete={handleJobDelete}
-        />
+        {selectedPhaseEntry ? (
+          <PhaseInspector
+            phase={selectedPhaseEntry.phase}
+            jobs={phaseJobs}
+            synthesisJob={synthesisJob}
+            selectedJobId={
+              selection?.kind === "job" ? selection.id : undefined
+            }
+            onSelectJob={(jobId) => setSelection({ kind: "job", id: jobId })}
+            onChangePhase={handlePhaseChange}
+          />
+        ) : (
+          <Inspector
+            job={selectedJob}
+            workflow={workflow}
+            onChange={handleJobChange}
+            onDelete={handleJobDelete}
+          />
+        )}
       </div>
       {error && (
         <div className="island-error" role="alert">
@@ -911,4 +1338,12 @@ export const __testing = {
   syncWorkflowJobs,
   newJobFromBlock,
   PALETTE_BLOCKS,
+  buildPhaseLayout,
+  hasExplicitPhases,
+  jobPhaseId,
+  phaseIdForY,
+  PHASE_BAND_HEIGHT,
+  PHASE_NODE_TOP,
+  PHASE_COLUMN_WIDTH,
+  PHASE_ROW_HEIGHT,
 };

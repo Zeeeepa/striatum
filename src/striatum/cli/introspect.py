@@ -18,14 +18,23 @@ from striatum.db import (
     row_by_id,
 )
 from striatum.identity import session_lane_attestation
-from striatum.errors import InvalidTransitionError, NotFoundError
+from striatum.errors import InvalidTransitionError, NotFoundError, WorkflowError
 from striatum.supervisor import SUPERVISOR_ACTIVE_STATES
 from striatum.db import utc_now
 from striatum.workflow import (
     mermaid_state_class,
+    workflow_phase_index,
     workflow_graph_data,
     workflow_graph_mermaid,
 )
+
+PHASE_ACTIVE_STATES = frozenset({
+    "queued",
+    "claimed",
+    "running",
+    "waiting_human",
+    "blocked",
+})
 
 
 def _install_module() -> ModuleType:
@@ -193,7 +202,7 @@ def status(conn: sqlite3.Connection, *, run_id: str | None) -> JsonObject:
         for extra in process_health["next_actions"]:
             if extra not in actions:
                 actions.append(extra)
-    return {
+    result: JsonObject = {
         "runs": [dict(row) for row in runs],
         "provenance_mode": _provenance_mode_for_status(conn, run_id=run_id),
         "sessions": _session_attestation_summaries(conn, run_id=run_id),
@@ -207,6 +216,133 @@ def status(conn: sqlite3.Connection, *, run_id: str | None) -> JsonObject:
         "process_health": process_health,
         "next_actions": actions,
     }
+    if run_id is not None:
+        phase_progress = phase_progress_for_run(conn, run_id=run_id)
+        if phase_progress is not None:
+            result.update(phase_progress)
+    return result
+
+
+def phase_progress_for_run(conn: sqlite3.Connection, *, run_id: str) -> JsonObject | None:
+    """Return phase progress derived from the workflow snapshot and jobs.
+
+    RFC 0045 V1 does not add phase runtime tables or a ``jobs.phase_id``
+    column. Phase status is therefore a read-model projection over the
+    immutable workflow snapshot plus the latest job attempt rows for a run.
+    """
+    run_row = conn.execute(
+        "SELECT workflow_snapshot_id FROM runs WHERE run_id = ?",
+        (run_id,),
+    ).fetchone()
+    if run_row is None:
+        return None
+    snapshot_row = conn.execute(
+        "SELECT workflow_json FROM workflow_snapshots WHERE workflow_snapshot_id = ?",
+        (str(run_row["workflow_snapshot_id"]),),
+    ).fetchone()
+    if snapshot_row is None:
+        return None
+    try:
+        workflow = json_loads(str(snapshot_row["workflow_json"]))
+    except (json.JSONDecodeError, InvalidTransitionError):
+        return None
+
+    try:
+        phase_index = workflow_phase_index(workflow)
+    except WorkflowError:
+        return None
+    if phase_index.get("declared") is not True:
+        return None
+
+    latest_job_rows = conn.execute(
+        """
+        SELECT j.*
+        FROM jobs j
+        JOIN (
+            SELECT workflow_job_id, MAX(attempt) AS max_attempt
+            FROM jobs
+            WHERE run_id = ?
+            GROUP BY workflow_job_id
+        ) latest
+          ON latest.workflow_job_id = j.workflow_job_id
+         AND latest.max_attempt = j.attempt
+        WHERE j.run_id = ?
+        """,
+        (run_id, run_id),
+    ).fetchall()
+    latest_jobs = {str(row["workflow_job_id"]): row for row in latest_job_rows}
+
+    phases: list[JsonObject] = []
+    phase_order = list(phase_index["phase_order"])
+    phase_by_id = phase_index["phase_by_id"]
+    job_phase = phase_index["job_phase"]
+    synthesis_by_phase = phase_index["synthesis_by_phase"]
+    jobs_by_phase: dict[str, list[str]] = {str(phase_id): [] for phase_id in phase_order}
+    for workflow_job_id, phase_id in job_phase.items():
+        jobs_by_phase.setdefault(str(phase_id), []).append(str(workflow_job_id))
+
+    for index, phase_id_value in enumerate(phase_order):
+        phase_id = str(phase_id_value)
+        phase = phase_by_id[phase_id]
+        workflow_job_ids = jobs_by_phase.get(phase_id, [])
+        jobs_by_state: dict[str, int] = {}
+        job_states: list[str] = []
+        for workflow_job_id in workflow_job_ids:
+            row = latest_jobs.get(workflow_job_id)
+            state = str(row["state"]) if row is not None else "pending"
+            job_states.append(state)
+            jobs_by_state[state] = jobs_by_state.get(state, 0) + 1
+
+        jobs_total = len(workflow_job_ids)
+        jobs_completed = jobs_by_state.get("completed", 0)
+        synthesis_job_id = synthesis_by_phase.get(phase_id)
+        synthesis_row = latest_jobs.get(synthesis_job_id or "")
+        synthesis_state = str(synthesis_row["state"]) if synthesis_row is not None else None
+        synthesis_verdict = (
+            latest_verdict(conn, job_id=str(synthesis_row["job_id"]))
+            if synthesis_row is not None
+            else None
+        )
+        phase_state = _derive_phase_state(job_states)
+        phase_payload: JsonObject = {
+            "id": phase_id,
+            "name": str(phase.get("name") or phase_id),
+            "index": index,
+            "state": phase_state,
+            "jobs_total": jobs_total,
+            "jobs_completed": jobs_completed,
+            "jobs_by_state": jobs_by_state,
+            "synthesis_job_id": synthesis_job_id,
+            "synthesis_state": synthesis_state,
+            "synthesis_verdict": synthesis_verdict,
+        }
+        for optional_key in ("description", "color"):
+            optional_value = phase.get(optional_key)
+            if isinstance(optional_value, str):
+                phase_payload[optional_key] = optional_value
+        phases.append(phase_payload)
+
+    if not phases:
+        return None
+    current_phase_id = phases[-1]["id"]
+    for phase in phases:
+        if phase["state"] != "completed":
+            current_phase_id = phase["id"]
+            break
+    return {"phases": phases, "current_phase_id": current_phase_id}
+
+
+def _derive_phase_state(job_states: list[str]) -> str:
+    if job_states and all(state == "completed" for state in job_states):
+        return "completed"
+    if any(state in PHASE_ACTIVE_STATES for state in job_states):
+        return "active"
+    if any(state == "failed" for state in job_states):
+        return "failed"
+    incomplete = [state for state in job_states if state != "completed"]
+    if incomplete and all(state in {"canceled", "skipped"} for state in incomplete):
+        return "canceled"
+    return "pending"
 
 
 def _provenance_mode_for_status(

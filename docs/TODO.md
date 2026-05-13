@@ -78,6 +78,7 @@ so external references keep resolving even as items move between sections.
 | F41 | RFC 0039 V1 Steps 1+2 Go daemon core (dogfood-042 Track A) | ✅ done |
 | F42 | RFC 0044 draft Engram Phase 1 implementation spec (dogfood-042 Track B) | ✅ done |
 | F43 | RFC 0042 draft repo-local state to Postgres (dogfood-042 Track C) | ✅ done |
+| F44 | RFC 0045 V1 multi-phase workflow schema + React Flow editor (dogfood-043) | ✅ done |
 
 Legend: ✅ done · 🟡 most done (sub-tasks remain) · ⏳ open
 
@@ -309,17 +310,32 @@ Legend: ✅ done · 🟡 most done (sub-tasks remain) · ⏳ open
     state to Postgres) so the Go core has a single canonical substrate.
 
 26. **Harness improvement: forbid codex/codex implementer+reviewer
-    pairing in workflow validator.** Cycle-exhaustion observed twice
-    in a single run (dogfood-042 Track A per D095; dogfood-042 Track C
-    per D096). When the implementer and a reviewer are both the same
-    model (codex+codex specifically observed), the reviewer's
-    findings cluster around the implementer's same blind spots,
-    producing apparent "needs_revision" verdicts that 2-of-3 majority
-    overrides. Add a workflow validator rule that warns or rejects
-    same-model implementer↔reviewer pairs; alternative is a workflow-
-    authoring guideline plus catalog-template enforcement. Pair with
-    the dogfood-040 F39 note already documenting the same anti-
-    pattern.
+    pairing in workflow validator.** Cycle-exhaustion observed three
+    times across recent runs (dogfood-042 Track A per D095;
+    dogfood-042 Track C per D096; dogfood-043 Python build per D097).
+    When the implementer and a reviewer are both the same model
+    (codex+codex specifically observed), the reviewer's findings
+    cluster around the implementer's same blind spots, producing
+    apparent "needs_revision" verdicts that 2-of-3 majority overrides.
+    Partial: a soft warning landed in the dogfood-043 prep commit;
+    full refuse-by-default (validator-level rejection with override
+    knob) remains deferred. Add a workflow validator rule that warns
+    or rejects same-model implementer↔reviewer pairs; alternative is
+    a workflow-authoring guideline plus catalog-template enforcement.
+    Pair with the dogfood-040 F39 note already documenting the same
+    anti-pattern.
+
+27. **RFC 0045 V1.5: address codex build review findings from
+    dogfood-043** (cycle phase-jump validator gap, strict phase-skip
+    restriction, phase_id strict-on-v1 check, drag-drop dropdown
+    bypass, malformed v1.1 tolerance) — see D097. Cycle-exhaustion
+    override per D097 (decision
+    `dec_2c5fbf49e91441aca3562a66919ea8c1`). 2-of-3 cross-lane
+    reviewers accept (claude accept_with_findings low, gemini accept
+    low); codex needs_revision overridden because the codex/codex
+    implementer+reviewer pairing produced the third instance of the
+    convergent-blind-spot anti-pattern (D095, D096, D097). Land the
+    codex findings deltas via a future dogfood.
 
 18. **Workflow type and lane catalog chooser.** RFC 0034 V1 ships the
     generator core, package-data catalog, CLI `workflow templates

@@ -1,0 +1,205 @@
+{
+  "schema_version": "striatum.workflow.v1.1",
+  "workflow_id": "multi-phase-lifecycle",
+  "workflow_version": "2026-05-13",
+  "name": "Multi Phase Lifecycle",
+  "branch": {
+    "mode": "auto",
+    "suggested_name": "striatum/multi-phase-lifecycle",
+    "allow_dirty": true
+  },
+  "coordinator": {
+    "role_id": "coordinator",
+    "lane_id": "local"
+  },
+  "lanes": {
+    "local": {
+      "adapter": "process",
+      "display_model": "Local Fixture",
+      "command": ["sh", "-c", "cat >/dev/null"],
+      "capabilities": ["write", "review", "synthesis"]
+    }
+  },
+  "roles": {
+    "author": {"definition_path": "roles/author.md"},
+    "reviewer": {"definition_path": "roles/reviewer.md"},
+    "coordinator": {"definition_path": "roles/coordinator.md"}
+  },
+  "context_docs": [
+    {"path": "README.md", "required": true}
+  ],
+  "parallelism": {
+    "mode": "declared",
+    "max_active_jobs": 2,
+    "require_disjoint_write_scopes": true
+  },
+  "phases": [
+    {
+      "id": "phase_1_design",
+      "name": "Design",
+      "color": "#6b7280",
+      "description": "Parallel design tracks and synthesis"
+    },
+    {
+      "id": "phase_2_build",
+      "name": "Build",
+      "color": "#2563eb",
+      "description": "Parallel build tracks and synthesis"
+    }
+  ],
+  "jobs": [
+    {
+      "id": "design_codex",
+      "type": "draft",
+      "phase_id": "phase_1_design",
+      "title": "Draft Codex design",
+      "role_id": "author",
+      "lane_id": "local",
+      "parallel_group": "phase_1_design:tracks",
+      "objective": "Draft the first design track.",
+      "task_prompt": {"path": "prompts/design_codex.md"},
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": ["artifacts/multi-phase/phase_1/codex/"],
+        "forbidden_paths": [".striatum/"]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "draft",
+          "kind": "handoff",
+          "path": "artifacts/multi-phase/phase_1/codex/DESIGN.md",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "design_gemini",
+      "type": "draft",
+      "phase_id": "phase_1_design",
+      "title": "Draft Gemini design",
+      "role_id": "author",
+      "lane_id": "local",
+      "parallel_group": "phase_1_design:tracks",
+      "objective": "Draft the second design track.",
+      "task_prompt": {"path": "prompts/design_gemini.md"},
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": ["artifacts/multi-phase/phase_1/gemini/"],
+        "forbidden_paths": [".striatum/"]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "draft",
+          "kind": "handoff",
+          "path": "artifacts/multi-phase/phase_1/gemini/DESIGN.md",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "synthesize_design",
+      "type": "phase_synthesis",
+      "phase_id": "phase_1_design",
+      "title": "Synthesize design phase",
+      "role_id": "reviewer",
+      "lane_id": "local",
+      "objective": "Synthesize phase one and record an accepting verdict.",
+      "task_prompt": {"path": "prompts/synthesize_design.md"},
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": ["artifacts/multi-phase/phase_1/"],
+        "forbidden_paths": [".striatum/"]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "synthesis",
+          "kind": "synthesis",
+          "path": "artifacts/multi-phase/phase_1/SYNTHESIS.md",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "build_codex",
+      "type": "build",
+      "phase_id": "phase_2_build",
+      "title": "Build Codex track",
+      "role_id": "author",
+      "lane_id": "local",
+      "parallel_group": "phase_2_build:tracks",
+      "objective": "Build the first implementation track.",
+      "task_prompt": {"path": "prompts/build_codex.md"},
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": ["artifacts/multi-phase/phase_2/codex/"],
+        "forbidden_paths": [".striatum/"]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "build",
+          "kind": "handoff",
+          "path": "artifacts/multi-phase/phase_2/codex/BUILD.md",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "build_gemini",
+      "type": "build",
+      "phase_id": "phase_2_build",
+      "title": "Build Gemini track",
+      "role_id": "author",
+      "lane_id": "local",
+      "parallel_group": "phase_2_build:tracks",
+      "objective": "Build the second implementation track.",
+      "task_prompt": {"path": "prompts/build_gemini.md"},
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": ["artifacts/multi-phase/phase_2/gemini/"],
+        "forbidden_paths": [".striatum/"]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "build",
+          "kind": "handoff",
+          "path": "artifacts/multi-phase/phase_2/gemini/BUILD.md",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "synthesize_build",
+      "type": "phase_synthesis",
+      "phase_id": "phase_2_build",
+      "title": "Synthesize build phase",
+      "role_id": "reviewer",
+      "lane_id": "local",
+      "objective": "Synthesize phase two and record the final accepting verdict.",
+      "task_prompt": {"path": "prompts/synthesize_build.md"},
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": ["artifacts/multi-phase/phase_2/"],
+        "forbidden_paths": [".striatum/"]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "synthesis",
+          "kind": "synthesis",
+          "path": "artifacts/multi-phase/phase_2/SYNTHESIS.md",
+          "required": true
+        }
+      ]
+    }
+  ],
+  "edges": [
+    {"from": "synthesize_design", "to": "build_codex", "on": "completed"},
+    {"from": "synthesize_design", "to": "build_gemini", "on": "completed"}
+  ],
+  "cycles": []
+}

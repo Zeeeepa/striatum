@@ -27,6 +27,7 @@ SHAPES = frozenset({
     "human_checkpoint",
     "evidence_backed",
     "multi_review_synthesis",
+    "multi_phase",
     "custom",
 })
 LANE_SETS = frozenset({"local", "single_agent", "author_reviewer", "multi_review", "custom"})
@@ -41,6 +42,7 @@ OPTION_KEYS = frozenset({
     "reviewer_count",
     "custom_job_artifacts",
     "supervision_compatible",
+    "phases",
 })
 BLOCK_KINDS = frozenset({
     "draft",
@@ -214,14 +216,14 @@ def generate_workflow(spec: WorkflowGenerationSpec | JsonObject) -> GeneratedWor
     warnings: list[str] = []
     _validate_modifier_matrix(normalized, warnings)
     lanes, _declared_roles = _compile_lanes(normalized)
-    jobs, edges, cycles = (
-        _compile_custom(normalized, lanes)
-        if normalized.shape == "custom"
-        else _compile_shape(normalized)
-    )
+    if normalized.shape == "custom":
+        jobs, edges, cycles = _compile_custom(normalized, lanes)
+        phases: list[JsonObject] = []
+    else:
+        jobs, edges, cycles, phases = _compile_shape(normalized)
     roles = _roles(sorted({str(job["role_id"]) for job in jobs}))
     workflow: JsonObject = {
-        "schema_version": "striatum.workflow.v1",
+        "schema_version": "striatum.workflow.v1.1" if normalized.shape == "multi_phase" else "striatum.workflow.v1",
         "workflow_id": normalized.workflow_id,
         "workflow_version": normalized.workflow_version,
         "name": normalized.name,
@@ -235,6 +237,8 @@ def generate_workflow(spec: WorkflowGenerationSpec | JsonObject) -> GeneratedWor
         "edges": edges,
         "cycles": cycles,
     }
+    if normalized.shape == "multi_phase":
+        workflow["phases"] = phases
     if "harness_profiled" in normalized.lane_modifiers:
         workflow["harness_profiles"] = _harness_profiles(normalized)
     try:
@@ -349,13 +353,19 @@ def _lane_ids_for(spec: WorkflowGenerationSpec) -> list[str]:
     return ["local"]
 
 
-def _compile_shape(spec: WorkflowGenerationSpec) -> tuple[list[JsonObject], list[JsonObject], list[JsonObject]]:
+def _compile_shape(spec: WorkflowGenerationSpec) -> tuple[
+    list[JsonObject],
+    list[JsonObject],
+    list[JsonObject],
+    list[JsonObject],
+]:
     base = spec.artifact_root
     author_lane = _author_lane(spec)
     reviewer_lane = _reviewer_lane(spec, 1)
     jobs: list[JsonObject] = []
     edges: list[JsonObject] = []
     cycles: list[JsonObject] = []
+    phases: list[JsonObject] = []
     if spec.shape == "minimal":
         jobs = [_job("draft", "draft", "Draft starter artifact", "author", author_lane, base, "DRAFT.md", "handoff", "draft", objective="Produce the starter artifact for this workflow.")]
     elif spec.shape in {"review", "code_change"}:
@@ -395,9 +405,220 @@ def _compile_shape(spec: WorkflowGenerationSpec) -> tuple[list[JsonObject], list
         ])
         edges = [{"from": f"review_{index}", "to": "synthesis", "on": "completed"} for index in range(1, count + 1)]
         edges.append({"from": "synthesis", "to": "final_review", "on": "completed"})
+    elif spec.shape == "multi_phase":
+        jobs, edges, cycles, phases = _compile_multi_phase(spec)
     else:
         raise GeneratorError("unknown workflow shape", field_path="spec.shape")
-    return jobs, edges, cycles
+    return jobs, edges, cycles, phases
+
+
+def _compile_multi_phase(
+    spec: WorkflowGenerationSpec,
+) -> tuple[list[JsonObject], list[JsonObject], list[JsonObject], list[JsonObject]]:
+    raw_phases = _object_list(spec.options.get("phases", []), "spec.options.phases")
+    if not raw_phases:
+        raise GeneratorError("multi_phase requires at least one phase", field_path="spec.options.phases")
+    jobs: list[JsonObject] = []
+    edges: list[JsonObject] = []
+    cycles: list[JsonObject] = []
+    phases: list[JsonObject] = []
+    previous_synthesis_id: str | None = None
+    seen_phase_ids: set[str] = set()
+    for phase_index, raw_phase in enumerate(raw_phases):
+        phase_path = f"spec.options.phases[{phase_index}]"
+        phase_id = _required_str(raw_phase, "id", prefix=phase_path)
+        if phase_id in seen_phase_ids:
+            raise GeneratorError("duplicate phase id", field_path=f"{phase_path}.id")
+        seen_phase_ids.add(phase_id)
+        phase_name = _required_str(raw_phase, "name", prefix=phase_path)
+        phase: JsonObject = {"id": phase_id, "name": phase_name}
+        if "description" in raw_phase:
+            description = raw_phase["description"]
+            if not isinstance(description, str):
+                raise GeneratorError("phase description must be a string", field_path=f"{phase_path}.description")
+            phase["description"] = description
+        if "color" in raw_phase:
+            color = raw_phase["color"]
+            if not isinstance(color, str):
+                raise GeneratorError("phase color must be a string", field_path=f"{phase_path}.color")
+            phase["color"] = color
+        tracks = _object_list(raw_phase.get("tracks", []), f"{phase_path}.tracks")
+        if not tracks:
+            raise GeneratorError("phase requires at least one track", field_path=f"{phase_path}.tracks")
+        phase_jobs: list[JsonObject] = []
+        phase_edges: list[JsonObject] = []
+        phase_cycles: list[JsonObject] = []
+        entry_ids: list[str] = []
+        terminal_ids: list[str] = []
+        seen_track_ids: set[str] = set()
+        for track_index, track in enumerate(tracks):
+            track_path = f"{phase_path}.tracks[{track_index}]"
+            track_id = _required_str(track, "id", prefix=track_path)
+            if track_id in seen_track_ids:
+                raise GeneratorError("duplicate phase track id", field_path=f"{track_path}.id")
+            seen_track_ids.add(track_id)
+            track_shape = _choice(track, "shape", SHAPES - {"custom", "multi_phase"}, prefix=track_path)
+            track_spec = _track_spec(spec, phase_id=phase_id, track_id=track_id, track_shape=track_shape, track=track)
+            track_jobs, track_edges, track_cycles, _track_phases = _compile_shape(track_spec)
+            prefix = f"{phase_id}__{track_id}__"
+            id_map = {str(job["id"]): f"{prefix}{job['id']}" for job in track_jobs}
+            track_entry_ids = _entry_job_ids(track_jobs, track_edges, id_map=id_map)
+            phase_jobs.extend(
+                _phase_track_jobs(
+                    track_jobs,
+                    id_map=id_map,
+                    phase_id=phase_id,
+                    track_id=track_id,
+                    parallel_job_ids=set(track_entry_ids),
+                )
+            )
+            phase_edges.extend(_remap_edges(track_edges, id_map=id_map))
+            phase_cycles.extend(_remap_cycles(track_cycles, id_map=id_map))
+            track_lane_id = track.get("lane_id") if isinstance(track.get("lane_id"), str) else None
+            if track_lane_id is not None:
+                _apply_track_lane_override(phase_jobs, id_map=set(id_map.values()), lane_id=track_lane_id)
+            entry_ids.extend(track_entry_ids)
+            terminal_ids.extend(_terminal_job_ids(track_jobs, track_edges, id_map=id_map))
+        synthesis_id = f"{phase_id}__synthesis"
+        synthesis_lane = _phase_synthesis_lane(spec, raw_phase)
+        phase_jobs.append(_phase_synthesis_job(phase_id, phase_name, synthesis_id, synthesis_lane, spec.artifact_root))
+        for terminal_id in sorted(set(terminal_ids)):
+            phase_edges.append({"from": terminal_id, "to": synthesis_id, "on": "completed"})
+        if previous_synthesis_id is not None:
+            for entry_id in sorted(set(entry_ids)):
+                edges.append({"from": previous_synthesis_id, "to": entry_id, "on": "completed"})
+        phases.append(phase)
+        jobs.extend(phase_jobs)
+        edges.extend(phase_edges)
+        cycles.extend(phase_cycles)
+        previous_synthesis_id = synthesis_id
+    return jobs, edges, cycles, phases
+
+
+def _track_spec(
+    spec: WorkflowGenerationSpec,
+    *,
+    phase_id: str,
+    track_id: str,
+    track_shape: str,
+    track: JsonObject,
+) -> WorkflowGenerationSpec:
+    lane_id = track.get("lane_id")
+    lanes = dict(spec.lanes)
+    if isinstance(lane_id, str):
+        if lane_id not in _lane_ids_for(spec):
+            raise GeneratorError("track lane_id references missing lane", field_path="spec.options.phases[].tracks[].lane_id")
+        lanes = {**lanes, lane_id: spec.lanes.get(lane_id, {})}
+    options = dict(spec.options)
+    options.pop("phases", None)
+    if isinstance(track.get("options"), dict):
+        options.update(dict(track["options"]))
+    return WorkflowGenerationSpec(
+        schema_version=spec.schema_version,
+        shape=track_shape,
+        lane_set=spec.lane_set,
+        workflow_id=f"{spec.workflow_id}-{phase_id}-{track_id}",
+        name=f"{spec.name} {phase_id} {track_id}",
+        workflow_version=spec.workflow_version,
+        branch=dict(spec.branch),
+        scaffold_root=spec.scaffold_root,
+        artifact_root=f"{spec.artifact_root}/{phase_id}/{track_id}",
+        lanes=lanes,
+        options=options,
+        lane_modifiers=list(spec.lane_modifiers),
+        context_docs=list(spec.context_docs),
+        parallelism=spec.parallelism,
+    )
+
+
+def _phase_track_jobs(
+    jobs: list[JsonObject],
+    *,
+    id_map: dict[str, str],
+    phase_id: str,
+    track_id: str,
+    parallel_job_ids: set[str],
+) -> list[JsonObject]:
+    result: list[JsonObject] = []
+    for job in jobs:
+        remapped = dict(job)
+        remapped["id"] = id_map[str(job["id"])]
+        remapped["phase_id"] = phase_id
+        if remapped["id"] in parallel_job_ids:
+            remapped["parallel_group"] = f"{phase_id}:{track_id}"
+        result.append(remapped)
+    return result
+
+
+def _apply_track_lane_override(jobs: list[JsonObject], *, id_map: set[str], lane_id: str) -> None:
+    for job in jobs:
+        if job.get("id") in id_map and job.get("type") != "review":
+            job["lane_id"] = lane_id
+
+
+def _remap_edges(edges: list[JsonObject], *, id_map: dict[str, str]) -> list[JsonObject]:
+    return [
+        {"from": id_map[str(edge["from"])], "to": id_map[str(edge["to"])], "on": str(edge.get("on", "completed"))}
+        for edge in edges
+    ]
+
+
+def _remap_cycles(cycles: list[JsonObject], *, id_map: dict[str, str]) -> list[JsonObject]:
+    result: list[JsonObject] = []
+    for cycle in cycles:
+        remapped = dict(cycle)
+        remapped["from"] = id_map[str(cycle["from"])]
+        remapped["to"] = id_map[str(cycle["to"])]
+        result.append(remapped)
+    return result
+
+
+def _entry_job_ids(jobs: list[JsonObject], edges: list[JsonObject], *, id_map: dict[str, str]) -> list[str]:
+    incoming = {str(job["id"]): 0 for job in jobs}
+    for edge in edges:
+        incoming[str(edge["to"])] += 1
+    return [id_map[job_id] for job_id, count in incoming.items() if count == 0]
+
+
+def _terminal_job_ids(jobs: list[JsonObject], edges: list[JsonObject], *, id_map: dict[str, str]) -> list[str]:
+    outgoing = {str(job["id"]): 0 for job in jobs}
+    for edge in edges:
+        outgoing[str(edge["from"])] += 1
+    return [id_map[job_id] for job_id, count in outgoing.items() if count == 0]
+
+
+def _phase_synthesis_lane(spec: WorkflowGenerationSpec, phase: JsonObject) -> str:
+    lane_id = phase.get("synthesis_lane_id")
+    lane_ids = _lane_ids_for(spec)
+    if isinstance(lane_id, str):
+        if lane_id not in lane_ids:
+            raise GeneratorError("synthesis_lane_id references missing lane", field_path="spec.options.phases[].synthesis_lane_id")
+        return lane_id
+    return _reviewer_lane(spec, 1)
+
+
+def _phase_synthesis_job(
+    phase_id: str,
+    phase_name: str,
+    synthesis_id: str,
+    lane_id: str,
+    artifact_root: str,
+) -> JsonObject:
+    job = _job(
+        synthesis_id,
+        "phase_synthesis",
+        f"Synthesize {phase_name}",
+        "reviewer",
+        lane_id,
+        f"{artifact_root}/{phase_id}",
+        "SYNTHESIS.md",
+        "synthesis",
+        "phase_synthesis",
+        prompt="apply",
+        objective=f"Synthesize the completed work in {phase_name} and record a phase verdict.",
+    )
+    job["phase_id"] = phase_id
+    return job
 
 
 def _compile_custom(spec: WorkflowGenerationSpec, lanes: JsonObject) -> tuple[list[JsonObject], list[JsonObject], list[JsonObject]]:

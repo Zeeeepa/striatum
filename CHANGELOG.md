@@ -1,5 +1,81 @@
 # Changelog
 
+## v1.32.0 — 2026-05-13
+
+### Added
+
+- RFC 0045 V1 multi-phase workflow schema landed
+  (`striatum.workflow.v1.1`): new top-level `phases` array, a
+  `phase_synthesis` job type that gates phase transitions, validator
+  rules refusing cross-phase dependencies that bypass the synthesis
+  gate, runtime materialization of phase synthesis fan-in edges,
+  `status --json` derives `phases` + `current_phase_id` from the
+  workflow snapshot plus latest job attempts, dashboard + service
+  run-detail surfaces receive phase progress from the status payload,
+  workflow generator gains `shape: "multi_phase"` emitting v1.1
+  workflows with phased track jobs + synthesis gates, and
+  `striatum workflow upgrade --add-phases` previews by default and
+  writes with `--apply`. V1 workflows continue to validate and run
+  unchanged. Files: `src/striatum/workflow.py`,
+  `src/striatum/cli/{introspect,mutations,parser,dispatch,workflow}.py`,
+  `src/striatum/{dashboard,service}.py`,
+  `src/striatum/workflow_generator/{core,catalog}.py`,
+  plus tests under `tests/test_workflow_phases.py`,
+  `tests/test_workflow_generator.py`, `tests/test_workflow_upgrade.py`,
+  `tests/test_cli_mvp.py`, `tests/test_dashboard.py`,
+  `tests/test_service.py`, and fixture
+  `tests/fixtures/multi_phase_workflow.json`.
+- RFC 0045 V1 React Flow editor extensions (Track B): phase color
+  bands rendered via `<ViewportPortal>` so bands pan/zoom with nodes;
+  cross-phase edges receive distinct styling
+  (`className: "cross-phase-edge"`, thick black stroke,
+  `data: { crossPhase, sourcePhase, targetPhase }`); new
+  `PhaseInspector` swaps into the right-hand inspector slot when a
+  band header is clicked (edit `title`/`description`, show
+  `synthesis_job_id`, list jobs in phase); drag-drop refuses
+  cross-band moves with snap-back + inline `role="alert"` error;
+  new `phase` selector in the job inspector (gated on
+  `workflow.phases?.length > 0`); `syncWorkflowEdges` strips
+  derived `crossPhase`/`sourcePhase`/`targetPhase` keys on save;
+  `selectedJobId` upgraded to a `GraphSelection` discriminated union.
+  V1 workflows keep the original square-grid layout, thin grey edges,
+  and job-only inspector with no visual change. Files:
+  `src/striatum/web/frontend/src/shared/types.ts`,
+  `src/striatum/web/frontend/src/shared/theme.css`,
+  `src/striatum/web/frontend/src/islands/workflow-graph-editor/WorkflowGraphEditor.tsx`,
+  and new unit suites in
+  `src/striatum/web/frontend/src/__tests__/workflow-graph-editor.test.ts`.
+
+### Decided
+
+- D097: Cycle-exhaustion override for the dogfood-043 Python build
+  review. 2-of-3 cross-lane reviewers accept (claude
+  accept_with_findings low, gemini accept low); codex needs_revision
+  (high) overridden because the codex/codex implementer+reviewer
+  pairing produced the third instance of the convergent-blind-spot
+  anti-pattern (precedents D095 dogfood-042 Track A, D096 dogfood-042
+  Track C). Codex findings (cycle phase-jump validator gap, strict
+  phase-skip restriction, phase_id strict-on-v1 check, drag-drop
+  dropdown bypass, malformed v1.1 tolerance) absorbed into RFC 0045
+  V1.5 follow-up (TODO item 27). Anti-pattern now well-characterized
+  across three independent runs; full validator refuse-by-default
+  remains the deferred half of TODO item 26 (a soft warning landed in
+  the dogfood-043 prep commit).
+
+### Notes
+
+- Dogfood-043 ran with two parallel tracks (Track A Python core
+  implemented by codex; Track B React Flow editor implemented by
+  claude) and 3-way build review postures (codex threat_model,
+  claude ergonomics_dx, gemini adversarial). The `consolidate` job
+  was not present in the workflow; the operator authored this
+  changelog entry, the `docs/rfcs/README.md` status update, the
+  `docs/TODO.md` follow-ups, the `docs/dogfood/043/BUILD_HANDOFF.md`
+  cross-track handoff, and the `docs/dogfood/043/PHASE_1_OPERATOR_NOTES.md`
+  operator narrative in its place (dogfood-042 lesson applied: the
+  in-workflow consolidate job was the wrong locus when the operator
+  is already the synthesizing surface).
+
 ## v1.31.0 — 2026-05-13
 
 ### Added

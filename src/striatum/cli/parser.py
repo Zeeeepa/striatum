@@ -238,6 +238,19 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="report the change set without writing the workflow.json",
     )
+    workflow_upgrade_p.add_argument(
+        "--add-phases",
+        action="store_true",
+        help=(
+            "rewrite a v1 workflow to v1.1 by inferring phases from "
+            "parallel_group clusters; preview-only unless --apply is passed"
+        ),
+    )
+    workflow_upgrade_p.add_argument(
+        "--apply",
+        action="store_true",
+        help="with --add-phases, write the rewritten workflow.json",
+    )
     workflow_upgrade_p.add_argument("--json", action="store_true")
     templates = workflow_sub.add_parser("templates")
     templates_sub = templates.add_subparsers(dest="templates_command", required=True)

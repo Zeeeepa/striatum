@@ -1042,6 +1042,8 @@ class StriatumServiceHandler(BaseHTTPRequestHandler):
                 graph_svg=graph_svg,
                 next_actions=status_payload.get("next_actions") or [],
                 verdicts_by_posture=status_payload.get("verdicts_by_posture") or {},
+                phase_progress=status_payload.get("phases") or [],
+                current_phase_id=status_payload.get("current_phase_id"),
                 suggested_branch_name=suggested_branch_name,
                 allow_dirty=allow_dirty,
             )

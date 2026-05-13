@@ -66,6 +66,42 @@ def test_render_frame_shows_job_state_counts() -> None:
     assert "claim_available_work" in output
 
 
+def test_render_frame_shows_compact_phase_progress() -> None:
+    dashboard = _import_dashboard()
+    payload = {
+        "run": {"run_id": "run_test", "branch_name": "main", "state": "running"},
+        "status": {
+            "jobs": {"queued": 2, "running": 1, "completed": 3},
+            "phases": [
+                {
+                    "id": "phase_design",
+                    "name": "Design",
+                    "state": "active",
+                    "jobs_total": 5,
+                    "jobs_completed": 3,
+                },
+                {
+                    "id": "phase_build",
+                    "name": "Build",
+                    "state": "pending",
+                    "jobs_total": 4,
+                    "jobs_completed": 0,
+                },
+            ],
+            "open_blockers": [],
+            "human_checkpoints": [],
+            "latest_non_accepting_review_verdicts": [],
+            "claimable_jobs": [],
+            "next_actions": [],
+        },
+        "events": [],
+        "verdict_counts": {},
+        "updated_at": "2026-05-07T00:00:00Z",
+    }
+    output = dashboard.render_frame(payload, terminal_width=100)
+    assert "Phases: Design 3/5 active | Build 0/4 pending" in output
+
+
 def test_render_frame_truncates_long_event_payloads() -> None:
     dashboard = _import_dashboard()
     long_blob = "x" * 500

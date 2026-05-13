@@ -21,15 +21,10 @@ ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / "examples" / "rfc-ledger-cleanup" / "workflow.json"
 DOCS_REVIEW_WORKFLOW = ROOT / "examples" / "docs-review-flow" / "workflow.json"
 CODE_CHANGE_WORKFLOW = ROOT / "examples" / "code-change-flow" / "workflow.json"
-FAILED_REVIEW_WORKFLOW = (
-    ROOT / "examples" / "failed-review-revision-cycle" / "workflow.json"
-)
-HUMAN_CHECKPOINT_WORKFLOW = (
-    ROOT / "examples" / "human-checkpoint-flow" / "workflow.json"
-)
-ADAPTER_UNAVAILABLE_WORKFLOW = (
-    ROOT / "examples" / "adapter-unavailable-flow" / "workflow.json"
-)
+FAILED_REVIEW_WORKFLOW = ROOT / "examples" / "failed-review-revision-cycle" / "workflow.json"
+HUMAN_CHECKPOINT_WORKFLOW = ROOT / "examples" / "human-checkpoint-flow" / "workflow.json"
+ADAPTER_UNAVAILABLE_WORKFLOW = ROOT / "examples" / "adapter-unavailable-flow" / "workflow.json"
+MULTI_PHASE_WORKFLOW = ROOT / "tests" / "fixtures" / "multi_phase_workflow.json"
 
 
 JsonDict = dict[str, Any]
@@ -47,7 +42,9 @@ def run_cli(repo: Path, *args: str, check: bool = True) -> JsonDict:
         check=False,
     )
     if check and result.returncode != 0:
-        raise AssertionError(f"command failed: {result.args}\nstdout={result.stdout}\nstderr={result.stderr}")
+        raise AssertionError(
+            f"command failed: {result.args}\nstdout={result.stdout}\nstderr={result.stderr}"
+        )
     if result.stdout.strip() == "":
         return {}
     payload = cast(JsonDict, json.loads(result.stdout))
@@ -67,7 +64,9 @@ def run_cli_text(repo: Path, *args: str, check: bool = True) -> str:
         check=False,
     )
     if check and result.returncode != 0:
-        raise AssertionError(f"command failed: {result.args}\nstdout={result.stdout}\nstderr={result.stderr}")
+        raise AssertionError(
+            f"command failed: {result.args}\nstdout={result.stdout}\nstderr={result.stderr}"
+        )
     return result.stdout
 
 
@@ -210,7 +209,9 @@ def complete_claimed_job(
     path: str,
 ) -> None:
     job_id, message_id, lease_id = packet_ids(packet)
-    run_cli(repo, "ack", "--session-id", session_id, "--message-id", message_id, "--lease-id", lease_id)
+    run_cli(
+        repo, "ack", "--session-id", session_id, "--message-id", message_id, "--lease-id", lease_id
+    )
     # HARNESS-003: write the workflow-declared byline into the artifact
     # body so the new author_line column is populated and evidence
     # exports preserve model labels in the snapshot. Tests that
@@ -233,7 +234,9 @@ def complete_claimed_job(
         "--path",
         path,
     )
-    run_cli(repo, "complete", "--session-id", session_id, "--job-id", job_id, "--lease-id", lease_id)
+    run_cli(
+        repo, "complete", "--session-id", session_id, "--job-id", job_id, "--lease-id", lease_id
+    )
 
 
 def verdict_claimed_review(
@@ -248,7 +251,9 @@ def verdict_claimed_review(
     rationale: str | None = None,
 ) -> JsonDict:
     job_id, message_id, lease_id = packet_ids(packet)
-    run_cli(repo, "ack", "--session-id", session_id, "--message-id", message_id, "--lease-id", lease_id)
+    run_cli(
+        repo, "ack", "--session-id", session_id, "--message-id", message_id, "--lease-id", lease_id
+    )
     body = _packet_default_artifact_body(packet, logical_name) + f"{verdict}\n"
     write_artifact(repo, path, text=body)
     artifact = data(
@@ -471,7 +476,10 @@ def test_workflow_plan_explains_claim_order_and_review_gates(tmp_path: Path) -> 
     assert isinstance(claim_order, list)
     assert [step["step"] for step in claim_order] == [1, 2, 3, 4, 5]
     assert [job["job_id"] for job in claim_order[0]["claimable"]] == ["draft"]
-    assert [job["job_id"] for job in claim_order[1]["claimable"]] == ["review_codex", "review_gemini"]
+    assert [job["job_id"] for job in claim_order[1]["claimable"]] == [
+        "review_codex",
+        "review_gemini",
+    ]
     assert [job["job_id"] for job in claim_order[4]["claimable"]] == ["final_review"]
 
     review_gates = {gate["review_job_id"]: gate for gate in plan["review_gates"]}
@@ -507,7 +515,12 @@ def test_workflow_graph_exports_mermaid_and_json(tmp_path: Path) -> None:
     assert len(graph_data["nodes"]) == 6
     assert len(graph_data["edges"]) == 6
     assert graph_data["cycles"] == [
-        {"from": "final_review", "to": "synthesis", "on_verdict": "needs_revision", "max_iterations": 1}
+        {
+            "from": "final_review",
+            "to": "synthesis",
+            "on_verdict": "needs_revision",
+            "max_iterations": 1,
+        }
     ]
     review_node = next(node for node in graph_data["nodes"] if node["job_id"] == "review_codex")
     assert review_node["parallel_group"] == "reviews"
@@ -534,7 +547,9 @@ def test_workflow_graph_exports_dot(tmp_path: Path) -> None:
     assert "needs_revision max 1" in dot_text
 
     # JSON wrapper exposes the same DOT body under {"format":"dot","source":...}.
-    wrapped = data(run_cli(tmp_path, "workflow", "graph", str(WORKFLOW), "--format", "dot", "--json"))
+    wrapped = data(
+        run_cli(tmp_path, "workflow", "graph", str(WORKFLOW), "--format", "dot", "--json")
+    )
     assert wrapped["format"] == "dot"
     assert wrapped["source"].rstrip("\n") == dot_text.rstrip("\n")
 
@@ -552,11 +567,166 @@ def test_workflow_graph_exports_dot(tmp_path: Path) -> None:
 def test_docs_review_flow_fixture_validates_and_exports_graph(tmp_path: Path) -> None:
     valid = data(run_cli(tmp_path, "workflow", "validate", str(DOCS_REVIEW_WORKFLOW)))
     assert valid["workflow_id"] == "docs-review-flow"
-    graph = data(run_cli(tmp_path, "workflow", "graph", str(DOCS_REVIEW_WORKFLOW), "--format", "json"))
+    graph = data(
+        run_cli(tmp_path, "workflow", "graph", str(DOCS_REVIEW_WORKFLOW), "--format", "json")
+    )
     graph_data = graph["graph"]
     assert isinstance(graph_data, dict)
-    assert [node["job_id"] for node in graph_data["nodes"]] == ["draft_docs", "review_docs", "apply_docs"]
+    assert [node["job_id"] for node in graph_data["nodes"]] == [
+        "draft_docs",
+        "review_docs",
+        "apply_docs",
+    ]
     assert graph_data["cycles"] == []
+
+
+@pytest.mark.parametrize(
+    "fixture",
+    [
+        WORKFLOW,
+        DOCS_REVIEW_WORKFLOW,
+        CODE_CHANGE_WORKFLOW,
+        FAILED_REVIEW_WORKFLOW,
+        HUMAN_CHECKPOINT_WORKFLOW,
+    ],
+)
+def test_v1_workflow_fixtures_validate_without_phase_progress(
+    tmp_path: Path,
+    fixture: Path,
+) -> None:
+    valid = data(run_cli(tmp_path, "workflow", "validate", str(fixture)))
+
+    assert valid["workflow_id"] == json.loads(fixture.read_text(encoding="utf-8"))["workflow_id"]
+    assert valid["valid"] is True
+    assert "phases" not in valid
+    assert "current_phase_id" not in valid
+
+    if fixture == DOCS_REVIEW_WORKFLOW:
+        run_id = prepare_started_run(tmp_path, fixture)
+        status = data(run_cli(tmp_path, "status", "--run-id", run_id))
+        assert "phases" not in status
+        assert "current_phase_id" not in status
+
+
+def test_multi_phase_workflow_lifecycle_and_phase_progress(tmp_path: Path) -> None:
+    _git_init_repo(tmp_path, initial_branch="main")
+    init_repo(tmp_path)
+
+    valid = data(run_cli(tmp_path, "workflow", "validate", str(MULTI_PHASE_WORKFLOW)))
+    assert valid == {"workflow_id": "multi-phase-lifecycle", "valid": True}
+    plan = data(run_cli(tmp_path, "workflow", "plan", str(MULTI_PHASE_WORKFLOW)))
+    assert plan["summary"] == {"jobs": 6, "edges": 6, "cycles": 0, "claim_steps": 4}
+
+    prepared = data(run_cli(tmp_path, "run", "prepare", "--workflow", str(MULTI_PHASE_WORKFLOW)))
+    assert prepared["state"] == "ready"
+    run_id = str(prepared["run_id"])
+    run_cli(tmp_path, "run", "start", "--run-id", run_id)
+
+    status = data(run_cli(tmp_path, "status", "--run-id", run_id))
+    assert status["current_phase_id"] == "phase_1_design"
+    phases = status["phases"]
+    assert isinstance(phases, list)
+    assert [phase["id"] for phase in phases] == ["phase_1_design", "phase_2_build"]
+    assert phases[0]["jobs_total"] == 3
+    assert phases[0]["jobs_completed"] == 0
+    assert phases[0]["synthesis_job_id"] == "synthesize_design"
+    assert phases[0]["synthesis_verdict"] is None
+    assert phases[1]["jobs_completed"] == 0
+
+    author = register(tmp_path, run_id, "author", "local")
+    reviewer = register(tmp_path, run_id, "reviewer", "local")
+
+    first_design_packet = claim(tmp_path, author)
+    assert first_design_packet["job"]["workflow_job_id"] in {"design_codex", "design_gemini"}
+    first_design_id = str(first_design_packet["job"]["workflow_job_id"])
+    complete_claimed_job(
+        tmp_path,
+        author,
+        first_design_packet,
+        logical_name="draft",
+        kind="handoff",
+        path=f"artifacts/multi-phase/phase_1/{first_design_id.removeprefix('design_')}/DESIGN.md",
+    )
+
+    second_design_packet = claim(tmp_path, author)
+    assert second_design_packet["job"]["workflow_job_id"] in {"design_codex", "design_gemini"} - {
+        first_design_id
+    }
+    second_design_id = str(second_design_packet["job"]["workflow_job_id"])
+    complete_claimed_job(
+        tmp_path,
+        author,
+        second_design_packet,
+        logical_name="draft",
+        kind="handoff",
+        path=f"artifacts/multi-phase/phase_1/{second_design_id.removeprefix('design_')}/DESIGN.md",
+    )
+
+    blocked_phase_two = data(run_cli(tmp_path, "claim-next", "--session-id", author))
+    assert blocked_phase_two["status"] == "no_work"
+
+    design_synthesis_packet = claim(tmp_path, reviewer)
+    assert design_synthesis_packet["job"]["workflow_job_id"] == "synthesize_design"
+    verdict_claimed_review(
+        tmp_path,
+        reviewer,
+        design_synthesis_packet,
+        verdict="accept",
+        logical_name="synthesis",
+        kind="synthesis",
+        path="artifacts/multi-phase/phase_1/SYNTHESIS.md",
+    )
+
+    status = data(run_cli(tmp_path, "status", "--run-id", run_id))
+    assert status["current_phase_id"] == "phase_2_build"
+    phases = status["phases"]
+    assert phases[0]["state"] == "completed"
+    assert phases[0]["jobs_completed"] == 3
+    assert phases[0]["synthesis_verdict"] == "accept"
+
+    first_build_packet = claim(tmp_path, author)
+    assert first_build_packet["job"]["workflow_job_id"] in {"build_codex", "build_gemini"}
+    first_build_id = str(first_build_packet["job"]["workflow_job_id"])
+    complete_claimed_job(
+        tmp_path,
+        author,
+        first_build_packet,
+        logical_name="build",
+        kind="handoff",
+        path=f"artifacts/multi-phase/phase_2/{first_build_id.removeprefix('build_')}/BUILD.md",
+    )
+
+    second_build_packet = claim(tmp_path, author)
+    assert second_build_packet["job"]["workflow_job_id"] in {"build_codex", "build_gemini"} - {
+        first_build_id
+    }
+    second_build_id = str(second_build_packet["job"]["workflow_job_id"])
+    complete_claimed_job(
+        tmp_path,
+        author,
+        second_build_packet,
+        logical_name="build",
+        kind="handoff",
+        path=f"artifacts/multi-phase/phase_2/{second_build_id.removeprefix('build_')}/BUILD.md",
+    )
+
+    build_synthesis_packet = claim(tmp_path, reviewer)
+    assert build_synthesis_packet["job"]["workflow_job_id"] == "synthesize_build"
+    verdict_claimed_review(
+        tmp_path,
+        reviewer,
+        build_synthesis_packet,
+        verdict="accept",
+        logical_name="synthesis",
+        kind="synthesis",
+        path="artifacts/multi-phase/phase_2/SYNTHESIS.md",
+    )
+
+    final_status = data(run_cli(tmp_path, "status", "--run-id", run_id))
+    assert final_status["runs"][0]["state"] == "completed"
+    assert final_status["current_phase_id"] == "phase_2_build"
+    assert [phase["state"] for phase in final_status["phases"]] == ["completed", "completed"]
+    assert [phase["jobs_completed"] for phase in final_status["phases"]] == [3, 3]
 
 
 def test_run_graph_highlights_job_states_in_mermaid(tmp_path: Path) -> None:
@@ -791,7 +961,16 @@ def test_artifact_completion_and_verdict_flow(tmp_path: Path) -> None:
     reviewer = register(tmp_path, run_id, "reviewer", "codex")
     review_packet = claim(tmp_path, reviewer)
     job_id, message_id, lease_id = packet_ids(review_packet)
-    run_cli(tmp_path, "ack", "--session-id", reviewer, "--message-id", message_id, "--lease-id", lease_id)
+    run_cli(
+        tmp_path,
+        "ack",
+        "--session-id",
+        reviewer,
+        "--message-id",
+        message_id,
+        "--lease-id",
+        lease_id,
+    )
     write_artifact(tmp_path, "docs/reviews/rfc-ledger/codex/RFC_LEDGER_REVIEW.md")
     artifact = data(
         run_cli(
@@ -831,7 +1010,9 @@ def test_artifact_completion_and_verdict_flow(tmp_path: Path) -> None:
     why = data(run_cli(tmp_path, "why", job_id))
     events = why["events"]
     assert isinstance(events, list)
-    assert any(event["event_type"] == "verdict.recorded" for event in events if isinstance(event, dict))
+    assert any(
+        event["event_type"] == "verdict.recorded" for event in events if isinstance(event, dict)
+    )
 
 
 def test_release_requeues_fresh_review_for_new_session_only(tmp_path: Path) -> None:
@@ -933,7 +1114,9 @@ def test_publish_artifact_rejects_out_of_scope_paths(tmp_path: Path) -> None:
     author = register(tmp_path, run_id, "author", "codex")
     packet = claim(tmp_path, author)
     job_id, message_id, lease_id = packet_ids(packet)
-    run_cli(tmp_path, "ack", "--session-id", author, "--message-id", message_id, "--lease-id", lease_id)
+    run_cli(
+        tmp_path, "ack", "--session-id", author, "--message-id", message_id, "--lease-id", lease_id
+    )
     write_artifact(tmp_path, "outside.md")
     rejected = run_cli(
         tmp_path,
@@ -960,7 +1143,9 @@ def test_publish_artifact_validates_optional_markdown_author_line(tmp_path: Path
     author = register(tmp_path, run_id, "author", "codex")
     packet = claim(tmp_path, author)
     job_id, message_id, lease_id = packet_ids(packet)
-    run_cli(tmp_path, "ack", "--session-id", author, "--message-id", message_id, "--lease-id", lease_id)
+    run_cli(
+        tmp_path, "ack", "--session-id", author, "--message-id", message_id, "--lease-id", lease_id
+    )
     path = "docs/reviews/rfc-ledger/RFC_LEDGER_DRAFT.md"
 
     write_artifact(
@@ -1061,7 +1246,16 @@ def test_require_attested_lane_refuses_unattested_review_side_effects(tmp_path: 
     reviewer = register(tmp_path, run_id, "reviewer", "codex")
     packet = claim(tmp_path, reviewer)
     job_id, message_id, lease_id = packet_ids(packet)
-    run_cli(tmp_path, "ack", "--session-id", reviewer, "--message-id", message_id, "--lease-id", lease_id)
+    run_cli(
+        tmp_path,
+        "ack",
+        "--session-id",
+        reviewer,
+        "--message-id",
+        message_id,
+        "--lease-id",
+        lease_id,
+    )
     path = "docs/reviews/rfc-ledger/codex/RFC_LEDGER_REVIEW.md"
     write_artifact(tmp_path, path, text=_packet_default_artifact_body(packet, "review"))
     rejected_publish = run_cli(
@@ -1116,7 +1310,9 @@ def test_workflow_validate_rejects_require_attested_lane_on_non_review(tmp_path:
     assert rejected["returncode"] == 8
 
 
-def test_sealed_patch_mode_validates_but_refuses_to_start_without_containment(tmp_path: Path) -> None:
+def test_sealed_patch_mode_validates_but_refuses_to_start_without_containment(
+    tmp_path: Path,
+) -> None:
     workflow = example_workflow()
     workflow["provenance_mode"] = "sealed_patch"
     workflow["protected_paths"] = ["src/", "tests/"]
@@ -1236,9 +1432,13 @@ def test_events_are_append_only(tmp_path: Path) -> None:
     run_id = prepare_started_run(tmp_path)
     conn = sqlite3.connect(tmp_path / ".striatum" / "state.sqlite3")
     try:
-        event_id = conn.execute("SELECT event_id FROM events WHERE run_id = ? LIMIT 1", (run_id,)).fetchone()[0]
+        event_id = conn.execute(
+            "SELECT event_id FROM events WHERE run_id = ? LIMIT 1", (run_id,)
+        ).fetchone()[0]
         try:
-            conn.execute("UPDATE events SET event_type = 'tampered' WHERE event_id = ?", (event_id,))
+            conn.execute(
+                "UPDATE events SET event_type = 'tampered' WHERE event_id = ?", (event_id,)
+            )
         except sqlite3.DatabaseError as exc:
             assert "append-only" in str(exc)
         else:
@@ -1359,15 +1559,19 @@ def test_verdict_needs_revision_parallel_reviewers_share_cycle_target(tmp_path: 
     for cycle in workflow["cycles"]:
         if cycle.get("to") == "synthesis":
             cycle["max_iterations"] = 2
-    workflow["cycles"].append({
-        "from": "final_review_codex",
-        "to": "synthesis",
-        "on_verdict": "needs_revision",
-        "max_iterations": 2,
-    })
+    workflow["cycles"].append(
+        {
+            "from": "final_review_codex",
+            "to": "synthesis",
+            "on_verdict": "needs_revision",
+            "max_iterations": 2,
+        }
+    )
     workflow_path = temporary_workflow(tmp_path, workflow)
     init_repo(tmp_path)
-    run_id = str(data(run_cli(tmp_path, "run", "prepare", "--workflow", str(workflow_path)))["run_id"])
+    run_id = str(
+        data(run_cli(tmp_path, "run", "prepare", "--workflow", str(workflow_path)))["run_id"]
+    )
     run_cli(tmp_path, "branch", "confirm", "--run-id", run_id, "--branch", "striatum/v1-test")
     run_cli(tmp_path, "run", "start", "--run-id", run_id)
 
@@ -1539,7 +1743,9 @@ def test_verdict_needs_revision_without_cycle_waits_human(tmp_path: Path) -> Non
     workflow["cycles"] = []
     workflow_path = temporary_workflow(tmp_path, workflow)
     init_repo(tmp_path)
-    run_id = str(data(run_cli(tmp_path, "run", "prepare", "--workflow", str(workflow_path)))["run_id"])
+    run_id = str(
+        data(run_cli(tmp_path, "run", "prepare", "--workflow", str(workflow_path)))["run_id"]
+    )
     run_cli(tmp_path, "branch", "confirm", "--run-id", run_id, "--branch", "striatum/v1-test")
     run_cli(tmp_path, "run", "start", "--run-id", run_id)
     author = register(tmp_path, run_id, "author", "codex")
@@ -1576,7 +1782,9 @@ def test_edges_materialize_dependencies_without_needs(tmp_path: Path) -> None:
         job.pop("needs", None)
     workflow_path = temporary_workflow(tmp_path, workflow)
     init_repo(tmp_path)
-    run_id = str(data(run_cli(tmp_path, "run", "prepare", "--workflow", str(workflow_path)))["run_id"])
+    run_id = str(
+        data(run_cli(tmp_path, "run", "prepare", "--workflow", str(workflow_path)))["run_id"]
+    )
     run_cli(tmp_path, "branch", "confirm", "--run-id", run_id, "--branch", "striatum/v1-test")
     run_cli(tmp_path, "run", "start", "--run-id", run_id)
     author = register(tmp_path, run_id, "author", "codex")
@@ -1592,7 +1800,9 @@ def test_workflow_rejects_needs_edges_mismatch(tmp_path: Path) -> None:
     assert isinstance(jobs, list)
     mismatched = deepcopy(workflow)
     mismatched["jobs"][1]["needs"] = []
-    rejected = run_cli(tmp_path, "workflow", "validate", str(temporary_workflow(tmp_path, mismatched)), check=False)
+    rejected = run_cli(
+        tmp_path, "workflow", "validate", str(temporary_workflow(tmp_path, mismatched)), check=False
+    )
     assert rejected["returncode"] == 8
 
 
@@ -1603,7 +1813,9 @@ def test_complete_requires_expected_artifact_path_and_kind(tmp_path: Path) -> No
     author = register(bad_repo, run_id, "author", "codex")
     packet = claim(bad_repo, author)
     job_id, message_id, lease_id = packet_ids(packet)
-    run_cli(bad_repo, "ack", "--session-id", author, "--message-id", message_id, "--lease-id", lease_id)
+    run_cli(
+        bad_repo, "ack", "--session-id", author, "--message-id", message_id, "--lease-id", lease_id
+    )
     write_artifact(bad_repo, "docs/reviews/rfc-ledger/WRONG.md")
     run_cli(
         bad_repo,
@@ -1668,7 +1880,16 @@ def test_verdict_requires_expected_artifact_path_and_kind(tmp_path: Path) -> Non
     assert session_why["target_type"] == "session"
     message_why = data(run_cli(tmp_path, "why", message_id))
     assert message_why["target_type"] == "message"
-    run_cli(tmp_path, "ack", "--session-id", reviewer, "--message-id", message_id, "--lease-id", lease_id)
+    run_cli(
+        tmp_path,
+        "ack",
+        "--session-id",
+        reviewer,
+        "--message-id",
+        message_id,
+        "--lease-id",
+        lease_id,
+    )
     write_artifact(tmp_path, "docs/reviews/rfc-ledger/codex/WRONG.md")
     artifact = data(
         run_cli(
@@ -1749,7 +1970,9 @@ def test_blocked_review_verdict_appears_in_status(tmp_path: Path) -> None:
     assert any(job["workflow_job_id"] == "findings_ledger" for job in checkpoint["affected_jobs"])
     assert "resume_or_requeue_affected_work" in checkpoint["unblock_path"]
     assert status["latest_non_accepting_review_verdicts"][0]["verdict"] == "needs_revision"
-    assert any(job["workflow_job_id"] == "findings_ledger" for job in status["blocked_downstream_jobs"])
+    assert any(
+        job["workflow_job_id"] == "findings_ledger" for job in status["blocked_downstream_jobs"]
+    )
     assert "resolve_human_checkpoint" in status["next_actions"]
 
 
@@ -1893,7 +2116,16 @@ def test_why_resolves_blocker_artifact_and_verdict(tmp_path: Path) -> None:
     reviewer = register(tmp_path, run_id, "reviewer", "codex")
     packet = claim(tmp_path, reviewer)
     job_id, message_id, lease_id = packet_ids(packet)
-    run_cli(tmp_path, "ack", "--session-id", reviewer, "--message-id", message_id, "--lease-id", lease_id)
+    run_cli(
+        tmp_path,
+        "ack",
+        "--session-id",
+        reviewer,
+        "--message-id",
+        message_id,
+        "--lease-id",
+        lease_id,
+    )
     write_artifact(tmp_path, "docs/reviews/rfc-ledger/codex/RFC_LEDGER_REVIEW.md")
     artifact = data(
         run_cli(
@@ -1934,7 +2166,9 @@ def test_why_resolves_blocker_artifact_and_verdict(tmp_path: Path) -> None:
     assert blocker["related_verdict"]["verdict"] == "needs_revision"
     assert blocker["human_checkpoint"]["decision_required"].startswith("Human decision required")
     assert "review_related_verdict_and_artifact" in blocker["human_checkpoint"]["unblock_path"]
-    assert any(job["workflow_job_id"] == "findings_ledger" for job in blocker["blocked_downstream_jobs"])
+    assert any(
+        job["workflow_job_id"] == "findings_ledger" for job in blocker["blocked_downstream_jobs"]
+    )
     artifact_why = data(run_cli(tmp_path, "why", str(artifact["artifact_id"])))
     assert artifact_why["target_type"] == "artifact"
     assert artifact_why["verdicts"][0]["verdict_id"] == verdict["verdict_id"]
@@ -2199,7 +2433,9 @@ def test_run_summary_export_writes_compact_note(tmp_path: Path) -> None:
 def test_recovery_stale_leases_reports_repo_write_policy(tmp_path: Path) -> None:
     run_id = prepare_started_run(tmp_path)
     author = register(tmp_path, run_id, "author", "codex")
-    packet = data(run_cli(tmp_path, "claim-next", "--session-id", author, "--lease-seconds", "-1"))["packet"]
+    packet = data(run_cli(tmp_path, "claim-next", "--session-id", author, "--lease-seconds", "-1"))[
+        "packet"
+    ]
     assert isinstance(packet, dict)
     job_id, _message_id, lease_id = packet_ids(packet)
     recovery = data(run_cli(tmp_path, "recovery", "stale-leases", "--run-id", run_id))
@@ -2216,7 +2452,9 @@ def test_recovery_stale_leases_reports_repo_write_policy(tmp_path: Path) -> None
 def test_recovery_requeue_stale_rejects_repo_write_jobs(tmp_path: Path) -> None:
     run_id = prepare_started_run(tmp_path)
     author = register(tmp_path, run_id, "author", "codex")
-    packet = data(run_cli(tmp_path, "claim-next", "--session-id", author, "--lease-seconds", "-1"))["packet"]
+    packet = data(run_cli(tmp_path, "claim-next", "--session-id", author, "--lease-seconds", "-1"))[
+        "packet"
+    ]
     assert isinstance(packet, dict)
     job_id, _message_id, _lease_id = packet_ids(packet)
 
@@ -2247,7 +2485,9 @@ def test_recovery_requeue_stale_allows_review_only_jobs(tmp_path: Path) -> None:
     )
 
     reviewer = register(tmp_path, run_id, "reviewer", "codex")
-    packet = data(run_cli(tmp_path, "claim-next", "--session-id", reviewer, "--lease-seconds", "-1"))["packet"]
+    packet = data(
+        run_cli(tmp_path, "claim-next", "--session-id", reviewer, "--lease-seconds", "-1")
+    )["packet"]
     assert isinstance(packet, dict)
     job_id, _message_id, lease_id = packet_ids(packet)
 
@@ -2287,7 +2527,9 @@ def test_submit_review_publishes_artifact_and_applies_gate(tmp_path: Path) -> No
     reviewer = register(tmp_path, run_id, "reviewer", "codex")
     packet = claim(tmp_path, reviewer)
     job_id, _message_id, lease_id = packet_ids(packet)
-    write_artifact(tmp_path, "docs/reviews/rfc-ledger/codex/RFC_LEDGER_REVIEW.md", text="needs revision\n")
+    write_artifact(
+        tmp_path, "docs/reviews/rfc-ledger/codex/RFC_LEDGER_REVIEW.md", text="needs revision\n"
+    )
     submitted = data(
         run_cli(
             tmp_path,
@@ -2418,7 +2660,9 @@ def test_workflow_lane_constraints_validate_and_appear_in_packets(tmp_path: Path
     workflow_path = temporary_workflow(tmp_path, workflow)
     init_repo(tmp_path)
     run_cli(tmp_path, "workflow", "validate", str(workflow_path))
-    run_id = str(data(run_cli(tmp_path, "run", "prepare", "--workflow", str(workflow_path)))["run_id"])
+    run_id = str(
+        data(run_cli(tmp_path, "run", "prepare", "--workflow", str(workflow_path)))["run_id"]
+    )
     run_cli(tmp_path, "branch", "confirm", "--run-id", run_id, "--branch", "striatum/v1-test")
     run_cli(tmp_path, "run", "start", "--run-id", run_id)
     author = register(tmp_path, run_id, "author", "codex")
@@ -2448,7 +2692,9 @@ def test_workflow_lane_constraints_validate_and_appear_in_packets(tmp_path: Path
     invalid_codex = invalid_lanes["codex"]
     assert isinstance(invalid_codex, dict)
     invalid_codex["constraints"] = {"network": "maybe"}
-    rejected = run_cli(tmp_path, "workflow", "validate", str(temporary_workflow(tmp_path, invalid)), check=False)
+    rejected = run_cli(
+        tmp_path, "workflow", "validate", str(temporary_workflow(tmp_path, invalid)), check=False
+    )
     assert rejected["returncode"] == 8
 
     unmet = example_workflow()
@@ -2458,7 +2704,9 @@ def test_workflow_lane_constraints_validate_and_appear_in_packets(tmp_path: Path
     assert isinstance(unmet_codex, dict)
     unmet_codex["constraints"] = {"network": "forbidden"}
     unmet_codex["required_enforcement"] = {"network": "enforced"}
-    rejected = run_cli(tmp_path, "workflow", "validate", str(temporary_workflow(tmp_path, unmet)), check=False)
+    rejected = run_cli(
+        tmp_path, "workflow", "validate", str(temporary_workflow(tmp_path, unmet)), check=False
+    )
     assert rejected["returncode"] == 8
     error = rejected["error"]
     assert isinstance(error, dict)
@@ -2470,7 +2718,9 @@ def test_workflow_lane_constraints_validate_and_appear_in_packets(tmp_path: Path
     undeclared_codex = undeclared_lanes["codex"]
     assert isinstance(undeclared_codex, dict)
     undeclared_codex["required_enforcement"] = {"network": "advisory"}
-    rejected = run_cli(tmp_path, "workflow", "validate", str(temporary_workflow(tmp_path, undeclared)), check=False)
+    rejected = run_cli(
+        tmp_path, "workflow", "validate", str(temporary_workflow(tmp_path, undeclared)), check=False
+    )
     assert rejected["returncode"] == 8
     error = rejected["error"]
     assert isinstance(error, dict)
@@ -2520,7 +2770,9 @@ def test_process_adapter_runs_configured_command_and_records_metadata(tmp_path: 
     process_id = str(result["process_id"])
     assert (tmp_path / "adapter-ran.txt").read_text(encoding="utf-8") == process_id
     scratch_packet = Path(str(result["scratch_path"])) / "packet.json"
-    assert json.loads(scratch_packet.read_text(encoding="utf-8"))["packet_id"] == packet["packet_id"]
+    assert (
+        json.loads(scratch_packet.read_text(encoding="utf-8"))["packet_id"] == packet["packet_id"]
+    )
 
     conn = sqlite3.connect(tmp_path / ".striatum" / "state.sqlite3")
     try:
@@ -2540,8 +2792,15 @@ def test_process_adapter_runs_configured_command_and_records_metadata(tmp_path: 
         ).fetchall()
     finally:
         conn.close()
-    assert row == (process_id, "exited", 0, json.dumps(codex["command"], sort_keys=True, separators=(",", ":")))
-    process_events = [event for event in events if json.loads(event[1]).get("process_id") == process_id]
+    assert row == (
+        process_id,
+        "exited",
+        0,
+        json.dumps(codex["command"], sort_keys=True, separators=(",", ":")),
+    )
+    process_events = [
+        event for event in events if json.loads(event[1]).get("process_id") == process_id
+    ]
     assert [event[0] for event in process_events] == [
         "process.starting",
         "process.started",
@@ -2588,9 +2847,25 @@ def test_process_adapter_scrubs_proxy_env_when_network_forbidden(tmp_path: Path)
     env["HTTPS_PROXY"] = "http://proxy.example:3128"
     env["http_proxy"] = "http://proxy.example:3128"
     proc = subprocess.run(
-        [sys.executable, "-m", "striatum.cli", "--repo", str(tmp_path),
-         "adapter", "run", "--session-id", author, "--lease-id", lease_id, "--json"],
-        cwd=tmp_path, env=env, text=True, capture_output=True, check=True,
+        [
+            sys.executable,
+            "-m",
+            "striatum.cli",
+            "--repo",
+            str(tmp_path),
+            "adapter",
+            "run",
+            "--session-id",
+            author,
+            "--lease-id",
+            lease_id,
+            "--json",
+        ],
+        cwd=tmp_path,
+        env=env,
+        text=True,
+        capture_output=True,
+        check=True,
     )
     result = json.loads(proc.stdout)["data"]
     assert result["exit_code"] == 0
@@ -2607,7 +2882,9 @@ def test_process_adapter_scrubs_proxy_env_when_network_forbidden(tmp_path: Path)
 def test_branch_confirm_reports_records_only_and_mismatch(tmp_path: Path) -> None:
     init_repo(tmp_path)
     subprocess.run(["git", "init"], cwd=tmp_path, check=True, capture_output=True)
-    subprocess.run(["git", "checkout", "-b", "actual"], cwd=tmp_path, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "checkout", "-b", "actual"], cwd=tmp_path, check=True, capture_output=True
+    )
     prepared = data(run_cli(tmp_path, "run", "prepare", "--workflow", str(WORKFLOW)))
     confirmed = data(
         run_cli(
@@ -2631,9 +2908,14 @@ def test_branch_confirm_reports_records_only_and_mismatch(tmp_path: Path) -> Non
 def _git_init_repo(repo: Path, initial_branch: str = "main") -> None:
     """Initialize a git repo with at least one commit so checkout is unambiguous."""
     subprocess.run(["git", "init"], cwd=repo, check=True, capture_output=True)
-    subprocess.run(["git", "checkout", "-b", initial_branch], cwd=repo, check=True, capture_output=True)
     subprocess.run(
-        ["git", "config", "user.email", "test@example.com"], cwd=repo, check=True, capture_output=True
+        ["git", "checkout", "-b", initial_branch], cwd=repo, check=True, capture_output=True
+    )
+    subprocess.run(
+        ["git", "config", "user.email", "test@example.com"],
+        cwd=repo,
+        check=True,
+        capture_output=True,
     )
     subprocess.run(
         ["git", "config", "user.name", "Test"], cwd=repo, check=True, capture_output=True
@@ -2844,7 +3126,9 @@ def test_declared_cycle_policy_requires_root_review_cycles(tmp_path: Path) -> No
     workflow = json.loads(fixture.read_text(encoding="utf-8"))
     workflow["review_revision_policy"] = {"root_review_needs_revision": "declared_cycle"}
     init_repo(tmp_path)
-    rejected = run_cli(tmp_path, "workflow", "validate", str(temporary_workflow(tmp_path, workflow)), check=False)
+    rejected = run_cli(
+        tmp_path, "workflow", "validate", str(temporary_workflow(tmp_path, workflow)), check=False
+    )
     assert rejected["returncode"] == 8
     error = rejected["error"]
     assert isinstance(error, dict)
@@ -2863,7 +3147,9 @@ def test_declared_cycle_policy_requires_root_review_cycles(tmp_path: Path) -> No
             "role_id": "ledger",
             "lane_id": "codex",
             "objective": "Anchor source for declared_cycle root review cycles.",
-            "task_prompt": {"path": "examples/rfc-0014-operational-artifact-home/prompts/findings_ledger.md"},
+            "task_prompt": {
+                "path": "examples/rfc-0014-operational-artifact-home/prompts/findings_ledger.md"
+            },
             "write_scope": {
                 "mode": "repo_write",
                 "repo_write": True,
@@ -2892,12 +3178,29 @@ def test_declared_cycle_policy_requires_root_review_cycles(tmp_path: Path) -> No
             job["needs"] = ["anchor"]
     workflow["cycles"].extend(
         [
-            {"from": "review_claude", "to": "anchor", "on_verdict": "needs_revision", "max_iterations": 1},
-            {"from": "review_codex", "to": "anchor", "on_verdict": "needs_revision", "max_iterations": 1},
-            {"from": "review_gemini", "to": "anchor", "on_verdict": "needs_revision", "max_iterations": 1},
+            {
+                "from": "review_claude",
+                "to": "anchor",
+                "on_verdict": "needs_revision",
+                "max_iterations": 1,
+            },
+            {
+                "from": "review_codex",
+                "to": "anchor",
+                "on_verdict": "needs_revision",
+                "max_iterations": 1,
+            },
+            {
+                "from": "review_gemini",
+                "to": "anchor",
+                "on_verdict": "needs_revision",
+                "max_iterations": 1,
+            },
         ]
     )
-    valid = data(run_cli(tmp_path, "workflow", "validate", str(temporary_workflow(tmp_path, workflow))))
+    valid = data(
+        run_cli(tmp_path, "workflow", "validate", str(temporary_workflow(tmp_path, workflow)))
+    )
     assert valid["workflow_id"] == "rfc-0014-operational-artifact-home"
 
 
@@ -2925,9 +3228,7 @@ def test_doctor_flags_orphaned_message_and_lease_pointers(tmp_path: Path) -> Non
     assert any(
         f"job current_message_id is inconsistent: {job_id}" == problem for problem in problems
     )
-    assert any(
-        f"job current_lease_id is inconsistent: {job_id}" == problem for problem in problems
-    )
+    assert any(f"job current_lease_id is inconsistent: {job_id}" == problem for problem in problems)
 
 
 def test_doctor_flags_active_session_on_completed_run(tmp_path: Path) -> None:
@@ -2945,8 +3246,7 @@ def test_doctor_flags_active_session_on_completed_run(tmp_path: Path) -> None:
     doctor = data(run_cli(tmp_path, "doctor", "--run-id", run_id))
     assert doctor["ok"] is False
     assert any(
-        problem == f"active session on terminal run: {session_id}"
-        for problem in doctor["problems"]
+        problem == f"active session on terminal run: {session_id}" for problem in doctor["problems"]
     )
 
 
@@ -3009,8 +3309,7 @@ def test_doctor_flags_open_blocker_on_canceled_run(tmp_path: Path) -> None:
     doctor = data(run_cli(tmp_path, "doctor", "--run-id", run_id))
     assert doctor["ok"] is False
     assert any(
-        problem == f"open blocker on terminal run: {blocker_id}"
-        for problem in doctor["problems"]
+        problem == f"open blocker on terminal run: {blocker_id}" for problem in doctor["problems"]
     )
 
 
@@ -3031,8 +3330,7 @@ def test_doctor_flags_stale_queue_message_claim(tmp_path: Path) -> None:
     doctor = data(run_cli(tmp_path, "doctor", "--run-id", run_id))
     assert doctor["ok"] is False
     assert any(
-        problem == f"queue message has stale claim: {message_id}"
-        for problem in doctor["problems"]
+        problem == f"queue message has stale claim: {message_id}" for problem in doctor["problems"]
     )
 
 
@@ -3200,6 +3498,7 @@ def test_events_for_process_does_not_leak_across_runs(tmp_path: Path) -> None:
     payload_b = json.loads(events_b[0]["payload_json"])
     assert payload_b["process_id"] == process_b
 
+
 def _minimal_validation_workflow() -> dict[str, Any]:
     """Return a tiny valid workflow shape used as a base for validation tests."""
     return {
@@ -3210,11 +3509,20 @@ def _minimal_validation_workflow() -> dict[str, Any]:
         "branch": {"mode": "confirm", "suggested_name": "wf/validation", "allow_dirty": False},
         "coordinator": {"role_id": "author", "lane_id": "lane_a"},
         "lanes": {
-            "lane_a": {"adapter": "process", "display_model": "X", "command": ["echo"], "capabilities": ["write"]},
+            "lane_a": {
+                "adapter": "process",
+                "display_model": "X",
+                "command": ["echo"],
+                "capabilities": ["write"],
+            },
         },
         "roles": {"author": {"definition_path": "roles/author.md"}},
         "context_docs": [],
-        "parallelism": {"mode": "declared", "max_active_jobs": 1, "require_disjoint_write_scopes": True},
+        "parallelism": {
+            "mode": "declared",
+            "max_active_jobs": 1,
+            "require_disjoint_write_scopes": True,
+        },
         "jobs": [],
         "edges": [],
         "cycles": [],
@@ -3248,7 +3556,12 @@ def test_workflow_validation_rejects_cross_job_artifact_path_collision() -> None
                 "forbidden_paths": [".striatum/"],
             },
             "expected_artifacts": [
-                {"logical_name": "draft", "kind": "handoff", "path": "docs/output/SHARED.md", "required": True}
+                {
+                    "logical_name": "draft",
+                    "kind": "handoff",
+                    "path": "docs/output/SHARED.md",
+                    "required": True,
+                }
             ],
         },
         {
@@ -3266,7 +3579,12 @@ def test_workflow_validation_rejects_cross_job_artifact_path_collision() -> None
                 "forbidden_paths": [".striatum/"],
             },
             "expected_artifacts": [
-                {"logical_name": "draft", "kind": "handoff", "path": "docs/output/SHARED.md", "required": True}
+                {
+                    "logical_name": "draft",
+                    "kind": "handoff",
+                    "path": "docs/output/SHARED.md",
+                    "required": True,
+                }
             ],
         },
     ]
@@ -3326,7 +3644,12 @@ def test_workflow_validation_rejects_artifact_path_outside_write_scope() -> None
                 "forbidden_paths": [".striatum/"],
             },
             "expected_artifacts": [
-                {"logical_name": "out", "kind": "handoff", "path": "docs/elsewhere/OUT.md", "required": True}
+                {
+                    "logical_name": "out",
+                    "kind": "handoff",
+                    "path": "docs/elsewhere/OUT.md",
+                    "required": True,
+                }
             ],
         },
     ]
@@ -3358,7 +3681,12 @@ def test_workflow_validation_rejects_unsound_cycle_target() -> None:
                 "forbidden_paths": [".striatum/"],
             },
             "expected_artifacts": [
-                {"logical_name": "draft", "kind": "handoff", "path": "docs/output/DRAFT.md", "required": True}
+                {
+                    "logical_name": "draft",
+                    "kind": "handoff",
+                    "path": "docs/output/DRAFT.md",
+                    "required": True,
+                }
             ],
         },
         {
@@ -3376,7 +3704,12 @@ def test_workflow_validation_rejects_unsound_cycle_target() -> None:
                 "forbidden_paths": [".striatum/"],
             },
             "expected_artifacts": [
-                {"logical_name": "review", "kind": "finding", "path": "docs/reviews/REVIEW.md", "required": True}
+                {
+                    "logical_name": "review",
+                    "kind": "finding",
+                    "path": "docs/reviews/REVIEW.md",
+                    "required": True,
+                }
             ],
         },
         {
@@ -3394,7 +3727,12 @@ def test_workflow_validation_rejects_unsound_cycle_target() -> None:
                 "forbidden_paths": [".striatum/"],
             },
             "expected_artifacts": [
-                {"logical_name": "applied", "kind": "handoff", "path": "docs/applied/APPLIED.md", "required": True}
+                {
+                    "logical_name": "applied",
+                    "kind": "handoff",
+                    "path": "docs/applied/APPLIED.md",
+                    "required": True,
+                }
             ],
         },
     ]
@@ -3457,7 +3795,12 @@ def test_workflow_validation_rejects_mixed_repo_write_modes_in_parallel_group() 
                 "forbidden_paths": [".striatum/"],
             },
             "expected_artifacts": [
-                {"logical_name": "review", "kind": "finding", "path": "docs/reviews/B.md", "required": True}
+                {
+                    "logical_name": "review",
+                    "kind": "finding",
+                    "path": "docs/reviews/B.md",
+                    "required": True,
+                }
             ],
         },
     ]
@@ -3487,7 +3830,12 @@ def test_workflow_validation_warns_on_deprecated_needs() -> None:
                 "forbidden_paths": [".striatum/"],
             },
             "expected_artifacts": [
-                {"logical_name": "draft", "kind": "handoff", "path": "docs/output/D.md", "required": True}
+                {
+                    "logical_name": "draft",
+                    "kind": "handoff",
+                    "path": "docs/output/D.md",
+                    "required": True,
+                }
             ],
             "needs": [],
         },
@@ -3511,7 +3859,9 @@ def test_code_change_flow_runs_through_revision_cycle(tmp_path: Path) -> None:
     init_repo(tmp_path)
     valid = data(run_cli(tmp_path, "workflow", "validate", str(CODE_CHANGE_WORKFLOW)))
     assert valid["workflow_id"] == "code-change-flow"
-    run_id = str(data(run_cli(tmp_path, "run", "prepare", "--workflow", str(CODE_CHANGE_WORKFLOW)))["run_id"])
+    run_id = str(
+        data(run_cli(tmp_path, "run", "prepare", "--workflow", str(CODE_CHANGE_WORKFLOW)))["run_id"]
+    )
     run_cli(tmp_path, "branch", "confirm", "--run-id", run_id, "--branch", "wf/code-change-test")
     run_cli(tmp_path, "run", "start", "--run-id", run_id)
 
@@ -3538,7 +3888,16 @@ def test_code_change_flow_runs_through_revision_cycle(tmp_path: Path) -> None:
     assert next_packet["job"]["workflow_job_id"] == "draft_change"
     assert next_packet["job"]["attempt"] == 2
     next_job_id, next_message_id, next_lease_id = packet_ids(next_packet)
-    run_cli(tmp_path, "ack", "--session-id", next_author, "--message-id", next_message_id, "--lease-id", next_lease_id)
+    run_cli(
+        tmp_path,
+        "ack",
+        "--session-id",
+        next_author,
+        "--message-id",
+        next_message_id,
+        "--lease-id",
+        next_lease_id,
+    )
     write_artifact(tmp_path, "src/example/draft.py", text="revised draft\n")
     run_cli(
         tmp_path,
@@ -3556,12 +3915,32 @@ def test_code_change_flow_runs_through_revision_cycle(tmp_path: Path) -> None:
         "--path",
         "src/example/draft.py",
     )
-    run_cli(tmp_path, "complete", "--session-id", next_author, "--job-id", next_job_id, "--lease-id", next_lease_id)
+    run_cli(
+        tmp_path,
+        "complete",
+        "--session-id",
+        next_author,
+        "--job-id",
+        next_job_id,
+        "--lease-id",
+        next_lease_id,
+    )
 
     next_reviewer = register(tmp_path, run_id, "reviewer", "codex")
     next_review_packet = claim(tmp_path, next_reviewer)
-    next_review_job_id, next_review_message_id, next_review_lease_id = packet_ids(next_review_packet)
-    run_cli(tmp_path, "ack", "--session-id", next_reviewer, "--message-id", next_review_message_id, "--lease-id", next_review_lease_id)
+    next_review_job_id, next_review_message_id, next_review_lease_id = packet_ids(
+        next_review_packet
+    )
+    run_cli(
+        tmp_path,
+        "ack",
+        "--session-id",
+        next_reviewer,
+        "--message-id",
+        next_review_message_id,
+        "--lease-id",
+        next_review_lease_id,
+    )
     write_artifact(tmp_path, "docs/code-change/REVIEW.md", text="accept\n")
     next_review_artifact = data(
         run_cli(
@@ -3611,11 +3990,17 @@ def test_code_change_flow_runs_through_revision_cycle(tmp_path: Path) -> None:
     assert status["runs"][0]["state"] == "completed"
 
 
-def test_failed_review_cycle_routes_to_human_checkpoint_after_max_iterations(tmp_path: Path) -> None:
+def test_failed_review_cycle_routes_to_human_checkpoint_after_max_iterations(
+    tmp_path: Path,
+) -> None:
     init_repo(tmp_path)
     valid = data(run_cli(tmp_path, "workflow", "validate", str(FAILED_REVIEW_WORKFLOW)))
     assert valid["workflow_id"] == "failed-review-revision-cycle"
-    run_id = str(data(run_cli(tmp_path, "run", "prepare", "--workflow", str(FAILED_REVIEW_WORKFLOW)))["run_id"])
+    run_id = str(
+        data(run_cli(tmp_path, "run", "prepare", "--workflow", str(FAILED_REVIEW_WORKFLOW)))[
+            "run_id"
+        ]
+    )
     run_cli(tmp_path, "branch", "confirm", "--run-id", run_id, "--branch", "wf/failed-review-test")
     run_cli(tmp_path, "run", "start", "--run-id", run_id)
 
@@ -3641,7 +4026,16 @@ def test_failed_review_cycle_routes_to_human_checkpoint_after_max_iterations(tmp
     next_author = register(tmp_path, run_id, "author", "codex")
     next_packet = claim(tmp_path, next_author)
     next_job_id, next_message_id, next_lease_id = packet_ids(next_packet)
-    run_cli(tmp_path, "ack", "--session-id", next_author, "--message-id", next_message_id, "--lease-id", next_lease_id)
+    run_cli(
+        tmp_path,
+        "ack",
+        "--session-id",
+        next_author,
+        "--message-id",
+        next_message_id,
+        "--lease-id",
+        next_lease_id,
+    )
     write_artifact(tmp_path, "src/example/draft.py", text="revised draft\n")
     run_cli(
         tmp_path,
@@ -3659,12 +4053,32 @@ def test_failed_review_cycle_routes_to_human_checkpoint_after_max_iterations(tmp
         "--path",
         "src/example/draft.py",
     )
-    run_cli(tmp_path, "complete", "--session-id", next_author, "--job-id", next_job_id, "--lease-id", next_lease_id)
+    run_cli(
+        tmp_path,
+        "complete",
+        "--session-id",
+        next_author,
+        "--job-id",
+        next_job_id,
+        "--lease-id",
+        next_lease_id,
+    )
 
     next_reviewer = register(tmp_path, run_id, "reviewer", "codex")
     next_review_packet = claim(tmp_path, next_reviewer)
-    next_review_job_id, next_review_message_id, next_review_lease_id = packet_ids(next_review_packet)
-    run_cli(tmp_path, "ack", "--session-id", next_reviewer, "--message-id", next_review_message_id, "--lease-id", next_review_lease_id)
+    next_review_job_id, next_review_message_id, next_review_lease_id = packet_ids(
+        next_review_packet
+    )
+    run_cli(
+        tmp_path,
+        "ack",
+        "--session-id",
+        next_reviewer,
+        "--message-id",
+        next_review_message_id,
+        "--lease-id",
+        next_review_lease_id,
+    )
     write_artifact(tmp_path, "docs/failed-review/REVIEW.md", text="second revision request\n")
     second_review_artifact = data(
         run_cli(
@@ -3771,9 +4185,7 @@ def test_workflow_init_writes_validating_template(tmp_path: Path) -> None:
     review_dir = tmp_path / "examples" / "starter-review"
     code_change_dir = tmp_path / "examples" / "starter-code-change"
 
-    minimal = data(
-        run_cli(tmp_path, "workflow", "init", "--style", "minimal", str(minimal_dir))
-    )
+    minimal = data(run_cli(tmp_path, "workflow", "init", "--style", "minimal", str(minimal_dir)))
     assert minimal["status"] == "created"
     assert minimal["style"] == "minimal"
     assert (minimal_dir / "workflow.json").exists()
@@ -3812,9 +4224,7 @@ def test_workflow_init_writes_validating_template(tmp_path: Path) -> None:
     assert cycles[0]["on_verdict"] == "needs_revision"
 
     for path in (minimal_dir, review_dir, code_change_dir):
-        validated = data(
-            run_cli(tmp_path, "workflow", "validate", str(path / "workflow.json"))
-        )
+        validated = data(run_cli(tmp_path, "workflow", "validate", str(path / "workflow.json")))
         assert validated["valid"] is True
 
     # Refuses to overwrite an existing path; surface the error envelope so
@@ -3851,7 +4261,9 @@ def test_human_checkpoint_flow_records_owner_decision_and_unblocks_downstream(
             "run_id"
         ]
     )
-    run_cli(tmp_path, "branch", "confirm", "--run-id", run_id, "--branch", "wf/human-checkpoint-test")
+    run_cli(
+        tmp_path, "branch", "confirm", "--run-id", run_id, "--branch", "wf/human-checkpoint-test"
+    )
     run_cli(tmp_path, "run", "start", "--run-id", run_id)
 
     author = register(tmp_path, run_id, "author", "local")
@@ -4026,9 +4438,7 @@ def test_adapter_unavailable_flow_rejects_at_validation(tmp_path: Path) -> None:
     # Lowering the requirement to ``advisory_strict`` makes the same workflow
     # validate cleanly. We mutate a copy of the fixture into a tmp path to
     # avoid touching the on-disk fixture itself.
-    workflow_payload = json.loads(
-        ADAPTER_UNAVAILABLE_WORKFLOW.read_text(encoding="utf-8")
-    )
+    workflow_payload = json.loads(ADAPTER_UNAVAILABLE_WORKFLOW.read_text(encoding="utf-8"))
     workflow_payload["lanes"]["local"]["required_enforcement"] = {
         "network": "advisory_strict",
     }

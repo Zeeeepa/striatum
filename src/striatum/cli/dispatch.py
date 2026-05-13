@@ -310,6 +310,8 @@ def dispatch(args: argparse.Namespace) -> object:
             repo=repo,
             force=bool(args.force),
             dry_run=bool(args.dry_run),
+            add_phases=bool(args.add_phases),
+            apply=bool(args.apply),
         )
     if args.command == "workflow" and args.workflow_command == "templates":
         from striatum.workflow_generator.catalog import get_template, list_templates
