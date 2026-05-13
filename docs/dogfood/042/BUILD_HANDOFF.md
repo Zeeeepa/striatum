@@ -17,9 +17,9 @@ authoritative implementation record for each track.
 
 | Track | Scope | RFC(s) | Build verdict (codex / claude / gemini) | Override |
 |-------|-------|--------|------------------------------------------|----------|
-| A     | Go daemon Steps 1+2 (foundation) | RFC 0039 V1 Steps 1+2 | needs_revision / accept_with_findings / accept_with_findings | D094 (operator) |
+| A     | Go daemon Steps 1+2 (foundation) | RFC 0039 V1 Steps 1+2 | needs_revision / accept_with_findings / accept_with_findings | D095 (operator) |
 | B     | Engram Phase 1 implementation spec | RFC 0044 (draft) | accept / accept / accept | none |
-| C     | Repo-local state to Postgres spec | RFC 0042 (draft) | needs_revision / accept / accept_with_findings | D095 (operator) |
+| C     | Repo-local state to Postgres spec | RFC 0042 (draft) | needs_revision / accept / accept_with_findings | D096 (operator) |
 
 All three tracks landed under run `run_8bd11d0dd1a043948d6190a3ec1de000`.
 Tracks B and C are RFC-only (no source-tree mutation); Track A ships
@@ -84,13 +84,13 @@ Documentation:
 
 ### Build verdicts
 
-- codex (build_review): **needs_revision** — overridden per D094.
+- codex (build_review): **needs_revision** — overridden per D095.
   Codex/codex implementer+reviewer pairing converged on the same
   blind spots (anti-pattern; see TODO item 26).
 - claude (build_review): **accept_with_findings**.
 - gemini (build_review): **accept_with_findings**.
 
-Per D094 (`dec_b75d66f38a3d40228891248c91a27774`,
+Per D095 (`dec_b75d66f38a3d40228891248c91a27774`,
 `accepted_with_follow_up`), 2-of-3 reviewers accept_with_findings and
 the codex findings fold into RFC 0039 V1.5 (TODO item 24).
 
@@ -163,12 +163,12 @@ Source HANDOFF: [`track_c/build/HANDOFF.md`](track_c/build/HANDOFF.md)
 
 ### Build verdicts
 
-- codex (build_review): **needs_revision** — overridden per D095.
+- codex (build_review): **needs_revision** — overridden per D096.
   Same codex/codex implementer+reviewer anti-pattern as Track A.
 - claude (build_review): **accept**.
 - gemini (build_review): **accept_with_findings**.
 
-Per D095 (`dec_b81a0ec524964a518ed90c0ae5826408`,
+Per D096 (`dec_b81a0ec524964a518ed90c0ae5826408`,
 `accepted_with_follow_up`), 2-of-3 reviewers accept-equivalent and the
 codex findings absorb into the future RFC 0042 V1 implementation
 dogfood (TODO item 22).
@@ -194,7 +194,7 @@ note. This is deferred to the RFC 0042 V1 implementation dogfood.
 ## Cross-Track Findings & Anti-Pattern
 
 The codex/codex implementer+reviewer cycle-exhaustion pattern recurred
-twice in this run (D094, D095). The reviewer's findings clustered
+twice in this run (D095, D096). The reviewer's findings clustered
 around the same blind spots the implementer had, producing apparent
 "needs_revision" verdicts where the other two reviewers
 (claude, gemini) returned accept-equivalent. The pattern was already
@@ -210,7 +210,7 @@ Phase 2 (a future dogfood) is expected to:
 1. Land RFC 0042 V1 (repo-local state → Postgres) so the Go core has
    a single canonical substrate (TODO item 22).
 2. Address RFC 0039 V1.5 build review findings — codex / claude /
-   gemini — per D094 (TODO item 24).
+   gemini — per D095 (TODO item 24).
 3. Land RFC 0039 Steps 3-6: CLI integration, mutating verbs,
    supervised processes, distribution (TODO item 25).
 4. Land the harness improvement forbidding codex/codex
@@ -226,8 +226,8 @@ Phase 2 (a future dogfood) is expected to:
   [Track A glue](track_a/build/glue/HANDOFF.md) ·
   [Track B](track_b/build/HANDOFF.md) ·
   [Track C](track_c/build/HANDOFF.md)
-- Decisions: [D094](decisions/D094_cycle_exhaustion_track_a.md) ·
-  [D095](decisions/D095_cycle_exhaustion_track_c.md)
+- Decisions: [D095](decisions/D095_cycle_exhaustion_track_a.md) ·
+  [D096](decisions/D096_cycle_exhaustion_track_c.md)
 - RFCs:
   [0039](../../rfcs/0039-go-daemon-core.md) ·
   [0042](../../rfcs/0042-repo-local-state-to-postgres.md) ·

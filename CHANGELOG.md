@@ -31,36 +31,35 @@
   read-only retrieval tools, Engram-local `memory.*` capabilities,
   and a hard augmentation-not-dependency boundary. RFC text only;
   implementation lands via a future dogfood.
-- Track C (dogfood-042): RFC 0042 drafted to move authoritative live
-  workflow state from per-repository `.striatum/state.sqlite3` into
-  daemon Postgres keyed by `repository_id`. Eighteen application
-  tables migrate, `striatum daemon migrate-repo-local --from sqlite
-  --to pg --repo <path>` migration verb, daemon-unavailable refusal
-  behavior, audit-chain preservation, and a revision to RFC 0039
-  scope so the Go core assumes Postgres-only repo-local state.
-  Supersedes D006/D007/D028 per D093. RFC text only; implementation
-  lands via a future dogfood.
+- Track C (dogfood-042): repo-local-state-to-Postgres design work
+  superseded by main's RFC 0043 (Postgres as Sole Substrate and
+  Daemon-Required Runtime, accepted via D094) which landed during this
+  dogfood from the parallel session. Track C dogfood artifacts (3
+  designs + synthesis + 3 reviews + decision) retained under
+  `docs/dogfood/042/track_c/` as historical provenance; the draft
+  `docs/rfcs/0042-repo-local-state-to-postgres.md` is NOT shipped
+  (collides with main's RFC 0042 number, scope absorbed by RFC 0043).
 
 ### Decided
 
-- D094: Cycle-exhaustion override for Track A Go daemon build.
+- D095: Cycle-exhaustion override for Track A Go daemon build.
   2-of-3 reviewers accept_with_findings (claude, gemini); codex
   needs_revision overridden because the codex/codex
   implementer+reviewer pairing converged on its own findings. Codex
   findings absorbed into RFC 0039 V1.5 follow-up (TODO item 24).
   Follow-up: forbid codex/codex implementer+reviewer pairs in the
   workflow validator (TODO item 26).
-- D095: Cycle-exhaustion override for Track C RFC 0042 build.
+- D096: Cycle-exhaustion override for Track C build review.
   2-of-3 reviewers accept-equivalent (claude accept, gemini
   accept_with_findings); codex needs_revision overridden because the
-  same codex/codex anti-pattern recurred and the RFC is design-shape.
-  Codex findings absorbed into the future RFC 0042 V1 implementation
-  dogfood (TODO item 22).
+  same codex/codex anti-pattern recurred. Track C's repo-local-PG
+  design intent is absorbed by main's RFC 0043; the draft RFC file is
+  not shipped.
 
 ### Notes
 
 - The dogfood-042 multi-phase workflow with three parallel tracks
-  completed with two cycle-exhaustion overrides (D094 Track A, D095
+  completed with two cycle-exhaustion overrides (D095 Track A, D096
   Track C). The `consolidate_phase_1` job was cascaded into
   cancellation; the operator wrote this changelog entry, the
   `docs/rfcs/README.md` index updates, the `docs/TODO.md` follow-ups,

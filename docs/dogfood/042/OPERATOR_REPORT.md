@@ -73,14 +73,14 @@ All sessions `--fresh` per established pattern.
   - Track B (Engram RFC): all 3 accept (codex/claude/gemini).
   - Track C (PG RFC): codex `needs_revision`, claude `accept`, gemini `accept_with_findings`. Codex's needs_revision triggered iteration 2 (spawned `draft_pg_rfc_codex_a2`).
 - Stuck-claim recovery: 5 of 6 stuck claimed reviews recovered via `submit-review` (the design-review trap from intervention 6 was avoided — used the right CLI verb). Gemini's `informational` verdict_intent failed schema validation (not in the v1 enum); operator hand-edited to `accept_with_findings` and resubmitted.
-- Cycle-exhaustion override: codex/codex implementer+reviewer pairing produced revisable feedback that 2-of-3 cross-lane reviewers disagreed with. Recorded D094 (Track A) and D095 (Track C); `override-verdict` on `review_go_build_codex` and `review_pg_rfc_codex` from `needs_revision` to `accept_with_findings`. `recovery cancel-job --cascade` on the attempt-2 jobs.
+- Cycle-exhaustion override: codex/codex implementer+reviewer pairing produced revisable feedback that 2-of-3 cross-lane reviewers disagreed with. Recorded D095 (Track A) and D096 (Track C); `override-verdict` on `review_go_build_codex` and `review_pg_rfc_codex` from `needs_revision` to `accept_with_findings`. `recovery cancel-job --cascade` on the attempt-2 jobs.
 - **Cascade quirk**: cancelling `draft_pg_rfc_codex_a2 --cascade` cascaded into `consolidate_phase_1` (the codex implementer for consolidate was downstream of the cancelled review attempt's blocked_by entry). Result: run state went to `completed` but consolidate didn't run.
 
 ### Intervention 10: Manual consolidate
 - 2026-05-13 ~04:50 — operator dispatched a sub-agent to do the consolidate_phase_1 work manually:
   - `docs/rfcs/README.md` — RFC 0042 + 0044 entries added; RFC 0039 bumped to `accepted (V1 Steps 1+2 implemented)`.
   - `docs/TODO.md` — 5 new items (RFC 0042 V1 impl, RFC 0044 V1 impl, RFC 0039 V1.5, Phase 2 Steps 3-6, harness validator rule for codex/codex pairing).
-  - `CHANGELOG.md` — Unreleased Added/Decided/Notes covering 3 tracks, D094, D095, consolidate cancellation note.
+  - `CHANGELOG.md` — Unreleased Added/Decided/Notes covering 3 tracks, D095, D096, consolidate cancellation note.
   - `docs/dogfood/042/BUILD_HANDOFF.md` (new, 236 lines) — cross-track synthesis with verdict table and Phase 2 absorption.
   - `docs/dogfood/042/PHASE_1_OPERATOR_NOTES.md` (new, 171 lines) — operator narrative.
 
@@ -91,7 +91,7 @@ All sessions `--fresh` per established pattern.
   - Go daemon Steps 1+2 implemented (codex `go/` + claude harness/docs glue).
   - RFC 0044 drafted (Engram Phase 1 implementation spec).
   - RFC 0042 drafted (repo-local state to Postgres; supersedes D006/D007/D028 per D093).
-  - D094 + D095 decision artifacts (cycle exhaustion overrides).
+  - D095 + D096 decision artifacts (cycle exhaustion overrides).
 - **Anti-patterns observed** (captured as harness improvements):
   - Lease-expires-after-finished (5 distinct instances): wrapper alive, inner agent exited at ack step; operator publishes-on-behalf.
   - `complete` ≠ `submit-review`: completing a review without registering a verdict requires SQL surgery to recover. Resolved by always using `submit-review` for review jobs.

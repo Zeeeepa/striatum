@@ -266,7 +266,7 @@ Legend: ✅ done · 🟡 most done (sub-tasks remain) · ⏳ open
 
 22. **Implement RFC 0042 V1 (repo-local state to Postgres).** RFC drafted
     under dogfood-042 Track C; build review 2-of-3 accept-equivalent
-    (codex needs_revision overridden per D095, claude accept, gemini
+    (codex needs_revision overridden per D096, claude accept, gemini
     accept_with_findings). Implementation lands: eighteen application
     tables in daemon Postgres keyed by `repository_id`, composite-key
     rules, `striatum daemon migrate-repo-local --from sqlite --to pg
@@ -286,11 +286,11 @@ Legend: ✅ done · 🟡 most done (sub-tasks remain) · ⏳ open
     not-dependency boundary (Striatum runs with Engram unavailable).
 
 24. **RFC 0039 V1.5: address Track A build review findings.** Cycle-
-    exhaustion override per D094 (decision
+    exhaustion override per D095 (decision
     `dec_b75d66f38a3d40228891248c91a27774`). 2-of-3 reviewers
     accept_with_findings (claude, gemini); codex needs_revision
     overridden because the codex/codex implementer+reviewer pairing
-    converged on its own findings (anti-pattern documented in D094
+    converged on its own findings (anti-pattern documented in D095
     follow-up). Land the codex / claude / gemini findings deltas via
     a future dogfood folded into Phase 2.
 
@@ -303,8 +303,8 @@ Legend: ✅ done · 🟡 most done (sub-tasks remain) · ⏳ open
 
 26. **Harness improvement: forbid codex/codex implementer+reviewer
     pairing in workflow validator.** Cycle-exhaustion observed twice
-    in a single run (dogfood-042 Track A per D094; dogfood-042 Track C
-    per D095). When the implementer and a reviewer are both the same
+    in a single run (dogfood-042 Track A per D095; dogfood-042 Track C
+    per D096). When the implementer and a reviewer are both the same
     model (codex+codex specifically observed), the reviewer's
     findings cluster around the implementer's same blind spots,
     producing apparent "needs_revision" verdicts that 2-of-3 majority

@@ -62,11 +62,11 @@ Two of the three tracks hit cycle exhaustion on build review and
 required operator override:
 
 - **Track A** — codex `needs_revision` overridden per
-  [D094](decisions/D094_cycle_exhaustion_track_a.md). 2-of-3
+  [D095](decisions/D095_cycle_exhaustion_track_a.md). 2-of-3
   reviewers (claude, gemini) returned `accept_with_findings`. Codex
   findings absorbed into RFC 0039 V1.5.
 - **Track C** — codex `needs_revision` overridden per
-  [D095](decisions/D095_cycle_exhaustion_track_c.md). 2-of-3
+  [D096](decisions/D096_cycle_exhaustion_track_c.md). 2-of-3
   reviewers (claude accept, gemini accept_with_findings) returned
   accept-equivalent. Codex findings absorbed into the future RFC
   0042 V1 implementation dogfood.
@@ -100,7 +100,7 @@ The `consolidate_phase_1` job sat downstream of all three tracks'
 build jobs. When Track A and Track C build verdicts came in as
 `needs_revision`, the job's dependency state cascaded into
 cancellation rather than proceeding past unresolved review verdicts.
-The operator overrides (D094, D095) landed as durable decision
+The operator overrides (D095, D096) landed as durable decision
 artifacts but did not retroactively reverse the cascade.
 
 To complete the run, the operator manually wrote the artifacts that
@@ -114,7 +114,7 @@ To complete the run, the operator manually wrote the artifacts that
    V1.5, 25 Phase 2 Steps 3-6, 26 workflow validator harness
    improvement). Items 20 and 21 remain pending.
 3. `CHANGELOG.md` — Unreleased block describing all three tracks,
-   D094, D095, and a note that the consolidate_phase_1 job was
+   D095, D096, and a note that the consolidate_phase_1 job was
    cascaded into cancellation.
 4. `docs/dogfood/042/BUILD_HANDOFF.md` — cross-track build handoff
    synthesizing the four per-track HANDOFF.md artifacts (Track A
