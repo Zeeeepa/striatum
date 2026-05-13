@@ -26,6 +26,22 @@ jobs:
         with:
           python-version: "3.12"
 
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+
+      - name: Cross-compile Go daemon (4 platforms)
+        # RFC 0039 Phase 2 Step 6: produce per-platform striatumd binaries
+        # under src/striatum/_daemongo/binaries/ so the wheel ships them
+        # via package-data. Release-time only; CI's PR workflow does not
+        # cross-compile.
+        run: make daemon-go-release
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: striatumd-binaries
+          path: src/striatum/_daemongo/binaries/
+
       - name: Verify tag matches pyproject version
         run: |
           python - <<'PY'

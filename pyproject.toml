@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "striatum-orchestrator"
-version = "1.38.0"
+version = "1.39.0"
 description = "Local-first orchestration for terminal-based AI coding agents"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -53,6 +53,7 @@ striatumd = "striatum.daemon:main"
 "striatum.scaffold.templates" = ["*.md.tmpl", "**/*.md.tmpl"]
 "striatum.daemon_pg.sql" = ["*.sql"]
 "striatum.workflow_templates" = ["*.json"]
+"striatum._daemongo" = ["binaries/*"]
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]

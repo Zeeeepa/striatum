@@ -1,0 +1,75 @@
+package mcp
+
+import (
+	"context"
+	"fmt"
+
+	"github.com/halbritt/striatum/go/pkg/rpc"
+)
+
+type Service struct {
+	RPC        *rpc.Server
+	Authorizer rpc.Authorizer
+}
+
+func (s Service) ToolsList(ctx context.Context, params map[string]any, token string) map[string]any {
+	repositoryID, _ := params["repository_id"].(string)
+	authorizer := s.Authorizer
+	if authorizer == nil && s.RPC != nil {
+		authorizer = s.RPC.Authorizer
+	}
+	if authorizer == nil {
+		authorizer = rpc.AllowAllAuthorizer{}
+	}
+	return map[string]any{"tools": VisibleTools(ctx, authorizer, token, repositoryID)}
+}
+
+func (s Service) ToolsCall(ctx context.Context, name string, arguments map[string]any, token string, requestID string) map[string]any {
+	if s.RPC == nil {
+		return toolResult(name, false, "", "daemon RPC server is not configured", nil)
+	}
+	envelope := rpc.Envelope{
+		SchemaVersion:   rpc.SupportedEnvelopeVersion,
+		RequestID:       requestID,
+		Method:          name,
+		Params:          arguments,
+		CapabilityToken: token,
+	}
+	response := s.RPC.HandleWithoutHandshake(ctx, envelope, "mcp")
+	if response.OK {
+		return toolResult(name, true, "", "", response.Data)
+	}
+	code := "command_failed"
+	message := ""
+	if response.Data != nil {
+		if value, ok := response.Data["code"].(string); ok {
+			code = value
+		}
+		if value, ok := response.Data["message"].(string); ok {
+			message = value
+		}
+	}
+	return toolResult(name, false, code, message, response.Data)
+}
+
+func toolResult(name string, ok bool, code string, message string, data map[string]any) map[string]any {
+	structured := map[string]any{
+		"ok":       ok,
+		"method":   name,
+		"audit_id": nil,
+	}
+	if data != nil {
+		structured["data"] = data
+	}
+	if code != "" {
+		structured["error"] = code
+	}
+	if message != "" {
+		structured["error_message"] = message
+	}
+	return map[string]any{
+		"content":           []map[string]string{{"type": "text", "text": fmt.Sprint(name)}},
+		"structuredContent": structured,
+		"isError":           !ok,
+	}
+}

@@ -9,7 +9,7 @@ CORE ?= python
 # when invoked from a Claude Code worktree (or any other cwd).
 MAKEFILE_DIR := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
 
-.PHONY: install lint typecheck pg-test test-multi-repo metadata-check package-smoke smoke check release-check ui-install ui-update-lock ui-audit ui-build ui-dev ui-test ui-bundle-hash ui-check-bundle ui-verify-bundle daemon-go-build daemon-go-test daemon-go-lint
+.PHONY: install lint typecheck pg-test test-multi-repo metadata-check package-smoke smoke check release-check ui-install ui-update-lock ui-audit ui-build ui-dev ui-test ui-bundle-hash ui-check-bundle ui-verify-bundle daemon-go-build daemon-go-test daemon-go-lint daemon-go-install daemon-go-release
 
 $(PYTHON):
 	python3 -m venv $(VENV)
@@ -75,6 +75,25 @@ daemon-go-test:
 
 daemon-go-lint:
 	$(MAKE) -C "$(MAKEFILE_DIR)/go" lint
+
+# RFC 0039 Phase 2 Step 6: copy the host-platform Go binary into the in-tree
+# wheel package-data path so a local `pip install -e .` install picks it up
+# via striatum._daemongo.find_binary().
+daemon-go-install: daemon-go-build
+	mkdir -p "$(MAKEFILE_DIR)/src/striatum/_daemongo/binaries"
+	cp "$(MAKEFILE_DIR)/go/bin/striatumd" \
+	   "$(MAKEFILE_DIR)/src/striatum/_daemongo/binaries/striatumd-$$(python3 -c 'import sys, platform; print(f"{sys.platform}-{platform.machine()}")')"
+
+# RFC 0039 Phase 2 Step 6: cross-compile all four target platforms and stage
+# them under the wheel package-data tree. The release pipeline runs this
+# before `python -m build`.
+daemon-go-release:
+	$(MAKE) -C "$(MAKEFILE_DIR)/go" release
+	mkdir -p "$(MAKEFILE_DIR)/src/striatum/_daemongo/binaries"
+	cp "$(MAKEFILE_DIR)/go/bin/striatumd-linux-amd64"  "$(MAKEFILE_DIR)/src/striatum/_daemongo/binaries/striatumd-linux-x86_64"
+	cp "$(MAKEFILE_DIR)/go/bin/striatumd-linux-arm64"  "$(MAKEFILE_DIR)/src/striatum/_daemongo/binaries/striatumd-linux-aarch64"
+	cp "$(MAKEFILE_DIR)/go/bin/striatumd-darwin-amd64" "$(MAKEFILE_DIR)/src/striatum/_daemongo/binaries/striatumd-darwin-x86_64"
+	cp "$(MAKEFILE_DIR)/go/bin/striatumd-darwin-arm64" "$(MAKEFILE_DIR)/src/striatum/_daemongo/binaries/striatumd-darwin-arm64"
 
 pg-test: $(VENV)/.installed
 	$(PYTHON) -m pytest tests/test_daemon_pg.py -q

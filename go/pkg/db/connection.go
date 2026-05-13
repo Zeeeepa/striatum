@@ -115,6 +115,10 @@ func (r PgxRunner) QueryRow(ctx context.Context, sql string, args ...any) Row {
 	return r.Pool.QueryRow(ctx, sql, args...)
 }
 
+func (r PgxRunner) Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error) {
+	return r.Pool.Query(ctx, sql, args...)
+}
+
 func (r PgxRunner) QueryScalar(ctx context.Context, sql string, args ...any) (string, error) {
 	var value string
 	err := r.Pool.QueryRow(ctx, sql, args...).Scan(&value)
@@ -147,6 +151,10 @@ func (t *PgxTxRunner) Exec(ctx context.Context, sql string, args ...any) error {
 
 func (t *PgxTxRunner) QueryRow(ctx context.Context, sql string, args ...any) Row {
 	return t.Tx.QueryRow(ctx, sql, args...)
+}
+
+func (t *PgxTxRunner) Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error) {
+	return t.Tx.Query(ctx, sql, args...)
 }
 
 func (t *PgxTxRunner) QueryScalar(ctx context.Context, sql string, args ...any) (string, error) {

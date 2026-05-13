@@ -448,6 +448,17 @@ Legend: ✅ done · 🟡 most done (sub-tasks remain) · ⏳ open
     curated artifacts) are forwarded to the Engram-side
     implementation effort.
 
+32. **Queue Engram-side tenant-aware RFC 0044 Phase 1.** Striatum-side export
+    is already done under dogfood-046 and remains the only in-repo shipped
+    surface. The external Engram follow-up at `~/git/engram/` should implement
+    the tenant-aware Phase 1 contract from RFC 0044: `tenant_id` as the local
+    application-memory boundary, `corpus_id` as the workload/dataset boundary,
+    `engram ingest-striatum --bundle <dir> [--repo <name>]`, read-only
+    `engram-mcp-stdio`, and capability tests proving default Striatum operator
+    access is restricted to the Striatum tenant/corpus while existing personal
+    memory remains isolated. This is queued external work; do not add Engram
+    ingester or MCP code to Striatum.
+
 24. ~~**RFC 0039 V1.5: address Track A build review findings.** Cycle-
     exhaustion override per D095 (decision
     `dec_b75d66f38a3d40228891248c91a27774`). 2-of-3 reviewers

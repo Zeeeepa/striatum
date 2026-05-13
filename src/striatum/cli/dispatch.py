@@ -886,11 +886,9 @@ def _dispatch_daemon(args: argparse.Namespace) -> object:
 
         return dispatch_daemon(args)
     if args.daemon_command == "start":
-        return daemon_mod.run_daemon_foreground(
-            sweep_interval_seconds=float(args.sweep_interval_seconds),
-            max_sweeps=args.max_sweeps,
-            postgres_url=getattr(args, "postgres_url", None),
-        )
+        from striatum.cli.daemon import launch_daemon_start
+
+        return launch_daemon_start(args)
     if args.daemon_command == "doctor":
         from striatum.daemon_pg.connection import doctor as pg_doctor
 

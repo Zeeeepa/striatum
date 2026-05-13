@@ -1,5 +1,100 @@
 # Changelog
 
+## v1.39.0 — 2026-05-13
+
+### Added
+
+- RFC 0039 Phase 2 — Go daemon completion (Steps 3-6) landed under
+  dogfood-049 as a two-track split (Track A codex / Track B claude).
+  The Go daemon now ships in the wheel, is selectable via
+  `striatum daemon start --core go`, exposes the RFC 0043 method
+  vocabulary, and has a Go-side supervisor lifecycle scaffold.
+
+  Track A (codex implementer, 90% natural):
+  - `go/pkg/rpc/registry.go` expanded to the RFC 0043 canonical dotted
+    method vocabulary (`session.register`, `work.*`, `artifact.publish`,
+    `review.*`, `decision.record`, `checkpoint.resolve`, `recovery.*`,
+    `worktree.*`, `branch.confirm`, `run.*`, `workflow.*`). Legacy
+    undotted aliases registered + deprecated.
+  - `go/pkg/apply/{receipt.go,service.go}` — apply receipt lookup +
+    fail-closed sealed-apply skeleton (cryptographic verification is
+    V1.6 follow-up per gemini F2).
+  - `go/pkg/mcp/{capabilities.go,tools.go}` — capability-filtered tool
+    visibility + `tools/call` dispatch through Go RPC server.
+  - `go/pkg/crossrepo/{prepare.go,lifecycle.go}` — cross-repo lifecycle
+    helpers over Postgres.
+  - `go/cmd/striatumd/main.go` wired to register apply + cross-repo
+    handlers + stable fail-closed handlers for the broader mutation
+    surface (deterministic `not_implemented` instead of
+    `method_unknown`).
+  - `src/striatum/cli/daemon.py` — `daemon start --core {python,go}`
+    with `STRIATUM_DAEMON_CORE` env default. Go binary resolver order:
+    packaged `_daemongo` → `STRIATUMD_GO_BIN` → `go/bin/striatumd` →
+    PATH.
+  - `src/striatum/cli/parser.py` — `--core` flag on `daemon start`.
+
+  Track B (claude implementer stalled, operator-driven):
+  - `go/pkg/supervisor/pointer.go` — `PointerStore` interface +
+    `PointerRow` mirroring `striatumd.process_supervisor_pointers`;
+    atomic pidfile write under `<scratch>/<supervisor_id>/pid`.
+  - `go/pkg/supervisor/liveness.go` — heartbeat goroutine + dead-PID
+    detection via signal-0 probe + SIGTERM-with-grace cleanup. Defaults
+    5s heartbeat / 30s lost-after / 5s grace-on-term match the Python
+    supervisor.
+  - `go/pkg/supervisor/pty.go` — `LaunchSpec` + non-PTY (pipe) launch
+    path. **PTY branch returns "not wired" sentinel error** — the
+    `creack/pty` integration is V1.6 follow-up.
+  - `go/pkg/supervisor/supervisor_test.go` — table-driven tests
+    (pidfile round-trip, dead-pid lost-detection, empty-command
+    rejection, pipe-mode `/bin/true` launch).
+  - `go/Makefile` — `release-{linux,darwin}-{amd64,arm64}` targets
+    with `CGO_ENABLED=0`.
+  - Top-level `Makefile` — `daemon-go-install` (host-only) and
+    `daemon-go-release` (cross-compile + stage under
+    `src/striatum/_daemongo/binaries/`).
+  - `src/striatum/_daemongo/__init__.py` — `find_binary()` /
+    `platform_slug()` package-data resolver. Returns `None` on sdist
+    or missing platforms; CLI falls through to `STRIATUMD_GO_BIN`.
+  - `pyproject.toml` — `"striatum._daemongo" = ["binaries/*"]` under
+    `[tool.setuptools.package-data]`.
+  - `MANIFEST.in` — `recursive-include src/striatum/_daemongo *`.
+  - `.github/workflows/ci.yml` — `daemon-core: ["python", "go"]`
+    matrix axis as explicit jobs (not in-process parametrization);
+    `STRIATUM_MULTI_REPO_REQUIRE_PG=1` sentinel against all-skipped
+    pass (closes dogfood-047 F3).
+  - `.github/workflows/release.yml` — early `make daemon-go-release`
+    step + `striatumd-binaries` upload artifact + wheel ships binaries
+    via package-data.
+  - `tests/test_daemon_go_supervisor.py` — Python harness scaffold;
+    functional FIFO/heartbeat/SIGTERM assertions deferred to V1.6
+    pending PTY landing.
+
+  Inline operator fix during review phase:
+  - `src/striatum/cli/dispatch.py:888-890` rewired from
+    `run_daemon_foreground(...)` direct call to
+    `launch_daemon_start(args)`. Closes F1 from both codex and claude
+    build reviews (`--core go` was silently inert pre-fix).
+
+### Known follow-ups (V1.6)
+
+- **Full PTY integration on Go supervisor** — fold `creack/pty` into
+  `go.mod`, wire the PTY branch, replace harness scaffold with
+  functional assertions.
+- **Full Go mutation handler suite** — implement every registered RPC
+  method against Postgres-backed repo-local schema (currently most
+  return `not_implemented`).
+- **Apply-receipt cryptographic verification** — replace lookup-only
+  `apply.VerifyReceipt` with signature check (gemini F2).
+- **PID-recycling protection** — pair signal-0 probe with
+  `/proc/<pid>/stat` start-time check (gemini F1).
+- **Tighten scratch-dir perms** to 0700 / 0600 (gemini F3).
+- **`STRIATUM_DAEMON_CORE` operator-clarity** — warn/refuse when env
+  disagrees with explicit `--core` flag (gemini F5).
+- **CI hard-fail on missing Go binary** when `daemon-core=go`
+  (gemini F6).
+- **Concrete Postgres-backed `PointerStore`** under
+  `go/pkg/db/supervisor_pointers.go`.
+
 ## v1.38.0 — 2026-05-13
 
 ### Added

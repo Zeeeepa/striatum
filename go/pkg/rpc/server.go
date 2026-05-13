@@ -51,6 +51,14 @@ func (s *Server) Register(method string, handler Handler) {
 }
 
 func (s *Server) Handle(ctx context.Context, envelope Envelope, connectionID string) Response {
+	return s.handle(ctx, envelope, connectionID, true)
+}
+
+func (s *Server) HandleWithoutHandshake(ctx context.Context, envelope Envelope, connectionID string) Response {
+	return s.handle(ctx, envelope, connectionID, false)
+}
+
+func (s *Server) handle(ctx context.Context, envelope Envelope, connectionID string, requireHandshake bool) Response {
 	auth := AuthContext{RepositoryID: repositoryID(envelope.Params), Decision: "allowed"}
 	if duplicate := s.markRequest(envelope.RequestID); duplicate {
 		return ErrorResponse(envelope.RequestID, NewError("duplicate_request", "daemon RPC request_id was already used", nil), "")
@@ -59,7 +67,7 @@ func (s *Server) Handle(ctx context.Context, envelope Envelope, connectionID str
 	var data map[string]any
 	var err error
 	entry, known := MethodRegistry[envelope.Method]
-	if envelope.Method != "daemon.hello" && !s.hasHandshake(connectionID) {
+	if requireHandshake && envelope.Method != "daemon.hello" && !s.hasHandshake(connectionID) {
 		err = NewError("version_incompatible", "daemon.hello must run before ordinary RPC routes", nil)
 		auth = deniedAuth(auth, "version_incompatible")
 	} else if !known {

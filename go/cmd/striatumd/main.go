@@ -11,6 +11,8 @@ import (
 	"syscall"
 	"time"
 
+	daemonapply "github.com/halbritt/striatum/go/pkg/apply"
+	"github.com/halbritt/striatum/go/pkg/crossrepo"
 	"github.com/halbritt/striatum/go/pkg/db"
 	"github.com/halbritt/striatum/go/pkg/rpc"
 )
@@ -46,6 +48,7 @@ func main() {
 
 	substrateSchema := 0
 	var recorder *db.AuditRecorder
+	var runner db.Runner
 	var authorizer rpc.Authorizer = rpc.AllowAllAuthorizer{}
 	config := db.ResolveConfig(postgresURL)
 	if config.URL != "" {
@@ -65,6 +68,7 @@ func main() {
 			}
 		}
 		defer pool.Close()
+		runner = pool.Runner
 		recorder = &db.AuditRecorder{Runner: pool.Runner, DaemonVersion: daemonVersion}
 		authorizer = &rpc.PostgresAuthorizer{Runner: pool.Runner, Clock: time.Now}
 	}
@@ -76,6 +80,7 @@ func main() {
 	if recorder != nil {
 		server.AuditRecorder = recorder
 	}
+	registerHandlers(server, runner)
 
 	if err := os.MkdirAll(filepath.Dir(socketPath), 0o700); err != nil {
 		log.Fatalf("create socket directory: %v", err)
@@ -88,6 +93,93 @@ func main() {
 	if err := server.Serve(ctx, listener); err != nil && ctx.Err() == nil {
 		log.Fatalf("serve: %v", err)
 	}
+}
+
+func registerHandlers(server *rpc.Server, runner db.Runner) {
+	daemonapply.Service{Runner: runner}.Register(server)
+	registerCrossRepoHandlers(server, runner)
+	for _, method := range []string{
+		"status", "why", "doctor", "dashboard", "dashboard.all",
+		"evidence.export", "corpus.export", "run.summary", "run.graph",
+		"workflow.validate", "workflow.plan", "workflow.graph",
+		"workflow.templates.list", "workflow.templates.show",
+		"workflow.generate.preview", "list.runs", "list.sessions",
+		"list.jobs", "list.artifacts", "list.workflows", "worktree.list",
+		"repo.list", "session.register", "session.close", "work.claim_next",
+		"work.ack", "work.heartbeat", "work.release", "supervise.start",
+		"supervise.send", "supervise.stop", "supervise.status",
+		"supervise.list", "supervise.reattach_status", "work.send_message",
+		"work.block", "work.complete", "artifact.publish", "worktree.create",
+		"worktree.release", "workflow.init", "workflow.generate",
+		"workflow.upgrade", "dogfood.publish_on_behalf", "review.submit",
+		"review.verdict", "review.override", "decision.record",
+		"checkpoint.resolve", "branch.confirm", "run.prepare", "run.start",
+		"run.pause", "run.resume", "run.cancel", "run.retry_job", "repo.init",
+		"recovery.stale_leases", "recovery.requeue_stale",
+		"recovery.cancel_job", "recovery.process_reconcile", "recovery.resume",
+		"recovery.auto", "recovery.watch", "dogfood.surgical_recovery",
+		"repo.add", "repo.remove", "daemon.token.create", "daemon.token.revoke",
+		"daemon.token.rotate", "daemon.key.rotate", "daemon.shutdown",
+		"daemon.migrate", "daemon.migrate_repo_local", "ack", "heartbeat",
+		"release", "block", "complete", "publish_artifact", "claim_next",
+		"verdict", "submit_review",
+	} {
+		if _, exists := server.Handlers[method]; exists {
+			continue
+		}
+		server.Register(method, notImplementedHandler(method))
+	}
+}
+
+func registerCrossRepoHandlers(server *rpc.Server, runner db.Runner) {
+	server.Register("cross_repo.list", func(ctx context.Context, envelope rpc.Envelope) (map[string]any, error) {
+		if runner == nil {
+			return nil, rpc.NewError("daemon_db_missing", "cross-repo routes require daemon PostgreSQL", nil)
+		}
+		return crossrepo.ListRuns(ctx, runner)
+	})
+	server.Register("cross_repo.describe", func(ctx context.Context, envelope rpc.Envelope) (map[string]any, error) {
+		if runner == nil {
+			return nil, rpc.NewError("daemon_db_missing", "cross-repo routes require daemon PostgreSQL", nil)
+		}
+		runID := param(envelope.Params, "cross_repo_run_id")
+		if runID == "" {
+			runID = param(envelope.Params, "run_id")
+		}
+		if runID == "" {
+			return nil, rpc.NewError("schema_invalid", "cross-repo route requires cross_repo_run_id", nil)
+		}
+		return crossrepo.DescribeRun(ctx, runner, runID)
+	})
+	server.Register("cross_repo.why", func(ctx context.Context, envelope rpc.Envelope) (map[string]any, error) {
+		if runner == nil {
+			return nil, rpc.NewError("daemon_db_missing", "cross-repo routes require daemon PostgreSQL", nil)
+		}
+		runID := param(envelope.Params, "cross_repo_run_id")
+		if runID == "" {
+			runID = param(envelope.Params, "run_id")
+		}
+		if runID == "" {
+			return nil, rpc.NewError("schema_invalid", "cross-repo route requires cross_repo_run_id", nil)
+		}
+		return crossrepo.Why(ctx, runner, runID)
+	})
+	server.Register("cross_repo.cancel", func(ctx context.Context, envelope rpc.Envelope) (map[string]any, error) {
+		return nil, rpc.NewError("not_implemented", "cross-repo cancel requires the daemon lifecycle service", nil)
+	})
+}
+
+func notImplementedHandler(method string) rpc.Handler {
+	return func(ctx context.Context, envelope rpc.Envelope) (map[string]any, error) {
+		return nil, rpc.NewError("not_implemented", fmt.Sprintf("%s is registered but not implemented in the Go daemon yet", method), nil)
+	}
+}
+
+func param(params map[string]any, key string) string {
+	if value, ok := params[key].(string); ok {
+		return value
+	}
+	return ""
 }
 
 func defaultSocketPath() string {
