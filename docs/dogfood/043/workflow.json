@@ -1,0 +1,707 @@
+{
+  "schema_version": "striatum.workflow.v1",
+  "workflow_id": "dogfood-043-rfc-0045-multi-phase-impl",
+  "workflow_version": "1",
+  "name": "dogfood-043: implement RFC 0045 multi-phase workflow schema",
+  "context_docs": [
+    "docs/rfcs/0045-multi-phase-workflow-editor-and-schema.md",
+    "docs/rfcs/0034-workflow-generator-and-template-catalog.md",
+    "docs/rfcs/0038-web-ui-feature-additions-and-frontend-toolchain.md",
+    "docs/dogfood/042/PHASE_1_OPERATOR_NOTES.md"
+  ],
+  "coordinator": {
+    "lane": "codex"
+  },
+  "parallelism": {
+    "max_active_jobs": 6
+  },
+  "branch": {
+    "mode": "auto",
+    "suggested_name": "striatum/dogfood-043-rfc-0045"
+  },
+  "lanes": {
+    "codex": {
+      "adapter": "process",
+      "command": [
+        "bash",
+        "-lc",
+        "PYTHONPATH=src python3 -m striatum.cli skills install --profile all --scope user --force --json >/dev/null && export PATH=\"$PWD/.venv/bin:$PATH\" && exec .striatum/bin/codex-supervised-wrapper.sh"
+      ],
+      "model": "codex",
+      "strategy_version": "2026-05-13",
+      "native_delegation": {
+        "mode": "preferred",
+        "instruction": "Use sub-agents aggressively for bounded independent research, review, and code/test/doc authorship. This is a one-shot supervised invocation: you cannot ask the operator a follow-up question. If permission to call `striatum ack` is denied, write the artifact and exit normally; the operator publishes on your behalf."
+      },
+      "feature_flags": {
+        "subagents": "preferred",
+        "skills": "encouraged",
+        "headless_print_mode": "forbidden_for_supervised_lanes",
+        "mcp": "allowed"
+      },
+      "supervision": {
+        "compatible": true,
+        "stdin_format": "newline_delimited_json",
+        "wrapper_required": true
+      }
+    },
+    "claude_code": {
+      "adapter": "process",
+      "command": [
+        "bash",
+        "-lc",
+        "PYTHONPATH=src python3 -m striatum.cli skills install --profile all --scope user --force --json >/dev/null && export PATH=\"$PWD/.venv/bin:$PATH\" && exec .striatum/bin/claude-supervised-wrapper.sh"
+      ],
+      "model": "claude_code",
+      "strategy_version": "2026-05-13",
+      "native_delegation": {
+        "mode": "allowed",
+        "instruction": "Use local sub-agents only for bounded independent work. This is a one-shot supervised invocation: write the artifact in this single call. When writing finding artifacts, ALL FIVE front-matter fields are required: schema_version (exact `striatum.finding.v1`), artifact_kind, verdict_intent, severity, tags. Handoff artifacts need just the plain `author:` byline."
+      },
+      "feature_flags": {
+        "subagents": "allowed",
+        "remote_subagents_a2a": "forbidden",
+        "skills": "allowed",
+        "mcp": "allowed",
+        "native_worktree": "forbidden"
+      },
+      "supervision": {
+        "compatible": "verify_pipe_behavior_first",
+        "stdin_format": "prompt_text",
+        "wrapper_required": true
+      }
+    },
+    "gemini": {
+      "adapter": "process",
+      "command": [
+        "bash",
+        "-lc",
+        "PYTHONPATH=src python3 -m striatum.cli skills install --profile all --scope user --force --json >/dev/null && export PATH=\"$PWD/.venv/bin:$PATH\" && exec .striatum/bin/gemini-supervised-wrapper.sh"
+      ],
+      "model": "gemini",
+      "strategy_version": "2026-05-13",
+      "native_delegation": {
+        "mode": "allowed",
+        "instruction": "Use local sub-agents only for bounded independent work. Reviewer role only \u2014 never implement."
+      },
+      "feature_flags": {
+        "subagents": "allowed",
+        "skills": "allowed",
+        "mcp": "allowed"
+      },
+      "supervision": {
+        "compatible": true,
+        "stdin_format": "prompt_text",
+        "wrapper_required": true
+      }
+    }
+  },
+  "roles": {
+    "coordinator": {
+      "description": "Operator-driven orchestration"
+    },
+    "designer": {
+      "description": "Design + synthesis"
+    },
+    "implementer": {
+      "description": "Code/RFC author"
+    },
+    "reviewer": {
+      "description": "Review with stated posture"
+    }
+  },
+  "jobs": [
+    {
+      "id": "design_python_codex",
+      "type": "design",
+      "title": "Track A (Python core) design \u2014 codex",
+      "role_id": "designer",
+      "lane_id": "codex",
+      "parallel_group": "design_python",
+      "fresh_session_required": true,
+      "objective": "Design the Python-core implementation of RFC 0045: schema_version bump to striatum.workflow.v1.1, phases array, phase_synthesis job type, validator rules (cross-phase deps must go through synthesis), runtime materialization, status reporting. Cite src/striatum/workflow.py existing code. Do NOT design frontend.",
+      "task_prompt": {
+        "path": "docs/dogfood/043/prompts/design_python.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/dogfood/043/design/python/codex/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "codex_python_design",
+          "kind": "handoff",
+          "path": "docs/dogfood/043/design/python/codex/DESIGN.md",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "design_python_claude",
+      "type": "design",
+      "title": "Track A design \u2014 claude",
+      "role_id": "designer",
+      "lane_id": "claude_code",
+      "parallel_group": "design_python",
+      "fresh_session_required": true,
+      "objective": "Design the Python-core implementation of RFC 0045. Same scope as codex; cross-pollinate via synthesis.",
+      "task_prompt": {
+        "path": "docs/dogfood/043/prompts/design_python.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/dogfood/043/design/python/claude_code/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "claude_python_design",
+          "kind": "handoff",
+          "path": "docs/dogfood/043/design/python/claude_code/DESIGN.md",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "design_python_gemini",
+      "type": "design",
+      "title": "Track A design \u2014 gemini",
+      "role_id": "designer",
+      "lane_id": "gemini",
+      "parallel_group": "design_python",
+      "fresh_session_required": true,
+      "objective": "Design the Python-core implementation of RFC 0045. Same scope as codex+claude.",
+      "task_prompt": {
+        "path": "docs/dogfood/043/prompts/design_python.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/dogfood/043/design/python/gemini/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "gemini_python_design",
+          "kind": "handoff",
+          "path": "docs/dogfood/043/design/python/gemini/DESIGN.md",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "synth_python",
+      "type": "build",
+      "title": "Track A synthesis \u2014 codex",
+      "role_id": "designer",
+      "lane_id": "codex",
+      "objective": "Reconcile the 3 Python designs into ONE concrete plan ready to implement.",
+      "task_prompt": {
+        "path": "docs/dogfood/043/prompts/synth_python.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/dogfood/043/"
+        ],
+        "forbidden_paths": [
+          ".striatum/",
+          "docs/dogfood/043/design/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "python_synthesis",
+          "kind": "synthesis",
+          "path": "docs/dogfood/043/DESIGN_SYNTHESIS_python.md",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "design_frontend_codex",
+      "type": "design",
+      "title": "Track B (frontend) design \u2014 codex",
+      "role_id": "designer",
+      "lane_id": "codex",
+      "parallel_group": "design_frontend",
+      "fresh_session_required": true,
+      "objective": "Design the React Flow editor changes for RFC 0045: phase color-banding, cross-phase edge styling, phase metadata side panel, drag-drop respects phase boundaries. Cite src/striatum/web/frontend/ existing code.",
+      "task_prompt": {
+        "path": "docs/dogfood/043/prompts/design_frontend.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/dogfood/043/design/frontend/codex/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "codex_frontend_design",
+          "kind": "handoff",
+          "path": "docs/dogfood/043/design/frontend/codex/DESIGN.md",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "design_frontend_claude",
+      "type": "design",
+      "title": "Track B design \u2014 claude",
+      "role_id": "designer",
+      "lane_id": "claude_code",
+      "parallel_group": "design_frontend",
+      "fresh_session_required": true,
+      "objective": "Design the React Flow editor changes for RFC 0045.",
+      "task_prompt": {
+        "path": "docs/dogfood/043/prompts/design_frontend.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/dogfood/043/design/frontend/claude_code/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "claude_frontend_design",
+          "kind": "handoff",
+          "path": "docs/dogfood/043/design/frontend/claude_code/DESIGN.md",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "design_frontend_gemini",
+      "type": "design",
+      "title": "Track B design \u2014 gemini",
+      "role_id": "designer",
+      "lane_id": "gemini",
+      "parallel_group": "design_frontend",
+      "fresh_session_required": true,
+      "objective": "Design the React Flow editor changes for RFC 0045.",
+      "task_prompt": {
+        "path": "docs/dogfood/043/prompts/design_frontend.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/dogfood/043/design/frontend/gemini/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "gemini_frontend_design",
+          "kind": "handoff",
+          "path": "docs/dogfood/043/design/frontend/gemini/DESIGN.md",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "synth_frontend",
+      "type": "build",
+      "title": "Track B synthesis \u2014 codex",
+      "role_id": "designer",
+      "lane_id": "codex",
+      "objective": "Reconcile the 3 frontend designs into ONE concrete plan.",
+      "task_prompt": {
+        "path": "docs/dogfood/043/prompts/synth_frontend.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/dogfood/043/"
+        ],
+        "forbidden_paths": [
+          ".striatum/",
+          "docs/dogfood/043/design/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "frontend_synthesis",
+          "kind": "synthesis",
+          "path": "docs/dogfood/043/DESIGN_SYNTHESIS_frontend.md",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "review_design_python",
+      "type": "review",
+      "title": "Track A design review (claude, ergonomics_dx)",
+      "role_id": "reviewer",
+      "lane_id": "claude_code",
+      "fresh_session_required": true,
+      "reviewer_context_policy": "fresh",
+      "review_posture": "ergonomics_dx",
+      "objective": "Review the Python-core synthesis. Does the schema bump break v1 workflows? Is the validator output operator-actionable?",
+      "task_prompt": {
+        "path": "docs/dogfood/043/prompts/review_design.md"
+      },
+      "write_scope": {
+        "mode": "review_only_artifact",
+        "repo_write": false,
+        "allowed_paths": [
+          "docs/dogfood/043/review/design/python/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "python_design_review",
+          "kind": "finding",
+          "path": "docs/dogfood/043/review/design/python/REVIEW.md",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "review_design_frontend",
+      "type": "review",
+      "title": "Track B design review (claude, ergonomics_dx)",
+      "role_id": "reviewer",
+      "lane_id": "claude_code",
+      "fresh_session_required": true,
+      "reviewer_context_policy": "fresh",
+      "review_posture": "ergonomics_dx",
+      "objective": "Review the frontend synthesis. Does the color-banding actually help operators? Is the cross-phase edge style discoverable?",
+      "task_prompt": {
+        "path": "docs/dogfood/043/prompts/review_design.md"
+      },
+      "write_scope": {
+        "mode": "review_only_artifact",
+        "repo_write": false,
+        "allowed_paths": [
+          "docs/dogfood/043/review/design/frontend/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "frontend_design_review",
+          "kind": "finding",
+          "path": "docs/dogfood/043/review/design/frontend/REVIEW.md",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "implement_python",
+      "type": "build",
+      "title": "Track A implement (codex Python core)",
+      "role_id": "implementer",
+      "lane_id": "codex",
+      "parallel_group": "implement",
+      "required_review_postures": [
+        "ergonomics_dx"
+      ],
+      "objective": "Implement RFC 0045 Python core per synthesis: schema_version accept v1.1, phases validation, phase_synthesis job type, runtime materialization, status reporting, generator multi_phase shape, workflow upgrade --add-phases. Write tests.",
+      "task_prompt": {
+        "path": "docs/dogfood/043/prompts/implement_python.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "src/striatum/workflow.py",
+          "src/striatum/workflow_generator/",
+          "src/striatum/cli/",
+          "src/striatum/dashboard.py",
+          "src/striatum/service.py",
+          "tests/",
+          "docs/dogfood/043/build/python/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "python_handoff",
+          "kind": "handoff",
+          "path": "docs/dogfood/043/build/python/HANDOFF.md",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "implement_frontend",
+      "type": "build",
+      "title": "Track B implement (claude React Flow editor)",
+      "role_id": "implementer",
+      "lane_id": "claude_code",
+      "parallel_group": "implement",
+      "required_review_postures": [
+        "ergonomics_dx"
+      ],
+      "objective": "Implement RFC 0045 frontend per synthesis: React Flow phase color-bands, cross-phase edge styling, phase metadata side panel, drag-drop respect phase boundaries. Update existing graph island, do NOT touch Python.",
+      "task_prompt": {
+        "path": "docs/dogfood/043/prompts/implement_frontend.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "src/striatum/web/frontend/",
+          "docs/dogfood/043/build/frontend/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "frontend_handoff",
+          "kind": "handoff",
+          "path": "docs/dogfood/043/build/frontend/HANDOFF.md",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "review_build_codex",
+      "type": "review",
+      "title": "Build review (codex, threat_model)",
+      "role_id": "reviewer",
+      "lane_id": "codex",
+      "parallel_group": "build_review",
+      "fresh_session_required": true,
+      "reviewer_context_policy": "fresh",
+      "review_posture": "threat_model",
+      "objective": "Review both implementations under threat_model. Schema-version handling for v1 vs v1.1 backwards-compat, validator output safety.",
+      "task_prompt": {
+        "path": "docs/dogfood/043/prompts/review_build.md"
+      },
+      "write_scope": {
+        "mode": "review_only_artifact",
+        "repo_write": false,
+        "allowed_paths": [
+          "docs/dogfood/043/review/build/codex/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "build_review_codex",
+          "kind": "finding",
+          "path": "docs/dogfood/043/review/build/codex/REVIEW.md",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "review_build_claude",
+      "type": "review",
+      "title": "Build review (claude, ergonomics_dx)",
+      "role_id": "reviewer",
+      "lane_id": "claude_code",
+      "parallel_group": "build_review",
+      "fresh_session_required": true,
+      "reviewer_context_policy": "fresh",
+      "review_posture": "ergonomics_dx",
+      "objective": "Review both implementations under ergonomics_dx. First-time-operator discoverability of multi-phase shape; error messages actionable.",
+      "task_prompt": {
+        "path": "docs/dogfood/043/prompts/review_build.md"
+      },
+      "write_scope": {
+        "mode": "review_only_artifact",
+        "repo_write": false,
+        "allowed_paths": [
+          "docs/dogfood/043/review/build/claude/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "build_review_claude",
+          "kind": "finding",
+          "path": "docs/dogfood/043/review/build/claude/REVIEW.md",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "review_build_gemini",
+      "type": "review",
+      "title": "Build review (gemini, adversarial)",
+      "role_id": "reviewer",
+      "lane_id": "gemini",
+      "parallel_group": "build_review",
+      "fresh_session_required": true,
+      "reviewer_context_policy": "fresh",
+      "review_posture": "threat_model",
+      "objective": "Review both implementations adversarially. Backwards-compat edge cases, malformed v1.1 inputs, frontend prop contract.",
+      "task_prompt": {
+        "path": "docs/dogfood/043/prompts/review_build.md"
+      },
+      "write_scope": {
+        "mode": "review_only_artifact",
+        "repo_write": false,
+        "allowed_paths": [
+          "docs/dogfood/043/review/build/gemini/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "build_review_gemini",
+          "kind": "finding",
+          "path": "docs/dogfood/043/review/build/gemini/REVIEW.md",
+          "required": true
+        }
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "from": "design_python_codex",
+      "to": "synth_python",
+      "on": "completed"
+    },
+    {
+      "from": "design_python_claude",
+      "to": "synth_python",
+      "on": "completed"
+    },
+    {
+      "from": "design_python_gemini",
+      "to": "synth_python",
+      "on": "completed"
+    },
+    {
+      "from": "design_frontend_codex",
+      "to": "synth_frontend",
+      "on": "completed"
+    },
+    {
+      "from": "design_frontend_claude",
+      "to": "synth_frontend",
+      "on": "completed"
+    },
+    {
+      "from": "design_frontend_gemini",
+      "to": "synth_frontend",
+      "on": "completed"
+    },
+    {
+      "from": "synth_python",
+      "to": "review_design_python",
+      "on": "completed"
+    },
+    {
+      "from": "synth_frontend",
+      "to": "review_design_frontend",
+      "on": "completed"
+    },
+    {
+      "from": "review_design_python",
+      "to": "implement_python",
+      "on": "completed"
+    },
+    {
+      "from": "review_design_frontend",
+      "to": "implement_frontend",
+      "on": "completed"
+    },
+    {
+      "from": "implement_python",
+      "to": "review_build_codex",
+      "on": "completed"
+    },
+    {
+      "from": "implement_python",
+      "to": "review_build_claude",
+      "on": "completed"
+    },
+    {
+      "from": "implement_python",
+      "to": "review_build_gemini",
+      "on": "completed"
+    },
+    {
+      "from": "implement_frontend",
+      "to": "review_build_codex",
+      "on": "completed"
+    },
+    {
+      "from": "implement_frontend",
+      "to": "review_build_claude",
+      "on": "completed"
+    },
+    {
+      "from": "implement_frontend",
+      "to": "review_build_gemini",
+      "on": "completed"
+    }
+  ],
+  "cycles": [
+    {
+      "from": "review_design_python",
+      "to": "synth_python",
+      "on_verdict": "needs_revision",
+      "max_iterations": 2
+    },
+    {
+      "from": "review_design_frontend",
+      "to": "synth_frontend",
+      "on_verdict": "needs_revision",
+      "max_iterations": 2
+    },
+    {
+      "from": "review_build_codex",
+      "to": "implement_python",
+      "on_verdict": "needs_revision",
+      "max_iterations": 2,
+      "allow_same_lane": true
+    },
+    {
+      "from": "review_build_claude",
+      "to": "implement_frontend",
+      "on_verdict": "needs_revision",
+      "max_iterations": 2,
+      "allow_same_lane": true
+    }
+  ]
+}
