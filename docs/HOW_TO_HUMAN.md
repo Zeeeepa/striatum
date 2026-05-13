@@ -667,6 +667,70 @@ workflow list supports path/workflow-id search, valid/invalid
 filters, and a last-modified column. Filter preferences are stored
 in browser `localStorage`, not in the repository or SQLite.
 
+### Repository file browser (`/view/`)
+
+Visit `/view/` (no path) for a tree-style repository file browser.
+Click a directory to expand or collapse it; click a file to open it
+in the single-file viewer at `/view/<path>`. The browser uses
+`GET /v1/repo/tree?path=<rel>` for lazy directory expansion, sorts
+directories before files, hides `.git/` and `.striatum/`, and refuses
+paths that try to escape the repository root. The breadcrumb at the
+top of the page links to every ancestor; the filter input narrows
+the visible rows by fuzzy subsequence match. Keyboard navigation:
+ArrowUp/Down move between rows, ArrowRight/Left expand/collapse a
+directory, Enter opens a file or toggles a directory, Home/End jump
+to the first/last loaded row.
+
+### Workflow chooser wizard (`/workflows/new`)
+
+Visit `/workflows/new` to scaffold a new workflow with the
+step-by-step chooser. Step 1 picks the workflow shape (radio cards
+of the bundled RFC 0034 V1 catalog). Step 2 picks a lane set filtered
+by the selected shape's recommendations. Step 3 selects optional
+modifiers; mutually incompatible modifiers self-disable. Step 4 fills
+the required fields (`workflow_id`, `name`, `scaffold_root`,
+`artifact_root`, `branch_suggestion`, optional per-lane commands).
+Step 5 calls `POST /workflows/generate/preview` and renders the
+generated workflow JSON, file list, and any warnings; the preview
+writes nothing on disk and re-runs whenever you edit a step 1–4
+field. Step 6 opens a `<dialog>`-driven operator confirmation; only
+after you accept does the wizard call `POST /workflows/generate` with
+`confirm_write: true`. The local service must be running with
+`--allow-mutations` for the confirm step to succeed.
+
+### Drag-drop workflow graph editor
+
+The Edit affordance on a workflow detail page (now a button next to
+"Run this workflow now", not the muted text link) opens
+`/workflows/edit/<path>`. The page renders a React Flow drag-drop
+graph editor. The left palette adds new jobs from the closed RFC 0034
+block vocabulary (`draft`, `review`, `synthesis`, `implementation`,
+`test`, `human_checkpoint`, `support_ledger`, `evidence_audit`,
+`final_review`). The canvas centre shows the workflow as nodes and
+edges; cycles render with dashed styling. Click a node to select it;
+the right inspector edits the selected job with structured widgets:
+dropdowns for role/lane/type/access scope/context policy, radio sets
+for posture and write-scope mode, multi-select chips for
+`required_review_postures`, repeating-row editors for allowed and
+forbidden paths, and a structured per-row editor for
+`expected_artifacts`. Save calls the existing
+`POST /workflows/edit/<path>` endpoint with the same `If-Match`
+sha256 semantics as before; server-side `validate_workflow()` remains
+authoritative.
+
+### Syntax-highlighted code viewer (`/view/<path>`)
+
+Visiting `/view/<path>` for non-Markdown text files renders a
+syntax-highlighted view via Shiki. Toolbar buttons: Copy (writes the
+file contents to the clipboard, announces "Copied" via a polite live
+region), Wrap (toggles soft wrap; default is no-wrap with internal
+horizontal scroll), and Raw (opens the unhighlighted bytes in a new
+tab with `rel="noopener"`). Files over 500 lines collapse by default
+with an Expand banner. Files over 5 MB skip Shiki entirely and render
+escaped plain text. Markdown files (`.md`) continue to render
+server-side as before; other file types fall through to a
+`<pre>`-fallback when Shiki fails to load.
+
 The doctor page groups structured problem records by kind. Use the
 `Hide problems on terminal runs` toggle to suppress completed,
 failed, or canceled run noise when you are focused on active work.

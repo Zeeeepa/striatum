@@ -1,7 +1,22 @@
 # RFC 0038: Web UI Feature Additions and Frontend Toolchain
 
-Status: proposed
+Status: accepted (V1)
 Date: 2026-05-13
+
+## V1 acceptance status
+
+Accepted under dogfood-041 by the ergonomics-DX design review
+(`docs/dogfood/041/review/design/ergonomics/REVIEW.md`,
+`accept_with_findings`) and implemented in the split-implement build
+phase: `implement_toolchain_codex` ships the Vite/React/TypeScript
+scaffold, Makefile targets, CI bundle-hash gate, web routes, and the
+Edit-affordance promotion; `implement_components_claude` ships the
+four React islands (`tree-browser`, `workflow-chooser`,
+`workflow-graph-editor`, `code-viewer`), the shared utilities and
+prop contract, the Vitest suite, and the contributor-side
+documentation. Bundled JavaScript ships in the Python wheel under
+`src/striatum/web/static/build/`; operator install remains
+pip-only. Decision-log carrier: D092.
 Context:
 [`RFC 0013`](0013-local-web-ui.md),
 [`RFC 0022`](0022-web-ui-redesign.md),

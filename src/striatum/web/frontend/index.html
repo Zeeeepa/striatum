@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <title>Striatum frontend dev shell</title>
+    <link rel="stylesheet" href="/static/base.css" />
+    <link rel="stylesheet" href="/static/app.css" />
+    <style>
+      body {
+        max-width: 1100px;
+        margin: 0 auto;
+        padding: 1.5rem;
+      }
+      section {
+        margin-bottom: 2rem;
+        border: 1px solid var(--border, #d0d7de);
+        border-radius: 6px;
+        padding: 1rem;
+      }
+      section h2 {
+        margin-top: 0;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Striatum frontend dev shell</h1>
+    <p class="muted">
+      This page mounts every RFC 0038 island side by side for local
+      development. Production pages mount one island per page slot via
+      Jinja2 templates. Operator browsers never load this file.
+    </p>
+
+    <section>
+      <h2>Tree browser</h2>
+      <div
+        id="island-tree-browser"
+        data-props='{"rootPath": "", "treeUrl": "/v1/repo/tree"}'
+      ></div>
+    </section>
+
+    <section>
+      <h2>Workflow chooser</h2>
+      <div
+        id="island-workflow-chooser"
+        data-props='{"allowMutations": false, "templatesUrl": "/workflow-templates", "previewUrl": "/workflows/generate/preview", "generateUrl": "/workflows/generate"}'
+      ></div>
+    </section>
+
+    <section>
+      <h2>Workflow graph editor</h2>
+      <div
+        id="island-workflow-graph-editor"
+        data-props='{"path": "examples/workflow.json", "saveUrl": "/workflows/edit/examples/workflow.json", "fallback": false}'
+      ></div>
+      <script id="workflow-data" type="application/json">
+        {"workflow_id": "demo", "jobs": [{"id": "draft_1", "type": "generic"}, {"id": "review_1", "type": "review"}], "edges": [{"from": "draft_1", "to": "review_1", "on": "completed"}]}
+      </script>
+      <script id="workflow-sha256" type="application/json">
+        ""
+      </script>
+    </section>
+
+    <section>
+      <h2>Code viewer</h2>
+      <div
+        id="island-code-viewer"
+        data-props='{"path": "example.py", "language": "python"}'
+      ></div>
+      <pre class="code-pre"><code class="lang-python">def hello():
+    print("Hello, Striatum!")
+</code></pre>
+    </section>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

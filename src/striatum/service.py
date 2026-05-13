@@ -543,6 +543,9 @@ class StriatumServiceHandler(BaseHTTPRequestHandler):
         if path == "/v1/doctor":
             self._handle_doctor(query)
             return
+        if path == "/v1/repo/tree":
+            self._handle_repo_tree(query)
+            return
         if path.startswith("/v1/runs/"):
             self._handle_run_subpath(path[len("/v1/runs/"):], query)
             return
@@ -569,11 +572,17 @@ class StriatumServiceHandler(BaseHTTPRequestHandler):
         if self.state.web_enabled and path.startswith("/chat/"):
             self._render_chat_subpath(path[len("/chat/"):])
             return
+        if self.state.web_enabled and path == "/view":
+            self._render_view_path("")
+            return
         if self.state.web_enabled and path.startswith("/view/"):
             self._render_view_path(path[len("/view/"):])
             return
         if self.state.web_enabled and path == "/workflows":
             self._render_workflows_index_page()
+            return
+        if self.state.web_enabled and path == "/workflows/new":
+            self._render_workflows_new_page()
             return
         if self.state.web_enabled and path.startswith("/workflows/edit/"):
             self._render_workflow_edit_page(path[len("/workflows/edit/"):])
@@ -771,6 +780,19 @@ class StriatumServiceHandler(BaseHTTPRequestHandler):
         if run_id:
             argv.extend(["--run-id", run_id])
         self._handle_invoke(argv)
+
+    def _handle_repo_tree(self, query: dict[str, list[str]]) -> None:
+        from striatum.web.workflows import list_repo_tree
+
+        rel_path = query.get("path", [""])[0]
+        tree = list_repo_tree(self.state.repo, rel_path)
+        if tree is None:
+            self._send_json(
+                404,
+                {"ok": False, "error": {"code": 404, "message": "directory not found"}},
+            )
+            return
+        self._send_json(200, {"ok": True, "data": tree})
 
     def _handle_run_subpath(self, suffix: str, query: dict[str, list[str]]) -> None:
         parts = suffix.split("/")
@@ -1117,6 +1139,15 @@ class StriatumServiceHandler(BaseHTTPRequestHandler):
             ]
             html = _jinja_env().get_template("workflows_index.html").render(
                 workflows=slim,
+            )
+            self._send_html(200, html)
+        except Exception as exc:  # noqa: BLE001
+            self._send_json(500, {"ok": False, "error": {"code": 500, "message": str(exc)}})
+
+    def _render_workflows_new_page(self) -> None:
+        try:
+            html = _jinja_env().get_template("workflow_new.html").render(
+                allow_mutations=self.state.allow_mutations,
             )
             self._send_html(200, html)
         except Exception as exc:  # noqa: BLE001
@@ -2216,7 +2247,11 @@ class StriatumServiceHandler(BaseHTTPRequestHandler):
     def _render_view_path(self, subpath: str) -> None:
         from striatum.web.markdown import render as md_render
         if not subpath:
-            self._send_json(404, {"ok": False, "error": {"code": 404, "message": "missing path"}})
+            try:
+                html = _jinja_env().get_template("view_tree.html").render(root_path="")
+                self._send_html(200, html)
+            except Exception as exc:  # noqa: BLE001
+                self._send_json(500, {"ok": False, "error": {"code": 500, "message": str(exc)}})
             return
         rel = subpath
         if rel.startswith("/") or ".." in Path(rel).parts or "\x00" in rel:

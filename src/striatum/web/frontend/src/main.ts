@@ -1,0 +1,58 @@
+/**
+ * Vite multi-entry root — dev-only shell that mounts every island on the
+ * same page so contributors can `make ui-dev` and click through them.
+ *
+ * Production pages do NOT load this file. Each Jinja2 page slot loads its
+ * island's own production entry instead:
+ *
+ *     <div id="island-<name>" data-props='{...}'></div>
+ *     <script type="module" src="/static/build/island-<name>.js" defer></script>
+ *
+ * The Vite build emits one bundle per `frontend/src/islands/<name>/main.tsx`
+ * entry, plus a shared chunk for React, react-dom, and the helpers under
+ * `frontend/src/shared/`.
+ */
+
+import { createElement } from "react";
+import { mount } from "./shared/mount";
+import "./shared/theme.css";
+
+import TreeBrowser from "./islands/tree-browser";
+import WorkflowChooser from "./islands/workflow-chooser";
+import WorkflowGraphEditor from "./islands/workflow-graph-editor";
+import CodeViewer from "./islands/code-viewer";
+
+import type {
+  CodeViewerProps,
+  TreeBrowserProps,
+  WorkflowChooserProps,
+  WorkflowGraphEditorProps,
+} from "./shared/types";
+
+mount<TreeBrowserProps>({
+  containerId: "island-tree-browser",
+  label: "tree-browser",
+  defaultProps: { rootPath: "" },
+  render: (props) => createElement(TreeBrowser, props),
+});
+
+mount<WorkflowChooserProps>({
+  containerId: "island-workflow-chooser",
+  label: "workflow-chooser",
+  defaultProps: { allowMutations: false },
+  render: (props) => createElement(WorkflowChooser, props),
+});
+
+mount<WorkflowGraphEditorProps>({
+  containerId: "island-workflow-graph-editor",
+  label: "workflow-graph-editor",
+  defaultProps: { path: "", saveUrl: "" },
+  render: (props) => createElement(WorkflowGraphEditor, props),
+});
+
+mount<CodeViewerProps>({
+  containerId: "island-code-viewer",
+  label: "code-viewer",
+  defaultProps: { path: "", language: "plaintext" },
+  render: (props) => createElement(CodeViewer, props),
+});

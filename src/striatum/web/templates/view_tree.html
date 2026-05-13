@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block title %}Repository Browser · Striatum{% endblock %}
+{% block main %}
+<section class="page-section view-tree-page">
+  <header>
+    <p class="breadcrumb"><a href="/">← Home</a></p>
+    <h1>Repository Browser</h1>
+    <p class="run-meta"><span class="muted">Files under the target repository root.</span></p>
+  </header>
+  <div id="island-tree-browser" data-props='{{ {"rootPath": root_path, "treeUrl": "/v1/repo/tree"} | tojson }}'></div>
+</section>
+{% endblock %}
+{% block scripts %}
+<script type="module" src="/static/build/island-tree-browser.js"></script>
+{% endblock %}

@@ -30,6 +30,15 @@ WEB_STATIC_ASSETS = (
     "doctor.js",
     "run_detail.js",
 )
+WEB_BUILD_ASSETS = (
+    "build/island-shared.js",
+    "build/island-tree-browser.js",
+    "build/island-workflow-chooser.js",
+    "build/island-workflow-graph-editor.js",
+    "build/island-code-viewer.js",
+    "build/style.css",
+    "build/manifest.sha256",
+)
 
 
 def _git_init_repo(repo: Path) -> None:
@@ -149,10 +158,15 @@ def test_static_assets_served_when_web_enabled(tmp_path: Path) -> None:
             "workflows_index.js",
             "doctor.js",
             "run_detail.js",
+            "build/island-shared.js",
+            "build/island-tree-browser.js",
         ):
             status_js, headers_js, body_js = _http_get_raw(port, f"/static/{asset_name}")
             assert status_js == 200
-            assert "javascript" in headers_js.get("Content-Type", "")
+            assert (
+                "javascript" in headers_js.get("Content-Type", "")
+                or "text/css" in headers_js.get("Content-Type", "")
+            )
             assert body_js
     finally:
         _stop_service(proc)
@@ -316,7 +330,7 @@ def test_static_assets_no_external_urls() -> None:
 
     pkg = files("striatum.web.static")
     forbidden = re.compile(r"https?://(?!127\.0\.0\.1|localhost|::1)\S*", re.IGNORECASE)
-    for name in WEB_STATIC_ASSETS:
+    for name in (*WEB_STATIC_ASSETS, *WEB_BUILD_ASSETS):
         asset = pkg.joinpath(name)
         text = asset.read_text(encoding="utf-8")
         # Strip CSP/comment lines that legitimately mention http(s):// for
@@ -339,7 +353,7 @@ def test_assets_resolvable_via_importlib_resources() -> None:
     from importlib.resources import files
 
     pkg = files("striatum.web.static")
-    for name in WEB_STATIC_ASSETS:
+    for name in (*WEB_STATIC_ASSETS, *WEB_BUILD_ASSETS):
         asset = pkg.joinpath(name)
         assert asset.is_file(), f"missing bundled asset: {name}"
         assert len(asset.read_bytes()) > 0

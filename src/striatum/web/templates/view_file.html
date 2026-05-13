@@ -14,9 +14,15 @@
   {% if rendered_html %}
   <div class="md-body">{{ rendered_html | safe }}</div>
   {% elif text_body %}
+  <div id="island-code-viewer" data-props='{{ {"path": rel_path, "language": lang} | tojson }}'></div>
   <pre class="code-pre"><code class="lang-{{ lang }}">{{ text_body }}</code></pre>
   {% else %}
   <p class="empty-state">{{ message or "Cannot display this file inline." }}</p>
   {% endif %}
 </section>
+{% endblock %}
+{% block scripts %}
+{% if text_body %}
+<script type="module" src="/static/build/island-code-viewer.js"></script>
+{% endif %}
 {% endblock %}

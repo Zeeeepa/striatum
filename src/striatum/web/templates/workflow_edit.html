@@ -12,6 +12,8 @@
 
   <div id="edit-error-banner" class="edit-error-banner" hidden></div>
 
+  <section id="island-workflow-graph-editor" data-props='{{ {"path": rel_path, "saveUrl": "/workflows/edit/" ~ rel_path, "fallback": true} | tojson }}'></section>
+
   <section id="edit-header"></section>
   <section id="edit-roles"></section>
   <section id="edit-lanes"></section>
@@ -28,4 +30,7 @@
 <script id="workflow-data" type="application/json">{{ workflow_json | safe }}</script>
 <script id="workflow-sha256" type="application/json">"{{ workflow_sha256 }}"</script>
 <script defer src="/static/workflow_edit.js"></script>
+{% endblock %}
+{% block scripts %}
+<script type="module" src="/static/build/island-workflow-graph-editor.js"></script>
 {% endblock %}

@@ -185,6 +185,20 @@ def test_workflows_index_renders(tmp_path: Path) -> None:
         assert b"<time datetime=" in body
         assert b"workflows-index-data" in body
         assert b"/static/workflows_index.js" in body
+        assert b'href="/workflows/new"' in body
+    finally:
+        _stop_service(proc)
+
+
+def test_workflows_new_renders_chooser_island(tmp_path: Path) -> None:
+    _git_init_repo(tmp_path)
+    _striatum_init(tmp_path)
+    proc, port = _spawn_service(tmp_path, "--web")
+    try:
+        status, _, body = _http_get_raw(port, "/workflows/new")
+        assert status == 200
+        assert b'id="island-workflow-chooser"' in body
+        assert b"/static/build/island-workflow-chooser.js" in body
     finally:
         _stop_service(proc)
 

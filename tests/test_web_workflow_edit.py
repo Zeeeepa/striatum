@@ -299,6 +299,8 @@ def test_workflow_detail_has_edit_link(tmp_path: Path) -> None:
     try:
         _, _, body = _http_get_raw(port, "/workflows/examples/workflow.json")
         assert b'href="/workflows/edit/examples/workflow.json"' in body
+        assert b"workflow-edit-button" in body
+        assert b"Run this workflow now" in body
     finally:
         _stop_service(proc)
 
@@ -429,4 +431,3 @@ def test_edit_post_structured_errors_empty_for_unconverted_raise_site(tmp_path: 
         assert payload["error"]["message"]
     finally:
         _stop_service(proc)
-

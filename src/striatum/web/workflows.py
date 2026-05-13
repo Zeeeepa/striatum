@@ -13,7 +13,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-__all__ = ["discover", "load_workflow_at"]
+__all__ = ["discover", "list_repo_tree", "load_workflow_at"]
 
 
 # Directories to skip during the rglob walk. Hidden striatum + git
@@ -180,3 +180,61 @@ def load_workflow_at(repo: Path, rel_path: str) -> dict[str, Any] | None:
     entry["workflow_version"] = data.get("workflow_version")
     entry["data"] = data
     return entry
+
+
+def list_repo_tree(repo: Path, rel_path: str) -> dict[str, Any] | None:
+    """Return a safe, shallow directory listing for the web tree browser.
+
+    The response is repo-relative and hides runner/private implementation
+    state by default. Returns ``None`` for unsafe, hidden, missing, or
+    non-directory paths so the service can choose the HTTP status.
+    """
+    if not isinstance(rel_path, str):
+        return None
+    if rel_path in ("", "."):
+        rel_path = ""
+    if rel_path.startswith("/") or "\x00" in rel_path or ".." in Path(rel_path).parts:
+        return None
+    repo_root = repo.resolve()
+    target = (repo / rel_path).resolve()
+    try:
+        rel_parts = target.relative_to(repo_root).parts
+    except ValueError:
+        return None
+    if any(part in _SKIP_DIRS for part in rel_parts):
+        return None
+    if not target.is_dir():
+        return None
+
+    entries: list[dict[str, Any]] = []
+    try:
+        children = sorted(target.iterdir(), key=lambda p: (not p.is_dir(), p.name.lower()))
+    except OSError:
+        return None
+    for child in children:
+        try:
+            child_parts = child.resolve().relative_to(repo_root).parts
+        except (OSError, ValueError):
+            continue
+        if any(part in _SKIP_DIRS for part in child_parts):
+            continue
+        if child.is_dir():
+            kind = "dir"
+            size = None
+        elif child.is_file():
+            kind = "file"
+            try:
+                size = child.stat().st_size
+            except OSError:
+                size = None
+        else:
+            continue
+        entries.append(
+            {
+                "name": child.name,
+                "path": "/".join(child_parts),
+                "kind": kind,
+                "size": size,
+            }
+        )
+    return {"path": "/".join(rel_parts), "entries": entries}

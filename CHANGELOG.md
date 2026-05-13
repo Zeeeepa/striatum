@@ -2,6 +2,37 @@
 
 ## Unreleased
 
+## 1.30.0 — 2026-05-13
+
+### Added
+
+- RFC 0038 V1 web UI feature additions and frontend toolchain. Vite +
+  React + TypeScript contributor-side toolchain bundled into the wheel
+  via `src/striatum/web/static/build/` (operators stay pip-only). New
+  `make ui-install` / `make ui-build` / `make ui-dev` / `make ui-test`
+  targets. Five user-facing additions: workflow detail's Edit
+  affordance promoted from a muted text link to a button next to "Run
+  this workflow now"; new `/view/` repo file browser with lazy
+  expansion via `GET /v1/repo/tree`; new `/workflows/new` chooser
+  wizard over the RFC 0034 V1 generator endpoints with a
+  `<dialog>`-driven operator confirmation gate; drag-drop React Flow
+  workflow graph editor with structured per-node widgets at
+  `/workflows/edit/<path>`; Shiki-based syntax-highlighted code viewer
+  for non-Markdown files at `/view/<path>` with line numbers, copy,
+  raw link, and wrap toggle. New `docs/FRONTEND_DEVELOPMENT.md`
+  contributor guide. Dark-mode parity inherited from `base.css`.
+- New shared TypeScript prop contract in
+  `src/striatum/web/frontend/src/shared/types.ts` mirroring the
+  workflow validator's closed vocabularies.
+
+### Decided
+
+- D092 (re-cited): supersede D073's implicit "no node toolchain" rule
+  for the contributor-side build path. Operator install remains pip
+  only; bundled JavaScript ships in the wheel under
+  `src/striatum/web/static/build/`. Bundle drift is detected by a
+  committed `manifest.sha256` in CI.
+
 ## 1.29.0 — 2026-05-12
 
 ### Added

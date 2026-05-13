@@ -8,7 +8,7 @@ PYTHON ?= $(VENV)/bin/python
 # when invoked from a Claude Code worktree (or any other cwd).
 MAKEFILE_DIR := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
 
-.PHONY: install lint typecheck pg-test test-multi-repo metadata-check package-smoke smoke check release-check
+.PHONY: install lint typecheck pg-test test-multi-repo metadata-check package-smoke smoke check release-check ui-install ui-build ui-dev ui-test ui-bundle-hash ui-check-bundle
 
 $(PYTHON):
 	python3 -m venv $(VENV)
@@ -28,6 +28,25 @@ typecheck: $(VENV)/.installed
 
 test: $(VENV)/.installed
 	$(PYTHON) -m pytest
+
+ui-install:
+	npm install --prefix "$(MAKEFILE_DIR)/src/striatum/web/frontend"
+
+ui-build:
+	npm run build --prefix "$(MAKEFILE_DIR)/src/striatum/web/frontend"
+	$(MAKE) ui-bundle-hash
+
+ui-dev:
+	npm run dev --prefix "$(MAKEFILE_DIR)/src/striatum/web/frontend"
+
+ui-test:
+	npm run test --prefix "$(MAKEFILE_DIR)/src/striatum/web/frontend"
+
+ui-bundle-hash:
+	python3 -c 'from pathlib import Path; import hashlib; root=Path("$(MAKEFILE_DIR)")/"src/striatum/web/static/build"; files=sorted(p for p in root.rglob("*") if p.is_file() and p.name not in {"__init__.py","manifest.sha256"}); (root/"manifest.sha256").write_text("".join(f"{hashlib.sha256(p.read_bytes()).hexdigest()}  {p.relative_to(root).as_posix()}\n" for p in files), encoding="utf-8")'
+
+ui-check-bundle: ui-build
+	git -C "$(MAKEFILE_DIR)" diff --exit-code -- src/striatum/web/static/build
 
 pg-test: $(VENV)/.installed
 	$(PYTHON) -m pytest tests/test_daemon_pg.py -q
@@ -50,7 +69,7 @@ package-smoke: $(VENV)/.installed
 smoke:
 	scripts/fresh_clone_smoke.sh
 
-check: lint typecheck test metadata-check package-smoke
+check: lint typecheck test ui-check-bundle ui-test metadata-check package-smoke
 
 release-check: check smoke
 

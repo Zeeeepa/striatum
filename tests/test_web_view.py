@@ -36,8 +36,38 @@ def test_view_text_renders_pre(tmp_path: Path) -> None:
     try:
         status, headers, body = _http_get_raw(port, "/view/snippet.py")
         assert status == 200
+        assert b'id="island-code-viewer"' in body
+        assert b"/static/build/island-code-viewer.js" in body
         assert b"<pre" in body
         assert b"def hello" in body
+    finally:
+        _stop_service(proc)
+
+
+def test_view_root_renders_tree_browser_island(tmp_path: Path) -> None:
+    _git_init_repo(tmp_path)
+    _striatum_init(tmp_path)
+    (tmp_path / "doc.md").write_text("# Hello\n", encoding="utf-8")
+    proc, port = _spawn_service(tmp_path, "--web")
+    try:
+        status, headers, body = _http_get_raw(port, "/view/")
+        assert status == 200
+        assert "text/html" in headers.get("Content-Type", "")
+        assert b'id="island-tree-browser"' in body
+        assert b"/static/build/island-tree-browser.js" in body
+    finally:
+        _stop_service(proc)
+
+
+def test_view_root_without_trailing_slash_renders_tree_browser_island(tmp_path: Path) -> None:
+    _git_init_repo(tmp_path)
+    _striatum_init(tmp_path)
+    proc, port = _spawn_service(tmp_path, "--web")
+    try:
+        status, headers, body = _http_get_raw(port, "/view")
+        assert status == 200
+        assert "text/html" in headers.get("Content-Type", "")
+        assert b'id="island-tree-browser"' in body
     finally:
         _stop_service(proc)
 

@@ -296,6 +296,45 @@ def test_service_workflow_generate_writes_when_mutation_gated(tmp_path: Path) ->
         _stop_service(proc)
 
 
+def test_service_repo_tree_lists_safe_directory(tmp_path: Path) -> None:
+    _git_init_repo(tmp_path)
+    _striatum_init(tmp_path)
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "docs" / "readme.md").write_text("# docs\n", encoding="utf-8")
+    (tmp_path / "src").mkdir()
+    proc, port = _spawn_service(tmp_path)
+    try:
+        status, body = _http_get(port, "/v1/repo/tree?path=")
+        assert status == 200
+        assert body["ok"] is True
+        entries = body["data"]["entries"]
+        assert {"name": "docs", "path": "docs", "kind": "dir", "size": None} in entries
+        assert {"name": "src", "path": "src", "kind": "dir", "size": None} in entries
+        assert not any(entry["name"] in {".git", ".striatum"} for entry in entries)
+
+        status, body = _http_get(port, "/v1/repo/tree?path=docs")
+        assert status == 200
+        assert body["data"]["path"] == "docs"
+        assert body["data"]["entries"] == [
+            {"name": "readme.md", "path": "docs/readme.md", "kind": "file", "size": 7}
+        ]
+    finally:
+        _stop_service(proc)
+
+
+def test_service_repo_tree_refuses_hidden_and_traversal(tmp_path: Path) -> None:
+    _git_init_repo(tmp_path)
+    _striatum_init(tmp_path)
+    proc, port = _spawn_service(tmp_path)
+    try:
+        for path in ("/v1/repo/tree?path=.git", "/v1/repo/tree?path=.."):
+            status, body = _http_get(port, path)
+            assert status == 404
+            assert body["ok"] is False
+    finally:
+        _stop_service(proc)
+
+
 # ----- 5. /v1/runs mirrors status -----------------------------------------
 
 

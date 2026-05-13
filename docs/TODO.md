@@ -74,6 +74,7 @@ so external references keep resolving even as items move between sections.
 | F37 | RFC 0035 V1 multi-repo test harness (dogfood-037) | ✅ done |
 | F38 | RFC 0037 V1 web UI ergonomic improvements (dogfood-039) | ✅ done |
 | F39 | RFC 0040 V1 MCP-driven dogfood harness (operator-side slice; dogfood-040) | ✅ done |
+| F40 | RFC 0038 V1 web UI feature additions + frontend toolchain (dogfood-041) | ✅ done |
 
 Legend: ✅ done · 🟡 most done (sub-tasks remain) · ⏳ open
 
@@ -236,10 +237,29 @@ Legend: ✅ done · 🟡 most done (sub-tasks remain) · ⏳ open
     watcher module exists but isn't invoked by daemon supervisor
     lifecycle; (F5) watcher race + signal hardening incomplete; (F6)
     tests cover mocked gating, not end-to-end execution paths. Land
-    via a future dogfood (probably dogfood-044 after the 041/042/043
-    chain). Future harness improvement: avoid same-lane implementer
-    ↔ reviewer pairs to prevent the codex/codex tight-feedback loop
-    observed in dogfood-040 iteration 2.
+    via a future dogfood. Future harness improvement: avoid same-lane
+    implementer ↔ reviewer pairs to prevent the codex/codex tight-
+    feedback loop observed in dogfood-040 iteration 2.
+
+21. **RFC 0038 V1.5 follow-up.** Codex attempt-2 findings (F1-F4)
+    from dogfood-041 build review iteration 2 + gemini attempt-1
+    findings, deferred by cycle-exhaustion override (decision
+    `dec_251e8a5f3d674c409de0dad9eacd5844`): (F1) committed island
+    bundles are placeholder-only assets — `placeholderIslandPlugin`
+    still in `vite.config.ts` masks missing real builds. (F2)
+    `/workflows/new` chooser uses an incompatible catalog and
+    generation API contract: server returns `{"templates": ...}`,
+    React component expects different field shape. (F3) Global
+    `island-shared.js` entry will double-mount islands after a real
+    build because `vite.config.ts` maps `island-shared` to
+    `src/main.ts`. (F4) Vite output semantics conflict with the
+    package-data layout. Plus gemini attempt-1 supply-chain hygiene
+    findings (lockfile + npm audit baseline + dependency tree
+    review). Plus claude attempt-2 medium-severity ergonomics polish.
+    Land via a future dogfood, ideally with the codex/claude split-
+    implementer pattern PLUS an explicit integration handshake (shared
+    prop-contract schema, both implementers cite + validate before
+    publish).
 
 18. **Workflow type and lane catalog chooser.** RFC 0034 V1 ships the
     generator core, package-data catalog, CLI `workflow templates

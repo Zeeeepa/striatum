@@ -14,7 +14,10 @@
       <span class="status-pill status-failed">parse error</span>
       {% endif %}
       <span class="muted">version: <code>{{ workflow.workflow_version or "—" }}</code></span>
-      <a href="/workflows/edit/{{ workflow.path }}" class="muted">Edit</a>
+      <a href="/workflows/edit/{{ workflow.path }}" class="primary-button workflow-edit-button">
+        <svg aria-hidden="true" viewBox="0 0 24 24" class="button-icon"><path d="M4 20h4l11-11-4-4L4 16v4Zm13-13 1-1a1.5 1.5 0 0 0 0-2l-1-1a1.5 1.5 0 0 0-2 0l-1 1 3 3Z" /></svg>
+        Edit
+      </a>
       {% if workflow.status == "valid" %}
       <button type="button" id="run-now-btn" class="primary-button" data-rel-path="{{ workflow.path }}">Run this workflow now</button>
       {% endif %}

@@ -245,6 +245,29 @@ striatum skills install
 striatum serve
 ```
 
+### Web routes (RFC 0013 / 0022 / 0024 / 0038)
+
+`striatum serve --web` exposes a server-rendered Jinja2 UI on the
+same localhost-only origin as the JSON API. RFC 0038 V1 mounts React
+"frontend islands" into specific page slots; the rest of every page
+remains server-rendered. There are no new CLI verbs; the routes
+below are reachable in any browser pointed at the bound URL.
+
+| Route | Surface |
+| --- | --- |
+| `/` | Run list (RFC 0013/0022/0037). |
+| `/run/<id>` | Run detail with state-coloured dependency graph. |
+| `/run/<id>/job/<id>` | Job detail. |
+| `/run/<id>/artifact/<id>` | Artifact viewer with inline Markdown. |
+| `/workflows/` | Workflow file browser (RFC 0024 V1). |
+| `/workflows/<path>` | Workflow detail with graph thumbnail and the promoted Edit button (RFC 0038 V1). |
+| `/workflows/edit/<path>` | Drag-drop graph editor island (RFC 0038 V1) over the existing `POST /workflows/edit/<path>` endpoint with `If-Match` semantics. |
+| `/workflows/new` | Chooser-wizard island that calls `POST /workflows/generate/preview` then `POST /workflows/generate` with a `<dialog>`-driven operator confirmation (RFC 0038 V1; requires `--allow-mutations`). |
+| `/view/` | Tree-browser island over `GET /v1/repo/tree?path=<rel>` (RFC 0038 V1). |
+| `/view/<path>` | Single-file viewer; Markdown renders server-side, other text files mount the Shiki code-viewer island (RFC 0038 V1). |
+| `/chat` | Chat surface (RFC 0023 / RFC 0036 / RFC 0040). |
+| `/doctor` | Grouped doctor problems with terminal-run filter (RFC 0037). |
+
 ## List (read-only enumeration)
 
 ```text

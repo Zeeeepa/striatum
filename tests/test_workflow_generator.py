@@ -6,7 +6,13 @@ from pathlib import Path
 from striatum.cli.dispatch import main
 from striatum.workflow import validate_workflow
 from striatum.workflow_generator import GeneratorError, generate_workflow
-from striatum.workflow_generator.catalog import get_template, list_templates
+from striatum.workflow_generator.catalog import (
+    get_harness_fragment,
+    get_harness_fragment_by_tool_family,
+    get_template,
+    list_harness_fragments,
+    list_templates,
+)
 from striatum.workflow_generator.core import GENERATOR_SCHEMA_VERSION
 
 
@@ -139,3 +145,64 @@ def test_workflow_init_keeps_legacy_envelope(tmp_path: Path, capsys) -> None:  #
     assert payload["data"]["style"] == "code-change"
     workflow = json.loads((target / "workflow.json").read_text(encoding="utf-8"))
     assert workflow["cycles"][0]["on_verdict"] == "needs_revision"
+
+
+# --- RFC 0040 V1: harness-profile fragments -------------------------
+
+
+def test_catalog_lists_harness_fragments() -> None:
+    fragments = list_harness_fragments()
+    ids = {fragment["profile_id"] for fragment in fragments}
+    assert {"claude_code_default", "codex_default", "gemini_default", "generic_default"}.issubset(ids)
+
+
+def test_get_harness_fragment_by_tool_family_lookup() -> None:
+    fragment = get_harness_fragment_by_tool_family("claude_code")
+    assert fragment is not None
+    assert fragment["profile_id"] == "claude_code_default"
+    assert "one-shot supervised invocation" in fragment["native_delegation_instruction"]
+
+
+def test_gemini_fragment_carries_front_matter_callout() -> None:
+    fragment = get_harness_fragment("gemini_default")
+    instruction = fragment["native_delegation_instruction"]
+    assert "ALL FIVE front-matter fields" in instruction
+    assert "verdict_intent" in instruction
+    assert "severity from {low,medium,high,critical}" in instruction
+
+
+def test_harness_profiled_generator_inlines_catalog_instructions() -> None:
+    spec = _spec("review", "author_reviewer")
+    spec["lane_modifiers"] = ["harness_profiled"]
+    spec["options"] = {
+        "harness_profiles": {
+            "claude_code_default": {
+                "tool_family": "claude_code",
+                "strategy_version": "2026-05-13",
+            }
+        }
+    }
+    generated = generate_workflow(spec)
+    profile = generated.workflow["harness_profiles"]["claude_code_default"]
+    catalog = get_harness_fragment("claude_code_default")
+    assert profile["native_delegation"]["instruction"] == catalog["native_delegation_instruction"]
+    assert profile["native_delegation"]["mode"] == catalog["native_delegation_mode"]
+
+
+def test_harness_profiled_generator_preserves_operator_override() -> None:
+    spec = _spec("review", "author_reviewer")
+    spec["lane_modifiers"] = ["harness_profiled"]
+    custom = "Operator-specific guidance for this lane."
+    spec["options"] = {
+        "harness_profiles": {
+            "claude_code_default": {
+                "tool_family": "claude_code",
+                "strategy_version": "2026-05-13",
+                "native_delegation": {"mode": "encouraged", "instruction": custom},
+            }
+        }
+    }
+    generated = generate_workflow(spec)
+    profile = generated.workflow["harness_profiles"]["claude_code_default"]
+    assert profile["native_delegation"]["instruction"] == custom
+    assert profile["native_delegation"]["mode"] == "encouraged"
