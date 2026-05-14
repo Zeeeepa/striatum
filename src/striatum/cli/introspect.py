@@ -190,6 +190,7 @@ def status(conn: sqlite3.Connection, *, run_id: str | None) -> JsonObject:
     claimable = claimable_jobs_by_role_lane(conn, run_id=run_id)
     blocked_downstream = blocked_downstream_jobs(conn, run_id=run_id)
     has_orphan_supervisor = _has_supervisor_lost_with_held_lease(conn, run_id=run_id)
+    has_stale_leases = _has_stale_leases_with_on_disk_artifacts(conn, run_id=run_id)
     process_health = _process_health(conn, run_id=run_id)
     actions = next_actions(
         open_blockers=open_blockers,
@@ -197,6 +198,7 @@ def status(conn: sqlite3.Connection, *, run_id: str | None) -> JsonObject:
         non_accepting_verdicts=non_accepting,
         claimable_jobs=claimable,
         has_orphan_supervisor=has_orphan_supervisor,
+        has_stale_leases=has_stale_leases,
     )
     if process_health["next_actions"]:
         for extra in process_health["next_actions"]:
@@ -481,6 +483,58 @@ def _process_health(
         "timed_out_count": timed_out_count,
         "next_actions": next_acts,
     }
+
+
+def _has_stale_leases_with_on_disk_artifacts(
+    conn: sqlite3.Connection, *, run_id: str | None
+) -> bool:
+    """Cheap precheck for the V1.41 recovery_auto_publish next_action.
+
+    Returns True iff there is at least one job in ``run_id`` (or
+    repo-wide when ``run_id`` is None) whose current lease has
+    expired AND whose ``expected_artifacts[].path`` covers at least
+    one file currently on disk. We do not validate the byline here
+    — the actual auto-publish call does the full conformance check
+    (path + byline) before mutating anything. This precheck only
+    decides whether to surface the next-action name.
+
+    Implementation note: we read ``expected_artifacts_json`` and
+    test ``os.path.exists`` on each declared required path. A more
+    accurate check would scope to the repo root, but the dispatch
+    layer already normalises paths against the repo at call time,
+    so a missing path here just means the action will fall through
+    to the existing stale-lease blocker — never a wrong action.
+    """
+    import json
+    import os
+    rows = conn.execute(
+        """
+        SELECT j.expected_artifacts_json
+          FROM jobs j
+          JOIN leases l ON l.lease_id = j.current_lease_id
+         WHERE l.state = 'expired'
+           AND j.state IN ('claimed', 'running', 'stale_lease')
+           AND (? IS NULL OR j.run_id = ?)
+        """,
+        (run_id, run_id),
+    ).fetchall()
+    for row in rows:
+        raw = row["expected_artifacts_json"]
+        if not raw:
+            continue
+        try:
+            parsed = json.loads(str(raw))
+        except (json.JSONDecodeError, TypeError):
+            continue
+        if not isinstance(parsed, list):
+            continue
+        for item in parsed:
+            if not isinstance(item, dict) or not item.get("required", True):
+                continue
+            path = item.get("path")
+            if isinstance(path, str) and path and os.path.exists(path):
+                return True
+    return False
 
 
 def _has_supervisor_lost_with_held_lease(
@@ -807,23 +861,69 @@ def next_actions(
     non_accepting_verdicts: list[JsonObject],
     claimable_jobs: list[JsonObject],
     has_orphan_supervisor: bool = False,
+    has_stale_leases: bool = False,
 ) -> list[str]:
-    """Return deterministic coordinator next-action names."""
+    """Return deterministic coordinator next-action names.
+
+    The V1.41 burn-down (`striatum byline`, `striatum inbox`,
+    `striatum recovery auto-publish`) introduced new operator
+    affordances. The UI rework (`docs/design/UI_REWORK.md` OQ-4)
+    needs these to appear in ``next_actions`` so the
+    ``dashboard --once`` ↔ web parity tests (§9.9, §9.10) can
+    compare against a single deterministic action list.
+
+    Rules:
+
+    - ``inspect_packet_with_inbox``: always emitted when there is at
+      least one claimable packet (operators querying the inbox helper
+      is the first step before claim).
+    - ``derive_expected_byline``: emitted alongside any human
+      checkpoint or non-accepting verdict where an operator may
+      need to publish-on-behalf or compose a review (the V1.41
+      ``byline`` verb is the one-shot helper).
+    - ``recovery_auto_publish``: emitted when there are stale leases
+      with on-disk artifacts that would self-heal via the V1.41
+      auto-publish sweep. The caller passes ``has_stale_leases=True``
+      when the run's stale-lease scan returns at least one entry
+      whose ``expected_artifacts[].path`` is on disk; the actual
+      conformance check (byline match) remains deferred to the
+      auto-publish call itself.
+
+    Existing actions retain their ordering and conditions so
+    downstream consumers that key on the existing names continue to
+    work unchanged.
+    """
     actions: list[str] = []
     if claimable_jobs:
         actions.append("claim_available_work")
+        # V1.41 surfacing: inbox is the operator's first move on a
+        # claimable packet (read expected_artifacts, expected_author_line,
+        # lease/message ids). Closes UI_REWORK.md OQ-4.
+        actions.append("inspect_packet_with_inbox")
     if has_orphan_supervisor:
         # HARNESS-001: a lost supervisor with a still-held lease silently
         # blocks the run. Surface a stable action name so dashboards and
         # scripts can react before the lease expires (default 30 minutes
         # is a long time to wait if the operator is not watching).
         actions.append("recover_orphan_supervisor")
+    if has_stale_leases:
+        # V1.41 surfacing: recovery auto-publish self-heals stale
+        # leases when the on-disk artifact matches the expected
+        # byline. Two-condition gate enforced by the verb itself.
+        actions.append("recovery_auto_publish")
     if open_blockers:
         actions.extend(["inspect_blocker", "export_run_evidence"])
     if human_checkpoints:
         actions.append("resolve_human_checkpoint")
+        # V1.41 surfacing: composing an operator-override or a
+        # publish-on-behalf review requires the canonical byline,
+        # which the byline helper derives. Dashboard parity needs this.
+        actions.append("derive_expected_byline")
     if non_accepting_verdicts:
         actions.append("revise_workflow_cycle")
+        # Same as above: a non-accepting verdict commonly precedes an
+        # operator override which needs the expected byline.
+        actions.append("derive_expected_byline")
     return list(dict.fromkeys(actions))
 
 

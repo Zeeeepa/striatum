@@ -1,5 +1,45 @@
 # Changelog
 
+## v1.45.0 — 2026-05-14
+
+### Added — RFC 0050 V1 prerequisites
+
+Unblocks the `dogfood-054` UI rework run (RFC 0050 V1). The
+implementation work happens in a follow-up dogfood; this release
+ships only the prerequisites the design handoff (`docs/design/UI_REWORK.md`)
+calls out as blocking-for-acceptance.
+
+- **Version drift fix.** `src/striatum/__init__.py::__version__`
+  was hardcoded `"1.37.0"` and never bumped with `pyproject.toml`,
+  so `striatum --version` reported 1.37.0 while pip showed v1.44.1.
+  Now derived from `importlib.metadata.version("striatum-orchestrator")`
+  — single source of truth, drift eliminated.
+- **OQ-4 — V1.41 burn-down verbs in `next_actions`.**
+  `src/striatum/cli/introspect.py::next_actions` emits three new
+  deterministic action names so the `dashboard --once` ↔ web
+  parity tests (UI_REWORK.md §9.9 + §9.10) can read a single
+  source of truth:
+  - `inspect_packet_with_inbox` — surfaces whenever a packet is
+    claimable; signals the operator should run `striatum inbox`.
+  - `derive_expected_byline` — surfaces alongside any verdict
+    override or checkpoint resolution; signals `striatum byline`.
+  - `recovery_auto_publish` — surfaces when `has_stale_leases=True`;
+    signals the V1.41 stale-lease auto-publish sweep would
+    self-heal at least one job.
+  - New `_has_stale_leases_with_on_disk_artifacts` helper does
+    the cheap precheck (existence of `expected_artifacts[].path`
+    on disk; the auto-publish call itself enforces full byline
+    conformance).
+- **RFC 0050.** New RFC adopting `docs/design/UI_REWORK.md` as
+  the canonical UI spec; three-phase landing plan (V1 / V1.5 /
+  V2). Skips the standard design-ceremony triple because the
+  handoff IS the design output.
+
+### Regression tests
+
+- `tests/test_next_actions_v141_burndown.py` — 6/6 pass pinning
+  the new action names, conditions, ordering, and dedup behavior.
+
 ## v1.44.1 — 2026-05-13
 
 ### Fixed — GH #8: v16 runs rebuild leaves runs_new residue
