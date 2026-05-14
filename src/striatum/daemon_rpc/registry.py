@@ -119,6 +119,7 @@ _ENTRIES: tuple[MethodEntry, ...] = (
     MethodEntry("recovery.process_reconcile", "recovery", True),
     MethodEntry("recovery.resume", "recovery", True),
     MethodEntry("recovery.auto", "recovery", True),
+    MethodEntry("recovery.auto_publish_stale_artifacts", "recovery", True, deprecated=True),
     MethodEntry("recovery.watch", "recovery", True),
     # ----- Apply capability (per-repo) -----
     MethodEntry("apply.reviewed_patch", "apply", True),

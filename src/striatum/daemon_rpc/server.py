@@ -81,6 +81,7 @@ CLI_ROUTES: dict[str, tuple[str, ...]] = {
     "recovery.process_reconcile": ("recovery", "process-reconcile"),
     "recovery.resume": ("recovery", "resume"),
     "recovery.auto": ("recovery", "auto"),
+    "recovery.auto_publish_stale_artifacts": ("recovery", "auto"),
     "recovery.watch": ("recovery", "watch"),
     # ----- Legacy aliases (deprecated in the registry) -----
     "ack": ("ack",),
@@ -152,7 +153,7 @@ class DaemonRpcRouter:
                     )
                 require_allowed(auth)
                 repo_root = self._repo_root_for(envelope, auth=auth)
-                data = self._route(envelope, repo_root=repo_root)
+                data = self._route(envelope, repo_root=repo_root, auth=auth)
             response = RpcResponse.ok_response(request_id=envelope.request_id, data=data)
         except RpcError as exc:
             auth = _denied_auth(auth, exc.code)
@@ -208,7 +209,7 @@ class DaemonRpcRouter:
             raise RpcError("repo_not_registered", "daemon RPC repository does not match this router")
         return repo_root
 
-    def _route(self, envelope: RpcEnvelope, *, repo_root: Path) -> dict[str, Any]:
+    def _route(self, envelope: RpcEnvelope, *, repo_root: Path, auth: RpcAuthContext) -> dict[str, Any]:
         if envelope.method == "daemon.describe":
             return describe_methods()
         if envelope.method == "dashboard.all":
@@ -223,6 +224,23 @@ class DaemonRpcRouter:
             return handle_apply_rpc(envelope.method, envelope.params)
         if envelope.method.startswith("dogfood."):
             return self._route_dogfood(envelope, repo_root=repo_root)
+        if self.pg_conn is not None:
+            import striatum.daemon_pg.handlers  # noqa: F401 - import registers handlers.
+            from striatum.daemon_pg.handlers.context import RepoHandlerContext
+            from striatum.daemon_pg.handlers.registry import resolve_pg_handler
+
+            handler = resolve_pg_handler(envelope.method)
+            if handler is not None:
+                repository_id = auth.repository_id or _repository_id(envelope.params)
+                if repository_id is None:
+                    raise RpcError("repo_not_registered", "daemon RPC route requires repository_id")
+                ctx = RepoHandlerContext(
+                    pg_conn=self.pg_conn,
+                    repository_id=repository_id,
+                    repo_root=repo_root,
+                    auth=auth,
+                )
+                return handler(ctx, envelope.params)
         prefix = CLI_ROUTES.get(envelope.method)
         if prefix is None:
             raise RpcError("method_unknown", f"method has no handler: {envelope.method}")
