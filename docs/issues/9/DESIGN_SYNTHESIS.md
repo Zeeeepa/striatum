@@ -1,7 +1,7 @@
 ---
 schema_version: "striatum.synthesis.v1"
 artifact_kind: "synthesis"
-inputs: ["gh-9-spec", "gh-10-spec", "gh-11-spec", "dogfood-056-gemini-review", "roadmap-4.1", "todo"]
+inputs: ["gh-9-spec", "gh-10-spec", "gh-11-spec", "dogfood-056-gemini-review", "roadmap-4.1", "todo", "prior-build-handoff", "prior-codex-review"]
 ---
 
 author: designer-unknown-model-001
@@ -10,96 +10,110 @@ author: designer-unknown-model-001
 
 ## Scope
 
-This pass should close GH #9, #10, and #11 only:
+This pass covers GH #9, GH #10, and GH #11 only. GH #12 clipboard behavior
+and GH #13 graph-editor ghost fields stay out of scope.
 
-- GH #9: `/v1/invoke` must reject browser-simple CSRF payloads and enforce same-origin browser mutations.
-- GH #10: the override-verdict modal must not trust mutable DOM identifiers as the only proof of job/run context.
-- GH #11: `recovery auto-publish --dry-run` must be proven read-only, including no event, lease, job, queue, or artifact side effects.
-
-GH #12 and GH #13 are explicitly out of scope for this implementation pass.
+The implementation must harden the RFC 0050 V2 web mutation surface without
+changing Striatum's product boundary: no hosted service, telemetry, transcript
+capture, external persistence, or new live-state authority outside the daemon
+and existing service/CLI mutation path.
 
 ## Implementation Approach
 
-### 1. Harden JSON request intake for `/v1/invoke`
+### 1. Strict JSON media-type gate for `/v1/invoke`
 
-Update `src/striatum/service.py` so `/v1/invoke` uses strict JSON body handling before command dispatch.
+Add or keep a shared helper in `src/striatum/service.py` that parses
+`Content-Type` as an HTTP media type and accepts only `application/json` with
+valid parameters, such as `application/json; charset=utf-8`.
 
-The current `_read_json_body` accepts any `Content-Type`; that is the core GH #9 bug. Do not use substring matching such as `"application/json" in ctype`, because values like `text/application/json` should not pass. Add a shared media-type helper that lowercases and strips parameters, then accepts only:
+The helper must reject before body parsing or command dispatch:
 
-```text
-application/json
-```
+- missing `Content-Type`
+- browser-simple content types such as `text/plain`, `application/x-www-form-urlencoded`, and `multipart/form-data`
+- prefix, suffix, or substring tricks such as `application/jsonx` or `text/application/json`
+- comma-joined duplicate header values
+- malformed parameters such as `application/json; bogus`
 
-Use it from `_read_json_body` or replace the `/v1/invoke` call site with a stricter helper. Keep the existing status shape:
+Return `415` for non-JSON media types. Preserve `400` for malformed JSON,
+invalid content length, and non-object JSON.
 
-- `415` for missing or non-JSON `Content-Type`
-- `400` for invalid `Content-Length`, malformed JSON, or non-object JSON
-- existing `405` mutation-gate behavior after the body is accepted
+### 2. Fail-closed same-origin enforcement for browser-addressable POSTs
 
-This is the V1 fix that turns an attacker payload into a non-simple CORS request, forcing preflight before the browser can send arbitrary operator commands.
+`src/striatum/service.py` should enforce same-origin checks before any
+POST route handler or `/v1/invoke` command invocation. The gate must apply to
+`/v1/invoke` whether or not `--web` is enabled, and to all web-enabled POST
+routes when `web_enabled` is true.
 
-### 2. Add same-origin enforcement for browser mutation routes
+Policy:
 
-Add a service helper in `src/striatum/service.py`, for example `_verify_same_origin_mutation(parsed_path)`, and call it near the top of `_dispatch_post` after `_authenticate()` succeeds and before any route-specific mutation handler runs.
+- A correctly authenticated Bearer-token request may bypass the Origin/Referer
+  check because a cross-site browser page cannot supply the operator's token.
+- For unauthenticated requests, the request `Host` must parse to one of the
+  service's allowed loopback origins derived from the actual bind host and
+  port. Do not accept a Host/Origin pair merely because they match each other;
+  that leaves a DNS-rebinding-shaped gap.
+- If `Origin` is present, it must parse cleanly and match the allowed origin
+  set. `Origin: null`, malformed values, non-HTTP schemes, wrong hosts, and
+  wrong ports return `403`.
+- If `Origin` is absent, a same-origin `Referer` may satisfy the gate.
+- If both `Origin` and `Referer` are absent on an unauthenticated request,
+  return `403`. This intentionally tightens the older design language that
+  allowed headerless non-browser calls. Such callers should use a Bearer token
+  or the CLI instead of the browser-addressable mutation bridge.
 
-Apply it when `self.state.web_enabled` is true. The helper should:
+### 3. Bind override-verdict to rendered job context
 
-- Compute the service origin from the request's effective host: `Host` header plus the server scheme (`http` for the current local server).
-- Accept same-origin `Origin`.
-- If `Origin` is absent, accept same-origin `Referer`.
-- Reject cross-origin values with `403`.
-- Reject browser-shaped POSTs with neither `Origin` nor `Referer` unless a valid Bearer token was required and supplied.
+GH #10 is defense-in-depth on top of GH #9. The client must not treat mutable
+DOM `data-*` values as the sole proof that the modal targets the page the
+operator is viewing.
 
-The Bearer-token exception keeps authenticated non-browser API clients viable. Without a configured token, local web UI POSTs should carry same-origin browser headers and cross-site forms/fetches should fail closed.
+In `src/striatum/web/static/override_verdict.js`:
 
-The minimum route set is every non-GET route exposed by the web UI, including `/v1/invoke`, job/run action routes, chat mutation routes, workflow edit/run routes, and workflow generation write. The implementation can protect all `_dispatch_post` routes when `web_enabled` is true rather than trying to classify route-by-route.
+- parse `(run_id, job_id)` from `/run/<run_id>/job/<job_id>`
+- compare that URL context to the modal host's rendered `data-run-id` and
+  `data-job-id`
+- disable/refuse the modal before `fetch("/v1/invoke", ...)` when the values
+  are missing or mismatched
+- include a `web_context` envelope alongside `argv`
 
-### 3. Bind override-verdict posts to rendered job context
+In `src/striatum/web/templates/job_detail.html` and the job-detail render path:
 
-Treat GH #10 as defense-in-depth beyond the CSRF fix. The browser script in `src/striatum/web/static/override_verdict.js` should validate the current page context before building `argv`:
+- render a process-local HMAC token bound to `(run_id, job_id, session_id)`
+- put the token on the override modal host as `data-context-token`
 
-- Parse the run id from `/run/<run_id>/job/<job_id>`.
-- Compare it with the modal host's `data-run-id`.
-- Compare the page job id with the modal host's `data-job-id`.
-- Refuse to call `fetch("/v1/invoke", ...)` if any field is missing or mismatched.
+In `/v1/invoke` server handling:
 
-Also add a server-issued context token so the server is not relying only on client-side checks. On the job detail page, render a token tied to the tuple `(run_id, job_id, session_id)` and include it as `data-context-token` on the override modal host. The token can be an HMAC using a process-local secret in the service state; it does not need durable storage because it only protects the local browser session.
+- when `argv[0] == "override-verdict"` and the web UI path is enabled, require
+  `web_context.kind == "override_verdict"`
+- verify `web_context.job_id` and `web_context.session_id` match the parsed
+  `--job-id` and `--session-id` argv values
+- verify the process-local token
+- return `403` on missing context, malformed fields, mismatched argv, or token
+  failure
 
-Change the modal POST body from:
+The token may rotate on service restart. Open pages that survive a restart can
+receive `403` and require reload; that is acceptable.
 
-```json
-{"argv": ["override-verdict", "..."]}
-```
+### 4. Make `recovery auto-publish --dry-run` read-only by construction
 
-to:
+In `src/striatum/cli/recovery.py`, split candidate discovery from mutation in
+`auto_publish_stale_artifacts`.
 
-```json
-{
-  "argv": ["override-verdict", "..."],
-  "web_context": {
-    "kind": "override_verdict",
-    "run_id": "<rendered-run-id>",
-    "job_id": "<rendered-job-id>",
-    "session_id": "<rendered-session-id>",
-    "token": "<server-token>"
-  }
-}
-```
+The dry-run branch must not call mutation helpers such as `expire_leases`,
+`ack_work`, `publish_artifact`, `complete_job`, `insert_event`, or
+`maybe_complete_run`. To preserve preview parity with the live path, it may
+classify active leases whose `expires_at` is already in the past as
+`would_expire: true`, but it must not update the lease row.
 
-In `/v1/invoke`, validate this context before invoking `override-verdict` argv. If `argv[0] == "override-verdict"` and `web_enabled` is true, require the context, verify the token, and verify the argv job/session ids match the context fields. Return `403` on mismatch. This closes the specific cross-context modal attack even if an attacker mutates DOM attributes after render.
+Define the GH #11 invariant narrowly and usefully: dry-run must produce no
+workflow-domain side effects. It must not publish artifacts, take or expire
+leases, mutate jobs/runs/queue messages/verdicts, or emit workflow-domain
+events. This does not prohibit separate metadata-only daemon or request audit
+records when the command is invoked through an audited service path.
 
-### 4. Make `auto-publish --dry-run` strictly read-only
-
-`src/striatum/cli/recovery.py:auto_publish_stale_artifacts` currently calls `expire_leases()` before it branches on `dry_run`. That means dry-run can mutate lease/job state indirectly. Fix the function so `dry_run=True` only reads current rows.
-
-Recommended shape:
-
-- Split candidate discovery from mutation.
-- For dry-run, query only already-expired/stale candidates and compute `would_publish` rows without calling `expire_leases`, `ack_work`, `publish_artifact`, `complete_job`, `insert_event`, or `maybe_complete_run`.
-- For non-dry-run, keep the existing mutation path, including lazy lease expiry and final run completion checks.
-- If the UI needs dry-run to preview leases that are expired by wall clock but not yet marked expired, return a read-only classification such as `would_expire: true` instead of mutating the lease row.
-
-Do not add a special `/v1/invoke` allowlist for this pass unless the implementation remains small. The primary fix is the strict read-only guarantee plus the GH #9 request hardening.
+Do not add a broad `/v1/invoke` argv allowlist in this pass unless the change
+stays small. The required closure is strict request validation plus a proven
+read-only dry-run implementation.
 
 ## Exact Write Scope For Implementation
 
@@ -112,69 +126,91 @@ Expected source edits:
 
 Expected test edits/additions:
 
-- `tests/test_service.py` or new `tests/test_invoke_csrf_refused.py`
-- `tests/test_service.py` or new `tests/test_origin_enforcement.py`
-- `tests/test_override_modal_payload.py` or new `tests/test_override_modal_context_validation.py`
-- `tests/test_recovery_panel_dry_run.py` or new `tests/test_recovery_dry_run_no_side_effects.py`
+- `tests/test_invoke_csrf_refused.py`
+- `tests/test_override_modal_context_validation.py`
+- `tests/test_override_modal_payload.py`
+- `tests/test_recovery_dry_run_no_side_effects.py`
+- existing route tests that POST to the web service and now need same-origin
+  headers or Bearer-token authentication
 
-Avoid edits to workflow generation, RFC 0051 auto-finalize, clipboard behavior, or graph-editor fields in this pass.
+Avoid edits to workflow generation, RFC 0051 auto-finalize, clipboard behavior,
+graph-editor field cleanup, or any dogfood #12/#13 surface.
 
 ## Tests To Add Or Update
 
-1. `/v1/invoke` rejects simple-request content types.
-   - Spawn service with `--web --allow-mutations`.
-   - POST a valid JSON body with `Content-Type: text/plain`.
-   - Assert `415` and no command side effects.
-   - Also assert `application/json; charset=utf-8` succeeds and malformed JSON still returns `400`.
+1. `/v1/invoke` content-type tests:
+   - reject `text/plain`, form content types, missing header, malformed
+     parameters, comma-joined values, and non-exact JSON media types with `415`
+   - accept `application/json` and `application/json; charset=utf-8`
+   - still return `400` for malformed JSON with a valid content type
 
-2. Same-origin enforcement rejects cross-site mutation posts.
-   - POST to `/v1/invoke` with `Origin: http://evil.example`.
-   - Assert `403`.
-   - POST with `Origin: http://127.0.0.1:<port>` and assert the same read command succeeds.
-   - Add a Referer-only case.
-   - Cover at least one direct web route such as run cancel or job retry if a lightweight fixture exists.
+2. Origin/Referer tests:
+   - reject cross-origin, `null`, malformed, wrong-port, and DNS-rebinding-style
+     Host/Origin requests with `403`
+   - reject unauthenticated headerless POSTs to `/v1/invoke`, including when
+     the service is not running with `--web`
+   - accept same-origin `Origin`
+   - accept same-origin `Referer` when `Origin` is absent
+   - accept authenticated Bearer-token clients without browser origin evidence
 
-3. Override modal refuses mismatched context before fetch.
-   - Extend the static JS tests to assert the script parses `/run/<run_id>/job/<job_id>`.
-   - Assert mismatched `data-run-id` or `data-job-id` returns/refuses before `postInvoke`.
-   - Assert the POST body includes `web_context` and the context token.
+3. Override modal tests:
+   - static JS checks for URL parsing, mismatch refusal before submit, and
+     `web_context` in the POST body
+   - template check for `data-context-token`
+   - server tests that missing context, wrong kind, argv job/session mismatch,
+     and forged token return `403`
 
-4. `/v1/invoke` validates override context server-side.
-   - Render or synthesize a valid context token for `(run_id, job_id, session_id)`.
-   - Assert matching token/context reaches normal CLI validation.
-   - Assert mismatched argv job id, mismatched session id, or invalid token returns `403`.
-
-5. Recovery dry-run has no side effects.
-   - Seed a stale publishable artifact.
-   - Snapshot counts and key rows from `events`, `artifacts`, `leases`, `jobs`, and `queue_messages`.
-   - Run `striatum recovery auto-publish --run-id <id> --dry-run --json`, both directly and through `/v1/invoke`.
-   - Assert the result reports `dry_run: true` and expected `would_publish` rows.
-   - Assert the database snapshots are byte-for-byte equivalent for the covered rows.
+4. Recovery dry-run tests:
+   - seed a stale publishable artifact and call `recovery auto-publish --dry-run`
+     through `/v1/invoke`
+   - call the function directly with an active lease whose wall-clock
+     `expires_at` is stale
+   - snapshot workflow-domain tables before and after, including `leases`,
+     `jobs`, `queue_messages`, `events`, `artifacts`, `verdicts`, and `runs`
+   - assert snapshots are unchanged and preview output reports
+     `dry_run: true`, expected `would_publish` rows, and `would_expire` where
+     applicable
+   - include one live-path sanity test proving non-dry-run still publishes
 
 ## Acceptance Criteria
 
-- Cross-site form or fetch requests using `text/plain`, form content types, or missing JSON content type cannot execute `/v1/invoke`.
-- Cross-origin browser POSTs to the web UI mutation surface are rejected before route handlers run.
-- Same-origin UI operations continue to work without requiring a durable CSRF token or external persistence.
-- Override-verdict requests are bound to the rendered job page context on both client and server.
-- `recovery auto-publish --dry-run` performs no database writes and records no events or artifacts.
-- The implementation keeps Striatum local-first: no hosted service, telemetry, transcript capture, or external persistence is introduced.
+- Cross-site simple-request payloads cannot execute `/v1/invoke`.
+- Cross-origin, malformed-origin, DNS-rebinding-shaped, and unauthenticated
+  headerless POSTs are rejected before CLI invocation or web route mutation.
+- Same-origin UI POSTs and authenticated API clients continue to work.
+- Override-verdict requests are bound to the rendered job page on both client
+  and server.
+- `recovery auto-publish --dry-run` is read-only for workflow-domain state while
+  preserving room for metadata-only audit.
+- Tests cover the exact edge cases raised by GH #9-#11 and the prior Codex
+  security review.
 
-## Known Risks
+## Known Security And Regression Risks
 
-- Strict origin enforcement can break existing tests or scripts that POST to web-enabled service routes without browser headers. Keep the Bearer-token exception and update tests to model either same-origin browser calls or authenticated API calls.
-- A process-local context-token secret means tokens become invalid after service restart. That is acceptable for modal actions because the page should be reloaded after a restart.
-- Host normalization is easy to get subtly wrong for IPv6 literals and `localhost` versus `127.0.0.1`. Tests should cover the service's actual bound host and at least one clearly cross-origin host.
-- Tightening `_read_json_body_strict` media-type matching may affect existing workflow-generation tests that relied on permissive substring behavior. This is desirable, but failures should be fixed by sending the correct header.
-- Dry-run no-side-effect tests must avoid using helper setup that mutates state during the assertion window.
+- Origin parsing is easy to get wrong for `localhost`, `127.0.0.1`, and IPv6
+  loopback aliases. Keep the allowlist derived from the actual bind host and
+  add explicit tests for hostile Host/Origin pairs.
+- Tightening headerless POST handling may break older tests or scripts that
+  used `/v1/invoke` as a local HTTP shell without Origin/Referer. Those callers
+  should move to Bearer-token auth or use the CLI directly.
+- Process-local context tokens invalidate open pages across service restart.
+  This is acceptable, but the modal should surface the server error cleanly.
+- Dry-run tests must not use setup helpers inside the assertion window that
+  mutate the tables being compared.
+- A future `/v1/invoke` allowlist or CSRF-token system may still be warranted,
+  but it is not required to close GH #9-#11.
 
 ## Reviewer Verification
 
 The downstream reviewer should verify:
 
-- `src/striatum/service.py` has a single, exact JSON media-type check and `/v1/invoke` uses it.
-- Origin/Referer enforcement happens before command invocation and before web mutation handlers.
-- The override modal has both client-side page context checks and server-side token validation for `override-verdict`.
-- `auto_publish_stale_artifacts(..., dry_run=True)` cannot call mutation helpers by inspection, not only by happy-path tests.
-- The new tests fail against the pre-fix code paths described in GH #9-#11 and pass after the implementation.
-
+- `Content-Type` is parsed exactly, not checked with substring or prefix logic.
+- Same-origin enforcement runs before `/v1/invoke` dispatch and before
+  web-enabled POST route handlers.
+- Missing, malformed, `null`, cross-origin, and DNS-rebinding-shaped origin
+  evidence fails closed unless a valid Bearer token is present.
+- `override-verdict` cannot be invoked through `/v1/invoke` without a matching
+  server-issued context token.
+- The dry-run branch in `auto_publish_stale_artifacts` is read-only by
+  inspection, not just by happy-path assertions.
+- GH #12 and GH #13 were not folded into this security-hardening change.

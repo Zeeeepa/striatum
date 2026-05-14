@@ -63,7 +63,8 @@
        data-modal="override-verdict"
        data-run-id="{{ run.run_id }}"
        data-job-id="{{ job.job_id }}"
-       data-session-id="{{ latest_verdict.session_id if latest_verdict else '' }}">
+       data-session-id="{{ override_session_id or (latest_verdict.session_id if latest_verdict else '') }}"
+       data-context-token="{{ override_context_token or '' }}">
     <button type="button"
             class="secondary-button"
             data-override-verdict

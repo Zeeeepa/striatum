@@ -32,8 +32,14 @@ from striatum.api import invoke
 from striatum.db import db_path
 
 JsonObject = dict[str, Any]
+OriginTuple = tuple[str, str, int]
 
 LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
+HTTP_TOKEN_CHARS = frozenset(
+    "!#$%&'*+-.^_`|~0123456789"
+    "abcdefghijklmnopqrstuvwxyz"
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+)
 
 SSE_POLL_INTERVAL_SECONDS = 0.25
 SSE_MAX_CONCURRENT_PER_RUN = 32
@@ -1000,6 +1006,154 @@ def tokens_match(provided: str, expected: str) -> bool:
     return hmac.compare_digest(p_padded, e_padded) and len(p) == len(e)
 
 
+def _argv_value(argv: list[str], flag: str) -> str | None:
+    """Return the value for ``--flag`` in an argv list, or ``None``.
+
+    Supports both ``--flag value`` and ``--flag=value`` shapes.
+    """
+    for index, token in enumerate(argv):
+        if token == flag and index + 1 < len(argv):
+            return argv[index + 1]
+        if token.startswith(flag + "="):
+            return token[len(flag) + 1 :]
+    return None
+
+
+def is_json_content_type(ctype: str) -> bool:
+    """GH #9: strict JSON Content-Type match.
+
+    Splits at the first parameter separator and lowercases the bare
+    media type, so ``application/json`` and ``application/json;
+    charset=utf-8`` accept but ``text/plain`` and ``text/application/
+    json`` reject. Substring matching is unsafe because attackers can
+    use ``Content-Type: text/plain`` (a CORS "simple" request) to elide
+    preflight, or sneak through with bogus prefixes.
+    """
+    if not ctype or "," in ctype or "\r" in ctype or "\n" in ctype:
+        return False
+    parts = ctype.split(";")
+    base = parts[0].strip().lower()
+    if base != "application/json":
+        return False
+    for raw_param in parts[1:]:
+        param = raw_param.strip()
+        if not param:
+            return False
+        name, separator, value = param.partition("=")
+        if not separator:
+            return False
+        if not _is_http_token(name.strip()):
+            return False
+        if not _is_content_type_param_value(value.strip()):
+            return False
+    return True
+
+
+def _is_http_token(value: str) -> bool:
+    return bool(value) and all(ch in HTTP_TOKEN_CHARS for ch in value)
+
+
+def _is_content_type_param_value(value: str) -> bool:
+    if not value:
+        return False
+    if value.startswith('"'):
+        if len(value) < 2 or not value.endswith('"'):
+            return False
+        inner = value[1:-1]
+        return "\r" not in inner and "\n" not in inner
+    return _is_http_token(value)
+
+
+def _loopback_aliases(host: str) -> set[str]:
+    normalized = host.strip().lower()
+    if normalized == "localhost":
+        return {"localhost", "127.0.0.1", "::1"}
+    if normalized == "127.0.0.1":
+        return {"127.0.0.1", "localhost"}
+    if normalized == "::1":
+        return {"::1", "localhost"}
+    return {normalized}
+
+
+def allowed_origins_for_bind(host: str, port: int) -> set[OriginTuple]:
+    return {("http", alias, port) for alias in _loopback_aliases(host)}
+
+
+def parse_host_origin(host_header: str) -> OriginTuple | None:
+    """Parse a request Host header into the service's HTTP origin tuple."""
+    value = host_header.strip()
+    if not value or "," in value or "://" in value or "@" in value:
+        return None
+    try:
+        parsed = urlsplit("//" + value)
+        port = parsed.port
+    except ValueError:
+        return None
+    if parsed.hostname is None or port is None:
+        return None
+    return ("http", parsed.hostname.lower(), int(port))
+
+
+def parse_header_origin(origin_or_referer: str) -> OriginTuple | None:
+    """Return the origin tuple of an Origin or Referer header, or
+    ``None`` if the value is malformed or schemeless.
+
+    Browsers only set ``Origin``/``Referer`` to absolute URLs (or the
+    literal ``null`` for some sandboxed contexts). We refuse anything
+    we cannot parse — there is no benign reason for an Origin/Referer
+    we cannot interpret to bypass same-origin enforcement.
+    """
+    if not origin_or_referer:
+        return None
+    value = origin_or_referer.strip()
+    if value == "null" or "://" not in value:
+        return None
+    try:
+        parsed = urlsplit(value)
+    except ValueError:
+        return None
+    if parsed.scheme != "http" or not parsed.netloc:
+        return None
+    try:
+        port = parsed.port
+    except ValueError:
+        return None
+    if parsed.hostname is None:
+        return None
+    return ("http", parsed.hostname.lower(), int(port) if port is not None else 80)
+
+
+def make_web_context_token(secret: bytes, *, run_id: str, job_id: str, session_id: str) -> str:
+    """GH #10: mint a process-local HMAC token binding the rendered
+    job page to a specific override action.
+
+    The token is purely defense-in-depth on top of the GH #9 CSRF
+    mitigations: it lets the server reject override-verdict POSTs whose
+    DOM-derived identifiers were tampered with between page render and
+    submit. We use ``hashlib.blake2b`` so the secret never leaves the
+    process and the token has a fixed short shape.
+    """
+    payload = "\x1f".join(["override_verdict", run_id, job_id, session_id]).encode("utf-8")
+    return hashlib.blake2b(payload, key=secret, digest_size=16).hexdigest()
+
+
+def verify_web_context_token(
+    secret: bytes,
+    *,
+    token: str,
+    run_id: str,
+    job_id: str,
+    session_id: str,
+) -> bool:
+    expected = make_web_context_token(
+        secret,
+        run_id=run_id,
+        job_id=job_id,
+        session_id=session_id,
+    )
+    return hmac.compare_digest(expected, token)
+
+
 def utcnow_iso() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
 
@@ -1024,10 +1178,17 @@ class ServiceState:
         self.allow_mutations = allow_mutations
         self.token = token
         self.web_enabled = web_enabled
+        self.origin_check_enabled = False
+        self.allowed_origins: set[OriginTuple] = set()
         self.started_at = utcnow_iso()
         self._sse_counts: dict[str, int] = {}
         self._sse_lock = threading.Lock()
         self._shutdown = threading.Event()
+        # GH #10: process-local HMAC secret for binding rendered job
+        # pages to override-verdict POSTs. Rotated on every service
+        # restart; tokens become invalid after restart, which is
+        # acceptable because the page must be reloaded after restart.
+        self.web_context_secret = secrets.token_bytes(32)
 
     def acquire_sse_slot(self, run_id: str) -> bool:
         with self._sse_lock:
@@ -1161,6 +1322,8 @@ class StriatumServiceHandler(BaseHTTPRequestHandler):
         if not self._authenticate():
             return
         parsed = urlsplit(self.path)
+        if self._requires_same_origin(parsed.path) and not self._verify_same_origin_mutation():
+            return
         if self.state.web_enabled and parsed.path == "/chat/new":
             self._handle_chat_new()
             return
@@ -1222,6 +1385,13 @@ class StriatumServiceHandler(BaseHTTPRequestHandler):
             verb = " ".join(argv[:2]) if argv else ""
             self._send_json(405, {"ok": False, "error": {"code": 405, "message": f"command requires --allow-mutations: {verb}"}})
             return
+        # GH #10: when web UI is enabled, override-verdict POSTs must
+        # carry a server-issued context token bound to the rendered
+        # job page. This defeats DOM-tampering attacks (where another
+        # script flips data-job-id between page render and submit).
+        if self.state.web_enabled and argv and argv[0] == "override-verdict":
+            if not self._verify_override_verdict_context(argv, body):
+                return
         result = invoke(argv, repo=self.state.repo)
         status = 200 if result.get("ok") else 500
         if not result.get("ok"):
@@ -1734,6 +1904,23 @@ class StriatumServiceHandler(BaseHTTPRequestHandler):
                     verdicts=[dict(row) for row in verdict_rows],
                 )
                 latest_verdict = verdicts[0] if verdicts else latest_verdict_row(conn, job_id=job_id)
+            # GH #10: mint a context token binding the rendered page to
+            # the override-verdict action's (run_id, job_id, session_id).
+            override_session_id = ""
+            if latest_verdict is not None:
+                override_session_id = str(
+                    latest_verdict["session_id"]
+                    if isinstance(latest_verdict, sqlite3.Row)
+                    else latest_verdict.get("session_id", "")
+                ) or ""
+            override_context_token = ""
+            if override_session_id:
+                override_context_token = make_web_context_token(
+                    self.state.web_context_secret,
+                    run_id=str(run["run_id"]),
+                    job_id=str(job["job_id"]),
+                    session_id=override_session_id,
+                )
             html = _jinja_env().get_template("job_detail.html").render(
                 run=run,
                 job=job,
@@ -1742,6 +1929,8 @@ class StriatumServiceHandler(BaseHTTPRequestHandler):
                 verdicts=verdicts,
                 expected_artifact_rows=job["expected_artifact_rows"],
                 process_evidence=job["process_evidence"],
+                override_context_token=override_context_token,
+                override_session_id=override_session_id,
             )
             self._send_html(200, html)
         except Exception as exc:  # noqa: BLE001
@@ -2407,8 +2596,8 @@ class StriatumServiceHandler(BaseHTTPRequestHandler):
     def _read_json_body_strict(self, max_bytes: int) -> "dict[str, Any] | None":
         """RFC 0024 V4 helper: validate Content-Type, cap body, parse JSON
         as object. Sends error response and returns None on failure."""
-        ctype = self.headers.get("Content-Type", "")
-        if "application/json" not in ctype:
+        # GH #9: exact media-type match (see is_json_content_type).
+        if not is_json_content_type(self.headers.get("Content-Type", "")):
             self._send_json(415, {"ok": False, "error": {"code": 415, "message": "Content-Type must be application/json"}})
             return None
         try:
@@ -3187,7 +3376,149 @@ class StriatumServiceHandler(BaseHTTPRequestHandler):
             return False
         return True
 
+    def _has_valid_bearer(self) -> bool:
+        """True when the request carries an Authorization: Bearer header
+        matching the configured token. Used to grant authenticated
+        non-browser API clients an exception to same-origin enforcement.
+        """
+        if self.state.token is None:
+            return False
+        header = self.headers.get("Authorization", "")
+        prefix = "Bearer "
+        if not header.startswith(prefix):
+            return False
+        return tokens_match(header[len(prefix):], self.state.token)
+
+    def _requires_same_origin(self, path: str) -> bool:
+        if not self.state.origin_check_enabled:
+            return False
+        return path == "/v1/invoke" or self.state.web_enabled
+
+    def _verify_same_origin_mutation(self) -> bool:
+        """GH #9: reject cross-origin browser POSTs to the web UI's
+        mutation surface. Returns True if the request may proceed,
+        False if a 403 was already sent.
+
+        Policy:
+        - Authenticated Bearer-token clients are exempt — these are
+          non-browser API clients that cannot be impersonated via CSRF.
+        - The request Host must be one of the origins derived from the
+          actual bound loopback listener; matching Host to Origin is not
+          sufficient because of DNS rebinding.
+        - ``Origin`` must match that allowlist. If Origin is absent,
+          same-origin ``Referer`` is accepted instead.
+        - Missing, ``null``, malformed, or cross-origin evidence fails
+          closed with 403.
+        """
+        if self._has_valid_bearer():
+            return True
+        allowed = self.state.allowed_origins
+        host_origin = parse_host_origin(self.headers.get("Host", ""))
+        if host_origin not in allowed:
+            self._send_json(
+                403,
+                {"ok": False, "error": {"code": 403, "message": "Host header origin refused"}},
+            )
+            return False
+        origin = self.headers.get("Origin", "")
+        if origin:
+            origin_value = parse_header_origin(origin)
+            if origin_value not in allowed:
+                self._send_json(
+                    403,
+                    {"ok": False, "error": {"code": 403, "message": "cross-origin request refused"}},
+                )
+                return False
+            return True
+        referer = self.headers.get("Referer", "")
+        if referer:
+            referer_value = parse_header_origin(referer)
+            if referer_value not in allowed:
+                self._send_json(
+                    403,
+                    {"ok": False, "error": {"code": 403, "message": "cross-origin request refused"}},
+                )
+                return False
+            return True
+        self._send_json(
+            403,
+            {"ok": False, "error": {"code": 403, "message": "Origin or Referer required"}},
+        )
+        return False
+
+    def _verify_override_verdict_context(
+        self,
+        argv: list[str],
+        body: JsonObject,
+    ) -> bool:
+        """GH #10: validate the ``web_context`` envelope on
+        override-verdict POSTs. Returns True if the request may proceed,
+        False if a 403 was already sent.
+
+        The token is bound to the (run_id, job_id, session_id) tuple
+        that the server rendered onto the page. argv ``--job-id`` and
+        ``--session-id`` must match the context exactly; the context
+        token must verify against the process secret. This prevents
+        DOM-tampering attacks even when the browser is same-origin and
+        the CSRF defenses pass.
+        """
+        ctx = body.get("web_context")
+        if not isinstance(ctx, dict):
+            self._send_json(
+                403,
+                {"ok": False, "error": {"code": 403, "message": "override-verdict requires web_context"}},
+            )
+            return False
+        kind = ctx.get("kind")
+        run_id = ctx.get("run_id")
+        job_id = ctx.get("job_id")
+        session_id = ctx.get("session_id")
+        token = ctx.get("token")
+        if (
+            kind != "override_verdict"
+            or not isinstance(run_id, str) or not run_id
+            or not isinstance(job_id, str) or not job_id
+            or not isinstance(session_id, str) or not session_id
+            or not isinstance(token, str) or not token
+        ):
+            self._send_json(
+                403,
+                {"ok": False, "error": {"code": 403, "message": "web_context fields missing or malformed"}},
+            )
+            return False
+        argv_job = _argv_value(argv, "--job-id")
+        argv_session = _argv_value(argv, "--session-id")
+        if argv_job != job_id or argv_session != session_id:
+            self._send_json(
+                403,
+                {"ok": False, "error": {"code": 403, "message": "argv does not match web_context"}},
+            )
+            return False
+        if not verify_web_context_token(
+            self.state.web_context_secret,
+            token=token,
+            run_id=run_id,
+            job_id=job_id,
+            session_id=session_id,
+        ):
+            self._send_json(
+                403,
+                {"ok": False, "error": {"code": 403, "message": "invalid web_context token"}},
+            )
+            return False
+        return True
+
     def _read_json_body(self) -> JsonObject | None:
+        # GH #9: strict Content-Type. Substring matching is unsafe —
+        # browsers can elide CORS preflight by sending a payload with
+        # Content-Type: text/plain (a "simple" request), which would
+        # otherwise pass a substring check for "application/json".
+        if not is_json_content_type(self.headers.get("Content-Type", "")):
+            self._send_json(
+                415,
+                {"ok": False, "error": {"code": 415, "message": "Content-Type must be application/json"}},
+            )
+            return None
         length_header = self.headers.get("Content-Length")
         if not length_header:
             self._send_json(400, {"ok": False, "error": {"code": 400, "message": "missing Content-Length"}})
@@ -3330,6 +3661,8 @@ def _run_tcp(
     bound_address = server.server_address
     bound_host = bound_address[0] if isinstance(bound_address, tuple) else host
     bound_port = bound_address[1] if isinstance(bound_address, tuple) else port
+    state.origin_check_enabled = True
+    state.allowed_origins = allowed_origins_for_bind(str(bound_host), int(bound_port))
     return _serve_forever(
         server=server,
         state=state,

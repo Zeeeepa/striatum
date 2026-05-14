@@ -177,3 +177,18 @@ Branch: `striatum/gh-issues-parallel`
 - Follow-up: decision-log updates should be checked with
   `tests/test_doc_links.py::test_decision_log_rows_under_word_budget` before
   a workflow marks verification complete.
+
+### F014 - Full Suite Hit Intermittent Service Shutdown Failure
+
+- Command/tool: `make test`.
+- Observed friction: the full suite reached `886 passed, 45 skipped`, then
+  failed `tests/test_service.py::test_serve_graceful_shutdown_on_sigterm`
+  because the subprocess returned `-9` after the test helper killed it.
+- Workaround used: reran the failing test directly and reran
+  `tests/test_service.py`; both passed (`1 passed`, then `22 passed`).
+- Impact: the GH #9 code has strong focused coverage, lint, typecheck, and
+  service-module coverage, but the full-suite signal is not fully green on
+  the first pass.
+- Follow-up: service shutdown should get a deterministic stress/regression
+  test or the test helper should capture stderr/stdout before killing the
+  process so the next intermittent failure is diagnosable.

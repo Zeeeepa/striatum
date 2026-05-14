@@ -448,11 +448,23 @@ def test_v1_endpoints_still_work_with_web(tmp_path: Path) -> None:
 # ----- RFC 0013 step 7: mutation buttons ---------------------------------
 
 
-def _http_post_json(port: int, path: str, payload: dict[str, Any]) -> tuple[int, bytes]:
+def _http_post_json(
+    port: int,
+    path: str,
+    payload: dict[str, Any],
+    *,
+    headers: dict[str, str] | None = None,
+) -> tuple[int, bytes]:
+    request_headers = {
+        "Content-Type": "application/json",
+        "Origin": f"http://127.0.0.1:{port}",
+    }
+    if headers:
+        request_headers.update(headers)
     req = urllib.request.Request(
         f"http://127.0.0.1:{port}{path}",
         data=json.dumps(payload).encode("utf-8"),
-        headers={"Content-Type": "application/json"},
+        headers=request_headers,
         method="POST",
     )
     try:

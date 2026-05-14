@@ -16,7 +16,8 @@ def test_override_modal_posts_literal_invoke_argv() -> None:
 
     assert 'fetch("/v1/invoke"' in js
     assert 'method: "POST"' in js
-    assert 'JSON.stringify({ argv: argv })' in js
+    # GH #10: the POST body now wraps argv and web_context together.
+    assert 'JSON.stringify({ argv: argv, web_context: webContext })' in js
     assert '"override-verdict"' in js
     assert '"--session-id"' in js
     assert '"--job-id"' in js
@@ -46,7 +47,7 @@ def test_override_modal_refuses_empty_rationale_before_fetch() -> None:
     js = _script()
 
     validation = "if (!payload.rationale)"
-    fetch_call = "postInvoke(buildArgv(context, payload))"
+    fetch_call = "postInvoke(buildArgv(context, payload), buildWebContext(context))"
     assert validation in js
     assert js.index(validation) < js.index(fetch_call)
     assert "Rationale is required." in js
