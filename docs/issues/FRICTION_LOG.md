@@ -127,3 +127,23 @@ Branch: `striatum/gh-issues-parallel`
   sub-agents from first-class Striatum role sessions. Implementation and design
   patches should flow through role sessions or be explicitly recorded as
   operator-authored maintenance outside the workflow.
+
+### F010 - `run prepare` Positional Workflow Retry
+
+- Command/tool: `striatum run prepare docs/issues/9/workflow.json --json`.
+- Observed friction: the CLI rejected the positional workflow path and required
+  `--workflow`.
+- Workaround used: retried as `striatum run prepare --workflow
+  docs/issues/9/workflow.json --json`.
+- Impact: small operator delay during the GH #9/#10/#11 rerun setup.
+- Follow-up: operator snippets should always use the explicit `--workflow`
+  form.
+
+### F011 - System Python Lacked Pytest
+
+- Command/tool: `PYTHONPATH=src python3 -m pytest ...`.
+- Observed friction: `/usr/bin/python3` reported `No module named pytest`.
+- Workaround used: reran through `.venv/bin/python -m pytest`.
+- Impact: small verification delay while preparing the GH #14 commit.
+- Follow-up: operator verification snippets should use the configured Makefile
+  interpreter or `.venv/bin/python`, not bare `python3`.

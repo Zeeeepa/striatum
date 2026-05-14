@@ -196,7 +196,7 @@ def run_auto_sweep(
     eligible_after = int(policy.get("eligible_after_seconds", 600))
     open_blockers = conn.execute(
         """
-        SELECT b.*, j.current_lease_id
+        SELECT b.*, j.state AS job_state, j.current_lease_id
         FROM blockers b
         JOIN jobs j ON j.job_id = b.job_id
         WHERE b.run_id = ?
@@ -205,10 +205,70 @@ def run_auto_sweep(
         """,
         (run_id,),
     ).fetchall()
+    # GH #14: process-adapter blockers attached to terminal jobs are
+    # benign trailing signals (post-completion nonzero exit, etc.).
+    # When the operator opted into autonomous process reconciliation,
+    # dismiss them in the same sweep so they stop showing up as
+    # `blocker_recovery_eligible` indefinitely. Outside of that opt-in,
+    # surface them via `still_stuck` exactly as before.
+    autonomous_process = bool(policy.get("autonomous_process_reconcile"))
+    from striatum.cli.recovery import (
+        PROCESS_ADAPTER_BLOCKER_KINDS,
+        resume_blocker,
+    )
+
+    terminal_states = {"completed", "failed", "canceled", "skipped"}
     for row in open_blockers:
         opened_at = row["created_at"]
         age = _seconds_between(opened_at, swept_at)
         if age < eligible_after:
+            continue
+        blocker_kind = str(row["blocker_kind"])
+        job_state = str(row["job_state"])
+        is_terminal_process_adapter = (
+            blocker_kind in PROCESS_ADAPTER_BLOCKER_KINDS
+            and job_state in terminal_states
+        )
+        if is_terminal_process_adapter and autonomous_process:
+            if dry_run:
+                actions.append({
+                    "kind": "terminal_blocker_dismiss_eligible",
+                    "blocker_id": row["blocker_id"],
+                    "job_id": row["job_id"],
+                    "blocker_kind": blocker_kind,
+                    "job_state": job_state,
+                    "age_seconds": int(age),
+                    "dry_run": True,
+                })
+                continue
+            try:
+                dismissal = resume_blocker(
+                    conn,
+                    blocker_id=str(row["blocker_id"]),
+                    complete=False,
+                    session_id=None,
+                    summary=None,
+                    force=True,
+                    extend_seconds=600,
+                )
+            except Exception as exc:  # noqa: BLE001
+                still_stuck.append({
+                    "reason": "terminal_blocker_dismiss_failed",
+                    "blocker_id": row["blocker_id"],
+                    "job_id": row["job_id"],
+                    "age_seconds": int(age),
+                    "error": str(exc),
+                })
+                continue
+            actions.append({
+                "kind": "terminal_blocker_dismissed",
+                "blocker_id": row["blocker_id"],
+                "job_id": row["job_id"],
+                "blocker_kind": blocker_kind,
+                "job_state": job_state,
+                "age_seconds": int(age),
+                "result": dismissal,
+            })
             continue
         still_stuck.append({
             "reason": "blocker_recovery_eligible",
