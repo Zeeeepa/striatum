@@ -25,14 +25,17 @@ WEB_STATIC_ASSETS = (
     "app.js",
     "app.css",
     "base.js",
+    "copy_on_click.js",
     "run_list.js",
     "workflows_index.js",
     "doctor.js",
     "run_detail.js",
+    "override_verdict.js",
 )
 WEB_BUILD_ASSETS = (
     "build/island-shared.js",
     "build/island-tree-browser.js",
+    "build/island-recovery-panel.js",
     "build/island-workflow-chooser.js",
     "build/island-workflow-graph-editor.js",
     "build/island-code-viewer.js",

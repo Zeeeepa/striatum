@@ -59,9 +59,16 @@
   {% endif %}
 
   <h2>Override verdict</h2>
-  <div class="override-modal-stub" data-modal="override-verdict" data-run-id="{{ run.run_id }}" data-job-id="{{ job.job_id }}">
-    <button type="button" class="secondary-button" disabled data-override-verdict>Override verdict</button>
-    <span class="muted">Override modal logic lands in V2; recorded override rationales remain visible above.</span>
+  <div class="override-modal-stub"
+       data-modal="override-verdict"
+       data-run-id="{{ run.run_id }}"
+       data-job-id="{{ job.job_id }}"
+       data-session-id="{{ latest_verdict.session_id if latest_verdict else '' }}">
+    <button type="button"
+            class="secondary-button"
+            data-override-verdict
+            {% if not latest_verdict %}disabled{% endif %}>Override verdict</button>
+    <span class="muted">Recorded override rationales remain visible above.</span>
   </div>
 
   <h2>Expected artifacts</h2>
@@ -106,4 +113,7 @@
   </ul>
   {% endif %}
 </section>
+{% endblock %}
+{% block scripts %}
+<script defer src="/static/override_verdict.js"></script>
 {% endblock %}

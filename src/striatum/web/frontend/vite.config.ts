@@ -8,6 +8,7 @@ const srcDir = resolve(rootDir, "src");
 const islandEntries: Record<string, string> = {
   "island-shared": resolve(srcDir, "shared/island-shared-entry.ts"),
   "island-tree-browser": resolve(srcDir, "islands/tree-browser/main.tsx"),
+  "island-recovery-panel": resolve(srcDir, "islands/recovery-panel/main.tsx"),
   "island-workflow-chooser": resolve(srcDir, "islands/workflow-chooser/main.tsx"),
   "island-workflow-graph-editor": resolve(srcDir, "islands/workflow-graph-editor/main.tsx"),
   "island-code-viewer": resolve(srcDir, "islands/code-viewer/main.tsx")

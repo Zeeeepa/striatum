@@ -157,6 +157,14 @@ function buildPhaseLayout(workflow: WorkflowDocument): PhaseLayout {
   return { phases: entries, byPhaseId, jobPhaseMap, hasExplicit };
 }
 
+function jobNodeLabel(job: WorkflowJob): string {
+  const lines = [`${job.id}`, `${job.type ?? "generic"}`];
+  if (job.require_attested_lane === true) {
+    lines.push("require_attested_lane=true");
+  }
+  return lines.join("\n");
+}
+
 function jobsToNodes(workflow: WorkflowDocument): Node[] {
   const jobs = workflow.jobs ?? [];
   if (!hasExplicitPhases(workflow)) {
@@ -168,7 +176,7 @@ function jobsToNodes(workflow: WorkflowDocument): Node[] {
         x: (index % cols) * 220,
         y: Math.floor(index / cols) * 140,
       },
-      data: { label: `${job.id}\n${job.type ?? "generic"}` },
+      data: { label: jobNodeLabel(job) },
     }));
   }
 
@@ -200,7 +208,7 @@ function jobsToNodes(workflow: WorkflowDocument): Node[] {
           id: job.id,
           type: "default",
           position: { x, y },
-          data: { label: `${job.id}\n${job.type ?? "generic"}` },
+          data: { label: jobNodeLabel(job) },
         });
       });
     });
@@ -636,6 +644,20 @@ function Inspector({ job, workflow, onChange, onDelete }: InspectorProps) {
 
       {job.type === "review" && (
         <>
+          <div className="inspector-field">
+            <label style={{ display: "flex", gap: 6, alignItems: "center" }}>
+              <input
+                type="checkbox"
+                checked={job.require_attested_lane === true}
+                onChange={(e) =>
+                  onChange(job.id, {
+                    require_attested_lane: e.target.checked || undefined,
+                  })
+                }
+              />
+              require_attested_lane
+            </label>
+          </div>
           <div className="inspector-field">
             <label>review_posture</label>
             <fieldset
@@ -1086,19 +1108,18 @@ function WorkflowGraphEditorImpl(props: WorkflowGraphEditorProps) {
         setEdges(workflowToEdges(next));
       } else {
         setNodes((ns) =>
-          ns.map((n) =>
-            n.id === jobId
+          ns.map((n) => {
+            const updatedJob = jobs.find((j) => j.id === jobId);
+            return n.id === jobId && updatedJob
               ? {
                   ...n,
                   data: {
                     ...n.data,
-                    label: `${jobId}\n${
-                      jobs.find((j) => j.id === jobId)?.type ?? "generic"
-                    }`,
+                    label: jobNodeLabel(updatedJob),
                   },
                 }
-              : n,
-          ),
+              : n;
+          }),
         );
       }
       return next;
@@ -1163,8 +1184,12 @@ function WorkflowGraphEditorImpl(props: WorkflowGraphEditorProps) {
     }
     for (const j of safeArr(workflow.jobs)) {
       const phase = jobPhaseId(j);
+      const requireAttested =
+        j.require_attested_lane === true ? " require_attested_lane=true" : "";
       lines.push(
-        `Job ${j.id} (${j.type ?? "generic"})${phase ? ` phase=${phase}` : ""}`,
+        `Job ${j.id} (${j.type ?? "generic"})${
+          phase ? ` phase=${phase}` : ""
+        }${requireAttested}`,
       );
     }
     for (const e of safeArr(workflow.edges)) {
@@ -1307,6 +1332,7 @@ export default function WorkflowGraphEditor(props: WorkflowGraphEditorProps) {
 
 export const __testing = {
   jobsToNodes,
+  jobNodeLabel,
   workflowToEdges,
   syncWorkflowEdges,
   syncWorkflowJobs,

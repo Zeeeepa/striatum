@@ -42,8 +42,11 @@ def test_run_detail_renders_recovery_panel_with_blocker_recipe(tmp_path: Path) -
         status, _, body = _http_get_raw(port, f"/run/{run_id}")
         assert status == 200
         assert b"recovery-panel" in body
+        assert b'id="island-recovery-panel"' in body
+        assert b"/static/build/island-recovery-panel.js" in body
         assert b"process_outputs_missing" in body
         assert b"striatum recovery process-reconcile" in body
+        assert b"data-copy=" in body
         assert b"recovery auto-publish" in body
     finally:
         _stop_service(proc)

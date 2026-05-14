@@ -18,9 +18,11 @@ import { mount } from "./shared/mount";
 import "./shared/theme.css";
 
 import TreeBrowser from "./islands/tree-browser";
+import RecoveryPanel from "./islands/recovery-panel";
 import WorkflowChooser from "./islands/workflow-chooser";
 import WorkflowGraphEditor from "./islands/workflow-graph-editor";
 import CodeViewer from "./islands/code-viewer";
+import type { RecoveryPanelProps } from "./islands/recovery-panel";
 
 import type {
   CodeViewerProps,
@@ -34,6 +36,13 @@ mount<TreeBrowserProps>({
   label: "tree-browser",
   defaultProps: { rootPath: "" },
   render: (props) => createElement(TreeBrowser, props),
+});
+
+mount<RecoveryPanelProps>({
+  containerId: "island-recovery-panel",
+  label: "recovery-panel",
+  defaultProps: { runId: "" },
+  render: (props) => createElement(RecoveryPanel, props),
 });
 
 mount<WorkflowChooserProps>({

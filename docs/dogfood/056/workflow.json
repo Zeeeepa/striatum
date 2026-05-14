@@ -8,7 +8,8 @@
     "docs/rfcs/0050-operator-ui-rework-and-provenance-honesty.md",
     "docs/dogfood/054/build/HANDOFF.md",
     "docs/dogfood/054b/build/HANDOFF.md",
-    "docs/dogfood/055/build/HANDOFF.md"
+    "docs/dogfood/055/build/HANDOFF.md",
+    "docs/dogfood/055b/build/HANDOFF.md"
   ],
   "coordinator": {"lane": "codex"},
   "parallelism": {"max_active_jobs": 5},

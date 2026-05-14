@@ -7,6 +7,7 @@ const {
   syncWorkflowEdges,
   syncWorkflowJobs,
   newJobFromBlock,
+  jobNodeLabel,
   PALETTE_BLOCKS,
   buildPhaseLayout,
   hasExplicitPhases,
@@ -32,6 +33,21 @@ describe("workflow-graph-editor.jobsToNodes", () => {
 
   it("returns no nodes for an empty workflow", () => {
     expect(jobsToNodes({})).toEqual([]);
+  });
+
+  it("renders require_attested_lane in the node body when set", () => {
+    const nodes = jobsToNodes({
+      jobs: [{ id: "review_1", type: "review", require_attested_lane: true }],
+    });
+    expect(nodes[0].data.label).toContain("require_attested_lane=true");
+  });
+});
+
+describe("workflow-graph-editor.jobNodeLabel", () => {
+  it("keeps the attested-lane marker out of ordinary nodes", () => {
+    expect(jobNodeLabel({ id: "build_1", type: "build" })).toBe(
+      "build_1\nbuild",
+    );
   });
 });
 
@@ -89,6 +105,16 @@ describe("workflow-graph-editor.syncWorkflowJobs", () => {
     expect(next.workflow_id).toBe("demo");
     expect(next.jobs).toEqual([{ id: "b" }]);
     expect(next).not.toBe(prev);
+  });
+
+  it("preserves require_attested_lane when replacing jobs for save", () => {
+    const next = syncWorkflowJobs(
+      { workflow_id: "demo", jobs: [] },
+      [{ id: "review_1", type: "review", require_attested_lane: true }],
+    );
+    expect(next.jobs).toEqual([
+      { id: "review_1", type: "review", require_attested_lane: true },
+    ]);
   });
 });
 

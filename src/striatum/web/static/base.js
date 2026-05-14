@@ -154,6 +154,30 @@
     });
   }
 
+  let copyOnClickAsset = null;
+
+  function loadCopyOnClick() {
+    if (window.StriatumCopyOnClick) return Promise.resolve(window.StriatumCopyOnClick);
+    if (copyOnClickAsset) return copyOnClickAsset;
+    copyOnClickAsset = new Promise((resolve, reject) => {
+      const script = document.createElement("script");
+      script.defer = true;
+      script.src = "/static/copy_on_click.js";
+      script.onload = () => resolve(window.StriatumCopyOnClick);
+      script.onerror = reject;
+      document.head.appendChild(script);
+    });
+    return copyOnClickAsset;
+  }
+
+  function initCopyOnClick() {
+    loadCopyOnClick().then((api) => {
+      if (api && typeof api.init === "function") api.init(document);
+    }).catch((_err) => {
+      // Copy controls are progressive enhancement; the page should keep working.
+    });
+  }
+
   window.StriatumUI = {
     storage,
     parseDate,
@@ -161,10 +185,12 @@
     formatDurationBetween,
     isEditableTarget,
     renderTimes,
+    initCopyOnClick,
   };
 
   document.addEventListener("DOMContentLoaded", () => {
     initTimeToggle();
     initShortcuts();
+    initCopyOnClick();
   });
 }());

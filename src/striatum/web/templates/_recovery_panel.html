@@ -4,9 +4,12 @@
   {% if panel.auto_publish_recipe %}
   <div class="callout recovery-auto-publish">
     <strong>Auto-publish candidate</strong>
-    <code>{{ panel.auto_publish_recipe }}</code>
+    <code data-copy="{{ panel.auto_publish_recipe }}">{{ panel.auto_publish_recipe }}</code>
   </div>
   {% endif %}
+  <div id="island-recovery-panel"
+       class="recovery-panel-island"
+       data-props='{{ {"runId": panel.run_id, "recipes": panel.recipes or []} | tojson }}'></div>
   {% if panel.blockers %}
   <ul class="recovery-blocker-list">
     {% for blocker in panel.human_checkpoints + panel.blocked %}
@@ -22,7 +25,7 @@
       {% if blocker.recipes %}
       <div class="recipe-list" aria-label="Recovery recipes">
         {% for recipe in blocker.recipes %}
-        <code>{{ recipe }}</code>
+        <code data-copy="{{ recipe }}">{{ recipe }}</code>
         {% endfor %}
       </div>
       {% endif %}

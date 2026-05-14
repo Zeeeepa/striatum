@@ -561,16 +561,25 @@ def _recovery_panel_payload(
     next_actions: list[Any],
 ) -> JsonObject:
     blockers = _open_blocker_rows(conn, run_id=run_id)
+    auto_publish_recipe = (
+        f"striatum recovery auto-publish --run-id {run_id} --dry-run"
+        if "recovery_auto_publish" in {str(action) for action in next_actions}
+        else None
+    )
+    recipes: list[JsonObject] = []
+    if auto_publish_recipe:
+        recipes.append({"label": "Auto-publish dry run", "command": auto_publish_recipe})
+    for blocker in blockers:
+        for recipe in blocker.get("recipes") or []:
+            recipes.append({"label": str(blocker.get("blocker_kind") or "Recovery command"), "command": str(recipe)})
     return {
+        "run_id": run_id,
         "blockers": blockers,
         "human_checkpoints": [b for b in blockers if b.get("severity") == "human_checkpoint"],
         "blocked": [b for b in blockers if b.get("severity") != "human_checkpoint"],
         "next_actions": [str(action) for action in next_actions],
-        "auto_publish_recipe": (
-            f"striatum recovery auto-publish --run-id {run_id} --dry-run"
-            if "recovery_auto_publish" in {str(action) for action in next_actions}
-            else None
-        ),
+        "auto_publish_recipe": auto_publish_recipe,
+        "recipes": recipes,
     }
 
 

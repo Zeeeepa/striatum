@@ -652,6 +652,115 @@ table.runs-table tbody tr:hover { background: var(--bg-overlay); }
   font-size: 0.9em;
 }
 
+.recovery-panel {
+  --recovery-panel-gap: var(--space-3);
+  --recovery-recipe-padding: var(--space-2);
+  margin: var(--space-4) 0;
+  padding: var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-base);
+}
+.recovery-panel h2 { margin-bottom: var(--space-3); }
+.recovery-blocker-list {
+  display: grid;
+  gap: var(--recovery-panel-gap);
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.recovery-blocker {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--status-blocked);
+  border-radius: var(--radius);
+  background: var(--bg-elevated);
+}
+.recovery-human_checkpoint { border-left-color: var(--status-waiting-human); }
+.recovery-blocker > div:first-child {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+}
+.recovery-blocker p { margin: 0; }
+.callout {
+  margin-bottom: var(--recovery-panel-gap);
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-elevated);
+}
+.recovery-auto-publish {
+  display: grid;
+  gap: var(--space-2);
+  border-left: 3px solid var(--accent);
+}
+.recovery-panel-island,
+.recovery-panel-enhancement {
+  margin: var(--space-3) 0;
+}
+.recovery-panel-header {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  align-items: flex-start;
+  justify-content: space-between;
+}
+.recovery-panel-header h3 {
+  margin: 0 0 var(--space-1) 0;
+  font-size: 1rem;
+}
+.recovery-results {
+  margin-top: var(--space-3);
+  overflow-x: auto;
+}
+.recovery-results table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.recovery-results th,
+.recovery-results td {
+  padding: var(--space-2);
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  vertical-align: top;
+}
+.recipe-list {
+  display: grid;
+  gap: var(--space-2);
+}
+.recipe-list code,
+.copy-recipe {
+  display: block;
+  width: 100%;
+  padding: var(--recovery-recipe-padding);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-base);
+  overflow-x: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.copy-command {
+  display: grid;
+  gap: var(--space-1);
+  width: 100%;
+  padding: var(--recovery-recipe-padding);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-base);
+  color: var(--fg-primary);
+  text-align: left;
+  cursor: copy;
+}
+.copy-command code {
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
 .breadcrumb {
   font-size: 0.9em;
   color: var(--fg-muted);
@@ -902,6 +1011,129 @@ table.runs-table tbody tr:hover { background: var(--bg-overlay); }
 }
 .doctor-group .problem-list { margin: 0; padding: 0 var(--space-3) var(--space-3); }
 
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-6);
+  background: rgba(13,17,23,0.45);
+}
+.modal-dialog,
+dialog.modal-dialog {
+  width: min(42rem, calc(100vw - 2rem));
+  max-height: calc(100vh - 2rem);
+  overflow: auto;
+  padding: var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-elevated);
+  color: var(--fg-primary);
+  box-shadow: var(--shadow-md);
+}
+dialog.modal-dialog::backdrop { background: rgba(13,17,23,0.45); }
+.modal-dialog h2,
+.modal-dialog h3 { margin-bottom: var(--space-3); }
+.modal-body {
+  display: grid;
+  gap: var(--space-3);
+  margin: var(--space-3) 0;
+}
+.modal-field {
+  display: grid;
+  gap: var(--space-1);
+  color: var(--fg-secondary);
+  font-size: 0.9em;
+}
+.modal-field input,
+.modal-field select,
+.modal-field textarea {
+  padding: var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-elevated);
+  color: var(--fg-primary);
+  font: inherit;
+}
+.modal-field textarea { min-height: 7rem; resize: vertical; }
+.modal-field input:focus,
+.modal-field select:focus,
+.modal-field textarea:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.modal-argv,
+.modal-error,
+.modal-status {
+  padding: var(--space-2);
+  border-radius: var(--radius);
+  background: var(--bg-base);
+  overflow-x: auto;
+  white-space: pre-wrap;
+}
+.modal-argv { font-family: var(--font-mono); font-size: 0.9em; }
+.modal-error {
+  border: 1px solid var(--status-failed);
+  color: var(--status-failed);
+}
+.modal-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  justify-content: flex-end;
+  margin-top: var(--space-4);
+}
+.modal-confirm.destructive { background: var(--status-failed); }
+
+.override-verdict-dialog {
+  width: min(42rem, calc(100vw - 2rem));
+  max-height: calc(100vh - 2rem);
+  padding: var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-elevated);
+  color: var(--fg-primary);
+  box-shadow: var(--shadow-md);
+}
+.override-verdict-dialog::backdrop { background: rgba(13,17,23,0.45); }
+.override-verdict-form {
+  display: grid;
+  gap: var(--space-3);
+}
+.override-verdict-form label {
+  display: grid;
+  gap: var(--space-1);
+  color: var(--fg-secondary);
+  font-size: 0.9em;
+}
+.override-verdict-form .checkbox-row {
+  display: flex;
+  align-items: center;
+}
+.override-verdict-form input,
+.override-verdict-form select,
+.override-verdict-form textarea {
+  padding: var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-base);
+  color: var(--fg-primary);
+  font: inherit;
+}
+.override-verdict-form textarea { resize: vertical; }
+.override-verdict-status {
+  margin: 0;
+  padding: var(--space-2);
+  border-radius: var(--radius);
+  background: var(--bg-base);
+}
+.override-verdict-status.error {
+  border: 1px solid var(--status-failed);
+  color: var(--status-failed);
+}
+
 .shortcut-dialog {
   border: 1px solid var(--border);
   border-radius: var(--radius);
@@ -933,6 +1165,54 @@ kbd {
   background: var(--bg-base);
   font-family: var(--font-mono);
   text-align: center;
+}
+
+[data-copy],
+.copyable {
+  cursor: copy;
+}
+code[data-copy],
+code.copyable,
+.copy-recipe[data-copy] {
+  border-radius: 3px;
+  transition: background-color 120ms ease, box-shadow 120ms ease;
+}
+[data-copy]:hover,
+[data-copy]:focus,
+.copyable:hover,
+.copyable:focus {
+  background: var(--bg-overlay);
+  box-shadow: inset 0 0 0 1px var(--accent);
+  outline: none;
+}
+[data-copy]:focus-visible,
+.copyable:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+[data-copy-state="copied"],
+.copyable.is-copied {
+  box-shadow: inset 0 0 0 1px var(--status-completed);
+}
+.copy-toast {
+  position: fixed;
+  left: 50%;
+  bottom: var(--space-6);
+  z-index: 1100;
+  transform: translateX(-50%);
+  max-width: min(24rem, calc(100vw - 2rem));
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-elevated);
+  color: var(--fg-primary);
+  box-shadow: var(--shadow-md);
+  font-size: 0.9em;
+}
+.copy-toast[hidden] { display: none; }
+.copy-toast.is-error {
+  border-color: var(--status-failed);
+  color: var(--status-failed);
 }
 
 /* RFC 0024 V1: workflow browser tables. */

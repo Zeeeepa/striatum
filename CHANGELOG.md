@@ -1,6 +1,46 @@
 # Changelog
 
-## v1.47.0 — 2026-05-14
+## v1.48.0 — 2026-05-14
+
+### Added — RFC 0050 V2: interactive layer (recovery panel island, override modal, copy-on-click, graph-editor data binding)
+
+Lands RFC 0050 V2 via dogfood-056. Closes RFC 0050 across V1 (v1.46.0),
+V1.5 (v1.47.0), and V2 (this release).
+
+**dogfood-056 (V2 interactive layer):**
+- **Recovery panel island** (`src/striatum/web/frontend/src/islands/recovery-panel/`)
+  — React island enhances the server-rendered recovery panel with a dry-run
+  preview of `striatum recovery auto-publish` via `/v1/invoke`. No-JS fallback
+  preserved per UI_REWORK.md §8.3.
+- **Override verdict modal** (`src/striatum/web/static/override_verdict.js`)
+  — ARIA `<dialog>` with focus trap, Escape close, focus return.
+  Posts only allowed override fields to `/v1/invoke`; identifiers come
+  from server-rendered `data-*` attributes per UI_REWORK.md §8.6.
+- **Copy-on-click** (`src/striatum/web/static/copy_on_click.js` + `base.js`
+  wiring) — `[data-copy]` targets initialize globally on `DOMContentLoaded`,
+  Enter/click copy, 1.2s toast. Identifier regex
+  `^(run|job|sess|art|proc|super|lease)_[0-9a-f]+$` per UI_REWORK.md §7.7.
+- **Workflow graph editor `require_attested_lane`** — per-node data binding
+  in `WorkflowGraphEditor.tsx`. Stored in state, rendered in node body +
+  textual summary, round-trips through serializer. **Data-binding only**;
+  no viewport overlay (deferred to React Flow v12 per GH #6).
+- 7 regression tests:
+  `test_recovery_panel_dry_run`, `test_override_modal_payload`,
+  `test_copy_on_click`, `test_run_detail_recovery_panel` (updated),
+  `recovery-panel.test.tsx`, `workflow-graph-editor.test.ts`, and
+  bundle-hash discipline in `test_web_ui.py`.
+
+**Known follow-up findings (recorded in dogfood-056 review/build/):**
+- **HIGH (gemini F1)**: `/v1/invoke` lacks CSRF protection +
+  Content-Type validation; cross-site command execution risk on local
+  runner. **Security-hardening pass deferred to v1.48.x.**
+- **MEDIUM (gemini F2/F3)**: Override modal DOM tampering + recovery
+  dry-run side-effect surface. Deferred to v1.48.x.
+- **LOW (gemini F4/F5, claude F1-F3)**: Clipboard hijack via arbitrary
+  `data-copy`, graph-editor ghost field on job type change, recovery
+  panel error-state copy affordance, modal submit feedback.
+
+
 
 ### Added — RFC 0050 V1.5: template extensions + provenance-honesty fixes
 
