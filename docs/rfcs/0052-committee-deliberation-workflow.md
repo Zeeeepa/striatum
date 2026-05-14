@@ -151,9 +151,12 @@ and that this shape can.
 ## Proposed shape (not a design)
 
 This section names the primitives the RFC introduces and sketches
-schema shapes so reviewers can argue about them concretely. The
-sketches are **proposals, not contracts**; field names, optionality,
-and validator rules harden in a follow-up design doc.
+**one possible** schema shape so reviewers can argue about it
+concretely. The sketches are **examples to react to, not
+requirements**. Field names, optionality, validator rules, and the
+exact method vocabulary are all up for revision in a follow-up
+design doc — including replacing any of the sketches wholesale with a
+different shape that meets the same goals.
 
 ### New artifact kinds
 
@@ -185,7 +188,7 @@ closes_topic: false                     # only `concession` + `yield` may set tr
 <markdown body — the actual argument, kept short by convention>
 ```
 
-Validator rules: `speaker_session_id` must be one of
+Example validator rules the design phase could adopt: `speaker_session_id` must be one of
 `participants` (or `arbitrator` if move_type ∈ {sustain_objection,
 overrule_objection}); `references` and `conflicts_with` must resolve
 to artifacts in the same run; `round` must be ≤ the phase's
@@ -218,7 +221,7 @@ follow_up_decision_id: dec_<hex>       # filled by post-publish hook for
 <markdown body — the arbitrator's reasoning>
 ```
 
-Validator rules: only the role declared `arbitrator` in the phase may
+Example validator rules the design phase could adopt: only the role declared `arbitrator` in the phase may
 publish this kind; `record_consensus` requires
 `consensus_artifact_id`; `escalate_to_panel` is refused unless the
 phase declares a `panel`; rulings with terminal move_types
@@ -245,7 +248,7 @@ rationale_artifact_id: art_<hex>        # optional separate finding-style doc
 <markdown body — short rationale; long form goes in the linked finding>
 ```
 
-Validator rules: `panelist_session_id` must be a session registered
+Example validator rules the design phase could adopt: `panelist_session_id` must be a session registered
 under the panel; one vote per panelist (idempotent re-publish allowed
 only if `vote` and `rationale_artifact_id` are unchanged);
 `fresh_session_required: true` enforced at session-register time per
@@ -275,7 +278,7 @@ posture: committee_panel                 # for RFC 0018 V1 step 3 surface
 <markdown body — outcome summary; cites each vote artifact>
 ```
 
-Validator rules: `tally` must match the `votes` list exactly; `outcome`
+Example validator rules the design phase could adopt: `tally` must match the `votes` list exactly; `outcome`
 must be derivable from `aggregation` + `tally` (validator recomputes
 and refuses on mismatch); the verdicts table receives a row keyed off
 this artifact with `verdicts.posture = "committee_panel"`.
@@ -304,7 +307,7 @@ producer_artifacts: [art_<hex>, ...]    # the initial producer artifacts
 <markdown body — the readable digest>
 ```
 
-Validator rules: phase termination is refused without exactly one
+Example validator rules the design phase could adopt: phase termination is refused without exactly one
 `debate_synthesis`; every declared `topic_id` must appear in
 `topics`; `arbitration_trail` must enumerate every ruling in
 publish order.
@@ -379,7 +382,7 @@ Equivalent shape with `adversarial` pairing:
 }
 ```
 
-Validator rules (illustrative):
+Example validator rules the design phase could adopt (illustrative):
 
 1. `arbitrator.lane` ∉ `{p.lane for p in participants}`.
 2. If `panel` present: `set(panel.lanes_required)` must contain at
@@ -397,9 +400,11 @@ Validator rules (illustrative):
 
 ### New daemon RPC methods
 
-Illustrative dotted vocabulary, fitting the RFC 0030 registry shape
-and the RFC 0043 V1 expansion. All bind to existing capabilities
-(`write`, `review`); no new capability classes.
+One possible dotted vocabulary, sketched to show that the shape
+fits the RFC 0030 registry pattern and the RFC 0043 V1 expansion.
+The design phase may rename, merge, or split these freely; the
+point is that no new capability classes are needed — everything
+binds to existing `write` / `read` / `review`.
 
 | Method | Capability | Repo scope | Description |
 |---|---|---|---|
