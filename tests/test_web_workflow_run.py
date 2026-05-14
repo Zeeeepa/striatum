@@ -64,7 +64,10 @@ def _post(port: int, path: str, body: object,
     req = urllib.request.Request(
         f"http://127.0.0.1:{port}{path}",
         data=data,
-        headers={"Content-Type": content_type},
+        headers={
+            "Content-Type": content_type,
+            "Origin": f"http://127.0.0.1:{port}",
+        },
         method="POST",
     )
     try:

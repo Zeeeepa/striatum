@@ -137,41 +137,45 @@ declares 0 retries or the retry was already consumed), the runner opens
 
 ## 4. Active runway (this week, next 1-3 dogfoods)
 
-### 4.1 ← NEXT — Dogfood-057: v1.48.x security hardening (RFC 0050 V2 surface)
+### 4.1 ✅ shipped — Dogfood-057 / v1.49.0: RFC 0048 V1 Phase A handler port
 
-**Closes:** [#9](https://github.com/halbritt/striatum/issues/9) (HIGH CSRF on `/v1/invoke`), [#10](https://github.com/halbritt/striatum/issues/10), [#11](https://github.com/halbritt/striatum/issues/11).
+**Reservation history.** §4.1 originally reserved dogfood-057 for the
+v1.48.x security hardening (CSRF / origin-enforcement / context
+validation) closing GH #9/#10/#11. That work shipped earlier the same
+day via the `striatum/gh-issues-parallel` branch (commit `f5c8cca`
+"Implement GH 9 10 11 security hardening"), making the original 057
+reservation moot. **dogfood-057 was reassigned to RFC 0048 V1 Phase A**
+(the substrate-facade fix) since it was the next biggest blocker on the
+runway.
 
-**Why next:** #9 is HIGH-severity attack surface introduced when V2
-landed. Until it's closed, any operator running `striatum serve` is one
-malicious website visit away from arbitrary CLI execution.
+**Closes:** RFC 0048 V1 Phase A — the Python-side handler port. All 16
+single-repo daemon RPC mutation handlers moved from SQLite-backed CLI
+dispatch into native PG-backed handlers under
+`src/striatum/daemon_pg/handlers/{workflow_loop,recovery_evidence}/`
+with `DaemonRpcRouter._route` resolving the PG handler before the
+legacy `CLI_ROUTES` fallback.
 
-**Scope:**
-1. **Content-Type validation in `_read_json_body`** (`src/striatum/service.py`)
-   — refuse non-`application/json` POST bodies. This alone defeats simple-
-   request CSRF.
-2. **Origin / Referer enforcement** for non-GET requests when `web_enabled` is true.
-3. **Client-side run_id/job_id context validation** in `override_verdict.js`
-   — refuse posts whose `data-job-id` doesn't belong to the current URL's run.
-4. **`recovery auto-publish --dry-run` strict read-only audit** —
-   pin a regression test asserting no `events` row, no lease, no artifact.
+**V1 landing notes** (from the run's `OPERATOR_REPORT.md`):
 
-**Deliverables:**
-- Source changes in `service.py` + `override_verdict.js` + recovery
-  module.
-- New tests: `test_invoke_csrf_refused.py`, `test_origin_enforcement.py`,
-  `test_override_modal_context_validation.py`, `test_recovery_dry_run_no_side_effects.py`.
-- `docs/dogfood/057/` scaffold (workflow.json + prompts) per the 6-job
-  pattern (synth → review_design → implement → 3-way build review).
+- Codex F1-F4 (fail-closed routing, capability-denial tests,
+  audit-chain concurrency, append-only role enforcement) accepted as
+  V1.5 follow-up risk.
+- Claude HIGH#1/#2 (byte-equivalence parity rig advertised but unused;
+  `complete_inline`/`ack_inline` undefined and `recovery.resume
+  --complete`/`recovery.auto` live-mode unreachable) accepted as V1.5
+  follow-up risk.
+- Schema migration for top-level `striatumd.events.previous_hash` /
+  `row_hash` deferred — chain metadata currently lives inside
+  `payload_json._event_chain` per implementer workaround.
+- Run executed in legacy SQLite mode (`STRIATUM_DAEMON_REQUIRED=0
+  STRIATUM_TEST_HARNESS=1`) because RFC 0048 is itself the gap that
+  prevents the daemon-required CLI from working end-to-end. State-store
+  corruption surfaced; SQLite was quarantined and reset.
 
-**Empirical verification of v1.48.1 wrapper fix:** This dogfood doubles
-as the first opportunity to confirm v1.48.1 closed the claude/gemini
-stall pattern. Expect **zero operator-on-behalf publishes** if the fix
-held. If any lane stalls, capture the packet log and reopen analysis.
-
-**Suggested implementer:** claude or codex. Avoid codex/codex
-implementer↔reviewer pairing.
-
-**Verification:** `gh issue close 9 10 11` after the dogfood ships.
+**Next:** dogfood-058 (RFC 0048 V1.5) scopes the codex F1-F4 + claude
+HIGH#1/#2 + chain-migration items as a fix-up dogfood. RFC 0048 Phase B
+(Go-core parity) and Phase C (SQLite-removal flip) remain multi-week,
+NOT V1.7.
 
 ### 4.2 Dogfood-058: RFC 0051 V1 implementation (auto-finalize from frontmatter)
 
@@ -302,6 +306,16 @@ memory layer for Striatum operators and workflow agents — retrieval-
 backed working memory over operator/agent logs, RFCs, designs, reviews,
 operator reports, changelogs, git history, issues, blockers, and
 generated artifacts.
+
+**RFC 0052 scaffold landed (2026-05-14).** See
+[`docs/rfcs/0057-corpus-contract-v2.md`](rfcs/0057-corpus-contract-v2.md)
+for the bounded V2 decision surface (contract version, multi-corpus
+identity, redaction-tier metadata, incremental-export watermarks,
+validation rules, V1→V2 backward compatibility, augmentation-boundary
+regression coverage, optional context-injection policy). Filed through
+the `docs/issues/17/` workflow; the scaffold is the Striatum side of
+GH #17. Full V2 acceptance criteria are deferred until the design phase
+of a future dogfood resolves the decisions.
 
 **What already shipped on our side:**
 - `striatum corpus export --since <ref> --out <dir>` (RFC 0044 V1,
@@ -589,7 +603,7 @@ $EDITOR docs/ROADMAP.md                                # promote what's done, ad
 | If you want... | Read |
 |---|---|
 | Authoritative status of any item | `docs/TODO.md` |
-| Architectural rationale for a decision | `docs/DECISION_LOG.md` (latest D102) |
+| Architectural rationale for a decision | `docs/DECISION_LOG.md` (latest D103) |
 | RFC design + acceptance criteria | `docs/rfcs/<NNNN>-*.md` and `docs/rfcs/README.md` index |
 | Per-dogfood outcomes + interventions | `docs/dogfood/<N>/OPERATOR_REPORT.md` |
 | Operator-facing CLI verbs + skills | `docs/HOW_TO_AGENT.md`, `docs/SPEC.md` |

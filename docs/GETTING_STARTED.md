@@ -35,6 +35,16 @@ covers that path.
   This is *not* the striatum source repository unless you are
   dogfooding striatum on itself.
 - `git` available.
+- A reachable PostgreSQL service. Per D094 / RFC 0043 the daemon
+  is a hard prerequisite for every Striatum verb, and the daemon
+  stores all live workflow state in operator-installed PostgreSQL
+  (bundled / Dockerized distributions are deferred). Configure
+  the connection through `STRIATUM_DAEMON_DB_URL`,
+  `~/.config/striatum/daemon.toml`, or `--postgres-url`. See
+  [POSTGRES_TRANSITION.md](POSTGRES_TRANSITION.md) for the full
+  runbook (daemon doctor, daemon startup, per-repo migration,
+  verification, and the documented refusal exit codes 11
+  `daemon_unreachable` and 12 `repo_not_migrated`).
 
 ## Install striatum
 
@@ -202,10 +212,17 @@ After `init`, the target repo contains:
 
 ```text
 .striatum/
-  state.sqlite3       # live state — runs, jobs, leases, events
-  scratch/            # per-supervisor named pipes (RFC 0009)
+  scratch/            # per-supervisor named pipes / pidfiles (RFC 0009)
   bin/                # optional; e.g., claude-supervised-wrapper.sh
+  daemon-token        # optional; 0600 capability-token cache (RFC 0033)
 ```
+
+`.striatum/` is operational scratch only. Authoritative workflow
+state lives in the daemon-owned PostgreSQL instance under a
+`repository_id` scope (D094 / RFC 0043); no `state.sqlite3` file is
+created on a fresh init. If the directory already carried a V1
+`state.sqlite3` from a pre-D094 install, run the per-repo migration
+described above before driving workflow verbs.
 
 `.striatum/` is added to `.gitignore`. Repository files outside
 `.striatum/` (artifacts, decisions, evidence exports) are durable
@@ -258,6 +275,9 @@ an existing example fixture.
   own `workflow.json` from scratch.
 - **[CLI_REFERENCE.md](CLI_REFERENCE.md)** — every CLI verb,
   flat list, with stable exit codes.
+- **[POSTGRES_TRANSITION.md](POSTGRES_TRANSITION.md)** — operator
+  runbook for the D094 / RFC 0043 PostgreSQL cutover and per-repo
+  migration.
 - **[SPEC.md](SPEC.md)** — the implementation contract for the
   current V1 surface.
 - **[INDEX.md](INDEX.md)** — every doc in `docs/` with a one-line

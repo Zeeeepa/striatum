@@ -1,8 +1,87 @@
 # RFC 0048 — Daemon-side substrate migration (V2.0 phase)
 
-**Status:** proposed
+**Status:** accepted (V1 Phase A landed in dogfood-057 / v1.49.0; codex F1-F4 + claude HIGH#1/#2 absorbed into V1.5 follow-up)
 **Scope:** V2.0 (multi-week phase, NOT V1.7)
 **Closes:** gemini A1 finding from dogfood-050 (substrate mismatch)
+
+## V1 Phase A landing summary (2026-05-14, v1.49.0)
+
+dogfood-057 landed the Python-side handler port for all 16 single-repo
+mutation methods under `src/striatum/daemon_pg/handlers/`:
+
+- **Track A** (`workflow_loop/`, codex): `register_session`, `claim_next`,
+  `ack_work`, `complete_job`, `release_lease`, `block_job`,
+  `record_verdict`, `submit_review`, `override_review_verdict`.
+- **Track B** (`recovery_evidence/`, claude): `stale_leases`,
+  `requeue_stale`, `cancel_job`, `process_reconcile`, `resume_blocker`,
+  `auto_publish_stale_artifacts`, `evidence_export`.
+- Shared infrastructure: `handlers/__init__.py`, `handlers/registry.py`,
+  `handlers/context.py`. `DaemonRpcRouter._route` resolves the PG
+  handler before the legacy `CLI_ROUTES` fallback. Decorator-based
+  self-registration is the integration boundary between tracks.
+
+**Operator landing footnote.** The dogfood ran in legacy SQLite mode
+(`STRIATUM_DAEMON_REQUIRED=0 STRIATUM_TEST_HARNESS=1`) because
+RFC 0048 itself addresses the daemon-RPC accept-loop / substrate-facade
+gap; that gap made the daemon-required CLI path non-functional on the
+branch. State for the live run was lost when the per-repo `striatum
+serve` was restarted mid-run; the on-disk artifacts and ported handler
+code survived because the work-packet model writes durable artifacts
+before any callback. The repo-local SQLite ended in a corrupted state
+under concurrent migration + serve + supervisor writes; it was
+quarantined as `.striatum/state.sqlite3.corrupt` and reset via
+`striatum init`. Postgres `striatum_daemon` retains the pre-rollback
+73-run snapshot.
+
+## V1.5 follow-up — non-negotiable risks accepted in V1 Phase A
+
+The build-review verdicts on V1 Phase A flagged real findings that did
+NOT block the V1 landing but MUST be addressed in V1.5 before V1
+becomes the daemon-required default path:
+
+- **F1 (codex threat_model)** — fail-closed routing rule: once a method
+  is registered as PG-backed, all PG handler exceptions, capability
+  denials, and parameter validation failures must return an RPC error
+  and must NOT fall back through `striatum.api.invoke` /
+  `striatum.db.connect` / SQLite-backed dispatch. Add a per-method
+  negative test that monkeypatches the PG handler to raise and asserts
+  no SQLite read/write occurs.
+- **F2 (codex threat_model)** — capability-denial test coverage for
+  every PG write handler: missing token, revoked, expired, wrong
+  capability, wrong repository scope, replay. Assert no workflow-table
+  mutation, no audit-row append on the allow path, and a denied audit
+  row with the documented reason.
+- **F3 (codex threat_model)** — audit-chain concurrency: each PG write
+  handler appends audit + workflow events in a short `SERIALIZABLE`
+  transaction or an explicit row-locking protocol. Add a concurrent
+  test for overlapping allowed and denied requests across claim,
+  publish-artifact, verdict, complete, recovery paths; verify a single
+  contiguous audit chain and no orphan workflow mutations.
+- **F4 (codex threat_model)** — append-only role enforcement: privilege
+  tests that the daemon read-write role cannot update or delete
+  `striatumd.events` or `striatumd.artifacts`. Audit per-handler use of
+  `ON CONFLICT DO UPDATE` patterns on append-only rows.
+- **#1 (claude ergonomics_dx, HIGH)** — actual byte-equivalence parity
+  tests: the parity rig advertised in
+  `tests/daemon_pg/handlers/recovery_evidence/conftest.py` (with `Seed`
+  dataclass + `pg_ctx` + `sqlite_conn`) is unused. Wire the seven
+  Track B tests + nine Track A tests to assert per-key state diffs
+  between PG and SQLite paths on the same input fixture. Remove the
+  `RFC0048_PARITY` skipif gating so parity runs by default once parity
+  is achieved.
+- **#2 (claude ergonomics_dx, HIGH)** — dead code paths: `complete_inline`
+  and `ack_inline` are referenced but never defined; `recovery.resume
+  --complete` and `recovery.auto` live mode are unreachable from any
+  caller. Define + wire, or delete.
+- **#4, #6 (claude ergonomics_dx, MEDIUM)** — the synthesis-mandated
+  `striatumd.events.previous_hash` / `row_hash` column migration was
+  deferred; chain metadata currently lives inside
+  `payload_json._event_chain`. Land the schema migration and re-anchor
+  existing rows. Update `docs/POSTGRES_TRANSITION.md` to reflect the
+  new substrate path for the ported methods.
+
+A separate `dogfood-058-rfc-0048-v1-5` fix-up dogfood will scope these
+items explicitly.
 
 ## Background
 

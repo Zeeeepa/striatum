@@ -1,0 +1,253 @@
+{
+  "schema_version": "striatum.workflow.v1",
+  "workflow_id": "gh-12-13-rfc-0050-ergonomics-polish",
+  "workflow_version": "1",
+  "name": "GH #12-#13: RFC 0050 ergonomics polish",
+  "context_docs": [
+    "docs/issues/12/SPEC.md",
+    "docs/issues/13/SPEC.md",
+    "docs/issues/12/SCOPE.md",
+    "docs/issues/12/build/HANDOFF.md",
+    "docs/ROADMAP.md",
+    "docs/TODO.md",
+    "docs/SPEC.md",
+    "AGENTS.md"
+  ],
+  "coordinator": {
+    "lane": "codex"
+  },
+  "parallelism": {
+    "max_active_jobs": 3
+  },
+  "branch": {
+    "mode": "auto",
+    "suggested_name": "striatum/gh-issues-parallel"
+  },
+  "lanes": {
+    "codex": {
+      "adapter": "process",
+      "command": [
+        "bash",
+        "-lc",
+        "PYTHONPATH=src python3 -m striatum.cli skills install --profile all --scope user --force --json >/dev/null && export PATH=\"$PWD/.venv/bin:$PATH\" && exec .striatum/bin/codex-supervised-wrapper.sh"
+      ],
+      "model": "codex",
+      "strategy_version": "2026-05-14",
+      "supervision": {
+        "compatible": true,
+        "stdin_format": "newline_delimited_json",
+        "wrapper_required": true
+      }
+    },
+    "claude_code": {
+      "adapter": "process",
+      "command": [
+        "bash",
+        "-lc",
+        "PYTHONPATH=src python3 -m striatum.cli skills install --profile all --scope user --force --json >/dev/null && export PATH=\"$PWD/.venv/bin:$PATH\" && exec .striatum/bin/claude-supervised-wrapper.sh"
+      ],
+      "model": "claude_code",
+      "strategy_version": "2026-05-14",
+      "supervision": {
+        "compatible": "verify_pipe_behavior_first",
+        "stdin_format": "prompt_text",
+        "wrapper_required": true
+      }
+    },
+    "gemini": {
+      "adapter": "process",
+      "command": [
+        "bash",
+        "-lc",
+        "PYTHONPATH=src python3 -m striatum.cli skills install --profile all --scope user --force --json >/dev/null && export PATH=\"$PWD/.venv/bin:$PATH\" && exec .striatum/bin/gemini-supervised-wrapper.sh"
+      ],
+      "model": "gemini",
+      "strategy_version": "2026-05-14",
+      "supervision": {
+        "compatible": true,
+        "stdin_format": "prompt_text",
+        "wrapper_required": true
+      }
+    }
+  },
+  "roles": {
+    "coordinator": {
+      "description": "Operator/control-plane role."
+    },
+    "triager": {
+      "description": "Bounds scope from the captured GH issue and project roadmap."
+    },
+    "designer": {
+      "description": "Synthesizes implementation design and acceptance plan."
+    },
+    "implementer": {
+      "description": "Applies the scoped source or documentation changes."
+    },
+    "reviewer": {
+      "description": "Fresh-context reviewer who verifies the scoped change."
+    }
+  },
+  "jobs": [
+    {
+      "id": "triage",
+      "type": "synthesis",
+      "title": "Triage GH #12-#13 polish scope",
+      "role_id": "triager",
+      "lane_id": "codex",
+      "fresh_session_required": true,
+      "objective": "Produce scope for the #12/#13 polish bundle only.",
+      "task_prompt": {
+        "path": "docs/issues/12/prompts/triage.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/issues/12/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "scope",
+          "kind": "synthesis",
+          "path": "docs/issues/12/SCOPE.md",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "fix",
+      "type": "build",
+      "title": "Implement GH #12-#13 polish",
+      "role_id": "implementer",
+      "lane_id": "claude_code",
+      "required_review_postures": [
+        "ergonomics_dx",
+        "security"
+      ],
+      "objective": "Fix copy-on-click global selector risk and require_attested_lane stale state when job type changes.",
+      "task_prompt": {
+        "path": "docs/issues/12/prompts/fix.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "src/striatum/web/",
+          "tests/",
+          "docs/issues/12/build/"
+        ],
+        "forbidden_paths": [
+          ".striatum/",
+          "docs/issues/9/",
+          "docs/issues/10/",
+          "docs/issues/11/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "handoff",
+          "kind": "handoff",
+          "path": "docs/issues/12/build/HANDOFF.md",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "review_ergonomics",
+      "type": "review",
+      "title": "Review GH #12-#13 ergonomics",
+      "role_id": "reviewer",
+      "lane_id": "codex",
+      "parallel_group": "review",
+      "fresh_session_required": true,
+      "reviewer_access_scope": "repo_level",
+      "reviewer_context_policy": "fresh",
+      "review_posture": "ergonomics_dx",
+      "objective": "Verify operator ergonomics and UI behavior for #12/#13.",
+      "task_prompt": {
+        "path": "docs/issues/12/prompts/verify.md"
+      },
+      "write_scope": {
+        "mode": "review_only_artifact",
+        "repo_write": false,
+        "allowed_paths": [
+          "docs/issues/12/review/codex/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "review_ergonomics",
+          "kind": "finding",
+          "path": "docs/issues/12/review/codex/REVIEW.md",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "review_security",
+      "type": "review",
+      "title": "Review GH #12-#13 security",
+      "role_id": "reviewer",
+      "lane_id": "gemini",
+      "parallel_group": "review",
+      "fresh_session_required": true,
+      "reviewer_access_scope": "repo_level",
+      "reviewer_context_policy": "fresh",
+      "review_posture": "security",
+      "objective": "Verify the clipboard and stale-field changes do not introduce new attack surface.",
+      "task_prompt": {
+        "path": "docs/issues/12/prompts/verify.md"
+      },
+      "write_scope": {
+        "mode": "review_only_artifact",
+        "repo_write": false,
+        "allowed_paths": [
+          "docs/issues/12/review/gemini/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "review_security",
+          "kind": "finding",
+          "path": "docs/issues/12/review/gemini/REVIEW.md",
+          "required": true
+        }
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "from": "triage",
+      "to": "fix",
+      "on": "completed"
+    },
+    {
+      "from": "fix",
+      "to": "review_ergonomics",
+      "on": "completed"
+    },
+    {
+      "from": "fix",
+      "to": "review_security",
+      "on": "completed"
+    }
+  ],
+  "cycles": [
+    {
+      "from": "review_ergonomics",
+      "to": "fix",
+      "on_verdict": "needs_revision",
+      "max_iterations": 1
+    }
+  ]
+}

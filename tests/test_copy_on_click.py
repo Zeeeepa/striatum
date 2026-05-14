@@ -28,6 +28,18 @@ def test_copy_on_click_asset_contract() -> None:
     assert 'role", "status"' in script
     assert 'aria-live", "polite"' in script
     assert "position: \"fixed\"" in script
+    # GH #12: copy activation must be gated by a closed allowlist of
+    # container selectors, not the global `[data-copy]` selector.
+    assert "ALLOWED_COPY_CONTAINER_SELECTORS" in script
+    assert "isAllowedCopyTarget" in script
+    assert '".recipe-list"' in script
+    assert '".recovery-auto-publish"' in script
+    assert '".code-recipe"' in script
+    assert '".copyable-token"' in script
+    # The allowlist gate must run in both the document-level click handler
+    # path (`findCopyTarget`) and the affordance-decoration path
+    # (`enhanceTargets`). Both call sites use `isAllowedCopyTarget`.
+    assert script.count("isAllowedCopyTarget") >= 3
 
 
 def test_base_js_wires_copy_on_click_on_dom_content_loaded() -> None:

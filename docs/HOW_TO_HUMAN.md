@@ -186,8 +186,19 @@ different fixture or copy the example into a scratch tree first.
 "$RUNNER" --repo "$TARGET_REPO" doctor --json
 ```
 
-This creates `.striatum/state.sqlite3` under the target repo and
-adds `.striatum/` to that repo's `.gitignore`.
+This creates `.striatum/` as operational scratch under the target
+repo (supervised wrapper FIFOs, pidfiles, the daemon
+capability-token cache) and adds `.striatum/` to that repo's
+`.gitignore`. Authoritative workflow state lives in the daemon-
+owned PostgreSQL instance under a `repository_id` scope per D094 /
+RFC 0043; `init` registers the repository with the daemon when one
+is reachable. The daemon is a hard prerequisite — without a
+reachable daemon, the verbs above refuse with exit code 11
+(`daemon_unreachable`); against a pre-D094 SQLite-only repo they
+refuse with exit code 12 (`repo_not_migrated`) and point you at
+`striatum daemon migrate-repo-local`. See
+[POSTGRES_TRANSITION.md](POSTGRES_TRANSITION.md) for the full
+bootstrap runbook.
 
 To also drop a self-contained agent skill bundle that teaches a
 Striatum-aware agent how to drive the runner (RFC 0015 V1):
@@ -630,13 +641,11 @@ Start the daemon and register two target repos:
 ```
 
 `repo add` is admin-gated. It canonicalizes the repository
-root, refuses symlink/path-traversal ambiguity (including
-symlinked parent components or state-database symlink
-escapes), derives a realpath/inode-based repository identity,
-and refuses active path re-occupation by a different
-identity. If `.striatum/state.sqlite3` is absent the command
-refuses unless `--init` is passed; `--no-migrate` refuses
-registration when repo-local migrations would be needed.
+root, refuses symlink/path-traversal ambiguity, derives a
+realpath/inode-based repository identity, and refuses active
+path re-occupation by a different identity. Pass `--init`
+when no `.striatum/` directory exists; `--no-migrate` refuses
+registration when daemon-side schema migrations would be needed.
 
 `repo remove <path>` is idempotent, revokes live repo-scoped
 capabilities, preserves audit rows, and never reuses
@@ -651,12 +660,13 @@ Read across registered repos with `--daemon`:
 "$RUNNER" --daemon dashboard --all
 ```
 
-`--daemon` (or `STRIATUM_DAEMON=1`) opens the registry
-SQLite under a read token. V1 read surfaces supported under
-`--daemon`: `status`, `doctor`, `why`, `dashboard --all`. The
-CLI refuses (does not silently fall back to direct mode) on
-forced-daemon verbs that are not registry-backed.
-`--no-daemon` forces direct repo-local mode.
+`--daemon` (or `STRIATUM_DAEMON=1`) routes the read verb
+through the daemon RPC envelope under a `read` token. Read
+surfaces supported: `status`, `doctor`, `why`, `dashboard --all`.
+The CLI refuses (does not silently fall back to direct mode) on
+forced-daemon verbs that are not registered. The V1 `--no-daemon`
+flag is retired (D094 / RFC 0043); parsing it returns the standard
+argparse "unrecognized arguments" error.
 
 `dashboard --all` is registry-backed even without `--daemon`
 because it fans out across the registry; it requires the same
@@ -674,20 +684,19 @@ Audit shape:
   tracebacks. It is per-machine daemon evidence, not
   transcript evidence or authorship proof.
 
-What V1 daemon mode does **not** do:
+What daemon mode does **not** ship today:
 
-- It does not host a daemon RPC server. CLI and MCP clients
-  open the registry SQLite directly.
-- It does not own workflow mutations. Ordinary
-  `register-session`, `claim-next`, `publish-artifact`,
-  `verdict`, `complete`, and `recovery` calls continue to
-  mutate repo-local SQLite directly.
-- It does not own supervised processes. `striatum supervise
-  start` still spawns lane processes under repo-local
-  bookkeeping.
 - It does not ship Windows daemon support, sealed-apply
-  authority, signing keys, mutation MCP tools, hosted
-  semantics, cross-repository workflows, or remote serving.
+  authority owning hosted semantics, mutation MCP tools beyond
+  the current closed set, or remote/network-accessible serving.
+- It does not bundle PostgreSQL; operators install and own the
+  Postgres service. Bundled, embedded, and Dockerized
+  distributions are deferred (RFC 0033 §8, inherited by RFC 0043).
+- RFC 0048 (proposed, V2.0 phase) covers the remaining daemon-side
+  handler-port work where some single-repo business logic still
+  delegates through the SQLite-backed CLI path under the
+  `STRIATUM_DAEMON_REQUIRED=0 STRIATUM_TEST_HARNESS=1` test-harness
+  escape.
 
 ## Cross-repo workflow foundation
 
@@ -739,23 +748,34 @@ writes files.
 - It is not a replacement for `recovery watch` against a
   single repo, only for multi-repo sweeping.
 
-### Daemon V2 storage substrate (RFC 0033)
+### Daemon storage substrate (RFC 0033 + D094 / RFC 0043)
 
-RFC 0033 accepts system PostgreSQL as the daemon-owned storage
-substrate for V2 daemon-global state. This is a daemon storage
-cutover only: repo-local `.striatum/state.sqlite3` remains the
-live run state for each target repository, and ordinary workflow
-mutations continue to use the repo-local path until RFC 0030
-ships daemon RPC routing.
+RFC 0033 put daemon-global state on operator-installed system
+PostgreSQL. D094 / RFC 0043 then moves per-repository workflow
+state — runs, jobs, sessions, queue messages, leases, artifacts,
+verdicts, blockers, worktrees, process supervisors, and repo-local
+events — into the same daemon-owned Postgres under a
+`repository_id` scope. The daemon is a hard prerequisite for every
+Striatum verb; the V1 `--no-daemon` direct-CLI path is retired and
+parsing the flag returns the standard argparse "unrecognized
+arguments" error. See
+[POSTGRES_TRANSITION.md](POSTGRES_TRANSITION.md) for the full
+runbook.
 
 The operator provides PostgreSQL. Striatum connects through
-`STRIATUM_DAEMON_DB_URL`, daemon config, or an explicit
-`--postgres-url` client surface; the daemon owns schema
+`STRIATUM_DAEMON_DB_URL`, `~/.config/striatum/daemon.toml`, or an
+explicit `--postgres-url` client surface; the daemon owns schema
 migrations and roles, but it does not install, start, stop, or
 upgrade PostgreSQL. Bundled, embedded, and Dockerized Postgres
 distributions are deferred.
 
-Cut over a V1 daemon registry with:
+RFC 0048 (proposed, V2.0 phase) covers the remaining daemon-side
+handler-port work where some single-repo business logic still
+delegates through the SQLite-backed CLI dispatch path under the
+`STRIATUM_DAEMON_REQUIRED=0 STRIATUM_TEST_HARNESS=1` test-harness
+escape; production operators leave the variable unset.
+
+Cut over a V1 daemon registry (RFC 0033 §4):
 
 ```bash
 # Inspect what would be imported.
@@ -765,13 +785,37 @@ Cut over a V1 daemon registry with:
 "$RUNNER" daemon migrate --from sqlite --to pg --json
 ```
 
-The migration writes the V2 schema, imports registered
+Cut over a single target repo's workflow state (RFC 0043):
+
+```bash
+# Inspect — writes nothing.
+"$RUNNER" daemon migrate-repo-local \
+  --from sqlite --to pg --repo "$TARGET_REPO" --dry-run --json
+
+# Apply. Safe default keeps the source as state.sqlite3.tombstone (0444).
+"$RUNNER" daemon migrate-repo-local \
+  --from sqlite --to pg --repo "$TARGET_REPO" --json
+
+# Irreversible cleanup — both flags required.
+"$RUNNER" daemon migrate-repo-local \
+  --from sqlite --to pg --repo "$TARGET_REPO" \
+  --no-keep-sqlite-readonly --confirm-delete --json
+```
+
+The registry migration writes the V2 schema, imports registered
 repositories, clients, capabilities, scheduler cursors, and
 metadata-only audit rows, verifies hash continuity, and writes a
-cutover marker. Once the marker exists, V1 registry reads are
-refused and operators are pointed at the V2 daemon DB. Add
-`--keep-sqlite-readonly` when you want to retain the old registry
+cutover marker. `--keep-sqlite-readonly` retains the old registry
 file as an audit tombstone while blocking V1 writes.
+
+The per-repo migration runs inside a single serializable Postgres
+transaction with byte-equivalent audit-chain re-anchor, then
+finalizes the source `.striatum/state.sqlite3` per the tombstone
+flags. CLI verbs against an unmigrated repo refuse with exit code
+12 (`repo_not_migrated`); CLI verbs without a reachable daemon
+refuse with exit code 11 (`daemon_unreachable`). See
+[POSTGRES_TRANSITION.md](POSTGRES_TRANSITION.md) for the full
+runbook and rollback notes.
 
 RFC 0030/0031 add the daemon V2 RPC and supervision/apply foundation on
 top of this storage substrate. The daemon RPC envelope is versioned JSON;
@@ -1041,8 +1085,9 @@ top-level `striatum/` directory — sibling to the runner's
 
 ```text
 <your-repo>/
-├── .striatum/                 # gitignored runner state (sqlite, scratch)
-│   └── state.sqlite3
+├── .striatum/                 # gitignored operational scratch (FIFOs, pidfiles, token cache)
+│   ├── scratch/
+│   └── bin/
 ├── striatum/                  # checked-in workflow output (parallel name)
 │   └── <run-slug>/
 │       ├── RUN_SUMMARY.md
@@ -1059,11 +1104,12 @@ top-level `striatum/` directory — sibling to the runner's
 
 The directory name `striatum/` is just a convention — pick
 whatever you like in your workflow's `allowed_paths`. The
-parallel naming (`.striatum/` for runtime state, `striatum/` for
-durable output) is a clean visual reminder that:
+parallel naming (`.striatum/` for operational scratch,
+`striatum/` for durable output) is a clean visual reminder that:
 
 - `.striatum/` is **not** committed (gitignored by `init`); it's
-  the runner's working state.
+  operational scratch. Authoritative workflow state lives in the
+  daemon-owned PostgreSQL instance, not in this directory.
 - `striatum/` **is** committed; it's the durable provenance the
   runner produces.
 
@@ -1088,6 +1134,34 @@ sed -i 's|docs/reviews/rfc-ledger|striatum/rfc-ledger|g' \
 
 For new workflows, see
 [WRITING_WORKFLOWS.md § "Recommended output layout"](WRITING_WORKFLOWS.md#recommended-output-layout).
+
+## Optional: export a corpus bundle for an external memory consumer
+
+`striatum corpus export --since <ref> --out <dir>` (RFC 0044 V1) emits a
+redacted JSONL bundle of Striatum's durable provenance — RFCs,
+decision-log rows, operator reports, run summaries, audit-chain entries,
+changelog entries, ubiquitous-language terms, harness-friction patterns,
+and recent commits — plus a verifying `manifest.json`. This is an
+*optional, post-run maintenance step*. It does not modify live state,
+does not write under `.striatum/`, and is never required for any
+workflow command to succeed.
+
+```bash
+"$RUNNER" --repo "$TARGET_REPO" corpus export \
+    --since "$(git -C "$TARGET_REPO" merge-base origin/main HEAD)" \
+    --out  "$TARGET_REPO/striatum-corpus-bundle"
+```
+
+The bundle is durable, replay-stable provenance: re-running over
+unchanged inputs produces byte-identical JSONL files and identical
+per-file SHA-256s (only `generated_at` varies). An optional retrieval
+consumer (Engram is the first reference under RFC 0044) may ingest the
+bundle locally and serve search over it; Striatum does not call the
+consumer at runtime and continues to run unchanged when no consumer is
+configured. The V2 contract decisions (multi-corpus identity,
+redaction-tier metadata, incremental watermarks, optional workflow-level
+context-injection policy) are scoped by
+[RFC 0057](rfcs/0057-corpus-contract-v2.md).
 
 ## See also
 

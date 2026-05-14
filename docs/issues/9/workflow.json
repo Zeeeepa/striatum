@@ -1,0 +1,339 @@
+{
+  "schema_version": "striatum.workflow.v1",
+  "workflow_id": "gh-9-10-11-rfc-0050-security-hardening",
+  "workflow_version": "1",
+  "name": "GH #9-#11: RFC 0050 V2 security hardening",
+  "context_docs": [
+    "docs/issues/9/SPEC.md",
+    "docs/issues/10/SPEC.md",
+    "docs/issues/11/SPEC.md",
+    "docs/issues/9/DESIGN_SYNTHESIS.md",
+    "docs/issues/9/build/HANDOFF.md",
+    "docs/issues/9/review/build/codex/REVIEW.md",
+    "docs/dogfood/056/review/build/gemini/REVIEW.md",
+    "docs/ROADMAP.md",
+    "docs/TODO.md",
+    "docs/SPEC.md",
+    "AGENTS.md"
+  ],
+  "coordinator": {
+    "lane": "codex"
+  },
+  "parallelism": {
+    "max_active_jobs": 5
+  },
+  "branch": {
+    "mode": "auto",
+    "suggested_name": "striatum/gh-issues-parallel"
+  },
+  "lanes": {
+    "codex": {
+      "adapter": "process",
+      "command": [
+        "bash",
+        "-lc",
+        "PYTHONPATH=src python3 -m striatum.cli skills install --profile all --scope user --force --json >/dev/null && export PATH=\"$PWD/.venv/bin:$PATH\" && exec .striatum/bin/codex-supervised-wrapper.sh"
+      ],
+      "model": "codex",
+      "strategy_version": "2026-05-14",
+      "supervision": {
+        "compatible": true,
+        "stdin_format": "newline_delimited_json",
+        "wrapper_required": true
+      }
+    },
+    "claude_code": {
+      "adapter": "process",
+      "command": [
+        "bash",
+        "-lc",
+        "PYTHONPATH=src python3 -m striatum.cli skills install --profile all --scope user --force --json >/dev/null && export PATH=\"$PWD/.venv/bin:$PATH\" && exec .striatum/bin/claude-supervised-wrapper.sh"
+      ],
+      "model": "claude_code",
+      "strategy_version": "2026-05-14",
+      "supervision": {
+        "compatible": "verify_pipe_behavior_first",
+        "stdin_format": "prompt_text",
+        "wrapper_required": true
+      }
+    },
+    "gemini": {
+      "adapter": "process",
+      "command": [
+        "bash",
+        "-lc",
+        "PYTHONPATH=src python3 -m striatum.cli skills install --profile all --scope user --force --json >/dev/null && export PATH=\"$PWD/.venv/bin:$PATH\" && exec .striatum/bin/gemini-supervised-wrapper.sh"
+      ],
+      "model": "gemini",
+      "strategy_version": "2026-05-14",
+      "supervision": {
+        "compatible": true,
+        "stdin_format": "prompt_text",
+        "wrapper_required": true
+      }
+    }
+  },
+  "roles": {
+    "coordinator": {
+      "description": "Operator/control-plane role."
+    },
+    "triager": {
+      "description": "Bounds scope from the captured GH issue and project roadmap."
+    },
+    "designer": {
+      "description": "Synthesizes implementation design and acceptance plan."
+    },
+    "implementer": {
+      "description": "Applies the scoped source or documentation changes."
+    },
+    "reviewer": {
+      "description": "Fresh-context reviewer who verifies the scoped change."
+    }
+  },
+  "jobs": [
+    {
+      "id": "design",
+      "type": "synthesis",
+      "title": "Design security hardening for GH #9-#11",
+      "role_id": "designer",
+      "lane_id": "codex",
+      "fresh_session_required": true,
+      "objective": "Produce a design synthesis for GH #9, #10, and #11 per ROADMAP \u00a74.1. Keep #12/#13 out of scope.",
+      "task_prompt": {
+        "path": "docs/issues/9/prompts/design.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/issues/9/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "design_synthesis",
+          "kind": "synthesis",
+          "path": "docs/issues/9/DESIGN_SYNTHESIS.md",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "review_design",
+      "type": "review",
+      "title": "Review GH #9-#11 design security posture",
+      "role_id": "reviewer",
+      "lane_id": "claude_code",
+      "fresh_session_required": true,
+      "reviewer_access_scope": "repo_level",
+      "reviewer_context_policy": "fresh",
+      "review_posture": "security",
+      "objective": "Verify the design is sufficient for #9-#11 and does not pull in #12/#13.",
+      "task_prompt": {
+        "path": "docs/issues/9/prompts/review_design.md"
+      },
+      "write_scope": {
+        "mode": "review_only_artifact",
+        "repo_write": false,
+        "allowed_paths": [
+          "docs/issues/9/review/design/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "design_review",
+          "kind": "finding",
+          "path": "docs/issues/9/review/design/REVIEW.md",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "implement",
+      "type": "build",
+      "title": "Implement GH #9-#11 security hardening",
+      "role_id": "implementer",
+      "lane_id": "claude_code",
+      "required_review_postures": [
+        "security",
+        "threat_model",
+        "ergonomics_dx"
+      ],
+      "objective": "Implement Content-Type validation, Origin/Referer enforcement, override modal context validation, and recovery dry-run no-side-effect regression coverage.",
+      "task_prompt": {
+        "path": "docs/issues/9/prompts/fix.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "src/striatum/",
+          "tests/",
+          "docs/issues/9/build/"
+        ],
+        "forbidden_paths": [
+          ".striatum/",
+          "go/",
+          "docs/issues/12/",
+          "docs/issues/13/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "handoff",
+          "kind": "handoff",
+          "path": "docs/issues/9/build/HANDOFF.md",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "review_build_codex",
+      "type": "review",
+      "title": "Review GH #9-#11 build security",
+      "role_id": "reviewer",
+      "lane_id": "codex",
+      "parallel_group": "build_review",
+      "fresh_session_required": true,
+      "reviewer_access_scope": "repo_level",
+      "reviewer_context_policy": "fresh",
+      "review_posture": "security",
+      "objective": "Security review for CSRF, Origin/Referer, Content-Type, and dry-run no-side-effect guarantees.",
+      "task_prompt": {
+        "path": "docs/issues/9/prompts/verify.md"
+      },
+      "write_scope": {
+        "mode": "review_only_artifact",
+        "repo_write": false,
+        "allowed_paths": [
+          "docs/issues/9/review/build/codex/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "build_review_codex",
+          "kind": "finding",
+          "path": "docs/issues/9/review/build/codex/REVIEW.md",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "review_build_claude",
+      "type": "review",
+      "title": "Review GH #9-#11 build ergonomics",
+      "role_id": "reviewer",
+      "lane_id": "claude_code",
+      "parallel_group": "build_review",
+      "fresh_session_required": true,
+      "reviewer_access_scope": "repo_level",
+      "reviewer_context_policy": "fresh",
+      "review_posture": "ergonomics_dx",
+      "objective": "Ergonomics review for operator-visible failure modes and modal behavior.",
+      "task_prompt": {
+        "path": "docs/issues/9/prompts/verify.md"
+      },
+      "write_scope": {
+        "mode": "review_only_artifact",
+        "repo_write": false,
+        "allowed_paths": [
+          "docs/issues/9/review/build/claude/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "build_review_claude",
+          "kind": "finding",
+          "path": "docs/issues/9/review/build/claude/REVIEW.md",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "review_build_gemini",
+      "type": "review",
+      "title": "Review GH #9-#11 build threat model",
+      "role_id": "reviewer",
+      "lane_id": "gemini",
+      "parallel_group": "build_review",
+      "fresh_session_required": true,
+      "reviewer_context_policy": "fresh",
+      "review_posture": "threat_model",
+      "objective": "Adversarial review for CSRF bypasses, DOM tampering, and dry-run mutation leakage.",
+      "task_prompt": {
+        "path": "docs/issues/9/prompts/verify.md"
+      },
+      "write_scope": {
+        "mode": "review_only_artifact",
+        "repo_write": false,
+        "allowed_paths": [
+          "docs/issues/9/review/build/gemini/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "build_review_gemini",
+          "kind": "finding",
+          "path": "docs/issues/9/review/build/gemini/REVIEW.md",
+          "required": true
+        }
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "from": "design",
+      "to": "review_design",
+      "on": "completed"
+    },
+    {
+      "from": "review_design",
+      "to": "implement",
+      "on": "completed"
+    },
+    {
+      "from": "implement",
+      "to": "review_build_codex",
+      "on": "completed"
+    },
+    {
+      "from": "implement",
+      "to": "review_build_claude",
+      "on": "completed"
+    },
+    {
+      "from": "implement",
+      "to": "review_build_gemini",
+      "on": "completed"
+    }
+  ],
+  "cycles": [
+    {
+      "from": "review_design",
+      "to": "design",
+      "on_verdict": "needs_revision",
+      "max_iterations": 1
+    },
+    {
+      "from": "review_build_codex",
+      "to": "implement",
+      "on_verdict": "needs_revision",
+      "max_iterations": 1
+    }
+  ]
+}

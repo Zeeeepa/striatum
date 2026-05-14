@@ -5,9 +5,11 @@ This guide is the generic-profile equivalent of the Claude Code
 skill bundle. Concatenate it into your agent's system prompt or
 `cat` it before driving a Striatum workflow.
 
-Striatum is a local-first runner whose live state is
-`.striatum/state.sqlite3` in the target repository. The runner —
-not your prose — advances state.
+Striatum is a local-first runner whose authoritative live state
+lives in a daemon-owned PostgreSQL instance under a `repository_id`
+scope per target repository (D094 / RFC 0043). `.striatum/` next to
+the target repo is operational scratch only. The runner — not your
+prose, and not direct database access — advances state.
 
 ## Scaffold
 
@@ -110,9 +112,11 @@ Denial recovery:
 | `mutations_disabled` | Do not retry. The operator must restart the service with `--allow-mutations` to permit writes. |
 
 A repo-scoped write token for repo A cannot write repo B. Do not request
-wildcard or admin capabilities for ordinary generation, do not write
-`.striatum/state.sqlite3` directly, and do not treat audit as
-malicious-local-root-resistant proof.
+wildcard or admin capabilities for ordinary generation, do not bypass
+the daemon by opening Postgres directly or relying on
+`.striatum/state.sqlite3` (a migrated repo's read-only `.tombstone` is
+not live state), and do not treat audit as malicious-local-root-
+resistant proof.
 
 ## What not to do
 

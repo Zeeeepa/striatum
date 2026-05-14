@@ -235,10 +235,16 @@ def _http_post_json(
     headers: dict[str, str] | None = None,
 ) -> tuple[int, dict[str, Any]]:
     body = json.dumps(payload).encode("utf-8")
+    request_headers = {
+        "Content-Type": "application/json",
+        "Origin": f"http://127.0.0.1:{port}",
+    }
+    if headers:
+        request_headers.update(headers)
     req = urllib.request.Request(
         f"http://127.0.0.1:{port}{path}",
         data=body,
-        headers={"Content-Type": "application/json", **(headers or {})},
+        headers=request_headers,
     )
     try:
         with urllib.request.urlopen(req, timeout=5) as resp:

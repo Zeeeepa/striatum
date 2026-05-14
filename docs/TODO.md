@@ -97,7 +97,7 @@ so external references keep resolving even as items move between sections.
 | 39 | RFC 0051 V1 auto-finalize from frontmatter (downgraded urgency post-v1.48.1) | ⏳ open |
 | 40 | GH #14 — recovery cannot clear terminal-run `process_exit_nonzero` blocker | ⏳ open |
 | 41 | GH #15 — docs clarify PostgreSQL transition guidance | ⏳ open |
-| 42 | GH #17 — Striatum doc consistency for Engram memory integration | ⏳ open |
+| 42 | GH #17 — Striatum doc consistency for Engram memory integration | 🟡 docs pass + RFC 0052 scaffold landed; row stays open until RFC 0052 V2 acceptance |
 
 Legend: ✅ done · 🟡 most done (sub-tasks remain) · ⏳ open
 
@@ -805,8 +805,19 @@ section is the canonical status snapshot.
     `~/git/engram/STRIATUM_MEMORY_ROADMAP.md`, dated 2026-05-14).
     Striatum docs should reflect: Engram ingests Striatum corpora;
     Striatum runs without Engram (augmentation, not dependency).
-    Overlaps with ROADMAP §5.7. Suggested approach: `docs/issues/17/`
-    workflow, paired with the Corpus Contract V2 RFC scaffold.
+    Overlaps with ROADMAP §5.7. 🟡 Doc-consistency pass landed under
+    the `docs/issues/17/` workflow (2026-05-14): SPEC §"Corpus Export
+    And Augmentation Boundary" + product-boundary wording, RFC 0052
+    scaffold under `docs/rfcs/0057-corpus-contract-v2.md` (open
+    decisions only, no V2 acceptance criteria yet), `striatum corpus
+    export` documented in CLI_REFERENCE + HOW_TO_HUMAN + SPEC CLI
+    listing, augmentation-boundary callout in HOW_TO_AGENT and MCP,
+    UBIQUITOUS_LANGUAGE entries for `Striatum corpus`, `Striatum
+    corpus export`, `memory augmentation`,
+    `augmentation-not-dependency`, and `corpus contract version`,
+    ENGRAM_INCUBATION_CONTEXT.md re-pointed at the current direction.
+    Remains open until RFC 0052 V2 acceptance lands; downstream
+    Engram-side work (item 32) is separate.
 
 ## Immediate Follow-Up
 

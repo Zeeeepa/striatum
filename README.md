@@ -9,28 +9,37 @@ command. It is built for workflows where several agents need to
 draft, review, synthesize, repair, and report on work without
 relying on a hosted coordinator or hidden chat transcripts.
 
-The important distinction is this:
-`.striatum/state.sqlite3` is the authoritative live state for
-runs, jobs, sessions, queue messages, leases, blockers, verdicts,
-artifacts, and events. Repository files (prompts, findings,
+The important distinction is this: per
+[D094 / RFC 0043](docs/rfcs/0043-postgres-as-sole-substrate-and-daemon-required-runtime.md),
+the authoritative live state is the daemon-owned PostgreSQL
+instance, scoped per registered target repository, for runs, jobs,
+sessions, queue messages, leases, blockers, verdicts, artifacts,
+and events. `.striatum/` survives next to each target repo as
+operational scratch (supervised wrapper FIFOs, pidfiles, the
+capability-token cache). Repository files (prompts, findings,
 ledgers, syntheses, decisions, handoffs, redacted evidence
-exports) are durable provenance, not the live message bus. Marker
-files, tmux pane state, terminal output, and provider hooks are
-useful for humans, but they do not advance state.
+exports) are durable provenance, not the live message bus.
+Marker files, tmux pane state, terminal output, and provider
+hooks are useful for humans, but they do not advance state.
+
+Existing repos with a populated `.striatum/state.sqlite3` migrate
+to the new substrate with
+[`striatum daemon migrate-repo-local`](docs/POSTGRES_TRANSITION.md);
+the daemon is a hard prerequisite for every Striatum verb after
+D094, and `--no-daemon` is retired. RFC 0048 covers the remaining
+handler-port work where some daemon RPC routes still delegate to
+the SQLite-backed CLI path under a test-harness escape.
 
 ## Status
 
-`v1.27.0`. RFCs 0001–0026, RFC 0028 V1, RFC 0030 V2 foundation, RFC
-0031 V2 foundation, RFC 0032 V2, RFC 0033 V2, RFC 0034 V1, RFC
-0035 V1, RFC 0036 V1, and RFC 0037 V1 are
-accepted (some at `accepted (V1)` or later staged statuses); RFC 0027
-is partially implemented through fail-closed mode and apply-receipt
-foundation surfacing.
-Per-version release notes live in
-[`CHANGELOG.md`](CHANGELOG.md). The package is published to
-PyPI as `striatum-orchestrator` (the bare `striatum` name on
-PyPI is unrelated); the Python module name is still
-`striatum`.
+Per-version release notes live in [`CHANGELOG.md`](CHANGELOG.md);
+the latest tagged version is the source of truth. The package is
+published to PyPI as `striatum-orchestrator` (the bare `striatum`
+name on PyPI is unrelated); the Python module name is still
+`striatum`. RFC status lives in
+[`docs/rfcs/README.md`](docs/rfcs/README.md); accepted and
+proposed RFCs span RFC 0001 through the RFC 0048 substrate-port
+proposal.
 
 ## Install
 
@@ -172,8 +181,10 @@ RPC-session state. Configure it with `STRIATUM_DAEMON_DB_URL`, daemon
 config, or an explicit `--postgres-url` client surface. The cutover
 command is `striatum daemon migrate --from sqlite --to pg` (`--dry-run`
 inspects first; `--keep-sqlite-readonly` keeps the V1 file as an audit
-tombstone). Repo-local `.striatum/state.sqlite3` remains the
-authoritative workflow state store.
+tombstone). RFC 0043 / D094 then moves per-repository workflow state
+into the same daemon-owned Postgres under a `repository_id` scope;
+existing repos cut over with `striatum daemon migrate-repo-local`
+(see [`docs/POSTGRES_TRANSITION.md`](docs/POSTGRES_TRANSITION.md)).
 
 RFC 0030 and RFC 0031 add the daemon V2 RPC/supervision/apply
 foundation on top of that substrate: envelope-v1 JSON, version
@@ -222,6 +233,7 @@ vocabulary is load-bearing instead of bookkeeping.
 | [docs/WORKFLOW_TYPES.md](docs/WORKFLOW_TYPES.md) | Which workflow shape and lane set to choose; current starters, examples, defaults, and chooser roadmap. |
 | [docs/WRITING_WORKFLOWS.md](docs/WRITING_WORKFLOWS.md) | How to author your own `workflow.json`. |
 | [docs/CLI_REFERENCE.md](docs/CLI_REFERENCE.md) | Flat list of every CLI verb and stable exit codes. |
+| [docs/POSTGRES_TRANSITION.md](docs/POSTGRES_TRANSITION.md) | Operator runbook for the D094 / RFC 0043 PostgreSQL cutover and per-repo migration. |
 | [docs/SPEC.md](docs/SPEC.md) | The implementation contract; the source of truth when this page disagrees with the runner. |
 | [docs/INDEX.md](docs/INDEX.md) | Every doc in `docs/` with a one-line summary. |
 

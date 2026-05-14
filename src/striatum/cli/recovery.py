@@ -757,25 +757,52 @@ def auto_publish_stale_artifacts(
     )
 
     row_by_id(conn, "runs", "run_id", run_id)
-    with transaction(conn):
-        expire_leases(conn, run_id=run_id)
+    # GH #11: dry-run must be strictly read-only. `expire_leases`
+    # mutates the leases table (and emits side-effect events), so we
+    # only run it on the live path. Dry-run candidates instead match
+    # leases that are *either* already expired *or* still active but
+    # past their wall-clock ``expires_at`` — equivalent to what live
+    # expiry would surface, without touching any row.
+    if not dry_run:
+        with transaction(conn):
+            expire_leases(conn, run_id=run_id)
 
-    # Find jobs with expired leases that still hold expected_artifacts.
-    candidates = conn.execute(
-        """
-        SELECT j.*, l.lease_id, l.owner_session_id, l.expires_at,
-               qm.message_id, qm.state AS message_state
-          FROM jobs j
-          LEFT JOIN leases l ON l.lease_id = j.current_lease_id
-             OR (l.resource_id = j.job_id AND l.state = 'expired')
-          LEFT JOIN queue_messages qm ON qm.message_id = j.current_message_id
-         WHERE j.run_id = ?
-           AND j.state IN ('claimed', 'running', 'stale_lease')
-           AND l.state = 'expired'
-         ORDER BY j.workflow_job_id
-        """,
-        (run_id,),
-    ).fetchall()
+    if dry_run:
+        candidates = conn.execute(
+            """
+            SELECT j.*, l.lease_id, l.owner_session_id, l.expires_at,
+                   qm.message_id, qm.state AS message_state,
+                   l.state AS lease_state
+              FROM jobs j
+              LEFT JOIN leases l ON l.lease_id = j.current_lease_id
+                 OR (l.resource_id = j.job_id AND l.state = 'expired')
+              LEFT JOIN queue_messages qm ON qm.message_id = j.current_message_id
+             WHERE j.run_id = ?
+               AND j.state IN ('claimed', 'running', 'stale_lease')
+               AND (
+                   l.state = 'expired'
+                   OR (l.state = 'active' AND l.expires_at < ?)
+               )
+             ORDER BY j.workflow_job_id
+            """,
+            (run_id, utc_now()),
+        ).fetchall()
+    else:
+        candidates = conn.execute(
+            """
+            SELECT j.*, l.lease_id, l.owner_session_id, l.expires_at,
+                   qm.message_id, qm.state AS message_state
+              FROM jobs j
+              LEFT JOIN leases l ON l.lease_id = j.current_lease_id
+                 OR (l.resource_id = j.job_id AND l.state = 'expired')
+              LEFT JOIN queue_messages qm ON qm.message_id = j.current_message_id
+             WHERE j.run_id = ?
+               AND j.state IN ('claimed', 'running', 'stale_lease')
+               AND l.state = 'expired'
+             ORDER BY j.workflow_job_id
+            """,
+            (run_id,),
+        ).fetchall()
 
     published: list[JsonObject] = []
     skipped: list[JsonObject] = []
@@ -855,6 +882,16 @@ def auto_publish_stale_artifacts(
             })
             continue
         if dry_run:
+            # GH #11: surface leases that *would* expire on the live
+            # path but weren't actually marked expired (because dry-run
+            # is strictly read-only). Helps the UI explain why these
+            # entries are eligible without us touching the lease row.
+            lease_state_value: object = None
+            try:
+                lease_state_value = row["lease_state"]
+            except (IndexError, KeyError):
+                lease_state_value = None
+            would_expire = lease_state_value == "active"
             published.append({
                 "workflow_job_id": workflow_job_id,
                 "session_id": session_id,
@@ -866,6 +903,7 @@ def auto_publish_stale_artifacts(
                     }
                     for d in publishable
                 ],
+                "would_expire": would_expire,
             })
             continue
         # Auto-publish path: ack the existing message + re-activate the
@@ -930,9 +968,12 @@ def auto_publish_stale_artifacts(
             "artifacts": artifact_results,
             "complete": complete_result,
         })
-    # Try to advance run state if all jobs are terminal now.
-    with transaction(conn):
-        maybe_complete_run(conn, run_id=run_id)
+    # GH #11: dry-run must not transition the run. `maybe_complete_run`
+    # mutates the runs row and emits a `run.completed` event under some
+    # conditions, so it stays gated behind the live path.
+    if not dry_run:
+        with transaction(conn):
+            maybe_complete_run(conn, run_id=run_id)
     return {
         "run_id": run_id,
         "dry_run": bool(dry_run),

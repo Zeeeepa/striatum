@@ -24,8 +24,14 @@ work on Engram dogfood history.
 
 ## Product Boundary
 
-- Striatum's live state is `.striatum/state.sqlite3` in the target repository.
-  Repository files are durable provenance, not the live message bus.
+- Striatum's authoritative live state is the daemon-owned PostgreSQL
+  instance (RFC 0033 + D094 / RFC 0043), scoped per registered target
+  repository. `.striatum/` next to each target repo is operational
+  scratch (supervised wrapper FIFOs, pidfiles, the capability-token
+  cache); the daemon is a hard prerequisite for every Striatum verb,
+  and `--no-daemon` is retired. See `docs/POSTGRES_TRANSITION.md` for
+  the operator runbook and the per-repo migration command.
+- Repository files are durable provenance, not the live message bus.
 - Marker files, tmux panes, terminal output, and provider hooks are not
   authoritative workflow state.
 - Do not introduce hosted services, cloud APIs, telemetry, transcript

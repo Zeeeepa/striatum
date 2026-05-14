@@ -11,6 +11,12 @@ __pycache__/
 dist/
 .claude/
 main.log
+status.json
+final_status.json
+go/bin/
+docs/dogfood/030/design/gemini/
 
 !docs/dogfood/043/build/python/HANDOFF.md
 !docs/dogfood/043/build/frontend/HANDOFF.md
+.striatum/
+.scratch/

@@ -165,6 +165,36 @@ function jobNodeLabel(job: WorkflowJob): string {
   return lines.join("\n");
 }
 
+// GH #13: fields the inspector only exposes when `job.type === "review"`.
+// Changing a job away from `review` hides the inspector controls but used to
+// leave the underlying values on the job object, so node labels, the textual
+// summary, and the saved JSON would still carry stale review-only settings.
+// `purgeStaleFieldsForType` drops these when the type transitions from
+// `review` to anything else. The list intentionally tracks the review-only
+// fieldset rendered by `Inspector`; broader cross-type normalization is out
+// of scope per docs/issues/13/SCOPE.md GH13-6.
+const REVIEW_ONLY_JOB_FIELDS = [
+  "require_attested_lane",
+  "review_posture",
+  "reviewer_access_scope",
+  "reviewer_context_policy",
+] as const;
+
+function purgeStaleFieldsForType(
+  job: WorkflowJob,
+  prevType: string | undefined,
+  nextType: string | undefined,
+): WorkflowJob {
+  if (prevType === "review" && nextType !== "review") {
+    const cleaned: WorkflowJob = { ...job };
+    for (const field of REVIEW_ONLY_JOB_FIELDS) {
+      delete (cleaned as Record<string, unknown>)[field];
+    }
+    return cleaned;
+  }
+  return job;
+}
+
 function jobsToNodes(workflow: WorkflowDocument): Node[] {
   const jobs = workflow.jobs ?? [];
   if (!hasExplicitPhases(workflow)) {
@@ -1090,9 +1120,17 @@ function WorkflowGraphEditorImpl(props: WorkflowGraphEditorProps) {
 
   const handleJobChange = (jobId: string, patch: Partial<WorkflowJob>) => {
     setWorkflow((prev) => {
-      const jobs = safeArr(prev.jobs).map((j) =>
-        j.id === jobId ? { ...j, ...patch } : j,
-      );
+      const typeTouched = Object.prototype.hasOwnProperty.call(patch, "type");
+      const jobs = safeArr(prev.jobs).map((j) => {
+        if (j.id !== jobId) return j;
+        const merged = { ...j, ...patch };
+        // GH #13: when the type changes away from `review`, drop the
+        // review-only fields so the saved JSON, node label, and textual
+        // summary stop carrying ghost state for the new type.
+        return typeTouched
+          ? purgeStaleFieldsForType(merged, j.type, patch.type)
+          : merged;
+      });
       const renamed = patch.id && patch.id !== jobId;
       const next = syncWorkflowJobs(prev, jobs);
       const phaseTouched = Object.prototype.hasOwnProperty.call(patch, "phase");
@@ -1337,6 +1375,8 @@ export const __testing = {
   syncWorkflowEdges,
   syncWorkflowJobs,
   newJobFromBlock,
+  purgeStaleFieldsForType,
+  REVIEW_ONLY_JOB_FIELDS,
   PALETTE_BLOCKS,
   buildPhaseLayout,
   hasExplicitPhases,

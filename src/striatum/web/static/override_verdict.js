@@ -50,11 +50,30 @@
     return argv;
   }
 
-  function postInvoke(argv) {
+  // GH #10: parse the run/job pair from the current URL so the
+  // override modal can refuse to fire if the DOM data-* attributes
+  // disagree with the page context the operator is actually viewing.
+  function parsePageContext(pathname) {
+    var match = /\/run\/([^/]+)\/job\/([^/]+)/.exec(pathname || "");
+    if (!match) return null;
+    return { runId: match[1], jobId: match[2] };
+  }
+
+  function buildWebContext(context) {
+    return {
+      kind: "override_verdict",
+      run_id: context.runId,
+      job_id: context.jobId,
+      session_id: context.sessionId,
+      token: context.contextToken,
+    };
+  }
+
+  function postInvoke(argv, webContext) {
     return fetch("/v1/invoke", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ argv: argv }),
+      body: JSON.stringify({ argv: argv, web_context: webContext }),
     }).then(function (response) {
       return response.json().catch(function () {
         return { ok: false, error: { message: response.statusText } };
@@ -139,9 +158,20 @@
     var trigger = host.querySelector("[data-override-verdict]");
     if (!trigger) return;
     var context = {
+      runId: host.getAttribute("data-run-id") || trigger.getAttribute("data-run-id") || "",
       jobId: host.getAttribute("data-job-id") || trigger.getAttribute("data-job-id") || "",
       sessionId: host.getAttribute("data-session-id") || trigger.getAttribute("data-session-id") || "",
+      contextToken: host.getAttribute("data-context-token") || trigger.getAttribute("data-context-token") || "",
     };
+    // GH #10: refuse to enable the modal if the DOM identifiers do
+    // not match the URL the operator is currently viewing. Even if a
+    // malicious script flips data-job-id between render and submit,
+    // the server-side token (issued for the rendered tuple) will
+    // refuse the request.
+    var pageContext = parsePageContext(window.location.pathname);
+    var contextMismatch = !pageContext
+      || pageContext.runId !== context.runId
+      || pageContext.jobId !== context.jobId;
     var dialog = host.querySelector("dialog[data-override-dialog]") || createDialog(host);
     dialog.setAttribute("data-override-dialog", "true");
     var form = dialog.querySelector("form");
@@ -159,8 +189,12 @@
     }
 
     function openDialog() {
-      if (!context.jobId || !context.sessionId) {
+      if (!context.jobId || !context.sessionId || !context.runId || !context.contextToken) {
         window.alert("Override verdict requires server-rendered job and session identifiers.");
+        return;
+      }
+      if (contextMismatch) {
+        window.alert("Override verdict refused: DOM job/run identifiers do not match the page URL.");
         return;
       }
       priorFocus = document.activeElement;
@@ -173,7 +207,7 @@
       if (initial && typeof initial.focus === "function") initial.focus();
     }
 
-    trigger.disabled = !(context.jobId && context.sessionId);
+    trigger.disabled = !(context.jobId && context.sessionId && context.runId && context.contextToken && !contextMismatch);
     trigger.addEventListener("click", openDialog);
     closeButton.addEventListener("click", closeDialog);
     dialog.addEventListener("cancel", function (event) {
@@ -196,9 +230,13 @@
         form.elements.rationale.focus();
         return;
       }
+      if (contextMismatch) {
+        setStatus(status, "Page context mismatch; refusing to submit.", true);
+        return;
+      }
       submitButton.disabled = true;
       setStatus(status, "Recording override...", false);
-      postInvoke(buildArgv(context, payload)).then(function (result) {
+      postInvoke(buildArgv(context, payload), buildWebContext(context)).then(function (result) {
         if (result.ok) {
           setStatus(status, "Override recorded.", false);
           window.location.reload();
@@ -217,6 +255,8 @@
   window.StriatumOverrideVerdict = {
     collectPayload: collectPayload,
     buildArgv: buildArgv,
+    buildWebContext: buildWebContext,
+    parsePageContext: parsePageContext,
     initHost: initHost,
   };
 

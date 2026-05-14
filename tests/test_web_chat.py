@@ -202,7 +202,10 @@ def _http_post_form(port: int, path: str, fields: dict[str, str]) -> tuple[int, 
     req = urllib.request.Request(
         f"http://127.0.0.1:{port}{path}",
         data=body,
-        headers={"Content-Type": "application/x-www-form-urlencoded"},
+        headers={
+            "Content-Type": "application/x-www-form-urlencoded",
+            "Origin": f"http://127.0.0.1:{port}",
+        },
     )
     opener = urllib.request.build_opener(_NoRedirectHandler())
     try:

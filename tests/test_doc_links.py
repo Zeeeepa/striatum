@@ -75,6 +75,86 @@ DECISION_ROW_WORD_BUDGET = 200
 DECISION_ROW_BUDGET_FROM = 55
 
 
+# GH #15 — post-D094 / RFC 0043 state model. Current product docs
+# must not claim that `.striatum/state.sqlite3` is the authoritative
+# live state. Historical RFC text, the per-repo migration runbook,
+# and references that describe the V1 substrate or the post-migration
+# tombstone explicitly are still allowed.
+STALE_SQLITE_AUTHORITY_PATTERNS = (
+    re.compile(r"live state is\s+`?\.striatum/state\.sqlite3", re.IGNORECASE),
+    re.compile(
+        r"`?\.striatum/state\.sqlite3`?\s+(?:is|remains)\s+(?:the\s+)?authoritative",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"repo-local SQLite\s+(?:is|remains)\s+(?:the\s+)?authoritative",
+        re.IGNORECASE,
+    ),
+)
+# Files allowed to keep stale wording. Historical incubation prompts,
+# RFC source-of-truth text, and the dogfood archive document V1
+# behavior verbatim and are not part of current product docs.
+STALE_SQLITE_AUTHORITY_ALLOW = {
+    Path("docs/rfcs"),
+    Path("docs/dogfood"),
+    Path("docs/ENGRAM_INCUBATION_CONTEXT.md"),
+    Path("docs/INTERVIEW_LOG.md"),
+    Path("docs/PRIOR_ART.md"),
+    Path("docs/RFC_0014_DOGFOOD_FIX_SPEC.md"),
+    # DECISION_LOG.md records the historical D006/D007/D086 carve-outs
+    # plus the D094 supersession in the same file; the historical rows
+    # remain as decision provenance and are not rewritten.
+    Path("docs/DECISION_LOG.md"),
+}
+
+
+def _is_under_allowlist(path: Path, root: Path) -> bool:
+    rel = path.resolve().relative_to(root)
+    for allow in STALE_SQLITE_AUTHORITY_ALLOW:
+        if rel == allow or any(rel.parts[: len(allow.parts)] == allow.parts for _ in [None]):
+            if rel.parts[: len(allow.parts)] == allow.parts:
+                return True
+    return False
+
+
+def test_current_product_docs_do_not_claim_sqlite_authority() -> None:
+    """Post-D094 / RFC 0043 the authoritative live state is the daemon-
+    owned PostgreSQL substrate; current product docs must not state that
+    `.striatum/state.sqlite3` is authoritative live state. Historical
+    RFCs, dogfood scaffolds, and incubation provenance are allowlisted
+    so the regression test does not rewrite frozen artifacts.
+    """
+    failures: list[str] = []
+    for path in _markdown_files():
+        if _is_under_allowlist(path, ROOT):
+            continue
+        text = path.read_text(encoding="utf-8")
+        for pattern in STALE_SQLITE_AUTHORITY_PATTERNS:
+            for match in pattern.finditer(text):
+                line_no = text.count("\n", 0, match.start()) + 1
+                failures.append(
+                    f"{path.relative_to(ROOT)}:{line_no}: {match.group(0)!r}"
+                )
+    assert not failures, (
+        "current product docs must not claim SQLite is authoritative live "
+        "state (D094 / RFC 0043 moved workflow state to the daemon-owned "
+        "PostgreSQL substrate); see docs/POSTGRES_TRANSITION.md:\n"
+        + "\n".join(failures)
+    )
+
+
+def test_operator_glossary_uses_daemon_authority_boundary() -> None:
+    text = (ROOT / "docs" / "UBIQUITOUS_LANGUAGE.md").read_text(encoding="utf-8")
+    stale = (
+        "runs `striatum` CLI verbs against a target repository's "
+        "`.striatum/state.sqlite3`"
+    )
+    assert stale not in text, (
+        "operator glossary must describe the post-D094 daemon/PostgreSQL "
+        "authority boundary, not the retired repo-local SQLite target"
+    )
+
+
 def test_decision_log_rows_under_word_budget() -> None:
     text = (ROOT / "docs" / "DECISION_LOG.md").read_text(encoding="utf-8")
     failures: list[str] = []

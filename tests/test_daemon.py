@@ -12,6 +12,7 @@ import pytest
 
 from striatum import daemon
 from striatum.db import utc_now
+from striatum.errors import EXIT_DAEMON_AUTH, EXIT_DAEMON_CAPABILITY, EXIT_WORKFLOW
 from striatum.mcp import DaemonRpcServer
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -87,7 +88,7 @@ def test_repo_add_bootstraps_registry_and_dashboard_all_spans_repos(tmp_path: Pa
     }
 
 
-def test_forced_daemon_read_requires_token_and_direct_mode_still_works(tmp_path: Path) -> None:
+def test_forced_daemon_read_requires_token_and_harness_direct_mode_still_works(tmp_path: Path) -> None:
     env = _env(tmp_path)
     repo = tmp_path / "repo"
     _init_repo(repo, env)
@@ -99,7 +100,7 @@ def test_forced_daemon_read_requires_token_and_direct_mode_still_works(tmp_path:
     token_path = Path(env[daemon.ENV_RUNTIME]) / "client-token"
     token_path.unlink()
     denied = _run_cli(repo, "--daemon", "status", check=False, env=env)
-    assert denied["returncode"] == 11
+    assert denied["returncode"] == EXIT_DAEMON_AUTH
     assert "token_missing" in denied["error"]["message"]
 
     conn = sqlite3.connect(env[daemon.ENV_REGISTRY])
@@ -125,8 +126,8 @@ def test_forced_daemon_refuses_unsupported_mutation_verbs(tmp_path: Path) -> Non
         check=False,
         env=env,
     )
-    assert rejected["returncode"] == 12
-    assert "does not support `claim-next`" in rejected["error"]["message"]
+    assert rejected["returncode"] == EXIT_WORKFLOW
+    assert "--daemon does not yet route `claim-next`" in rejected["error"]["message"]
 
 
 def test_repo_remove_revokes_repo_scoped_capability_and_readd_uses_new_id(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -207,7 +208,7 @@ def test_repo_add_requires_initialized_state_unless_init_flag(tmp_path: Path) ->
     repo.mkdir()
 
     rejected = _run_cli(repo, "repo", "add", str(repo), check=False, env=env)
-    assert rejected["returncode"] == 12
+    assert rejected["returncode"] == EXIT_DAEMON_CAPABILITY
     assert "not initialized" in rejected["error"]["message"]
     accepted = _data(_run_cli(repo, "repo", "add", str(repo), "--init", env=env))
     assert accepted["state"] == "active"
@@ -380,7 +381,7 @@ def test_daemon_sweep_cli_requires_admin_token_and_audits_denial(tmp_path: Path)
 
     denied = _run_cli(repo, "daemon", "sweep", check=False, env=env)
 
-    assert denied["returncode"] == 11
+    assert denied["returncode"] == EXIT_DAEMON_AUTH
     conn = sqlite3.connect(env[daemon.ENV_REGISTRY])
     try:
         row = conn.execute(

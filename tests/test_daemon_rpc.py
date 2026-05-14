@@ -300,14 +300,17 @@ def test_rpc_transports_are_owner_local_only(tmp_path: Path) -> None:
         sock.close()
 
 
-def test_daemon_pg_v2_migration_names_rpc_supervisor_and_apply_tables() -> None:
-    assert LATEST_DAEMON_DB_VERSION == 4
+def test_daemon_pg_migrations_name_rpc_supervisor_apply_and_repo_local_tables() -> None:
+    assert LATEST_DAEMON_DB_VERSION == 5
     sql = "\n".join(migration.sql for migration in MIGRATIONS)
 
     for table in (
         "striatumd.rpc_methods",
         "striatumd.daemon_supervisors",
         "striatumd.apply_receipts",
+        "striatumd.repositories",
+        "striatumd.runs",
+        "striatumd.process_supervisor_pointers",
     ):
         assert table in sql
     assert "cross_repo_runs" in sql

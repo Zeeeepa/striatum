@@ -64,7 +64,7 @@ A repo-scoped write token for repo A cannot write repo B. Ask the operator for t
 ## What not to do
 
 - Do not claim a different identity to bypass capability gates.
-- Do not write directly to `.striatum/state.sqlite3`.
+- Do not bypass the daemon. The CLI is the only client; the daemon is the single writer. Never open the daemon's Postgres directly, and do not rely on `.striatum/state.sqlite3` — on a migrated repo it does not exist (any `.tombstone` file is a read-only remnant the runner never opens).
 - Do not request wildcard or admin capabilities for ordinary workflow generation.
 - Do not loop on `token_revoked`.
 - Do not treat audit as malicious-local-root-resistant proof.

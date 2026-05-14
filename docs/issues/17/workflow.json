@@ -1,0 +1,207 @@
+{
+  "schema_version": "striatum.workflow.v1",
+  "workflow_id": "gh-17-engram-memory-doc-consistency",
+  "workflow_version": "1",
+  "name": "GH #17: Striatum docs for Engram memory integration",
+  "context_docs": [
+    "docs/issues/17/SPEC.md",
+    "docs/ROADMAP.md",
+    "docs/TODO.md",
+    "docs/DECISION_LOG.md",
+    "docs/SPEC.md",
+    "docs/INDEX.md",
+    "AGENTS.md"
+  ],
+  "coordinator": {
+    "lane": "codex"
+  },
+  "parallelism": {
+    "max_active_jobs": 2
+  },
+  "branch": {
+    "mode": "auto",
+    "suggested_name": "striatum/gh-issues-parallel"
+  },
+  "lanes": {
+    "codex": {
+      "adapter": "process",
+      "command": [
+        "bash",
+        "-lc",
+        "PYTHONPATH=src python3 -m striatum.cli skills install --profile all --scope user --force --json >/dev/null && export PATH=\"$PWD/.venv/bin:$PATH\" && exec .striatum/bin/codex-supervised-wrapper.sh"
+      ],
+      "model": "codex",
+      "strategy_version": "2026-05-14",
+      "supervision": {
+        "compatible": true,
+        "stdin_format": "newline_delimited_json",
+        "wrapper_required": true
+      }
+    },
+    "claude_code": {
+      "adapter": "process",
+      "command": [
+        "bash",
+        "-lc",
+        "PYTHONPATH=src python3 -m striatum.cli skills install --profile all --scope user --force --json >/dev/null && export PATH=\"$PWD/.venv/bin:$PATH\" && exec .striatum/bin/claude-supervised-wrapper.sh"
+      ],
+      "model": "claude_code",
+      "strategy_version": "2026-05-14",
+      "supervision": {
+        "compatible": "verify_pipe_behavior_first",
+        "stdin_format": "prompt_text",
+        "wrapper_required": true
+      }
+    },
+    "gemini": {
+      "adapter": "process",
+      "command": [
+        "bash",
+        "-lc",
+        "PYTHONPATH=src python3 -m striatum.cli skills install --profile all --scope user --force --json >/dev/null && export PATH=\"$PWD/.venv/bin:$PATH\" && exec .striatum/bin/gemini-supervised-wrapper.sh"
+      ],
+      "model": "gemini",
+      "strategy_version": "2026-05-14",
+      "supervision": {
+        "compatible": true,
+        "stdin_format": "prompt_text",
+        "wrapper_required": true
+      }
+    }
+  },
+  "roles": {
+    "coordinator": {
+      "description": "Operator/control-plane role."
+    },
+    "triager": {
+      "description": "Bounds scope from the captured GH issue and project roadmap."
+    },
+    "designer": {
+      "description": "Synthesizes implementation design and acceptance plan."
+    },
+    "implementer": {
+      "description": "Applies the scoped source or documentation changes."
+    },
+    "reviewer": {
+      "description": "Fresh-context reviewer who verifies the scoped change."
+    }
+  },
+  "jobs": [
+    {
+      "id": "triage",
+      "type": "synthesis",
+      "title": "Triage GH #17",
+      "role_id": "triager",
+      "lane_id": "codex",
+      "fresh_session_required": true,
+      "objective": "Bound scope for GH #17: Make Striatum documentation consistent about Engram as an augmentation consumer of Striatum corpus exports, not a runtime dependency. Pair with a Corpus Contract V2 RFC scaffold if the triage scope requires it.",
+      "task_prompt": {
+        "path": "docs/issues/17/prompts/triage.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/issues/17/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "scope",
+          "kind": "synthesis",
+          "path": "docs/issues/17/SCOPE.md",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "fix",
+      "type": "build",
+      "title": "Implement GH #17",
+      "role_id": "implementer",
+      "lane_id": "claude_code",
+      "required_review_postures": [
+        "compliance_license"
+      ],
+      "objective": "Make Striatum documentation consistent about Engram as an augmentation consumer of Striatum corpus exports, not a runtime dependency. Pair with a Corpus Contract V2 RFC scaffold if the triage scope requires it.",
+      "task_prompt": {
+        "path": "docs/issues/17/prompts/fix.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/",
+          "README.md",
+          "docs/issues/17/build/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "handoff",
+          "kind": "handoff",
+          "path": "docs/issues/17/build/HANDOFF.md",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "verify",
+      "type": "review",
+      "title": "Verify GH #17",
+      "role_id": "reviewer",
+      "lane_id": "gemini",
+      "fresh_session_required": true,
+      "reviewer_context_policy": "fresh",
+      "review_posture": "compliance_license",
+      "objective": "Verify GH #17 is closed against its captured SPEC and the implementer handoff.",
+      "task_prompt": {
+        "path": "docs/issues/17/prompts/verify.md"
+      },
+      "write_scope": {
+        "mode": "review_only_artifact",
+        "repo_write": false,
+        "allowed_paths": [
+          "docs/issues/17/review/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "verify_review",
+          "kind": "finding",
+          "path": "docs/issues/17/review/REVIEW.md",
+          "required": true
+        }
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "from": "triage",
+      "to": "fix",
+      "on": "completed"
+    },
+    {
+      "from": "fix",
+      "to": "verify",
+      "on": "completed"
+    }
+  ],
+  "cycles": [
+    {
+      "from": "verify",
+      "to": "fix",
+      "on_verdict": "needs_revision",
+      "max_iterations": 1
+    }
+  ]
+}

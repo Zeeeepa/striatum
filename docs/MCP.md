@@ -263,6 +263,15 @@ missing capabilities, expired capabilities, and repository scope
 mismatches. Repo-scoped `apply` grants remain single-repo; a token that
 can apply in repo A cannot apply in repo B.
 
+Striatum's MCP and chat tool surfaces do **not** include any `memory.*`
+capability. Engram (under RFC 0044) defines its own `memory.read_striatum`,
+`memory.describe`, and related capabilities locally inside Engram's own
+MCP server (`engram-mcp-stdio`), wired by the operator out of band.
+Striatum's daemon registry, chat tools, and CLI do not import an Engram
+client and do not call any retrieval surface during state transitions;
+see [`docs/SPEC.md` § Corpus Export And Augmentation Boundary](SPEC.md)
+and [RFC 0057](rfcs/0057-corpus-contract-v2.md).
+
 ## Mutation Surface For Agents
 
 RFC 0036 adds an agent-facing `striatum-mcp` skill and chat workflow

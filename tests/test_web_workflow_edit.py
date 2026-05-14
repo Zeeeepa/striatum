@@ -65,7 +65,10 @@ def _http_post_json(port: int, path: str, body: object,
     data = json.dumps(body).encode("utf-8") if not isinstance(body, (bytes, str)) else (
         body.encode("utf-8") if isinstance(body, str) else body
     )
-    headers = {"Content-Type": content_type}
+    headers = {
+        "Content-Type": content_type,
+        "Origin": f"http://127.0.0.1:{port}",
+    }
     if extra_headers:
         headers.update(extra_headers)
     req = urllib.request.Request(
