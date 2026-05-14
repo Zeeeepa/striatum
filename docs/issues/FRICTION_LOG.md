@@ -82,3 +82,32 @@ Branch: `striatum/gh-issues-parallel`
   or explicitly scoped out.
 - Follow-up: keep narrow failure ownership and rerun the full suite after
   integration.
+
+### F007 - Requeued Fresh-Required Review Refused Existing Session
+
+- Command/tool: `striatum claim-next --session-id
+  sess_11048dd583d048229d5ae657ef2cf76c` after resolving
+  `blk_9df968ca407f4378b81936671634c739` with `checkpoint resolve
+  --action continue`.
+- Observed friction: the existing reviewer session returned `no_work` while the
+  run had a claimable `codex` reviewer job.
+- Workaround used: registered a new fresh Codex reviewer session
+  `sess_8a1ded110e614e5c8a1c6019bfb995a4`, attached supervisor
+  `sup_62d2b8d801c74ec6af3d7b9fddcfa938`, and claimed the requeued job.
+- Impact: extra operator loop and additional session churn.
+- Follow-up: checkpoint resolution output should hint when a fresh-required job
+  needs a fresh session rather than an existing role/lane session.
+
+### F008 - Review Packets Lacked Handoff And Repo Evidence Scope
+
+- Command/tool: `docs/issues/9/workflow.json` and
+  `docs/issues/12/workflow.json` review-job scaffolds.
+- Observed friction: review jobs asked reviewers to verify changed files and
+  implementer handoffs but defaulted to `document_only` review policy and
+  omitted the build handoff from `context_docs`.
+- Workaround used: patched the workflow scaffolds to include scope/handoff
+  context and set final build reviews to `reviewer_access_scope: "repo_level"`.
+- Impact: current run snapshots retain the old packet shape, but future reruns
+  or regenerated issue workflows have enough evidence for role reviewers.
+- Follow-up: workflow generator templates should default implementation reviews
+  to repo-level access when the prompt asks for source/test verification.

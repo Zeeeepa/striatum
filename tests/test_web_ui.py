@@ -42,6 +42,25 @@ WEB_BUILD_ASSETS = (
     "build/style.css",
     "build/manifest.sha256",
 )
+STATIC_ASSET_URL_RE = re.compile(r"https?://[^\s\"'<>`,)}]+", re.IGNORECASE)
+INERT_STATIC_ASSET_URLS_BY_ASSET = {
+    # React Flow/D3 bundle these as namespace identifiers and reference
+    # metadata. They are not imports, fetch targets, or CDN/service
+    # dependencies, so they do not violate D020's local-first boundary.
+    "build/island-workflow-graph-editor.js": frozenset(
+        {
+            "http://www.w3.org/1999/xhtml",
+            "http://www.w3.org/1999/xlink",
+            "http://www.w3.org/2000/svg",
+            "http://www.w3.org/2000/xmlns/",
+            "http://www.w3.org/XML/1998/namespace",
+            "https://reactflow.dev",
+            "https://reactflow.dev/api-reference/types/react-flow-instance#screen-to-flow-position",
+            "https://reactflow.dev/error#001",
+            "https://reactflow.dev/pro",
+        }
+    ),
+}
 
 
 def _git_init_repo(repo: Path) -> None:
@@ -324,18 +343,19 @@ def test_artifact_raw_endpoint(tmp_path: Path) -> None:
 
 
 def test_static_assets_no_external_urls() -> None:
-    """Shipped SPA assets must contain no third-party origins.
+    """Shipped SPA assets must not depend on third-party origins.
 
     D020 forbids hosted services / CDN imports. Walk the bundled bytes
-    and assert no `http://` or `https://` outside loopback comments.
+    and assert no `http://` or `https://` runtime/CDN URL tokens outside
+    loopback or known inert dependency metadata.
     """
     from importlib.resources import files
 
     pkg = files("striatum.web.static")
-    forbidden = re.compile(r"https?://(?!127\.0\.0\.1|localhost|::1)\S*", re.IGNORECASE)
     for name in (*WEB_STATIC_ASSETS, *WEB_BUILD_ASSETS):
         asset = pkg.joinpath(name)
         text = asset.read_text(encoding="utf-8")
+        allowed_inert_urls = INERT_STATIC_ASSET_URLS_BY_ASSET.get(name, frozenset())
         # Strip CSP/comment lines that legitimately mention http(s):// for
         # config defaults; any concrete external URL is forbidden.
         for line in text.splitlines():
@@ -343,9 +363,18 @@ def test_static_assets_no_external_urls() -> None:
             # Skip CSP meta which mentions things like 'self', not URLs.
             if "Content-Security-Policy" in stripped:
                 continue
-            match = forbidden.search(stripped)
-            assert match is None, (
-                f"{name} contains external URL: {match.group(0) if match else ''} | line: {stripped}"
+            urls = [
+                match.group(0).rstrip(".,;")
+                for match in STATIC_ASSET_URL_RE.finditer(stripped)
+            ]
+            forbidden_urls = [
+                url
+                for url in urls
+                if not re.match(r"https?://(?:127\.0\.0\.1|localhost|::1)(?::|/|$)", url)
+                and url not in allowed_inert_urls
+            ]
+            assert not forbidden_urls, (
+                f"{name} contains external URL: {forbidden_urls[0]} | line: {stripped}"
             )
 
 
