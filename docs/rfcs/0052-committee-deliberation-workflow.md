@@ -150,58 +150,270 @@ and that this shape can.
 
 ## Proposed shape (not a design)
 
-This section names the primitives the RFC introduces so reviewers
-can argue about the shape. Concrete schemas and method names land in
-a follow-up design doc once the RFC is accepted.
+This section names the primitives the RFC introduces and sketches
+schema shapes so reviewers can argue about them concretely. The
+sketches are **proposals, not contracts**; field names, optionality,
+and validator rules harden in a follow-up design doc.
 
 ### New artifact kinds
 
-- `debate_turn` — one typed move by one role in a deliberation.
-  Front-matter fields: `round`, `speaker` (session-id), `addressee`
-  (session-id or `all`), `move_type` (proposal / objection / rebuttal
-  / concession / yield), `references` (artifact ids of prior moves
-  or source documents), `conflicts_with` (artifact ids of moves this
-  one disputes).
-- `arbitration_ruling` — a typed arbitrator move with a fixed move
-  vocabulary: `record_consensus`, `escalate_to_panel`, `call_timeout`,
-  `sustain_objection`, `overrule_objection`, `declare_stalemate`. A
-  ruling closes the topic it addresses; further turns on that topic
-  are refused by the publish path.
-- `panel_vote` — one panelist's vote artifact with a configured vote
-  schema (e.g. `accept` / `reject` / `abstain` plus a one-paragraph
-  rationale). One per panelist.
-- `panel_verdict` — the panel's collective result, computed by the
-  configured aggregation rule from the panel_vote set. Treated as a
-  verdict by the existing verdict-propagation surface.
-- `debate_synthesis` — the human-readable closing artifact. Names the
-  resolved conflicts, the unresolved deltas (if stalemate), and the
-  arbitration trail. Mandatory; the deliberation phase does not
-  terminate without one.
+All five new kinds carry `striatum.<kind>.v1` front matter in line
+with the existing artifact-kind family (`finding`, `synthesis`,
+`decision`, etc.) and validate at publish time per the existing
+front-matter validator (exit code 6 on failure).
+
+#### `debate_turn`
+
+One typed move by one role in a deliberation. Sketch:
+
+```yaml
+---
+schema: striatum.debate_turn.v1
+author: <designer-claude-001>           # RFC 0040/D040 lowercase byline
+run_id: run_<hex>
+phase_id: phase_<hex>                   # RFC 0045 phase id
+topic_id: topic_<hex>                   # one of the phase's declared topics
+round: 1                                # 1-indexed; refused if > bounded_cycle.max_rounds
+speaker_session_id: sess_<hex>
+addressee: sess_<hex> | "all"
+move_type: proposal | objection | rebuttal | concession | yield
+references: [art_<hex>, ...]            # prior moves or source docs cited
+conflicts_with: [art_<hex>, ...]        # debate_turn ids this move disputes
+closes_topic: false                     # only `concession` + `yield` may set true
+---
+
+<markdown body — the actual argument, kept short by convention>
+```
+
+Validator rules: `speaker_session_id` must be one of
+`participants` (or `arbitrator` if move_type ∈ {sustain_objection,
+overrule_objection}); `references` and `conflicts_with` must resolve
+to artifacts in the same run; `round` must be ≤ the phase's
+`bounded_cycle.max_rounds`; publish refused if the topic is already
+closed by an `arbitration_ruling`.
+
+#### `arbitration_ruling`
+
+A typed arbitrator move with a fixed move vocabulary. Sketch:
+
+```yaml
+---
+schema: striatum.arbitration_ruling.v1
+author: <arbitrator-gemini-001>
+run_id: run_<hex>
+phase_id: phase_<hex>
+topic_id: topic_<hex>
+arbitrator_session_id: sess_<hex>
+move_type: record_consensus | escalate_to_panel | call_timeout
+         | sustain_objection | overrule_objection | declare_stalemate
+target_turn_id: art_<hex>              # required for sustain/overrule
+references: [art_<hex>, ...]           # the turns being ruled on
+consensus_artifact_id: art_<hex>       # required for record_consensus —
+                                       # the producer artifact the committee
+                                       # agreed to carry forward
+follow_up_decision_id: dec_<hex>       # filled by post-publish hook for
+                                       # record_consensus / declare_stalemate
+---
+
+<markdown body — the arbitrator's reasoning>
+```
+
+Validator rules: only the role declared `arbitrator` in the phase may
+publish this kind; `record_consensus` requires
+`consensus_artifact_id`; `escalate_to_panel` is refused unless the
+phase declares a `panel`; rulings with terminal move_types
+(`record_consensus`, `escalate_to_panel`, `declare_stalemate`) close
+the topic — further `debate_turn` publishes against that `topic_id`
+are refused with a `topic_closed` error.
+
+#### `panel_vote`
+
+One panelist's vote. Sketch:
+
+```yaml
+---
+schema: striatum.panel_vote.v1
+author: <panelist-codex-002>
+run_id: run_<hex>
+phase_id: phase_<hex>
+panel_id: panel_<hex>                   # from the parent ruling that escalated
+panelist_session_id: sess_<hex>
+vote: accept | reject | abstain
+rationale_artifact_id: art_<hex>        # optional separate finding-style doc
+---
+
+<markdown body — short rationale; long form goes in the linked finding>
+```
+
+Validator rules: `panelist_session_id` must be a session registered
+under the panel; one vote per panelist (idempotent re-publish allowed
+only if `vote` and `rationale_artifact_id` are unchanged);
+`fresh_session_required: true` enforced at session-register time per
+D029.
+
+#### `panel_verdict`
+
+The panel's aggregated result. Sketch:
+
+```yaml
+---
+schema: striatum.panel_verdict.v1
+author: <arbitrator-gemini-001>         # arbitrator publishes the tally
+run_id: run_<hex>
+phase_id: phase_<hex>
+panel_id: panel_<hex>
+aggregation: unanimity | supermajority | arbitrator_tie_break
+votes:
+  - { vote_id: art_<hex>, panelist: sess_<hex>, vote: accept }
+  - { vote_id: art_<hex>, panelist: sess_<hex>, vote: reject }
+  - { vote_id: art_<hex>, panelist: sess_<hex>, vote: abstain }
+tally: { accept: 2, reject: 1, abstain: 0 }
+outcome: accept | reject                 # derived by aggregation rule
+posture: committee_panel                 # for RFC 0018 V1 step 3 surface
+---
+
+<markdown body — outcome summary; cites each vote artifact>
+```
+
+Validator rules: `tally` must match the `votes` list exactly; `outcome`
+must be derivable from `aggregation` + `tally` (validator recomputes
+and refuses on mismatch); the verdicts table receives a row keyed off
+this artifact with `verdicts.posture = "committee_panel"`.
+
+#### `debate_synthesis`
+
+The mandatory closing artifact. Sketch:
+
+```yaml
+---
+schema: striatum.debate_synthesis.v1
+author: <synthesizer-claude-001>        # a synthesizer role, lane != arbitrator
+run_id: run_<hex>
+phase_id: phase_<hex>
+topics:
+  - topic_id: topic_<hex>
+    status: consensus | panel_decided | stalemate
+    outcome_artifact_id: art_<hex>      # the consensus / panel_verdict /
+                                        # last-ruling artifact
+    unresolved_deltas: [<short desc>, ...]   # only for stalemate
+arbitration_trail: [art_<hex>, ...]     # ordered list of every
+                                        # arbitration_ruling in the phase
+producer_artifacts: [art_<hex>, ...]    # the initial producer artifacts
+---
+
+<markdown body — the readable digest>
+```
+
+Validator rules: phase termination is refused without exactly one
+`debate_synthesis`; every declared `topic_id` must appear in
+`topics`; `arbitration_trail` must enumerate every ruling in
+publish order.
 
 ### New workflow shape
 
-A `committee_deliberation` phase type in the RFC 0045 multi-phase
-schema. Fields (illustrative, not authoritative):
+A `committee_deliberation` phase type in the RFC 0045
+`striatum.workflow.v1.1` `phases[]` array. Sketch:
 
-- `participants[]` — role ids of producers (designers / implementers
-  / etc.).
-- `arbitrator` — single role id with declared lane that **must
-  differ from** every participant's lane.
-- `panel` (optional) — `{ size, lanes_required: [...], aggregation:
-  "unanimity" | "supermajority" | "arbitrator_tie_break" }`. Panel
-  sessions are `fresh_session_required: true` per D029. Lane set
-  must include lanes not represented in `participants` or
-  `arbitrator`.
-- `bounded_cycle` — `{ max_rounds, max_turns_per_round,
-  exhaustion_action: "escalate_to_panel" | "declare_stalemate" }`
-  per D014.
-- `topics[]` — declared conflict points the committee must address,
-  or `auto_detect_from_initial_artifacts` if the deliberation begins
-  from N already-published producer artifacts.
-- `adversarial` (optional sub-shape) — pairs `participants[]` into
-  `{ interrogator, defendant }` with move_type vocabulary extended
-  to include `cross_examination`, `objection_sustained`,
-  `objection_overruled`. Arbitrator authority is identical.
+```json
+{
+  "phase_id": "phase_design_committee",
+  "phase_type": "committee_deliberation",
+  "title": "Three-lane design committee",
+  "participants": [
+    { "role_id": "designer_claude", "lane": "claude" },
+    { "role_id": "designer_codex",  "lane": "codex"  },
+    { "role_id": "designer_gemini", "lane": "gemini" }
+  ],
+  "arbitrator": {
+    "role_id": "arbitrator",
+    "lane": "claude",
+    "fresh_session_required": true
+  },
+  "panel": {
+    "size": 3,
+    "lanes_required": ["codex", "gemini", "claude"],
+    "aggregation": "supermajority",
+    "fresh_session_required": true
+  },
+  "bounded_cycle": {
+    "max_rounds": 5,
+    "max_turns_per_round": 12,
+    "exhaustion_action": "escalate_to_panel"
+  },
+  "topics": [
+    { "topic_id": "topic_state_shape", "title": "State machine shape" },
+    { "topic_id": "topic_error_model", "title": "Error propagation" }
+  ],
+  "topic_detection": "declared",
+  "synthesizer": { "role_id": "synthesizer", "lane": "claude" },
+  "adversarial": null
+}
+```
+
+Equivalent shape with `adversarial` pairing:
+
+```json
+{
+  "phase_id": "phase_security_review",
+  "phase_type": "committee_deliberation",
+  "participants": [
+    { "role_id": "interrogator", "lane": "gemini",
+      "adversarial_role": "interrogator" },
+    { "role_id": "defendant",    "lane": "claude",
+      "adversarial_role": "defendant" }
+  ],
+  "arbitrator": { "role_id": "arbitrator", "lane": "codex" },
+  "adversarial": {
+    "move_vocabulary_extension": [
+      "cross_examination", "objection_sustained", "objection_overruled"
+    ],
+    "require_lane_independence": true
+  },
+  "bounded_cycle": { "max_rounds": 3, "max_turns_per_round": 8,
+                     "exhaustion_action": "declare_stalemate" },
+  "topics": [
+    { "topic_id": "topic_authz_boundary",
+      "title": "AuthZ check at the daemon boundary" }
+  ],
+  "synthesizer": { "role_id": "synthesizer", "lane": "gemini" }
+}
+```
+
+Validator rules (illustrative):
+
+1. `arbitrator.lane` ∉ `{p.lane for p in participants}`.
+2. If `panel` present: `set(panel.lanes_required)` must contain at
+   least one lane not in `{arbitrator.lane} ∪ {p.lane for p in
+   participants}`.
+3. `synthesizer.lane` ≠ `arbitrator.lane`.
+4. `bounded_cycle.exhaustion_action` required; refuses `null`.
+5. `topics` length ≥ 1 unless `topic_detection: "auto"`.
+6. If `adversarial` present: `participants` length == 2 and each
+   carries an `adversarial_role` ∈ `{"interrogator", "defendant"}`;
+   `require_lane_independence: true` ⇒ both lanes differ.
+7. No cross-phase dependency (RFC 0045) may bypass the synthesis
+   gate — the synthesizer's artifact is the only legal upstream for
+   the next phase.
+
+### New daemon RPC methods
+
+Illustrative dotted vocabulary, fitting the RFC 0030 registry shape
+and the RFC 0043 V1 expansion. All bind to existing capabilities
+(`write`, `review`); no new capability classes.
+
+| Method | Capability | Repo scope | Description |
+|---|---|---|---|
+| `debate.publish_turn` | `write` | `single_repo` | Publish a `debate_turn` artifact under the active phase's open topic; refused if topic closed. |
+| `debate.list_turns` | `read` | `single_repo` | Enumerate turns by `(phase_id, topic_id, round)`. |
+| `debate.arbitrate` | `review` | `single_repo` | Publish an `arbitration_ruling`; arbitrator-role-gated. |
+| `panel.register` | `write` | `single_repo` | Register N fresh-session panelists under a `panel_id` created by an `escalate_to_panel` ruling. |
+| `panel.vote` | `review` | `single_repo` | Publish a `panel_vote` artifact. |
+| `panel.tally` | `review` | `single_repo` | Compute and publish the `panel_verdict` from the recorded votes; arbitrator-role-gated. |
+| `debate.synthesize` | `write` | `single_repo` | Publish the `debate_synthesis` artifact; phase termination is gated on this. |
+
+All methods route through the existing publish path, so RFC 0046
+lane-evidence guard, RFC 0026 attestation, and RFC 0051
+auto-finalize-from-frontmatter all apply unchanged.
 
 ### Interaction with existing surfaces
 
