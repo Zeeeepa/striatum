@@ -111,3 +111,19 @@ Branch: `striatum/gh-issues-parallel`
   or regenerated issue workflows have enough evidence for role reviewers.
 - Follow-up: workflow generator templates should default implementation reviews
   to repo-level access when the prompt asks for source/test verification.
+
+### F009 - Native Worker Was Initially Given Implementation Scope
+
+- Command/tool: native sub-agent
+  `019e26f8-a487-76b3-8e0a-6e56797be818`.
+- Observed friction: the worker was initially instructed to patch GH #9
+  implementation gaps directly, which blurs the boundary between operator-side
+  coordination and role-owned implementation.
+- Workaround used: interrupted the worker and redirected it to stop editing and
+  report findings/recommendations only.
+- Impact: the operator must inspect any resulting working-tree changes for
+  provenance before committing them.
+- Follow-up: operator prompts should distinguish native operator-side audit
+  sub-agents from first-class Striatum role sessions. Implementation and design
+  patches should flow through role sessions or be explicitly recorded as
+  operator-authored maintenance outside the workflow.
