@@ -1,5 +1,49 @@
 # Changelog
 
+## v1.49.0 — 2026-05-14
+
+### RFC 0048 V1 Phase A — Python handler port (dogfood-057)
+
+Land the Python side of the substrate-facade fix. All 16 single-repo
+mutation handlers move from `striatum.cli` SQLite-backed dispatch into
+native PG-backed handlers under `src/striatum/daemon_pg/handlers/`:
+
+- **`workflow_loop/`** (9 methods, Track A codex implementer):
+  `register_session`, `claim_next`, `ack_work`, `complete_job`,
+  `release_lease`, `block_job`, `record_verdict`, `submit_review`,
+  `override_review_verdict`.
+- **`recovery_evidence/`** (7 methods, Track B claude implementer):
+  `stale_leases`, `requeue_stale`, `cancel_job`, `process_reconcile`,
+  `resume_blocker`, `auto_publish_stale_artifacts`, `evidence_export`.
+- Shared infra: `handlers/__init__.py`, `handlers/registry.py`,
+  `handlers/context.py`. `DaemonRpcRouter._route` resolves the PG
+  handler before falling back to legacy `CLI_ROUTES`. Track B
+  registers via decorator self-registration so its write scope can
+  stay disjoint from Track A's server/registry/__init__ write scope.
+- Tests for all 16 methods under `tests/daemon_pg/handlers/`.
+
+**V1.5 follow-up risks** (accepted in this V1 landing — see
+`docs/rfcs/0048-daemon-side-substrate-migration.md#v15-follow-up`):
+codex F1-F4 (fail-closed routing, capability-denial tests, audit-chain
+concurrency, append-only role enforcement) and claude HIGH#1/#2
+(byte-equivalence parity tests advertised but unused; dead code paths
+in `recovery.resume --complete` / `recovery.auto`). RFC 0048 V1.5
+fix-up dogfood will scope these.
+
+### Operator playbook — substrate friction observed during the run
+
+`docs/POSTGRES_TRANSITION.md` still lacks a fresh-install
+role-provisioning runbook; an operator who installs Postgres locally
+and uses the database owner as the connecting role will trip the
+`unsafe_privileges` doctor check (owner has implicit UPDATE/DELETE on
+`striatumd.audit_log`). Workaround used during dogfood-057:
+`CREATE ROLE striatumd_rw WITH LOGIN PASSWORD '...' ;
+GRANT CONNECT/USAGE/SELECT/INSERT/UPDATE/DELETE on schema + tables;
+REVOKE UPDATE, DELETE ON striatumd.{audit_log,events,artifacts};
+GRANT CREATE ON DATABASE + SCHEMA (for migrations)`. Worth either
+documenting or having `daemon doctor --apply-migrations` provision
+the role on first run. Tracked as RFC 0048 V1.5 ergonomics.
+
 ## v1.48.2 — 2026-05-14
 
 ### Fixed — CI green again after 6 days of red

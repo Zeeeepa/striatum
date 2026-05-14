@@ -59,6 +59,35 @@ The three friction items above need a follow-on GH issue / TODO entry after the 
 - 2026-05-14 17:51: Operator intervention — `striatum run retry-job --job-id <review_build_codex>` revived the run to `running` (`run_revived: true`). Codex review re-queued; will be claimed AFTER implement_track_a attempt 2 lands.
 - 2026-05-14 17:52: `retry-job` on `implement_track_b_claude` refused (state `completed`, not retriable). Track A's write scope owns `server.py`+`registry.py`+`handlers/__init__.py` — the natural home for fail-closed routing + capability-token enforcement. F1+F2 are structurally addressable in Track A attempt 2 alone.
 - 2026-05-14 17:52: Fresh codex implementer-2 session (sess_45c7df…, supervisor PID 1090911) claimed implement_track_a attempt 2 (lease `lease_fa97…`). Awaiting revised HANDOFF.
+- 2026-05-14 18:05: Implement_track_a attempt 2 completed (HANDOFF 8.4KB). Fresh codex/claude reviewer sessions claimed review_build_codex/claude attempt 2.
+- 2026-05-14 18:09-10: Attempt-2 build review verdicts in:
+  - codex `needs_revision` HIGH — F1 (fail-closed routing rule still not in RFC acceptance criteria), F2 (no capability-denial tests required), F3 (audit-chain concurrency not in handler acceptance), F4 (append-only role grants not enforced via tests).
+  - claude `needs_revision` HIGH — #1 (parity rig advertised in conftest but unused; tests are mostly registration smoke), #2 (`complete_inline`/`ack_inline` undefined, `recovery.resume --complete` and `recovery.auto` live mode unreachable), plus MEDIUM #3-6 (divergent PG impls, deferred chain migration, doctor doesn't surface PG-vs-SQLite, POSTGRES_TRANSITION.md not updated).
+- 2026-05-14 ~18:25: `striatum serve --web` (PID 2519134, running since May 10) was restarted by operator. The dogfood-057 run state, which had been live in the corrupted/in-flight `.striatum/state.sqlite3`, was lost (later confirmed: SQLite integrity_check failed; events table unreadable; `runs` table only has 74 rows ending at 15:02 — pre-rollback). `daemon migrate-repo-local --keep-sqlite-readonly` earlier in the day had copied 73 runs into Postgres `striatum_daemon`, then `striatum/state.sqlite3.tombstone` was renamed back; concurrent migration + serve + supervisor writes after rollback corrupted the file.
+- 2026-05-14 ~18:26: Branch artifacts committed as `c36447c` (scaffold + 3 designs + synth + 4 reviews + 16 handlers + 16 tests + DaemonRpcRouter wiring + registry/context infra). Pushed to `origin/striatum/dogfood-057-rfc-0048-daemon-rpc-substrate`.
+- 2026-05-14 ~18:40: **State store reset.** SQLite quarantined as `.striatum/state.sqlite3.corrupt` (8.6MB, malformed). Fresh DB via `striatum init` (282KB, integrity ok, 0 runs). Postgres `striatum_daemon` preserved as forensic snapshot of pre-rollback state. 141 leaked supervisor wrappers killed. `striatum serve --web` restarted on PID 1178053.
+- 2026-05-14 ~18:45: **V1 landing decision.** Per operator direction "take the finding as a risk and move on", codex F1-F4 and claude HIGH#1/#2 absorbed into RFC 0048 V1.5 follow-up; V1 Phase A handler port lands as-is in v1.49.0. dogfood-058 (RFC 0048 V1.5) will scope the fix-up.
+
+## Closing summary
+
+**Verdicts pattern in this run**: 1× claude `accept_with_findings` (review_design, low severity), 1× gemini `accept_with_findings` intent (review_build attempt 1; YAML frontmatter missing but verdict recorded), 2× codex (attempt 1 reject HIGH, attempt 2 needs_revision HIGH), 2× claude (attempt 1 needs_revision HIGH, attempt 2 needs_revision HIGH). Neither track stalled per memory's 50-min stall threshold; codex and claude both produced substantive HIGH findings on every attempt.
+
+**Operator interventions**: (1) `run retry-job` to revive after codex reject moved run to terminal `failed`; (2) attempted `retry-job` on `implement_track_b_claude` refused (state `completed`, not retryable) — track_b kept attempt 1 throughout; (3) bouncing `striatum serve` lost the in-memory run state; (4) full state-store reset after SQLite corruption.
+
+**Sub-agent / native delegation**: codex used aggressive sub-agent delegation (21+ threads observed). claude used local-only sub-agents. gemini stayed single-process. No sub-agent stalls observed.
+
+**Provenance**: this run's handler code is real — `git diff main...HEAD` shows the 16 handler files + 16 test files + router wiring. The artifacts (HANDOFFs, REVIEWs, DESIGNs) carry their lane-attested bylines; verdicts were lost when the state store reset but the artifact provenance survived in git.
+
+**Open follow-ups (V1.5)**:
+1. Fail-closed routing (codex F1).
+2. Capability-denial test coverage (codex F2).
+3. Audit-chain SERIALIZABLE / row-lock per write handler (codex F3).
+4. Append-only role grant + handler audit (codex F4).
+5. Byte-equivalence parity tests (claude HIGH #1).
+6. Define or delete `complete_inline`, `ack_inline`, `recovery.resume --complete`, `recovery.auto` live mode (claude HIGH #2).
+7. Land deferred `striatumd.events.previous_hash` / `row_hash` column migration (claude #4 + #6).
+8. `daemon doctor` / `daemon.describe` surfaces which methods are PG-backed (claude #5).
+9. Operator-facing `docs/POSTGRES_TRANSITION.md` runbook for `striatumd_rw` role provisioning (operator friction observed at run start).
 
 ### Friction (parking lot — file as issues post-landing)
 
