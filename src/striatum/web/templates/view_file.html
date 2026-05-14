@@ -3,7 +3,12 @@
 {% block main %}
 <section class="page-section view-file-page">
   <header>
-    <p class="breadcrumb"><a href="/">← Home</a></p>
+    <p class="breadcrumb">
+      <a href="/">← Home</a>
+      {% if run_breadcrumb %}
+      · <a href="/run/{{ run_breadcrumb.run_id }}">Run {{ run_breadcrumb.run_id }}</a>
+      {% endif %}
+    </p>
     <h1>View <code>{{ rel_path }}</code></h1>
     <div class="run-meta">
       <span class="muted">{{ size_bytes }} bytes</span>

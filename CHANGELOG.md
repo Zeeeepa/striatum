@@ -1,6 +1,41 @@
 # Changelog
 
-## v1.46.0 — 2026-05-14
+## v1.47.0 — 2026-05-14
+
+### Added — RFC 0050 V1.5: template extensions + provenance-honesty fixes
+
+Lands RFC 0050 V1.5 across dogfood-055 (template extensions) +
+dogfood-055b (provenance honesty fix-up). Honest V1.5 acceptance —
+gemini's 3 V1.5 provenance findings on 055 were closed in 055b before
+the V1.5 override on 055's gemini verdict.
+
+**dogfood-055 (template extensions):**
+- New partials: `_recovery_panel.html`, `_expected_artifacts_table.html`,
+  `_session_chip.html`.
+- Templates extended to consume V1 primitives + new partials:
+  `run_detail.html`, `job_detail.html`, `artifact_view.html`,
+  `run_posture_verdicts.html`, `doctor.html`, `view_file.html`.
+- 6 regression tests:
+  `test_run_detail_recovery_panel`, `test_job_detail_expected_artifacts`,
+  `test_artifact_view_provenance_trail`, `test_posture_verdicts_override_provenance`,
+  `test_doctor_per_record_recipes`, `test_view_file_breadcrumb_heuristic`.
+
+**dogfood-055b (provenance honesty fix-up):**
+- `service.py::_recorded_artifact_attestation_chip` now requires both an
+  exact `expected_author_line` match AND `attestation_override_rationale
+  IS NULL` to render `attested`. Closes byline-forgery vector against
+  operator-on-behalf publishes whose recorded byline looks model-shaped.
+- `service.py::_shape_verdict_rows` distinguishes `previously_attested`
+  (closed/lost supervised session) from `unattested` (never attested) —
+  attestation drift over time no longer collapses into the same warning.
+- `service.py::_lane_evidence_chip` + `LaneEvidenceChip.tsx` surface
+  `override: <rationale>` when `attestation_override_rationale` is
+  present, instead of muted `not_yet_correlated`. Closes
+  override-rationale visibility gap.
+- Updated regression tests: `test_byline_regression`,
+  `test_override_rationale_regression`, `test_lane_evidence_guard`.
+
+
 
 ### Added — RFC 0050 V1: operator UI primitives + dashboard parity + provenance honesty
 

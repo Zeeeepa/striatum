@@ -45,6 +45,15 @@
             <pre><code>{{ record.context | tojson(indent=2) }}</code></pre>
           </details>
           {% endif %}
+          {% if record.recipes %}
+          <div class="recipe-list" aria-label="Recovery recipes">
+            {% for recipe in record.recipes %}
+            <code>{{ recipe }}</code>
+            {% endfor %}
+          </div>
+          {% else %}
+          <p class="muted">No deterministic recovery recipe; inspect the linked docs.</p>
+          {% endif %}
         </li>
         {% endfor %}
       </ul>

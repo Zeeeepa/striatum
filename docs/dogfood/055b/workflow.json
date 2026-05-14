@@ -1,0 +1,33 @@
+{
+  "schema_version": "striatum.workflow.v1",
+  "workflow_id": "dogfood-055b-rfc-0050-v1-5-fixup",
+  "workflow_version": "1",
+  "name": "dogfood-055b: RFC 0050 V1.5 fix-up — close gemini's 3 V1.5 provenance findings",
+  "context_docs": [
+    "docs/dogfood/055/review/build/gemini/REVIEW.md",
+    "docs/dogfood/055/build/HANDOFF.md",
+    "docs/design/UI_REWORK.md",
+    "docs/rfcs/0050-operator-ui-rework-and-provenance-honesty.md"
+  ],
+  "coordinator": {"lane": "codex"},
+  "parallelism": {"max_active_jobs": 4},
+  "branch": {"mode": "auto", "suggested_name": "striatum/dogfood-055-rfc-0050-v1-5"},
+  "lanes": {
+    "codex": {"adapter": "process", "command": ["bash", "-lc", "PYTHONPATH=src python3 -m striatum.cli skills install --profile all --scope user --force --json >/dev/null && export PATH=\"$PWD/.venv/bin:$PATH\" && exec .striatum/bin/codex-supervised-wrapper.sh"], "model": "codex", "strategy_version": "2026-05-14", "supervision": {"compatible": true, "stdin_format": "newline_delimited_json", "wrapper_required": true}},
+    "claude_code": {"adapter": "process", "command": ["bash", "-lc", "PYTHONPATH=src python3 -m striatum.cli skills install --profile all --scope user --force --json >/dev/null && export PATH=\"$PWD/.venv/bin:$PATH\" && exec .striatum/bin/claude-supervised-wrapper.sh"], "model": "claude_code", "strategy_version": "2026-05-14", "supervision": {"compatible": "verify_pipe_behavior_first", "stdin_format": "prompt_text", "wrapper_required": true}},
+    "gemini": {"adapter": "process", "command": ["bash", "-lc", "PYTHONPATH=src python3 -m striatum.cli skills install --profile all --scope user --force --json >/dev/null && export PATH=\"$PWD/.venv/bin:$PATH\" && exec .striatum/bin/gemini-supervised-wrapper.sh"], "model": "gemini", "strategy_version": "2026-05-14", "supervision": {"compatible": true, "stdin_format": "prompt_text", "wrapper_required": true}}
+  },
+  "roles": {"coordinator": {"description": "Op"}, "designer": {"description": "D"}, "implementer": {"description": "I"}, "reviewer": {"description": "R"}},
+  "jobs": [
+    {"id": "implement", "type": "build", "title": "Implement codex — close gemini's 3 V1.5 provenance findings", "role_id": "implementer", "lane_id": "codex", "objective": "Close exactly the 3 findings gemini identified in docs/dogfood/055/review/build/gemini/REVIEW.md. NO scope creep. Spec: gemini's REVIEW.md IS the spec. (1) Finding 001 HIGH — weak attestation check in _recorded_artifact_attestation_chip (service.py:278): regex-matching author_line for attested status is forgeable via --allow-no-process-execution override. Fix per gemini correction: UI must only claim 'attested' if attestation_override_rationale IS NULL AND the byline matches expected_author_line. (2) Finding 002 MEDIUM — real-time recomputation of verdict attestation in _shape_verdict_rows (service.py:683): re-evaluates attestation per page load, causing valid attested verdicts to flip to 'unattested' once supervisor closes. Fix: at minimum, distinguish 'previously attested (session closed)' from 'never attested' rather than collapsing both to the same warning. (3) Finding 003 LOW — LaneEvidenceChip hardcoded to not_yet_correlated (service.py:710): when attestation_override_rationale IS NOT NULL, chip should surface 'override' with rationale. Update or add regression tests for each.", "task_prompt": {"path": "docs/dogfood/055b/prompts/implement.md"}, "write_scope": {"mode": "repo_write", "repo_write": true, "allowed_paths": ["src/striatum/web/", "src/striatum/service.py", "src/striatum/dashboard.py", "src/striatum/cli/introspect.py", "tests/", "docs/dogfood/055b/build/"], "forbidden_paths": [".striatum/", "go/"]}, "expected_artifacts": [{"logical_name": "implementation", "kind": "handoff", "path": "docs/dogfood/055b/build/HANDOFF.md", "required": true}]},
+    {"id": "review_build_codex", "type": "review", "title": "Build review codex threat_model — fix-up correctness", "role_id": "reviewer", "lane_id": "codex", "parallel_group": "build_review", "fresh_session_required": true, "reviewer_context_policy": "fresh", "review_posture": "threat_model", "objective": "Confirm gemini's 3 findings are closed at the cited file:lines; no new provenance regressions introduced.", "task_prompt": {"path": "docs/dogfood/055b/prompts/review_build.md"}, "write_scope": {"mode": "review_only_artifact", "repo_write": false, "allowed_paths": ["docs/dogfood/055b/review/build/codex/"], "forbidden_paths": [".striatum/"]}, "expected_artifacts": [{"logical_name": "build_review_codex", "kind": "finding", "path": "docs/dogfood/055b/review/build/codex/REVIEW.md", "required": true}]},
+    {"id": "review_build_claude", "type": "review", "title": "Build review claude ergonomics_dx — fix-up correctness", "role_id": "reviewer", "lane_id": "claude_code", "parallel_group": "build_review", "fresh_session_required": true, "reviewer_context_policy": "fresh", "review_posture": "ergonomics_dx", "objective": "Same — fix-up correctness, ergonomics_dx posture.", "task_prompt": {"path": "docs/dogfood/055b/prompts/review_build.md"}, "write_scope": {"mode": "review_only_artifact", "repo_write": false, "allowed_paths": ["docs/dogfood/055b/review/build/claude/"], "forbidden_paths": [".striatum/"]}, "expected_artifacts": [{"logical_name": "build_review_claude", "kind": "finding", "path": "docs/dogfood/055b/review/build/claude/REVIEW.md", "required": true}]},
+    {"id": "review_build_gemini", "type": "review", "title": "Build review gemini adversarial — fix-up re-attack", "role_id": "reviewer", "lane_id": "gemini", "parallel_group": "build_review", "fresh_session_required": true, "reviewer_context_policy": "fresh", "review_posture": "threat_model", "objective": "Adversarial: re-attack the three findings on the fixed code. If any path still admits byline forgery, attestation drift, or hides the override rationale, refuse.", "task_prompt": {"path": "docs/dogfood/055b/prompts/review_build.md"}, "write_scope": {"mode": "review_only_artifact", "repo_write": false, "allowed_paths": ["docs/dogfood/055b/review/build/gemini/"], "forbidden_paths": [".striatum/"]}, "expected_artifacts": [{"logical_name": "build_review_gemini", "kind": "finding", "path": "docs/dogfood/055b/review/build/gemini/REVIEW.md", "required": true}]}
+  ],
+  "edges": [
+    {"from": "implement", "to": "review_build_codex", "on": "completed"},
+    {"from": "implement", "to": "review_build_claude", "on": "completed"},
+    {"from": "implement", "to": "review_build_gemini", "on": "completed"}
+  ],
+  "cycles": []
+}

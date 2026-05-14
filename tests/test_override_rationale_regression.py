@@ -113,6 +113,56 @@ def test_missing_verdict_source_does_not_infer_operator_override() -> None:
     assert latest["verdict_chip"]["provenance"] == "natural"
 
 
+def test_verdict_from_closed_supervised_session_is_distinct_from_never_attested() -> None:
+    conn = sqlite3.connect(":memory:")
+    try:
+        conn.row_factory = sqlite3.Row
+        conn.execute("CREATE TABLE verdicts (verdict_id TEXT, verdict TEXT)")
+        conn.execute("CREATE TABLE events (event_type TEXT, payload_json TEXT)")
+        conn.execute("CREATE TABLE sessions (session_id TEXT PRIMARY KEY)")
+        conn.execute(
+            """
+            CREATE TABLE process_supervisors (
+              supervisor_id TEXT PRIMARY KEY,
+              session_id TEXT,
+              state TEXT,
+              started_at TEXT,
+              ended_at TEXT
+            )
+            """
+        )
+        conn.execute("INSERT INTO sessions (session_id) VALUES ('sess_closed')")
+        conn.execute(
+            """
+            INSERT INTO process_supervisors (
+              supervisor_id, session_id, state, started_at, ended_at
+            ) VALUES (
+              'sup_closed', 'sess_closed', 'stopped',
+              '2026-05-14T00:00:00Z', '2026-05-14T00:02:00Z'
+            )
+            """
+        )
+        shaped = _shape_verdict_rows(
+            conn,
+            verdicts=[
+                {
+                    "verdict_id": "v1",
+                    "verdict": "accept",
+                    "created_at": "2026-05-14T00:01:00Z",
+                    "session_id": "sess_closed",
+                }
+            ],
+        )
+    finally:
+        conn.close()
+
+    chip = shaped[0]["lane_attestation_chip"]
+    assert chip["state"] == "previously_attested"
+    assert chip["label"] == "previously attested"
+    assert chip["reason"] == "session_stopped"
+    assert chip["supervisor_id"] == "sup_closed"
+
+
 def test_dashboard_verdict_chip_includes_truncated_override_rationale() -> None:
     rationale = "Operator accepted because the remaining issue is tracked elsewhere."
     rendered = _verdict_chip("accept_with_findings", override=True, rationale=rationale)

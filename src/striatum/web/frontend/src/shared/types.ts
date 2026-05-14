@@ -382,12 +382,13 @@ export interface BylineLineProps {
   display_author?: never;
 }
 
-export const LANE_EVIDENCE_STATES = ["not_yet_correlated"] as const;
+export const LANE_EVIDENCE_STATES = ["not_yet_correlated", "override"] as const;
 
 export type LaneEvidenceState = (typeof LANE_EVIDENCE_STATES)[number];
 
 export interface LaneEvidenceChipProps {
   state?: LaneEvidenceState;
+  rationale?: string | null;
 }
 
 export const EXPECTED_ARTIFACT_KINDS = [

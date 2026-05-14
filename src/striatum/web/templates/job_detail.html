@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% import "_components.html" as ui %}
+{% import "_expected_artifacts_table.html" as expected_ui %}
 {% block title %}Job {{ job.workflow_job_id }} · Striatum{% endblock %}
 {% block main %}
 <section class="page-section">
@@ -10,7 +11,7 @@
       {{ ui.job_state_pill(job.state) }}
       <span class="muted">{{ job.role_id }}{% if job.lane_id %} · {{ job.lane_id }}{% endif %}</span>
       {% if job.lane_attestation_chip %}
-      {{ ui.lane_attestation_chip(job.lane_attestation_chip.attested, job.lane_attestation_chip.reason, job.lane_attestation_chip.supervisor_id) }}
+      {{ ui.lane_attestation_chip(job.lane_attestation_chip.attested, job.lane_attestation_chip.reason, job.lane_attestation_chip.supervisor_id, state=job.lane_attestation_chip.state) }}
       {% endif %}
       {% if latest_verdict %}
       {{ ui.verdict_chip(latest_verdict.verdict, latest_verdict.provenance, latest_verdict.override_rationale) }}
@@ -46,7 +47,7 @@
     {% for verdict in verdicts %}
     <li>
       {{ ui.verdict_chip(verdict.verdict, verdict.provenance, verdict.override_rationale) }}
-      {{ ui.lane_attestation_chip(verdict.lane_attestation_chip.attested, verdict.lane_attestation_chip.reason, verdict.lane_attestation_chip.supervisor_id) }}
+      {{ ui.lane_attestation_chip(verdict.lane_attestation_chip.attested, verdict.lane_attestation_chip.reason, verdict.lane_attestation_chip.supervisor_id, state=verdict.lane_attestation_chip.state) }}
       {% if verdict.override_rationale %}
       <p class="override-rationale">Override rationale: {{ verdict.override_rationale }}</p>
       {% elif verdict.rationale %}
@@ -57,8 +58,37 @@
   </ul>
   {% endif %}
 
+  <h2>Override verdict</h2>
+  <div class="override-modal-stub" data-modal="override-verdict" data-run-id="{{ run.run_id }}" data-job-id="{{ job.job_id }}">
+    <button type="button" class="secondary-button" disabled data-override-verdict>Override verdict</button>
+    <span class="muted">Override modal logic lands in V2; recorded override rationales remain visible above.</span>
+  </div>
+
   <h2>Expected artifacts</h2>
-  {{ ui.expected_artifacts_table(expected_artifact_rows, artifacts) }}
+  {{ expected_ui.expected_artifacts_table(expected_artifact_rows, artifacts) }}
+
+  <h2>Process evidence</h2>
+  {% if process_evidence %}
+  <ul class="process-evidence-list">
+    {% for process in process_evidence %}
+    <li>
+      <code>{{ process.process_id }}</code>
+      <span class="status-pill status-{{ 'completed' if process.state == 'exited' and process.exit_code == 0 else process.state }}">{{ process.state }}</span>
+      <span class="muted">exit {{ process.exit_code if process.exit_code is not none else "—" }} · {{ process.started_at }}</span>
+      {% if process.diagnostics %}
+      {% for diagnostic in process.diagnostics %}
+      <details>
+        <summary class="muted">diagnostic envelope</summary>
+        <pre><code>{{ diagnostic | tojson(indent=2) }}</code></pre>
+      </details>
+      {% endfor %}
+      {% endif %}
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p class="empty-state">No process execution evidence recorded for this job.</p>
+  {% endif %}
 
   {% if artifacts %}
   <h2>Artifacts</h2>
@@ -70,7 +100,7 @@
         <code>{{ artifact.repo_path }}</code>
       </a>
       {{ ui.byline_line(artifact.author_line, artifact.expected_author_line, artifact.lane_attestation_chip.attested) }}
-      {{ ui.lane_evidence_chip("not_yet_correlated", artifact.attestation_override_rationale) }}
+      {{ ui.lane_evidence_chip(artifact.lane_evidence_chip.state, artifact.lane_evidence_chip.rationale) }}
     </li>
     {% endfor %}
   </ul>

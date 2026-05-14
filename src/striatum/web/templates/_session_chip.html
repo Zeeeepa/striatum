@@ -1,0 +1,10 @@
+{% import "_components.html" as ui %}
+{% macro session_chip(session) -%}
+<span class="session-chip" data-component="session-chip">
+  <code>{{ session.role_id }}/{{ session.lane_id or "any" }}</code>
+  {{ ui.lane_attestation_chip(session.lane_attestation == "attested", session.lane_attestation_reason, session.supervisor_id) }}
+  {% if session.lane_attestation != "attested" %}
+  {{ ui.byline_line("author: operator", none, false) }}
+  {% endif %}
+</span>
+{%- endmacro %}

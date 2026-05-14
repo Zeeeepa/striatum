@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% import "_components.html" as ui %}
 {% block title %}Artifact · Striatum{% endblock %}
 {% block main %}
 <section class="page-section">
@@ -26,6 +27,27 @@
     <dt>Author</dt><dd>{{ artifact.author_line }}</dd>
     {% endif %}
   </dl>
+
+  <h2>Byline integrity</h2>
+  {{ ui.byline_line(artifact.author_line, artifact.expected_author_line, artifact.lane_attestation_chip.attested) }}
+  {{ ui.lane_evidence_chip(artifact.lane_evidence_chip.state, artifact.lane_evidence_chip.rationale) }}
+
+  <h2>Provenance trail</h2>
+  {% if artifact.provenance_trail %}
+  <ul class="provenance-trail">
+    {% for event in artifact.provenance_trail %}
+    <li>
+      <code>{{ event.event_type }}</code>
+      <span class="muted">{{ event.created_at }}</span>
+      {% if event.payload %}
+      <pre><code>{{ event.payload | tojson(indent=2) }}</code></pre>
+      {% endif %}
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p class="empty-state">No operator-on-behalf provenance events recorded for this artifact.</p>
+  {% endif %}
 
   {% if rendered_md %}
   <h2>Body</h2>

@@ -1,0 +1,36 @@
+{% macro recovery_panel(panel) -%}
+<section class="recovery-panel" aria-labelledby="recovery-panel-heading">
+  <h2 id="recovery-panel-heading">Recovery</h2>
+  {% if panel.auto_publish_recipe %}
+  <div class="callout recovery-auto-publish">
+    <strong>Auto-publish candidate</strong>
+    <code>{{ panel.auto_publish_recipe }}</code>
+  </div>
+  {% endif %}
+  {% if panel.blockers %}
+  <ul class="recovery-blocker-list">
+    {% for blocker in panel.human_checkpoints + panel.blocked %}
+    <li class="recovery-blocker recovery-{{ blocker.severity }}">
+      <div>
+        <span class="status-pill status-{{ 'blocked' if blocker.severity == 'human_checkpoint' else blocker.severity }}">{{ blocker.severity }}</span>
+        <code>{{ blocker.blocker_kind }}</code>
+        {% if blocker.workflow_job_id %}
+        <a href="/run/{{ blocker.run_id }}/job/{{ blocker.job_id }}">{{ blocker.workflow_job_id }}</a>
+        {% endif %}
+      </div>
+      <p class="muted">{{ blocker.description }}</p>
+      {% if blocker.recipes %}
+      <div class="recipe-list" aria-label="Recovery recipes">
+        {% for recipe in blocker.recipes %}
+        <code>{{ recipe }}</code>
+        {% endfor %}
+      </div>
+      {% endif %}
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p class="empty-state">No open blockers.</p>
+  {% endif %}
+</section>
+{%- endmacro %}

@@ -1,0 +1,4 @@
+{% import "_components.html" as ui %}
+{% macro expected_artifacts_table(rows, actual_artifacts=None) -%}
+{{ ui.expected_artifacts_table(rows, actual_artifacts or []) }}
+{%- endmacro %}

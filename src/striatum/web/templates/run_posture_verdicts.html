@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% import "_components.html" as ui %}
 {% block title %}{{ posture }} verdicts · {{ run.run_id }} · Striatum{% endblock %}
 {% block main %}
 <section class="page-section">
@@ -17,6 +18,8 @@
     <thead>
       <tr>
         <th>Verdict</th>
+        <th>Provenance</th>
+        <th>Attestation</th>
         <th>Job</th>
         <th>Role / Lane</th>
         <th>Session</th>
@@ -26,8 +29,15 @@
     </thead>
     <tbody>
       {% for v in verdicts %}
-      <tr>
-        <td><span class="status-pill status-{{ v.verdict }}">{{ v.verdict }}</span></td>
+      <tr class="{% if v.provenance == 'operator-override' %}override-row{% endif %}">
+        <td>{{ ui.verdict_chip(v.verdict, v.provenance, v.override_rationale) }}</td>
+        <td>
+          <code>{{ v.provenance or "natural" }}</code>
+          {% if v.override_rationale %}
+          <p class="override-rationale">{{ v.override_rationale }}</p>
+          {% endif %}
+        </td>
+        <td>{{ ui.lane_attestation_chip(v.lane_attestation_chip.attested, v.lane_attestation_chip.reason, v.lane_attestation_chip.supervisor_id, state=v.lane_attestation_chip.state) }}</td>
         <td>
           <a href="/run/{{ run.run_id }}/job/{{ v.job_id }}">
             <code>{{ v.workflow_job_id }}</code>
@@ -48,7 +58,7 @@
       </tr>
       {% if v.rationale %}
       <tr>
-        <td colspan="6"><span class="muted">Rationale: {{ v.rationale }}</span></td>
+        <td colspan="8"><span class="muted">Rationale: {{ v.rationale }}</span></td>
       </tr>
       {% endif %}
       {% endfor %}

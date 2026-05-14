@@ -41,13 +41,14 @@
 </span>
 {%- endmacro %}
 
-{% macro lane_attestation_chip(attested, reason=None, supervisor_id=None, operator_label=None) -%}
-{% set state = "attested" if attested else "unattested" %}
+{% macro lane_attestation_chip(attested, reason=None, supervisor_id=None, operator_label=None, state=None) -%}
+{% set state = state or ("attested" if attested else "unattested") %}
+{% set label = state | replace("_", " ") %}
 <span class="attestation-chip attestation-{{ state }}"
       data-component="lane-attestation-chip"
-      aria-label="lane attestation: {{ state }}{% if reason %}; reason: {{ _state_label(reason) }}{% endif %}"
+      aria-label="lane attestation: {{ label }}{% if reason %}; reason: {{ _state_label(reason) }}{% endif %}"
       {% if supervisor_id or operator_label %}title="{% if supervisor_id %}supervisor: {{ supervisor_id }}{% endif %}{% if supervisor_id and operator_label %}; {% endif %}{% if operator_label %}operator: {{ operator_label }}{% endif %}"{% endif %}>
-  <span>{{ state }}</span>
+  <span>{{ label }}</span>
   {% if reason %}<span class="chip-detail">{{ reason }}</span>{% endif %}
   {% if supervisor_id %}<code class="chip-code">{{ supervisor_id }}</code>{% endif %}
   {% if operator_label %}<span class="chip-detail">{{ operator_label }}</span>{% endif %}

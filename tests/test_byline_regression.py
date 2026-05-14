@@ -108,3 +108,36 @@ def test_artifact_attestation_uses_recorded_author_line_not_live_session() -> No
     assert chip["attested"] is True
     assert chip["state"] == "attested"
     assert shaped[0]["byline_line"]["display"] == MODEL_BYLINE
+
+
+def test_artifact_override_with_model_byline_never_renders_attested() -> None:
+    conn = sqlite3.connect(":memory:")
+    try:
+        shaped = _shape_artifact_rows(
+            conn,
+            artifacts=[
+                {
+                    "artifact_id": "art_1",
+                    "repo_path": "docs/out.md",
+                    "session_id": "sess_operator_override",
+                    "author_line": MODEL_BYLINE,
+                    "attestation_override_rationale": "operator published on behalf",
+                }
+            ],
+            expected_rows=[
+                {
+                    "path": "docs/out.md",
+                    "expected_author_line": MODEL_BYLINE,
+                }
+            ],
+        )
+    finally:
+        conn.close()
+
+    chip = shaped[0]["lane_attestation_chip"]
+    assert chip["attested"] is False
+    assert chip["state"] == "unattested"
+    assert chip["reason"] == "operator_override"
+    assert shaped[0]["byline_line"]["display"] == OPERATOR_BYLINE
+    assert shaped[0]["lane_evidence_chip"]["state"] == "override"
+    assert shaped[0]["lane_evidence_chip"]["rationale"] == "operator published on behalf"

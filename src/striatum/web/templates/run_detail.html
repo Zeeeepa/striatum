@@ -1,5 +1,7 @@
 {% extends "base.html" %}
 {% import "_components.html" as ui %}
+{% import "_recovery_panel.html" as recovery_ui %}
+{% import "_session_chip.html" as session_ui %}
 {% block title %}Run {{ run.run_id }} · Striatum{% endblock %}
 {% block main %}
 <section class="page-section">
@@ -45,6 +47,8 @@
   </section>
   {% endif %}
 
+  {{ recovery_ui.recovery_panel(recovery_panel) }}
+
   <div class="run-grid">
     <aside class="run-jobs-rail">
       <h2>Jobs</h2>
@@ -55,7 +59,7 @@
             {{ ui.job_state_pill(job.state) }}
             <span class="job-name">{{ job.workflow_job_id }}</span>
             {% if job.lane_attestation_chip %}
-            {{ ui.lane_attestation_chip(job.lane_attestation_chip.attested, job.lane_attestation_chip.reason, job.lane_attestation_chip.supervisor_id) }}
+            {{ ui.lane_attestation_chip(job.lane_attestation_chip.attested, job.lane_attestation_chip.reason, job.lane_attestation_chip.supervisor_id, state=job.lane_attestation_chip.state) }}
             {% endif %}
             {% if job.latest_verdict %}
             {{ ui.verdict_chip(job.latest_verdict.verdict, job.latest_verdict.provenance, job.latest_verdict.override_rationale) }}
@@ -91,14 +95,10 @@
 
       {% if sessions %}
       <h2>Sessions</h2>
-      <ul class="session-list">
+      <ul class="session-list session-strip">
         {% for session in sessions %}
         <li>
-          <code>{{ session.role_id }}/{{ session.lane_id or "any" }}</code>
-          {{ ui.lane_attestation_chip(session.lane_attestation == "attested", session.lane_attestation_reason, session.supervisor_id) }}
-          {% if session.lane_attestation != "attested" %}
-          {{ ui.byline_line("author: operator", none, false) }}
-          {% endif %}
+          {{ session_ui.session_chip(session) }}
         </li>
         {% endfor %}
       </ul>

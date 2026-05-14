@@ -25,7 +25,7 @@ import uuid
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 from urllib.parse import parse_qs, unquote, urlsplit
 
 from striatum.api import invoke
@@ -254,6 +254,7 @@ def _lane_attestation_chip(
     conn: sqlite3.Connection,
     *,
     session_id: str | None,
+    historical_ok: bool = False,
 ) -> JsonObject:
     if not session_id:
         return {
@@ -266,6 +267,25 @@ def _lane_attestation_chip(
     from striatum.identity import session_lane_attestation
 
     attestation = session_lane_attestation(conn, session_id=session_id)
+    if historical_ok and not attestation.attested:
+        previous = conn.execute(
+            """
+            SELECT supervisor_id, state
+            FROM process_supervisors
+            WHERE session_id = ? AND state IN ('lost', 'stopped')
+            ORDER BY ended_at DESC, started_at DESC
+            LIMIT 1
+            """,
+            (session_id,),
+        ).fetchone()
+        if previous is not None:
+            return {
+                "state": "previously_attested",
+                "attested": False,
+                "reason": f"session_{previous['state']}",
+                "supervisor_id": previous["supervisor_id"],
+                "label": "previously attested",
+            }
     return {
         "state": attestation.state,
         "attested": attestation.attested,
@@ -275,8 +295,26 @@ def _lane_attestation_chip(
     }
 
 
-def _recorded_artifact_attestation_chip(author_line: Any) -> JsonObject:
+def _recorded_artifact_attestation_chip(
+    author_line: Any,
+    *,
+    expected_author_line: Any = None,
+    attestation_override_rationale: Any = None,
+) -> JsonObject:
     actual = str(author_line).strip().lower() if author_line else ""
+    expected = (
+        str(expected_author_line).strip().lower()
+        if expected_author_line is not None
+        else ""
+    )
+    if attestation_override_rationale:
+        return {
+            "state": "unattested",
+            "attested": False,
+            "reason": "operator_override",
+            "supervisor_id": None,
+            "label": "unattested",
+        }
     if actual.startswith("author: operator"):
         return {
             "state": "unattested",
@@ -285,10 +323,7 @@ def _recorded_artifact_attestation_chip(author_line: Any) -> JsonObject:
             "supervisor_id": None,
             "label": "unattested",
         }
-    from striatum.identity import ATTESTED_BYLINE_BODY_RE
-
-    body = actual.split(":", 1)[1].strip() if actual.startswith("author:") else ""
-    if ATTESTED_BYLINE_BODY_RE.fullmatch(body):
+    if expected and actual == expected:
         return {
             "state": "attested",
             "attested": True,
@@ -299,17 +334,30 @@ def _recorded_artifact_attestation_chip(author_line: Any) -> JsonObject:
     return {
         "state": "unattested",
         "attested": False,
-        "reason": "author_line_missing",
+        "reason": "expected_author_line_mismatch" if expected else "expected_author_line_missing",
         "supervisor_id": None,
         "label": "unattested",
     }
 
 
-def _muted_lane_evidence_chip() -> JsonObject:
+def _lane_evidence_chip(*, attestation_override_rationale: Any = None) -> JsonObject:
+    rationale = (
+        str(attestation_override_rationale).strip()
+        if attestation_override_rationale is not None
+        else ""
+    )
+    if rationale:
+        return {
+            "state": "override",
+            "label": "override",
+            "muted": False,
+            "rationale": rationale,
+        }
     return {
         "state": "not_yet_correlated",
         "label": "not yet correlated",
         "muted": True,
+        "rationale": None,
     }
 
 
@@ -449,10 +497,197 @@ def _expected_artifact_rows(
                 ),
                 "status": status,
                 "publish_recipe": recipe,
-                "lane_evidence_chip": _muted_lane_evidence_chip(),
+                "lane_evidence_chip": _lane_evidence_chip(
+                    attestation_override_rationale=(
+                        actual.get("attestation_override_rationale") if actual else None
+                    ),
+                ),
             }
         )
     return rows
+
+
+def _open_blocker_rows(conn: sqlite3.Connection, *, run_id: str, job_id: str | None = None) -> list[JsonObject]:
+    query = """
+        SELECT b.*, j.workflow_job_id, j.job_type, j.state AS job_state
+        FROM blockers b
+        LEFT JOIN jobs j ON j.job_id = b.job_id
+        WHERE b.run_id = ? AND b.state = 'open'
+    """
+    params: list[Any] = [run_id]
+    if job_id is not None:
+        query += " AND b.job_id = ?"
+        params.append(job_id)
+    query += " ORDER BY CASE b.severity WHEN 'human_checkpoint' THEN 0 WHEN 'blocked' THEN 1 ELSE 2 END, b.created_at"
+    rows: list[JsonObject] = []
+    for row in conn.execute(query, params).fetchall():
+        item = dict(row)
+        payload = _json_loads_object(item.get("payload_json"), {})
+        item["payload"] = payload if isinstance(payload, dict) else {}
+        item["recipes"] = _recipes_for_blocker(item)
+        rows.append(item)
+    return rows
+
+
+def _recipes_for_blocker(blocker: Mapping[str, Any]) -> list[str]:
+    payload = blocker.get("payload")
+    payload_obj = payload if isinstance(payload, dict) else {}
+    recipes = payload_obj.get("recovery_commands")
+    if isinstance(recipes, list):
+        return [str(recipe) for recipe in recipes if recipe]
+    run_id = str(blocker.get("run_id") or "")
+    job_id = str(blocker.get("job_id") or "")
+    blocker_id = str(blocker.get("blocker_id") or "")
+    kind = str(blocker.get("blocker_kind") or "")
+    severity = str(blocker.get("severity") or "")
+    if severity == "human_checkpoint":
+        return [
+            f"striatum checkpoint resolve --blocker-id {blocker_id} --action continue",
+            f"striatum checkpoint resolve --blocker-id {blocker_id} --action cancel",
+        ]
+    if kind.startswith("process_") and run_id:
+        return [f"striatum recovery process-reconcile --run-id {run_id}"]
+    if job_id:
+        return [
+            f'striatum recovery cancel-job --run-id {run_id} --job-id {job_id} --reason "operator inspected blocker {blocker_id}"'
+        ]
+    return []
+
+
+def _recovery_panel_payload(
+    conn: sqlite3.Connection,
+    *,
+    run_id: str,
+    next_actions: list[Any],
+) -> JsonObject:
+    blockers = _open_blocker_rows(conn, run_id=run_id)
+    return {
+        "blockers": blockers,
+        "human_checkpoints": [b for b in blockers if b.get("severity") == "human_checkpoint"],
+        "blocked": [b for b in blockers if b.get("severity") != "human_checkpoint"],
+        "next_actions": [str(action) for action in next_actions],
+        "auto_publish_recipe": (
+            f"striatum recovery auto-publish --run-id {run_id} --dry-run"
+            if "recovery_auto_publish" in {str(action) for action in next_actions}
+            else None
+        ),
+    }
+
+
+def _process_evidence_rows(conn: sqlite3.Connection, *, run_id: str, job_id: str) -> list[JsonObject]:
+    process_rows = [
+        dict(row)
+        for row in conn.execute(
+            """
+            SELECT *
+            FROM process_executions
+            WHERE run_id = ? AND job_id = ?
+            ORDER BY started_at DESC, process_id DESC
+            """,
+            (run_id, job_id),
+        ).fetchall()
+    ]
+    blockers_by_process: dict[str, list[JsonObject]] = {}
+    for blocker in _open_blocker_rows(conn, run_id=run_id, job_id=job_id):
+        payload = blocker.get("payload")
+        if isinstance(payload, dict) and payload.get("process_id"):
+            blockers_by_process.setdefault(str(payload["process_id"]), []).append(blocker)
+    for process in process_rows:
+        process["command"] = _json_loads_object(process.get("command_json"), [])
+        process["blockers"] = blockers_by_process.get(str(process.get("process_id")), [])
+        process["diagnostics"] = [
+            blocker.get("payload") for blocker in process["blockers"] if isinstance(blocker.get("payload"), dict)
+        ]
+    return process_rows
+
+
+def _artifact_provenance_trail(
+    conn: sqlite3.Connection,
+    *,
+    artifact_id: str,
+    run_id: str,
+) -> list[JsonObject]:
+    event_rows = conn.execute(
+        """
+        SELECT event_id, event_type, actor_session_id, job_id, artifact_id,
+               lease_id, payload_json, created_at
+        FROM events
+        WHERE run_id = ?
+          AND event_type IN ('recovery.auto_published', 'provenance.publish_without_process_execution')
+          AND (artifact_id = ? OR payload_json LIKE ?)
+        ORDER BY event_id
+        """,
+        (run_id, artifact_id, f"%{artifact_id}%"),
+    ).fetchall()
+    trail: list[JsonObject] = []
+    for row in event_rows:
+        item = dict(row)
+        payload = _json_loads_object(item.get("payload_json"), {})
+        item["payload"] = payload if isinstance(payload, dict) else {}
+        trail.append(item)
+    return trail
+
+
+def _doctor_record_recipes(record: Mapping[str, Any]) -> list[str]:
+    check = str(record.get("check") or "")
+    context = record.get("context")
+    ctx = context if isinstance(context, dict) else {}
+    run_id = str(ctx.get("run_id") or "")
+    job_id = str(ctx.get("job_id") or "")
+    session_id = str(ctx.get("session_id") or "")
+    blocker_id = str(ctx.get("blocker_id") or "")
+    recipes: list[str] = []
+    if check in {"process_running_but_pid_gone", "process_running_with_expired_lease"} and run_id:
+        recipes.append(f"striatum recovery process-reconcile --run-id {run_id}")
+    elif check == "supervisor_lost_with_held_lease":
+        if run_id and job_id:
+            recipes.append(
+                f'striatum recovery cancel-job --run-id {run_id} --job-id {job_id} --reason "supervisor lost with held lease"'
+            )
+        if session_id:
+            recipes.append(f"striatum supervise stop --session-id {session_id}")
+    elif check == "active_session_on_terminal_run" and session_id:
+        recipes.append(f"striatum session close --session-id {session_id} --reason terminal_run_cleanup")
+    elif check in {"orphaned_worktree", "missing_worktree"} and run_id:
+        recipes.append(f"striatum doctor --run-id {run_id} --verbose")
+    elif check == "human_checkpoint_open" and blocker_id:
+        recipes.append(f"striatum checkpoint resolve --blocker-id {blocker_id} --action continue")
+        recipes.append(f"striatum checkpoint resolve --blocker-id {blocker_id} --action cancel")
+    return recipes
+
+
+def _shape_doctor_records(records: list[Any]) -> list[JsonObject]:
+    shaped: list[JsonObject] = []
+    for record in records:
+        if not isinstance(record, dict):
+            continue
+        item = dict(record)
+        item["recipes"] = _doctor_record_recipes(item)
+        shaped.append(item)
+    return shaped
+
+
+def _view_file_run_breadcrumb(conn: sqlite3.Connection, *, rel_path: str) -> JsonObject | None:
+    parts = Path(rel_path).parts
+    if len(parts) < 4 or parts[0] != "docs" or parts[1] != "dogfood":
+        return None
+    dogfood_id = parts[2]
+    if not dogfood_id.isdigit():
+        return None
+    branch_fragment = f"striatum/dogfood-{dogfood_id}-"
+    rows = conn.execute(
+        """
+        SELECT run_id, branch_name
+        FROM runs
+        WHERE branch_name LIKE ?
+        ORDER BY created_at DESC, run_id DESC
+        """,
+        (branch_fragment + "%",),
+    ).fetchall()
+    if len(rows) != 1:
+        return None
+    row = rows[0]
+    return {"run_id": row["run_id"], "branch_name": row["branch_name"]}
 
 
 def _shape_verdict_rows(
@@ -500,6 +735,7 @@ def _shape_verdict_rows(
         row["lane_attestation_chip"] = _lane_attestation_chip(
             conn,
             session_id=str(row["session_id"]) if row.get("session_id") else None,
+            historical_ok=True,
         )
         shaped.append(row)
     return list(reversed(shaped))
@@ -516,7 +752,12 @@ def _shape_artifact_rows(
     for artifact in artifacts:
         expected = expected_by_path.get(str(artifact.get("repo_path")))
         expected_author_line = expected.get("expected_author_line") if expected else None
-        attestation = _recorded_artifact_attestation_chip(artifact.get("author_line"))
+        override_rationale = artifact.get("attestation_override_rationale")
+        attestation = _recorded_artifact_attestation_chip(
+            artifact.get("author_line"),
+            expected_author_line=expected_author_line,
+            attestation_override_rationale=override_rationale,
+        )
         artifact["expected_author_line"] = expected_author_line
         artifact["byline_line"] = _byline_line(
             artifact.get("author_line"),
@@ -524,10 +765,10 @@ def _shape_artifact_rows(
             attested=bool(attestation.get("attested")),
         )
         artifact["lane_attestation_chip"] = attestation
-        artifact["lane_evidence_chip"] = _muted_lane_evidence_chip()
-        artifact["attestation_override_rationale"] = artifact.get(
-            "attestation_override_rationale"
+        artifact["lane_evidence_chip"] = _lane_evidence_chip(
+            attestation_override_rationale=override_rationale,
         )
+        artifact["attestation_override_rationale"] = override_rationale
     return artifacts
 
 
@@ -1279,14 +1520,15 @@ class StriatumServiceHandler(BaseHTTPRequestHandler):
                     """,
                     (run_id, posture),
                 ).fetchall()
-            verdicts = []
-            for r in rows:
-                d = dict(r)
-                try:
-                    d["lane_id"] = (json.loads(d.get("lane_selector_json") or "{}")).get("lane_id")
-                except (json.JSONDecodeError, TypeError):
-                    d["lane_id"] = None
-                verdicts.append(d)
+                verdicts = []
+                for r in rows:
+                    d = dict(r)
+                    try:
+                        d["lane_id"] = (json.loads(d.get("lane_selector_json") or "{}")).get("lane_id")
+                    except (json.JSONDecodeError, TypeError):
+                        d["lane_id"] = None
+                    verdicts.append(d)
+                verdicts = _shape_verdict_rows(conn, verdicts=verdicts)
             html = _jinja_env().get_template("run_posture_verdicts.html").render(
                 run=dict(run_row),
                 posture=posture,
@@ -1376,6 +1618,12 @@ class StriatumServiceHandler(BaseHTTPRequestHandler):
                     if snapshot_row is not None else {}
                 )
                 status_payload = status_command(conn, run_id=run_id)
+                next_actions = status_payload.get("next_actions") or []
+                recovery_panel = _recovery_panel_payload(
+                    conn,
+                    run_id=run_id,
+                    next_actions=list(next_actions),
+                )
                 run["state_chip"] = _state_chip("run", run.get("state"))
             node_states = compute_node_states_from_jobs(jobs)
             graph_svg = render_run_graph(
@@ -1397,7 +1645,8 @@ class StriatumServiceHandler(BaseHTTPRequestHandler):
                 run=run,
                 jobs=jobs,
                 graph_svg=graph_svg,
-                next_actions=status_payload.get("next_actions") or [],
+                next_actions=next_actions,
+                recovery_panel=recovery_panel,
                 verdicts_by_posture=status_payload.get("verdicts_by_posture") or {},
                 sessions=status_payload.get("sessions") or [],
                 phase_progress=status_payload.get("phases") or [],
@@ -1462,6 +1711,11 @@ class StriatumServiceHandler(BaseHTTPRequestHandler):
                     conn,
                     session_id=str(packet["session_id"]) if packet and packet.get("session_id") else None,
                 )
+                job["process_evidence"] = _process_evidence_rows(
+                    conn,
+                    run_id=run_id,
+                    job_id=job_id,
+                )
                 verdict_rows = conn.execute(
                     "SELECT * FROM verdicts WHERE job_id = ? ORDER BY created_at DESC, verdict_id DESC",
                     (job_id,),
@@ -1478,6 +1732,7 @@ class StriatumServiceHandler(BaseHTTPRequestHandler):
                 latest_verdict=latest_verdict,
                 verdicts=verdicts,
                 expected_artifact_rows=job["expected_artifact_rows"],
+                process_evidence=job["process_evidence"],
             )
             self._send_html(200, html)
         except Exception as exc:  # noqa: BLE001
@@ -1499,6 +1754,37 @@ class StriatumServiceHandler(BaseHTTPRequestHandler):
                     return
                 run = dict(run_row)
                 artifact = dict(artifact_row)
+                job_row = None
+                if artifact.get("job_id"):
+                    job_row = conn.execute(
+                        "SELECT * FROM jobs WHERE job_id = ?",
+                        (str(artifact["job_id"]),),
+                    ).fetchone()
+                packet = (
+                    _latest_work_packet_for_job(conn, job_id=str(artifact["job_id"]))
+                    if artifact.get("job_id")
+                    else None
+                )
+                expected_rows = (
+                    _expected_artifact_rows(
+                        job=dict(job_row),
+                        artifacts=[artifact],
+                        packet=packet,
+                    )
+                    if job_row is not None
+                    else []
+                )
+                shaped = _shape_artifact_rows(
+                    conn,
+                    artifacts=[artifact],
+                    expected_rows=expected_rows,
+                )
+                artifact = shaped[0]
+                artifact["provenance_trail"] = _artifact_provenance_trail(
+                    conn,
+                    artifact_id=artifact_id,
+                    run_id=run_id,
+                )
             # RFC 0023 V1: inline-render Markdown artifacts.
             rendered_md: str | None = None
             body_text: str | None = None
@@ -2144,10 +2430,11 @@ class StriatumServiceHandler(BaseHTTPRequestHandler):
             with sqlite3.connect(str(db_path(self.state.repo))) as conn:
                 conn.row_factory = sqlite3.Row
                 doctor_payload = doctor_command(conn, repo=self.state.repo, run_id=None, verbose=True)
+            records = _shape_doctor_records(list(doctor_payload.get("problem_records") or []))
+            doctor_payload["problem_records"] = records
             groups: dict[str, list[dict[str, Any]]] = {}
-            for record in doctor_payload.get("problem_records") or []:
-                if isinstance(record, dict):
-                    groups.setdefault(str(record.get("check") or "unknown"), []).append(record)
+            for record in records:
+                groups.setdefault(str(record.get("check") or "unknown"), []).append(record)
             html = _jinja_env().get_template("doctor.html").render(
                 doctor=doctor_payload,
                 problem_groups=groups,
@@ -2691,7 +2978,14 @@ class StriatumServiceHandler(BaseHTTPRequestHandler):
             "text_body": None,
             "lang": ext.lstrip(".") or "text",
             "message": None,
+            "run_breadcrumb": None,
         }
+        try:
+            with sqlite3.connect(str(db_path(self.state.repo))) as conn:
+                conn.row_factory = sqlite3.Row
+                ctx["run_breadcrumb"] = _view_file_run_breadcrumb(conn, rel_path=rel_path)
+        except sqlite3.Error:
+            ctx["run_breadcrumb"] = None
         if is_binary:
             ctx["message"] = f"Binary file ({len(raw)} bytes); use the raw API to download."
         elif ext == ".md":

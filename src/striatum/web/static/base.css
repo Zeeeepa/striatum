@@ -330,6 +330,10 @@ h2 { font-size: 16px; margin-top: var(--space-6); margin-bottom: var(--space-2);
   border-color: var(--attestation-unattested);
   color: var(--attestation-unattested);
 }
+.attestation-previously_attested {
+  border-color: var(--attestation-attested);
+  color: var(--attestation-attested);
+}
 .attestation-warn {
   border-color: var(--attestation-warn);
   color: var(--attestation-warn);
@@ -344,6 +348,10 @@ h2 { font-size: 16px; margin-top: var(--space-6); margin-bottom: var(--space-2);
 .evidence-not_yet_correlated {
   border-color: var(--evidence-not-yet-correlated);
   color: var(--evidence-not-yet-correlated);
+}
+.evidence-override {
+  border-color: var(--attestation-unattested);
+  color: var(--attestation-unattested);
 }
 
 .byline-line {
