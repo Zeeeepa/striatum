@@ -1,0 +1,108 @@
+{
+  "schema_version": "striatum.workflow.v1",
+  "workflow_id": "gh-16-operator-init-prompt",
+  "workflow_version": "1",
+  "name": "gh-16: add complete operator initialization prompt",
+  "context_docs": [
+    "docs/issues/16/SPEC.md",
+    "prompts/OPERATOR_BOUNDARY_PROMPT.md",
+    "prompts/README.md",
+    "docs/HOW_TO_AGENT.md",
+    "docs/SPEC.md",
+    "AGENTS.md",
+    "docs/ROADMAP.md"
+  ],
+  "coordinator": {"lane": "codex"},
+  "parallelism": {"max_active_jobs": 2},
+  "branch": {"mode": "auto", "suggested_name": "striatum/gh-16-operator-init-prompt"},
+  "lanes": {
+    "codex": {
+      "adapter": "process",
+      "command": ["bash", "-lc", "PYTHONPATH=src python3 -m striatum.cli skills install --profile all --scope user --force --json >/dev/null && export PATH=\"$PWD/.venv/bin:$PATH\" && exec .striatum/bin/codex-supervised-wrapper.sh"],
+      "model": "codex",
+      "strategy_version": "2026-05-14",
+      "supervision": {"compatible": true, "stdin_format": "newline_delimited_json", "wrapper_required": true}
+    },
+    "claude_code": {
+      "adapter": "process",
+      "command": ["bash", "-lc", "PYTHONPATH=src python3 -m striatum.cli skills install --profile all --scope user --force --json >/dev/null && export PATH=\"$PWD/.venv/bin:$PATH\" && exec .striatum/bin/claude-supervised-wrapper.sh"],
+      "model": "claude_code",
+      "strategy_version": "2026-05-14",
+      "supervision": {"compatible": "verify_pipe_behavior_first", "stdin_format": "prompt_text", "wrapper_required": true}
+    }
+  },
+  "roles": {
+    "coordinator": {"description": "Op"},
+    "triager": {"description": "T"},
+    "implementer": {"description": "I"},
+    "reviewer": {"description": "R"}
+  },
+  "jobs": [
+    {
+      "id": "triage",
+      "type": "synthesis",
+      "title": "Triage claude_code — bound scope from GH #16 issue body",
+      "role_id": "triager",
+      "lane_id": "claude_code",
+      "fresh_session_required": true,
+      "objective": "Read docs/issues/16/SPEC.md (the GH #16 body), prompts/OPERATOR_BOUNDARY_PROMPT.md, prompts/README.md, and the canonical operator docs (HOW_TO_AGENT.md, AGENTS.md, SPEC.md). Produce docs/issues/16/SCOPE.md naming: (a) the exact new file path prompts/OPERATOR_INITIALIZATION_PROMPT.md; (b) the bounded edits expected to prompts/README.md; (c) whether OPERATOR_BOUNDARY_PROMPT.md needs refactoring or stays as-is; (d) the acceptance checklist derived literally from the issue's 'Definition of done' and 'Required shape' and 'Required behavior' and 'Required first-action sequence' sections (one bullet per check). NO scope creep — do not add new files outside prompts/ or new RFCs.",
+      "task_prompt": {"path": "docs/issues/16/prompts/triage.md"},
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": ["docs/issues/16/"],
+        "forbidden_paths": [".striatum/"]
+      },
+      "expected_artifacts": [
+        {"logical_name": "scope", "kind": "synthesis", "path": "docs/issues/16/SCOPE.md", "required": true}
+      ]
+    },
+    {
+      "id": "fix",
+      "type": "build",
+      "title": "Fix codex — author OPERATOR_INITIALIZATION_PROMPT.md per scope",
+      "role_id": "implementer",
+      "lane_id": "codex",
+      "required_review_postures": ["ergonomics_dx"],
+      "objective": "Implement gh-16. Inputs: docs/issues/16/SPEC.md (the GH issue body) + docs/issues/16/SCOPE.md (from triage). Deliverables: (1) prompts/OPERATOR_INITIALIZATION_PROMPT.md — a complete, reusable, generic operator initialization prompt with a fill-in block, behavior rules, and first-action sequence per the issue's Required shape / Required behavior / Required first-action sequence. (2) Update prompts/README.md to list it separately from OPERATOR_BOUNDARY_PROMPT.md and explain when to use each. (3) Optionally trim OPERATOR_BOUNDARY_PROMPT.md to focused-guardrail role per scope decision (do not delete; refactor only if scope says so). HANDOFF.md must cite each Definition of done bullet with the file:line that closes it. STRICTLY GENERIC: no RFC0026/RFC0027/Engram-specific paths; use repo-relative paths and ~/ generalized paths. The prompt must reflect current daemon/Postgres transition per RFC 0048 caveat (daemon-required default not yet flipped; STRIATUM_DAEMON_REQUIRED=0 + STRIATUM_TEST_HARNESS=1 still the test-harness escape).",
+      "task_prompt": {"path": "docs/issues/16/prompts/fix.md"},
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": ["prompts/", "docs/issues/16/"],
+        "forbidden_paths": [".striatum/", "src/", "tests/", "docs/dogfood/", "docs/rfcs/"]
+      },
+      "expected_artifacts": [
+        {"logical_name": "handoff", "kind": "handoff", "path": "docs/issues/16/HANDOFF.md", "required": true}
+      ]
+    },
+    {
+      "id": "verify",
+      "type": "review",
+      "title": "Verify claude_code ergonomics_dx — check Definition of done bullet-by-bullet",
+      "role_id": "reviewer",
+      "lane_id": "claude_code",
+      "fresh_session_required": true,
+      "reviewer_context_policy": "fresh",
+      "review_posture": "ergonomics_dx",
+      "objective": "Verify the fix closes GH #16. Read docs/issues/16/SPEC.md (the issue body) and the new prompts/OPERATOR_INITIALIZATION_PROMPT.md plus the prompts/README.md edits. For each bullet in the issue's 'Definition of done', 'Required shape', 'Required behavior', and 'Required first-action sequence' sections, assert it is or is not closed at a specific file:line. Verdict: accept iff every bullet is closed; accept_with_findings iff cosmetic gaps remain but functional spec is closed; needs_revision iff any Definition-of-done bullet is unaddressed. Ergonomics check: would a fresh AI session pasted into this prompt have everything it needs to start driving a Striatum run without reading historical dogfood prompts first? Refuse if no.",
+      "task_prompt": {"path": "docs/issues/16/prompts/verify.md"},
+      "write_scope": {
+        "mode": "review_only_artifact",
+        "repo_write": false,
+        "allowed_paths": ["docs/issues/16/review/"],
+        "forbidden_paths": [".striatum/"]
+      },
+      "expected_artifacts": [
+        {"logical_name": "verify_review", "kind": "finding", "path": "docs/issues/16/review/REVIEW.md", "required": true}
+      ]
+    }
+  ],
+  "edges": [
+    {"from": "triage", "to": "fix", "on": "completed"},
+    {"from": "fix", "to": "verify", "on": "completed"}
+  ],
+  "cycles": [
+    {"from": "verify", "to": "fix", "on_verdict": "needs_revision", "max_iterations": 1}
+  ]
+}
