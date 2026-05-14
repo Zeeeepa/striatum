@@ -11,21 +11,48 @@
   --fg-muted: #8b949e;
   --border: #d0d7de;
   --accent: #0969da;
-  --status-running: #d29922;
+  --status-prepared: #6e7681;
+  --status-needs-branch-confirmation: #d29922;
+  --status-ready: #8b949e;
+  --status-queued: #6e7681;
+  --status-claimed: #2f81f7;
+  --status-running: #2f81f7;
+  --status-blocked: #d29922;
+  --status-stale-lease: #d29922;
+  --status-waiting-human: #db6d28;
   --status-completed: #1a7f37;
   --status-failed: #d1242f;
-  --status-blocked: #cf222e;
   --status-canceled: #8b949e;
-  --status-queued: #6f42c1;
-  --status-waiting_human: #bf8700;
+  --status-paused: #8250df;
+  --status-compromised: #cf222e;
   --status-accept: #1a7f37;
   --status-accept_with_findings: #d29922;
+  --status-accept-with-findings: #d29922;
   --status-needs_revision: #cf222e;
+  --status-needs-revision: #cf222e;
   --status-reject: #d1242f;
   --status-pending: #8b949e;
-  --status-claimed: #d29922;
   --status-failed_to_claim: #cf222e;
+  --status-failed-to-claim: #cf222e;
   --status-skipped: #8b949e;
+  --status-waiting_human: var(--status-waiting-human);
+  --status-stale_lease: var(--status-stale-lease);
+  --attestation-attested: #1a7f37;
+  --attestation-unattested: #d29922;
+  --attestation-warn: #db6d28;
+  --override-marker: #8250df;
+  --override-marker-bg: #f6f0ff;
+  --evidence-not-yet-correlated: #8b949e;
+  --posture-neutral: #8b949e;
+  --posture-security: #d1242f;
+  --posture-threat-model: #db6d28;
+  --posture-ergonomics-dx: #0969da;
+  --posture-accessibility: #1a7f37;
+  --posture-devils-advocate: #8250df;
+  --posture-adversarial: var(--posture-devils-advocate);
+  --posture-latency-performance: #0969da;
+  --posture-compliance-license: #bf8700;
+  --posture-supply-chain: #cf222e;
   --shadow-sm: 0 1px 2px rgba(13,17,23,0.05);
   --shadow-md: 0 4px 8px rgba(13,17,23,0.08);
   --space-1: 0.25rem;
@@ -51,21 +78,48 @@
     --fg-muted: #6e7681;
     --border: #30363d;
     --accent: #2f81f7;
-    --status-running: #d29922;
+    --status-prepared: #6e7681;
+    --status-needs-branch-confirmation: #d29922;
+    --status-ready: #8b949e;
+    --status-queued: #6e7681;
+    --status-claimed: #2f81f7;
+    --status-running: #2f81f7;
+    --status-blocked: #d29922;
+    --status-stale-lease: #d29922;
+    --status-waiting-human: #db6d28;
     --status-completed: #2ea043;
     --status-failed: #f85149;
-    --status-blocked: #ff7b72;
     --status-canceled: #6e7681;
-    --status-queued: #a371f7;
-    --status-waiting_human: #d29922;
+    --status-paused: #a371f7;
+    --status-compromised: #ff7b72;
     --status-accept: #2ea043;
     --status-accept_with_findings: #d29922;
+    --status-accept-with-findings: #d29922;
     --status-needs_revision: #ff7b72;
+    --status-needs-revision: #ff7b72;
     --status-reject: #f85149;
     --status-pending: #6e7681;
-    --status-claimed: #d29922;
     --status-failed_to_claim: #ff7b72;
+    --status-failed-to-claim: #ff7b72;
     --status-skipped: #6e7681;
+    --status-waiting_human: var(--status-waiting-human);
+    --status-stale_lease: var(--status-stale-lease);
+    --attestation-attested: #3fb950;
+    --attestation-unattested: #d29922;
+    --attestation-warn: #db6d28;
+    --override-marker: #a371f7;
+    --override-marker-bg: #2d2545;
+    --evidence-not-yet-correlated: #8b949e;
+    --posture-neutral: #8b949e;
+    --posture-security: #f85149;
+    --posture-threat-model: #db6d28;
+    --posture-ergonomics-dx: #2f81f7;
+    --posture-accessibility: #3fb950;
+    --posture-devils-advocate: #a371f7;
+    --posture-adversarial: var(--posture-devils-advocate);
+    --posture-latency-performance: #2f81f7;
+    --posture-compliance-license: #d29922;
+    --posture-supply-chain: #ff7b72;
     --shadow-sm: 0 1px 2px rgba(0,0,0,0.3);
     --shadow-md: 0 4px 8px rgba(0,0,0,0.5);
   }
@@ -183,16 +237,159 @@ h2 { font-size: 16px; margin-top: var(--space-6); margin-bottom: var(--space-2);
 .status-canceled { background: var(--status-canceled); color: white; }
 .status-queued { background: var(--status-queued); color: white; }
 .status-waiting_human { background: var(--status-waiting_human); color: #0d1117; }
+.status-waiting-human { background: var(--status-waiting-human); color: #0d1117; }
 .status-accept { background: var(--status-accept); color: white; }
 .status-accept_with_findings { background: var(--status-accept_with_findings); color: #0d1117; }
+.status-accept-with-findings { background: var(--status-accept-with-findings); color: #0d1117; }
 .status-needs_revision { background: var(--status-needs_revision); color: white; }
+.status-needs-revision { background: var(--status-needs-revision); color: white; }
 .status-reject { background: var(--status-reject); color: white; }
 .status-pending { background: var(--status-pending); color: white; }
 .status-claimed { background: var(--status-claimed); color: #0d1117; }
 .status-skipped { background: var(--status-skipped); color: white; }
-.status-prepared { background: var(--status-pending); color: white; }
-.status-ready { background: var(--status-running); color: #0d1117; }
+.status-prepared { background: var(--status-prepared); color: white; }
+.status-needs-branch-confirmation { background: var(--status-needs-branch-confirmation); color: #0d1117; }
+.status-ready { background: var(--status-ready); color: white; }
+.status-stale-lease { background: var(--status-stale-lease); color: #0d1117; }
+.status-stale_lease { background: var(--status-stale_lease); color: #0d1117; }
+.status-paused { background: var(--status-paused); color: white; }
+.status-compromised { background: var(--status-compromised); color: white; }
 .status-failed_to_claim { background: var(--status-failed_to_claim); color: white; }
+.status-failed-to-claim { background: var(--status-failed-to-claim); color: white; }
+
+.state-chip,
+.verdict-chip,
+.attestation-chip,
+.evidence-chip,
+.artifact-kind-chip,
+.artifact-status {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  max-width: 100%;
+  line-height: 1.35;
+  white-space: nowrap;
+}
+
+.verdict-chip,
+.attestation-chip,
+.evidence-chip,
+.artifact-kind-chip,
+.artifact-status {
+  padding: 0.1em 0.6em;
+  border-radius: 999px;
+  font-size: 0.8em;
+  font-weight: 500;
+  vertical-align: middle;
+}
+
+.verdict-marker,
+.byline-marker {
+  display: inline-block;
+  width: 0.55em;
+  height: 0.55em;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: currentColor;
+}
+
+.verdict-provenance-natural .verdict-marker { background: currentColor; }
+.verdict-provenance-operator-override .verdict-marker {
+  background: transparent;
+  border: 1px solid var(--override-marker);
+}
+.verdict-provenance-operator-override {
+  box-shadow: inset 0 0 0 1px var(--override-marker);
+}
+.verdict-provenance-cycle-revised .verdict-marker {
+  background: transparent;
+  border: 1px dashed currentColor;
+}
+
+.chip-detail {
+  color: inherit;
+  font-size: 0.92em;
+  opacity: 0.78;
+}
+
+.chip-code {
+  font-size: 0.9em;
+  color: inherit;
+}
+
+.attestation-chip {
+  border: 1px solid var(--border);
+  background: var(--bg-overlay);
+  color: var(--fg-primary);
+}
+.attestation-attested {
+  border-color: var(--attestation-attested);
+  color: var(--attestation-attested);
+}
+.attestation-unattested {
+  border-color: var(--attestation-unattested);
+  color: var(--attestation-unattested);
+}
+.attestation-warn {
+  border-color: var(--attestation-warn);
+  color: var(--attestation-warn);
+}
+
+.evidence-chip {
+  border: 1px solid var(--border);
+  background: var(--bg-overlay);
+  color: var(--fg-muted);
+}
+.evidence-not-yet-correlated,
+.evidence-not_yet_correlated {
+  border-color: var(--evidence-not-yet-correlated);
+  color: var(--evidence-not-yet-correlated);
+}
+
+.byline-line {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--space-1);
+  max-width: 100%;
+  color: var(--fg-secondary);
+}
+.byline-line code {
+  color: inherit;
+  white-space: nowrap;
+}
+.byline-missing {
+  color: var(--fg-muted);
+  font-style: italic;
+}
+.byline-mismatch,
+.byline-unattested {
+  color: var(--attestation-unattested);
+}
+.byline-attested {
+  color: var(--attestation-attested);
+}
+
+.artifact-kind-chip {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-overlay);
+  color: var(--fg-secondary);
+  font-family: var(--font-mono);
+}
+.artifact-status-published {
+  background: var(--status-completed);
+  color: white;
+}
+.artifact-status-drift,
+.artifact-status-missing-required {
+  background: var(--status-blocked);
+  color: #0d1117;
+}
+.artifact-status-missing-optional {
+  border: 1px solid var(--border);
+  background: var(--bg-overlay);
+  color: var(--fg-muted);
+}
 
 .posture-chip {
   display: inline-block;
@@ -208,6 +405,17 @@ h2 { font-size: 16px; margin-top: var(--space-6); margin-bottom: var(--space-2);
   white-space: nowrap;
   vertical-align: middle;
 }
+
+.posture-neutral { border-color: var(--posture-neutral); color: var(--posture-neutral); }
+.posture-devils-advocate { border-color: var(--posture-devils-advocate); }
+.posture-adversarial { border-color: var(--posture-adversarial); color: var(--posture-adversarial); }
+.posture-security { border-color: var(--posture-security); color: var(--posture-security); }
+.posture-threat-model { border-color: var(--posture-threat-model); color: var(--posture-threat-model); }
+.posture-latency-performance { border-color: var(--posture-latency-performance); color: var(--posture-latency-performance); }
+.posture-ergonomics-dx { border-color: var(--posture-ergonomics-dx); color: var(--posture-ergonomics-dx); }
+.posture-accessibility { border-color: var(--posture-accessibility); color: var(--posture-accessibility); }
+.posture-compliance-license { border-color: var(--posture-compliance-license); color: var(--posture-compliance-license); }
+.posture-supply-chain { border-color: var(--posture-supply-chain); color: var(--posture-supply-chain); }
 
 /* RFC 0024 V4.1: posture chip drill-down link. */
 .posture-chip-link {
@@ -750,6 +958,23 @@ kbd {
   letter-spacing: 0.05em;
 }
 .data-table tbody tr:hover { background: var(--bg-overlay); }
+.data-table.--density-compact th,
+.data-table.--density-compact td {
+  padding: calc(var(--space-1) + 2px) var(--space-2);
+}
+.expected-artifacts-table th,
+.expected-artifacts-table td {
+  padding: var(--space-2) var(--space-3);
+}
+.expected-artifacts-table code {
+  white-space: nowrap;
+}
+.expected-artifacts-table td:last-child {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  align-items: center;
+}
 
 /* RFC 0024 V1.5: workflow visual builder. */
 .workflow-edit-page h2 {

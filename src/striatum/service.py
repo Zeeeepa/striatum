@@ -226,6 +226,311 @@ def _stable_json_hash(value: Any) -> str:
     return "sha256:" + hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
+def _json_loads_object(raw: Any, default: Any) -> Any:
+    if raw is None:
+        return default
+    try:
+        value = json.loads(str(raw))
+    except (json.JSONDecodeError, TypeError, ValueError):
+        return default
+    return value
+
+
+def _table_columns(conn: sqlite3.Connection, table: str) -> set[str]:
+    return {str(row[1]) for row in conn.execute(f"PRAGMA table_info({table})").fetchall()}
+
+
+def _state_chip(kind: str, state: Any) -> JsonObject:
+    normalized = str(state or "unknown")
+    return {
+        "kind": kind,
+        "state": normalized,
+        "label": normalized,
+        "css_class": f"status-pill status-{normalized}",
+    }
+
+
+def _lane_attestation_chip(
+    conn: sqlite3.Connection,
+    *,
+    session_id: str | None,
+) -> JsonObject:
+    if not session_id:
+        return {
+            "state": "unattested",
+            "attested": False,
+            "reason": "session_missing",
+            "supervisor_id": None,
+            "label": "unattested",
+        }
+    from striatum.identity import session_lane_attestation
+
+    attestation = session_lane_attestation(conn, session_id=session_id)
+    return {
+        "state": attestation.state,
+        "attested": attestation.attested,
+        "reason": attestation.reason,
+        "supervisor_id": attestation.supervisor_id,
+        "label": attestation.state,
+    }
+
+
+def _recorded_artifact_attestation_chip(author_line: Any) -> JsonObject:
+    actual = str(author_line).strip().lower() if author_line else ""
+    if actual.startswith("author: operator"):
+        return {
+            "state": "unattested",
+            "attested": False,
+            "reason": "operator_byline",
+            "supervisor_id": None,
+            "label": "unattested",
+        }
+    from striatum.identity import ATTESTED_BYLINE_BODY_RE
+
+    body = actual.split(":", 1)[1].strip() if actual.startswith("author:") else ""
+    if ATTESTED_BYLINE_BODY_RE.fullmatch(body):
+        return {
+            "state": "attested",
+            "attested": True,
+            "reason": None,
+            "supervisor_id": None,
+            "label": "attested",
+        }
+    return {
+        "state": "unattested",
+        "attested": False,
+        "reason": "author_line_missing",
+        "supervisor_id": None,
+        "label": "unattested",
+    }
+
+
+def _muted_lane_evidence_chip() -> JsonObject:
+    return {
+        "state": "not_yet_correlated",
+        "label": "not yet correlated",
+        "muted": True,
+    }
+
+
+def _byline_line(
+    author_line: Any,
+    *,
+    expected_author_line: Any = None,
+    attested: bool | None = None,
+    operator_label: Any = None,
+) -> JsonObject:
+    actual = str(author_line) if author_line is not None else None
+    expected = str(expected_author_line) if expected_author_line is not None else None
+    if attested is False:
+        label = str(operator_label).strip() if operator_label else ""
+        display = f"author: operator [self-declared: {label}]" if label else "author: operator"
+    else:
+        display = actual if actual else "author: <missing>"
+    return {
+        "author_line": actual,
+        "expected_author_line": expected,
+        "display": display,
+        "attested": attested,
+        "matches_expected": (
+            None if actual is None or expected is None else actual == expected
+        ),
+    }
+
+
+def _verdict_chip(verdict: Any, *, provenance: str, rationale: Any = None) -> JsonObject:
+    normalized = str(verdict or "unknown")
+    normalized_provenance = provenance.replace("_", "-")
+    return {
+        "verdict": normalized,
+        "label": normalized,
+        "provenance": normalized_provenance,
+        "source": normalized_provenance,
+        "override_rationale": str(rationale) if normalized_provenance == "operator-override" and rationale else None,
+        "css_class": f"status-pill status-{normalized}",
+    }
+
+
+def _latest_work_packet_for_job(
+    conn: sqlite3.Connection,
+    *,
+    job_id: str,
+) -> JsonObject | None:
+    row = conn.execute(
+        """
+        SELECT packet_json, session_id, lease_id, message_id
+        FROM work_packets
+        WHERE job_id = ?
+        ORDER BY created_at DESC, packet_id DESC
+        LIMIT 1
+        """,
+        (job_id,),
+    ).fetchone()
+    if row is None:
+        return None
+    packet = _json_loads_object(row["packet_json"], {})
+    if not isinstance(packet, dict):
+        packet = {}
+    packet.setdefault("session_id", row["session_id"])
+    packet.setdefault("lease_id", row["lease_id"])
+    packet.setdefault("message_id", row["message_id"])
+    return packet
+
+
+def _expected_artifact_rows(
+    *,
+    job: dict[str, Any],
+    artifacts: list[dict[str, Any]],
+    packet: JsonObject | None,
+) -> list[JsonObject]:
+    declared = _json_loads_object(job.get("expected_artifacts_json"), [])
+    if not isinstance(declared, list):
+        declared = []
+    packet_expected = packet.get("expected_artifacts") if isinstance(packet, dict) else None
+    if not isinstance(packet_expected, list):
+        packet_expected = []
+    packet_by_path = {
+        str(item.get("path")): item
+        for item in packet_expected
+        if isinstance(item, dict) and item.get("path") is not None
+    }
+    artifacts_by_path = {str(item.get("repo_path")): item for item in artifacts}
+    rows: list[JsonObject] = []
+    for item in declared:
+        if not isinstance(item, dict):
+            continue
+        path = str(item.get("path") or "")
+        packet_item = packet_by_path.get(path, {})
+        expected_author_line = (
+            packet_item.get("author_line") if isinstance(packet_item, dict) else None
+        )
+        actual = artifacts_by_path.get(path)
+        actual_author_line = actual.get("author_line") if actual else None
+        required = bool(item.get("required", True))
+        if actual is not None:
+            status = (
+                "byline_drift"
+                if expected_author_line and actual_author_line != expected_author_line
+                else "published"
+            )
+        else:
+            status = "missing_required" if required else "missing_optional"
+        recipe = None
+        if actual is None and path:
+            recipe_parts = [
+                "striatum",
+                "publish-artifact",
+                "--job-id",
+                str(job.get("job_id")),
+                "--path",
+                path,
+            ]
+            if packet and packet.get("session_id"):
+                recipe_parts.extend(["--session-id", str(packet["session_id"])])
+            if packet and packet.get("lease_id"):
+                recipe_parts.extend(["--lease-id", str(packet["lease_id"])])
+            if item.get("kind"):
+                recipe_parts.extend(["--kind", str(item["kind"])])
+            if item.get("logical_name"):
+                recipe_parts.extend(["--logical-name", str(item["logical_name"])])
+            recipe = " ".join(recipe_parts)
+        rows.append(
+            {
+                "logical_name": item.get("logical_name"),
+                "kind": item.get("kind"),
+                "path": path,
+                "required": required,
+                "expected_author_line": expected_author_line,
+                "actual_artifact": actual,
+                "actual_author_line": actual_author_line,
+                "byline_line": _byline_line(
+                    actual_author_line,
+                    expected_author_line=expected_author_line,
+                ),
+                "status": status,
+                "publish_recipe": recipe,
+                "lane_evidence_chip": _muted_lane_evidence_chip(),
+            }
+        )
+    return rows
+
+
+def _shape_verdict_rows(
+    conn: sqlite3.Connection,
+    *,
+    verdicts: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    verdict_columns = _table_columns(conn, "verdicts")
+    verdict_ids = [
+        str(row["verdict_id"])
+        for row in verdicts
+        if row.get("verdict_id") is not None
+    ]
+    override_verdict_ids: set[str] = set()
+    if verdict_ids:
+        verdict_id_set = set(verdict_ids)
+        event_rows = conn.execute(
+            """
+            SELECT payload_json
+            FROM events
+            WHERE event_type = 'verdict.overridden'
+            """
+        ).fetchall()
+        for event_row in event_rows:
+            payload = _json_loads_object(event_row["payload_json"], {})
+            verdict_id = payload.get("verdict_id")
+            if isinstance(verdict_id, str) and verdict_id in verdict_id_set:
+                override_verdict_ids.add(verdict_id)
+    shaped: list[dict[str, Any]] = []
+    for row in sorted(verdicts, key=lambda item: str(item.get("created_at") or "")):
+        source = str(row.get("source") or "") if ("source" in verdict_columns or row.get("source")) else ""
+        if not source and row.get("verdict_id") in override_verdict_ids:
+            source = "operator_override"
+        provenance = (source or "natural").replace("_", "-")
+        row["source"] = provenance
+        row["provenance"] = provenance
+        row["override_rationale"] = (
+            row.get("rationale") if provenance == "operator-override" else None
+        )
+        row["verdict_chip"] = _verdict_chip(
+            row.get("verdict"),
+            provenance=provenance,
+            rationale=row.get("rationale"),
+        )
+        row["lane_attestation_chip"] = _lane_attestation_chip(
+            conn,
+            session_id=str(row["session_id"]) if row.get("session_id") else None,
+        )
+        shaped.append(row)
+    return list(reversed(shaped))
+
+
+def _shape_artifact_rows(
+    conn: sqlite3.Connection,
+    *,
+    artifacts: list[dict[str, Any]],
+    expected_rows: list[JsonObject],
+) -> list[dict[str, Any]]:
+    del conn
+    expected_by_path = {str(row.get("path")): row for row in expected_rows}
+    for artifact in artifacts:
+        expected = expected_by_path.get(str(artifact.get("repo_path")))
+        expected_author_line = expected.get("expected_author_line") if expected else None
+        attestation = _recorded_artifact_attestation_chip(artifact.get("author_line"))
+        artifact["expected_author_line"] = expected_author_line
+        artifact["byline_line"] = _byline_line(
+            artifact.get("author_line"),
+            expected_author_line=expected_author_line,
+            attested=bool(attestation.get("attested")),
+        )
+        artifact["lane_attestation_chip"] = attestation
+        artifact["lane_evidence_chip"] = _muted_lane_evidence_chip()
+        artifact["attestation_override_rationale"] = artifact.get(
+            "attestation_override_rationale"
+        )
+    return artifacts
+
+
 def _build_chat_briefing(repo: Path, *, allow_mutations: bool = False) -> str:
     """RFC 0023 V1.5: generate the system-prompt briefing inserted at
     chat-session creation. Includes repo path, branch, recent commits,
@@ -911,6 +1216,7 @@ class StriatumServiceHandler(BaseHTTPRequestHandler):
                     except json.JSONDecodeError:
                         run.pop("workflow_json", None)
                     run["workflow_id"] = workflow_id
+                    run["state_chip"] = _state_chip("run", run.get("state"))
                     runs.append(run)
             html = _jinja_env().get_template("run_list.html").render(runs=runs)
             self._send_html(200, html)
@@ -1011,6 +1317,56 @@ class StriatumServiceHandler(BaseHTTPRequestHandler):
                     (run_id,),
                 ).fetchall()
                 jobs = [dict(row) for row in job_rows]
+                for job in jobs:
+                    lane_selector = _json_loads_object(job.get("lane_selector_json"), {})
+                    lane_id = lane_selector.get("lane_id") if isinstance(lane_selector, dict) else None
+                    job["lane_id"] = lane_id
+                    job["state_chip"] = _state_chip("job", job.get("state"))
+                    session_id = None
+                    packet = _latest_work_packet_for_job(conn, job_id=str(job["job_id"]))
+                    if job.get("current_lease_id"):
+                        lease_row = conn.execute(
+                            "SELECT owner_session_id FROM leases WHERE lease_id = ?",
+                            (job["current_lease_id"],),
+                        ).fetchone()
+                        if lease_row is not None:
+                            session_id = str(lease_row["owner_session_id"])
+                    if session_id is None:
+                        if packet and packet.get("session_id"):
+                            session_id = str(packet["session_id"])
+                    job["lane_attestation_chip"] = _lane_attestation_chip(
+                        conn,
+                        session_id=session_id,
+                    )
+                    artifact_rows = conn.execute(
+                        "SELECT * FROM artifacts WHERE job_id = ? ORDER BY created_at",
+                        (job["job_id"],),
+                    ).fetchall()
+                    artifacts = [dict(row) for row in artifact_rows]
+                    job["expected_artifact_rows"] = _expected_artifact_rows(
+                        job=job,
+                        artifacts=artifacts,
+                        packet=packet,
+                    )
+                    job["artifacts"] = _shape_artifact_rows(
+                        conn,
+                        artifacts=artifacts,
+                        expected_rows=job["expected_artifact_rows"],
+                    )
+                    verdict_rows = conn.execute(
+                        """
+                        SELECT *
+                        FROM verdicts
+                        WHERE job_id = ?
+                        ORDER BY created_at DESC, verdict_id DESC
+                        """,
+                        (job["job_id"],),
+                    ).fetchall()
+                    shaped_verdicts = _shape_verdict_rows(
+                        conn,
+                        verdicts=[dict(row) for row in verdict_rows],
+                    )
+                    job["latest_verdict"] = shaped_verdicts[0] if shaped_verdicts else None
                 snapshot_row = conn.execute(
                     "SELECT workflow_json FROM workflow_snapshots WHERE workflow_snapshot_id = ?",
                     (str(run["workflow_snapshot_id"]),),
@@ -1020,6 +1376,7 @@ class StriatumServiceHandler(BaseHTTPRequestHandler):
                     if snapshot_row is not None else {}
                 )
                 status_payload = status_command(conn, run_id=run_id)
+                run["state_chip"] = _state_chip("run", run.get("state"))
             node_states = compute_node_states_from_jobs(jobs)
             graph_svg = render_run_graph(
                 workflow,
@@ -1042,6 +1399,7 @@ class StriatumServiceHandler(BaseHTTPRequestHandler):
                 graph_svg=graph_svg,
                 next_actions=status_payload.get("next_actions") or [],
                 verdicts_by_posture=status_payload.get("verdicts_by_posture") or {},
+                sessions=status_payload.get("sessions") or [],
                 phase_progress=status_payload.get("phases") or [],
                 current_phase_id=status_payload.get("current_phase_id"),
                 suggested_branch_name=suggested_branch_name,
@@ -1077,14 +1435,49 @@ class StriatumServiceHandler(BaseHTTPRequestHandler):
                 job_id = str(job_row["job_id"])
                 run = dict(run_row)
                 job = dict(job_row)
+                lane_selector = _json_loads_object(job.get("lane_selector_json"), {})
+                job["lane_id"] = (
+                    lane_selector.get("lane_id") if isinstance(lane_selector, dict) else None
+                )
+                job["state_chip"] = _state_chip("job", job.get("state"))
+                run["state_chip"] = _state_chip("run", run.get("state"))
                 artifact_rows = conn.execute(
                     "SELECT * FROM artifacts WHERE job_id = ? ORDER BY created_at",
                     (job_id,),
                 ).fetchall()
                 artifacts = [dict(row) for row in artifact_rows]
-                latest_verdict = latest_verdict_row(conn, job_id=job_id)
+                packet = _latest_work_packet_for_job(conn, job_id=job_id)
+                job["work_packet"] = packet
+                job["expected_artifact_rows"] = _expected_artifact_rows(
+                    job=job,
+                    artifacts=artifacts,
+                    packet=packet,
+                )
+                artifacts = _shape_artifact_rows(
+                    conn,
+                    artifacts=artifacts,
+                    expected_rows=job["expected_artifact_rows"],
+                )
+                job["lane_attestation_chip"] = _lane_attestation_chip(
+                    conn,
+                    session_id=str(packet["session_id"]) if packet and packet.get("session_id") else None,
+                )
+                verdict_rows = conn.execute(
+                    "SELECT * FROM verdicts WHERE job_id = ? ORDER BY created_at DESC, verdict_id DESC",
+                    (job_id,),
+                ).fetchall()
+                verdicts = _shape_verdict_rows(
+                    conn,
+                    verdicts=[dict(row) for row in verdict_rows],
+                )
+                latest_verdict = verdicts[0] if verdicts else latest_verdict_row(conn, job_id=job_id)
             html = _jinja_env().get_template("job_detail.html").render(
-                run=run, job=job, artifacts=artifacts, latest_verdict=latest_verdict,
+                run=run,
+                job=job,
+                artifacts=artifacts,
+                latest_verdict=latest_verdict,
+                verdicts=verdicts,
+                expected_artifact_rows=job["expected_artifact_rows"],
             )
             self._send_html(200, html)
         except Exception as exc:  # noqa: BLE001

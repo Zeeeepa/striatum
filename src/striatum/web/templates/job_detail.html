@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% import "_components.html" as ui %}
 {% block title %}Job {{ job.workflow_job_id }} · Striatum{% endblock %}
 {% block main %}
 <section class="page-section">
@@ -6,12 +7,15 @@
     <p class="breadcrumb"><a href="/run/{{ run.run_id }}">← {{ run.run_id }}</a></p>
     <h1>Job <code>{{ job.workflow_job_id }}</code></h1>
     <div class="job-meta">
-      <span class="status-pill status-{{ job.state }}">{{ job.state }}</span>
+      {{ ui.job_state_pill(job.state) }}
       <span class="muted">{{ job.role_id }}{% if job.lane_id %} · {{ job.lane_id }}{% endif %}</span>
+      {% if job.lane_attestation_chip %}
+      {{ ui.lane_attestation_chip(job.lane_attestation_chip.attested, job.lane_attestation_chip.reason, job.lane_attestation_chip.supervisor_id) }}
+      {% endif %}
       {% if latest_verdict %}
-      <span class="status-pill status-{{ latest_verdict.verdict }}">{{ latest_verdict.verdict }}</span>
+      {{ ui.verdict_chip(latest_verdict.verdict, latest_verdict.provenance, latest_verdict.override_rationale) }}
       {% if latest_verdict.posture and latest_verdict.posture != "neutral" %}
-      <span class="posture-chip" title="{{ latest_verdict.posture }}">{{ latest_verdict.posture }}</span>
+      {{ ui.posture_chip(latest_verdict.posture) }}
       {% endif %}
       {% endif %}
       {% if job.state in ('queued', 'running', 'blocked', 'ready', 'claimed') %}
@@ -36,6 +40,26 @@
     <dt>Completed</dt><dd>{{ job.completed_at or "—" }}</dd>
   </dl>
 
+  {% if verdicts %}
+  <h2>Verdicts</h2>
+  <ul class="verdict-list">
+    {% for verdict in verdicts %}
+    <li>
+      {{ ui.verdict_chip(verdict.verdict, verdict.provenance, verdict.override_rationale) }}
+      {{ ui.lane_attestation_chip(verdict.lane_attestation_chip.attested, verdict.lane_attestation_chip.reason, verdict.lane_attestation_chip.supervisor_id) }}
+      {% if verdict.override_rationale %}
+      <p class="override-rationale">Override rationale: {{ verdict.override_rationale }}</p>
+      {% elif verdict.rationale %}
+      <p class="muted">{{ verdict.rationale }}</p>
+      {% endif %}
+    </li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+
+  <h2>Expected artifacts</h2>
+  {{ ui.expected_artifacts_table(expected_artifact_rows, artifacts) }}
+
   {% if artifacts %}
   <h2>Artifacts</h2>
   <ul class="artifact-list">
@@ -45,6 +69,8 @@
         <span class="artifact-kind">{{ artifact.artifact_kind }}</span>
         <code>{{ artifact.repo_path }}</code>
       </a>
+      {{ ui.byline_line(artifact.author_line, artifact.expected_author_line, artifact.lane_attestation_chip.attested) }}
+      {{ ui.lane_evidence_chip("not_yet_correlated", artifact.attestation_override_rationale) }}
     </li>
     {% endfor %}
   </ul>

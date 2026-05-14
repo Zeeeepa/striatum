@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% import "_components.html" as ui %}
 {% block title %}Runs · Striatum{% endblock %}
 {% block main %}
 <section class="page-section">
@@ -43,7 +44,7 @@
       {% for run in runs %}
       <tr data-run-id="{{ run.run_id }}" data-state="{{ run.state }}" data-branch="{{ run.branch_name or '' }}" data-workflow-id="{{ run.workflow_id or '' }}" data-created-at="{{ run.created_at or '' }}" data-started-at="{{ run.started_at or '' }}" data-completed-at="{{ run.completed_at or '' }}">
         <td><a href="/run/{{ run.run_id }}" class="run-link">{{ run.run_id }}</a></td>
-        <td><span class="status-pill status-{{ run.state }}">{{ run.state }}</span></td>
+        <td>{{ ui.run_state_pill(run.state, run.paused_at) }}</td>
         <td><code class="branch-name">{{ run.branch_name or "—" }}</code></td>
         <td>{% if run.workflow_id %}<code>{{ run.workflow_id }}</code>{% else %}<span class="muted">—</span>{% endif %}</td>
         <td><time datetime="{{ run.created_at }}">{{ run.created_at }}</time></td>

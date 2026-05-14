@@ -1208,8 +1208,10 @@ def _cli_inbox(conn: sqlite3.Connection, *, session_id: str) -> object:
            AND current_lease_id IS NOT NULL
            AND state IN ('claimed', 'running')
            AND job_id IN (
-                 SELECT job_id FROM leases
-                  WHERE owner_session_id = ? AND state = 'active'
+                 SELECT resource_id FROM leases
+                  WHERE owner_session_id = ?
+                    AND state = 'active'
+                    AND resource_type = 'job'
            )
          ORDER BY started_at DESC LIMIT 1
         """,

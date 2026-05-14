@@ -1,16 +1,14 @@
 {% extends "base.html" %}
+{% import "_components.html" as ui %}
 {% block title %}Run {{ run.run_id }} · Striatum{% endblock %}
 {% block main %}
 <section class="page-section">
   <header class="run-header">
     <h1>Run <code>{{ run.run_id }}</code></h1>
     <div class="run-meta">
-      <span class="status-pill status-{{ run.state }}">{{ run.state }}</span>
+      {{ ui.run_state_pill(run.state, run.paused_at) }}
       {% if run.branch_name %}
       <span class="muted">on <code>{{ run.branch_name }}</code></span>
-      {% endif %}
-      {% if run.paused_at %}
-      <span class="status-pill posture-chip" title="paused at {{ run.paused_at }}">paused</span>
       {% endif %}
       {% if run.state in ('prepared', 'needs_branch_confirmation', 'ready', 'running') %}
         {% if run.paused_at %}
@@ -54,8 +52,14 @@
         {% for job in jobs %}
         <li>
           <a href="/run/{{ run.run_id }}/job/{{ job.job_id }}" class="job-link">
-            <span class="status-pill status-{{ job.state }}">{{ job.state }}</span>
+            {{ ui.job_state_pill(job.state) }}
             <span class="job-name">{{ job.workflow_job_id }}</span>
+            {% if job.lane_attestation_chip %}
+            {{ ui.lane_attestation_chip(job.lane_attestation_chip.attested, job.lane_attestation_chip.reason, job.lane_attestation_chip.supervisor_id) }}
+            {% endif %}
+            {% if job.latest_verdict %}
+            {{ ui.verdict_chip(job.latest_verdict.verdict, job.latest_verdict.provenance, job.latest_verdict.override_rationale) }}
+            {% endif %}
           </a>
         </li>
         {% endfor %}
@@ -80,6 +84,21 @@
             <span class="posture-chip">{{ posture }}</span>
           </a>
           <span class="muted">{{ count }}</span>
+        </li>
+        {% endfor %}
+      </ul>
+      {% endif %}
+
+      {% if sessions %}
+      <h2>Sessions</h2>
+      <ul class="session-list">
+        {% for session in sessions %}
+        <li>
+          <code>{{ session.role_id }}/{{ session.lane_id or "any" }}</code>
+          {{ ui.lane_attestation_chip(session.lane_attestation == "attested", session.lane_attestation_reason, session.supervisor_id) }}
+          {% if session.lane_attestation != "attested" %}
+          {{ ui.byline_line("author: operator", none, false) }}
+          {% endif %}
         </li>
         {% endfor %}
       </ul>

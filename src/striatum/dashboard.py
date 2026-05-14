@@ -25,14 +25,29 @@ from striatum.db import (
 from striatum.errors import NotFoundError
 
 # Canonical ordering for compact summary panels.
+RUN_STATE_ORDER: tuple[str, ...] = (
+    "needs_branch_confirmation",
+    "ready",
+    "running",
+    "blocked",
+    "completed",
+    "failed",
+    "canceled",
+    "paused",
+)
+
 JOB_STATE_ORDER: tuple[str, ...] = (
     "blocked",
     "queued",
+    "ready",
     "claimed",
     "running",
     "waiting_human",
     "completed",
     "failed",
+    "canceled",
+    "skipped",
+    "stale_lease",
 )
 
 VERDICT_ORDER: tuple[str, ...] = (
@@ -46,6 +61,18 @@ BLOCKER_SEVERITY_ORDER: tuple[str, ...] = (
     "human_checkpoint",
     "blocked",
 )
+
+ATTESTATION_REASON_ORDER: tuple[str, ...] = (
+    "no_attached_supervisor",
+    "pid_gone",
+    "pid_identity_mismatch",
+    "lane_command_mismatch",
+    "session_missing",
+    "session_mismatch",
+    "run_mismatch",
+)
+
+LANE_EVIDENCE_NOT_YET_CORRELATED = "not_yet_correlated"
 
 # ANSI: clear entire screen + home the cursor.
 ANSI_CLEAR_HOME = "\x1b[2J\x1b[H"
@@ -73,7 +100,39 @@ def gather_payload(repo: Path, *, run_id: str) -> dict[str, Any]:
         if run_row is None:
             raise NotFoundError(f"unknown run_id {run_id!r}")
         status_payload = status_command(conn, run_id=run_id)
+        blocker_payload_rows = conn.execute(
+            """
+            SELECT blocker_id, created_at, payload_json
+            FROM blockers
+            WHERE run_id = ? AND state = 'open'
+            """,
+            (run_id,),
+        ).fetchall()
+        blocker_payloads = {
+            str(row["blocker_id"]): {
+                "created_at": row["created_at"],
+                "payload_json": row["payload_json"],
+            }
+            for row in blocker_payload_rows
+        }
+        for key in ("open_blockers", "human_checkpoints"):
+            for blocker in status_payload.get(key, []):
+                if isinstance(blocker, dict):
+                    blocker.update(blocker_payloads.get(str(blocker.get("blocker_id")), {}))
         events = recent_events_for_run(conn, run_id=run_id, limit=10)
+        for event in events:
+            if not isinstance(event, dict) or event.get("event_type") != "verdict.overridden":
+                continue
+            payload = _json_object(event.get("payload_json"))
+            verdict_id = payload.get("verdict_id")
+            if verdict_id and not payload.get("rationale"):
+                rationale_row = conn.execute(
+                    "SELECT rationale FROM verdicts WHERE verdict_id = ?",
+                    (str(verdict_id),),
+                ).fetchone()
+                if rationale_row is not None and rationale_row["rationale"]:
+                    payload["rationale"] = rationale_row["rationale"]
+                    event["payload_json"] = json.dumps(payload)
         verdict_rows = conn.execute(
             """
             SELECT verdict, COUNT(*) AS count
@@ -84,6 +143,31 @@ def gather_payload(repo: Path, *, run_id: str) -> dict[str, Any]:
             (run_id,),
         ).fetchall()
         verdict_counts = {str(row["verdict"]): int(row["count"]) for row in verdict_rows}
+        override_rows = conn.execute(
+            """
+            SELECT payload_json
+            FROM events
+            WHERE run_id = ? AND event_type = 'verdict.overridden'
+            ORDER BY event_id
+            """,
+            (run_id,),
+        ).fetchall()
+        override_verdict_counts: dict[str, int] = {}
+        override_verdicts: list[dict[str, Any]] = []
+        for row in override_rows:
+            payload = _json_object(row["payload_json"])
+            verdict = str(payload.get("verdict") or "")
+            if verdict:
+                override_verdict_counts[verdict] = override_verdict_counts.get(verdict, 0) + 1
+            verdict_id = payload.get("verdict_id")
+            if verdict_id and not payload.get("rationale"):
+                rationale_row = conn.execute(
+                    "SELECT rationale FROM verdicts WHERE verdict_id = ?",
+                    (str(verdict_id),),
+                ).fetchone()
+                if rationale_row is not None and rationale_row["rationale"]:
+                    payload["rationale"] = rationale_row["rationale"]
+            override_verdicts.append(payload)
         # RFC 0018 step 3 (V1.5): per-posture counts for the dashboard
         # verdicts panel. Rendered only when at least one non-neutral
         # posture exists in the run.
@@ -122,6 +206,8 @@ def gather_payload(repo: Path, *, run_id: str) -> dict[str, Any]:
         "updated_at": utc_now(),
         "workflow": workflow_payload,
         "node_states": node_states,
+        "override_verdict_counts": override_verdict_counts,
+        "override_verdicts": override_verdicts,
     }
 
 
@@ -156,7 +242,7 @@ def render_frame(
 
     run_id = str(run.get("run_id") or "<unknown>")
     branch = str(run.get("branch_name") or "<unconfirmed>")
-    state = str(run.get("state") or "unknown")
+    state = _run_state_chip(str(run.get("state") or "unknown"), paused_at=run.get("paused_at"))
 
     lines: list[str] = []
 
@@ -211,6 +297,7 @@ def render_frame(
         right_lines = _render_right_column(
             verdict_counts, blocker_counts,
             posture_counts=payload.get("posture_counts"),
+            override_verdict_counts=_as_dict(payload.get("override_verdict_counts")),
         )
         for combined in _zip_columns(left_lines, right_lines, left_col_width, right_col_width):
             lines.append(combined)
@@ -218,6 +305,27 @@ def render_frame(
 
         lines.extend(_render_phases(phases, width))
         if phases:
+            lines.append("")
+
+        session_lines = _render_sessions(_as_list(status_payload.get("sessions")), width)
+        if session_lines:
+            lines.extend(session_lines)
+            lines.append("")
+
+        blocker_lines = _render_blocker_triage(
+            _as_list(status_payload.get("open_blockers")),
+            width,
+        )
+        if blocker_lines:
+            lines.extend(blocker_lines)
+            lines.append("")
+
+        override_lines = _render_verdict_overrides(
+            _as_list(payload.get("override_verdicts")),
+            width,
+        )
+        if override_lines:
+            lines.extend(override_lines)
             lines.append("")
 
         claim_lines = _render_claimable(claimable)
@@ -326,18 +434,72 @@ def run(
 # ---------------------------------------------------------------------------
 
 
+def _run_state_chip(state: str, *, paused_at: Any = None) -> str:
+    if paused_at and state in {"ready", "running"}:
+        return "paused"
+    return state
+
+
+def _job_state_chip(state: str) -> str:
+    return state
+
+
+def _verdict_chip(
+    verdict: str,
+    *,
+    override: bool = False,
+    rationale: str | None = None,
+) -> str:
+    suffix = ""
+    if override:
+        suffix = " (override)"
+        if rationale:
+            suffix += f": {_truncate(rationale, 72)}"
+    return f"{verdict}{suffix}"
+
+
+def _lane_attestation_chip(row: Mapping[str, Any], *, max_reason_len: int | None = None) -> str:
+    state = str(row.get("lane_attestation") or "")
+    reason = str(row.get("lane_attestation_reason") or row.get("reason") or "")
+    if state == "attested":
+        return "attested"
+    if state == "unattested" or reason:
+        if max_reason_len is not None and max_reason_len > 0 and len(reason) > max_reason_len:
+            reason = reason.split("_", 1)[0] if "_" in reason else _truncate(reason, max_reason_len)
+        return f"unattested:{reason or 'unknown'}"
+    return state or "unattested:unknown"
+
+
+def _byline_line(row: Mapping[str, Any]) -> str | None:
+    if _lane_attestation_chip(row).startswith("unattested:"):
+        label = row.get("operator_label")
+        if label:
+            return f"author: operator [self-declared: {label}]"
+        return "author: operator"
+    for key in ("author_line", "expected_author_line", "byline"):
+        value = row.get(key)
+        if value:
+            return str(value)
+    return None
+
+
+def _lane_evidence_chip(value: Any = None) -> str:
+    text = str(value or LANE_EVIDENCE_NOT_YET_CORRELATED)
+    return text
+
+
 def _render_left_column(job_counts: Mapping[str, Any]) -> list[str]:
     lines: list[str] = ["Jobs:"]
     seen: set[str] = set()
     for state in JOB_STATE_ORDER:
         count = int(job_counts.get(state, 0) or 0)
         seen.add(state)
-        lines.append(f"  {state:<14} {count}")
+        lines.append(f"  {_job_state_chip(state):<14} {count}")
     # Surface any unexpected states the engine reports without dropping them silently.
     for state in sorted(job_counts):
         if state in seen:
             continue
-        lines.append(f"  {state:<14} {int(job_counts.get(state, 0) or 0)}")
+        lines.append(f"  {_job_state_chip(str(state)):<14} {int(job_counts.get(state, 0) or 0)}")
     return lines
 
 
@@ -345,11 +507,16 @@ def _render_right_column(
     verdict_counts: Mapping[str, int],
     blocker_counts: Mapping[str, int],
     posture_counts: Mapping[str, int] | None = None,
+    override_verdict_counts: Mapping[str, int] | None = None,
 ) -> list[str]:
     lines: list[str] = ["Verdicts:"]
     for verdict in VERDICT_ORDER:
         count = int(verdict_counts.get(verdict, 0))
-        lines.append(f"  {verdict:<20} {count}")
+        lines.append(f"  {_verdict_chip(verdict):<20} {count}")
+        if override_verdict_counts:
+            override_count = int(override_verdict_counts.get(verdict, 0))
+            if override_count:
+                lines.append(f"  {_verdict_chip(verdict, override=True):<20} {override_count}")
     # RFC 0018 step 3 (V1.5): per-posture summary line when at least
     # one non-neutral posture exists. Sort by count desc, then posture
     # name asc for deterministic tie-break (Finding 3). Truncate to top-3
@@ -399,7 +566,7 @@ def _render_next_actions(actions: Sequence[Any], width: int) -> list[str]:
         lines.append("  (none)")
         return lines
     for action in actions:
-        text = str(action)
+        text = _format_next_action(action)
         lines.append("  - " + _truncate(text, max(8, width)))
     return lines
 
@@ -419,6 +586,110 @@ def _render_phases(phases: Sequence[Any], width: int) -> list[str]:
     if not entries:
         return []
     return [_truncate("Phases: " + " | ".join(entries), width)]
+
+
+def _render_sessions(sessions: Sequence[Any], width: int) -> list[str]:
+    if not sessions:
+        return []
+    lines = ["Sessions:"]
+    for raw_session in sessions:
+        if not isinstance(raw_session, Mapping):
+            continue
+        role = str(raw_session.get("role_id") or "?")
+        lane = str(raw_session.get("lane_id") or "?")
+        state = str(raw_session.get("state") or "?")
+        attestation = _lane_attestation_chip(raw_session)
+        byline = _byline_line(raw_session)
+        parts = [f"{role}/{lane}", state, attestation]
+        if byline:
+            parts.append(byline)
+        lines.append(_truncate("  " + "  ".join(parts), width))
+    return lines if len(lines) > 1 else []
+
+
+def _render_blocker_triage(blockers: Sequence[Any], width: int) -> list[str]:
+    rows = [row for row in blockers if isinstance(row, Mapping)]
+    if not rows:
+        return []
+    lines = ["Blockers (open details):"]
+    for blocker in rows:
+        severity = str(blocker.get("severity") or "blocked")
+        kind = str(blocker.get("blocker_kind") or "?")
+        workflow_job_id = str(blocker.get("workflow_job_id") or "-")
+        lane = str(blocker.get("lane_id") or blocker.get("target_lane_id") or "-")
+        created = str(blocker.get("created_at") or "")
+        next_action = _first_blocker_next_action(blocker)
+        head = f"  {severity} {kind} {workflow_job_id}/{lane}"
+        if created:
+            head += f" {created}"
+        if next_action:
+            head += f" next: {next_action}"
+        lines.append(_truncate(head, width))
+        lines.extend(_render_process_evidence(blocker, width))
+    return lines
+
+
+def _first_blocker_next_action(blocker: Mapping[str, Any]) -> str:
+    for candidate in (
+        blocker.get("next_actions"),
+        _as_dict(blocker.get("human_checkpoint")).get("next_actions"),
+    ):
+        actions = _as_list(candidate)
+        if actions:
+            return _format_next_action(actions[0])
+    return ""
+
+
+def _render_process_evidence(blocker: Mapping[str, Any], width: int) -> list[str]:
+    payload = _json_object(blocker.get("payload_json"))
+    envelope = _json_object(payload.get("envelope")) or payload
+    if not envelope:
+        return []
+    if "envelope_version" not in envelope and "recovery_commands" not in envelope:
+        return []
+    lines = [f"    provenance evidence: {_lane_evidence_chip()}"]
+    for key in (
+        "envelope_version",
+        "process_id",
+        "command",
+        "exit_code",
+        "duration",
+        "timeout",
+        "review_verdict_missing",
+    ):
+        if key in envelope:
+            lines.append(_truncate(f"    {key}: {_evidence_value(envelope[key])}", width))
+    missing = _as_list(envelope.get("missing_artifact_paths"))
+    if missing:
+        lines.append("    missing_artifact_paths:")
+        for path in missing:
+            lines.append(_truncate(f"      - {path}", width))
+    recovery_commands = _as_list(envelope.get("recovery_commands"))
+    if recovery_commands:
+        lines.append("    recovery_commands:")
+        for command in recovery_commands:
+            lines.append(_truncate(f"      - {_format_next_action(command)}", width))
+    return lines
+
+
+def _render_verdict_overrides(overrides: Sequence[Any], width: int) -> list[str]:
+    rows = [row for row in overrides if isinstance(row, Mapping)]
+    if not rows:
+        return []
+    lines = ["Verdict overrides:"]
+    for row in rows:
+        rationale = str(row.get("rationale") or row.get("override_rationale") or "")
+        verdict = _verdict_chip(
+            str(row.get("verdict") or "?"),
+            override=True,
+            rationale=rationale or None,
+        )
+        previous = str(row.get("previous_verdict") or "?")
+        detail = f"  {previous} -> {verdict}"
+        if rationale:
+            lines.append(_truncate(f"  rationale: {rationale}", width))
+        lines.append(_truncate(detail, width))
+    return lines
 
 
 def _render_events(events: Sequence[Mapping[str, Any]], width: int) -> list[str]:
@@ -511,6 +782,43 @@ def _payload_hint(payload_json: Any) -> str:
             text = str(value)
         fragments.append(f"{key}={text}")
     return " ".join(fragments)
+
+
+def _json_object(value: Any) -> dict[str, Any]:
+    if isinstance(value, Mapping):
+        return dict(value)
+    if isinstance(value, str) and value.strip().startswith("{"):
+        try:
+            loaded = json_loads(value)
+        except Exception:  # noqa: BLE001 - malformed optional payloads are ignored
+            return {}
+        if isinstance(loaded, Mapping):
+            return dict(loaded)
+    return {}
+
+
+def _format_next_action(action: Any) -> str:
+    if isinstance(action, str):
+        return action
+    if isinstance(action, Sequence) and not isinstance(action, (bytes, bytearray, str)):
+        return " ".join(str(part) for part in action)
+    if isinstance(action, Mapping):
+        for key in ("command", "recipe", "argv", "action", "name"):
+            value = action.get(key)
+            if value is None:
+                continue
+            if isinstance(value, Sequence) and not isinstance(value, (bytes, bytearray, str)):
+                return " ".join(str(part) for part in value)
+            return str(value)
+    return str(action)
+
+
+def _evidence_value(value: Any) -> str:
+    if isinstance(value, Sequence) and not isinstance(value, (bytes, bytearray, str)):
+        return "[" + ", ".join(str(part) for part in value) + "]"
+    if isinstance(value, Mapping):
+        return json.dumps(dict(value), separators=(",", ":"), sort_keys=True)
+    return str(value)
 
 
 def _short_time(timestamp: str) -> str:

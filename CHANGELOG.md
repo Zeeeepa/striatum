@@ -1,5 +1,89 @@
 # Changelog
 
+## v1.46.0 — 2026-05-14
+
+### Added — RFC 0050 V1: operator UI primitives + dashboard parity + provenance honesty
+
+Lands RFC 0050 V1 across dogfood-054 (primitives) + dogfood-054b
+(provenance honesty fix-up). Honest V1 acceptance — gemini's
+adversarial findings on 054 were closed in 054b before the V1
+override on 054's gemini verdict.
+
+**dogfood-054 (primitives):**
+- New shared TypeScript components under
+  `src/striatum/web/frontend/src/shared/components/`:
+  `RunStatePill`, `JobStatePill`, `VerdictChip` (with override
+  provenance slot), `LaneAttestationChip` (with reason
+  sub-text), `PostureChip`, `BylineLine`, `LaneEvidenceChip`
+  (always `not_yet_correlated` muted per RFC 0050 — never
+  green pre-correlation), `ExpectedArtifactsTable`.
+- `templates/_components.html` — Jinja2 macros mirroring the
+  TypeScript components so server-rendered and island surfaces
+  speak the same vocabulary.
+- `service.py` page-payload shaping for `run_list` /
+  `run_detail` / `job_detail`.
+- `dashboard.py` text-mode parity: same chip vocabulary as
+  ASCII glyphs, consumes V1.45.0 `next_actions` verbatim.
+- `static/base.css` semantic tokens
+  (`--status-*`, `--attestation-*`, `--override-marker`,
+  `--evidence-not-yet-correlated`). Reserved
+  `--status-compromised` for V1.7.
+- 3 regression tests: `test_byline_regression.py`,
+  `test_dashboard_web_parity.py`,
+  `test_override_rationale_regression.py`.
+
+**dogfood-054b (V1 provenance honesty fix-up):**
+Closes 4 V1 non-negotiable violations gemini caught in 054:
+- **F1 byline forgery loophole closed.** `_components.html:72`
+  + `BylineLine.tsx:13` force `author: operator` (or
+  self-declared form) when `attested=false`. The forged disk
+  byline is not rendered, not just CSS-decorated.
+  `service.py:316` + `dashboard.py:473` apply the same
+  substitution. Pinned by `tests/test_byline_regression.py:70`
+  + `byline-line.test.tsx:7`.
+- **F2 inferred-override removed.** `service.py` no longer
+  guesses `operator_override` from accepting-after-non-accepting
+  patterns. Missing `verdicts.source` → `natural`. Real
+  overrides still render via the `verdict.overridden` event
+  trail. Pinned by `test_override_rationale_regression.py:26+82`.
+- **F3 attestation recording-time.** Lane attestation chips
+  read from `artifacts.author_line` + recording-time supervisor
+  state, not live recompute. Live recompute only on
+  intrinsically-current surfaces.
+- **F4 dashboard rationale.** `_verdict_chip` accepts and
+  renders truncated rationale for override verdicts.
+
+**V1.45.0 inbox SQL bug fix (incidental):**
+`src/striatum/cli/dispatch.py::_cli_inbox` was selecting
+`leases.job_id` but the column is named `resource_id`. The
+correct subquery is `SELECT resource_id FROM leases WHERE
+owner_session_id = ? AND state = 'active' AND resource_type =
+'job'`. Without the fix the helper returned a random
+session's packet, not the queried session's. Caught during
+dogfood-054b reviewer drive.
+
+**Provenance discipline:** every operator-on-behalf publish on
+both 054 and 054b used the RFC 0046 V1
+`--allow-no-process-execution --override-rationale` path. No
+silent operator publishes; audit-chain records every override.
+
+### Backlog queued for v1.47.0 / v1.48.0
+
+- **dogfood-055** (RFC 0050 V1.5) scaffolded + validated:
+  template extensions for `run_detail` (recovery panel +
+  next-actions banner + sessions strip), `job_detail`
+  (expected-artifacts + process-evidence), `artifact_view`
+  (provenance trail), `run_posture_verdicts` (override
+  visual distinction), `doctor` (per-record recipes),
+  `view_file` (breadcrumb). New partials.
+- **dogfood-056** (RFC 0050 V2) scaffolded + validated:
+  `recovery-panel` island, `override_verdict.js` modal,
+  `copy_on_click.js`, `workflow-graph-editor`
+  `require_attested_lane` data binding (no viewport overlay
+  pending reactflow v12).
+
+Both ready to kick off the moment their predecessor lands.
+
 ## v1.45.0 — 2026-05-14
 
 ### Added — RFC 0050 V1 prerequisites
