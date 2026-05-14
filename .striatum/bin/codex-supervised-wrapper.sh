@@ -52,6 +52,12 @@ while IFS= read -r packet; do
     printf '## stdin:\n%s\n' "$packet"
     printf '## --- codex stdout/stderr ---\n'
   } >"$log_file"
+  # --dangerously-bypass-approvals-and-sandbox + -c approval_policy=never
+  # auto-approves shell tool use so codex can invoke the striatum CLI verbs
+  # the packet supplies (ack, publish-artifact, verdict, complete) without
+  # an interactive approval prompt — the lane-stall failure mode observed
+  # on claude/gemini lanes before their wrappers were aligned in v1.48.1.
+  # Filesystem boundaries are enforced by the packet's write_scope.
   printf '%s\n' "$packet" \
     | codex exec --json --ephemeral --skip-git-repo-check \
         --dangerously-bypass-approvals-and-sandbox \

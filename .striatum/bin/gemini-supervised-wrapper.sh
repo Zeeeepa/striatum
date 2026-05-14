@@ -40,8 +40,14 @@ while IFS= read -r packet; do
     printf '## stdin:\n%s\n' "$packet"
     printf '## --- gemini stdout/stderr ---\n'
   } >"$log_file"
+  # --approval-mode yolo auto-approves all tools including run_shell_command.
+  # auto_edit (the previous setting) approved edits but not shell calls,
+  # so gemini wrote artifacts but could not invoke the striatum CLI verbs
+  # the packet required, and the lane stalled with the artifact on disk
+  # but no publish/verdict/complete recorded. Filesystem boundaries are
+  # enforced by the packet's write_scope.
   printf '%s\n' "$packet" \
-    | gemini --prompt - --output-format stream-json --approval-mode auto_edit >>"$log_file" 2>&1 \
+    | gemini --prompt - --output-format stream-json --approval-mode yolo >>"$log_file" 2>&1 \
     &
   inner_pid=$!
   rc=0

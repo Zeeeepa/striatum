@@ -51,8 +51,15 @@ while IFS= read -r packet; do
     printf '## stdin:\n%s\n' "$packet"
     printf '## --- claude stdout/stderr ---\n'
   } >"$log_file"
+  # --permission-mode acceptEdits + --allowedTools "Bash" auto-approves
+  # the striatum CLI verbs the agent must call (ack, publish-artifact,
+  # verdict, complete) without an interactive prompt. Without these flags
+  # `claude --print` prints "Could you confirm whether you'd like me to
+  # proceed" on the first Bash tool use because stdin is closed (the
+  # packet already consumed it), and the lane stalls with no artifact.
+  # Filesystem boundaries are enforced by the packet's write_scope.
   printf '%s\n' "$packet" \
-    | claude --print >>"$log_file" 2>&1 \
+    | claude --print --permission-mode acceptEdits --allowedTools "Bash" >>"$log_file" 2>&1 \
     &
   inner_pid=$!
   rc=0

@@ -1,5 +1,37 @@
 # Changelog
 
+## v1.48.1 — 2026-05-14
+
+### Fixed — claude / gemini lane wrappers exit cleanly without producing artifacts
+
+Root cause for the 10+ instance "claude lane stall" and many "gemini wrote
+artifact but didn't publish" failure modes was identified by inspecting
+`$STRIATUM_SCRATCH_DIR/{claude,gemini}-logs/packet-NNNN.log` after
+dogfood-056: each agent CLI's permission system was prompting interactively
+on the striatum CLI shell calls the packet required, and since stdin was
+already consumed by the packet payload there was no one to answer the
+prompt — the agent exited cleanly with the prompt as its last stdout line
+and no artifact written / no CLI verb invoked.
+
+- `.striatum/bin/claude-supervised-wrapper.sh` — `claude --print` now
+  invoked with `--permission-mode acceptEdits --allowedTools "Bash"`.
+  Auto-approves the striatum CLI verbs the agent must call; filesystem
+  boundaries are still enforced by the packet's write_scope.
+- `.striatum/bin/gemini-supervised-wrapper.sh` — `gemini --prompt -`
+  approval mode changed from `auto_edit` to `yolo`. `auto_edit` approved
+  file edits but not `run_shell_command`, which is why gemini wrote
+  artifacts but couldn't invoke striatum to finalize.
+- `.striatum/bin/codex-supervised-wrapper.sh` — no functional change; the
+  existing `--dangerously-bypass-approvals-and-sandbox -c approval_policy=never`
+  already cleared the same surface. Added a clarifying comment so the
+  three wrappers document the same auth contract.
+
+This is the operational complement to RFC 0051 (auto-finalize from
+frontmatter): once the wrappers stop stalling on permission prompts,
+the agent itself calls the closing CLI verbs, and the auto-finalize
+path becomes the fallback for genuinely-crashed agents rather than the
+default for every claude review.
+
 ## v1.48.0 — 2026-05-14
 
 ### Added — RFC 0050 V2: interactive layer (recovery panel island, override modal, copy-on-click, graph-editor data binding)
