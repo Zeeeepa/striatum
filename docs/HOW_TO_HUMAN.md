@@ -1,8 +1,154 @@
-# How To Drive striatum (Human Operator)
+# How to Act as Human Principal
 
-This is the operator's playbook. You run `striatum` commands; the
-runner manages state. For the agent-facing equivalent, see
-[HOW_TO_AGENT.md](HOW_TO_AGENT.md).
+Per [RFC 0053](rfcs/0053-human-principal-and-terminology-truing.md)
+and [D103](DECISION_LOG.md), the human principal's only role is to
+**resolve unresolvable blockers or decisions**. Routine workflow
+execution — claim, ack, publish, verdict, complete — is the AI
+operator's job, covered in [HOW_TO_AGENT.md](HOW_TO_AGENT.md).
+Use this doc when an escalation has surfaced and you need to look
+at it.
+
+The full operator-by-hand walkthrough is retained at the bottom of
+this page as **reference**: skip to the [Manual operator
+reference](#manual-operator-reference) section only if you are
+specifically driving the runner by hand (debugging, demo, or the
+rare case where no AI operator is in the loop). For normal use you
+will not read past the escalation playbook.
+
+## Escalation playbook
+
+### What you'll see
+
+The AI operator escalates to you in one of two shapes:
+
+1. **A declared blocker.** A blocker `kind` from the closed set
+   the runner cannot auto-resolve: `ambiguous_goal`,
+   `missing_authority`, `contradicting_decisions`,
+   `no_available_reviewer_lane`,
+   `committee_stalemate` (RFC 0052), `override_required`.
+2. **An AI-self-declared escalation.** An `escalation` artifact
+   the AI operator published when it judged itself stuck and no
+   declared blocker class fit. (Artifact-kind schema lands in the
+   RFC 0053 Phase A follow-up; today this surface is approximated
+   by a `blocker` with operator-chosen text.)
+
+Either way the escalation appears in your inbox alongside
+ordinary state. Check it whenever you sit down at the runner:
+
+```bash
+striatum --repo "$TARGET_REPO" inbox --session-id <your_principal_session> --json
+striatum --repo "$TARGET_REPO" status --json | jq '.blockers'
+```
+
+### Inspect
+
+For a blocker, look at what's reported:
+
+```bash
+striatum --repo "$TARGET_REPO" why <session_id> --json
+striatum --repo "$TARGET_REPO" run summary --run-id <run_id> --json
+```
+
+`why` includes the active blockers with their `kind` and `reason`.
+Read the most recent artifact the AI was working on (the workflow
+will tell you where it lives on disk) and any decision artifacts
+the AI cited.
+
+### Decide
+
+Form the resolution outside the runner — you are the authority.
+Common shapes:
+
+- **Ambiguous goal** → narrow the goal, then record it as a
+  decision.
+- **Missing authority** → either delegate (record a decision
+  granting the authority) or substitute the action with one the AI
+  is already authorized to take.
+- **Contradicting decisions** → record a new decision that
+  supersedes one of the prior ones (RFC 0047 propagates the
+  supersession through the verdicts table).
+- **No available reviewer lane** → either change the workflow to
+  use available lanes or accept a single-lane review with a
+  recorded rationale.
+- **Committee stalemate (RFC 0052)** → record a decision that
+  selects one of the contending designs or rejects all and
+  re-scopes.
+- **Override required** → record an `accepted` or `rejected`
+  decision against the run; RFC 0047 propagates it.
+
+### Resolve
+
+Record the decision through the runner so the audit chain
+captures it:
+
+```bash
+striatum --repo "$TARGET_REPO" decision record \
+  --run-id <run_id> \
+  --outcome accepted | rejected | accepted_with_follow_up \
+  --title "<short>" \
+  --rationale "<why>" \
+  --json
+```
+
+If the decision resolves a blocker, also clear the blocker so the
+AI operator can proceed:
+
+```bash
+striatum --repo "$TARGET_REPO" recovery resume \
+  --blocker-id <blocker_id> \
+  --json
+```
+
+(A dedicated `striatum escalation resolve` verb is on the RFC 0053
+Phase A backlog; for now `recovery resume` is the path.)
+
+The AI operator picks up the next packet automatically.
+
+### When to override a verdict
+
+Sometimes the escalation is a non-accepting verdict you disagree
+with. Use `override-verdict` per RFC 0047:
+
+```bash
+striatum --repo "$TARGET_REPO" override-verdict \
+  --job-id <job_id> \
+  --verdict accept \
+  --rationale "<why this overrides>" \
+  --auto-fresh-session \
+  --json
+```
+
+The override flows through the same audit-chain machinery; the
+prior verdict is marked superseded.
+
+### When not to publish on behalf
+
+You almost never need to. The AI operator has tools for stalls
+(RFC 0051 auto-finalize from frontmatter, RFC 0046 lane-evidence
+guard with operator override) that cover most of what
+publish-on-behalf used to do. If you find yourself needing
+`publish-artifact --allow-no-process-execution`, that is itself a
+signal — record what went wrong as a decision so the next AI
+operator session can avoid the same trap.
+
+### Cross-reference
+
+- [HOW_TO_AGENT.md](HOW_TO_AGENT.md) — the AI operator's playbook.
+- [SPEC.md § Branch Confirmation](SPEC.md) — confirmation is the
+  operator's job, not the principal's.
+- [RFC 0052](rfcs/0052-committee-deliberation-workflow.md) —
+  committee stalemate is one of the named escalation triggers.
+
+---
+
+## Manual operator reference
+
+> The rest of this document is **reference** for the rare case
+> where a human drives the runner by hand. Per RFC 0053 / D103
+> this is no longer the default; the AI operator does the work and
+> you (the principal) only show up for escalations covered above.
+> Read past this point only if you really are the keyboard for
+> some specific reason.
 
 The examples assume you are in a striatum checkout and want to
 orchestrate some target repository. Set these once:

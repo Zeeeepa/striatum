@@ -163,8 +163,10 @@ when the adapter can only provide a weaker level than the workflow requires.
 Workflows may declare `review_revision_policy` for root review
 `needs_revision` verdicts. V1 supports the explicit
 `root_review_needs_revision: "human_checkpoint"` policy for RFC-style workflows
-that intentionally pause for human judgment instead of entering a revision
-loop. `root_review_needs_revision: "declared_cycle"` is accepted only when each
+that intentionally pause for operator judgment instead of entering a revision
+loop. Per RFC 0053 the operator is the AI agent by default; the pause routes
+to the human principal only when the AI escalates. (The schema field name
+`human_checkpoint` is retained for compatibility; renaming it is deferred.) `root_review_needs_revision: "declared_cycle"` is accepted only when each
 root review job declares a matching `needs_revision` cycle.
 
 ### Harness Profiles
@@ -463,8 +465,10 @@ Required transition commands:
 - `send`
 
 Expired review-only leases can be requeued when attempts remain. Expired
-repo-write leases become stale or blocked and require coordinator or human
-inspection before requeue.
+repo-write leases become stale or blocked and require coordinator or
+operator inspection before requeue. When the inspection raises an
+unresolvable question, the operator escalates to the human principal
+(RFC 0053).
 
 ## Artifacts
 
@@ -615,8 +619,10 @@ run `striatum branch confirm` manually. Auto mode requires
 
 1. `run prepare` validates and snapshots workflow JSON and leaves the
    run in `needs_branch_confirmation`.
-2. `branch confirm` records explicit human confirmation and optionally
-   creates or selects a branch.
+2. `branch confirm` records explicit operator confirmation and
+   optionally creates or selects a branch. Per RFC 0053 the operator
+   is the AI agent by default; the human principal is not required for
+   branch confirmation.
 3. `run start` makes eligible root jobs claimable.
 
 Use confirm mode for workflows that require operator review of the

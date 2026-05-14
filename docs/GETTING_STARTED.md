@@ -1,28 +1,32 @@
 # Getting Started
 
 This guide walks you from a fresh target repository to a running
-striatum workflow in about 15 minutes. It picks one path and follows
-it; for alternatives, see [HOW_TO_HUMAN.md](HOW_TO_HUMAN.md) and
-[HOW_TO_AGENT.md](HOW_TO_AGENT.md).
+striatum workflow in about 15 minutes. The default path sets up an
+AI agent CLI as the operator; a sidebar covers the rare case of
+driving the runner by hand.
 
-## Are you the operator, or are you setting up an agent?
+## The model: AI operator + human principal
 
-striatum has two natural entry points and they answer different
-questions. Pick one before you start.
+Per [RFC 0053](rfcs/0053-human-principal-and-terminology-truing.md)
+and [D103](DECISION_LOG.md), striatum has two distinct outside-the-
+workflow roles:
 
-- **I am driving the workflow myself.** You will run `striatum`
-  commands by hand: register a session, claim work, publish
-  artifacts, complete jobs. Continue with the **Operator path**
-  below; then read [HOW_TO_HUMAN.md](HOW_TO_HUMAN.md).
-- **I am setting up a coding agent (Claude Code, Codex, Gemini)
-  to drive the workflow.** You will install the runner, install
-  the *skill bundle* (RFC 0015), and hand the agent a target repo
-  with a workflow file in it. The agent reads the bundle and
-  drives the run. Continue with the **Agent path** below; then
-  read [HOW_TO_AGENT.md](HOW_TO_AGENT.md).
+- **AI operator** — a coding-agent CLI (Claude Code, Codex, Gemini)
+  loaded with the RFC 0015 skill bundle. The operator is the keyboard:
+  it registers sessions, claims work, publishes artifacts, completes
+  jobs, and handles ordinary review/revision cycles. **This is the
+  default driver for every run.**
+- **Human principal** — the authority figure who resolves
+  unresolvable blockers or decisions. The principal does *not* drive
+  normal runs; they look at the inbox when the AI operator escalates,
+  decide, and record the resolution. Same CLI surface as the AI
+  operator, but role-scoped to escalation.
 
-You can switch later. The runner is the same in both cases; the
-only difference is who calls the CLI verbs.
+You set up the AI operator on day zero. The human principal only
+appears later, when an escalation surfaces. If you want to drive
+the runner by hand (rare — usually only for debugging or
+demos), the **Manual operator** sidebar at the end of this guide
+covers that path.
 
 ## Prerequisites
 
@@ -49,9 +53,13 @@ PYTHONPATH=src python3 -m striatum.cli --help
 
 For the rest of this guide, `striatum` refers to either invocation.
 
-## Operator path
+## Manual-operator sidebar (rare — usually skip)
 
-You will run striatum yourself.
+> Skip this unless you specifically want to drive the runner by
+> hand (debugging, demo, or you really are the keyboard for now).
+> The recommended path is the **Day-zero AI operator setup** below.
+
+If you do want to drive by hand: you will run striatum yourself.
 
 There is no repository-wide default workflow. The quick start below
 uses the bundled code-change fixture so you can see the lifecycle
@@ -76,9 +84,11 @@ striatum --repo "$TARGET_REPO" dashboard --run-id <run_id> --once
 The dashboard prints a single frame to stdout: run state, job
 counts, claimable work, recent events. From here you register a
 session and claim work — see
-[HOW_TO_HUMAN.md § "Register a session"](HOW_TO_HUMAN.md#register-a-session).
+[HOW_TO_HUMAN.md](HOW_TO_HUMAN.md), which is now the **escalation
+playbook** but retains the full operator-by-hand walkthrough as
+reference at the bottom of the page.
 
-## Agent path
+## Day-zero AI operator setup
 
 You will install the runner once, install the skill bundle, and
 hand the agent your target repo. The agent does the rest.
@@ -234,11 +244,13 @@ an existing example fixture.
 
 ## Where to next
 
-- **[HOW_TO_HUMAN.md](HOW_TO_HUMAN.md)** — every CLI verb the
-  operator path uses, in the order you will use them, with
-  examples.
-- **[HOW_TO_AGENT.md](HOW_TO_AGENT.md)** — long-form companion to
+- **[HOW_TO_AGENT.md](HOW_TO_AGENT.md)** — the load-bearing playbook
+  for the AI operator (the default driver). Long-form companion to
   the skill bundle.
+- **[HOW_TO_HUMAN.md](HOW_TO_HUMAN.md)** — the human principal's
+  escalation playbook (RFC 0053): how to resolve a blocker or
+  decision when the AI operator escalates. Retains the manual-driver
+  walkthrough at the bottom as a reference for the rare hands-on case.
 - **[WORKFLOW_TYPES.md](WORKFLOW_TYPES.md)** — choose a workflow
   shape and lane set; explains current starter styles, examples, and
   defaults.
