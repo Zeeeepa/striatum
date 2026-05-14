@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "striatum-orchestrator"
-version = "1.48.1"
+version = "1.48.2"
 description = "Local-first orchestration for terminal-based AI coding agents"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -70,3 +70,10 @@ target-version = "py311"
 python_version = "3.11"
 strict = true
 files = ["src", "tests"]
+
+# Optional third-party deps that don't ship type stubs. Imports are
+# already gated at the call sites; allow them to be untyped without
+# masking real bugs.
+[[tool.mypy.overrides]]
+module = ["keyring", "keyring.*", "psycopg", "psycopg.*"]
+ignore_missing_imports = true

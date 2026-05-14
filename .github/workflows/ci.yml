@@ -24,7 +24,9 @@ jobs:
       - uses: actions/setup-go@v5
         if: matrix.daemon-core == 'go'
         with:
-          go-version: "1.22"
+          # go/go.mod requires 1.23 (RFC 0039 V1.5 — Phase 2 / pgx).
+          go-version: "1.23"
+          cache-dependency-path: go/go.sum
       - uses: actions/setup-node@v4
         with:
           node-version: "22"

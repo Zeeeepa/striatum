@@ -1,5 +1,33 @@
 # Changelog
 
+## v1.48.2 — 2026-05-14
+
+### Fixed — CI green again after 6 days of red
+
+`gh run list --workflow CI` showed 298 consecutive failures since
+`2c7237d` (2026-05-08T17:14:49Z). Two root causes:
+
+- **Python typecheck (all 4 Python matrix cells, 16 mypy errors)** —
+  missing third-party stubs (`keyring`, `psycopg`), one stale
+  `# type: ignore`, one real `str.isoformat()` double-format bug in
+  `daemon_pg/repo_local_migration.py::_write_sentinel`, three real
+  `object`-not-iterable narrowing gaps in `test_dashboard_web_parity`,
+  and untyped test functions in `test_daemon_go_supervisor` +
+  `test_registry_rfc0043_coverage`. Fixed in-place; `python -m mypy`
+  reports `Success: no issues found in 212 source files`.
+
+- **Go matrix (4 cells, build step fails)** —
+  `.github/workflows/ci.yml:27` pinned Go to `1.22` but `go/go.mod`
+  requires `1.23` since RFC 0039 V1.5's pgx adoption. CI's setup-go
+  installed 1.22; `go build` refused the toolchain mismatch. Also
+  added `cache-dependency-path: go/go.sum` so setup-go can warm its
+  module cache. (TODO item 30 / RFC 0039 V1.6 F1 covered the
+  unchecksummed `go.sum` angle; the actual CI break was the version
+  pin, not the sum file.)
+
+No source behavior changes; the wrappers / dogfood artifacts / RFCs
+shipped in v1.46.0-v1.48.1 are unaffected.
+
 ## v1.48.1 — 2026-05-14
 
 ### Fixed — claude / gemini lane wrappers exit cleanly without producing artifacts

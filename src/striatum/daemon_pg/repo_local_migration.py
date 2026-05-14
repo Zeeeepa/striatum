@@ -658,7 +658,7 @@ def _write_sentinel_atomically(
         "source_state_db_sha256": source_state_db_sha256,
         "keep_sqlite_readonly": bool(keep_sqlite_readonly),
         "confirm_delete": bool(confirm_delete),
-        "written_at": utc_now().isoformat().replace("+00:00", "Z"),
+        "written_at": utc_now(),
     }
     body = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
     sentinel_path.parent.mkdir(parents=True, exist_ok=True)

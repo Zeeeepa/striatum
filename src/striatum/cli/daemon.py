@@ -104,7 +104,7 @@ def resolve_go_binary() -> Path:
 
 def _resolve_packaged_go_binary() -> Path | None:
     try:
-        from striatum import _daemongo  # type: ignore[attr-defined]
+        from striatum import _daemongo
     except Exception:
         return None
     for name in ("resolve_binary", "binary_path", "path"):

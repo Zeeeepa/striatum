@@ -25,9 +25,6 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 GO_BIN = REPO_ROOT / "go" / "bin" / "striatumd"
 
 
-pytestmark = pytest.mark.multi_repo
-
-
 def _go_core_selected() -> bool:
     return os.environ.get("STRIATUM_MULTI_REPO_DAEMON_CORE", "").lower() == "go"
 
@@ -37,7 +34,7 @@ def _go_bin_available() -> bool:
 
 
 pytestmark = [
-    pytestmark,
+    pytest.mark.multi_repo,
     pytest.mark.skipif(
         not _go_core_selected(),
         reason="Go daemon supervisor tests gated on STRIATUM_MULTI_REPO_DAEMON_CORE=go",
@@ -49,7 +46,7 @@ pytestmark = [
 ]
 
 
-def test_supervisor_start_attach_heartbeat_lost():
+def test_supervisor_start_attach_heartbeat_lost() -> None:
     """Placeholder smoke for supervisor lifecycle.
 
     Track B V1 ships the supervisor package skeleton + pidfile + Postgres
@@ -65,7 +62,7 @@ def test_supervisor_start_attach_heartbeat_lost():
     assert _go_bin_available(), "expected go/bin/striatumd"
 
 
-def test_supervisor_sigterm_cleanup():
+def test_supervisor_sigterm_cleanup() -> None:
     """Placeholder for SIGTERM cleanup parity.
 
     The Go-level tests cover Stop(signalProcess=true) and the GraceOnTerm

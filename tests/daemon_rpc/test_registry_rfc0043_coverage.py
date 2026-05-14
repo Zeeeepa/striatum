@@ -18,6 +18,7 @@ Asserts:
 from __future__ import annotations
 
 import inspect
+from typing import Any
 
 from striatum.cli import mutations as cli_mutations
 from striatum.cli.recovery import (
@@ -250,19 +251,19 @@ def test_repo_scope_modes_are_correct() -> None:
     assert METHOD_REGISTRY["cross_repo.describe"].effective_repository_scope_mode == "cross_repo"
 
 
-def _recovery_module():
+def _recovery_module() -> Any:
     from striatum.cli import recovery as mod
 
     return mod
 
 
-def _supervise_module():
+def _supervise_module() -> Any:
     from striatum.cli import supervise as mod
 
     return mod
 
 
-def _worktree_module():
+def _worktree_module() -> Any:
     from striatum.cli import worktree as mod
 
     return mod

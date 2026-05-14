@@ -138,22 +138,28 @@ def _v1_chip_labels(status_payload: dict[str, object]) -> set[str]:
     if isinstance(jobs, dict):
         labels.update(str(state) for state in jobs)
 
-    for action in status_payload.get("next_actions") or []:
-        labels.add(str(action))
+    actions = status_payload.get("next_actions")
+    if isinstance(actions, list):
+        for action in actions:
+            labels.add(str(action))
 
-    for session in status_payload.get("sessions") or []:
-        if not isinstance(session, dict):
-            continue
-        attestation = session.get("lane_attestation")
-        reason = session.get("lane_attestation_reason")
-        if attestation:
-            labels.add(str(attestation))
-        if reason:
-            labels.add(str(reason))
+    sessions = status_payload.get("sessions")
+    if isinstance(sessions, list):
+        for session in sessions:
+            if not isinstance(session, dict):
+                continue
+            attestation = session.get("lane_attestation")
+            reason = session.get("lane_attestation_reason")
+            if attestation:
+                labels.add(str(attestation))
+            if reason:
+                labels.add(str(reason))
 
-    for verdict in status_payload.get("latest_non_accepting_review_verdicts") or []:
-        if isinstance(verdict, dict) and verdict.get("verdict"):
-            labels.add(str(verdict["verdict"]))
+    verdicts = status_payload.get("latest_non_accepting_review_verdicts")
+    if isinstance(verdicts, list):
+        for verdict in verdicts:
+            if isinstance(verdict, dict) and verdict.get("verdict"):
+                labels.add(str(verdict["verdict"]))
 
     return labels
 
