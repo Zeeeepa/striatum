@@ -294,6 +294,76 @@ Closes the GH #3 design surface (now-closed issue had no implementation
 beyond an event row). Proposes `compromised` run state + supersession
 columns on `verdicts` + propagation logic. V1.8 scope.
 
+### 5.7 Engram memory integration — Striatum Corpus Contract V2
+
+**Driven by:** `~/git/engram/STRIATUM_MEMORY_ROADMAP.md` (Engram-side
+roadmap dated 2026-05-14). Engram is positioning to become the local
+memory layer for Striatum operators and workflow agents — retrieval-
+backed working memory over operator/agent logs, RFCs, designs, reviews,
+operator reports, changelogs, git history, issues, blockers, and
+generated artifacts.
+
+**What already shipped on our side:**
+- `striatum corpus export --since <ref> --out <dir>` (RFC 0044 V1,
+  dogfood-046, v1.35.0) — nine JSONL files + `manifest.json`, redacted,
+  with replay-stable hashes, under `tenant_id='striatum'` and
+  `corpus_id='striatum'`.
+- The augmentation-not-dependency boundary regression test in
+  `tests/test_cli_corpus_export.py::test_no_engram_imports_or_memory_capabilities_in_striatum`
+  pinning that no `import engram` / no `from engram` / no `memory.*`
+  capabilities exist in Striatum source.
+
+**What Engram is asking for (Striatum-side asks):**
+
+1. **Corpus Contract V2 RFC** — new Striatum RFC (next free number; would
+   be 0052 since 0051 just shipped). Define bundle manifest shape, source
+   kinds, required + optional metadata, stable item IDs, content hashes,
+   instance and repository identity, privacy/redaction metadata,
+   incremental-export watermarks, validation rules, and backward
+   compatibility. This is the dependency for everything Engram does
+   downstream (their projections, retrieval, context injection); their
+   roadmap is gated on it.
+
+2. **Multi-corpus support in the exporter** — emit
+   `corpus_id = striatum:<repo-or-instance-id>` rather than the V1
+   single-corpus `striatum`. Lets one machine host multiple local
+   application memories without mixing separate Striatum projects.
+
+3. **Reciprocal augmentation-boundary record** — extend the V1
+   regression test to cover any new Engram-integration entry points so
+   the "Striatum runs without Engram" property survives the integration
+   phases.
+
+4. **Context-injection policy** (RFC-level decision, not implementation
+   yet) — when/how Striatum pulls from Engram, per-packet memory budget
+   defaults, which workflows opt into augmentation. Engram lists
+   operator-startup summaries, workflow scaffolding, agent-packet prep,
+   review-cycle prep, blocker/recovery investigation, and UI/CLI memory
+   search as the candidate consumers.
+
+**Open decisions to make before implementation** (from Engram's roadmap
+§Open Decisions, applicable to our side):
+
+- Striatum instance identity representation.
+- `corpus_id` naming — human-readable, UUID-based, or both.
+- Which log streams are mandatory vs. optional.
+- How much git diff content to export by default.
+- Redaction tier guarantees Striatum commits to before export.
+- Incremental-export watermark storage location.
+- How to record Engram availability without creating a runtime dependency.
+- Default per-packet memory injection budget.
+
+**Suggested implementer:** any lane. Phase 1 is a design RFC + the
+contract test; no end-user surface changes yet. Subsequent Striatum-side
+phases (multi-corpus exporter, then context-injection integration) are
+separate dogfoods.
+
+**Blocked on:** nothing on our side. Engram's Phase 1 (their RFC 0045)
+is gated on this Striatum-side contract, so this unblocks them.
+
+**Forward link:** §11 lists the Engram-side roadmap for context;
+Engram's full backlog is at `~/git/engram/STRIATUM_MEMORY_ROADMAP.md`.
+
 ---
 
 ## 6. RFC follow-ups (cycle-exhaustion deltas)
@@ -459,6 +529,7 @@ $EDITOR docs/ROADMAP.md                                # promote what's done, ad
 | Patterns that aren't in SPEC | §3 above, MEMORY.md |
 | What's actively broken | §1, §9.1, §9.2 |
 | What to do today | §4 (active runway) |
+| Engram memory integration (external dependency) | `~/git/engram/STRIATUM_MEMORY_ROADMAP.md` and §5.7 above |
 
 ---
 
