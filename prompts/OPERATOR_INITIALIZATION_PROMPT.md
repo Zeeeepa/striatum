@@ -119,6 +119,11 @@ human explicitly says they are in scope.
   user-visible impact, and the follow-up issue/doc/test that should prevent a
   repeat. Do not wait until the end of the run to reconstruct friction from
   memory.
+- The operator report is mandatory. Update `OPERATOR_REPORT.md` before
+  compaction, before handoff, and whenever the run pauses or changes state in a
+  way the next operator needs to see. Do not replace the operator report with a
+  separate note file; use notes only as supplemental context when the report
+  already exists.
 - Never edit `.striatum/` or the state substrate directly.
 - Never infer completion from terminal output, marker files, or prose. Runner
   state advances only through approved control-plane commands.
@@ -148,7 +153,9 @@ human explicitly says they are in scope.
 7. Create or update the operator report at the filled path, recording at least
    the run id, branch policy, workflow path, mode, blockers/deferred work, and
    next action.
-8. Continue driving the workflow by registering sessions, claiming work,
+8. If a note file is useful for a specific local closeout, keep it supplemental
+   to the operator report rather than a substitute for it.
+9. Continue driving the workflow by registering sessions, claiming work,
    delivering or supervising work packets, acknowledging leases, publishing real
    artifacts, recording verdicts, completing jobs, and monitoring until the run
    is complete or blocked.
