@@ -1,0 +1,84 @@
+author: operator
+
+# Open GH Issues Friction Log
+
+Date: 2026-05-14
+Branch: `striatum/gh-issues-parallel`
+
+## Entries
+
+### F001 - Daemon And MCP Surface Unavailable During Initial Run Start
+
+- Command/tool: `.venv/bin/striatum` run lifecycle commands.
+- Observed friction: daemon-required commands failed with
+  `daemon_unreachable` at `/run/user/1000/striatum/striatumd.sock`, and no
+  daemon MCP tool surface was available in the session.
+- Workaround used: initial scaffolding and runs used
+  `STRIATUM_DAEMON_REQUIRED=0 STRIATUM_TEST_HARNESS=1`.
+- Impact: the operator flow contradicted the desired daemon-first direction and
+  made later D103 cleanup necessary.
+- Follow-up: D103 now records daemon plus daemon MCP as mandatory; future
+  operator prompts treat missing daemon MCP as a blocker unless the human
+  explicitly authorizes break-glass test mode.
+
+### F002 - Editable Install Reported A Stale Version
+
+- Command/tool: `make install`, `.venv/bin/striatum --version`, and
+  `PYTHONPATH=src python3 -m striatum.cli --version`.
+- Observed friction: `make install` completed but reported
+  `striatum-orchestrator-1.36.0`, while source metadata and module execution
+  indicated a newer version.
+- Workaround used: continued with `.venv/bin/striatum` because commands
+  executed, while recording the version anomaly.
+- Impact: reduced confidence in environment provenance and test repeatability.
+- Follow-up: add an install/version sanity check to operator initialization or
+  release metadata checks.
+
+### F003 - Supervisor Logs Shared A Default Packet Path
+
+- Command/tool: supervised wrappers for Codex, Claude, and Gemini sessions.
+- Observed friction: wrappers wrote to shared default scratch log paths such as
+  `.striatum/scratch/codex-logs/packet-0001.log`.
+- Workaround used: trusted Striatum state and artifacts over logs.
+- Impact: live log observability was poor while sessions ran concurrently.
+- Follow-up: assign per-supervisor scratch/log paths or expose them through the
+  control plane.
+
+### F004 - GH #12/#13 Review Could Not See Required Evidence
+
+- Command/tool: `review_ergonomics` in
+  `run_1b89c643a3554bbaa86192e57bc5e791`.
+- Observed friction: the second Codex ergonomics review returned
+  `needs_revision` because the packet did not expose implementation and test
+  evidence required by the review prompt.
+- Workaround in progress: inspect checkpoint-resolution commands and reroute or
+  requeue role work with the correct evidence surface.
+- Impact: cycle exhausted into human checkpoint
+  `blk_9df968ca407f4378b81936671634c739` even though the security review
+  accepted the implementation.
+- Follow-up: generated review jobs need self-contained evidence inputs or
+  broader review read scope.
+
+### F005 - GH #9/#10/#11 Final Security Review Had No Revision Cycle
+
+- Command/tool: `review_build_codex` in
+  `run_ba9f16af26204248b7f7d0a8e30ffa33`.
+- Observed friction: final security review returned `needs_revision`, but the
+  workflow had no matching revision cycle for that review job.
+- Workaround in progress: send implementation gaps to a role-owned worker and
+  inspect safe checkpoint rerouting commands.
+- Impact: checkpoint `blk_82bb6b6033ef4abcab4393fe782171f6` stopped the run
+  despite other final reviews accepting or accepting with findings.
+- Follow-up: security-hardening bundle workflows need a bounded final-review
+  revision loop.
+
+### F006 - Full Test Run Exposed Unowned Failures
+
+- Command/tool: `make test`.
+- Observed friction: 873 passed and 45 skipped, but 6 failed across daemon
+  tests, daemon-RPC schema version expectation, and static asset URL scanning.
+- Workaround in progress: parallel sub-agents own independent failure slices.
+- Impact: cannot call the combined branch releasable until failures are fixed
+  or explicitly scoped out.
+- Follow-up: keep narrow failure ownership and rerun the full suite after
+  integration.

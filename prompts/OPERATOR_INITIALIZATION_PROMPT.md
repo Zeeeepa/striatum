@@ -24,10 +24,10 @@ do not perform workflow role work inline.
 - Intended branch and branch-confirmation policy: <branch name; whether to
   require explicit human confirmation before switching/creating/starting>
 - Run mode: <existing run id to resume, or "prepare and start a new run">
-- Daemon/Postgres state: <one of: "daemon + Postgres", "direct mode against
-  repo-local runner state", or "test-harness escape with
-  STRIATUM_DAEMON_REQUIRED=0 and STRIATUM_TEST_HARNESS=1">
-- Direct mode allowed for this run: <yes/no, and why>
+- Daemon/Postgres/MCP state: <daemon + Postgres + daemon MCP verified, with
+  socket/token/tooling notes; if unavailable, treat as a blocker>
+- Direct or test-harness escape allowed for this run: <default no; requires an
+  explicit human break-glass decision and operator-report entry>
 - Required docs to read first: <repo-relative list; include AGENTS.md,
   docs/HOW_TO_AGENT.md, docs/SPEC.md, docs/CLI_REFERENCE.md,
   docs/DECISION_LOG.md, docs/TODO.md, docs/ROADMAP.md unless superseded by
@@ -36,20 +36,24 @@ do not perform workflow role work inline.
 - Operator report path and update cadence: <repo-relative path; when to append,
   such as after prepare/start, each intervention, before compaction, and before
   handoff>
-- Control surface allowed: <CLI only, approved MCP/chat tools only, or both>
+- Friction log path and update cadence: <repo-relative path or "same as
+  operator report"; record every point of friction as it happens>
+- Control surface allowed: <daemon MCP required; daemon-backed CLI allowed only
+  for named bootstrap/admin/debug commands>
 - Native sub-agents for operator-side read-only audits: <allowed/not allowed;
   scope and any output restrictions>
 - Current blockers, known open issues, and deferred work to preserve: <list or
   "none known">
-- Commit and push policy: <no commits, commit only on request, push only on
-  request, or explicit release policy>
+- Commit, push, and main-sync policy: <default: commit often, push often, and
+  fast-forward from main often; note any stricter human override>
 
 ## Mission
 
 Drive the selected Striatum workflow until it is complete, blocked on a real
-human checkpoint, or explicitly stopped by the human. Use Striatum commands or
-approved MCP/chat tools for runner mutations. Treat repository artifacts as
-durable provenance and runner state as the live control plane.
+human checkpoint, or explicitly stopped by the human. Use the daemon MCP
+interface for runner mutations, with daemon-backed CLI only for the named
+bootstrap/admin/debug exceptions in the fill-in block. Treat repository
+artifacts as durable provenance and runner state as the live control plane.
 
 Read `prompts/OPERATOR_BOUNDARY_PROMPT.md` before performing role-adjacent work
 and follow it as the boundary rule for this session. The short version: keep
@@ -89,18 +93,18 @@ human explicitly says they are in scope.
   state-changing work, and preserve unrelated user changes.
 - Confirm the Striatum command path and version before preparing, starting, or
   mutating a run.
-- Follow the daemon/Postgres mode declared in the fill-in block. RFC 0043 V1
-  has landed, but the default has not yet fully flipped to daemon-required
-  operation. The test-harness escape using `STRIATUM_DAEMON_REQUIRED=0` with
-  `STRIATUM_TEST_HARNESS=1` still exists today and is scheduled for removal in
-  RFC 0048 phase C.
+- Daemon, PostgreSQL, and daemon MCP are mandatory for operator-driven runs per
+  D103. If any of those are unavailable, stop and report a blocker instead of
+  falling back to direct repo-local mode. The
+  `STRIATUM_DAEMON_REQUIRED=0 STRIATUM_TEST_HARNESS=1` escape is test-only and
+  requires an explicit human break-glass decision before an operator may use it.
 - If resuming, inspect current run and workflow state before claiming or
   completing anything. Use `status`, `why`, `dashboard --once`, and `run
   summary` as appropriate.
 - Validate the workflow before preparing or starting a new run.
 - Prepare, start, register, claim, ack, heartbeat, publish, submit verdicts,
-  complete, block, recover, and resolve checkpoints only through Striatum CLI
-  commands or the approved MCP/chat tools named in the fill-in block.
+  complete, block, recover, and resolve checkpoints only through daemon MCP or
+  the daemon-backed CLI exceptions named in the fill-in block.
 - Use the exact commands supplied in work packets for role-session mutations.
   Do not derive substitute lease, session, job, or message ids.
 - Keep role work in role sessions. The operator may ask a role session to
@@ -110,21 +114,31 @@ human explicitly says they are in scope.
 - Update the operator report incrementally, especially after prepare/start,
   every intervention, every explicit human decision, before compaction, and
   before handoff.
+- Record all points of friction as they happen, even when work continues. Include
+  command/tool used, observed failure or delay, root cause if known, workaround,
+  user-visible impact, and the follow-up issue/doc/test that should prevent a
+  repeat. Do not wait until the end of the run to reconstruct friction from
+  memory.
 - Never edit `.striatum/` or the state substrate directly.
 - Never infer completion from terminal output, marker files, or prose. Runner
   state advances only through approved control-plane commands.
 - Stop for explicit human decision only when the workflow reaches a human
   checkpoint or this prompt's fill-in block says a decision is required.
-- Do not commit or push unless the fill-in block allows it or the human later
-  asks for it explicitly.
+- Default to small, frequent commits after coherent checkpoints, push those
+  commits frequently, and fast-forward from `main` often so long-running
+  workflows do not drift. Preserve unrelated user changes: never stage or
+  commit files outside the current workflow scope unless the human explicitly
+  includes them.
+- If the fill-in block names a stricter commit, push, or branch-sync policy,
+  follow that stricter policy until the human changes it.
 
 ## First Action Sequence
 
 1. Load the project instructions and listed canonical docs.
 2. Check repository state with `git status --short --branch` and confirm the
    Striatum command path/version.
-3. Inspect daemon/Postgres or direct-mode status exactly as specified in the
-   fill-in block.
+3. Inspect daemon/Postgres/MCP readiness exactly as specified in the fill-in
+   block; stop if the mandatory daemon MCP surface is unavailable.
 4. Validate the workflow path from the fill-in block before preparing or
    starting a new run.
 5. Inspect the existing run if a run id was supplied; otherwise prepare the
