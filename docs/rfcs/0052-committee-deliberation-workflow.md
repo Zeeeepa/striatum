@@ -476,6 +476,83 @@ auto-finalize-from-frontmatter all apply unchanged.
    Should the workflow validator surface a cost estimate at
    `workflow validate` time so operators see the price?
 
+## Validation experiment: A/B against the normal shape
+
+The committee shape needs to *earn* its cost. The cheapest credible
+test is a parallel A/B: take one real input — an RFC body, a
+design task, a non-trivial spec — and scaffold two runs against it
+in parallel:
+
+- **Run X (committee):** uses the `committee_deliberation` phase
+  type from this RFC.
+- **Run Y (normal):** uses the current canonical multi-lane review
+  shape (designer-per-lane → reviewer-per-lane → synthesis).
+
+Same goal, same input, same frontier-model lane set, separate
+worktrees (or repos). Run them simultaneously. The deltas are the
+signal.
+
+### What to pick
+
+The input must have **genuine disagreement potential**. A
+rename-a-flag RFC will not differentiate the shapes; you will see
+the committee's overhead with no upside to offset it. Pick a topic
+where the lanes plausibly disagree — schema choice, abstraction
+boundary, posture trade-off, lifecycle policy. The RFC 0052 vs.
+single-reviewer comparison is itself a candidate (recursive, but
+clean).
+
+### Instrumentation (pin BEFORE the runs start)
+
+- **Artifact count per run.** Committee:
+  `debate_turn` + `arbitration_ruling` + `panel_vote` +
+  `panel_verdict` + `debate_synthesis`. Normal: producer +
+  review + synthesis artifacts.
+- **Wall-clock per run** (from `run prepare` to terminal state).
+- **Model spend per lane per run** (token totals, cost estimate).
+- **Final-artifact diff.** Side-by-side comparison of the
+  produced design / synthesis / decision. The substantive
+  question.
+- **Operator interventions per run.** Counts of
+  publish-on-behalf, cycle-exhaustion overrides, escalations to
+  the human principal (per RFC 0053), declared-blocker
+  incidents.
+- **Stalemate or escalation rate.** Per-topic resolution counts:
+  consensus / panel-decided / stalemate. Committee-side only;
+  the normal shape's analog is the override-verdict rate.
+
+Pinning the metric list before the runs start prevents
+retrofitting metrics to whichever outcome looks better — the
+single biggest threat to this experiment's credibility.
+
+### What success looks like
+
+The committee shape earns its place in the catalog if it produces
+**either**: (a) a materially better final artifact for equivalent
+process cost, or (b) an equivalent final artifact at materially
+lower process cost (lower operator intervention, fewer
+revision cycles, shorter wall-clock despite higher artifact
+count). Equivalent artifact at higher process cost = the shape
+does not earn it for this class of task; the RFC is rejected or
+narrowed.
+
+### What this benchmark can't tell us
+
+- Long-tail edge cases the first run doesn't surface (arbitrator
+  capture across many phases, panel quorum availability, RFC 0052
+  Open question 4's artifact-volume ceiling).
+- Whether the shape generalises beyond the one input class
+  picked. Treat as the first data point, not the final verdict.
+- Whether the human is biased reading both outputs (they know
+  which run produced which artifact; blinding is impractical).
+  This bias risk is real; the structural metrics above are the
+  hedge against it.
+
+Phase A acceptance for this RFC is contingent on ≥1 A/B run
+completed with the full instrumentation list captured and a
+written `comparison_synthesis` artifact (new kind, or
+appropriated existing `synthesis`) summarising the deltas.
+
 ## Phasing
 
 - **Phase 0 (this RFC):** validation + acceptance of the shape.
@@ -484,8 +561,9 @@ auto-finalize-from-frontmatter all apply unchanged.
 - **Phase A (V1.9 or V2.0):** V1 implementation — debate_turn /
   arbitration_ruling / panel_vote / panel_verdict / debate_synthesis
   artifact kinds; `committee_deliberation` phase type in the RFC 0045
-  schema; validator rules; new daemon RPC methods. Tight-loop lease
-  class deferred to V1.5.
+  schema; validator rules; new daemon RPC methods. **A/B validation
+  experiment (see above) is Phase A acceptance criterion.**
+  Tight-loop lease class deferred to V1.5.
 - **Phase B (V1.5 of this RFC):** adversarial sub-shape with
   `cross_examination` move vocabulary, interrogator/defendant lane
   independence enforcement, tight-loop lease class for real-time
