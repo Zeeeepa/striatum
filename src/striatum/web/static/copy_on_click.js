@@ -1,8 +1,30 @@
 (function () {
   "use strict";
 
+  // GH #12: copy-on-click is restricted to an explicit closed allowlist of
+  // container selectors. A raw `[data-copy]` injected outside these contexts
+  // (e.g. by a malicious PR or XSS) gets no affordances and no activation, so
+  // operator clicks cannot be coerced into copying attacker-controlled text.
+  // The allowlist covers the two surfaces that ship `data-copy` today
+  // (recovery recipe list, recovery auto-publish callout) plus the
+  // future-facing copy-token / code-recipe classes called out in
+  // docs/issues/12/SPEC.md so new copy surfaces opt in by class, not by
+  // attribute alone.
+  const ALLOWED_COPY_CONTAINER_SELECTORS = [
+    ".recipe-list",
+    ".recovery-auto-publish",
+    ".code-recipe",
+    ".copyable-token",
+  ];
+  const ALLOWED_COPY_CONTAINER_SELECTOR = ALLOWED_COPY_CONTAINER_SELECTORS.join(", ");
+
   const initializedRoots = new WeakSet();
   let toastTimer = null;
+
+  function isAllowedCopyTarget(node) {
+    if (!(node instanceof Element)) return false;
+    return node.closest(ALLOWED_COPY_CONTAINER_SELECTOR) !== null;
+  }
 
   function copyWithFallback(text) {
     const textarea = document.createElement("textarea");
@@ -35,7 +57,10 @@
 
   function findCopyTarget(target) {
     if (!(target instanceof Element)) return null;
-    return target.closest("[data-copy]");
+    const copyEl = target.closest("[data-copy]");
+    if (!copyEl) return null;
+    if (!isAllowedCopyTarget(copyEl)) return null;
+    return copyEl;
   }
 
   function ensureToast() {
@@ -76,6 +101,7 @@
 
   function enhanceTargets(root) {
     root.querySelectorAll("[data-copy]").forEach((node) => {
+      if (!isAllowedCopyTarget(node)) return;
       if (!node.hasAttribute("tabindex")) node.setAttribute("tabindex", "0");
       if (!node.hasAttribute("role")) node.setAttribute("role", "button");
     });
@@ -113,5 +139,7 @@
 
   window.StriatumCopyOnClick = {
     init,
+    // Exposed for static contract tests and dev console inspection.
+    _allowedContainerSelectors: ALLOWED_COPY_CONTAINER_SELECTORS,
   };
 }());

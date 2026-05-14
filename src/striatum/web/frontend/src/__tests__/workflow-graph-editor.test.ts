@@ -8,6 +8,8 @@ const {
   syncWorkflowJobs,
   newJobFromBlock,
   jobNodeLabel,
+  purgeStaleFieldsForType,
+  REVIEW_ONLY_JOB_FIELDS,
   PALETTE_BLOCKS,
   buildPhaseLayout,
   hasExplicitPhases,
@@ -373,5 +375,130 @@ describe("workflow-graph-editor cross-band drag refusal (helper)", () => {
     const destPhase = phaseIdForY(layout, 10);
     expect(destPhase).toBe("phase_1_design");
     expect(destPhase).not.toBe(declared);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// GH #13 — review-only fields must be purged when a job's type changes
+// away from `review`. Without the purge, the inspector hides the controls
+// but the underlying values remain in node labels, the textual summary, and
+// the serialized workflow JSON. See docs/issues/13/SPEC.md.
+// ---------------------------------------------------------------------------
+
+describe("workflow-graph-editor.REVIEW_ONLY_JOB_FIELDS", () => {
+  it("covers every review-only inspector field", () => {
+    expect([...REVIEW_ONLY_JOB_FIELDS].sort()).toEqual(
+      [
+        "require_attested_lane",
+        "review_posture",
+        "reviewer_access_scope",
+        "reviewer_context_policy",
+      ].sort(),
+    );
+  });
+});
+
+describe("workflow-graph-editor.purgeStaleFieldsForType", () => {
+  it("drops review-only fields when changing review → non-review", () => {
+    const job = {
+      id: "review_1",
+      type: "generic",
+      require_attested_lane: true,
+      review_posture: "challenge",
+      reviewer_access_scope: "artifact_only",
+      reviewer_context_policy: "no_chat",
+    };
+    const cleaned = purgeStaleFieldsForType(job, "review", "generic");
+    expect(cleaned).not.toHaveProperty("require_attested_lane");
+    expect(cleaned).not.toHaveProperty("review_posture");
+    expect(cleaned).not.toHaveProperty("reviewer_access_scope");
+    expect(cleaned).not.toHaveProperty("reviewer_context_policy");
+    expect(cleaned.id).toBe("review_1");
+    expect(cleaned.type).toBe("generic");
+  });
+
+  it("preserves review-only fields when type stays review", () => {
+    const job = {
+      id: "review_1",
+      type: "review",
+      require_attested_lane: true,
+      review_posture: "challenge",
+    };
+    const cleaned = purgeStaleFieldsForType(job, "review", "review");
+    expect(cleaned).toEqual(job);
+  });
+
+  it("is a no-op for non-review prevType transitions", () => {
+    const job = {
+      id: "build_1",
+      type: "build",
+      required_review_postures: ["challenge"],
+    };
+    const cleaned = purgeStaleFieldsForType(job, "build", "generic");
+    expect(cleaned).toEqual(job);
+  });
+
+  it("returns a new object (does not mutate the input)", () => {
+    const job = {
+      id: "review_1",
+      type: "generic",
+      require_attested_lane: true,
+    };
+    const cleaned = purgeStaleFieldsForType(job, "review", "generic");
+    expect(cleaned).not.toBe(job);
+    expect(job.require_attested_lane).toBe(true); // input untouched
+  });
+});
+
+describe("workflow-graph-editor stale-field purge end-to-end (regression for GH #13)", () => {
+  it("keeps require_attested_lane out of the node label, textual summary, and serialized JSON when a review job becomes generic", () => {
+    // Start: a review job with require_attested_lane=true. This is the
+    // exact scenario the gemini reviewer flagged in dogfood-056.
+    const before = {
+      id: "review_1",
+      type: "review",
+      require_attested_lane: true,
+      review_posture: "challenge" as const,
+    };
+    expect(jobNodeLabel(before)).toContain("require_attested_lane=true");
+
+    // Operator switches the inspector type select to `generic` — this is
+    // what `handleJobChange` does under the hood: merge the patch and run
+    // `purgeStaleFieldsForType` because the type field was touched.
+    const merged = { ...before, type: "generic" };
+    const after = purgeStaleFieldsForType(merged, before.type, "generic");
+
+    // GH13-1: in-memory job loses the ghost field.
+    expect(after).not.toHaveProperty("require_attested_lane");
+    expect(after).not.toHaveProperty("review_posture");
+
+    // GH13-3: node label no longer renders the field.
+    expect(jobNodeLabel(after)).not.toContain("require_attested_lane");
+
+    // GH13-2: serialized workflow JSON omits the field. We exercise
+    // `syncWorkflowJobs` because that is what the editor calls on save.
+    const serialized = syncWorkflowJobs(
+      { workflow_id: "demo", jobs: [before] },
+      [after],
+    );
+    expect(serialized.jobs).toEqual([{ id: "review_1", type: "generic" }]);
+    expect(serialized.jobs?.[0]).not.toHaveProperty("require_attested_lane");
+  });
+
+  it("does not strip require_attested_lane from review jobs on unrelated edits", () => {
+    // GH13-4: editing an unrelated field on a review job must not eat
+    // `require_attested_lane`. handleJobChange only runs the purge when
+    // `type` is in the patch.
+    const job = {
+      id: "review_1",
+      type: "review",
+      require_attested_lane: true,
+    };
+    // Simulate an unrelated patch path — no type change, no purge call.
+    const merged = { ...job, title: "renamed" };
+    expect(merged.require_attested_lane).toBe(true);
+    // Also confirm purgeStaleFieldsForType keeps it when type stays review.
+    const cleaned = purgeStaleFieldsForType(merged, "review", "review");
+    expect(cleaned.require_attested_lane).toBe(true);
   });
 });
