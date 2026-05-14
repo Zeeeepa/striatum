@@ -303,6 +303,16 @@ backed working memory over operator/agent logs, RFCs, designs, reviews,
 operator reports, changelogs, git history, issues, blockers, and
 generated artifacts.
 
+**RFC 0052 scaffold landed (2026-05-14).** See
+[`docs/rfcs/0052-corpus-contract-v2.md`](rfcs/0052-corpus-contract-v2.md)
+for the bounded V2 decision surface (contract version, multi-corpus
+identity, redaction-tier metadata, incremental-export watermarks,
+validation rules, V1→V2 backward compatibility, augmentation-boundary
+regression coverage, optional context-injection policy). Filed through
+the `docs/issues/17/` workflow; the scaffold is the Striatum side of
+GH #17. Full V2 acceptance criteria are deferred until the design phase
+of a future dogfood resolves the decisions.
+
 **What already shipped on our side:**
 - `striatum corpus export --since <ref> --out <dir>` (RFC 0044 V1,
   dogfood-046, v1.35.0) — nine JSONL files + `manifest.json`, redacted,
@@ -541,7 +551,7 @@ $EDITOR docs/ROADMAP.md                                # promote what's done, ad
 | If you want... | Read |
 |---|---|
 | Authoritative status of any item | `docs/TODO.md` |
-| Architectural rationale for a decision | `docs/DECISION_LOG.md` (latest D102) |
+| Architectural rationale for a decision | `docs/DECISION_LOG.md` (latest D103) |
 | RFC design + acceptance criteria | `docs/rfcs/<NNNN>-*.md` and `docs/rfcs/README.md` index |
 | Per-dogfood outcomes + interventions | `docs/dogfood/<N>/OPERATOR_REPORT.md` |
 | Operator-facing CLI verbs + skills | `docs/HOW_TO_AGENT.md`, `docs/SPEC.md` |

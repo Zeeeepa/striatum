@@ -129,8 +129,15 @@ striatum daemon start
 striatum daemon status
 striatum daemon stop
 striatum daemon sweep
+striatum daemon doctor [--postgres-url <url>] [--apply-migrations] [--json]
 striatum daemon migrate --from sqlite --to pg [--dry-run]
                          [--keep-sqlite-readonly]
+striatum daemon migrate-repo-local --from sqlite --to pg
+                         [--repo <path>] [--postgres-url <url>]
+                         [--dry-run]
+                         [--keep-sqlite-readonly |
+                          --no-keep-sqlite-readonly --confirm-delete]
+                         [--json]
 striatumd                     # console-script alias for `daemon start`
 striatum repo add <path> [--init] [--no-migrate]
 striatum repo list
@@ -141,11 +148,11 @@ striatum cross-repo why <cross_repo_run_id>
 striatum cross-repo cancel <cross_repo_run_id>
 ```
 
-`striatum daemon start` / `striatumd` runs a foreground sweep
-process: it does not host an RPC server for clients in V1; CLI and
-MCP callers open the owner-only daemon registry SQLite directly
-under token/capability checks. The Unix socket bound by
-`striatumd` is a lifecycle marker, not a request router.
+`striatum daemon start` / `striatumd` runs the supported
+foreground daemon process. Per D094 / RFC 0043 it is a hard
+prerequisite for every Striatum verb; CLI verbs without a reachable
+daemon refuse with exit code 11 (`daemon_unreachable`) and do not
+fall back to direct mode.
 
 Both `daemon start` and the first `repo add` bootstrap a single
 admin token when the registry has no clients and write a
@@ -155,12 +162,11 @@ the registry. Authorization vocabulary in V1 is `read` and
 `admin` only.
 
 `repo add` canonicalizes the repository root, refuses
-symlink/path-traversal ambiguity (including symlinked parent
-components and state-database symlink escapes), derives a
-realpath/inode-based repository identity, and refuses active
-path re-occupation by a different identity. `--init` is required
-when `.striatum/state.sqlite3` is absent; `--no-migrate` refuses
-registration if repo-local migrations would be needed.
+symlink/path-traversal ambiguity, derives a realpath/inode-based
+repository identity, and refuses active path re-occupation by a
+different identity. Pass `--init` when no `.striatum/` directory
+exists; `--no-migrate` refuses registration when daemon-side
+schema migrations would be needed.
 
 `repo remove` is idempotent, revokes live repo-scoped
 capabilities, preserves audit rows, and never reuses
@@ -178,21 +184,48 @@ migrations and roles, but it does not install, start, stop, or
 upgrade PostgreSQL. Bundled, embedded, and Dockerized Postgres
 distributions are deferred.
 
+`daemon doctor` reports daemon DB connectivity, substrate version,
+schema version, audit-chain status, segment-manifest verification,
+and per-repo migration status. It runs even when the daemon
+process is down (it reads configuration directly) and emits the
+remediation list operators need to bring the daemon online.
+`--apply-migrations` brings the daemon-owned schema forward
+in-place; without it, doctor reports the required version and
+exits so operators can review before applying.
+
 `daemon migrate --from sqlite --to pg --dry-run` reports the V1
 registry rows that would be exported. Without `--dry-run`, it
 writes the V2 daemon DB schema, imports the V1 registry rows,
 replays the metadata-only audit chain, verifies hash continuity,
 and writes a cutover marker. Once the marker exists, V1 registry
 reads are refused. `--keep-sqlite-readonly` keeps the V1 SQLite
-file as an audit tombstone while blocking V1 writes. Repo-local
-`.striatum/state.sqlite3` is untouched.
+file as an audit tombstone while blocking V1 writes.
+
+`daemon migrate-repo-local --from sqlite --to pg --repo <path>`
+converts an existing pre-D094 `.striatum/state.sqlite3` into
+per-repo Postgres rows under a `repository_id` scope (RFC 0043).
+Both `--from sqlite` and `--to pg` are required in V1.6.
+`--postgres-url` overrides `STRIATUM_DAEMON_DB_URL` for the
+migration only. `--dry-run` writes nothing. The default
+`--keep-sqlite-readonly` renames the source to
+`.striatum/state.sqlite3.tombstone` (mode 0444); use
+`--no-keep-sqlite-readonly --confirm-delete` (both flags required)
+for irreversible cleanup. Idempotent re-runs against a
+fully-migrated repo report `already migrated` and exit 0.
+CLI verbs against an unmigrated repo refuse with exit code 12
+(`repo_not_migrated`) and point at this command. See
+[POSTGRES_TRANSITION.md](POSTGRES_TRANSITION.md) for the operator
+runbook.
 
 RFC 0030/0031 add the daemon V2 RPC and supervision/apply foundation on
 top of RFC 0033. The wire envelope is versioned JSON; `daemon.hello`
 negotiates envelope/framing, `daemon.describe` publishes the method
 registry and `methods_etag`, and incompatible clients refuse with exit
-code 10. Direct repo-local mode remains the compatibility path while
-daemon routing moves method by method.
+code 10. RFC 0048 (proposed, V2.0 phase) covers the remaining daemon-
+side handler-port work where some single-repo business logic still
+delegates through the SQLite-backed CLI path under the
+`STRIATUM_DAEMON_REQUIRED=0 STRIATUM_TEST_HARNESS=1` test-harness
+escape; production operators leave the variable unset.
 
 ## Daemon-routed read mode
 
@@ -210,7 +243,9 @@ striatum --daemon dashboard --all
 V1 read surfaces supported under `--daemon`: `status`, `doctor`,
 `why`, `dashboard --all`. Forced-daemon mutation verbs refuse
 with capability-denied semantics; the CLI does not fall back to
-direct repo-local mode. `--no-daemon` forces direct mode.
+direct repo-local mode. The V1 `--no-daemon` flag is retired
+(D094 / RFC 0043); parsing it returns the standard argparse
+"unrecognized arguments" error and exit code 2.
 
 Daemon RPC method capabilities use the closed vocabulary `read`,
 `write`, `review`, `claim`, `apply`, `admin`, and `recovery`.
@@ -304,6 +339,27 @@ colored by current job state. Mermaid output appends
 and a `latest_verdict` block on review nodes; `ascii` reuses the
 dashboard's graph panel renderer (RFC 0016).
 
+## Corpus export (RFC 0044 V1 / RFC 0052 contract)
+
+```text
+striatum corpus export --since <ref> --out <dir>
+```
+
+`corpus export` emits a redacted JSONL bundle of Striatum's durable
+provenance (RFCs, decision-log rows, operator reports, run summaries,
+audit-chain entries, changelog entries, ubiquitous-language terms,
+harness-friction patterns, recent commits) plus a verifying
+`manifest.json`. Re-running over unchanged inputs produces byte-identical
+JSONL files and stable per-file SHA-256s (only `generated_at` varies).
+
+The bundle is operator-triggered local provenance, never streamed to any
+external service. Optional consumers (Engram is the first reference under
+RFC 0044) may ingest the bundle for retrieval, but Striatum does not call
+them at runtime and runs identically when no consumer is configured. The
+V2 contract decisions (multi-corpus identity, redaction-tier metadata,
+incremental watermarks, optional context-injection policy) are scoped by
+[RFC 0052](rfcs/0052-corpus-contract-v2.md).
+
 ## Adapter
 
 ```text
@@ -332,6 +388,13 @@ striatum session close
 - `9`: local SQLite schema is newer than this striatum install
   supports.
 - `10`: daemon RPC transport, handshake, or version-skew refusal.
+- `11`: `daemon_unreachable`. The CLI could not reach the daemon
+  socket; stderr names the socket path and remediation. No SQLite
+  fallback is attempted.
+- `12`: `repo_not_migrated`. The target repository still has a
+  pre-D094 `.striatum/state.sqlite3` and has not been migrated;
+  stderr (and the `--json` `hint`) point at
+  `striatum daemon migrate-repo-local --from sqlite --to pg --repo <path>`.
 
 ## See also
 

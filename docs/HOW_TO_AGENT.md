@@ -38,15 +38,21 @@ write posture.
 
 ## What you are looking at
 
-Striatum is a local-first runner whose live state is
-`.striatum/state.sqlite3` in the target repository. The runner —
-not your prose — advances state. You move the workflow forward by
-calling `striatum` CLI verbs.
+Striatum is a local-first runner whose authoritative live state
+lives in a daemon-owned PostgreSQL instance under a `repository_id`
+scope per target repository (D094 / RFC 0043). `.striatum/` next to
+the target repo is operational scratch only — supervised wrapper
+FIFOs, pidfiles, the daemon capability-token cache. The runner —
+not your prose, and not direct database access — advances state.
+You move the workflow forward by calling `striatum` CLI verbs.
 
 Two rules to internalize before you do anything else:
 
-1. **Do not write to `.striatum/state.sqlite3` directly.** Use the
-   CLI. The runner is the only writer.
+1. **Do not bypass the daemon.** The CLI is the only client; the
+   daemon is the single writer. Do not open Postgres directly, and
+   do not expect to find `.striatum/state.sqlite3` — on a migrated
+   repo it has been finalized as a read-only tombstone that no
+   Striatum verb opens.
 2. **Do not advance state by printing phrases.** "I have completed
    the task" is not a state transition. `striatum complete --job-id
    <id> --lease-id <id>` is.
@@ -179,7 +185,11 @@ and ask the operator to recover stale work.
 
 ## What you should *not* do
 
-- Do not write to `.striatum/state.sqlite3` directly.
+- Do not bypass the daemon. The CLI is the only client; the
+  daemon is the single writer. Never open the daemon's Postgres
+  directly, and do not open or rely on
+  `.striatum/state.sqlite3.tombstone` (a migrated repo's read-only
+  remnant) as live state.
 - Do not write to `.striatum/scratch/` or `.striatum/bin/` unless
   a packet explicitly asks you to (the supervised wrapper script,
   for example).
@@ -193,6 +203,13 @@ and ask the operator to recover stale work.
 - Do not parse a supervisor's own output for workflow state. The
   supervisor never speaks; you and it interact only through stdin
   packets and the runner's SQLite state.
+- Do not assume any external memory or retrieval service (Engram or
+  otherwise) is reachable. The runner never requires one. Treat
+  packet `context` references and the canonical docs in your work
+  packet as authoritative; any retrieval beyond that is operator-
+  supplied augmentation, not a packet prerequisite. Augmentation
+  policy is scoped by
+  [RFC 0052](rfcs/0052-corpus-contract-v2.md).
 
 ## See also
 

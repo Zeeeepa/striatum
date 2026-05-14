@@ -15,6 +15,7 @@ collectively, not individually.
 | [WORKFLOW_TYPES.md](WORKFLOW_TYPES.md) | Workflow selector | Which workflow shape and lane set to choose; current starters, examples, defaults, and the roadmap toward a chooser UI. |
 | [WRITING_WORKFLOWS.md](WRITING_WORKFLOWS.md) | Workflow author | How to author `workflow.json` from scratch: required fields, scaffold layout, common graph shapes, validation. |
 | [CLI_REFERENCE.md](CLI_REFERENCE.md) | Anyone | Flat list of every CLI verb plus stable exit codes; `--help` is authoritative. |
+| [POSTGRES_TRANSITION.md](POSTGRES_TRANSITION.md) | Operator | The D094 / RFC 0043 PostgreSQL cutover runbook: prerequisites, daemon doctor, daemon startup, `striatum daemon migrate-repo-local`, tombstone vs delete, verification, exit codes 11 / 12, and RFC 0048 remaining work. |
 
 ## Specifications and decisions
 

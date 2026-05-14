@@ -17,7 +17,7 @@ from striatum.artifacts import ALLOWED_ARTIFACT_KINDS
 # Markdown; do not sort alphabetically.
 VERB_TABLE: dict[str, dict[str, str]] = {
     "scaffold": {
-        "init": "Create `.striatum/state.sqlite3` in the target repo.",
+        "init": "Create `.striatum/` scratch in the target repo and register it with the daemon (live state lives in the daemon's PostgreSQL under a `repository_id` scope per D094 / RFC 0043).",
         "workflow init": "Scaffold a starter `workflow.json` + roles/prompts.",
         "workflow validate": "Validate a workflow file; non-zero exit on error.",
         "run prepare": "Snapshot the workflow and prepare a run id.",
@@ -59,7 +59,7 @@ VERB_TABLE: dict[str, dict[str, str]] = {
 # Boundary statements reused across skills. Each is a single sentence
 # the renderer may inline into a template's "What not to do" block.
 BOUNDARIES: tuple[str, ...] = (
-    "Do not write to `.striatum/state.sqlite3` directly; the runner is the only writer (D006/D009).",
+    "Do not bypass the daemon (the CLI is the only client; the daemon is the single writer per D094 / RFC 0043); never open Postgres directly, and do not rely on `.striatum/state.sqlite3` — on a migrated repo it has been finalized as a read-only `.tombstone` no Striatum verb opens.",
     "Do not treat marker files, tmux panes, or terminal output as workflow state.",
     "Do not advance state by printing phrases; advance by calling the CLI verbs in your work packet.",
     "Do not capture stdout/stderr transcripts; D028 keeps them off by default.",

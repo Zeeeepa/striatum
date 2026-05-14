@@ -15,7 +15,8 @@ Use this skill to bring a target repo from "no `.striatum/`" to
 ## When to invoke
 
 - The operator asked to start a new run.
-- `.striatum/state.sqlite3` is missing in the target repo.
+- The target repo has not yet been registered with the daemon (no
+  `.striatum/` directory, or the daemon's registry has no row for it).
 - A `workflow.json` is missing or about to be authored.
 
 ## Authoritative reference

@@ -28,18 +28,43 @@ end-to-end daemon harness coverage remains deferred to TODO Open item 19.
 Hosted service semantics and malicious-local-operator-resistant sealed
 apply remain out of scope.
 
-The authoritative live state is SQLite under `.striatum/state.sqlite3`.
-Repository artifacts are durable provenance only. Marker files, tmux panes,
-terminal output, and provider hooks are never live control-plane state.
+The authoritative live state is the daemon-owned PostgreSQL instance
+(RFC 0033) under a `repository_id` scope per registered target
+repository. Per [D094 / RFC 0043](rfcs/0043-postgres-as-sole-substrate-and-daemon-required-runtime.md),
+this supersedes the V1 carve-out that kept repo-local workflow state
+in `.striatum/state.sqlite3`. The daemon is a hard prerequisite for
+every Striatum verb; the V1 `--no-daemon` flag is retired and parsing
+it returns the standard argparse "unrecognized arguments" error.
+Repository artifacts are durable provenance only. Marker files, tmux
+panes, terminal output, and provider hooks are never live
+control-plane state. See [`docs/POSTGRES_TRANSITION.md`](POSTGRES_TRANSITION.md)
+for the operator runbook.
+
+RFC 0048 (proposed, V2.0 phase) covers the remaining handler-port
+work where the daemon's RPC server still delegates some single-repo
+business logic back through the SQLite-backed CLI dispatch path under
+the `STRIATUM_DAEMON_REQUIRED=0 STRIATUM_TEST_HARNESS=1` escape;
+production operators leave the variable unset (the enforced default
+preserves the post-D094 behavior).
+
+External memory or retrieval systems (Engram, under RFC 0044, is the first
+reference consumer) may ingest the read-only `striatum corpus export` bundle
+as optional local augmentation. The runner does not import any such consumer,
+does not register `memory.*` capabilities, and does not call retrieval
+during state transitions; see § Corpus Export And Augmentation Boundary.
 
 ## State Store
 
-`striatum init` creates `.striatum/`, initializes SQLite, enables WAL,
-enforces foreign keys, and ensures `.striatum/` is ignored by git.
+`striatum init` creates `.striatum/` next to the target repository as
+operational scratch (supervised wrapper FIFOs, pidfiles, the
+capability-token cache) and ensures `.striatum/` is ignored by git.
+The authoritative workflow state lives in the daemon-owned PostgreSQL
+instance under a `repository_id` scope; `striatum init` registers the
+repository with the daemon when one is reachable.
 
-The schema includes:
+The per-repository schema in the daemon DB holds:
 
-- `schema_meta`
+- `repositories` (registry; per-repo identity and lifecycle)
 - `workflow_snapshots`
 - `runs`
 - `sessions`
@@ -54,18 +79,30 @@ The schema includes:
 - `command_requests`
 - `process_executions`
 - `events`
-- `job_worktrees` (added in migration version 2)
-- `process_supervisors` (added in migration version 4)
-- `process_supervisor_pointers` (added in migration version 13)
+- `job_worktrees`
+- `process_supervisors`
+- `process_supervisor_pointers`
 
-`events` and artifact records are append-only. Mutations use short
-`BEGIN IMMEDIATE` transactions and emit structured events.
+`events` and artifact records are append-only (UPDATE/DELETE are
+revoked from the daemon read-write role). Mutations use short
+serializable Postgres transactions and emit structured events.
 
-Schema upgrades use SQLite's `PRAGMA user_version` together with a registered
-migration list in `striatum.migrations`. `striatum init` and every connect to
-an existing database apply pending migrations in version order inside a single
-`BEGIN IMMEDIATE` transaction. A database whose `user_version` is higher than
-the runner supports is refused with exit code 9.
+Schema upgrades are forward-only, daemon-owned, and applied at
+daemon startup; `daemon doctor` reports the on-disk substrate
+version. A database whose schema version is higher than the daemon
+binary supports is refused; client/daemon version skew refuses with
+exit code 10. The pre-D094 repo-local SQLite migration list is
+retained only for the `migrate-repo-local` golden fixture and is not
+applied by ordinary CLI verbs.
+
+The `migrate-repo-local` command converts an existing pre-D094
+`.striatum/state.sqlite3` into per-repo Postgres rows and finalizes
+the source file as a read-only `.striatum/state.sqlite3.tombstone`
+(safe default) or deletes it with `--no-keep-sqlite-readonly
+--confirm-delete`. CLI verbs against an unmigrated repo refuse with
+exit code 12 (`repo_not_migrated`); CLI verbs without a reachable
+daemon refuse with exit code 11 (`daemon_unreachable`). Neither
+refusal opens or creates a SQLite file.
 
 ## Workflow Config
 
@@ -587,6 +624,42 @@ version 5 dropped the `CHECK (artifact_kind IN (...))` clause from the
 (`ArtifactError`, exit code 6) and workflow validation (`WorkflowError`, exit
 code 8) reject kinds outside that set.
 
+## Corpus Export And Augmentation Boundary
+
+`striatum corpus export --since <ref> --out <dir>` (RFC 0044 V1) emits a
+redacted JSONL bundle of Striatum's durable provenance — RFCs, decision-log
+rows, operator reports, run summaries, audit-chain entries, changelog
+entries, ubiquitous-language terms, harness-friction patterns, and recent
+commits — plus a verifying `manifest.json` with per-file row counts, SHA-256
+hashes, and a derived `bundle_sha256`. The bundle is read-only durable
+provenance, not live state, and re-running the export over unchanged inputs
+produces byte-identical JSONL with stable hashes (`generated_at` is the only
+allowed timestamp variation).
+
+Corpus exports are produced on operator demand. Striatum does not stream
+runtime events to any external consumer and does not call any external
+service during a run. Bundles live wherever the operator points `--out`;
+nothing under `.striatum/` is written by the verb.
+
+The export is an **augmentation boundary**, not a runtime dependency. An
+external memory or retrieval system (Engram is the first reference consumer
+under RFC 0044) may ingest a bundle and serve retrieval over its rows, but
+the Striatum runner does not import any consumer client library, register
+any `memory.*` capability, or call any retrieval surface during state
+transitions. The non-negotiable invariants are:
+
+- No `import engram` or `from engram` in Striatum source.
+- No `memory.*` capability in the Striatum daemon method registry.
+- No state transition (`ack`, `publish-artifact`, `complete`, `verdict`,
+  recovery, `run prepare`, `run start`, `corpus export`) that fails when
+  an external memory consumer is missing, unreachable, or misconfigured.
+
+These invariants are pinned by
+`tests/test_cli_corpus_export.py::test_no_engram_imports_or_memory_capabilities_in_striatum`.
+The contract version, multi-corpus identity, redaction-tier metadata,
+incremental-export watermark, and optional context-injection policy that
+power V2 are scoped by [RFC 0052](rfcs/0052-corpus-contract-v2.md).
+
 ## Branches And Commits
 
 Workflow startup is gated by the workflow's `branch.mode` setting.
@@ -702,6 +775,9 @@ striatum evidence export
 striatum recovery stale-leases
 striatum recovery requeue-stale
 striatum recovery resume
+
+# Corpus export (RFC 0044 V1; RFC 0052 contract)
+striatum corpus export --since <ref> --out <dir>
 
 # Adapter
 striatum adapter run
@@ -954,14 +1030,18 @@ This API is an adapter convenience only. It must not write SQLite directly,
 reimplement workflow transitions, bypass artifact validation, or define a
 separate command vocabulary.
 
-The minimal local MCP-like wrapper exposes tools over stdio JSON-RPC with
+The legacy local MCP-like wrapper exposes tools over stdio JSON-RPC with
 LSP-style `Content-Length` framing by default and automatic line-delimited
-fallback. `python -m striatum.mcp --framing {auto,line,framed}` lets operators
-pin the wire shape. Each tool maps to an existing CLI command or
-`striatum.api.invoke` call. MCP resources may expose read-only views such as
-status, `why`, doctor output, or stored work packets. MCP remains optional
-and local; the CLI and SQLite invariants are still the product contract. See
-`docs/MCP.md` for the wire shape and tool list.
+fallback. `python -m striatum.mcp --framing {auto,line,framed}` lets tests and
+compatibility harnesses pin the wire shape. Each tool maps to an existing CLI
+command or `striatum.api.invoke` call. MCP resources may expose read-only views
+such as status, `why`, doctor output, or stored work packets.
+
+Post-D103, operator-driven production runs use daemon MCP as the mandatory
+tool surface. The legacy local wrapper is not an authority boundary and is not
+the normal operator contract. CLI use remains acceptable only when it is
+daemon-backed or when a documented bootstrap/admin/debug exception is recorded
+by the operator. See `docs/MCP.md` for the wire shape and tool list.
 
 ### Local Service
 
@@ -1005,43 +1085,61 @@ whitelist of read verbs (`status`, `why`, `doctor`, `list`, `evidence`,
 > Design rationale: [RFC 0028](rfcs/0028-long-running-daemon-and-multi-repository-control-plane.md).
 
 `striatum daemon start` (also exposed as the `striatumd` console
-script) starts an optional local foreground sweep process. In V1 it does
-not host an RPC server for CLI clients: CLI and MCP callers open the
-owner-only daemon registry SQLite directly under token/capability
-checks. The Unix socket bound by `striatumd` is a lifecycle marker, not a
-request router. Direct CLI mode remains the default and does not inspect
-the registry unless a registry-specific command is used. Explicit
-registry-backed read mode is selected with `--daemon` or
-`STRIATUM_DAEMON=1`; unsupported forced-daemon verbs refuse instead of
-falling back to direct mode. `--no-daemon` forces the repo-local path.
+script) is the supported foreground entry point. Per D094 / RFC 0043
+the daemon is a hard prerequisite for every Striatum CLI verb;
+clients route through the daemon RPC envelope under token/capability
+checks. The V1 `--no-daemon` direct-CLI path is retired and parsing
+the flag returns the standard argparse "unrecognized arguments"
+error. CLI verbs without a reachable daemon refuse with exit code
+11 (`daemon_unreachable`); the stderr message names the socket path
+and the platform-specific remediation, and no SQLite file is opened
+or created.
 
-Daemon V1 uses a hybrid storage model. `.striatum/state.sqlite3` in
-each target repository remains authoritative for runs, jobs, sessions,
-leases, artifacts, verdicts, blockers, worktrees, process supervisors,
-and repo-local events. The daemon registry stores only daemon-global
-concerns: registered repositories, clients, `read`/`admin` capability
-grants, metadata-only hash-chained audit rows, audit segment manifests,
-scheduler cursors, and daemon metadata.
+Daemon-global state — registered repositories, clients, capability
+grants, metadata-only hash-chained audit rows, audit segment
+manifests, scheduler cursors, and daemon metadata — lives in the
+daemon-owned PostgreSQL instance (the "daemon DB"). Per-repository
+workflow tables — runs, jobs, sessions, queue messages, leases,
+work packets, artifacts, verdicts, blockers, command requests,
+process executions, events, worktrees, process supervisors, and
+supervisor pointers — live in the same Postgres instance under a
+`repository_id` scope. The historical V1 carve-out that kept those
+tables in `.striatum/state.sqlite3` is superseded by RFC 0043.
 
-RFC 0033 V2 keeps the same authority split but changes the daemon-global
-substrate from the V1 owner-only registry SQLite file to a daemon DB on
-operator-installed system PostgreSQL. The daemon connects through
-`STRIATUM_DAEMON_DB_URL`, `~/.config/striatum/daemon.toml`, or an
-explicit `--postgres-url` client surface. The daemon owns schema
-migrations and database roles, but it does not start, stop, install, or
-upgrade PostgreSQL. Bundled, embedded, and Dockerized Postgres
-distributions are deferred product choices.
+RFC 0033 specifies the daemon-global PostgreSQL substrate: the
+daemon connects through `STRIATUM_DAEMON_DB_URL`,
+`~/.config/striatum/daemon.toml`, or an explicit `--postgres-url`
+client surface. The daemon owns schema migrations and database
+roles, but it does not start, stop, install, or upgrade PostgreSQL.
+Bundled, embedded, and Dockerized Postgres distributions are
+deferred product choices.
 
-Daemon DB migrations are forward-only and daemon-owned. Startup applies
-pending migrations and refuses to run when the on-disk daemon schema is
-newer than the daemon binary. `daemon doctor` reports substrate version,
-schema version, audit-chain status, and segment-manifest verification.
-The cutover command is `striatum daemon migrate --from sqlite --to pg`
-with `--dry-run` for inspection and `--keep-sqlite-readonly` when the
-operator wants the V1 registry file retained as an audit tombstone. After
-a successful cutover marker is present, V1 registry reads are refused and
-operators are pointed at the V2 daemon DB. Repo-local
-`.striatum/state.sqlite3` is untouched.
+Daemon DB migrations are forward-only and daemon-owned. Startup
+applies pending migrations and refuses to run when the on-disk
+daemon schema is newer than the daemon binary. `daemon doctor`
+reports substrate version, schema version, audit-chain status,
+and segment-manifest verification.
+
+The RFC 0033 cutover command for the daemon-global V1 registry is
+`striatum daemon migrate --from sqlite --to pg` with `--dry-run`
+for inspection and `--keep-sqlite-readonly` when the operator
+wants the V1 registry file retained as an audit tombstone. After
+a successful cutover marker is present, V1 registry reads are
+refused and operators are pointed at the V2 daemon DB.
+
+The RFC 0043 cutover for an existing repository's workflow state is
+`striatum daemon migrate-repo-local --from sqlite --to pg --repo <path>`
+with `--dry-run`, `--keep-sqlite-readonly` (default; renames the
+source to `state.sqlite3.tombstone` at mode 0444), and
+`--no-keep-sqlite-readonly --confirm-delete` for irreversible
+cleanup. CLI verbs against an unmigrated repo refuse with exit code
+12 (`repo_not_migrated`) and point at this command. See
+[`docs/POSTGRES_TRANSITION.md`](POSTGRES_TRANSITION.md) for the
+full operator runbook. RFC 0048 (proposed, V2.0 phase) covers the
+remaining daemon-side handler-port work where some single-repo
+business logic still delegates through the SQLite-backed CLI path
+under the `STRIATUM_DAEMON_REQUIRED=0 STRIATUM_TEST_HARNESS=1`
+escape; production operators leave the variable unset.
 
 Registry location is platform-local and overrideable for tests with
 `STRIATUM_DAEMON_REGISTRY`; runtime files are overrideable with
@@ -1118,10 +1216,10 @@ id, canonical params hash, row hash, and audit-chain linkage. The audit
 contract still excludes request/response bodies, transcripts, artifact
 contents, token secrets, salts, tracebacks, and model prose.
 
-This foundation does not yet make the installed CLI route ordinary
-operator commands through the daemon by default. Existing direct
-repo-local CLI mode remains the live compatibility path while daemon
-accept loops and client routing move method by method.
+Post-D094 and D103, ordinary operator commands must use the daemon authority
+boundary. Direct repo-local dispatch is a development/test harness path, not a
+production run mode. Any installed CLI path used by an operator must route
+through the daemon or be documented as a bootstrap/admin/debug exception.
 
 RFC 0031 adds daemon-owned supervision and sealed-apply foundation
 state. The daemon DB contains `daemon_supervisors` and `apply_receipts`;
@@ -1141,7 +1239,8 @@ returns only the effective tool set allowed by the token's capability and
 scope, while `tools/call` re-authorizes every request even if the tool was
 listed earlier. Denials are metadata-audited with transport `mcp`; hidden
 tools are not treated as authorized. There is no V2 daemon MCP equivalent
-of `serve --allow-mutations`.
+of `serve --allow-mutations`. Per D103, this daemon MCP surface is mandatory
+for operator-driven workflow mutation, not an optional convenience wrapper.
 
 RFC 0032 also adds daemon DB tables for `cross_repo_runs`,
 `cross_repo_run_repositories`, `cross_repo_cycle_counters`, and
