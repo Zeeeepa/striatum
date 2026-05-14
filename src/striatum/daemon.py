@@ -391,6 +391,50 @@ def _bootstrap_admin_if_needed(conn: sqlite3.Connection) -> dict[str, str] | Non
     )
 
 
+def _bootstrap_pg_admin_if_needed(pg_conn: Any) -> None:
+    """RFC 0048 Phase C: ensure striatumd.clients has an admin row + write
+    the runtime token file so CLI verbs can authenticate over RPC.
+
+    The Postgres-side client table is distinct from the daemon's SQLite
+    registry (`clients`). Phase C makes the CLI talk to the daemon over
+    Unix socket; authorization uses Postgres-stored clients.
+    """
+    with pg_conn.cursor() as cur:
+        cur.execute("SELECT COUNT(*) AS c FROM striatumd.clients")
+        row = cur.fetchone()
+    if row is not None:
+        # row may be a tuple, dict, or a psycopg row mapping depending on
+        # the connection's row_factory. Handle both shapes.
+        count = row["c"] if isinstance(row, dict) else row[0]
+        if int(count) > 0:
+            return
+    token_id = f"dtok_{secrets.token_urlsafe(12)}"
+    secret = secrets.token_urlsafe(32)
+    salt = secrets.token_hex(16)
+    token_hash = _hash_token(secret=secret, salt=salt)
+    client_id = f"dclient_{uuid.uuid4().hex}"
+    capabilities = ("admin", "read", "write", "claim", "review", "recovery")
+    with pg_conn.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO striatumd.clients(client_id, client_kind, display_name,
+              token_id, token_hash, token_salt, created_at)
+            VALUES (%s, %s, %s, %s, %s, %s, now())
+            """,
+            (client_id, "cli", "bootstrap-admin", token_id, token_hash, salt),
+        )
+        for capability in capabilities:
+            cur.execute(
+                """
+                INSERT INTO striatumd.client_capabilities(capability_id, client_id,
+                  repository_id, capability, granted_at)
+                VALUES (%s, %s, NULL, %s, now())
+                """,
+                (f"dcap_{uuid.uuid4().hex}", client_id, capability),
+            )
+    write_runtime_token(f"{token_id}.{secret}")
+
+
 def create_client(
     conn: sqlite3.Connection,
     *,
@@ -887,17 +931,34 @@ def run_daemon_foreground(
 
     pg_doctor: dict[str, Any] | None = None
     daemon_pg_conn: Any | None = None
-    if postgres_url is not None or os.environ.get("STRIATUM_DAEMON_DB_URL"):
-        from striatum.daemon_pg.connection import doctor as daemon_pg_doctor, connect as daemon_pg_connect
-        from striatum.daemon_pg.config import resolve_config
+    # RFC 0048 V1.5: resolve daemon.toml + env + flag in one shot so the
+    # daemon picks up the configured PG URL regardless of how it was launched
+    # (systemd unit, direct shell, etc.). Without this the systemd-launched
+    # daemon stayed pg_conn=None and CLI_ROUTES fallbacks failed.
+    from striatum.daemon_pg.config import resolve_config
 
-        pg_doctor = daemon_pg_doctor(postgres_url=postgres_url, apply=True)
+    _resolved_cfg = resolve_config(postgres_url=postgres_url)
+    if _resolved_cfg.url is not None:
+        from striatum.daemon_pg.connection import doctor as daemon_pg_doctor, connect as daemon_pg_connect
+
+        pg_doctor = daemon_pg_doctor(postgres_url=_resolved_cfg.url, apply=True)
         if not pg_doctor.get("ok"):
             raise DaemonRegistryError("daemon PostgreSQL doctor failed; refusing daemon start")
-        cfg = resolve_config(postgres_url=postgres_url)
-        if cfg.url:
-            daemon_pg_conn = daemon_pg_connect(cfg.url)
-            daemon_pg_conn.autocommit = True
+        daemon_pg_conn = daemon_pg_connect(_resolved_cfg.url)
+        daemon_pg_conn.autocommit = True
+        # RFC 0048 V1.5: row_factory dict_row so authorize()'s _row_dict
+        # (which expects mapping-like keys) works against per-cursor results.
+        try:
+            import psycopg
+            daemon_pg_conn.row_factory = psycopg.rows.dict_row
+        except Exception:  # noqa: BLE001
+            pass
+        # RFC 0048 Phase C: bootstrap an admin client into striatumd.clients
+        # on first start so RPC verbs can authenticate. Mirrors the SQLite
+        # registry's _bootstrap_admin_if_needed but targets Postgres. The
+        # token file under runtime_dir() is overwritten so the CLI can read
+        # it for capability_token on each request.
+        _bootstrap_pg_admin_if_needed(daemon_pg_conn)
     conn = connect_registry()
     with conn:
         bootstrap = _bootstrap_admin_if_needed(conn)
@@ -939,6 +1000,7 @@ def run_daemon_foreground(
     connection_threads: list[threading.Thread] = []
 
     def _serve_connection(conn_sock: "socket.socket", connection_id: str) -> None:
+        import sys, traceback
         try:
             stream = conn_sock.makefile("rwb")
             for envelope in read_envelopes(stream):
@@ -951,8 +1013,9 @@ def run_daemon_foreground(
                     require_handshake=True,
                 )
                 write_response(stream, response)
-        except Exception:  # noqa: BLE001 — connection-thread failures must not kill the daemon
-            pass
+        except Exception as exc:  # noqa: BLE001 — connection-thread failures must not kill the daemon
+            print(f"daemon connection {connection_id[:8]} crashed: {type(exc).__name__}: {exc}", file=sys.stderr)
+            traceback.print_exc(file=sys.stderr)
         finally:
             try:
                 conn_sock.close()

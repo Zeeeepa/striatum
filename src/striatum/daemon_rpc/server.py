@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from dataclasses import replace
 from pathlib import Path
 from typing import Any, Callable, Mapping
@@ -204,10 +205,12 @@ class DaemonRpcRouter:
             row = cur.fetchone()
         if row is None:
             raise RpcError("repo_not_registered", "daemon RPC repository is not registered")
-        repo_root = Path(str(_row_value(row, "repo_root"))).expanduser().resolve()
-        if repo_root != self.repo_root:
-            raise RpcError("repo_not_registered", "daemon RPC repository does not match this router")
-        return repo_root
+        # RFC 0048 V1.5: the daemon serves every registered repository. The
+        # router's `self.repo_root` is only a constructor default for callers
+        # that don't supply a repository_id (e.g., daemon_global routes); it
+        # should NOT gate per-repo lookups. Resolve the repo_root from the
+        # repositories row and return it.
+        return Path(str(_row_value(row, "repo_root"))).expanduser().resolve()
 
     def _route(self, envelope: RpcEnvelope, *, repo_root: Path, auth: RpcAuthContext) -> dict[str, Any]:
         if envelope.method == "daemon.describe":
@@ -245,7 +248,13 @@ class DaemonRpcRouter:
         if prefix is None:
             raise RpcError("method_unknown", f"method has no handler: {envelope.method}")
         args = [*prefix, *_params_to_args(envelope.params)]
-        result = invoke(args, repo=repo_root)
+        # RFC 0048 Phase C: suppress the CLI's daemon-RPC hook so the daemon's
+        # internal in-process fallback doesn't loop back through itself.
+        os.environ["STRIATUM_IN_DAEMON_HANDLER"] = "1"
+        try:
+            result = invoke(args, repo=repo_root)
+        finally:
+            os.environ.pop("STRIATUM_IN_DAEMON_HANDLER", None)
         if not result.get("ok"):
             error = result.get("error")
             if isinstance(error, dict):

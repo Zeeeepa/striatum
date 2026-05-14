@@ -1,5 +1,84 @@
 # Changelog
 
+## v1.51.0 — 2026-05-14
+
+### RFC 0048 Phase C (partial) — CLI dispatch routes through daemon RPC
+
+Lands the substrate-flip plumbing for CLI verbs. The dispatch hook now
+checks the daemon socket and routes any verb mapped in the new
+``daemon_rpc_route`` lookup through ``DaemonRpcRouter`` over Unix
+socket instead of running in-process against SQLite. Falls through to
+legacy SQLite when the daemon is offline, the verb is bootstrap-only
+(``init``, ``skills``, ``plugin``, ``daemon``, ``repo``, ``cross-repo``,
+``serve``, ``byline``, ``inbox``), or ``STRIATUM_TEST_HARNESS=1``.
+
+New module ``src/striatum/cli/daemon_rpc_route.py`` with translators
+for status / why / doctor / dashboard / list / run.\* / register-session /
+claim-next / ack / heartbeat / release / block / complete /
+publish-artifact / verdict / submit-review / override-verdict /
+recovery.\* / evidence.export / decision.record / checkpoint.resolve /
+branch.confirm. Each translator builds the RPC envelope (with capability
+token loaded from ``read_runtime_token()``) and the dispatch hook calls
+``daemon_rpc.client.call_unix`` with the daemon's Unix-socket handshake.
+
+Plumbing fixes:
+
+- ``run_daemon_foreground`` always resolves ``daemon.toml`` via
+  ``daemon_pg.config.resolve_config`` (the v1.50 implementation only
+  fired the PG path when the env var was set — systemd-launched daemons
+  silently came up SQLite-only).
+- ``run_daemon_foreground`` now bootstraps an admin client into
+  ``striatumd.clients`` on first start and writes the runtime token to
+  ``runtime_dir() / 'client-token'``. Mirrors the SQLite ``clients``
+  bootstrap but targets the Postgres-side table that ``authorize()`` reads.
+- Daemon PG connection sets ``row_factory = psycopg.rows.dict_row`` so
+  ``authorize()._row_dict`` works on per-cursor results.
+- ``daemon_rpc.request_log.append_audit_row`` made compatible with both
+  ``tuple_row`` and ``dict_row`` factories (the codebase mixed both).
+- ``DaemonRpcRouter._repo_root_for`` no longer rejects requests whose
+  registered repo_root differs from the router's startup CWD — the
+  daemon serves every registered repository per RFC 0043 §3, not just
+  the one it was launched from.
+- ``daemon_rpc.envelope.RpcEnvelope.from_mapping`` no longer requires
+  dotted method names (matches the in-process ``mcp_dispatch`` behavior;
+  the registry has both dotted and undotted methods).
+- ``DaemonRpcRouter._route``'s CLI_ROUTES fallback sets
+  ``STRIATUM_IN_DAEMON_HANDLER=1`` around ``invoke()`` so the CLI's
+  Phase C hook short-circuits and doesn't re-route through the daemon
+  recursively.
+
+### systemd user unit
+
+``~/.config/systemd/user/striatumd.service`` ships as the supported
+launch path. ``systemctl --user enable --now striatumd.service`` brings
+the daemon up; daemon.toml + ~/.local/bin/striatum on PATH supply the
+rest. Restart on failure with a 5-second backoff.
+
+### Operator-mode update CLI
+
+``pip install -e . --force-reinstall --user --break-system-packages``
+brings the locally-installed ``striatum`` console script forward
+between minor bumps when the editable install metadata lags. RFC 0048
+V1.5 follow-up will add ``striatum self-update`` as the documented
+operator wrapper.
+
+### Phase C remaining (deferred to V1.6 / dogfood-060)
+
+The mutation surface (16 PG handlers from RFC 0048 V1 Phase A) routes
+end-to-end via the new Phase C hook + daemon RPC. The read surface
+(status, dashboard, list.\*, run.summary, why, doctor, evidence.export,
+corpus.export) still falls through ``CLI_ROUTES`` in the daemon to
+``invoke()`` which uses repo-local SQLite. After
+``daemon migrate-repo-local`` finalizes the SQLite as a tombstone,
+those read verbs return exit 3 (``state is not initialized``). To make
+the substrate flip complete, RFC 0048 needs PG handlers for the read
+verbs too. Captured in OPERATOR_REPORT.md for the next dogfood.
+
+For now: operators run with ``STRIATUM_DAEMON_REQUIRED=0
+STRIATUM_TEST_HARNESS=1`` for un-migrated repos; migrated repos can
+use the mutation verbs through daemon RPC but cannot inspect state
+until read handlers land.
+
 ## v1.50.0 — 2026-05-14
 
 ### RFC 0048 V1.5 — Daemon Unix-socket accept loop + role-provisioning runbook

@@ -88,10 +88,21 @@ def append_audit_row(
     with conn.cursor() as cur:
         cur.execute("SELECT last_hash FROM striatumd.audit_chain_head WHERE singleton = true")
         head = cur.fetchone()
-        previous_hash = head[0] if head is not None else None
+        # Support both tuple_row (default) and dict_row factories.
+        if head is None:
+            previous_hash = None
+        elif isinstance(head, dict):
+            previous_hash = head["last_hash"]
+        else:
+            previous_hash = head[0]
         cur.execute("SELECT segment_id FROM striatumd.audit_segments WHERE state = 'open' ORDER BY segment_id DESC LIMIT 1")
         segment = cur.fetchone()
-        segment_id = segment[0] if segment is not None else 1
+        if segment is None:
+            segment_id = 1
+        elif isinstance(segment, dict):
+            segment_id = segment["segment_id"]
+        else:
+            segment_id = segment[0]
     row = {
         "ts": datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
         "schema_version": 1,
@@ -142,7 +153,12 @@ def append_audit_row(
             ),
         )
         inserted = cur.fetchone()
-        audit_id = int(inserted[0]) if inserted is not None else None
+        if inserted is None:
+            audit_id = None
+        elif isinstance(inserted, dict):
+            audit_id = int(inserted.get("audit_id") or list(inserted.values())[0])
+        else:
+            audit_id = int(inserted[0])
         cur.execute(
             """
             UPDATE striatumd.audit_chain_head

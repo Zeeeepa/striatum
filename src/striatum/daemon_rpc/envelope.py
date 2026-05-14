@@ -44,8 +44,8 @@ class RpcEnvelope:
         params = payload.get("params")
         if not isinstance(request_id, str) or not request_id:
             raise RpcError("schema_invalid", "daemon RPC request_id must be a non-empty string")
-        if not isinstance(method, str) or "." not in method:
-            raise RpcError("schema_invalid", "daemon RPC method must be a dotted string")
+        if not isinstance(method, str) or not method:
+            raise RpcError("schema_invalid", "daemon RPC method must be a non-empty string")
         if not isinstance(params, dict):
             raise RpcError("schema_invalid", "daemon RPC params must be a JSON object")
         token = payload.get("capability_token")
