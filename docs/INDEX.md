@@ -27,6 +27,7 @@ collectively, not individually.
 | [DECISION_LOG.md](DECISION_LOG.md) | Product / architecture reader | Every product and architecture decision (`D###` rows) with reason, consequences, and revisit triggers. |
 | [UBIQUITOUS_LANGUAGE.md](UBIQUITOUS_LANGUAGE.md) | Anyone | Glossary of striatum-specific terms (run, session, lease, work packet, lane, etc.). |
 | [TODO.md](TODO.md) | Maintainer | Active product-improvement tracker. |
+| [ROADMAP.md](ROADMAP.md) | Operator kicking off / resuming work | Forward-looking sequencing of TODO items, RFC follow-ups, open GH issues, and active runway — read first when picking up cold. Stays in sync with version bumps. |
 
 ## Background and reference
 
