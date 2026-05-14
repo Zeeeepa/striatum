@@ -147,3 +147,33 @@ Branch: `striatum/gh-issues-parallel`
 - Impact: small verification delay while preparing the GH #14 commit.
 - Follow-up: operator verification snippets should use the configured Makefile
   interpreter or `.venv/bin/python`, not bare `python3`.
+
+### F012 - Mixed Documentation Ownership In Shared Product Docs
+
+- Command/tool: staging GH #15, GH #17, and D103 documentation updates.
+- Observed friction: `docs/SPEC.md`, `docs/HOW_TO_AGENT.md`,
+  `docs/HOW_TO_HUMAN.md`, `docs/CLI_REFERENCE.md`, and
+  `docs/UBIQUITOUS_LANGUAGE.md` carried interleaved daemon/Postgres,
+  daemon-MCP, and corpus-boundary hunks.
+- Workaround used: committed the affected docs as one explicitly named
+  combined documentation-boundary slice instead of pretending every hunk was
+  owned only by GH #15.
+- Impact: provenance remains truthful, but the issue-to-commit mapping is less
+  granular than the workflow scopes.
+- Follow-up: future parallel docs workflows should reserve shared product docs
+  by section, or produce patch files per issue so the operator can apply
+  non-overlapping hunks without interactive staging.
+
+### F013 - Decision Row Budget Blocked GH #15 Doc Verification
+
+- Command/tool: `.venv/bin/python -m pytest tests/test_doc_links.py -q`.
+- Observed friction: `test_decision_log_rows_under_word_budget` failed because
+  D094 had grown to 439 words, while the row budget is 200 words for rows
+  D055 and later.
+- Workaround used: compressed the D094 row to retain the decision substance
+  while leaving detail in RFC 0043 and `docs/POSTGRES_TRANSITION.md`.
+- Impact: targeted docs verification was blocked until an adjacent decision-log
+  cleanup was included in the documentation commit.
+- Follow-up: decision-log updates should be checked with
+  `tests/test_doc_links.py::test_decision_log_rows_under_word_budget` before
+  a workflow marks verification complete.
