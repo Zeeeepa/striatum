@@ -52,6 +52,51 @@ remaining work" below.
   V1 schema version the runner supports. Run `striatum migrate` (if
   needed) before invoking the per-repo migration command.
 
+## Provision the daemon-required role
+
+The daemon's `audit_log` / `events` / `artifacts` tables are append-only
+by contract (RFC 0033 §3): the role the daemon connects as must hold
+`SELECT, INSERT` on those tables but **not** `UPDATE` or `DELETE`. If
+the daemon connects as the database owner, ownership grants implicit
+UPDATE/DELETE and `daemon doctor` refuses with status `unsafe_privileges`
+and message `"daemon role must not have UPDATE or DELETE on
+striatumd.audit_log"`. Fresh installs that use the database owner as
+the connecting role will hit this; the dedicated daemon role is the
+remediation.
+
+Create the role once, before configuring the daemon DB connection:
+
+```bash
+# Replace <yourpass> with a strong password before pasting.
+sudo -u postgres psql -d striatum_daemon <<'SQL'
+CREATE ROLE striatumd_rw WITH LOGIN PASSWORD '<yourpass>';
+GRANT CONNECT ON DATABASE striatum_daemon TO striatumd_rw;
+GRANT USAGE ON SCHEMA striatumd TO striatumd_rw;
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA striatumd TO striatumd_rw;
+GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA striatumd TO striatumd_rw;
+REVOKE UPDATE, DELETE ON striatumd.audit_log FROM striatumd_rw;
+REVOKE UPDATE, DELETE ON striatumd.events FROM striatumd_rw;
+REVOKE UPDATE, DELETE ON striatumd.artifacts FROM striatumd_rw;
+ALTER DEFAULT PRIVILEGES IN SCHEMA striatumd
+  GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO striatumd_rw;
+ALTER DEFAULT PRIVILEGES IN SCHEMA striatumd
+  GRANT USAGE, SELECT, UPDATE ON SEQUENCES TO striatumd_rw;
+-- CREATE on db + schema is needed for striatum daemon migrate-repo-local
+-- (it runs CREATE TABLE IF NOT EXISTS on every invocation, even when the
+-- schema is at HEAD).
+GRANT CREATE ON DATABASE striatum_daemon TO striatumd_rw;
+GRANT CREATE ON SCHEMA striatumd TO striatumd_rw;
+SQL
+```
+
+Connect the daemon as `striatumd_rw` rather than the database owner.
+The next section ("Configure the daemon DB connection") shows the three
+surfaces for that connection string.
+
+A future `daemon doctor --provision-rw-role` (RFC 0048 V1.5 follow-up)
+will automate this step; until then it is a one-time manual operator
+action per Postgres install.
+
 ## Configure the daemon DB connection
 
 Choose one of three surfaces. They are checked in this order:
@@ -61,11 +106,13 @@ Choose one of three surfaces. They are checked in this order:
 3. `~/.config/striatum/daemon.toml` daemon config file (Linux/macOS
    XDG; Application Support on macOS).
 
-The connection string is standard libpq, for example
-`postgres://striatum@/striatum_daemon` for a local Unix-socket
-connection or `postgres://user:pass@host:5432/striatum_daemon` for
-a TCP connection. The daemon will create its schema on first start;
-no manual DDL is required.
+The connection string is standard libpq. For the dedicated daemon role
+provisioned above:
+`postgres://striatumd_rw:<yourpass>@127.0.0.1:5432/striatum_daemon`.
+Unix-socket connections work too (`postgres:///striatum_daemon`) when
+peer auth or an ident map routes the connecting OS user to
+`striatumd_rw`. The daemon will create its schema on first start; no
+manual DDL is required beyond the role provisioning above.
 
 ## Prepare and verify the daemon DB
 

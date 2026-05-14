@@ -882,13 +882,22 @@ def run_daemon_foreground(
     max_sweeps: int | None = None,
     postgres_url: str | None = None,
 ) -> dict[str, Any]:
+    import threading
+    import uuid
+
     pg_doctor: dict[str, Any] | None = None
+    daemon_pg_conn: Any | None = None
     if postgres_url is not None or os.environ.get("STRIATUM_DAEMON_DB_URL"):
-        from striatum.daemon_pg.connection import doctor as daemon_pg_doctor
+        from striatum.daemon_pg.connection import doctor as daemon_pg_doctor, connect as daemon_pg_connect
+        from striatum.daemon_pg.config import resolve_config
 
         pg_doctor = daemon_pg_doctor(postgres_url=postgres_url, apply=True)
         if not pg_doctor.get("ok"):
             raise DaemonRegistryError("daemon PostgreSQL doctor failed; refusing daemon start")
+        cfg = resolve_config(postgres_url=postgres_url)
+        if cfg.url:
+            daemon_pg_conn = daemon_pg_connect(cfg.url)
+            daemon_pg_conn.autocommit = True
     conn = connect_registry()
     with conn:
         bootstrap = _bootstrap_admin_if_needed(conn)
@@ -903,19 +912,81 @@ def run_daemon_foreground(
         os.chmod(pid_path(), 0o600)
     except PermissionError:
         pass
-    # Bind a Unix socket so status probes have a concrete local endpoint.
     sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     sock.bind(str(socket_path()))
-    sock.listen(1)
+    sock.listen(16)
+    sock.settimeout(0.5)
     try:
         os.chmod(socket_path(), 0o600)
     except PermissionError:
         pass
+
+    # RFC 0048 V1.5: accept-loop wiring. One accept thread polls sock.accept()
+    # with a short timeout against `stop_event`; per-connection daemon threads
+    # iterate NDJSON envelopes through DaemonRpcRouter.handle. Without this
+    # loop the bound socket was a probe endpoint only (no accept()), and
+    # daemon-required CLI verbs refused with exit 11 even when daemon was up.
+    from striatum.daemon_rpc.framing import read_envelopes, write_response
+    from striatum.daemon_rpc.server import DaemonRpcRouter
+
+    substrate_schema = int(pg_doctor.get("schema_version", 0)) if pg_doctor else 0
+    router = DaemonRpcRouter(
+        pg_conn=daemon_pg_conn,
+        repo_root=Path.cwd(),
+        substrate_schema=substrate_schema,
+    )
+    stop_event = threading.Event()
+    connection_threads: list[threading.Thread] = []
+
+    def _serve_connection(conn_sock: "socket.socket", connection_id: str) -> None:
+        try:
+            stream = conn_sock.makefile("rwb")
+            for envelope in read_envelopes(stream):
+                if stop_event.is_set():
+                    break
+                response = router.handle(
+                    envelope,
+                    connection_id=connection_id,
+                    transport="unix",
+                    require_handshake=True,
+                )
+                write_response(stream, response)
+        except Exception:  # noqa: BLE001 — connection-thread failures must not kill the daemon
+            pass
+        finally:
+            try:
+                conn_sock.close()
+            except Exception:  # noqa: BLE001
+                pass
+
+    def _accept_loop() -> None:
+        while not stop_event.is_set():
+            try:
+                conn_sock, _addr = sock.accept()
+            except socket.timeout:
+                continue
+            except OSError:
+                # Listener closed during shutdown.
+                break
+            connection_id = uuid.uuid4().hex
+            t = threading.Thread(
+                target=_serve_connection,
+                args=(conn_sock, connection_id),
+                name=f"striatumd-conn-{connection_id[:8]}",
+                daemon=True,
+            )
+            t.start()
+            connection_threads.append(t)
+
+    accept_thread = threading.Thread(target=_accept_loop, name="striatumd-accept", daemon=True)
+    accept_thread.start()
+
     stopping = False
 
     def _stop(_signum: int, _frame: object) -> None:
         nonlocal stopping
         stopping = True
+        stop_event.set()
 
     old_term = signal.signal(signal.SIGTERM, _stop)
     old_int = signal.signal(signal.SIGINT, _stop)
@@ -925,12 +996,26 @@ def run_daemon_foreground(
             daemon_sweep_once()
             sweeps += 1
             if max_sweeps is not None and sweeps >= max_sweeps:
+                stop_event.set()
                 break
-            time.sleep(max(0.1, sweep_interval_seconds))
+            # Poll stop_event with shorter intervals so SIGTERM responds quickly.
+            stop_event.wait(timeout=max(0.1, sweep_interval_seconds))
     finally:
         signal.signal(signal.SIGTERM, old_term)
         signal.signal(signal.SIGINT, old_int)
-        sock.close()
+        stop_event.set()
+        try:
+            sock.close()
+        except Exception:  # noqa: BLE001
+            pass
+        accept_thread.join(timeout=2.0)
+        for t in connection_threads:
+            t.join(timeout=0.5)
+        if daemon_pg_conn is not None:
+            try:
+                daemon_pg_conn.close()
+            except Exception:  # noqa: BLE001
+                pass
         for path in (socket_path(), pid_path()):
             try:
                 path.unlink()
@@ -944,6 +1029,7 @@ def run_daemon_foreground(
         "socket_path": str(socket_path()),
         "bootstrap_admin": bootstrap,
         "postgres": pg_doctor,
+        "rpc_accept_loop": "running",
     }
 
 

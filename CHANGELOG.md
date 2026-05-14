@@ -1,5 +1,76 @@
 # Changelog
 
+## v1.50.0 — 2026-05-14
+
+### RFC 0048 V1.5 — Daemon Unix-socket accept loop + role-provisioning runbook
+
+Closes the V1.5 migration-blocking gap from dogfood-057's V1 Phase A. The
+RFC's V1 Phase A landed PG-backed handlers and a router with PG-vs-CLI
+delegation; what made the daemon-required CLI non-functional was that
+`run_daemon_foreground` bound a Unix socket and listened, but never
+called `accept()`. So `striatum status` (and every other daemon-required
+verb) refused with exit 11 even though the daemon process was alive.
+
+Adds the missing accept loop to `src/striatum/daemon.py::run_daemon_foreground`
+(synthesis pattern from dogfood-058):
+
+- One accept thread polls `sock.accept()` with a 0.5s timeout against a
+  `threading.Event` stop flag.
+- Each accepted connection gets a daemon thread that wraps
+  `conn.makefile("rwb")`, iterates NDJSON envelopes via
+  `striatum.daemon_rpc.framing.read_envelopes(stream)`, and dispatches
+  through `DaemonRpcRouter.handle(envelope, connection_id=<uuid>,
+  transport="unix", require_handshake=True)` — writing each response
+  back via `striatum.daemon_rpc.framing.write_response`.
+- Router constructed once at startup with the daemon's PG connection
+  (from `daemon_pg.connection.connect` after `doctor(..., apply=True)`
+  succeeds) and `substrate_schema` from the doctor's reported schema
+  version.
+- Graceful shutdown: SIGTERM/SIGINT sets the stop event → closes the
+  listener (breaks `accept()`) → joins accept thread with 2s timeout →
+  joins per-connection threads with 0.5s each → closes daemon PG
+  connection → unlinks socket + pid files.
+
+Smoke-tested end-to-end:
+- `daemon.hello` via `daemon_rpc.client.call_unix` returns
+  `daemon_version` + `methods_etag` (the bound socket now actually
+  serves RPC, not just probes).
+- `striatum status` without `STRIATUM_DAEMON_REQUIRED=0
+  STRIATUM_TEST_HARNESS=1` exits 12 (`repo_not_migrated`) instead of
+  exit 11 (`daemon_unreachable`) — the daemon-required path is alive;
+  the next step (`daemon migrate-repo-local`) is now reachable through
+  the supported CLI flow.
+
+### `POSTGRES_TRANSITION.md` — daemon-role provisioning runbook
+
+Adds the "Provision the daemon-required role" section (operator
+friction identified in dogfood-057's setup phase). Copy-pasteable SQL
+block creates `striatumd_rw` with the right grants and revokes
+(`REVOKE UPDATE, DELETE ON striatumd.{audit_log,events,artifacts}`).
+Fresh installs that previously used the database owner as the
+connecting role would trip the `unsafe_privileges` doctor refusal;
+this section is the documented remediation.
+
+### V1.5 follow-up still outstanding (deferred to V1.6 / dogfood-059)
+
+dogfood-058 was scaffolded as a full 10-job V1.5 fix-up but the
+cycle-exhaustion hit on `review_design` (Track-A/Track-B boundary
+clarifications that codex couldn't fix in two synth revisions). After
+operator override + cascade-cancel the run terminated without an
+implementer phase. The accept loop + role runbook above are the
+operator-driven subset that unblocks migration; the rest of V1.5
+(codex F2 capability-denial test matrix, F3 audit-chain
+SERIALIZABLE/row-lock per handler, F4 append-only role-grant test,
+claude HIGH#1 actual byte-equivalence parity rig, claude HIGH#2 dead
+code cleanup, schema migration 0006 for `striatumd.events.previous_hash`/
+`row_hash`, `daemon doctor --explain`) is captured as a V1.6 / dogfood-059
+follow-up in `docs/dogfood/058/OPERATOR_REPORT.md`.
+
+Also outstanding: the migration-retry-after-rollback path (clean
+re-migration when `repo_migrations` checkpoint mismatches the source
+SQLite sha256) requires a `--reset-checkpoint` flag or manual
+superuser cleanup; tracked in OPERATOR_REPORT.md.
+
 ## v1.49.0 — 2026-05-14
 
 ### RFC 0048 V1 Phase A — Python handler port (dogfood-057)
