@@ -197,6 +197,21 @@ def dispatch(args: argparse.Namespace) -> object:
     daemon_forced = bool(getattr(args, "daemon", False)) or (
         os.environ.get("STRIATUM_DAEMON") == "1"
     )
+    # RFC 0048 Phase C: route CLI verbs through daemon RPC (Unix socket)
+    # when the verb maps to a registered RPC method AND the daemon is
+    # reachable. Falls through to legacy SQLite dispatch when no mapping
+    # exists (init, skills, plugin, daemon, repo, serve, byline) or when
+    # the daemon is unreachable (test-harness mode or daemon offline).
+    if args.command not in {"daemon", "init", "skills", "plugin", "repo", "cross-repo", "serve", "byline", "inbox"}:
+        try:
+            from striatum.cli.daemon_rpc_route import try_route as _try_route_via_daemon
+            routed, payload = _try_route_via_daemon(args, repo)
+            if routed:
+                return payload
+        except StriatumError:
+            raise
+        except Exception:  # noqa: BLE001 — any unexpected failure falls through to legacy path
+            pass
     if args.command == "daemon":
         return _dispatch_daemon(args)
     if args.command == "repo":
