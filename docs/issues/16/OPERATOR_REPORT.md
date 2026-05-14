@@ -1,9 +1,10 @@
 # GH #16 Operator Report
 
 **Issue:** [#16 — Prompt: add complete operator initialization prompt](https://github.com/halbritt/striatum/issues/16)
-**Run:** `run_<id>` (fill at kickoff)
+**Run:** `run_46da26b58edd480c8ff4b204c8df60af`
 **Branch:** `striatum/gh-16-operator-init-prompt`
 **Workflow type:** `docs/issues/<N>/` (lightweight, 3 jobs: triage → fix → verify)
+**Outcome:** ✅ Closed — verify verdict `accept`, run completed at 2026-05-14T12:57:31Z.
 
 ## Scope
 
@@ -31,12 +32,41 @@ risk on claude/claude).
 
 ## Interventions
 
-_TBD — append per intervention, not only at end (per memory
-`feedback_operator_report_incremental`)._
+**Zero operator interventions.** This is the first run since the v1.48.1
+wrapper auth fix shipped; both claude_code lanes (triage + verify)
+naturally called `publish-artifact` + `verdict` + `complete` without
+the recurring no-publish stall pattern that v1.48.1 targeted. Codex
+lane likewise completed naturally as it has historically.
 
 ## Run Outcome
 
-_TBD_
+| Job | Lane | State | Duration | Notes |
+|---|---|---|---|---|
+| triage | claude_code | completed | ~6 min (12:17→12:23Z) | SCOPE.md 9.7KB, chose option-b (trim boundary prompt to generic guardrail). |
+| fix | codex | completed | ~10 min (12:30→12:40Z) | OPERATOR_INITIALIZATION_PROMPT.md 158 lines + README edit + BOUNDARY trim + 62-line HANDOFF citing every DoD bullet at file:line. |
+| verify | claude_code (fresh) | completed | ~3 min (12:54→12:57Z) | Verdict `accept` (severity `info`). Bullet-by-bullet acceptance table with file:line citations for every Required shape / Required behavior / Required first-action sequence / Definition of done item. |
+
+End-to-end: 21 minutes wall-clock. Run state `completed` at
+2026-05-14T12:57:31Z with 0 open blockers and all 3 sessions
+auto-closed.
+
+## v1.48.1 wrapper fix — empirical validation
+
+**Hypothesis:** The wrapper auth flags shipped in v1.48.1
+(`claude --print --permission-mode acceptEdits --allowedTools "Bash"`
+and `gemini --approval-mode yolo`) close the 10+ instance "claude lane
+writes artifact but stalls before calling closing CLI verbs" pattern.
+
+**Result:** confirmed on the first claude lane after the fix. Both
+claude_code sessions in this run reached the artifact + verdict +
+complete sequence without operator-on-behalf intervention. The
+recurring stall pattern that drove 8 operator-on-behalf publishes
+across dogfood-054b/055/055b/056 did not recur.
+
+**Implication for RFC 0051 (auto-finalize from frontmatter):** still
+valuable as a safety net for genuinely-crashed agents, but no longer
+urgent — the wrapper fix mitigates the dominant failure mode at the
+cause rather than the symptom.
 
 ## Closure
 

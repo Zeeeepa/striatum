@@ -20,10 +20,16 @@ verification commands before running it.
 
 ## Reusable Prompts
 
+- [`OPERATOR_INITIALIZATION_PROMPT.md`](OPERATOR_INITIALIZATION_PROMPT.md):
+  paste into a fresh AI operator session before it starts or resumes a
+  Striatum run. Fill in its run-specific block first; it establishes mission,
+  environment, required reading, daemon/Postgres mode, operating rules,
+  recovery posture, report cadence, and first actions.
 - [`OPERATOR_BOUNDARY_PROMPT.md`](OPERATOR_BOUNDARY_PROMPT.md): paste into an
-  operator session when it must drive Striatum control-plane commands without
-  doing any workflow role's design, implementation, review, or synthesis work
-  inline.
+  operator session when you only need the guardrail that separates
+  control-plane coordination from workflow role work, for example when an
+  in-progress operator session is drifting into design, implementation,
+  review, synthesis, or artifact authorship.
 - [`RFC_0026_0027_SCAFFOLD_PROMPT.md`](RFC_0026_0027_SCAFFOLD_PROMPT.md):
   paste into a fresh CLI agent session to install/load Striatum guidance,
   scaffold a full three-lane design plus adversarial-review dogfood workflow

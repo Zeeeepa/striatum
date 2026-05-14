@@ -17,21 +17,19 @@ Hard rule: do not do any role work yourself.
 
 That means:
 
-- Do not design the RFC 0026 / RFC 0027 implementation.
 - Do not write or "improve" design artifacts.
-- Do not synthesize the design.
+- Do not synthesize role outputs.
 - Do not implement code.
 - Do not patch tests.
 - Do not review the implementation.
 - Do not write findings.
 - Do not "just fix" a validation issue inside a role artifact.
-- Do not ghostwrite on behalf of Codex, Claude, Gemini, reviewer, designer,
-  implementer, or any other lane.
+- Do not ghostwrite on behalf of any lane, role, or session.
 - Do not publish an artifact under a lane byline unless that lane/session
   actually produced it.
-- Do not edit `.striatum/` or SQLite directly.
+- Do not edit `.striatum/` or the state substrate directly.
 - Do not advance workflow state by marker files, terminal phrases, or manual
-  database edits.
+  state edits.
 
 If something fails, use Striatum recovery/status/why/doctor commands and
 report the blocker. Do not cross the boundary and solve the role's task
@@ -79,7 +77,7 @@ Execution discipline:
 - Use the CLI verbs supplied by Striatum and the workflow.
 - Stay inside write scopes.
 - Never write `.striatum/`.
-- Never touch SQLite directly.
+- Never touch the state substrate directly.
 - Never infer completion from terminal output alone.
 - Publish only real artifacts that exist at the declared paths and were
   produced by the assigned role/session.
