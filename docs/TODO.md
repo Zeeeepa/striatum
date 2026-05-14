@@ -84,6 +84,20 @@ so external references keep resolving even as items move between sections.
 | F47 | RFC 0044 V1 Striatum-side corpus export (dogfood-046; Engram-side separate) | ✅ done |
 | F48 | RFC 0039 V1.5 Go daemon F1-F5 deltas (dogfood-047; D101 override) | ✅ done |
 | F49 | RFC 0043 V1 Postgres-as-sole-substrate + daemon-required (dogfood-048; D102 override) | ✅ done |
+| F50 | RFC 0050 V1+V1.5+V2 operator UI rework (dogfoods 054/054b/055/055b/056; v1.46.0-v1.48.0) | ✅ done |
+| F51 | v1.48.1 wrapper auth fix — closes 10+ instance claude/gemini no-publish stall (validated by gh-16) | ✅ done |
+| F52 | v1.48.2 CI green — Python typecheck + Go matrix pin (6 days of red closed) | ✅ done |
+| F53 | `docs/issues/<N>/` GH-issue-driven workflow type (gh-16 first instance, accept verdict) | ✅ done |
+| 33 | RFC 0042 V1 run-list workflow identity | ⏳ open |
+| 34 | RFC 0046 V1 lane evidence guard at publish-artifact | 🟡 partially active via operator override path |
+| 35 | RFC 0047 V1 decision-record propagation + `compromised` run state | ⏳ open |
+| 36 | RFC 0048 daemon-side substrate migration (V2.0 phase, A→B→C) | ⏳ open |
+| 37 | RFC 0049 interactive claude lane via MCP (experimental, decision needed) | ⏳ open |
+| 38 | RFC 0050 follow-ups — GH #9-13 V2 surface findings | ⏳ open |
+| 39 | RFC 0051 V1 auto-finalize from frontmatter (downgraded urgency post-v1.48.1) | ⏳ open |
+| 40 | GH #14 — recovery cannot clear terminal-run `process_exit_nonzero` blocker | ⏳ open |
+| 41 | GH #15 — docs clarify PostgreSQL transition guidance | ⏳ open |
+| 42 | GH #17 — Striatum doc consistency for Engram memory integration | ⏳ open |
 
 Legend: ✅ done · 🟡 most done (sub-tasks remain) · ⏳ open
 
@@ -643,6 +657,107 @@ Legend: ✅ done · 🟡 most done (sub-tasks remain) · ⏳ open
     resets daemon DB state between tests, and supports prepare/lifecycle/
     crash-recovery/MCP-capability-scope/per-repo-write-scope e2e
     coverage through `make test-multi-repo`.~~
+
+## V1.7-V2.0 Backlog
+
+Items 33-39 cover RFCs proposed after RFC 0045 (item 27 boundary).
+Sequencing and acceptance criteria live in `docs/ROADMAP.md`; this
+section is the canonical status snapshot.
+
+33. **RFC 0042 V1 (run-list workflow identity).** Proposed. The
+    `striatum run list` surface conflates `workflow_snapshot_id` and
+    `workflow_id`; the RFC adds a `workflow_identity` triple
+    (`workflow_id`, `workflow_version`, `workflow_snapshot_id`) and
+    stable display. No dogfood scheduled yet. Status: queued.
+
+34. **RFC 0046 V1 (lane evidence guard at publish-artifact).** Closes
+    GH #2 + #5. V1.7 scope. Already exercised informally in
+    dogfoods-054b/055b/056 (operator-on-behalf publishes use
+    `--allow-no-process-execution --override-rationale`); the V1
+    runtime check at `publish-artifact` is what still needs to land
+    formally. Status: proposed, partially active in operator practice.
+
+35. **RFC 0047 V1 (decision-record propagation +
+    `compromised` run state).** Closes GH #3 (now-closed issue had no
+    implementation beyond an event row). Adds a `compromised` run state,
+    supersession columns on `verdicts`, propagation logic on rejection,
+    and reopen-on-accept semantics. V1.8 scope. ROADMAP §5.6.
+
+36. **RFC 0048 (daemon-side substrate migration).** Closes gemini A1
+    from dogfood-050 + codex F2 from dogfood-049 — the daemon's RPC
+    router still delegates single-repo verbs to SQLite-backed CLI
+    dispatch even after `migrate-repo-local`. Three phases: (A) port
+    each `cli/mutations.py` handler to PG-backed daemon-internal logic;
+    (B) implement same handlers in `go/pkg/rpc/`; (C) remove the
+    `STRIATUM_DAEMON_REQUIRED=0 + STRIATUM_TEST_HARNESS=1` test-harness
+    escape entirely. V2.0 scope (multi-week phase, paired with RFC
+    0039 Phase 2 / item 25). ROADMAP §5.3.
+
+37. **RFC 0049 (interactive claude lane via MCP).** Experimental,
+    spike required. Motivated by Anthropic's 2026-06-15 plan-credit
+    policy (`claude -p` moves off subscription quota onto separate
+    $20-$200/month credit). On Max 20x the subscription is ~100×
+    token-per-dollar improvement. **v1.48.1's wrapper auth fix relieved
+    the urgency** — RFC 0049 is now a capability RFC rather than a
+    blocker. Decision needed: spike or shelve? ROADMAP §5.5.
+
+38. **RFC 0050 (operator UI rework and provenance honesty).** All
+    three phases landed:
+    - V1 (v1.46.0, dogfood-054 + 054b): UI primitives + dashboard parity.
+    - V1.5 (v1.47.0, dogfood-055 + 055b): template extensions + 3
+      provenance honesty fixes.
+    - V2 (v1.48.0, dogfood-056): recovery panel island, override modal,
+      copy-on-click, graph editor data binding.
+
+    Open follow-ups from V2 review filed as GH issues #9-13:
+    - **#9 HIGH** CSRF on `/v1/invoke` (ROADMAP §4.1 active runway)
+    - **#10 MEDIUM** override modal DOM trust
+    - **#11 MEDIUM** recovery dry-run side-effects
+    - **#12 LOW** clipboard hijack via `data-copy`
+    - **#13 LOW** workflow editor ghost field
+
+39. **RFC 0051 V1 (auto-finalize from frontmatter).** Proposed
+    2026-05-14. Driven by 8 operator-on-behalf publishes across
+    dogfoods-054b/055/055b/056. Runner auto-finalizes when expected
+    artifact appears on disk with valid `verdict_intent` and byline
+    match. **Downgrades from urgent to safety-net-only after gh-16
+    empirically validated v1.48.1's wrapper auth fix** (zero
+    operator-on-behalf publishes across all 3 lanes). Status: queued
+    for V1 implementation; ROADMAP §4.2.
+
+## GH issue follow-ups (not yet bound to a workflow)
+
+40. **GH #14 — recovery cannot clear terminal-run
+    `process_exit_nonzero` blocker.** Real product bug. Reported
+    against v1.48.1 with concrete repro (Engram-side run
+    `run_9cadfc4d2e4646848e2d6539c23322b2`). Job is `completed` but a
+    `process_exit_nonzero` blocker stays open because the process
+    adapter exited nonzero AFTER the job's normal `complete`. Operator
+    has no path to clear it without lease. Suggested approach:
+    `docs/issues/14/` workflow (triage → fix → verify). Triage should
+    decide whether the fix is (a) `recovery checkpoint resolve` accepts
+    `process_exit_nonzero` on terminal runs, (b) a new
+    `recovery dismiss-blocker --blocker-id <id>` verb, or (c) the
+    process adapter's post-completion blocker insertion is gated by
+    job state.
+
+41. **GH #15 — docs clarify PostgreSQL transition guidance.**
+    `README.md`, `docs/SPEC.md`, `docs/GETTING_STARTED.md`,
+    `docs/HOW_TO_HUMAN.md` still describe `.striatum/state.sqlite3` as
+    authoritative live state, contradicting D094/RFC 0043 V1 which
+    moved workflow state to daemon-owned Postgres. Overlaps with
+    item 31(b) (RFC 0043 V1.5 daemon-required default flip). Suggested
+    approach: `docs/issues/15/` workflow; merge into RFC 0043 V1.5
+    follow-up dogfood OR land first as a docs-only sweep before
+    item 31 lands.
+
+42. **GH #17 — update Striatum doc consistency for Engram memory
+    integration.** Engram has been reprioritized around Striatum (see
+    `~/git/engram/STRIATUM_MEMORY_ROADMAP.md`, dated 2026-05-14).
+    Striatum docs should reflect: Engram ingests Striatum corpora;
+    Striatum runs without Engram (augmentation, not dependency).
+    Overlaps with ROADMAP §5.7. Suggested approach: `docs/issues/17/`
+    workflow, paired with the Corpus Contract V2 RFC scaffold.
 
 ## Immediate Follow-Up
 

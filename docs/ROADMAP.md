@@ -396,10 +396,12 @@ dogfood. Order them by impact, not by RFC number.
 
 ---
 
-## 8. Open GitHub issues (filed 2026-05-14)
+## 8. Open GitHub issues
 
-All bound to RFC 0050 V2 surface. Bundle #9 + #10 + #11 into the security
-hardening dogfood (§4.1); leave #12 + #13 for ergonomics polish (§5.1).
+### 8.1 RFC 0050 V2 surface (filed 2026-05-14 by operator from gemini's dogfood-056 review)
+
+Bundle #9 + #10 + #11 into the security hardening dogfood (§4.1); leave
+#12 + #13 for ergonomics polish (§5.1).
 
 | # | Sev | Title | Bundle |
 |---|---|---|---|
@@ -408,6 +410,23 @@ hardening dogfood (§4.1); leave #12 + #13 for ergonomics polish (§5.1).
 | [11](https://github.com/halbritt/striatum/issues/11) | MEDIUM | Recovery panel dry-run relies on CLI-side read-only guarantee | §4.1 dogfood-057 |
 | [12](https://github.com/halbritt/striatum/issues/12) | LOW | `copy-on-click` works on any `data-copy` — clipboard poisoning | §5.1 polish |
 | [13](https://github.com/halbritt/striatum/issues/13) | LOW | Workflow editor — `require_attested_lane` not purged on type change | §5.1 polish |
+
+### 8.2 Operator-reported (pre-existing or filed during this session)
+
+Each gets a `docs/issues/<N>/` workflow when scheduled (per the type
+shipped with gh-16).
+
+| # | Kind | Title | Suggested workflow |
+|---|---|---|---|
+| [14](https://github.com/halbritt/striatum/issues/14) | bug | Recovery cannot clear terminal-run `process_exit_nonzero` blocker without lease | `docs/issues/14/` (gh-issue-driven 3-job). Triage must decide whether the fix is (a) `recovery checkpoint resolve` accepts the blocker on terminal runs, (b) a new `recovery dismiss-blocker --blocker-id <id>` verb, or (c) the process adapter's post-completion blocker insertion is gated by job state. Real product bug with concrete repro from Engram-side. |
+| [15](https://github.com/halbritt/striatum/issues/15) | docs | Clarify PostgreSQL transition guidance (`README.md`, `docs/SPEC.md`, `docs/GETTING_STARTED.md`, `docs/HOW_TO_HUMAN.md`) | `docs/issues/15/` OR fold into RFC 0043 V1.5 follow-up dogfood (item 31). Lighter-weight option: docs-only sweep before item 31 lands. |
+| [17](https://github.com/halbritt/striatum/issues/17) | docs | Striatum doc consistency for Engram memory integration | `docs/issues/17/` paired with the Corpus Contract V2 RFC scaffold (§5.7). Engram side is gated on Striatum's contract decision; this issue cleans up the docs that lag the integration direction. |
+
+### 8.3 Resolved this session
+
+| # | Title | Closed by |
+|---|---|---|
+| [16](https://github.com/halbritt/striatum/issues/16) | Add complete operator initialization prompt | `b9add6f` via `docs/issues/16/` workflow. **First production use of the new GH-issue workflow type.** Verify verdict `accept` severity `info`. End-to-end 21 minutes wall-clock, zero operator-on-behalf publishes — empirically validated v1.48.1's wrapper auth fix. |
 
 ---
 
