@@ -725,6 +725,55 @@ section is the canonical status snapshot.
     operator-on-behalf publishes across all 3 lanes). Status: queued
     for V1 implementation; ROADMAP §4.2.
 
+43. **RFC 0052 V0 (committee deliberation workflow).** Proposed
+    2026-05-14. Committee shape for high-stakes design phases: N
+    producers deliberate under a named arbitrator with optional panel
+    escalation and an adversarial-review sub-shape. Debate turns are
+    typed front-mattered artifacts (`debate_turn`,
+    `arbitration_ruling`, `panel_vote`, `panel_verdict`,
+    `debate_synthesis`); solves D095-D102 reviewer co-blindness via
+    lane composition rather than RFC 0018 posture labelling. Phase 0
+    scaffold landed (RFC body + schema sketches). Status: queued; no
+    implementation dogfood scheduled. V1.9/V2.0 — depends on RFC 0048
+    daemon-side business-logic flip. ROADMAP §5.8.
+
+44. **RFC 0053 V0 (human principal as escalation-only).** Proposed
+    2026-05-14; doc-side fixes landed. Names the human role as
+    `human principal`, restricts function to resolving unresolvable
+    blockers or decisions; AI operator is the default driver. Same CLI
+    surface, functionally bounded role. SPEC.md / GETTING_STARTED.md /
+    HOW_TO_HUMAN.md prose realigned in commit 7e21399. D103 recorded
+    in DECISION_LOG. **Deferred follow-ups**: workflow.json
+    schema-field rename (`human_checkpoint` → `escalation_checkpoint`),
+    `waiting_human` run state rename, CLI prompt-string sweep,
+    `escalation` artifact-kind schema + RPC method. ROADMAP §5.8.
+
+45. **RFC 0054 V0 (day-zero usage guide).** Proposed 2026-05-14.
+    Scaffold for a single top-down doc walking new arrivals through
+    the AI operator + human principal model, prerequisites, day-zero
+    setup, first run, and the principal's escalation role. Phase 0
+    scaffold landed; Phase A writes the doc — open question whether it
+    replaces `docs/GETTING_STARTED.md` or lands as a new
+    `docs/USING_STRIATUM.md`. ROADMAP §5.8.
+
+46. **RFC 0055 V0 (marketing README + architecture graphics).**
+    Proposed 2026-05-14. Scaffold for top-level README rewrite leading
+    with vision/value rather than docs index; adds a system-architecture
+    diagram (Mermaid recommended for native GitHub render; SVG as
+    polish follow-up). Reflects the RFC 0043 / RFC 0053 substrate-and-
+    role reality honestly. Phase 0 scaffold landed; Phase A rewrites
+    `README.md`. ROADMAP §5.8.
+
+47. **RFC 0056 V0 (consumer-repo directory-structure opinions).**
+    Proposed 2026-05-14. Scaffold for explicit (but non-mandatory)
+    recommendations for target-repo layout: `.striatum/` scratch (per
+    RFC 0043), `striatum/workflows/<name>.json`, artifact roots,
+    RFC 0021 DDD scaffold for `docs/`, `docs/dogfood/<NNN>/` for run
+    records. Identifies which recommendations should extend
+    `init --with-ddd-layout`. Phase 0 scaffold landed; Phase A writes
+    `docs/CONSUMER_REPO_LAYOUT.md`; Phase B optionally extends the
+    scaffold. ROADMAP §5.8.
+
 ## GH issue follow-ups (not yet bound to a workflow)
 
 40. **GH #14 — recovery cannot clear terminal-run

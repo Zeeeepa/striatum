@@ -364,6 +364,54 @@ is gated on this Striatum-side contract, so this unblocks them.
 **Forward link:** §11 lists the Engram-side roadmap for context;
 Engram's full backlog is at `~/git/engram/STRIATUM_MEMORY_ROADMAP.md`.
 
+### 5.8 Documentation + role-model runway (RFC 0052-0056)
+
+Five RFCs scaffolded in one operator session on 2026-05-14. They
+cluster around the AI-operator-as-default + human-principal-as-
+escalation model and the doc surfaces that express it.
+
+Landing order: RFC 0053 first (already shipped to main — RFC + D103
++ doc-side fixes in SPEC, GETTING_STARTED, HOW_TO_HUMAN, plus the
+UBIQUITOUS_LANGUAGE softening in fb0175c). Then RFC 0054 / 0055 /
+0056 in any order (all single-track doc work). RFC 0052 lands later;
+its implementation depends on RFC 0048 Phase A.
+
+- **RFC 0052** (committee deliberation workflow) — TODO #43.
+  Phase 0 scaffold + schema sketches landed. V1.9/V2.0 implementation.
+  Composes with RFC 0053 (committee stalemate is one of the named
+  escalation triggers). Blocked on RFC 0048 daemon-side
+  business-logic flip.
+- **RFC 0053** (human principal as escalation-only) — TODO #44.
+  RFC body + D103 + doc-side prose realignment shipped on main.
+  Deferred Phase A: `escalation` artifact-kind schema + RPC method.
+  Deferred Phase B: workflow.json schema-field rename
+  (`human_checkpoint` → `escalation_checkpoint`), `waiting_human`
+  run-state rename, CLI prompt-string sweep.
+- **RFC 0054** (day-zero usage guide) — TODO #45. Phase 0
+  scaffold landed. Phase A writes a single top-down narrative for
+  new arrivals; open question is replace `GETTING_STARTED.md` vs.
+  new `USING_STRIATUM.md` vs. rewrite in place.
+- **RFC 0055** (marketing README + architecture graphics) — TODO
+  #46. Phase 0 scaffold landed. Phase A rewrites top-level
+  `README.md` with vision-first framing and a Mermaid architecture
+  diagram (recommended; SVG as polish follow-up).
+- **RFC 0056** (consumer-repo directory-structure opinions) —
+  TODO #47. Phase 0 scaffold landed. Phase A writes
+  `docs/CONSUMER_REPO_LAYOUT.md`. Phase B optionally extends
+  `init --with-ddd-layout` (RFC 0021).
+
+**Suggested implementer:** any lane. Documentation phases are
+single-track and additive — they touch docs and don't intersect
+running workflow state. The Phase B work for RFC 0053 (schema /
+prompt sweep) is its own dogfood; the workflow.json bump is a
+breaking schema change and should land paired with a
+`workflow upgrade` rule.
+
+**Blocked on:** RFC 0052 implementation is blocked on RFC 0048
+daemon-side substrate flip (§5.3). RFC 0053 Phase B is blocked on
+the workflow.json version bump being scheduled. The other doc
+phases are unblocked.
+
 ---
 
 ## 6. RFC follow-ups (cycle-exhaustion deltas)
