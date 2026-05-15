@@ -8,6 +8,8 @@ __pycache__/
 .ruff_cache/
 *.egg-info/
 build/
+!src/striatum/web/static/build/
+!src/striatum/web/static/build/**
 dist/
 .claude/
 main.log

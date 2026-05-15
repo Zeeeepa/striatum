@@ -233,9 +233,28 @@ export default function RecoveryPanel(props: RecoveryPanelProps) {
         <p className="empty-state" role="status">Loading dry-run results...</p>
       ) : null}
       {status === "error" ? (
-        <p className="island-error" role="alert">
-          {error || "Dry run failed."}
-        </p>
+        <div className="island-error" role="alert">
+          <p>{error || "Dry run failed."}</p>
+          {/*
+            RFC 0050 V2 dogfood-056 F1 (claude ergonomics_dx): when the
+            invoke errors, surface the CLI recipe so the operator can run
+            it directly without re-deriving the verb. The recipe button
+            uses the standard data-copy affordance the rest of the panel
+            advertises.
+          */}
+          <p className="muted">
+            Run from the shell instead:
+          </p>
+          <button
+            type="button"
+            className="copy-command"
+            data-copy={dryRunCommand}
+            title="Copy command"
+          >
+            <span>Auto-publish dry run</span>
+            <code>{dryRunCommand}</code>
+          </button>
+        </div>
       ) : null}
       {status === "ready" ? (
         <div className="recovery-results">
