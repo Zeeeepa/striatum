@@ -1,5 +1,78 @@
 # Changelog
 
+## v1.55.0 — 2026-05-15
+
+### RFC 0048 V1.5 hardening + Schema v6
+
+The substrate flip from RFC 0043 V1.6 → RFC 0048 Phase A/B/C is now
+hardened end-to-end:
+
+- **F2 — capability-denial test matrix.**
+  `tests/daemon_pg/test_capability_denial_matrix.py` parametrizes every
+  PG-backed RPC method × five denial reasons (token_missing,
+  capability_missing, token_revoked, token_expired,
+  capability_scope_mismatch). 70 deny cases lock the fail-closed
+  routing-rule for the ported handler set. Plus an audit-row append
+  assertion for the deny path.
+- **F3 — audit-chain row-lock.**
+  `src/striatum/daemon_rpc/request_log.py::append_audit_row` now
+  `SELECT … FROM striatumd.audit_chain_head … FOR UPDATE` inside an
+  explicit `conn.transaction()` so concurrent appenders serialize on
+  the singleton head row. Without it, two transactions could compute
+  `row_hash` over the same `previous_hash` and fork the chain.
+  `tests/daemon_pg/test_audit_chain_concurrency.py` verifies a contiguous
+  chain across 12 simultaneous denied requests.
+- **F4 — append-only role-grant tests.**
+  `tests/daemon_pg/test_append_only_role_grants.py` asserts the
+  `striatumd_rw` role lacks UPDATE/DELETE on `striatumd.events` and
+  `striatumd.artifacts` (migration 0005 REVOKE) while retaining
+  UPDATE/DELETE on transient state tables. End-to-end SQLSTATE 42501
+  checks gated on TCP auth (peer-auth setups skip).
+- **HIGH#1 — parity rig.**
+  `tests/daemon_pg/handlers/_parity.py` provides `assert_payload_parity`
+  (recursive dict/list diff with ignore-keys for timestamps/UUIDs).
+  Removed the historical `_stub_missing_workflow_loop_modules` workaround
+  from `tests/daemon_pg/handlers/recovery_evidence/conftest.py` and
+  `_helpers.py` (Track A landed in v1.49.0, stubs are dead). Removed
+  the `RFC0048_PARITY` env-var skipif from `test_stale_leases` and
+  `test_requeue_stale` so PG-handler invocations run by default. Full
+  per-handler byte-equivalent fixture seeding (16 handlers) tracked
+  as follow-up.
+- **HIGH#2 — inline-helper wiring.**
+  `src/striatum/daemon_pg/handlers/workflow_loop/complete_job.py`
+  exports `complete_inline(...)` and `ack_work.py` exports
+  `ack_inline(...)`. `recovery.resume --complete` (`resume_blocker`) and
+  `recovery.auto` live mode (`auto_publish_stale_artifacts`) no longer
+  raise ImportError on the inline-helper imports.
+- **Schema v6 — migration 0006.**
+  `striatumd.events` gains dedicated `previous_hash` (nullable) and
+  `row_hash` columns plus a `striatumd.repo_event_chain_heads`
+  singleton-per-repository pointer. The migration backfills both
+  columns from `payload_json._event_chain` and strips that key from
+  payload_json on existing rows; refuses to migrate if any row lacks
+  anchor metadata. `RepoHandlerContext.append_event` (Python) and
+  `pkg/mutations.insertEvent` (Go) read the chain head with `FOR
+  UPDATE`, write the columns directly, and upsert the head pointer —
+  serializing concurrent appenders per-repository on the parent
+  `striatumd.repositories` row.
+- **CLI dispatch fail-closed.**
+  Earlier commits also flipped the CLI dispatch hook so mapped daemon
+  RPC verbs no longer fall back to SQLite when the daemon is
+  unreachable or the target repository is not registered (`src/striatum/
+  cli/daemon_rpc_route.py`). The `daemon doctor`'s legacy SQLite
+  registry probe is surfaced as
+  `{"status": "post_pg_cutover_unused", …}` rather than a scary
+  `token_invalid` error.
+
+### Pre-flight cleanup (aaf5d3c)
+
+- `daemon doctor`'s SQLite-registry probe now reports
+  `post_pg_cutover_unused` when PG is the authoritative auth surface.
+- `.gitignore`: `build/` un-commented (the tracked dogfood-043
+  HANDOFFs remain un-ignored via existing `!…/HANDOFF.md` exceptions).
+- `docs/handoffs/2026-05-15-rfc-0048-postgres-transition.md`: `daemon
+  doctor --explain --json` jq path corrected to `.data.explain`.
+
 ## v1.54.0 — 2026-05-15
 
 ### RFC 0048 Phase B (read surface) — Go-core parity for the 12 read CLI verbs

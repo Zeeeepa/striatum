@@ -27,15 +27,18 @@ Two related changes shape the current product:
    hard prerequisite for every Striatum verb; `--no-daemon` is
    retired. `.striatum/` survives as operational scratch only.
 
-**Remaining work — RFC 0048.** The daemon RPC server's single-repo
-business-logic handlers (mutations, recovery, evidence, worktree,
-run-summary) still delegate to the historical SQLite-backed CLI
-dispatch path under the `STRIATUM_DAEMON_REQUIRED=0
-STRIATUM_TEST_HARNESS=1` escape. RFC 0048 ports each handler to
-read/write the per-repo Postgres tables directly and removes the
-escape. Until those phases land, an operator can still hit
-SQLite-backed code paths in test harnesses; see § "RFC 0048
-remaining work" below.
+3. **RFC 0048 (V1.49.0 → V1.55.0)** finished the substrate port on
+   the daemon side: every mutation, recovery, and read handler now
+   has a native PG handler in `src/striatum/daemon_pg/handlers/`
+   and a Go-core counterpart in `go/pkg/{reads,mutations}/`. The
+   CLI dispatch routes mapped verbs through the daemon's Unix
+   socket; mapped methods fail closed instead of falling back to
+   SQLite when the daemon is unreachable. **Schema v6**
+   (migration 0006) promotes the per-event chain hash anchors out
+   of `payload_json._event_chain` into dedicated `previous_hash` /
+   `row_hash` columns and adds a `striatumd.repo_event_chain_heads`
+   pointer so the chain head reads in O(1). See § "RFC 0048
+   status" below for phase-by-phase detail.
 
 ## Prerequisites
 
@@ -292,26 +295,64 @@ for the full closed list.
   snapshot. Workflow state mutated after the migration lives in
   Postgres only.
 
-## RFC 0048 remaining work
+## RFC 0048 status (substrate port)
 
 RFC 0043 V1.6 shipped the schema flip, the migration command, and
-the `STRIATUM_DAEMON_REQUIRED` enforcement; it did not finish the
-substrate port on the daemon side. RFC 0048 (proposed, V2.0 phase)
-covers:
+the `STRIATUM_DAEMON_REQUIRED` enforcement. RFC 0048 closes the
+remaining substrate-port work on the daemon side:
 
-- Porting each `src/striatum/cli/` single-repo handler to read and
-  write the daemon's per-repo Postgres tables directly instead of
-  delegating to `striatum.api.invoke` and `striatum.db.connect`.
-- Implementing the same mutation surface in the Go daemon
-  (RFC 0039) so `--core go` services single-repo verbs natively.
-- Removing the `STRIATUM_DAEMON_REQUIRED=0 STRIATUM_TEST_HARNESS=1`
-  escape once test fixtures move to Postgres.
+- **Phase A (v1.49.0)** — 16 single-repo mutation handlers ported to
+  PG-backed daemon handlers under
+  `src/striatum/daemon_pg/handlers/{workflow_loop,recovery_evidence}/`.
+  `DaemonRpcRouter._route` resolves the PG handler before falling
+  through to the legacy SQLite dispatch.
+- **Phase B (v1.50.0–v1.54.0 + follow-up)** — Go-core parity: 12
+  read handlers (`go/pkg/reads/`) and the mutation surface
+  (`go/pkg/mutations/`) registered on the Go daemon before the
+  not-implemented stub loop.
+- **Phase C (v1.51.0–v1.52.0)** — CLI dispatch routes ~30 verbs
+  through the Unix-socket daemon RPC; the daemon bootstraps an
+  admin client into `striatumd.clients` (Postgres) and writes its
+  runtime token to `/run/user/<uid>/striatum/client-token`.
+- **V1.5 hardening (v1.55.0)** — capability-denial test matrix
+  across the ported handlers (F2), audit-chain row-lock on
+  `audit_chain_head` (F3), append-only role-grant tests for
+  `striatumd_rw` (F4), parity rig (`assert_payload_parity`,
+  HIGH#1), inline-helper wiring for recovery completion paths
+  (HIGH#2), and **schema migration 0006** (events
+  `previous_hash` + `row_hash` columns + `repo_event_chain_heads`
+  pointer).
+- **Mapped CLI fail-closed (follow-up)** — mapped daemon RPC verbs
+  no longer fall back to SQLite when the daemon is unreachable;
+  unmapped bootstrap and admin surfaces still fall through by
+  design.
 
-Until those phases land, any verb that still routes through the
-SQLite-backed handler will hit the test-harness escape; production
-operators should leave `STRIATUM_DAEMON_REQUIRED` unset (the default
-enforces the post-D094 behavior), and treat the escape as a known
-gap rather than a configuration option.
+For ported methods, `STRIATUM_DAEMON_REQUIRED=0
+STRIATUM_TEST_HARNESS=1` no longer takes effect — the CLI dispatch
+hook checks `daemon_pg.handlers.registry.resolve_pg_handler(method)`
+and routes through the daemon's PG handler when one is registered.
+Use `striatum daemon doctor --explain --json | jq '.data.explain'`
+to see the per-method routing.
+
+### Substrate path for ported methods (Schema v6)
+
+A ported single-repo RPC verb now flows through:
+
+1. Capability token authorization (PG `striatumd.clients` +
+   `client_capabilities` rows).
+2. `DaemonRpcRouter._route` → `resolve_pg_handler(method)` →
+   handler in `daemon_pg.handlers.*`.
+3. Per-handler row locks (`FOR UPDATE` on `jobs`, `runs`, `leases`,
+   `queue_messages`) plus the parent `striatumd.repositories` row
+   lock that serializes the per-repository event chain.
+4. `striatumd.events` insert with `previous_hash` / `row_hash`
+   columns populated directly (migration 0006); the legacy
+   `_event_chain` payload-side anchor is gone from new writes and
+   has been backfilled out of existing rows.
+5. `striatumd.audit_log` append-only chain (`audit_chain_head`
+   singleton locked `FOR UPDATE` so concurrent appenders
+   serialize) records the request, response, and authorization
+   decision.
 
 ## See also
 

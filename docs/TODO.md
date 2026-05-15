@@ -91,7 +91,7 @@ so external references keep resolving even as items move between sections.
 | 33 | RFC 0042 V1 run-list workflow identity | ⏳ open |
 | 34 | RFC 0046 V1 lane evidence guard at publish-artifact | 🟡 partially active via operator override path |
 | 35 | RFC 0047 V1 decision-record propagation + `compromised` run state | ⏳ open |
-| 36 | RFC 0048 daemon-side substrate migration (V2.0 phase, A→B→C) | ⏳ open |
+| 36 | RFC 0048 daemon-side substrate migration (Phases A+B+C + V1.5 hardening + migration 0006) | ✅ done (v1.55.0) |
 | 37 | RFC 0049 interactive claude lane via MCP (experimental, decision needed) | ⏳ open |
 | 38 | RFC 0050 follow-ups — GH #9-13 V2 surface findings | ⏳ open |
 | 39 | RFC 0051 V1 auto-finalize from frontmatter (downgraded urgency post-v1.48.1) | ⏳ open |
@@ -683,15 +683,24 @@ section is the canonical status snapshot.
     supersession columns on `verdicts`, propagation logic on rejection,
     and reopen-on-accept semantics. V1.8 scope. ROADMAP §5.6.
 
-36. **RFC 0048 (daemon-side substrate migration).** Closes gemini A1
-    from dogfood-050 + codex F2 from dogfood-049 — the daemon's RPC
-    router still delegates single-repo verbs to SQLite-backed CLI
-    dispatch even after `migrate-repo-local`. Three phases: (A) port
-    each `cli/mutations.py` handler to PG-backed daemon-internal logic;
-    (B) implement same handlers in `go/pkg/rpc/`; (C) remove the
-    `STRIATUM_DAEMON_REQUIRED=0 + STRIATUM_TEST_HARNESS=1` test-harness
-    escape entirely. V2.0 scope (multi-week phase, paired with RFC
-    0039 Phase 2 / item 25). ROADMAP §5.3.
+36. ~~**RFC 0048 (daemon-side substrate migration).**~~ ✅ done in
+    v1.55.0. Phase A (v1.49.0) ported 16 mutation handlers into
+    `src/striatum/daemon_pg/handlers/`; Phase B (v1.50.0–v1.54.0 +
+    follow-up) shipped the Go-core mutation surface
+    (`go/pkg/{reads,mutations}/`) and the Unix-socket accept loop;
+    Phase C (v1.51.0–v1.52.0) routed mapped CLI verbs through the
+    daemon and bootstrapped admin auth into `striatumd.clients`.
+    V1.5 hardening (v1.55.0): F2 capability-denial matrix
+    (`tests/daemon_pg/test_capability_denial_matrix.py`), F3
+    audit-chain `FOR UPDATE` row-lock on `audit_chain_head`
+    (`src/striatum/daemon_rpc/request_log.py`), F4 append-only
+    role-grant tests (`tests/daemon_pg/test_append_only_role_grants.py`),
+    HIGH#1 parity rig (`tests/daemon_pg/handlers/_parity.py`),
+    HIGH#2 inline-helper exports (`complete_inline`, `ack_inline`),
+    and migration 0006 (events chain anchors + repo_event_chain_heads).
+    Mapped CLI fail-closed flip removed the legacy SQLite fallback
+    for ported verbs. Closes gemini A1 from dogfood-050 + codex F2
+    from dogfood-049. ROADMAP §5.3.
 
 37. **RFC 0049 (interactive claude lane via MCP).** Experimental,
     spike required. Motivated by Anthropic's 2026-06-15 plan-credit
