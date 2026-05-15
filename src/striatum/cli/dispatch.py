@@ -986,6 +986,24 @@ def _dispatch_daemon(args: argparse.Namespace) -> object:
         )
         try:
             v1 = daemon_mod.read_doctor(repo=None, verbose=True)
+        except daemon_mod.DaemonAuthError as exc:
+            # RFC 0048 Phase C: the runtime token is minted into Postgres's
+            # `striatumd.clients` by `_bootstrap_pg_admin_if_needed`. The
+            # SQLite registry's `clients` table is no longer populated at
+            # daemon startup, so its auth probe denies with `token_invalid`
+            # by design once PG is authoritative. Surface that as a benign
+            # post-cutover signal instead of a doctor failure.
+            if pg.get("ok") and "token_invalid" in str(exc):
+                v1 = {
+                    "ok": True,
+                    "status": "post_pg_cutover_unused",
+                    "note": (
+                        "SQLite client registry is no longer the authoritative "
+                        "auth surface; doctor probe skipped."
+                    ),
+                }
+            else:
+                v1 = {"ok": False, "error": str(exc)}
         except Exception as exc:  # noqa: BLE001 - daemon doctor must still report PG onboarding.
             v1 = {"ok": False, "error": str(exc)}
         result: dict[str, object] = {"mode": "daemon", "postgres": pg, "sqlite_registry": v1}

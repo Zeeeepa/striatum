@@ -82,7 +82,7 @@ design.
 
 1. `striatum --version` → expect `1.54.0`.
 2. `systemctl --user status striatumd.service` → expect `active (running)`.
-3. `striatum daemon doctor --explain --json | jq '.explain | {method_count, pg_backed_count}'` → expect the PG-backed count to include reads plus mapped mutations after installing the follow-up working tree.
+3. `striatum daemon doctor --explain --json | jq '.data.explain | {method_count, pg_backed_count}'` → expect the PG-backed count to include reads plus mapped mutations after installing the follow-up working tree. (Note: the `--json` envelope wraps the explain payload under `.data`, not at the top level.)
 4. `python3 -c "import sqlite3; print(sqlite3.connect('.striatum/state.sqlite3').execute('PRAGMA integrity_check').fetchone())"` → expect `('ok',)`.
 5. `ps -ef | grep -E "(codex|claude|gemini).*wrapper" | grep -v grep | wc -l` → expect 0.
 6. `ls /run/user/1000/striatum/` → expect `client-token`, `striatumd.pid`, `striatumd.sock`.
