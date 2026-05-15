@@ -107,9 +107,19 @@ func main() {
 	substrateSchema := 0
 	var recorder *db.AuditRecorder
 	var runner db.Runner
-	var authorizer rpc.Authorizer = rpc.AllowAllAuthorizer{}
+	var authorizer rpc.Authorizer
 	config := db.ResolveConfig(postgresURL)
-	if config.URL != "" {
+	// RFC 0039 V1.6 F2 (dogfood-047 codex finding): the daemon must
+	// refuse to bind a socket without a configured Postgres URL.
+	// Production has no use for an unauthenticated, no-audit daemon;
+	// installing AllowAllAuthorizer{} as a default was a security
+	// regression that let `daemon describe` run without recording an
+	// audit row. Refuse here; AllowAllAuthorizer{} remains available
+	// for unit tests that explicitly construct a server.
+	if config.URL == "" {
+		log.Fatalf("striatumd refuses to start without a Postgres URL; pass --postgres-url or set STRIATUM_DAEMON_DB_URL")
+	}
+	{
 		var pool *db.Pool
 		var err error
 		if migrate {
