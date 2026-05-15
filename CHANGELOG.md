@@ -1,5 +1,95 @@
 # Changelog
 
+## v1.52.0 — 2026-05-15
+
+### RFC 0048 Phase C complete — read-surface PG handlers (dogfood-060)
+
+Closes the substrate flip. All 12 read-surface CLI verbs now have
+native PG-backed handlers under `src/striatum/daemon_pg/handlers/reads/`
+and route through the daemon RPC instead of falling through
+`CLI_ROUTES` → `invoke()` → repo-local SQLite. After
+`daemon migrate-repo-local`, the `STRIATUM_DAEMON_REQUIRED=0
+STRIATUM_TEST_HARNESS=1` escape is no longer required for the read
+verbs.
+
+Ported handlers (12):
+
+- `status`, `dashboard`, `why`, `doctor` — core operator reads.
+- `list.runs`, `list.sessions`, `list.jobs`, `list.artifacts`,
+  `list.workflows` — listing reads.
+- `run.summary`, `evidence.export`, `corpus.export` — reporting /
+  export reads.
+
+Each handler:
+
+- Registered via `@register_pg_handler("<method>", read_only=True)`
+  decorator from the Phase A registry.
+- Scopes by `ctx.repository_id` on every SELECT (no cross-repo leakage).
+- Returns the same top-level JSON shape as the legacy SQLite-backed
+  function (parity contract — CLI and operator UI don't detect the
+  substrate flip).
+
+Implementation supports + plumbing:
+
+- New `_read_model.py`, `_registry.py`, `_sql.py` shared infrastructure
+  under `daemon_pg/handlers/reads/`.
+- `daemon_pg/handlers/__init__.py` imports the `reads` subpackage so
+  decorator registrations fire on `import striatum.daemon_pg.handlers`.
+- `cli/daemon_rpc_route.py` translator updates: `list.*` filters
+  (state/role/lane/workflow_job_id/kind/limit) now propagate to RPC
+  params; added missing `("corpus", "export")` lookup entry.
+- `corpus/redaction.py` extended to redact artifact/session prose
+  before rendering corpus run-summary rows (closes a build-review
+  finding about evidence leak).
+- `status` handler uses the legacy operator action vocabulary from
+  `cli/introspect.py:857` (closes a build-review finding about
+  dashboard/web-UI parity).
+- `run.summary` + `evidence.export` call the real PG `doctor` handler
+  instead of hardcoding `{"ok": true, "schema_version": 5}` (closes a
+  build-review finding about always-green doctor in post-migration
+  exports).
+
+Tests:
+
+- 12 handler test files under `tests/daemon_pg/handlers/reads/` plus
+  shared `read_handler_fixtures.py` for cross-suite reuse.
+- `tests/test_cli_daemon_rpc_route.py` covers the translator
+  parameter-propagation and corpus-export wiring.
+- `tests/test_corpus_redaction.py` covers the redaction additions.
+- Full target test sweep: 83 passed, 5 skipped (gated multi-repo PG
+  fixtures).
+
+### Operator-driven completion note
+
+The dogfood-060 workflow ran the design + synth + review_design phases
+and the first build review. The build review verdicts (codex
+threat_model: needs_revision on missing handler-level threat-model
+evidence; claude ergonomics_dx: needs_revision on parity-rig absence +
+CLI translator drops + next_actions divergence + hardcoded doctor +
+missing corpus-export route) named the revision punch list precisely.
+The operator addressed all findings directly rather than restarting the
+workflow loop, because the build-review report itself was the
+implementer spec.
+
+The structural gaps that made the workflow loop expensive — GH #19
+(stale-lease recovery for repo_write jobs) and GH #21 (serve restart
+clobbers state.sqlite3) — are tracked separately and remain V1.6
+follow-up scope.
+
+### Outstanding follow-ups (deferred)
+
+- GH #19 stale-lease operator recovery path.
+- GH #21 serve startup must not clobber active state.
+- RFC 0048 V1.5 fix-up items: codex F2 capability-denial test matrix,
+  F3 audit-chain SERIALIZABLE/row-lock per handler, F4 append-only
+  role-grant tests, claude HIGH#1 byte-equivalence parity rig (the
+  one named in dogfood-057's reviews — still not wired), HIGH#2 dead
+  code cleanup, schema migration 0006 (events.previous_hash /
+  row_hash columns), `daemon doctor --explain`.
+- RFC 0048 Phase B (Go core parity) — multi-week.
+- RFC 0048 Phase C SQLite-removal flip (the actual default switch
+  away from CLI_ROUTES fallback) — pending V1.6 fix-up landing.
+
 ## v1.51.0 — 2026-05-14
 
 ### RFC 0048 Phase C (partial) — CLI dispatch routes through daemon RPC
