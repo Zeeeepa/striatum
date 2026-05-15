@@ -67,7 +67,10 @@ def handle(ctx: RepoHandlerContext, params: Mapping[str, Any]) -> dict[str, Any]
         raise InvalidTransitionError("job has no stale expired lease to requeue")
     row = rows[0]
     if is_repo_write_scope(row.get("write_scope_json")):
-        raise InvalidTransitionError("repo-write stale jobs require manual inspection")
+        raise InvalidTransitionError(
+            "repo-write stale jobs require manual inspection; rerun with "
+            '`--force --justification "<reason>"` to override after inspection'
+        )
 
     now = utc_now()
     already_reclaimable = (

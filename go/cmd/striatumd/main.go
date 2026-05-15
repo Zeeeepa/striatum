@@ -14,6 +14,7 @@ import (
 	daemonapply "github.com/halbritt/striatum/go/pkg/apply"
 	"github.com/halbritt/striatum/go/pkg/crossrepo"
 	"github.com/halbritt/striatum/go/pkg/db"
+	"github.com/halbritt/striatum/go/pkg/reads"
 	"github.com/halbritt/striatum/go/pkg/rpc"
 	"github.com/halbritt/striatum/go/pkg/supervisor"
 )
@@ -158,6 +159,11 @@ func main() {
 func registerHandlers(server *rpc.Server, runner db.Runner) {
 	daemonapply.Service{Runner: runner}.Register(server)
 	registerCrossRepoHandlers(server, runner)
+	// RFC 0048 Phase B: register the Go-core read-surface handlers
+	// before the not-implemented stub loop so the loop's existence-check
+	// skips them. Mirrors src/striatum/daemon_pg/handlers/reads/ in
+	// Python; same response shapes.
+	reads.Register(server, runner)
 	for _, method := range []string{
 		"status", "why", "doctor", "dashboard", "dashboard.all",
 		"evidence.export", "corpus.export", "run.summary", "run.graph",

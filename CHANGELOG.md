@@ -1,5 +1,73 @@
 # Changelog
 
+## v1.54.0 — 2026-05-15
+
+### RFC 0048 Phase B (read surface) — Go-core parity for the 12 read CLI verbs
+
+The Go daemon previously registered every single-repo handler as
+`notImplementedHandler` (codex F2 finding from dogfood-049). Phase B
+ports the read-surface handlers — same shape as Python's
+`src/striatum/daemon_pg/handlers/reads/`, same return-shape parity
+contract so CLI + operator UI don't detect the substrate-language flip.
+
+New `go/pkg/reads/` package:
+
+- `reads.go` — shared helpers: `Queryer` interface (narrowed
+  `pgx.Rows` access), `collectRows` for generic `map[string]any`
+  result sets, `requireRepositoryID`, parameter helpers.
+- `status.go` — `HandleStatus`: runs/jobs/sessions/verdicts/blockers
+  scoped by repository_id + optional run_id; computes claimable +
+  blocked_downstream + next_actions; returns the legacy JSON shape.
+- `dashboard.go` — `HandleDashboard`: jobs_by_state / verdicts_by_state /
+  blockers / sessions / last-10 events. Defaults to the most recent run
+  when no run_id supplied (parity with Python).
+- `doctor.go` — `HandleDoctor`: schema_version + stale-lease +
+  waiting-human counts + problems list.
+- `why.go` — `HandleWhy`: events touching a target_id across job/session/
+  run/message/lease/payload-json columns.
+- `listings.go` — `HandleListRuns` / `HandleListSessions` /
+  `HandleListJobs` / `HandleListArtifacts` / `HandleListWorkflows`. Each
+  accepts state/role/lane/workflow_job_id/kind filters (matches the
+  Python translator's parameter propagation) with bounded `limit`
+  (max 1000, default 200-500 per-method).
+- `exports.go` — `HandleRunSummary` (run row + jobs + artifacts +
+  verdicts + doctor block via `HandleDoctor` for parity), `HandleEvidenceExport`
+  (scoped artifacts + verdicts + doctor), `HandleCorpusExport`
+  (corpus_contract_version=1 manifest + paged artifact rows).
+
+`go/cmd/striatumd/main.go` calls `reads.Register(server, runner)` before
+the not-implemented stub loop. The for-loop's
+`if _, exists := server.Handlers[method]; exists { continue }` then
+skips these methods, so existing fallbacks remain for unported
+mutations. Snapshot: ~12 fewer "not_implemented" methods.
+
+`go build ./... && go vet ./...` clean. Read handlers integrate with
+the existing `PostgresAuthorizer` + `AuditRecorder` so capability
+checks + audit chain semantics are unchanged from cross_repo handlers
+(no per-handler auth shim required).
+
+### Companion: Python GH #19 PG-side message parity
+
+`src/striatum/daemon_pg/handlers/recovery_evidence/requeue_stale.py`
+and `tests/test_cli_mvp.py` updated to point operators to the new
+`--force --justification "<reason>"` flag that shipped in v1.53.0. The
+SQLite-backed path's message was already updated in v1.53.0; this
+brings the PG-backed handler's message + the integration test in line.
+
+### Outstanding Phase B (still deferred)
+
+- Write-surface Go ports — 16 mutation handlers (session.register,
+  claim_next, ack_work, complete_job, release_lease, block_job,
+  record_verdict, submit_review, override_review_verdict +
+  recovery.\* + evidence.\*). Each requires transaction + audit-chain
+  append, materially more complex than reads. Tracked as next
+  Phase B milestone.
+- Cross-implementation parity tests (`make test-multi-repo CORE=go`
+  byte-identical state assertion). Land after writes port.
+- RFC 0048 Phase C SQLite-removal default flip — gated on
+  Phase B mutations + the V1.5 fix-up items (codex F2-F4 + claude
+  HIGH#1/#2 + schema migration 0006).
+
 ## v1.53.0 — 2026-05-15
 
 ### GH #19 — recovery requeue-stale --force --justification
