@@ -3637,6 +3637,49 @@ def _ensure_loopback(host: str) -> None:
     )
 
 
+def _verify_state_health(repo: Path) -> None:
+    """GH #21: refuse to start serve over a corrupted state.sqlite3.
+
+    Previously a hard SIGKILL on the previous serve could leave WAL in a
+    state that SQLite recovers by truncating to the last checkpoint —
+    observed 3 times in one session as a state.sqlite3 shrinking from
+    MB-scale to KB-scale, losing the active dogfood's run rows.
+
+    This check runs PRAGMA integrity_check + PRAGMA wal_checkpoint(TRUNCATE)
+    BEFORE the service binds. Failures raise ServiceConfigError so the
+    operator sees the corruption immediately and can quarantine the file
+    before the new serve writes over it.
+    """
+    import sqlite3 as _sqlite3
+    from striatum.db import db_path
+
+    target = db_path(repo)
+    if not target.exists():
+        # No existing state — first-time init via dispatch.py is fine.
+        return
+    try:
+        conn = _sqlite3.connect(str(target), timeout=2.0)
+    except _sqlite3.OperationalError as exc:
+        raise ServiceConfigError(
+            f"refusing to start serve: cannot open existing {target}: {exc}. "
+            f"Inspect (and quarantine if corrupt) before retry."
+        ) from exc
+    try:
+        result = conn.execute("PRAGMA integrity_check").fetchone()
+        status = result[0] if result else None
+        if status != "ok":
+            raise ServiceConfigError(
+                f"refusing to start serve: PRAGMA integrity_check returned {status!r} "
+                f"on {target}. Quarantine the file (rename to .corrupt) and run "
+                f"`striatum init` to recreate, then retry."
+            )
+        # Force a WAL checkpoint to a clean snapshot so any in-flight
+        # writer state is durable before the new serve takes the lock.
+        conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+    finally:
+        conn.close()
+
+
 def _run_tcp(
     *,
     repo: Path,
@@ -3650,6 +3693,7 @@ def _run_tcp(
     _ensure_loopback(host)
     pid_path = repo / ".striatum" / "service.pid"
     _check_single_instance(pid_path)
+    _verify_state_health(repo)
     state = ServiceState(
         repo=repo,
         allow_mutations=allow_mutations,
@@ -3683,6 +3727,7 @@ def _run_unix(
     idle_timeout_seconds: int | None,
     web_enabled: bool,
 ) -> JsonObject:
+    _verify_state_health(repo)
     socket_path = Path(unix_path)
     if socket_path.exists():
         try:

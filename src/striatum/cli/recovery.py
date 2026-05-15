@@ -88,8 +88,20 @@ def requeue_stale(
     run_id: str,
     job_id: str,
     recovery_author: str | None = None,
+    force: bool = False,
+    justification: str | None = None,
 ) -> JsonObject:
-    """Requeue stale review-only work after lazy lease expiry."""
+    """Requeue stale review-only work after lazy lease expiry.
+
+    GH #19: ``force=True`` paired with ``justification`` permits requeue
+    of repo_write stale jobs that would otherwise refuse with
+    ``manual_inspection_required``. The override is audit-chained via
+    the resulting ``recovery.stale_requeued`` event payload's
+    ``operator_override=True`` + ``justification=<reason>`` fields so
+    future audits can replay the decision.
+    """
+    if force and not justification:
+        raise InvalidTransitionError("--force requeue requires --justification")
     row_by_id(conn, "runs", "run_id", run_id)
     from striatum.db import enqueue_job, is_repo_write
 
@@ -111,8 +123,12 @@ def requeue_stale(
         ).fetchone()
         if row is None:
             raise InvalidTransitionError("job has no stale expired lease to requeue")
-        if is_repo_write(row):
-            raise InvalidTransitionError("repo-write stale jobs require manual inspection")
+        is_write = is_repo_write(row)
+        if is_write and not force:
+            raise InvalidTransitionError(
+                "repo-write stale jobs require manual inspection; rerun with "
+                "`--force --justification \"<reason>\"` to override after inspection"
+            )
 
         now = utc_now()
         already_reclaimable = row["state"] == "queued" and row["message_state"] == "pending"
@@ -136,9 +152,12 @@ def requeue_stale(
                 """,
                 (now, message_id),
             )
-        payload: JsonObject = {"already_reclaimable": already_reclaimable, "repo_write": False}
+        payload: JsonObject = {"already_reclaimable": already_reclaimable, "repo_write": is_write}
         if recovery_author is not None:
             payload["author"] = recovery_author
+        if force and is_write:
+            payload["operator_override"] = True
+            payload["justification"] = justification
         insert_event(
             conn,
             run_id=run_id,
@@ -155,7 +174,8 @@ def requeue_stale(
             "workflow_job_id": row["workflow_job_id"],
             "lease_id": row["lease_id"],
             "message_id": message_id,
-            "repo_write": False,
+            "repo_write": is_write,
+            "operator_override": bool(force and is_write),
             "next_actions": ["register_or_select_session", "claim_available_work"],
         }
 

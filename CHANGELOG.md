@@ -1,5 +1,69 @@
 # Changelog
 
+## v1.53.0 — 2026-05-15
+
+### GH #19 — recovery requeue-stale --force --justification
+
+`striatum recovery requeue-stale` now accepts `--force --justification
+"<reason>"` to override the `repo-write stale jobs require manual
+inspection` refusal after the operator has inspected the on-disk
+artifact and decided requeue is appropriate. The override is
+audit-chained: the resulting `recovery.stale_requeued` event payload
+gets `operator_override=true` and `justification=<reason>` fields so
+future audits can replay the decision.
+
+Without `--force --justification`, the original refusal still fires
+(regression guard).
+
+### GH #21 — serve refuses to start over a corrupted state.sqlite3
+
+Adds `_verify_state_health(repo)` to the `striatum serve` startup path
+(both TCP and Unix transports). Before binding any socket, the function:
+
+- Refuses to open if `state.sqlite3` exists but cannot be opened by
+  `sqlite3.connect`.
+- Runs `PRAGMA integrity_check`; if the result isn't `ok`, raises
+  `ServiceConfigError` naming the file + remediation (quarantine to
+  `.corrupt`, run `striatum init`, retry).
+- Runs `PRAGMA wal_checkpoint(TRUNCATE)` on the existing DB so any
+  pending WAL is flushed to the main file before the new serve takes
+  the write lock. This closes the failure mode observed 3 times in one
+  session: SIGKILL on the previous serve left WAL in an inconsistent
+  state; SQLite recovery on the new serve truncated to the last
+  checkpoint, losing MB-scale active-run rows down to KB-scale.
+
+### RFC 0048 V1.5 — daemon doctor --explain
+
+New `--explain` flag on `striatum daemon doctor` adds a per-method
+table to the doctor output. Each row reports:
+
+- `method` — RPC method name (from `striatum.daemon_rpc.registry`).
+- `pg_backed` — whether `resolve_pg_handler(method)` returns a handler
+  (true = ported in Phase A or Phase C; false = still falls through).
+- `sqlite_fallback_route` — the legacy CLI route in `CLI_ROUTES`, if
+  any. Methods with no fallback route are PG-only.
+- `required_capability` / `repository_scope` / `deprecated` — registry
+  metadata.
+
+Plus summary: `method_count`, `pg_backed_count`.
+
+Current snapshot post-v1.52.0: 93 methods / 34 PG-backed / 68
+SQLite-fallback-routed.
+
+### Outstanding RFC 0048 V1.5 items (still deferred)
+
+- codex F2 capability-denial test matrix (16 handlers × 6 denial cases).
+- codex F3 audit-chain SERIALIZABLE/row-lock per write handler.
+- codex F4 append-only role-grant tests at the daemon-pg layer.
+- claude HIGH#1 byte-equivalence parity rig wired into all 16+ tests
+  (the `ReadSeed` / `pg_ctx` / `sqlite_conn` / `assert_payload_parity`
+  helpers).
+- claude HIGH#2 dead code paths (`complete_inline`, `ack_inline`,
+  `recovery.resume --complete`, `recovery.auto` live mode).
+- Schema migration 0006 (`events.previous_hash` / `row_hash` columns).
+- RFC 0048 Phase B (Go core parity).
+- RFC 0048 Phase C SQLite-removal default flip.
+
 ## v1.52.0 — 2026-05-15
 
 ### RFC 0048 Phase C complete — read-surface PG handlers (dogfood-060)
