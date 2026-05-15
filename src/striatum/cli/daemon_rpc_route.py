@@ -204,7 +204,20 @@ def _route_dashboard(args: argparse.Namespace, repo: Path) -> tuple[str, dict[st
 
 def _route_list(args: argparse.Namespace, repo: Path) -> tuple[str, dict[str, Any]]:
     sub = getattr(args, "list_command", None) or "runs"
-    return (f"list.{sub}", {})
+    params = _selected_params(
+        args,
+        ("run_id", "state", "role", "lane", "workflow_job_id", "kind", "limit"),
+    )
+    return (f"list.{sub}", params)
+
+
+def _selected_params(args: argparse.Namespace, names: tuple[str, ...]) -> dict[str, Any]:
+    params: dict[str, Any] = {}
+    for name in names:
+        value = getattr(args, name, None)
+        if value is not None:
+            params[name] = value
+    return params
 
 
 def _route_run_prepare(args: argparse.Namespace, repo: Path) -> tuple[str, dict[str, Any]]:
@@ -364,6 +377,13 @@ def _route_evidence_export(args: argparse.Namespace, repo: Path) -> tuple[str, d
     })
 
 
+def _route_corpus_export(args: argparse.Namespace, repo: Path) -> tuple[str, dict[str, Any]]:
+    return ("corpus.export", {
+        "since": args.since,
+        "out": args.out,
+    })
+
+
 def _route_decision_record(args: argparse.Namespace, repo: Path) -> tuple[str, dict[str, Any]]:
     return ("decision.record", {
         "title": args.title,
@@ -420,6 +440,7 @@ _LOOKUP: dict[tuple[str, str | None], Callable[[argparse.Namespace, Path], tuple
     ("recovery", "auto-publish"): _route_recovery,
     ("recovery", "watch"): _route_recovery,
     ("evidence", "export"): _route_evidence_export,
+    ("corpus", "export"): _route_corpus_export,
     ("decision", "record"): _route_decision_record,
     ("checkpoint", "resolve"): _route_checkpoint_resolve,
     ("branch", "confirm"): _route_branch_confirm,

@@ -3,6 +3,62 @@
 Aggregate scan-friendly log of friction encountered during dogfood
 iterations. New entries append to the top.
 
+## dogfood-060 — RFC 0048 Phase C read-handler port — 2026-05-15
+
+### F1 — Stale-lease recovery for repo_write jobs has no clean operator path
+
+**Where**: `gemini` design supervisor (PID 1536333) died after writing
+`docs/dogfood/060/design/gemini/DESIGN.md` (8.9KB, valid content) but
+before its publish-artifact + complete callbacks fired. Lease expired at
+01:17:24Z; runner correctly transitioned the job to `stale_lease`.
+
+**What broke**: every documented operator-recovery verb refused.
+- `striatum recovery auto-publish` → `skipped: no required expected_artifact found on disk with matching byline`. Cause: session became `unattested` when the supervisor died → `expected_author_line` now returns `author: operator` (RFC 0046 attestation guard) → gemini's written byline `author: designer-unknown-model-001` no longer matches.
+- `striatum publish-artifact --allow-no-process-execution --override-rationale "..."` → `exit code 5: lease is not active`. The override flag doesn't bypass the lease-active precondition.
+- `striatum recovery requeue-stale` → `exit code 4: repo-write stale jobs require manual inspection`. No `--force` flag; no documented "I have inspected" verb.
+- `striatum recovery resume --complete` → requires `--blocker-id`; stale_lease is not a blocker.
+- `striatum recovery auto` → `still_stuck: repo_write_requires_operator_inspection`.
+
+**Why this matters**: the operator can SEE the on-disk artifact is valid
+and the byline-rewrite ((`author: operator [self-declared: …]`) is the
+documented fallback per RFC 0046 + ROADMAP §3.5 — but no CLI verb
+exists to apply that fallback and re-publish. Edit-then-auto-publish
+fails because auto-publish uses `expected_author_line` which is now
+`operator` (which the edit DID match) — and STILL refused. Either the
+auto-publish path has a second-tier check I missed, or it doesn't read
+the file fresh.
+
+**Cost**: ~30 operator-minutes pulling on this thread; ~$15 in tokens
+on diagnostic SQL + grepping recovery sources; ultimately had to abort
+the entire run with `striatum run cancel --reason ...` and restart with
+a reduced workflow (codex + claude designers only).
+
+**Required fixes** (next dogfood or RFC 0048 V1.5 / V1.6 follow-up):
+
+1. **`striatum recovery requeue-stale --force --justification "..."`**
+   — operator escarpe hatch for repo_write stale jobs that have a valid
+   on-disk artifact + want a fresh lane attempt.
+2. **`striatum recovery operator-publish --job-id <J> --override-rationale "..."`**
+   — single-verb operator-on-behalf publish that:
+   - Doesn't require an active lease.
+   - Rewrites byline to `author: operator [self-declared: <slug>]`
+     in the on-disk file (idempotent).
+   - Publishes the artifact with the operator byline + override
+     audit-trail.
+   - Marks the originating job `completed` with a synthetic verdict
+     where applicable.
+3. **`recovery auto-publish` byline-rewrite mode**: when the only mismatch is byline (file content valid, path correct, kind correct), allow `--rewrite-byline-to-operator` so the file is rewritten to the operator self-declared form and published.
+4. **Document gap**: ROADMAP §3.1 ("operator-on-behalf publish path") shows the ack→publish→verdict sequence but assumes the lease is active. Add a section §3.1.5 covering "operator-on-behalf when lease has expired" with the concrete CLI path.
+
+### F2 — gemini consistently produces title-before-byline ordering
+
+Same as dogfood-057/058/059 patterns. Gemini's prompt strictly says
+"Plain Markdown line, NO bold, NO heading prefix" but gemini still puts
+the byline AFTER the title heading. Should be operator-fixable trivially
+but interacts with F1's recovery gap.
+
+
+
 Each entry shape:
 
 ```text

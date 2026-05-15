@@ -89,6 +89,12 @@ def redact_run_summary_payload(payload: dict[str, Any]) -> dict[str, Any]:
     verdicts = payload.get("verdicts")
     if isinstance(verdicts, list):
         redacted["verdicts"] = [_safe_verdict(entry) for entry in verdicts if isinstance(entry, dict)]
+    artifacts = payload.get("artifacts")
+    if isinstance(artifacts, list):
+        redacted["artifacts"] = [_safe_artifact(entry) for entry in artifacts if isinstance(entry, dict)]
+    sessions = payload.get("sessions")
+    if isinstance(sessions, list):
+        redacted["sessions"] = [_safe_session(entry) for entry in sessions if isinstance(entry, dict)]
     # The renderer only needs grouped verdicts, artifact/session summaries,
     # branch context, timing, status, doctor, and blockers. If a future helper
     # adds prose-heavy siblings, keep the shape but replace with a placeholder.
@@ -118,6 +124,38 @@ def _safe_verdict(entry: dict[str, Any]) -> dict[str, Any]:
         "created_at": entry.get("created_at"),
         "posture": entry.get("posture"),
     }
+
+
+def _safe_artifact(entry: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "artifact_id": entry.get("artifact_id"),
+        "job_id": entry.get("job_id"),
+        "logical_name": entry.get("logical_name"),
+        "artifact_kind": entry.get("artifact_kind"),
+        "repo_path": entry.get("repo_path"),
+        "content_sha256": entry.get("content_sha256"),
+        "size_bytes": entry.get("size_bytes"),
+        "created_at": entry.get("created_at"),
+    }
+
+
+def _safe_session(entry: dict[str, Any]) -> dict[str, Any]:
+    # Run summaries render close/non-fresh reasons verbatim. Those are useful
+    # in evidence exports, but corpus exports must not carry operator prose.
+    result = {
+        "session_id": entry.get("session_id"),
+        "role_id": entry.get("role_id"),
+        "lane_id": entry.get("lane_id"),
+        "slug": entry.get("slug"),
+        "ordinal": entry.get("ordinal"),
+        "state": entry.get("state"),
+        "registered_at": entry.get("registered_at"),
+        "closed_at": entry.get("closed_at"),
+    }
+    for key in ("close_reason", "non_fresh_reason"):
+        value = entry.get(key)
+        result[key] = EVIDENCE_FREE_TEXT_PLACEHOLDER if value not in (None, "") else value
+    return result
 
 
 def redact_event_payload(payload: dict[str, Any]) -> dict[str, Any]:

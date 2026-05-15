@@ -23,9 +23,8 @@ from __future__ import annotations
 
 import importlib
 import importlib.util
-import sys
 import sqlite3
-import tempfile
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from types import ModuleType
@@ -88,12 +87,9 @@ class Seed:
 
 def _pg_resolve_url() -> str | None:
     try:
-        from tests._harness.pg import resolve_base_url  # type: ignore[import-not-found]
+        from _harness.pg import resolve_base_url
     except ImportError:
-        try:
-            from _harness.pg import resolve_base_url  # type: ignore[import-not-found]
-        except ImportError:
-            return None
+        return None
     try:
         return resolve_base_url()
     except pytest.skip.Exception:
@@ -115,7 +111,7 @@ def pg_url() -> str:
 @pytest.fixture
 def pg_db(pg_url: str) -> Iterator[Any]:
     """Yield a connection to an ephemeral PG database with migrations applied."""
-    from tests._harness.pg import (  # type: ignore[import-not-found]
+    from _harness.pg import (
         create_ephemeral_database,
         drop_ephemeral_database,
     )
