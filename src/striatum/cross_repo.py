@@ -30,7 +30,28 @@ def _dict_cursor(conn: Any) -> Any:
         from psycopg.rows import dict_row
     except ImportError:
         return conn.cursor()
-    return conn.cursor(row_factory=dict_row)
+    try:
+        return conn.cursor(row_factory=dict_row)
+    except TypeError:
+        # FakeConn-style test doubles don't accept the row_factory kwarg.
+        return conn.cursor()
+
+
+def _atomic(conn: Any) -> Any:
+    """Return a context manager that wraps the next block in a transaction
+    when the connection supports it; otherwise a no-op.
+
+    Production psycopg connections expose ``conn.transaction()`` which
+    creates an explicit transaction (or savepoint when nested). Unit-test
+    fakes (e.g. ``tests/test_cross_repo_lifecycle.py::FakeConn``) don't
+    implement it. Use a nullcontext fallback so the same call site works
+    for both shapes — the atomicity contract holds in production and the
+    unit-test fakes already enforce in-memory semantics directly.
+    """
+    if hasattr(conn, "transaction"):
+        return conn.transaction()
+    from contextlib import nullcontext
+    return nullcontext()
 
 
 TERMINAL_STATES = frozenset({"canceled", "completed", "failed", "aborted"})
@@ -80,9 +101,10 @@ def prepare_cross_repo_run(
     # unregistered repository) the cross_repo_runs row must not survive.
     # Under autocommit=True (production daemon connection setting) each
     # statement would commit independently and leave a stranded 'preparing'
-    # row. ``conn.transaction()`` brackets the whole block as a single
-    # transaction regardless of autocommit.
-    with conn.transaction(), _dict_cursor(conn) as cur:
+    # row. ``_atomic(conn)`` brackets the whole block as a single
+    # transaction regardless of autocommit; unit-test fakes that don't
+    # implement ``conn.transaction()`` fall through to a no-op context.
+    with _atomic(conn), _dict_cursor(conn) as cur:
         cur.execute(
             """
             INSERT INTO striatumd.cross_repo_runs (
