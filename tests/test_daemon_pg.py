@@ -25,6 +25,7 @@ def _env(tmp_path: Path) -> dict[str, str]:
             daemon.ENV_REGISTRY: str(tmp_path / "daemon" / "striatumd.sqlite3"),
             daemon.ENV_RUNTIME: str(tmp_path / "runtime"),
             "PYTHONPATH": str(Path.cwd() / "src"),
+            "XDG_CONFIG_HOME": str(tmp_path / "config"),
         }
     )
     env.pop(ENV_DAEMON_DB_URL, None)

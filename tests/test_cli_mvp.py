@@ -2469,7 +2469,8 @@ def test_recovery_requeue_stale_rejects_repo_write_jobs(tmp_path: Path) -> None:
         check=False,
     )
     assert rejected["returncode"] == 4
-    assert rejected["error"]["message"] == "repo-write stale jobs require manual inspection"
+    assert rejected["error"]["message"].startswith("repo-write stale jobs require manual inspection")
+    assert "--force --justification" in rejected["error"]["message"]
 
 
 def test_recovery_requeue_stale_allows_review_only_jobs(tmp_path: Path) -> None:

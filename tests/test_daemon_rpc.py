@@ -221,7 +221,7 @@ def test_hello_success_is_audited_and_request_logged(monkeypatch: pytest.MonkeyP
     assert request_log_calls[0]["decision"] == "allowed"
 
 
-def test_repo_scoped_rpc_refuses_mismatched_registered_repo(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_repo_scoped_rpc_refuses_unregistered_repo(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     class FakeCursor:
         def __enter__(self) -> "FakeCursor":
             return self
@@ -232,8 +232,8 @@ def test_repo_scoped_rpc_refuses_mismatched_registered_repo(monkeypatch: pytest.
         def execute(self, _sql: str, _params: object = None) -> None:
             return None
 
-        def fetchone(self) -> tuple[str]:
-            return (str(tmp_path / "other-repo"),)
+        def fetchone(self) -> None:
+            return None
 
     class FakeConn:
         def cursor(self) -> FakeCursor:
