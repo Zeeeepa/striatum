@@ -1,64 +1,110 @@
 # striatum
 
-Local-first orchestration for multiple terminal-based AI coding agents.
+**A local workflow runner for terminal-based AI coding agents.** Coordinates Codex / Claude Code / Gemini CLI sessions across draft → review → repair → synthesize loops, with audit-chain provenance for every decision and no hosted coordinator.
 
-`striatum` is a small, repo-local control plane for coordinating AI
-coding agents that live in terminals: Codex, Claude Code, Gemini
-CLI, or any other model runtime that can be represented as a
-command. It is built for workflows where several agents need to
-draft, review, synthesize, repair, and report on work without
-relying on a hosted coordinator or hidden chat transcripts.
+- **Local-first.** All workflow state lives in a daemon-owned PostgreSQL you control. No outbound calls, no transcript capture, no telemetry. The runner itself never imports a model vendor.
+- **Multi-lane reviews.** Run N implementers in parallel and route their outputs through deterministic review cycles. The vocabulary in [`docs/UBIQUITOUS_LANGUAGE.md`](docs/UBIQUITOUS_LANGUAGE.md) is the model; CLI verbs are the only legal state mutations.
+- **Audit chain.** Every event and audit row carries a SHA-256 anchor chained to its predecessor. The chain is per-repository for events, daemon-global for the RPC audit log; `daemon doctor` verifies both.
+- **Provider portability.** Wrap any model whose runtime is a command. Add a lane to a workflow; the rest of the system doesn't change.
+- **Replayable evidence.** `corpus export` produces a redacted JSONL bundle with stable hashes — share what happened without sharing live state.
 
-The important distinction is this: per
-[D094 / RFC 0043](docs/rfcs/0043-postgres-as-sole-substrate-and-daemon-required-runtime.md),
-the authoritative live state is the daemon-owned PostgreSQL
-instance, scoped per registered target repository, for runs, jobs,
-sessions, queue messages, leases, blockers, verdicts, artifacts,
-and events. `.striatum/` survives next to each target repo as
-operational scratch (supervised wrapper FIFOs, pidfiles, the
-capability-token cache). Repository files (prompts, findings,
-ledgers, syntheses, decisions, handoffs, redacted evidence
-exports) are durable provenance, not the live message bus.
-Marker files, tmux pane state, terminal output, and provider
-hooks are useful for humans, but they do not advance state.
+## At a glance
 
-Existing repos with a populated `.striatum/state.sqlite3` migrate
-to the new substrate with
-[`striatum daemon migrate-repo-local`](docs/POSTGRES_TRANSITION.md);
-the daemon is a hard prerequisite for every Striatum verb after
-D094, and `--no-daemon` is retired. RFC 0048 (v1.49.0 → v1.55.0)
-finished the substrate port: every single-repo mutation, recovery,
-and read handler runs natively against the daemon's per-repo
-Postgres tables, with Go-core parity in `go/pkg/{reads,mutations}/`.
-Schema v6 (migration 0006) anchors the per-event hash chain in
-dedicated `previous_hash` / `row_hash` columns and a
-`repo_event_chain_heads` pointer.
+```mermaid
+flowchart LR
+  subgraph human["Human principal (escalation only)"]
+    H[Operator / on-call]
+  end
+  subgraph operator["AI operator (default driver)"]
+    O[Codex / Claude Code / Gemini CLI session]
+  end
+  subgraph striatum["Striatum runner"]
+    CLI["striatum CLI"]
+    D[("striatumd daemon")]
+    PG[(Postgres<br/>striatumd schema)]
+    Scratch[".striatum/<br/>(scratch, FIFOs)"]
+    CLI -- "Unix socket RPC" --> D
+    D -- "SELECT / INSERT" --> PG
+    CLI -- "supervised lanes" --> Scratch
+  end
+  subgraph repo["Target repository"]
+    Source[("src/, docs/, …")]
+    Artifacts[("artifacts: prompts, findings,<br/>syntheses, decisions, handoffs")]
+  end
+  H -. "escalation only" .-> CLI
+  O -- "claim / publish / review" --> CLI
+  CLI -- "read / write" --> Source
+  CLI -- "publish provenance" --> Artifacts
+```
 
-## Status
+The daemon owns live state. The target repository owns durable provenance. `.striatum/` next to each target repo is operational scratch (supervised wrapper FIFOs, pidfiles, the capability-token cache).
 
-Per-version release notes live in [`CHANGELOG.md`](CHANGELOG.md);
-the latest tagged version is the source of truth. The package is
-published to PyPI as `striatum-orchestrator` (the bare `striatum`
-name on PyPI is unrelated); the Python module name is still
-`striatum`. RFC status lives in
-[`docs/rfcs/README.md`](docs/rfcs/README.md); accepted and
-proposed RFCs span RFC 0001 through RFC 0058 (target-repo
-adoption). RFC 0048's substrate port is complete as of v1.55.0.
+## The two roles
 
-## Install
+Striatum runs with two named roles (RFC 0053):
 
-From PyPI:
+- **AI operator** — the default driver. Claims work, publishes artifacts, advances state through `striatum` CLI verbs. Same surface that humans have; bounded by *function*, not by *interface*.
+- **Human principal** — escalation only. Resolves blockers the AI judges itself stuck on (`escalation` artifacts), routine work belongs to the operator.
+
+The [day-zero usage guide](docs/USING_STRIATUM.md) walks new arrivals through both roles, prerequisites, first run, and the principal's escalation surface.
+
+## Quick start
 
 ```bash
 pip install striatum-orchestrator
-striatum --help
+
+# Bring up the daemon (Postgres prerequisite — see docs/POSTGRES_TRANSITION.md).
+striatum daemon doctor --apply-migrations
+
+# Register a target repo and install the operator skill bundle.
+TARGET_REPO=/path/to/your/repo
+striatum --repo "$TARGET_REPO" init \
+  --with-skills claude_code \
+  --with-ddd-layout \
+  --json
+
+# Drive a workflow. The operator AI does the rest.
+WORKFLOW=examples/code-change-flow/workflow.json
+striatum --repo "$TARGET_REPO" workflow validate "$WORKFLOW" --json
+striatum --repo "$TARGET_REPO" run prepare --workflow "$WORKFLOW" --json
+striatum --repo "$TARGET_REPO" run start --run-id <run_id> --json
+striatum --repo "$TARGET_REPO" dashboard --run-id <run_id> --once
 ```
 
-From a checkout of this repository:
+Full walkthrough: [`docs/USING_STRIATUM.md`](docs/USING_STRIATUM.md). Operator playbook: [`docs/HOW_TO_HUMAN.md`](docs/HOW_TO_HUMAN.md). Agent companion to the skill bundle: [`docs/HOW_TO_AGENT.md`](docs/HOW_TO_AGENT.md).
+
+## Why striatum
+
+Three problems the runner is built around:
+
+**Reviewer co-blindness.** If the same model both implements and reviews, it will accept work the operator wouldn't. Striatum makes the lane assignment first-class (RFC 0018) so a `codex` implementer can be reviewed by `claude` and synthesized by `gemini`, and a verdict reaching `needs_revision` is recorded — not papered over. The dogfood ledger under `docs/dogfood/` shows where this caught real divergence between drafts.
+
+**Audit-quality provenance.** Many workflows lose state when a session crashes, a process exits nonzero, or a serve restarts. Striatum's authoritative live state is the daemon-owned Postgres; every event carries a `previous_hash` / `row_hash` anchor (schema v6, migration 0006); every RPC request lands a row in `striatumd.audit_log` with a chain head locked `FOR UPDATE` so concurrent appenders serialize. `corpus export` produces a verifying manifest with replay-stable SHA-256s.
+
+**Provider portability.** The runner has no model dependency. Add a lane to a workflow JSON, install a skill bundle for that provider's harness, and the same CLI verbs work. The product boundary in [`docs/SPEC.md`](docs/SPEC.md) explicitly forbids the runner from importing any vendor SDK.
+
+## Project status
+
+- **Version**: see [`CHANGELOG.md`](CHANGELOG.md); the latest tag is the source of truth.
+- **Platforms**: Linux + macOS. Python 3.11+. Postgres 14+ (system install).
+- **PyPI**: `striatum-orchestrator` (the bare `striatum` package on PyPI is unrelated). Python module name is `striatum`.
+- **License**: Apache-2.0.
+- **RFCs**: [`docs/rfcs/README.md`](docs/rfcs/README.md). RFC 0048 (substrate port to PG-native daemon handlers) completed in v1.55.0. Active RFC work: RFC 0050 operator UI rework, RFC 0058 target-repo adoption.
+- **Contributions**: follow [`AGENTS.md`](AGENTS.md). Make changes through the dogfood workflow when the change is RFC-class; cowboy commits are fine for small bugs and docs.
+
+## Install from source
 
 ```bash
+git clone https://github.com/halbritt/striatum.git
+cd striatum
 make install
 .venv/bin/striatum --help
+```
+
+Run the tests:
+
+```bash
+make lint typecheck test
 ```
 
 For development without installing the console script:
@@ -67,180 +113,18 @@ For development without installing the console script:
 PYTHONPATH=src python3 -m striatum.cli --help
 ```
 
-Run the tests with:
-
-```bash
-make test
-```
-
-## Quick Start (Human Operator)
-
-You will run `striatum` commands by hand.
-
-```bash
-TARGET_REPO=/path/to/your/repo
-WORKFLOW=examples/code-change-flow/workflow.json   # or choose a type in docs/WORKFLOW_TYPES.md
-
-striatum --repo "$TARGET_REPO" init --json
-striatum --repo "$TARGET_REPO" workflow validate "$WORKFLOW" --json
-striatum --repo "$TARGET_REPO" run prepare --workflow "$WORKFLOW" --json
-striatum --repo "$TARGET_REPO" run start --run-id <run_id> --json
-striatum --repo "$TARGET_REPO" dashboard --run-id <run_id> --once
-```
-
-From here you register a session and claim work. The full
-operator playbook is [`docs/HOW_TO_HUMAN.md`](docs/HOW_TO_HUMAN.md).
-
-## Quick Start (Coding Agent)
-
-You will install the runner, install the *agent skill bundle*
-(RFC 0015), and hand the agent a target repo with a workflow
-file in it. The agent does the rest. For first-time setup,
-combine `--with-skills` and `--with-ddd-layout` (RFC 0021) so
-the target repo gets both the agent-facing skills and the
-human-facing DDD doc layout in one command:
-
-```bash
-TARGET_REPO=/path/to/your/repo
-striatum --repo "$TARGET_REPO" init \
-  --with-skills claude_code \
-  --with-ddd-layout \
-  --json
-# now point your Claude Code session at $TARGET_REPO and tell it:
-#   "drive the workflow at <path>/workflow.json using striatum"
-```
-
-The single command above initializes `.striatum/`, writes the
-agent skill bundle to `.claude/skills/striatum-*/`, and
-scaffolds the seven canonical human-facing DDD documents
-(`docs/SPEC.md`, `docs/PRD.md`, `docs/DECISION_LOG.md`,
-`docs/UBIQUITOUS_LANGUAGE.md`, `docs/DDD.md`,
-`docs/rfcs/README.md`, `docs/rfcs/0001-template.md`).
-Existing files are preserved; pass `--ddd-layout-dry-run` to
-preview, `--ddd-layout-force` to overwrite (records
-`prior_sha256` for audit). For agents without a skill
-convention, `striatum skills install --profile generic`
-writes a single `STRIATUM_AGENT_GUIDE.md` you can paste into a
-system prompt. The long-form companion to the bundle is
-[`docs/HOW_TO_AGENT.md`](docs/HOW_TO_AGENT.md).
-
-## Web UI
-
-```bash
-striatum --repo "$TARGET_REPO" serve --web
-# bound port is in the startup envelope; pass --port for a fixed one
-```
-
-The web UI (RFC 0022) is server-rendered Jinja2: real HTML
-pages at `/`, `/run/<id>`, `/run/<id>/job/<id>`,
-`/run/<id>/artifact/<id>`, `/workflows`, `/chat`, and `/doctor`.
-Run/workflow filters, localtime toggle, graph tooltips, keyboard
-shortcuts, and doctor grouping are built as vanilla-JS progressive
-enhancements. The dependency graph renders as inline SVG with
-state-colored nodes that click-navigate. Light + dark mode follow
-`prefers-color-scheme`. Localhost-only by default; mutations gated
-behind `--allow-mutations`.
-
-Chat workflow generation follows preview-then-confirm: the preview tool
-writes nothing, and the write tool is hidden unless mutations are enabled
-and still requires a separate browser-side operator confirmation.
-
-Operator AI sessions can drive a dogfood end-to-end through the
-[MCP dogfood-lifecycle chat tools](docs/MCP.md#dogfood-lifecycle-tools)
-(RFC 0040 V1) instead of bash CLI invocations with hand-copied
-session/lease/message ids. New workflows pick up the per-model
-"no-questions" harness-profile fragments automatically; existing
-workflows can be backported with `striatum workflow upgrade <path>`.
-See [`docs/HARNESS_FRICTION_PATTERNS.md`](docs/HARNESS_FRICTION_PATTERNS.md)
-for the long-form record of the operator-side friction patterns
-addressed by V1.
-
-## Optional Multi-Repo Registry And Sweep
-
-```bash
-striatumd --max-sweeps 1 --json              # foreground sweep process
-striatum repo add /path/to/target --json
-striatum dashboard --all --json
-striatum --daemon --repo /path/to/target status --json
-```
-
-RFC 0028 V1 is local-first and optional. It adds registry-backed
-multi-repository read visibility, daemon audit metadata, resources-only
-daemon MCP, and a foreground recovery sweep process. It does not ship a
-daemon RPC server in V1: CLI and MCP clients open the owner-only registry
-SQLite directly under token/capability checks. Direct repo-local CLI mode
-remains the default. `dashboard --all` is registry-backed and requires a
-daemon token; run `repo add` or `daemon start` first to bootstrap the local
-admin token, or pass an explicit token through the client surface.
-`repo add` registers an already-initialized repository by default; use
-`repo add --init` only when you intentionally want registration to
-initialize the target. V1 does not add daemon-owned supervision, MCP
-mutation tools, sealed apply/signing, hosted service semantics, audit
-retention/rotation, or stronger provenance than the selected workflow
-`provenance_mode` already provides.
-
-RFC 0033 V2 accepts system PostgreSQL as the daemon-owned storage
-substrate for daemon-global registry, audit, capability, scheduler, and
-RPC-session state. Configure it with `STRIATUM_DAEMON_DB_URL`, daemon
-config, or an explicit `--postgres-url` client surface. The cutover
-command is `striatum daemon migrate --from sqlite --to pg` (`--dry-run`
-inspects first; `--keep-sqlite-readonly` keeps the V1 file as an audit
-tombstone). RFC 0043 / D094 then moves per-repository workflow state
-into the same daemon-owned Postgres under a `repository_id` scope;
-existing repos cut over with `striatum daemon migrate-repo-local`
-(see [`docs/POSTGRES_TRANSITION.md`](docs/POSTGRES_TRANSITION.md)).
-
-RFC 0030 and RFC 0031 add the daemon V2 RPC/supervision/apply
-foundation on top of that substrate: envelope-v1 JSON, version
-handshake, method registry, request/audit helpers, daemon supervisor
-metadata, repo-local supervisor pointers, and apply receipts. RFC 0032
-adds the V2 cross-repo schema/migration and daemon MCP mutation
-capability-gating foundation; the full two-repo daemon end-to-end test
-harness remains deferred. Hosted service semantics and
-malicious-local-operator-resistant sealed apply remain out of scope.
-
-## What It Is For
-
-striatum is for long-running, review-heavy agent workflows where
-"just tell three agents to work in tmux panes" stops being
-enough. It gives the human and coordinator a stable answer to
-questions like:
-
-- What run is active, on which branch was it confirmed, and
-  which jobs are claimable, blocked, in review, or waiting on a
-  human?
-- Which session owns a lease? What artifact was required, where
-  was it written, what hash was recorded?
-- Did a review return `needs_revision`, and did the workflow
-  declare a safe cycle for that?
-- Can I commit a redacted evidence summary without committing
-  live SQLite state or transcripts?
-
-The runner is intentionally conservative. It coordinates work; it
-does not decide that an agent is done because a terminal printed
-a phrase. Agents and humans move the workflow by calling
-`striatum` commands.
-
-striatum is a domain-driven workflow runner: the vocabulary in
-[`docs/UBIQUITOUS_LANGUAGE.md`](docs/UBIQUITOUS_LANGUAGE.md) is the
-*model*, not just documentation; the CLI verbs are the only legal
-mutations. [`docs/DDD.md`](docs/DDD.md) explains why the
-vocabulary is load-bearing instead of bookkeeping.
-
-## Documentation Map
+## Documentation
 
 | File | When to read |
 |---|---|
-| [docs/GETTING_STARTED.md](docs/GETTING_STARTED.md) | First 15 minutes; forks human-operator vs. coding-agent setup. |
-| [docs/HOW_TO_HUMAN.md](docs/HOW_TO_HUMAN.md) | The operator's long-form playbook; every CLI verb in the order you use it. |
-| [docs/HOW_TO_AGENT.md](docs/HOW_TO_AGENT.md) | Long-form companion to the RFC 0015 agent skill bundle. |
-| [docs/WORKFLOW_TYPES.md](docs/WORKFLOW_TYPES.md) | Which workflow shape and lane set to choose; current starters, examples, defaults, and chooser roadmap. |
-| [docs/WRITING_WORKFLOWS.md](docs/WRITING_WORKFLOWS.md) | How to author your own `workflow.json`. |
-| [docs/CLI_REFERENCE.md](docs/CLI_REFERENCE.md) | Flat list of every CLI verb and stable exit codes. |
-| [docs/POSTGRES_TRANSITION.md](docs/POSTGRES_TRANSITION.md) | Operator runbook for the D094 / RFC 0043 PostgreSQL cutover and per-repo migration. |
-| [docs/SPEC.md](docs/SPEC.md) | The implementation contract; the source of truth when this page disagrees with the runner. |
-| [docs/INDEX.md](docs/INDEX.md) | Every doc in `docs/` with a one-line summary. |
-
-## License
-
-Apache-2.0. See [`LICENSE`](LICENSE).
+| [`docs/USING_STRIATUM.md`](docs/USING_STRIATUM.md) | The day-zero usage guide — operator + principal in one pass. |
+| [`docs/HOW_TO_HUMAN.md`](docs/HOW_TO_HUMAN.md) | Long-form playbook: every CLI verb in the order an operator uses it. |
+| [`docs/HOW_TO_AGENT.md`](docs/HOW_TO_AGENT.md) | Long-form companion to the RFC 0015 agent skill bundle. |
+| [`docs/POSTGRES_TRANSITION.md`](docs/POSTGRES_TRANSITION.md) | Operator runbook for the D094 / RFC 0043 PostgreSQL cutover and per-repo migration. |
+| [`docs/WORKFLOW_TYPES.md`](docs/WORKFLOW_TYPES.md) | Workflow shapes and lane sets; starters, examples, defaults. |
+| [`docs/WRITING_WORKFLOWS.md`](docs/WRITING_WORKFLOWS.md) | How to author your own `workflow.json`. |
+| [`docs/CLI_REFERENCE.md`](docs/CLI_REFERENCE.md) | Flat list of every CLI verb and stable exit codes. |
+| [`docs/SPEC.md`](docs/SPEC.md) | The implementation contract; the source of truth when this page disagrees with the runner. |
+| [`docs/CONSUMER_REPO_LAYOUT.md`](docs/CONSUMER_REPO_LAYOUT.md) | Recommended target-repo layout (RFC 0056). |
+| [`docs/INDEX.md`](docs/INDEX.md) | Every doc in `docs/` with a one-line summary. |
+| [`docs/rfcs/README.md`](docs/rfcs/README.md) | Accepted and proposed RFCs (0001 → current). |

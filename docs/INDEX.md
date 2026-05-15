@@ -8,8 +8,10 @@ collectively, not individually.
 
 | File | Audience | Summary |
 |---|---|---|
-| [GETTING_STARTED.md](GETTING_STARTED.md) | New user | From a fresh target repo to a running workflow in ~15 minutes; forks human-operator vs. coding-agent setups. |
-| [HOW_TO_HUMAN.md](HOW_TO_HUMAN.md) | Human operator | Long-form playbook for driving striatum by hand: every CLI verb in the order you use it. |
+| [USING_STRIATUM.md](USING_STRIATUM.md) | New arrival (RFC 0054) | Day-zero usage guide: the operator + principal model, prerequisites, day-zero setup, first run, escalation surface. Read this first. |
+| [GETTING_STARTED.md](GETTING_STARTED.md) | New user | From a fresh target repo to a running workflow in ~15 minutes; forks human-operator vs. coding-agent setups. Superseded by USING_STRIATUM.md for the role-aware walkthrough; retained for the deeper install / verify steps. |
+| [HOW_TO_HUMAN.md](HOW_TO_HUMAN.md) | Human principal | Long-form playbook for driving striatum by hand: every CLI verb in the order you use it. |
+| [CONSUMER_REPO_LAYOUT.md](CONSUMER_REPO_LAYOUT.md) | Target-repo owner (RFC 0056) | Opinionated-but-non-mandatory directory layout recommendations: where the workflow file lives, where artifacts land, what to gitignore. |
 | [HOW_TO_AGENT.md](HOW_TO_AGENT.md) | Coding agent | Long-form companion to the RFC 0015 skill bundle; the workflow loop, work-packet shape, and what not to do. |
 | [CONTEXT_HYGIENE.md](CONTEXT_HYGIENE.md) | Operator / agent author | Why session quality is not a function of token budget; repo-side, session-side, and model-side practices for replicating high-taste sessions. |
 | [WORKFLOW_TYPES.md](WORKFLOW_TYPES.md) | Workflow selector | Which workflow shape and lane set to choose; current starters, examples, defaults, and the roadmap toward a chooser UI. |
