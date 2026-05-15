@@ -21,9 +21,9 @@ the real symbols and decorator-based self-registration just works.
 
 from __future__ import annotations
 
-from typing import Any, Callable, Mapping, Protocol
+from typing import TYPE_CHECKING, Any, Callable, Mapping, Protocol, cast
 
-HandlerFn = Callable[["RepoHandlerContextProtocol", Mapping[str, Any]], dict[str, Any]]
+HandlerFn = Callable[[Any, Mapping[str, Any]], dict[str, Any]]
 
 
 class RepoHandlerContextProtocol(Protocol):
@@ -45,10 +45,17 @@ class RepoHandlerContextProtocol(Protocol):
         payload, and updates ``repo_event_chain_heads`` before commit.
     """
 
-    pg_conn: Any
-    repository_id: str
-    repo_root: Any
-    auth: Any
+    @property
+    def pg_conn(self) -> Any: ...
+
+    @property
+    def repository_id(self) -> str: ...
+
+    @property
+    def repo_root(self) -> Any: ...
+
+    @property
+    def auth(self) -> Any: ...
 
     def now(self) -> str: ...
 
@@ -65,38 +72,34 @@ class RepoHandlerContextProtocol(Protocol):
         artifact_id: str | None = None,
         lease_id: str | None = None,
         payload: Mapping[str, Any] | None = None,
-    ) -> str: ...
+    ) -> int: ...
 
 
-try:  # pragma: no cover - imported once Track A merges.
-    from striatum.daemon_pg.handlers.registry import (  # type: ignore[import-not-found]
-        register_pg_handler as _register_pg_handler,
-    )
-    from striatum.daemon_pg.handlers.context import (  # type: ignore[import-not-found]
-        RepoHandlerContext as _RepoHandlerContext,
-    )
+if TYPE_CHECKING:
+    from striatum.daemon_pg.handlers.context import RepoHandlerContext as RepoHandlerContext
+else:
+    try:  # pragma: no cover - imported once Track A merges.
+        from striatum.daemon_pg.handlers.context import RepoHandlerContext as RepoHandlerContext
 
-    register_pg_handler = _register_pg_handler
-    RepoHandlerContext = _RepoHandlerContext
-    REGISTRY_AVAILABLE = True
-except ImportError:
-    REGISTRY_AVAILABLE = False
+        REGISTRY_AVAILABLE = True
+    except ImportError:
+        RepoHandlerContext = RepoHandlerContextProtocol
+        REGISTRY_AVAILABLE = False
 
-    def register_pg_handler(method: str) -> Callable[[HandlerFn], HandlerFn]:
-        """No-op decorator that records the intended RPC method name.
 
-        Track A wires the real registry; until then this records the method
-        name on the function so the subpackage's `__init__.py` import path
-        is still load-bearing once Track A lands.
-        """
+def register_pg_handler(*methods: str) -> Callable[[HandlerFn], HandlerFn]:
+    try:
+        from striatum.daemon_pg.handlers.registry import register_pg_handler as real_register
+    except ImportError:
 
         def _decorator(func: HandlerFn) -> HandlerFn:
-            setattr(func, "_pg_rpc_method", method)
+            for method in methods:
+                setattr(func, "_pg_rpc_method", method)
             return func
 
         return _decorator
 
-    RepoHandlerContext = RepoHandlerContextProtocol  # type: ignore[misc, assignment]
+    return cast(Callable[[HandlerFn], HandlerFn], real_register(*methods))
 
 
 __all__ = [

@@ -238,7 +238,7 @@ def event_row_hash(row: Mapping[str, Any]) -> str:
     return canonical_event_hash(row)
 
 
-def transaction(ctx: RepoHandlerContext):
+def transaction(ctx: RepoHandlerContext) -> Any:
     return ctx.pg_conn.transaction()
 
 

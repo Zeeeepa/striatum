@@ -16,7 +16,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Iterator, Mapping, Sequence, cast
+from typing import Any, BinaryIO, Iterator, Mapping, Sequence, cast
 from urllib.parse import parse_qs, urlparse
 
 from striatum.cli.introspect import doctor as repo_doctor
@@ -1000,9 +1000,10 @@ def run_daemon_foreground(
     connection_threads: list[threading.Thread] = []
 
     def _serve_connection(conn_sock: "socket.socket", connection_id: str) -> None:
-        import sys, traceback
+        import sys
+        import traceback
         try:
-            stream = conn_sock.makefile("rwb")
+            stream = cast(BinaryIO, conn_sock.makefile("rwb"))
             for envelope in read_envelopes(stream):
                 if stop_event.is_set():
                     break

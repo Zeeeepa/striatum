@@ -58,7 +58,7 @@ def test_complete_requires_session_id() -> None:
     mod = import_handler("resume_blocker")
     with pytest.raises(InvalidTransitionError):
         mod.handle(
-            ctx=None,  # type: ignore[arg-type]
+            ctx=None,
             params={"blocker_id": "blk_test", "complete": True, "extend_seconds": 900},
         )
 
@@ -69,6 +69,6 @@ def test_extend_seconds_must_be_positive() -> None:
     mod = import_handler("resume_blocker")
     with pytest.raises(InvalidTransitionError):
         mod.handle(
-            ctx=None,  # type: ignore[arg-type]
+            ctx=None,
             params={"blocker_id": "blk_test", "extend_seconds": 0},
         )

@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import inspect
 import os
+from typing import Any
 
 import pytest
 
@@ -56,7 +57,7 @@ def test_handler_signature_is_ctx_params() -> None:
     reason="full PG parity fixture requires Track A's PG mutation helpers; "
     "set RFC0048_PARITY=1 to enable",
 )
-def test_pg_handler_empty_run_returns_no_stale_entries(pg_ctx) -> None:
+def test_pg_handler_empty_run_returns_no_stale_entries(pg_ctx: Any) -> None:
     from ._helpers import import_handler
 
     mod = import_handler("stale_leases")

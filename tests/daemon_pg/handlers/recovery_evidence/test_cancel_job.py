@@ -7,9 +7,6 @@ empty-reason or terminal-state inputs the same way the SQLite path does.
 from __future__ import annotations
 
 import inspect
-import os
-
-import pytest
 
 
 def test_module_registers_recovery_cancel_job() -> None:

@@ -19,7 +19,6 @@ from striatum.errors import NotFoundError
 
 from ._shim import RepoHandlerContext, register_pg_handler
 from ._sql import (
-    execute,
     expire_leases,
     fetch_all,
     maybe_complete_run,
@@ -335,10 +334,10 @@ def _live_publish_and_complete(
     L102-107), this branch surfaces the dependency clearly.
     """
     try:
-        from striatum.daemon_pg.handlers.workflow_loop.complete_job import (  # type: ignore[import-not-found]
+        from striatum.daemon_pg.handlers.workflow_loop.complete_job import (  # type: ignore[attr-defined]
             complete_inline,
         )
-        from striatum.daemon_pg.handlers.workflow_loop.submit_review import (  # type: ignore[import-not-found]
+        from striatum.daemon_pg.handlers.workflow_loop.submit_review import (
             publish_artifact_inline,
         )
     except ImportError as exc:
@@ -351,7 +350,7 @@ def _live_publish_and_complete(
         ) from exc
 
     try:
-        from striatum.daemon_pg.handlers.workflow_loop.ack_work import (  # type: ignore[import-not-found]
+        from striatum.daemon_pg.handlers.workflow_loop.ack_work import (  # type: ignore[attr-defined]
             ack_inline,
         )
 

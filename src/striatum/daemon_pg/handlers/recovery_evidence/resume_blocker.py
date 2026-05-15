@@ -14,7 +14,7 @@ to wait for the dependency to be wired.
 
 from __future__ import annotations
 
-from typing import Any, Mapping
+from typing import Any, Mapping, cast
 
 from striatum.errors import InvalidTransitionError, NotFoundError
 
@@ -292,7 +292,7 @@ def _complete_inline(
     Until that lands we raise so callers see the dependency clearly.
     """
     try:
-        from striatum.daemon_pg.handlers.workflow_loop.complete_job import (  # type: ignore[import-not-found]
+        from striatum.daemon_pg.handlers.workflow_loop.complete_job import (  # type: ignore[attr-defined]
             complete_inline,
         )
     except ImportError as exc:
@@ -300,12 +300,15 @@ def _complete_inline(
             "inline completion requires Track A's PG complete_job helper; "
             "rerun without --complete and call work.complete explicitly"
         ) from exc
-    return complete_inline(
-        ctx,
-        session_id=session_id,
-        job_id=job_id,
-        lease_id=lease_id,
-        summary=summary,
+    return cast(
+        dict[str, Any],
+        complete_inline(
+            ctx,
+            session_id=session_id,
+            job_id=job_id,
+            lease_id=lease_id,
+            summary=summary,
+        ),
     )
 
 

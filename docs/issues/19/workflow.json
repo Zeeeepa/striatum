@@ -1,0 +1,38 @@
+{
+  "schema_version": "striatum.workflow.v1",
+  "workflow_id": "gh-19-21-stale-lease-and-serve-state",
+  "workflow_version": "1",
+  "name": "GH #19 + #21: stale-lease recovery + serve startup state-loss",
+  "context_docs": [
+    "docs/issues/19/SPEC.md",
+    "docs/issues/21/SPEC.md",
+    "docs/dogfood/FRICTION_LOG.md",
+    "docs/rfcs/0048-daemon-side-substrate-migration.md",
+    "AGENTS.md"
+  ],
+  "coordinator": {"lane": "codex"},
+  "parallelism": {"max_active_jobs": 3},
+  "branch": {"mode": "auto", "suggested_name": "striatum/gh-19-21-stale-lease-and-serve-state"},
+  "lanes": {
+    "codex": {"adapter": "process", "command": ["bash", "-lc", "PYTHONPATH=src python3 -m striatum.cli skills install --profile all --scope user --force --json >/dev/null && export PATH=\"$PWD/.venv/bin:$PATH\" && exec .striatum/bin/codex-supervised-wrapper.sh"], "model": "codex", "strategy_version": "2026-05-15", "supervision": {"compatible": true, "stdin_format": "newline_delimited_json", "wrapper_required": true}},
+    "claude_code": {"adapter": "process", "command": ["bash", "-lc", "PYTHONPATH=src python3 -m striatum.cli skills install --profile all --scope user --force --json >/dev/null && export PATH=\"$PWD/.venv/bin:$PATH\" && exec .striatum/bin/claude-supervised-wrapper.sh"], "model": "claude_code", "strategy_version": "2026-05-15", "supervision": {"compatible": "verify_pipe_behavior_first", "stdin_format": "prompt_text", "wrapper_required": true}}
+  },
+  "roles": {
+    "coordinator": {"description": "Operator orchestration"},
+    "triager": {"description": "Read SPECs; produce SCOPE.md naming files + acceptance checks"},
+    "implementer": {"description": "Code"},
+    "reviewer": {"description": "Fresh-session verify against SPEC's Definition of Done"}
+  },
+  "jobs": [
+    {"id": "triage", "type": "generic", "title": "Triage GH #19 + #21 — produce SCOPE.md", "role_id": "triager", "lane_id": "codex", "fresh_session_required": true, "objective": "Read docs/issues/19/SPEC.md (stale-lease recovery for repo_write jobs) and docs/issues/21/SPEC.md (serve startup clobbers state.sqlite3). Produce docs/issues/19/SCOPE.md naming: (a) the file paths to change for each issue; (b) acceptance checks derived from each SPEC's Required Fixes + Definition of Done sections; (c) the test files that will prove each fix. The scope MUST stay narrow — pick the minimum viable fix per issue (e.g., for #21: serve should not init-over an existing state.sqlite3; for #19: a `--force --justification` flag on `recovery requeue-stale` for repo_write OR a new `recovery operator-publish` verb). No broader refactors. Cite each acceptance check against the GH issue's section.", "task_prompt": {"path": "docs/issues/19/prompts/triage.md"}, "write_scope": {"mode": "repo_write", "repo_write": true, "allowed_paths": ["docs/issues/19/"], "forbidden_paths": [".striatum/"]}, "expected_artifacts": [{"logical_name": "scope", "kind": "synthesis", "path": "docs/issues/19/SCOPE.md", "required": true}]},
+    {"id": "fix", "type": "build", "title": "Fix GH #19 + #21 per SCOPE.md", "role_id": "implementer", "lane_id": "codex", "required_review_postures": ["ergonomics_dx"], "objective": "Implement the fixes named in SCOPE.md. Per the issue SPECs: (#21) serve startup must NOT init-over an existing healthy state.sqlite3 — attach read-or-shared, fail loudly if unreadable; documented hazard in HOW_TO_HUMAN.md. (#19) provide an operator escape hatch for repo_write stale-lease — minimum viable is a `--force --justification` flag on `recovery requeue-stale` that audit-chains the override, OR a new `recovery operator-publish` verb that bypasses the lease-active precondition. Tests under tests/ assert: (a) serve start does not modify state.sqlite3 when an active run is in flight (run row count + sha256 invariant); (b) `recovery requeue-stale --force --justification \"...\"` (or operator-publish) transitions a stale_lease job back to a claimable state with an audit-chained operator override row. Use sub-agents for each issue's cluster.", "task_prompt": {"path": "docs/issues/19/prompts/fix.md"}, "write_scope": {"mode": "repo_write", "repo_write": true, "allowed_paths": ["src/striatum/", "tests/", "docs/issues/19/build/", "docs/HOW_TO_HUMAN.md", "docs/CLI_REFERENCE.md"], "forbidden_paths": [".striatum/", "docs/dogfood/", "docs/rfcs/"]}, "expected_artifacts": [{"logical_name": "fix_handoff", "kind": "handoff", "path": "docs/issues/19/build/HANDOFF.md", "required": true}]},
+    {"id": "verify", "type": "review", "title": "Verify GH #19 + #21 fixes against SPEC acceptance checks", "role_id": "reviewer", "lane_id": "claude_code", "fresh_session_required": true, "reviewer_context_policy": "fresh", "review_posture": "ergonomics_dx", "objective": "Fresh-session: read ONLY the two GH issue SPECs (docs/issues/{19,21}/SPEC.md), the SCOPE.md, the HANDOFF.md, and the changed source files. Verify each acceptance check from SCOPE.md is closed by a test that actually exercises the fix (not aspirational coverage). For #21: assert there is a test that (a) creates a populated state.sqlite3, (b) starts a fresh serve process, (c) asserts the file count + checksum is unchanged. For #19: assert there is a test that (a) creates a stale_lease repo_write job, (b) runs the new operator escape verb with --justification, (c) asserts the job transitions back to claimable AND an operator-override audit row is written. Verdict accept / accept_with_findings / needs_revision.", "task_prompt": {"path": "docs/issues/19/prompts/verify.md"}, "write_scope": {"mode": "review_only_artifact", "repo_write": false, "allowed_paths": ["docs/issues/19/review/"], "forbidden_paths": [".striatum/"]}, "expected_artifacts": [{"logical_name": "verify_review", "kind": "finding", "path": "docs/issues/19/review/REVIEW.md", "required": true}]}
+  ],
+  "edges": [
+    {"from": "triage", "to": "fix", "on": "completed"},
+    {"from": "fix", "to": "verify", "on": "completed"}
+  ],
+  "cycles": [
+    {"from": "verify", "to": "fix", "on_verdict": "needs_revision", "max_iterations": 1, "allow_same_lane": true}
+  ]
+}

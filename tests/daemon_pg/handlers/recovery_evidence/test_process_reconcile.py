@@ -8,9 +8,6 @@ the SQLite path uses (EPERM → alive, ESRCH → dead).
 from __future__ import annotations
 
 import inspect
-import os
-
-import pytest
 
 
 def test_module_registers_recovery_process_reconcile() -> None:

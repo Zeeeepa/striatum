@@ -9,10 +9,9 @@ from __future__ import annotations
 
 import inspect
 import os
+from typing import Any
 
 import pytest
-
-from striatum.errors import InvalidTransitionError
 
 
 def test_module_registers_recovery_requeue_stale() -> None:
@@ -60,7 +59,7 @@ def test_handler_module_exposes_no_repo_write_loophole() -> None:
     reason="full PG parity fixture requires Track A's PG mutation helpers; "
     "set RFC0048_PARITY=1 to enable",
 )
-def test_pg_handler_requires_run_id_and_job_id(pg_ctx) -> None:
+def test_pg_handler_requires_run_id_and_job_id(pg_ctx: Any) -> None:
     from ._helpers import import_handler
 
     mod = import_handler("requeue_stale")
