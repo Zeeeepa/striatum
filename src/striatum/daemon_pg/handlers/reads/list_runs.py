@@ -26,7 +26,7 @@ def handle(ctx: RepoHandlerContext, params: Mapping[str, Any]) -> dict[str, Any]
               ON w.repository_id = r.repository_id
              AND w.workflow_snapshot_id = r.workflow_snapshot_id
             WHERE r.repository_id = %s
-              AND (%s IS NULL OR r.state = %s)
+              AND (%s::text IS NULL OR r.state = %s)
             ORDER BY r.created_at, r.run_id
             LIMIT %s
             """,

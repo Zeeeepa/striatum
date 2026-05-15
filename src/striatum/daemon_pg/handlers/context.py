@@ -509,29 +509,19 @@ def maybe_complete_run(ctx: RepoHandlerContext, *, run_id: str) -> None:
         has_completed = cur.fetchone()
     now = ctx.now()
     state, stop_reason, event_type, source, payload = (
-        ("completed", None, "run.completed", "run_completed", None)
+        ("completed", "all_jobs_terminal", "run.completed", "run_completed", None)
         if has_completed is not None
         else ("canceled", "all_jobs_canceled", "run.canceled", "run_canceled", {"reason": "all_jobs_canceled"})
     )
     with ctx.cursor() as cur:
-        if stop_reason is None:
-            cur.execute(
-                """
-                UPDATE striatumd.runs
-                SET state = %s, completed_at = %s
-                WHERE repository_id = %s AND run_id = %s
-                """,
-                (state, now, ctx.repository_id, run_id),
-            )
-        else:
-            cur.execute(
-                """
-                UPDATE striatumd.runs
-                SET state = %s, completed_at = %s, stop_reason = %s
-                WHERE repository_id = %s AND run_id = %s
-                """,
-                (state, now, stop_reason, ctx.repository_id, run_id),
-            )
+        cur.execute(
+            """
+            UPDATE striatumd.runs
+            SET state = %s, completed_at = %s, stop_reason = %s
+            WHERE repository_id = %s AND run_id = %s
+            """,
+            (state, now, stop_reason, ctx.repository_id, run_id),
+        )
     ctx.append_event(run_id=run_id, event_type=event_type, payload=payload)
     close_remaining_sessions(ctx, run_id=run_id, source=source, reason=source)
 

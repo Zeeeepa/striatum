@@ -43,9 +43,13 @@ def pg_url(postgres_url: str) -> Iterator[str]:
 
 
 def test_repo_local_migration_registered_as_daemon_pg_v5() -> None:
-    assert LATEST_DAEMON_DB_VERSION == 5
-    assert MIGRATIONS[-1].resource == "0005_repo_local_workflow_state.sql"
-    sql = MIGRATIONS[-1].sql
+    # Migration 0006 lands the events chain anchors on top of 0005; the
+    # repo-local workflow state migration that this test pins remains 0005
+    # by version+resource. LATEST_DAEMON_DB_VERSION is now 6 (the chain
+    # anchor migration); this test asserts that 0005 stays the locked
+    # repo-local schema, not that LATEST is 5.
+    assert LATEST_DAEMON_DB_VERSION >= 5
+    sql_0005 = next(m for m in MIGRATIONS if m.version == 5).sql
     for table in (
         "workflow_snapshots",
         "runs",
@@ -66,9 +70,9 @@ def test_repo_local_migration_registered_as_daemon_pg_v5() -> None:
         "process_supervisor_pointers",
         "repo_migrations",
     ):
-        assert f"striatumd.{table}" in sql
-    assert "repository_id text NOT NULL" in sql
-    assert "refuse_repo_append_only_change" in sql
+        assert f"striatumd.{table}" in sql_0005
+    assert "repository_id text NOT NULL" in sql_0005
+    assert "refuse_repo_append_only_change" in sql_0005
 
 
 @pytest.mark.multi_repo

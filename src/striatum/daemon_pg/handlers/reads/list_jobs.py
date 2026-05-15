@@ -33,8 +33,8 @@ def handle(ctx: RepoHandlerContext, params: Mapping[str, Any]) -> dict[str, Any]
                    ) AS verdict
             FROM striatumd.jobs j
             WHERE j.repository_id = %s AND j.run_id = %s
-              AND (%s IS NULL OR j.state = %s)
-              AND (%s IS NULL OR j.workflow_job_id = %s)
+              AND (%s::text IS NULL OR j.state = %s)
+              AND (%s::text IS NULL OR j.workflow_job_id = %s)
             ORDER BY j.created_at, j.workflow_job_id, j.attempt
             """,
             (ctx.repository_id, run_id, state, state, workflow_job_id, workflow_job_id),

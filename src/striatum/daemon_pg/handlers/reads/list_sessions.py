@@ -31,9 +31,9 @@ def handle(ctx: RepoHandlerContext, params: Mapping[str, Any]) -> dict[str, Any]
              AND ps.session_id = s.session_id
              AND ps.state = 'attached'
             WHERE s.repository_id = %s AND s.run_id = %s
-              AND (%s IS NULL OR s.state = %s)
-              AND (%s IS NULL OR s.role_id = %s)
-              AND (%s IS NULL OR s.lane_id = %s)
+              AND (%s::text IS NULL OR s.state = %s)
+              AND (%s::text IS NULL OR s.role_id = %s)
+              AND (%s::text IS NULL OR s.lane_id = %s)
             ORDER BY s.registered_at, s.session_id
             """,
             (ctx.repository_id, run_id, state, state, role, role, lane, lane),
