@@ -1,8 +1,8 @@
-"""Parity test for ``evidence.export`` PG handler.
+"""Legacy coverage for the superseded recovery-evidence export module.
 
-Synthesis L181-189: the handler is read-only over workflow tables and
-emits one ``evidence.exported`` event with payload ``{path, sha256}``.
-Digest equality with the SQLite path is the load-bearing assertion.
+Dogfood 060 moved ``evidence.export`` ownership to the read-only PG handler.
+The old module keeps helper-level coverage for digest and redaction parity,
+but it no longer owns the registry route or emits export workflow events.
 """
 
 from __future__ import annotations
@@ -13,16 +13,13 @@ import inspect
 
 def test_module_registers_evidence_export() -> None:
     from ._helpers import import_handler
+    from striatum.daemon_pg.handlers.reads import evidence_export as read_evidence_export
+    from striatum.daemon_pg.handlers.registry import resolve_pg_handler
 
     mod = import_handler("evidence_export")
     assert hasattr(mod, "handle")
-    rpc_method = getattr(mod.handle, "_pg_rpc_method", None)
-    if rpc_method is None:
-        from striatum.daemon_pg.handlers.registry import resolve_pg_handler
-
-        assert resolve_pg_handler("evidence.export") is mod.handle
-    else:
-        assert rpc_method == "evidence.export"
+    assert resolve_pg_handler("evidence.export") is read_evidence_export.handle
+    assert resolve_pg_handler("evidence.export") is not mod.handle
 
 
 def test_handler_signature_is_ctx_params() -> None:
@@ -59,10 +56,10 @@ def test_handler_reuses_cli_evidence_redactor() -> None:
     assert "render_evidence_markdown" in source
 
 
-def test_handler_emits_evidence_exported_event() -> None:
-    from ._helpers import import_handler
+def test_read_handler_does_not_emit_evidence_exported_event() -> None:
+    from striatum.daemon_pg.handlers.reads import evidence_export as read_evidence_export
 
-    mod = import_handler("evidence_export")
-    source = inspect.getsource(mod.handle)
-    assert 'event_type="evidence.exported"' in source
-    assert '"sha256"' in source and '"path"' in source
+    source = inspect.getsource(read_evidence_export)
+    assert "append_event" not in source
+    assert "INSERT INTO striatumd.events" not in source
+    assert "evidence.exported" not in source
