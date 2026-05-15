@@ -9,7 +9,7 @@ from typing import Any
 
 from striatum.errors import SchemaVersionError, StriatumError
 
-LATEST_DAEMON_DB_VERSION = 5
+LATEST_DAEMON_DB_VERSION = 6
 MIGRATION_LOCK_KEY = 332933
 
 
@@ -34,6 +34,7 @@ MIGRATIONS: tuple[PgMigration, ...] = (
     PgMigration(3, "cross-repo workflows and MCP mutation scope", "0003_cross_repo_mcp.sql"),
     PgMigration(4, "dogfood surgical recovery capability", "0004_dogfood_surgical_recovery.sql"),
     PgMigration(5, "repo-local workflow state", "0005_repo_local_workflow_state.sql"),
+    PgMigration(6, "events chain anchors + repo_event_chain_heads", "0006_events_chain_anchors.sql"),
 )
 
 

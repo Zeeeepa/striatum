@@ -627,17 +627,13 @@ func appendEvent(
 	if payload == nil {
 		payload = map[string]any{}
 	}
-	previous, err := previousEvent(ctx, runner, repositoryID)
-	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+	// Schema v6: read previous_hash from striatumd.repo_event_chain_heads
+	// (FOR UPDATE) instead of scanning the events table. The head row is
+	// upserted after the event insert so concurrent appenders serialize on
+	// the singleton-per-repository head and the chain stays contiguous.
+	previousHash, err := previousChainHead(ctx, runner, repositoryID)
+	if err != nil {
 		return 0, err
-	}
-	var previousHash any
-	if previous != nil {
-		hash, err := eventRowHash(previous)
-		if err != nil {
-			return 0, err
-		}
-		previousHash = hash
 	}
 	eventID, err := nextEventID(ctx, runner)
 	if err != nil {
@@ -661,15 +657,6 @@ func appendEvent(
 	if err != nil {
 		return 0, err
 	}
-	storedPayload := map[string]any{}
-	for key, value := range payload {
-		storedPayload[key] = value
-	}
-	storedPayload["_event_chain"] = map[string]any{
-		"algorithm":     "sha256-json-v1",
-		"previous_hash": nullable(previousHash),
-		"row_hash":      rowHash,
-	}
 	exec, ok := runner.(interface {
 		Exec(context.Context, string, ...any) error
 	})
@@ -679,9 +666,10 @@ func appendEvent(
 	if err := exec.Exec(ctx, `
 		INSERT INTO striatumd.events (
 		  repository_id, event_id, run_id, event_type, actor_session_id, job_id,
-		  message_id, artifact_id, lease_id, payload_json, created_at
+		  message_id, artifact_id, lease_id, payload_json, created_at,
+		  previous_hash, row_hash
 		)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
 		repositoryID,
 		eventID,
 		nullable(runID),
@@ -691,12 +679,52 @@ func appendEvent(
 		nullable(messageID),
 		nullable(artifactID),
 		nullable(leaseID),
-		storedPayload,
+		payload,
 		createdAt,
+		nullable(previousHash),
+		rowHash,
+	); err != nil {
+		return 0, err
+	}
+	if err := exec.Exec(ctx, `
+		INSERT INTO striatumd.repo_event_chain_heads(
+		  repository_id, last_event_id, last_hash, updated_at
+		) VALUES ($1, $2, $3, now())
+		ON CONFLICT (repository_id)
+		DO UPDATE SET last_event_id = EXCLUDED.last_event_id,
+		              last_hash = EXCLUDED.last_hash,
+		              updated_at = now()`,
+		repositoryID,
+		eventID,
+		rowHash,
 	); err != nil {
 		return 0, err
 	}
 	return eventID, nil
+}
+
+func previousChainHead(ctx context.Context, runner any, repositoryID string) (any, error) {
+	rower, ok := runner.(interface {
+		QueryRow(context.Context, string, ...any) db.Row
+	})
+	if !ok {
+		return nil, fmt.Errorf("runner does not support query row")
+	}
+	var hash *string
+	err := rower.QueryRow(ctx,
+		"SELECT last_hash FROM striatumd.repo_event_chain_heads WHERE repository_id = $1 FOR UPDATE",
+		repositoryID,
+	).Scan(&hash)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	if hash == nil {
+		return nil, nil
+	}
+	return *hash, nil
 }
 
 func previousEvent(ctx context.Context, runner any, repositoryID string) (map[string]any, error) {

@@ -230,18 +230,47 @@ def _seed_claimed_work(conn: Any, tmp_path: Path, *, repository_id: str) -> None
 
 
 def _append_seed_event(conn: Any, *, repository_id: str) -> int:
+    payload = {"seed": True}
     with conn.cursor() as cur:
+        cur.execute(
+            "SELECT nextval(pg_get_serial_sequence('striatumd.events', 'event_id'))"
+        )
+        event_id = int(cur.fetchone()[0])
+        row_hash = canonical_event_hash(
+            {
+                "repository_id": repository_id,
+                "event_id": event_id,
+                "run_id": "run_1",
+                "event_type": "seed.event",
+                "payload_json": payload,
+                "created_at": "2026-05-14T00:00:00Z",
+            },
+            previous_hash=None,
+        )
         cur.execute(
             """
             INSERT INTO striatumd.events (
-              repository_id, run_id, event_type, payload_json, created_at
+              repository_id, event_id, run_id, event_type, payload_json,
+              created_at, previous_hash, row_hash
             )
-            VALUES (%s, 'run_1', 'seed.event', %s, '2026-05-14T00:00:00Z')
-            RETURNING event_id
+            VALUES (%s, %s, 'run_1', 'seed.event', %s,
+                    '2026-05-14T00:00:00Z', NULL, %s)
             """,
-            (repository_id, Jsonb({"seed": True})),
+            (repository_id, event_id, Jsonb(payload), row_hash),
         )
-        return int(cur.fetchone()[0])
+        cur.execute(
+            """
+            INSERT INTO striatumd.repo_event_chain_heads(
+              repository_id, last_event_id, last_hash, updated_at
+            ) VALUES (%s, %s, %s, now())
+            ON CONFLICT (repository_id) DO UPDATE SET
+              last_event_id = EXCLUDED.last_event_id,
+              last_hash = EXCLUDED.last_hash,
+              updated_at = now()
+            """,
+            (repository_id, event_id, row_hash),
+        )
+        return event_id
 
 
 def _states(conn: Any, *, repository_id: str) -> dict[str, Any]:

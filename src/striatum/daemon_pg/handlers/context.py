@@ -119,38 +119,49 @@ class RepoHandlerContext:
     ) -> int:
         """Append a repository event and return its generated id.
 
-        The locked 0005 repo-local schema stores append-only events without
-        per-event hash columns. To preserve Phase-A chain continuity without
-        editing ``src/striatum/daemon_pg/sql/``, the handler stores the chain
-        metadata in ``payload_json._event_chain``:
-
-        - ``previous_hash`` is the prior event's stored row hash for the same
-          repository, or ``null`` for the first event.
-        - ``row_hash`` is SHA-256 over the canonical event material listed in
-          ``canonical_event_hash()``. The ``_event_chain`` payload key is
-          excluded from the hash to avoid circular material.
-        - JSON is serialized through ``striatum.db.json_dumps`` so key ordering
-          and separators match the rest of the Python substrate.
+        Schema v6 (migration 0006) added dedicated ``previous_hash`` and
+        ``row_hash`` columns to ``striatumd.events`` plus a
+        ``striatumd.repo_event_chain_heads`` singleton-per-repo carrying the
+        latest event's row hash. This handler reads the head ``FOR UPDATE``
+        to serialize concurrent appenders, computes the new ``row_hash``
+        over the canonical material (same algorithm as v5 but anchored on
+        the columns now, not on ``payload_json._event_chain``), inserts the
+        event with the columns populated, and updates the head row.
 
         Request-level daemon audit hash continuity remains in
-        ``striatumd.audit_log``.
+        ``striatumd.audit_log``; this chain covers per-repository event
+        provenance.
         """
         created_at = self.now()
         base_payload = dict(payload or {})
-        with self.cursor() as cur:
+        # Schema v6 F3: serialize concurrent appenders per-repository inside
+        # an explicit transaction so the FOR UPDATE lock on the parent
+        # repositories row holds across the head-read and head-write. The
+        # repositories lock is used instead of the heads row because the
+        # head row may not exist yet on first event per repo; FOR UPDATE
+        # on an absent row does not take a lock. ``conn.transaction()``
+        # is a savepoint when re-entered from a handler that already
+        # opened a transaction (psycopg supports nesting).
+        with self.pg_conn.transaction(), self.cursor() as cur:
+            cur.execute(
+                "SELECT 1 FROM striatumd.repositories "
+                "WHERE repository_id = %s FOR UPDATE",
+                (self.repository_id,),
+            )
             cur.execute(
                 """
-                SELECT *
-                FROM striatumd.events
+                SELECT last_hash
+                FROM striatumd.repo_event_chain_heads
                 WHERE repository_id = %s
-                ORDER BY event_id DESC
-                LIMIT 1
-                FOR UPDATE
                 """,
                 (self.repository_id,),
             )
-            previous = cur.fetchone()
-            previous_hash = event_row_hash(previous) if previous is not None else None
+            head_row = cur.fetchone()
+            previous_hash = (
+                str(head_row["last_hash"])
+                if isinstance(head_row, dict) and head_row.get("last_hash") is not None
+                else (str(head_row[0]) if head_row is not None and head_row[0] is not None else None)
+            )
             cur.execute("SELECT pg_get_serial_sequence('striatumd.events', 'event_id') AS sequence_name")
             sequence_row = cur.fetchone()
             if sequence_row is None or sequence_row["sequence_name"] is None:
@@ -174,19 +185,14 @@ class RepoHandlerContext:
                 "created_at": created_at,
             }
             row_hash = canonical_event_hash(row_material, previous_hash=previous_hash)
-            stored_payload = dict(base_payload)
-            stored_payload["_event_chain"] = {
-                "algorithm": "sha256-json-v1",
-                "previous_hash": previous_hash,
-                "row_hash": row_hash,
-            }
             cur.execute(
                 """
                 INSERT INTO striatumd.events (
                   repository_id, event_id, run_id, event_type, actor_session_id, job_id,
-                  message_id, artifact_id, lease_id, payload_json, created_at
+                  message_id, artifact_id, lease_id, payload_json, created_at,
+                  previous_hash, row_hash
                 )
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 """,
                 (
                     self.repository_id,
@@ -198,9 +204,23 @@ class RepoHandlerContext:
                     message_id,
                     artifact_id,
                     lease_id,
-                    _jsonb(stored_payload),
+                    _jsonb(base_payload),
                     created_at,
+                    previous_hash,
+                    row_hash,
                 ),
+            )
+            cur.execute(
+                """
+                INSERT INTO striatumd.repo_event_chain_heads(
+                  repository_id, last_event_id, last_hash, updated_at
+                ) VALUES (%s, %s, %s, now())
+                ON CONFLICT (repository_id)
+                DO UPDATE SET last_event_id = EXCLUDED.last_event_id,
+                              last_hash = EXCLUDED.last_hash,
+                              updated_at = now()
+                """,
+                (self.repository_id, event_id, row_hash),
             )
         return event_id
 
@@ -224,18 +244,31 @@ def canonical_event_hash(row: Mapping[str, Any], *, previous_hash: str | None = 
 
 
 def event_row_hash(row: Mapping[str, Any]) -> str:
+    """Return the stored row_hash for ``row``, computing it if absent.
+
+    Schema v6 (migration 0006) stores ``row_hash`` and ``previous_hash``
+    as dedicated columns on ``striatumd.events``. Pre-v6 rows are
+    backfilled from ``payload_json._event_chain`` by the migration, so
+    every persisted event has a column-side ``row_hash``. The legacy
+    ``_event_chain`` payload key remains supported as a fallback so this
+    helper works on in-memory event dicts that haven't gone through PG.
+    """
+    stored_hash = row.get("row_hash")
+    if isinstance(stored_hash, str) and stored_hash:
+        return stored_hash
     payload = row.get("payload_json") or {}
     if not isinstance(payload, dict):
         payload = json.loads(str(payload))
-    if isinstance(payload, dict):
-        chain = payload.get("_event_chain")
-        if isinstance(chain, dict) and isinstance(chain.get("row_hash"), str):
-            return str(chain["row_hash"])
-        previous = chain.get("previous_hash") if isinstance(chain, dict) else None
-        if previous is not None and not isinstance(previous, str):
-            previous = None
-        return canonical_event_hash(row, previous_hash=previous)
-    return canonical_event_hash(row)
+    chain = payload.get("_event_chain") if isinstance(payload, dict) else None
+    if isinstance(chain, dict) and isinstance(chain.get("row_hash"), str):
+        return str(chain["row_hash"])
+    previous = chain.get("previous_hash") if isinstance(chain, dict) else None
+    if previous is not None and not isinstance(previous, str):
+        previous = None
+    stored_previous = row.get("previous_hash")
+    if previous is None and isinstance(stored_previous, str):
+        previous = stored_previous
+    return canonical_event_hash(row, previous_hash=previous)
 
 
 def transaction(ctx: RepoHandlerContext) -> Any:
