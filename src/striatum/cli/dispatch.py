@@ -202,6 +202,8 @@ def dispatch(args: argparse.Namespace) -> object:
     # reachable. Falls through to legacy SQLite dispatch when no mapping
     # exists (init, skills, plugin, daemon, repo, serve, byline) or when
     # the daemon is unreachable (test-harness mode or daemon offline).
+    if args.command == "self-update":
+        return _dispatch_self_update(args)
     if args.command not in {"daemon", "init", "skills", "plugin", "repo", "cross-repo", "serve", "byline", "inbox"}:
         try:
             from striatum.cli.daemon_rpc_route import try_route as _try_route_via_daemon
@@ -964,6 +966,105 @@ def _parse_options(values: list[str]) -> dict[str, object]:
             target = nested
         target[parts[-1]] = loaded
     return options
+
+
+def _dispatch_self_update(args: argparse.Namespace) -> dict[str, object]:
+    """Reinstall striatum-orchestrator + refresh operator skills/plugin profile.
+
+    Equivalent to the manual recipe documented in
+    `feedback_self_update_command` / `project_self_update_command` memory:
+
+        pip install -e <source> --force-reinstall --user --break-system-packages --no-deps
+        striatum plugin install --profile <profile> --scope <scope> --force
+        striatum skills install --profile <profile> --scope <scope> --force
+
+    The pip step is the authoritative success signal — its non-zero exit
+    is fatal. The plugin and skills steps are best-effort because they
+    depend on optional integrations (Claude Code / Codex / Gemini); their
+    failures land in `result["plugin"]["error"]` / `result["skills"]["error"]`
+    but do not change the overall envelope `ok`.
+    """
+    import shlex
+    import subprocess
+    import sys
+
+    source = str(Path(args.source).resolve())
+    profile: str = args.profile
+    scope: str = args.scope
+    dry_run: bool = args.dry_run
+    skip_plugin: bool = bool(args.skip_plugin)
+    skip_skills: bool = bool(args.skip_skills)
+
+    pip_cmd: list[str] = [
+        sys.executable,
+        "-m",
+        "pip",
+        "install",
+        "-e",
+        source,
+        "--force-reinstall",
+        "--user",
+        "--break-system-packages",
+        "--no-deps",
+    ]
+    plugin_cmd: list[str] | None = None
+    skills_cmd: list[str] | None = None
+    striatum_bin = "striatum"
+    if not skip_plugin:
+        plugin_cmd = [
+            striatum_bin, "plugin", "install",
+            "--profile", profile, "--scope", scope, "--force", "--json",
+        ]
+    if not skip_skills:
+        skills_cmd = [
+            striatum_bin, "skills", "install",
+            "--profile", profile if profile != "all" else "claude_code",
+            "--scope", scope, "--force", "--json",
+        ]
+
+    def _shell(cmd: list[str]) -> str:
+        return " ".join(shlex.quote(part) for part in cmd)
+
+    plan: dict[str, object] = {
+        "source": source,
+        "profile": profile,
+        "scope": scope,
+        "pip": _shell(pip_cmd),
+        "plugin": _shell(plugin_cmd) if plugin_cmd else None,
+        "skills": _shell(skills_cmd) if skills_cmd else None,
+        "dry_run": dry_run,
+    }
+    if dry_run:
+        return {"status": "would_run", "plan": plan}
+
+    result: dict[str, object] = {"plan": plan, "steps": [], "status": "updated"}
+    steps: list[dict[str, object]] = []
+
+    def _run_step(label: str, cmd: list[str], fatal: bool) -> bool:
+        proc = subprocess.run(cmd, capture_output=True, text=True)
+        entry: dict[str, object] = {
+            "label": label,
+            "argv": cmd,
+            "exit_code": proc.returncode,
+            "stdout_tail": proc.stdout[-2000:] if proc.stdout else "",
+            "stderr_tail": proc.stderr[-2000:] if proc.stderr else "",
+        }
+        steps.append(entry)
+        return not (proc.returncode != 0 and fatal)
+
+    if not _run_step("pip", pip_cmd, fatal=True):
+        result["steps"] = steps
+        result["status"] = "pip_failed"
+        raise StriatumError(
+            "self-update: pip install -e failed; see steps[0].stderr_tail",
+            exit_code=8,
+        )
+    if plugin_cmd:
+        _run_step("plugin", plugin_cmd, fatal=False)
+    if skills_cmd:
+        _run_step("skills", skills_cmd, fatal=False)
+    result["steps"] = steps
+    return result
 
 
 def _dispatch_daemon(args: argparse.Namespace) -> object:

@@ -42,6 +42,7 @@ DAEMON_OPTIONAL_COMMANDS: frozenset[str] = frozenset(
         "init",
         "skills",
         "plugin",
+        "self-update",
     }
 )
 

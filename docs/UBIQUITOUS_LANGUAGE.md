@@ -212,7 +212,10 @@ Boundary](SPEC.md) and [RFC 0057](rfcs/0057-corpus-contract-v2.md).
 
 - **Engram** is the incubation history and an optional augmentation consumer
   of corpus exports; **striatum** is a generic local runner with no runtime
-  dependency on Engram.
+  dependency on Engram. Engram's plan to become Striatum's local memory
+  layer lives in `~/git/engram/STRIATUM_MEMORY_ROADMAP.md`; that roadmap
+  cannot break the augmentation-not-dependency invariant — Striatum must
+  still run unchanged when Engram is missing, slow, or unreachable.
 - **Live state** is the daemon-owned PostgreSQL instance under a
   `repository_id` scope (D094 / RFC 0043); `.striatum/` next to a target
   repo is operational scratch only. **Durable provenance** is committed

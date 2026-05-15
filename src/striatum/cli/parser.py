@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import os
+from pathlib import Path
 
 from striatum import __version__
 
@@ -135,6 +136,54 @@ def build_parser() -> argparse.ArgumentParser:
     plugin_uninstall.add_argument("--target", default=None)
     plugin_uninstall.add_argument("--force", action="store_true")
     plugin_uninstall.add_argument("--json", action="store_true")
+
+    self_update = sub.add_parser(
+        "self-update",
+        help=(
+            "Reinstall striatum-orchestrator from a source checkout and "
+            "refresh the operator skills + plugin profile in one step. "
+            "Useful for operators on target repos who hit version-staleness "
+            "when the source moves."
+        ),
+        description=(
+            "Run `pip install -e <source> --force-reinstall --user "
+            "--break-system-packages --no-deps`, then `striatum plugin "
+            "install --profile <profile>` and `striatum skills install "
+            "--profile <profile>`. Failures of the plugin/skills steps "
+            "are non-fatal — the pip step is the authoritative success "
+            "signal."
+        ),
+    )
+    self_update.add_argument(
+        "--source",
+        default=str(Path(__file__).resolve().parents[3]),
+        help="Path to the striatum source checkout to install from (defaults to the repo containing this CLI module).",
+    )
+    self_update.add_argument(
+        "--profile",
+        choices=["claude_code", "codex", "gemini", "all"],
+        default="claude_code",
+        help="Operator profile passed to plugin install + skills install.",
+    )
+    self_update.add_argument(
+        "--scope",
+        choices=["project", "user"],
+        default="user",
+        help="Operator-scope flag passed to plugin install + skills install (default user; project for in-repo overrides).",
+    )
+    self_update.add_argument(
+        "--skip-plugin", action="store_true",
+        help="Skip the plugin install step.",
+    )
+    self_update.add_argument(
+        "--skip-skills", action="store_true",
+        help="Skip the skills install step.",
+    )
+    self_update.add_argument(
+        "--dry-run", action="store_true",
+        help="Report the commands that would run without executing them.",
+    )
+    self_update.add_argument("--json", action="store_true")
 
     daemon = sub.add_parser("daemon")
     daemon_sub = daemon.add_subparsers(dest="daemon_command", required=True)
