@@ -757,31 +757,24 @@ section is the canonical status snapshot.
     `waiting_human` run state rename, CLI prompt-string sweep,
     `escalation` artifact-kind schema + RPC method. ROADMAP §5.8.
 
-45. **RFC 0054 V0 (day-zero usage guide).** Proposed 2026-05-14.
-    Scaffold for a single top-down doc walking new arrivals through
-    the AI operator + human principal model, prerequisites, day-zero
-    setup, first run, and the principal's escalation role. Phase 0
-    scaffold landed; Phase A writes the doc — open question whether it
-    replaces `docs/GETTING_STARTED.md` or lands as a new
-    `docs/USING_STRIATUM.md`. ROADMAP §5.8.
+45. ~~**RFC 0054 V0 (day-zero usage guide).**~~ Phase A shipped
+    v1.55.0 (commit `a88f44d`). `docs/USING_STRIATUM.md` lives
+    alongside `GETTING_STARTED.md` (additive — resolved Open
+    question 1 toward avoiding a breaking docs rename). Phase B
+    (harvest content into `--with-ddd-layout`) optional follow-up.
 
-46. **RFC 0055 V0 (marketing README + architecture graphics).**
-    Proposed 2026-05-14. Scaffold for top-level README rewrite leading
-    with vision/value rather than docs index; adds a system-architecture
-    diagram (Mermaid recommended for native GitHub render; SVG as
-    polish follow-up). Reflects the RFC 0043 / RFC 0053 substrate-and-
-    role reality honestly. Phase 0 scaffold landed; Phase A rewrites
-    `README.md`. ROADMAP §5.8.
+46. ~~**RFC 0055 V0 (marketing README + architecture graphics).**~~
+    Phase A shipped v1.55.0 (commit `a88f44d`). `README.md`
+    rewritten with vision/value framing, Mermaid system-architecture
+    diagram, and demoted docs link table. SVG polish follow-up
+    optional.
 
-47. **RFC 0056 V0 (consumer-repo directory-structure opinions).**
-    Proposed 2026-05-14. Scaffold for explicit (but non-mandatory)
-    recommendations for target-repo layout: `.striatum/` scratch (per
-    RFC 0043), `striatum/workflows/<name>.json`, artifact roots,
-    RFC 0021 DDD scaffold for `docs/`, `docs/dogfood/<NNN>/` for run
-    records. Identifies which recommendations should extend
-    `init --with-ddd-layout`. Phase 0 scaffold landed; Phase A writes
-    `docs/CONSUMER_REPO_LAYOUT.md`; Phase B optionally extends the
-    scaffold. ROADMAP §5.8.
+47. ~~**RFC 0056 V0 (consumer-repo directory-structure opinions).**~~
+    Phase A shipped v1.55.0 (commit `a88f44d`).
+    `docs/CONSUMER_REPO_LAYOUT.md` written with ASCII tree, per-section
+    rationale, mid-life adoption guidance, dogfood-heavy-projects
+    extension. Phase B (`init --with-ddd-layout` extension) optional
+    follow-up.
 
 ## GH issue follow-ups (not yet bound to a workflow)
 
