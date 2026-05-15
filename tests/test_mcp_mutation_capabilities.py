@@ -51,6 +51,12 @@ def test_daemon_mcp_tools_call_reauthorizes_and_audits_denial(monkeypatch) -> No
         return RpcAuthContext("client", "token", repository_id, None, "denied", "capability_missing")
 
     monkeypatch.setattr("striatum.daemon_rpc.capability.authorize", fake_authorize)
+    # daemon_pg/mcp_dispatch.py rebinds `authorize` as a local name at
+    # import time; under certain pytest collection orders it has already
+    # imported the original symbol and the source-module monkeypatch
+    # above doesn't propagate. Patch the bound reference too — defensive
+    # against test-ordering flakes.
+    monkeypatch.setattr("striatum.daemon_pg.mcp_dispatch.authorize", fake_authorize)
     def fake_append_audit_row(*args: Any, **kwargs: Any) -> int:
         audit_calls.append(kwargs)
         return 7
