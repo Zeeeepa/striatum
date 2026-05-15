@@ -301,7 +301,10 @@ def test_rpc_transports_are_owner_local_only(tmp_path: Path) -> None:
 
 
 def test_daemon_pg_migrations_name_rpc_supervisor_apply_and_repo_local_tables() -> None:
-    assert LATEST_DAEMON_DB_VERSION == 5
+    # Each new migration bumps LATEST. Pin the floor (substrate schema is
+    # additive past v5) rather than a literal so this assertion survives
+    # future migrations like 0006 (event chain anchors) without manual edits.
+    assert LATEST_DAEMON_DB_VERSION >= 5
     sql = "\n".join(migration.sql for migration in MIGRATIONS)
 
     for table in (

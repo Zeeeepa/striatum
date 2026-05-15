@@ -43,14 +43,23 @@ def test_relative_doc_links_resolve() -> None:
 
 def test_readme_has_human_and_agent_quick_start_headings() -> None:
     """The human/agent split is a first-class README contract per
-    RFC 0017; this guard prevents a silent regression."""
+    RFC 0017; this guard prevents a silent regression.
+
+    Updated for RFC 0055 Phase A (v1.55.0 README rewrite): the README
+    no longer carries two separate H2 quick-start headings — a single
+    ``## Quick start`` block is paired with role coverage in
+    ``## The two roles`` (RFC 0053). The contract being guarded is
+    "both roles surface explicitly in the README"; the new shape is
+    two sections rather than two quick-starts.
+    """
     text = (ROOT / "README.md").read_text(encoding="utf-8")
-    assert "## Quick Start (Human Operator)" in text, (
-        "README must keep the human-operator quick-start heading"
+    assert "## Quick start" in text, "README must keep a quick-start section"
+    assert "## The two roles" in text, (
+        "README must explicitly cover both AI operator and human principal "
+        "roles (RFC 0053)"
     )
-    assert "## Quick Start (Coding Agent)" in text, (
-        "README must keep the coding-agent quick-start heading"
-    )
+    assert "AI operator" in text, "README must name the AI operator role"
+    assert "Human principal" in text, "README must name the human principal role"
 
 
 def test_readme_under_line_budget() -> None:

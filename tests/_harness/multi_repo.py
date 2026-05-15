@@ -100,7 +100,15 @@ class MultiRepoHarness:
         return ids
 
     def pg_conn(self) -> Any:
-        return connect(self.daemon_pg_url)
+        conn = connect(self.daemon_pg_url)
+        # Production daemon runs autocommit=True (see daemon.py daemon-start)
+        # so audit rows commit promptly across the in-process McpClient /
+        # DaemonRpcServer flow (RFC 0048 V1.5 F3). Keep row_factory at the
+        # psycopg default (tuple_row) here — many test helpers do positional
+        # `row[0]` access; only the dispatch-side cursors that need mapping
+        # rows opt-in via per-cursor `row_factory=dict_row`.
+        conn.autocommit = True
+        return conn
 
     def issue_token(self, capabilities: list[str], repo_id: str | None = None, expires_in: int | None = 3600) -> str:
         conn = self.pg_conn()

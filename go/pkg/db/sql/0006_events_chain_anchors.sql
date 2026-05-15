@@ -32,18 +32,19 @@ SET previous_hash = payload_json #>> '{_event_chain,previous_hash}',
 WHERE row_hash IS NULL
   AND payload_json ? '_event_chain';
 
--- Refuse to migrate rows that lack chain metadata under the assumption
--- that no production deployment can land here — the V1.5 invariant has
--- always been that append_event materializes the chain. A NULL row_hash
--- post-backfill means the row predates the chain code path and the
--- operator must investigate.
+-- Rows that pre-date chain anchoring stay with NULL row_hash. The
+-- ``event_row_hash`` helper in Python (and ``eventRowHash`` in Go) falls
+-- back to ``canonical_event_hash`` for legacy rows so reads continue to
+-- work; the unanchored rows are recorded as a doctor warning rather than
+-- a migration refusal because operators with long-running daemon DBs
+-- can't retroactively anchor history they never wrote anchors for.
 DO $$
 DECLARE
   unanchored_count bigint;
 BEGIN
   SELECT count(*) INTO unanchored_count FROM striatumd.events WHERE row_hash IS NULL;
   IF unanchored_count > 0 THEN
-    RAISE EXCEPTION 'migration 0006 refuses: % event rows lack row_hash anchor', unanchored_count;
+    RAISE NOTICE 'migration 0006: % event rows pre-date chain anchoring (legacy); event_row_hash falls back to canonical_event_hash for those', unanchored_count;
   END IF;
 END;
 $$;
@@ -80,11 +81,17 @@ CREATE TABLE IF NOT EXISTS striatumd.repo_event_chain_heads (
     REFERENCES striatumd.events(repository_id, event_id) DEFERRABLE INITIALLY DEFERRED
 );
 
--- Backfill heads from the latest event per repository.
+-- Backfill heads from the latest *anchored* event per repository. If a
+-- repo's latest event is a legacy unanchored row (row_hash IS NULL), we
+-- intentionally skip backfilling its head — the next append_event call
+-- will treat previous_hash as NULL and start a fresh chain segment from
+-- that point. Operators preferring strict continuity can anchor legacy
+-- rows manually before re-running the migration.
 INSERT INTO striatumd.repo_event_chain_heads(repository_id, last_event_id, last_hash, updated_at)
 SELECT DISTINCT ON (e.repository_id)
        e.repository_id, e.event_id, e.row_hash, now()
 FROM striatumd.events e
+WHERE e.row_hash IS NOT NULL
 ORDER BY e.repository_id, e.event_id DESC
 ON CONFLICT (repository_id) DO NOTHING;
 

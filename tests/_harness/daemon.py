@@ -76,6 +76,13 @@ class DaemonProcess:
         self.env["PYTHONPATH"] = str(ROOT / "src")
         self.env[daemon.ENV_REGISTRY] = str(registry)
         self.env[daemon.ENV_RUNTIME] = str(runtime)
+        # The test harness creates ephemeral databases as the local DB owner;
+        # the daemon connects as that same owner, which has implicit
+        # UPDATE/DELETE on the audit tables that the production doctor refuses
+        # as `unsafe_privileges`. The opt-in below tells doctor to treat that
+        # as an acceptable harness-only state. Production deployments never
+        # set this; see src/striatum/daemon_pg/connection.py::doctor.
+        self.env["STRIATUM_PG_DOCTOR_TEST_HARNESS_OWNER_OK"] = "1"
         self._socket_path = runtime / "striatumd.sock"
 
     @property
@@ -92,6 +99,8 @@ class DaemonProcess:
             self._start_python()
 
     def _start_python(self) -> None:
+        env = self.env.copy()
+        env["STRIATUM_DAEMON_DB_URL"] = self.postgres_url
         self.process = subprocess.Popen(
             [
                 sys.executable,
@@ -99,12 +108,14 @@ class DaemonProcess:
                 "striatum.cli",
                 "daemon",
                 "start",
+                "--postgres-url",
+                self.postgres_url,
                 "--sweep-interval-seconds",
                 "3600",
                 "--json",
             ],
             cwd=ROOT,
-            env=self.env,
+            env=env,
             text=True,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,

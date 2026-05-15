@@ -14,6 +14,25 @@ from striatum.db import json_dumps, new_id, sha256_bytes, utc_now
 from striatum.errors import InvalidTransitionError, NotFoundError
 
 
+def _dict_cursor(conn: Any) -> Any:
+    """Return a cursor yielding dict rows regardless of the connection's
+    default row_factory.
+
+    Production daemon connections set ``row_factory = psycopg.rows.dict_row``
+    at the connection level (daemon.py daemon-start path); tests that call
+    these helpers via ``daemon_pg.connection.connect`` directly get the
+    default tuple_row factory, which makes the module's ``_row_dict`` /
+    ``_row_value`` helpers fail. Forcing dict rows per-cursor keeps both
+    call sites correct without changing the global default (which would
+    break positional access in test fixtures).
+    """
+    try:
+        from psycopg.rows import dict_row
+    except ImportError:
+        return conn.cursor()
+    return conn.cursor(row_factory=dict_row)
+
+
 TERMINAL_STATES = frozenset({"canceled", "completed", "failed", "aborted"})
 
 
@@ -56,7 +75,14 @@ def prepare_cross_repo_run(
     run_id = cross_repo_run_id or new_id("xrun")
     now = utc_now()
     snapshot = json_dumps(workflow)
-    with conn.cursor() as cur:
+    # The whole INSERT-cross-repo-runs + INSERT-participants block has to
+    # be atomic: if a participant FK fails (the workflow names an
+    # unregistered repository) the cross_repo_runs row must not survive.
+    # Under autocommit=True (production daemon connection setting) each
+    # statement would commit independently and leave a stranded 'preparing'
+    # row. ``conn.transaction()`` brackets the whole block as a single
+    # transaction regardless of autocommit.
+    with conn.transaction(), _dict_cursor(conn) as cur:
         cur.execute(
             """
             INSERT INTO striatumd.cross_repo_runs (
@@ -99,7 +125,7 @@ def prepare_cross_repo_run(
             participants.append(
                 {"repository_alias": alias, "repository_id": repository_id, "local_run_id": local_run_id}
             )
-            with conn.cursor() as cur:
+            with _dict_cursor(conn) as cur:
                 cur.execute(
                     """
                     UPDATE striatumd.cross_repo_run_repositories
@@ -110,7 +136,7 @@ def prepare_cross_repo_run(
                     (local_run_id, utc_now(), utc_now(), run_id, alias),
                 )
     except Exception as exc:
-        with conn.cursor() as cur:
+        with _dict_cursor(conn) as cur:
             cur.execute(
                 """
                 UPDATE striatumd.cross_repo_runs
@@ -120,7 +146,7 @@ def prepare_cross_repo_run(
                 (str(exc), run_id),
             )
         raise
-    with conn.cursor() as cur:
+    with _dict_cursor(conn) as cur:
         cur.execute(
             "UPDATE striatumd.cross_repo_runs SET state = 'prepared' WHERE cross_repo_run_id = %s",
             (run_id,),
@@ -157,7 +183,7 @@ def start_cross_repo_run(
             local_run_id=_primary_local_run_id(participants, primary),
             reason=str(exc),
         )
-        with conn.cursor() as cur:
+        with _dict_cursor(conn) as cur:
             cur.execute(
                 """
                 UPDATE striatumd.cross_repo_runs
@@ -167,7 +193,7 @@ def start_cross_repo_run(
                 (str(exc), cross_repo_run_id),
             )
         return {"cross_repo_run_id": cross_repo_run_id, "state": "blocked", "started": started}
-    with conn.cursor() as cur:
+    with _dict_cursor(conn) as cur:
         cur.execute(
             """
             UPDATE striatumd.cross_repo_runs
@@ -191,7 +217,7 @@ def cancel_cross_repo_run(
         return {"cross_repo_run_id": cross_repo_run_id, "state": run["state"], "canceled": []}
     canceled: list[str] = []
     blocked: list[str] = []
-    with conn.cursor() as cur:
+    with _dict_cursor(conn) as cur:
         cur.execute(
             "UPDATE striatumd.cross_repo_runs SET state = 'canceling' WHERE cross_repo_run_id = %s",
             (cross_repo_run_id,),
@@ -212,7 +238,7 @@ def cancel_cross_repo_run(
             blocked.append(participant.repository_alias)
             _update_participant(conn, cross_repo_run_id, participant.repository_alias, "blocked")
     state = "blocked" if blocked else "canceled"
-    with conn.cursor() as cur:
+    with _dict_cursor(conn) as cur:
         cur.execute(
             """
             UPDATE striatumd.cross_repo_runs
@@ -229,7 +255,7 @@ def reconcile_cross_repo_preparing(
 ) -> dict[str, Any]:
     reconciled: list[str] = []
     aborted: list[str] = []
-    with conn.cursor() as cur:
+    with _dict_cursor(conn) as cur:
         cur.execute(
             "SELECT cross_repo_run_id FROM striatumd.cross_repo_runs WHERE state = 'preparing'"
         )
@@ -244,14 +270,14 @@ def reconcile_cross_repo_preparing(
             )
             for item in participants
         ):
-            with conn.cursor() as cur:
+            with _dict_cursor(conn) as cur:
                 cur.execute(
                     "UPDATE striatumd.cross_repo_runs SET state = 'prepared' WHERE cross_repo_run_id = %s",
                     (run_id,),
                 )
             reconciled.append(run_id)
         else:
-            with conn.cursor() as cur:
+            with _dict_cursor(conn) as cur:
                 cur.execute(
                     """
                     UPDATE striatumd.cross_repo_runs
@@ -285,7 +311,7 @@ def describe_cross_repo_run(conn: Any, *, cross_repo_run_id: str) -> dict[str, A
 
 
 def list_cross_repo_runs(conn: Any) -> dict[str, Any]:
-    with conn.cursor() as cur:
+    with _dict_cursor(conn) as cur:
         cur.execute(
             """
             SELECT cross_repo_run_id, workflow_id, workflow_version,
@@ -313,7 +339,7 @@ def _repositories(workflow: Mapping[str, Any]) -> dict[str, str]:
 
 
 def _cross_repo_run(conn: Any, cross_repo_run_id: str) -> dict[str, Any]:
-    with conn.cursor() as cur:
+    with _dict_cursor(conn) as cur:
         cur.execute(
             "SELECT * FROM striatumd.cross_repo_runs WHERE cross_repo_run_id = %s",
             (cross_repo_run_id,),
@@ -325,7 +351,7 @@ def _cross_repo_run(conn: Any, cross_repo_run_id: str) -> dict[str, Any]:
 
 
 def _participants(conn: Any, cross_repo_run_id: str) -> list[CrossRepoParticipant]:
-    with conn.cursor() as cur:
+    with _dict_cursor(conn) as cur:
         cur.execute(
             """
             SELECT repository_alias, repository_id, local_run_id, state
@@ -352,7 +378,7 @@ def _participants(conn: Any, cross_repo_run_id: str) -> list[CrossRepoParticipan
 
 
 def _update_participant(conn: Any, cross_repo_run_id: str, alias: str, state: str) -> None:
-    with conn.cursor() as cur:
+    with _dict_cursor(conn) as cur:
         cur.execute(
             """
             UPDATE striatumd.cross_repo_run_repositories

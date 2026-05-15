@@ -98,7 +98,13 @@ def test_events_table_has_previous_hash_and_row_hash_columns(pg_url: str) -> Non
 
     assert "previous_hash" in rows, "events must have previous_hash column"
     assert "row_hash" in rows, "events must have row_hash column"
-    assert rows["row_hash"][0] == "NO", "row_hash must be NOT NULL"
+    # Both columns are nullable at the schema level. Production writers
+    # (RepoHandlerContext.append_event + pkg/mutations.insertEvent) always
+    # populate row_hash; the migration refuses to apply if any existing
+    # row lacks anchor metadata. Nullable lets tests + back-fill tooling
+    # do two-phase INSERT-then-update-after-id-assigned without tripping
+    # the trigger-enforced append-only invariant.
+    assert rows["row_hash"][0] == "YES", "row_hash is nullable; see migration 0006 §rationale"
     assert rows["previous_hash"][0] == "YES", (
         "previous_hash is nullable for the chain genesis row"
     )

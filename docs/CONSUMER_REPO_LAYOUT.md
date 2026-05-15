@@ -174,10 +174,10 @@ default recommendations work but extend in two ways:
 
 ## See also
 
-- [RFC 0021](rfcs/0021-ddd-doc-layout-scaffold.md) — the DDD doc
+- [RFC 0021](rfcs/0021-ddd-layout-scaffold-on-init.md) — the DDD doc
   scaffold this layout composes with.
-- [RFC 0034](rfcs/0034-workflow-generator-and-templates.md) — the
-  workflow generator that writes `workflow.json` files.
+- [RFC 0034](rfcs/0034-workflow-generator-and-template-catalog.md) —
+  the workflow generator that writes `workflow.json` files.
 - [RFC 0043](rfcs/0043-postgres-as-sole-substrate-and-daemon-required-runtime.md) — fixes `.striatum/` as runtime scratch only.
 - [`docs/USING_STRIATUM.md`](USING_STRIATUM.md) — the day-zero
   walkthrough that uses this layout in its examples.

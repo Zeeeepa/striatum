@@ -26,7 +26,11 @@ def test_reset_daemon_db_preserves_schema_metadata_and_clears_data(
     harness.reset_daemon_db()
 
     assert harness.daemon_db_query("SELECT value FROM striatumd.schema_meta WHERE key = 'substrate_version'")
-    assert harness.daemon_db_query("SELECT COUNT(*) AS count FROM striatumd.schema_migrations")[0]["count"] == 3
+    # Schema_migrations grows as we land migrations. Pin against the live
+    # constant rather than a literal so the assertion survives each new
+    # migration (0001-0006 currently land via apply_migrations).
+    from striatum.daemon_pg.migrations import LATEST_DAEMON_DB_VERSION
+    assert harness.daemon_db_query("SELECT COUNT(*) AS count FROM striatumd.schema_migrations")[0]["count"] == LATEST_DAEMON_DB_VERSION
     assert harness.daemon_db_query("SELECT COUNT(*) AS count FROM striatumd.repositories")[0]["count"] == 0
     assert harness.daemon_db_query("SELECT COUNT(*) AS count FROM striatumd.audit_segments")[0]["count"] == 1
     assert harness.daemon_db_query("SELECT last_hash FROM striatumd.audit_chain_head")[0]["last_hash"] is None
