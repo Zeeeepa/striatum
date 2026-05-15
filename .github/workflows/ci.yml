@@ -16,6 +16,31 @@ jobs:
         # go run as explicit jobs (not in-process parametrization) so an
         # all-skipped pass cannot occur (dogfood-047 F3 finding).
         daemon-core: ["python", "go"]
+    # RFC 0039 V1.6 F3/F5 (dogfood-047): a Postgres service so the
+    # multi-repo harness can boot ephemeral databases. STRIATUM_MULTI_REPO_REQUIRE_PG=1
+    # (set below) converts harness skips to failures so a missing-PG CI
+    # environment can no longer masquerade as a green run. GitHub-hosted
+    # macOS runners don't support `services:`, so the multi-repo step is
+    # gated on Linux only — the macOS jobs still run the in-process unit
+    # tests + Go build + Go tests, just not the PG-backed multi-repo
+    # matrix.
+    services:
+      postgres:
+        image: ${{ matrix.os == 'ubuntu-latest' && 'postgres:16' || '' }}
+        env:
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      # Make the harness's pg.resolve_base_url() find the service when
+      # present. Empty on macOS where services don't run; the multi-repo
+      # step is skipped there via the matrix gate below.
+      STRIATUM_TEST_POSTGRES_URL: ${{ matrix.os == 'ubuntu-latest' && 'postgresql://postgres@localhost:5432/postgres' || '' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -54,6 +79,11 @@ jobs:
         if: matrix.daemon-core == 'go'
         run: make daemon-go-test
       - name: Multi-repo harness (CORE=${{ matrix.daemon-core }})
+        # macOS GitHub-hosted runners can't run services:, so the
+        # multi-repo step is Linux-only. Without the Postgres service the
+        # STRIATUM_MULTI_REPO_REQUIRE_PG=1 below would intentionally fail
+        # — exactly what F3 wants. Run only on Ubuntu.
+        if: matrix.os == 'ubuntu-latest'
         env:
           # RFC 0039 Phase 2 Step 6 / dogfood-047 F3: hard-fail-on-missing-PG
           # sentinel so an all-skipped pass cannot occur on the go axis.

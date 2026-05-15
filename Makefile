@@ -100,6 +100,7 @@ pg-test: $(VENV)/.installed
 
 test-multi-repo: $(VENV)/.installed
 	STRIATUM_MULTI_REPO_DAEMON_CORE=$(CORE) \
+	STRIATUM_MULTI_REPO_REQUIRE_PG=1 \
 	$(PYTHON) -m pytest -m multi_repo \
 		tests/test_multi_repo_harness.py \
 		tests/test_cross_repo_prepare_e2e.py \

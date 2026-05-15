@@ -17,6 +17,7 @@ from striatum.daemon_pg.config import ENV_DAEMON_DB_URL
 from striatum.daemon_pg.migrations import apply_migrations
 
 ENV_TEST_POSTGRES_URL = "STRIATUM_TEST_POSTGRES_URL"
+ENV_REQUIRE_PG = "STRIATUM_MULTI_REPO_REQUIRE_PG"
 DEFAULT_POSTGRES_URL = "postgresql:///postgres"
 
 
@@ -28,11 +29,23 @@ class EphemeralPostgres:
 
 
 def resolve_base_url() -> str:
-    """Return a reachable Postgres URL or skip the current test."""
+    """Return a reachable Postgres URL or skip the current test.
+
+    RFC 0039 V1.6 F3 (dogfood-047): when
+    ``STRIATUM_MULTI_REPO_REQUIRE_PG=1`` is set, an unreachable Postgres
+    fails the test instead of skipping. CI for the multi-repo / Go-core
+    matrix sets this so a missing-Postgres environment can't masquerade
+    as a green run.
+    """
+    require_pg = os.environ.get(ENV_REQUIRE_PG) == "1"
     if find_spec("psycopg") is None:
-        pytest.skip(
-            "multi-repo harness requires psycopg; install the daemon-pg extra and run make pg-test"
+        msg = (
+            "multi-repo harness requires psycopg; install the daemon-pg "
+            "extra and run make pg-test"
         )
+        if require_pg:
+            pytest.fail(msg)
+        pytest.skip(msg)
     candidates = [
         os.environ.get(ENV_TEST_POSTGRES_URL),
         os.environ.get(ENV_DAEMON_DB_URL),
@@ -47,13 +60,17 @@ def resolve_base_url() -> str:
         except Exception:
             continue
         return candidate
-    pytest.skip(
+    msg = (
         "multi-repo harness requires a reachable system PostgreSQL URL via "
         f"{ENV_TEST_POSTGRES_URL} or {ENV_DAEMON_DB_URL}; run make pg-test first"
     )
+    if require_pg:
+        pytest.fail(msg)
+    pytest.skip(msg)
 
 
 def create_ephemeral_database(base_url: str) -> EphemeralPostgres:
+    require_pg = os.environ.get(ENV_REQUIRE_PG) == "1"
     db_name = f"striatum_test_{uuid.uuid4().hex}"
     admin_url = _database_url(base_url, "postgres")
     admin_conn = connect(admin_url)
@@ -63,7 +80,10 @@ def create_ephemeral_database(base_url: str) -> EphemeralPostgres:
             try:
                 cur.execute(f'CREATE DATABASE "{db_name}"')
             except Exception as exc:
-                pytest.skip(f"multi-repo harness requires CREATE DATABASE privilege: {exc}")
+                msg = f"multi-repo harness requires CREATE DATABASE privilege: {exc}"
+                if require_pg:
+                    pytest.fail(msg)
+                pytest.skip(msg)
     finally:
         admin_conn.close()
     database_url = _database_url(base_url, db_name)
