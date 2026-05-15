@@ -309,7 +309,9 @@ are read by humans and (future) Engram-backed operators only.
   - Add `operator_brief`, `work_plan`, `progress_note`, `operator_report`
     to `ALLOWED_ARTIFACT_KINDS`.
   - Register four `FrontMatterSchema` entries.
-  - Create `docs/operator/{BRIEF.md, briefs/, plans/, progress/, INDEX.md}`.
+  - Create `docs/operator/{BRIEF.md, briefs/, plans/, progress/, INDEX.md}`
+    in the Striatum repo (per §9: this is the in-repo seed; in
+    *target* repos the path is configurable + collision-checked).
   - Seed `docs/operator/BRIEF.md` by porting the most recent handoff
     (`docs/handoffs/2026-05-15-rfc-0048-postgres-transition.md`).
   - Seed one `work_plan` per currently-open RFC initiative (RFC 0048
@@ -331,6 +333,78 @@ are read by humans and (future) Engram-backed operators only.
   - Optionally add `dogfood.publish_progress_note` MCP tool (RFC 0040)
     so dogfood workflows emit progress notes automatically when an
     operator-on-behalf intervention occurs.
+
+### 9. Adoption in target repositories — collisions + configurability
+
+The schemas + semantics in §1–§7 are repo-agnostic; the path defaults in
+§4 (`docs/operator/`) collide with existing conventions in some target
+repos. Striatum runs against *registered* target repositories
+(RFC 0028 + RFC 0043 product boundary): a single Striatum installation
+may drive several repos, each of which already has its own docs layout.
+This section pins the adoption contract so initialization is
+predictable and non-destructive. The wider "what does the recommended
+target-repo layout look like" question stays the responsibility of
+[RFC 0056](0056-consumer-repo-directory-structure-opinions.md); this
+RFC owns only the operator-surface paths.
+
+**Per-repo scope.** Operator artifacts are scoped to a single target
+repository — they live inside that repo's working tree, in that repo's
+git history, and (when exported) under that repo's `repository_id` in
+the corpus JSONL. Nothing is shared across registered repos. An
+operator who works in two repos in parallel maintains two briefs.
+
+**Configurable root.** The default operator-tree root is
+`<repo_root>/docs/operator/`. The default is overridable by:
+
+- A `striatum.operator_docs_root` field in the target repo's
+  `striatum.toml` (single source per repo; preferred), or
+- A `workflow.operator_docs_root` field on `workflow.json` (per-workflow
+  override — useful when a repo runs multiple workflow shapes against
+  different doc roots).
+
+When both are present, `workflow.json` wins. When neither is present,
+the default applies. The resolved root MUST be inside the repo's write
+scope and MUST NOT overlap `.striatum/` (RFC 0043 scratch boundary).
+
+**Collision detection at install.** `striatum operator init` (V1.5 verb)
+and the V1 in-repo seed both refuse to write into a non-empty
+operator tree without an explicit override. Modeled on RFC 0021's
+DDD-scaffold pattern:
+
+- `--dry-run` prints the would-create paths and any pre-existing
+  conflicts with `would_collide` / `would_create` status vocabulary;
+  no writes.
+- Plain run with no flag: refuse with exit code 4 + remediation pointing
+  at `--dry-run`, `--operator-docs-root <path>`, or `--force`.
+- `--force --operator-docs-root <path>`: each existing file at a
+  would-overwrite path is captured by `prior_sha256` in an audit-chain
+  event (`operator.tree_force_init`), then overwritten. Same shape as
+  RFC 0021 V1.5's overwrite audit.
+
+A target repo that already uses `docs/operator/` for unrelated ops
+content has three clean options: (a) point Striatum at a different root
+via `striatum.toml`; (b) move existing content and accept the default;
+(c) `--force` after backing up. None of the three requires editing
+Striatum source.
+
+**Striatum's own repo.** Striatum-on-Striatum dogfoods use the default
+root because the path is currently free; this RFC's V1 seed claims it.
+This is the same self-targeting pattern as RFC 0021 (Striatum runs the
+DDD scaffold against itself) — no special case needed.
+
+**Validation.** The publisher validates `artifact_kind` + front-matter
+schema regardless of which root the file lives under. The corpus
+exporter (RFC 0044 V1) enumerates from `<repo_root>` and tags each row
+with the resolving repo's `repository_id`; the operator-tree root is
+not hard-coded in the enumerator. This keeps the schemas decoupled from
+the paths and avoids a second-source-of-truth between `striatum.toml`
+and Python constants.
+
+**What is explicitly NOT a goal here.** Cross-repo brief aggregation
+(one operator-state view across all registered repos) is a future
+concern, likely a web-UI feature once RFC 0028's multi-repo dashboard
+matures. V1 expects an operator working in repo A and repo B to read
+each repo's brief separately.
 
 ## Acceptance Criteria
 
@@ -354,6 +428,13 @@ V1 lands when:
 8. Corpus export regression test asserts `docs/operator/**` rows carry
    the kind + priority + supersedes columns (augmentation-boundary
    coverage already exists per RFC 0044 V1).
+9. Per §9: the operator-tree root resolves from
+   `workflow.operator_docs_root` → `striatum.operator_docs_root` →
+   `docs/operator/` default; the corpus enumerator picks up the
+   resolved path without a hard-coded constant; and an in-repo seed
+   against a non-empty operator tree refuses without `--dry-run` /
+   `--operator-docs-root` / `--force`. (The `striatum operator init`
+   verb itself is V1.5 scope; V1 lands the resolution + refusal rules.)
 
 ## Open Questions
 
@@ -383,6 +464,22 @@ V1 lands when:
    markdown; bylines stay `author: operator`. Progress notes generated
    by a future dogfood-side MCP tool (RFC 0040) would need a model
    byline; that contract lands with the V2 MCP tool, not this RFC.
+7. **`striatum.toml` first, or workflow.json only?** §9 introduces a
+   `striatum.toml` field as the preferred location for
+   `operator_docs_root`. No `striatum.toml` exists in the project today
+   — this would be the first field. The alternative is workflow.json
+   only, accepting that operators who run multiple workflows must
+   duplicate the override. V1 leaves the resolution rule in place
+   (`workflow.json` overrides `striatum.toml` overrides default) but
+   ships only the workflow.json field; `striatum.toml` lands when
+   another field demands it (likely RFC 0056 territory).
+8. **Audit-chain event kind for `--force` overwrites.** §9 names
+   `operator.tree_force_init`. RFC 0030's daemon event vocabulary uses
+   dotted method-style names (`session.*`, `work.*`); this fits. If
+   the operator tree is repo-local enough that audit-chain anchoring
+   feels over-engineered, V1 may downgrade to a plain on-disk
+   `prior_sha256.json` sidecar in the operator-tree root. Defer the
+   call to the implementing dogfood.
 
 ## Domain Modeling
 
