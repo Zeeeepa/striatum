@@ -15,6 +15,28 @@ def handle(ctx: RepoHandlerContext, params: Mapping[str, Any]) -> dict[str, Any]
     session_id = str(params["session_id"])
     message_id = str(params["message_id"])
     lease_id = str(params["lease_id"])
+    return ack_inline(
+        ctx,
+        session_id=session_id,
+        message_id=message_id,
+        lease_id=lease_id,
+    )
+
+
+def ack_inline(
+    ctx: RepoHandlerContext,
+    *,
+    session_id: str,
+    message_id: str,
+    lease_id: str,
+) -> dict[str, Any]:
+    """Run the work.ack substrate transition.
+
+    RFC 0048 V1.5 #2: ``recovery.auto`` live-mode auto-publish calls
+    this inside its own transaction so publish + ack + complete are
+    serialized as one block. psycopg's nested ``transaction()`` is a
+    savepoint, so re-entry from another transaction is safe.
+    """
     with transaction(ctx):
         message = ctx.row_by_id("queue_messages", "message_id", message_id, for_update=True)
         job = ctx.row_by_id("jobs", "job_id", str(message["job_id"]), for_update=True)

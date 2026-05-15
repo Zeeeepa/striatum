@@ -85,8 +85,20 @@ def append_audit_row(
     params: Mapping[str, Any],
     exit_code: int | None = None,
 ) -> int | None:
-    with conn.cursor() as cur:
-        cur.execute("SELECT last_hash FROM striatumd.audit_chain_head WHERE singleton = true")
+    # RFC 0048 V1.5 F3: lock the audit_chain_head singleton FOR UPDATE so
+    # concurrent appenders serialize on a single row, ensuring each new
+    # audit row's previous_hash equals the prior row's row_hash. Without
+    # the lock, two transactions could read the same last_hash, compute
+    # row_hash over identical previous_hash, then both UPDATE the head —
+    # breaking the chain with a fork. The whole SELECT → compute → INSERT →
+    # UPDATE sequence runs inside `conn.transaction()` so the FOR UPDATE
+    # lock holds across all four statements regardless of the connection's
+    # autocommit setting (the daemon runs autocommit=True in production).
+    with conn.transaction(), conn.cursor() as cur:
+        cur.execute(
+            "SELECT last_hash FROM striatumd.audit_chain_head "
+            "WHERE singleton = true FOR UPDATE"
+        )
         head = cur.fetchone()
         # Support both tuple_row (default) and dict_row factories.
         if head is None:
@@ -95,7 +107,10 @@ def append_audit_row(
             previous_hash = head["last_hash"]
         else:
             previous_hash = head[0]
-        cur.execute("SELECT segment_id FROM striatumd.audit_segments WHERE state = 'open' ORDER BY segment_id DESC LIMIT 1")
+        cur.execute(
+            "SELECT segment_id FROM striatumd.audit_segments "
+            "WHERE state = 'open' ORDER BY segment_id DESC LIMIT 1"
+        )
         segment = cur.fetchone()
         if segment is None:
             segment_id = 1
@@ -103,25 +118,24 @@ def append_audit_row(
             segment_id = segment["segment_id"]
         else:
             segment_id = segment[0]
-    row = {
-        "ts": datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
-        "schema_version": 1,
-        "hash_format_version": 2,
-        "daemon_version": __version__,
-        "client_id": auth.client_id,
-        "repository_id": auth.repository_id,
-        "method": method,
-        "decision": auth.decision,
-        "denial_reason": auth.denial_reason,
-        "transport": transport,
-        "request_id": request_id,
-        "exit_code": exit_code,
-        "params_sha256": canonical_hash(params),
-        "previous_hash": previous_hash,
-        "segment_id": segment_id,
-    }
-    row_hash = v2_row_hash(row)
-    with conn.cursor() as cur:
+        row = {
+            "ts": datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
+            "schema_version": 1,
+            "hash_format_version": 2,
+            "daemon_version": __version__,
+            "client_id": auth.client_id,
+            "repository_id": auth.repository_id,
+            "method": method,
+            "decision": auth.decision,
+            "denial_reason": auth.denial_reason,
+            "transport": transport,
+            "request_id": request_id,
+            "exit_code": exit_code,
+            "params_sha256": canonical_hash(params),
+            "previous_hash": previous_hash,
+            "segment_id": segment_id,
+        }
+        row_hash = v2_row_hash(row)
         cur.execute(
             """
             INSERT INTO striatumd.audit_log (

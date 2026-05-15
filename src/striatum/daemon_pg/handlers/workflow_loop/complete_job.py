@@ -23,6 +23,32 @@ def handle(ctx: RepoHandlerContext, params: Mapping[str, Any]) -> dict[str, Any]
     job_id = str(params["job_id"])
     lease_id = str(params["lease_id"])
     summary = params.get("summary")
+    return complete_inline(
+        ctx,
+        session_id=session_id,
+        job_id=job_id,
+        lease_id=lease_id,
+        summary=summary,
+    )
+
+
+def complete_inline(
+    ctx: RepoHandlerContext,
+    *,
+    session_id: str,
+    job_id: str,
+    lease_id: str,
+    summary: Any = None,
+) -> dict[str, Any]:
+    """Run the work.complete substrate transition.
+
+    RFC 0048 V1.5 #2: ``recovery.resume --complete`` and ``recovery.auto``
+    live-mode auto-publish call this inside their own transaction so the
+    blocker-resolution or artifact-publish step and the job completion
+    are serialized together. Implemented as a thin alias over the same
+    logic that ``handle`` runs — psycopg's nested ``transaction()`` is
+    a savepoint, so re-entry from another transaction is safe.
+    """
     with transaction(ctx):
         job = ctx.row_by_id("jobs", "job_id", job_id, for_update=True)
         active_lease_for(ctx, lease_id=lease_id, session_id=session_id, job_id=job_id)
