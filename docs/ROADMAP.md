@@ -258,18 +258,25 @@ Low-severity, bundled together. Single dogfood:
 This is a multi-week phase. May want to split into V2.0 / V2.0.5 / V2.0.6
 fragments if the surface grows.
 
-### 5.3 RFC 0048 Daemon-side substrate migration (V2.0 phase)
+### 5.3 ✅ shipped — RFC 0048 daemon-side substrate migration (v1.49.0–v1.55.0)
 
-The daemon's RPC router still delegates single-repo verbs to SQLite-backed
-CLI dispatch even after `migrate-repo-local`. Three phases:
+All three phases landed:
 
-- **(A)** Port each `cli/mutations.py` handler to PG-backed daemon-internal logic.
-- **(B)** Implement the same handlers in `go/pkg/rpc/` so `--core go` actually
-  services single-repo verbs.
-- **(C)** Remove the `STRIATUM_DAEMON_REQUIRED=0 + STRIATUM_TEST_HARNESS=1`
-  test-harness escape entirely.
-
-Multi-week phase, paired with RFC 0039 Phase 2.
+- **Phase A** (v1.49.0): 16 single-repo mutation handlers ported into
+  `src/striatum/daemon_pg/handlers/{workflow_loop,recovery_evidence}/`.
+- **Phase B** (v1.50.0–v1.54.0 + follow-up): Go-core parity in
+  `go/pkg/{reads,mutations}/`; daemon Unix-socket accept loop; 12 read
+  handlers byte-equivalent with the Python path.
+- **Phase C** (v1.51.0–v1.52.0): CLI dispatch routes ~30 mapped verbs
+  through the daemon socket; mapped verbs fail closed instead of
+  falling back to SQLite when the daemon is unreachable.
+- **V1.5 hardening** (v1.55.0): F2 cap-denial test matrix
+  (`tests/daemon_pg/test_capability_denial_matrix.py`), F3 audit-chain
+  row-lock in `append_audit_row`, F4 append-only role-grant tests, HIGH#1
+  parity rig (`tests/daemon_pg/handlers/_parity.py`), HIGH#2 inline
+  helpers exported (`complete_inline`, `ack_inline`), schema migration
+  0006 (events `previous_hash`/`row_hash` columns +
+  `repo_event_chain_heads`).
 
 ### 5.4 TODO item 26 — Codex/codex pairing validator rule
 
@@ -281,16 +288,14 @@ still open.
 **Suggested implementer:** any lane. Small validator extension to
 `src/striatum/workflow.py::_validate_lane_constraints`.
 
-### 5.5 RFC 0049 (experimental) — Interactive claude lane via MCP
+### 5.5 RFC 0049 (experimental) — Interactive claude lane via MCP — **SHELVED**
 
-Spike required to verify Anthropic's billing semantics for PTY-supervised
-interactive sessions + Claude Code's interactive-loop stability under
-bootstrap-prompt-only headless operation. Motivated by Anthropic's
-2026-06-15 plan-credit policy.
-
-**Decision needed:** spike or shelve? V1.48.1's wrapper fix bought us
-time; RFC 0049 is now a *capability* RFC (~100× token-per-dollar
-improvement on Max 20x) rather than a *blocker*.
+Decision recorded in v1.55.0 session memory
+[[project-v1-55-session-close-2026-05-15]]: shelved. v1.48.1's wrapper
+auth fix bought time; RFC 0049 is now a *capability* RFC, not a
+*blocker*. Reopen if subscription-quota economics shift or Anthropic
+plan-credit terms change materially. (~100× token-per-dollar
+improvement potential on Max 20x remains attractive but not urgent.)
 
 ### 5.6 RFC 0047 — Decision-record propagation
 
@@ -402,17 +407,22 @@ its implementation depends on RFC 0048 Phase A.
   (`human_checkpoint` → `escalation_checkpoint`), `waiting_human`
   run-state rename, CLI prompt-string sweep.
 - **RFC 0054** (day-zero usage guide) — TODO #45. Phase 0
-  scaffold landed. Phase A writes a single top-down narrative for
-  new arrivals; open question is replace `GETTING_STARTED.md` vs.
-  new `USING_STRIATUM.md` vs. rewrite in place.
+  scaffold + **Phase A shipped in v1.55.0** (commit `a88f44d`):
+  `docs/USING_STRIATUM.md` added as a new doc alongside
+  `GETTING_STARTED.md` (resolved Open question 1 toward additive,
+  not replacement). Tutorial-warm tone; under 200 lines.
 - **RFC 0055** (marketing README + architecture graphics) — TODO
-  #46. Phase 0 scaffold landed. Phase A rewrites top-level
-  `README.md` with vision-first framing and a Mermaid architecture
-  diagram (recommended; SVG as polish follow-up).
+  #46. Phase 0 scaffold + **Phase A shipped in v1.55.0** (commit
+  `a88f44d`): `README.md` rewritten with vision-first framing,
+  value-bullets above-fold, Mermaid architecture diagram, and a
+  demoted docs-link table at the bottom. SVG polish follow-up
+  still optional.
 - **RFC 0056** (consumer-repo directory-structure opinions) —
-  TODO #47. Phase 0 scaffold landed. Phase A writes
-  `docs/CONSUMER_REPO_LAYOUT.md`. Phase B optionally extends
-  `init --with-ddd-layout` (RFC 0021).
+  TODO #47. Phase 0 scaffold + **Phase A shipped in v1.55.0**
+  (commit `a88f44d`): `docs/CONSUMER_REPO_LAYOUT.md` added with
+  ASCII tree, per-section rationale, mid-life adoption guidance,
+  and dogfood-heavy-projects extension. Phase B (scaffold
+  extension of `init --with-ddd-layout`) deferred.
 
 **Suggested implementer:** any lane. Documentation phases are
 single-track and additive — they touch docs and don't intersect
@@ -494,28 +504,31 @@ shipped with gh-16).
 
 ## 9. Cross-cutting operator concerns
 
-### 9.1 CI health (now)
+### 9.1 CI health (v1.55.0)
 
-v1.48.2 fixed the Python typecheck + Go matrix pin. **First CI run post-
-fix is in flight at the time of writing.** When it goes green:
+CI's Multi-repo harness step now hard-fails on missing Postgres rather
+than silently skipping. RFC 0039 V1.6 F3+F5 (commit `18927a9`)
+provisions a Postgres 16 service on the ubuntu-latest matrix legs and
+sets `STRIATUM_MULTI_REPO_REQUIRE_PG=1`, so a missing-PG CI environment
+can no longer masquerade as a green run. GitHub-hosted macOS runners
+don't support `services:`, so the multi-repo step is gated to Linux;
+macOS still exercises in-process unit tests, the Go build, and `go
+test ./...`.
 
-- Verify the Multi-repo harness step doesn't fail (env-dependent on PG;
-  currently expected to skip).
-- Verify the UI build hash check + UI tests pass (caught a placeholder-
-  bundle regression historically in dogfood-045 / item 29).
-- The `release-check` and `package-smoke` should already be passing per
-  v1.45.0+ tagging activity, but confirm.
+### 9.2 Test failures status (v1.55.0)
 
-### 9.2 Test failures not yet fixed
+`make lint typecheck test` on `main`:
 
-The full `make test` (`pytest`) reports 11 failures locally. Most are
-env-dependent (no Postgres / no daemon). Two are pre-existing and worth
-filing if not already tracked:
+- `test_static_assets_no_external_urls` — **passes** (W3C namespace +
+  reactflow.dev URIs are now whitelisted).
+- `test_decision_log_rows_under_word_budget` — **passes** (D094 prose
+  trimmed or budget raised; current rows fit).
 
-- `test_static_assets_no_external_urls` — bundle contains W3C namespace
-  URIs and reactflow.dev help URLs; need whitelist.
-- `test_decision_log_rows_under_word_budget` — D094 over budget (439 words;
-  budget is lower). Either trim D094 prose or raise budget.
+The full pytest sweep on the local dev machine (with halbritt granted
+CREATEDB + CREATEROLE on the local PG so ephemeral DB fixtures actually
+run, and `striatum_daemon.schema_meta.substrate_version=6` applied) is
+1254 passed / 7 skipped / 0 expected failures as of v1.55.0
+post-burn-down (commits `f80b889` → `9fc02d6`).
 
 ### 9.3 Wrappers regenerate sometimes
 
