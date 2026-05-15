@@ -155,6 +155,11 @@ def build_parser() -> argparse.ArgumentParser:
     daemon_doctor = daemon_sub.add_parser("doctor")
     daemon_doctor.add_argument("--postgres-url")
     daemon_doctor.add_argument("--apply-migrations", action="store_true")
+    daemon_doctor.add_argument(
+        "--explain",
+        action="store_true",
+        help="(RFC 0048 V1.5) show per-method PG-backed vs SQLite-fallback routing",
+    )
     daemon_doctor.add_argument("--json", action="store_true")
     daemon_migrate = daemon_sub.add_parser("migrate")
     daemon_migrate.add_argument("--from", dest="from_substrate", choices=["sqlite"], required=True)
@@ -675,6 +680,15 @@ def build_parser() -> argparse.ArgumentParser:
     requeue_stale = recovery_sub.add_parser("requeue-stale")
     requeue_stale.add_argument("--run-id", required=True)
     requeue_stale.add_argument("--job-id", required=True)
+    requeue_stale.add_argument(
+        "--force",
+        action="store_true",
+        help="(GH #19) requeue a repo_write stale job after manual inspection; pair with --justification",
+    )
+    requeue_stale.add_argument(
+        "--justification",
+        help="(GH #19) operator-override audit-chained reason; required with --force",
+    )
     requeue_stale.add_argument("--json", action="store_true")
     cancel_job_p = recovery_sub.add_parser("cancel-job")
     cancel_job_p.add_argument("--run-id", required=True)

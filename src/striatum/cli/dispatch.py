@@ -681,7 +681,13 @@ def dispatch(args: argparse.Namespace) -> object:
         if args.command == "recovery" and args.recovery_command == "stale-leases":
             return stale_leases(conn, run_id=args.run_id)
         if args.command == "recovery" and args.recovery_command == "requeue-stale":
-            return requeue_stale(conn, run_id=args.run_id, job_id=args.job_id)
+            return requeue_stale(
+                conn,
+                run_id=args.run_id,
+                job_id=args.job_id,
+                force=bool(getattr(args, "force", False)),
+                justification=getattr(args, "justification", None),
+            )
         if args.command == "recovery" and args.recovery_command == "cancel-job":
             return cancel_job(
                 conn,
@@ -982,7 +988,35 @@ def _dispatch_daemon(args: argparse.Namespace) -> object:
             v1 = daemon_mod.read_doctor(repo=None, verbose=True)
         except Exception as exc:  # noqa: BLE001 - daemon doctor must still report PG onboarding.
             v1 = {"ok": False, "error": str(exc)}
-        return {"mode": "daemon", "postgres": pg, "sqlite_registry": v1}
+        result: dict[str, object] = {"mode": "daemon", "postgres": pg, "sqlite_registry": v1}
+        if bool(getattr(args, "explain", False)):
+            # RFC 0048 V1.5: surface per-method routing (PG-backed vs
+            # SQLite-fallback). Reads the same registries DaemonRpcRouter
+            # consults so the operator can SEE which CLI verbs have made
+            # the substrate flip.
+            from striatum.daemon_pg.handlers import registry as _pg_registry
+            from striatum.daemon_rpc.registry import METHOD_REGISTRY
+            from striatum.daemon_rpc.server import CLI_ROUTES
+            # Importing the handlers package triggers decorator registration
+            # so the registry reflects the running handler set.
+            import striatum.daemon_pg.handlers  # noqa: F401
+            explain_rows: list[dict[str, object]] = []
+            for method_name, entry in sorted(METHOD_REGISTRY.items()):
+                pg_handler = _pg_registry.resolve_pg_handler(method_name)
+                explain_rows.append({
+                    "method": method_name,
+                    "pg_backed": pg_handler is not None,
+                    "sqlite_fallback_route": CLI_ROUTES.get(method_name),
+                    "required_capability": entry.required_capability,
+                    "repository_scope": entry.effective_repository_scope_mode,
+                    "deprecated": getattr(entry, "deprecated", False),
+                })
+            result["explain"] = {
+                "method_count": len(explain_rows),
+                "pg_backed_count": sum(1 for r in explain_rows if r["pg_backed"]),
+                "rows": explain_rows,
+            }
+        return result
     if args.daemon_command == "migrate":
         from striatum.daemon_pg.config import resolve_config
         from striatum.daemon_pg.cutover import CutoverOptions, migrate
