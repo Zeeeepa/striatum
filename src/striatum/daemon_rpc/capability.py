@@ -38,7 +38,7 @@ def authorize(
     token_id, sep, secret = token.partition(".")
     if not sep or not token_id or not secret:
         return RpcAuthContext(None, token_id or None, repository_id, None, "denied", "token_malformed")
-    with conn.cursor() as cur:
+    with _dict_cursor(conn) as cur:
         cur.execute("SELECT * FROM striatumd.clients WHERE token_id = %s", (token_id,))
         row = cur.fetchone()
     if row is None:
@@ -52,7 +52,7 @@ def authorize(
         return RpcAuthContext(client_id, token_id, repository_id, None, "denied", "token_revoked")
     if _expired(record.get("expires_at")):
         return RpcAuthContext(client_id, token_id, repository_id, None, "denied", "token_expired")
-    with conn.cursor() as cur:
+    with _dict_cursor(conn) as cur:
         cur.execute(
             """
             SELECT * FROM striatumd.client_capabilities
@@ -67,7 +67,7 @@ def authorize(
         cap = cur.fetchone()
     if cap is None:
         if repository_id is not None:
-            with conn.cursor() as cur:
+            with _dict_cursor(conn) as cur:
                 cur.execute(
                     """
                     SELECT repository_id FROM striatumd.client_capabilities
@@ -101,6 +101,24 @@ def authorize(
 def require_allowed(context: RpcAuthContext) -> None:
     if context.decision != "allowed":
         raise RpcError(context.denial_reason or "capability_missing", "daemon RPC authorization failed")
+
+
+def _dict_cursor(conn: Any) -> Any:
+    """Return a cursor that yields dict rows regardless of connection
+    row_factory.
+
+    Production daemon connections set ``row_factory = psycopg.rows.dict_row``
+    at the connection level (see :mod:`striatum.daemon` start path), but
+    test fixtures call :func:`striatum.daemon_pg.connection.connect`
+    directly which defaults to tuple rows. Forcing dict rows per-cursor
+    keeps both call sites correct without changing the global default
+    (which would break positional access elsewhere in ``daemon_pg``).
+    """
+    try:
+        from psycopg.rows import dict_row
+    except ImportError:
+        return conn.cursor()
+    return conn.cursor(row_factory=dict_row)
 
 
 def _row_dict(row: Any) -> dict[str, Any]:

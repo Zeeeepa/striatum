@@ -8,21 +8,19 @@ Asserts that:
 - On an empty PG run state, the handler returns ``stale_count: 0`` with
   no events emitted (parity with the SQLite path on a fresh DB).
 
-Byte-equivalence over a populated fixture requires Track A's PG ack /
-release / claim helpers to be available so the fixture can be built via
-the registered RPC verbs on both substrates. That assertion is gated
-behind the ``RFC0048_PARITY`` env marker so it runs locally during
-sub-agent verification but does not block CI until the full helper set
-lands.
+Track A's PG mutation helpers (``record_verdict``, ``submit_review``,
+``override_review_verdict``) landed in v1.49.0, so the historical
+``RFC0048_PARITY`` env-var gating that previously deferred the PG-side
+seed has been removed — the PG handler runs against an ephemeral PG
+database by default. Cross-substrate byte-equivalence assertions use
+:func:`tests.daemon_pg.handlers._parity.assert_payload_parity`; see
+``test_pg_sqlite_parity_on_empty_run`` below.
 """
 
 from __future__ import annotations
 
 import inspect
-import os
 from typing import Any
-
-import pytest
 
 
 def test_module_registers_recovery_stale_leases() -> None:
@@ -52,11 +50,6 @@ def test_handler_signature_is_ctx_params() -> None:
     )
 
 
-@pytest.mark.skipif(
-    not os.environ.get("RFC0048_PARITY"),
-    reason="full PG parity fixture requires Track A's PG mutation helpers; "
-    "set RFC0048_PARITY=1 to enable",
-)
 def test_pg_handler_empty_run_returns_no_stale_entries(pg_ctx: Any) -> None:
     from ._helpers import import_handler
 

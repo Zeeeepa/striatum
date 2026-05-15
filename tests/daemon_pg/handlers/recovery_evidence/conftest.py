@@ -11,20 +11,16 @@ This conftest exposes three things to the seven per-method test files:
    asserted byte-equal (the synthesis "byte-identical state vs the
    SQLite-backed equivalent on the same input fixture" contract).
 
-The full parity helpers are intentionally minimal until Track A's
-remaining ``workflow_loop`` modules (``record_verdict``,
-``submit_review``, ``override_review_verdict``) land. Importing
-``striatum.daemon_pg.handlers`` requires those to exist; until they do,
-the handler tests run by importing handler modules directly (bypassing
-the package ``__init__.py``) — see ``import_handler`` below.
+Per RFC 0048 V1.5 #1 the parity rig is now fully unblocked — Track A's
+remaining handlers (``record_verdict``, ``submit_review``,
+``override_review_verdict``) landed in v1.49.0, so the parent package
+imports cleanly without the historical workflow-loop stubs.
 """
 
 from __future__ import annotations
 
 import importlib
-import importlib.util
 import sqlite3
-import sys
 from dataclasses import dataclass
 from pathlib import Path
 from types import ModuleType
@@ -33,40 +29,8 @@ from typing import Any, Iterator
 import pytest
 
 
-HANDLERS_ROOT = (
-    Path(__file__).resolve().parents[4]
-    / "src"
-    / "striatum"
-    / "daemon_pg"
-    / "handlers"
-    / "recovery_evidence"
-)
-
-
-def _stub_missing_workflow_loop_modules() -> None:
-    """Pre-populate ``sys.modules`` with empty stubs so the parent package
-    import chain succeeds even when Track A has not yet landed all 9
-    workflow-loop handler modules.
-
-    This is a *test-only* workaround. Once Track A finishes
-    ``record_verdict``, ``submit_review``, and ``override_review_verdict``
-    the stubs are harmlessly shadowed by the real modules.
-    """
-    parent = "striatum.daemon_pg.handlers.workflow_loop"
-    for missing in ("record_verdict", "submit_review", "override_review_verdict"):
-        name = f"{parent}.{missing}"
-        if name not in sys.modules:
-            sys.modules[name] = ModuleType(name)
-
-
 def import_handler(module_name: str) -> ModuleType:
-    """Import a Track B handler module by its short name.
-
-    The function returns ``recovery_evidence.<module_name>``, stubbing any
-    Track A submodules whose absence would otherwise crash the parent
-    package import.
-    """
-    _stub_missing_workflow_loop_modules()
+    """Import a Track B handler module by its short name."""
     full = f"striatum.daemon_pg.handlers.recovery_evidence.{module_name}"
     return importlib.import_module(full)
 
@@ -128,22 +92,27 @@ def pg_db(pg_url: str) -> Iterator[Any]:
 
 @pytest.fixture
 def pg_ctx(pg_db: Any, tmp_path: Path) -> Any:
-    """Return a :class:`RepoHandlerContext` for the ephemeral PG database.
-
-    Track A's :class:`striatum.daemon_pg.handlers.context.RepoHandlerContext`
-    is the locked context shape. We bypass the parent package ``__init__``
-    to avoid Track A's incomplete workflow-loop import.
-    """
-    _stub_missing_workflow_loop_modules()
+    """Return a :class:`RepoHandlerContext` for the ephemeral PG database."""
     from striatum.daemon_pg.handlers.context import RepoHandlerContext
     from striatum.daemon_rpc.capability import RpcAuthContext
 
     repository_id = "rep_track_b_test"
     with pg_db.cursor() as cur:
         cur.execute(
-            "INSERT INTO striatumd.repositories(repository_id, repo_root, state) "
-            "VALUES (%s, %s, 'active') ON CONFLICT (repository_id) DO NOTHING",
-            (repository_id, str(tmp_path)),
+            """
+            INSERT INTO striatumd.repositories(
+              repository_id, repo_identity, repo_root, state_db_path,
+              display_name, registered_at, last_schema_version, state
+            ) VALUES (%s, %s, %s, %s, %s, now(), 0, 'active')
+            ON CONFLICT (repository_id) DO NOTHING
+            """,
+            (
+                repository_id,
+                f"identity:{repository_id}",
+                str(tmp_path),
+                str(tmp_path / ".striatum" / "state.sqlite3"),
+                repository_id,
+            ),
         )
     pg_db.commit()
     auth = RpcAuthContext(None, None, repository_id, None, "allowed")

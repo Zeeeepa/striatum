@@ -8,7 +8,6 @@ same exit-4 ``InvalidTransitionError`` the SQLite path raises.
 from __future__ import annotations
 
 import inspect
-import os
 from typing import Any
 
 import pytest
@@ -54,11 +53,6 @@ def test_handler_module_exposes_no_repo_write_loophole() -> None:
     assert "InvalidTransitionError" in source
 
 
-@pytest.mark.skipif(
-    not os.environ.get("RFC0048_PARITY"),
-    reason="full PG parity fixture requires Track A's PG mutation helpers; "
-    "set RFC0048_PARITY=1 to enable",
-)
 def test_pg_handler_requires_run_id_and_job_id(pg_ctx: Any) -> None:
     from ._helpers import import_handler
 
