@@ -55,9 +55,6 @@ def try_route(args: argparse.Namespace, repo: Path) -> tuple[bool, Any]:
     # in the daemon-internal invoke path so this hook short-circuits.
     if os.environ.get("STRIATUM_IN_DAEMON_HANDLER") == "1":
         return (False, None)
-    sock_path = resolve_socket_path()
-    if not daemon_socket_is_reachable(sock_path):
-        return (False, None)
     translator = _LOOKUP.get((args.command, _subcommand(args)))
     if translator is None:
         translator = _LOOKUP.get((args.command, None))
@@ -66,7 +63,18 @@ def try_route(args: argparse.Namespace, repo: Path) -> tuple[bool, Any]:
     method, params = translator(args, repo)
     if method not in METHOD_REGISTRY:
         return (False, None)
+    sock_path = resolve_socket_path()
+    if not daemon_socket_is_reachable(sock_path):
+        raise StriatumError(
+            f"daemon_unreachable: {method} is daemon-routed and cannot fall back to SQLite",
+            exit_code=12,
+        )
     repository_id = params.get("repository_id") or _lookup_repository_id(repo)
+    if repository_id is None:
+        raise StriatumError(
+            f"repo_not_registered: {method} requires a daemon-registered repository",
+            exit_code=12,
+        )
     if repository_id is not None and "repository_id" not in params:
         params = dict(params)
         params["repository_id"] = repository_id
@@ -240,6 +248,10 @@ def _route_run_cancel(args: argparse.Namespace, repo: Path) -> tuple[str, dict[s
     return ("run.cancel", {"run_id": args.run_id, "reason": getattr(args, "reason", "")})
 
 
+def _route_run_retry_job(args: argparse.Namespace, repo: Path) -> tuple[str, dict[str, Any]]:
+    return ("run.retry_job", {"run_id": args.run_id, "job_id": args.job_id})
+
+
 def _route_run_summary(args: argparse.Namespace, repo: Path) -> tuple[str, dict[str, Any]]:
     return ("run.summary", {"run_id": args.run_id, "path": getattr(args, "path", None)})
 
@@ -257,6 +269,10 @@ def _route_register_session(args: argparse.Namespace, repo: Path) -> tuple[str, 
         params["parent_session_id"] = args.parent_session_id
     if getattr(args, "operator_label", None):
         params["operator_label"] = args.operator_label
+    if getattr(args, "force_non_fresh", False):
+        params["force_non_fresh"] = True
+    if getattr(args, "reason", None):
+        params["reason"] = args.reason
     return ("session.register", params)
 
 
@@ -279,14 +295,17 @@ def _route_heartbeat(args: argparse.Namespace, repo: Path) -> tuple[str, dict[st
     return ("work.heartbeat", {
         "session_id": args.session_id,
         "lease_id": args.lease_id,
+        "extend_seconds": getattr(args, "extend_seconds", None),
     })
 
 
 def _route_release(args: argparse.Namespace, repo: Path) -> tuple[str, dict[str, Any]]:
     return ("work.release", {
         "session_id": args.session_id,
+        "message_id": args.message_id,
         "lease_id": args.lease_id,
         "reason": getattr(args, "reason", ""),
+        "requeue": bool(getattr(args, "requeue", False)),
     })
 
 
@@ -295,7 +314,9 @@ def _route_block(args: argparse.Namespace, repo: Path) -> tuple[str, dict[str, A
         "session_id": args.session_id,
         "job_id": args.job_id,
         "lease_id": args.lease_id,
-        "reason": getattr(args, "reason", ""),
+        "kind": args.kind,
+        "severity": args.severity,
+        "description": args.description,
     })
 
 
@@ -327,6 +348,7 @@ def _route_verdict(args: argparse.Namespace, repo: Path) -> tuple[str, dict[str,
         "job_id": args.job_id,
         "lease_id": args.lease_id,
         "verdict": args.verdict,
+        "findings_artifact_id": getattr(args, "findings_artifact_id", None),
         "rationale": getattr(args, "rationale", ""),
     })
 
@@ -336,7 +358,14 @@ def _route_submit_review(args: argparse.Namespace, repo: Path) -> tuple[str, dic
         "session_id": args.session_id,
         "job_id": args.job_id,
         "lease_id": args.lease_id,
+        "path": args.path,
+        "verdict": args.verdict,
+        "logical_name": getattr(args, "logical_name", "review"),
+        "kind": getattr(args, "kind", "finding"),
+        "rationale": getattr(args, "rationale", None),
         "findings_artifact_id": getattr(args, "findings_artifact_id", None),
+        "allow_no_process_execution": bool(getattr(args, "allow_no_process_execution", False)),
+        "override_rationale": getattr(args, "override_rationale", None),
     })
 
 
@@ -367,6 +396,32 @@ def _route_recovery(args: argparse.Namespace, repo: Path) -> tuple[str, dict[str
         params["reason"] = args.reason
     if getattr(args, "cascade", False):
         params["cascade"] = True
+    if getattr(args, "force", False):
+        params["force"] = True
+    if getattr(args, "justification", None):
+        params["justification"] = args.justification
+    if getattr(args, "blocker_id", None):
+        params["blocker_id"] = args.blocker_id
+    if getattr(args, "complete", False):
+        params["complete"] = True
+    if getattr(args, "summary", None):
+        params["summary"] = args.summary
+    if getattr(args, "extend_seconds", None) is not None:
+        params["extend_seconds"] = args.extend_seconds
+    for name in (
+        "dry_run",
+        "autonomous_review_requeue",
+        "autonomous_process_reconcile",
+        "max_requeues_per_sweep",
+        "checkpoint_timeout_seconds",
+        "eligible_after_seconds",
+        "interval_seconds",
+        "exit_on_terminal",
+        "max_sweeps",
+    ):
+        value = getattr(args, name, None)
+        if value is not None:
+            params[name] = value
     return (method, params)
 
 
@@ -386,24 +441,31 @@ def _route_corpus_export(args: argparse.Namespace, repo: Path) -> tuple[str, dic
 
 def _route_decision_record(args: argparse.Namespace, repo: Path) -> tuple[str, dict[str, Any]]:
     return ("decision.record", {
+        "run_id": args.run_id,
+        "path": args.path,
         "title": args.title,
         "outcome": args.outcome,
+        "decision_id": getattr(args, "decision_id", None),
         "rationale": getattr(args, "rationale", ""),
+        "follow_up": getattr(args, "follow_up", None),
     })
 
 
 def _route_checkpoint_resolve(args: argparse.Namespace, repo: Path) -> tuple[str, dict[str, Any]]:
     return ("checkpoint.resolve", {
-        "checkpoint_id": args.checkpoint_id,
-        "resolution": args.resolution,
-        "rationale": getattr(args, "rationale", ""),
+        "blocker_id": args.blocker_id,
+        "action": args.action,
+        "decision_id": getattr(args, "decision_id", None),
     })
 
 
 def _route_branch_confirm(args: argparse.Namespace, repo: Path) -> tuple[str, dict[str, Any]]:
     return ("branch.confirm", {
         "run_id": args.run_id,
+        "branch": args.branch,
         "create": bool(getattr(args, "create", False)),
+        "use_current": bool(getattr(args, "use_current", False)),
+        "strict": bool(getattr(args, "strict", False)),
     })
 
 
@@ -419,6 +481,7 @@ _LOOKUP: dict[tuple[str, str | None], Callable[[argparse.Namespace, Path], tuple
     ("run", "pause"): _route_run_pause,
     ("run", "resume"): _route_run_resume,
     ("run", "cancel"): _route_run_cancel,
+    ("run", "retry-job"): _route_run_retry_job,
     ("run", "summary"): _route_run_summary,
     ("register-session", None): _route_register_session,
     ("claim-next", None): _route_claim_next,

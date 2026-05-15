@@ -4,10 +4,12 @@ author: operator
 
 Goal of the session: move Striatum from "daemon-required CLI in name only,
 SQLite in practice" to "Postgres is the live substrate end-to-end."
-Six version bumps shipped; the substrate flip is mechanically complete
-for reads + mutations on the Python core, and reads are now Go-core
-parity. Mutations on the Go core, V1.5 hardening, and the final SQLite-
-removal flip remain.
+Six version bumps shipped during the original session; the follow-up
+implementation completed the Go-core mutation port and the mapped CLI
+fail-closed flip. The substrate flip is now mechanically complete for the
+Python core reads + mutations, Go-core reads + mutations, and CLI routing for
+the mapped daemon verbs. The remaining work is the V1.5 hardening bundle and
+broader parity/integration evidence.
 
 ## What landed
 
@@ -19,6 +21,7 @@ removal flip remain.
 | v1.52.0 | RFC 0048 Phase C complete (Python reads) | 12 read-surface PG handlers under `src/striatum/daemon_pg/handlers/reads/` (status, dashboard, list.\*, run.summary, why, doctor, evidence.export, corpus.export). |
 | v1.53.0 | GH #19 + #21 + doctor --explain | `recovery requeue-stale --force --justification "<reason>"` for repo_write stale jobs (audit-chained). `_verify_state_health()` at serve startup refuses to bind over a corrupted state.sqlite3 + flushes WAL. `daemon doctor --explain` shows per-method PG-backed vs SQLite-fallback routing. |
 | v1.54.0 | RFC 0048 Phase B (Go reads) | `go/pkg/reads/` ports the same 12 read handlers to Go-core parity. `go/cmd/striatumd/main.go` registers them before the not-implemented stub loop. Go daemon now serves reads instead of returning `not_implemented`. |
+| follow-up | RFC 0048 Phase B/C completion | `go/pkg/mutations/` ports the repo-local workflow mutation surface to Go, Go embeds repo-local schema migration 0005, `run.prepare` materializes v1.1 phase dependencies, `recovery.auto` live mode publishes and completes recoverable stale work, `branch.confirm` honors git modes, and mapped CLI RPC verbs fail closed instead of falling back to SQLite. |
 
 main at `3d85802`. All branches deleted; tag history clean.
 
@@ -31,34 +34,55 @@ main at `3d85802`. All branches deleted; tag history clean.
 - Operator UI: `striatum serve --web --allow-mutations` running on `127.0.0.1:8088`; Tailscale-bridged at `https://proximal.tail0ecc2e.ts.net:8443/`.
 - Quarantined: `.striatum/state.sqlite3.corrupt` from earlier corruption — safe to delete.
 
-## Outstanding work — prioritized for the next session
+## Current status after follow-up
 
-**P0 — Phase B mutation port (~16 Go handlers)**
+**Complete — Phase B mutation port**
 
-The Go daemon serves reads but every mutation still returns `not_implemented`. Need Go ports of: `session.register`, `session.close`, `work.claim_next`, `work.ack`, `work.heartbeat`, `work.release`, `work.block`, `work.complete`, `artifact.publish`, `review.submit`, `review.verdict`, `review.override`, `decision.record`, `checkpoint.resolve`, `branch.confirm`, `run.{prepare,start,pause,resume,cancel,retry_job}`, `recovery.{stale_leases,requeue_stale,cancel_job,process_reconcile,resume,auto}`, `evidence.export` (wait — that's a read, already done).
+Follow-up implementation added `go/pkg/mutations/` and registered the Phase B
+mutation surface before the Go daemon's generic `not_implemented` fallback.
+The Go daemon now has handlers for: `session.register`, `session.close`,
+`work.claim_next`, `work.ack`, `work.heartbeat`, `work.release`, `work.block`,
+`work.complete`, `artifact.publish`, `review.submit`, `review.verdict`,
+`review.override`, `decision.record`, `checkpoint.resolve`, `branch.confirm`,
+`run.{prepare,start,pause,resume,cancel,retry_job}`,
+`recovery.{stale_leases,requeue_stale,cancel_job,process_reconcile,resume,auto}`.
+The follow-up also copied repo-local schema migration 0005 into the Go embed,
+made `run.prepare` materialize v1.1 phase-synthesis dependencies, made
+`recovery.auto` publish matching stale expected artifacts and complete the
+recovered job, added artifact front-matter validation, ported
+`branch.confirm` git modes (`--create`, `--use-current`, `--strict`), and
+flipped mapped CLI RPC verbs to fail closed instead of falling back to SQLite
+when daemon routing cannot proceed.
 
-Each Go write handler needs: transaction open, state mutation, event-row append with audit chain, capability check, return shape parity with Python. Pattern from `go/pkg/crossrepo/lifecycle.go` (uses `BeginTx`, scans rows, etc.).
+Verification run in the follow-up:
 
-Scope: ~16-24 handlers × ~80-200 lines of Go each = ~2-4K lines. Realistic as a 10-job dual-track dogfood (Track A workflow-loop, Track B recovery+evidence).
+- `go test ./pkg/mutations ./cmd/striatumd`
+- `go test ./...`
+- `.venv/bin/pytest tests/test_cli_daemon_rpc_route.py tests/daemon_rpc/test_registry_rfc0043_coverage.py tests/test_daemon_rpc.py::test_daemon_pg_migrations_name_rpc_supervisor_apply_and_repo_local_tables tests/daemon_pg/test_repo_local_migration.py::test_repo_local_migration_registered_as_daemon_pg_v5 -q`
+- `.venv/bin/ruff check src/striatum/cli/daemon_rpc_route.py tests/test_cli_daemon_rpc_route.py`
+- `make daemon-go-build`
 
-**P1 — V1.5 fix-up bundle (still deferred from dogfood-058)**
+**Remaining — P1 V1.5 hardening bundle**
 
-- **codex F2** capability-denial test matrix: 16 PG-backed handlers × 6 denial cases (missing/revoked/expired/wrong-cap/wrong-repo/replay). Each test monkeypatches `authorize()` to deny + asserts no SQL execution + denied audit row. Mechanical; ~96 test cases.
+- **codex F2** capability-denial test matrix: PG-backed handlers × denial cases (missing/revoked/expired/wrong-cap/wrong-repo/replay). Each test monkeypatches `authorize()` to deny + asserts no SQL execution + denied audit row. Mechanical; the exact count should now include the Go mutation surface as well as the existing Python PG handlers.
 - **codex F3** audit-chain SERIALIZABLE / row-lock per write handler. Touches every PG write handler. High blast radius; warrants a dogfood.
 - **codex F4** append-only role-grant tests: connect as `striatumd_rw`, attempt `UPDATE`/`DELETE` on `events`/`artifacts`, assert permission denied. ~20 min cowboy.
-- **claude HIGH#1** byte-equivalence parity rig: wire conftest's `ReadSeed` / `pg_ctx` / `sqlite_conn` into 16+ handler tests, add `assert_payload_parity` with per-key diff helper. ~60 min cowboy.
-- **claude HIGH#2** dead code cleanup: `complete_inline`, `ack_inline`, `recovery.resume --complete`, `recovery.auto` live mode. Discrete per-symbol decisions. ~45 min cowboy.
+- **claude HIGH#1** byte-equivalence parity rig: wire conftest's `ReadSeed` / `pg_ctx` / `sqlite_conn` into handler tests, add `assert_payload_parity` with per-key diff helper. ~60 min cowboy.
+- **claude HIGH#2** dead code cleanup: `complete_inline`, `ack_inline`, and `recovery.resume --complete` still warrant discrete decisions. `recovery.auto` live mode has been implemented in Go follow-up work, so this item no longer blocks the Go mutation path.
 - **Schema migration 0006**: ALTER `striatumd.events` ADD `previous_hash` + `row_hash`; CREATE `striatumd.repo_event_chain_heads`; re-anchor from `payload_json._event_chain`. ~60 min cowboy.
 
-**P2 — Phase C SQLite-removal default flip**
+**Complete — P2 mapped CLI fail-closed flip**
 
-One-line config change to make `DaemonRpcRouter._route` refuse to fall through to `CLI_ROUTES` for PG-registered methods. Gated on F1 (fail-closed, partial in v1.51.0) being complete + V1.5 hardening done.
+The CLI dispatch hook now refuses to fall back to legacy SQLite for mapped,
+registered RPC methods when the daemon is unreachable or the target repository
+is not registered. Unmapped bootstrap and admin surfaces still fall through by
+design.
 
 ## Pre-flight checks before next workflow / commit
 
 1. `striatum --version` → expect `1.54.0`.
 2. `systemctl --user status striatumd.service` → expect `active (running)`.
-3. `striatum daemon doctor --explain --json | jq '.explain | {method_count, pg_backed_count}'` → expect ~93 / 34+.
+3. `striatum daemon doctor --explain --json | jq '.explain | {method_count, pg_backed_count}'` → expect the PG-backed count to include reads plus mapped mutations after installing the follow-up working tree.
 4. `python3 -c "import sqlite3; print(sqlite3.connect('.striatum/state.sqlite3').execute('PRAGMA integrity_check').fetchone())"` → expect `('ok',)`.
 5. `ps -ef | grep -E "(codex|claude|gemini).*wrapper" | grep -v grep | wc -l` → expect 0.
 6. `ls /run/user/1000/striatum/` → expect `client-token`, `striatumd.pid`, `striatumd.sock`.

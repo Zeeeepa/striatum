@@ -3,6 +3,7 @@ package db
 import (
 	"context"
 	"errors"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -81,6 +82,44 @@ func TestMigrationsAreOrdered(t *testing.T) {
 		}
 		if migration.SHA256() == "" {
 			t.Fatalf("migration %d missing sha", migration.Version)
+		}
+	}
+}
+
+func TestGoEmbeddedMigrationsMatchPythonSource(t *testing.T) {
+	sourcePath := filepath.Join("..", "..", "..", "src", "striatum", "daemon_pg", "sql")
+	if err := VerifyMigrationsSHASource(sourcePath); err != nil {
+		t.Fatalf("embedded migrations differ from Python source: %v", err)
+	}
+}
+
+func TestMigrationFiveCarriesRepoLocalWorkflowTables(t *testing.T) {
+	migrations, err := Migrations()
+	if err != nil {
+		t.Fatalf("load migrations: %v", err)
+	}
+	var migrationFive *Migration
+	for index := range migrations {
+		if migrations[index].Version == 5 {
+			migrationFive = &migrations[index]
+			break
+		}
+	}
+	if migrationFive == nil {
+		t.Fatal("migration 5 is missing")
+	}
+	for _, table := range []string{
+		"workflow_snapshots",
+		"runs",
+		"sessions",
+		"jobs",
+		"queue_messages",
+		"leases",
+		"work_packets",
+		"events",
+	} {
+		if !strings.Contains(migrationFive.SQL, "striatumd."+table) {
+			t.Fatalf("migration 5 missing repo-local table %s", table)
 		}
 	}
 }
