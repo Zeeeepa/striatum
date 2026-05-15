@@ -39,13 +39,20 @@ def test_self_update_parser_choices_constrain_profile() -> None:
         parser.parse_args(["self-update", "--profile", "bogus"])
 
 
+def _plan(result: dict[str, Any]) -> dict[str, Any]:
+    """Narrow result["plan"] for mypy strict."""
+    plan = result["plan"]
+    assert isinstance(plan, dict)
+    return plan
+
+
 def test_self_update_dry_run_returns_plan_envelope() -> None:
     from striatum.cli.dispatch import _dispatch_self_update
 
     args = _parse(["--dry-run", "--profile", "codex", "--scope", "project"])
     result = _dispatch_self_update(args)
     assert result["status"] == "would_run"
-    plan = result["plan"]
+    plan = _plan(result)
     assert plan["profile"] == "codex"
     assert plan["scope"] == "project"
     assert "pip install" in plan["pip"]
@@ -60,7 +67,7 @@ def test_self_update_dry_run_respects_skip_flags() -> None:
 
     args = _parse(["--dry-run", "--skip-plugin", "--skip-skills"])
     result = _dispatch_self_update(args)
-    plan = result["plan"]
+    plan = _plan(result)
     assert plan["plugin"] is None
     assert plan["skills"] is None
 
@@ -73,7 +80,7 @@ def test_self_update_dry_run_skills_falls_back_when_profile_all() -> None:
 
     args = _parse(["--dry-run", "--profile", "all"])
     result = _dispatch_self_update(args)
-    plan = result["plan"]
+    plan = _plan(result)
     assert "plugin install --profile all" in plan["plugin"]
     assert "skills install --profile claude_code" in plan["skills"]
 
@@ -140,11 +147,14 @@ def test_self_update_live_run_continues_past_optional_failures(
     args = _parse(["--source", str(tmp_path), "--profile", "codex"])
     result = _dispatch_self_update(args)
     assert result["status"] == "updated"
-    labels = [step["label"] for step in result["steps"]]
+    steps_obj = result["steps"]
+    assert isinstance(steps_obj, list)
+    steps: list[dict[str, Any]] = steps_obj
+    labels = [step["label"] for step in steps]
     assert labels == ["pip", "plugin", "skills"]
     # Plugin and skills both report their non-zero exit codes.
-    plugin_step = next(s for s in result["steps"] if s["label"] == "plugin")
-    skills_step = next(s for s in result["steps"] if s["label"] == "skills")
+    plugin_step = next(s for s in steps if s["label"] == "plugin")
+    skills_step = next(s for s in steps if s["label"] == "skills")
     assert plugin_step["exit_code"] == 2
     assert skills_step["exit_code"] == 3
 
