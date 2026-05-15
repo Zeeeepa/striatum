@@ -186,6 +186,14 @@ def start_cross_repo_run(
         )
     participants = _participants(conn, cross_repo_run_id)
     primary = str(run["primary_repository_id"])
+    # Start the primary repo first, then the rest alphabetically. The primary
+    # is the orchestrator's home repo; if any non-primary start fails, the
+    # primary should already be running so the human checkpoint has somewhere
+    # to record the blocker.
+    participants = sorted(
+        participants,
+        key=lambda p: (p.repository_id != primary, p.repository_alias),
+    )
     started: list[str] = []
     try:
         for participant in participants:

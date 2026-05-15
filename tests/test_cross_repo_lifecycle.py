@@ -153,7 +153,9 @@ def test_prepare_start_cancel_and_describe_cross_repo_run() -> None:
 
     started = start_cross_repo_run(conn, cross_repo_run_id="xrun_1", local_runner=runner)
     assert started["state"] == "running"
-    assert runner.started == ["consumer", "primary"]
+    # Primary starts first (the orchestrator's home repo), then the rest
+    # alphabetically — see the sort key in start_cross_repo_run.
+    assert runner.started == ["primary", "consumer"]
 
     described = describe_cross_repo_run(conn, cross_repo_run_id="xrun_1")
     assert described["state"] == "running"

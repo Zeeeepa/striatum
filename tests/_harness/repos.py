@@ -37,11 +37,31 @@ class RepoLocalRunner:
         workflow = dict(self.workflow or {})
         return _insert_local_run(repo.path, workflow=workflow, cross_repo_run_id=cross_repo_run_id)
 
+    def _matches_fail_alias(self, repository_id: str, fail_alias: str | None) -> bool:
+        """Return True if `fail_alias` matches `repository_id` under either
+        the test-side alias (RepoDescriptor.alias — repo0/repo1) or the
+        workflow-side alias (workflow.repositories[alias].repo_id — e.g.
+        "primary"/"consumer"). Tests that set fail_alias=workflow-alias
+        worked before the runner was extended to use _alias_for_id, which
+        only returned the test-side label. This helper accepts both.
+        """
+        if fail_alias is None:
+            return False
+        if _alias_for_id(self.repos_by_id, repository_id) == fail_alias:
+            return True
+        workflow_repos = (self.workflow or {}).get("repositories")
+        if isinstance(workflow_repos, Mapping):
+            for wf_alias, entry in workflow_repos.items():
+                if not isinstance(entry, Mapping):
+                    continue
+                if str(entry.get("repo_id")) == repository_id and wf_alias == fail_alias:
+                    return True
+        return False
+
     def start(self, *, repository_id: str, local_run_id: str) -> None:
         if repository_id in self.unreachable_ids:
             raise RuntimeError("repository unavailable")
-        alias = _alias_for_id(self.repos_by_id, repository_id)
-        if alias == self.fail_start_alias:
+        if self._matches_fail_alias(repository_id, self.fail_start_alias):
             raise RuntimeError("repository unavailable")
         with sqlite3.connect(db_path(self.repos_by_id[repository_id].path)) as conn:
             conn.execute("UPDATE runs SET state = 'running', started_at = ? WHERE run_id = ?", (utc_now(), local_run_id))
@@ -50,8 +70,7 @@ class RepoLocalRunner:
     def cancel(self, *, repository_id: str, local_run_id: str, reason: str) -> None:
         if repository_id in self.unreachable_ids:
             raise RuntimeError("repository unavailable")
-        alias = _alias_for_id(self.repos_by_id, repository_id)
-        if alias == self.fail_cancel_alias:
+        if self._matches_fail_alias(repository_id, self.fail_cancel_alias):
             raise RuntimeError("repository unavailable")
         with sqlite3.connect(db_path(self.repos_by_id[repository_id].path)) as conn:
             conn.execute(

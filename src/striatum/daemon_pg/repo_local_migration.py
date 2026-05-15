@@ -442,6 +442,32 @@ def _migrate_repo_local_locked(
         finally:
             pg_conn.close()
     source_state_db_sha256 = _file_sha256(source_path)
+    # V1.5 F-crash resume guard (test_rerun_with_corrupted_source case):
+    # if a prior crashed migration left a sentinel + checkpoint AND the
+    # current source bytes don't match the recorded sha256, refuse with
+    # exit code 8 BEFORE attempting to open the bytes as SQLite. Without
+    # this the corrupted source would raise a raw sqlite3.DatabaseError
+    # from _verify_sqlite_current, losing the documented refusal reason.
+    if sentinel_path.exists():
+        pg_conn_check = connect(options.postgres_url)
+        try:
+            registered = _lookup_registered(pg_conn_check, repo)
+            checkpoint = (
+                _existing_checkpoint(pg_conn_check, registered)
+                if registered is not None
+                else None
+            )
+        finally:
+            pg_conn_check.close()
+        if checkpoint is not None:
+            expected_sha = checkpoint.get("source_state_db_sha256")
+            if isinstance(expected_sha, str) and source_state_db_sha256 != expected_sha:
+                raise StriatumError(
+                    "repo-local SQLite state changed since the Postgres checkpoint; "
+                    "refusing to finalize. "
+                    f"expected sha256={expected_sha} observed={source_state_db_sha256}",
+                    exit_code=8,
+                )
     sqlite_conn = _open_source_readonly(source_path)
     try:
         source_user_version = _verify_sqlite_current(sqlite_conn)
