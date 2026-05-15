@@ -40,12 +40,18 @@ panes, terminal output, and provider hooks are never live
 control-plane state. See [`docs/POSTGRES_TRANSITION.md`](POSTGRES_TRANSITION.md)
 for the operator runbook.
 
-RFC 0048 (proposed, V2.0 phase) covers the remaining handler-port
-work where the daemon's RPC server still delegates some single-repo
-business logic back through the SQLite-backed CLI dispatch path under
-the `STRIATUM_DAEMON_REQUIRED=0 STRIATUM_TEST_HARNESS=1` escape;
-production operators leave the variable unset (the enforced default
-preserves the post-D094 behavior).
+RFC 0048 (v1.49.0 → v1.55.0) completed the substrate port: every
+single-repo mutation, recovery, and read handler runs natively
+against the daemon's per-repo Postgres tables, with Go-core parity
+in `go/pkg/{reads,mutations}/`. The
+`STRIATUM_DAEMON_REQUIRED=0 STRIATUM_TEST_HARNESS=1` escape no
+longer takes effect for ported methods — mapped CLI verbs fail
+closed instead of falling back to SQLite when the daemon is
+unreachable or the target repository is not registered. Schema v6
+(migration 0006) anchors the per-event hash chain in dedicated
+`previous_hash` / `row_hash` columns plus a
+`striatumd.repo_event_chain_heads` pointer for O(1) chain-head
+reads.
 
 External memory or retrieval systems (Engram, under RFC 0044, is the first
 reference consumer) may ingest the read-only `striatum corpus export` bundle

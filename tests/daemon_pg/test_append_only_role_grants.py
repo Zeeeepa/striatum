@@ -19,7 +19,7 @@ Both protections matter:
 
 from __future__ import annotations
 
-from typing import Iterator
+from typing import Any, Iterator
 
 import pytest
 
@@ -36,7 +36,7 @@ def pg_url(postgres_url: str) -> Iterator[str]:
         drop_ephemeral_database(ephemeral)
 
 
-def _provision_striatumd_rw(conn) -> bool:
+def _provision_striatumd_rw(conn: Any) -> bool:
     """Provision the ``striatumd_rw`` role in the ephemeral DB.
 
     The role is created at install time by the operator (see
@@ -82,7 +82,7 @@ def _provision_striatumd_rw(conn) -> bool:
     return True
 
 
-def _current_database(conn) -> str:
+def _current_database(conn: Any) -> str:
     with conn.cursor() as cur:
         cur.execute("SELECT current_database()")
         row = cur.fetchone()

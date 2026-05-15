@@ -26,9 +26,13 @@ Existing repos with a populated `.striatum/state.sqlite3` migrate
 to the new substrate with
 [`striatum daemon migrate-repo-local`](docs/POSTGRES_TRANSITION.md);
 the daemon is a hard prerequisite for every Striatum verb after
-D094, and `--no-daemon` is retired. RFC 0048 covers the remaining
-handler-port work where some daemon RPC routes still delegate to
-the SQLite-backed CLI path under a test-harness escape.
+D094, and `--no-daemon` is retired. RFC 0048 (v1.49.0 → v1.55.0)
+finished the substrate port: every single-repo mutation, recovery,
+and read handler runs natively against the daemon's per-repo
+Postgres tables, with Go-core parity in `go/pkg/{reads,mutations}/`.
+Schema v6 (migration 0006) anchors the per-event hash chain in
+dedicated `previous_hash` / `row_hash` columns and a
+`repo_event_chain_heads` pointer.
 
 ## Status
 
@@ -38,8 +42,8 @@ published to PyPI as `striatum-orchestrator` (the bare `striatum`
 name on PyPI is unrelated); the Python module name is still
 `striatum`. RFC status lives in
 [`docs/rfcs/README.md`](docs/rfcs/README.md); accepted and
-proposed RFCs span RFC 0001 through the RFC 0048 substrate-port
-proposal.
+proposed RFCs span RFC 0001 through RFC 0058 (target-repo
+adoption). RFC 0048's substrate port is complete as of v1.55.0.
 
 ## Install
 

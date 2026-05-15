@@ -35,7 +35,6 @@ from typing import Any
 import pytest
 
 from _harness.pg import create_ephemeral_database, drop_ephemeral_database
-from _harness.tokens import issue_token
 from striatum.daemon_pg.connection import connect
 from striatum.daemon_pg.handlers.registry import resolve_pg_handler
 from striatum.daemon_rpc.envelope import RpcEnvelope

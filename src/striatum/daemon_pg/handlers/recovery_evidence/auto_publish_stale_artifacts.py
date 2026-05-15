@@ -334,7 +334,7 @@ def _live_publish_and_complete(
     L102-107), this branch surfaces the dependency clearly.
     """
     try:
-        from striatum.daemon_pg.handlers.workflow_loop.complete_job import (  # type: ignore[attr-defined]
+        from striatum.daemon_pg.handlers.workflow_loop.complete_job import (
             complete_inline,
         )
         from striatum.daemon_pg.handlers.workflow_loop.submit_review import (
@@ -350,7 +350,7 @@ def _live_publish_and_complete(
         ) from exc
 
     try:
-        from striatum.daemon_pg.handlers.workflow_loop.ack_work import (  # type: ignore[attr-defined]
+        from striatum.daemon_pg.handlers.workflow_loop.ack_work import (
             ack_inline,
         )
 
