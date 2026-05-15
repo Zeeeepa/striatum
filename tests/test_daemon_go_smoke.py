@@ -55,11 +55,31 @@ def test_multi_repo_harness_boots_go_daemon(
             params={},
         )
         describe_response = call_unix(harness.socket_path, describe)
-        # daemon.describe requires a read capability; the daemon should refuse
-        # the unauthenticated probe with a stable capability_missing reason.
-        # We only assert that the connection round-tripped: a denial response
-        # proves the Go server is decoding envelopes and routing methods.
+        # daemon.describe requires a read capability; without a token the
+        # daemon refuses with one of the documented denial reasons.
+        # RFC 0039 V1.6 F4 (dogfood-047): assert the denied request lands
+        # an audit row tagged with that decision, not just that the
+        # envelope round-trips.
         assert describe_response["request_id"] == describe.request_id
+        assert describe_response.get("ok") is False, describe_response
+        error_code = (describe_response.get("data") or {}).get("code")
+        if error_code is None:
+            # legacy envelope shape — error is at top level
+            error_code = (describe_response.get("error") or {}).get("code")
+        assert error_code in {"token_missing", "capability_missing", "version_incompatible"}, (
+            f"unexpected denial code for unauthenticated daemon.describe: {error_code!r}"
+        )
+
+        denied_rows = harness.daemon_db_query(
+            "SELECT method, decision, denial_reason FROM striatumd.audit_log "
+            "WHERE method = 'daemon.describe' AND decision = 'denied' "
+            "ORDER BY audit_id DESC LIMIT 1"
+        )
+        assert denied_rows, (
+            "RFC 0039 V1.6 F4: unauthenticated daemon.describe must append a "
+            "denied audit row"
+        )
+        assert denied_rows[0]["denial_reason"] is not None
 
         chain = harness.daemon_db_query(
             "SELECT last_audit_id FROM striatumd.audit_chain_head"
