@@ -109,6 +109,73 @@ noted as front-matter-free.
 | 3       | Daemon-side supervised-progress heartbeat | Systems half (RFC 0040 §4) |
 | 4       | Gemini fragment front-matter callout | `src/striatum/workflow_templates/catalog.json` `gemini_default` |
 
+## Pattern 5 — post-migration operator workspace refuses dogfood launch (2026-05-16, pre-dogfood-061)
+
+**Symptom.** After v1.55.0 burn-down, scaffolded dogfoods 061/062/063
+all validate (`striatum workflow validate <path>` returns
+`{"ok":true,"data":{"valid":true}}` after manual tombstone) but
+`striatum run prepare` immediately fails with exit code 1
+`command_failed: striatum state is not initialized; run striatum
+init`. Running `striatum init` then fails with exit code 12
+`repo_not_migrated: … was migrated to daemon PostgreSQL state but
+the fresh SQLite path is being opened; this indicates a
+split-brain`.
+
+**Root cause** (multi-step):
+
+1. The operator's local `.striatum/state.sqlite3` was written to by
+   the v1.55.0 burn-down (GH #21 smoke + ephemeral test daemons)
+   after the original repo-local PG migration, so the
+   `striatumd.repo_migrations` checkpoint's
+   `source_state_db_sha256` no longer matches the on-disk file.
+2. `striatum daemon migrate-repo-local` refuses with exit 8
+   ("changed since the Postgres checkpoint") — the V1.5 F-crash
+   safety guard correctly refuses to tombstone an unverified source.
+3. Manual tombstone (`mv state.sqlite3 → state.sqlite3.tombstone`)
+   bypasses the migration-required check in
+   `src/striatum/cli/daemon_required.py::repo_is_migrated`, BUT
+   the `run prepare` path still routes through the legacy
+   SQLite-backed CLI dispatch (not the daemon RPC route flipped
+   in v1.51.0 for the mapped verbs).
+4. That legacy path tries to open `.striatum/state.sqlite3`, finds
+   it absent (it's now `.tombstone`), and offers `striatum init`
+   — which itself refuses because the tombstone is present
+   ("split-brain detection").
+
+**Fix surfaces (V1.6 / V1.7).**
+
+- **F1** — `striatum daemon migrate-repo-local
+  --force-refresh-checkpoint`: recompute the checkpoint sha
+  against the current source bytes. Operator path for the "wrote
+  to local sqlite after migration" case. Currently the only
+  recovery is manual tombstone + script.
+- **F2** — `run prepare` daemon-RPC route: the `run prepare` /
+  `run start` / `branch confirm` / `workflow validate` verbs route
+  through `daemon_rpc_route` like the V1.5 mapped verbs. Currently
+  they fall through to the SQLite-backed path that refuses
+  post-tombstone.
+- **F3** — `init` post-tombstone semantics: `striatum init` on a
+  repo with a `.striatum/state.sqlite3.tombstone` (PG-migrated)
+  should be a no-op or, at worst, refresh the runtime artifacts
+  without trying to open the absent sqlite.
+
+**Where the fixes live (proposed).**
+
+- F1: `src/striatum/daemon_pg/repo_local_migration.py::_resume_sqlite_finalization_after_checkpoint`
+  — accept a force-refresh option that bypasses the sha-mismatch
+  refusal and rewrites the checkpoint.
+- F2: `src/striatum/cli/daemon_rpc_route.py::CLI_ROUTES` — extend
+  the route table to include `run.prepare`, `run.start`,
+  `branch.confirm`, `workflow.validate`.
+- F3: `src/striatum/cli/dispatch.py::_dispatch_init` — short-circuit
+  to "already initialized" when `.striatum/state.sqlite3.tombstone`
+  exists.
+
+dogfood-061 / 062 / 063 launches are blocked on F1+F2+F3, or on a
+fresh-checkout operator workspace where the migration cleanly
+happens once and the operator never writes to `state.sqlite3`
+afterward.
+
 ## How to extend this doc
 
 When a future dogfood reveals a new friction pattern:
