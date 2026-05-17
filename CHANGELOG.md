@@ -31,6 +31,10 @@ Recent checkpoints:
   auto-delivery record `supervisor.reattached` for surviving PID identity,
   fail closed for unverifiable repair states, and mark stale PID identity as
   `lost` before any packet write.
+- The supervised-wrapper fixture suite now covers Claude, Codex, and Gemini
+  wrappers, verifying multi-packet loops, inner-command failure isolation,
+  clean EOF exits, temp scratch logging, and the non-interactive tool-approval
+  flags that keep lanes from stalling on prompts.
 - Chat transcript, briefing, session listing, display projection, and
   workflow-write confirmation helpers now live in `striatum.web.chat_session`
   with focused regression coverage.
@@ -140,7 +144,11 @@ Recent checkpoints:
   `make daemon-go-helper-integration` on Linux runners with Postgres.
   Reattach/lost-state reconciliation now runs on existing status, send, and
   claim auto-delivery paths, updating daemon-instance metadata for surviving
-  supervisors and marking stale PID identity lost before delivery.
+  supervisors and marking stale PID identity lost before delivery. The
+  supervised-wrapper fixture suite now exercises
+  `.striatum/bin/{claude,codex,gemini}-supervised-wrapper.sh` with provider
+  stubs, pinning the persistent FIFO loop contract and the auth-bypass flags
+  required for non-interactive lane operation.
 - **Workflow risk lint.**
   `striatum workflow lint` supports structured warnings, opt-in strict mode,
   accepted-risk rationale and decision references, advisory coverage scoring,

@@ -316,11 +316,12 @@ key. Workflows that omit `harness_profiles` produce identical
 packets to before — the field is fully additive.
 
 The reference fixture lives at
-`examples/harness-profiles/workflow.json`. The reference Claude
-Code supervised wrapper lives at
-`.striatum/bin/claude-supervised-wrapper.sh` (RFC 0010 V2).
-Workflows that declare a supervised Claude Code lane can use it
-as the lane command directly.
+`examples/harness-profiles/workflow.json`. The shipped supervised
+wrappers live at
+`.striatum/bin/{claude,codex,gemini}-supervised-wrapper.sh` (RFC
+0010 V2, RFC 0063 follow-through). Workflows that declare supervised
+Claude Code, Codex, or Gemini lanes can use the matching wrapper as
+the lane command directly.
 
 Process lanes that call a raw single-prompt command such as
 `["codex", "exec", "--model", "gpt-5.5", "-"]` should declare:

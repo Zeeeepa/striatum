@@ -105,7 +105,7 @@ so external references keep resolving even as items move between sections.
 | 51 | Architecture remediation Phase 3 — daemon core strategy decision | ✅ done |
 | 52 | RFC 0061 Architecture remediation Phase 4 — daemon-first web service | 🟡 core web/API + artifact reads daemon-routed |
 | 53 | RFC 0062 Architecture remediation Phase 5 — real escalation inbox | 🟡 projection + escalation artifact schema/linkage landed |
-| 54 | RFC 0063 Architecture remediation Phase 6 — hardened PTY supervision | 🟡 control-event, helper protocol, JSONL ingestion, helper launch, real-helper integration, helper CI, and restart reconciliation landed |
+| 54 | RFC 0063 Architecture remediation Phase 6 — hardened PTY supervision | ✅ done |
 | 55 | RFC 0064 Architecture remediation Phase 7 — workflow risk lint and review diversity enforcement | 🟡 validate refusal + generator coverage landed |
 | 56 | Architecture remediation Phase 8 — auto-finalize from front matter | 🟡 daemon recovery + visibility slices landed |
 | 57 | RFC 0065 Architecture remediation Phase 9 — UI packaging and bundle cleanup | ✅ done; chunking monitor only |
@@ -964,7 +964,11 @@ review and plan are root-level operator artifacts:
     on existing `supervise.status`, `supervise.send`, and claim-next
     auto-delivery paths: surviving supervisors record `supervisor.reattached`
     and refresh daemon-instance metadata, while stale PID identity is marked
-    `lost` before any packet write. Remaining: wrapper fixtures.
+    `lost` before any packet write. Final slice expanded
+    `tests/test_claude_supervised_wrapper.py` into Claude, Codex, and Gemini
+    supervised-wrapper fixtures that verify multi-packet loops, inner-command
+    failure isolation, EOF exit behavior, temp scratch logging, and
+    non-interactive tool-approval flags. Phase 6 is closed.
 
 55. **Phase 7: workflow risk lint and review diversity enforcement.**
     `workflow lint <workflow.json> --json` returns structured advisory

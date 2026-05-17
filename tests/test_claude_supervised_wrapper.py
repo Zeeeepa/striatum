@@ -1,10 +1,9 @@
-"""RFC 0010 V2 / HARNESS-001: verify the Claude Code supervised wrapper.
+"""RFC 0010 V2 / HARNESS-001: verify supervised wrapper fixtures.
 
-The wrapper at ``.striatum/bin/claude-supervised-wrapper.sh`` is the
-reference implementation of RFC 0009's supervised-lane contract for
-Claude Code. These tests substitute a stub ``claude`` on ``$PATH`` so
-the suite does not depend on the real Claude binary; the goal is to
-verify the wrapper's loop semantics, not the inner agent.
+The wrappers under ``.striatum/bin`` implement RFC 0009's supervised-lane
+contract for provider CLIs. These tests substitute provider-command stubs on
+``$PATH`` so the suite does not depend on real agent binaries; the goal is to
+verify wrapper loop semantics and non-interactive invocation flags.
 """
 
 from __future__ import annotations
@@ -13,39 +12,116 @@ import fcntl
 import json
 import os
 import shutil
+import shlex
 import subprocess
 import time
+from dataclasses import dataclass
 from pathlib import Path
+from typing import cast
 
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
-WRAPPER = ROOT / ".striatum" / "bin" / "claude-supervised-wrapper.sh"
+
+
+@dataclass(frozen=True)
+class WrapperCase:
+    name: str
+    command: str
+    wrapper: Path
+    expected_args: tuple[str, ...]
+
+
+WRAPPERS = (
+    WrapperCase(
+        name="claude",
+        command="claude",
+        wrapper=ROOT / ".striatum" / "bin" / "claude-supervised-wrapper.sh",
+        expected_args=(
+            "--print",
+            "--permission-mode",
+            "acceptEdits",
+            "--allowedTools",
+            "Bash",
+        ),
+    ),
+    WrapperCase(
+        name="codex",
+        command="codex",
+        wrapper=ROOT / ".striatum" / "bin" / "codex-supervised-wrapper.sh",
+        expected_args=(
+            "exec",
+            "--json",
+            "--ephemeral",
+            "--skip-git-repo-check",
+            "--dangerously-bypass-approvals-and-sandbox",
+            "-c",
+            "approval_policy=never",
+            "--ignore-user-config",
+            "-",
+        ),
+    ),
+    WrapperCase(
+        name="gemini",
+        command="gemini",
+        wrapper=ROOT / ".striatum" / "bin" / "gemini-supervised-wrapper.sh",
+        expected_args=(
+            "--prompt",
+            "-",
+            "--output-format",
+            "stream-json",
+            "--approval-mode",
+            "yolo",
+        ),
+    ),
+)
 
 
 pytestmark = [
     pytest.mark.skipif(
         shutil.which("bash") is None, reason="bash not available"
-    ),
-    pytest.mark.skipif(
-        not WRAPPER.exists(),
-        reason="claude-supervised-wrapper.sh not present in this checkout",
-    ),
+    )
 ]
 
 
-def _stub_claude(tmp_path: Path, *, exit_code: int = 0) -> tuple[Path, Path]:
-    """Install a stub `claude` on $PATH that records its stdin per call.
+@pytest.fixture(
+    params=[
+        pytest.param(
+            case,
+            id=case.name,
+            marks=pytest.mark.skipif(
+                not case.wrapper.exists(),
+                reason=f"{case.wrapper.name} not present in this checkout",
+            ),
+        )
+        for case in WRAPPERS
+    ]
+)
+def wrapper_case(request: pytest.FixtureRequest) -> WrapperCase:
+    return cast(WrapperCase, request.param)
+
+
+def _stub_command(
+    tmp_path: Path, case: WrapperCase, *, exit_code: int = 0
+) -> tuple[Path, Path]:
+    """Install a provider-command stub on $PATH.
 
     Returns ``(stub_dir, log_path)``. Each stub invocation appends its
-    stdin and a ``---END---`` marker to ``log_path``.
+    argv, stdin, and a ``---END---`` marker to ``log_path``.
     """
-    log = tmp_path / "claude.log"
-    stub = tmp_path / "claude"
+    log = tmp_path / f"{case.name}.log"
+    stub = tmp_path / case.command
     body = (
         "#!/usr/bin/env bash\n"
-        f"cat >> {log}\n"
-        f"printf '\\n---END---\\n' >> {log}\n"
+        "{\n"
+        "  printf 'ARGV:'\n"
+        "  for arg in \"$@\"; do\n"
+        "    printf ' [%s]' \"$arg\"\n"
+        "  done\n"
+        "  printf '\\nSTDIN:\\n'\n"
+        "  cat\n"
+        "  printf '\\n---END---\\n'\n"
+        f"}} >> {shlex.quote(str(log))}\n"
         f"exit {exit_code}\n"
     )
     stub.write_text(body, encoding="utf-8")
@@ -54,7 +130,11 @@ def _stub_claude(tmp_path: Path, *, exit_code: int = 0) -> tuple[Path, Path]:
 
 
 def _spawn_wrapper(
-    fifo: Path, *, env_path_prefix: Path
+    fifo: Path,
+    *,
+    case: WrapperCase,
+    env_path_prefix: Path,
+    scratch_dir: Path,
 ) -> subprocess.Popen[bytes]:
     """Spawn the wrapper with ``fifo`` as stdin without deadlocking.
 
@@ -66,16 +146,19 @@ def _spawn_wrapper(
     """
     env = os.environ.copy()
     env["PATH"] = f"{env_path_prefix}:{env['PATH']}"
+    env["STRIATUM_SCRATCH_DIR"] = str(scratch_dir)
+    scratch_dir.mkdir()
     read_fd = os.open(str(fifo), os.O_RDONLY | os.O_NONBLOCK)
     try:
         flags = fcntl.fcntl(read_fd, fcntl.F_GETFL)
         fcntl.fcntl(read_fd, fcntl.F_SETFL, flags & ~os.O_NONBLOCK)
         proc = subprocess.Popen(
-            [str(WRAPPER)],
+            [str(case.wrapper)],
             stdin=read_fd,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             env=env,
+            cwd=scratch_dir.parent,
         )
     finally:
         # The child has its own copy of the fd; release the parent's.
@@ -83,13 +166,20 @@ def _spawn_wrapper(
     return proc
 
 
-def test_wrapper_handles_multiple_packets(tmp_path: Path) -> None:
-    """The wrapper must spawn one `claude` per newline-terminated packet."""
-    stub_dir, log = _stub_claude(tmp_path)
+def test_wrapper_handles_multiple_packets(
+    tmp_path: Path, wrapper_case: WrapperCase
+) -> None:
+    """The wrapper must spawn one provider process per packet."""
+    stub_dir, log = _stub_command(tmp_path, wrapper_case)
     fifo = tmp_path / "stdin.pipe"
     os.mkfifo(fifo)
 
-    proc = _spawn_wrapper(fifo, env_path_prefix=stub_dir)
+    proc = _spawn_wrapper(
+        fifo,
+        case=wrapper_case,
+        env_path_prefix=stub_dir,
+        scratch_dir=tmp_path / "scratch",
+    )
     try:
         with open(fifo, "wb") as writer:
             for i in range(3):
@@ -107,15 +197,24 @@ def test_wrapper_handles_multiple_packets(tmp_path: Path) -> None:
     assert contents.count("---END---") == 3, contents
     for i in range(3):
         assert json.dumps({"i": i}) in contents
+    for arg in wrapper_case.expected_args:
+        assert f"[{arg}]" in contents
 
 
-def test_wrapper_survives_failing_inner_claude(tmp_path: Path) -> None:
-    """A non-zero `claude` exit must not kill the wrapper loop."""
-    stub_dir, log = _stub_claude(tmp_path, exit_code=1)
+def test_wrapper_survives_failing_inner_command(
+    tmp_path: Path, wrapper_case: WrapperCase
+) -> None:
+    """A non-zero provider exit must not kill the wrapper loop."""
+    stub_dir, log = _stub_command(tmp_path, wrapper_case, exit_code=1)
     fifo = tmp_path / "stdin.pipe"
     os.mkfifo(fifo)
 
-    proc = _spawn_wrapper(fifo, env_path_prefix=stub_dir)
+    proc = _spawn_wrapper(
+        fifo,
+        case=wrapper_case,
+        env_path_prefix=stub_dir,
+        scratch_dir=tmp_path / "scratch",
+    )
     try:
         with open(fifo, "wb") as writer:
             for i in range(2):
@@ -132,16 +231,23 @@ def test_wrapper_survives_failing_inner_claude(tmp_path: Path) -> None:
     assert log.read_text(encoding="utf-8").count("---END---") == 2
 
 
-def test_wrapper_exits_cleanly_on_writer_eof(tmp_path: Path) -> None:
+def test_wrapper_exits_cleanly_on_writer_eof(
+    tmp_path: Path, wrapper_case: WrapperCase
+) -> None:
     """Closing the writer side without sending anything must exit 0."""
-    stub_dir, _log = _stub_claude(tmp_path)
+    stub_dir, _log = _stub_command(tmp_path, wrapper_case)
     fifo = tmp_path / "stdin.pipe"
     os.mkfifo(fifo)
 
-    proc = _spawn_wrapper(fifo, env_path_prefix=stub_dir)
+    proc = _spawn_wrapper(
+        fifo,
+        case=wrapper_case,
+        env_path_prefix=stub_dir,
+        scratch_dir=tmp_path / "scratch",
+    )
     try:
         # Open and immediately close the writer side without sending
-        # any packets — the empty-input case.
+        # any packets -- the empty-input case.
         open(fifo, "wb").close()
         rc = proc.wait(timeout=5)
     finally:
@@ -152,7 +258,9 @@ def test_wrapper_exits_cleanly_on_writer_eof(tmp_path: Path) -> None:
     assert rc == 0
 
 
-def test_wrapper_exits_cleanly_after_one_packet_then_eof(tmp_path: Path) -> None:
+def test_wrapper_exits_cleanly_after_one_packet_then_eof(
+    tmp_path: Path, wrapper_case: WrapperCase
+) -> None:
     """Send one packet, then close the writer; wrapper must exit 0.
 
     Design-review F3: distinguishes "sent some, then closed" from the
@@ -160,11 +268,16 @@ def test_wrapper_exits_cleanly_after_one_packet_then_eof(tmp_path: Path) -> None
     loop completes a packet but does not return to ``read`` before the
     EOF arrives.
     """
-    stub_dir, log = _stub_claude(tmp_path)
+    stub_dir, log = _stub_command(tmp_path, wrapper_case)
     fifo = tmp_path / "stdin.pipe"
     os.mkfifo(fifo)
 
-    proc = _spawn_wrapper(fifo, env_path_prefix=stub_dir)
+    proc = _spawn_wrapper(
+        fifo,
+        case=wrapper_case,
+        env_path_prefix=stub_dir,
+        scratch_dir=tmp_path / "scratch",
+    )
     try:
         with open(fifo, "wb") as writer:
             writer.write((json.dumps({"only": True}) + "\n").encode())

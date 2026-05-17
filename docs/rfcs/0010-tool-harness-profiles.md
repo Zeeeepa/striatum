@@ -20,6 +20,12 @@ Implemented under dogfood-004 (decision artifact
   empty-input EOF, one-packet-then-EOF (per design-review F3).
   Tests substitute a stub `claude` on `$PATH` so they do not depend
   on the real binary.
+- Updated 2026-05-17: RFC 0063 follow-through expanded that same test
+  module into provider-parameterized fixtures for
+  `.striatum/bin/{claude,codex,gemini}-supervised-wrapper.sh`. The suite
+  now verifies the persistent FIFO loop, inner-command failure isolation,
+  clean EOF behavior, temp scratch logging, and non-interactive
+  tool-approval flags across all shipped wrappers.
 - Docs: SPEC's "Supervised Lane Command Contract" subsection points
   at the reference wrapper; UBIQUITOUS_LANGUAGE adds "supervised
   lane wrapper".

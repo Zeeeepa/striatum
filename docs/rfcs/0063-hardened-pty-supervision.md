@@ -1,13 +1,32 @@
 # RFC 0063: Hardened PTY Supervision
 
 ## Status
-Draft
+Implemented
 
 ## Summary
-Scaffolding for architecture remediation Phase 6.
+Architecture remediation Phase 6 hardened supervised process execution while
+keeping Python as the daemon/domain authority and Go as a narrow PTY helper.
 
 ## Motivation
 Derived from the STRIATUM Architecture Review and Remediation Plan (2026-05-16).
 
-## Proposed Implementation
-To be detailed based on the remediation plan.
+## Implementation Summary
+
+- `supervise.send` reports delivered-unacknowledged sends explicitly, and
+  `supervise.report` records wrapper/helper control events without parsing
+  model output.
+- The Go `striatum-supervisor-helper` launches agents under PTY, forwards
+  packets from stdin or FIFO, and emits JSONL events while architecture
+  guardrails keep it out of daemon DB/RPC/domain packages.
+- `supervision.transport: "pty_helper"` lets lanes opt into helper launch;
+  `supervision.stdin_delivery: "one_shot_eof"` supports raw single-prompt
+  commands without changing the default persistent FIFO wrapper contract.
+- `supervise.reattach_status`, `doctor`, `status`, recovery sweep, and
+  existing send/claim paths now classify or reconcile stale attached
+  supervisors before delivery.
+- PostgreSQL lane-liveness attestation verifies the session/run binding,
+  live PID identity, PID start token, and immutable workflow lane command.
+- Tests cover helper event ingestion, real Go helper launch through the
+  Postgres supervision handler, CI's Linux/Postgres helper integration
+  target, restart reattach/lost-state reconciliation, and the Claude, Codex,
+  and Gemini supervised-wrapper loop fixtures.

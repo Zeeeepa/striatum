@@ -442,7 +442,7 @@ decide whether to rename the packet helper to `packet inbox`.
 
 ---
 
-### 4.10 🟡 partially completed — Architecture remediation Phase 6: supervisor control channel
+### 4.10 ✅ completed — Architecture remediation Phase 6: supervisor control channel
 
 **Updates:** [TODO item 54](TODO.md).
 
@@ -500,8 +500,13 @@ decide whether to rename the packet helper to `packet inbox`.
   auto-delivery record `supervisor.reattached` for surviving PID identity,
   update daemon-instance metadata, fail closed for repair/verification
   states, and mark stale PID identity `lost` before writing to stdin.
+- `tests/test_claude_supervised_wrapper.py` now runs the supervised-wrapper
+  loop fixture across `.striatum/bin/{claude,codex,gemini}-supervised-wrapper.sh`,
+  proving multi-packet delivery, inner-command failure isolation, clean EOF
+  exit, temp scratch logging, and the non-interactive approval flags required
+  by v1.48.1.
 
-**Remaining Phase 6 debt:** wrapper fixtures.
+**Remaining Phase 6 debt:** none.
 
 ---
 
