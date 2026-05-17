@@ -88,29 +88,29 @@ so external references keep resolving even as items move between sections.
 | F51 | v1.48.1 wrapper auth fix — closes 10+ instance claude/gemini no-publish stall (validated by gh-16) | ✅ done |
 | F52 | v1.48.2 CI green — Python typecheck + Go matrix pin (6 days of red closed) | ✅ done |
 | F53 | `docs/issues/<N>/` GH-issue-driven workflow type (gh-16 first instance, accept verdict) | ✅ done |
-| 33 | RFC 0042 V1 run-list workflow identity | ⏳ open |
+| 33 | RFC 0042 V1 run-list workflow identity | 🟡 run-list identity landed; graph viewer remains |
 | 34 | RFC 0046 V1 lane evidence guard at publish-artifact | 🟡 partially active via operator override path |
-| 35 | RFC 0047 V1 decision-record propagation + `compromised` run state | ⏳ open |
+| 35 | RFC 0047 V1 decision-record propagation + `compromised` run state | ✅ done |
 | 36 | RFC 0048 daemon-side substrate migration (Phases A+B+C + V1.5 hardening + migration 0006) | ✅ done (v1.55.0) |
 | 37 | RFC 0049 interactive claude lane via MCP (experimental, decision needed) | ⏳ open |
-| 38 | RFC 0050 follow-ups — GH #9-13 V2 surface findings | ⏳ open |
+| 38 | RFC 0050 follow-ups — GH #9-13 V2 surface findings | ✅ done |
 | 39 | RFC 0051 V1 auto-finalize from frontmatter (downgraded urgency post-v1.48.1) | 🟡 daemon method slice landed |
-| 40 | GH #14 — recovery cannot clear terminal-run `process_exit_nonzero` blocker | ⏳ open |
-| 41 | GH #15 — docs clarify PostgreSQL transition guidance | ⏳ open |
-| 42 | GH #17 — Striatum doc consistency for Engram memory integration | 🟡 docs pass + RFC 0052 scaffold landed; row stays open until RFC 0052 V2 acceptance |
+| 40 | GH #14 — recovery cannot clear terminal-run `process_exit_nonzero` blocker | ✅ done |
+| 41 | GH #15 — docs clarify PostgreSQL transition guidance | ✅ done |
+| 42 | GH #17 — Striatum doc consistency for Engram memory integration | ✅ done |
 | 48 | Architecture remediation Phase 0 — command authority matrix and fallback guardrails | ✅ done |
-| 49 | Architecture remediation Phase 1 — close production SQLite fallback | 🟡 production fallback closed; legacy SQLite quarantine remains |
-| 50 | Architecture remediation Phase 2 — single daemon method contract source | 🟡 contract source + Python/Go registry generation landed |
+| 49 | RFC 0059 Architecture remediation Phase 1 — close production SQLite fallback | 🟡 production fallback closed; legacy SQLite quarantine remains |
+| 50 | RFC 0060 Architecture remediation Phase 2 — single daemon method contract source | 🟡 contract source + Python/Go registry generation landed |
 | 51 | Architecture remediation Phase 3 — daemon core strategy decision | ✅ done |
-| 52 | Architecture remediation Phase 4 — daemon-first web service | 🟡 mutation POST slice landed |
-| 53 | Architecture remediation Phase 5 — real escalation inbox | 🟡 projection + principal inbox slice landed |
-| 54 | Architecture remediation Phase 6 — hardened PTY supervision | 🟡 control-event ack slice landed |
-| 55 | Architecture remediation Phase 7 — workflow risk lint and review diversity enforcement | 🟡 workflow lint warning slice landed |
+| 52 | RFC 0061 Architecture remediation Phase 4 — daemon-first web service | 🟡 mutation POST slice landed |
+| 53 | RFC 0062 Architecture remediation Phase 5 — real escalation inbox | 🟡 projection + principal inbox slice landed |
+| 54 | RFC 0063 Architecture remediation Phase 6 — hardened PTY supervision | 🟡 control-event ack slice landed |
+| 55 | RFC 0064 Architecture remediation Phase 7 — workflow risk lint and review diversity enforcement | 🟡 workflow lint warning slice landed |
 | 56 | Architecture remediation Phase 8 — auto-finalize from front matter | 🟡 daemon recovery slice landed |
-| 57 | Architecture remediation Phase 9 — UI packaging and bundle cleanup | 🟡 build clean + size gate landed |
-| 58 | Architecture remediation Phase 10 — day-zero setup improvements | ✅ done |
-| 59 | Architecture remediation Phase 11 — replay, archive, and corpus v2 foundations | ⏳ open |
-| 60 | Architecture remediation Phase 12 — optional Git/PR integration | ⏳ open |
+| 57 | RFC 0065 Architecture remediation Phase 9 — UI packaging and bundle cleanup | 🟡 build clean + bundle/wheel size gates landed |
+| 58 | RFC 0059 Architecture remediation Phase 10 — day-zero setup improvements | ✅ done |
+| 59 | RFC 0059 RFC 0066 Architecture remediation Phase 11 — replay, archive, and corpus v2 foundations | 🟡 corpus verify foundation landed |
+| 60 | RFC 0059 RFC 0067 Architecture remediation Phase 12 — optional Git/PR integration | ⏳ open |
 
 Legend: ✅ done · 🟡 most done (sub-tasks remain) · ⏳ open
 
@@ -669,11 +669,14 @@ Items 33-39 cover RFCs proposed after RFC 0045 (item 27 boundary).
 Sequencing and acceptance criteria live in `docs/ROADMAP.md`; this
 section is the canonical status snapshot.
 
-33. **RFC 0042 V1 (run-list workflow identity).** Proposed. The
-    `striatum run list` surface conflates `workflow_snapshot_id` and
-    `workflow_id`; the RFC adds a `workflow_identity` triple
-    (`workflow_id`, `workflow_version`, `workflow_snapshot_id`) and
-    stable display. No dogfood scheduled yet. Status: queued.
+33. **RFC 0042 V1 (run-list workflow identity).** Partial slice landed:
+    `striatum list runs` and daemon `list.runs` return a
+    `workflow_identity` triple (`workflow_id`, `workflow_version`,
+    `workflow_snapshot_id`), and the web run list renders the workflow
+    name with local workflow and default-branch GitHub affordances when
+    available. Remaining: RFC 0042 graph viewer pan/zoom/fit controls,
+    graph label legibility, keyboard controls, and docs for those
+    graph-specific interactions.
 
 34. **RFC 0046 V1 (lane evidence guard at publish-artifact).** Closes
     GH #2 + #5. V1.7 scope. Already exercised informally in
@@ -682,11 +685,13 @@ section is the canonical status snapshot.
     runtime check at `publish-artifact` is what still needs to land
     formally. Status: proposed, partially active in operator practice.
 
-35. **RFC 0047 V1 (decision-record propagation +
-    `compromised` run state).** Closes GH #3 (now-closed issue had no
-    implementation beyond an event row). Adds a `compromised` run state,
-    supersession columns on `verdicts`, propagation logic on rejection,
-    and reopen-on-accept semantics. V1.8 scope. ROADMAP §5.6.
+35. ~~**RFC 0047 V1 (decision-record propagation +
+    `compromised` run state).**~~ Done: SQLite and daemon/Postgres
+    `decision.record` both project rejected decisions to
+    `runs.state='compromised'`, supersede accepting verdicts with the
+    decision id, and allow a later accepted decision to reopen the run
+    to `completed` while preserving the supersession trail. PG migration
+    0007 adds the daemon schema projection.
 
 36. ~~**RFC 0048 (daemon-side substrate migration).**~~ ✅ done in
     v1.55.0. Phase A (v1.49.0) ported 16 mutation handlers into
@@ -723,12 +728,15 @@ section is the canonical status snapshot.
     - V2 (v1.48.0, dogfood-056): recovery panel island, override modal,
       copy-on-click, graph editor data binding.
 
-    Open follow-ups from V2 review filed as GH issues #9-13:
-    - **#9 HIGH** CSRF on `/v1/invoke` (ROADMAP §4.1 active runway)
-    - **#10 MEDIUM** override modal DOM trust
-    - **#11 MEDIUM** recovery dry-run side-effects
-    - **#12 LOW** clipboard hijack via `data-copy`
-    - **#13 LOW** workflow editor ghost field
+    ~~Open follow-ups from V2 review filed as GH issues #9-13~~ are
+    closed by focused regressions: `/v1/invoke` CSRF/content-type
+    refusal (`tests/test_invoke_csrf_refused.py`), override modal
+    context-token validation
+    (`tests/test_override_modal_context_validation.py`), recovery
+    dry-run no-side-effect coverage
+    (`tests/test_recovery_dry_run_no_side_effects.py`), copy-on-click
+    scoping (`tests/test_copy_on_click.py`), and workflow editor ghost
+    field purging (`workflow-graph-editor.test.ts`).
 
 39. **RFC 0051 V1 (auto-finalize from frontmatter).** Proposed
     2026-05-14. Driven by 8 operator-on-behalf publishes across
@@ -895,9 +903,9 @@ review and plan are root-level operator artifacts:
 57. **Phase 9: UI packaging and bundle cleanup.** Partial slice landed:
     `ui-build` depends on `ui-clean`, `ui-check-bundle` also runs a
     bundle-size gate, `@vitejs/plugin-react` moved to `devDependencies`,
+    the package wheel has a size gate aligned with the UI bundle gate,
     and packaging tests pin those contracts. Remaining: decide whether
-    the current many-chunk Rollup output needs manual chunking, add a
-    wheel-size check if separate from the bundle-size gate, and keep
+    the current many-chunk Rollup output needs manual chunking and keep
     package-data rules aligned with any future manifest output.
 
 58. ~~**Phase 10: day-zero setup improvements.**~~ Done:
@@ -912,9 +920,13 @@ review and plan are root-level operator artifacts:
     dev-only compose profile in `examples/dev-postgres/` is documented
     separately from the production-local system Postgres path.
 
-59. **Phase 11: replay, archive, and corpus v2 foundations.** Add
-    deterministic run archives, replay verification, Corpus Contract V2
-    validation, and keep memory augmentation optional.
+59. **Phase 11: replay, archive, and corpus v2 foundations.** Partial
+    slice landed: `striatum corpus verify --bundle` validates existing
+    deterministic RFC 0044 V1 bundles without daemon state, hosted
+    services, or external memory dependencies, and treats missing
+    `corpus_contract_version` as implied V1 per RFC 0057 backward
+    compatibility. Remaining: first-class run archives, archive replay
+    verification, and Corpus Contract V2 fields after RFC 0057 decisions.
 
 60. **Phase 12: optional Git/PR integration.** Add read-only git
     snapshot methods, commit request artifacts, explicit confirmed commit
@@ -922,29 +934,23 @@ review and plan are root-level operator artifacts:
 
 ## GH issue follow-ups (not yet bound to a workflow)
 
-40. **GH #14 — recovery cannot clear terminal-run
-    `process_exit_nonzero` blocker.** Real product bug. Reported
-    against v1.48.1 with concrete repro (Engram-side run
-    `run_9cadfc4d2e4646848e2d6539c23322b2`). Job is `completed` but a
-    `process_exit_nonzero` blocker stays open because the process
-    adapter exited nonzero AFTER the job's normal `complete`. Operator
-    has no path to clear it without lease. Suggested approach:
-    `docs/issues/14/` workflow (triage → fix → verify). Triage should
-    decide whether the fix is (a) `recovery checkpoint resolve` accepts
-    `process_exit_nonzero` on terminal runs, (b) a new
-    `recovery dismiss-blocker --blocker-id <id>` verb, or (c) the
-    process adapter's post-completion blocker insertion is gated by
-    job state.
+40. ~~**GH #14 — recovery cannot clear terminal-run
+    `process_exit_nonzero` blocker.**~~ Done: `docs/issues/14/`
+    completed with accepting review; the CLI and PG recovery paths can
+    dismiss terminal process blockers without requiring a current lease,
+    the process adapter avoids creating new post-terminal process blockers,
+    and the autonomous recovery sweep reports or clears them according to
+    policy.
 
-41. **GH #15 — docs clarify PostgreSQL transition guidance.**
-    `README.md`, `docs/SPEC.md`, `docs/GETTING_STARTED.md`,
-    `docs/HOW_TO_HUMAN.md` still describe `.striatum/state.sqlite3` as
-    authoritative live state, contradicting D094/RFC 0043 V1 which
-    moved workflow state to daemon-owned Postgres. Overlaps with
-    item 31(b) (RFC 0043 V1.5 daemon-required default flip). Suggested
-    approach: `docs/issues/15/` workflow; merge into RFC 0043 V1.5
-    follow-up dogfood OR land first as a docs-only sweep before
-    item 31 lands.
+41. ~~**GH #15 — docs clarify PostgreSQL transition guidance.**~~ Done:
+    README/SPEC/getting-started/human/MCP/Postgres-transition docs now
+    describe daemon-owned PostgreSQL as live workflow state and `.striatum/`
+    as operational scratch or migration/tombstone context only.
+
+42. ~~**GH #17 — Striatum doc consistency for Engram memory integration.**~~
+    Done: `docs/issues/17/` completed with accepting review and RFC 0057
+    now carries the Corpus Contract V2 decision surface. Remaining Corpus
+    V2 implementation is tracked separately under Phase 11 / TODO 59.
 
 42. **GH #17 — update Striatum doc consistency for Engram memory
     integration.** Engram has been reprioritized around Striatum (see
