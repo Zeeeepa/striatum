@@ -93,6 +93,8 @@ in the roadmap/TODO and has several production slices landed:
   The multi-repo harness CI install now includes the `daemon-pg` extra before
   running Postgres-backed tests, and Go supervisor process-launch tests resolve
   `true`/`cat` from `PATH` instead of assuming Linux-style absolute paths.
+  The Makefile's Postgres-backed test targets now install the same extra into
+  the project `.venv` before invoking the harness.
 
 ## v1.55.0 — 2026-05-15
 

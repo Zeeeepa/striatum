@@ -19,6 +19,11 @@ $(VENV)/.installed: pyproject.toml $(PYTHON)
 	$(PYTHON) -m pip install -e "$(MAKEFILE_DIR)[dev]"
 	touch $(VENV)/.installed
 
+$(VENV)/.installed-daemon-pg: pyproject.toml $(VENV)/.installed
+	@echo "installing striatum daemon-pg extra into $(VENV)"
+	$(PYTHON) -m pip install -e "$(MAKEFILE_DIR)[daemon-pg]"
+	touch $(VENV)/.installed-daemon-pg
+
 install: $(VENV)/.installed
 
 lint: $(VENV)/.installed
@@ -107,10 +112,10 @@ daemon-go-release:
 	cp "$(MAKEFILE_DIR)/go/bin/striatumd-darwin-amd64" "$(MAKEFILE_DIR)/src/striatum/_daemongo/binaries/striatumd-darwin-x86_64"
 	cp "$(MAKEFILE_DIR)/go/bin/striatumd-darwin-arm64" "$(MAKEFILE_DIR)/src/striatum/_daemongo/binaries/striatumd-darwin-arm64"
 
-pg-test: $(VENV)/.installed
+pg-test: $(VENV)/.installed-daemon-pg
 	$(PYTHON) -m pytest tests/test_daemon_pg.py -q
 
-test-rfc0043: $(VENV)/.installed
+test-rfc0043: $(VENV)/.installed-daemon-pg
 	STRIATUM_MULTI_REPO_DAEMON_CORE=$(CORE) \
 	STRIATUM_MULTI_REPO_REQUIRE_PG=1 \
 	$(PYTHON) -m pytest -q \
@@ -125,7 +130,7 @@ test-rfc0043: $(VENV)/.installed
 		tests/exit_codes/test_rfc0043_split_brain.py \
 		tests/architecture/test_authority_guardrails.py::test_production_daemon_required_commands_refuse_before_sqlite_connect
 
-test-multi-repo: $(VENV)/.installed
+test-multi-repo: $(VENV)/.installed-daemon-pg
 	STRIATUM_MULTI_REPO_DAEMON_CORE=$(CORE) \
 	STRIATUM_MULTI_REPO_REQUIRE_PG=1 \
 	$(PYTHON) -m pytest -m multi_repo \
