@@ -101,7 +101,7 @@ so external references keep resolving even as items move between sections.
 | 42 | GH #17 — Striatum doc consistency for Engram memory integration | ✅ done |
 | 48 | Architecture remediation Phase 0 — command authority matrix and fallback guardrails | ✅ done |
 | 49 | RFC 0059 Architecture remediation Phase 1 — close production SQLite fallback | 🟡 production fallback closed; legacy SQLite quarantine remains |
-| 50 | RFC 0060 Architecture remediation Phase 2 — single daemon method contract source | 🟡 contract source + Python/Go registry + MCP descriptors landed |
+| 50 | RFC 0060 Architecture remediation Phase 2 — single daemon method contract source | 🟡 contract source + registries/descriptors/docs landed |
 | 51 | Architecture remediation Phase 3 — daemon core strategy decision | ✅ done |
 | 52 | RFC 0061 Architecture remediation Phase 4 — daemon-first web service | 🟡 core web/API + artifact reads daemon-routed |
 | 53 | RFC 0062 Architecture remediation Phase 5 — real escalation inbox | 🟡 projection + escalation artifact schema/linkage landed |
@@ -835,9 +835,12 @@ review and plan are root-level operator artifacts:
     Python/Go drift; CLI/MCP contract tests ensure routed methods are
     registered, CLI-local workflow methods stay hidden, deprecated
     aliases are not advertised as MCP tools, and daemon MCP tool descriptors
-    are derived from `METHOD_REGISTRY`. Remaining follow-up: generate CLI
-    route translation and docs tables directly from the contract instead of
-    checking hand-written maps.
+    are derived from `METHOD_REGISTRY`. `scripts/generate_daemon_method_tables.py`
+    now renders `docs/architecture/DAEMON_METHOD_TABLES.md` from the contract
+    and current CLI translator with `--check` drift coverage. Remaining
+    follow-up: replace runtime CLI route translation with a generated or
+    declarative contract-derived map instead of the current hand-written
+    translator.
 
 51. ~~**Phase 3: daemon core strategy decision.**~~ Done: D105 records
     Python as the primary production daemon core and narrows Go to a

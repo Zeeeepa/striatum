@@ -17,7 +17,9 @@ in the roadmap/TODO and has several production slices landed:
 - **Single daemon method contract source.**
   `contracts/daemon_methods.json` drives Python daemon registration,
   `daemon.describe`, generated Go registry metadata, MCP tool descriptors,
-  and contract parity tests. Workflow authoring remains explicitly CLI-local.
+  generated architecture reference tables for daemon methods and CLI route
+  translation, and contract parity tests. Workflow authoring remains
+  explicitly CLI-local.
 - **Python-primary daemon strategy.**
   D105 supersedes the Go replacement-daemon plan. Python remains the
   production domain daemon; Go is limited to narrow runtime/helper roles

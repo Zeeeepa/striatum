@@ -11,8 +11,10 @@ Source inputs: `src/striatum/cli/parser.py`,
 This matrix names the current authority path for every registered daemon RPC
 method plus CLI commands that are intentionally outside the production workflow
 mutation path. It is transition scaffolding for the architecture remediation
-plan. Until generated method contracts land, every new RPC method or handwritten
-route map must update this file and the guardrails in
+plan. Contract metadata and CLI route reference tables are generated in
+`docs/architecture/DAEMON_METHOD_TABLES.md`; authority classification,
+SQLite-dependency notes, and Go-helper status still live here. Every new RPC
+method or handwritten route map must update this file and the guardrails in
 `tests/architecture/test_authority_guardrails.py`.
 
 D105 names Python as the primary production daemon core. The Go columns below

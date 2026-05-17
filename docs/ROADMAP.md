@@ -302,10 +302,14 @@ fallback path.
 - Daemon MCP tool descriptors are now generated from `METHOD_REGISTRY`, so
   method name, required capability, and repository-scope mode are no longer
   hand-written in `mcp.py`.
+- `scripts/generate_daemon_method_tables.py` renders
+  `docs/architecture/DAEMON_METHOD_TABLES.md` from the daemon method
+  contract and the current CLI translator, with `--check` coverage to catch
+  checked-in documentation drift.
 
-**Remaining Phase 2 debt:** generate CLI route translation and docs tables
-directly from the contract instead of only checking the current hand-written
-maps.
+**Remaining Phase 2 debt:** replace runtime CLI route translation with a
+generated/declarative contract-derived map instead of only checking the current
+hand-written translator through generated documentation.
 
 ---
 
@@ -777,7 +781,8 @@ Release order after Phase 0:
 1. **TODO 49 / Phase 1:** production daemon fallback is closed; remaining
    legacy SQLite quarantine belongs with service/adapter cleanup.
 2. **TODO 50 / Phase 2:** contract source plus Python/Go registry
-   generation landed; remaining work is generated CLI/MCP/docs outputs.
+   generation, generated MCP descriptors, and generated docs tables landed;
+   remaining work is generated/declarative runtime CLI route translation.
 3. **TODO 51 / Phase 3:** decide the daemon core strategy and record it
    in `docs/DECISION_LOG.md`.
 4. **TODO 52 / Phase 4:** make the web service a daemon client rather
