@@ -11,11 +11,11 @@ from pathlib import Path
 from typing import Any, Sequence, cast
 
 from striatum.artifacts import publish_artifact
+from striatum.bootstrap import init_operational_scratch
 from striatum.db import (
     claim_next,
     complete_job,
     connect,
-    db_path,
     ensure_initialized,
     init_repo,
     json_dumps,
@@ -84,6 +84,13 @@ from striatum.cli.supervise import (
 from striatum.cli.workflow import workflow_upgrade
 from striatum.cli.workflow_init import workflow_init
 from striatum.cli.worktree import worktree_create, worktree_list, worktree_release
+
+
+def _legacy_sqlite_init_enabled() -> bool:
+    return (
+        os.environ.get("STRIATUM_TEST_HARNESS") == "1"
+        and os.environ.get("STRIATUM_DAEMON_REQUIRED") == "0"
+    )
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -284,11 +291,16 @@ def dispatch(args: argparse.Namespace) -> object:
             exit_code=8,
         )
     if args.command == "init":
-        init_repo(repo)
+        state_dir = init_operational_scratch(repo)
         init_result: dict[str, object] = {
-            "state_dir": str(repo / ".striatum"),
-            "db": str(db_path(repo)),
+            "state_dir": str(state_dir),
+            "scratch_dir": str(state_dir / "scratch"),
+            "state_store": "daemon_postgres",
         }
+        if _legacy_sqlite_init_enabled():
+            init_repo(repo)
+            init_result["db"] = str(repo / ".striatum" / "state.sqlite3")
+            init_result["compatibility_mode"] = "legacy_sqlite_test_harness"
         with_skills = getattr(args, "with_skills", None)
         if with_skills is not None:
             init_result["skills"] = _skills_install_dispatch(

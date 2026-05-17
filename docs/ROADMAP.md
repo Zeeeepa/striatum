@@ -274,6 +274,9 @@ authority matrix and contract tests current while deleting fallback paths.
 - `repo.add`, `repo.list`, and `repo.remove` now route through daemon RPC
   and update `striatumd.repositories` directly; `repo add --init` creates
   only operational scratch and never creates `.striatum/state.sqlite3`.
+- Production `striatum init` and `striatum adopt` now share the same
+  scratch-only bootstrap, with repo-local SQLite init retained only for
+  legacy test fixtures.
 - Workflow authoring methods are explicitly CLI-local: daemon RPC refuses
   them with `not_implemented`, MCP tool listing hides them, and route tests
   prevent accidental daemon routing.

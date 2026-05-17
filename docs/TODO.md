@@ -857,9 +857,12 @@ review and plan are root-level operator artifacts:
     verbs are no longer part of that debt: `repo.add`, `repo.list`, and
     `repo.remove` now route through daemon RPC, register directly in
     `striatumd.repositories`, and `repo add --init` creates only operational
-    scratch rather than `.striatum/state.sqlite3`. Local web, adapter, byline,
-    inbox, dogfood compatibility, and migration fixtures still use legacy
-    SQLite shapes.
+    scratch rather than `.striatum/state.sqlite3`. Production `striatum init`
+    and `striatum adopt` now use the same scratch-only bootstrap; the legacy
+    SQLite initializer remains reachable only under the explicit
+    `STRIATUM_TEST_HARNESS=1` / `STRIATUM_DAEMON_REQUIRED=0` fixture path.
+    Local web, adapter, byline, inbox, dogfood compatibility, and migration
+    fixtures still use legacy SQLite shapes.
 
 50. ~~**Phase 2: single method-contract source.**~~ ✅ Done. Contract source is now
     live at `contracts/daemon_methods.json`; Python `METHOD_REGISTRY`

@@ -10,11 +10,12 @@ from pathlib import Path
 from typing import Any, Literal
 
 import striatum
+from striatum.bootstrap import init_operational_scratch
 from striatum.cli.daemon_required import daemon_socket_is_reachable, resolve_socket_path
 from striatum.daemon import read_runtime_token, token_file
 from striatum.daemon_pg.config import resolve_config
-from striatum.daemon_pg.connection import connect, doctor as pg_doctor
-from striatum.db import db_path, init_repo, json_loads
+from striatum.daemon_pg.connection import connect, connect_and_migrate, doctor as pg_doctor
+from striatum.primitives import json_loads
 
 ServiceManager = Literal["auto", "systemd", "launchd"]
 
@@ -90,8 +91,12 @@ def adopt(
     if dry_run:
         result["init"] = {"status": "would_init" if not inspection["state_db_exists"] else "would_skip"}
     else:
-        init_repo(repo)
-        result["init"] = {"status": "initialized", "state_db": str(db_path(repo))}
+        state_dir = init_operational_scratch(repo)
+        result["init"] = {
+            "status": "scratch_initialized",
+            "state_dir": str(state_dir),
+            "scratch_dir": str(state_dir / "scratch"),
+        }
     if with_skills:
         result["skills"] = _skills_install(repo, profile=profile, dry_run=dry_run)
     if with_plugins and profile != "generic":
@@ -109,16 +114,24 @@ def adopt(
             }
         elif dry_run:
             result["registration"] = {
-                "status": "would_migrate_repo_local",
+                "status": "would_migrate_repo_local" if inspection["state_db_exists"] else "would_register_repo",
                 "postgres_url_source": cfg.source,
                 "redacted_url": cfg.redacted_url,
             }
-        else:
+        elif inspection["state_db_exists"]:
             from striatum.daemon_pg.repo_local_migration import RepoLocalMigrationOptions, migrate_repo_local
 
             result["registration"] = migrate_repo_local(
                 RepoLocalMigrationOptions(repo=repo, postgres_url=cfg.url)
             )
+        else:
+            from striatum import daemon as daemon_registry
+
+            conn = connect_and_migrate(postgres_url=cfg.url, daemon_version=striatum.__version__)
+            try:
+                result["registration"] = daemon_registry.repo_add_pg(conn, repo, init=True)
+            finally:
+                conn.close()
     return result
 
 
@@ -163,11 +176,12 @@ def first_run_smoke(repo: Path) -> dict[str, Any]:
 
 
 def _inspect_repo(repo: Path) -> dict[str, Any]:
+    state_db = repo / ".striatum" / "state.sqlite3"
     return {
         "exists": repo.exists(),
         "is_git": (repo / ".git").exists(),
         "striatum_dir_exists": (repo / ".striatum").exists(),
-        "state_db_exists": db_path(repo).exists(),
+        "state_db_exists": state_db.exists(),
         "state_tombstone_exists": (repo / ".striatum" / "state.sqlite3.tombstone").exists(),
         "ddd_docs_exist": (repo / "docs" / "SPEC.md").exists(),
         "workflows_dir_exists": (repo / "workflows").exists(),

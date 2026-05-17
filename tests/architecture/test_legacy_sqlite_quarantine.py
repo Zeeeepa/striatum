@@ -176,10 +176,6 @@ PRODUCTION_SQLITE_QUARANTINE = {
         "bootstrap/admin",
         "legacy RFC 0028 daemon registry and bootstrap helpers",
     ),
-    Path("src/striatum/day_zero.py"): SQLiteClassification(
-        "bootstrap/admin",
-        "day-zero adoption may initialize then migrate a legacy repo store",
-    ),
     Path("src/striatum/plugins/install.py"): SQLiteClassification(
         "bootstrap/admin",
         "plugin installer imports legacy timestamp helper only",

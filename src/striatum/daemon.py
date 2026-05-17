@@ -19,6 +19,10 @@ from pathlib import Path
 from typing import Any, BinaryIO, Iterator, Mapping, Sequence, cast
 from urllib.parse import parse_qs, urlparse
 
+from striatum.bootstrap import (
+    init_operational_scratch as _bootstrap_init_operational_scratch,
+    require_operational_scratch as _bootstrap_require_operational_scratch,
+)
 from striatum.cli.introspect import doctor as repo_doctor
 from striatum.cli.introspect import status as repo_status
 from striatum.cli.introspect import why as repo_why
@@ -446,34 +450,17 @@ def _pg_json_ready(row: dict[str, Any]) -> dict[str, Any]:
 
 
 def _init_operational_scratch(repo: Path) -> Path:
-    state_dir = repo / ".striatum"
-    if _has_symlink_component(state_dir) or state_dir.is_symlink():
-        raise DaemonCapabilityError("repo scratch directory symlink is not allowed")
-    state_dir.mkdir(parents=True, exist_ok=True)
-    scratch = state_dir / "scratch"
-    scratch.mkdir(parents=True, exist_ok=True)
-    for path in (state_dir, scratch):
-        try:
-            os.chmod(path, 0o700)
-        except PermissionError:
-            pass
-    ignore_path = repo / ".gitignore"
-    existing = ignore_path.read_text(encoding="utf-8") if ignore_path.exists() else ""
-    if ".striatum/" not in existing.splitlines():
-        prefix = "" if existing == "" or existing.endswith("\n") else "\n"
-        ignore_path.write_text(f"{existing}{prefix}.striatum/\n", encoding="utf-8")
-    return state_dir
+    return _bootstrap_init_operational_scratch(
+        repo,
+        error_factory=DaemonCapabilityError,
+    )
 
 
 def _require_operational_scratch(repo: Path) -> Path:
-    state_dir = repo / ".striatum"
-    if _has_symlink_component(state_dir) or state_dir.is_symlink():
-        raise DaemonCapabilityError("repo scratch directory symlink is not allowed")
-    if not state_dir.is_dir():
-        raise DaemonCapabilityError(
-            "repo scratch is not initialized; rerun repo add with --init or run striatum init first"
-        )
-    return state_dir
+    return _bootstrap_require_operational_scratch(
+        repo,
+        error_factory=DaemonCapabilityError,
+    )
 
 
 def _bootstrap_admin_if_needed(

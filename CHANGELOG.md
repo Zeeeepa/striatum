@@ -306,6 +306,10 @@ Recent checkpoints:
   --init` creates only `.striatum/` operational scratch and no
   `.striatum/state.sqlite3`; existing repo-local SQLite sources must use the
   explicit per-repo migration command.
+- Production `striatum init` and `striatum adopt` now use the same
+  scratch-only bootstrap and no longer create repo-local SQLite. The legacy
+  SQLite initializer is retained behind the explicit test-harness
+  compatibility escape for remaining fixtures.
 - Fresh-clone and package smoke scripts now exercise the daemon/Postgres repo
   registration path when PostgreSQL is available, keep their smoke workflow
   inside the target repository for `run prepare`, install the packaged RPC
