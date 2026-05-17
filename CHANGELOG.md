@@ -128,6 +128,13 @@ Recent checkpoints:
   daemon RPC. The local `striatum.api.invoke` path remains available for
   explicit local/test surfaces and workflow authoring, not production run
   authority.
+- Local MCP and web chat tools now use the same daemon-routing policy for
+  mapped status, why, run lifecycle, artifact, review, and recovery commands;
+  `striatum.api.invoke` remains only for unmapped local authoring and explicit
+  fixture compatibility.
+- Go `run.prepare` now loads workflow files through the Go workflow-authoring
+  loader before writing rows, so repo-bound path checks and JSON-only workflow
+  source validation are enforced in the Go daemon path.
 - The Python daemon dogfood composite routes now fail closed before importing
   `striatum.db.connect`; both Python and Go retire the SQLite-bound
   `dogfood.publish_on_behalf` and `dogfood.surgical_recovery` composites in

@@ -27,8 +27,8 @@ from pathlib import Path
 from typing import Any, BinaryIO, TextIO, cast
 from urllib.parse import parse_qs, urlparse
 
-from striatum.api import invoke
 from striatum.primitives import JsonObject, json_dumps
+from striatum.service_daemon import invoke_argv_through_daemon_or_api
 
 JsonRpcId = str | int | None
 FramingMode = str  # "auto" | "framed" | "line"
@@ -375,7 +375,7 @@ def _read_exact(stream: BinaryIO, length: int) -> bytes:
 
 
 class LocalRpcServer:
-    """Small JSON-RPC request handler backed only by striatum.api.invoke."""
+    """Small JSON-RPC request handler for local MCP clients."""
 
     def __init__(self, *, repo: Path) -> None:
         self.repo = repo
@@ -455,7 +455,7 @@ class LocalRpcServer:
         if not isinstance(args_value, list) or not all(isinstance(item, str) for item in args_value):
             raise ValueError("args must be a list of strings")
         repo = Path(str(params.get("repo", self.repo)))
-        return invoke(cast(list[str], args_value), repo=repo)
+        return invoke_argv_through_daemon_or_api(cast(list[str], args_value), repo=repo)
 
 
 class DaemonRpcServer:
@@ -602,7 +602,7 @@ def call_tool(*, name: str, arguments: JsonObject, repo: Path) -> JsonObject:
     """Map a tool call to existing Striatum command arguments."""
     if name not in TOOL_ARGV:
         raise ValueError(f"unknown tool {name!r}")
-    return invoke(build_args(name=name, arguments=arguments), repo=repo)
+    return invoke_argv_through_daemon_or_api(build_args(name=name, arguments=arguments), repo=repo)
 
 
 def build_args(*, name: str, arguments: JsonObject) -> list[str]:
@@ -652,7 +652,7 @@ def read_resource(*, uri: str, repo: Path) -> JsonObject:
         args = ["why", path_parts[0]]
     else:
         raise ValueError(f"unsupported resource URI {uri!r}")
-    return invoke(args, repo=repo)
+    return invoke_argv_through_daemon_or_api(args, repo=repo)
 
 
 def optional_run_id(query: dict[str, list[str]]) -> list[str]:

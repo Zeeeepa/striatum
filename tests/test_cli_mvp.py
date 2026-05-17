@@ -349,6 +349,37 @@ def test_local_mcp_wrapper_exposes_tools_and_delegates_to_api(tmp_path: Path) ->
     assert api_data(cast(JsonDict, status_result))["runs"] == []
 
 
+def test_local_mcp_wrapper_routes_mapped_reads_through_daemon_rpc(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import striatum.api as api
+    import striatum.service_daemon as service_daemon
+
+    monkeypatch.delenv("STRIATUM_TEST_HARNESS", raising=False)
+    monkeypatch.delenv("STRIATUM_DAEMON_REQUIRED", raising=False)
+
+    def invoke_tripwire(*args: Any, **kwargs: Any) -> None:
+        raise AssertionError("MCP mapped read fell back to striatum.api.invoke")
+
+    calls: list[tuple[Path, str, dict[str, Any]]] = []
+
+    def fake_call_repo_method(repo: Path, method: str, params: dict[str, Any]) -> dict[str, Any]:
+        calls.append((repo, method, dict(params)))
+        return {"method": method, "items": []}
+
+    monkeypatch.setattr(api, "invoke", invoke_tripwire)
+    monkeypatch.setattr(service_daemon, "call_repo_method", fake_call_repo_method)
+
+    server = LocalRpcServer(repo=tmp_path)
+    status_call = rpc_result(server, "tools/call", {"name": "status", "arguments": {}})
+
+    assert status_call["structuredContent"] == {
+        "ok": True,
+        "data": {"method": "status", "items": []},
+    }
+    assert calls == [(tmp_path, "status", {})]
+
+
 def test_local_mcp_wrapper_supports_resources_and_raw_invoke(tmp_path: Path) -> None:
     server = LocalRpcServer(repo=tmp_path)
     init_repo(tmp_path)

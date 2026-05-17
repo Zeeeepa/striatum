@@ -6,13 +6,13 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 
 	"github.com/halbritt/striatum/go/pkg/db"
 	"github.com/halbritt/striatum/go/pkg/rpc"
+	"github.com/halbritt/striatum/go/pkg/workflowauthoring"
 )
 
 func HandleRunPrepare(ctx context.Context, runner db.Runner, envelope rpc.Envelope) (map[string]any, error) {
@@ -443,17 +443,9 @@ func runPrepare(ctx context.Context, runner any, repositoryID string, workflowPa
 		return nil, err
 	}
 	repoRoot := fmt.Sprint(repo["repo_root"])
-	absWorkflowPath := workflowPath
-	if !filepath.IsAbs(absWorkflowPath) {
-		absWorkflowPath = filepath.Join(repoRoot, workflowPath)
-	}
-	raw, err := os.ReadFile(absWorkflowPath)
+	workflow, sourcePath, err := workflowauthoring.LoadFile(repoRoot, workflowPath)
 	if err != nil {
-		return nil, rpc.NewError("workflow_error", fmt.Sprintf("read workflow: %v", err), nil)
-	}
-	var workflow map[string]any
-	if err := json.Unmarshal(raw, &workflow); err != nil {
-		return nil, rpc.NewError("workflow_error", "workflow JSON is invalid: "+err.Error(), nil)
+		return nil, rpc.NewError("workflow_error", err.Error(), nil)
 	}
 	workflowID, _ := workflow["workflow_id"].(string)
 	if workflowID == "" {
@@ -493,7 +485,7 @@ func runPrepare(ctx context.Context, runner any, repositoryID string, workflowPa
 		snapshotID,
 		workflowID,
 		nullable(workflow["workflow_version"]),
-		workflowPath,
+		sourcePath,
 		hex.EncodeToString(sum[:]),
 		workflow,
 		now,

@@ -378,6 +378,9 @@ daemon-first without needing to support two domain daemons.
   reads remain in an explicit service-side allowlist, and daemon-mapped
   production reads/mutations dispatch through daemon RPC instead of
   `striatum.api.invoke`.
+- Local MCP and web chat tools now share that routing policy for mapped
+  status, why, lifecycle, artifact, review, and recovery commands; local
+  `api.invoke` remains for unmapped authoring and explicit test fixtures.
 - Production service startup now verifies daemon/repository health through
   daemon `doctor` before binding. The old SQLite integrity check remains
   only for subprocess fixtures running under the legacy test-harness escape.
@@ -964,8 +967,9 @@ Release order after Phase 0:
 12. **TODO 60 / Phase 12:** optional Git/PR integration waits on a product
     decision for commit authority and hosted-provider boundaries.
 13. **TODO 61 / RFC 0068:** port the production daemon to Go, keep the
-    resident recovery scheduler in Go, keep `make daemon-go-conformance`
-    green, and retire the Python daemon after parity.
+    resident recovery scheduler in Go, enforce workflow-loader path/source
+    checks in Go `run.prepare`, keep `make daemon-go-conformance` green, and
+    retire the Python daemon after parity.
 14. **TODO 62 / RFC 0069:** move daemon-global surfaces to PostgreSQL/Go,
     including scheduler cursors and residual dashboard/MCP parity.
 15. **TODO 63 / RFC 0070:** complete daemon client/service boundaries and

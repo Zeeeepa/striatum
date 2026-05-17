@@ -37,8 +37,9 @@ authoring/MCP surfaces ambiguous.
 3. Update `/v1/invoke` so daemon-routed reads and mutations call
    `service_daemon.call_repo_method()` and local authoring remains on an
    explicit allowlist.
-4. Mark `LocalRpcServer` and invoke-backed chat tools as local-authoring or
-   legacy/test surfaces in docs and tests.
+4. Route daemon-mapped `LocalRpcServer` and chat-tool commands through the
+   shared daemon RPC policy, keeping local `api.invoke` only for unmapped
+   authoring and explicit test-fixture compatibility.
 5. Port `dogfood.publish_on_behalf` and `dogfood.surgical_recovery` to PG or
    unregister them from production daemon MCP until ported.
 6. Remove Python-daemon-specific production fallback paths after Go parity
@@ -51,6 +52,8 @@ authoring/MCP surfaces ambiguous.
 - Monkeypatching client-side PG connect to raise does not break daemon-routed
   CLI/web calls.
 - `/v1/invoke` succeeds for daemon-routed reads and mutations when
+  `striatum.api.invoke` is monkeypatched to fail.
+- Local MCP and web chat mapped reads/mutations succeed when
   `striatum.api.invoke` is monkeypatched to fail.
 - Daemon MCP lists only supported production methods for production tokens.
 - Dogfood composites are either PG-native with tests or absent from production
@@ -67,6 +70,9 @@ authoring/MCP surfaces ambiguous.
 - `/v1/invoke` routes daemon-mapped production reads and mutations through
   `service_daemon.call_repo_method()` and no longer re-enters
   `striatum.api.invoke` for those methods.
+- Local MCP and web chat tools use the same command-routing helper, so mapped
+  status, why, lifecycle, artifact, review, and recovery commands also cross
+  the daemon RPC boundary instead of entering local CLI dispatch.
 - `dogfood.publish_on_behalf` and `dogfood.surgical_recovery` are retired in
   both Python and Go daemon paths with explicit fail-closed RPC errors because
   the historical composites were SQLite-bound. Operators should use primitive

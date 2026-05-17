@@ -85,6 +85,10 @@ The Go daemon port lands through independent, testable slices:
   `CORE=go`, including Go daemon smoke, audit, mutation-registry, and
   supervisor smoke coverage. CI runs that gate on Linux where the PostgreSQL
   service is available.
+- Go `run.prepare` uses the Go workflow-authoring loader for source-path
+  resolution before inserting workflow snapshot rows, so traversal refusal and
+  JSON-only workflow-source validation no longer depend on Python-daemon
+  behavior.
 
 ## Open Questions
 

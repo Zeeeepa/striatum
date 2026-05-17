@@ -186,8 +186,10 @@ Legend: ✅ done · 🟡 most done (sub-tasks remain) · ⏳ open/blocked · �
 
 - ~~**10. Local API and MCP.** `striatum.api.invoke` wraps the same
   parser/dispatcher without direct SQLite writes; the local stdio JSON-RPC
-  wrapper speaks `Content-Length` framing with line-delimited fallback and
-  maps tools/resources to the API.~~
+  wrapper speaks `Content-Length` framing with line-delimited fallback.
+  Daemon-mapped local MCP and chat tools route through daemon RPC in
+  production and retain `api.invoke` only for unmapped local authoring or
+  explicit test-fixture compatibility.~~
 
 - ~~**11. Per-job git worktree isolation (RFC 0008, accepted).** Lanes opt
   in with `worktree_isolation: per_job`; work packets carry
@@ -843,8 +845,9 @@ review and plan are root-level operator artifacts:
 
 49. **Phase 1: close production SQLite fallback.** Production daemon RPC
     fallback is closed: `CLI_ROUTES` is empty, `DaemonRpcRouter` no longer
-    imports or calls `striatum.api.invoke`, workflow authoring methods fail
-    closed in daemon RPC as CLI-local helpers, and `run.graph`,
+    imports or calls `striatum.api.invoke`, local MCP/chat mapped commands
+    route through daemon RPC, workflow authoring methods fail closed in
+    daemon RPC as CLI-local helpers, and `run.graph`,
     `worktree.*`, and `supervise.*` now have native PG handlers, and
     `recovery watch` now runs as a CLI-local daemon scheduler over
     `recovery.sweep` instead of a broken `recovery.watch` RPC. The
@@ -1228,8 +1231,11 @@ review and plan are root-level operator artifacts:
     scheduler cursors, and exposes `--sweep-interval-seconds` plus test-only
     `--max-sweeps` launcher plumbing. `make daemon-go-conformance` now builds
     and tests the Go daemon, then runs the multi-repo harness with `CORE=go`;
-    CI executes that gate on Linux with PostgreSQL. Remaining Go-port debt is
-    explicit fail-closed/parity work before the default daemon core flips.
+    CI executes that gate on Linux with PostgreSQL. Go `run.prepare` now uses
+    the Go workflow-authoring loader before writing rows, enforcing repo-bound
+    path checks and JSON-only workflow source validation in the Go daemon path.
+    Remaining Go-port debt is explicit fail-closed/parity work before the
+    default daemon core flips.
 
 62. **RFC 0069: PostgreSQL-only daemon-global surfaces.** Most done. Port daemon
     health, audit, sweep, dashboard-all, daemon MCP resource list/read, and
@@ -1250,10 +1256,11 @@ review and plan are root-level operator artifacts:
     Daemon-side `repo.resolve` is registered as a daemon-global read bootstrap
     method; CLI and service clients no longer open daemon PostgreSQL to map a
     repo path to `repository_id`; daemon-mapped `/v1/invoke` production reads
-    and mutations route through daemon RPC; and Python/Go dogfood composites
-    now fail closed before any repo-local SQLite import. Remaining work is to
-    decide whether to reintroduce PostgreSQL-native operator composites or
-    keep the primitive daemon-method workflow as the supported path, plus the
+    and mutations route through daemon RPC; local MCP/chat mapped commands
+    share that daemon-routing policy; and Python/Go dogfood composites now
+    fail closed before any repo-local SQLite import. Remaining work is to
+    decide whether to reintroduce PostgreSQL-native operator composites or keep
+    the primitive daemon-method workflow as the supported path, plus the
     broader Python-daemon retirement under RFC 0068.
 
 64. **RFC 0071: operator diagnostics and cutover evidence.** Diagnostic slices

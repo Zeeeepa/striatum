@@ -27,13 +27,12 @@ return an error string rather than executing. Path safety mirrors the
 instruct the model to treat content between the delimiters as data,
 not instructions (prompt-injection defense in depth).
 
-Dogfood-lifecycle tools are thin shells over the existing CLI verbs
-through :func:`striatum.api.invoke`; they do not implement their own
-state transitions. Per RFC 0040 §1 each chat-tool entry reuses the
-existing capability bound to its underlying RPC method; the chat
-surface's mutation gate (the ``mutation`` field on each entry plus
-``--allow-mutations`` at the service) is the local-MCP equivalent of
-the daemon's capability-token filtering.
+Dogfood-lifecycle tools are thin shells over the existing CLI-shaped
+verbs and route mapped daemon methods through daemon RPC. Per RFC 0040 §1
+each chat-tool entry reuses the existing capability bound to its underlying
+RPC method; the chat surface's mutation gate (the ``mutation`` field on each
+entry plus ``--allow-mutations`` at the service) is the local-MCP equivalent
+of the daemon's capability-token filtering.
 """
 
 from __future__ import annotations
@@ -676,25 +675,25 @@ def _tool_list_dir(repo: Path, rel: str) -> str:
 
 
 def _tool_striatum_status(repo: Path, run_id: str | None) -> str:
-    from striatum.api import invoke
+    from striatum.service_daemon import invoke_argv_through_daemon_or_api
 
     argv = ["status"]
     if run_id:
         argv.extend(["--run-id", run_id])
     try:
-        result = invoke(argv, repo=repo)
+        result = invoke_argv_through_daemon_or_api(argv, repo=repo)
     except Exception as exc:  # noqa: BLE001
         return f"[error] status failed: {type(exc).__name__}: {exc}"
     return json.dumps(result, indent=2, default=str, sort_keys=True)[:READ_FILE_MAX_BYTES]
 
 
 def _tool_striatum_why(repo: Path, target_id: str) -> str:
-    from striatum.api import invoke
+    from striatum.service_daemon import invoke_argv_through_daemon_or_api
 
     if not target_id:
         return "[error] target_id is required"
     try:
-        result = invoke(["why", target_id], repo=repo)
+        result = invoke_argv_through_daemon_or_api(["why", target_id], repo=repo)
     except Exception as exc:  # noqa: BLE001
         return f"[error] why failed: {type(exc).__name__}: {exc}"
     return json.dumps(result, indent=2, default=str, sort_keys=True)[:READ_FILE_MAX_BYTES]
@@ -839,13 +838,7 @@ def _tool_dogfood_lifecycle(
     repo: Path,
     allow_mutations: bool,
 ) -> str:
-    """Thin shell over the existing CLI verb for one dogfood-lifecycle tool.
-
-    Each tool builds a CLI argv list and routes it through
-    :func:`striatum.api.invoke`. The shaped JSON envelope from invoke
-    (``{"ok": bool, ...}``) is serialized verbatim so the model can
-    reason about errors the same way it would over the daemon RPC.
-    """
+    """Thin shell over the existing CLI-shaped dogfood-lifecycle verb."""
     if name in _DOGFOOD_MUTATING and not allow_mutations:
         return (
             "[error] mutations_disabled: service started without "
@@ -856,9 +849,9 @@ def _tool_dogfood_lifecycle(
         argv = _dogfood_argv(name, args)
     except _ArgError as exc:
         return f"[error] {exc.code}: {exc}"
-    from striatum.api import invoke
+    from striatum.service_daemon import invoke_argv_through_daemon_or_api
 
-    result = invoke(argv, repo=repo)
+    result = invoke_argv_through_daemon_or_api(argv, repo=repo)
     return json.dumps(result, indent=2, sort_keys=True, default=str)
 
 

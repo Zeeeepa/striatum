@@ -2,13 +2,17 @@ package mutations
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/halbritt/striatum/go/pkg/db"
 	"github.com/halbritt/striatum/go/pkg/rpc"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 type inertRunner struct{}
@@ -207,6 +211,64 @@ func TestRegisterWithNilRunnerLeavesServerAlone(t *testing.T) {
 	}
 }
 
+func TestRunPrepareUsesWorkflowAuthoringLoaderForRejectedPaths(t *testing.T) {
+	parent := t.TempDir()
+	repoRoot := filepath.Join(parent, "repo")
+	outsideRoot := filepath.Join(parent, "outside")
+	if err := os.MkdirAll(repoRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(outsideRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeRunPrepareWorkflow(t, filepath.Join(outsideRoot, "outside.json"))
+	writeRunPrepareWorkflow(t, filepath.Join(repoRoot, "workflow.yaml"))
+
+	for _, tc := range []struct {
+		name      string
+		workflow  string
+		wantError string
+	}{
+		{
+			name:      "traversal",
+			workflow:  filepath.Join("..", "outside", "outside.json"),
+			wantError: "workflow path must stay inside the repository",
+		},
+		{
+			name:      "yaml",
+			workflow:  "workflow.yaml",
+			wantError: "workflow config must be JSON, not YAML",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			tx := &runPrepareLoaderTx{repoRoot: repoRoot}
+			runner := &runPrepareLoaderRunner{tx: tx}
+			_, err := HandleRunPrepare(context.Background(), runner, rpc.Envelope{
+				SchemaVersion: rpc.SupportedEnvelopeVersion,
+				RequestID:     "req_run_prepare_loader_" + tc.name,
+				Method:        "run.prepare",
+				Params: map[string]any{
+					"repository_id": "repo_1",
+					"workflow":      tc.workflow,
+				},
+			})
+			var rpcErr *rpc.Error
+			if !errors.As(err, &rpcErr) {
+				t.Fatalf("run.prepare returned non-rpc error: %v", err)
+			}
+			if rpcErr.Code != "workflow_error" || !strings.Contains(rpcErr.Message, tc.wantError) {
+				t.Fatalf("run.prepare error = %s %q, want workflow_error containing %q", rpcErr.Code, rpcErr.Message, tc.wantError)
+			}
+			if tx.execCount != 0 {
+				t.Fatalf("run.prepare executed %d statements after rejected workflow load", tx.execCount)
+			}
+			if !tx.rolledBack || tx.committed {
+				t.Fatalf("transaction committed=%v rolledBack=%v, want rollback only", tx.committed, tx.rolledBack)
+			}
+		})
+	}
+}
+
 func TestRecoveryAutoPublishCanonicalAndDeprecatedAliasRequireRunID(t *testing.T) {
 	server := rpc.NewServer()
 	Register(server, inertRunner{})
@@ -336,5 +398,180 @@ func phaseJob(id string, phaseID string, jobType string) map[string]any {
 			"allowed_paths": []any{"docs/"},
 		},
 		"expected_artifacts": []any{},
+	}
+}
+
+type runPrepareLoaderRunner struct {
+	tx *runPrepareLoaderTx
+}
+
+func (r *runPrepareLoaderRunner) Exec(context.Context, string, ...any) error {
+	return errors.New("unexpected runner exec outside tx")
+}
+
+func (r *runPrepareLoaderRunner) QueryRow(context.Context, string, ...any) db.Row {
+	return fakeRow{err: errors.New("unexpected runner query outside tx")}
+}
+
+func (r *runPrepareLoaderRunner) QueryScalar(context.Context, string, ...any) (string, error) {
+	return "", errors.New("unexpected runner scalar query outside tx")
+}
+
+func (r *runPrepareLoaderRunner) BeginTx(context.Context) (db.TxRunner, error) {
+	return r.tx, nil
+}
+
+type runPrepareLoaderTx struct {
+	repoRoot   string
+	execCount  int
+	committed  bool
+	rolledBack bool
+}
+
+func (tx *runPrepareLoaderTx) Exec(context.Context, string, ...any) error {
+	tx.execCount++
+	return errors.New("unexpected exec")
+}
+
+func (tx *runPrepareLoaderTx) QueryRow(context.Context, string, ...any) db.Row {
+	return fakeRow{err: errors.New("unexpected row query")}
+}
+
+func (tx *runPrepareLoaderTx) QueryScalar(context.Context, string, ...any) (string, error) {
+	return "", errors.New("unexpected scalar query")
+}
+
+func (tx *runPrepareLoaderTx) Query(_ context.Context, sql string, args ...any) (pgx.Rows, error) {
+	if !strings.Contains(sql, "FROM striatumd.repositories") {
+		return nil, errors.New("unexpected query: " + sql)
+	}
+	if len(args) != 2 || args[0] != "repo_1" || args[1] != "repo_1" {
+		return runPrepareRowsFromMaps(nil), nil
+	}
+	return runPrepareRowsFromMaps([]map[string]any{{"repo_root": tx.repoRoot}}), nil
+}
+
+func (tx *runPrepareLoaderTx) Commit(context.Context) error {
+	tx.committed = true
+	return nil
+}
+
+func (tx *runPrepareLoaderTx) Rollback(context.Context) error {
+	tx.rolledBack = true
+	return nil
+}
+
+type runPrepareRows struct {
+	fields []string
+	rows   [][]any
+	index  int
+}
+
+func runPrepareRowsFromMaps(items []map[string]any) pgx.Rows {
+	fields := []string{}
+	if len(items) > 0 {
+		for key := range items[0] {
+			fields = append(fields, key)
+		}
+	}
+	rows := make([][]any, 0, len(items))
+	for _, item := range items {
+		row := make([]any, 0, len(fields))
+		for _, field := range fields {
+			row = append(row, item[field])
+		}
+		rows = append(rows, row)
+	}
+	return &runPrepareRows{fields: fields, rows: rows, index: -1}
+}
+
+func (r *runPrepareRows) Close() {}
+
+func (r *runPrepareRows) Err() error { return nil }
+
+func (r *runPrepareRows) CommandTag() pgconn.CommandTag { return pgconn.CommandTag{} }
+
+func (r *runPrepareRows) FieldDescriptions() []pgconn.FieldDescription {
+	out := make([]pgconn.FieldDescription, 0, len(r.fields))
+	for _, field := range r.fields {
+		out = append(out, pgconn.FieldDescription{Name: field})
+	}
+	return out
+}
+
+func (r *runPrepareRows) Next() bool {
+	r.index++
+	return r.index < len(r.rows)
+}
+
+func (r *runPrepareRows) Scan(dest ...any) error {
+	if len(dest) == 1 {
+		if scanner, ok := dest[0].(pgx.RowScanner); ok {
+			return scanner.ScanRow(r)
+		}
+	}
+	values, err := r.Values()
+	if err != nil {
+		return err
+	}
+	for i := range dest {
+		if i >= len(values) {
+			break
+		}
+		switch target := dest[i].(type) {
+		case *any:
+			*target = values[i]
+		case *string:
+			if value, ok := values[i].(string); ok {
+				*target = value
+			}
+		}
+	}
+	return nil
+}
+
+func (r *runPrepareRows) Values() ([]any, error) {
+	if r.index < 0 || r.index >= len(r.rows) {
+		return nil, errors.New("no current row")
+	}
+	return r.rows[r.index], nil
+}
+
+func (r *runPrepareRows) RawValues() [][]byte { return nil }
+
+func (r *runPrepareRows) Conn() *pgx.Conn { return nil }
+
+func writeRunPrepareWorkflow(t *testing.T, path string) {
+	t.Helper()
+	workflow := map[string]any{
+		"schema_version":   "striatum.workflow.v1",
+		"workflow_id":      "loader-test",
+		"workflow_version": "1",
+		"name":             "Loader Test",
+		"branch":           map[string]any{"mode": "confirm", "suggested_name": "test/loader"},
+		"coordinator":      map[string]any{"role_id": "worker", "lane_id": "lane_a"},
+		"lanes":            map[string]any{"lane_a": map[string]any{"command": []any{"true"}}},
+		"roles":            map[string]any{"worker": map[string]any{"description": "worker"}},
+		"context_docs":     []any{},
+		"parallelism":      map[string]any{"max_active_jobs": float64(1)},
+		"jobs": []any{
+			map[string]any{
+				"id":                 "job_a",
+				"type":               "handoff",
+				"role_id":            "worker",
+				"lane_id":            "lane_a",
+				"write_scope":        map[string]any{"allowed_paths": []any{"docs/"}},
+				"expected_artifacts": []any{},
+			},
+		},
+		"edges":  []any{},
+		"cycles": []any{},
+	}
+	payload, err := json.Marshal(workflow)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, payload, 0o644); err != nil {
+		t.Fatal(err)
 	}
 }

@@ -93,6 +93,38 @@ def call_repo_method(repo: Path, method: str, params: Mapping[str, Any]) -> dict
     return {"value": data}
 
 
+def invoke_argv_through_daemon_or_api(argv: list[str], *, repo: Path) -> dict[str, Any]:
+    """Invoke CLI-shaped argv, routing mapped daemon methods through RPC.
+
+    This preserves the local ``striatum.api.invoke`` compatibility path for
+    explicit test-harness fallback and CLI-local authoring commands while
+    preventing production service/MCP/chat callers from bypassing daemon RPC
+    for mapped reads and mutations.
+    """
+
+    from striatum.service_command_policy import daemon_route_for_argv
+
+    route = daemon_route_for_argv(argv, repo)
+    if route is None:
+        from striatum.api import invoke
+
+        return invoke(argv, repo=repo)
+    try:
+        payload = call_repo_method(repo, route.method, route.params)
+    except ServiceDaemonRpcError as exc:
+        error: dict[str, Any] = {
+            "code": exc.code,
+            "message": exc.message,
+            "status": exc.status,
+        }
+        if exc.kind is not None:
+            error["kind"] = exc.kind
+        if exc.details:
+            error["details"] = exc.details
+        return {"ok": False, "error": error}
+    return {"ok": True, "data": payload}
+
+
 def _http_error_shape(code: str) -> tuple[int, str | None]:
     if code == "not_found":
         return 404, None

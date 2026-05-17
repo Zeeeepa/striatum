@@ -1135,7 +1135,9 @@ The legacy local MCP-like wrapper exposes tools over stdio JSON-RPC with
 LSP-style `Content-Length` framing by default and automatic line-delimited
 fallback. `python -m striatum.mcp --framing {auto,line,framed}` lets tests and
 compatibility harnesses pin the wire shape. Each tool maps to an existing CLI
-command or `striatum.api.invoke` call. MCP resources may expose read-only views
+command shape. Daemon-mapped commands route through daemon RPC in production;
+only unmapped local authoring and explicit fixture/test compatibility paths
+fall back to `striatum.api.invoke`. MCP resources may expose read-only views
 such as status, `why`, doctor output, or stored work packets.
 
 Post-D103, operator-driven production runs use daemon MCP as the mandatory
