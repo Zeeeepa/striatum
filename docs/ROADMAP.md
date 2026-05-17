@@ -433,6 +433,8 @@ daemon-first without needing to support two domain daemons.
 - `src/striatum/service_request_security.py` now owns request authentication,
   bearer-token checks, same-origin mutation policy, and override-verdict
   web-context validation decisions.
+- `src/striatum/web/workflow_generation.py` now owns workflow template
+  listing/show and workflow generation preview/write response shaping.
 
 **Remaining Phase 4 debt:** continue splitting `service.py` along stable
 non-SQLite request-handling and rendering boundaries after the daemon-routed

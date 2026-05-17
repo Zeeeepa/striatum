@@ -83,6 +83,8 @@ Recent checkpoints:
   and override-verdict web-context validation moved from `service.py` into
   `striatum.service_request_security` with pure decision helpers and focused
   CSRF/context-token tests.
+- Workflow template listing/show and workflow generation preview/write response
+  shaping moved from `service.py` into `striatum.web.workflow_generation`.
 - Roadmap kickoff status and remediation sequencing notes were refreshed to
   match the post-v1.55.0 daemon-first architecture work and the current
   blocked-policy boundaries.
@@ -164,7 +166,9 @@ Recent checkpoints:
   per-run SSE slot accounting now live in `striatum.service_state`. Service
   runtime helpers now live in `striatum.service_runtime`, and template
   environment helpers now live in `striatum.web.template_env`. Request
-  security policy now lives in `striatum.service_request_security`.
+  security policy now lives in `striatum.service_request_security`. Workflow
+  generation endpoint response helpers now live in
+  `striatum.web.workflow_generation`.
 - **Escalation inbox foundation.**
   `escalation.list`, `escalation.show`, and `escalation.resolve` project
   human-principal escalations from blocker state. The `escalation` artifact

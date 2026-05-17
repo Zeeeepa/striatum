@@ -22,7 +22,7 @@ import uuid
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from typing import Any, Mapping
-from urllib.parse import parse_qs, unquote, urlsplit
+from urllib.parse import parse_qs, urlsplit
 
 from striatum.api import invoke
 from striatum.service_command_policy import is_read_command as is_read_command
@@ -84,6 +84,12 @@ from striatum.web.artifacts import (
     resolve_artifact_file as _resolve_artifact_file,
 )
 from striatum.web.run_list import run_list_view_item as _run_list_view_item
+from striatum.web.workflow_generation import (
+    generator_error_response as _generator_error_response,
+    workflow_generate_response as _workflow_generate_response,
+    workflow_template_show_response as _workflow_template_show_response,
+    workflow_templates_response as _workflow_templates_response,
+)
 
 JsonObject = dict[str, Any]
 _project_history_anthropic = _chat_session.project_history_anthropic
@@ -397,74 +403,28 @@ class StriatumServiceHandler(BaseHTTPRequestHandler):
         self._send_json(status, result)
 
     def _handle_workflow_templates(self, kind: str | None) -> None:
-        from striatum.workflow_generator import GeneratorError
-        from striatum.workflow_generator.catalog import list_templates
-
-        try:
-            self._send_json(200, {"ok": True, "data": {"templates": list_templates(kind=kind)}})
-        except GeneratorError as exc:
-            self._send_generator_error(exc)
+        response = _workflow_templates_response(kind)
+        self._send_json(response.status, response.payload)
 
     def _handle_workflow_template_show(self, raw_template_id: str) -> None:
-        from striatum.workflow_generator import GeneratorError
-        from striatum.workflow_generator.catalog import get_template
-
-        template_id = unquote(raw_template_id)
-        try:
-            self._send_json(200, {"ok": True, "data": get_template(template_id)})
-        except GeneratorError as exc:
-            self._send_generator_error(exc, status=404)
+        response = _workflow_template_show_response(raw_template_id)
+        self._send_json(response.status, response.payload)
 
     def _handle_workflow_generate(self, *, preview: bool) -> None:
-        from striatum.workflow_generator import GeneratorError, WorkflowGenerationSpec, generate_workflow
-        from striatum.workflow_generator.write import write_generated_workflow
-
         body = self._read_json_body()
         if body is None:
             return
-        spec_body = body.get("spec")
-        if not isinstance(spec_body, dict):
-            self._send_json(400, {"ok": False, "error": {"code": 8, "message": "missing spec object", "field_path": "spec"}})
-            return
-        if not preview:
-            if not self.state.allow_mutations:
-                self._send_json(
-                    405,
-                    {
-                        "ok": False,
-                        "error": {
-                            "code": 405,
-                            "message": "workflow generation requires --allow-mutations",
-                            "field_path": "server.allow_mutations",
-                        },
-                    },
-                )
-                return
-            if body.get("confirm_write") is not True:
-                self._send_json(400, {"ok": False, "error": {"code": 8, "message": "confirm_write must be true", "field_path": "confirm_write"}})
-                return
-        try:
-            spec = WorkflowGenerationSpec.from_json(spec_body)
-            generated = generate_workflow(spec)
-            if preview:
-                self._send_json(200, {"ok": True, "data": generated.to_json()})
-                return
-            self._send_json(200, {"ok": True, "data": write_generated_workflow(generated, repo=self.state.repo)})
-        except GeneratorError as exc:
-            self._send_generator_error(exc)
+        response = _workflow_generate_response(
+            repo=self.state.repo,
+            body=body,
+            preview=preview,
+            allow_mutations=self.state.allow_mutations,
+        )
+        self._send_json(response.status, response.payload)
 
     def _send_generator_error(self, exc: Exception, *, status: int = 400) -> None:
-        error: JsonObject = {"code": getattr(exc, "exit_code", 8), "message": str(exc)}
-        field_path = getattr(exc, "field_path", None)
-        if isinstance(field_path, str):
-            error["field_path"] = field_path
-        hint = getattr(exc, "hint", None)
-        if isinstance(hint, str):
-            error["hint"] = hint
-        ref = getattr(exc, "ref", None)
-        if isinstance(ref, str):
-            error["ref"] = ref
-        self._send_json(status, {"ok": False, "error": error})
+        response = _generator_error_response(exc, status=status)
+        self._send_json(response.status, response.payload)
 
     def _handle_doctor(self, query: dict[str, list[str]]) -> None:
         run_id = query.get("run_id", [None])[0]

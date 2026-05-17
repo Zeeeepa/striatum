@@ -933,7 +933,9 @@ review and plan are root-level operator artifacts:
     escaping and Jinja environment construction for server-rendered templates.
     Follow-up split landed: `service_request_security.py` owns request
     authentication, bearer-token checks, same-origin mutation policy, and
-    override-verdict web-context validation decisions.
+    override-verdict web-context validation decisions. Follow-up split landed:
+    `web/workflow_generation.py` owns workflow template listing/show and
+    workflow generation preview/write response shaping.
     Remaining: continue splitting `service.py` along stable non-SQLite
     request-handling and rendering boundaries.
 
