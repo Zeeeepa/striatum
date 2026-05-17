@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import uuid
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -22,7 +23,7 @@ from striatum.artifacts import (
 )
 from striatum.daemon_rpc.capability import RpcAuthContext
 from striatum.errors import ArtifactError, InvalidTransitionError, LeaseError, NotFoundError
-from striatum.identity import artifact_author_identity, validate_operator_label
+from striatum.identity import artifact_author_identity, process_start_time, validate_operator_label
 from striatum.primitives import JsonObject, json_dumps, sha256_bytes
 from striatum.repo_policy import (
     adapter_constraint_enforcement,
@@ -277,7 +278,25 @@ def session_lane_attestation(ctx: RepoHandlerContext, *, session_id: str) -> dic
     with ctx.cursor() as cur:
         cur.execute(
             """
-            SELECT supervisor_id, pid
+            SELECT *
+            FROM striatumd.sessions
+            WHERE repository_id = %s AND session_id = %s
+            """,
+            (ctx.repository_id, session_id),
+        )
+        session = cur.fetchone()
+    if session is None:
+        return {
+            "attested": False,
+            "state": "unattested",
+            "supervisor_id": None,
+            "pid": None,
+            "reason": "session_missing",
+        }
+    with ctx.cursor() as cur:
+        cur.execute(
+            """
+            SELECT *
             FROM striatumd.process_supervisors
             WHERE repository_id = %s AND session_id = %s AND state = 'attached'
             ORDER BY started_at DESC
@@ -285,8 +304,8 @@ def session_lane_attestation(ctx: RepoHandlerContext, *, session_id: str) -> dic
             """,
             (ctx.repository_id, session_id),
         )
-        row = cur.fetchone()
-    if row is None:
+        supervisor = cur.fetchone()
+    if supervisor is None:
         return {
             "attested": False,
             "state": "unattested",
@@ -294,13 +313,104 @@ def session_lane_attestation(ctx: RepoHandlerContext, *, session_id: str) -> dic
             "pid": None,
             "reason": "no_attached_supervisor",
         }
+    supervisor_id = str(supervisor["supervisor_id"])
+    pid = _supervisor_pid(supervisor.get("pid"))
+    reason = _inactive_supervisor_reason(ctx, session=session, supervisor=supervisor, pid=pid)
+    if reason is not None:
+        return {
+            "attested": False,
+            "state": "unattested",
+            "supervisor_id": supervisor_id,
+            "pid": pid,
+            "reason": reason,
+        }
     return {
         "attested": True,
         "state": "attested",
-        "supervisor_id": row["supervisor_id"],
-        "pid": row["pid"],
+        "supervisor_id": supervisor_id,
+        "pid": pid,
         "reason": None,
     }
+
+
+def _inactive_supervisor_reason(
+    ctx: RepoHandlerContext,
+    *,
+    session: Mapping[str, Any],
+    supervisor: Mapping[str, Any],
+    pid: int | None,
+) -> str | None:
+    if str(supervisor["run_id"]) != str(session["run_id"]):
+        return "run_mismatch"
+    if str(supervisor["session_id"]) != str(session["session_id"]):
+        return "session_mismatch"
+    if pid is None or not _pid_alive(pid):
+        return "pid_gone"
+    expected_start = supervisor.get("pid_start_time")
+    if expected_start is None or expected_start == "":
+        return "pid_identity_unavailable"
+    current_start = process_start_time(pid)
+    if current_start != str(expected_start):
+        return "pid_identity_mismatch"
+    expected_command = _session_lane_command(ctx, session=session)
+    if expected_command is None:
+        return "lane_command_missing"
+    recorded_command = _command_json_string_list(supervisor.get("command_json"))
+    if recorded_command is None:
+        return "supervisor_command_invalid"
+    if recorded_command != expected_command:
+        return "lane_command_mismatch"
+    return None
+
+
+def _session_lane_command(ctx: RepoHandlerContext, *, session: Mapping[str, Any]) -> list[str] | None:
+    try:
+        workflow = workflow_for_run(ctx, run_id=str(session["run_id"]))
+    except (json.JSONDecodeError, InvalidTransitionError, NotFoundError):
+        return None
+    lanes = workflow.get("lanes")
+    if not isinstance(lanes, dict):
+        return None
+    lane = lanes.get(str(session["lane_id"]))
+    if not isinstance(lane, dict):
+        return None
+    command = lane.get("command")
+    if not isinstance(command, list) or not all(isinstance(part, str) for part in command):
+        return None
+    return list(cast(list[str], command))
+
+
+def _command_json_string_list(value: object) -> list[str] | None:
+    try:
+        command = _json_list(value)
+    except (json.JSONDecodeError, InvalidTransitionError, TypeError):
+        return None
+    if not all(isinstance(part, str) for part in command):
+        return None
+    return list(cast(list[str], command))
+
+
+def _supervisor_pid(value: object) -> int | None:
+    if value is None:
+        return None
+    if isinstance(value, int):
+        return value
+    if not isinstance(value, str):
+        return None
+    try:
+        return int(value)
+    except ValueError:
+        return None
+
+
+def _pid_alive(pid: int) -> bool:
+    if pid <= 0:
+        return False
+    try:
+        os.kill(pid, 0)
+    except (ProcessLookupError, PermissionError):
+        return False
+    return True
 
 
 def active_lease_for(

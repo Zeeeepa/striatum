@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
@@ -15,6 +16,7 @@ from striatum.daemon_pg.handlers.registry import resolve_pg_handler
 from striatum.daemon_pg.handlers.workflow_loop.artifact_publish import handle
 from striatum.daemon_rpc.capability import RpcAuthContext
 from striatum.errors import ArtifactError
+from striatum.identity import process_start_time
 
 
 @pytest.fixture
@@ -632,7 +634,7 @@ def _seed_running_job(conn: Any, repo_root: Path, *, repository_id: str) -> None
         "workflow_id": "wf",
         "workflow_version": "1",
         "roles": {"implementer": {}},
-        "lanes": {"local": {"display_model": "codex-gpt-5"}},
+        "lanes": {"local": {"display_model": "codex-gpt-5", "command": ["agent"]}},
         "jobs": [{"id": "build", "type": "implementation"}],
         "cycles": [],
     }
@@ -746,19 +748,22 @@ def _insert_active_worktree(
 
 
 def _insert_attached_supervisor(conn: Any, *, repository_id: str) -> None:
+    pid = os.getpid()
+    pid_start = process_start_time(pid)
+    assert pid_start is not None
     with conn.cursor() as cur:
         cur.execute(
             """
             INSERT INTO striatumd.process_supervisors (
               repository_id, supervisor_id, run_id, session_id, adapter,
-              command_json, cwd, scratch_path, pid, state, started_at,
-              heartbeat_at
+              command_json, cwd, scratch_path, pid, pid_start_time, state,
+              started_at, heartbeat_at
             )
             VALUES (%s, 'sup_1', 'run_1', 'sess_1', 'test', %s, '/tmp',
-                    '/tmp/scratch', 1234, 'attached', '2026-05-14T00:00:00Z',
+                    '/tmp/scratch', %s, %s, 'attached', '2026-05-14T00:00:00Z',
                     '2026-05-14T00:00:00Z')
             """,
-            (repository_id, Jsonb(["agent"])),
+            (repository_id, Jsonb(["agent"]), pid, pid_start),
         )
 
 

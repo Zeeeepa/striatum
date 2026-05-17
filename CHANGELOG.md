@@ -89,7 +89,10 @@ in the roadmap/TODO and has several production slices landed:
   `liveness: "stalled"` with `last_progress_age_seconds`, `doctor` and
   `status` surface stale attached supervisors, and expired stalled leases
   become open `heartbeat_stall_lease_expired` blockers without auto-killing
-  the OS process.
+  the OS process. PostgreSQL lane-liveness attestation now matches the
+  stricter legacy semantics: attached supervisor rows attest only when the
+  session/run binding, live PID, PID start-time token, and workflow snapshot
+  lane command all match.
 - **Workflow risk lint.**
   `striatum workflow lint` supports structured warnings, opt-in strict mode,
   accepted-risk rationale and decision references, advisory coverage scoring,

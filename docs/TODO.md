@@ -946,10 +946,13 @@ review and plan are root-level operator artifacts:
     while preserving persistent FIFO behavior by default. Follow-up slice
     landed runner-owned stall alarms/blockers for attached but idle
     supervisors, including stalled status liveness, doctor/status surfacing,
-    and lease-expired blockers. Remaining: actual restart reattach/lost-state
-    semantics, stronger lane-liveness attestation, wrapper fixtures, real
-    Go-helper integration coverage, and promotion of helper-only CI beyond
-    focused tests.
+    and lease-expired blockers. Follow-up slice made PostgreSQL
+    lane-liveness attestation require same session/run binding, live PID,
+    matching PID start token, and matching workflow snapshot lane command
+    before `require_attested_lane` or byline derivation treat a lane as
+    attested. Remaining: actual restart reattach/lost-state semantics,
+    wrapper fixtures, real Go-helper integration coverage, and promotion of
+    helper-only CI beyond focused tests.
 
 55. **Phase 7: workflow risk lint and review diversity enforcement.**
     `workflow lint <workflow.json> --json` returns structured advisory

@@ -26,6 +26,7 @@ from striatum.daemon_pg.handlers.registry import resolve_pg_handler
 from striatum.daemon_rpc.capability import RpcAuthContext
 from striatum.db import json_dumps, sha256_bytes
 from striatum.errors import InvalidTransitionError
+from striatum.identity import process_start_time
 
 
 @pytest.fixture
@@ -344,7 +345,7 @@ def _seed_review_job(
         "workflow_id": "wf",
         "workflow_version": "1",
         "roles": {"reviewer": {}},
-        "lanes": {"local": {"display_model": "codex-gpt-5"}},
+        "lanes": {"local": {"display_model": "codex-gpt-5", "command": ["agent"]}},
         "jobs": [
             {
                 "id": "review",
@@ -568,19 +569,22 @@ def _insert_attached_supervisor(
     supervisor_id: str = "sup_1",
     session_id: str = "sess_1",
 ) -> None:
+    pid = os.getpid()
+    pid_start = process_start_time(pid)
+    assert pid_start is not None
     with conn.cursor() as cur:
         cur.execute(
             """
             INSERT INTO striatumd.process_supervisors (
               repository_id, supervisor_id, run_id, session_id, adapter,
-              command_json, cwd, scratch_path, pid, state, started_at,
-              heartbeat_at
+              command_json, cwd, scratch_path, pid, pid_start_time, state,
+              started_at, heartbeat_at
             )
             VALUES (%s, %s, 'run_1', %s, 'test', %s, '/tmp',
-                    '/tmp/scratch', 1234, 'attached', '2026-05-14T00:00:00Z',
+                    '/tmp/scratch', %s, %s, 'attached', '2026-05-14T00:00:00Z',
                     '2026-05-14T00:00:00Z')
             """,
-            (repository_id, supervisor_id, session_id, Jsonb(["agent"])),
+            (repository_id, supervisor_id, session_id, Jsonb(["agent"]), pid, pid_start),
         )
 
 

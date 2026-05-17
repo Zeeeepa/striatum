@@ -478,10 +478,14 @@ decide whether to rename the packet helper to `packet inbox`.
   and opens `heartbeat_stall_lease_expired` blockers when an attached
   supervisor's active lease expires without progress. The recovery path does
   not auto-kill the OS process.
+- PostgreSQL lane-liveness attestation now matches the stricter legacy
+  semantics: an attached supervisor row attests only when its session/run,
+  live PID, PID start-time token, and command match the immutable workflow
+  snapshot lane command.
 
 **Remaining Phase 6 debt:** actual restart reattach/lost-state recovery,
-stronger lane-liveness attestation, wrapper fixtures, real Go-helper
-integration coverage, and broader helper-only CI.
+wrapper fixtures, real Go-helper integration coverage, and broader
+helper-only CI.
 
 ---
 
