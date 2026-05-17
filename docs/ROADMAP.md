@@ -497,6 +497,8 @@ daemon-first without needing to support two domain daemons.
 - `src/striatum/service_api_routes.py` now owns JSON read helpers, repo-tree
   reads, daemon-read fallback handling, and run-event SSE route control while
   `service.py` keeps dispatch, authentication, and stable private wrappers.
+- `src/striatum/service_routes.py` now owns GET/POST route selection while
+  `service.py` keeps stable handler wrapper methods and endpoint contexts.
 
 **Remaining Phase 4 debt:** continue splitting `service.py` along stable
 non-SQLite request-handling and rendering boundaries after the daemon-routed

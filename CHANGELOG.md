@@ -133,6 +133,9 @@ Recent checkpoints:
   recovery hook dispatcher, keeps dry-runs side-effect-free, and folds hook
   failures into `escalations[]` instead of raising or reporting the old
   deferred placeholder.
+- Local service GET/POST route selection moved from `service.py` into
+  `striatum.service_routes`, keeping the handler's stable wrapper methods
+  while continuing the daemon-first web-service split.
 - Workflow validation now rejects `needs_revision` cycles whose `from`/`to`
   jobs cross phase boundaries, closing the RFC 0045 V1.5 cycle phase-jump
   validator gap.

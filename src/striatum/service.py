@@ -20,7 +20,6 @@ import time  # noqa: F401 - compatibility monkeypatch seam for legacy SSE tests.
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from typing import Any, Mapping
-from urllib.parse import parse_qs, urlsplit
 
 from striatum.api import invoke
 from striatum.service_command_policy import is_read_command as is_read_command
@@ -40,6 +39,7 @@ from striatum.service_request_security import (
 )
 from striatum import service_api_routes as _service_api_routes
 from striatum import service_request_io as _request_io
+from striatum import service_routes as _service_routes
 from striatum.service_api_routes import (
     ServiceApiRouteContext as _ServiceApiRouteContext,
 )
@@ -240,164 +240,10 @@ class StriatumServiceHandler(BaseHTTPRequestHandler):
             self._send_json(500, {"ok": False, "error": {"code": 500, "message": str(exc)}})
 
     def _dispatch_get(self) -> None:
-        if not self._authenticate():
-            return
-        parsed = urlsplit(self.path)
-        path = parsed.path
-        query = parse_qs(parsed.query)
-        if path == "/v1/health":
-            self._handle_health()
-            return
-        if path == "/v1/runs":
-            self._handle_daemon_read("status", {}, legacy_argv=["status"])
-            return
-        if path == "/v1/doctor":
-            self._handle_doctor(query)
-            return
-        if path == "/v1/repo/tree":
-            self._handle_repo_tree(query)
-            return
-        if path.startswith("/v1/runs/"):
-            self._handle_run_subpath(path[len("/v1/runs/"):], query)
-            return
-        if path.startswith("/v1/artifacts/") and path.endswith("/raw"):
-            artifact_id = path[len("/v1/artifacts/"):-len("/raw")]
-            self._handle_artifact_raw(artifact_id)
-            return
-        if path == "/workflow-templates":
-            kind = query.get("kind", [None])[0]
-            self._handle_workflow_templates(kind)
-            return
-        if path.startswith("/workflow-templates/"):
-            self._handle_workflow_template_show(path[len("/workflow-templates/"):])
-            return
-        if self.state.web_enabled and (path == "/" or path == ""):
-            self._render_run_list_page()
-            return
-        if self.state.web_enabled and path == "/doctor":
-            self._render_doctor_page()
-            return
-        if self.state.web_enabled and path == "/chat":
-            self._render_chat_index_page()
-            return
-        if self.state.web_enabled and path.startswith("/chat/"):
-            self._render_chat_subpath(path[len("/chat/"):])
-            return
-        if self.state.web_enabled and path == "/view":
-            self._render_view_path("")
-            return
-        if self.state.web_enabled and path.startswith("/view/"):
-            self._render_view_path(path[len("/view/"):])
-            return
-        if self.state.web_enabled and path == "/workflows":
-            self._render_workflows_index_page()
-            return
-        if self.state.web_enabled and path == "/workflows/new":
-            self._render_workflows_new_page()
-            return
-        if self.state.web_enabled and path.startswith("/workflows/edit/"):
-            self._render_workflow_edit_page(path[len("/workflows/edit/"):])
-            return
-        if self.state.web_enabled and path.startswith("/workflows/"):
-            self._render_workflow_detail_page(path[len("/workflows/"):])
-            return
-        if self.state.web_enabled and path.startswith("/run/"):
-            self._render_run_subpath(path[len("/run/"):])
-            return
-        if self.state.web_enabled and path.startswith("/static/"):
-            relative = path[len("/static/"):]
-            self._serve_static_asset(relative)
-            return
-        if path == "/" or path == "":
-            self._send_json(404, {"ok": False, "error": {"code": 404, "message": "not found; pass --web to enable the local UI (RFC 0013 V1)"}})
-            return
-        self._send_json(404, {"ok": False, "error": {"code": 404, "message": "not found"}})
+        _service_routes.dispatch_get(self)
 
     def _dispatch_post(self) -> None:
-        if not self._authenticate():
-            return
-        parsed = urlsplit(self.path)
-        if self._requires_same_origin(parsed.path) and not self._verify_same_origin_mutation():
-            return
-        if self.state.web_enabled and parsed.path == "/chat/new":
-            self._handle_chat_new()
-            return
-        if self.state.web_enabled and parsed.path.startswith("/workflows/edit/"):
-            self._handle_workflow_edit_save(parsed.path[len("/workflows/edit/"):])
-            return
-        if self.state.web_enabled and parsed.path.startswith("/workflows/run/"):
-            self._handle_workflow_run_now(parsed.path[len("/workflows/run/"):])
-            return
-        if parsed.path == "/workflows/generate/preview":
-            self._handle_workflow_generate(preview=True)
-            return
-        if parsed.path == "/workflows/generate":
-            self._handle_workflow_generate(preview=False)
-            return
-        if self.state.web_enabled and parsed.path.startswith("/run/") and parsed.path.endswith("/branch-confirm"):
-            run_id = parsed.path[len("/run/"):-len("/branch-confirm")]
-            self._handle_run_branch_confirm(run_id)
-            return
-        if self.state.web_enabled and parsed.path.startswith("/run/") and parsed.path.endswith("/cancel") and "/job/" not in parsed.path:
-            run_id = parsed.path[len("/run/"):-len("/cancel")]
-            self._handle_run_cancel(run_id)
-            return
-        if self.state.web_enabled and parsed.path.startswith("/run/") and parsed.path.endswith("/pause"):
-            run_id = parsed.path[len("/run/"):-len("/pause")]
-            self._handle_run_pause(run_id)
-            return
-        if self.state.web_enabled and parsed.path.startswith("/run/") and parsed.path.endswith("/resume"):
-            run_id = parsed.path[len("/run/"):-len("/resume")]
-            self._handle_run_resume(run_id)
-            return
-        if self.state.web_enabled and "/job/" in parsed.path and (parsed.path.endswith("/cancel") or parsed.path.endswith("/retry")):
-            self._handle_job_action(parsed.path)
-            return
-        if self.state.web_enabled and parsed.path.startswith("/chat/") and parsed.path.endswith("/send"):
-            session_id = parsed.path[len("/chat/"):-len("/send")]
-            self._handle_chat_send(session_id)
-            return
-        if self.state.web_enabled and parsed.path.startswith("/chat/") and "/confirm-tool/" in parsed.path:
-            rest = parsed.path[len("/chat/"):]
-            session_id, _, tool_id = rest.partition("/confirm-tool/")
-            self._handle_chat_confirm_tool(session_id, tool_id)
-            return
-        if self.state.web_enabled and parsed.path.startswith("/chat/") and parsed.path.endswith("/stop"):
-            session_id = parsed.path[len("/chat/"):-len("/stop")]
-            self._handle_chat_stop(session_id)
-            return
-        if parsed.path != "/v1/invoke":
-            self._send_json(404, {"ok": False, "error": {"code": 404, "message": "not found"}})
-            return
-        body = self._read_json_body()
-        if body is None:
-            return
-        argv = body.get("argv")
-        if not isinstance(argv, list) or not all(isinstance(part, str) for part in argv):
-            self._send_json(400, {"ok": False, "error": {"code": 400, "message": "argv must be a list of strings"}})
-            return
-        if not self.state.allow_mutations and not is_read_command(argv):
-            verb = " ".join(argv[:2]) if argv else ""
-            self._send_json(405, {"ok": False, "error": {"code": 405, "message": f"command requires --allow-mutations: {verb}"}})
-            return
-        # GH #10: when web UI is enabled, override-verdict POSTs must
-        # carry a server-issued context token bound to the rendered
-        # job page. This defeats DOM-tampering attacks (where another
-        # script flips data-job-id between page render and submit).
-        if self.state.web_enabled and argv and argv[0] == "override-verdict":
-            if not self._verify_override_verdict_context(argv, body):
-                return
-        result = invoke(argv, repo=self.state.repo)
-        status = 200 if result.get("ok") else 500
-        if not result.get("ok"):
-            err = result.get("error") or {}
-            code = err.get("code")
-            if isinstance(code, int):
-                if code in (400, 401, 403, 404, 405, 409):
-                    status = code
-                elif code in (3, 4, 5, 6, 7, 8):
-                    status = 400
-        self._send_json(status, result)
+        _service_routes.dispatch_post(self)
 
     # --- endpoint helpers ----------------------------------------------
 

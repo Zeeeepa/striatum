@@ -55,6 +55,14 @@ def handle_health(ctx: ServiceApiRouteContext) -> None:
 def handle_invoke(ctx: ServiceApiRouteContext, argv: list[str]) -> None:
     result = ctx.invoke_func(argv)
     status = 200 if result.get("ok") else 500
+    if not result.get("ok"):
+        err = result.get("error") or {}
+        code = err.get("code")
+        if isinstance(code, int):
+            if code in (400, 401, 403, 404, 405, 409):
+                status = code
+            elif code in (3, 4, 5, 6, 7, 8):
+                status = 400
     ctx.send_json(status, result)
 
 
