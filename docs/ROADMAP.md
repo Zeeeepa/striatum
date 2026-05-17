@@ -856,6 +856,10 @@ dogfood. Order them by impact, not by RFC number.
 
 ## 7. Blocked / waiting
 
+Item F1 is no longer listed here: `examples/three-lane-design-build-review/`
+is the runner-owned historical bootstrap successor, and
+`tests/test_example_workflows.py` guards the fixture shape and references.
+
 | Item | Blocker | Unblock criterion |
 |---|---|---|
 | 5.2 (RFC 0039 Phase 2) | Was: RFC 0043 V1. | **Now unblocked.** |
@@ -864,7 +868,6 @@ dogfood. Order them by impact, not by RFC number.
 | Phase 12 Git/PR integration | Product decision for commit authority and hosted-provider boundaries | Accepted RFC/decision before commit apply or hosted PR work. |
 | RFC 0048 Phase A | Operator capacity (multi-week) | None — schedulable. |
 | Item 32 (Engram-side RFC 0044 Phase 1) | External repo (`~/git/engram/`) | Engram-side work; **not Striatum's TODO**. |
-| Item F1 (historical bootstrap fixture) | No active operator demand | Tmux harness retirement; cleanup task. |
 | Item 16 (generic language sweep) | No active operator demand | Cleanup task. |
 
 ---

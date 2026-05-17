@@ -95,6 +95,11 @@ in the roadmap/TODO and has several production slices landed:
   summaries. `workflow validate` now refuses same-model
   implementer/reviewer pairings by default when the existing lint rules find
   them, with `--allow-same-model-pairing` as the explicit override.
+- **Runner-owned workflow fixture cleanup.**
+  The historical P001 three-lane design/build/review shape is now indexed as
+  `examples/three-lane-design-build-review/`, covered by a regression test
+  for its graph and referenced files, and marked complete in the TODO and
+  roadmap trackers.
 - **Auto-finalize, archive, replay, packaging, and setup slices.**
   `recovery.auto_finalize` landed as a daemon/Postgres recovery method with
   dry-run and opt-in live modes, status/dashboard preview surfacing, and

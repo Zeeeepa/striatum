@@ -29,13 +29,13 @@ so external references keep resolving even as items move between sections.
 | 10 | Local API and MCP | ✅ done |
 | 11 | Worktree isolation (RFC 0008) | ✅ done |
 | 12 | Richer fixture suite | ✅ done |
-| 13 | Replace bootstrap scripts | 🟡 most done |
+| 13 | Replace bootstrap scripts | ✅ done |
 | 14 | Packaging and release | ✅ done |
 | 15 | `run summary` polish | ✅ done |
 | 16 | Keep generic language current | ⏳ open |
 | 17 | SQLite migration system (RFC 0006) | ✅ done |
 | 18 | Workflow type catalog and chooser | ✅ done |
-| F1 | Run historical bootstrap as runner workflow | ⏳ open |
+| F1 | Run historical bootstrap as runner workflow | ✅ done |
 | F2 | Fuller publication policy | ⏳ open |
 | F3 | Round-6 RFC 0002 + 0003/0004/0005 follow-up | ✅ done |
 | F4 | RFC 0010 V1 (tool harness profiles, dogfood-003) | ✅ done |
@@ -288,16 +288,15 @@ Legend: ✅ done · 🟡 most done (sub-tasks remain) · ⏳ open/blocked · �
    transcript/output/private paths. Future evidence fields must extend this
    coverage with their policy entry.
 
-13. **Replace bootstrap scripts with runner-owned workflows.** The minimal
-    process adapter and supervised sessions cover claimed-work launch.
-    `scripts/` is now CI-smoke-only (`fresh_clone_smoke.sh`,
+13. ~~**Replace bootstrap scripts with runner-owned workflows.**~~ ✅ Done:
+    the minimal process adapter and supervised sessions cover claimed-work
+    launch. `scripts/` is now CI-smoke-only (`fresh_clone_smoke.sh`,
     `package_smoke.sh`); `.striatum/bin/*-supervised-wrapper.sh` are
     supervisor wrappers, not bootstrappers; no P00* prompt is referenced
-    from `src/`. **Remaining:** no `examples/` runner-owned workflow fixture
-    yet reproduces the historical P001 three-lane design+build+review flow;
-    tmux mention only survives in `src/striatum/skills/context.py:63` as
-    "do not trust" framing, so the design-workflow fixture is the last step
-    before the tmux harness fully retires from active guidance.
+    from `src/`. `examples/three-lane-design-build-review/` is the
+    runner-owned successor to the historical P001 three-lane design,
+    synthesis, build, and review flow, and `tests/test_example_workflows.py`
+    guards its graph plus referenced role/prompt files.
 
 ## Open
 
@@ -1049,9 +1048,12 @@ review and plan are root-level operator artifacts:
 
 ## Immediate Follow-Up
 
-F1. Exercise the minimal process adapter on a Striatum-owned version of the
+F1. ~~Exercise the minimal process adapter on a Striatum-owned version of the
     historical bootstrap workflow, then retire the tmux harness from active
-    workflow guidance.
+    workflow guidance.~~ Done: `examples/three-lane-design-build-review/`
+    carries the runner-owned workflow fixture and
+    `tests/test_example_workflows.py` validates the graph and referenced
+    files.
 
 F2. Define any fuller publication policy after the initial package smoke,
     typecheck, metadata check, and macOS/Linux CI wiring.
