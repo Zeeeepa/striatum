@@ -903,6 +903,10 @@ review and plan are root-level operator artifacts:
     invoked. Follow-up split landed: `web/static_assets.py` owns static
     asset lookup, path validation, and content-type mapping while
     `service.py` keeps HTTP response writing and CSP/header behavior.
+    Follow-up split landed: `web/workflows.py` owns workflow editor file
+    resolution, new-workflow scaffold payloads, validation, atomic writes, and
+    If-Match checks while `service.py` keeps HTTP request parsing, template
+    rendering, and JSON response mapping for those routes.
     Remaining: continue splitting `service.py` along stable non-SQLite
     request-handling and rendering boundaries.
 

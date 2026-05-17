@@ -407,6 +407,10 @@ daemon-first without needing to support two domain daemons.
 - `src/striatum/web/static_assets.py` now owns bundled static asset lookup,
   path validation, and content-type mapping. `service.py` keeps HTTP response
   writing and CSP/header behavior for the `/static/*` route.
+- `src/striatum/web/workflows.py` now owns workflow editor file resolution,
+  new-workflow scaffold payloads, validation, atomic writes, and If-Match
+  handling. `service.py` keeps HTTP request parsing, template rendering, and
+  JSON response mapping for the workflow editor routes.
 
 **Remaining Phase 4 debt:** continue splitting `service.py` along stable
 non-SQLite request-handling and rendering boundaries after the daemon-routed

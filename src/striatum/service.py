@@ -1313,72 +1313,22 @@ class StriatumServiceHandler(BaseHTTPRequestHandler):
         editor opens so the user can fix). Non-existent paths render an
         empty scaffold derived from the path stem.
         """
-        if not rel_path:
-            self._send_json(404, {"ok": False, "error": {"code": 404, "message": "missing path"}})
-            return
-        if rel_path.startswith("/") or "\x00" in rel_path or ".." in Path(rel_path).parts:
-            self._send_json(400, {"ok": False, "error": {"code": 400, "message": "invalid path"}})
-            return
-        # Resolve safety; the path may not exist yet (new-workflow case).
-        repo_root = self.state.repo.resolve()
-        target = (self.state.repo / rel_path).resolve()
+        from striatum.web.workflows import WorkflowFileError, workflow_edit_payload
+
         try:
-            target.relative_to(repo_root)
-        except ValueError:
-            self._send_json(400, {"ok": False, "error": {"code": 400, "message": "path escapes repo"}})
-            return
-        rel_parts = target.relative_to(repo_root).parts
-        if rel_parts and rel_parts[0] in (".git", ".striatum"):
-            self._send_json(404, {"ok": False, "error": {"code": 404, "message": "hidden path"}})
-            return
-        rel_norm = "/".join(rel_parts)
-        is_new = not target.is_file()
-        if is_new:
-            stem = rel_parts[-2] if len(rel_parts) >= 2 else (rel_parts[0] if rel_parts else "new-workflow")
-            workflow_data: dict[str, Any] = {
-                "schema_version": "striatum.workflow.v1",
-                "workflow_id": stem,
-                "workflow_version": "1",
-                "name": "",
-                "branch": {"mode": "confirm", "suggested_name": f"wf/{stem}", "allow_dirty": False},
-                "coordinator": {"role_id": "", "lane_id": ""},
-                "lanes": {},
-                "roles": {},
-                "context_docs": [],
-                "parallelism": {
-                    "mode": "declared",
-                    "max_active_jobs": 1,
-                    "require_disjoint_write_scopes": True,
-                },
-                "jobs": [],
-                "edges": [],
-                "cycles": [],
-            }
-        else:
-            try:
-                workflow_data = json.loads(target.read_text(encoding="utf-8"))
-                if not isinstance(workflow_data, dict):
-                    workflow_data = {}
-            except (OSError, json.JSONDecodeError):
-                workflow_data = {}
-        # RFC 0024 V2: stamp file sha256 so the editor can echo it on
-        # POST as If-Match. Empty string for new files (no precondition).
-        import hashlib
-        if is_new:
-            sha256 = ""
-        else:
-            try:
-                sha256 = hashlib.sha256(target.read_bytes()).hexdigest()
-            except OSError:
-                sha256 = ""
-        try:
+            payload = workflow_edit_payload(self.state.repo, rel_path)
             html = _jinja_env().get_template("workflow_edit.html").render(
-                rel_path=rel_norm,
-                is_new=is_new,
-                workflow_json=json.dumps(workflow_data),
-                workflow_sha256=sha256,
+                rel_path=payload["rel_path"],
+                is_new=payload["is_new"],
+                workflow_json=json.dumps(payload["workflow_data"]),
+                workflow_sha256=payload["workflow_sha256"],
             )
             self._send_html(200, html)
+        except WorkflowFileError as exc:
+            self._send_json(
+                exc.status_code,
+                {"ok": False, "error": {"code": exc.status_code, "message": exc.message}},
+            )
         except Exception as exc:  # noqa: BLE001
             self._send_json(500, {"ok": False, "error": {"code": 500, "message": str(exc)}})
 
@@ -1390,8 +1340,7 @@ class StriatumServiceHandler(BaseHTTPRequestHandler):
         atomically writes ``<path>.tmp`` then renames into place and
         returns 200.
         """
-        from striatum.errors import WorkflowError
-        from striatum.workflow import validate_workflow
+        from striatum.web.workflows import WorkflowFileError, save_workflow_file
 
         if not self.state.allow_mutations:
             self._send_json(405, {"ok": False, "error": {"code": 405, "message": "workflow edit requires --allow-mutations"}})
@@ -1427,67 +1376,22 @@ class StriatumServiceHandler(BaseHTTPRequestHandler):
         if not isinstance(data, dict):
             self._send_json(400, {"ok": False, "error": {"code": 400, "message": "body must be a JSON object"}})
             return
-        # Resolve target path safely.
-        repo_root = self.state.repo.resolve()
-        target = (self.state.repo / rel_path).resolve()
         try:
-            target.relative_to(repo_root)
-        except ValueError:
-            self._send_json(400, {"ok": False, "error": {"code": 400, "message": "path escapes repo"}})
+            result = save_workflow_file(
+                self.state.repo,
+                rel_path,
+                data,
+                if_match=self.headers.get("If-Match", ""),
+            )
+        except WorkflowFileError as exc:
+            error: JsonObject = {"code": exc.status_code, "message": exc.message}
+            if exc.errors is not None:
+                error["errors"] = exc.errors
+            if exc.current_sha256 is not None:
+                error["current_sha256"] = exc.current_sha256
+            self._send_json(exc.status_code, {"ok": False, "error": error})
             return
-        rel_parts = target.relative_to(repo_root).parts
-        if rel_parts and rel_parts[0] in (".git", ".striatum"):
-            self._send_json(404, {"ok": False, "error": {"code": 404, "message": "hidden path"}})
-            return
-        # Validate.
-        try:
-            validate_workflow(data)
-        except WorkflowError as exc:
-            errors = []
-            if getattr(exc, "field_path", None):
-                errors.append({"field_path": exc.field_path, "message": str(exc)})
-            self._send_json(422, {"ok": False, "error": {"code": 422, "message": str(exc), "errors": errors}})
-            return
-        except Exception as exc:  # noqa: BLE001
-            self._send_json(422, {"ok": False, "error": {"code": 422, "message": f"{type(exc).__name__}: {exc}", "errors": []}})
-            return
-        # RFC 0024 V2: If-Match precondition. Missing header = opt-out
-        # (V1.5 backward compat). Empty header for a new file = no
-        # precondition. Re-read sha *immediately before* rename to
-        # narrow the TOCTOU window.
-        import hashlib
-        if_match = self.headers.get("If-Match", "").strip().strip('"')
-        if if_match and target.is_file():
-            try:
-                current_sha = hashlib.sha256(target.read_bytes()).hexdigest()
-            except OSError as exc:
-                self._send_json(500, {"ok": False, "error": {"code": 500, "message": f"read failed: {exc}"}})
-                return
-            if current_sha != if_match:
-                self._send_json(412, {"ok": False, "error": {"code": 412, "message": "If-Match precondition failed; file changed on disk", "current_sha256": current_sha}})
-                return
-        # Atomic write.
-        try:
-            target.parent.mkdir(parents=True, exist_ok=True)
-            tmp = target.with_suffix(target.suffix + ".tmp")
-            tmp.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
-            # Re-read sha right before rename to catch concurrent edits
-            # that landed during validate.
-            if if_match and target.is_file():
-                try:
-                    final_sha = hashlib.sha256(target.read_bytes()).hexdigest()
-                except OSError:
-                    final_sha = if_match
-                if final_sha != if_match:
-                    tmp.unlink(missing_ok=True)
-                    self._send_json(412, {"ok": False, "error": {"code": 412, "message": "If-Match precondition failed; file changed during validate", "current_sha256": final_sha}})
-                    return
-            tmp.replace(target)
-        except OSError as exc:
-            self._send_json(500, {"ok": False, "error": {"code": 500, "message": f"write failed: {exc}"}})
-            return
-        new_sha = hashlib.sha256(target.read_bytes()).hexdigest()
-        self._send_json(200, {"ok": True, "data": {"path": "/".join(rel_parts), "status": "saved", "sha256": new_sha}})
+        self._send_json(200, {"ok": True, "data": result})
 
     def _handle_workflow_run_now(self, rel_path: str) -> None:
         """RFC 0024 V2: POST /workflows/run/<path> — lift workflow.json into a fresh run.

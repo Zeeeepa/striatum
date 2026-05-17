@@ -6,7 +6,13 @@ import json
 import os
 from pathlib import Path
 
-from striatum.web.workflows import discover, load_workflow_at
+from striatum.web.workflows import (
+    WorkflowFileError,
+    discover,
+    load_workflow_at,
+    save_workflow_file,
+    workflow_edit_payload,
+)
 
 from test_web_ui import (
     _git_init_repo,
@@ -255,6 +261,61 @@ def test_load_workflow_at_hidden_refused(tmp_path: Path) -> None:
 
 def test_load_workflow_at_missing(tmp_path: Path) -> None:
     assert load_workflow_at(tmp_path, "nope.json") is None
+
+
+# --- workflow editor file helpers -----------------------------------
+
+
+def test_workflow_edit_payload_scaffolds_missing_workflow(tmp_path: Path) -> None:
+    payload = workflow_edit_payload(tmp_path, "examples/new-flow/workflow.json")
+
+    assert payload["rel_path"] == "examples/new-flow/workflow.json"
+    assert payload["is_new"] is True
+    assert payload["workflow_sha256"] == ""
+    assert payload["workflow_data"]["workflow_id"] == "new-flow"
+
+
+def test_workflow_edit_payload_refuses_hidden_path(tmp_path: Path) -> None:
+    try:
+        workflow_edit_payload(tmp_path, ".striatum/workflow.json")
+    except WorkflowFileError as exc:
+        assert exc.status_code == 404
+        assert exc.message == "hidden path"
+    else:  # pragma: no cover - pytest assertion context.
+        raise AssertionError("expected hidden path refusal")
+
+
+def test_save_workflow_file_writes_valid_json_and_sha(tmp_path: Path) -> None:
+    result = save_workflow_file(
+        tmp_path,
+        "examples/new-wf/workflow.json",
+        dict(_VALID_WORKFLOW),
+    )
+
+    target = tmp_path / "examples" / "new-wf" / "workflow.json"
+    assert result["path"] == "examples/new-wf/workflow.json"
+    assert result["status"] == "saved"
+    assert result["sha256"]
+    assert json.loads(target.read_text(encoding="utf-8"))["workflow_id"] == "wf-test-valid"
+
+
+def test_save_workflow_file_stale_if_match_reports_current_sha(tmp_path: Path) -> None:
+    target = tmp_path / "examples" / "wf" / "workflow.json"
+    target.parent.mkdir(parents=True)
+    target.write_text(json.dumps(_VALID_WORKFLOW), encoding="utf-8")
+
+    try:
+        save_workflow_file(
+            tmp_path,
+            "examples/wf/workflow.json",
+            dict(_VALID_WORKFLOW),
+            if_match="deadbeef",
+        )
+    except WorkflowFileError as exc:
+        assert exc.status_code == 412
+        assert exc.current_sha256
+    else:  # pragma: no cover - pytest assertion context.
+        raise AssertionError("expected If-Match refusal")
 
 
 # --- routes ---------------------------------------------------------
