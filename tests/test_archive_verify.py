@@ -14,10 +14,21 @@ from striatum.archive import (
     write_run_archive,
 )
 from striatum.errors import StriatumError
+from striatum.primitives import json_dumps
 
 
 def _archive(tmp_path: Path) -> Path:
     out = tmp_path / "archives" / "run_1"
+    completed_event = {
+        "repository_id": "repo_a",
+        "event_id": 1,
+        "run_id": "run_1",
+        "event_type": "run.completed",
+        "payload_json": {},
+        "created_at": "2026-05-17T00:00:00Z",
+        "previous_hash": None,
+    }
+    completed_event["row_hash"] = _event_hash(completed_event, previous_hash=None)
     write_run_archive(
         out,
         repo_root=tmp_path,
@@ -45,20 +56,35 @@ def _archive(tmp_path: Path) -> Path:
                     "content_sha256": "abc123",
                 }
             ],
-            "events": [
-                {
-                    "repository_id": "repo_a",
-                    "event_id": 1,
-                    "run_id": "run_1",
-                    "event_type": "run.completed",
-                    "previous_hash": None,
-                    "row_hash": "rowhash",
-                }
-            ],
+            "events": [completed_event],
         },
         generated_at="2026-05-17T00:00:00Z",
     )
     return out
+
+
+def _event_hash(row: dict[str, object], *, previous_hash: str | None) -> str:
+    payload_json = row.get("payload_json")
+    event_payload = payload_json if isinstance(payload_json, dict) else {}
+    payload = {
+        "previous_hash": previous_hash,
+        "repository_id": row.get("repository_id"),
+        "event_id": row.get("event_id"),
+        "run_id": row.get("run_id"),
+        "event_type": row.get("event_type"),
+        "actor_session_id": row.get("actor_session_id"),
+        "job_id": row.get("job_id"),
+        "message_id": row.get("message_id"),
+        "artifact_id": row.get("artifact_id"),
+        "lease_id": row.get("lease_id"),
+        "payload_json": {
+            str(key): item
+            for key, item in event_payload.items()
+            if key != "_event_chain"
+        },
+        "created_at": str(row.get("created_at")),
+    }
+    return hashlib.sha256(json_dumps(payload).encode("utf-8")).hexdigest()
 
 
 def _read_jsonl(archive: Path, kind: str) -> list[dict[str, object]]:
@@ -167,19 +193,32 @@ def test_verify_run_archive_replay_rejects_broken_reference(tmp_path: Path) -> N
 def test_verify_run_archive_replay_rejects_broken_event_chain(tmp_path: Path) -> None:
     archive = _archive(tmp_path)
     events = _read_jsonl(archive, "events")
-    events.append(
-        {
-            "repository_id": "repo_a",
-            "event_id": 2,
-            "run_id": "run_1",
-            "event_type": "job.completed",
-            "previous_hash": "not-rowhash",
-            "row_hash": "rowhash2",
-        }
-    )
+    second = {
+        "repository_id": "repo_a",
+        "event_id": 2,
+        "run_id": "run_1",
+        "event_type": "job.completed",
+        "payload_json": {},
+        "created_at": "2026-05-17T00:00:01Z",
+        "previous_hash": "not-rowhash",
+    }
+    second["row_hash"] = _event_hash(second, previous_hash="not-rowhash")
+    events.append(second)
     _write_jsonl(archive, "events", events)
 
     with pytest.raises(StriatumError, match="event chain"):
+        verify_run_archive(archive, replay=True)
+
+
+def test_verify_run_archive_replay_rejects_tampered_event_hash(
+    tmp_path: Path,
+) -> None:
+    archive = _archive(tmp_path)
+    events = _read_jsonl(archive, "events")
+    events[0]["event_type"] = "run.started"
+    _write_jsonl(archive, "events", events)
+
+    with pytest.raises(StriatumError, match="row_hash"):
         verify_run_archive(archive, replay=True)
 
 

@@ -803,8 +803,9 @@ Release order after Phase 0:
 10. **TODO 58 / Phase 10:** day-zero Postgres/daemon setup slice
     landed: role/grant repair, service helpers, guided adoption,
     first-run smoke, and a dev-only compose profile.
-11. **TODO 59 / Phase 11:** add replay/archive foundations; Corpus Contract
-    V2 fields wait on RFC 0057 decisions.
+11. **TODO 59 / Phase 11:** replay/archive foundations landed, including
+    offline event-chain and row-hash verification; Corpus Contract V2 fields
+    wait on RFC 0057 decisions.
 12. **TODO 60 / Phase 12:** optional Git/PR integration waits on a product
     decision for commit authority and hosted-provider boundaries.
 

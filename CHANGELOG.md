@@ -80,8 +80,9 @@ in the roadmap/TODO and has several production slices landed:
   `recovery.auto_finalize` landed as a daemon/Postgres recovery method with
   dry-run and opt-in live modes, status/dashboard preview surfacing, and
   auto-from-artifact provenance. Run archive and corpus verification
-  foundations, frontend bundle integrity checks, and day-zero setup docs were
-  advanced as part of the same remediation sequence.
+  foundations, archive replay event-row hash recomputation, frontend bundle
+  integrity checks, and day-zero setup docs were advanced as part of the same
+  remediation sequence.
 - **Redaction hardening.**
   Evidence redaction now treats `safe` policy entries as scalar-only, so
   injected objects/lists in otherwise safe fields are replaced with the

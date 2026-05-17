@@ -992,9 +992,10 @@ review and plan are root-level operator artifacts:
     and event metadata. `striatum archive verify --bundle <dir>` validates
     the archive manifest and file hashes locally; `--replay` now adds
     offline semantic checks for run/repository consistency, archived-row
-    references, event ordering, and event-chain continuity, with optional
-    artifact content hash checks via `--repo-root`. Corpus Contract V2
-    fields remain blocked on RFC 0057 decisions.
+    references, event ordering, event-chain continuity, and event-row hash
+    recomputation, with optional artifact content hash checks via
+    `--repo-root`. Corpus Contract V2 fields remain blocked on RFC 0057
+    decisions.
 
 60. **Phase 12: optional Git/PR integration.** Blocked on a product
     decision for commit authority and hosted-provider boundaries. The

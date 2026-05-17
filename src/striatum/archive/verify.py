@@ -15,6 +15,7 @@ from striatum.archive.writer import (
     ARCHIVE_SCHEMA_VERSION,
 )
 from striatum.errors import StriatumError
+from striatum.primitives import json_dumps
 
 
 @dataclass(frozen=True)
@@ -443,6 +444,7 @@ def _verify_events(
         _check_ref(row, "artifact_id", indexes["artifacts"], "artifacts")
         _check_ref(row, "lease_id", indexes["leases"], "leases")
         previous_hash, row_hash = _event_hashes(row)
+        _verify_event_row_hash(row, previous_hash=previous_hash, row_hash=row_hash)
         if row_hash is not None:
             if row_hash in row_hash_indexes:
                 raise StriatumError(
@@ -481,6 +483,43 @@ def _event_hashes(row: dict[str, Any]) -> tuple[str | None, str | None]:
             previous_hash = previous_hash or _text_or_none(chain.get("previous_hash"))
             row_hash = row_hash or _text_or_none(chain.get("row_hash"))
     return previous_hash, row_hash
+
+
+def _verify_event_row_hash(
+    row: dict[str, Any],
+    *,
+    previous_hash: str | None,
+    row_hash: str | None,
+) -> None:
+    if row_hash is None:
+        return
+    computed = _canonical_event_hash(row, previous_hash=previous_hash)
+    if computed != row_hash:
+        raise StriatumError("run archive replay event row_hash is invalid", exit_code=6)
+
+
+def _canonical_event_hash(row: dict[str, Any], *, previous_hash: str | None) -> str:
+    payload = {
+        "previous_hash": previous_hash,
+        "repository_id": row.get("repository_id"),
+        "event_id": row.get("event_id"),
+        "run_id": row.get("run_id"),
+        "event_type": row.get("event_type"),
+        "actor_session_id": row.get("actor_session_id"),
+        "job_id": row.get("job_id"),
+        "message_id": row.get("message_id"),
+        "artifact_id": row.get("artifact_id"),
+        "lease_id": row.get("lease_id"),
+        "payload_json": _event_payload(row.get("payload_json") or {}),
+        "created_at": str(row.get("created_at")),
+    }
+    return hashlib.sha256(json_dumps(payload).encode("utf-8")).hexdigest()
+
+
+def _event_payload(value: object) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        raise StriatumError("run archive replay invalid event payload_json", exit_code=6)
+    return {str(key): item for key, item in value.items() if key != "_event_chain"}
 
 
 def _text_or_none(value: object) -> str | None:
