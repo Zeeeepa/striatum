@@ -16,6 +16,7 @@ import (
 	"github.com/halbritt/striatum/go/pkg/db"
 	"github.com/halbritt/striatum/go/pkg/mutations"
 	"github.com/halbritt/striatum/go/pkg/reads"
+	"github.com/halbritt/striatum/go/pkg/repositories"
 	"github.com/halbritt/striatum/go/pkg/rpc"
 	"github.com/halbritt/striatum/go/pkg/supervisor"
 )
@@ -188,6 +189,7 @@ func registerHandlers(server *rpc.Server, runner db.Runner) {
 	// Python; same response shapes.
 	reads.Register(server, runner)
 	mutations.Register(server, runner)
+	repositories.Service{Runner: runner}.Register(server)
 	for _, method := range []string{
 		"status", "why", "doctor", "dashboard", "dashboard.all",
 		"evidence.export", "corpus.export", "run.summary", "run.graph",

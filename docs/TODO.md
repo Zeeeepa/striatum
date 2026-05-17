@@ -1184,7 +1184,10 @@ review and plan are root-level operator artifacts:
     and `escalation.show`; remaining DTO/web-context parity stays tracked by
     the coverage ledger rather than claimed complete. `cross_repo.cancel` now
     calls the Go cross-repo lifecycle service and local run-cancel mutation
-    instead of returning `not_implemented`.
+    instead of returning `not_implemented`. Go now owns `repo.add`,
+    `repo.list`, and `repo.remove` handlers over daemon-owned PostgreSQL,
+    including SQLite-source refusal and repo-scoped capability revocation on
+    removal.
 
 62. **RFC 0069: PostgreSQL-only daemon-global surfaces.** Active. Port daemon
     startup bootstrap, health, audit, sweep, dashboard-all, daemon MCP

@@ -213,7 +213,8 @@ remediation phases should either daemon-route, quarantine, or delete.
    daemon PG/RPC production modules from importing SQLite helpers.
 6. Go has real handlers for the core reads, workflow loop, recovery, apply
    receipts, read-detail projections, and cross-repo reads, but a large
-   placeholder set remains around supervisor, workflow authoring, repo/admin,
-   dogfood tools, and dashboard-all.
+   repository registration, and cross-repo reads, but a large placeholder set
+   remains around supervisor, workflow authoring, daemon admin, dogfood tools,
+   and dashboard-all.
    Under D107 these placeholders are production-port blockers, not accepted
    D105-era gaps.

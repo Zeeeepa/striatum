@@ -34,6 +34,10 @@ Recent checkpoints:
   handlers while keeping remaining web-context parity gaps visible.
 - Go `cross_repo.cancel` now calls the Go cross-repo lifecycle service and
   local run-cancel mutation instead of returning `not_implemented`.
+- Go now owns `repo.add`, `repo.list`, and `repo.remove` handlers over
+  daemon-owned PostgreSQL, including SQLite-source refusal, operational
+  scratch initialization, active-path conflict checks, and repo-scoped
+  capability revocation on removal.
 - `supervise.status`, `doctor`, and `status` now surface stalled attached
   supervisors, and recovery sweep opens
   `heartbeat_stall_lease_expired` blockers when stalled leases expire.
