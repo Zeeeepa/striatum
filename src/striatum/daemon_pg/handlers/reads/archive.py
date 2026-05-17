@@ -86,8 +86,15 @@ _RUN_SCOPED_TABLES: tuple[tuple[str, str, str], ...] = (
     ("artifacts", "artifacts", "created_at, artifact_id"),
     ("verdicts", "verdicts", "created_at, verdict_id"),
     ("blockers", "blockers", "created_at, blocker_id"),
+    ("command_requests", "command_requests", "created_at, request_id"),
     ("process_executions", "process_executions", "started_at, process_id"),
     ("job_worktrees", "job_worktrees", "created_at, worktree_id"),
+    ("process_supervisors", "process_supervisors", "started_at, supervisor_id"),
+    (
+        "process_supervisor_pointers",
+        "process_supervisor_pointers",
+        "updated_at, supervisor_id",
+    ),
     ("events", "events", "event_id"),
 )
 

@@ -25,8 +25,11 @@ ARCHIVE_JSONL_FILES: dict[str, str] = {
     "artifacts": "artifacts.jsonl",
     "verdicts": "verdicts.jsonl",
     "blockers": "blockers.jsonl",
+    "command_requests": "command_requests.jsonl",
     "process_executions": "process_executions.jsonl",
     "job_worktrees": "job_worktrees.jsonl",
+    "process_supervisors": "process_supervisors.jsonl",
+    "process_supervisor_pointers": "process_supervisor_pointers.jsonl",
     "events": "events.jsonl",
 }
 ARCHIVE_KINDS: tuple[str, ...] = (

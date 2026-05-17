@@ -148,6 +148,9 @@ def test_verify_run_archive_accepts_writer_output(tmp_path: Path) -> None:
     assert isinstance(row_counts, dict)
     assert row_counts["artifacts"] == 1
     assert row_counts["events"] == 1
+    assert row_counts["command_requests"] == 0
+    assert row_counts["process_supervisors"] == 0
+    assert row_counts["process_supervisor_pointers"] == 0
 
 
 def test_verify_run_archive_replay_accepts_writer_output(tmp_path: Path) -> None:
@@ -157,6 +160,54 @@ def test_verify_run_archive_replay_accepts_writer_output(tmp_path: Path) -> None
     assert isinstance(replay, dict)
     assert replay["status"] == "verified"
     assert replay["artifact_content_hashes_checked"] == 0
+
+
+def test_verify_run_archive_replay_accepts_supervisor_metadata(
+    tmp_path: Path,
+) -> None:
+    archive = _archive(tmp_path)
+    _write_jsonl(
+        archive,
+        "sessions",
+        [
+            {
+                "repository_id": "repo_a",
+                "run_id": "run_1",
+                "session_id": "sess_1",
+            }
+        ],
+    )
+    _write_jsonl(
+        archive,
+        "process_supervisors",
+        [
+            {
+                "repository_id": "repo_a",
+                "run_id": "run_1",
+                "session_id": "sess_1",
+                "supervisor_id": "sup_1",
+            }
+        ],
+    )
+    _write_jsonl(
+        archive,
+        "process_supervisor_pointers",
+        [
+            {
+                "repository_id": "repo_a",
+                "run_id": "run_1",
+                "session_id": "sess_1",
+                "supervisor_id": "sup_1",
+                "daemon_supervisor_id": "daemon_sup_1",
+            }
+        ],
+    )
+
+    result = verify_run_archive(archive, replay=True)
+
+    replay = result["replay"]
+    assert isinstance(replay, dict)
+    assert replay["status"] == "verified"
 
 
 def test_verify_run_archive_rejects_tampered_jsonl(tmp_path: Path) -> None:
@@ -195,8 +246,11 @@ def test_verify_run_archive_replay_rejects_broken_reference(tmp_path: Path) -> N
     [
         ("verdicts", "verdict_id", "verdict_1"),
         ("blockers", "blocker_id", "blocker_1"),
+        ("command_requests", "request_id", "request_1"),
         ("process_executions", "process_id", "process_1"),
         ("job_worktrees", "worktree_id", "worktree_1"),
+        ("process_supervisors", "supervisor_id", "supervisor_1"),
+        ("process_supervisor_pointers", "supervisor_id", "supervisor_1"),
     ],
 )
 def test_verify_run_archive_replay_rejects_duplicate_row_family_ids(
@@ -222,8 +276,11 @@ def test_verify_run_archive_replay_rejects_duplicate_row_family_ids(
     [
         ("verdicts", "verdict_id"),
         ("blockers", "blocker_id"),
+        ("command_requests", "request_id"),
         ("process_executions", "process_id"),
         ("job_worktrees", "worktree_id"),
+        ("process_supervisors", "supervisor_id"),
+        ("process_supervisor_pointers", "supervisor_id"),
     ],
 )
 def test_verify_run_archive_replay_rejects_missing_row_family_ids(
@@ -244,6 +301,60 @@ def test_verify_run_archive_replay_rejects_missing_row_family_ids(
     )
 
     with pytest.raises(StriatumError, match=f"invalid {id_field}"):
+        verify_run_archive(archive, replay=True)
+
+
+@pytest.mark.parametrize("kind", ["process_supervisors", "process_supervisor_pointers"])
+def test_verify_run_archive_replay_rejects_supervisor_rows_missing_session(
+    tmp_path: Path,
+    kind: str,
+) -> None:
+    archive = _archive(tmp_path)
+    _write_jsonl(
+        archive,
+        kind,
+        [
+            {
+                "repository_id": "repo_a",
+                "run_id": "run_1",
+                "supervisor_id": "sup_1",
+            }
+        ],
+    )
+
+    with pytest.raises(StriatumError, match="missing session_id"):
+        verify_run_archive(archive, replay=True)
+
+
+def test_verify_run_archive_replay_rejects_pointer_without_supervisor(
+    tmp_path: Path,
+) -> None:
+    archive = _archive(tmp_path)
+    _write_jsonl(
+        archive,
+        "sessions",
+        [
+            {
+                "repository_id": "repo_a",
+                "run_id": "run_1",
+                "session_id": "sess_1",
+            }
+        ],
+    )
+    _write_jsonl(
+        archive,
+        "process_supervisor_pointers",
+        [
+            {
+                "repository_id": "repo_a",
+                "run_id": "run_1",
+                "session_id": "sess_1",
+                "supervisor_id": "missing_sup",
+            }
+        ],
+    )
+
+    with pytest.raises(StriatumError, match="supervisor_id -> process_supervisors"):
         verify_run_archive(archive, replay=True)
 
 

@@ -722,16 +722,21 @@ power V2 are scoped by [RFC 0057](rfcs/0057-corpus-contract-v2.md).
 `striatum archive create --run-id <id> --out <dir>` is the Phase 11 V1 run
 archive foundation. It is a daemon/Postgres-backed read command that writes
 a local archive directory for one run: run row, workflow snapshot,
-run-scoped rows, artifact metadata, event metadata, and a self-verifying
-`manifest.json`. It does not copy artifact contents, transcripts,
-`.striatum/` scratch, or any external-service state. `striatum archive
-verify --bundle <dir>` checks an existing archive locally without daemon
-state. `striatum archive verify --bundle <dir> --replay` adds an offline
-semantic replay over the archived metadata: run/repository consistency,
-FK-style references among run rows, monotonic event ordering, and event-chain
-continuity when `previous_hash` / `row_hash` anchors are present. Because the
-archive stores artifact metadata rather than artifact bytes, artifact content
-hashes are checked only when the operator also provides `--repo-root <path>`.
+run-scoped rows including command requests, process executions, job
+worktrees, process supervisors, process supervisor pointers, artifact
+metadata, event metadata, and a self-verifying `manifest.json`. It does not
+copy artifact contents, transcripts, `.striatum/` scratch, or any
+external-service state. `striatum archive verify --bundle <dir>` checks an
+existing archive locally without daemon state. `striatum archive verify
+--bundle <dir> --replay` adds an offline semantic replay over the archived
+metadata: run/repository consistency, FK-style references among run rows,
+duplicate/missing archived row-id rejection for command requests, process
+supervisors, process supervisor pointers, verdicts, blockers, process
+executions, and job worktrees, monotonic event ordering, event-row hash
+recomputation, and event-chain continuity when `previous_hash` / `row_hash`
+anchors are present. Because the archive stores artifact metadata rather
+than artifact bytes, artifact content hashes are checked only when the
+operator also provides `--repo-root <path>`.
 
 ## Branches And Commits
 

@@ -326,6 +326,11 @@ def _build_indexes(payload: _ArchivePayload) -> dict[str, dict[str, dict[str, An
         "artifacts": _index_rows(payload.rows["artifacts"], "artifact_id", "artifacts"),
         "verdicts": _index_rows(payload.rows["verdicts"], "verdict_id", "verdicts"),
         "blockers": _index_rows(payload.rows["blockers"], "blocker_id", "blockers"),
+        "command_requests": _index_rows(
+            payload.rows["command_requests"],
+            "request_id",
+            "command_requests",
+        ),
         "process_executions": _index_rows(
             payload.rows["process_executions"],
             "process_id",
@@ -335,6 +340,16 @@ def _build_indexes(payload: _ArchivePayload) -> dict[str, dict[str, dict[str, An
             payload.rows["job_worktrees"],
             "worktree_id",
             "job_worktrees",
+        ),
+        "process_supervisors": _index_rows(
+            payload.rows["process_supervisors"],
+            "supervisor_id",
+            "process_supervisors",
+        ),
+        "process_supervisor_pointers": _index_rows(
+            payload.rows["process_supervisor_pointers"],
+            "supervisor_id",
+            "process_supervisor_pointers",
         ),
     }
 
@@ -372,6 +387,7 @@ def _verify_references(
     leases = indexes["leases"]
     packets = indexes["work_packets"]
     artifacts = indexes["artifacts"]
+    supervisors = indexes["process_supervisors"]
 
     for row in payload.rows["sessions"]:
         _check_ref(row, "parent_session_id", sessions, "sessions")
@@ -404,6 +420,8 @@ def _verify_references(
     for row in payload.rows["blockers"]:
         _check_ref(row, "job_id", jobs, "jobs")
         _check_ref(row, "session_id", sessions, "sessions")
+    for row in payload.rows["command_requests"]:
+        _check_ref(row, "session_id", sessions, "sessions")
     for row in payload.rows["process_executions"]:
         _check_ref(row, "job_id", jobs, "jobs", required=True)
         _check_ref(row, "session_id", sessions, "sessions", required=True)
@@ -412,6 +430,11 @@ def _verify_references(
     for row in payload.rows["job_worktrees"]:
         _check_ref(row, "job_id", jobs, "jobs", required=True)
         _check_ref(row, "lease_id", leases, "leases", required=True)
+    for row in payload.rows["process_supervisors"]:
+        _check_ref(row, "session_id", sessions, "sessions", required=True)
+    for row in payload.rows["process_supervisor_pointers"]:
+        _check_ref(row, "session_id", sessions, "sessions", required=True)
+        _check_ref(row, "supervisor_id", supervisors, "process_supervisors", required=True)
 
 
 def _check_ref(

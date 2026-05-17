@@ -1105,15 +1105,18 @@ review and plan are root-level operator artifacts:
     `corpus_contract_version` as implied V1 per RFC 0057 backward
     compatibility. A bounded run-archive foundation also landed:
     `striatum archive create --run-id <id> --out <dir>` writes a
-    daemon/Postgres-backed local archive of run state, artifact metadata,
-    and event metadata. `striatum archive verify --bundle <dir>` validates
-    the archive manifest and file hashes locally; `--replay` now adds
-    offline semantic checks for run/repository consistency, archived-row
-    references, event ordering, event-chain continuity, and event-row hash
-    recomputation, with optional artifact content hash checks via
-    `--repo-root`. Follow-up replay hardening rejects duplicate or missing
-    ids for archived verdict, blocker, process-execution, and job-worktree
-    rows. Corpus Contract V2 fields remain blocked on RFC 0057 decisions.
+    daemon/Postgres-backed local archive of run state, command requests,
+    process executions, job worktrees, process supervisors, process
+    supervisor pointers, artifact metadata, and event metadata.
+    `striatum archive verify --bundle <dir>` validates the archive manifest
+    and file hashes locally; `--replay` now adds offline semantic checks for
+    run/repository consistency, archived-row references, event ordering,
+    event-chain continuity, event-row hash recomputation, and
+    duplicate/missing id rejection for archived command request,
+    process-supervisor, process-supervisor-pointer, verdict, blocker,
+    process-execution, and job-worktree rows, with optional artifact content
+    hash checks via `--repo-root`. Corpus Contract V2 fields remain blocked
+    on RFC 0057 decisions.
 
 60. **Phase 12: optional Git/PR integration.** Blocked on a product
     decision for commit authority and hosted-provider boundaries. Safe

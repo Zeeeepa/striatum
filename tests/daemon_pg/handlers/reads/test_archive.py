@@ -29,5 +29,8 @@ def test_archive_handler_queries_are_repository_scoped_and_pg_backed() -> None:
     assert source.count("repository_id = %s") >= 4
     assert '("events", "events"' in source
     assert '("artifacts", "artifacts"' in source
+    assert '("command_requests", "command_requests"' in source
+    assert '("process_supervisors", "process_supervisors"' in source
+    assert '"process_supervisor_pointers"' in source
     assert "sqlite3" not in source
     assert "connect(" not in source

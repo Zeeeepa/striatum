@@ -108,8 +108,10 @@ Recent checkpoints:
   step, partial composition steps, and nested specific error details through
   the helper result, rollback event, daemon RPC error, and MCP
   `structuredContent`.
-- Archive replay verification now rejects duplicate or missing ids for
-  archived verdict, blocker, process-execution, and job-worktree rows.
+- Archive create/verify replay now covers archived command request,
+  process-supervisor, and process-supervisor-pointer rows, and replay
+  verification rejects duplicate or missing ids for those rows plus archived
+  verdict, blocker, process-execution, and job-worktree rows.
 - Roadmap kickoff status and remediation sequencing notes were refreshed to
   match the post-v1.55.0 daemon-first architecture work and the current
   blocked-policy boundaries.
