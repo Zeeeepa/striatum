@@ -28,6 +28,10 @@ Recent checkpoints:
 - The Go daemon now has an executable handler-coverage ledger for missing
   and placeholder methods, and `recovery.sweep` is registered on the Go
   mutation surface instead of only the deprecated `recovery.auto` alias.
+- The first Go read-detail cluster is registered for `run.detail`,
+  `job.detail`, `run.events`, `run.posture_verdicts`, `artifact.show`,
+  `escalation.list`, and `escalation.show`, reducing missing contract
+  handlers while keeping remaining web-context parity gaps visible.
 - `supervise.status`, `doctor`, and `status` now surface stalled attached
   supervisors, and recovery sweep opens
   `heartbeat_stall_lease_expired` blockers when stalled leases expire.

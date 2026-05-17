@@ -1178,7 +1178,11 @@ review and plan are root-level operator artifacts:
     `doctor` reads `schema_meta['substrate_version']` correctly. A Go
     handler-coverage test now records every missing or placeholder contract
     method explicitly, and `recovery.sweep` is wired to the Go recovery sweep
-    handler instead of only the deprecated `recovery.auto` alias.
+    handler instead of only the deprecated `recovery.auto` alias. The first Go
+    read-detail cluster now registers `run.detail`, `job.detail`,
+    `run.events`, `run.posture_verdicts`, `artifact.show`, `escalation.list`,
+    and `escalation.show`; remaining DTO/web-context parity stays tracked by
+    the coverage ledger rather than claimed complete.
 
 62. **RFC 0069: PostgreSQL-only daemon-global surfaces.** Active. Port daemon
     startup bootstrap, health, audit, sweep, dashboard-all, daemon MCP

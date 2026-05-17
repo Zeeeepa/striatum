@@ -66,16 +66,9 @@ func TestGoDaemonMethodCoverageIsExplicit(t *testing.T) {
 
 	assertSameStrings(t, "missing Go daemon handlers", missingHandlers, []string{
 		"archive.create",
-		"artifact.show",
-		"escalation.list",
 		"escalation.resolve",
-		"escalation.show",
-		"job.detail",
 		"recovery.auto_finalize",
 		"recovery.auto_publish_stale_artifacts",
-		"run.detail",
-		"run.events",
-		"run.posture_verdicts",
 		"supervise.report",
 	})
 	assertSameStrings(t, "Go daemon not_implemented handlers", notImplementedHandlers, []string{

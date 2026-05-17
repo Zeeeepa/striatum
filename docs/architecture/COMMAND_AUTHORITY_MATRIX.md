@@ -212,7 +212,8 @@ remediation phases should either daemon-route, quarantine, or delete.
    helpers now live in `primitives.py` and `repo_policy.py`; guardrails keep
    daemon PG/RPC production modules from importing SQLite helpers.
 6. Go has real handlers for the core reads, workflow loop, recovery, apply
-   receipts, and cross-repo reads, but a large placeholder set remains around
-   supervisor, workflow authoring, repo/admin, dogfood tools, and dashboard-all.
+   receipts, read-detail projections, and cross-repo reads, but a large
+   placeholder set remains around supervisor, workflow authoring, repo/admin,
+   dogfood tools, and dashboard-all.
    Under D107 these placeholders are production-port blockers, not accepted
    D105-era gaps.
