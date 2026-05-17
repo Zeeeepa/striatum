@@ -222,6 +222,7 @@ func registerHandlers(server *rpc.Server, runner db.Runner) {
 }
 
 func registerCrossRepoHandlers(server *rpc.Server, runner db.Runner) {
+	local := localWorkflowRunner{runner: runner}
 	server.Register("cross_repo.list", func(ctx context.Context, envelope rpc.Envelope) (map[string]any, error) {
 		if runner == nil {
 			return nil, rpc.NewError("daemon_db_missing", "cross-repo routes require daemon PostgreSQL", nil)
@@ -255,8 +256,65 @@ func registerCrossRepoHandlers(server *rpc.Server, runner db.Runner) {
 		return crossrepo.Why(ctx, runner, runID)
 	})
 	server.Register("cross_repo.cancel", func(ctx context.Context, envelope rpc.Envelope) (map[string]any, error) {
-		return nil, rpc.NewError("not_implemented", "cross-repo cancel requires the daemon lifecycle service", nil)
+		if runner == nil {
+			return nil, rpc.NewError("daemon_db_missing", "cross-repo routes require daemon PostgreSQL", nil)
+		}
+		runID := param(envelope.Params, "cross_repo_run_id")
+		if runID == "" {
+			runID = param(envelope.Params, "run_id")
+		}
+		if runID == "" {
+			return nil, rpc.NewError("schema_invalid", "cross-repo route requires cross_repo_run_id", nil)
+		}
+		reason := param(envelope.Params, "reason")
+		if reason == "" {
+			reason = "cross_repo_canceled"
+		}
+		return crossrepo.CancelRun(ctx, runner, runID, reason, local)
 	})
+}
+
+type localWorkflowRunner struct {
+	runner db.Runner
+}
+
+func (l localWorkflowRunner) Prepare(ctx context.Context, repositoryID string, alias string, crossRepoRunID string) (string, error) {
+	return "", fmt.Errorf("cross-repo local prepare is not wired in the Go daemon")
+}
+
+func (l localWorkflowRunner) Start(ctx context.Context, repositoryID string, localRunID string) error {
+	_, err := mutations.HandleRunStart(ctx, l.runner, rpc.Envelope{
+		SchemaVersion: rpc.SupportedEnvelopeVersion,
+		RequestID:     "cross_repo_start_" + localRunID,
+		Method:        "run.start",
+		Params: map[string]any{
+			"repository_id": repositoryID,
+			"run_id":        localRunID,
+		},
+	})
+	return err
+}
+
+func (l localWorkflowRunner) Cancel(ctx context.Context, repositoryID string, localRunID string, reason string) error {
+	_, err := mutations.HandleRunCancel(ctx, l.runner, rpc.Envelope{
+		SchemaVersion: rpc.SupportedEnvelopeVersion,
+		RequestID:     "cross_repo_cancel_" + localRunID,
+		Method:        "run.cancel",
+		Params: map[string]any{
+			"repository_id": repositoryID,
+			"run_id":        localRunID,
+			"reason":        reason,
+		},
+	})
+	return err
+}
+
+func (l localWorkflowRunner) ParticipantIntact(ctx context.Context, repositoryID string, localRunID *string) bool {
+	return false
+}
+
+func (l localWorkflowRunner) HumanCheckpoint(ctx context.Context, repositoryID string, localRunID *string, reason string) error {
+	return nil
 }
 
 func notImplementedHandler(method string) rpc.Handler {

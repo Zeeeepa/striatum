@@ -72,7 +72,6 @@ func TestGoDaemonMethodCoverageIsExplicit(t *testing.T) {
 		"supervise.report",
 	})
 	assertSameStrings(t, "Go daemon not_implemented handlers", notImplementedHandlers, []string{
-		"cross_repo.cancel",
 		"daemon.key.rotate",
 		"daemon.migrate",
 		"daemon.migrate_repo_local",

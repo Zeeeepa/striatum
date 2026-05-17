@@ -1182,7 +1182,9 @@ review and plan are root-level operator artifacts:
     read-detail cluster now registers `run.detail`, `job.detail`,
     `run.events`, `run.posture_verdicts`, `artifact.show`, `escalation.list`,
     and `escalation.show`; remaining DTO/web-context parity stays tracked by
-    the coverage ledger rather than claimed complete.
+    the coverage ledger rather than claimed complete. `cross_repo.cancel` now
+    calls the Go cross-repo lifecycle service and local run-cancel mutation
+    instead of returning `not_implemented`.
 
 62. **RFC 0069: PostgreSQL-only daemon-global surfaces.** Active. Port daemon
     startup bootstrap, health, audit, sweep, dashboard-all, daemon MCP
