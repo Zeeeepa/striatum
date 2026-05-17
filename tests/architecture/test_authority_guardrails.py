@@ -48,7 +48,6 @@ BOOTSTRAP_OR_MIGRATION_METHODS: frozenset[str] = frozenset(
 NOT_IMPLEMENTED_METHODS: frozenset[str] = frozenset(
     {
         "workflow.generate.preview",
-        "supervise.reattach_status",
     }
 )
 

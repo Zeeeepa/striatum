@@ -903,10 +903,13 @@ review and plan are root-level operator artifacts:
     mutation, read, apply, and cross-repo packages. Follow-up slice landed
     Python-side consumption of helper JSONL event batches through
     `supervise.report`, including durable `helper_error` events and
-    `agent_exited` stop-state transitions. Remaining: daemon-owned helper
-    launch wiring, reattach/lost-state semantics, doctor surfacing for stale
-    supervisors, stronger lane-liveness attestation, wrapper fixtures, and
-    promotion of helper-only CI beyond focused tests.
+    `agent_exited` stop-state transitions. Follow-up slice landed daemon
+    `supervise.reattach_status` as a read-only supervisor health DTO, with
+    daemon `doctor` surfacing non-healthy reattach states for stale
+    supervisors. Remaining: daemon-owned helper launch wiring, actual
+    restart reattach/lost-state semantics, stronger lane-liveness
+    attestation, wrapper fixtures, and promotion of helper-only CI beyond
+    focused tests.
 
 55. **Phase 7: workflow risk lint and review diversity enforcement.**
     `workflow lint <workflow.json> --json` returns structured advisory

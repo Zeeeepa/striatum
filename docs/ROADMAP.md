@@ -431,10 +431,17 @@ decide whether to rename the packet helper to `packet inbox`.
   event path, preserves helper timestamps as `reported_at`, records
   `helper_error`, and uses the existing `agent_exited` stopped-state
   transition.
+- `supervise.reattach_status` now has a real daemon PG handler. It returns
+  a read-only supervisor health DTO classifying supervisors as
+  `reattachable`, `lost_candidate`, `needs_repair`, `needs_verification`, or
+  `terminal`, including pointer/daemon-row context, PID liveness, PID
+  start-time identity, and recommended operator action. Daemon `doctor`
+  now surfaces non-healthy reattach states for stale supervisors without
+  changing supervisor state.
 
 **Remaining Phase 6 debt:** daemon-owned helper launch wiring,
-reattach/lost-state recovery, doctor surfacing for stale supervisors, stronger
-lane-liveness attestation, wrapper fixtures, and broader helper-only CI.
+actual restart reattach/lost-state recovery, stronger lane-liveness
+attestation, wrapper fixtures, and broader helper-only CI.
 
 ---
 

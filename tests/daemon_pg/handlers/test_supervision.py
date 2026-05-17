@@ -18,14 +18,17 @@ from striatum.daemon_pg.handlers.context import RepoHandlerContext
 from striatum.daemon_pg.handlers.registry import resolve_pg_handler
 from striatum.daemon_pg.handlers.supervision import (
     handle_list,
+    handle_reattach_status,
     handle_report,
     handle_send,
     handle_start,
     handle_status,
     handle_stop,
 )
+from striatum.daemon_pg.handlers.reads.doctor import doctor_payload
 from striatum.daemon_rpc.capability import RpcAuthContext
 from striatum.errors import InvalidTransitionError
+from striatum.identity import process_start_time
 
 pytestmark = pytest.mark.multi_repo
 
@@ -47,6 +50,7 @@ def test_supervision_methods_register() -> None:
         "supervise.stop",
         "supervise.status",
         "supervise.list",
+        "supervise.reattach_status",
     ):
         assert resolve_pg_handler(method) is not None
 
@@ -122,6 +126,79 @@ def test_start_status_list_stop_preserve_repo_scope(tmp_path: Path, pg_url: str)
     finally:
         if started is not None:
             _kill_pid(started.get("pid"))
+        conn.close()
+
+
+def test_reattach_status_summarizes_liveness_identity_and_repair(
+    tmp_path: Path, pg_url: str
+) -> None:
+    conn = connect(pg_url)
+    try:
+        repo = tmp_path / "repo"
+        _seed_supervisable_session(conn, repo, repository_id="repo_a")
+        _seed_session(conn, repository_id="repo_a", session_id="sess_gone", ordinal=2)
+        _seed_session(conn, repository_id="repo_a", session_id="sess_repair", ordinal=3)
+        pid = os.getpid()
+        pid_start = process_start_time(pid)
+        assert pid_start is not None
+        _insert_supervisor_snapshot(
+            conn,
+            repository_id="repo_a",
+            supervisor_id="sup_reattachable",
+            session_id="sess_1",
+            pid=pid,
+            pid_start_time=pid_start,
+            with_pointer=True,
+            with_daemon=True,
+        )
+        _insert_supervisor_snapshot(
+            conn,
+            repository_id="repo_a",
+            supervisor_id="sup_gone",
+            session_id="sess_gone",
+            pid=0,
+            pid_start_time="stale-start-token",
+            with_pointer=True,
+            with_daemon=True,
+        )
+        _insert_supervisor_snapshot(
+            conn,
+            repository_id="repo_a",
+            supervisor_id="sup_repair",
+            session_id="sess_repair",
+            pid=pid,
+            pid_start_time=pid_start,
+        )
+        conn.commit()
+
+        result = handle_reattach_status(_ctx(conn, repo, "repo_a"), {"run_id": "run_1"})
+
+        assert result["summary"] == {
+            "total": 3,
+            "reattachable": 1,
+            "lost_candidate": 1,
+            "needs_repair": 1,
+            "needs_verification": 0,
+            "terminal": 0,
+        }
+        by_id = {row["supervisor_id"]: row for row in result["supervisors"]}
+        assert by_id["sup_reattachable"]["reattach_state"] == "reattachable"
+        assert by_id["sup_reattachable"]["pid_identity"] == "matched"
+        assert by_id["sup_gone"]["reattach_state"] == "lost_candidate"
+        assert by_id["sup_gone"]["reattach_reason"] == "pid_gone"
+        assert by_id["sup_repair"]["reattach_state"] == "needs_repair"
+        assert by_id["sup_repair"]["reattach_reason"] == "pointer_missing"
+
+        doctor = doctor_payload(_ctx(conn, repo, "repo_a"), run_id="run_1", verbose=True)
+        assert doctor["ok"] is False
+        assert "supervisor_reattach_lost_candidate" in doctor["problems"]
+        assert "supervisor_reattach_needs_repair" in doctor["problems"]
+        checks = {row["check"] for row in doctor["problem_records"]}
+        assert {
+            "supervisor_reattach_lost_candidate",
+            "supervisor_reattach_needs_repair",
+        } <= checks
+    finally:
         conn.close()
 
 
@@ -502,9 +579,11 @@ def _seed_supervisable_session(
     _seed_session(conn, repository_id=repository_id, session_id="sess_1")
 
 
-def _seed_session(conn: Any, *, repository_id: str, session_id: str) -> None:
+def _seed_session(
+    conn: Any, *, repository_id: str, session_id: str, ordinal: int | None = None
+) -> None:
     now = "2026-05-16T00:00:00Z"
-    ordinal = 1 if session_id == "sess_1" else 2
+    ordinal = ordinal if ordinal is not None else (1 if session_id == "sess_1" else 2)
     with conn.cursor() as cur:
         cur.execute(
             """
@@ -518,6 +597,92 @@ def _seed_session(conn: Any, *, repository_id: str, session_id: str) -> None:
             """,
             (repository_id, session_id, f"author-codex-{session_id}", ordinal, now, now),
         )
+
+
+def _insert_supervisor_snapshot(
+    conn: Any,
+    *,
+    repository_id: str,
+    supervisor_id: str,
+    session_id: str,
+    pid: int,
+    pid_start_time: str,
+    with_pointer: bool = False,
+    with_daemon: bool = False,
+) -> None:
+    now = "2026-05-16T00:00:00Z"
+    command = ["sleep", "60"]
+    daemon_supervisor_id = f"dsup_{supervisor_id}"
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO striatumd.process_supervisors(
+              repository_id, supervisor_id, run_id, session_id, adapter,
+              command_json, cwd, scratch_path, stdin_pipe_path, pid,
+              state, started_at, heartbeat_at, pid_start_time
+            )
+            VALUES (%s, %s, 'run_1', %s, 'process', %s, %s, %s, %s,
+                    %s, 'attached', %s, %s, %s)
+            """,
+            (
+                repository_id,
+                supervisor_id,
+                session_id,
+                Jsonb(command),
+                "/tmp",
+                f"/tmp/{supervisor_id}",
+                f"/tmp/{supervisor_id}/stdin.pipe",
+                pid,
+                now,
+                now,
+                pid_start_time,
+            ),
+        )
+        if with_pointer:
+            cur.execute(
+                """
+                INSERT INTO striatumd.process_supervisor_pointers(
+                  repository_id, supervisor_id, daemon_supervisor_id, run_id,
+                  session_id, pid, pid_start_time, state, updated_at, metadata_json
+                )
+                VALUES (%s, %s, %s, 'run_1', %s, %s, %s, 'attached', %s, '{}'::jsonb)
+                """,
+                (
+                    repository_id,
+                    supervisor_id,
+                    daemon_supervisor_id,
+                    session_id,
+                    pid,
+                    pid_start_time,
+                    now,
+                ),
+            )
+        if with_daemon:
+            cur.execute(
+                """
+                INSERT INTO striatumd.daemon_supervisors(
+                  daemon_supervisor_id, repository_id, run_id, session_id,
+                  repo_supervisor_id, daemon_instance_id, adapter, command_json,
+                  command_sha256, cwd, stdin_pipe_path, pid, pid_start_time,
+                  state, started_at, heartbeat_at
+                )
+                VALUES (%s, %s, 'run_1', %s, %s, 'daemon-test', 'process',
+                        %s, 'sha256:test', %s, %s, %s, %s, 'attached', %s, %s)
+                """,
+                (
+                    daemon_supervisor_id,
+                    repository_id,
+                    session_id,
+                    supervisor_id,
+                    Jsonb(command),
+                    "/tmp",
+                    f"/tmp/{supervisor_id}/stdin.pipe",
+                    pid,
+                    pid_start_time,
+                    now,
+                    now,
+                ),
+            )
 
 
 def _seed_work_packet(

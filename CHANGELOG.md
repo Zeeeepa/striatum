@@ -57,7 +57,9 @@ in the roadmap/TODO and has several production slices landed:
   `supervise.report`, reports delivered-unacknowledged sends explicitly, and
   includes a standalone Go `striatum-supervisor-helper` that launches agents
   under PTY while emitting JSONL control events without importing domain DB
-  or RPC code.
+  or RPC code. The daemon now implements `supervise.reattach_status` as a
+  read-only supervisor health DTO, and `doctor` surfaces non-healthy
+  reattach states for stale supervisors without mutating runner state.
 - **Workflow risk lint.**
   `striatum workflow lint` supports structured warnings, opt-in strict mode,
   accepted-risk rationale and decision references, advisory coverage scoring,

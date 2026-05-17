@@ -80,7 +80,7 @@ Legend:
 | `supervise.stop` | `supervise stop` | claim | single_repo | pg | placeholder | no | no | stable |
 | `supervise.status` | `supervise status` | read | single_repo | pg | placeholder | no | no | stable |
 | `supervise.list` | `supervise list` | read | single_repo | pg | placeholder | no | no | stable |
-| `supervise.reattach_status` | n/a | read | single_repo | not implemented in Python RPC | placeholder | no | no | not implemented |
+| `supervise.reattach_status` | supervisor reattach-status DTO | read | single_repo | pg | real | no | no | stable |
 | `work.send_message` | `send` | write | single_repo | pg | placeholder | no | no | stable |
 | `work.block` | `block` | write | single_repo | pg | real | no | no | stable |
 | `work.complete` | `complete` | write | single_repo | pg | real | no | no | stable |

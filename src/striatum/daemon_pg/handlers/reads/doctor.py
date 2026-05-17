@@ -6,6 +6,7 @@ from collections.abc import Mapping
 from typing import Any
 
 from striatum.daemon_pg.handlers.context import RepoHandlerContext
+from striatum.daemon_pg.handlers.supervision import reattach_status_payload
 from striatum.daemon_rpc.envelope import RpcError
 
 from ._registry import register_pg_handler
@@ -56,7 +57,39 @@ def doctor_payload(ctx: RepoHandlerContext, *, run_id: str | None, verbose: bool
                         "workflow_job_id": row["workflow_job_id"],
                     }
                 )
+    _append_supervisor_health_records(ctx, run_id=run_id, problems=problems, records=records)
     result: dict[str, Any] = {"ok": not problems, "schema_version": 5, "problems": problems}
     if verbose:
         result["problem_records"] = records
     return result
+
+
+def _append_supervisor_health_records(
+    ctx: RepoHandlerContext,
+    *,
+    run_id: str | None,
+    problems: list[str],
+    records: list[dict[str, Any]],
+) -> None:
+    health = reattach_status_payload(ctx, run_id=run_id)
+    for supervisor in health["supervisors"]:
+        state = supervisor["reattach_state"]
+        if state in {"reattachable", "terminal"}:
+            continue
+        check = f"supervisor_reattach_{state}"
+        problems.append(check)
+        records.append(
+            {
+                "check": check,
+                "severity": "warning",
+                "supervisor_id": supervisor["supervisor_id"],
+                "run_id": supervisor["run_id"],
+                "session_id": supervisor["session_id"],
+                "state": supervisor["state"],
+                "pid": supervisor["pid"],
+                "pid_liveness": supervisor["pid_liveness"],
+                "pid_identity": supervisor["pid_identity"],
+                "reattach_reason": supervisor["reattach_reason"],
+                "recommended_action": supervisor["recommended_action"],
+            }
+        )

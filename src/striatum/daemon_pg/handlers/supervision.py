@@ -471,6 +471,215 @@ def handle_list(ctx: RepoHandlerContext, params: Mapping[str, Any]) -> dict[str,
     }
 
 
+@register_pg_handler("supervise.reattach_status")
+def handle_reattach_status(ctx: RepoHandlerContext, params: Mapping[str, Any]) -> dict[str, Any]:
+    return reattach_status_payload(
+        ctx,
+        run_id=_optional_text(params.get("run_id")),
+        session_id=_optional_text(params.get("session_id")),
+        supervisor_id=_optional_text(params.get("supervisor_id")),
+    )
+
+
+def reattach_status_payload(
+    ctx: RepoHandlerContext,
+    *,
+    run_id: str | None = None,
+    session_id: str | None = None,
+    supervisor_id: str | None = None,
+) -> dict[str, Any]:
+    if run_id is not None:
+        ctx.row_by_id("runs", "run_id", run_id)
+    if session_id is not None:
+        ctx.row_by_id("sessions", "session_id", session_id)
+    rows = _reattach_status_rows(
+        ctx,
+        run_id=run_id,
+        session_id=session_id,
+        supervisor_id=supervisor_id,
+    )
+    supervisors = [_reattach_status_view(row) for row in rows]
+    summary: dict[str, int] = {
+        "total": len(supervisors),
+        "reattachable": 0,
+        "lost_candidate": 0,
+        "needs_repair": 0,
+        "needs_verification": 0,
+        "terminal": 0,
+    }
+    for supervisor in supervisors:
+        state = str(supervisor["reattach_state"])
+        summary[state] = summary.get(state, 0) + 1
+    return {
+        "run_id": run_id,
+        "session_id": session_id,
+        "supervisor_id": supervisor_id,
+        "summary": summary,
+        "supervisors": supervisors,
+    }
+
+
+def _reattach_status_rows(
+    ctx: RepoHandlerContext,
+    *,
+    run_id: str | None,
+    session_id: str | None,
+    supervisor_id: str | None,
+) -> list[dict[str, Any]]:
+    clauses = ["ps.repository_id = %s"]
+    values: list[Any] = [ctx.repository_id]
+    if run_id is not None:
+        clauses.append("ps.run_id = %s")
+        values.append(run_id)
+    if session_id is not None:
+        clauses.append("ps.session_id = %s")
+        values.append(session_id)
+    if supervisor_id is not None:
+        clauses.append("ps.supervisor_id = %s")
+        values.append(supervisor_id)
+    where = " AND ".join(clauses)
+    with ctx.cursor() as cur:
+        cur.execute(
+            f"""
+            SELECT
+              ps.supervisor_id,
+              ps.run_id,
+              ps.session_id,
+              ps.adapter,
+              ps.cwd,
+              ps.scratch_path,
+              ps.stdin_pipe_path,
+              ps.pid,
+              ps.pid_start_time,
+              ps.state,
+              ps.started_at,
+              ps.heartbeat_at,
+              ps.ended_at,
+              ps.stop_reason,
+              p.daemon_supervisor_id AS pointer_daemon_supervisor_id,
+              p.pid AS pointer_pid,
+              p.pid_start_time AS pointer_pid_start_time,
+              p.state AS pointer_state,
+              p.updated_at AS pointer_updated_at,
+              p.metadata_json AS pointer_metadata_json,
+              ds.daemon_supervisor_id AS daemon_supervisor_id,
+              ds.daemon_instance_id,
+              ds.pid AS daemon_pid,
+              ds.pid_start_time AS daemon_pid_start_time,
+              ds.state AS daemon_state,
+              ds.heartbeat_at AS daemon_heartbeat_at,
+              ds.ended_at AS daemon_ended_at,
+              ds.stop_reason AS daemon_stop_reason
+            FROM striatumd.process_supervisors ps
+            LEFT JOIN striatumd.process_supervisor_pointers p
+              ON p.repository_id = ps.repository_id
+             AND p.supervisor_id = ps.supervisor_id
+            LEFT JOIN striatumd.daemon_supervisors ds
+              ON ds.repository_id = ps.repository_id
+             AND ds.daemon_supervisor_id = p.daemon_supervisor_id
+            WHERE {where}
+            ORDER BY ps.started_at DESC, ps.supervisor_id DESC
+            """,
+            values,
+        )
+        rows = [dict(row) for row in cur.fetchall()]
+    if supervisor_id is not None and not rows:
+        raise NotFoundError(f"no supervisor recorded for supervisor_id={supervisor_id!r}")
+    return rows
+
+
+def _reattach_status_view(row: Mapping[str, Any]) -> dict[str, Any]:
+    pid = _optional_int(row.get("pid"))
+    pid_alive = pid is not None and _pid_alive(pid)
+    current_start = process_start_time(pid) if pid is not None and pid_alive else None
+    state, reason, action = _reattach_state(row, pid_alive=pid_alive, current_start=current_start)
+    return {
+        "supervisor_id": row["supervisor_id"],
+        "run_id": row["run_id"],
+        "session_id": row["session_id"],
+        "state": row["state"],
+        "pid": pid,
+        "pid_liveness": "alive" if pid_alive else "gone",
+        "pid_start_time": row.get("pid_start_time"),
+        "current_pid_start_time": current_start,
+        "pid_identity": _pid_identity(row, pid_alive=pid_alive, current_start=current_start),
+        "reattach_state": state,
+        "reattach_reason": reason,
+        "recommended_action": action,
+        "started_at": _maybe_ts(row.get("started_at")),
+        "heartbeat_at": _maybe_ts(row.get("heartbeat_at")),
+        "ended_at": _maybe_ts(row.get("ended_at")),
+        "stop_reason": row.get("stop_reason"),
+        "stdin_pipe_path": row.get("stdin_pipe_path"),
+        "pointer": {
+            "daemon_supervisor_id": row.get("pointer_daemon_supervisor_id"),
+            "state": row.get("pointer_state"),
+            "pid": _optional_int(row.get("pointer_pid")),
+            "pid_start_time": row.get("pointer_pid_start_time"),
+            "updated_at": _maybe_ts(row.get("pointer_updated_at")),
+            "metadata": row.get("pointer_metadata_json") or {},
+        },
+        "daemon_supervisor": {
+            "daemon_supervisor_id": row.get("daemon_supervisor_id"),
+            "daemon_instance_id": row.get("daemon_instance_id"),
+            "state": row.get("daemon_state"),
+            "pid": _optional_int(row.get("daemon_pid")),
+            "pid_start_time": row.get("daemon_pid_start_time"),
+            "heartbeat_at": _maybe_ts(row.get("daemon_heartbeat_at")),
+            "ended_at": _maybe_ts(row.get("daemon_ended_at")),
+            "stop_reason": row.get("daemon_stop_reason"),
+        },
+    }
+
+
+def _reattach_state(
+    row: Mapping[str, Any],
+    *,
+    pid_alive: bool,
+    current_start: str | None,
+) -> tuple[str, str | None, str]:
+    state = str(row["state"])
+    if state in _TERMINAL_SUPERVISOR_STATES:
+        return ("terminal", state, "no_action")
+    pid = _optional_int(row.get("pid"))
+    if pid is None:
+        return ("lost_candidate", "pid_missing", "mark_lost_or_reconcile")
+    if not pid_alive:
+        return ("lost_candidate", "pid_gone", "mark_lost_or_reconcile")
+    expected_start = _optional_text(row.get("pid_start_time"))
+    if expected_start is None or current_start is None:
+        return ("needs_verification", "pid_identity_unavailable", "verify_before_reattach")
+    if current_start != expected_start:
+        return ("lost_candidate", "pid_identity_mismatch", "mark_lost_or_reconcile")
+    pointer_state = _optional_text(row.get("pointer_state"))
+    if row.get("pointer_daemon_supervisor_id") is None:
+        return ("needs_repair", "pointer_missing", "repair_supervisor_pointer")
+    if pointer_state != state:
+        return ("needs_repair", "pointer_state_mismatch", "repair_supervisor_pointer")
+    if row.get("daemon_supervisor_id") is None:
+        return ("needs_repair", "daemon_supervisor_missing", "repair_daemon_supervisor")
+    daemon_state = _optional_text(row.get("daemon_state"))
+    if daemon_state != state:
+        return ("needs_repair", "daemon_state_mismatch", "repair_daemon_supervisor")
+    return ("reattachable", None, "reattach")
+
+
+def _pid_identity(
+    row: Mapping[str, Any],
+    *,
+    pid_alive: bool,
+    current_start: str | None,
+) -> str:
+    expected_start = _optional_text(row.get("pid_start_time"))
+    if not pid_alive:
+        return "pid_gone"
+    if expected_start is None or current_start is None:
+        return "unverified"
+    if current_start != expected_start:
+        return "mismatch"
+    return "matched"
+
+
 def _helper_event_source(params: Mapping[str, Any]) -> object | None:
     if params.get("event_type") is not None:
         return None
@@ -1164,6 +1373,14 @@ def _optional_text(value: object) -> str | None:
     return text if text else None
 
 
+def _optional_int(value: object) -> int | None:
+    if value is None:
+        return None
+    if isinstance(value, int):
+        return value
+    return int(str(value))
+
+
 def _maybe_ts(value: object) -> str | None:
     return None if value is None else _ts(value)
 
@@ -1177,4 +1394,6 @@ __all__ = [
     "handle_start",
     "handle_status",
     "handle_stop",
+    "handle_reattach_status",
+    "reattach_status_payload",
 ]

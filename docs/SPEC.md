@@ -1602,6 +1602,13 @@ The supervise CLI surface:
   never starts or kills processes.
 - `striatum supervise list --run-id <id> [--state <state>]` lists rows
   for a run, optionally filtered by state.
+- Daemon RPC `supervise.reattach_status` returns a read-only
+  supervisor health DTO for a run/session/supervisor filter. It compares
+  repo supervisor rows, daemon supervisor pointers, daemon supervisor
+  rows, PID liveness, and PID start-time identity, classifying each row
+  as `reattachable`, `lost_candidate`, `needs_repair`,
+  `needs_verification`, or `terminal`. It does not mutate state; actual
+  restart reattach/lost-state transitions remain daemon lifecycle work.
 
 Recovery: when a session's lease expires, `expire_leases` marks any
 `attached` supervisor for that session as `lost` and records
@@ -1629,9 +1636,12 @@ lease — the symptom that the supervisor exited before the work
 completed and the run is silently stuck. `striatum status` adds the
 stable next-action `recover_orphan_supervisor` for the same condition
 so dashboards and scripts react before the lease default expiry (30
-minutes) is hit. `striatum supervise stop` is idempotent against a
-supervisor whose latest row is already `lost` or `stopped`: rather
-than raising `InvalidTransitionError`, it returns the existing
+minutes) is hit. In daemon/Pg mode, `doctor` also surfaces non-healthy
+`supervise.reattach_status` states (`lost_candidate`, `needs_repair`,
+and `needs_verification`) so stale supervisor repair is visible before
+a mutating recovery path runs. `striatum supervise stop` is idempotent
+against a supervisor whose latest row is already `lost` or `stopped`:
+rather than raising `InvalidTransitionError`, it returns the existing
 terminal row plus a `note` describing the prior state.
 
 #### Supervised Lane Command Contract

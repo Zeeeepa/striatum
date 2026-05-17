@@ -178,7 +178,6 @@ SERVER_INLINE_METHODS: frozenset[str] = frozenset(
         "dogfood.publish_on_behalf",
         "dogfood.surgical_recovery",
         "workflow.generate.preview",
-        "supervise.reattach_status",
     }
 )
 
