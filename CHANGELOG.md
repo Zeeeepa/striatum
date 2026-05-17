@@ -151,6 +151,10 @@ Recent checkpoints:
   PostgreSQL repositories. It reports per-repository status and stale-lease
   projections without opening SQLite; full web-context parity remains tracked
   as an RFC 0069 residual gap.
+- Daemon MCP `resources/list` and `resources/read` now use PostgreSQL-backed
+  repository visibility, status, doctor, blocker, run, why, dashboard, and
+  stale-lease projections whenever a daemon PostgreSQL connection is present;
+  regression coverage runs those paths with the SQLite registry tripwire on.
 - `supervise.status`, `doctor`, and `status` now surface stalled attached
   supervisors, and recovery sweep opens
   `heartbeat_stall_lease_expired` blockers when stalled leases expire.

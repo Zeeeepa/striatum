@@ -819,6 +819,8 @@ def _translator_from_contract(route: _CliRouteContract) -> RouteTranslator:
         )
 
     def _translate(args: argparse.Namespace, repo: Path) -> tuple[str, dict[str, Any]]:
+        if route.command == "dashboard" and bool(getattr(args, "all", False)):
+            return ("dashboard.all", {})
         return (route.method, builder(args, repo))
 
     return _translate

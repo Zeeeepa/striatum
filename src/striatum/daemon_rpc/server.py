@@ -166,9 +166,11 @@ class DaemonRpcRouter:
         if envelope.method == "daemon.describe":
             return describe_methods()
         if envelope.method == "dashboard.all":
-            from striatum.daemon import dashboard_all
+            if self.pg_conn is None:
+                raise RpcError("daemon_db_missing", "dashboard.all requires daemon PostgreSQL")
+            from striatum.daemon_pg.mcp_resources import dashboard_all_payload_pg
 
-            return dashboard_all(token=envelope.capability_token)
+            return dashboard_all_payload_pg(self.pg_conn)
         if envelope.method.startswith("repo."):
             return self._route_repo(envelope)
         if envelope.method.startswith("cross_repo."):

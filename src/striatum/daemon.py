@@ -37,6 +37,7 @@ from striatum.db import (
     transaction,
     utc_now,
 )
+from striatum.daemon_rpc.token_hash import hash_token
 from striatum.errors import (
     EXIT_DAEMON_AUTH,
     EXIT_DAEMON_CAPABILITY,
@@ -637,7 +638,7 @@ def create_client(
 
 
 def _hash_token(*, secret: str, salt: str) -> str:
-    return hmac.new(salt.encode("utf-8"), secret.encode("utf-8"), hashlib.sha256).hexdigest()
+    return hash_token(secret=secret, salt=salt)
 
 
 def read_runtime_token() -> str | None:

@@ -9,7 +9,7 @@ from typing import Any
 
 from striatum.daemon_rpc.envelope import RpcError
 from striatum.daemon_rpc.registry import CAPABILITIES
-from striatum.daemon import _hash_token  # Existing V1 token hash; keep migration compatible.
+from striatum.daemon_rpc.token_hash import hash_token
 
 
 @dataclass(frozen=True)
@@ -45,7 +45,7 @@ def authorize(
         return RpcAuthContext(None, token_id, repository_id, None, "denied", "token_invalid")
     record = _row_dict(row)
     client_id = str(record["client_id"])
-    expected = _hash_token(secret=secret, salt=str(record["token_salt"]))
+    expected = hash_token(secret=secret, salt=str(record["token_salt"]))
     if not hmac.compare_digest(expected, str(record["token_hash"])):
         return RpcAuthContext(client_id, token_id, repository_id, None, "denied", "token_invalid")
     if record.get("revoked_at") is not None:

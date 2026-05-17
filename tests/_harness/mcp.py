@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import uuid
 from pathlib import Path
 from typing import Any
@@ -20,6 +21,43 @@ class McpClient:
             params["repository_id"] = repository_id
         result = self._server.daemon_tool_specs(params)
         return [dict(item) for item in result]
+
+    def list_resources(self, **extra: object) -> list[dict[str, object]]:
+        response = self._server.handle_request(
+            {
+                "jsonrpc": "2.0",
+                "id": f"req_{uuid.uuid4().hex}",
+                "method": "resources/list",
+                "params": {
+                    "token": self._token,
+                    "request_id": f"req_{uuid.uuid4().hex}",
+                    **extra,
+                },
+            }
+        )
+        if response is None or "error" in response:
+            raise AssertionError(f"resources/list failed: {response}")
+        result = response["result"]
+        return [dict(item) for item in result["resources"]]
+
+    def read_resource(self, uri: str, **extra: object) -> dict[str, Any]:
+        response = self._server.handle_request(
+            {
+                "jsonrpc": "2.0",
+                "id": f"req_{uuid.uuid4().hex}",
+                "method": "resources/read",
+                "params": {
+                    "uri": uri,
+                    "token": self._token,
+                    "request_id": f"req_{uuid.uuid4().hex}",
+                    **extra,
+                },
+            }
+        )
+        if response is None or "error" in response:
+            raise AssertionError(f"resources/read failed: {response}")
+        contents = response["result"]["contents"]
+        return dict(json.loads(str(contents[0]["text"])))
 
     def call_tool(
         self,

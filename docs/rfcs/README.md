@@ -80,7 +80,7 @@ and, when behavior changes, `docs/SPEC.md`.
 | [0066](0066-replay-archive-corpus-v2-foundations.md) | partially implemented | Local archive/replay/corpus verification foundations landed; Corpus Contract V2 fields remain blocked on product decisions. |
 | [0067](0067-optional-git-pr-integration.md) | blocked on product decision | Optional Git/PR integration remains read-only-local-only until commit authority and hosted-provider boundaries are accepted. |
 | [0068](0068-go-production-daemon-port.md) | accepted | Go production daemon port: supersede D105, retire the Python daemon after parity, keep Python CLI/web clients where useful, and eradicate SQLite from production and compatibility paths. |
-| [0069](0069-pg-only-daemon-global-surfaces.md) | partially implemented | PostgreSQL-only daemon-global surfaces for startup, health, audit, sweep, dashboard-all, and daemon MCP resources. |
+| [0069](0069-pg-only-daemon-global-surfaces.md) | partially implemented | PostgreSQL-only daemon-global surfaces for startup, health, audit, sweep, dashboard-all, and daemon MCP resources; MCP resource list/read now use PG-backed projections when a daemon PG connection is present. |
 | [0070](0070-daemon-client-service-boundary.md) | partially implemented | Daemon client/service boundary completion: daemon-side repo resolution, `/v1/invoke` daemon routing for mapped reads/mutations, local API/MCP quarantine, and dogfood composite disposition. |
 | [0071](0071-operator-diagnostics-and-cutover-evidence.md) | partially implemented | Operator diagnostics and cutover evidence after the authority cleanup lands. |
 

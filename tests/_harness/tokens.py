@@ -7,7 +7,7 @@ import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from striatum.daemon import _hash_token
+from striatum.daemon_rpc.token_hash import hash_token
 
 
 def issue_token(
@@ -32,7 +32,7 @@ def issue_token(
             )
             VALUES (%s, 'test', 'test client', %s, %s, %s, %s, %s)
             """,
-            (client_id, token_id, _hash_token(secret=secret, salt=salt), salt, now, expires_at),
+            (client_id, token_id, hash_token(secret=secret, salt=salt), salt, now, expires_at),
         )
         for capability in capabilities:
             cur.execute(

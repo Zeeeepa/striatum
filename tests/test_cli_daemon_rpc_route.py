@@ -220,6 +220,13 @@ def test_list_runs_preserves_state_and_limit_filters() -> None:
     assert params == {"state": "running", "limit": 25}
 
 
+def test_dashboard_all_routes_to_daemon_global_method() -> None:
+    method, params = _route("dashboard", None, all=True, run_id=None)
+
+    assert method == "dashboard.all"
+    assert params == {}
+
+
 def test_list_sessions_preserves_run_role_lane_and_state_filters() -> None:
     method, params = _route(
         "list",

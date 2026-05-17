@@ -494,12 +494,24 @@ class DaemonRpcServer:
                     return error_response(response_id, ERROR_METHOD_NOT_FOUND, f"unknown method {method!r}")
                 result = self.call_daemon_tool(cast(JsonObject, params))
             elif method == "resources/list":
-                from striatum.daemon import daemon_mcp_resources
-
                 token_value = params.get("token")
                 if token_value is not None and not isinstance(token_value, str):
                     raise ValueError("token must be a string")
-                result = {"resources": daemon_mcp_resources(token=token_value)}
+                if self.pg_conn is not None:
+                    from striatum.daemon_pg.mcp_resources import daemon_mcp_resources_pg
+
+                    request_id = str(params.get("request_id") or f"mcp_resources_{uuid.uuid4().hex}")
+                    result = {
+                        "resources": daemon_mcp_resources_pg(
+                            self.pg_conn,
+                            token=token_value,
+                            request_id=request_id,
+                        )
+                    }
+                else:
+                    from striatum.daemon import daemon_mcp_resources
+
+                    result = {"resources": daemon_mcp_resources(token=token_value)}
             elif method == "resources/read":
                 result = self.read_resource(cast(JsonObject, params))
             else:
@@ -517,9 +529,20 @@ class DaemonRpcServer:
         token_value = params.get("token")
         if token_value is not None and not isinstance(token_value, str):
             raise ValueError("token must be a string")
-        from striatum.daemon import daemon_mcp_read_resource
+        if self.pg_conn is not None:
+            from striatum.daemon_pg.mcp_resources import daemon_mcp_read_resource_pg
 
-        result = daemon_mcp_read_resource(uri, token=token_value)
+            request_id = str(params.get("request_id") or f"mcp_resource_{uuid.uuid4().hex}")
+            result = daemon_mcp_read_resource_pg(
+                self.pg_conn,
+                uri,
+                token=token_value,
+                request_id=request_id,
+            )
+        else:
+            from striatum.daemon import daemon_mcp_read_resource
+
+            result = daemon_mcp_read_resource(uri, token=token_value)
         return {"contents": [{"uri": uri, "mimeType": "application/json", "text": json_dumps(result)}]}
 
     def daemon_tool_specs(self, params: JsonObject) -> list[JsonObject]:

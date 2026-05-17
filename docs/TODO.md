@@ -1246,11 +1246,14 @@ review and plan are root-level operator artifacts:
     now has a Go/PostgreSQL read-only subset; production Python daemon startup
     now uses PostgreSQL metadata/sweep plumbing when PostgreSQL is configured,
     and the Go daemon has a resident recovery scheduler over active PostgreSQL
-    runs. `connect_registry()` is gated behind explicit migration/test
+    runs. Daemon MCP resource list/read now use PostgreSQL-backed repository
+    visibility plus status/doctor/run/why/blocker/dashboard/stale-lease
+    projections when `pg_conn` is present, with SQLite-registry tripwire
+    coverage. `connect_registry()` is gated behind explicit migration/test
     compatibility escapes. Residual daemon-global gaps are full
     `dashboard.all` parity for phase progress, auto-finalize detail,
-    supervisor-stall detail, repo-scoped-token filtering, and daemon MCP
-    resource parity with the legacy Python aggregate authorizer.
+    supervisor-stall detail, and any remaining health/audit/doctor registry
+    probes.
 
 63. **RFC 0070: daemon client/service boundary completion.** Most done.
     Daemon-side `repo.resolve` is registered as a daemon-global read bootstrap

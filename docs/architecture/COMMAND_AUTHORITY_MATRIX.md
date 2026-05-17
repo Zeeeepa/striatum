@@ -132,7 +132,7 @@ Legend:
 | `daemon.token.revoke` | n/a | admin | daemon_global | not implemented in Python RPC | real | no | no | Go PostgreSQL token revocation by token id or full token |
 | `daemon.token.rotate` | n/a | admin | daemon_global | not implemented in Python RPC | real | no | no | Go PostgreSQL token rotation with ambiguous-scope refusal |
 | `daemon.key.rotate` | n/a | admin | daemon_global | not implemented in Python RPC | fail_closed | no | no | explicit `key_rotation_unavailable` until key-management hook exists |
-| `daemon.shutdown` | `daemon stop` out of band | admin | daemon_global | daemon lifecycle helper | fail_closed | no | no | explicit `shutdown_unavailable` until process-cancel hook exists |
+| `daemon.shutdown` | `daemon stop` out of band | admin | daemon_global | daemon lifecycle helper | real | no | no | Go process-cancel hook returns accepted shutdown response; handler still fails closed only when embedded without a hook |
 | `daemon.migrate` | `daemon migrate` | admin | daemon_global | migration CLI helper | real | no | no | Go applies embedded PostgreSQL migrations; no SQLite/Python dependency |
 | `daemon.migrate_repo_local` | `daemon migrate-repo-local` | admin | daemon_global | migration CLI helper | fail_closed | no | Go refuses SQLite import | explicit `legacy_migration_retired`; Python migration helper remains one-way legacy source path |
 | `cross_repo.list` | `cross-repo list` | read | cross_repo | direct cross-repo service | real | no | no | stable |
@@ -228,3 +228,7 @@ remediation phases should either daemon-route, quarantine, or delete.
    `apply.reviewed_patch`, dogfood composites, daemon key rotation,
    the retired repo-local migration import, and web/service DTO parity gaps
    tracked under RFC 0069-0071.
+10. Daemon MCP resources (`resources/list` and `resources/read`) use
+    PostgreSQL-backed repository visibility and read projections when a daemon
+    PostgreSQL connection is present; the legacy registry-backed path remains
+    only for no-`pg_conn` compatibility fixtures.

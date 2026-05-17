@@ -28,11 +28,8 @@ import (
 
 // supervisorPointerStore is the daemon's boot-time handle on the
 // Postgres-backed supervisor.PointerStore implementation. Construction is
-// gated on the Postgres pool being present; consumers (e.g. supervise.list
-// + supervise.status handlers — RFC 0048 Phase B follow-up) read it via
-// the Server's free-form attachments. V1.7 ships the wire-up; the
-// not_implemented handlers stay until RFC 0048 Phase B lands the real
-// handler ports.
+// gated on the Postgres pool being present; supervise handlers read it via the
+// Server's free-form attachments.
 var supervisorPointerStore *db.SupervisorPointerStore
 var _ supervisor.PointerStore = (*supervisorPointerStoreAdapter)(nil)
 
