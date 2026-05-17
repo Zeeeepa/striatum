@@ -265,6 +265,7 @@ def test_legacy_service_owns_page_read_payload_fallbacks() -> None:
     assert "_legacy_shape_artifact_rows" not in service_source
     assert '_LazyLegacyCallable("_byline_line")' not in service_source
     assert '_LazyLegacyCallable("legacy_shape_artifact_rows")' not in service_source
+    assert '_LazyLegacyCallable("legacy_view_file_run_breadcrumb")' not in service_source
 
     page_payload_builders = {
         "legacy_run_detail_payload",

@@ -121,6 +121,9 @@ Recent checkpoints:
   report covering PostgreSQL live-state authority, disabled legacy SQLite
   registry status, daemon method fallback counts, allowed migration/test-only
   SQLite exceptions, and remediation recommendations.
+- The repository `/view/<path>` page no longer consults the legacy
+  SQLite-backed run breadcrumb helper; file viewing stays a pure repository
+  file read with no production SQLite touchpoint.
 - Go now owns a read-only `dashboard.all` handler over daemon-owned
   PostgreSQL repositories. It reports per-repository status and stale-lease
   projections without opening SQLite; lazy lease expiry and full web-context

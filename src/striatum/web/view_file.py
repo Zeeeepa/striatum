@@ -11,7 +11,6 @@ JsonObject = dict[str, Any]
 JsonSender = Callable[[int, JsonObject], None]
 HtmlSender = Callable[[int, str], None]
 TemplateEnvFactory = Callable[[], Any]
-LegacyBreadcrumb = Callable[..., Any]
 
 __all__ = ["ViewFileError", "ViewRouteContext", "render_view_path", "view_file_payload"]
 
@@ -50,7 +49,6 @@ class ViewRouteContext:
     send_json: JsonSender
     send_html: HtmlSender
     jinja_env: TemplateEnvFactory
-    legacy_view_file_run_breadcrumb: LegacyBreadcrumb
 
 
 def render_view_path(ctx: ViewRouteContext, subpath: str) -> None:
@@ -66,10 +64,6 @@ def render_view_path(ctx: ViewRouteContext, subpath: str) -> None:
     except ViewFileError as exc:
         ctx.send_json(exc.status_code, _error(exc.status_code, exc.message))
         return
-    payload["run_breadcrumb"] = ctx.legacy_view_file_run_breadcrumb(
-        ctx.repo,
-        rel_path=str(payload["rel_path"]),
-    )
     try:
         html = ctx.jinja_env().get_template("view_file.html").render(**payload)
         ctx.send_html(200, html)

@@ -951,8 +951,8 @@ review and plan are root-level operator artifacts:
     while `service.py` preserves the `is_read_command` compatibility import.
     Follow-up split landed: `web/view_file.py` owns repository file-view path
     validation, binary detection, text/Markdown payload shaping, and inline
-    Markdown rendering, while `service.py` keeps route/template handling and
-    legacy run-breadcrumb injection. Follow-up split landed:
+    Markdown rendering, while `service.py` keeps route/template handling.
+    Follow-up split landed:
     `service_sse.py` owns SSE replay offset parsing and event framing while
     `service.py` keeps daemon polling and stream-loop control. Follow-up split
     landed: `service_state.py` owns process-local service state, GitHub
@@ -1000,8 +1000,8 @@ review and plan are root-level operator artifacts:
     also owns workflow browser and visual-editor route rendering/saving while
     `service.py` keeps route dispatch and stable private wrappers. Follow-up
     split landed: `web/view_file.py` now also owns repository file-view route
-    rendering while `service.py` injects the legacy dogfood run-breadcrumb
-    callback. Follow-up split landed: `service_api_routes.py` owns JSON read
+    rendering without legacy dogfood run-breadcrumb injection. Follow-up split
+    landed: `service_api_routes.py` owns JSON read
     helpers, repo-tree reads, daemon-read fallback handling, and run-event SSE
     route control while `service.py` keeps dispatch/authentication wrappers.
     Follow-up split landed: `service_routes.py` owns GET/POST route selection

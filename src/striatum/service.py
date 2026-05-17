@@ -135,7 +135,6 @@ _legacy_run_posture_verdicts_payload = _LazyLegacyCallable(
 _legacy_run_resume = _LazyLegacyCallable("legacy_run_resume")
 _legacy_stream_events_body = _LazyLegacyCallable("legacy_stream_events_body")
 _legacy_verify_state_health = _LazyLegacyCallable("legacy_verify_state_health")
-_legacy_view_file_run_breadcrumb = _LazyLegacyCallable("legacy_view_file_run_breadcrumb")
 _legacy_web_read_fallback_enabled = _LazyLegacyCallable("legacy_web_read_fallback_enabled")
 _legacy_workflow_run_now = _LazyLegacyCallable("legacy_workflow_run_now")
 _send_legacy_fixture_error = _LazyLegacyCallable("send_legacy_fixture_error")
@@ -554,7 +553,6 @@ class StriatumServiceHandler(BaseHTTPRequestHandler):
             send_json=self._send_json,
             send_html=self._send_html,
             jinja_env=_jinja_env,
-            legacy_view_file_run_breadcrumb=_legacy_view_file_run_breadcrumb,
         )
 
     def _render_view_path(self, subpath: str) -> None:
