@@ -468,6 +468,11 @@ daemon-first without needing to support two domain daemons.
   creation, provider send/tool-loop handling, workflow-write confirmation,
   stop redirects, and transcript SSE tailing. `service.py` keeps route
   dispatch and stable briefing/git-helper compatibility aliases.
+- `src/striatum/web/run_pages.py` now owns run list/detail, job detail,
+  artifact view, and posture-verdict page rendering, including daemon DTO
+  loading, gated legacy fallback selection, graph rendering, and template
+  context assembly. `service.py` keeps route dispatch and stable private
+  handler wrappers for existing tests/callers.
 
 **Remaining Phase 4 debt:** continue splitting `service.py` along stable
 non-SQLite request-handling and rendering boundaries after the daemon-routed

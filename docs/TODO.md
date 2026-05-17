@@ -976,7 +976,10 @@ review and plan are root-level operator artifacts:
     rendering, chat creation, provider send/tool-loop handling, workflow-write
     confirmation, stop redirects, and transcript SSE tailing while
     `service.py` keeps route dispatch plus compatibility aliases for briefing
-    and git context helpers.
+    and git context helpers. Follow-up split landed: `web/run_pages.py` owns
+    run list/detail, job detail, artifact view, and posture-verdict page
+    rendering while `service.py` keeps route dispatch plus stable private
+    handler wrappers for existing tests and callers.
     Remaining: continue splitting `service.py` along stable non-SQLite
     request-handling and rendering boundaries.
 

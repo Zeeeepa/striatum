@@ -74,19 +74,13 @@ from striatum.web.static_assets import (
     load_static_asset as _load_static_asset,
 )
 from striatum.web.artifacts import (
-    ArtifactViewPayloadError as _ArtifactViewPayloadError,
     artifact_content_type as _artifact_content_type,
-    artifact_view_template_context as _artifact_view_template_context,
     byline_line as _byline_line_web,
     resolve_artifact_file as _resolve_artifact_file,
     shape_artifact_rows as _shape_artifact_rows_web,
 )
-from striatum.web.job_detail import (
-    JobDetailPayloadError as _JobDetailPayloadError,
-    job_detail_template_context as _job_detail_template_context,
-)
-from striatum.web import run_posture_verdicts as _run_posture_verdicts
-from striatum.web.run_list import run_list_view_item as _run_list_view_item
+from striatum.web import run_pages as _run_pages
+from striatum.web.run_pages import RunPageContext as _RunPageContext
 from striatum.web.workflow_generation import (
     generator_error_response as _generator_error_response,
     workflow_generate_response as _workflow_generate_response,
@@ -608,278 +602,45 @@ class StriatumServiceHandler(BaseHTTPRequestHandler):
 
     # --- RFC 0022 V1 page rendering -----------------------------------
 
-    def _render_run_list_page(self) -> None:
-        """Server-side render the run-list page."""
-        try:
-            from striatum.service_daemon import ServiceDaemonRpcError, call_repo_method
+    def _run_page_context(self) -> _RunPageContext:
+        return _RunPageContext(
+            state=self.state,
+            send_json=self._send_json,
+            send_html=self._send_html,
+            jinja_env=_jinja_env,
+            legacy_web_read_fallback_enabled=_legacy_web_read_fallback_enabled,
+            legacy_run_list_items_for_test_harness=_legacy_run_list_items_for_test_harness,
+            legacy_run_posture_verdicts_payload=_legacy_run_posture_verdicts_payload,
+            legacy_run_detail_payload=_legacy_run_detail_payload,
+            legacy_job_detail_payload=_legacy_job_detail_payload,
+            legacy_artifact_view_payload=_legacy_artifact_view_payload,
+        )
 
-            try:
-                payload = call_repo_method(self.state.repo, "list.runs", {"limit": 500})
-                items = payload.get("items")
-                raw_runs = items if isinstance(items, list) else []
-                runs = [
-                    _run_list_view_item(self.state, item)
-                    for item in raw_runs
-                    if isinstance(item, Mapping)
-                ]
-                runs.sort(key=lambda item: str(item.get("created_at") or ""), reverse=True)
-            except ServiceDaemonRpcError as exc:
-                if (
-                    os.environ.get("STRIATUM_TEST_HARNESS") == "1"
-                    and os.environ.get("STRIATUM_DAEMON_REQUIRED") == "0"
-                ):
-                    runs = _legacy_run_list_items_for_test_harness(
-                        self.state.repo,
-                        shape_run=lambda item: _run_list_view_item(self.state, item),
-                    )
-                else:
-                    self._send_json(
-                        exc.status,
-                        {
-                            "ok": False,
-                            "error": {"code": exc.code, "message": exc.message},
-                        },
-                    )
-                    return
-            html = _jinja_env().get_template("run_list.html").render(runs=runs)
-            self._send_html(200, html)
-        except Exception as exc:  # noqa: BLE001
-            self._send_json(500, {"ok": False, "error": {"code": 500, "message": str(exc)}})
+    def _render_run_list_page(self) -> None:
+        _run_pages.render_run_list_page(self._run_page_context())
 
     def _render_run_subpath(self, subpath: str) -> None:
-        """Dispatch /run/<run_id> + /run/<run_id>/job/<id> + /run/<run_id>/artifact/<id>."""
-        if not subpath:
-            self._send_json(404, {"ok": False, "error": {"code": 404, "message": "missing run id"}})
-            return
-        parts = subpath.strip("/").split("/")
-        run_id = parts[0]
-        if any(c in run_id for c in ("..", "/", "\x00")):
-            self._send_json(400, {"ok": False, "error": {"code": 400, "message": "invalid run id"}})
-            return
-        if len(parts) == 1:
-            self._render_run_detail_page(run_id)
-            return
-        if len(parts) == 3 and parts[1] == "job":
-            self._render_job_detail_page(run_id, parts[2])
-            return
-        if len(parts) == 3 and parts[1] == "artifact":
-            self._render_artifact_view_page(run_id, parts[2])
-            return
-        if len(parts) == 3 and parts[1] == "posture":
-            self._render_run_posture_verdicts_page(run_id, parts[2])
-            return
-        self._send_json(404, {"ok": False, "error": {"code": 404, "message": "not found"}})
+        _run_pages.render_run_subpath(self._run_page_context(), subpath)
 
     def _render_run_posture_verdicts_page(self, run_id: str, posture: str) -> None:
-        """RFC 0024 V4.1: drill-down for `verdicts_by_posture` chips.
-
-        Lists every verdict for `(run_id, posture)` with links to the
-        review job and (when present) the finding artifact.
-        """
-        if any(c in posture for c in ("/", "\x00", "..")) or not posture:
-            self._send_json(400, {"ok": False, "error": {"code": 400, "message": "invalid posture"}})
-            return
-        try:
-            from striatum.service_daemon import ServiceDaemonRpcError, call_repo_method
-
-            try:
-                payload = call_repo_method(
-                    self.state.repo,
-                    "run.posture_verdicts",
-                    {"run_id": run_id, "posture": posture},
-                )
-            except ServiceDaemonRpcError as exc:
-                if _legacy_web_read_fallback_enabled(exc.code):
-                    try:
-                        payload = _legacy_run_posture_verdicts_payload(
-                            self.state.repo,
-                            run_id=run_id,
-                            posture=posture,
-                        )
-                    except KeyError:
-                        self._send_json(404, {"ok": False, "error": {"code": 404, "message": "run not found"}})
-                        return
-                else:
-                    self._send_json(
-                        exc.status,
-                        {"ok": False, "error": {"code": exc.code, "message": exc.message}},
-                    )
-                    return
-            try:
-                context = (
-                    _run_posture_verdicts.run_posture_verdicts_template_context(
-                        payload,
-                        requested_posture=posture,
-                    )
-                )
-            except _run_posture_verdicts.RunPostureVerdictsPayloadError as exc:
-                self._send_json(
-                    500,
-                    {
-                        "ok": False,
-                        "error": {"code": 500, "message": str(exc)},
-                    },
-                )
-                return
-            html = _jinja_env().get_template("run_posture_verdicts.html").render(**context)
-            self._send_html(200, html)
-        except Exception as exc:  # noqa: BLE001
-            self._send_json(500, {"ok": False, "error": {"code": 500, "message": str(exc)}})
+        _run_pages.render_run_posture_verdicts_page(
+            self._run_page_context(),
+            run_id,
+            posture,
+        )
 
     def _render_run_detail_page(self, run_id: str) -> None:
-        from striatum.web.graph_svg import (
-            compute_node_states_from_jobs,
-            render_run_graph,
-        )
-        try:
-            from striatum.service_daemon import ServiceDaemonRpcError, call_repo_method
-
-            try:
-                payload = call_repo_method(self.state.repo, "run.detail", {"run_id": run_id})
-            except ServiceDaemonRpcError as exc:
-                if _legacy_web_read_fallback_enabled(exc.code):
-                    try:
-                        payload = _legacy_run_detail_payload(self.state.repo, run_id=run_id)
-                    except KeyError:
-                        self._send_json(404, {"ok": False, "error": {"code": 404, "message": "run not found"}})
-                        return
-                else:
-                    self._send_json(
-                        exc.status,
-                        {"ok": False, "error": {"code": exc.code, "message": exc.message}},
-                    )
-                    return
-            run_raw = payload.get("run")
-            workflow_raw = payload.get("workflow")
-            jobs_raw = payload.get("jobs")
-            if not isinstance(run_raw, Mapping) or not isinstance(workflow_raw, Mapping) or not isinstance(jobs_raw, list):
-                self._send_json(
-                    500,
-                    {"ok": False, "error": {"code": 500, "message": "daemon run detail DTO missing fields"}},
-                )
-                return
-            run = dict(run_raw)
-            workflow = dict(workflow_raw)
-            jobs = [
-                dict(job)
-                for job in jobs_raw
-                if isinstance(job, Mapping)
-            ]
-            node_states = compute_node_states_from_jobs(jobs)
-            graph_svg = render_run_graph(
-                workflow,
-                node_states,
-                run_id=run_id,
-                jobs=jobs,
-            )
-            html = _jinja_env().get_template("run_detail.html").render(
-                run=run,
-                jobs=jobs,
-                graph_svg=graph_svg,
-                next_actions=payload.get("next_actions") or [],
-                recovery_panel=payload.get("recovery_panel") or {},
-                verdicts_by_posture=payload.get("verdicts_by_posture") or {},
-                sessions=payload.get("sessions") or [],
-                phase_progress=payload.get("phase_progress") or [],
-                current_phase_id=payload.get("current_phase_id"),
-                suggested_branch_name=payload.get("suggested_branch_name") or "",
-                allow_dirty=bool(payload.get("allow_dirty")),
-            )
-            self._send_html(200, html)
-        except Exception as exc:  # noqa: BLE001
-            self._send_json(500, {"ok": False, "error": {"code": 500, "message": str(exc)}})
+        _run_pages.render_run_detail_page(self._run_page_context(), run_id)
 
     def _render_job_detail_page(self, run_id: str, job_id: str) -> None:
-        try:
-            from striatum.service_daemon import ServiceDaemonRpcError, call_repo_method
-
-            try:
-                payload = call_repo_method(
-                    self.state.repo,
-                    "job.detail",
-                    {"run_id": run_id, "job_id": job_id},
-                )
-            except ServiceDaemonRpcError as exc:
-                if _legacy_web_read_fallback_enabled(exc.code):
-                    try:
-                        payload = _legacy_job_detail_payload(
-                            self.state.repo,
-                            run_id=run_id,
-                            job_ref=job_id,
-                        )
-                    except KeyError:
-                        self._send_json(404, {"ok": False, "error": {"code": 404, "message": "not found"}})
-                        return
-                else:
-                    self._send_json(
-                        exc.status,
-                        {"ok": False, "error": {"code": exc.code, "message": exc.message}},
-                    )
-                    return
-            try:
-                context = _job_detail_template_context(
-                    payload,
-                    web_context_secret=self.state.web_context_secret,
-                )
-            except _JobDetailPayloadError as exc:
-                self._send_json(
-                    500,
-                    {"ok": False, "error": {"code": 500, "message": str(exc)}},
-                )
-                return
-            html = _jinja_env().get_template("job_detail.html").render(
-                **context,
-            )
-            self._send_html(200, html)
-        except Exception as exc:  # noqa: BLE001
-            self._send_json(500, {"ok": False, "error": {"code": 500, "message": str(exc)}})
+        _run_pages.render_job_detail_page(self._run_page_context(), run_id, job_id)
 
     def _render_artifact_view_page(self, run_id: str, artifact_id: str) -> None:
-        try:
-            from striatum.service_daemon import ServiceDaemonRpcError, call_repo_method
-
-            try:
-                payload = call_repo_method(
-                    self.state.repo,
-                    "artifact.show",
-                    {
-                        "artifact_id": artifact_id,
-                        "run_id": run_id,
-                        "include_web_context": True,
-                    },
-                )
-            except ServiceDaemonRpcError as exc:
-                if _legacy_web_read_fallback_enabled(exc.code):
-                    try:
-                        payload = _legacy_artifact_view_payload(
-                            self.state.repo,
-                            run_id=run_id,
-                            artifact_id=artifact_id,
-                        )
-                    except KeyError:
-                        self._send_json(404, {"ok": False, "error": {"code": 404, "message": "not found"}})
-                        return
-                else:
-                    self._send_json(
-                        exc.status,
-                        {"ok": False, "error": {"code": exc.code, "message": exc.message}},
-                    )
-                    return
-            try:
-                context = _artifact_view_template_context(
-                    self.state.repo,
-                    payload,
-                )
-            except _ArtifactViewPayloadError as exc:
-                self._send_json(
-                    500,
-                    {"ok": False, "error": {"code": 500, "message": str(exc)}},
-                )
-                return
-            html = _jinja_env().get_template("artifact_view.html").render(**context)
-            self._send_html(200, html)
-        except Exception as exc:  # noqa: BLE001
-            self._send_json(500, {"ok": False, "error": {"code": 500, "message": str(exc)}})
+        _run_pages.render_artifact_view_page(
+            self._run_page_context(),
+            run_id,
+            artifact_id,
+        )
 
     def _render_workflows_index_page(self) -> None:
         from striatum.web.workflows import workflow_index_page_response
