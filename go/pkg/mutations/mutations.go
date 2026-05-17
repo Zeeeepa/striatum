@@ -67,6 +67,8 @@ func Register(server *rpc.Server, runner db.Runner) {
 	server.Register("recovery.sweep", makeHandler(runner, HandleRecoveryAuto))
 	server.Register("recovery.auto_publish_stale_artifacts", makeHandler(runner, HandleRecoveryAuto))
 	server.Register("recovery.auto", makeHandler(runner, HandleRecoveryAuto))
+	server.Register("recovery.auto_finalize", makeHandler(runner, HandleRecoveryAutoFinalize))
+	server.Register("supervise.report", makeHandler(runner, HandleSuperviseReport))
 }
 
 func makeHandler(runner db.Runner, fn handlerFn) rpc.Handler {

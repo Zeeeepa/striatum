@@ -55,7 +55,7 @@ Legend:
 | `run.summary` | `run summary` | read | single_repo | pg | real | no | no | stable |
 | `run.detail` | web run detail DTO | read | single_repo | pg | real | no | no | stable |
 | `job.detail` | web job detail DTO | read | single_repo | pg | real | no | no | stable |
-| `run.graph` | `run graph` | read | single_repo | pg | placeholder | no | no | stable |
+| `run.graph` | `run graph` | read | single_repo | pg | real | no | no | stable |
 | `run.events` | web SSE event stream DTO | read | single_repo | pg | real | no | no | stable |
 | `run.posture_verdicts` | web posture verdict drill-down | read | single_repo | pg | real | no | no | stable |
 | `workflow.validate` | `workflow validate` | read | single_repo | local_file_authoring | placeholder | no | no live state | CLI-local |
@@ -81,7 +81,7 @@ Legend:
 | `work.release` | `release` | claim | single_repo | pg | real | no | no | stable |
 | `supervise.start` | `supervise start` | claim | single_repo | pg | placeholder | no | no | stable |
 | `supervise.send` | `supervise send` | claim | single_repo | pg | placeholder | no | no | stable |
-| `supervise.report` | wrapper control report | claim | single_repo | pg | placeholder | no | no | stable |
+| `supervise.report` | wrapper control report | claim | single_repo | pg | real | no | no | Go records direct control events and helper JSONL batches; remaining supervise verbs are separate port slices |
 | `supervise.stop` | `supervise stop` | claim | single_repo | pg | placeholder | no | no | stable |
 | `supervise.status` | `supervise status` | read | single_repo | pg | placeholder | no | no | stable |
 | `supervise.list` | `supervise list` | read | single_repo | pg | placeholder | no | no | stable |
@@ -120,7 +120,7 @@ Legend:
 | `recovery.sweep` | `recovery auto` | recovery | single_repo | pg | real | no | no | canonical one-shot recovery sweep; runs workflow-opt-in auto-finalize before lazy lease expiry |
 | `recovery.auto_publish_stale_artifacts` | `recovery auto-publish` | recovery | single_repo | pg | real | no | no | explicit stale-artifact auto-publish |
 | `recovery.auto` | deprecated alias | recovery | single_repo | pg alias | real | no | no | deprecated compatibility alias for stale-artifact auto-publish; current CLI does not emit it |
-| `recovery.auto_finalize` | `recovery auto-finalize` | recovery | single_repo | pg | real | no | no | experimental/workflow-opt-in |
+| `recovery.auto_finalize` | `recovery auto-finalize` | recovery | single_repo | pg | real | no | no | dry-run by default; Go handler registered; live mode requires workflow opt-in or force |
 | `apply.reviewed_patch` | n/a | apply | single_repo | direct apply service | fail_closed | no | no | fail closed until apply authority |
 | `apply.receipt.show` | n/a | read | single_repo | direct apply service | real | no | no | stable |
 | `apply.receipt.verify` | n/a | read | single_repo | direct apply service | real | no | no | stable |

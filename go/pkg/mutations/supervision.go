@@ -1,0 +1,455 @@
+package mutations
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"os"
+	"strings"
+
+	"github.com/halbritt/striatum/go/pkg/db"
+	"github.com/halbritt/striatum/go/pkg/rpc"
+	gosupervisor "github.com/halbritt/striatum/go/pkg/supervisor"
+	"github.com/jackc/pgx/v5"
+)
+
+var superviseReportEventTypes = map[string]bool{
+	gosupervisor.HelperEventPacketAccepted: true,
+	gosupervisor.HelperEventAgentStarted:   true,
+	"artifact_observed":                    true,
+	gosupervisor.HelperEventProgress:       true,
+	gosupervisor.HelperEventAgentExited:    true,
+	gosupervisor.HelperEventError:          true,
+}
+
+var supervisorActiveStates = map[string]bool{
+	"starting": true,
+	"attached": true,
+	"detached": true,
+}
+
+type superviseReportEvent struct {
+	EventType    string
+	SessionID    string
+	SupervisorID string
+	PacketID     string
+	Payload      map[string]any
+	ReportedAt   string
+}
+
+type supervisorReportRow struct {
+	SupervisorID       string
+	RunID              string
+	SessionID          string
+	State              string
+	DaemonSupervisorID string
+}
+
+func HandleSuperviseReport(ctx context.Context, runner db.Runner, envelope rpc.Envelope) (map[string]any, error) {
+	repositoryID, err := requireRepositoryID(envelope)
+	if err != nil {
+		return nil, err
+	}
+	events, batch, err := parseSuperviseReportEvents(envelope.Params)
+	if err != nil {
+		return nil, err
+	}
+	if len(events) == 0 {
+		return map[string]any{"events_recorded": 0, "results": []map[string]any{}, "state": nil}, nil
+	}
+
+	return withTx(ctx, runner, func(tx db.TxRunner) (map[string]any, error) {
+		results := make([]map[string]any, 0, len(events))
+		for _, event := range events {
+			result, err := recordSuperviseReportEvent(ctx, tx, repositoryID, event)
+			if err != nil {
+				return nil, err
+			}
+			results = append(results, result)
+		}
+		if batch {
+			state := any(nil)
+			if len(results) > 0 {
+				state = results[len(results)-1]["state"]
+			}
+			return map[string]any{
+				"events_recorded": len(results),
+				"results":         results,
+				"state":           state,
+			}, nil
+		}
+		return results[0], nil
+	})
+}
+
+func parseSuperviseReportEvents(params map[string]any) ([]superviseReportEvent, bool, error) {
+	if _, direct := params["event_type"]; direct {
+		event, err := normalizeSuperviseReportEvent(params, "", "", 0)
+		if err != nil {
+			return nil, false, err
+		}
+		return []superviseReportEvent{event}, false, nil
+	}
+
+	source, ok, err := helperEventSource(params)
+	if err != nil {
+		return nil, true, err
+	}
+	if !ok {
+		return nil, false, rpc.NewError("schema_invalid", "event_type is required", nil)
+	}
+	defaultSessionID, err := optionalStringParam(params, "session_id")
+	if err != nil {
+		return nil, true, err
+	}
+	defaultSupervisorID, err := optionalStringParam(params, "supervisor_id")
+	if err != nil {
+		return nil, true, err
+	}
+	if defaultSessionID == "" && defaultSupervisorID == "" {
+		return nil, true, rpc.NewError("schema_invalid", "session_id or supervisor_id is required", nil)
+	}
+
+	rawEvents, err := parseHelperEvents(source)
+	if err != nil {
+		return nil, true, err
+	}
+	events := make([]superviseReportEvent, 0, len(rawEvents))
+	for i, raw := range rawEvents {
+		event, err := normalizeSuperviseReportEvent(raw, defaultSessionID, defaultSupervisorID, i+1)
+		if err != nil {
+			return nil, true, err
+		}
+		events = append(events, event)
+	}
+	return events, true, nil
+}
+
+func helperEventSource(params map[string]any) (any, bool, error) {
+	if value, ok := params["events_path"]; ok {
+		path, ok := value.(string)
+		if !ok || path == "" {
+			return nil, true, rpc.NewError("schema_invalid", "events_path must be a string path", nil)
+		}
+		body, err := os.ReadFile(path)
+		if err != nil {
+			return nil, true, err
+		}
+		return string(body), true, nil
+	}
+	if value, ok := params["events"]; ok {
+		return value, true, nil
+	}
+	if value, ok := params["events_jsonl"]; ok {
+		return value, true, nil
+	}
+	return nil, false, nil
+}
+
+func parseHelperEvents(source any) ([]map[string]any, error) {
+	switch typed := source.(type) {
+	case string:
+		return parseHelperJSONL(typed)
+	case []any:
+		events := make([]map[string]any, 0, len(typed))
+		for i, value := range typed {
+			event, ok := value.(map[string]any)
+			if !ok {
+				return nil, rpc.NewError("schema_invalid", fmt.Sprintf("helper event %d must be an object", i+1), nil)
+			}
+			events = append(events, event)
+		}
+		return events, nil
+	case []map[string]any:
+		return append([]map[string]any(nil), typed...), nil
+	default:
+		return nil, rpc.NewError("schema_invalid", "helper events must be provided as JSONL text, a path, or a list of objects", nil)
+	}
+}
+
+func parseHelperJSONL(text string) ([]map[string]any, error) {
+	events := []map[string]any{}
+	for i, line := range strings.Split(text, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		var event map[string]any
+		if err := json.Unmarshal([]byte(line), &event); err != nil {
+			return nil, rpc.NewError("schema_invalid", fmt.Sprintf("invalid helper event JSON on line %d: %s", i+1, jsonErrorMessage(err)), nil)
+		}
+		events = append(events, event)
+	}
+	return events, nil
+}
+
+func normalizeSuperviseReportEvent(raw map[string]any, defaultSessionID string, defaultSupervisorID string, index int) (superviseReportEvent, error) {
+	prefix := ""
+	if index > 0 {
+		prefix = fmt.Sprintf("helper event %d ", index)
+	}
+	if schema, ok := raw["schema_version"]; ok && schema != nil && schema != "" {
+		schemaText, ok := schema.(string)
+		if !ok || schemaText != gosupervisor.HelperEventSchemaVersion {
+			return superviseReportEvent{}, rpc.NewError("schema_invalid", fmt.Sprintf("%shas unsupported schema_version %q", prefix, schema), nil)
+		}
+	}
+	eventType, ok := raw["event_type"].(string)
+	if !ok || eventType == "" {
+		return superviseReportEvent{}, rpc.NewError("schema_invalid", prefix+"requires event_type", nil)
+	}
+	if !superviseReportEventTypes[eventType] {
+		return superviseReportEvent{}, rpc.NewError("schema_invalid", prefix+"event_type must be one of: agent_exited, agent_started, artifact_observed, helper_error, packet_accepted, progress", nil)
+	}
+	supervisorID, err := optionalStringParam(raw, "supervisor_id")
+	if err != nil {
+		return superviseReportEvent{}, err
+	}
+	sessionID, err := optionalStringParam(raw, "session_id")
+	if err != nil {
+		return superviseReportEvent{}, err
+	}
+	if supervisorID == "" {
+		supervisorID = defaultSupervisorID
+	}
+	if sessionID == "" {
+		sessionID = defaultSessionID
+	}
+	if supervisorID == "" && sessionID == "" {
+		return superviseReportEvent{}, rpc.NewError("schema_invalid", prefix+"requires supervisor_id or session_id", nil)
+	}
+	packetID, err := optionalStringParam(raw, "packet_id")
+	if err != nil {
+		return superviseReportEvent{}, err
+	}
+	reportedAt, err := optionalStringParam(raw, "reported_at")
+	if err != nil {
+		return superviseReportEvent{}, err
+	}
+	if reportedAt == "" {
+		reportedAt, err = optionalStringParam(raw, "timestamp")
+		if err != nil {
+			return superviseReportEvent{}, err
+		}
+	}
+	payload, err := objectParam(raw, "payload")
+	if err != nil {
+		if index > 0 {
+			return superviseReportEvent{}, rpc.NewError("schema_invalid", fmt.Sprintf("helper event %d payload must be an object", index), nil)
+		}
+		return superviseReportEvent{}, err
+	}
+	return superviseReportEvent{
+		EventType:    eventType,
+		SessionID:    sessionID,
+		SupervisorID: supervisorID,
+		PacketID:     packetID,
+		Payload:      payload,
+		ReportedAt:   reportedAt,
+	}, nil
+}
+
+func recordSuperviseReportEvent(ctx context.Context, runner db.TxRunner, repositoryID string, event superviseReportEvent) (map[string]any, error) {
+	supervisor, err := findReportSupervisor(ctx, runner, repositoryID, event.SupervisorID, event.SessionID)
+	if err != nil {
+		return nil, err
+	}
+	if event.SessionID != "" && supervisor.SessionID != event.SessionID {
+		return nil, rpc.NewError("invalid_transition", "session_id does not match supervisor_id", nil)
+	}
+	if !supervisorActiveStates[supervisor.State] {
+		return nil, rpc.NewError("invalid_transition", fmt.Sprintf("supervise report requires an active supervisor (state=%s)", supervisor.State), nil)
+	}
+
+	now := nowString()
+	state := supervisor.State
+	if event.EventType == gosupervisor.HelperEventAgentExited {
+		stopReason := "agent exited"
+		if exitCode, ok := event.Payload["exit_code"]; ok && exitCode != nil {
+			stopReason = fmt.Sprintf("agent exited with code %v", exitCode)
+		}
+		if err := updateReportSupervisorStopped(ctx, runner, repositoryID, supervisor, now, stopReason); err != nil {
+			return nil, err
+		}
+		state = "stopped"
+	} else if err := refreshReportSupervisorHeartbeat(ctx, runner, repositoryID, supervisor, now); err != nil {
+		return nil, err
+	}
+
+	payload := map[string]any{
+		"supervisor_id":        supervisor.SupervisorID,
+		"daemon_supervisor_id": nullableString(supervisor.DaemonSupervisorID),
+		"session_id":           supervisor.SessionID,
+		"control_event_type":   event.EventType,
+	}
+	if event.PacketID != "" {
+		payload["packet_id"] = event.PacketID
+	}
+	if event.ReportedAt != "" {
+		payload["reported_at"] = event.ReportedAt
+	}
+	if len(event.Payload) > 0 {
+		payload["payload"] = event.Payload
+	}
+	if _, err := appendEvent(ctx, runner, repositoryID, supervisor.RunID, "supervisor."+event.EventType, supervisor.SessionID, nil, nil, nil, nil, payload); err != nil {
+		return nil, err
+	}
+
+	return map[string]any{
+		"supervisor_id": supervisor.SupervisorID,
+		"session_id":    supervisor.SessionID,
+		"event_type":    event.EventType,
+		"recorded_at":   now,
+		"state":         state,
+	}, nil
+}
+
+func findReportSupervisor(ctx context.Context, runner db.TxRunner, repositoryID string, supervisorID string, sessionID string) (supervisorReportRow, error) {
+	if supervisorID != "" {
+		return scanReportSupervisor(runner.QueryRow(ctx, `
+			SELECT ps.supervisor_id, ps.run_id, ps.session_id, ps.state, p.daemon_supervisor_id
+			  FROM striatumd.process_supervisors ps
+			  LEFT JOIN striatumd.process_supervisor_pointers p
+			    ON p.repository_id = ps.repository_id AND p.supervisor_id = ps.supervisor_id
+			 WHERE ps.repository_id = $1 AND ps.supervisor_id = $2
+			 LIMIT 1
+			 FOR UPDATE`, repositoryID, supervisorID),
+			rpc.NewError("not_found", fmt.Sprintf("no supervisor recorded for supervisor_id=%q", supervisorID), nil),
+		)
+	}
+	return scanReportSupervisor(runner.QueryRow(ctx, `
+		SELECT ps.supervisor_id, ps.run_id, ps.session_id, ps.state, p.daemon_supervisor_id
+		  FROM striatumd.process_supervisors ps
+		  LEFT JOIN striatumd.process_supervisor_pointers p
+		    ON p.repository_id = ps.repository_id AND p.supervisor_id = ps.supervisor_id
+		 WHERE ps.repository_id = $1 AND ps.session_id = $2
+		   AND ps.state IN ('starting','attached','detached')
+		 ORDER BY ps.started_at DESC, ps.supervisor_id DESC
+		 LIMIT 1
+		 FOR UPDATE`, repositoryID, sessionID),
+		rpc.NewError("invalid_transition", fmt.Sprintf("no active supervisor for session_id=%q", sessionID), nil),
+	)
+}
+
+func scanReportSupervisor(row db.Row, notFound error) (supervisorReportRow, error) {
+	var supervisor supervisorReportRow
+	var daemonSupervisorID *string
+	err := row.Scan(
+		&supervisor.SupervisorID,
+		&supervisor.RunID,
+		&supervisor.SessionID,
+		&supervisor.State,
+		&daemonSupervisorID,
+	)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return supervisorReportRow{}, notFound
+		}
+		return supervisorReportRow{}, err
+	}
+	if daemonSupervisorID != nil {
+		supervisor.DaemonSupervisorID = *daemonSupervisorID
+	}
+	return supervisor, nil
+}
+
+func updateReportSupervisorStopped(ctx context.Context, runner db.TxRunner, repositoryID string, supervisor supervisorReportRow, now string, stopReason string) error {
+	if err := runner.Exec(ctx, `
+		UPDATE striatumd.process_supervisors
+		   SET state = 'stopped',
+		       ended_at = $1,
+		       stop_reason = $2
+		 WHERE repository_id = $3 AND supervisor_id = $4`,
+		now, stopReason, repositoryID, supervisor.SupervisorID,
+	); err != nil {
+		return err
+	}
+	if err := runner.Exec(ctx, `
+		UPDATE striatumd.process_supervisor_pointers
+		   SET state = 'stopped',
+		       updated_at = $1
+		 WHERE repository_id = $2 AND supervisor_id = $3`,
+		now, repositoryID, supervisor.SupervisorID,
+	); err != nil {
+		return err
+	}
+	if supervisor.DaemonSupervisorID == "" {
+		return nil
+	}
+	return runner.Exec(ctx, `
+		UPDATE striatumd.daemon_supervisors
+		   SET state = 'stopped',
+		       ended_at = $1,
+		       stop_reason = $2
+		 WHERE repository_id = $3 AND daemon_supervisor_id = $4`,
+		now, stopReason, repositoryID, supervisor.DaemonSupervisorID,
+	)
+}
+
+func refreshReportSupervisorHeartbeat(ctx context.Context, runner db.TxRunner, repositoryID string, supervisor supervisorReportRow, now string) error {
+	if err := runner.Exec(ctx, `
+		UPDATE striatumd.process_supervisors
+		   SET heartbeat_at = $1
+		 WHERE repository_id = $2 AND supervisor_id = $3`,
+		now, repositoryID, supervisor.SupervisorID,
+	); err != nil {
+		return err
+	}
+	if err := runner.Exec(ctx, `
+		UPDATE striatumd.process_supervisor_pointers
+		   SET updated_at = $1
+		 WHERE repository_id = $2 AND supervisor_id = $3`,
+		now, repositoryID, supervisor.SupervisorID,
+	); err != nil {
+		return err
+	}
+	if supervisor.DaemonSupervisorID == "" {
+		return nil
+	}
+	return runner.Exec(ctx, `
+		UPDATE striatumd.daemon_supervisors
+		   SET heartbeat_at = $1
+		 WHERE repository_id = $2 AND daemon_supervisor_id = $3`,
+		now, repositoryID, supervisor.DaemonSupervisorID,
+	)
+}
+
+func optionalStringParam(params map[string]any, key string) (string, error) {
+	value, ok := params[key]
+	if !ok || value == nil {
+		return "", nil
+	}
+	text, ok := value.(string)
+	if !ok {
+		return "", rpc.NewError("schema_invalid", key+" must be a string", nil)
+	}
+	return text, nil
+}
+
+func objectParam(params map[string]any, key string) (map[string]any, error) {
+	value, ok := params[key]
+	if !ok || value == nil {
+		return map[string]any{}, nil
+	}
+	object, ok := value.(map[string]any)
+	if !ok {
+		return nil, rpc.NewError("schema_invalid", key+" must be an object when provided", nil)
+	}
+	return object, nil
+}
+
+func nullableString(value string) any {
+	if value == "" {
+		return nil
+	}
+	return value
+}
+
+func jsonErrorMessage(err error) string {
+	var syntax *json.SyntaxError
+	if errors.As(err, &syntax) {
+		return err.Error()
+	}
+	return err.Error()
+}

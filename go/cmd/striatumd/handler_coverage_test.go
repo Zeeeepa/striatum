@@ -64,10 +64,7 @@ func TestGoDaemonMethodCoverageIsExplicit(t *testing.T) {
 		}
 	}
 
-	assertSameStrings(t, "missing Go daemon handlers", missingHandlers, []string{
-		"recovery.auto_finalize",
-		"supervise.report",
-	})
+	assertSameStrings(t, "missing Go daemon handlers", missingHandlers, nil)
 	assertSameStrings(t, "Go daemon not_implemented handlers", notImplementedHandlers, []string{
 		"daemon.key.rotate",
 		"daemon.migrate",
@@ -79,7 +76,6 @@ func TestGoDaemonMethodCoverageIsExplicit(t *testing.T) {
 		"dogfood.publish_on_behalf",
 		"dogfood.surgical_recovery",
 		"repo.init",
-		"run.graph",
 		"supervise.list",
 		"supervise.reattach_status",
 		"supervise.send",

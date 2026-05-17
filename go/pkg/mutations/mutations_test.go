@@ -80,6 +80,8 @@ func TestRegisterInstallsInitialMutationHandlers(t *testing.T) {
 		"recovery.sweep",
 		"recovery.auto_publish_stale_artifacts",
 		"recovery.auto",
+		"recovery.auto_finalize",
+		"supervise.report",
 	} {
 		handler, ok := server.Handlers[method]
 		if !ok {
@@ -95,6 +97,64 @@ func TestRegisterInstallsInitialMutationHandlers(t *testing.T) {
 		if !errors.As(err, &rpcErr) || rpcErr.Code != "repo_not_registered" {
 			t.Fatalf("%s handler did not run expected repo-scope validation: %v", method, err)
 		}
+	}
+}
+
+func TestRecoveryAutoFinalizeRequiresRunID(t *testing.T) {
+	server := rpc.NewServer()
+	Register(server, inertRunner{})
+	handler := server.Handlers["recovery.auto_finalize"]
+	if handler == nil {
+		t.Fatal("recovery.auto_finalize was not registered")
+	}
+	_, err := handler(context.Background(), rpc.Envelope{
+		SchemaVersion: rpc.SupportedEnvelopeVersion,
+		RequestID:     "req_recovery.auto_finalize",
+		Method:        "recovery.auto_finalize",
+		Params:        map[string]any{"repository_id": "repo_1"},
+	})
+	rpcErr := &rpc.Error{}
+	if !errors.As(err, &rpcErr) {
+		t.Fatalf("returned non-rpc error: %v", err)
+	}
+	if rpcErr.Code != "schema_invalid" {
+		t.Fatalf("error code = %q", rpcErr.Code)
+	}
+	if rpcErr.Message != "recovery.auto_finalize requires run_id" {
+		t.Fatalf("error message = %q", rpcErr.Message)
+	}
+}
+
+func TestAutoFinalizeDryRunDefaultsToProjectionMode(t *testing.T) {
+	dryRun, err := autoFinalizeDryRun(rpc.Envelope{Params: map[string]any{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !dryRun {
+		t.Fatal("missing dry_run should default to true")
+	}
+	dryRun, err = autoFinalizeDryRun(rpc.Envelope{Params: map[string]any{"dry_run": false}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if dryRun {
+		t.Fatal("explicit dry_run=false should request live mode")
+	}
+	_, err = autoFinalizeDryRun(rpc.Envelope{Params: map[string]any{"dry_run": "false"}})
+	var rpcErr *rpc.Error
+	if !errors.As(err, &rpcErr) || rpcErr.Code != "schema_invalid" {
+		t.Fatalf("non-boolean dry_run error = %v, want schema_invalid", err)
+	}
+}
+
+func TestAutoFinalizeFindingRequiresVerdictIntentFrontMatter(t *testing.T) {
+	payload := []byte("---\nschema_version: \"striatum.finding.v1\"\nartifact_kind: \"finding\"\n---\n\nauthor: operator\n")
+	_, err := autoFinalizeRequiredFrontMatter("finding", "finding.md", payload)
+	if err == nil {
+		t.Fatal("finding without verdict_intent should be refused")
+	}
+	if got := err.Error(); got != "finding artifact front matter missing required field 'verdict_intent'" {
+		t.Fatalf("error = %q", got)
 	}
 }
 

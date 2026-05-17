@@ -31,6 +31,9 @@ Recent checkpoints:
 - Go now registers the canonical `recovery.auto_publish_stale_artifacts`
   method, keeps the deprecated `recovery.auto` alias on the same handler, and
   requires every auto-published file to match the expected byline.
+- Go now owns the `recovery.auto_finalize` RPC handler as a dry-run-by-default
+  projection with workflow-opt-in or forced live mode over stable expected
+  artifact files.
 - The first Go read-detail cluster is registered for `run.detail`,
   `job.detail`, `run.events`, `run.posture_verdicts`, `artifact.show`,
   `escalation.list`, `escalation.show`, and `escalation.resolve`, reducing
@@ -42,6 +45,9 @@ Recent checkpoints:
 - Go now owns the read-only `worktree.list` handler over PostgreSQL
   `job_worktrees`, returning the Python-compatible `worktrees` row list with
   optional run filtering.
+- Go now owns `run.graph` for JSON, Mermaid, DOT, and ASCII run graph
+  projections from PostgreSQL workflow snapshots, materialized dependencies,
+  latest job attempts, and review verdicts.
 - Go `cross_repo.cancel` now calls the Go cross-repo lifecycle service and
   local run-cancel mutation instead of returning `not_implemented`.
 - Go now owns `repo.add`, `repo.list`, and `repo.remove` handlers over
@@ -69,6 +75,9 @@ Recent checkpoints:
   event ingestion across the Python/Go boundary. CI now promotes that check
   through a Linux/Postgres `daemon-go-helper-integration` target instead of
   relying on full-suite discovery.
+- Go now owns the `supervise.report` mutation for direct wrapper control
+  events and helper JSONL batches, recording supervisor heartbeat/exit state
+  and hash-chained `supervisor.*` events without SQLite fallback.
 - Existing supervisor paths now reconcile restart state before trusting an
   attached process: `supervise.status`, `supervise.send`, and claim-next
   auto-delivery record `supervisor.reattached` for surviving PID identity,

@@ -52,6 +52,12 @@ func TestDetailReadHandlersValidateBeforeQuery(t *testing.T) {
 			code:    "schema_invalid",
 		},
 		{
+			name:    "run graph format",
+			handler: HandleRunGraph,
+			params:  map[string]any{"repository_id": "repo_1", "run_id": "run_1", "format": "bad"},
+			code:    "schema_invalid",
+		},
+		{
 			name:    "archive output path",
 			handler: HandleArchiveCreate,
 			params:  map[string]any{"repository_id": "repo_1", "run_id": "run_1"},

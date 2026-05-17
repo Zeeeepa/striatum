@@ -1182,8 +1182,9 @@ review and plan are root-level operator artifacts:
     registers the canonical `recovery.auto_publish_stale_artifacts` method,
     keeps `recovery.auto` as its deprecated alias, and requires every
     auto-published file to match the expected byline. Go also owns
-    `archive.create` for the V1 run archive bundle format and `worktree.list`
-    as a PostgreSQL read-only projection. The first Go
+    `archive.create` for the V1 run archive bundle format, `worktree.list` as
+    a PostgreSQL read-only projection, and `run.graph` for stateful graph
+    projections from materialized PostgreSQL dependencies. The first Go
     read-detail cluster now registers `run.detail`, `job.detail`,
     `run.events`, `run.posture_verdicts`, `artifact.show`, `escalation.list`,
     `escalation.show`, and the `escalation.resolve` mutation; remaining
@@ -1193,8 +1194,13 @@ review and plan are root-level operator artifacts:
     instead of returning `not_implemented`. Go now owns `repo.add`,
     `repo.list`, and `repo.remove` handlers over daemon-owned PostgreSQL,
     including SQLite-source refusal and repo-scoped capability revocation on
-    removal. Go also owns a read-only `dashboard.all` subset over the
-    PostgreSQL repository registry and per-repo read projections.
+    removal. Go now owns `recovery.auto_finalize` as a dry-run-by-default,
+    workflow-opt-in live RPC handler over stable expected artifact files;
+    sweep/read auto-finalize projection parity remains a separate slice. Go
+    also owns a read-only `dashboard.all` subset over the
+    PostgreSQL repository registry and per-repo read projections. Go now owns
+    `supervise.report` for direct wrapper control events and helper JSONL
+    batches; other `supervise.*` verbs remain tracked by the coverage ledger.
 
 62. **RFC 0069: PostgreSQL-only daemon-global surfaces.** Active. Port daemon
     startup bootstrap, health, audit, sweep, dashboard-all, daemon MCP
