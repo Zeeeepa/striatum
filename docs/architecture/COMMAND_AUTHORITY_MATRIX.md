@@ -1,7 +1,7 @@
 # Command Authority Matrix
 
-Status: Phase 0 inventory
-Date: 2026-05-16
+Status: Phase 1 Go-port tracking
+Date: 2026-05-17
 Source inputs: `src/striatum/cli/parser.py`,
 `src/striatum/cli/daemon_rpc_route.py`,
 `src/striatum/daemon_rpc/registry.py`,
@@ -61,8 +61,8 @@ Legend:
 | `workflow.validate` | `workflow validate` | read | single_repo | local_file_authoring | placeholder | no | no live state | CLI-local |
 | `workflow.plan` | `workflow plan` | read | single_repo | local_file_authoring | placeholder | no | no live state | CLI-local |
 | `workflow.graph` | `workflow graph` | read | single_repo | local_file_authoring | placeholder | no | no live state | CLI-local |
-| `workflow.templates.list` | `workflow templates list` | read | single_repo | local_file_authoring | placeholder | no | no live state | CLI-local |
-| `workflow.templates.show` | `workflow templates show` | read | single_repo | local_file_authoring | placeholder | no | no live state | CLI-local |
+| `workflow.templates.list` | `workflow templates list` | read | single_repo | local_file_authoring | real | no | no live state | Go embedded catalog read; CLI remains local authoring surface |
+| `workflow.templates.show` | `workflow templates show` | read | single_repo | local_file_authoring | real | no | no live state | Go embedded catalog read; CLI remains local authoring surface |
 | `workflow.generate.preview` | web/chat preview | read | single_repo | not implemented in Python RPC | placeholder | no | no | not implemented |
 | `list.runs` | `list runs` | read | single_repo | pg | real | no | no | stable |
 | `list.sessions` | `list sessions` | read | single_repo | pg | real | no | no | stable |
@@ -83,15 +83,15 @@ Legend:
 | `supervise.send` | `supervise send` | claim | single_repo | pg | placeholder | no | no | stable |
 | `supervise.report` | wrapper control report | claim | single_repo | pg | real | no | no | Go records direct control events and helper JSONL batches; remaining supervise verbs are separate port slices |
 | `supervise.stop` | `supervise stop` | claim | single_repo | pg | placeholder | no | no | stable |
-| `supervise.status` | `supervise status` | read | single_repo | pg | placeholder | no | no | stable |
-| `supervise.list` | `supervise list` | read | single_repo | pg | placeholder | no | no | stable |
-| `supervise.reattach_status` | supervisor reattach-status DTO | read | single_repo | pg | real | no | no | stable |
-| `work.send_message` | `send` | write | single_repo | pg | placeholder | no | no | stable |
+| `supervise.status` | `supervise status` | read | single_repo | pg | real | no | no | read-only liveness/stall projection; no pointer repair or lost-state mutation |
+| `supervise.list` | `supervise list` | read | single_repo | pg | real | no | no | stable |
+| `supervise.reattach_status` | supervisor reattach-status DTO | read | single_repo | pg | real | no | no | read-only reattach DTO |
+| `work.send_message` | `send` | write | single_repo | pg | real | no | no | stable |
 | `work.block` | `block` | write | single_repo | pg | real | no | no | stable |
 | `work.complete` | `complete` | write | single_repo | pg | real | no | no | stable |
 | `artifact.publish` | `publish-artifact` | write | single_repo | pg | real | no | no | stable |
-| `worktree.create` | `worktree create` | write | single_repo | pg | placeholder | no | no | stable |
-| `worktree.release` | `worktree release` | write | single_repo | pg | placeholder | no | no | stable |
+| `worktree.create` | `worktree create` | write | single_repo | pg | real | no | no | Go shells out to `git worktree add --detach` after PG lease/workflow validation |
+| `worktree.release` | `worktree release` | write | single_repo | pg | real | no | no | Go shells out to `git worktree remove --force` and records release state |
 | `workflow.init` | `workflow init` | write | single_repo | local_file_authoring | placeholder | no | no live state | CLI-local |
 | `workflow.generate` | `workflow generate` | write | single_repo | local_file_authoring | placeholder | no | no live state | CLI-local |
 | `workflow.upgrade` | `workflow upgrade` | write | single_repo | local_file_authoring | placeholder | no | PG running-run guard; legacy SQLite only before cutover | CLI-local with fail-closed cutover guard |
@@ -132,7 +132,7 @@ Legend:
 | `daemon.token.rotate` | n/a | admin | daemon_global | not implemented in Python RPC | placeholder | no | no | bootstrap/admin placeholder |
 | `daemon.key.rotate` | n/a | admin | daemon_global | not implemented in Python RPC | placeholder | no | no | bootstrap/admin placeholder |
 | `daemon.shutdown` | `daemon stop` out of band | admin | daemon_global | daemon lifecycle helper | placeholder | no | no | bootstrap/admin |
-| `daemon.migrate` | `daemon migrate` | admin | daemon_global | migration CLI helper | placeholder | no | no repo-local workflow SQLite except source registry migration | migration |
+| `daemon.migrate` | `daemon migrate` | admin | daemon_global | migration CLI helper | real | no | no | Go applies embedded PostgreSQL migrations; no SQLite/Python dependency |
 | `daemon.migrate_repo_local` | `daemon migrate-repo-local` | admin | daemon_global | migration CLI helper | placeholder | no | yes, intentional source import | migration |
 | `cross_repo.list` | `cross-repo list` | read | cross_repo | direct cross-repo service | real | no | no | stable |
 | `cross_repo.describe` | `cross-repo describe` | read | cross_repo | direct cross-repo service | real | no | no | stable |
@@ -212,9 +212,10 @@ remediation phases should either daemon-route, quarantine, or delete.
    helpers now live in `primitives.py` and `repo_policy.py`; guardrails keep
    daemon PG/RPC production modules from importing SQLite helpers.
 6. Go has real handlers for the core reads, workflow loop, recovery, apply
-   receipts, read-detail projections, and cross-repo reads, but a large
-   repository registration, and cross-repo reads, but a large placeholder set
-   remains around supervisor, workflow authoring, daemon admin, dogfood tools,
-   and dashboard-all.
+   receipts, read-detail projections, repository registration, cross-repo
+   reads, worktree lifecycle, workflow template reads, and supervisor read
+   projections. The remaining placeholder set is concentrated around
+   supervisor process control, workflow authoring/generation/validation,
+   daemon token/key/shutdown/bootstrap migration, and dogfood tools.
    Under D107 these placeholders are production-port blockers, not accepted
    D105-era gaps.

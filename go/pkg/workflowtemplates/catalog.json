@@ -1,0 +1,175 @@
+{
+  "schema_version": "striatum.workflow_templates.v1",
+  "shapes": [
+    {
+      "template_id": "code_change",
+      "kind": "shape",
+      "display_name": "Code change with bounded revision",
+      "summary": "Draft, review, revise at most once if needed, then apply.",
+      "recommended_for": ["small code or docs edits that need an explicit review gate"],
+      "default_lane_sets": ["author_reviewer", "single_agent"],
+      "required_options": ["workflow_id", "artifact_root"],
+      "graph_preview": {
+        "nodes": [{"id": "draft", "label": "Draft"}, {"id": "review", "label": "Review"}, {"id": "apply", "label": "Apply"}],
+        "edges": [{"from": "draft", "to": "review"}, {"from": "review", "to": "apply"}],
+        "cycles": [{"from": "review", "to": "draft", "on_verdict": "needs_revision"}]
+      }
+    },
+    {
+      "template_id": "custom",
+      "kind": "shape",
+      "display_name": "Custom safe block plan",
+      "summary": "Compose a workflow from known block kinds without raw workflow JSON.",
+      "recommended_for": ["advanced operators who need a graph not covered by a built-in shape"],
+      "default_lane_sets": ["custom"],
+      "required_options": ["plan", "workflow_id", "artifact_root"],
+      "graph_preview": {"nodes": [], "edges": [], "cycles": []}
+    },
+    {
+      "template_id": "evidence_backed",
+      "kind": "shape",
+      "display_name": "Evidence-backed artifact",
+      "summary": "Produce claims with a support ledger and audit review.",
+      "recommended_for": ["artifacts whose claims need explicit evidence checking"],
+      "default_lane_sets": ["author_reviewer"],
+      "required_options": ["workflow_id", "artifact_root"],
+      "graph_preview": {
+        "nodes": [{"id": "draft", "label": "Draft"}, {"id": "support_ledger", "label": "Support ledger"}, {"id": "evidence_audit", "label": "Evidence audit"}, {"id": "final_review", "label": "Final review"}],
+        "edges": [{"from": "draft", "to": "support_ledger"}, {"from": "support_ledger", "to": "evidence_audit"}, {"from": "evidence_audit", "to": "final_review"}],
+        "cycles": []
+      }
+    },
+    {
+      "template_id": "human_checkpoint",
+      "kind": "shape",
+      "display_name": "Human checkpoint",
+      "summary": "Require owner judgment before downstream work proceeds.",
+      "recommended_for": ["runs that need an explicit operator decision gate"],
+      "default_lane_sets": ["author_reviewer", "single_agent"],
+      "required_options": ["workflow_id", "artifact_root"],
+      "graph_preview": {
+        "nodes": [{"id": "analysis", "label": "Analysis"}, {"id": "checkpoint", "label": "Checkpoint"}, {"id": "apply", "label": "Apply"}],
+        "edges": [{"from": "analysis", "to": "checkpoint"}, {"from": "checkpoint", "to": "apply"}],
+        "cycles": []
+      }
+    },
+    {
+      "template_id": "minimal",
+      "kind": "shape",
+      "display_name": "Minimal bounded job",
+      "summary": "One bounded job for a small report or starter artifact.",
+      "recommended_for": ["small reports", "narrow inspections", "first drafts"],
+      "default_lane_sets": ["local", "single_agent"],
+      "required_options": ["workflow_id", "artifact_root"],
+      "graph_preview": {"nodes": [{"id": "draft", "label": "Draft"}], "edges": [], "cycles": []}
+    },
+    {
+      "template_id": "multi_review_synthesis",
+      "kind": "shape",
+      "display_name": "Multi-review synthesis",
+      "summary": "Collect several independent reviews before a final recommendation.",
+      "recommended_for": ["productive disagreement", "RFC or proposal review"],
+      "default_lane_sets": ["multi_review"],
+      "required_options": ["workflow_id", "artifact_root"],
+      "graph_preview": {
+        "nodes": [{"id": "review_1", "label": "Review 1"}, {"id": "review_2", "label": "Review 2"}, {"id": "synthesis", "label": "Synthesis"}, {"id": "final_review", "label": "Final review"}],
+        "edges": [{"from": "review_1", "to": "synthesis"}, {"from": "review_2", "to": "synthesis"}, {"from": "synthesis", "to": "final_review"}],
+        "cycles": []
+      }
+    },
+    {
+      "template_id": "review",
+      "kind": "shape",
+      "display_name": "Review and synthesis",
+      "summary": "Draft, fresh review, then final synthesis.",
+      "recommended_for": ["proposal review", "bug triage", "documentation review"],
+      "default_lane_sets": ["author_reviewer", "single_agent", "local"],
+      "required_options": ["workflow_id", "artifact_root"],
+      "graph_preview": {
+        "nodes": [{"id": "draft", "label": "Draft"}, {"id": "review", "label": "Review"}, {"id": "apply", "label": "Synthesis"}],
+        "edges": [{"from": "draft", "to": "review"}, {"from": "review", "to": "apply"}],
+        "cycles": []
+      }
+    }
+  ],
+  "lane_sets": [
+    {
+      "template_id": "author_reviewer",
+      "kind": "lane_set",
+      "display_name": "Separate author and reviewer",
+      "summary": "Authoring jobs and review jobs bind to separate lanes.",
+      "recommended_for": ["independent review for a code or docs change"],
+      "required_options": ["lanes.author.command", "lanes.reviewer.command"]
+    },
+    {
+      "template_id": "custom",
+      "kind": "lane_set",
+      "display_name": "Custom lane bindings",
+      "summary": "Advanced lane topology with every binding declared.",
+      "recommended_for": ["custom plans with explicit job-to-lane bindings"],
+      "required_options": ["lanes", "plan.job_lane_bindings"]
+    },
+    {
+      "template_id": "local",
+      "kind": "lane_set",
+      "display_name": "Local fixture lane",
+      "summary": "Fixture/operator-by-hand starter lane that validates without a real model command.",
+      "recommended_for": ["tests", "operator-by-hand runs", "starter scaffolds"],
+      "required_options": []
+    },
+    {
+      "template_id": "multi_review",
+      "kind": "lane_set",
+      "display_name": "Multiple reviewers",
+      "summary": "One author lane plus several reviewer lanes.",
+      "recommended_for": ["productive disagreement through multiple review postures"],
+      "required_options": ["lanes.author.command"]
+    },
+    {
+      "template_id": "single_agent",
+      "kind": "lane_set",
+      "display_name": "Single agent",
+      "summary": "One real agent session handles the whole workflow.",
+      "recommended_for": ["small low-risk work", "early adoption"],
+      "required_options": ["lanes.agent.command"]
+    }
+  ],
+  "harness_profile_fragments": [
+    {
+      "profile_id": "claude_code_default",
+      "kind": "harness_profile_fragment",
+      "tool_family": "claude_code",
+      "display_name": "Claude Code default profile",
+      "summary": "Sub-agent-friendly profile with the RFC 0040 V1 no-questions instruction.",
+      "native_delegation_mode": "preferred",
+      "native_delegation_instruction": "Use sub-agents aggressively for bounded independent research, review, and code/test/doc authorship. This is a one-shot supervised invocation: you cannot ask the operator a follow-up question. If permission to call `striatum ack` is denied, write the artifact and exit normally; the operator publishes on your behalf. Do not let native delegation obscure the parent session's artifact and verdict accountability."
+    },
+    {
+      "profile_id": "codex_default",
+      "kind": "harness_profile_fragment",
+      "tool_family": "codex",
+      "display_name": "Codex default profile",
+      "summary": "Encourages native delegation with the RFC 0040 V1 no-questions instruction.",
+      "native_delegation_mode": "encouraged",
+      "native_delegation_instruction": "Use native delegation aggressively for parallelizable work. The parent session remains accountable for Striatum artifacts, write scope, verification, and completion. This is a one-shot supervised invocation: you cannot ask the operator a follow-up question. If a step is ambiguous, choose the most-conservative default that matches the synthesis and proceed; the operator publishes the result on your behalf if your CLI access is denied."
+    },
+    {
+      "profile_id": "gemini_default",
+      "kind": "harness_profile_fragment",
+      "tool_family": "gemini_cli",
+      "display_name": "Gemini default profile",
+      "summary": "Adds the RFC 0040 V1 no-questions instruction and the front-matter completeness callout.",
+      "native_delegation_mode": "encouraged",
+      "native_delegation_instruction": "Use native delegation aggressively for parallelizable work. The parent session remains accountable for Striatum artifacts, write scope, verification, and completion. This is a one-shot supervised invocation: you cannot ask the operator a follow-up question. If a step is ambiguous, choose the most-conservative default that matches the synthesis and proceed; the operator publishes the result on your behalf if your CLI access is denied. When writing finding artifacts, ALL FIVE front-matter fields are required (none are optional): schema_version, artifact_kind, verdict_intent, severity, tags. Use verdict_intent (not verdict); severity from {low,medium,high,critical} (not none); tags as a JSON array; the author: byline is a plain markdown line AFTER the front-matter block, not a key inside it. Handoff artifacts (DESIGN.md / BUILD_HANDOFF.md) do not need front matter; just the plain author: byline."
+    },
+    {
+      "profile_id": "generic_default",
+      "kind": "harness_profile_fragment",
+      "tool_family": "generic",
+      "display_name": "Generic default profile",
+      "summary": "Default profile for unspecified tool families.",
+      "native_delegation_mode": "not_applicable",
+      "native_delegation_instruction": "This is a one-shot supervised invocation: do not ask the operator a follow-up question. Write the expected artifact at the declared path and exit normally; the operator publishes on your behalf if direct CLI access is denied."
+    }
+  ]
+}

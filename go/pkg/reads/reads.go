@@ -111,11 +111,16 @@ func Register(server *rpc.Server, runner db.Runner) {
 	server.Register("run.posture_verdicts", makeHandler(runner, HandleRunPostureVerdicts))
 	server.Register("artifact.show", makeHandler(runner, HandleArtifactShow))
 	server.Register("archive.create", makeHandler(runner, HandleArchiveCreate))
+	server.Register("workflow.templates.list", makeHandler(runner, HandleWorkflowTemplatesList))
+	server.Register("workflow.templates.show", makeHandler(runner, HandleWorkflowTemplatesShow))
 	server.Register("evidence.export", makeHandler(runner, HandleEvidenceExport))
 	server.Register("corpus.export", makeHandler(runner, HandleCorpusExport))
 	server.Register("escalation.list", makeHandler(runner, HandleEscalationList))
 	server.Register("escalation.show", makeHandler(runner, HandleEscalationShow))
 	server.Register("escalation.resolve", makeHandler(runner, HandleEscalationResolve))
+	server.Register("supervise.status", makeHandler(runner, HandleSuperviseStatus))
+	server.Register("supervise.list", makeHandler(runner, HandleSuperviseList))
+	server.Register("supervise.reattach_status", makeHandler(runner, HandleSuperviseReattachStatus))
 }
 
 // handlerFn is the per-method signature: (ctx, runner, envelope) → response.

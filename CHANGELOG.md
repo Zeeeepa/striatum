@@ -45,6 +45,21 @@ Recent checkpoints:
 - Go now owns the read-only `worktree.list` handler over PostgreSQL
   `job_worktrees`, returning the Python-compatible `worktrees` row list with
   optional run filtering.
+- Go now owns `worktree.create` and `worktree.release` over PostgreSQL
+  worktree state, with repo-scope/lease/workflow validation, safe
+  `.striatum/worktrees/` path confinement, and Git worktree add/remove calls
+  performed directly by the Go daemon.
+- Go now owns `work.send_message`, inserting completed agent messages and
+  appending `message.sent` through the hash-chained PostgreSQL event helper.
+- Go now owns `workflow.templates.list` and `workflow.templates.show` from an
+  embedded copy of the workflow template catalog, with a drift test against
+  the Python package-data catalog.
+- Go now owns `supervise.status`, `supervise.list`, and
+  `supervise.reattach_status` as read-only PostgreSQL projections. The status
+  handler reports liveness, lane attestation, and stalled-supervisor fields
+  without mutating pointer rows or draining helper events.
+- Go now owns `daemon.migrate`, applying the embedded daemon PostgreSQL
+  migrations without Python or SQLite.
 - Go now owns `run.graph` for JSON, Mermaid, DOT, and ASCII run graph
   projections from PostgreSQL workflow snapshots, materialized dependencies,
   latest job attempts, and review verdicts.

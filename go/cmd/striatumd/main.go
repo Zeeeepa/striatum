@@ -11,6 +11,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/halbritt/striatum/go/pkg/admin"
 	daemonapply "github.com/halbritt/striatum/go/pkg/apply"
 	"github.com/halbritt/striatum/go/pkg/crossrepo"
 	"github.com/halbritt/striatum/go/pkg/db"
@@ -181,6 +182,7 @@ func main() {
 }
 
 func registerHandlers(server *rpc.Server, runner db.Runner) {
+	admin.Service{Runner: runner, DaemonVersion: daemonVersion}.Register(server)
 	daemonapply.Service{Runner: runner}.Register(server)
 	registerCrossRepoHandlers(server, runner)
 	// RFC 0048 Phase B: register the Go-core read-surface handlers

@@ -52,12 +52,15 @@ func TestRegisterInstallsInitialMutationHandlers(t *testing.T) {
 		"heartbeat",
 		"work.release",
 		"release",
+		"work.send_message",
 		"work.block",
 		"block",
 		"work.complete",
 		"complete",
 		"artifact.publish",
 		"publish_artifact",
+		"worktree.create",
+		"worktree.release",
 		"review.verdict",
 		"verdict",
 		"review.submit",
@@ -97,6 +100,36 @@ func TestRegisterInstallsInitialMutationHandlers(t *testing.T) {
 		if !errors.As(err, &rpcErr) || rpcErr.Code != "repo_not_registered" {
 			t.Fatalf("%s handler did not run expected repo-scope validation: %v", method, err)
 		}
+	}
+}
+
+func TestSendMessageBodyDefaultsAndValidatesObjects(t *testing.T) {
+	body, err := sendMessageBody(map[string]any{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(body) != 0 {
+		t.Fatalf("default body = %#v", body)
+	}
+
+	body, err = sendMessageBody(map[string]any{"body_json": `{"summary":"working"}`})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if body["summary"] != "working" {
+		t.Fatalf("body summary = %#v", body["summary"])
+	}
+
+	_, err = sendMessageBody(map[string]any{"body_json": `[]`})
+	var rpcErr *rpc.Error
+	if !errors.As(err, &rpcErr) || rpcErr.Code != "invalid_transition" {
+		t.Fatalf("non-object body error = %v, want invalid_transition", err)
+	}
+
+	_, err = sendMessageBody(map[string]any{"body_json": `{`})
+	rpcErr = nil
+	if !errors.As(err, &rpcErr) || rpcErr.Code != "schema_invalid" {
+		t.Fatalf("invalid JSON body error = %v, want schema_invalid", err)
 	}
 }
 

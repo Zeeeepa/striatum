@@ -1200,7 +1200,12 @@ review and plan are root-level operator artifacts:
     also owns a read-only `dashboard.all` subset over the
     PostgreSQL repository registry and per-repo read projections. Go now owns
     `supervise.report` for direct wrapper control events and helper JSONL
-    batches; other `supervise.*` verbs remain tracked by the coverage ledger.
+    batches. Go now also owns `work.send_message`, `worktree.create`,
+    `worktree.release`, `workflow.templates.list`, `workflow.templates.show`,
+    `supervise.status`, `supervise.list`, `supervise.reattach_status`, and
+    `daemon.migrate`. The supervisor read handlers are intentionally
+    projection-only; `supervise.start`, `supervise.send`, and `supervise.stop`
+    remain the next process-control port slices.
 
 62. **RFC 0069: PostgreSQL-only daemon-global surfaces.** Active. Port daemon
     startup bootstrap, health, audit, sweep, dashboard-all, daemon MCP
