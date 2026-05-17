@@ -70,12 +70,15 @@ from striatum.web.doctor import shape_doctor_records as _shape_doctor_records
 from striatum.web import chat_session as _chat_session
 from striatum.web.chat_session import (
     append_jsonl as _append_jsonl,
-    format_ts as _format_ts,
+    chat_session_path as _chat_session_path,
+    find_pending_tool_confirmation as _find_pending_tool_confirmation,
+    list_chat_sessions as _list_chat_sessions,
     parse_simple_multipart as _parse_simple_multipart,
+    queue_workflow_write_confirmation as _queue_workflow_write_confirmation,
     read_chat_history as _read_chat_history,
+    read_display_messages as _read_display_messages,
     safe_git as _safe_git,
     split_system as _split_system,
-    stable_json_hash as _stable_json_hash,
     utc_now_iso as _utc_now_iso,
 )
 
@@ -1912,40 +1915,9 @@ class StriatumServiceHandler(BaseHTTPRequestHandler):
         except ChatProviderError:
             return None
 
-    def _chat_scratch_root(self) -> Path:
-        return self.state.repo / ".striatum" / "scratch"
-
-    def _chat_session_path(self, session_id: str) -> Path | None:
-        if not session_id or "/" in session_id or ".." in session_id:
-            return None
-        return self._chat_scratch_root() / f"chat-{session_id}" / "transcript.jsonl"
-
-    def _list_chat_sessions(self) -> list[dict[str, Any]]:
-        root = self._chat_scratch_root()
-        if not root.exists():
-            return []
-        sessions = []
-        for entry in sorted(root.iterdir()):
-            if not entry.is_dir() or not entry.name.startswith("chat-"):
-                continue
-            transcript = entry / "transcript.jsonl"
-            if not transcript.is_file():
-                continue
-            session_id = entry.name[len("chat-"):]
-            try:
-                lines = transcript.read_text(encoding="utf-8").splitlines()
-                count = sum(1 for line in lines if line.strip())
-                started_at = entry.stat().st_mtime
-            except OSError:
-                continue
-            sessions.append(
-                {"id": session_id, "message_count": count, "started_at": _format_ts(started_at)}
-            )
-        return sessions
-
     def _render_chat_index_page(self) -> None:
         config = self._chat_config()
-        sessions = self._list_chat_sessions() if config else []
+        sessions = _list_chat_sessions(self.state.repo) if config else []
         try:
             html = _jinja_env().get_template("chat_index.html").render(
                 chat_configured=config is not None,
@@ -1979,64 +1951,15 @@ class StriatumServiceHandler(BaseHTTPRequestHandler):
     def _render_chat_session_page(self, session_id: str) -> None:
         from striatum.web.markdown import render as md_render
         config = self._chat_config()
-        path = self._chat_session_path(session_id)
+        path = _chat_session_path(self.state.repo, session_id)
         if path is None or not path.is_file():
             self._send_json(404, {"ok": False, "error": {"code": 404, "message": "chat session not found"}})
             return
-        messages: list[dict[str, Any]] = []
-        try:
-            for raw in path.read_text(encoding="utf-8").splitlines()[-200:]:
-                if not raw.strip():
-                    continue
-                try:
-                    entry = json.loads(raw)
-                except json.JSONDecodeError:
-                    continue
-                role = str(entry.get("role") or "")
-                if role in ("tool_use", "tool_result"):
-                    messages.append(
-                        {
-                            "role": role,
-                            "tool_name": entry.get("tool_name") or "",
-                            "tool_input": entry.get("tool_input") or {},
-                            "result": entry.get("result") or "",
-                            "created_at": entry.get("created_at") or "",
-                        }
-                    )
-                    continue
-                if role == "tool_confirmation":
-                    messages.append(
-                        {
-                            "role": role,
-                            "tool_name": entry.get("tool_name") or "",
-                            "tool_input": entry.get("tool_input") or {},
-                            "tool_use_id": entry.get("tool_use_id") or "",
-                            "confirmation_token": entry.get("confirmation_token") or "",
-                            "state": entry.get("state") or "",
-                            "spec_hash": entry.get("spec_hash") or "",
-                            "created_at": entry.get("created_at") or "",
-                        }
-                    )
-                    continue
-                # RFC 0023 V1.5: skip streaming-chunk replays in the
-                # initial render; only the final non-streaming entry
-                # represents an assistant turn for replay purposes.
-                if role == "assistant" and entry.get("streaming") is True:
-                    continue
-                content = str(entry.get("content") or "")
-                rendered = md_render(content) if role in ("assistant", "system") else (
-                    "<p>" + _escape_html(content).replace("\n", "<br>") + "</p>"
-                )
-                messages.append(
-                    {
-                        "role": role,
-                        "content": content,
-                        "rendered": rendered,
-                        "created_at": entry.get("created_at") or "",
-                    }
-                )
-        except OSError:
-            pass
+        messages = _read_display_messages(
+            path,
+            markdown_render=md_render,
+            html_escape=_escape_html,
+        )
         try:
             html = _jinja_env().get_template("chat.html").render(
                 session_id=session_id,
@@ -2059,7 +1982,7 @@ class StriatumServiceHandler(BaseHTTPRequestHandler):
         # Read but discard the form body if present.
         self._read_form_body(max_bytes=4096)
         session_id = uuid.uuid4().hex[:8]
-        target = self._chat_session_path(session_id)
+        target = _chat_session_path(self.state.repo, session_id)
         if target is None:
             self._send_json(500, {"ok": False, "error": {"code": 500, "message": "could not allocate chat session"}})
             return
@@ -2092,7 +2015,7 @@ class StriatumServiceHandler(BaseHTTPRequestHandler):
         if config is None:
             self._send_json(412, {"ok": False, "error": {"code": 412, "message": "chat is not configured"}})
             return
-        path = self._chat_session_path(session_id)
+        path = _chat_session_path(self.state.repo, session_id)
         if path is None or not path.is_file():
             self._send_json(404, {"ok": False, "error": {"code": 404, "message": "chat session not found"}})
             return
@@ -2160,11 +2083,13 @@ class StriatumServiceHandler(BaseHTTPRequestHandler):
                          "created_at": _utc_now_iso()},
                     )
                     if tool_name == "generate_workflow_write":
-                        raw_result = self._queue_chat_workflow_write_confirmation(
+                        raw_result = _queue_workflow_write_confirmation(
                             path=path,
                             session_id=session_id,
                             tool_id=tool_id,
                             tool_args=tool_args,
+                            allow_mutations=self.state.allow_mutations,
+                            token_factory=lambda: secrets.token_urlsafe(24),
                         )
                         wrapped = wrap_tool_result(tool_name, tool_args, raw_result)
                         _append_jsonl(
@@ -2215,42 +2140,6 @@ class StriatumServiceHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", "0")
         self.end_headers()
 
-    def _queue_chat_workflow_write_confirmation(
-        self,
-        *,
-        path: Path,
-        session_id: str,
-        tool_id: str,
-        tool_args: dict[str, Any],
-    ) -> str:
-        if not self.state.allow_mutations:
-            return (
-                "[error] mutations_disabled: service started without --allow-mutations; "
-                "ask the operator to restart with --allow-mutations before writing workflows"
-            )
-        if tool_args.get("confirm_write") is not True:
-            return "[error] confirm_write_missing: generate_workflow_write requires confirm_write: true"
-        spec = tool_args.get("spec")
-        if not isinstance(spec, dict):
-            return "[error] missing spec object"
-        token = secrets.token_urlsafe(24)
-        entry = {
-            "role": "tool_confirmation",
-            "tool_use_id": tool_id,
-            "tool_name": "generate_workflow_write",
-            "tool_input": tool_args,
-            "chat_session_id": session_id,
-            "confirmation_token": token,
-            "spec_hash": _stable_json_hash(spec),
-            "state": "pending",
-            "created_at": _utc_now_iso(),
-        }
-        _append_jsonl(path, entry)
-        return (
-            "[pending] operator confirmation required before writing workflow files; "
-            "the chat UI has queued a one-shot confirmation."
-        )
-
     def _handle_chat_confirm_tool(self, session_id: str, tool_id: str) -> None:
         if not _is_safe_id(session_id) or not _is_safe_id(tool_id):
             self._send_json(400, {"ok": False, "error": {"code": 400, "message": "invalid chat confirmation id"}})
@@ -2258,7 +2147,7 @@ class StriatumServiceHandler(BaseHTTPRequestHandler):
         if not self.state.allow_mutations:
             self._send_json(405, {"ok": False, "error": {"code": 405, "message": "mutations_disabled", "kind": "mutations_disabled"}})
             return
-        path = self._chat_session_path(session_id)
+        path = _chat_session_path(self.state.repo, session_id)
         if path is None or not path.is_file():
             self._send_json(404, {"ok": False, "error": {"code": 404, "message": "chat session not found"}})
             return
@@ -2267,7 +2156,7 @@ class StriatumServiceHandler(BaseHTTPRequestHandler):
             return
         token = (form.get("token") or [""])[0]
         action = (form.get("action") or ["confirm"])[0]
-        pending = self._find_pending_tool_confirmation(path=path, tool_id=tool_id)
+        pending = _find_pending_tool_confirmation(path=path, tool_id=tool_id)
         if pending is None:
             self._send_json(404, {"ok": False, "error": {"code": 404, "message": "confirmation not found"}})
             return
@@ -2307,28 +2196,6 @@ class StriatumServiceHandler(BaseHTTPRequestHandler):
             return
         self._send_json(200, json.loads(raw_result))
 
-    def _find_pending_tool_confirmation(self, *, path: Path, tool_id: str) -> dict[str, Any] | None:
-        found: dict[str, Any] | None = None
-        try:
-            for raw in path.read_text(encoding="utf-8").splitlines():
-                if not raw.strip():
-                    continue
-                try:
-                    entry = json.loads(raw)
-                except json.JSONDecodeError:
-                    continue
-                if (
-                    entry.get("role") == "tool_confirmation"
-                    and entry.get("tool_use_id") == tool_id
-                ):
-                    if entry.get("state") == "pending":
-                        found = entry
-                    elif entry.get("state") == "used":
-                        found = None
-        except OSError:
-            return None
-        return found
-
     def _handle_chat_stop(self, session_id: str) -> None:
         if not _is_safe_id(session_id):
             self._send_json(400, {"ok": False, "error": {"code": 400, "message": "invalid chat session id"}})
@@ -2348,7 +2215,7 @@ class StriatumServiceHandler(BaseHTTPRequestHandler):
         if not _is_safe_id(session_id):
             self._send_json(400, {"ok": False, "error": {"code": 400, "message": "invalid chat session id"}})
             return
-        path = self._chat_session_path(session_id)
+        path = _chat_session_path(self.state.repo, session_id)
         if path is None:
             self._send_json(404, {"ok": False, "error": {"code": 404, "message": "chat session not found"}})
             return

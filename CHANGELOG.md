@@ -55,8 +55,10 @@ in the roadmap/TODO and has several production slices landed:
   pure HTTP/security helpers moved from `service.py` into
   `service_http.py` while keeping the existing `striatum.service` imports
   stable. Chat transcript projection, briefing, JSONL append, timestamp,
-  stable-hash, safe-git, and multipart helpers now live in
-  `striatum.web.chat_session`, with thin `service.py` compatibility aliases.
+  stable-hash, safe-git, multipart, session path/listing, display-message,
+  and workflow-write confirmation helpers now live in
+  `striatum.web.chat_session`, leaving `service.py` focused on HTTP routing,
+  provider streaming, and response handling.
   The gated subprocess-fixture mutation fallbacks and legacy error mappers
   now live in `service_legacy.py`. The remaining legacy page-read payload
   builders, view-file breadcrumb lookup, doctor-page fixture payload, SSE

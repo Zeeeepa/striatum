@@ -393,8 +393,9 @@ daemon-first without needing to support two domain daemons.
   tests.
 - `src/striatum/web/chat_session.py` now owns chat transcript projection,
   chat-briefing construction, JSONL append, timestamp, stable-hash,
-  safe-git, and multipart parsing helpers. `service.py` keeps thin
-  compatibility aliases for tests and request handlers.
+  safe-git, multipart parsing, session path/listing, display-message, and
+  workflow-write confirmation helpers. `service.py` keeps HTTP routing,
+  provider/tool orchestration, and response handling.
 - `src/striatum/service_legacy.py` now owns the gated subprocess-fixture
   mutation fallbacks and legacy error mappers, narrowing `service.py` toward
   request handling plus rendering.
