@@ -300,6 +300,15 @@ def build_parser() -> argparse.ArgumentParser:
         help="report what would be migrated without writing to Postgres or finalizing SQLite",
     )
     daemon_migrate_repo.add_argument(
+        "--verify-cutover",
+        action="store_true",
+        help=(
+            "emit a verify-only striatum.repo_cutover_report.v1 using "
+            "Postgres queries plus raw source/tombstone/sentinel file checks; "
+            "does not open SQLite"
+        ),
+    )
+    daemon_migrate_repo.add_argument(
         "--keep-sqlite-readonly",
         dest="keep_sqlite_readonly",
         action="store_true",

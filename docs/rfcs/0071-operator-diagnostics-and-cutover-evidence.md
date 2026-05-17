@@ -55,13 +55,16 @@ After RFC 0069 and RFC 0070 land:
   SQLite exceptions, and remediation recommendations.
 - The daemon doctor treats a production-disabled legacy SQLite registry as the
   expected post-cutover state when PostgreSQL doctor is healthy.
-- Repository-specific cutover verification remains open; the first slice is
-  daemon/global authority evidence.
+- `striatum daemon migrate-repo-local --from sqlite --to pg --repo <path>
+  --verify-cutover --json` now emits `striatum.repo_cutover_report.v1` with
+  repository registration, migration checkpoint, destination counts, raw
+  source/tombstone/sentinel state, event-chain anchor health, and bounded
+  SQLite exception notes. The verifier does not open SQLite as a database.
 
 ## Open Questions
 
-- Should repository-specific cutover verification be a repo command, a daemon
-  doctor section, or both?
+- Should repository-specific cutover verification also be mirrored in daemon
+  doctor, or is the migration command diagnostic sufficient?
 - How much of `docs/architecture/COMMAND_AUTHORITY_MATRIX.md` should be
   generated versus curated?
 

@@ -1245,14 +1245,15 @@ review and plan are root-level operator artifacts:
     keep the primitive daemon-method workflow as the supported path, plus the
     broader Python-daemon retirement under RFC 0068.
 
-64. **RFC 0071: operator diagnostics and cutover evidence.** First slice
+64. **RFC 0071: operator diagnostics and cutover evidence.** Diagnostic slices
     landed: `striatum daemon doctor --authority --json` reports
     `striatum.authority_report.v1`, including PostgreSQL live-state authority,
     legacy SQLite registry status, method fallback counts, remaining
-    migration/test-only SQLite exceptions, and remediation recommendations.
-    Remaining: repository-specific verify-cutover evidence and a decision on
-    how much of the command authority matrix should be generated versus
-    curated.
+    migration/test-only SQLite exceptions, and remediation recommendations;
+    `striatum daemon migrate-repo-local --from sqlite --to pg --repo <path>
+    --verify-cutover --json` reports `striatum.repo_cutover_report.v1` without
+    opening SQLite as a database. Remaining: decide how much of the command
+    authority matrix should be generated versus curated.
 
 ## GH issue follow-ups
 

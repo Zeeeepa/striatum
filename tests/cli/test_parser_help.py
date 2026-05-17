@@ -55,6 +55,7 @@ def test_help_documents_every_migrate_flag(
         "--repo",
         "--postgres-url",
         "--dry-run",
+        "--verify-cutover",
         "--keep-sqlite-readonly",
         "--no-keep-sqlite-readonly",
         "--confirm-delete",

@@ -318,6 +318,9 @@ Recent checkpoints:
 - The legacy `byline` helper and `inbox --session-id` packet helper are also
   retired outside fixtures; production clients should use daemon read
   surfaces.
+- `daemon migrate-repo-local --verify-cutover --json` now emits
+  `striatum.repo_cutover_report.v1` using PostgreSQL queries plus raw
+  source/tombstone/sentinel file checks, without opening SQLite as a database.
 - Fresh-clone and package smoke scripts now exercise the daemon/Postgres repo
   registration path when PostgreSQL is available, keep their smoke workflow
   inside the target repository for `run prepare`, install the packaged RPC

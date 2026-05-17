@@ -283,10 +283,25 @@ refuses to delete without it.
 ```bash
 # Repo-local workflow state now reads from Postgres. Pre-existing
 # runs and jobs remain queryable through the normal CLI surfaces.
+striatum daemon migrate-repo-local \
+  --from sqlite --to pg \
+  --repo /path/to/target \
+  --verify-cutover \
+  --json
 striatum --repo /path/to/target status --json
 striatum --repo /path/to/target doctor --verbose --json
 striatum --repo /path/to/target list runs --json
 ```
+
+`--verify-cutover` emits `striatum.repo_cutover_report.v1`. The
+report confirms repository registration, the `repo_migrations`
+checkpoint, destination row counts not below checkpoint counts,
+absence of the live source `.striatum/state.sqlite3`, tombstone or
+delete finalization, sentinel absence or incomplete-finalization
+diagnosis, event-chain anchor health, and the bounded migration/test
+SQLite exception notes. It is verify-only: it uses Postgres queries
+and raw file/tombstone/sentinel stat/hash checks, and it does not open
+SQLite as a database or resume finalization.
 
 A repo that has not been migrated refuses CLI verbs with **exit
 code 12 (`repo_not_migrated`)**. The stderr message points at

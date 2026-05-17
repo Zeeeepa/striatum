@@ -176,7 +176,7 @@ striatum daemon migrate --from sqlite --to pg [--dry-run]
                          [--keep-sqlite-readonly]
 striatum daemon migrate-repo-local --from sqlite --to pg
                          [--repo <path>] [--postgres-url <url>]
-                         [--dry-run]
+                         [--dry-run] [--verify-cutover]
                          [--keep-sqlite-readonly |
                           --no-keep-sqlite-readonly --confirm-delete]
                          [--json]
@@ -268,6 +268,12 @@ migration only. `--dry-run` writes nothing. The default
 `--no-keep-sqlite-readonly --confirm-delete` (both flags required)
 for irreversible cleanup. Idempotent re-runs against a
 fully-migrated repo report `already migrated` and exit 0.
+`--verify-cutover --json` is a verify-only diagnostic that emits
+`striatum.repo_cutover_report.v1`: repository registration,
+checkpoint state, destination row counts compared with the checkpoint,
+raw source/tombstone/sentinel file state, event-chain anchor health,
+and the bounded SQLite exception notes. It does not open SQLite as a
+database and does not resume finalization.
 CLI verbs against an unmigrated repo refuse with exit code 12
 (`repo_not_migrated`) and point at this command. See
 [POSTGRES_TRANSITION.md](POSTGRES_TRANSITION.md) for the operator
