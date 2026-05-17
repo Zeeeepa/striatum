@@ -68,6 +68,37 @@ func TestGoDaemonMethodCoverageIsExplicit(t *testing.T) {
 	assertSameStrings(t, "Go daemon not_implemented handlers", notImplementedHandlers, nil)
 }
 
+func TestRegisterHandlersWiresShutdownHook(t *testing.T) {
+	server := rpc.NewServer()
+	called := false
+	registerHandlers(server, coverageRunner{}, handlerOptions{
+		ShutdownHook: func(context.Context) error {
+			called = true
+			return nil
+		},
+	})
+
+	handler := server.Handlers["daemon.shutdown"]
+	if handler == nil {
+		t.Fatalf("daemon.shutdown handler missing")
+	}
+	result, err := handler(context.Background(), rpc.Envelope{
+		SchemaVersion: rpc.SupportedEnvelopeVersion,
+		RequestID:     "shutdown-test",
+		Method:        "daemon.shutdown",
+		Params:        map[string]any{},
+	})
+	if err != nil {
+		t.Fatalf("daemon.shutdown returned error: %v", err)
+	}
+	if !called {
+		t.Fatalf("shutdown hook was not called")
+	}
+	if result["status"] != "shutting_down" || result["accepted"] != true {
+		t.Fatalf("unexpected shutdown result: %#v", result)
+	}
+}
+
 func coverageParams() map[string]any {
 	return map[string]any{
 		"apply_receipt_id":     "receipt_1",

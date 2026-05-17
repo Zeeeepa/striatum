@@ -33,6 +33,9 @@ Recent checkpoints:
   builds and tests the Go daemon, then runs the multi-repo harness with
   `CORE=go`, including Go daemon smoke, audit, mutation-registry, and
   supervisor smoke coverage.
+- Go `daemon.shutdown` now wires through the daemon process cancellation path
+  and returns an accepted shutdown response instead of the previous
+  fail-closed `shutdown_unavailable` placeholder.
 - Go `doctor` now reads `striatumd.schema_meta['substrate_version']` instead
   of querying a nonexistent `schema_meta.version` column.
 - Daemon RPC handshakes from the CLI and day-zero first-run smoke now use

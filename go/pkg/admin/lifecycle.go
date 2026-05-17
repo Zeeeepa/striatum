@@ -6,9 +6,8 @@ import (
 	"github.com/halbritt/striatum/go/pkg/rpc"
 )
 
-// ShutdownFunc is the daemon-process hook for orderly shutdown. The current
-// production wiring does not pass a process cancel hook into the admin service,
-// so the handler fails closed instead of pretending shutdown succeeded.
+// ShutdownFunc is the daemon-process hook for orderly shutdown. Tests can omit
+// it to keep the handler's fail-closed behavior explicit.
 type ShutdownFunc func(context.Context) error
 
 // KeyRotateFunc is the sealed-apply signing-key rotation hook. Go daemon key

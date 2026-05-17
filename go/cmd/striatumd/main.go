@@ -10,6 +10,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strconv"
+	"sync"
 	"syscall"
 	"time"
 
@@ -186,7 +187,16 @@ func main() {
 	if recorder != nil {
 		server.AuditRecorder = recorder
 	}
-	registerHandlers(server, runner)
+	var shutdownOnce sync.Once
+	shutdownHook := func(context.Context) error {
+		go func() {
+			// Let the RPC response flush before closing the listener.
+			time.Sleep(50 * time.Millisecond)
+			shutdownOnce.Do(cancel)
+		}()
+		return nil
+	}
+	registerHandlers(server, runner, handlerOptions{ShutdownHook: shutdownHook})
 
 	if err := os.MkdirAll(filepath.Dir(socketPath), 0o700); err != nil {
 		log.Fatalf("create socket directory: %v", err)
@@ -266,8 +276,22 @@ func (f *optionalIntFlag) String() string {
 	return strconv.Itoa(f.Value)
 }
 
-func registerHandlers(server *rpc.Server, runner db.Runner) {
-	admin.Service{Runner: runner, DaemonVersion: daemonVersion}.Register(server)
+type handlerOptions struct {
+	ShutdownHook  admin.ShutdownFunc
+	KeyRotateHook admin.KeyRotateFunc
+}
+
+func registerHandlers(server *rpc.Server, runner db.Runner, opts ...handlerOptions) {
+	options := handlerOptions{}
+	if len(opts) > 0 {
+		options = opts[0]
+	}
+	admin.Service{
+		Runner:        runner,
+		DaemonVersion: daemonVersion,
+		ShutdownHook:  options.ShutdownHook,
+		KeyRotateHook: options.KeyRotateHook,
+	}.Register(server)
 	daemonapply.Service{Runner: runner}.Register(server)
 	registerCrossRepoHandlers(server, runner)
 	// RFC 0048 Phase B: register the Go-core read-surface handlers

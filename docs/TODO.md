@@ -1215,8 +1215,9 @@ review and plan are root-level operator artifacts:
     `repo.init`, `workflow.validate`, `workflow.plan`, `workflow.graph`,
     `workflow.generate.preview`, `workflow.generate`, `workflow.init`, and
     `workflow.upgrade`. Go now registers explicit fail-closed handlers for
-    `daemon.key.rotate`, `daemon.shutdown`, `daemon.migrate_repo_local`,
-    `dogfood.publish_on_behalf`, and `dogfood.surgical_recovery`; the Go
+    `daemon.key.rotate`, `daemon.migrate_repo_local`,
+    `dogfood.publish_on_behalf`, and `dogfood.surgical_recovery`; Go
+    `daemon.shutdown` now wires to the process cancellation path. The Go
     handler-coverage ledger reports zero generic `not_implemented` handlers
     for active contract methods. Go also owns daemon-global `repo.resolve` for
     repository path resolution without client-side direct PG access, and fresh

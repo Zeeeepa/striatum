@@ -225,6 +225,6 @@ remediation phases should either daemon-route, quarantine, or delete.
    daemon PG/RPC production modules from importing SQLite helpers.
 9. Go no longer has generic `not_implemented` handlers for active contract
    methods. Remaining Go-port debt is explicit fail-closed or parity work:
-   `apply.reviewed_patch`, dogfood composites, daemon key/shutdown hooks,
+   `apply.reviewed_patch`, dogfood composites, daemon key rotation,
    the retired repo-local migration import, and web/service DTO parity gaps
    tracked under RFC 0069-0071.
