@@ -7,6 +7,23 @@
 The remediation plan from the 2026-05-16 architecture review is now tracked
 in the roadmap/TODO and has several production slices landed:
 
+Recent checkpoints:
+
+- `supervise.status`, `doctor`, and `status` now surface stalled attached
+  supervisors, and recovery sweep opens
+  `heartbeat_stall_lease_expired` blockers when stalled leases expire.
+- The historical three-lane design/build/review workflow fixture is now
+  indexed under `examples/three-lane-design-build-review/` with graph and
+  referenced-file regression coverage.
+- The `/doctor` HTML page renders from daemon `doctor` in production while
+  keeping the old fixture payload path quarantined for the subprocess test
+  harness.
+- PostgreSQL lane-liveness attestation now verifies the session/run binding,
+  live PID identity, PID start-time token, and workflow snapshot lane command.
+- Chat transcript, briefing, session listing, display projection, and
+  workflow-write confirmation helpers now live in `striatum.web.chat_session`
+  with focused regression coverage.
+
 - **Command authority and fallback guardrails.**
   `docs/architecture/COMMAND_AUTHORITY_MATRIX.md` now names the authority
   owner for daemon RPC, CLI translation, Python PG handlers, Go helper
