@@ -20,6 +20,10 @@ Recent checkpoints:
   harness.
 - PostgreSQL lane-liveness attestation now verifies the session/run binding,
   live PID identity, PID start-time token, and workflow snapshot lane command.
+- The Postgres supervision handler suite now launches the real
+  `go/bin/striatum-supervisor-helper` in a focused integration test and
+  verifies start, send, packet acknowledgement, status drain, and agent-exit
+  event ingestion across the Python/Go boundary.
 - Chat transcript, briefing, session listing, display projection, and
   workflow-write confirmation helpers now live in `striatum.web.chat_session`
   with focused regression coverage.
@@ -111,7 +115,10 @@ Recent checkpoints:
   the OS process. PostgreSQL lane-liveness attestation now matches the
   stricter legacy semantics: attached supervisor rows attest only when the
   session/run binding, live PID, PID start-time token, and workflow snapshot
-  lane command all match.
+  lane command all match. The Postgres supervision handler tests now include
+  a focused integration case that launches the built Go helper and verifies
+  helper event ingestion across `supervise.start`, `supervise.send`, and
+  `supervise.status`.
 - **Workflow risk lint.**
   `striatum workflow lint` supports structured warnings, opt-in strict mode,
   accepted-risk rationale and decision references, advisory coverage scoring,

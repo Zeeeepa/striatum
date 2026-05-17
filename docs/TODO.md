@@ -105,7 +105,7 @@ so external references keep resolving even as items move between sections.
 | 51 | Architecture remediation Phase 3 — daemon core strategy decision | ✅ done |
 | 52 | RFC 0061 Architecture remediation Phase 4 — daemon-first web service | 🟡 core web/API + artifact reads daemon-routed |
 | 53 | RFC 0062 Architecture remediation Phase 5 — real escalation inbox | 🟡 projection + escalation artifact schema/linkage landed |
-| 54 | RFC 0063 Architecture remediation Phase 6 — hardened PTY supervision | 🟡 control-event, helper protocol, JSONL ingestion, and helper launch slices landed |
+| 54 | RFC 0063 Architecture remediation Phase 6 — hardened PTY supervision | 🟡 control-event, helper protocol, JSONL ingestion, helper launch, and real-helper integration coverage landed |
 | 55 | RFC 0064 Architecture remediation Phase 7 — workflow risk lint and review diversity enforcement | 🟡 validate refusal + generator coverage landed |
 | 56 | Architecture remediation Phase 8 — auto-finalize from front matter | 🟡 daemon recovery + visibility slices landed |
 | 57 | RFC 0065 Architecture remediation Phase 9 — UI packaging and bundle cleanup | ✅ done; chunking monitor only |
@@ -951,8 +951,11 @@ review and plan are root-level operator artifacts:
     lane-liveness attestation require same session/run binding, live PID,
     matching PID start token, and matching workflow snapshot lane command
     before `require_attested_lane` or byline derivation treat a lane as
-    attested. Remaining: actual restart reattach/lost-state semantics,
-    wrapper fixtures, real Go-helper integration coverage, and promotion of
+    attested. Follow-up slice added a focused Postgres handler integration
+    test that launches the built Go `striatum-supervisor-helper` and verifies
+    start, send, packet acknowledgement, status drain, and agent-exit event
+    ingestion across the Python/Go boundary. Remaining: actual restart
+    reattach/lost-state semantics, wrapper fixtures, and promotion of
     helper-only CI beyond focused tests.
 
 55. **Phase 7: workflow risk lint and review diversity enforcement.**

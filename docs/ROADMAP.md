@@ -483,10 +483,14 @@ decide whether to rename the packet helper to `packet inbox`.
   semantics: an attached supervisor row attests only when its session/run,
   live PID, PID start-time token, and command match the immutable workflow
   snapshot lane command.
+- The Postgres supervision handler suite now has a focused real-helper
+  integration test that launches `go/bin/striatum-supervisor-helper`, sends
+  a work packet through the PTY-helper transport, drains packet-acknowledged
+  and agent-exited JSONL events, and verifies the Python daemon state/event
+  projection.
 
 **Remaining Phase 6 debt:** actual restart reattach/lost-state recovery,
-wrapper fixtures, real Go-helper integration coverage, and broader
-helper-only CI.
+wrapper fixtures, and broader helper-only CI.
 
 ---
 

@@ -619,6 +619,151 @@ def test_pty_helper_send_drains_packet_ack_through_report(
         conn.close()
 
 
+def test_real_go_pty_helper_launch_send_status_ingests_events(
+    tmp_path: Path, pg_url: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    helper = Path(__file__).resolve().parents[3] / "go" / "bin" / "striatum-supervisor-helper"
+    if not helper.is_file():
+        pytest.skip("go/bin/striatum-supervisor-helper is not built")
+    monkeypatch.setenv("STRIATUM_SUPERVISOR_HELPER", str(helper))
+    conn = connect(pg_url)
+    started: dict[str, Any] | None = None
+    try:
+        repo = tmp_path / "repo"
+        command = [
+            sys.executable,
+            "-c",
+            (
+                "import signal, sys, time\n"
+                "def stop(*_args):\n"
+                "    raise SystemExit(0)\n"
+                "signal.signal(signal.SIGTERM, stop)\n"
+                "while True:\n"
+                "    line = sys.stdin.readline()\n"
+                "    if not line:\n"
+                "        time.sleep(0.05)\n"
+                "        continue\n"
+                "    print('accepted', flush=True)\n"
+            ),
+        ]
+        _seed_supervisable_session(
+            conn,
+            repo,
+            repository_id="repo_a",
+            command=command,
+            supervision_transport="pty_helper",
+        )
+        _seed_work_packet(
+            conn,
+            repository_id="repo_a",
+            session_id="sess_1",
+            packet_id="wp_1",
+        )
+        conn.commit()
+
+        started = handle_start(_ctx(conn, repo, "repo_a"), {"session_id": "sess_1"})
+
+        assert started["state"] == "attached"
+        assert started["transport"] == "pty_helper"
+        helper_process = started["helper_process"]
+        assert helper_process is not None
+        helper_pid = helper_process["pid"]
+        agent_pid = started["pid"]
+        assert isinstance(helper_pid, int)
+        assert agent_pid != helper_pid
+        assert _pid_is_alive(helper_pid)
+        metadata = _one(
+            conn,
+            """
+            SELECT p.metadata_json, ps.pid, ps.state
+            FROM striatumd.process_supervisor_pointers p
+            JOIN striatumd.process_supervisors ps
+              ON ps.repository_id = p.repository_id
+             AND ps.supervisor_id = p.supervisor_id
+            WHERE p.repository_id = %s AND p.supervisor_id = %s
+            """,
+            ("repo_a", started["supervisor_id"]),
+        )
+        assert metadata["state"] == "attached"
+        assert metadata["pid"] == agent_pid
+        assert metadata["metadata_json"]["transport"] == "pty_helper"
+        assert metadata["metadata_json"]["helper_pid"] == helper_pid
+        assert metadata["metadata_json"]["helper_events_offset"] > 0
+        assert Path(metadata["metadata_json"]["helper_events_path"]).exists()
+        event_types = [row["event_type"] for row in _events(conn, "repo_a")]
+        assert "supervisor.agent_started" in event_types
+
+        sent = handle_send(
+            _ctx(conn, repo, "repo_a"),
+            {"session_id": "sess_1", "packet_id": "wp_1"},
+        )
+
+        assert sent["delivery_state"] == "delivered_unacknowledged"
+        _wait_for_event(
+            conn,
+            repo,
+            event_type="supervisor.packet_accepted",
+            session_id="sess_1",
+        )
+        event_types = [row["event_type"] for row in _events(conn, "repo_a")]
+        assert "supervisor.packet_delivered" in event_types
+        assert "supervisor.packet_accepted" in event_types
+
+        os.kill(agent_pid, signal.SIGTERM)
+        _wait_for_helper_jsonl_event(
+            Path(helper_process["events_path"]),
+            event_type="agent_exited",
+        )
+        status = _wait_for_event(
+            conn,
+            repo,
+            event_type="supervisor.agent_exited",
+            session_id="sess_1",
+        )
+
+        assert status["state"] == "stopped"
+        assert str(status["stop_reason"]).startswith("agent exited")
+        metadata = _one(
+            conn,
+            """
+            SELECT p.metadata_json, ps.pid, ps.state
+            FROM striatumd.process_supervisor_pointers p
+            JOIN striatumd.process_supervisors ps
+              ON ps.repository_id = p.repository_id
+             AND ps.supervisor_id = p.supervisor_id
+            WHERE p.repository_id = %s AND p.supervisor_id = %s
+            """,
+            ("repo_a", started["supervisor_id"]),
+        )
+        assert metadata["state"] == "stopped"
+        assert metadata["pid"] == agent_pid
+        assert metadata["metadata_json"]["transport"] == "pty_helper"
+        assert metadata["metadata_json"]["helper_pid"] == helper_pid
+        assert metadata["metadata_json"]["helper_events_offset"] > 0
+        events = _events(conn, "repo_a")
+        event_types = [row["event_type"] for row in events]
+        assert "supervisor.agent_started" in event_types
+        assert "supervisor.packet_delivered" in event_types
+        assert "supervisor.packet_accepted" in event_types
+        assert "supervisor.agent_exited" in event_types
+        accepted = next(row for row in events if row["event_type"] == "supervisor.packet_accepted")
+        assert accepted["payload_json"]["payload"]["sequence"] == 1
+    finally:
+        if started is not None:
+            try:
+                handle_stop(
+                    _ctx(conn, repo, "repo_a"),
+                    {"session_id": "sess_1", "reason": "cleanup"},
+                )
+            except Exception:
+                pass
+            _kill_pid(started.get("pid"))
+            helper_process = started.get("helper_process")
+            if isinstance(helper_process, dict):
+                _kill_pid(helper_process.get("pid"))
+        conn.close()
+
+
 def test_one_shot_eof_delivery_execs_lane_command_after_packet(
     tmp_path: Path, pg_url: str
 ) -> None:
@@ -1120,6 +1265,65 @@ def _kill_pid(value: object) -> None:
         os.kill(value, signal.SIGKILL)
     except OSError:
         return
+
+
+def _pid_is_alive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except OSError:
+        return False
+    return True
+
+
+def _wait_for_event(
+    conn: Any,
+    repo_root: Path,
+    *,
+    event_type: str,
+    session_id: str,
+    timeout_seconds: float = 5.0,
+) -> dict[str, Any]:
+    status: dict[str, Any] | None = None
+    deadline = time.time() + timeout_seconds
+    while time.time() < deadline:
+        if event_type in [row["event_type"] for row in _events(conn, "repo_a")]:
+            if status is None:
+                status = handle_status(
+                    _ctx(conn, repo_root, "repo_a"),
+                    {"session_id": session_id},
+                )
+            return status
+        status = handle_status(
+            _ctx(conn, repo_root, "repo_a"),
+            {"session_id": session_id},
+        )
+        time.sleep(0.05)
+    assert event_type in [row["event_type"] for row in _events(conn, "repo_a")]
+    assert status is not None
+    return status
+
+
+def _wait_for_helper_jsonl_event(
+    path: Path,
+    *,
+    event_type: str,
+    timeout_seconds: float = 5.0,
+) -> None:
+    deadline = time.time() + timeout_seconds
+    while time.time() < deadline:
+        try:
+            lines = path.read_text(encoding="utf-8").splitlines()
+        except FileNotFoundError:
+            lines = []
+        for line in lines:
+            try:
+                event = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(event, dict) and event.get("event_type") == event_type:
+                return
+        time.sleep(0.05)
+    raise AssertionError(f"timed out waiting for helper event {event_type!r} in {path}")
 
 
 def _link_seeded_work_to_lease(conn: Any, *, repository_id: str) -> None:
