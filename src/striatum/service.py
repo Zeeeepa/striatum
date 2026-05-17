@@ -27,16 +27,18 @@ from urllib.parse import parse_qs, unquote, urlsplit
 from striatum.api import invoke
 from striatum.service_command_policy import is_read_command as is_read_command
 from striatum.service_http import (
-    LOOPBACK_HOSTS as LOOPBACK_HOSTS,
-    OriginTuple as OriginTuple,
     allowed_origins_for_bind as allowed_origins_for_bind,
-    argv_value as _argv_value,
     is_json_content_type as is_json_content_type,
     make_web_context_token as make_web_context_token,
-    parse_header_origin as parse_header_origin,
-    parse_host_origin as parse_host_origin,
-    tokens_match as tokens_match,
-    verify_web_context_token as verify_web_context_token,
+    tokens_match as tokens_match,  # noqa: F401 - compatibility re-export
+)
+from striatum.service_request_security import (
+    SecurityDecision,
+    authenticate_request as _authenticate_request,
+    has_valid_bearer as _has_valid_bearer,
+    requires_same_origin as _requires_same_origin,
+    verify_override_verdict_context as _verify_override_verdict_context,
+    verify_same_origin_mutation as _verify_same_origin_mutation,
 )
 from striatum.service_sse import (
     encode_sse_event as _encode_sse_event,
@@ -2076,36 +2078,28 @@ class StriatumServiceHandler(BaseHTTPRequestHandler):
     # --- request helpers ----------------------------------------------
 
     def _authenticate(self) -> bool:
-        if self.state.token is None:
+        decision = _authenticate_request(
+            dict(self.headers.items()),
+            token=self.state.token,
+        )
+        if decision.ok:
             return True
-        header = self.headers.get("Authorization", "")
-        prefix = "Bearer "
-        if not header.startswith(prefix):
-            self._send_json(401, {"ok": False, "error": {"code": 401, "message": "missing or invalid Authorization header"}})
-            return False
-        provided = header[len(prefix):]
-        if not tokens_match(provided, self.state.token):
-            self._send_json(401, {"ok": False, "error": {"code": 401, "message": "invalid token"}})
-            return False
-        return True
+        self._send_security_decision(decision)
+        return False
 
     def _has_valid_bearer(self) -> bool:
         """True when the request carries an Authorization: Bearer header
         matching the configured token. Used to grant authenticated
         non-browser API clients an exception to same-origin enforcement.
         """
-        if self.state.token is None:
-            return False
-        header = self.headers.get("Authorization", "")
-        prefix = "Bearer "
-        if not header.startswith(prefix):
-            return False
-        return tokens_match(header[len(prefix):], self.state.token)
+        return _has_valid_bearer(dict(self.headers.items()), token=self.state.token)
 
     def _requires_same_origin(self, path: str) -> bool:
-        if not self.state.origin_check_enabled:
-            return False
-        return path == "/v1/invoke" or self.state.web_enabled
+        return _requires_same_origin(
+            path,
+            origin_check_enabled=self.state.origin_check_enabled,
+            web_enabled=self.state.web_enabled,
+        )
 
     def _verify_same_origin_mutation(self) -> bool:
         """GH #9: reject cross-origin browser POSTs to the web UI's
@@ -2123,40 +2117,14 @@ class StriatumServiceHandler(BaseHTTPRequestHandler):
         - Missing, ``null``, malformed, or cross-origin evidence fails
           closed with 403.
         """
-        if self._has_valid_bearer():
-            return True
-        allowed = self.state.allowed_origins
-        host_origin = parse_host_origin(self.headers.get("Host", ""))
-        if host_origin not in allowed:
-            self._send_json(
-                403,
-                {"ok": False, "error": {"code": 403, "message": "Host header origin refused"}},
-            )
-            return False
-        origin = self.headers.get("Origin", "")
-        if origin:
-            origin_value = parse_header_origin(origin)
-            if origin_value not in allowed:
-                self._send_json(
-                    403,
-                    {"ok": False, "error": {"code": 403, "message": "cross-origin request refused"}},
-                )
-                return False
-            return True
-        referer = self.headers.get("Referer", "")
-        if referer:
-            referer_value = parse_header_origin(referer)
-            if referer_value not in allowed:
-                self._send_json(
-                    403,
-                    {"ok": False, "error": {"code": 403, "message": "cross-origin request refused"}},
-                )
-                return False
-            return True
-        self._send_json(
-            403,
-            {"ok": False, "error": {"code": 403, "message": "Origin or Referer required"}},
+        decision = _verify_same_origin_mutation(
+            dict(self.headers.items()),
+            token=self.state.token,
+            allowed_origins=self.state.allowed_origins,
         )
+        if decision.ok:
+            return True
+        self._send_security_decision(decision)
         return False
 
     def _verify_override_verdict_context(
@@ -2175,51 +2143,19 @@ class StriatumServiceHandler(BaseHTTPRequestHandler):
         DOM-tampering attacks even when the browser is same-origin and
         the CSRF defenses pass.
         """
-        ctx = body.get("web_context")
-        if not isinstance(ctx, dict):
-            self._send_json(
-                403,
-                {"ok": False, "error": {"code": 403, "message": "override-verdict requires web_context"}},
-            )
-            return False
-        kind = ctx.get("kind")
-        run_id = ctx.get("run_id")
-        job_id = ctx.get("job_id")
-        session_id = ctx.get("session_id")
-        token = ctx.get("token")
-        if (
-            kind != "override_verdict"
-            or not isinstance(run_id, str) or not run_id
-            or not isinstance(job_id, str) or not job_id
-            or not isinstance(session_id, str) or not session_id
-            or not isinstance(token, str) or not token
-        ):
-            self._send_json(
-                403,
-                {"ok": False, "error": {"code": 403, "message": "web_context fields missing or malformed"}},
-            )
-            return False
-        argv_job = _argv_value(argv, "--job-id")
-        argv_session = _argv_value(argv, "--session-id")
-        if argv_job != job_id or argv_session != session_id:
-            self._send_json(
-                403,
-                {"ok": False, "error": {"code": 403, "message": "argv does not match web_context"}},
-            )
-            return False
-        if not verify_web_context_token(
-            self.state.web_context_secret,
-            token=token,
-            run_id=run_id,
-            job_id=job_id,
-            session_id=session_id,
-        ):
-            self._send_json(
-                403,
-                {"ok": False, "error": {"code": 403, "message": "invalid web_context token"}},
-            )
-            return False
-        return True
+        decision = _verify_override_verdict_context(
+            argv,
+            body,
+            web_context_secret=self.state.web_context_secret,
+        )
+        if decision.ok:
+            return True
+        self._send_security_decision(decision)
+        return False
+
+    def _send_security_decision(self, decision: SecurityDecision) -> None:
+        error = decision.error or {"code": decision.status, "message": "request refused"}
+        self._send_json(decision.status, {"ok": False, "error": error})
 
     def _read_json_body(self) -> JsonObject | None:
         # GH #9: strict Content-Type. Substring matching is unsafe —

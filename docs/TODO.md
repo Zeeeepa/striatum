@@ -931,6 +931,9 @@ review and plan are root-level operator artifacts:
     validation, PID-file single-instance checks, startup exceptions, and idle
     shutdown waiting. Follow-up split landed: `web/template_env.py` owns HTML
     escaping and Jinja environment construction for server-rendered templates.
+    Follow-up split landed: `service_request_security.py` owns request
+    authentication, bearer-token checks, same-origin mutation policy, and
+    override-verdict web-context validation decisions.
     Remaining: continue splitting `service.py` along stable non-SQLite
     request-handling and rendering boundaries.
 

@@ -430,6 +430,9 @@ daemon-first without needing to support two domain daemons.
   checks, startup exceptions, and idle shutdown waiting.
 - `src/striatum/web/template_env.py` now owns HTML escaping and Jinja
   environment construction for server-rendered web templates.
+- `src/striatum/service_request_security.py` now owns request authentication,
+  bearer-token checks, same-origin mutation policy, and override-verdict
+  web-context validation decisions.
 
 **Remaining Phase 4 debt:** continue splitting `service.py` along stable
 non-SQLite request-handling and rendering boundaries after the daemon-routed

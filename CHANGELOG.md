@@ -79,6 +79,10 @@ Recent checkpoints:
 - Web template environment construction and HTML escaping helpers moved from
   `service.py` into `striatum.web.template_env`, keeping the existing
   `striatum.service` private aliases stable for tests and route methods.
+- Request authentication, bearer-token checks, same-origin mutation policy,
+  and override-verdict web-context validation moved from `service.py` into
+  `striatum.service_request_security` with pure decision helpers and focused
+  CSRF/context-token tests.
 - Roadmap kickoff status and remediation sequencing notes were refreshed to
   match the post-v1.55.0 daemon-first architecture work and the current
   blocked-policy boundaries.
@@ -159,7 +163,8 @@ Recent checkpoints:
   framing now live in `striatum.service_sse`. Local service process state and
   per-run SSE slot accounting now live in `striatum.service_state`. Service
   runtime helpers now live in `striatum.service_runtime`, and template
-  environment helpers now live in `striatum.web.template_env`.
+  environment helpers now live in `striatum.web.template_env`. Request
+  security policy now lives in `striatum.service_request_security`.
 - **Escalation inbox foundation.**
   `escalation.list`, `escalation.show`, and `escalation.resolve` project
   human-principal escalations from blocker state. The `escalation` artifact
