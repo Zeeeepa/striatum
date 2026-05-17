@@ -635,12 +635,11 @@ Start the daemon and register two target repos:
 # Foreground daemon process (also exposed as `striatumd`).
 "$RUNNER" daemon start --json &
 
-# Register repos. The first `repo add` (or `daemon start`)
-# bootstraps one admin token and writes a 0600 fallback file
-# under the runtime directory; treat that file as degraded
-# storage compared with an OS keyring.
-"$RUNNER" repo add /path/to/repo-a --json
-"$RUNNER" repo add /path/to/repo-b --json   # repeat per repo
+# Register repos. `daemon start` bootstraps one admin token
+# and writes a 0600 fallback file under the runtime directory;
+# treat that file as degraded storage compared with an OS keyring.
+"$RUNNER" repo add /path/to/repo-a --init --json
+"$RUNNER" repo add /path/to/repo-b --init --json   # repeat per repo
 
 "$RUNNER" repo list --json
 ```
@@ -649,8 +648,10 @@ Start the daemon and register two target repos:
 root, refuses symlink/path-traversal ambiguity, derives a
 realpath/inode-based repository identity, and refuses active
 path re-occupation by a different identity. Pass `--init`
-when no `.striatum/` directory exists; `--no-migrate` refuses
-registration when daemon-side schema migrations would be needed.
+when no `.striatum/` directory exists; it creates operational
+scratch only and does not create `.striatum/state.sqlite3`. If a
+pre-D094 repo-local SQLite source exists, registration refuses and
+points at `daemon migrate-repo-local`.
 
 `repo remove <path>` is idempotent, revokes live repo-scoped
 capabilities, preserves audit rows, and never reuses

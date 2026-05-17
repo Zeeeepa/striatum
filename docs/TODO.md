@@ -845,9 +845,13 @@ review and plan are root-level operator artifacts:
     preventing a route-layer crash from falling through to repo-local
     SQLite. Remaining
     follow-up: quarantine the legacy SQLite domain under a migration/service
-    namespace as part of the service/adapter cleanup, since local web,
-    adapter, byline, inbox, dogfood compatibility, and migration fixtures
-    still use legacy SQLite shapes.
+    namespace as part of the service/adapter cleanup. The repo administration
+    verbs are no longer part of that debt: `repo.add`, `repo.list`, and
+    `repo.remove` now route through daemon RPC, register directly in
+    `striatumd.repositories`, and `repo add --init` creates only operational
+    scratch rather than `.striatum/state.sqlite3`. Local web, adapter, byline,
+    inbox, dogfood compatibility, and migration fixtures still use legacy
+    SQLite shapes.
 
 50. ~~**Phase 2: single method-contract source.**~~ ✅ Done. Contract source is now
     live at `contracts/daemon_methods.json`; Python `METHOD_REGISTRY`

@@ -195,20 +195,21 @@ prerequisite for every Striatum verb; CLI verbs without a reachable
 daemon refuse with exit code 11 (`daemon_unreachable`) and do not
 fall back to direct mode.
 
-Both `daemon start` and the first `repo add` bootstrap a single
-admin token when the registry has no clients and write a
-`0600` runtime-fallback file. Token secrets are never read from
-environment variables, never logged to audit, and never stored in
-the registry. Authorization uses the closed daemon method
-capability vocabulary: `read`, `write`, `review`, `claim`,
-`apply`, `admin`, `recovery`, and `surgical_recovery`.
+The first `daemon start` bootstraps a single admin token when
+daemon-owned Postgres has no clients and writes a `0600`
+runtime-fallback file. Token secrets are never read from environment
+variables, never logged to audit, and never stored in the registry.
+Authorization uses the closed daemon method capability vocabulary:
+`read`, `write`, `review`, `claim`, `apply`, `admin`, `recovery`, and
+`surgical_recovery`.
 
 `repo add` canonicalizes the repository root, refuses
 symlink/path-traversal ambiguity, derives a realpath/inode-based
 repository identity, and refuses active path re-occupation by a
 different identity. Pass `--init` when no `.striatum/` directory
-exists; `--no-migrate` refuses registration when daemon-side
-schema migrations would be needed.
+exists; it creates operational scratch only and does not create
+`.striatum/state.sqlite3`. If a pre-D094 repo-local SQLite source
+exists, registration refuses and points at `daemon migrate-repo-local`.
 
 `repo remove` is idempotent, revokes live repo-scoped
 capabilities, preserves audit rows, and never reuses

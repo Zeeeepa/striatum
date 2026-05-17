@@ -51,6 +51,7 @@ striatumd = "striatum.daemon:main"
 "striatum.skills.templates" = ["*.md.tmpl", "**/*.md.tmpl"]
 "striatum.plugins.templates" = ["*.tmpl", "**/*.tmpl"]
 "striatum.scaffold.templates" = ["*.md.tmpl", "**/*.md.tmpl"]
+"striatum.daemon_rpc" = ["daemon_methods.json"]
 "striatum.daemon_pg.sql" = ["*.sql"]
 "striatum.workflow_templates" = ["*.json"]
 "striatum._daemongo" = ["binaries/*"]

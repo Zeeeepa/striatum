@@ -269,6 +269,9 @@ authority matrix and contract tests current while deleting fallback paths.
 - Mapped CLI commands now fail closed when the route layer raises an
   unexpected exception, with an architecture guardrail proving the path does
   not open repo-local SQLite.
+- `repo.add`, `repo.list`, and `repo.remove` now route through daemon RPC
+  and update `striatumd.repositories` directly; `repo add --init` creates
+  only operational scratch and never creates `.striatum/state.sqlite3`.
 - Workflow authoring methods are explicitly CLI-local: daemon RPC refuses
   them with `not_implemented`, MCP tool listing hides them, and route tests
   prevent accidental daemon routing.
@@ -279,7 +282,7 @@ authority matrix and contract tests current while deleting fallback paths.
 local service, adapter/byline/inbox helpers, dogfood compatibility tools, and
 migration/test fixtures. Quarantine that code under a migration/service
 namespace while executing Phase 4; it is no longer a daemon production
-fallback path.
+fallback path or repo-administration path.
 
 ---
 

@@ -120,6 +120,9 @@
 | `why` | `why` | `read` | `single_repo` |
 | `doctor` | `doctor` | `read` | `single_repo` |
 | `dashboard` | `dashboard` | `read` | `single_repo` |
+| `repo add` | `repo.add` | `admin` | `daemon_global` |
+| `repo list` | `repo.list` | `read` | `daemon_global` |
+| `repo remove` | `repo.remove` | `admin` | `daemon_global` |
 | `list runs` | `list.runs` | `read` | `single_repo` |
 | `list sessions` | `list.sessions` | `read` | `single_repo` |
 | `list jobs` | `list.jobs` | `read` | `single_repo` |

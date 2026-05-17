@@ -350,7 +350,7 @@ def build_parser() -> argparse.ArgumentParser:
     repo_add.add_argument(
         "--init",
         action="store_true",
-        help="initialize .striatum/state.sqlite3 before registering when absent",
+        help="initialize .striatum/ operational scratch before registering when absent",
     )
     repo_add.add_argument("--no-migrate", action="store_true")
     repo_add.add_argument("--json", action="store_true")

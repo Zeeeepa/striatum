@@ -1248,24 +1248,25 @@ runtime files. Windows daemon support is not claimed in V1.
 `striatum repo add <path>` registers an initialized target repository.
 It authorizes the daemon admin token before recording the repository in
 daemon-owned Postgres. If `.striatum/` scratch is absent, registration
-refuses unless `--init` is passed; `--init` is the explicit opt-in that
-runs the same initialization as `striatum init`. With `--no-migrate`,
-registration refuses if an existing pre-D094 repo-local SQLite source
-still requires migration. The command canonicalizes the repository root,
-refuses symlink/path-traversal ambiguity including symlinked parent
-components, derives a realpath/inode-based repository identity from the
-root, and refuses active path re-occupation by a different identity. `repo remove` is
+refuses unless `--init` is passed; `--init` creates only operational
+scratch and does not create `.striatum/state.sqlite3`. If a pre-D094
+repo-local SQLite source exists, registration refuses and points the
+operator to `striatum daemon migrate-repo-local --from sqlite --to pg`.
+The command canonicalizes the repository root, refuses
+symlink/path-traversal ambiguity including symlinked parent components,
+derives a realpath/inode-based repository identity from the root, and
+refuses active path re-occupation by a different identity. `repo remove` is
 idempotent, marks the repository removed, revokes live repo-scoped
 capabilities, preserves audit rows, and never reuses `repository_id`;
 re-adding allocates a fresh id.
 
-Every non-health registry-backed request requires a token. Both
-`striatum daemon start` and `repo add` bootstrap one admin token when the
-registry has no clients and write the local runtime fallback file with
-`0600` permissions. Operators should treat runtime-file token storage as
-degraded compared with an OS keyring. Plaintext token secrets are not read
-from environment variables and are never stored in the registry or audit
-log. Authorization uses the closed daemon method capability vocabulary:
+Every non-health registry-backed request requires a token. `striatum daemon
+start` bootstraps one admin token when daemon-owned Postgres has no clients
+and writes the local runtime fallback file with `0600` permissions. Operators
+should treat runtime-file token storage as degraded compared with an OS
+keyring. Plaintext token secrets are not read from environment variables and
+are never stored in the registry or audit log. Authorization uses the closed
+daemon method capability vocabulary:
 `read`, `write`, `review`, `claim`, `apply`, `admin`, `recovery`, and
 `surgical_recovery`.
 

@@ -69,7 +69,7 @@ Legend:
 | `list.workflows` | `list workflows` | read | single_repo | pg | real | no | no | stable |
 | `worktree.list` | `worktree list` | read | single_repo | pg | placeholder | no | no | stable |
 | `dashboard.all` | `dashboard --all` | read | daemon_global | direct | placeholder | no | no | Python stable, Go gap |
-| `repo.list` | `repo list` | read | daemon_global | bootstrap CLI helper | placeholder | no | no | bootstrap/admin |
+| `repo.list` | `repo list` | read | daemon_global | pg repo registrar | placeholder | no | no | bootstrap/admin |
 | `session.register` | `register-session` | claim | single_repo | pg | real | no | no | stable |
 | `session.close` | `session close` | claim | single_repo | pg | placeholder | no | no | stable |
 | `work.claim_next` | `claim-next` | claim | single_repo | pg | real | no | no | stable |
@@ -123,8 +123,8 @@ Legend:
 | `apply.receipt.show` | n/a | read | single_repo | direct apply service | real | no | no | stable |
 | `apply.receipt.verify` | n/a | read | single_repo | direct apply service | real | no | no | stable |
 | `dogfood.surgical_recovery` | MCP/chat dogfood tool | surgical_recovery | single_repo | direct dogfood helper | placeholder | no | yes, direct `striatum.db.connect` | dogfood compatibility |
-| `repo.add` | `repo add` | admin | daemon_global | bootstrap CLI helper | placeholder | no | no ordinary repo-local SQLite | bootstrap/admin |
-| `repo.remove` | `repo remove` | admin | daemon_global | bootstrap CLI helper | placeholder | no | no | bootstrap/admin |
+| `repo.add` | `repo add` | admin | daemon_global | pg repo registrar | placeholder | no | no ordinary repo-local SQLite | bootstrap/admin |
+| `repo.remove` | `repo remove` | admin | daemon_global | pg repo registrar | placeholder | no | no | bootstrap/admin |
 | `daemon.token.create` | n/a | admin | daemon_global | not implemented in Python RPC | placeholder | no | no | bootstrap/admin placeholder |
 | `daemon.token.revoke` | n/a | admin | daemon_global | not implemented in Python RPC | placeholder | no | no | bootstrap/admin placeholder |
 | `daemon.token.rotate` | n/a | admin | daemon_global | not implemented in Python RPC | placeholder | no | no | bootstrap/admin placeholder |
@@ -175,7 +175,6 @@ remediation phases should either daemon-route, quarantine, or delete.
 | `daemon migrate` | daemon registry migration helper | source registry migration only | legacy_migration |
 | `daemon migrate-repo-local` | per-repo SQLite -> Postgres migration | intentional source SQLite import | legacy_migration |
 | `daemon status` / `stop` / `health` / `audit` / `sweep` | daemon lifecycle helpers | daemon registry/audit paths | bootstrap_admin |
-| `repo add` / `repo list` / `repo remove` | daemon registry helpers outside RPC | optional `--init` may create scratch SQLite | bootstrap_admin |
 | `cross-repo list` / `describe` / `why` | direct PG helper | no | daemon_read_out_of_band |
 | `cross-repo cancel` | direct refusal | no | not_implemented |
 | `workflow validate` / `lint` / `plan` / `graph` | local authoring helpers; daemon RPC fails closed | no live state | local_file_authoring |
@@ -199,12 +198,15 @@ remediation phases should either daemon-route, quarantine, or delete.
    emits the explicit `recovery.auto_publish_stale_artifacts` method.
    `recovery.auto` remains only as a deprecated compatibility alias for
    older stale-artifact auto-publish clients.
-3. Dogfood composite tools still open repo-local SQLite directly from
+3. `repo.add`, `repo.list`, and `repo.remove` now route through daemon RPC
+   and register against `striatumd.repositories` without opening or creating
+   `.striatum/state.sqlite3`; `--init` creates only operational scratch.
+4. Dogfood composite tools still open repo-local SQLite directly from
    `DaemonRpcRouter._route_dogfood`. They are compatibility helpers, not a
    production authority path.
-4. `striatum.db` remains the legacy SQLite engine, but substrate-neutral
+5. `striatum.db` remains the legacy SQLite engine, but substrate-neutral
    helpers now live in `primitives.py` and `repo_policy.py`; guardrails keep
    daemon PG/RPC production modules from importing SQLite helpers.
-5. Go has real handlers for the core reads, workflow loop, recovery, apply
+6. Go has real handlers for the core reads, workflow loop, recovery, apply
    receipts, and cross-repo reads, but a large placeholder set remains around
    supervisor, workflow authoring, repo/admin, dogfood tools, and dashboard-all.

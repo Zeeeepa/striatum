@@ -213,7 +213,7 @@ def dispatch(args: argparse.Namespace) -> object:
     # RFC 0048 Phase C: route CLI verbs through daemon RPC (Unix socket)
     # when the verb maps to a registered RPC method AND the daemon is
     # reachable. Falls through to legacy SQLite dispatch only when no mapping
-    # exists (init, skills, plugin, daemon, repo, serve, byline, and the
+    # exists (init, skills, plugin, daemon, serve, byline, and the
     # session-scoped inbox helper) or when the explicit test-harness
     # compatibility guard disables daemon routing. Once routing is attempted,
     # unexpected route failures must fail closed instead of opening legacy
@@ -237,7 +237,7 @@ def dispatch(args: argparse.Namespace) -> object:
         from striatum.day_zero import first_run_smoke
 
         return first_run_smoke(repo)
-    skip_daemon_route = args.command in {"daemon", "init", "skills", "plugin", "repo", "cross-repo", "serve", "byline"}
+    skip_daemon_route = args.command in {"daemon", "init", "skills", "plugin", "cross-repo", "serve", "byline"}
     if args.command == "corpus" and getattr(args, "corpus_command", None) == "verify":
         skip_daemon_route = True
     if args.command == "archive" and getattr(args, "archive_command", None) == "verify":

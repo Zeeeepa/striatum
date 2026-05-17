@@ -205,10 +205,9 @@ daemon PostgreSQL, and reports a suggested workflow path. The lower
 level `daemon migrate-repo-local --from sqlite --to pg --repo <path>`
 remains available for scripted cutovers.
 
-The first `repo add` (or `daemon start`) bootstraps a single admin
-token and writes a `0600` runtime fallback file under the
-daemon's runtime directory. Treat that file as degraded compared
-to an OS keyring.
+The first `daemon start` bootstraps a single admin token and writes a
+`0600` runtime fallback file under the daemon's runtime directory. Treat
+that file as degraded compared to an OS keyring.
 
 ## Migrate the repo-local workflow state
 

@@ -79,6 +79,9 @@ def _find_contract_path() -> Path:
         candidate = parent / "contracts" / "daemon_methods.json"
         if candidate.is_file():
             return candidate
+    packaged = module_path.with_name("daemon_methods.json")
+    if packaged.is_file():
+        return packaged
     return module_path.parents[3] / "contracts" / "daemon_methods.json"
 
 

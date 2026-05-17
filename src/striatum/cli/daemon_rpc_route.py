@@ -81,12 +81,15 @@ def try_route(args: argparse.Namespace, repo: Path) -> tuple[bool, Any]:
             f"daemon_unreachable: {method} is daemon-routed and cannot fall back to SQLite",
             exit_code=12,
         )
-    repository_id = params.get("repository_id") or _lookup_repository_id(repo)
-    if repository_id is None:
-        raise StriatumError(
-            f"repo_not_registered: {method} requires a daemon-registered repository",
-            exit_code=12,
-        )
+    entry = METHOD_REGISTRY[method]
+    repository_id: str | None = None
+    if entry.repository_scope:
+        repository_id = params.get("repository_id") or _lookup_repository_id(repo)
+        if repository_id is None:
+            raise StriatumError(
+                f"repo_not_registered: {method} requires a daemon-registered repository",
+                exit_code=12,
+            )
     if repository_id is not None and "repository_id" not in params:
         params = dict(params)
         params["repository_id"] = repository_id
@@ -119,7 +122,8 @@ def _subcommand(args: argparse.Namespace) -> str | None:
     for attr in ("run_command", "workflow_command", "list_command", "recovery_command",
                  "evidence_command", "corpus_command", "decision_command",
                  "checkpoint_command", "escalation_command", "branch_command", "session_command",
-                 "worktree_command", "supervise_command", "cross_repo_command", "archive_command"):
+                 "repo_command", "worktree_command", "supervise_command", "cross_repo_command",
+                 "archive_command"):
         v = getattr(args, attr, None)
         if v is not None:
             return str(v)
@@ -228,6 +232,25 @@ def _params_doctor(args: argparse.Namespace, repo: Path) -> dict[str, Any]:
 
 def _params_dashboard(args: argparse.Namespace, repo: Path) -> dict[str, Any]:
     return {"run_id": getattr(args, "run_id", None)}
+
+
+def _params_repo_add(args: argparse.Namespace, repo: Path) -> dict[str, Any]:
+    params: dict[str, Any] = {
+        "path": str(Path(args.path).expanduser()),
+        "init": bool(getattr(args, "init", False)),
+        "no_migrate": bool(getattr(args, "no_migrate", False)),
+    }
+    if getattr(args, "display_name", None):
+        params["display_name"] = args.display_name
+    return params
+
+
+def _params_repo_list(args: argparse.Namespace, repo: Path) -> dict[str, Any]:
+    return {}
+
+
+def _params_repo_remove(args: argparse.Namespace, repo: Path) -> dict[str, Any]:
+    return {"id": str(args.id)}
 
 
 def _params_list(args: argparse.Namespace, repo: Path) -> dict[str, Any]:
@@ -581,6 +604,9 @@ _PARAM_BUILDERS: dict[str, ParamBuilder] = {
     "why": _params_why,
     "doctor": _params_doctor,
     "dashboard": _params_dashboard,
+    "repo_add": _params_repo_add,
+    "repo_list": _params_repo_list,
+    "repo_remove": _params_repo_remove,
     "list": _params_list,
     "run_prepare": _params_run_prepare,
     "run_start": _params_run_start,

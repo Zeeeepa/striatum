@@ -35,6 +35,17 @@ def test_make_targets_check_wheel_size_before_package_smoke() -> None:
     assert "metadata-check package-wheel-size package-smoke" in makefile
 
 
+def test_packaged_daemon_rpc_contract_matches_root_contract() -> None:
+    root_contract = ROOT / "contracts" / "daemon_methods.json"
+    packaged_contract = ROOT / "src/striatum/daemon_rpc/daemon_methods.json"
+    pyproject = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
+
+    assert packaged_contract.read_text(encoding="utf-8") == root_contract.read_text(
+        encoding="utf-8"
+    )
+    assert '"striatum.daemon_rpc" = ["daemon_methods.json"]' in pyproject
+
+
 def test_ui_bundle_size_script_accepts_override_and_refuses_drift(tmp_path: Path) -> None:
     build = tmp_path / "build"
     build.mkdir()

@@ -183,6 +183,8 @@ def test_cutover_refuses_broken_v1_audit_before_postgres_connect(
     env = _env(tmp_path)
     monkeypatch.setenv(daemon.ENV_REGISTRY, env[daemon.ENV_REGISTRY])
     monkeypatch.setenv(daemon.ENV_RUNTIME, env[daemon.ENV_RUNTIME])
+    monkeypatch.setenv("XDG_CONFIG_HOME", env["XDG_CONFIG_HOME"])
+    monkeypatch.delenv(ENV_DAEMON_DB_URL, raising=False)
     repo = tmp_path / "repo"
     repo.mkdir()
     _run_cli(repo, "init", env=env)

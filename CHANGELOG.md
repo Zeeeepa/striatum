@@ -128,6 +128,16 @@ Recent checkpoints:
 - Job-detail page DTO shaping moved from `service.py` into
   `striatum.web.job_detail`, leaving the route handler responsible for daemon
   RPC/fallback, template selection, and HTTP error mapping.
+- `repo.add`, `repo.list`, and `repo.remove` now route through daemon RPC and
+  operate directly on daemon-owned Postgres registration rows. `repo add
+  --init` creates only `.striatum/` operational scratch and no
+  `.striatum/state.sqlite3`; existing repo-local SQLite sources must use the
+  explicit per-repo migration command.
+- Fresh-clone and package smoke scripts now exercise the daemon/Postgres repo
+  registration path when PostgreSQL is available, keep their smoke workflow
+  inside the target repository for `run prepare`, install the packaged RPC
+  method contract into wheels, and use the current `striatum-orchestrator`
+  distribution artifact names.
 
 - **Command authority and fallback guardrails.**
   `docs/architecture/COMMAND_AUTHORITY_MATRIX.md` now names the authority

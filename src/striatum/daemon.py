@@ -377,10 +377,117 @@ def _would_repo_migrate(repo: Path) -> bool:
     return version < LATEST_VERSION
 
 
-def _bootstrap_admin_if_needed(conn: sqlite3.Connection) -> dict[str, str] | None:
+def _pg_connection_configured() -> bool:
+    from striatum.daemon_pg.config import resolve_config
+
+    return resolve_config().url is not None
+
+
+def _pg_dict_cursor(conn: Any) -> Any:
+    try:
+        from psycopg.rows import dict_row
+    except ImportError:
+        return conn.cursor()
+    return conn.cursor(row_factory=dict_row)
+
+
+def _pg_repo_identity(repo: Path) -> str:
+    repo_stat = repo.stat()
+    return f"inode:{repo_stat.st_dev}:{repo_stat.st_ino}:root:{repo.resolve()}"
+
+
+def _pg_row_dict(row: Any) -> dict[str, Any]:
+    if isinstance(row, dict):
+        return dict(row)
+    if hasattr(row, "keys"):
+        return {str(key): row[key] for key in row.keys()}
+    raise TypeError("database row must expose mapping-like keys")
+
+
+def _pg_json_ready(row: dict[str, Any]) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for key, value in row.items():
+        if isinstance(value, datetime):
+            result[key] = value.astimezone(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+        else:
+            result[key] = value
+    return result
+
+
+def _init_operational_scratch(repo: Path) -> Path:
+    state_dir = repo / ".striatum"
+    if _has_symlink_component(state_dir) or state_dir.is_symlink():
+        raise DaemonCapabilityError("repo scratch directory symlink is not allowed")
+    state_dir.mkdir(parents=True, exist_ok=True)
+    scratch = state_dir / "scratch"
+    scratch.mkdir(parents=True, exist_ok=True)
+    for path in (state_dir, scratch):
+        try:
+            os.chmod(path, 0o700)
+        except PermissionError:
+            pass
+    ignore_path = repo / ".gitignore"
+    existing = ignore_path.read_text(encoding="utf-8") if ignore_path.exists() else ""
+    if ".striatum/" not in existing.splitlines():
+        prefix = "" if existing == "" or existing.endswith("\n") else "\n"
+        ignore_path.write_text(f"{existing}{prefix}.striatum/\n", encoding="utf-8")
+    return state_dir
+
+
+def _require_operational_scratch(repo: Path) -> Path:
+    state_dir = repo / ".striatum"
+    if _has_symlink_component(state_dir) or state_dir.is_symlink():
+        raise DaemonCapabilityError("repo scratch directory symlink is not allowed")
+    if not state_dir.is_dir():
+        raise DaemonCapabilityError(
+            "repo scratch is not initialized; rerun repo add with --init or run striatum init first"
+        )
+    return state_dir
+
+
+def _bootstrap_admin_if_needed(
+    conn: sqlite3.Connection,
+    *,
+    token: str | None = None,
+) -> dict[str, str] | None:
     row = conn.execute("SELECT COUNT(*) AS c FROM clients").fetchone()
     if row is not None and int(row["c"]) > 0:
         return None
+    if token is not None:
+        token_id, sep, secret = token.partition(".")
+        if not sep or not token_id or not secret:
+            raise DaemonAuthError("daemon runtime token is malformed")
+        salt = secrets.token_hex(16)
+        token_hash = _hash_token(secret=secret, salt=salt)
+        client_id = f"dclient_{uuid.uuid4().hex}"
+        now = utc_now()
+        conn.execute(
+            """
+            INSERT INTO clients(client_id, client_kind, display_name, token_id,
+              token_hash, token_salt, created_at, expires_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, NULL)
+            """,
+            (
+                client_id,
+                "cli",
+                "bootstrap-admin",
+                token_id,
+                token_hash,
+                salt,
+                now,
+            ),
+        )
+        for capability in (ADMIN_CAPABILITY, READ_CAPABILITY):
+            conn.execute(
+                """
+                INSERT INTO client_capabilities(capability_id, client_id,
+                  repository_id, capability, granted_at, expires_at)
+                VALUES (?, ?, NULL, ?, ?, NULL)
+                """,
+                (f"dcap_{uuid.uuid4().hex}", client_id, capability, now),
+            )
+        write_runtime_token(token)
+        return {"client_id": client_id, "token_id": token_id, "token": token}
     return create_client(
         conn,
         display_name="bootstrap-admin",
@@ -391,7 +498,7 @@ def _bootstrap_admin_if_needed(conn: sqlite3.Connection) -> dict[str, str] | Non
     )
 
 
-def _bootstrap_pg_admin_if_needed(pg_conn: Any) -> None:
+def _bootstrap_pg_admin_if_needed(pg_conn: Any) -> dict[str, str] | None:
     """RFC 0048 Phase C: ensure striatumd.clients has an admin row + write
     the runtime token file so CLI verbs can authenticate over RPC.
 
@@ -407,13 +514,22 @@ def _bootstrap_pg_admin_if_needed(pg_conn: Any) -> None:
         # the connection's row_factory. Handle both shapes.
         count = row["c"] if isinstance(row, dict) else row[0]
         if int(count) > 0:
-            return
+            return None
     token_id = f"dtok_{secrets.token_urlsafe(12)}"
     secret = secrets.token_urlsafe(32)
     salt = secrets.token_hex(16)
     token_hash = _hash_token(secret=secret, salt=salt)
     client_id = f"dclient_{uuid.uuid4().hex}"
-    capabilities = ("admin", "read", "write", "claim", "review", "recovery")
+    capabilities = (
+        "admin",
+        "read",
+        "write",
+        "claim",
+        "review",
+        "apply",
+        "recovery",
+        "surgical_recovery",
+    )
     with pg_conn.cursor() as cur:
         cur.execute(
             """
@@ -432,7 +548,9 @@ def _bootstrap_pg_admin_if_needed(pg_conn: Any) -> None:
                 """,
                 (f"dcap_{uuid.uuid4().hex}", client_id, capability),
             )
-    write_runtime_token(f"{token_id}.{secret}")
+    token = f"{token_id}.{secret}"
+    write_runtime_token(token)
+    return {"client_id": client_id, "token_id": token_id, "token": token}
 
 
 def create_client(
@@ -654,7 +772,167 @@ def _require_auth(
     return auth
 
 
+def _require_pg_auth(
+    pg_conn: Any,
+    *,
+    command: str,
+    required: str,
+    token: str | None = None,
+    payload: Mapping[str, Any] | None = None,
+) -> None:
+    from striatum.daemon_rpc.capability import authorize
+    from striatum.daemon_rpc.request_log import append_audit_row
+
+    auth = authorize(pg_conn, required=required, repository_id=None, token=token)
+    append_audit_row(
+        pg_conn,
+        auth=auth,
+        method=command,
+        transport="cli",
+        request_id=f"cli_{uuid.uuid4().hex}",
+        params=payload or {},
+        exit_code=None if auth.decision == "allowed" else EXIT_DAEMON_CAPABILITY,
+    )
+    try:
+        pg_conn.commit()
+    except Exception:  # noqa: BLE001 - autocommit connections do not need an explicit commit.
+        pass
+    if auth.decision != "allowed":
+        if auth.denial_reason and auth.denial_reason.startswith("token_"):
+            raise DaemonAuthError(f"daemon authorization failed: {auth.denial_reason}")
+        raise DaemonCapabilityError(f"daemon authorization failed: {auth.denial_reason}")
+
+
 def repo_add(
+    path: Path,
+    *,
+    display_name: str | None = None,
+    no_migrate: bool = False,
+    init: bool = False,
+) -> dict[str, Any]:
+    if _pg_connection_configured():
+        from striatum.daemon_pg.connection import connect_and_migrate
+
+        pg_conn = connect_and_migrate()
+        try:
+            bootstrap = _bootstrap_pg_admin_if_needed(pg_conn)
+            if bootstrap is not None:
+                pg_conn.commit()
+            token = read_runtime_token()
+            _require_pg_auth(
+                pg_conn,
+                command="repo.add",
+                required=ADMIN_CAPABILITY,
+                token=token,
+                payload={"path": str(path), "no_migrate": no_migrate, "init": init},
+            )
+            result = repo_add_pg(
+                pg_conn,
+                path,
+                display_name=display_name,
+                no_migrate=no_migrate,
+                init=init,
+            )
+            if bootstrap is not None:
+                result["bootstrap_admin"] = bootstrap
+            return result
+        finally:
+            pg_conn.close()
+    return _repo_add_legacy_sqlite(
+        path,
+        display_name=display_name,
+        no_migrate=no_migrate,
+        init=init,
+    )
+
+
+def repo_add_pg(
+    pg_conn: Any,
+    path: Path,
+    *,
+    display_name: str | None = None,
+    no_migrate: bool = False,
+    init: bool = False,
+) -> dict[str, Any]:
+    from striatum.migrations import LATEST_VERSION
+
+    repo = _canonical_repo(path)
+    legacy_state = db_path(repo)
+    if legacy_state.exists():
+        raise SchemaVersionError(
+            "repo-local SQLite state exists; run `striatum daemon migrate-repo-local --from sqlite --to pg --repo "
+            f"{repo}` before registering"
+        )
+    state_dir = _init_operational_scratch(repo) if init else _require_operational_scratch(repo)
+    identity = _pg_repo_identity(repo)
+    with _pg_dict_cursor(pg_conn) as cur:
+        cur.execute(
+            """
+            SELECT *
+            FROM striatumd.repositories
+            WHERE repo_identity = %s AND state != 'removed'
+            ORDER BY repository_id
+            LIMIT 1
+            """,
+            (identity,),
+        )
+        existing_identity = cur.fetchone()
+        if existing_identity is not None:
+            row = _pg_row_dict(existing_identity)
+            return {
+                "repository_id": str(row["repository_id"]),
+                "repo_root": str(row["repo_root"]),
+                "repo_identity": str(row["repo_identity"]),
+                "state_db_path": str(row["state_db_path"]),
+                "schema_version": int(row["last_schema_version"]),
+                "state": str(row["state"]),
+                "already_registered": True,
+            }
+        cur.execute(
+            """
+            SELECT *
+            FROM striatumd.repositories
+            WHERE repo_root = %s AND state != 'removed'
+            ORDER BY repository_id
+            LIMIT 1
+            """,
+            (str(repo),),
+        )
+        existing_path = cur.fetchone()
+        if existing_path is not None:
+            raise DaemonCapabilityError("active repository path is occupied by a different repo identity")
+        repository_id = f"repo_{uuid.uuid4().hex}"
+        now = utc_now()
+        cur.execute(
+            """
+            INSERT INTO striatumd.repositories(repository_id, repo_identity, repo_root,
+              state_db_path, display_name, registered_at, removed_at, last_seen_at,
+              last_schema_version, state, settings_json)
+            VALUES (%s, %s, %s, %s, %s, %s, NULL, %s, %s, 'active', '{}'::jsonb)
+            """,
+            (
+                repository_id,
+                identity,
+                str(repo),
+                str(state_dir.resolve()),
+                display_name or repo.name,
+                now,
+                now,
+                LATEST_VERSION,
+            ),
+        )
+    pg_conn.commit()
+    return {
+        "repository_id": repository_id,
+        "repo_root": str(repo),
+        "repo_identity": identity,
+        "state_db_path": str(state_dir.resolve()),
+        "schema_version": LATEST_VERSION,
+        "state": "active",
+    }
+
+
+def _repo_add_legacy_sqlite(
     path: Path,
     *,
     display_name: str | None = None,
@@ -729,6 +1007,46 @@ def repo_add(
 
 
 def repo_list() -> dict[str, Any]:
+    if _pg_connection_configured():
+        from striatum.daemon_pg.connection import connect_and_migrate
+
+        pg_conn = connect_and_migrate()
+        try:
+            _bootstrap_pg_admin_if_needed(pg_conn)
+            pg_conn.commit()
+            _require_pg_auth(
+                pg_conn,
+                command="repo.list",
+                required=READ_CAPABILITY,
+                token=read_runtime_token(),
+            )
+            return repo_list_pg(pg_conn)
+        finally:
+            pg_conn.close()
+    return _repo_list_legacy_sqlite()
+
+
+def repo_list_pg(pg_conn: Any) -> dict[str, Any]:
+    with _pg_dict_cursor(pg_conn) as cur:
+        cur.execute(
+            """
+            SELECT repository_id, repo_identity, repo_root, display_name,
+                   registered_at, removed_at, last_seen_at,
+                   last_schema_version, state, state_db_path
+            FROM striatumd.repositories
+            ORDER BY registered_at, repository_id
+            """
+        )
+        rows = cur.fetchall()
+    repositories = []
+    for row in rows:
+        item = _pg_json_ready(_pg_row_dict(row))
+        item["repository_id"] = str(item["repository_id"])
+        repositories.append(item)
+    return {"repositories": repositories}
+
+
+def _repo_list_legacy_sqlite() -> dict[str, Any]:
     conn = connect_registry()
     token = read_runtime_token()
     with registry_transaction(conn):
@@ -785,6 +1103,82 @@ def _raise_denied(auth: AuthContext) -> None:
 
 
 def repo_remove(identifier: str) -> dict[str, Any]:
+    if _pg_connection_configured():
+        from striatum.daemon_pg.connection import connect_and_migrate
+
+        pg_conn = connect_and_migrate()
+        try:
+            _bootstrap_pg_admin_if_needed(pg_conn)
+            pg_conn.commit()
+            _require_pg_auth(
+                pg_conn,
+                command="repo.remove",
+                required=ADMIN_CAPABILITY,
+                token=read_runtime_token(),
+                payload={"id": identifier},
+            )
+            return repo_remove_pg(pg_conn, identifier)
+        finally:
+            pg_conn.close()
+    return _repo_remove_legacy_sqlite(identifier)
+
+
+def repo_remove_pg(pg_conn: Any, identifier: str) -> dict[str, Any]:
+    row = _find_repo_pg(pg_conn, identifier, include_removed=True)
+    if row is None:
+        raise NotFoundError(f"unknown daemon repository {identifier!r}")
+    repository_id = str(row["repository_id"])
+    if row["state"] == "removed":
+        return {"repository_id": repository_id, "state": "removed", "already_removed": True}
+    with pg_conn.cursor() as cur:
+        cur.execute(
+            """
+            UPDATE striatumd.repositories
+            SET state = 'removed', removed_at = now()
+            WHERE repository_id = %s
+            """,
+            (repository_id,),
+        )
+        cur.execute(
+            """
+            UPDATE striatumd.client_capabilities
+            SET revoked_at = now(), revoked_reason = 'repo_removed'
+            WHERE repository_id = %s AND revoked_at IS NULL
+            """,
+            (repository_id,),
+        )
+        revoked = int(cur.rowcount or 0)
+        cur.execute(
+            "UPDATE striatumd.scheduler_cursors SET state = 'removed' WHERE repository_id = %s",
+            (repository_id,),
+        )
+    pg_conn.commit()
+    return {"repository_id": repository_id, "state": "removed", "revoked_capabilities": revoked}
+
+
+def _find_repo_pg(pg_conn: Any, identifier: str, *, include_removed: bool = False) -> dict[str, Any] | None:
+    where = "" if include_removed else "AND state != 'removed'"
+    with _pg_dict_cursor(pg_conn) as cur:
+        cur.execute(
+            f"SELECT * FROM striatumd.repositories WHERE repository_id = %s {where}",
+            (identifier,),
+        )
+        row = cur.fetchone()
+        if row is not None:
+            return _pg_row_dict(row)
+        try:
+            resolved = Path(identifier).expanduser().resolve(strict=False)
+        except OSError:
+            resolved = Path(identifier)
+        cur.execute(
+            f"SELECT * FROM striatumd.repositories WHERE repo_root = %s {where}",
+            (str(resolved),),
+        )
+        row = cur.fetchone()
+    return None if row is None else _pg_row_dict(row)
+
+
+def _repo_remove_legacy_sqlite(identifier: str) -> dict[str, Any]:
     conn = connect_registry()
     token = read_runtime_token()
     with registry_transaction(conn):
@@ -931,6 +1325,7 @@ def run_daemon_foreground(
 
     pg_doctor: dict[str, Any] | None = None
     daemon_pg_conn: Any | None = None
+    pg_bootstrap: dict[str, str] | None = None
     # RFC 0048 V1.5: resolve daemon.toml + env + flag in one shot so the
     # daemon picks up the configured PG URL regardless of how it was launched
     # (systemd unit, direct shell, etc.). Without this the systemd-launched
@@ -958,10 +1353,16 @@ def run_daemon_foreground(
         # registry's _bootstrap_admin_if_needed but targets Postgres. The
         # token file under runtime_dir() is overwritten so the CLI can read
         # it for capability_token on each request.
-        _bootstrap_pg_admin_if_needed(daemon_pg_conn)
+        pg_bootstrap = _bootstrap_pg_admin_if_needed(daemon_pg_conn)
     conn = connect_registry()
+    bootstrap_token: str | None = None
+    if daemon_pg_conn is not None:
+        bootstrap_token = pg_bootstrap["token"] if pg_bootstrap is not None else read_runtime_token()
     with conn:
-        bootstrap = _bootstrap_admin_if_needed(conn)
+        if daemon_pg_conn is not None and bootstrap_token is None:
+            bootstrap = None
+        else:
+            bootstrap = _bootstrap_admin_if_needed(conn, token=bootstrap_token)
         daemon_instance_id = _instance_id(conn)
     _ensure_private_dir(runtime_dir())
     pid = _read_pid()

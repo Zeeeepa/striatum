@@ -169,6 +169,8 @@ class DaemonRpcRouter:
             from striatum.daemon import dashboard_all
 
             return dashboard_all(token=envelope.capability_token)
+        if envelope.method.startswith("repo."):
+            return self._route_repo(envelope)
         if envelope.method.startswith("cross_repo."):
             return self._route_cross_repo(envelope)
         if envelope.method.startswith("apply."):
@@ -199,6 +201,34 @@ class DaemonRpcRouter:
                 "not_implemented",
                 "workflow authoring is CLI-local and has no daemon live-state fallback",
             )
+        raise RpcError("method_unknown", f"method has no handler: {envelope.method}")
+
+    def _route_repo(self, envelope: RpcEnvelope) -> dict[str, Any]:
+        from striatum import daemon as daemon_mod
+
+        if self.pg_conn is None:
+            raise RpcError("daemon_db_missing", "repo routes require daemon PostgreSQL")
+        if envelope.method == "repo.list":
+            return daemon_mod.repo_list_pg(self.pg_conn)
+        if envelope.method == "repo.add":
+            raw_path = envelope.params.get("path")
+            if not isinstance(raw_path, str) or not raw_path:
+                raise RpcError("schema_invalid", "repo.add requires path")
+            display_name = envelope.params.get("display_name")
+            if display_name is not None and not isinstance(display_name, str):
+                raise RpcError("schema_invalid", "repo.add display_name must be a string")
+            return daemon_mod.repo_add_pg(
+                self.pg_conn,
+                Path(raw_path),
+                display_name=display_name,
+                no_migrate=bool(envelope.params.get("no_migrate", False)),
+                init=bool(envelope.params.get("init", False)),
+            )
+        if envelope.method == "repo.remove":
+            identifier = envelope.params.get("id") or envelope.params.get("repository_id")
+            if not isinstance(identifier, str) or not identifier:
+                raise RpcError("schema_invalid", "repo.remove requires id")
+            return daemon_mod.repo_remove_pg(self.pg_conn, identifier)
         raise RpcError("method_unknown", f"method has no handler: {envelope.method}")
 
     def _route_cross_repo(self, envelope: RpcEnvelope) -> dict[str, Any]:
