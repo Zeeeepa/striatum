@@ -26,6 +26,11 @@ Recent checkpoints:
   event ingestion across the Python/Go boundary. CI now promotes that check
   through a Linux/Postgres `daemon-go-helper-integration` target instead of
   relying on full-suite discovery.
+- Existing supervisor paths now reconcile restart state before trusting an
+  attached process: `supervise.status`, `supervise.send`, and claim-next
+  auto-delivery record `supervisor.reattached` for surviving PID identity,
+  fail closed for unverifiable repair states, and mark stale PID identity as
+  `lost` before any packet write.
 - Chat transcript, briefing, session listing, display projection, and
   workflow-write confirmation helpers now live in `striatum.web.chat_session`
   with focused regression coverage.
@@ -133,6 +138,9 @@ Recent checkpoints:
   helper event ingestion across `supervise.start`, `supervise.send`, and
   `supervise.status`; CI now runs that case explicitly through
   `make daemon-go-helper-integration` on Linux runners with Postgres.
+  Reattach/lost-state reconciliation now runs on existing status, send, and
+  claim auto-delivery paths, updating daemon-instance metadata for surviving
+  supervisors and marking stale PID identity lost before delivery.
 - **Workflow risk lint.**
   `striatum workflow lint` supports structured warnings, opt-in strict mode,
   accepted-risk rationale and decision references, advisory coverage scoring,

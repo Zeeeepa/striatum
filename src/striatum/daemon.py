@@ -962,6 +962,7 @@ def run_daemon_foreground(
     conn = connect_registry()
     with conn:
         bootstrap = _bootstrap_admin_if_needed(conn)
+        daemon_instance_id = _instance_id(conn)
     _ensure_private_dir(runtime_dir())
     pid = _read_pid()
     if pid is not None and _pid_alive(pid):
@@ -981,6 +982,9 @@ def run_daemon_foreground(
         os.chmod(socket_path(), 0o600)
     except PermissionError:
         pass
+
+    previous_daemon_instance_id = os.environ.get("STRIATUM_DAEMON_INSTANCE_ID")
+    os.environ["STRIATUM_DAEMON_INSTANCE_ID"] = daemon_instance_id
 
     # RFC 0048 V1.5: accept-loop wiring. One accept thread polls sock.accept()
     # with a short timeout against `stop_event`; per-connection daemon threads
@@ -1080,6 +1084,10 @@ def run_daemon_foreground(
                 daemon_pg_conn.close()
             except Exception:  # noqa: BLE001
                 pass
+        if previous_daemon_instance_id is None:
+            os.environ.pop("STRIATUM_DAEMON_INSTANCE_ID", None)
+        else:
+            os.environ["STRIATUM_DAEMON_INSTANCE_ID"] = previous_daemon_instance_id
         for path in (socket_path(), pid_path()):
             try:
                 path.unlink()
@@ -1092,6 +1100,7 @@ def run_daemon_foreground(
         "registry_path": str(registry_path()),
         "socket_path": str(socket_path()),
         "bootstrap_admin": bootstrap,
+        "instance_id": daemon_instance_id,
         "postgres": pg_doctor,
         "rpc_accept_loop": "running",
     }

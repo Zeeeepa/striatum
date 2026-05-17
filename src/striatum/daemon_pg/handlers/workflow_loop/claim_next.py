@@ -241,6 +241,20 @@ def _deliver_packet_to_attached_supervisor(
         return None
 
     supervisor_id = str(row["supervisor_id"])
+    from striatum.daemon_pg.handlers.supervision import _reconcile_attached_supervisor
+
+    reconciliation = _reconcile_attached_supervisor(
+        ctx,
+        dict(row),
+        phase="claim_next_auto_delivery",
+    )
+    if not reconciliation.delivery_allowed:
+        return {
+            "supervisor_id": supervisor_id,
+            "error": "supervisor_requires_reconciliation",
+            "reason": reconciliation.reattach_reason,
+        }
+    row = reconciliation.supervisor
     pipe_text = row.get("stdin_pipe_path")
     pipe_path = Path(str(pipe_text)) if pipe_text else None
     payload = packet_json if packet_json.endswith("\n") else packet_json + "\n"

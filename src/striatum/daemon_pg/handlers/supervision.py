@@ -63,6 +63,14 @@ class _ProcessLaunch:
     metadata: dict[str, Any] | None = None
 
 
+@dataclass(frozen=True)
+class _SupervisorReconciliation:
+    supervisor: dict[str, Any]
+    reattach_state: str | None
+    reattach_reason: str | None
+    delivery_allowed: bool
+
+
 @register_pg_handler("supervise.start")
 def handle_start(ctx: RepoHandlerContext, params: Mapping[str, Any]) -> dict[str, Any]:
     session_id = _required_text(params, "session_id")
@@ -237,6 +245,23 @@ def handle_send(ctx: RepoHandlerContext, params: Mapping[str, Any]) -> dict[str,
             )
         if str(packet["run_id"]) != str(supervisor["run_id"]):
             raise InvalidTransitionError("work packet run does not match supervisor run")
+
+        reconciliation = _reconcile_attached_supervisor(
+            ctx,
+            supervisor,
+            phase="supervise.send",
+        )
+        supervisor = reconciliation.supervisor
+        if supervisor["state"] != "attached":
+            raise InvalidTransitionError(
+                "supervisor cannot accept delivery: "
+                f"{reconciliation.reattach_reason or supervisor['state']}"
+            )
+        if not reconciliation.delivery_allowed:
+            raise InvalidTransitionError(
+                "supervisor requires operator reconciliation before delivery: "
+                f"{reconciliation.reattach_reason or reconciliation.reattach_state}"
+            )
 
         pipe_text = supervisor.get("stdin_pipe_path")
         pipe_path = Path(str(pipe_text)) if pipe_text else None
@@ -480,6 +505,12 @@ def handle_status(ctx: RepoHandlerContext, params: Mapping[str, Any]) -> dict[st
         supervisor = _latest_supervisor(ctx, session_id=session_id, for_update=True)
         if supervisor is None:
             raise NotFoundError(f"no supervisor recorded for session_id={session_id!r}")
+        reconciliation = _reconcile_attached_supervisor(
+            ctx,
+            supervisor,
+            phase="supervise.status",
+        )
+        supervisor = reconciliation.supervisor
         state = str(supervisor["state"])
         pid_value = supervisor.get("pid")
         pid = int(pid_value) if pid_value is not None else None
@@ -524,13 +555,18 @@ def handle_status(ctx: RepoHandlerContext, params: Mapping[str, Any]) -> dict[st
             view["last_progress_age_seconds"] = progress["last_progress_age_seconds"]
             view["stall_after_seconds"] = progress["stall_after_seconds"]
             view["lease_expired"] = progress["lease_expired"]
+        reattach_attested = reconciliation.reattach_state in {None, "reattachable"}
         view["lane_attestation"] = (
-            "attested" if view.get("state") == "attached" and liveness == "alive" else "unattested"
+            "attested"
+            if view.get("state") == "attached" and liveness == "alive" and reattach_attested
+            else "unattested"
         )
         if view["lane_attestation"] == "attested":
             view["lane_attestation_reason"] = None
         elif liveness == "stalled":
             view["lane_attestation_reason"] = "supervisor_stalled"
+        elif reconciliation.reattach_state in {"needs_repair", "needs_verification"}:
+            view["lane_attestation_reason"] = reconciliation.reattach_reason
         else:
             view["lane_attestation_reason"] = "no_live_attached_supervisor"
         return view
@@ -731,6 +767,169 @@ def _reattach_status_view(row: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
+def _reconcile_attached_supervisor(
+    ctx: RepoHandlerContext,
+    supervisor: Mapping[str, Any],
+    *,
+    phase: str,
+) -> _SupervisorReconciliation:
+    state = str(supervisor["state"])
+    if state != "attached":
+        return _SupervisorReconciliation(
+            supervisor=dict(supervisor),
+            reattach_state=None,
+            reattach_reason=None,
+            delivery_allowed=False,
+        )
+    row = _reattach_status_row(ctx, supervisor_id=str(supervisor["supervisor_id"]))
+    pid = _optional_int(row.get("pid"))
+    pid_alive = pid is not None and _pid_alive(pid)
+    current_start = process_start_time(pid) if pid is not None and pid_alive else None
+    reattach_state, reattach_reason, _action = _reattach_state(
+        row,
+        pid_alive=pid_alive,
+        current_start=current_start,
+    )
+    if reattach_state == "lost_candidate":
+        reason = f"{reattach_reason or 'lost_candidate'} observed by {phase}"
+        _mark_lost(
+            ctx,
+            supervisor_id=str(supervisor["supervisor_id"]),
+            run_id=str(supervisor["run_id"]),
+            session_id=str(supervisor["session_id"]),
+            reason=reason,
+            pid=pid,
+            payload={"phase": phase, "reattach_reason": reattach_reason},
+        )
+        lost = {
+            **dict(supervisor),
+            "state": "lost",
+            "ended_at": ctx.now(),
+            "stop_reason": reason,
+        }
+        return _SupervisorReconciliation(
+            supervisor=lost,
+            reattach_state=reattach_state,
+            reattach_reason=reattach_reason,
+            delivery_allowed=False,
+        )
+    if reattach_state == "reattachable":
+        _record_reattached_if_needed(
+            ctx,
+            row=row,
+            phase=phase,
+            pid=pid,
+            pid_start_time=current_start,
+        )
+        return _SupervisorReconciliation(
+            supervisor=dict(supervisor),
+            reattach_state=reattach_state,
+            reattach_reason=reattach_reason,
+            delivery_allowed=True,
+        )
+    return _SupervisorReconciliation(
+        supervisor=dict(supervisor),
+        reattach_state=reattach_state,
+        reattach_reason=reattach_reason,
+        delivery_allowed=False,
+    )
+
+
+def _reattach_status_row(ctx: RepoHandlerContext, *, supervisor_id: str) -> dict[str, Any]:
+    rows = _reattach_status_rows(
+        ctx,
+        run_id=None,
+        session_id=None,
+        supervisor_id=supervisor_id,
+    )
+    if not rows:
+        raise NotFoundError(f"no supervisor recorded for supervisor_id={supervisor_id!r}")
+    return rows[0]
+
+
+def _record_reattached_if_needed(
+    ctx: RepoHandlerContext,
+    *,
+    row: Mapping[str, Any],
+    phase: str,
+    pid: int | None,
+    pid_start_time: str | None,
+) -> None:
+    daemon_supervisor_id = _optional_text(row.get("daemon_supervisor_id"))
+    current_instance = _current_daemon_instance_id()
+    pointer_metadata = row.get("pointer_metadata_json") or {}
+    metadata = dict(pointer_metadata) if isinstance(pointer_metadata, Mapping) else {}
+    previous_pointer_instance = _optional_text(metadata.get("daemon_instance_id"))
+    previous_daemon_instance = _optional_text(row.get("daemon_instance_id"))
+    if previous_pointer_instance == current_instance and previous_daemon_instance == current_instance:
+        return
+    supervisor_id = str(row["supervisor_id"])
+    now = ctx.now()
+    metadata.update(
+        {
+            "daemon_instance_id": current_instance,
+            "reattached_at": now,
+            "reattach_phase": phase,
+        }
+    )
+    with ctx.cursor() as cur:
+        cur.execute(
+            """
+            UPDATE striatumd.process_supervisor_pointers
+            SET pid = COALESCE(%s, pid),
+                pid_start_time = COALESCE(%s, pid_start_time),
+                state = %s,
+                updated_at = %s,
+                metadata_json = %s
+            WHERE repository_id = %s AND supervisor_id = %s
+            """,
+            (
+                pid,
+                pid_start_time,
+                row["state"],
+                now,
+                _jsonb(metadata),
+                ctx.repository_id,
+                supervisor_id,
+            ),
+        )
+        if daemon_supervisor_id is not None:
+            cur.execute(
+                """
+                UPDATE striatumd.daemon_supervisors
+                SET daemon_instance_id = %s,
+                    pid = COALESCE(%s, pid),
+                    pid_start_time = COALESCE(%s, pid_start_time),
+                    state = %s,
+                    heartbeat_at = %s
+                WHERE repository_id = %s AND daemon_supervisor_id = %s
+                """,
+                (
+                    current_instance,
+                    pid,
+                    pid_start_time,
+                    row["state"],
+                    now,
+                    ctx.repository_id,
+                    daemon_supervisor_id,
+                ),
+            )
+    ctx.append_event(
+        run_id=str(row["run_id"]),
+        event_type="supervisor.reattached",
+        actor_session_id=str(row["session_id"]),
+        payload={
+            "supervisor_id": supervisor_id,
+            "daemon_supervisor_id": daemon_supervisor_id,
+            "pid": pid,
+            "pid_start_time": pid_start_time,
+            "phase": phase,
+            "daemon_instance_id": current_instance,
+            "previous_daemon_instance_id": previous_daemon_instance,
+        },
+    )
+
+
 def _reattach_state(
     row: Mapping[str, Any],
     *,
@@ -761,6 +960,10 @@ def _reattach_state(
     if daemon_state != state:
         return ("needs_repair", "daemon_state_mismatch", "repair_daemon_supervisor")
     return ("reattachable", None, "reattach")
+
+
+def _current_daemon_instance_id() -> str:
+    return os.environ.get("STRIATUM_DAEMON_INSTANCE_ID", "python-pg-handler")
 
 
 def _pid_identity(
@@ -962,7 +1165,7 @@ def _insert_starting_rows(
     started_at: str,
 ) -> None:
     command_json = json_dumps(command)
-    daemon_instance_id = os.environ.get("STRIATUM_DAEMON_INSTANCE_ID", "python-pg-handler")
+    daemon_instance_id = _current_daemon_instance_id()
     with ctx.cursor() as cur:
         cur.execute(
             """

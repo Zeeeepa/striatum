@@ -495,9 +495,13 @@ decide whether to rename the packet helper to `packet inbox`.
 - `make daemon-go-helper-integration` now builds the Go helper and runs that
   focused Postgres-backed integration test, and CI runs the target on
   Linux runners with the Postgres service.
+- Existing supervisor paths now perform restart reconciliation before
+  delivery: `supervise.status`, `supervise.send`, and claim-next
+  auto-delivery record `supervisor.reattached` for surviving PID identity,
+  update daemon-instance metadata, fail closed for repair/verification
+  states, and mark stale PID identity `lost` before writing to stdin.
 
-**Remaining Phase 6 debt:** actual restart reattach/lost-state recovery,
-and wrapper fixtures.
+**Remaining Phase 6 debt:** wrapper fixtures.
 
 ---
 

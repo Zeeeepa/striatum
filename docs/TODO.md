@@ -105,7 +105,7 @@ so external references keep resolving even as items move between sections.
 | 51 | Architecture remediation Phase 3 — daemon core strategy decision | ✅ done |
 | 52 | RFC 0061 Architecture remediation Phase 4 — daemon-first web service | 🟡 core web/API + artifact reads daemon-routed |
 | 53 | RFC 0062 Architecture remediation Phase 5 — real escalation inbox | 🟡 projection + escalation artifact schema/linkage landed |
-| 54 | RFC 0063 Architecture remediation Phase 6 — hardened PTY supervision | 🟡 control-event, helper protocol, JSONL ingestion, helper launch, real-helper integration coverage, and helper CI landed |
+| 54 | RFC 0063 Architecture remediation Phase 6 — hardened PTY supervision | 🟡 control-event, helper protocol, JSONL ingestion, helper launch, real-helper integration, helper CI, and restart reconciliation landed |
 | 55 | RFC 0064 Architecture remediation Phase 7 — workflow risk lint and review diversity enforcement | 🟡 validate refusal + generator coverage landed |
 | 56 | Architecture remediation Phase 8 — auto-finalize from front matter | 🟡 daemon recovery + visibility slices landed |
 | 57 | RFC 0065 Architecture remediation Phase 9 — UI packaging and bundle cleanup | ✅ done; chunking monitor only |
@@ -960,8 +960,11 @@ review and plan are root-level operator artifacts:
     start, send, packet acknowledgement, status drain, and agent-exit event
     ingestion across the Python/Go boundary. Follow-up slice promoted that
     check into `make daemon-go-helper-integration` and CI's Linux/Postgres
-    matrix. Remaining: actual restart reattach/lost-state semantics and
-    wrapper fixtures.
+    matrix. Follow-up slice landed restart reattach/lost-state reconciliation
+    on existing `supervise.status`, `supervise.send`, and claim-next
+    auto-delivery paths: surviving supervisors record `supervisor.reattached`
+    and refresh daemon-instance metadata, while stale PID identity is marked
+    `lost` before any packet write. Remaining: wrapper fixtures.
 
 55. **Phase 7: workflow risk lint and review diversity enforcement.**
     `workflow lint <workflow.json> --json` returns structured advisory

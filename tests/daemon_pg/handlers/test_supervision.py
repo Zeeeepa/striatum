@@ -204,6 +204,103 @@ def test_reattach_status_summarizes_liveness_identity_and_repair(
         conn.close()
 
 
+def test_status_records_reattach_for_surviving_supervisor_after_daemon_restart(
+    tmp_path: Path, pg_url: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("STRIATUM_DAEMON_INSTANCE_ID", "daemon-new")
+    conn = connect(pg_url)
+    try:
+        repo = tmp_path / "repo"
+        _seed_supervisable_session(conn, repo, repository_id="repo_a")
+        pid = os.getpid()
+        pid_start = process_start_time(pid)
+        assert pid_start is not None
+        _insert_supervisor_snapshot(
+            conn,
+            repository_id="repo_a",
+            supervisor_id="sup_survived_restart",
+            session_id="sess_1",
+            pid=pid,
+            pid_start_time=pid_start,
+            with_pointer=True,
+            with_daemon=True,
+        )
+        conn.commit()
+
+        status = handle_status(_ctx(conn, repo, "repo_a"), {"session_id": "sess_1"})
+
+        assert status["state"] == "attached"
+        assert status["liveness"] == "alive"
+        assert status["lane_attestation"] == "attested"
+        metadata = _one(
+            conn,
+            """
+            SELECT p.metadata_json, ds.daemon_instance_id
+            FROM striatumd.process_supervisor_pointers p
+            JOIN striatumd.daemon_supervisors ds
+              ON ds.repository_id = p.repository_id
+             AND ds.daemon_supervisor_id = p.daemon_supervisor_id
+            WHERE p.repository_id = %s AND p.supervisor_id = %s
+            """,
+            ("repo_a", "sup_survived_restart"),
+        )
+        assert metadata["metadata_json"]["daemon_instance_id"] == "daemon-new"
+        assert metadata["metadata_json"]["reattach_phase"] == "supervise.status"
+        assert metadata["daemon_instance_id"] == "daemon-new"
+        events = _events(conn, "repo_a")
+        assert [row["event_type"] for row in events] == ["supervisor.reattached"]
+    finally:
+        conn.close()
+
+
+def test_status_marks_pid_identity_mismatch_lost(
+    tmp_path: Path, pg_url: str
+) -> None:
+    conn = connect(pg_url)
+    try:
+        repo = tmp_path / "repo"
+        _seed_supervisable_session(conn, repo, repository_id="repo_a")
+        pid = os.getpid()
+        _insert_supervisor_snapshot(
+            conn,
+            repository_id="repo_a",
+            supervisor_id="sup_pid_reused",
+            session_id="sess_1",
+            pid=pid,
+            pid_start_time="stale-start-token",
+            with_pointer=True,
+            with_daemon=True,
+        )
+        conn.commit()
+
+        status = handle_status(_ctx(conn, repo, "repo_a"), {"session_id": "sess_1"})
+
+        assert status["state"] == "lost"
+        assert status["liveness"] == "gone"
+        assert status["stop_reason"] == "pid_identity_mismatch observed by supervise.status"
+        row = _one(
+            conn,
+            """
+            SELECT ps.state, p.state AS pointer_state, ds.state AS daemon_state
+            FROM striatumd.process_supervisors ps
+            JOIN striatumd.process_supervisor_pointers p
+              ON p.repository_id = ps.repository_id
+             AND p.supervisor_id = ps.supervisor_id
+            JOIN striatumd.daemon_supervisors ds
+              ON ds.repository_id = p.repository_id
+             AND ds.daemon_supervisor_id = p.daemon_supervisor_id
+            WHERE ps.repository_id = %s AND ps.supervisor_id = %s
+            """,
+            ("repo_a", "sup_pid_reused"),
+        )
+        assert row == {"state": "lost", "pointer_state": "lost", "daemon_state": "lost"}
+        events = _events(conn, "repo_a")
+        assert [row["event_type"] for row in events] == ["supervisor.lost"]
+        assert events[0]["payload_json"]["reattach_reason"] == "pid_identity_mismatch"
+    finally:
+        conn.close()
+
+
 def test_status_and_doctor_surface_stalled_attached_supervisor(
     tmp_path: Path, pg_url: str
 ) -> None:

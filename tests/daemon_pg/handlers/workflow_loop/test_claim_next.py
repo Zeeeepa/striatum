@@ -10,6 +10,7 @@ import pytest
 from psycopg.types.json import Jsonb
 
 from _harness.tokens import issue_token
+from striatum.identity import process_start_time
 
 _HELPERS_PATH = Path(__file__).with_name("test_register_session.py")
 _HELPERS_SPEC = importlib.util.spec_from_file_location("_workflow_loop_test_helpers", _HELPERS_PATH)
@@ -156,6 +157,66 @@ def test_claim_next_auto_delivery_honors_one_shot_eof_metadata(
     assert delivered["payload_json"]["stdin_closed_after_write"] is True
 
 
+def test_claim_next_auto_delivery_marks_stale_pid_identity_lost(
+    pg_conn: Any,
+    tmp_path: Path,
+) -> None:
+    repo = tmp_path / "repo"
+    pipe_path = tmp_path / "stdin.pipe"
+    os.mkfifo(pipe_path, 0o600)
+    insert_repo(pg_conn, repo, "repo_a")
+    insert_claimable_work(pg_conn, repository_id="repo_a", repo_root=repo)
+    _insert_attached_supervisor(
+        pg_conn,
+        repository_id="repo_a",
+        repo_root=repo,
+        pipe_path=pipe_path,
+        stdin_delivery="persistent_fifo",
+        pid_start_time="stale-start-token",
+    )
+    token = issue_token(pg_conn, capabilities=["claim"], repo_id="repo_a")
+
+    response = rpc(
+        pg_conn,
+        repo_root=repo,
+        method="work.claim_next",
+        params={"repository_id": "repo_a", "session_id": "sess_author"},
+        token=token,
+        request_id="claim-next-stale-pid-delivery",
+    )
+
+    assert response.ok is True
+    delivery = response.data["supervisor_delivery"]
+    assert delivery == {
+        "supervisor_id": "sup_one_shot",
+        "error": "supervisor_requires_reconciliation",
+        "reason": "pid_identity_mismatch",
+    }
+    with pg_conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT ps.state, p.state AS pointer_state, ds.state AS daemon_state
+            FROM striatumd.process_supervisors ps
+            JOIN striatumd.process_supervisor_pointers p
+              ON p.repository_id = ps.repository_id
+             AND p.supervisor_id = ps.supervisor_id
+            JOIN striatumd.daemon_supervisors ds
+              ON ds.repository_id = p.repository_id
+             AND ds.daemon_supervisor_id = p.daemon_supervisor_id
+            WHERE ps.repository_id = 'repo_a' AND ps.supervisor_id = 'sup_one_shot'
+            """
+        )
+        assert cur.fetchone() == ("lost", "lost", "lost")
+    events = fetch_events(pg_conn, "repo_a")
+    assert [row["event_type"] for row in events] == [
+        "queue.claimed",
+        "supervisor.lost",
+    ]
+    lost = events[1]["payload_json"]
+    assert lost["phase"] == "claim_next_auto_delivery"
+    assert lost["reattach_reason"] == "pid_identity_mismatch"
+
+
 def _insert_attached_supervisor(
     conn: Any,
     *,
@@ -163,7 +224,11 @@ def _insert_attached_supervisor(
     repo_root: Path,
     pipe_path: Path,
     stdin_delivery: str,
+    pid_start_time: str | None = None,
 ) -> None:
+    pid = os.getpid()
+    pid_start_time = pid_start_time or process_start_time(pid)
+    assert pid_start_time is not None
     with conn.cursor() as cur:
         cur.execute(
             """
@@ -174,11 +239,11 @@ def _insert_attached_supervisor(
             )
             VALUES (
               %s, 'sup_one_shot', 'run_1', 'sess_author', 'process',
-              '["python"]'::jsonb, %s, %s, %s, %s, 'test-start',
+              '["python"]'::jsonb, %s, %s, %s, %s, %s,
               'attached', now(), now()
             )
             """,
-            (repository_id, str(repo_root), str(pipe_path.parent), str(pipe_path), os.getpid()),
+            (repository_id, str(repo_root), str(pipe_path.parent), str(pipe_path), pid, pid_start_time),
         )
         cur.execute(
             """
@@ -188,13 +253,30 @@ def _insert_attached_supervisor(
             )
             VALUES (
               %s, 'sup_one_shot', 'dsup_one_shot', 'run_1', 'sess_author',
-              %s, 'test-start', 'attached', now(), %s
+              %s, %s, 'attached', now(), %s
             )
             """,
             (
                 repository_id,
-                os.getpid(),
+                pid,
+                pid_start_time,
                 Jsonb({"source": "test", "transport": "pipe", "stdin_delivery": stdin_delivery}),
             ),
+        )
+        cur.execute(
+            """
+            INSERT INTO striatumd.daemon_supervisors(
+              daemon_supervisor_id, repository_id, run_id, session_id,
+              repo_supervisor_id, daemon_instance_id, adapter, command_json,
+              command_sha256, cwd, stdin_pipe_path, pid, pid_start_time,
+              state, started_at, heartbeat_at
+            )
+            VALUES (
+              'dsup_one_shot', %s, 'run_1', 'sess_author',
+              'sup_one_shot', 'daemon-test', 'process', '["python"]'::jsonb,
+              'sha256:test', %s, %s, %s, %s, 'attached', now(), now()
+            )
+            """,
+            (repository_id, str(repo_root), str(pipe_path), pid, pid_start_time),
         )
     conn.commit()
