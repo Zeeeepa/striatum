@@ -212,10 +212,12 @@ def dispatch(args: argparse.Namespace) -> object:
     )
     # RFC 0048 Phase C: route CLI verbs through daemon RPC (Unix socket)
     # when the verb maps to a registered RPC method AND the daemon is
-    # reachable. Falls through to legacy SQLite dispatch when no mapping
+    # reachable. Falls through to legacy SQLite dispatch only when no mapping
     # exists (init, skills, plugin, daemon, repo, serve, byline, and the
-    # session-scoped inbox helper) or when the daemon is unreachable
-    # (test-harness mode or daemon offline).
+    # session-scoped inbox helper) or when the explicit test-harness
+    # compatibility guard disables daemon routing. Once routing is attempted,
+    # unexpected route failures must fail closed instead of opening legacy
+    # state.
     if args.command == "self-update":
         return _dispatch_self_update(args)
     if args.command == "adopt":
@@ -250,8 +252,12 @@ def dispatch(args: argparse.Namespace) -> object:
                 return payload
         except StriatumError:
             raise
-        except Exception:  # noqa: BLE001 — any unexpected failure falls through to legacy path
-            pass
+        except Exception as route_exc:  # noqa: BLE001 - fail closed across the daemon boundary.
+            raise StriatumError(
+                "daemon_route_failed: daemon-routed CLI command failed before "
+                f"RPC dispatch and cannot fall back to legacy state: {route_exc}",
+                exit_code=1,
+            ) from route_exc
     if args.command == "daemon":
         return _dispatch_daemon(args)
     if args.command == "repo":

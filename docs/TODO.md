@@ -851,7 +851,10 @@ review and plan are root-level operator artifacts:
     substrate-neutral helpers were split into `primitives.py` and
     `repo_policy.py`; guardrails now prevent `daemon_pg` and production
     `daemon_rpc` code from importing the legacy SQLite module except for
-    the explicitly quarantined dogfood compatibility route. Remaining
+    the explicitly quarantined dogfood compatibility route. Mapped CLI
+    commands now also fail closed if route translation raises unexpectedly,
+    preventing a route-layer crash from falling through to repo-local
+    SQLite. Remaining
     follow-up: quarantine the legacy SQLite domain under a migration/service
     namespace as part of the service/adapter cleanup, since local web,
     adapter, byline, inbox, dogfood compatibility, and migration fixtures

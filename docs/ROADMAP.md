@@ -266,6 +266,9 @@ authority matrix and contract tests current while deleting fallback paths.
   `striatum.api.invoke`; `CLI_ROUTES` is empty and guarded by tests.
 - CLI translations now route `run graph`, `worktree create/release/list`,
   and `supervise start/send/stop/status/list` through daemon RPC.
+- Mapped CLI commands now fail closed when the route layer raises an
+  unexpected exception, with an architecture guardrail proving the path does
+  not open repo-local SQLite.
 - Workflow authoring methods are explicitly CLI-local: daemon RPC refuses
   them with `not_implemented`, MCP tool listing hides them, and route tests
   prevent accidental daemon routing.

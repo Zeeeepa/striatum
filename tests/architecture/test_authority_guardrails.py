@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib
 from pathlib import Path
 from typing import Any
 
@@ -11,7 +12,7 @@ from striatum.daemon_rpc.capability import RpcAuthContext
 from striatum.daemon_rpc.envelope import RpcEnvelope, RpcError
 from striatum.daemon_rpc.registry import METHOD_REGISTRY
 from striatum.daemon_rpc.server import CLI_ROUTES, LOCAL_FILE_AUTHORING_METHODS, DaemonRpcRouter
-from striatum.errors import DaemonUnreachableError
+from striatum.errors import DaemonUnreachableError, StriatumError
 
 
 DIRECT_DAEMON_METHODS: frozenset[str] = frozenset(
@@ -231,3 +232,27 @@ def test_production_daemon_required_commands_refuse_before_sqlite_connect(
 
     with pytest.raises(DaemonUnreachableError):
         dispatch(args)
+
+
+def test_daemon_routed_command_fails_closed_when_route_layer_crashes(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    import striatum.cli.daemon_rpc_route as route_mod
+
+    dispatch_mod = importlib.import_module("striatum.cli.dispatch")
+
+    monkeypatch.delenv("STRIATUM_TEST_HARNESS", raising=False)
+    monkeypatch.setenv("STRIATUM_SQLITE_CONNECT_TRIPWIRE", "1")
+    monkeypatch.setattr(dispatch_mod, "enforce_daemon_required", lambda *_args, **_kwargs: None)
+
+    def crash_route(_args: Any, _repo: Path) -> tuple[bool, object]:
+        raise RuntimeError("route translation exploded")
+
+    monkeypatch.setattr(route_mod, "try_route", crash_route)
+
+    parser = build_parser()
+    args = parser.parse_args(["--repo", str(tmp_path), "status"])
+
+    with pytest.raises(StriatumError, match="daemon_route_failed"):
+        dispatch_mod.dispatch(args)

@@ -118,6 +118,10 @@ Recent checkpoints:
   PostgreSQL is now the live-state authority, `.striatum/` is operational
   scratch, RFC 0048 is marked completed, and Engram is framed only as optional
   external augmentation.
+- Daemon-routed CLI commands now fail closed on unexpected route-layer
+  exceptions instead of falling through to the legacy dispatch body; an
+  architecture guardrail keeps the SQLite-connect tripwire armed for that
+  path.
 
 - **Command authority and fallback guardrails.**
   `docs/architecture/COMMAND_AUTHORITY_MATRIX.md` now names the authority
