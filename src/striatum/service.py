@@ -12,10 +12,6 @@ from __future__ import annotations
 
 import os
 import secrets
-import signal
-import socket
-import socketserver
-import threading
 import time  # noqa: F401 - compatibility monkeypatch seam for legacy SSE tests.
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
@@ -40,17 +36,15 @@ from striatum.service_request_security import (
 from striatum import service_api_routes as _service_api_routes
 from striatum import service_request_io as _request_io
 from striatum import service_routes as _service_routes
+from striatum import service_server as _service_server
 from striatum.service_api_routes import (
     ServiceApiRouteContext as _ServiceApiRouteContext,
 )
 from striatum.service_runtime import (
     ServiceAlreadyRunningError as ServiceAlreadyRunningError,
     ServiceConfigError as ServiceConfigError,
-    check_single_instance as _check_single_instance,
-    ensure_loopback as _ensure_loopback,
     service_mode as _service_mode,
     striatum_version as _striatum_version,
-    wait_for_service_shutdown as _wait_for_service_shutdown,
 )
 from striatum.service_state import (
     SSE_MAX_CONCURRENT_PER_RUN as SSE_MAX_CONCURRENT_PER_RUN,
@@ -176,6 +170,8 @@ def _handler_send_json(handler: BaseHTTPRequestHandler, status: int, body: Mappi
 
 
 SHUTDOWN_DRAIN_SECONDS = 5.0
+_ThreadedTCPServer = _service_server.ThreadedTCPServer
+_ThreadedUnixServer = _service_server.ThreadedUnixServer
 
 
 def _is_safe_id(value: str) -> bool:
@@ -715,22 +711,6 @@ class StriatumServiceHandler(BaseHTTPRequestHandler):
         _request_io.send_json_response(self, status, payload)
 
 
-# --- server classes ----------------------------------------------------
-
-
-class _ThreadedTCPServer(socketserver.ThreadingMixIn, HTTPServer):
-    daemon_threads = True
-    allow_reuse_address = True
-
-
-class _ThreadedUnixServer(socketserver.ThreadingMixIn, HTTPServer):
-    daemon_threads = True
-    address_family = socket.AF_UNIX
-
-    def server_bind(self) -> None:  # noqa: D401 - HTTPServer API
-        socketserver.UnixStreamServer.server_bind(self)
-
-
 # --- public API --------------------------------------------------------
 
 
@@ -794,31 +774,17 @@ def _run_tcp(
     idle_timeout_seconds: int | None,
     web_enabled: bool,
 ) -> JsonObject:
-    _ensure_loopback(host)
-    pid_path = repo / ".striatum" / "service.pid"
-    _check_single_instance(pid_path)
-    _verify_service_startup(repo)
-    state = ServiceState(
+    return _service_server.run_tcp(
         repo=repo,
-        allow_mutations=allow_mutations,
+        host=host,
+        port=port,
         token=token,
-        web_enabled=web_enabled,
-    )
-    handler = _make_handler(state)
-    server = _ThreadedTCPServer((host, port), handler)
-    bound_address = server.server_address
-    bound_host = bound_address[0] if isinstance(bound_address, tuple) else host
-    bound_port = bound_address[1] if isinstance(bound_address, tuple) else port
-    state.origin_check_enabled = True
-    state.allowed_origins = allowed_origins_for_bind(str(bound_host), int(bound_port))
-    return _serve_forever(
-        server=server,
-        state=state,
-        pid_path=pid_path,
-        unix_path=None,
-        bind_summary={"mode": "tcp", "host": str(bound_host), "port": int(bound_port)},
+        allow_mutations=allow_mutations,
         idle_timeout_seconds=idle_timeout_seconds,
         web_enabled=web_enabled,
+        make_handler=_make_handler,
+        verify_startup=_verify_service_startup,
+        shutdown_drain_seconds=SHUTDOWN_DRAIN_SECONDS,
     )
 
 
@@ -831,38 +797,16 @@ def _run_unix(
     idle_timeout_seconds: int | None,
     web_enabled: bool,
 ) -> JsonObject:
-    _verify_service_startup(repo)
-    socket_path = Path(unix_path)
-    if socket_path.exists():
-        try:
-            socket_path.unlink()
-        except OSError as exc:
-            raise ServiceConfigError(
-                f"cannot remove stale Unix socket {socket_path}: {exc}"
-            ) from exc
-    pid_path = socket_path.with_suffix(socket_path.suffix + ".pid")
-    _check_single_instance(pid_path)
-    state = ServiceState(
+    return _service_server.run_unix(
         repo=repo,
-        allow_mutations=allow_mutations,
+        unix_path=unix_path,
         token=None,
-        web_enabled=web_enabled,
-    )
-    handler = _make_handler(state)
-    # _ThreadedUnixServer overrides address_family to AF_UNIX and binds
-    # by string path; mypy's HTTPServer signature doesn't model that
-    # variant, hence the cast to Any to suppress the spurious tuple
-    # expectation.
-    server: Any = _ThreadedUnixServer(str(socket_path), handler)  # type: ignore[arg-type]
-    os.chmod(socket_path, 0o600)
-    return _serve_forever(
-        server=server,
-        state=state,
-        pid_path=pid_path,
-        unix_path=str(socket_path),
-        bind_summary={"mode": "unix", "path": str(socket_path)},
+        allow_mutations=allow_mutations,
         idle_timeout_seconds=idle_timeout_seconds,
         web_enabled=web_enabled,
+        make_handler=_make_handler,
+        verify_startup=_verify_service_startup,
+        shutdown_drain_seconds=SHUTDOWN_DRAIN_SECONDS,
     )
 
 
@@ -884,58 +828,13 @@ def _serve_forever(
     idle_timeout_seconds: int | None,
     web_enabled: bool,
 ) -> JsonObject:
-    pid_path.parent.mkdir(parents=True, exist_ok=True)
-    pid_path.write_text(str(os.getpid()), encoding="utf-8")
-
-    shutdown_event = threading.Event()
-
-    def _on_signal(signum: int, frame: Any) -> None:  # noqa: ARG001
-        # Run from the main thread when CPython delivers the signal. We
-        # avoid calling ``server.shutdown()`` here because it would
-        # block waiting for ``serve_forever`` to acknowledge — instead
-        # the main thread waits on the event below and calls shutdown
-        # synchronously after the event fires.
-        state.signal_shutdown()
-        shutdown_event.set()
-
-    signal.signal(signal.SIGTERM, _on_signal)
-    signal.signal(signal.SIGINT, _on_signal)
-
-    server_thread = threading.Thread(target=server.serve_forever, daemon=True)
-    server_thread.start()
-    startup = {
-        **bind_summary,
-        "allow_mutations": state.allow_mutations,
-        "token": state.token is not None,
-        "started_at": state.started_at,
-        "pid": os.getpid(),
-        "web_enabled": web_enabled,
-    }
-    # RFC 0022 V1 + RFC 0023 V1: web UI is bundled and active when
-    # --web is passed; no warning needed. Earlier versions emitted
-    # one here; the warning is dropped now that the SSR pages ship.
-    try:
-        _wait_for_service_shutdown(
-            shutdown_event,
-            idle_timeout_seconds=idle_timeout_seconds,
-        )
-        # Either signal-driven shutdown or idle timeout. Shut the server
-        # synchronously now; serve_forever's poll loop will pick up the
-        # request within its poll interval (default 0.5s).
-        server.shutdown()
-        server_thread.join(timeout=SHUTDOWN_DRAIN_SECONDS)
-    finally:
-        try:
-            server.server_close()
-        except OSError:
-            pass
-        if unix_path is not None:
-            try:
-                Path(unix_path).unlink()
-            except OSError:
-                pass
-        try:
-            pid_path.unlink()
-        except OSError:
-            pass
-    return {"started": True, **startup}
+    return _service_server.serve_forever(
+        server=server,
+        state=state,
+        pid_path=pid_path,
+        unix_path=unix_path,
+        bind_summary=bind_summary,
+        idle_timeout_seconds=idle_timeout_seconds,
+        web_enabled=web_enabled,
+        shutdown_drain_seconds=SHUTDOWN_DRAIN_SECONDS,
+    )

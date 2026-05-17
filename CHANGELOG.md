@@ -136,6 +136,9 @@ Recent checkpoints:
 - Local service GET/POST route selection moved from `service.py` into
   `striatum.service_routes`, keeping the handler's stable wrapper methods
   while continuing the daemon-first web-service split.
+- Local service TCP/Unix binding, PID-file handling, signal shutdown, and
+  serve loop orchestration moved from `service.py` into
+  `striatum.service_server`; private compatibility wrappers remain in place.
 - Workflow validation now rejects `needs_revision` cycles whose `from`/`to`
   jobs cross phase boundaries, closing the RFC 0045 V1.5 cycle phase-jump
   validator gap.

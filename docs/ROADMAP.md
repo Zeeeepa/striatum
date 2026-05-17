@@ -499,6 +499,9 @@ daemon-first without needing to support two domain daemons.
   `service.py` keeps dispatch, authentication, and stable private wrappers.
 - `src/striatum/service_routes.py` now owns GET/POST route selection while
   `service.py` keeps stable handler wrapper methods and endpoint contexts.
+- `src/striatum/service_server.py` now owns TCP/Unix binding, PID-file
+  handling, signal shutdown, and serve-loop orchestration while `service.py`
+  keeps private compatibility wrappers.
 
 **Remaining Phase 4 debt:** continue splitting `service.py` along stable
 non-SQLite request-handling and rendering boundaries after the daemon-routed

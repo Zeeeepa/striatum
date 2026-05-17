@@ -1003,7 +1003,9 @@ review and plan are root-level operator artifacts:
     route control while `service.py` keeps dispatch/authentication wrappers.
     Follow-up split landed: `service_routes.py` owns GET/POST route selection
     while `service.py` keeps stable handler wrapper methods and endpoint
-    contexts.
+    contexts. Follow-up split landed: `service_server.py` owns TCP/Unix
+    binding, PID-file handling, signal shutdown, and serve-loop orchestration
+    while `service.py` keeps private compatibility wrappers.
     Remaining: continue splitting `service.py` along stable non-SQLite
     request-handling and rendering boundaries.
 
