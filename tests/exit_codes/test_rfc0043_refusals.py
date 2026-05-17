@@ -1,9 +1,11 @@
 """RFC 0043 §3 exit-code coverage.
 
 Asserts the daemon-required CLI surface exits with the documented codes
-and the documented stderr remediation blocks. These tests do not depend on
-a running daemon; they exercise the wiring Track B owns: error classes,
-stderr templates, JSON-envelope hints, and the env-gated dispatch hook.
+and the documented stderr remediation blocks. Most tests exercise the
+wiring Track B owns without a running daemon: error classes, stderr
+templates, JSON-envelope hints, and the env-gated dispatch hook. One
+``multi_repo`` smoke uses the foreground daemon harness to keep the
+reachable-socket refusal path honest.
 """
 
 from __future__ import annotations
@@ -13,6 +15,7 @@ import json
 from pathlib import Path
 
 import pytest
+from _harness.multi_repo import MultiRepoHarness
 
 dispatch_mod = importlib.import_module("striatum.cli.dispatch")
 
@@ -333,3 +336,28 @@ def test_dispatch_exit_12_json_envelope(
         assert "striatum daemon migrate-repo-local" in payload["error"]["hint"]
     finally:
         listener.close()
+
+
+@pytest.mark.multi_repo
+def test_dispatch_exit_12_json_envelope_with_foreground_daemon_socket(
+    tmp_path: Path,
+    multi_repo_harness: MultiRepoHarness,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Live smoke: a reachable foreground daemon socket still refuses an
+    unmigrated repo before any SQLite fallback can run.
+    """
+    repo = tmp_path / "repo"
+    (repo / ".striatum").mkdir(parents=True)
+    (repo / ".striatum" / "state.sqlite3").write_bytes(b"")
+    monkeypatch.setenv(ENV_DAEMON_SOCKET, str(multi_repo_harness.socket_path))
+
+    rc = dispatch_mod.main(["--repo", str(repo), "status", "--json"])
+
+    assert rc == 12
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["ok"] is False
+    assert payload["error"]["code"] == 12
+    assert payload["error"]["message"].startswith("repo_not_migrated:")
+    assert "striatum daemon migrate-repo-local" in payload["error"]["hint"]

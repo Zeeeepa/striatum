@@ -9,7 +9,7 @@ CORE ?= python
 # when invoked from a Claude Code worktree (or any other cwd).
 MAKEFILE_DIR := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
 
-.PHONY: install lint typecheck pg-test test-multi-repo metadata-check package-smoke package-wheel-size smoke check release-check ui-install ui-update-lock ui-audit ui-clean ui-build ui-dev ui-test ui-bundle-hash ui-bundle-size ui-check-bundle ui-verify-bundle daemon-go-build daemon-go-test daemon-go-lint daemon-go-helper-check daemon-go-install daemon-go-release
+.PHONY: install lint typecheck pg-test test-rfc0043 test-multi-repo metadata-check package-smoke package-wheel-size smoke check release-check ui-install ui-update-lock ui-audit ui-clean ui-build ui-dev ui-test ui-bundle-hash ui-bundle-size ui-check-bundle ui-verify-bundle daemon-go-build daemon-go-test daemon-go-lint daemon-go-helper-check daemon-go-install daemon-go-release
 
 $(PYTHON):
 	python3 -m venv $(VENV)
@@ -109,6 +109,21 @@ daemon-go-release:
 
 pg-test: $(VENV)/.installed
 	$(PYTHON) -m pytest tests/test_daemon_pg.py -q
+
+test-rfc0043: $(VENV)/.installed
+	STRIATUM_MULTI_REPO_DAEMON_CORE=$(CORE) \
+	STRIATUM_MULTI_REPO_REQUIRE_PG=1 \
+	$(PYTHON) -m pytest -q \
+		tests/cli/test_daemon_doctor_without_daemon.py \
+		tests/cli/test_no_daemon_retired.py \
+		tests/cli/test_parser_help.py \
+		tests/daemon_pg/test_repo_local_migration.py \
+		tests/daemon_pg/test_repo_local_migration_crash_resume.py \
+		tests/daemon_pg/test_repo_local_migration_locking.py \
+		tests/daemon_rpc/test_registry_rfc0043_coverage.py \
+		tests/exit_codes/test_rfc0043_refusals.py \
+		tests/exit_codes/test_rfc0043_split_brain.py \
+		tests/architecture/test_authority_guardrails.py::test_production_daemon_required_commands_refuse_before_sqlite_connect
 
 test-multi-repo: $(VENV)/.installed
 	STRIATUM_MULTI_REPO_DAEMON_CORE=$(CORE) \

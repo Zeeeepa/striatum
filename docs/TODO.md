@@ -88,6 +88,7 @@ so external references keep resolving even as items move between sections.
 | F51 | v1.48.1 wrapper auth fix — closes 10+ instance claude/gemini no-publish stall (validated by gh-16) | ✅ done |
 | F52 | v1.48.2 CI green — Python typecheck + Go matrix pin (6 days of red closed) | ✅ done |
 | F53 | `docs/issues/<N>/` GH-issue-driven workflow type (gh-16 first instance, accept verdict) | ✅ done |
+| 31 | RFC 0043 V1.5 follow-up | ✅ done |
 | 33 | RFC 0042 V1 run-list workflow identity | ✅ done |
 | 34 | RFC 0046 V1 lane evidence guard at publish-artifact | ✅ done |
 | 35 | RFC 0047 V1 decision-record propagation + `compromised` run state | ✅ done |
@@ -617,51 +618,22 @@ Legend: ✅ done · 🟡 most done (sub-tasks remain) · ⏳ open/blocked · �
     convergent-blind-spot anti-pattern (D095, D096, D097). Land the
     codex findings deltas via a future dogfood.
 
-31. **RFC 0043 V1.5 follow-up.** Codex + gemini needs_revision findings
+31. ~~**RFC 0043 V1.5 follow-up.** Codex + gemini needs_revision findings
     from dogfood-048 build review, deferred under D102 (decision
-    `dec_0b953435368e40109e793378e1a75054`). Distinct from prior
-    cycle-exhaustion overrides — both overridden verdicts carried real
-    findings, not codex/codex co-blindness (D095-D098, D100) or codex-
-    reviewer-of-claude-implementer baseline (D099, D101). Land the
-    deltas via a future dogfood:
-    (a) **Crash-recovery persistence gap (codex F1, gemini F2).**
-    `migrate_repo_local()` performs the SQLite → Postgres copy inside
-    one `SERIALIZABLE` transaction but the tombstone rename + repo
-    deletion happen post-commit. If the daemon crashes between commit
-    and rename, the repo is migrated in Postgres but
-    `.striatum/state.sqlite3` remains writable; a re-run would refuse
-    on the `repo_migrations` row but operators cannot tell from disk.
-    Add a two-phase post-commit tombstone with a sentinel
-    (`.striatum/state.sqlite3.migrated`) written before commit so
-    crash-during-rename is detectable on next startup.
-    (b) **CLI escape path closure (codex F2).** Track B's
-    `enforce_daemon_required` runs at dispatch top; allowlist exits
-    via `DAEMON_OPTIONAL_COMMANDS`. But the env-gated activation
-    (`STRIATUM_DAEMON_REQUIRED=1`) means the default path is the
-    pre-RFC-0043 SQLite fallback. RFC 0043 §3 specifies the
-    daemon-required mode is the default. Flip the default to enforced
-    once Track A's `daemon migrate-repo-local` subcommand is fully
-    wired and the test suite green under enforcement.
-    (c) **migrate-repo-local subcommand wiring (gemini F1).** Track A
-    shipped `src/striatum/cli/daemon.py` as the dispatch helper but
-    Track B's parser owns `src/striatum/cli/parser.py` and did not add
-    the `daemon migrate-repo-local` subparser in this dogfood (the
-    `_dispatch_daemon` delegation point exists but the subcommand is
-    not yet reachable from the CLI surface). Wire the subparser with
-    `--from sqlite --to pg --repo --postgres-url --dry-run
-    --keep-sqlite-readonly --confirm-delete --json` flags per RFC 0043
-    §4, exposing the migration body that already exists in
-    `daemon_pg/repo_local_migration.py`.
-    (d) **Test gaps (claude F1/F2).** Track A's
-    `tests/daemon_pg/test_repo_local_migration.py` ships 11 passing
-    cases but 5 skip absent a system Postgres URL; the
-    `tests/exit_codes/test_rfc0043_refusals.py` suite covers the
-    refusal templates but does not exercise the actual end-to-end
-    `dispatch.main(...)` path with a live daemon socket. Add a
-    `make test-rfc0043` target that requires `STRIATUM_PG_TEST_URL`
-    and asserts the migration round-trip (dry-run → full-run → re-run
-    refusal → manifest verification) plus exit code 11/12 stderr +
-    JSON envelope smoke against a foreground daemon.
+    `dec_0b953435368e40109e793378e1a75054`).~~ ✅ Done / tracker stale.
+    The deferred findings landed across the later V1.5/V1.6 hardening
+    slices: `migrate_repo_local()` writes the post-commit
+    `.striatum/state.sqlite3.migrated` sentinel and resumes tombstone/delete
+    finalization idempotently; daemon-required enforcement is the default
+    with only the paired `STRIATUM_DAEMON_REQUIRED=0`
+    `STRIATUM_TEST_HARNESS=1` test escape; `daemon migrate-repo-local`
+    is wired in the parser with the RFC 0043 flags and help text; and
+    focused regression coverage now includes crash-resume, split-brain,
+    lock contention, parser/help, registry coverage, exit-code 11/12
+    dispatch paths, and a foreground-daemon socket refusal smoke. The
+    root `make test-rfc0043` target runs that slice with the existing
+    Postgres harness convention (`STRIATUM_MULTI_REPO_REQUIRE_PG=1`;
+    provide `STRIATUM_TEST_POSTGRES_URL` or `STRIATUM_DAEMON_DB_URL`).
 
 19. ~~**RFC for multi-repo / cross-repo test harness.** RFC 0035 V1
     landed in dogfood-037. `tests/_harness/MultiRepoHarness` boots a

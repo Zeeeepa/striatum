@@ -1,11 +1,205 @@
 from __future__ import annotations
 
 import ast
+from dataclasses import dataclass
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 
-ALLOWLIST = {
+
+@dataclass(frozen=True)
+class SQLiteClassification:
+    category: str
+    reason: str
+
+
+ALLOWED_CATEGORIES = frozenset(
+    {
+        "migration",
+        "service transition",
+        "adapter transition",
+        "dogfood fixture",
+        "bootstrap/admin",
+        "test fixture",
+    }
+)
+
+
+PRODUCTION_SQLITE_QUARANTINE = {
+    # The legacy repo-local SQLite substrate itself and the one-way
+    # migration paths that still have to read historical stores.
+    Path("src/striatum/db.py"): SQLiteClassification(
+        "migration",
+        "legacy repo-local SQLite engine retained for migration and test fixtures",
+    ),
+    Path("src/striatum/migrations.py"): SQLiteClassification(
+        "migration",
+        "pre-D094 repo-local schema migrations retained for migration fixtures",
+    ),
+    Path("src/striatum/daemon_pg/cutover.py"): SQLiteClassification(
+        "migration",
+        "daemon registry SQLite to Postgres cutover helper",
+    ),
+    Path("src/striatum/daemon_pg/repo_local_migration.py"): SQLiteClassification(
+        "migration",
+        "pre-D094 repo-local SQLite to daemon Postgres migration command",
+    ),
+    # CLI/API/read DTO surfaces that still carry SQLite compatibility while
+    # the local service and corpus/export paths finish their daemon DTO move.
+    Path("src/striatum/api.py"): SQLiteClassification(
+        "service transition",
+        "local in-process API wrapper around legacy CLI fallback semantics",
+    ),
+    Path("src/striatum/cli/daemon_rpc_route.py"): SQLiteClassification(
+        "service transition",
+        "daemon-route argument decoding still imports legacy JSON helper",
+    ),
+    Path("src/striatum/cli/dispatch.py"): SQLiteClassification(
+        "service transition",
+        "daemon-first CLI with test-harness legacy fallback dispatch",
+    ),
+    Path("src/striatum/cli/evidence.py"): SQLiteClassification(
+        "service transition",
+        "legacy evidence-export reader pending daemon DTO replacement",
+    ),
+    Path("src/striatum/cli/introspect.py"): SQLiteClassification(
+        "service transition",
+        "legacy status/why/doctor readers pending daemon DTO replacement",
+    ),
+    Path("src/striatum/cli/list_commands.py"): SQLiteClassification(
+        "service transition",
+        "legacy list readers pending daemon DTO replacement",
+    ),
+    Path("src/striatum/cli/run_summary.py"): SQLiteClassification(
+        "service transition",
+        "legacy run-summary reader pending daemon DTO replacement",
+    ),
+    Path("src/striatum/cli/workflow.py"): SQLiteClassification(
+        "service transition",
+        "workflow-upgrade transition check still inspects legacy state",
+    ),
+    Path("src/striatum/cli/workflow_init.py"): SQLiteClassification(
+        "service transition",
+        "workflow scaffold envelope still imports legacy JsonObject alias",
+    ),
+    Path("src/striatum/corpus/enumerator.py"): SQLiteClassification(
+        "service transition",
+        "corpus export still reads legacy run/audit fixtures",
+    ),
+    Path("src/striatum/corpus/export.py"): SQLiteClassification(
+        "service transition",
+        "corpus export compatibility with legacy SQLite fixtures",
+    ),
+    Path("src/striatum/corpus/manifest.py"): SQLiteClassification(
+        "service transition",
+        "corpus manifest reports legacy schema metadata for fixtures",
+    ),
+    Path("src/striatum/dashboard.py"): SQLiteClassification(
+        "service transition",
+        "terminal dashboard legacy reader pending daemon DTO replacement",
+    ),
+    Path("src/striatum/recovery/auto.py"): SQLiteClassification(
+        "service transition",
+        "legacy recovery sweep retained for fixture and service transition",
+    ),
+    Path("src/striatum/recovery/watch.py"): SQLiteClassification(
+        "service transition",
+        "legacy recovery watcher retained for fixture and service transition",
+    ),
+    Path("src/striatum/service.py"): SQLiteClassification(
+        "service transition",
+        "local web service keeps gated legacy fixture fallbacks during daemon-first transition",
+    ),
+    # Adapter, supervisor, artifact, byline, and workflow helpers whose
+    # production authority has moved to daemon/Postgres but whose legacy
+    # functions still support adapters and test harnesses.
+    Path("src/striatum/artifacts.py"): SQLiteClassification(
+        "adapter transition",
+        "legacy artifact publisher used by adapter/test-harness paths",
+    ),
+    Path("src/striatum/cli/mutations.py"): SQLiteClassification(
+        "adapter transition",
+        "legacy workflow-loop mutations retained for adapter/test fixtures",
+    ),
+    Path("src/striatum/cli/recovery.py"): SQLiteClassification(
+        "adapter transition",
+        "legacy recovery mutations retained for adapter/test fixtures",
+    ),
+    Path("src/striatum/cli/worktree.py"): SQLiteClassification(
+        "adapter transition",
+        "legacy worktree helpers retained for adapter/test fixtures",
+    ),
+    Path("src/striatum/daemon_supervisor/pointer.py"): SQLiteClassification(
+        "adapter transition",
+        "legacy supervisor pointer helper during daemon supervisor transition",
+    ),
+    Path("src/striatum/daemon_supervisor/progress_watcher.py"): SQLiteClassification(
+        "adapter transition",
+        "legacy supervisor progress watcher during daemon supervisor transition",
+    ),
+    Path("src/striatum/identity.py"): SQLiteClassification(
+        "adapter transition",
+        "legacy lane-attestation/byline helper still accepts SQLite rows",
+    ),
+    Path("src/striatum/process_adapter.py"): SQLiteClassification(
+        "adapter transition",
+        "legacy process adapter table helpers retained during supervisor transition",
+    ),
+    Path("src/striatum/process_completion.py"): SQLiteClassification(
+        "adapter transition",
+        "legacy process-completion reconciliation retained during supervisor transition",
+    ),
+    Path("src/striatum/process_progress.py"): SQLiteClassification(
+        "adapter transition",
+        "legacy progress events retained during supervisor transition",
+    ),
+    Path("src/striatum/supervisor.py"): SQLiteClassification(
+        "adapter transition",
+        "legacy supervised wrapper helper retained during supervisor transition",
+    ),
+    Path("src/striatum/workflow.py"): SQLiteClassification(
+        "adapter transition",
+        "legacy run prepare and workflow event helpers retained for fixtures",
+    ),
+    # Dogfood compatibility routes are explicitly not production fallback.
+    Path("src/striatum/daemon_rpc/server.py"): SQLiteClassification(
+        "dogfood fixture",
+        "dogfood.* compatibility route opens legacy SQLite by design",
+    ),
+    Path("src/striatum/dogfood/operator_tools.py"): SQLiteClassification(
+        "dogfood fixture",
+        "operator dogfood recovery tools are compatibility fixtures",
+    ),
+    # Bootstrap/admin surfaces may inspect or initialize legacy files while
+    # guiding an operator into the daemon/Postgres runtime.
+    Path("src/striatum/daemon.py"): SQLiteClassification(
+        "bootstrap/admin",
+        "legacy RFC 0028 daemon registry and bootstrap helpers",
+    ),
+    Path("src/striatum/day_zero.py"): SQLiteClassification(
+        "bootstrap/admin",
+        "day-zero adoption may initialize then migrate a legacy repo store",
+    ),
+    Path("src/striatum/plugins/install.py"): SQLiteClassification(
+        "bootstrap/admin",
+        "plugin installer imports legacy timestamp helper only",
+    ),
+    Path("src/striatum/skills/install.py"): SQLiteClassification(
+        "bootstrap/admin",
+        "skill installer imports legacy timestamp helper only",
+    ),
+}
+
+
+TEST_SQLITE_QUARANTINE_PREFIXES = {
+    Path("tests"): SQLiteClassification(
+        "test fixture",
+        "tests may build or inspect legacy SQLite fixtures",
+    ),
+}
+
+
+DAEMON_RPC_DB_IMPORT_ALLOWLIST = {
     Path("src/striatum/daemon_rpc/server.py"): {"connect"},
 }
 
@@ -18,9 +212,49 @@ def test_daemon_pg_does_not_import_legacy_sqlite_db_module() -> None:
 
 def test_daemon_rpc_db_imports_are_explicitly_quarantined() -> None:
     offenders = _db_imports_under(ROOT / "src" / "striatum" / "daemon_rpc")
-    allowed = {path: names for path, names in offenders.items() if path in ALLOWLIST and names <= ALLOWLIST[path]}
+    allowed = {
+        path: names
+        for path, names in offenders.items()
+        if path in DAEMON_RPC_DB_IMPORT_ALLOWLIST
+        and names <= DAEMON_RPC_DB_IMPORT_ALLOWLIST[path]
+    }
 
     assert offenders == allowed
+
+
+def test_production_sqlite_references_are_quarantined_by_category() -> None:
+    offenders = _sqlite_references_under(ROOT / "src")
+    classified_paths = set(PRODUCTION_SQLITE_QUARANTINE)
+
+    assert not (set(offenders) - classified_paths), _format_unclassified(
+        offenders,
+        set(offenders) - classified_paths,
+    )
+    assert not (classified_paths - set(offenders)), (
+        "stale SQLite quarantine entries should be removed: "
+        + ", ".join(str(path) for path in sorted(classified_paths - set(offenders)))
+    )
+    assert all(
+        classification.category in ALLOWED_CATEGORIES
+        and classification.reason
+        for classification in PRODUCTION_SQLITE_QUARANTINE.values()
+    )
+
+
+def test_test_sqlite_references_are_classified_as_test_fixtures() -> None:
+    offenders = _sqlite_references_under(ROOT / "tests")
+    unclassified = {
+        path
+        for path in offenders
+        if not any(path.is_relative_to(prefix) for prefix in TEST_SQLITE_QUARANTINE_PREFIXES)
+    }
+
+    assert offenders
+    assert not unclassified
+    assert all(
+        classification.category == "test fixture" and classification.reason
+        for classification in TEST_SQLITE_QUARANTINE_PREFIXES.values()
+    )
 
 
 def _db_imports_under(root: Path) -> dict[Path, set[str]]:
@@ -36,3 +270,50 @@ def _db_imports_under(root: Path) -> dict[Path, set[str]]:
                     if alias.name == "striatum.db":
                         offenders.setdefault(rel, set()).add(alias.name)
     return offenders
+
+
+def _sqlite_references_under(root: Path) -> dict[Path, set[str]]:
+    offenders: dict[Path, set[str]] = {}
+    for path in sorted(root.rglob("*.py")):
+        rel = path.relative_to(ROOT)
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    if alias.name in {"sqlite3", "striatum.db"}:
+                        offenders.setdefault(rel, set()).add(f"import {alias.name}")
+            elif isinstance(node, ast.ImportFrom):
+                if node.module in {"sqlite3", "striatum.db"}:
+                    imported = ", ".join(alias.name for alias in node.names)
+                    offenders.setdefault(rel, set()).add(
+                        f"from {node.module} import {imported}"
+                    )
+                elif node.module == "striatum":
+                    imported_db = [alias.name for alias in node.names if alias.name == "db"]
+                    if imported_db:
+                        offenders.setdefault(rel, set()).add("from striatum import db")
+            else:
+                dotted = _dotted_name(node)
+                if dotted in {"sqlite3", "striatum.db"}:
+                    offenders.setdefault(rel, set()).add(f"usage {dotted}")
+    return offenders
+
+
+def _dotted_name(node: ast.AST) -> str | None:
+    if isinstance(node, ast.Name):
+        return node.id
+    if isinstance(node, ast.Attribute):
+        parent = _dotted_name(node.value)
+        return f"{parent}.{node.attr}" if parent else node.attr
+    return None
+
+
+def _format_unclassified(
+    offenders: dict[Path, set[str]],
+    paths: set[Path],
+) -> str:
+    lines = ["unclassified production SQLite references:"]
+    for path in sorted(paths):
+        signals = ", ".join(sorted(offenders[path]))
+        lines.append(f"- {path}: {signals}")
+    return "\n".join(lines)
