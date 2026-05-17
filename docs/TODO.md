@@ -906,7 +906,9 @@ review and plan are root-level operator artifacts:
     Follow-up split landed: `web/workflows.py` owns workflow editor file
     resolution, new-workflow scaffold payloads, validation, atomic writes, and
     If-Match checks while `service.py` keeps HTTP request parsing, template
-    rendering, and JSON response mapping for those routes.
+    rendering, and JSON response mapping for those routes. Follow-up split
+    landed: `web/run_list.py` owns GitHub remote parsing, workflow source-path
+    normalization, workflow tree-link construction, and run state-chip shaping.
     Remaining: continue splitting `service.py` along stable non-SQLite
     request-handling and rendering boundaries.
 

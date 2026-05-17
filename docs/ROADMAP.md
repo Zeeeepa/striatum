@@ -411,6 +411,9 @@ daemon-first without needing to support two domain daemons.
   new-workflow scaffold payloads, validation, atomic writes, and If-Match
   handling. `service.py` keeps HTTP request parsing, template rendering, and
   JSON response mapping for the workflow editor routes.
+- `src/striatum/web/run_list.py` now owns run-list presentation helpers for
+  GitHub remote parsing, workflow source-path normalization, workflow tree-link
+  construction, and run state-chip shaping.
 
 **Remaining Phase 4 debt:** continue splitting `service.py` along stable
 non-SQLite request-handling and rendering boundaries after the daemon-routed

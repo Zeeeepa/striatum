@@ -49,6 +49,9 @@ Recent checkpoints:
   writes, and If-Match checks moved from `service.py` into
   `striatum.web.workflows`; the service handler now keeps only HTTP request
   parsing, template rendering, and JSON response mapping for those routes.
+- Run-list presentation helpers for GitHub remote parsing, source-path
+  normalization, workflow tree links, and state chips moved from `service.py`
+  into `striatum.web.run_list`.
 
 - **Command authority and fallback guardrails.**
   `docs/architecture/COMMAND_AUTHORITY_MATRIX.md` now names the authority
@@ -113,7 +116,9 @@ Recent checkpoints:
   response writing kept unchanged. Workflow editor file resolution,
   new-workflow scaffolding, validation, atomic writes, and If-Match handling
   now live in `striatum.web.workflows`, while service-level route methods keep
-  the HTTP request/response boundary.
+  the HTTP request/response boundary. Run-list presentation helpers for
+  GitHub remote parsing, workflow source-path normalization, tree-link
+  construction, and state chips now live in `striatum.web.run_list`.
 - **Escalation inbox foundation.**
   `escalation.list`, `escalation.show`, and `escalation.resolve` project
   human-principal escalations from blocker state. The `escalation` artifact
