@@ -199,9 +199,14 @@ all participants. `reviewer_access_scope:
 "cross_repo_artifact_augmented"` is valid only for review jobs in
 cross-repo workflows. Cross-repo cycles must opt in with
 `cross_repo_cycle: true`, and `parallelism.per_repo_max_active_jobs` may
-declare per-alias positive integer limits. Plain `workflow validate`
-checks shape only; daemon-backed `run prepare` owns live repository
-registration and accessibility checks.
+declare per-alias positive integer limits. Core workflow validation checks
+shape only; daemon-backed `run prepare` owns live repository registration and
+accessibility checks.
+`workflow validate` refuses lint-detected same-model implementer/reviewer
+pairings and revision cycles by default; operators can pass
+`--allow-same-model-pairing` to accept that workflow-authoring risk
+explicitly. This CLI-level refusal uses the advisory lint rules and does not
+change the pure `validate_workflow()` API or generator preview behavior.
 
 Lane selection is workflow-authored. There is no provider-default lane and
 lane ids have no built-in semantic meaning. A job with `lane_id` is queued for

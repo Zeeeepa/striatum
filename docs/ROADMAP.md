@@ -475,6 +475,8 @@ attestation, wrapper fixtures, and broader helper-only CI.
 - Lint now includes advisory coverage scoring for reviewer independence,
   fresh context, write isolation, revision/escalation path, and review
   posture diversity.
+- `workflow validate` refuses same-model review-pair/revision-cycle lint
+  findings by default unless `--allow-same-model-pairing` is supplied.
 - Workflow generator preview envelopes and the workflow chooser surface the
   lint summary separately from generator warnings.
 - Strict overrides can record an operator-supplied
@@ -599,12 +601,13 @@ All three phases landed:
 
 5 documented instances (D095, D096, D097, D098, D100) of the implementer-
 ↔-reviewer co-blindness anti-pattern. Soft warning and strict lint refusal
-with explicit override rationale have landed; full ordinary-validator
-refuse-by-default with `--allow-same-model-pairing` override knob is still
-open.
+with explicit override rationale have landed. The CLI `workflow validate`
+path now refuses same-model review-pair/revision-cycle lint findings by
+default, with `--allow-same-model-pairing` as the explicit operator override.
 
-**Suggested implementer:** any lane. Small validator extension to
-`src/striatum/workflow.py::_validate_lane_constraints`.
+**Remaining:** if this policy is promoted beyond the CLI validation surface,
+coordinate daemon `run.prepare` and generator entry-point override semantics
+instead of adding hidden refusals.
 
 ### 5.5 RFC 0049 (experimental) — Interactive claude lane via MCP — **SHELVED**
 

@@ -106,7 +106,7 @@ so external references keep resolving even as items move between sections.
 | 52 | RFC 0061 Architecture remediation Phase 4 — daemon-first web service | 🟡 core web/API + artifact reads daemon-routed |
 | 53 | RFC 0062 Architecture remediation Phase 5 — real escalation inbox | 🟡 projection + escalation artifact schema/linkage landed |
 | 54 | RFC 0063 Architecture remediation Phase 6 — hardened PTY supervision | 🟡 control-event, helper protocol, and JSONL ingestion slices landed |
-| 55 | RFC 0064 Architecture remediation Phase 7 — workflow risk lint and review diversity enforcement | 🟡 generator coverage + accepted-risk reference landed |
+| 55 | RFC 0064 Architecture remediation Phase 7 — workflow risk lint and review diversity enforcement | 🟡 validate refusal + generator coverage landed |
 | 56 | Architecture remediation Phase 8 — auto-finalize from front matter | 🟡 daemon recovery + visibility slices landed |
 | 57 | RFC 0065 Architecture remediation Phase 9 — UI packaging and bundle cleanup | ✅ done; chunking monitor only |
 | 58 | RFC 0059 Architecture remediation Phase 10 — day-zero setup improvements | ✅ done |
@@ -600,13 +600,15 @@ Legend: ✅ done · 🟡 most done (sub-tasks remain) · ⏳ open/blocked · �
     (codex+codex specifically observed), the reviewer's findings
     cluster around the implementer's same blind spots, producing
     apparent "needs_revision" verdicts that 2-of-3 majority overrides.
-    Partial: a soft warning landed in the dogfood-043 prep commit, and
-    `workflow lint --strict` now refuses same-model review-pair and
-    revision-cycle warnings unless the operator supplies an explicit
-    override rationale. Full refuse-by-default as ordinary validator
-    rejection with an override knob remains deferred. Pair any future
-    validator/catalog enforcement with the dogfood-040 F39 note already
-    documenting the same anti-pattern.
+    Soft warning landed in the dogfood-043 prep commit; `workflow lint
+    --strict` refuses same-model review-pair and revision-cycle warnings
+    unless the operator supplies an explicit override rationale; and
+    `workflow validate` now refuses the same lint findings by default unless
+    `--allow-same-model-pairing` is passed. Remaining related work is limited
+    to coordinated daemon `run.prepare` / generator entry-point override
+    semantics if the refusal is promoted outside the CLI validation surface.
+    Pair any future validator/catalog enforcement with the dogfood-040 F39
+    note already documenting the same anti-pattern.
 
 27. **RFC 0045 V1.5: address codex build review findings from
     dogfood-043** (cycle phase-jump validator gap, strict phase-skip
@@ -931,9 +933,12 @@ review and plan are root-level operator artifacts:
     warning counts and short warning lists in the workflow index/detail
     pages. Follow-up generator slice added advisory coverage scoring,
     surfaced lint in generated workflow preview envelopes and the workflow
-    chooser, and lets strict overrides record an
-    `--accepted-risk-decision-id`. Remaining: durable audit persistence
-    policy for accepted lint risks.
+    chooser, and lets strict overrides record an accepted-risk decision
+    reference with `--accepted-risk-decision-id`. Follow-up validator slice made
+    `workflow validate` refuse same-model review-pair and revision-cycle
+    findings by default, with `--allow-same-model-pairing` as the explicit
+    operator override. Remaining: durable audit persistence policy for
+    accepted lint risks.
 
 56. **Phase 8: auto-finalize from front matter.** Bounded daemon slice
     landed: `recovery.auto_finalize` dry-run/live PG handler, CLI route,

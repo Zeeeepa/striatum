@@ -366,6 +366,20 @@ def dispatch(args: argparse.Namespace) -> object:
         workflow = load_workflow(Path(args.path))
         warnings: list[str] = []
         validate_workflow(workflow, warnings=warnings, repo_root=repo)
+        same_model_findings = _same_model_pairing_findings(workflow, repo_root=repo)
+        if same_model_findings and not bool(getattr(args, "allow_same_model_pairing", False)):
+            first = same_model_findings[0]
+            details: dict[str, object] = {
+                "rule": str(first.get("rule") or "same_model_review_pair"),
+                "findings": same_model_findings,
+            }
+            exc = StriatumError(
+                str(first.get("message") or "workflow uses a same-model implementer/reviewer pairing")
+                + "; pass --allow-same-model-pairing to accept this risk explicitly",
+                exit_code=8,
+            )
+            setattr(exc, "details", details)
+            raise exc
         validation_result: dict[str, object] = {
             "workflow_id": workflow["workflow_id"],
             "valid": True,
@@ -1125,6 +1139,28 @@ def _workflow_lint_warning_count(payload: dict[str, Any]) -> int:
     if isinstance(warnings, list):
         return len(warnings)
     return 0
+
+
+def _same_model_pairing_findings(
+    workflow: dict[str, Any],
+    *,
+    repo_root: Path,
+) -> list[dict[str, Any]]:
+    payload = lint_workflow(workflow, repo_root=repo_root)
+    if payload.get("valid") is not True:
+        return []
+    warnings = payload.get("warnings")
+    if not isinstance(warnings, list):
+        return []
+    same_model_rules = {
+        "same_model_review_pair",
+        "same_model_revision_cycle",
+    }
+    return [
+        warning
+        for warning in warnings
+        if isinstance(warning, dict) and warning.get("rule") in same_model_rules
+    ]
 
 
 def _parse_keyed_json_arrays(values: list[str], flag: str) -> dict[str, list[str]]:

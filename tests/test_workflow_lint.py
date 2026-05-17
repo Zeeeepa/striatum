@@ -143,6 +143,45 @@ def test_workflow_lint_cli_returns_structured_warnings(
     assert payload["warning_count"] >= 5
 
 
+def test_workflow_validate_refuses_same_model_pairing_without_override(
+    tmp_path: Path, monkeypatch: Any
+) -> None:
+    monkeypatch.setenv("STRIATUM_TEST_HARNESS", "1")
+    monkeypatch.setenv("STRIATUM_DAEMON_REQUIRED", "0")
+    workflow_path = tmp_path / "workflow.json"
+    workflow_path.write_text(json.dumps(_same_model_revision_cycle_workflow()), encoding="utf-8")
+
+    result = invoke(["workflow", "validate", str(workflow_path)], repo=tmp_path)
+
+    assert result["ok"] is False
+    error = result["error"]
+    assert error["code"] == 8
+    assert "--allow-same-model-pairing" in error["message"]
+    details = error["details"]
+    assert details["rule"] == "same_model_review_pair"
+    rules = {finding["rule"] for finding in details["findings"]}
+    assert {"same_model_review_pair", "same_model_revision_cycle"}.issubset(rules)
+
+
+def test_workflow_validate_accepts_same_model_pairing_with_explicit_override(
+    tmp_path: Path, monkeypatch: Any
+) -> None:
+    monkeypatch.setenv("STRIATUM_TEST_HARNESS", "1")
+    monkeypatch.setenv("STRIATUM_DAEMON_REQUIRED", "0")
+    workflow_path = tmp_path / "workflow.json"
+    workflow_path.write_text(json.dumps(_same_model_revision_cycle_workflow()), encoding="utf-8")
+
+    result = invoke(
+        ["workflow", "validate", str(workflow_path), "--allow-same-model-pairing"],
+        repo=tmp_path,
+    )
+
+    assert result["ok"] is True
+    payload = result["data"]
+    assert payload["workflow_id"] == "wf-lint-cycle"
+    assert payload["valid"] is True
+
+
 def test_workflow_lint_strict_refuses_warnings_without_override(
     tmp_path: Path, monkeypatch: Any
 ) -> None:

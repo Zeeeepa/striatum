@@ -69,7 +69,9 @@ in the roadmap/TODO and has several production slices landed:
   `striatum workflow lint` supports structured warnings, opt-in strict mode,
   accepted-risk rationale and decision references, advisory coverage scoring,
   service/API surfacing, workflow browser warnings, and generator preview
-  summaries.
+  summaries. `workflow validate` now refuses same-model
+  implementer/reviewer pairings by default when the existing lint rules find
+  them, with `--allow-same-model-pairing` as the explicit override.
 - **Auto-finalize, archive, replay, packaging, and setup slices.**
   `recovery.auto_finalize` landed as a daemon/Postgres recovery method with
   dry-run and opt-in live modes, status/dashboard preview surfacing, and

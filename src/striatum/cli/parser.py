@@ -383,6 +383,14 @@ def build_parser() -> argparse.ArgumentParser:
     workflow_sub = workflow.add_subparsers(dest="workflow_command", required=True)
     validate = workflow_sub.add_parser("validate")
     validate.add_argument("path")
+    validate.add_argument(
+        "--allow-same-model-pairing",
+        action="store_true",
+        help=(
+            "accept same-model implementer/reviewer pairings after an "
+            "explicit operator override"
+        ),
+    )
     validate.add_argument("--json", action="store_true")
     lint = workflow_sub.add_parser("lint")
     lint.add_argument("path")
