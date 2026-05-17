@@ -229,25 +229,29 @@ class DaemonRpcRouter:
 
         with connect(repo_root) as conn:
             if envelope.method == "dogfood.publish_on_behalf":
-                return publish_on_behalf(
-                    conn,
-                    repo=repo_root,
-                    session_id=str(envelope.params.get("session_id") or ""),
-                    artifact_path=str(envelope.params.get("artifact_path") or ""),
-                    artifact_kind=str(envelope.params.get("artifact_kind") or ""),
-                    logical_name=str(envelope.params.get("logical_name") or ""),
-                    reason=str(envelope.params.get("reason") or ""),
-                    verdict=_optional_str(envelope.params.get("verdict")),
-                    findings_artifact_id=_optional_str(envelope.params.get("findings_artifact_id")),
-                    verdict_rationale=_optional_str(envelope.params.get("verdict_rationale")),
-                    summary=_optional_str(envelope.params.get("summary")),
+                return _raise_dogfood_helper_failure(
+                    publish_on_behalf(
+                        conn,
+                        repo=repo_root,
+                        session_id=str(envelope.params.get("session_id") or ""),
+                        artifact_path=str(envelope.params.get("artifact_path") or ""),
+                        artifact_kind=str(envelope.params.get("artifact_kind") or ""),
+                        logical_name=str(envelope.params.get("logical_name") or ""),
+                        reason=str(envelope.params.get("reason") or ""),
+                        verdict=_optional_str(envelope.params.get("verdict")),
+                        findings_artifact_id=_optional_str(envelope.params.get("findings_artifact_id")),
+                        verdict_rationale=_optional_str(envelope.params.get("verdict_rationale")),
+                        summary=_optional_str(envelope.params.get("summary")),
+                    )
                 )
             if envelope.method == "dogfood.surgical_recovery":
-                return surgical_recovery(
-                    conn,
-                    job_id=str(envelope.params.get("job_id") or ""),
-                    reason=str(envelope.params.get("reason") or ""),
-                    extend_lease_seconds=int(envelope.params.get("extend_lease_seconds") or 900),
+                return _raise_dogfood_helper_failure(
+                    surgical_recovery(
+                        conn,
+                        job_id=str(envelope.params.get("job_id") or ""),
+                        reason=str(envelope.params.get("reason") or ""),
+                        extend_lease_seconds=int(envelope.params.get("extend_lease_seconds") or 900),
+                    )
                 )
         raise RpcError("method_unknown", f"method has no handler: {envelope.method}")
 
@@ -304,3 +308,22 @@ def _optional_str(value: Any) -> str | None:
         return None
     text = str(value)
     return text if text else None
+
+
+def _raise_dogfood_helper_failure(result: dict[str, Any]) -> dict[str, Any]:
+    if result.get("ok") is not False:
+        return result
+    error_value = result.get("error")
+    if isinstance(error_value, Mapping):
+        raw_code = error_value.get("code")
+        code = str(raw_code) if raw_code else "command_failed"
+        raw_message = error_value.get("message")
+        message = str(raw_message) if raw_message else code
+        raw_details = error_value.get("details")
+        details = dict(raw_details) if isinstance(raw_details, Mapping) else {}
+        raise RpcError(code, message, details=details)
+    raise RpcError(
+        "command_failed",
+        "dogfood helper returned a failure envelope",
+        details={"helper_result": result},
+    )

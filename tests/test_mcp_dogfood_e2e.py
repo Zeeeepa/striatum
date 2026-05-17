@@ -166,6 +166,57 @@ def test_mcp_publish_on_behalf_dispatches_and_completes_job(
     assert row["method"] == "dogfood.publish_on_behalf"
 
 
+def test_mcp_publish_on_behalf_surfaces_mid_composite_failure_details(
+    multi_repo_harness: MultiRepoHarness,
+    clean_daemon_db: None,
+) -> None:
+    harness = multi_repo_harness
+    repo = harness.repos[0].path
+    _run_id, session_id, packet = _start_and_claim(repo)
+    job_id, _message_id, _lease_id = _packet_ids(packet)
+    harness.register_all()
+    token = harness.issue_token(["write"], repo_id=str(harness.repos[0].repository_id))
+
+    result = harness.mcp_client(token, repo_index=0).call_tool(
+        "dogfood.publish_on_behalf",
+        repository_id=str(harness.repos[0].repository_id),
+        arguments={
+            "session_id": session_id,
+            "artifact_path": "docs/out/OUT.md",
+            "artifact_kind": "handoff",
+            "logical_name": "out",
+            "reason": "agent denied ack from supervised wrapper",
+        },
+    )
+
+    assert result["isError"] is True
+    structured = result["structuredContent"]
+    assert structured["error"] == "composite_failed"
+    assert structured["error_codes"] == ["composite_failed", "artifact_error"]
+    data = structured["data"]
+    assert data["code"] == "composite_failed"
+    details = data["details"]
+    assert details["failed_step"] == "publish_artifact"
+    assert details["composition_steps"] == [{"step": "ack", "status": "acked"}]
+    assert details["specific_error"]["code"] == "artifact_error"
+    with sqlite3.connect(repo / ".striatum" / "state.sqlite3") as conn:
+        conn.row_factory = sqlite3.Row
+        job = conn.execute("SELECT state FROM jobs WHERE job_id = ?", (job_id,)).fetchone()
+        artifact_count = conn.execute("SELECT COUNT(*) FROM artifacts WHERE job_id = ?", (job_id,)).fetchone()
+        event = conn.execute(
+            """
+            SELECT payload_json FROM events
+            WHERE job_id = ? AND event_type = 'dogfood.publish_on_behalf_failed'
+            """,
+            (job_id,),
+        ).fetchone()
+    assert job is not None and job["state"] == "claimed"
+    assert artifact_count is not None and artifact_count[0] == 0
+    assert event is not None
+    payload = json.loads(str(event["payload_json"]))
+    assert payload["details"] == details
+
+
 def test_mcp_publish_on_behalf_records_review_verdict(
     multi_repo_harness: MultiRepoHarness,
     clean_daemon_db: None,

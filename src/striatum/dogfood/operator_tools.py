@@ -119,11 +119,13 @@ def publish_on_behalf(
         if findings_check.get("ok") is not True:
             return findings_check
 
+    composition_steps: list[JsonObject] = []
+    failed_step: str | None = None
     try:
         with transaction(conn):
-            composition_steps: list[JsonObject] = []
             ack_result: JsonObject | None = None
             if str(job["state"]) == "claimed":
+                failed_step = "ack"
                 if message_id is None:
                     raise InvalidTransitionError("claimed job has no current message")
                 ack_result = _ack_on_behalf_locked(
@@ -136,6 +138,7 @@ def publish_on_behalf(
             else:
                 composition_steps.append({"step": "ack", "status": "already_acked"})
 
+            failed_step = "publish_artifact"
             artifact = _publish_artifact_locked(
                 conn,
                 repo=repo,
@@ -169,6 +172,7 @@ def publish_on_behalf(
             if str(refreshed_job["job_type"]) == "review":
                 assert verdict is not None
                 effective_findings_artifact_id = findings_artifact_id or artifact_id
+                failed_step = "verdict"
                 verdict_result = _record_verdict_locked(
                     conn,
                     session_id=session_id,
@@ -185,6 +189,7 @@ def publish_on_behalf(
                     result["verdict_id"] = verdict_result["verdict_id"]
                 composition_steps.append({"step": "verdict", "status": str(verdict_result["status"])})
             else:
+                failed_step = "complete"
                 completion = _complete_locked(
                     conn,
                     session_id=session_id,
@@ -197,6 +202,7 @@ def publish_on_behalf(
                 composition_steps.append({"step": "complete", "status": str(completion["status"])})
 
             event_job = row_by_id(conn, "jobs", "job_id", job_id)
+            failed_step = "record_event"
             insert_event(
                 conn,
                 run_id=str(event_job["run_id"]),
@@ -217,8 +223,14 @@ def publish_on_behalf(
                     "outcome": "committed",
                 },
             )
+            failed_step = "commit"
             return result
     except (ArtifactError, InvalidTransitionError, sqlite3.Error) as exc:
+        details = _composite_failure_details(
+            failed_step=failed_step,
+            composition_steps=composition_steps,
+            exc=exc,
+        )
         _record_publish_on_behalf_failure(
             conn,
             run_id=str(job["run_id"]),
@@ -228,8 +240,9 @@ def publish_on_behalf(
             lease_id=lease_id,
             reason=reason,
             error=str(exc),
+            details=details,
         )
-        return _failure("composite_failed", str(exc))
+        return _failure("composite_failed", str(exc), details=details)
 
 
 def _record_publish_on_behalf_failure(
@@ -242,6 +255,7 @@ def _record_publish_on_behalf_failure(
     lease_id: str,
     reason: str,
     error: str,
+    details: JsonObject,
 ) -> None:
     try:
         with transaction(conn):
@@ -258,10 +272,40 @@ def _record_publish_on_behalf_failure(
                     "operator_reason": reason,
                     "outcome": "rolled_back",
                     "error": error,
+                    "details": details,
+                    "error_details": details,
                 },
             )
     except sqlite3.Error:
         return
+
+
+def _composite_failure_details(
+    *,
+    failed_step: str | None,
+    composition_steps: list[JsonObject],
+    exc: Exception,
+) -> JsonObject:
+    return {
+        "failed_step": failed_step or "composite",
+        "composition_steps": [dict(step) for step in composition_steps],
+        "specific_error": {
+            "code": _specific_error_code(exc),
+            "message": str(exc),
+        },
+    }
+
+
+def _specific_error_code(exc: Exception) -> str:
+    if isinstance(exc, PublishOnBehalfDenied):
+        return exc.denial_code
+    if isinstance(exc, ArtifactError):
+        return "artifact_error"
+    if isinstance(exc, InvalidTransitionError):
+        return "invalid_transition"
+    if isinstance(exc, sqlite3.Error):
+        return "sqlite_error"
+    return "command_failed"
 
 
 def _ack_on_behalf_locked(

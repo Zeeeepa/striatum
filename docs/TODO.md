@@ -330,7 +330,16 @@ Legend: ✅ done · 🟡 most done (sub-tasks remain) · ⏳ open/blocked · �
     needs_revision findings absorbed into RFC 0040 V1.6 (item 28
     below).
 
-28. **RFC 0040 V1.6 follow-up.** Codex needs_revision findings from
+28. **RFC 0040 V1.6 follow-up.** Composite failure observability landed for
+    `dogfood.publish_on_behalf`: mid-composite rollback errors now include
+    `failed_step`, partial `composition_steps`, and a nested
+    `specific_error`; rollback events record the same details; daemon RPC
+    converts dogfood helper failure envelopes into RPC errors; and MCP
+    structured content surfaces nested error codes instead of flattening every
+    composite failure to `command_failed`. Remaining packet-evidence debt from
+    the dogfood-044 codex review should be handled as provenance/packet-design
+    work, not as missing RFC 0040 implementation.
+    Codex needs_revision findings from
     dogfood-044 build review, deferred by cycle-exhaustion override
     per D098 (decision `dec_242ea0b026d547c9baad9b353b149033`). 4th
     instance of the codex/codex implementer+reviewer anti-pattern

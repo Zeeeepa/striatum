@@ -295,6 +295,14 @@ def test_publish_on_behalf_rolls_back_when_completion_fails(tmp_path: Path, monk
 
     assert result["ok"] is False
     assert result["error"]["code"] == "composite_failed"
+    error_details = cast(JsonDict, result["error"]["details"])
+    assert error_details["failed_step"] == "complete"
+    assert error_details["composition_steps"] == [
+        {"step": "ack", "status": "acked"},
+        {"step": "publish_artifact", "status": "published"},
+    ]
+    specific_error = cast(JsonDict, error_details["specific_error"])
+    assert specific_error["code"] == "invalid_transition"
     assert _job_state(tmp_path, job_id) == "claimed"
     assert _row_state(tmp_path, "queue_messages", "message_id", message_id) == "claimed"
     assert _row_state(tmp_path, "leases", "lease_id", lease_id) == "active"
@@ -302,6 +310,18 @@ def test_publish_on_behalf_rolls_back_when_completion_fails(tmp_path: Path, monk
     assert _count(tmp_path, "verdicts", "job_id = ?", (job_id,)) == 0
     assert _count(tmp_path, "events", "job_id = ? AND event_type = 'job.completed'", (job_id,)) == 0
     assert _count(tmp_path, "events", "job_id = ? AND event_type = 'dogfood.publish_on_behalf_failed'", (job_id,)) == 1
+    with connect(tmp_path) as conn:
+        event = conn.execute(
+            """
+            SELECT payload_json FROM events
+            WHERE job_id = ? AND event_type = 'dogfood.publish_on_behalf_failed'
+            """,
+            (job_id,),
+        ).fetchone()
+    assert event is not None
+    payload = json.loads(str(event["payload_json"]))
+    assert payload["details"] == error_details
+    assert payload["error_details"] == error_details
 
 
 def test_publish_on_behalf_denies_without_active_lease(tmp_path: Path) -> None:

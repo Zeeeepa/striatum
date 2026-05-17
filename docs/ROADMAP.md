@@ -912,7 +912,7 @@ dogfood. Order them by impact, not by RFC number.
 | TODO | RFC | Origin | Decision | Scope |
 |---:|---|---|---|---|
 | [27](TODO.md) | RFC 0045 V1.5 | dogfood-043 | D097 | Cycle phase-jump, Python/editor phase-field mismatch, and explicit synthesis-job metadata validation closed; remaining frontend drag-drop dropdown bypass + invalid/unknown phase display tolerance follow-up. |
-| [28](TODO.md) | RFC 0040 V1.6 | dogfood-044 | D098 | Codex findings from dogfood-044 build review. |
+| [28](TODO.md) | RFC 0040 V1.6 | dogfood-044 | D098 | Composite publish-on-behalf failure observability landed; remaining packet-evidence debt is provenance/packet-design work. |
 | [29](TODO.md) | RFC 0038 V1.6 | dogfood-045 | D099 | Real-bundle commit (`make ui-update-lock` + `make ui-build`) + supply-chain polish. **First `reject critical` override.** |
 | [30](TODO.md) | RFC 0039 V1.6 | dogfood-047 | D101 | ✅ Completed in 4.3 as the post-D105 helper-focused hardening slice; full Go daemon parity remains out of scope. |
 | [31](TODO.md) | RFC 0043 V1.5 | dogfood-048 | D102 | ✅ Completed / tracker stale: crash-recovery tombstone two-phase, daemon-required default flip, `daemon migrate-repo-local` subparser wiring, focused `make test-rfc0043`, and a foreground-daemon refusal smoke have landed. **Distinct from D095-D101 — both reviewers had real findings, not co-blindness.** |

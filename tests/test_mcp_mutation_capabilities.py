@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from striatum.daemon_rpc.capability import RpcAuthContext
+from striatum.daemon_rpc.envelope import RpcEnvelope, RpcError, RpcResponse
 from striatum.daemon_rpc.registry import CAPABILITIES, METHOD_REGISTRY, mcp_tool_descriptor
-from striatum.daemon_rpc.server import LOCAL_FILE_AUTHORING_METHODS
+from striatum.daemon_rpc.server import DaemonRpcRouter, LOCAL_FILE_AUTHORING_METHODS
+from striatum.daemon_pg.mcp_dispatch import dispatch_mcp_tool_call
 from striatum.mcp import DaemonRpcServer
 
 
@@ -200,3 +202,106 @@ def test_daemon_mcp_unknown_tool_is_default_denied_and_audited(monkeypatch) -> N
     assert isinstance(structured, dict)
     assert structured["error"] == "method_unknown"
     assert audit_calls[0]["auth"].denial_reason == "method_unknown"
+
+
+def test_daemon_rpc_converts_dogfood_helper_failure_to_rpc_error(monkeypatch, tmp_path: Path) -> None:  # type: ignore[no-untyped-def]
+    request_logs: list[dict[str, Any]] = []
+    details = {
+        "failed_step": "complete",
+        "composition_steps": [{"step": "ack", "status": "acked"}],
+    }
+
+    class FakeConnect:
+        def __enter__(self) -> object:
+            return object()
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+    def fake_publish_on_behalf(*_args: Any, **_kwargs: Any) -> dict[str, Any]:
+        return {
+            "ok": False,
+            "status": "refused",
+            "error": {
+                "code": "composite_failed",
+                "message": "forced complete failure",
+                "details": details,
+            },
+        }
+
+    monkeypatch.setattr("striatum.db.connect", lambda _repo: FakeConnect())
+    monkeypatch.setattr("striatum.dogfood.operator_tools.publish_on_behalf", fake_publish_on_behalf)
+    monkeypatch.setattr("striatum.daemon_rpc.server.request_id_seen", lambda *args, **kwargs: False)
+    monkeypatch.setattr(
+        "striatum.daemon_rpc.server.authorize",
+        lambda *args, **kwargs: RpcAuthContext("client", "token", "repo_a", "write", "allowed"),
+    )
+    monkeypatch.setattr("striatum.daemon_rpc.server.append_audit_row", lambda *args, **kwargs: 17)
+    monkeypatch.setattr(
+        "striatum.daemon_rpc.server.append_request_log",
+        lambda *args, **kwargs: request_logs.append(kwargs),
+    )
+    monkeypatch.setattr(DaemonRpcRouter, "_repo_root_for", lambda self, envelope, auth: tmp_path)
+    router = DaemonRpcRouter(pg_conn=object(), repo_root=tmp_path)
+    router._handshaken_connections.add("mcp")
+
+    response = router.handle(
+        RpcEnvelope(
+            schema_version=1,
+            request_id="dogfood-failure",
+            method="dogfood.publish_on_behalf",
+            params={"repository_id": "repo_a", "reason": "operator reason"},
+        ),
+        connection_id="mcp",
+    )
+
+    assert response.ok is False
+    assert response.data["code"] == "composite_failed"
+    assert response.data["message"] == "forced complete failure"
+    assert response.data["details"] == details
+    assert request_logs[0]["response"]["ok"] is False
+    assert request_logs[0]["response"]["data"]["code"] == "composite_failed"
+
+
+def test_mcp_structured_error_uses_nested_rpc_error_codes(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    def fake_authorize(conn: object, *, required: str | None, repository_id: str | None, token: str | None) -> RpcAuthContext:
+        return RpcAuthContext("client", "token", repository_id, required, "allowed")
+
+    class FakeRouter:
+        def handle(self, envelope: RpcEnvelope, **_kwargs: Any) -> RpcResponse:
+            return RpcResponse.error_response(
+                request_id=envelope.request_id,
+                audit_id="aud_23",
+                error=RpcError(
+                    "command_failed",
+                    "wrapped helper failure",
+                    details={
+                        "error": {
+                            "code": "composite_failed",
+                            "details": {
+                                "specific_error": {
+                                    "code": "artifact_error",
+                                    "message": "artifact file does not exist",
+                                }
+                            },
+                        }
+                    },
+                ),
+            )
+
+    monkeypatch.setattr("striatum.daemon_pg.mcp_dispatch.authorize", fake_authorize)
+
+    result = dispatch_mcp_tool_call(
+        pg_conn=object(),
+        router=cast(DaemonRpcRouter, FakeRouter()),
+        name="dogfood.publish_on_behalf",
+        arguments={"repository_id": "repo_a"},
+        token="dtok.secret",
+        request_id="req-nested-error",
+    )
+
+    assert result["isError"] is True
+    structured = result["structuredContent"]
+    assert isinstance(structured, dict)
+    assert structured["error"] == "composite_failed"
+    assert structured["error_codes"] == ["command_failed", "composite_failed", "artifact_error"]

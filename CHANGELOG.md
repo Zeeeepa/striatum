@@ -98,6 +98,10 @@ Recent checkpoints:
 - Explicit v1.1 phase arrays now require `phases[].synthesis_job_id` to
   point at the same phase's unique `phase_synthesis` job; generator, upgrade,
   fixtures, and phase-progress tests now emit the field.
+- `dogfood.publish_on_behalf` mid-composite failures now report the failed
+  step, partial composition steps, and nested specific error details through
+  the helper result, rollback event, daemon RPC error, and MCP
+  `structuredContent`.
 - Archive replay verification now rejects duplicate or missing ids for
   archived verdict, blocker, process-execution, and job-worktree rows.
 - Roadmap kickoff status and remediation sequencing notes were refreshed to

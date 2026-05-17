@@ -111,13 +111,15 @@ def dispatch_mcp_tool_call(
     audit_id = _audit_int(response.audit_id)
     if response.ok:
         return _tool_result(name, ok=True, audit_id=audit_id, data=response.data)
-    error = str(response.data.get("code") or "command_failed")
+    error_codes = _error_code_path(response.data)
+    error = _structured_error_code(error_codes)
     message = response.data.get("message")
     return _tool_result(
         name,
         ok=False,
         audit_id=audit_id,
         error=error,
+        error_codes=error_codes,
         error_message=str(message) if message is not None else None,
         data=response.data,
     )
@@ -139,12 +141,40 @@ def _audit_int(audit_id: str | None) -> int | None:
         return None
 
 
+def _structured_error_code(error_codes: list[str]) -> str:
+    if not error_codes:
+        return "command_failed"
+    if error_codes[0] == "command_failed" and len(error_codes) > 1:
+        return error_codes[1]
+    return error_codes[0]
+
+
+def _error_code_path(data: Mapping[str, Any]) -> list[str]:
+    codes: list[str] = []
+    _collect_error_codes(data, codes)
+    return codes
+
+
+def _collect_error_codes(data: Mapping[str, Any], codes: list[str]) -> None:
+    code = data.get("code")
+    if isinstance(code, str) and code:
+        codes.append(code)
+    details = data.get("details")
+    if not isinstance(details, Mapping):
+        return
+    for key in ("error", "specific_error", "cause"):
+        nested = details.get(key)
+        if isinstance(nested, Mapping):
+            _collect_error_codes(nested, codes)
+
+
 def _tool_result(
     name: str,
     *,
     ok: bool,
     audit_id: int | None,
     error: str | None = None,
+    error_codes: list[str] | None = None,
     error_message: str | None = None,
     data: Mapping[str, Any] | None = None,
 ) -> JsonObject:
@@ -157,6 +187,8 @@ def _tool_result(
         structured["data"] = dict(data)
     if error is not None:
         structured["error"] = error
+    if error_codes is not None:
+        structured["error_codes"] = error_codes
     if error_message is not None:
         structured["error_message"] = error_message
     return {
