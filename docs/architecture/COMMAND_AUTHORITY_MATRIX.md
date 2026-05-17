@@ -51,7 +51,7 @@ Legend:
 | `dashboard` | `dashboard` | read | single_repo | pg | real | no | no | stable |
 | `evidence.export` | `evidence export` | read | single_repo | pg | real | no | no | stable |
 | `corpus.export` | `corpus export` | read | single_repo | pg | real | no | no | stable |
-| `archive.create` | `archive create` | read | single_repo | pg | placeholder | no | no | foundation |
+| `archive.create` | `archive create` | read | single_repo | pg | real | no | no | Go V1 run archive writer |
 | `run.summary` | `run summary` | read | single_repo | pg | real | no | no | stable |
 | `run.detail` | web run detail DTO | read | single_repo | pg | real | no | no | stable |
 | `job.detail` | web job detail DTO | read | single_repo | pg | real | no | no | stable |
@@ -71,8 +71,8 @@ Legend:
 | `artifact.show` | web artifact raw/detail DTO | read | single_repo | pg | real | no | no | stable |
 | `list.workflows` | `list workflows` | read | single_repo | pg | real | no | no | stable |
 | `worktree.list` | `worktree list` | read | single_repo | pg | placeholder | no | no | stable |
-| `dashboard.all` | `dashboard --all` | read | daemon_global | direct | placeholder | no | no | Python stable, Go gap |
-| `repo.list` | `repo list` | read | daemon_global | pg repo registrar | placeholder | no | no | bootstrap/admin |
+| `dashboard.all` | `dashboard --all` | read | daemon_global | direct | real | no | no | Go read-only subset; residual parity gaps documented in TODO 62 |
+| `repo.list` | `repo list` | read | daemon_global | pg repo registrar | real | no | no | bootstrap/admin |
 | `session.register` | `register-session` | claim | single_repo | pg | real | no | no | stable |
 | `session.close` | `session close` | claim | single_repo | pg | placeholder | no | no | stable |
 | `work.claim_next` | `claim-next` | claim | single_repo | pg | real | no | no | stable |
@@ -103,7 +103,7 @@ Legend:
 | `checkpoint.resolve` | `checkpoint resolve` | admin | single_repo | pg | real | no | no | stable |
 | `escalation.list` | `escalation list`; `inbox` without `--session-id` | read | single_repo | pg | placeholder | no | no | stable |
 | `escalation.show` | `escalation show` | read | single_repo | pg | placeholder | no | no | stable |
-| `escalation.resolve` | `escalation resolve` | admin | single_repo | pg | placeholder | no | no | stable |
+| `escalation.resolve` | `escalation resolve` | admin | single_repo | pg | real | no | no | stable |
 | `branch.confirm` | `branch confirm` | admin | single_repo | pg | real | no | no | stable |
 | `run.prepare` | `run prepare` | admin | single_repo | pg | real | no | no | stable |
 | `run.start` | `run start` | admin | single_repo | pg | real | no | no | stable |
@@ -125,8 +125,8 @@ Legend:
 | `apply.receipt.show` | n/a | read | single_repo | direct apply service | real | no | no | stable |
 | `apply.receipt.verify` | n/a | read | single_repo | direct apply service | real | no | no | stable |
 | `dogfood.surgical_recovery` | MCP/chat dogfood tool | surgical_recovery | single_repo | direct dogfood helper | placeholder | no | yes, direct `striatum.db.connect` | dogfood compatibility |
-| `repo.add` | `repo add` | admin | daemon_global | pg repo registrar | placeholder | no | no ordinary repo-local SQLite | bootstrap/admin |
-| `repo.remove` | `repo remove` | admin | daemon_global | pg repo registrar | placeholder | no | no | bootstrap/admin |
+| `repo.add` | `repo add` | admin | daemon_global | pg repo registrar | real | no | no ordinary repo-local SQLite | bootstrap/admin |
+| `repo.remove` | `repo remove` | admin | daemon_global | pg repo registrar | real | no | no | bootstrap/admin |
 | `daemon.token.create` | n/a | admin | daemon_global | not implemented in Python RPC | placeholder | no | no | bootstrap/admin placeholder |
 | `daemon.token.revoke` | n/a | admin | daemon_global | not implemented in Python RPC | placeholder | no | no | bootstrap/admin placeholder |
 | `daemon.token.rotate` | n/a | admin | daemon_global | not implemented in Python RPC | placeholder | no | no | bootstrap/admin placeholder |

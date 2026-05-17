@@ -1,0 +1,357 @@
+package reads
+
+import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"time"
+
+	"github.com/halbritt/striatum/go/pkg/db"
+	"github.com/halbritt/striatum/go/pkg/rpc"
+	"github.com/jackc/pgx/v5"
+)
+
+func HandleEscalationResolve(ctx context.Context, runner db.Runner, envelope rpc.Envelope) (map[string]any, error) {
+	repositoryID, err := requireRepositoryID(envelope)
+	if err != nil {
+		return nil, err
+	}
+	escalationID := stringParam(envelope, "escalation_id")
+	if escalationID == "" {
+		escalationID = stringParam(envelope, "blocker_id")
+	}
+	if escalationID == "" {
+		return nil, rpc.NewError("schema_invalid", "escalation_id must be a non-empty string", nil)
+	}
+	decisionID, decisionSet, err := optionalStrictText(envelope, "decision_id")
+	if err != nil {
+		return nil, err
+	}
+	resolutionNote, noteSet, err := optionalStrictText(envelope, "resolution_note")
+	if err != nil {
+		return nil, err
+	}
+
+	_, err = withResolveTx(ctx, runner, func(tx db.TxRunner) (map[string]any, error) {
+		blockers, err := queryAnyRows(ctx, tx, `
+			SELECT *
+			  FROM striatumd.blockers b
+			 WHERE b.repository_id = $1
+			   AND b.blocker_id = $2
+			   AND `+escalationPredicate()+`
+			 FOR UPDATE`, repositoryID, escalationID)
+		if err != nil {
+			return nil, err
+		}
+		if len(blockers) == 0 {
+			return nil, rpc.NewError("not_found", "escalation not found: "+escalationID, nil)
+		}
+		blocker := blockers[0]
+		if fmt.Sprint(blocker["state"]) != "open" {
+			return nil, rpc.NewError("invalid_transition", "escalation is not open", nil)
+		}
+
+		payload := copyMap(objectOrEmpty(blocker["payload_json"]))
+		resolutionPayload := map[string]any{}
+		if decisionSet {
+			resolutionPayload["decision_id"] = decisionID
+		}
+		if noteSet {
+			resolutionPayload["resolution_note"] = resolutionNote
+		}
+		if len(resolutionPayload) > 0 {
+			payload["escalation_resolution"] = resolutionPayload
+		}
+		now := resolveNowString()
+		if err := tx.Exec(ctx, `
+			UPDATE striatumd.blockers
+			   SET state = 'resolved',
+			       resolved_at = $1,
+			       payload_json = $2
+			 WHERE repository_id = $3
+			   AND blocker_id = $4`, now, payload, repositoryID, escalationID); err != nil {
+			return nil, err
+		}
+		eventPayload := map[string]any{"escalation_id": escalationID}
+		for key, value := range resolutionPayload {
+			eventPayload[key] = value
+		}
+		if _, err := appendResolveEvent(ctx, tx, repositoryID, fmt.Sprint(blocker["run_id"]), "escalation.resolved", nil, nullableResolve(blocker["job_id"]), nil, nil, nil, eventPayload); err != nil {
+			return nil, err
+		}
+		return map[string]any{}, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	escalation, err := loadEscalationProjection(ctx, runner, repositoryID, escalationID)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{
+		"status":     "resolved",
+		"escalation": escalation,
+	}, nil
+}
+
+func optionalStrictText(envelope rpc.Envelope, key string) (string, bool, error) {
+	value, exists := envelope.Params[key]
+	if !exists || value == nil {
+		return "", false, nil
+	}
+	text, ok := value.(string)
+	if !ok || text == "" {
+		return "", false, rpc.NewError("schema_invalid", key+" must be a non-empty string when present", nil)
+	}
+	return text, true, nil
+}
+
+func loadEscalationProjection(ctx context.Context, runner any, repositoryID string, escalationID string) (map[string]any, error) {
+	rows, err := queryAnyRows(ctx, runner, `
+		SELECT b.blocker_id AS escalation_id, b.blocker_id, b.run_id,
+		        b.job_id, j.workflow_job_id, b.session_id,
+		        s.role_id AS session_role_id, s.lane_id AS session_lane_id,
+		        b.severity, b.blocker_kind AS class, b.description, b.state,
+		        b.created_at, b.resolved_at, b.payload_json,
+		        a.artifact_id AS linked_artifact_id,
+		        a.repo_path AS linked_repo_path,
+		        a.content_sha256 AS linked_content_sha256
+		   FROM striatumd.blockers b
+		   LEFT JOIN striatumd.jobs j
+		     ON j.repository_id = b.repository_id AND j.job_id = b.job_id
+		   LEFT JOIN striatumd.sessions s
+		     ON s.repository_id = b.repository_id AND s.session_id = b.session_id
+		   LEFT JOIN striatumd.artifacts a
+		     ON a.repository_id = b.repository_id
+		    AND a.artifact_id = b.payload_json #>> '{escalation_artifact,artifact_id}'
+		  WHERE b.repository_id = $1
+		    AND b.blocker_id = $2
+		    AND `+escalationPredicate(), repositoryID, escalationID)
+	if err != nil {
+		return nil, err
+	}
+	if len(rows) == 0 {
+		return nil, rpc.NewError("not_found", "escalation not found: "+escalationID, nil)
+	}
+	return shapeEscalations(rows)[0], nil
+}
+
+func withResolveTx(ctx context.Context, runner db.Runner, fn func(db.TxRunner) (map[string]any, error)) (map[string]any, error) {
+	tx, err := runner.BeginTx(ctx)
+	if err != nil {
+		return nil, err
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback(context.Background())
+		}
+	}()
+	result, err := fn(tx)
+	if err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, err
+	}
+	committed = true
+	return result, nil
+}
+
+func queryAnyRows(ctx context.Context, runner any, sql string, args ...any) ([]map[string]any, error) {
+	q, ok := runner.(Queryer)
+	if !ok {
+		return nil, fmt.Errorf("runner does not support row queries")
+	}
+	rows, err := q.Query(ctx, sql, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return pgx.CollectRows(rows, pgx.RowToMap)
+}
+
+func appendResolveEvent(
+	ctx context.Context,
+	runner any,
+	repositoryID string,
+	runID any,
+	eventType string,
+	actorSessionID any,
+	jobID any,
+	messageID any,
+	artifactID any,
+	leaseID any,
+	payload map[string]any,
+) (int64, error) {
+	if payload == nil {
+		payload = map[string]any{}
+	}
+	previousHash, err := previousResolveChainHead(ctx, runner, repositoryID)
+	if err != nil {
+		return 0, err
+	}
+	eventID, err := nextResolveEventID(ctx, runner)
+	if err != nil {
+		return 0, err
+	}
+	createdAt := resolveNowString()
+	rowMaterial := map[string]any{
+		"repository_id":    repositoryID,
+		"event_id":         eventID,
+		"run_id":           nullableResolve(runID),
+		"event_type":       eventType,
+		"actor_session_id": nullableResolve(actorSessionID),
+		"job_id":           nullableResolve(jobID),
+		"message_id":       nullableResolve(messageID),
+		"artifact_id":      nullableResolve(artifactID),
+		"lease_id":         nullableResolve(leaseID),
+		"payload_json":     payload,
+		"created_at":       createdAt,
+	}
+	rowHash, err := canonicalResolveEventHash(rowMaterial, previousHash)
+	if err != nil {
+		return 0, err
+	}
+	exec, ok := runner.(interface {
+		Exec(context.Context, string, ...any) error
+	})
+	if !ok {
+		return 0, fmt.Errorf("runner does not support exec")
+	}
+	if err := exec.Exec(ctx, `
+		INSERT INTO striatumd.events (
+		  repository_id, event_id, run_id, event_type, actor_session_id, job_id,
+		  message_id, artifact_id, lease_id, payload_json, created_at,
+		  previous_hash, row_hash
+		)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
+		repositoryID,
+		eventID,
+		nullableResolve(runID),
+		eventType,
+		nullableResolve(actorSessionID),
+		nullableResolve(jobID),
+		nullableResolve(messageID),
+		nullableResolve(artifactID),
+		nullableResolve(leaseID),
+		payload,
+		createdAt,
+		nullableResolve(previousHash),
+		rowHash,
+	); err != nil {
+		return 0, err
+	}
+	if err := exec.Exec(ctx, `
+		INSERT INTO striatumd.repo_event_chain_heads(
+		  repository_id, last_event_id, last_hash, updated_at
+		) VALUES ($1, $2, $3, now())
+		ON CONFLICT (repository_id)
+		DO UPDATE SET last_event_id = EXCLUDED.last_event_id,
+		              last_hash = EXCLUDED.last_hash,
+		              updated_at = now()`,
+		repositoryID,
+		eventID,
+		rowHash,
+	); err != nil {
+		return 0, err
+	}
+	return eventID, nil
+}
+
+func previousResolveChainHead(ctx context.Context, runner any, repositoryID string) (any, error) {
+	rower, ok := runner.(interface {
+		QueryRow(context.Context, string, ...any) db.Row
+	})
+	if !ok {
+		return nil, fmt.Errorf("runner does not support query row")
+	}
+	var hash *string
+	err := rower.QueryRow(ctx,
+		"SELECT last_hash FROM striatumd.repo_event_chain_heads WHERE repository_id = $1 FOR UPDATE",
+		repositoryID,
+	).Scan(&hash)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	if hash == nil {
+		return nil, nil
+	}
+	return *hash, nil
+}
+
+func nextResolveEventID(ctx context.Context, runner any) (int64, error) {
+	rower, ok := runner.(interface {
+		QueryRow(context.Context, string, ...any) db.Row
+	})
+	if !ok {
+		return 0, fmt.Errorf("runner does not support query row")
+	}
+	var eventID int64
+	err := rower.QueryRow(ctx, "SELECT nextval(pg_get_serial_sequence('striatumd.events', 'event_id'))").Scan(&eventID)
+	return eventID, err
+}
+
+func canonicalResolveEventHash(row map[string]any, previousHash any) (string, error) {
+	payload := map[string]any{
+		"previous_hash":    nullableResolve(previousHash),
+		"repository_id":    row["repository_id"],
+		"event_id":         row["event_id"],
+		"run_id":           nullableResolve(row["run_id"]),
+		"event_type":       row["event_type"],
+		"actor_session_id": nullableResolve(row["actor_session_id"]),
+		"job_id":           nullableResolve(row["job_id"]),
+		"message_id":       nullableResolve(row["message_id"]),
+		"artifact_id":      nullableResolve(row["artifact_id"]),
+		"lease_id":         nullableResolve(row["lease_id"]),
+		"payload_json":     resolveEventPayload(row["payload_json"]),
+		"created_at":       fmt.Sprint(row["created_at"]),
+	}
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return "", err
+	}
+	sum := sha256.Sum256(body)
+	return hex.EncodeToString(sum[:]), nil
+}
+
+func resolveEventPayload(value any) map[string]any {
+	payload := objectOrEmpty(value)
+	result := map[string]any{}
+	for key, item := range payload {
+		if key == "_event_chain" {
+			continue
+		}
+		result[key] = item
+	}
+	return result
+}
+
+func nullableResolve(value any) any {
+	if value == nil {
+		return nil
+	}
+	switch typed := value.(type) {
+	case string:
+		if typed == "" {
+			return nil
+		}
+	case *string:
+		if typed == nil || *typed == "" {
+			return nil
+		}
+		return *typed
+	}
+	return value
+}
+
+func resolveNowString() string {
+	return time.Now().UTC().Truncate(time.Second).Format(time.RFC3339)
+}

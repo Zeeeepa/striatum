@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"syscall"
+	"unicode/utf8"
 
 	"github.com/halbritt/striatum/go/pkg/db"
 	"github.com/halbritt/striatum/go/pkg/rpc"
@@ -319,11 +320,12 @@ func HandleRecoveryAuto(ctx context.Context, runner db.Runner, envelope rpc.Enve
 	}
 	runID := stringParam(envelope, "run_id")
 	if runID == "" {
-		return nil, rpc.NewError("schema_invalid", "recovery.auto requires run_id", nil)
+		return nil, rpc.NewError("schema_invalid", "recovery.auto_publish_stale_artifacts requires run_id", nil)
 	}
 	dryRun := boolParam(envelope, "dry_run")
 	return withTx(ctx, runner, func(tx db.TxRunner) (map[string]any, error) {
-		if _, err := rowByID(ctx, tx, repositoryID, "runs", "run_id", runID, false); err != nil {
+		run, err := rowByID(ctx, tx, repositoryID, "runs", "run_id", runID, false)
+		if err != nil {
 			return nil, err
 		}
 		if !dryRun {
@@ -332,8 +334,9 @@ func HandleRecoveryAuto(ctx context.Context, runner db.Runner, envelope rpc.Enve
 			}
 		}
 		rows, err := queryRows(ctx, tx, `
-			SELECT j.workflow_job_id, j.job_id, l.lease_id, l.owner_session_id,
-			       qm.message_id
+			SELECT j.*, l.lease_id, l.owner_session_id,
+			       qm.message_id, qm.state AS message_state,
+			       l.state AS lease_state
 			  FROM striatumd.jobs j
 			  LEFT JOIN striatumd.leases l
 			    ON l.repository_id = j.repository_id
@@ -391,10 +394,6 @@ func HandleRecoveryAuto(ctx context.Context, runner db.Runner, envelope rpc.Enve
 					"reason":          "could not derive expected byline: " + err.Error(),
 				})
 				continue
-			}
-			run, err := rowByID(ctx, tx, repositoryID, "runs", "run_id", runID, false)
-			if err != nil {
-				return nil, err
 			}
 			publishable, err := autoPublishableArtifacts(ctx, tx, repositoryID, fmt.Sprint(run["repo_root"]), job, sessionID, expectedByline)
 			if err != nil {
@@ -495,17 +494,18 @@ func autoPublishableArtifacts(ctx context.Context, runner any, repositoryID stri
 		if err != nil {
 			continue
 		}
-		if isMarkdownPath(path) {
-			matched := false
-			for _, line := range markdownTitleBlockAuthorLines(string(payload)) {
-				if canonicalBylineForm(line) == expectedByline {
-					matched = true
-					break
-				}
+		if !utf8.Valid(payload) {
+			continue
+		}
+		matched := false
+		for _, line := range markdownTitleBlockAuthorLines(string(payload)) {
+			if canonicalBylineForm(line) == expectedByline {
+				matched = true
+				break
 			}
-			if !matched {
-				continue
-			}
+		}
+		if !matched {
+			continue
 		}
 		publishable = append(publishable, map[string]any{
 			"path":         pathText,

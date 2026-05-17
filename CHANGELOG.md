@@ -28,16 +28,27 @@ Recent checkpoints:
 - The Go daemon now has an executable handler-coverage ledger for missing
   and placeholder methods, and `recovery.sweep` is registered on the Go
   mutation surface instead of only the deprecated `recovery.auto` alias.
+- Go now registers the canonical `recovery.auto_publish_stale_artifacts`
+  method, keeps the deprecated `recovery.auto` alias on the same handler, and
+  requires every auto-published file to match the expected byline.
 - The first Go read-detail cluster is registered for `run.detail`,
   `job.detail`, `run.events`, `run.posture_verdicts`, `artifact.show`,
-  `escalation.list`, and `escalation.show`, reducing missing contract
-  handlers while keeping remaining web-context parity gaps visible.
+  `escalation.list`, `escalation.show`, and `escalation.resolve`, reducing
+  missing contract handlers while keeping remaining web-context parity gaps
+  visible.
+- Go now owns `archive.create` for the V1 run archive bundle format, including
+  safe repo-relative output paths, PostgreSQL run-scoped row export, and
+  deterministic manifest/file hashes.
 - Go `cross_repo.cancel` now calls the Go cross-repo lifecycle service and
   local run-cancel mutation instead of returning `not_implemented`.
 - Go now owns `repo.add`, `repo.list`, and `repo.remove` handlers over
   daemon-owned PostgreSQL, including SQLite-source refusal, operational
   scratch initialization, active-path conflict checks, and repo-scoped
   capability revocation on removal.
+- Go now owns a read-only `dashboard.all` handler over daemon-owned
+  PostgreSQL repositories. It reports per-repository status and stale-lease
+  projections without opening SQLite; lazy lease expiry and full web-context
+  parity remain tracked as RFC 0069 residual gaps.
 - `supervise.status`, `doctor`, and `status` now surface stalled attached
   supervisors, and recovery sweep opens
   `heartbeat_stall_lease_expired` blockers when stalled leases expire.

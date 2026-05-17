@@ -65,6 +65,7 @@ func Register(server *rpc.Server, runner db.Runner) {
 	server.Register("recovery.process_reconcile", makeHandler(runner, HandleRecoveryProcessReconcile))
 	server.Register("recovery.resume", makeHandler(runner, HandleRecoveryResume))
 	server.Register("recovery.sweep", makeHandler(runner, HandleRecoveryAuto))
+	server.Register("recovery.auto_publish_stale_artifacts", makeHandler(runner, HandleRecoveryAuto))
 	server.Register("recovery.auto", makeHandler(runner, HandleRecoveryAuto))
 }
 

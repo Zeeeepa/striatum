@@ -10,12 +10,16 @@
 //     list.workflows — listing reads.
 //   - run.summary, evidence.export, corpus.export — reporting reads.
 //
-// Every handler scopes by repository_id and runs SELECT-only SQL.
+// Most handlers scope by repository_id. dashboard.all is the daemon-global
+// aggregate read, and escalation.resolve is the one exception to the
+// SELECT-only rule because its Python parity handler lives beside the
+// escalation projection.
 package reads
 
 import (
 	"context"
 	"fmt"
+	"strconv"
 
 	"github.com/halbritt/striatum/go/pkg/db"
 	"github.com/halbritt/striatum/go/pkg/rpc"
@@ -64,6 +68,24 @@ func collectRows(ctx context.Context, runner db.Runner, sql string, args ...any)
 	return pgx.CollectRows(rows, pgx.RowToMap)
 }
 
+func intFrom(m map[string]any, key string) int {
+	switch value := m[key].(type) {
+	case int:
+		return value
+	case int32:
+		return int(value)
+	case int64:
+		return int(value)
+	case float64:
+		return int(value)
+	case string:
+		parsed, _ := strconv.Atoi(value)
+		return parsed
+	default:
+		return 0
+	}
+}
+
 // Register wires every read handler in this package onto the rpc.Server.
 // Call from cmd/striatumd/main.go after the registry-side handlers land.
 func Register(server *rpc.Server, runner db.Runner) {
@@ -72,6 +94,7 @@ func Register(server *rpc.Server, runner db.Runner) {
 	}
 	server.Register("status", makeHandler(runner, HandleStatus))
 	server.Register("dashboard", makeHandler(runner, HandleDashboard))
+	server.Register("dashboard.all", makeHandler(runner, HandleDashboardAll))
 	server.Register("doctor", makeHandler(runner, HandleDoctor))
 	server.Register("why", makeHandler(runner, HandleWhy))
 	server.Register("list.runs", makeHandler(runner, HandleListRuns))
@@ -85,10 +108,12 @@ func Register(server *rpc.Server, runner db.Runner) {
 	server.Register("run.events", makeHandler(runner, HandleRunEvents))
 	server.Register("run.posture_verdicts", makeHandler(runner, HandleRunPostureVerdicts))
 	server.Register("artifact.show", makeHandler(runner, HandleArtifactShow))
+	server.Register("archive.create", makeHandler(runner, HandleArchiveCreate))
 	server.Register("evidence.export", makeHandler(runner, HandleEvidenceExport))
 	server.Register("corpus.export", makeHandler(runner, HandleCorpusExport))
 	server.Register("escalation.list", makeHandler(runner, HandleEscalationList))
 	server.Register("escalation.show", makeHandler(runner, HandleEscalationShow))
+	server.Register("escalation.resolve", makeHandler(runner, HandleEscalationResolve))
 }
 
 // handlerFn is the per-method signature: (ctx, runner, envelope) → response.

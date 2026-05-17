@@ -3,6 +3,7 @@ package mutations
 import (
 	"context"
 	"errors"
+	"os"
 	"testing"
 
 	"github.com/halbritt/striatum/go/pkg/db"
@@ -77,6 +78,7 @@ func TestRegisterInstallsInitialMutationHandlers(t *testing.T) {
 		"recovery.process_reconcile",
 		"recovery.resume",
 		"recovery.sweep",
+		"recovery.auto_publish_stale_artifacts",
 		"recovery.auto",
 	} {
 		handler, ok := server.Handlers[method]
@@ -101,6 +103,57 @@ func TestRegisterWithNilRunnerLeavesServerAlone(t *testing.T) {
 	Register(server, nil)
 	if len(server.Handlers) != 0 {
 		t.Fatalf("nil runner registered handlers: %v", server.Handlers)
+	}
+}
+
+func TestRecoveryAutoPublishCanonicalAndDeprecatedAliasRequireRunID(t *testing.T) {
+	server := rpc.NewServer()
+	Register(server, inertRunner{})
+
+	for _, method := range []string{"recovery.auto_publish_stale_artifacts", "recovery.auto"} {
+		handler := server.Handlers[method]
+		if handler == nil {
+			t.Fatalf("%s was not registered", method)
+		}
+		_, err := handler(context.Background(), rpc.Envelope{
+			SchemaVersion: rpc.SupportedEnvelopeVersion,
+			RequestID:     "req_" + method,
+			Method:        method,
+			Params:        map[string]any{"repository_id": "repo_1"},
+		})
+		rpcErr := &rpc.Error{}
+		if !errors.As(err, &rpcErr) {
+			t.Fatalf("%s returned non-rpc error: %v", method, err)
+		}
+		if rpcErr.Code != "schema_invalid" {
+			t.Fatalf("%s error code = %q", method, rpcErr.Code)
+		}
+		if rpcErr.Message != "recovery.auto_publish_stale_artifacts requires run_id" {
+			t.Fatalf("%s error message = %q", method, rpcErr.Message)
+		}
+	}
+}
+
+func TestAutoPublishableArtifactsRequireMatchingBylineForEveryFile(t *testing.T) {
+	repoRoot := t.TempDir()
+	if err := os.WriteFile(repoRoot+"/notes.txt", []byte("author: worker-codex-001\n\nresult\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(repoRoot+"/wrong.md", []byte("author: reviewer-codex-001\n\nresult\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	job := map[string]any{
+		"expected_artifacts_json": []map[string]any{
+			{"path": "notes.txt", "kind": "other", "logical_name": "notes", "required": true},
+			{"path": "wrong.md", "kind": "other", "logical_name": "wrong", "required": true},
+		},
+	}
+	got, err := autoPublishableArtifacts(context.Background(), nil, "repo_1", repoRoot, job, "sess_1", "author: worker-codex-001")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0]["path"] != "notes.txt" {
+		t.Fatalf("publishable artifacts = %#v", got)
 	}
 }
 

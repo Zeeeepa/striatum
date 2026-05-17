@@ -34,9 +34,21 @@ func TestDetailReadHandlersValidateBeforeQuery(t *testing.T) {
 			code:    "schema_invalid",
 		},
 		{
+			name:    "escalation resolve optional text",
+			handler: HandleEscalationResolve,
+			params:  map[string]any{"repository_id": "repo_1", "escalation_id": "esc_1", "decision_id": 42},
+			code:    "schema_invalid",
+		},
+		{
 			name:    "artifact id",
 			handler: HandleArtifactShow,
 			params:  map[string]any{"repository_id": "repo_1"},
+			code:    "schema_invalid",
+		},
+		{
+			name:    "archive output path",
+			handler: HandleArchiveCreate,
+			params:  map[string]any{"repository_id": "repo_1", "run_id": "run_1"},
 			code:    "schema_invalid",
 		},
 	}

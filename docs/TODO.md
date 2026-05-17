@@ -1178,23 +1178,32 @@ review and plan are root-level operator artifacts:
     `doctor` reads `schema_meta['substrate_version']` correctly. A Go
     handler-coverage test now records every missing or placeholder contract
     method explicitly, and `recovery.sweep` is wired to the Go recovery sweep
-    handler instead of only the deprecated `recovery.auto` alias. The first Go
+    handler instead of only the deprecated `recovery.auto` alias. Go now
+    registers the canonical `recovery.auto_publish_stale_artifacts` method,
+    keeps `recovery.auto` as its deprecated alias, and requires every
+    auto-published file to match the expected byline. Go also owns
+    `archive.create` for the V1 run archive bundle format. The first Go
     read-detail cluster now registers `run.detail`, `job.detail`,
     `run.events`, `run.posture_verdicts`, `artifact.show`, `escalation.list`,
-    and `escalation.show`; remaining DTO/web-context parity stays tracked by
+    `escalation.show`, and the `escalation.resolve` mutation; remaining
+    DTO/web-context parity stays tracked by
     the coverage ledger rather than claimed complete. `cross_repo.cancel` now
     calls the Go cross-repo lifecycle service and local run-cancel mutation
     instead of returning `not_implemented`. Go now owns `repo.add`,
     `repo.list`, and `repo.remove` handlers over daemon-owned PostgreSQL,
     including SQLite-source refusal and repo-scoped capability revocation on
-    removal.
+    removal. Go also owns a read-only `dashboard.all` subset over the
+    PostgreSQL repository registry and per-repo read projections.
 
 62. **RFC 0069: PostgreSQL-only daemon-global surfaces.** Active. Port daemon
     startup bootstrap, health, audit, sweep, dashboard-all, daemon MCP
     resource list/read, and any remaining registry probes away from SQLite and
     into PostgreSQL/Go-owned daemon handlers. Production `connect_registry()`
     reachability is a bug unless the call is in a named one-way migration or
-    fixture path.
+    fixture path. `dashboard.all` now has a Go/PostgreSQL read-only subset;
+    residual gaps are lazy lease expiry, phase progress, auto-finalize detail,
+    supervisor-stall detail, and repo-scoped-token filtering parity with the
+    legacy Python aggregate authorizer.
 
 63. **RFC 0070: daemon client/service boundary completion.** Active. Add
     daemon-side repository resolution, remove client-side direct PG lookups,
