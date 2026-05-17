@@ -8,6 +8,7 @@ import os
 import signal
 import shutil
 import subprocess
+import sys
 import time
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -42,6 +43,11 @@ CONTROL_EVENT_TYPES = frozenset(
 HELPER_EVENT_SCHEMA_VERSION = "striatum.supervisor_helper.event.v1"
 HELPER_LAUNCH_SCHEMA_VERSION = "striatum.supervisor_helper.launch.v1"
 PTY_HELPER_TRANSPORT = "pty_helper"
+STDIN_DELIVERY_PERSISTENT_FIFO = "persistent_fifo"
+STDIN_DELIVERY_ONE_SHOT_EOF = "one_shot_eof"
+STDIN_DELIVERY_VALUES = frozenset(
+    {STDIN_DELIVERY_PERSISTENT_FIFO, STDIN_DELIVERY_ONE_SHOT_EOF}
+)
 
 
 @dataclass(frozen=True)
@@ -56,7 +62,9 @@ class _ProcessLaunch:
 @register_pg_handler("supervise.start")
 def handle_start(ctx: RepoHandlerContext, params: Mapping[str, Any]) -> dict[str, Any]:
     session_id = _required_text(params, "session_id")
-    session, run_id, command, transport = _validate_start(ctx, session_id=session_id)
+    session, run_id, command, transport, stdin_delivery = _validate_start(
+        ctx, session_id=session_id
+    )
 
     supervisor_id = ctx.new_id("sup")
     daemon_supervisor_id = ctx.new_id("dsup")
@@ -81,6 +89,7 @@ def handle_start(ctx: RepoHandlerContext, params: Mapping[str, Any]) -> dict[str
                 scratch=scratch,
                 pipe_path=pipe_path,
                 transport=transport,
+                stdin_delivery=stdin_delivery,
                 event_path=event_path,
                 started_at=started_at,
             )
@@ -93,6 +102,7 @@ def handle_start(ctx: RepoHandlerContext, params: Mapping[str, Any]) -> dict[str
                     "daemon_supervisor_id": daemon_supervisor_id,
                     "adapter": "process",
                     "transport": transport,
+                    "stdin_delivery": stdin_delivery,
                     "stdin_pipe_path": str(pipe_path),
                     **({"helper_events_path": str(event_path)} if transport == PTY_HELPER_TRANSPORT else {}),
                 },
@@ -112,6 +122,7 @@ def handle_start(ctx: RepoHandlerContext, params: Mapping[str, Any]) -> dict[str
             pipe_path=pipe_path,
             event_path=event_path,
             transport=transport,
+            stdin_delivery=stdin_delivery,
         )
     except OSError as exc:
         _mark_lost(
@@ -165,6 +176,7 @@ def handle_start(ctx: RepoHandlerContext, params: Mapping[str, Any]) -> dict[str
                 "daemon_supervisor_id": daemon_supervisor_id,
                 "pid": pid,
                 "transport": transport,
+                "stdin_delivery": stdin_delivery,
                 "stdin_pipe_path": str(pipe_path),
                 **(
                     {
@@ -187,6 +199,7 @@ def handle_start(ctx: RepoHandlerContext, params: Mapping[str, Any]) -> dict[str
         "stdin_pipe_path": str(pipe_path),
         "state": "attached",
         "transport": transport,
+        "stdin_delivery": stdin_delivery,
         "helper_process": (
             {
                 "pid": launch.helper_pid,
@@ -244,7 +257,13 @@ def handle_send(ctx: RepoHandlerContext, params: Mapping[str, Any]) -> dict[str,
         payload = json_dumps(packet["packet_json"])
         if not payload.endswith("\n"):
             payload += "\n"
-        bytes_written = _write_to_pipe(pipe_path, payload.encode("utf-8"))
+        delivery_result = _write_supervisor_payload(
+            ctx,
+            supervisor_id=str(supervisor["supervisor_id"]),
+            pipe_path=pipe_path,
+            payload=payload.encode("utf-8"),
+        )
+        bytes_written = delivery_result["bytes_written"]
         delivered_at = ctx.now()
         _refresh_heartbeat(
             ctx,
@@ -262,6 +281,8 @@ def handle_send(ctx: RepoHandlerContext, params: Mapping[str, Any]) -> dict[str,
                 "supervisor_id": str(supervisor["supervisor_id"]),
                 "packet_id": packet_id,
                 "bytes_written": bytes_written,
+                "stdin_delivery": delivery_result["stdin_delivery"],
+                "stdin_closed_after_write": delivery_result["stdin_closed_after_write"],
             },
         )
         _drain_helper_events(ctx, supervisor_id=str(supervisor["supervisor_id"]), wait_seconds=0.25)
@@ -270,6 +291,8 @@ def handle_send(ctx: RepoHandlerContext, params: Mapping[str, Any]) -> dict[str,
             "packet_id": packet_id,
             "delivered_at": delivered_at,
             "bytes": bytes_written,
+            "stdin_delivery": delivery_result["stdin_delivery"],
+            "stdin_closed_after_write": delivery_result["stdin_closed_after_write"],
             "delivery_state": "delivered_unacknowledged",
             "control_ack_expected": True,
         }
@@ -877,7 +900,7 @@ def _normalize_helper_event(
 
 def _validate_start(
     ctx: RepoHandlerContext, *, session_id: str
-) -> tuple[dict[str, Any], str, list[str], str]:
+) -> tuple[dict[str, Any], str, list[str], str, str]:
     with transaction(ctx):
         session = ctx.row_by_id("sessions", "session_id", session_id, for_update=True)
         if session["state"] != "active":
@@ -890,13 +913,14 @@ def _validate_start(
             raise InvalidTransitionError("supervise start requires a process-adapter lane")
         command = _command_array(lane)
         transport = _supervision_transport(lane)
+        stdin_delivery = _supervision_stdin_delivery(lane, transport=transport)
         existing = _active_supervisor(ctx, session_id=session_id, for_update=True)
         if existing is not None:
             raise InvalidTransitionError(
                 "session already has an active supervisor: "
                 f"{existing['supervisor_id']} (state={existing['state']})"
             )
-        return session, run_id, command, transport
+        return session, run_id, command, transport, stdin_delivery
 
 
 def _insert_starting_rows(
@@ -910,6 +934,7 @@ def _insert_starting_rows(
     scratch: Path,
     pipe_path: Path,
     transport: str,
+    stdin_delivery: str,
     event_path: Path,
     started_at: str,
 ) -> None:
@@ -956,6 +981,7 @@ def _insert_starting_rows(
                         "source": "pg_supervision_handler",
                         "daemon_instance_id": daemon_instance_id,
                         "transport": transport,
+                        "stdin_delivery": stdin_delivery,
                         **(
                             {
                                 "helper_events_path": str(event_path),
@@ -1004,6 +1030,7 @@ def _launch_supervised_process(
     pipe_path: Path,
     event_path: Path,
     transport: str,
+    stdin_delivery: str,
 ) -> _ProcessLaunch:
     if transport == PTY_HELPER_TRANSPORT:
         return _launch_pty_helper(
@@ -1016,6 +1043,16 @@ def _launch_supervised_process(
             pipe_path=pipe_path,
             event_path=event_path,
         )
+    if stdin_delivery == STDIN_DELIVERY_ONE_SHOT_EOF:
+        child = _launch_one_shot_eof_process(
+            ctx,
+            command=command,
+            run_id=run_id,
+            session_id=session_id,
+            supervisor_id=supervisor_id,
+            pipe_path=pipe_path,
+        )
+        return _ProcessLaunch(pid=child.pid, pid_start_time=process_start_time(child.pid))
     child = _launch_process(
         ctx,
         command=command,
@@ -1057,6 +1094,44 @@ def _launch_process(
         )
     finally:
         os.close(pipe_fd)
+
+
+def _launch_one_shot_eof_process(
+    ctx: RepoHandlerContext,
+    *,
+    command: list[str],
+    run_id: str,
+    session_id: str,
+    supervisor_id: str,
+    pipe_path: Path,
+) -> subprocess.Popen[bytes]:
+    trampoline = (
+        "import json, os, sys, tempfile\n"
+        "pipe_path = sys.argv[1]\n"
+        "command = json.loads(sys.argv[2])\n"
+        "with open(pipe_path, 'rb', buffering=0) as fifo:\n"
+        "    payload = fifo.read()\n"
+        "stdin_file = tempfile.TemporaryFile()\n"
+        "stdin_file.write(payload)\n"
+        "stdin_file.seek(0)\n"
+        "os.dup2(stdin_file.fileno(), 0, inheritable=True)\n"
+        "os.execvpe(command[0], command, os.environ)\n"
+    )
+    return subprocess.Popen(
+        [sys.executable, "-c", trampoline, str(pipe_path), json_dumps(command)],
+        cwd=str(ctx.repo_root),
+        env=_supervised_env(
+            repo=ctx.repo_root,
+            run_id=run_id,
+            session_id=session_id,
+            supervisor_id=supervisor_id,
+        ),
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        start_new_session=True,
+        close_fds=True,
+    )
 
 
 def _launch_pty_helper(
@@ -1617,6 +1692,24 @@ def _supervision_transport(lane: JsonObject) -> str:
     raise InvalidTransitionError("lane supervision.transport must be 'pipe' or 'pty_helper'")
 
 
+def _supervision_stdin_delivery(lane: JsonObject, *, transport: str) -> str:
+    supervision = lane.get("supervision")
+    if supervision is None:
+        return STDIN_DELIVERY_PERSISTENT_FIFO
+    if not isinstance(supervision, Mapping):
+        raise InvalidTransitionError("lane supervision must be an object when provided")
+    mode = supervision.get("stdin_delivery", STDIN_DELIVERY_PERSISTENT_FIFO)
+    if mode not in STDIN_DELIVERY_VALUES:
+        raise InvalidTransitionError(
+            "lane supervision.stdin_delivery must be 'persistent_fifo' or 'one_shot_eof'"
+        )
+    if mode == STDIN_DELIVERY_ONE_SHOT_EOF and transport != "pipe":
+        raise InvalidTransitionError(
+            "lane supervision.stdin_delivery='one_shot_eof' requires supervision.transport='pipe'"
+        )
+    return str(mode)
+
+
 def _supervisor_view(row: Mapping[str, Any]) -> dict[str, Any]:
     view = dict(row)
     for key in ("started_at", "heartbeat_at", "ended_at"):
@@ -1724,6 +1817,43 @@ def _write_to_pipe(pipe_path: Path, payload: bytes) -> int:
         return total
     finally:
         os.close(fd)
+
+
+def _write_supervisor_payload(
+    ctx: RepoHandlerContext,
+    *,
+    supervisor_id: str,
+    pipe_path: Path,
+    payload: bytes,
+) -> dict[str, Any]:
+    metadata = _pointer_metadata(ctx, supervisor_id=supervisor_id)
+    stdin_delivery = _metadata_stdin_delivery(metadata)
+    if (
+        stdin_delivery == STDIN_DELIVERY_ONE_SHOT_EOF
+        and metadata.get("stdin_delivery_consumed") is True
+    ):
+        raise InvalidTransitionError("one-shot supervisor stdin has already been consumed")
+    bytes_written = _write_to_pipe(pipe_path, payload)
+    stdin_closed_after_write = stdin_delivery == STDIN_DELIVERY_ONE_SHOT_EOF
+    if stdin_closed_after_write:
+        _unlink_quietly(pipe_path)
+        _merge_pointer_metadata(
+            ctx,
+            supervisor_id=supervisor_id,
+            metadata={"stdin_delivery_consumed": True},
+        )
+    return {
+        "bytes_written": bytes_written,
+        "stdin_delivery": stdin_delivery,
+        "stdin_closed_after_write": stdin_closed_after_write,
+    }
+
+
+def _metadata_stdin_delivery(metadata: Mapping[str, Any]) -> str:
+    value = metadata.get("stdin_delivery")
+    if value in STDIN_DELIVERY_VALUES:
+        return str(value)
+    return STDIN_DELIVERY_PERSISTENT_FIFO
 
 
 def _unlink_quietly(path: Path) -> None:

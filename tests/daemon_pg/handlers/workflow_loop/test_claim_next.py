@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import importlib.util
+import os
+import threading
 from pathlib import Path
 from typing import Any
 
 import pytest
+from psycopg.types.json import Jsonb
 
 from _harness.tokens import issue_token
 
@@ -90,3 +93,108 @@ def test_claim_next_requires_claim_capability_before_route(
             "SELECT state FROM striatumd.queue_messages WHERE repository_id = 'repo_a' AND message_id = 'msg_draft'"
         )
         assert cur.fetchone()[0] == "pending"
+
+
+def test_claim_next_auto_delivery_honors_one_shot_eof_metadata(
+    pg_conn: Any,
+    tmp_path: Path,
+) -> None:
+    repo = tmp_path / "repo"
+    pipe_path = tmp_path / "stdin.pipe"
+    os.mkfifo(pipe_path, 0o600)
+    received: list[bytes] = []
+
+    def read_packet() -> None:
+        with pipe_path.open("rb", buffering=0) as fifo:
+            received.append(fifo.read())
+
+    reader = threading.Thread(target=read_packet, daemon=True)
+    reader.start()
+
+    insert_repo(pg_conn, repo, "repo_a")
+    insert_claimable_work(pg_conn, repository_id="repo_a", repo_root=repo)
+    _insert_attached_supervisor(
+        pg_conn,
+        repository_id="repo_a",
+        repo_root=repo,
+        pipe_path=pipe_path,
+        stdin_delivery="one_shot_eof",
+    )
+    token = issue_token(pg_conn, capabilities=["claim"], repo_id="repo_a")
+
+    response = rpc(
+        pg_conn,
+        repo_root=repo,
+        method="work.claim_next",
+        params={"repository_id": "repo_a", "session_id": "sess_author"},
+        token=token,
+        request_id="claim-next-one-shot-delivery",
+    )
+
+    reader.join(timeout=5)
+    assert response.ok is True
+    delivery = response.data["supervisor_delivery"]
+    assert delivery["stdin_delivery"] == "one_shot_eof"
+    assert delivery["stdin_closed_after_write"] is True
+    assert not pipe_path.exists()
+    assert received
+    assert b'"packet_id":"wp_' in received[0]
+    with pg_conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT metadata_json
+            FROM striatumd.process_supervisor_pointers
+            WHERE repository_id = 'repo_a' AND supervisor_id = 'sup_one_shot'
+            """
+        )
+        metadata = cur.fetchone()[0]
+    assert metadata["stdin_delivery"] == "one_shot_eof"
+    assert metadata["stdin_delivery_consumed"] is True
+    events = fetch_events(pg_conn, "repo_a")
+    delivered = next(row for row in events if row["event_type"] == "supervisor.packet_delivered")
+    assert delivered["payload_json"]["stdin_delivery"] == "one_shot_eof"
+    assert delivered["payload_json"]["stdin_closed_after_write"] is True
+
+
+def _insert_attached_supervisor(
+    conn: Any,
+    *,
+    repository_id: str,
+    repo_root: Path,
+    pipe_path: Path,
+    stdin_delivery: str,
+) -> None:
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO striatumd.process_supervisors(
+              repository_id, supervisor_id, run_id, session_id, adapter,
+              command_json, cwd, scratch_path, stdin_pipe_path, pid,
+              pid_start_time, state, started_at, heartbeat_at
+            )
+            VALUES (
+              %s, 'sup_one_shot', 'run_1', 'sess_author', 'process',
+              '["python"]'::jsonb, %s, %s, %s, %s, 'test-start',
+              'attached', now(), now()
+            )
+            """,
+            (repository_id, str(repo_root), str(pipe_path.parent), str(pipe_path), os.getpid()),
+        )
+        cur.execute(
+            """
+            INSERT INTO striatumd.process_supervisor_pointers(
+              repository_id, supervisor_id, daemon_supervisor_id, run_id,
+              session_id, pid, pid_start_time, state, updated_at, metadata_json
+            )
+            VALUES (
+              %s, 'sup_one_shot', 'dsup_one_shot', 'run_1', 'sess_author',
+              %s, 'test-start', 'attached', now(), %s
+            )
+            """,
+            (
+                repository_id,
+                os.getpid(),
+                Jsonb({"source": "test", "transport": "pipe", "stdin_delivery": stdin_delivery}),
+            ),
+        )
+    conn.commit()

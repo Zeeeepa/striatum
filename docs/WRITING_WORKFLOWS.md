@@ -95,8 +95,10 @@ Common lane sets:
   lanes, often different model families, and converge into a ledger or
   synthesis job.
 - **supervised lane**: a process-adapter lane driven by
-  `striatum supervise`; use only with a command or wrapper that can
-  read newline-delimited work packets from stdin.
+  `striatum supervise`; by default, use a command or wrapper that can
+  read newline-delimited work packets from a persistent stdin FIFO.
+  For single-prompt commands that require stdin EOF before doing work,
+  set `supervision.stdin_delivery: "one_shot_eof"`.
 - **worktree-isolated lane**: a repo-write lane with
   `worktree_isolation: "per_job"` when parallel writes need isolated
   git worktrees.
@@ -319,6 +321,18 @@ Code supervised wrapper lives at
 `.striatum/bin/claude-supervised-wrapper.sh` (RFC 0010 V2).
 Workflows that declare a supervised Claude Code lane can use it
 as the lane command directly.
+
+Process lanes that call a raw single-prompt command such as
+`["codex", "exec", "--model", "gpt-5.5", "-"]` should declare:
+
+```json
+"supervision": {
+  "stdin_delivery": "one_shot_eof"
+}
+```
+
+That opt-in gives the command one packet on stdin and then EOF. The default
+remains the persistent FIFO mode for wrappers that handle multiple packets.
 
 For the full harness-profile schema (recognised tool families,
 required fields, accountability rules), see

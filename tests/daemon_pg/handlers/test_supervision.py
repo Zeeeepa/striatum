@@ -4,6 +4,7 @@ import json
 import os
 import signal
 import sys
+import time
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
@@ -557,6 +558,81 @@ def test_pty_helper_send_drains_packet_ack_through_report(
         conn.close()
 
 
+def test_one_shot_eof_delivery_execs_lane_command_after_packet(
+    tmp_path: Path, pg_url: str
+) -> None:
+    conn = connect(pg_url)
+    started: dict[str, Any] | None = None
+    try:
+        repo = tmp_path / "repo"
+        output_path = repo / "packet.txt"
+        command = [
+            sys.executable,
+            "-c",
+            (
+                "import pathlib, sys\n"
+                "data = sys.stdin.read()\n"
+                f"pathlib.Path({str(output_path)!r}).write_text(data, encoding='utf-8')\n"
+            ),
+        ]
+        _seed_supervisable_session(
+            conn,
+            repo,
+            repository_id="repo_a",
+            command=command,
+            stdin_delivery="one_shot_eof",
+        )
+        _seed_work_packet(
+            conn,
+            repository_id="repo_a",
+            session_id="sess_1",
+            packet_id="wp_1",
+        )
+        conn.commit()
+        started = handle_start(_ctx(conn, repo, "repo_a"), {"session_id": "sess_1"})
+
+        sent = handle_send(
+            _ctx(conn, repo, "repo_a"),
+            {"session_id": "sess_1", "packet_id": "wp_1"},
+        )
+
+        assert sent["stdin_delivery"] == "one_shot_eof"
+        assert sent["stdin_closed_after_write"] is True
+        assert not Path(str(started["stdin_pipe_path"])).exists()
+        deadline = time.time() + 5
+        while time.time() < deadline and not output_path.exists():
+            time.sleep(0.05)
+        assert json.loads(output_path.read_text(encoding="utf-8")) == {
+            "packet_id": "wp_1",
+            "session_id": "sess_1",
+        }
+        metadata = _one(
+            conn,
+            """
+            SELECT metadata_json
+            FROM striatumd.process_supervisor_pointers
+            WHERE repository_id = %s AND supervisor_id = %s
+            """,
+            ("repo_a", started["supervisor_id"]),
+        )["metadata_json"]
+        assert metadata["stdin_delivery"] == "one_shot_eof"
+        assert metadata["stdin_delivery_consumed"] is True
+        events = _events(conn, "repo_a")
+        delivered = next(row for row in events if row["event_type"] == "supervisor.packet_delivered")
+        assert delivered["payload_json"]["stdin_delivery"] == "one_shot_eof"
+        assert delivered["payload_json"]["stdin_closed_after_write"] is True
+    finally:
+        if started is not None:
+            try:
+                handle_stop(
+                    _ctx(conn, repo, "repo_a"),
+                    {"session_id": "sess_1", "reason": "cleanup"},
+                )
+            except Exception:
+                _kill_pid(started.get("pid"))
+        conn.close()
+
+
 def test_send_fails_closed_for_foreign_packet(tmp_path: Path, pg_url: str) -> None:
     conn = connect(pg_url)
     started: dict[str, Any] | None = None
@@ -626,18 +702,25 @@ def _seed_supervisable_session(
     *,
     repository_id: str,
     adapter: str = "process",
+    command: list[str] | None = None,
     supervision_transport: str | None = None,
+    stdin_delivery: str | None = None,
 ) -> None:
     repo_root.mkdir(parents=True, exist_ok=True)
     now = "2026-05-16T00:00:00Z"
-    command = _supervised_command() if adapter == "process" else []
+    command = command if command is not None else (_supervised_command() if adapter == "process" else [])
     lane: dict[str, Any] = {
         "adapter": adapter,
         "command": command,
         "display_model": "codex-gpt-5",
     }
+    supervision: dict[str, Any] = {}
     if supervision_transport is not None:
-        lane["supervision"] = {"transport": supervision_transport}
+        supervision["transport"] = supervision_transport
+    if stdin_delivery is not None:
+        supervision["stdin_delivery"] = stdin_delivery
+    if supervision:
+        lane["supervision"] = supervision
     workflow = {
         "schema_version": "striatum.workflow.v1",
         "workflow_id": "test-workflow",

@@ -122,6 +122,26 @@ def test_valid_workflow_does_not_raise() -> None:
     validate_workflow(_VALID)
 
 
+def test_process_lane_supervision_stdin_delivery_is_closed() -> None:
+    workflow = _copy()
+    lane = workflow["lanes"]["lane_a"]
+    lane["supervision"] = {"stdin_delivery": "one_shot_eof"}
+    validate_workflow(workflow)
+
+    bad = _copy()
+    bad["lanes"]["lane_a"]["supervision"] = {"stdin_delivery": "stream_until_magic"}
+    with pytest.raises(WorkflowError, match="supervision.stdin_delivery"):
+        validate_workflow(bad)
+
+    bad = _copy()
+    bad["lanes"]["lane_a"]["supervision"] = {
+        "transport": "pty_helper",
+        "stdin_delivery": "one_shot_eof",
+    }
+    with pytest.raises(WorkflowError, match="requires supervision.transport 'pipe'"):
+        validate_workflow(bad)
+
+
 def test_require_daemon_must_be_boolean() -> None:
     bad = _copy()
     bad["require_daemon"] = "yes"

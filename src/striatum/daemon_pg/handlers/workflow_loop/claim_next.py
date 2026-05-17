@@ -248,13 +248,24 @@ def _deliver_packet_to_attached_supervisor(
 
     error: str | None = None
     bytes_written = 0
+    delivery_result: dict[str, Any] = {
+        "bytes_written": 0,
+        "stdin_delivery": "persistent_fifo",
+        "stdin_closed_after_write": False,
+    }
     if pipe_path is None or not pipe_path.exists():
         error = "stdin_pipe_missing"
     else:
         try:
-            from striatum.supervisor import _write_to_pipe
+            from striatum.daemon_pg.handlers.supervision import _write_supervisor_payload
 
-            bytes_written = int(_write_to_pipe(pipe_path, payload_bytes))
+            delivery_result = _write_supervisor_payload(
+                ctx,
+                supervisor_id=supervisor_id,
+                pipe_path=pipe_path,
+                payload=payload_bytes,
+            )
+            bytes_written = int(delivery_result["bytes_written"])
         except (BrokenPipeError, OSError, Exception):
             error = "stdin_pipe_missing"
 
@@ -316,10 +327,17 @@ def _deliver_packet_to_attached_supervisor(
             "supervisor_id": supervisor_id,
             "packet_id": packet_id,
             "bytes_written": bytes_written,
+            "stdin_delivery": delivery_result["stdin_delivery"],
+            "stdin_closed_after_write": delivery_result["stdin_closed_after_write"],
             "via": "claim_next_auto_delivery",
         },
     )
-    return {"supervisor_id": supervisor_id, "bytes_written": bytes_written}
+    return {
+        "supervisor_id": supervisor_id,
+        "bytes_written": bytes_written,
+        "stdin_delivery": delivery_result["stdin_delivery"],
+        "stdin_closed_after_write": delivery_result["stdin_closed_after_write"],
+    }
 
 
 def _mark_supervisor_lost_for_lease(

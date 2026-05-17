@@ -1598,9 +1598,14 @@ The supervise CLI surface:
 - `striatum supervise send --session-id <id> --packet-id <id>` looks up
   the stored work packet, writes its `packet_json` plus a trailing newline
   to the supervisor's named pipe, refreshes `heartbeat_at`, and records a
-  `supervisor.packet_delivered` event with the byte count. The agent reads
-  packets line-by-line from stdin; reactions remain CLI-driven (publish,
-  ack, complete, verdict) so the supervisor never parses agent stdout.
+  `supervisor.packet_delivered` event with the byte count and stdin-delivery
+  mode. By default, the agent reads packets line-by-line from a persistent
+  FIFO. A lane can opt in to
+  `supervision.stdin_delivery: "one_shot_eof"` with pipe transport for
+  commands that read all stdin and require EOF before they start work; after
+  one packet write, Striatum closes/removes the FIFO and marks the one-shot
+  stdin as consumed. Reactions remain CLI-driven (publish, ack, complete,
+  verdict) so the supervisor never parses agent stdout.
 - `striatum supervise stop --session-id <id> --reason <text>` sends
   `SIGTERM`, waits up to five seconds, falls back to `SIGKILL` if the
   process is still present, removes the FIFO, marks the row `stopped`,
@@ -1662,14 +1667,17 @@ the supervised flow, that command must satisfy three requirements
 fails to advance and `doctor` surfaces
 `supervisor_lost_with_held_lease`):
 
-1. **Stay alive across packets.** Print-mode CLIs that read a single
-   prompt and exit (e.g. `claude -p`, generic one-shot
-   non-interactive invocations) are not viable supervised lanes. The
-   process must keep stdin open and continue reading newline-
-   terminated packets until SIGTERM.
-2. **Read newline-delimited JSON packets from stdin.** Each delivery
-   is the work packet's `packet_json` followed by a trailing
-   newline. The agent must parse one packet per line.
+1. **Choose an explicit stdin-delivery contract.** The default
+   `persistent_fifo` contract is for wrappers that stay alive across
+   packets, keep stdin open, and continue reading newline-terminated
+   packets until SIGTERM. One-shot print-mode CLIs that read all stdin
+   before starting work must opt in to
+   `supervision.stdin_delivery: "one_shot_eof"` and should expect a
+   single packet for that supervised process.
+2. **Read JSON packets from stdin according to that contract.** Each
+   delivery is the work packet's `packet_json` followed by a trailing
+   newline. Persistent wrappers parse one packet per line; one-shot
+   commands read until EOF and parse the single payload they receive.
 3. **Call back via the `striatum` CLI.** The agent advances workflow
    state by invoking `striatum ack`, `heartbeat`, `publish-artifact`,
    `block`, `verdict`/`submit-review`, and `complete` with the

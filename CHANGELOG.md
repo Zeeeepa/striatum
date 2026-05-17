@@ -76,9 +76,13 @@ in the roadmap/TODO and has several production slices landed:
   or RPC code. Lanes can now opt in to `supervision.transport: "pty_helper"`,
   letting `supervise.start` launch the helper, persist pointer metadata, and
   ingest helper JSONL acknowledgements through the existing control-event
-  path. The daemon now implements `supervise.reattach_status` as a read-only
-  supervisor health DTO, and `doctor` surfaces non-healthy reattach states
-  for stale supervisors without mutating runner state.
+  path. Pipe transport also has an explicit
+  `supervision.stdin_delivery: "one_shot_eof"` opt-in for single-prompt
+  commands such as `cmd -`; default supervised lanes continue to use the
+  persistent FIFO contract. The daemon now implements
+  `supervise.reattach_status` as a read-only supervisor health DTO, and
+  `doctor` surfaces non-healthy reattach states for stale supervisors without
+  mutating runner state.
 - **Workflow risk lint.**
   `striatum workflow lint` supports structured warnings, opt-in strict mode,
   accepted-risk rationale and decision references, advisory coverage scoring,

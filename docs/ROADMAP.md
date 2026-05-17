@@ -465,10 +465,15 @@ decide whether to rename the packet helper to `packet inbox`.
   daemon launches `striatum-supervisor-helper`, persists helper pointer
   metadata, and drains helper JSONL events through `supervise.report` during
   start/send/stop/status.
+- Pipe-transport lanes can opt in to
+  `supervision.stdin_delivery: "one_shot_eof"` for single-prompt commands
+  that read stdin until EOF. Default supervised lanes keep the persistent
+  FIFO contract.
 
 **Remaining Phase 6 debt:** actual restart reattach/lost-state recovery,
-stronger lane-liveness attestation, wrapper fixtures, real Go-helper
-integration coverage, and broader helper-only CI.
+runner-owned stall alarms/blockers, stronger lane-liveness attestation,
+wrapper fixtures, real Go-helper integration coverage, and broader
+helper-only CI.
 
 ---
 
@@ -872,6 +877,7 @@ dogfood. Order them by impact, not by RFC number.
 | [15](https://github.com/halbritt/striatum/issues/15) | Clarify PostgreSQL transition guidance | `docs/issues/15/` workflow and transition-doc sweep. |
 | [16](https://github.com/halbritt/striatum/issues/16) | Add complete operator initialization prompt | `b9add6f` via `docs/issues/16/` workflow. **First production use of the new GH-issue workflow type.** Verify verdict `accept` severity `info`. End-to-end 21 minutes wall-clock, zero operator-on-behalf publishes — empirically validated v1.48.1's wrapper auth fix. |
 | [17](https://github.com/halbritt/striatum/issues/17) | Striatum doc consistency for Engram memory integration | `docs/issues/17/` workflow plus RFC 0057 Corpus Contract V2 scaffold; remaining V2 implementation is tracked under TODO 59. |
+| [18](https://github.com/halbritt/striatum/issues/18) | Supervised lane stdin EOF hang for `cmd -` commands | Explicit `supervision.stdin_delivery: "one_shot_eof"` opt-in for pipe-transport lanes, with claim-next/send metadata and PG tests. |
 
 ---
 

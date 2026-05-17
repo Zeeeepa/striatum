@@ -242,10 +242,11 @@ Legend: ✅ done · 🟡 most done (sub-tasks remain) · ⏳ open/blocked · �
    flags supervisors `lost` without auto-killing the OS process,
    supervised-aware `claim-next` that auto-delivers the freshly built packet
    through the supervisor's stdin pipe and lazily marks pipe-missing/write-fail
-   supervisors `lost`, `doctor` checks for dead pids and missing stdin pipes.
-   **Remaining:** no PTY path — `grep pty src/striatum/` returns nothing, so
-   CLIs that refuse non-TTY stdin still can't be supervised; `recovery
-   process-reconcile` UX is partial.
+   supervisors `lost`, `doctor` checks for dead pids and missing stdin pipes,
+   PTY helper transport, and the explicit `supervision.stdin_delivery`
+   value `"one_shot_eof"` for single-prompt commands that require stdin EOF.
+   **Remaining:** runner-owned stall alarms/blockers for attached but idle
+   supervisors (GH #20) and broader helper integration coverage.
 
 2. **Adapter constraint enforcement.** Workflow validation supports lane
    `required_enforcement` and rejects lanes whose adapters cannot satisfy it
@@ -933,10 +934,14 @@ review and plan are root-level operator artifacts:
     "pty_helper"` lane opt-in: the Python daemon launches
     `striatum-supervisor-helper`, persists helper pointer metadata, and
     drains helper JSONL acknowledgements through `supervise.report` during
-    start/send/stop/status. Remaining: actual restart reattach/lost-state
-    semantics, stronger lane-liveness attestation, wrapper fixtures, real
-    Go-helper integration coverage, and promotion of helper-only CI beyond
-    focused tests.
+    start/send/stop/status. Follow-up slice landed explicit
+    `supervision.stdin_delivery: "one_shot_eof"` for pipe-transport lanes,
+    letting single-prompt commands consume one packet and then receive EOF
+    while preserving persistent FIFO behavior by default. Remaining: actual
+    restart reattach/lost-state semantics, runner-owned stall
+    alarms/blockers, stronger lane-liveness attestation, wrapper fixtures,
+    real Go-helper integration coverage, and promotion of helper-only CI
+    beyond focused tests.
 
 55. **Phase 7: workflow risk lint and review diversity enforcement.**
     `workflow lint <workflow.json> --json` returns structured advisory

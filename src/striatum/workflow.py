@@ -54,6 +54,8 @@ CONSTRAINT_VALUES = {
 }
 
 WORKTREE_ISOLATION_VALUES = {"off", "per_job"}
+SUPERVISION_TRANSPORT_VALUES = {"pipe", "pty_helper"}
+SUPERVISION_STDIN_DELIVERY_VALUES = {"persistent_fifo", "one_shot_eof"}
 PROVENANCE_MODES = frozenset({"advisory", "attested_bylines", "sealed_patch"})
 SEALED_PATCH_PROVIDERS = frozenset({"daemon", "refuse"})
 APPLY_GATE_JOB_TYPES = frozenset({"build", "handoff"})
@@ -1662,6 +1664,29 @@ def _validate_lane_constraints(
                 raise WorkflowError(f"process lane {lane_id!r} command must be a non-empty array")
             if not all(isinstance(part, str) and part != "" for part in command):
                 raise WorkflowError(f"process lane {lane_id!r} command entries must be non-empty strings")
+            supervision = lane_value.get("supervision")
+            if supervision is not None:
+                if not isinstance(supervision, dict):
+                    raise WorkflowError(
+                        f"process lane {lane_id!r} supervision must be an object"
+                    )
+                transport = supervision.get("transport", "pipe")
+                if transport not in SUPERVISION_TRANSPORT_VALUES:
+                    raise WorkflowError(
+                        f"process lane {lane_id!r} supervision.transport must be one of "
+                        f"{sorted(SUPERVISION_TRANSPORT_VALUES)!r}"
+                    )
+                stdin_delivery = supervision.get("stdin_delivery", "persistent_fifo")
+                if stdin_delivery not in SUPERVISION_STDIN_DELIVERY_VALUES:
+                    raise WorkflowError(
+                        f"process lane {lane_id!r} supervision.stdin_delivery must be one of "
+                        f"{sorted(SUPERVISION_STDIN_DELIVERY_VALUES)!r}"
+                    )
+                if stdin_delivery == "one_shot_eof" and transport != "pipe":
+                    raise WorkflowError(
+                        f"process lane {lane_id!r} supervision.stdin_delivery "
+                        "'one_shot_eof' requires supervision.transport 'pipe'"
+                    )
             env = lane_value.get("env")
             if env is not None and (
                 not isinstance(env, dict)
