@@ -1216,22 +1216,24 @@ review and plan are root-level operator artifacts:
     `dogfood.publish_on_behalf`, and `dogfood.surgical_recovery`; the Go
     handler-coverage ledger reports zero generic `not_implemented` handlers
     for active contract methods. Go also owns daemon-global `repo.resolve` for
-    repository path resolution without client-side direct PG access. Remaining
-    Go-port debt is explicit fail-closed/parity work rather than placeholder
-    routing.
+    repository path resolution without client-side direct PG access, and fresh
+    Go startup now bootstraps the first PostgreSQL admin client plus the
+    private runtime `client-token`. Remaining Go-port debt is explicit
+    fail-closed/parity work rather than placeholder routing.
 
 62. **RFC 0069: PostgreSQL-only daemon-global surfaces.** Most done. Port daemon
-    startup bootstrap, health, audit, sweep, dashboard-all, daemon MCP
-    resource list/read, and any remaining registry probes away from SQLite and
-    into PostgreSQL/Go-owned daemon handlers. Production `connect_registry()`
-    reachability is a bug unless the call is in a named one-way migration or
-    fixture path. `dashboard.all` now has a Go/PostgreSQL read-only subset;
-    production Python daemon startup now uses PostgreSQL metadata/sweep
-    plumbing when PostgreSQL is configured, and `connect_registry()` is gated
-    behind explicit migration/test compatibility escapes. Residual gaps are
-    lazy lease expiry, phase progress, auto-finalize detail, supervisor-stall
-    detail, and repo-scoped-token filtering parity with the legacy Python
-    aggregate authorizer.
+    health, audit, sweep, dashboard-all, daemon MCP resource list/read, and
+    any remaining registry probes away from SQLite and into PostgreSQL/Go-owned
+    daemon handlers. Go now owns first-start PostgreSQL admin/runtime-token
+    bootstrap. Production `connect_registry()` reachability is a bug unless
+    the call is in a named one-way migration or fixture path. `dashboard.all`
+    now has a Go/PostgreSQL read-only subset; production Python daemon startup
+    now uses PostgreSQL metadata/sweep plumbing when PostgreSQL is configured,
+    and `connect_registry()` is gated behind explicit migration/test
+    compatibility escapes. Residual gaps are lazy lease expiry, phase
+    progress, auto-finalize detail, supervisor-stall detail, and
+    repo-scoped-token filtering parity with the legacy Python aggregate
+    authorizer.
 
 63. **RFC 0070: daemon client/service boundary completion.** Most done.
     Daemon-side `repo.resolve` is registered as a daemon-global read bootstrap

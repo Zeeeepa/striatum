@@ -21,6 +21,9 @@ Recent checkpoints:
 - Go migration SHA-source verification now rejects extra newer Python-source
   migrations, closing the stale-binary gap where an old Go binary could pass
   hash checks until it hit a migrated database.
+- Fresh Go daemon startup now bootstraps the first PostgreSQL admin client
+  and writes the private runtime `client-token`, matching the Python daemon's
+  first-start auth contract.
 - Go `doctor` now reads `striatumd.schema_meta['substrate_version']` instead
   of querying a nonexistent `schema_meta.version` column.
 - Daemon RPC handshakes from the CLI and day-zero first-run smoke now use

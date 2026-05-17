@@ -19,6 +19,7 @@ type tokenExecCall struct {
 }
 
 type tokenFakeRunner struct {
+	clientCount  int64
 	repositories map[string]bool
 	record       tokenRecord
 	recordErr    error
@@ -38,6 +39,8 @@ func (f *tokenFakeRunner) Exec(_ context.Context, sql string, args ...any) error
 
 func (f *tokenFakeRunner) QueryRow(_ context.Context, sql string, args ...any) db.Row {
 	switch {
+	case strings.Contains(sql, "COUNT(*)") && strings.Contains(sql, "FROM striatumd.clients"):
+		return tokenRow{values: []any{f.clientCount}}
 	case strings.Contains(sql, "FROM striatumd.clients") && strings.Contains(sql, "FOR UPDATE"):
 		if f.recordErr != nil {
 			return tokenRow{err: f.recordErr}

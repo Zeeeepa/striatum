@@ -151,6 +151,17 @@ func main() {
 		}
 		defer pool.Close()
 		runner = pool.Runner
+		tokenPath, err := admin.RuntimeTokenPath()
+		if err != nil {
+			log.Fatalf("resolve daemon runtime token path: %v", err)
+		}
+		bootstrap, err := admin.BootstrapRuntimeTokenIfNeeded(ctx, runner, tokenPath)
+		if err != nil {
+			log.Fatalf("bootstrap daemon admin token failed: %v", err)
+		}
+		if bootstrap != nil {
+			log.Printf("bootstrapped daemon admin client %s and wrote runtime token %s", bootstrap["client_id"], tokenPath)
+		}
 		recorder = &db.AuditRecorder{Runner: pool.Runner, DaemonVersion: daemonVersion}
 		authorizer = &rpc.PostgresAuthorizer{Runner: pool.Runner, Clock: time.Now}
 		if pool.RawPool != nil {
