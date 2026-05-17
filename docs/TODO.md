@@ -979,7 +979,10 @@ review and plan are root-level operator artifacts:
     and git context helpers. Follow-up split landed: `web/run_pages.py` owns
     run list/detail, job detail, artifact view, and posture-verdict page
     rendering while `service.py` keeps route dispatch plus stable private
-    handler wrappers for existing tests and callers.
+    handler wrappers for existing tests and callers. Follow-up split landed:
+    `web/artifacts.py` now also owns artifact raw download orchestration,
+    with `service.py` supplying the stable handler wrapper and HTTP response
+    writer callbacks.
     Remaining: continue splitting `service.py` along stable non-SQLite
     request-handling and rendering boundaries.
 

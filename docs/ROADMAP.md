@@ -473,6 +473,10 @@ daemon-first without needing to support two domain daemons.
   loading, gated legacy fallback selection, graph rendering, and template
   context assembly. `service.py` keeps route dispatch and stable private
   handler wrappers for existing tests/callers.
+- `src/striatum/web/artifacts.py` now also owns artifact raw download
+  orchestration, including daemon metadata lookup, gated legacy fallback
+  selection, file loading, content-type selection, and response header/body
+  framing through callbacks supplied by the service wrapper.
 
 **Remaining Phase 4 debt:** continue splitting `service.py` along stable
 non-SQLite request-handling and rendering boundaries after the daemon-routed

@@ -109,6 +109,9 @@ Recent checkpoints:
 - Run list/detail, job detail, artifact view, and posture-verdict page
   rendering moved from `service.py` into `striatum.web.run_pages`, leaving
   stable private handler wrappers for existing route tests and callers.
+- Artifact raw download orchestration moved from `service.py` into
+  `striatum.web.artifacts`, with the service wrapper still owning the HTTP
+  handler entry point and response writer callbacks.
 - Workflow validation now rejects `needs_revision` cycles whose `from`/`to`
   jobs cross phase boundaries, closing the RFC 0045 V1.5 cycle phase-jump
   validator gap.

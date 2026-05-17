@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 __all__ = [
+    "ArtifactRawContext",
     "ArtifactViewPayloadError",
     "InlineArtifactBody",
     "artifact_content_type",
@@ -16,12 +18,34 @@ __all__ = [
     "lane_evidence_chip",
     "recorded_artifact_attestation_chip",
     "resolve_artifact_file",
+    "serve_artifact_raw",
     "shape_artifact_rows",
 ]
+
+JsonObject = dict[str, Any]
+JsonSender = Callable[[int, JsonObject], None]
+ResponseStarter = Callable[[int], None]
+HeaderSender = Callable[[str, str], None]
+HeaderFinisher = Callable[[], None]
+BodyWriter = Callable[[bytes], object]
+LegacyFallbackChecker = Callable[[str], bool]
+LegacyCallable = Callable[..., Any]
 
 
 class ArtifactViewPayloadError(ValueError):
     """Raised when the daemon artifact-view DTO is missing required fields."""
+
+
+@dataclass(frozen=True)
+class ArtifactRawContext:
+    repo: Path
+    send_json: JsonSender
+    send_response: ResponseStarter
+    send_header: HeaderSender
+    end_headers: HeaderFinisher
+    write_body: BodyWriter
+    legacy_artifact_raw_fallback_enabled: LegacyFallbackChecker
+    legacy_artifact_metadata: LegacyCallable
 
 
 @dataclass(frozen=True)
@@ -49,6 +73,67 @@ def artifact_content_type(path: Path) -> str:
         ".json": "application/json",
         ".txt": "text/plain; charset=utf-8",
     }.get(suffix, "application/octet-stream")
+
+
+def serve_artifact_raw(ctx: ArtifactRawContext, artifact_id: str) -> None:
+    """Stream raw artifact bytes for the web UI viewer."""
+
+    if not artifact_id:
+        ctx.send_json(400, _error(400, "missing artifact id"))
+        return
+    from striatum.service_daemon import ServiceDaemonRpcError, call_repo_method
+
+    try:
+        payload = call_repo_method(ctx.repo, "artifact.show", {"artifact_id": artifact_id})
+        artifact_raw = payload.get("artifact")
+        if not isinstance(artifact_raw, Mapping):
+            ctx.send_json(
+                500,
+                _error(500, "daemon artifact DTO missing artifact"),
+            )
+            return
+        artifact = artifact_raw
+    except ServiceDaemonRpcError as exc:
+        if ctx.legacy_artifact_raw_fallback_enabled(exc.code):
+            try:
+                legacy = ctx.legacy_artifact_metadata(ctx.repo, artifact_id=artifact_id)
+            except Exception as legacy_exc:  # noqa: BLE001 - legacy fixture path.
+                ctx.send_json(500, _error(500, str(legacy_exc)))
+                return
+            if legacy is None:
+                ctx.send_json(404, _error(404, "artifact not found"))
+                return
+            artifact = legacy
+        else:
+            ctx.send_json(exc.status, _rpc_error(exc.code, exc.message))
+            return
+    except Exception as exc:  # noqa: BLE001
+        ctx.send_json(500, _error(500, f"{type(exc).__name__}: {exc}"))
+        return
+
+    try:
+        repo_path = resolve_artifact_file(ctx.repo, artifact.get("repo_path"))
+    except ValueError:
+        ctx.send_json(404, _error(404, "artifact file missing on disk"))
+        return
+    if not repo_path.is_file():
+        ctx.send_json(404, _error(404, "artifact file missing on disk"))
+        return
+    try:
+        data = repo_path.read_bytes()
+    except OSError as exc:
+        ctx.send_json(500, _error(500, str(exc)))
+        return
+    ctx.send_response(200)
+    ctx.send_header("Content-Type", artifact_content_type(repo_path))
+    ctx.send_header("Content-Length", str(len(data)))
+    ctx.send_header("Content-Security-Policy", "default-src 'none'")
+    ctx.send_header("Connection", "close")
+    ctx.end_headers()
+    try:
+        ctx.write_body(data)
+    except BrokenPipeError:
+        return
 
 
 def inline_artifact_body(repo: Path, artifact: Mapping[str, Any]) -> InlineArtifactBody:
@@ -224,3 +309,11 @@ def shape_artifact_rows(
         row["attestation_override_rationale"] = override_rationale
         shaped.append(row)
     return shaped
+
+
+def _error(code: int, message: str) -> JsonObject:
+    return {"ok": False, "error": {"code": code, "message": message}}
+
+
+def _rpc_error(code: str, message: str) -> JsonObject:
+    return {"ok": False, "error": {"code": code, "message": message}}

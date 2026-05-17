@@ -74,9 +74,9 @@ from striatum.web.static_assets import (
     load_static_asset as _load_static_asset,
 )
 from striatum.web.artifacts import (
-    artifact_content_type as _artifact_content_type,
+    ArtifactRawContext as _ArtifactRawContext,
     byline_line as _byline_line_web,
-    resolve_artifact_file as _resolve_artifact_file,
+    serve_artifact_raw as _serve_artifact_raw,
     shape_artifact_rows as _shape_artifact_rows_web,
 )
 from striatum.web import run_pages as _run_pages
@@ -540,65 +540,19 @@ class StriatumServiceHandler(BaseHTTPRequestHandler):
         ``repo_path``, and streams the bytes back. Read-only; no mutation gate.
         Returns 404 if the row or the file is missing.
         """
-        if not artifact_id:
-            self._send_json(400, {"ok": False, "error": {"code": 400, "message": "missing artifact id"}})
-            return
-        from striatum.service_daemon import ServiceDaemonRpcError, call_repo_method
-
-        try:
-            payload = call_repo_method(self.state.repo, "artifact.show", {"artifact_id": artifact_id})
-            artifact_raw = payload.get("artifact")
-            if not isinstance(artifact_raw, Mapping):
-                self._send_json(
-                    500,
-                    {"ok": False, "error": {"code": 500, "message": "daemon artifact DTO missing artifact"}},
-                )
-                return
-            artifact = artifact_raw
-        except ServiceDaemonRpcError as exc:
-            if _legacy_artifact_raw_fallback_enabled(exc.code):
-                try:
-                    legacy = _legacy_artifact_metadata(self.state.repo, artifact_id=artifact_id)
-                except Exception as legacy_exc:  # noqa: BLE001 - legacy fixture path.
-                    self._send_json(500, {"ok": False, "error": {"code": 500, "message": str(legacy_exc)}})
-                    return
-                if legacy is None:
-                    self._send_json(404, {"ok": False, "error": {"code": 404, "message": "artifact not found"}})
-                    return
-                artifact = legacy
-            else:
-                self._send_json(
-                    exc.status,
-                    {"ok": False, "error": {"code": exc.code, "message": exc.message}},
-                )
-                return
-        except Exception as exc:  # noqa: BLE001
-            self._send_json(500, {"ok": False, "error": {"code": 500, "message": f"{type(exc).__name__}: {exc}"}})
-            return
-
-        try:
-            repo_path = _resolve_artifact_file(self.state.repo, artifact.get("repo_path"))
-        except ValueError:
-            self._send_json(404, {"ok": False, "error": {"code": 404, "message": "artifact file missing on disk"}})
-            return
-        if not repo_path.is_file():
-            self._send_json(404, {"ok": False, "error": {"code": 404, "message": "artifact file missing on disk"}})
-            return
-        try:
-            data = repo_path.read_bytes()
-        except OSError as exc:
-            self._send_json(500, {"ok": False, "error": {"code": 500, "message": str(exc)}})
-            return
-        self.send_response(200)
-        self.send_header("Content-Type", _artifact_content_type(repo_path))
-        self.send_header("Content-Length", str(len(data)))
-        self.send_header("Content-Security-Policy", "default-src 'none'")
-        self.send_header("Connection", "close")
-        self.end_headers()
-        try:
-            self.wfile.write(data)
-        except BrokenPipeError:
-            return
+        _serve_artifact_raw(
+            _ArtifactRawContext(
+                repo=self.state.repo,
+                send_json=self._send_json,
+                send_response=self.send_response,
+                send_header=self.send_header,
+                end_headers=self.end_headers,
+                write_body=self.wfile.write,
+                legacy_artifact_raw_fallback_enabled=_legacy_artifact_raw_fallback_enabled,
+                legacy_artifact_metadata=_legacy_artifact_metadata,
+            ),
+            artifact_id,
+        )
 
     # --- RFC 0022 V1 page rendering -----------------------------------
 
