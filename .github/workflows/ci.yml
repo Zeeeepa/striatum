@@ -12,10 +12,9 @@ jobs:
       matrix:
         os: ["ubuntu-latest", "macos-latest"]
         python-version: ["3.11", "3.12"]
-    # D107/RFC 0068: Go production-daemon parity is active backlog, but the
-    # CORE=go multi-repo conformance axis is not a release gate until that
-    # port reaches the shared contract boundary. The Postgres service remains
-    # for the incumbent Python multi-repo harness.
+    # D107/RFC 0068: Go production-daemon parity is now a Linux/Postgres CI
+    # gate via `make daemon-go-conformance`. The Postgres service remains
+    # available for the incumbent Python multi-repo harness too.
     # STRIATUM_MULTI_REPO_REQUIRE_PG=1 converts missing-PG skips to failures.
     # GitHub-hosted macOS runners don't support `services:`, so the
     # multi-repo step is Linux-only.
@@ -71,6 +70,11 @@ jobs:
         env:
           STRIATUM_MULTI_REPO_REQUIRE_PG: "1"
         run: make daemon-go-helper-integration
+      - name: Go daemon conformance
+        if: matrix.os == 'ubuntu-latest'
+        env:
+          STRIATUM_MULTI_REPO_REQUIRE_PG: "1"
+        run: make daemon-go-conformance
       - name: UI install
         run: make ui-install
       - name: UI build hash check

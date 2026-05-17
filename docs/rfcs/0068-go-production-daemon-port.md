@@ -78,6 +78,14 @@ The Go daemon port lands through independent, testable slices:
   remaining imports live under migration/fixture packages with guardrail tests.
 - The Python daemon can be deleted without losing production behavior.
 
+## Implementation Notes
+
+- `make daemon-go-conformance` is now the Go daemon CI/release gate. It builds
+  and tests the Go daemon, then runs the PostgreSQL multi-repo harness with
+  `CORE=go`, including Go daemon smoke, audit, mutation-registry, and
+  supervisor smoke coverage. CI runs that gate on Linux where the PostgreSQL
+  service is available.
+
 ## Open Questions
 
 - Should the intermediate default remain Python until all slices pass, or flip

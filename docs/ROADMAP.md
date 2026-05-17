@@ -216,7 +216,7 @@ supporting groundwork rather than the daemon-core end state:
   `go mod tidy -diff`.
 - (F2) A startup regression asserts `striatumd` refuses to serve without a
   Postgres URL/config and does not bind its Unix socket.
-- (F3) CI currently runs `make daemon-go-helper-check`; RFC 0068 will add a
+- (F3) CI now runs `make daemon-go-conformance` on Linux/PostgreSQL as the
   production Go daemon conformance gate before default flip.
 - (F4/F5) Helper boundary coverage now inspects transitive dependencies with
   `go list -deps ./cmd/striatum-supervisor-helper`; transitional Go RPC
@@ -964,8 +964,8 @@ Release order after Phase 0:
 12. **TODO 60 / Phase 12:** optional Git/PR integration waits on a product
     decision for commit authority and hosted-provider boundaries.
 13. **TODO 61 / RFC 0068:** port the production daemon to Go, keep the
-    resident recovery scheduler in Go, add the remaining conformance gate, and
-    retire the Python daemon after parity.
+    resident recovery scheduler in Go, keep `make daemon-go-conformance`
+    green, and retire the Python daemon after parity.
 14. **TODO 62 / RFC 0069:** move daemon-global surfaces to PostgreSQL/Go,
     including scheduler cursors and residual dashboard/MCP parity.
 15. **TODO 63 / RFC 0070:** complete daemon client/service boundaries and
@@ -1036,13 +1036,12 @@ is the runner-owned historical bootstrap successor, and
 
 ### 9.1 CI health (v1.55.0)
 
-CI's Multi-repo harness step now hard-fails on missing Postgres rather
-than silently skipping. After TODO item 30, CI no longer carries a
-`CORE=go` multi-repo parity axis; it runs the Python-core multi-repo
-harness on ubuntu-latest and the helper-focused `make
-daemon-go-helper-check` on every matrix leg. GitHub-hosted macOS
-runners don't support `services:`, so the multi-repo step remains
-Linux-only.
+CI's multi-repo harness step now hard-fails on missing Postgres rather than
+silently skipping. CI runs the Python-core multi-repo harness on
+ubuntu-latest, `make daemon-go-helper-check` on every matrix leg, and
+`make daemon-go-conformance` on ubuntu-latest as the `CORE=go` production
+daemon gate. GitHub-hosted macOS runners don't support `services:`, so the
+PostgreSQL-backed multi-repo and Go-conformance steps remain Linux-only.
 
 ### 9.2 Test failures status (v1.55.0)
 

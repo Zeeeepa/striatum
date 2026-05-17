@@ -1225,9 +1225,10 @@ review and plan are root-level operator artifacts:
     resident PostgreSQL recovery scheduler after socket bind; it runs an
     immediate active-run sweep, records `daemon.recovery_sweep`, upserts
     scheduler cursors, and exposes `--sweep-interval-seconds` plus test-only
-    `--max-sweeps` launcher plumbing. Remaining Go-port debt is explicit
-    fail-closed/parity work and a CI/release conformance gate before the
-    default daemon core flips.
+    `--max-sweeps` launcher plumbing. `make daemon-go-conformance` now builds
+    and tests the Go daemon, then runs the multi-repo harness with `CORE=go`;
+    CI executes that gate on Linux with PostgreSQL. Remaining Go-port debt is
+    explicit fail-closed/parity work before the default daemon core flips.
 
 62. **RFC 0069: PostgreSQL-only daemon-global surfaces.** Most done. Port daemon
     health, audit, sweep, dashboard-all, daemon MCP resource list/read, and

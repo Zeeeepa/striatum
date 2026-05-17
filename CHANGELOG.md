@@ -29,6 +29,10 @@ Recent checkpoints:
   `recovery.sweep` path, records `daemon.recovery_sweep`, updates
   `striatumd.scheduler_cursors`, and accepts `--sweep-interval-seconds` plus
   bounded-test `--max-sweeps` flags through the Python launcher.
+- `make daemon-go-conformance` is now the Go production-daemon CI gate. It
+  builds and tests the Go daemon, then runs the multi-repo harness with
+  `CORE=go`, including Go daemon smoke, audit, mutation-registry, and
+  supervisor smoke coverage.
 - Go `doctor` now reads `striatumd.schema_meta['substrate_version']` instead
   of querying a nonexistent `schema_meta.version` column.
 - Daemon RPC handshakes from the CLI and day-zero first-run smoke now use

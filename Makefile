@@ -9,7 +9,7 @@ CORE ?= python
 # when invoked from a Claude Code worktree (or any other cwd).
 MAKEFILE_DIR := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
 
-.PHONY: install lint typecheck pg-test test-rfc0043 test-multi-repo metadata-check package-smoke package-wheel-size smoke check release-check ui-install ui-update-lock ui-audit ui-clean ui-build ui-dev ui-test ui-bundle-hash ui-bundle-size ui-check-bundle ui-verify-bundle daemon-go-build daemon-go-test daemon-go-lint daemon-go-helper-check daemon-go-helper-integration daemon-go-install daemon-go-release
+.PHONY: install lint typecheck pg-test test-rfc0043 test-multi-repo metadata-check package-smoke package-wheel-size smoke check release-check ui-install ui-update-lock ui-audit ui-clean ui-build ui-dev ui-test ui-bundle-hash ui-bundle-size ui-check-bundle ui-verify-bundle daemon-go-build daemon-go-test daemon-go-lint daemon-go-helper-check daemon-go-helper-integration daemon-go-conformance daemon-go-install daemon-go-release
 
 $(PYTHON):
 	python3 -m venv $(VENV)
@@ -98,6 +98,9 @@ daemon-go-helper-integration: $(VENV)/.installed-daemon-pg
 	STRIATUM_MULTI_REPO_REQUIRE_PG=1 \
 	$(PYTHON) -m pytest -q tests/daemon_pg/handlers/test_supervision.py -k 'real_go_pty_helper'
 
+daemon-go-conformance: $(VENV)/.installed-daemon-pg daemon-go-build daemon-go-test
+	$(MAKE) test-multi-repo CORE=go
+
 # RFC 0039 Phase 2 Step 6: copy the host-platform Go binary into the in-tree
 # wheel package-data path so a local `pip install -e .` install picks it up
 # via striatum._daemongo.find_binary().
@@ -146,7 +149,9 @@ test-multi-repo: $(VENV)/.installed-daemon-pg
 		tests/test_mcp_capability_scope_e2e.py \
 		tests/test_per_repo_write_scope_e2e.py \
 		tests/test_daemon_go_smoke.py \
-		tests/test_daemon_go_audit.py
+		tests/test_daemon_go_audit.py \
+		tests/test_daemon_go_mutations.py \
+		tests/test_daemon_go_supervisor.py
 
 metadata-check: $(VENV)/.installed
 	$(PYTHON) scripts/release_metadata_check.py
