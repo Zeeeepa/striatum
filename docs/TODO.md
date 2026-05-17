@@ -1182,7 +1182,8 @@ review and plan are root-level operator artifacts:
     registers the canonical `recovery.auto_publish_stale_artifacts` method,
     keeps `recovery.auto` as its deprecated alias, and requires every
     auto-published file to match the expected byline. Go also owns
-    `archive.create` for the V1 run archive bundle format. The first Go
+    `archive.create` for the V1 run archive bundle format and `worktree.list`
+    as a PostgreSQL read-only projection. The first Go
     read-detail cluster now registers `run.detail`, `job.detail`,
     `run.events`, `run.posture_verdicts`, `artifact.show`, `escalation.list`,
     `escalation.show`, and the `escalation.resolve` mutation; remaining

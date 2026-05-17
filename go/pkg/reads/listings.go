@@ -181,3 +181,49 @@ func HandleListWorkflows(ctx context.Context, runner db.Runner, envelope rpc.Env
 	}
 	return map[string]any{"count": len(items), "limit": count, "items": items}, nil
 }
+
+// HandleWorktreeList mirrors daemon_pg/handlers/worktree.py::worktree_list.
+func HandleWorktreeList(ctx context.Context, runner db.Runner, envelope rpc.Envelope) (map[string]any, error) {
+	repositoryID, err := requireRepositoryID(envelope)
+	if err != nil {
+		return nil, err
+	}
+	runID, err := optionalNonEmptyString(envelope, "run_id")
+	if err != nil {
+		return nil, err
+	}
+	args := []any{repositoryID}
+	where := "WHERE w.repository_id = $1"
+	if runID != "" {
+		args = append(args, runID)
+		where += " AND w.run_id = $" + strconv.Itoa(len(args))
+	}
+	rows, err := collectRows(ctx, runner,
+		`SELECT w.worktree_id, w.run_id, w.job_id, w.lease_id,
+		        w.base_branch, w.worktree_path, w.state, w.created_at,
+		        w.released_at, w.removed_at, j.workflow_job_id
+		   FROM striatumd.job_worktrees w
+		   JOIN striatumd.jobs j
+		     ON j.repository_id = w.repository_id
+		    AND j.job_id = w.job_id
+		  `+where+`
+		  ORDER BY w.created_at, w.worktree_id`,
+		args...,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{"worktrees": rows}, nil
+}
+
+func optionalNonEmptyString(envelope rpc.Envelope, key string) (string, error) {
+	value, exists := envelope.Params[key]
+	if !exists || value == nil {
+		return "", nil
+	}
+	text, ok := value.(string)
+	if !ok || text == "" {
+		return "", rpc.NewError("schema_invalid", key+" must be a non-empty string when present", nil)
+	}
+	return text, nil
+}

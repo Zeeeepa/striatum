@@ -97,7 +97,6 @@ func TestGoDaemonMethodCoverageIsExplicit(t *testing.T) {
 		"workflow.validate",
 		"work.send_message",
 		"worktree.create",
-		"worktree.list",
 		"worktree.release",
 	})
 }

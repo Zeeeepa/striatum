@@ -70,7 +70,7 @@ Legend:
 | `list.artifacts` | `list artifacts` | read | single_repo | pg | real | no | no | stable |
 | `artifact.show` | web artifact raw/detail DTO | read | single_repo | pg | real | no | no | stable |
 | `list.workflows` | `list workflows` | read | single_repo | pg | real | no | no | stable |
-| `worktree.list` | `worktree list` | read | single_repo | pg | placeholder | no | no | stable |
+| `worktree.list` | `worktree list` | read | single_repo | pg | real | no | no | stable |
 | `dashboard.all` | `dashboard --all` | read | daemon_global | direct | real | no | no | Go read-only subset; residual parity gaps documented in TODO 62 |
 | `repo.list` | `repo list` | read | daemon_global | pg repo registrar | real | no | no | bootstrap/admin |
 | `session.register` | `register-session` | claim | single_repo | pg | real | no | no | stable |

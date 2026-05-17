@@ -102,6 +102,7 @@ func Register(server *rpc.Server, runner db.Runner) {
 	server.Register("list.jobs", makeHandler(runner, HandleListJobs))
 	server.Register("list.artifacts", makeHandler(runner, HandleListArtifacts))
 	server.Register("list.workflows", makeHandler(runner, HandleListWorkflows))
+	server.Register("worktree.list", makeHandler(runner, HandleWorktreeList))
 	server.Register("run.summary", makeHandler(runner, HandleRunSummary))
 	server.Register("run.detail", makeHandler(runner, HandleRunDetail))
 	server.Register("job.detail", makeHandler(runner, HandleJobDetail))

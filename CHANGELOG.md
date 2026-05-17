@@ -39,6 +39,9 @@ Recent checkpoints:
 - Go now owns `archive.create` for the V1 run archive bundle format, including
   safe repo-relative output paths, PostgreSQL run-scoped row export, and
   deterministic manifest/file hashes.
+- Go now owns the read-only `worktree.list` handler over PostgreSQL
+  `job_worktrees`, returning the Python-compatible `worktrees` row list with
+  optional run filtering.
 - Go `cross_repo.cancel` now calls the Go cross-repo lifecycle service and
   local run-cancel mutation instead of returning `not_implemented`.
 - Go now owns `repo.add`, `repo.list`, and `repo.remove` handlers over
