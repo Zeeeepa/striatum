@@ -52,6 +52,8 @@ in the roadmap/TODO and has several production slices landed:
   stable. Chat transcript projection, briefing, JSONL append, timestamp,
   stable-hash, safe-git, and multipart helpers now live in
   `striatum.web.chat_session`, with thin `service.py` compatibility aliases.
+  The gated subprocess-fixture mutation fallbacks and legacy error mappers
+  now live in `service_legacy.py`.
 - **Escalation inbox foundation.**
   `escalation.list`, `escalation.show`, and `escalation.resolve` project
   human-principal escalations from blocker state. The `escalation` artifact

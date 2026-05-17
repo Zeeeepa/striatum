@@ -110,6 +110,10 @@ PRODUCTION_SQLITE_QUARANTINE = {
         "service transition",
         "local web service keeps gated legacy fixture fallbacks during daemon-first transition",
     ),
+    Path("src/striatum/service_legacy.py"): SQLiteClassification(
+        "service transition",
+        "gated subprocess-fixture web fallbacks isolated from primary service code",
+    ),
     # Adapter, supervisor, artifact, byline, and workflow helpers whose
     # production authority has moved to daemon/Postgres but whose legacy
     # functions still support adapters and test harnesses.

@@ -388,10 +388,13 @@ daemon-first without needing to support two domain daemons.
   chat-briefing construction, JSONL append, timestamp, stable-hash,
   safe-git, and multipart parsing helpers. `service.py` keeps thin
   compatibility aliases for tests and request handlers.
+- `src/striatum/service_legacy.py` now owns the gated subprocess-fixture
+  mutation fallbacks and legacy error mappers, narrowing `service.py` toward
+  request handling plus rendering.
 
 **Remaining Phase 4 debt:** continue splitting `service.py` along stable
-boundaries, with legacy subprocess-fixture fallbacks as the next low-risk
-quarantine target after the daemon-routed paths are stable.
+boundaries, with the remaining legacy page-read payload fallbacks as the next
+low-risk quarantine target after the daemon-routed paths are stable.
 
 ---
 
