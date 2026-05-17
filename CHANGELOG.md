@@ -63,6 +63,10 @@ Recent checkpoints:
   decision, global/default auto-finalize waits on live dogfood confidence plus
   a product decision, and Git/PR integration remains read-only-local-only until
   commit authority and hosted-provider boundaries are accepted.
+- The repository file-view helpers for safe path validation, binary detection,
+  text/Markdown payload shaping, and inline Markdown rendering moved from
+  `service.py` into `striatum.web.view_file`; the service keeps the route,
+  template rendering, and legacy breadcrumb injection.
 
 - **Command authority and fallback guardrails.**
   `docs/architecture/COMMAND_AUTHORITY_MATRIX.md` now names the authority
@@ -134,6 +138,9 @@ Recent checkpoints:
   rendering now live in `striatum.web.artifacts`. The `/v1/invoke`
   read/mutation classifier now lives in `striatum.service_command_policy`,
   keeping the service route focused on request validation and dispatch.
+  Repository file-view path validation and content payload shaping now live in
+  `striatum.web.view_file`; `service.py` keeps route-level rendering and the
+  legacy run-breadcrumb fallback injection.
 - **Escalation inbox foundation.**
   `escalation.list`, `escalation.show`, and `escalation.resolve` project
   human-principal escalations from blocker state. The `escalation` artifact

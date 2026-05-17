@@ -1974,7 +1974,8 @@ class StriatumServiceHandler(BaseHTTPRequestHandler):
             return
 
     def _render_view_path(self, subpath: str) -> None:
-        from striatum.web.markdown import render as md_render
+        from striatum.web.view_file import ViewFileError, view_file_payload
+
         if not subpath:
             try:
                 html = _jinja_env().get_template("view_tree.html").render(root_path="")
@@ -1982,61 +1983,18 @@ class StriatumServiceHandler(BaseHTTPRequestHandler):
             except Exception as exc:  # noqa: BLE001
                 self._send_json(500, {"ok": False, "error": {"code": 500, "message": str(exc)}})
             return
-        rel = subpath
-        if rel.startswith("/") or ".." in Path(rel).parts or "\x00" in rel:
-            self._send_json(400, {"ok": False, "error": {"code": 400, "message": "invalid path"}})
-            return
-        target = (self.state.repo / rel).resolve()
-        repo_root = self.state.repo.resolve()
         try:
-            target.relative_to(repo_root)
-        except ValueError:
-            self._send_json(400, {"ok": False, "error": {"code": 400, "message": "path escapes repo root"}})
+            ctx = view_file_payload(self.state.repo, subpath)
+        except ViewFileError as exc:
+            self._send_json(
+                exc.status_code,
+                {"ok": False, "error": {"code": exc.status_code, "message": exc.message}},
+            )
             return
-        # Hide `.git/` and `.striatum/` by default.
-        rel_parts = target.relative_to(repo_root).parts
-        if rel_parts and rel_parts[0] in (".git", ".striatum"):
-            self._send_json(404, {"ok": False, "error": {"code": 404, "message": "hidden path"}})
-            return
-        if not target.exists():
-            self._send_json(404, {"ok": False, "error": {"code": 404, "message": "path not found"}})
-            return
-        if not target.is_file():
-            self._send_json(404, {"ok": False, "error": {"code": 404, "message": "directory listing not in V1; view a file directly"}})
-            return
-        try:
-            raw = target.read_bytes()
-        except OSError as exc:
-            self._send_json(500, {"ok": False, "error": {"code": 500, "message": str(exc)}})
-            return
-        rel_path = str(target.relative_to(repo_root))
-        ext = target.suffix.lower()
-        binary_exts = {
-            ".png", ".jpg", ".jpeg", ".gif", ".pdf", ".zip", ".tar",
-            ".gz", ".ico", ".woff", ".woff2", ".ttf", ".eot",
-            ".mp3", ".mp4", ".mov", ".bin", ".so",
-        }
-        is_binary = (ext in binary_exts) or (b"\x00" in raw[:1024])
-        ctx: dict[str, Any] = {
-            "rel_path": rel_path,
-            "size_bytes": len(raw),
-            "mode": None,
-            "rendered_html": None,
-            "text_body": None,
-            "lang": ext.lstrip(".") or "text",
-            "message": None,
-            "run_breadcrumb": None,
-        }
         ctx["run_breadcrumb"] = _legacy_view_file_run_breadcrumb(
             self.state.repo,
-            rel_path=rel_path,
+            rel_path=str(ctx["rel_path"]),
         )
-        if is_binary:
-            ctx["message"] = f"Binary file ({len(raw)} bytes); use the raw API to download."
-        elif ext == ".md":
-            ctx["rendered_html"] = md_render(raw.decode("utf-8", errors="replace"))
-        else:
-            ctx["text_body"] = raw.decode("utf-8", errors="replace")
         try:
             html = _jinja_env().get_template("view_file.html").render(**ctx)
             self._send_html(200, html)

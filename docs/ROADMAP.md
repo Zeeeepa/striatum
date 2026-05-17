@@ -420,6 +420,10 @@ daemon-first without needing to support two domain daemons.
 - `src/striatum/service_command_policy.py` now owns `/v1/invoke`
   read/mutation command classification; `service.py` keeps the
   `is_read_command` compatibility import and route-level request handling.
+- `src/striatum/web/view_file.py` now owns repository file-view path
+  validation, binary detection, text/Markdown payload shaping, and inline
+  Markdown rendering. `service.py` keeps route-level rendering and legacy
+  run-breadcrumb fallback injection.
 
 **Remaining Phase 4 debt:** continue splitting `service.py` along stable
 non-SQLite request-handling and rendering boundaries after the daemon-routed

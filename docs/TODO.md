@@ -914,6 +914,10 @@ review and plan are root-level operator artifacts:
     rendering helpers for artifact views. Follow-up split landed:
     `service_command_policy.py` owns `/v1/invoke` read/mutation classification
     while `service.py` preserves the `is_read_command` compatibility import.
+    Follow-up split landed: `web/view_file.py` owns repository file-view path
+    validation, binary detection, text/Markdown payload shaping, and inline
+    Markdown rendering, while `service.py` keeps route/template handling and
+    legacy run-breadcrumb injection.
     Remaining: continue splitting `service.py` along stable non-SQLite
     request-handling and rendering boundaries.
 
