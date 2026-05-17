@@ -38,11 +38,10 @@ from striatum.service_request_security import (
     verify_override_verdict_context as _verify_override_verdict_context,
     verify_same_origin_mutation as _verify_same_origin_mutation,
 )
+from striatum import service_api_routes as _service_api_routes
 from striatum import service_request_io as _request_io
-from striatum.service_sse import (
-    encode_sse_event as _encode_sse_event,
-    sse_since as _sse_since,
-    stream_daemon_events as _stream_daemon_events,
+from striatum.service_api_routes import (
+    ServiceApiRouteContext as _ServiceApiRouteContext,
 )
 from striatum.service_runtime import (
     ServiceAlreadyRunningError as ServiceAlreadyRunningError,
@@ -402,28 +401,26 @@ class StriatumServiceHandler(BaseHTTPRequestHandler):
 
     # --- endpoint helpers ----------------------------------------------
 
-    def _handle_health(self) -> None:
-        self._send_json(
-            200,
-            {
-                "ok": True,
-                "data": {
-                    "started_at": self.state.started_at,
-                    "version": _striatum_version(),
-                    "mode": _service_mode(self.server),
-                    # RFC 0013 step 7: SPA reads this to decide whether
-                    # to render mutation buttons. The runner-side gate
-                    # in _dispatch_post is still authoritative; this
-                    # field is the SPA's hint, not a security boundary.
-                    "allow_mutations": bool(self.state.allow_mutations),
-                },
-            },
+    def _api_route_context(self) -> _ServiceApiRouteContext:
+        return _ServiceApiRouteContext(
+            state=self.state,
+            server=getattr(self, "server", None),
+            headers=getattr(self, "headers", {}),
+            writer=self,
+            send_json=self._send_json,
+            invoke_func=lambda argv: invoke(argv, repo=self.state.repo),
+            striatum_version=_striatum_version,
+            service_mode=_service_mode,
+            legacy_web_read_fallback_enabled=_legacy_web_read_fallback_enabled,
+            legacy_stream_events_body=_legacy_stream_events_body,
+            poll_interval_seconds=SSE_POLL_INTERVAL_SECONDS,
         )
 
+    def _handle_health(self) -> None:
+        _service_api_routes.handle_health(self._api_route_context())
+
     def _handle_invoke(self, argv: list[str]) -> None:
-        result = invoke(argv, repo=self.state.repo)
-        status = 200 if result.get("ok") else 500
-        self._send_json(status, result)
+        _service_api_routes.handle_invoke(self._api_route_context(), argv)
 
     def _handle_workflow_templates(self, kind: str | None) -> None:
         response = _workflow_templates_response(kind)
@@ -450,71 +447,17 @@ class StriatumServiceHandler(BaseHTTPRequestHandler):
         self._send_json(response.status, response.payload)
 
     def _handle_doctor(self, query: dict[str, list[str]]) -> None:
-        run_id = query.get("run_id", [None])[0]
-        params: dict[str, Any] = {"verbose": True}
-        argv = ["doctor", "--verbose"]
-        if run_id:
-            params["run_id"] = run_id
-            argv.extend(["--run-id", run_id])
-        self._handle_daemon_read("doctor", params, legacy_argv=argv)
+        _service_api_routes.handle_doctor(self._api_route_context(), query)
 
     def _handle_repo_tree(self, query: dict[str, list[str]]) -> None:
-        from striatum.web.workflows import list_repo_tree
-
-        rel_path = query.get("path", [""])[0]
-        tree = list_repo_tree(self.state.repo, rel_path)
-        if tree is None:
-            self._send_json(
-                404,
-                {"ok": False, "error": {"code": 404, "message": "directory not found"}},
-            )
-            return
-        self._send_json(200, {"ok": True, "data": tree})
+        _service_api_routes.handle_repo_tree(self._api_route_context(), query)
 
     def _handle_run_subpath(self, suffix: str, query: dict[str, list[str]]) -> None:
-        parts = suffix.split("/")
-        run_id = parts[0]
-        if not run_id:
-            self._send_json(400, {"ok": False, "error": {"code": 400, "message": "missing run_id"}})
-            return
-        if len(parts) == 1:
-            self._handle_daemon_read(
-                "status",
-                {"run_id": run_id},
-                legacy_argv=["status", "--run-id", run_id],
-            )
-            return
-        sub = parts[1]
-        if sub == "why":
-            target = query.get("id", [None])[0]
-            if not target:
-                self._send_json(400, {"ok": False, "error": {"code": 400, "message": "missing ?id=<entity>"}})
-                return
-            self._handle_daemon_read(
-                "why",
-                {"target_id": target},
-                legacy_argv=["why", target],
-            )
-            return
-        if sub == "dashboard":
-            self._handle_daemon_read(
-                "dashboard",
-                {"run_id": run_id},
-                legacy_argv=["dashboard", "--run-id", run_id, "--once"],
-            )
-            return
-        if sub == "events":
-            since = self._sse_since(query)
-            self._stream_events(run_id, since=since)
-            return
-        if sub == "artifacts":
-            self._handle_daemon_read(
-                "list.artifacts",
-                {"run_id": run_id},
-                legacy_argv=["list", "artifacts", "--run-id", run_id],
-            )
-            return
-        self._send_json(404, {"ok": False, "error": {"code": 404, "message": "not found"}})
+        _service_api_routes.handle_run_subpath(
+            self._api_route_context(),
+            suffix,
+            query,
+        )
 
     def _handle_daemon_read(
         self,
@@ -523,20 +466,12 @@ class StriatumServiceHandler(BaseHTTPRequestHandler):
         *,
         legacy_argv: list[str] | None = None,
     ) -> None:
-        from striatum.service_daemon import ServiceDaemonRpcError, call_repo_method
-
-        try:
-            payload = call_repo_method(self.state.repo, method, dict(params))
-        except ServiceDaemonRpcError as exc:
-            if legacy_argv is not None and _legacy_web_read_fallback_enabled(exc.code):
-                self._handle_invoke(legacy_argv)
-                return
-            self._send_json(
-                exc.status,
-                {"ok": False, "error": {"code": exc.code, "message": exc.message}},
-            )
-            return
-        self._send_json(200, {"ok": True, "data": payload})
+        _service_api_routes.handle_daemon_read(
+            self._api_route_context(),
+            method,
+            params,
+            legacy_argv=legacy_argv,
+        )
 
     def _handle_artifact_raw(self, artifact_id: str) -> None:
         """RFC 0013 V1: serve the raw bytes of an artifact for the web UI viewer.
@@ -816,38 +751,20 @@ class StriatumServiceHandler(BaseHTTPRequestHandler):
     # --- SSE -----------------------------------------------------------
 
     def _sse_since(self, query: dict[str, list[str]]) -> int:
-        return _sse_since(dict(self.headers.items()), query)
+        return _service_api_routes.sse_since(self._api_route_context(), query)
 
     def _stream_events(self, run_id: str, *, since: int) -> None:
-        if not self.state.acquire_sse_slot(run_id):
-            self._send_json(429, {"ok": False, "error": {"code": 429, "message": f"too many concurrent SSE streams for run {run_id}"}})
-            return
-        try:
-            if _legacy_web_read_fallback_enabled("daemon_unreachable"):
-                _legacy_stream_events_body(
-                    self,
-                    repo=self.state.repo,
-                    run_id=run_id,
-                    since=since,
-                    poll_interval_seconds=SSE_POLL_INTERVAL_SECONDS,
-                )
-                return
-            self._stream_events_daemon_body(run_id, since=since)
-        finally:
-            self.state.release_sse_slot(run_id)
+        _service_api_routes.stream_events(
+            self._api_route_context(),
+            run_id,
+            since=since,
+        )
 
     def _stream_events_daemon_body(self, run_id: str, *, since: int) -> None:
-        from striatum import service_daemon
-
-        _stream_daemon_events(
-            self,
-            repo=self.state.repo,
-            run_id=run_id,
+        _service_api_routes.stream_events_daemon_body(
+            self._api_route_context(),
+            run_id,
             since=since,
-            shutting_down=lambda: self.state.shutting_down,
-            send_json=self._send_json,
-            poll_interval_seconds=SSE_POLL_INTERVAL_SECONDS,
-            call_method=service_daemon.call_repo_method,
         )
 
     def _write_sse_event(
@@ -856,8 +773,12 @@ class StriatumServiceHandler(BaseHTTPRequestHandler):
         event_id: int,
         payload: JsonObject,
     ) -> None:
-        self.wfile.write(_encode_sse_event(event, int(event_id), payload))
-        self.wfile.flush()
+        _service_api_routes.write_sse_event(
+            self._api_route_context(),
+            event,
+            event_id,
+            payload,
+        )
 
     # --- request helpers ----------------------------------------------
 

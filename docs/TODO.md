@@ -995,7 +995,9 @@ review and plan are root-level operator artifacts:
     `service.py` keeps route dispatch and stable private wrappers. Follow-up
     split landed: `web/view_file.py` now also owns repository file-view route
     rendering while `service.py` injects the legacy dogfood run-breadcrumb
-    callback.
+    callback. Follow-up split landed: `service_api_routes.py` owns JSON read
+    helpers, repo-tree reads, daemon-read fallback handling, and run-event SSE
+    route control while `service.py` keeps dispatch/authentication wrappers.
     Remaining: continue splitting `service.py` along stable non-SQLite
     request-handling and rendering boundaries.
 

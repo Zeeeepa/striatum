@@ -122,6 +122,9 @@ Recent checkpoints:
 - Repository `/view` page rendering moved from `service.py` into
   `striatum.web.view_file`, with the legacy dogfood run-breadcrumb lookup
   injected through the service wrapper.
+- JSON read helpers, repo-tree reads, daemon-read fallback handling, and
+  run-event SSE route control moved from `service.py` into
+  `striatum.service_api_routes`, preserving handler wrappers for direct tests.
 - Documentation now records that parser-visible `cross-repo cancel` is still
   an explicit `not_implemented` surface until cross-repo runs have a
   PG-native participant-cancel implementation.

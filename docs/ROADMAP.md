@@ -494,6 +494,9 @@ daemon-first without needing to support two domain daemons.
 - `src/striatum/web/view_file.py` now also owns repository file-view route
   rendering, including tree/file template selection, error mapping, and
   breadcrumb injection through a legacy callback supplied by `service.py`.
+- `src/striatum/service_api_routes.py` now owns JSON read helpers, repo-tree
+  reads, daemon-read fallback handling, and run-event SSE route control while
+  `service.py` keeps dispatch, authentication, and stable private wrappers.
 
 **Remaining Phase 4 debt:** continue splitting `service.py` along stable
 non-SQLite request-handling and rendering boundaries after the daemon-routed
