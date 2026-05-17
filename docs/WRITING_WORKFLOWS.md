@@ -2,8 +2,9 @@
 
 This guide is for authoring a `workflow.json` from scratch (or
 from a starter scaffold) and validating it against the runner.
-For the operator-side commands that consume a workflow, see
-[HOW_TO_HUMAN.md](HOW_TO_HUMAN.md).
+For the AI-operator commands that consume a workflow, see
+[HOW_TO_AGENT.md](HOW_TO_AGENT.md). For human-principal
+escalations, see [HOW_TO_HUMAN.md](HOW_TO_HUMAN.md).
 
 ## Choose the workflow type first
 
@@ -86,7 +87,7 @@ operation, but it makes later audit and repeatability weaker.
 Common lane sets:
 
 - **single-lane starter**: one lane handles authoring, review, and
-  synthesis. Good for small or manual runs.
+  synthesis. Good for small or operator-by-hand runs.
 - **author plus reviewer**: author jobs and review jobs bind to
   separate lanes, usually with `fresh_session_required: true` on the
   review jobs.
@@ -208,7 +209,7 @@ scaffold usually contains:
 ```
 
 `workflow.json` is the executable contract. `RUNBOOK.md` is for
-the human operator, `SOURCES.md` records the local proposal and
+the AI operator, `SOURCES.md` records the local proposal and
 context artifacts, and role or prompt files hold reusable task
 wording. Workflow outputs should land in durable repo paths.
 Keep runner state in `.striatum/`; do not publish transcripts as
@@ -334,7 +335,7 @@ striatum --repo "$TARGET_REPO" workflow graph path/to/workflow.json
 ```
 
 Review the plan for the intended branch name, job order, write
-scopes, required artifacts, and any human checkpoints. Avoid
+scopes, required artifacts, and any principal escalations. Avoid
 absolute home-directory paths in workflow fixtures; use
 repo-relative paths and operator-local environment variables
 instead.

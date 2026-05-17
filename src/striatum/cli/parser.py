@@ -57,7 +57,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--with-ddd-layout",
         action="store_true",
         help=(
-            "After init, also scaffold the DDD-shaped human-facing doc layout "
+            "After init, also scaffold the DDD-shaped reader-facing doc layout "
             "(docs/SPEC.md, PRD.md, DECISION_LOG.md, UBIQUITOUS_LANGUAGE.md, "
             "DDD.md, rfcs/README.md, rfcs/0001-template.md) into the target "
             "repo. Existing files are preserved. RFC 0021."
@@ -837,7 +837,7 @@ def build_parser() -> argparse.ArgumentParser:
     requeue_stale.add_argument(
         "--force",
         action="store_true",
-        help="(GH #19) requeue a repo_write stale job after manual inspection; pair with --justification",
+        help="(GH #19) requeue a repo_write stale job after operator inspection; pair with --justification",
     )
     requeue_stale.add_argument(
         "--justification",

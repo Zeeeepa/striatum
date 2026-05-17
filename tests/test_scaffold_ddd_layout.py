@@ -1,7 +1,7 @@
 """Tests for RFC 0021 V1: ``striatum init --with-ddd-layout``.
 
 V1 ships a literal-copy scaffold of the seven canonical DDD-shaped
-human-facing documents into the target repo. Existing files are
+reader-facing documents into the target repo. Existing files are
 preserved; non-file targets (directory, broken symlink, etc.)
 surface as per-file errors instead of being silently treated as
 ``skipped`` (Finding 2 from dogfood-017's design review).

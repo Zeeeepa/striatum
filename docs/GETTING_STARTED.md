@@ -179,7 +179,7 @@ Fans out across all four profiles in deterministic order. The
 profiles write to disjoint paths and each carries its own
 manifest, so they don't collide.
 
-### Also scaffold the human-facing DDD docs (RFC 0021)
+### Also scaffold the reader-facing DDD docs (RFC 0021)
 
 ```bash
 striatum --repo "$TARGET_REPO" init \
@@ -192,7 +192,7 @@ striatum --repo "$TARGET_REPO" init \
 (`docs/SPEC.md`, `docs/PRD.md`, `docs/DECISION_LOG.md`,
 `docs/UBIQUITOUS_LANGUAGE.md`, `docs/DDD.md`,
 `docs/rfcs/README.md`, `docs/rfcs/0001-template.md`) into the
-target repo so the human-facing model has the same scaffold the
+target repo so the reader-facing model has the same scaffold the
 agent-facing skills do. Existing files are preserved. Use
 `--ddd-layout-dry-run` to preview, `--ddd-layout-force` to
 overwrite (records `prior_sha256` for audit; non-regular-file

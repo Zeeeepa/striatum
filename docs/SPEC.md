@@ -930,12 +930,12 @@ two runs with the same daemon state produce the same Markdown.
 
 `recovery stale-leases --json` applies lazy lease expiry for a run and
 reports stale lease recovery context, explicitly distinguishing repo-write
-work that requires manual inspection from review-only work that can be
+work that requires operator inspection from review-only work that can be
 reclaimed safely. `recovery requeue-stale --run-id <id> --job-id <id> --json`
 is a bounded operator mutation for expired non-repo-write work only. It
 restores the job's work message to `pending` when needed, reports when the
 work was already reclaimable, and refuses repo-write jobs so abandoned write
-work still requires manual inspection or a future worktree-isolated recovery
+work still requires operator inspection or a future worktree-isolated recovery
 path.
 
 `recovery resume --blocker-id <id> --json` resolves an open process-adapter

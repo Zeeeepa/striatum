@@ -113,8 +113,8 @@
       "template_id": "local",
       "kind": "lane_set",
       "display_name": "Local fixture lane",
-      "summary": "Fixture/manual starter lane that validates without a real model command.",
-      "recommended_for": ["tests", "manual operator runs", "starter scaffolds"],
+      "summary": "Fixture/operator-by-hand starter lane that validates without a real model command.",
+      "recommended_for": ["tests", "operator-by-hand runs", "starter scaffolds"],
       "required_options": []
     },
     {

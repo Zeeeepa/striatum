@@ -6,9 +6,11 @@ import fcntl
 import json
 import os
 import signal
+import shutil
 import subprocess
 import time
 from collections.abc import Mapping
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, cast
 
@@ -38,17 +40,29 @@ CONTROL_EVENT_TYPES = frozenset(
     }
 )
 HELPER_EVENT_SCHEMA_VERSION = "striatum.supervisor_helper.event.v1"
+HELPER_LAUNCH_SCHEMA_VERSION = "striatum.supervisor_helper.launch.v1"
+PTY_HELPER_TRANSPORT = "pty_helper"
+
+
+@dataclass(frozen=True)
+class _ProcessLaunch:
+    pid: int
+    pid_start_time: str | None
+    helper_pid: int | None = None
+    helper_pid_start_time: str | None = None
+    metadata: dict[str, Any] | None = None
 
 
 @register_pg_handler("supervise.start")
 def handle_start(ctx: RepoHandlerContext, params: Mapping[str, Any]) -> dict[str, Any]:
     session_id = _required_text(params, "session_id")
-    session, run_id, command = _validate_start(ctx, session_id=session_id)
+    session, run_id, command, transport = _validate_start(ctx, session_id=session_id)
 
     supervisor_id = ctx.new_id("sup")
     daemon_supervisor_id = ctx.new_id("dsup")
     scratch = ctx.repo_root / ".striatum" / "scratch" / supervisor_id
     pipe_path = scratch / "stdin.pipe"
+    event_path = scratch / "helper-events.jsonl"
     scratch.mkdir(parents=True, exist_ok=True)
     if pipe_path.exists():
         pipe_path.unlink()
@@ -66,6 +80,8 @@ def handle_start(ctx: RepoHandlerContext, params: Mapping[str, Any]) -> dict[str
                 command=command,
                 scratch=scratch,
                 pipe_path=pipe_path,
+                transport=transport,
+                event_path=event_path,
                 started_at=started_at,
             )
             ctx.append_event(
@@ -76,7 +92,9 @@ def handle_start(ctx: RepoHandlerContext, params: Mapping[str, Any]) -> dict[str
                     "supervisor_id": supervisor_id,
                     "daemon_supervisor_id": daemon_supervisor_id,
                     "adapter": "process",
+                    "transport": transport,
                     "stdin_pipe_path": str(pipe_path),
+                    **({"helper_events_path": str(event_path)} if transport == PTY_HELPER_TRANSPORT else {}),
                 },
             )
     except Exception:
@@ -84,13 +102,16 @@ def handle_start(ctx: RepoHandlerContext, params: Mapping[str, Any]) -> dict[str
         raise
 
     try:
-        child = _launch_process(
+        launch = _launch_supervised_process(
             ctx,
             command=command,
             run_id=run_id,
             session_id=session_id,
             supervisor_id=supervisor_id,
+            scratch=scratch,
             pipe_path=pipe_path,
+            event_path=event_path,
+            transport=transport,
         )
     except OSError as exc:
         _mark_lost(
@@ -104,8 +125,12 @@ def handle_start(ctx: RepoHandlerContext, params: Mapping[str, Any]) -> dict[str
         _unlink_quietly(pipe_path)
         raise InvalidTransitionError(f"supervisor could not launch lane command: {exc}") from exc
 
-    pid = child.pid
-    pid_start_time = process_start_time(pid)
+    if launch.metadata:
+        with transaction(ctx):
+            _merge_pointer_metadata(ctx, supervisor_id=supervisor_id, metadata=launch.metadata)
+
+    pid = launch.pid
+    pid_start_time = launch.pid_start_time
     if not _pid_alive(pid):
         _mark_lost(
             ctx,
@@ -139,7 +164,16 @@ def handle_start(ctx: RepoHandlerContext, params: Mapping[str, Any]) -> dict[str
                 "supervisor_id": supervisor_id,
                 "daemon_supervisor_id": daemon_supervisor_id,
                 "pid": pid,
+                "transport": transport,
                 "stdin_pipe_path": str(pipe_path),
+                **(
+                    {
+                        "helper_pid": launch.helper_pid,
+                        "helper_events_path": str(event_path),
+                    }
+                    if transport == PTY_HELPER_TRANSPORT
+                    else {}
+                ),
             },
         )
 
@@ -152,6 +186,16 @@ def handle_start(ctx: RepoHandlerContext, params: Mapping[str, Any]) -> dict[str
         "pid_start_time": pid_start_time,
         "stdin_pipe_path": str(pipe_path),
         "state": "attached",
+        "transport": transport,
+        "helper_process": (
+            {
+                "pid": launch.helper_pid,
+                "pid_start_time": launch.helper_pid_start_time,
+                "events_path": str(event_path),
+            }
+            if transport == PTY_HELPER_TRANSPORT
+            else None
+        ),
         "lane_attestation": "attested" if pid_start_time is not None else "unattested",
         "lane_id": str(session["lane_id"]),
     }
@@ -220,6 +264,7 @@ def handle_send(ctx: RepoHandlerContext, params: Mapping[str, Any]) -> dict[str,
                 "bytes_written": bytes_written,
             },
         )
+        _drain_helper_events(ctx, supervisor_id=str(supervisor["supervisor_id"]), wait_seconds=0.25)
         return {
             "supervisor_id": str(supervisor["supervisor_id"]),
             "packet_id": packet_id,
@@ -348,9 +393,13 @@ def handle_stop(ctx: RepoHandlerContext, params: Mapping[str, Any]) -> dict[str,
 
     with transaction(ctx):
         supervisor = _require_active_supervisor(ctx, session_id=session_id, for_update=True)
+        _drain_helper_events(ctx, supervisor_id=str(supervisor["supervisor_id"]), wait_seconds=0.0)
         pid_value = supervisor.get("pid")
         pid = int(pid_value) if pid_value is not None else None
         signaled = _terminate_process(pid)
+        helper_pid = _helper_pid_from_metadata(ctx, supervisor_id=str(supervisor["supervisor_id"]))
+        if helper_pid is not None and helper_pid != pid:
+            _terminate_process(helper_pid)
         pipe_text = supervisor.get("stdin_pipe_path")
         if pipe_text:
             _unlink_quietly(Path(str(pipe_text)))
@@ -397,6 +446,10 @@ def handle_status(ctx: RepoHandlerContext, params: Mapping[str, Any]) -> dict[st
     session_id = _required_text(params, "session_id")
     ctx.row_by_id("sessions", "session_id", session_id)
     with transaction(ctx):
+        supervisor = _latest_supervisor(ctx, session_id=session_id, for_update=True)
+        if supervisor is None:
+            raise NotFoundError(f"no supervisor recorded for session_id={session_id!r}")
+        _drain_helper_events(ctx, supervisor_id=str(supervisor["supervisor_id"]), wait_seconds=0.0)
         supervisor = _latest_supervisor(ctx, session_id=session_id, for_update=True)
         if supervisor is None:
             raise NotFoundError(f"no supervisor recorded for session_id={session_id!r}")
@@ -824,7 +877,7 @@ def _normalize_helper_event(
 
 def _validate_start(
     ctx: RepoHandlerContext, *, session_id: str
-) -> tuple[dict[str, Any], str, list[str]]:
+) -> tuple[dict[str, Any], str, list[str], str]:
     with transaction(ctx):
         session = ctx.row_by_id("sessions", "session_id", session_id, for_update=True)
         if session["state"] != "active":
@@ -836,13 +889,14 @@ def _validate_start(
         if lane.get("adapter") != "process":
             raise InvalidTransitionError("supervise start requires a process-adapter lane")
         command = _command_array(lane)
+        transport = _supervision_transport(lane)
         existing = _active_supervisor(ctx, session_id=session_id, for_update=True)
         if existing is not None:
             raise InvalidTransitionError(
                 "session already has an active supervisor: "
                 f"{existing['supervisor_id']} (state={existing['state']})"
             )
-        return session, run_id, command
+        return session, run_id, command, transport
 
 
 def _insert_starting_rows(
@@ -855,6 +909,8 @@ def _insert_starting_rows(
     command: list[str],
     scratch: Path,
     pipe_path: Path,
+    transport: str,
+    event_path: Path,
     started_at: str,
 ) -> None:
     command_json = json_dumps(command)
@@ -899,6 +955,15 @@ def _insert_starting_rows(
                     {
                         "source": "pg_supervision_handler",
                         "daemon_instance_id": daemon_instance_id,
+                        "transport": transport,
+                        **(
+                            {
+                                "helper_events_path": str(event_path),
+                                "helper_events_offset": 0,
+                            }
+                            if transport == PTY_HELPER_TRANSPORT
+                            else {}
+                        ),
                     }
                 ),
             ),
@@ -926,6 +991,40 @@ def _insert_starting_rows(
                 started_at,
             ),
         )
+
+
+def _launch_supervised_process(
+    ctx: RepoHandlerContext,
+    *,
+    command: list[str],
+    run_id: str,
+    session_id: str,
+    supervisor_id: str,
+    scratch: Path,
+    pipe_path: Path,
+    event_path: Path,
+    transport: str,
+) -> _ProcessLaunch:
+    if transport == PTY_HELPER_TRANSPORT:
+        return _launch_pty_helper(
+            ctx,
+            command=command,
+            run_id=run_id,
+            session_id=session_id,
+            supervisor_id=supervisor_id,
+            scratch=scratch,
+            pipe_path=pipe_path,
+            event_path=event_path,
+        )
+    child = _launch_process(
+        ctx,
+        command=command,
+        run_id=run_id,
+        session_id=session_id,
+        supervisor_id=supervisor_id,
+        pipe_path=pipe_path,
+    )
+    return _ProcessLaunch(pid=child.pid, pid_start_time=process_start_time(child.pid))
 
 
 def _launch_process(
@@ -958,6 +1057,254 @@ def _launch_process(
         )
     finally:
         os.close(pipe_fd)
+
+
+def _launch_pty_helper(
+    ctx: RepoHandlerContext,
+    *,
+    command: list[str],
+    run_id: str,
+    session_id: str,
+    supervisor_id: str,
+    scratch: Path,
+    pipe_path: Path,
+    event_path: Path,
+) -> _ProcessLaunch:
+    helper = _resolve_supervisor_helper()
+    launch_spec = {
+        "schema_version": HELPER_LAUNCH_SCHEMA_VERSION,
+        "supervisor_id": supervisor_id,
+        "scratch_dir": str(scratch.parent),
+        "command": command,
+        "env": _supervised_env_entries(
+            repo=ctx.repo_root,
+            run_id=run_id,
+            session_id=session_id,
+            supervisor_id=supervisor_id,
+        ),
+        "working_dir": str(ctx.repo_root),
+        "packet_input_path": str(pipe_path),
+    }
+    launch_spec_path = scratch / "helper-launch.json"
+    launch_spec_path.write_text(json_dumps(launch_spec) + "\n", encoding="utf-8")
+    event_path.write_text("", encoding="utf-8")
+    with event_path.open("ab", buffering=0) as event_file:
+        helper_proc = subprocess.Popen(
+            [helper],
+            cwd=str(ctx.repo_root),
+            stdin=subprocess.PIPE,
+            stdout=event_file,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+            close_fds=True,
+        )
+        assert helper_proc.stdin is not None
+        try:
+            helper_proc.stdin.write((json_dumps(launch_spec) + "\n").encode("utf-8"))
+            helper_proc.stdin.close()
+        except OSError:
+            _terminate_process(helper_proc.pid)
+            raise
+
+        events, offset = _wait_for_helper_agent_start(
+            helper_proc=helper_proc,
+            event_path=event_path,
+            timeout_seconds=_helper_start_timeout_seconds(),
+        )
+
+    agent_started = next(
+        (event for event in events if event.get("event_type") == "agent_started"),
+        None,
+    )
+    if agent_started is None:
+        _terminate_process(helper_proc.pid)
+        raise OSError("PTY helper did not report agent_started")
+    payload = agent_started.get("payload")
+    if not isinstance(payload, Mapping):
+        _terminate_process(helper_proc.pid)
+        raise OSError("PTY helper agent_started payload is invalid")
+    agent_pid = _optional_int(payload.get("pid"))
+    if agent_pid is None:
+        _terminate_process(helper_proc.pid)
+        raise OSError("PTY helper did not report agent pid")
+    report_result = handle_report(ctx, {"supervisor_id": supervisor_id, "events": events})
+    metadata = {
+        "transport": PTY_HELPER_TRANSPORT,
+        "helper_binary": helper,
+        "helper_pid": helper_proc.pid,
+        "helper_pid_start_time": process_start_time(helper_proc.pid),
+        "helper_launch_spec_path": str(launch_spec_path),
+        "helper_events_path": str(event_path),
+        "helper_events_offset": offset,
+        "helper_initial_events_recorded": report_result["events_recorded"],
+    }
+    return _ProcessLaunch(
+        pid=agent_pid,
+        pid_start_time=process_start_time(agent_pid),
+        helper_pid=helper_proc.pid,
+        helper_pid_start_time=process_start_time(helper_proc.pid),
+        metadata=metadata,
+    )
+
+
+def _wait_for_helper_agent_start(
+    *,
+    helper_proc: subprocess.Popen[bytes],
+    event_path: Path,
+    timeout_seconds: float,
+) -> tuple[list[Mapping[str, Any]], int]:
+    deadline = time.time() + timeout_seconds
+    last_events: list[Mapping[str, Any]] = []
+    last_offset = 0
+    while time.time() < deadline:
+        events, offset = _read_helper_events_from_file(event_path, offset=0)
+        if events:
+            last_events = events
+            last_offset = offset
+            if any(event.get("event_type") == "agent_started" for event in events):
+                return events, offset
+            error_event = next(
+                (event for event in events if event.get("event_type") == "helper_error"),
+                None,
+            )
+            if error_event is not None:
+                raise OSError(f"PTY helper failed before attach: {error_event.get('payload')}")
+            if any(event.get("event_type") == "agent_exited" for event in events):
+                raise OSError("PTY helper agent exited before attach")
+        if helper_proc.poll() is not None:
+            events, offset = _read_helper_events_from_file(event_path, offset=0)
+            if events:
+                last_events = events
+                last_offset = offset
+            break
+        time.sleep(0.05)
+    raise OSError(
+        "PTY helper did not report agent_started before timeout"
+        f" (events={len(last_events)}, offset={last_offset})"
+    )
+
+
+def _drain_helper_events(
+    ctx: RepoHandlerContext,
+    *,
+    supervisor_id: str,
+    wait_seconds: float,
+) -> None:
+    metadata = _pointer_metadata(ctx, supervisor_id=supervisor_id)
+    if metadata.get("transport") != PTY_HELPER_TRANSPORT:
+        return
+    events_path = metadata.get("helper_events_path")
+    if not isinstance(events_path, str) or not events_path:
+        return
+    path = Path(events_path)
+    offset = _optional_int(metadata.get("helper_events_offset")) or 0
+    deadline = time.time() + max(wait_seconds, 0.0)
+    events: list[Mapping[str, Any]] = []
+    new_offset = offset
+    while True:
+        events, new_offset = _read_helper_events_from_file(path, offset=offset)
+        if events or time.time() >= deadline:
+            break
+        time.sleep(0.05)
+    if not events and new_offset == offset:
+        return
+    if events:
+        handle_report(ctx, {"supervisor_id": supervisor_id, "events": events})
+    _merge_pointer_metadata(
+        ctx,
+        supervisor_id=supervisor_id,
+        metadata={"helper_events_offset": new_offset},
+    )
+
+
+def _read_helper_events_from_file(path: Path, *, offset: int) -> tuple[list[Mapping[str, Any]], int]:
+    try:
+        data = path.read_bytes()
+    except FileNotFoundError:
+        return [], offset
+    if offset >= len(data):
+        return [], len(data)
+    chunk = data[offset:]
+    if not chunk:
+        return [], offset
+    complete = chunk
+    new_offset = len(data)
+    if not chunk.endswith(b"\n"):
+        last_newline = chunk.rfind(b"\n")
+        if last_newline < 0:
+            return [], offset
+        complete = chunk[: last_newline + 1]
+        new_offset = offset + last_newline + 1
+    if not complete.strip():
+        return [], new_offset
+    return _parse_helper_jsonl(complete.decode("utf-8")), new_offset
+
+
+def _pointer_metadata(ctx: RepoHandlerContext, *, supervisor_id: str) -> dict[str, Any]:
+    with ctx.cursor() as cur:
+        cur.execute(
+            """
+            SELECT metadata_json
+            FROM striatumd.process_supervisor_pointers
+            WHERE repository_id = %s AND supervisor_id = %s
+            """,
+            (ctx.repository_id, supervisor_id),
+        )
+        row = cur.fetchone()
+    if row is None:
+        return {}
+    metadata = row.get("metadata_json") or {}
+    return dict(metadata) if isinstance(metadata, Mapping) else {}
+
+
+def _merge_pointer_metadata(
+    ctx: RepoHandlerContext,
+    *,
+    supervisor_id: str,
+    metadata: Mapping[str, Any],
+) -> None:
+    current = _pointer_metadata(ctx, supervisor_id=supervisor_id)
+    current.update(dict(metadata))
+    with ctx.cursor() as cur:
+        cur.execute(
+            """
+            UPDATE striatumd.process_supervisor_pointers
+            SET metadata_json = %s
+            WHERE repository_id = %s AND supervisor_id = %s
+            """,
+            (_jsonb(current), ctx.repository_id, supervisor_id),
+        )
+
+
+def _helper_pid_from_metadata(ctx: RepoHandlerContext, *, supervisor_id: str) -> int | None:
+    metadata = _pointer_metadata(ctx, supervisor_id=supervisor_id)
+    if metadata.get("transport") != PTY_HELPER_TRANSPORT:
+        return None
+    return _optional_int(metadata.get("helper_pid"))
+
+
+def _resolve_supervisor_helper() -> str:
+    override = os.environ.get("STRIATUM_SUPERVISOR_HELPER")
+    if override:
+        return override
+    found = shutil.which("striatum-supervisor-helper")
+    if found:
+        return found
+    repo_helper = Path(__file__).resolve().parents[4] / "go" / "bin" / "striatum-supervisor-helper"
+    if repo_helper.exists():
+        return str(repo_helper)
+    raise OSError(
+        "striatum-supervisor-helper not found; set STRIATUM_SUPERVISOR_HELPER "
+        "or run `make daemon-go-helper-check` to build go/bin/striatum-supervisor-helper"
+    )
+
+
+def _helper_start_timeout_seconds() -> float:
+    raw = os.environ.get("STRIATUM_SUPERVISOR_HELPER_START_TIMEOUT", "5")
+    try:
+        return max(float(raw), 0.1)
+    except ValueError:
+        return 5.0
 
 
 def _update_supervisor_state(
@@ -1256,6 +1603,20 @@ def _command_array(lane: JsonObject) -> list[str]:
     return cast(list[str], command)
 
 
+def _supervision_transport(lane: JsonObject) -> str:
+    supervision = lane.get("supervision")
+    if supervision is None:
+        return "pipe"
+    if not isinstance(supervision, Mapping):
+        raise InvalidTransitionError("lane supervision must be an object when provided")
+    transport = supervision.get("transport", "pipe")
+    if transport == "pipe":
+        return "pipe"
+    if transport == PTY_HELPER_TRANSPORT:
+        return PTY_HELPER_TRANSPORT
+    raise InvalidTransitionError("lane supervision.transport must be 'pipe' or 'pty_helper'")
+
+
 def _supervisor_view(row: Mapping[str, Any]) -> dict[str, Any]:
     view = dict(row)
     for key in ("started_at", "heartbeat_at", "ended_at"):
@@ -1280,6 +1641,21 @@ def _supervised_env(
         }
     )
     return base_env
+
+
+def _supervised_env_entries(
+    *,
+    repo: Path,
+    run_id: str,
+    session_id: str,
+    supervisor_id: str,
+) -> list[str]:
+    return [
+        f"STRIATUM_RUN_ID={run_id}",
+        f"STRIATUM_SESSION_ID={session_id}",
+        f"STRIATUM_SUPERVISOR_ID={supervisor_id}",
+        f"STRIATUM_REPO={repo}",
+    ]
 
 
 def _terminate_process(pid: int | None) -> str | None:

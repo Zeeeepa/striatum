@@ -126,7 +126,7 @@ def requeue_stale(
         is_write = is_repo_write(row)
         if is_write and not force:
             raise InvalidTransitionError(
-                "repo-write stale jobs require manual inspection; rerun with "
+                "repo-write stale jobs require operator inspection; rerun with "
                 "`--force --justification \"<reason>\"` to override after inspection"
             )
 

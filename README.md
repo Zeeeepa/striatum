@@ -71,7 +71,7 @@ striatum --repo "$TARGET_REPO" run start --run-id <run_id> --json
 striatum --repo "$TARGET_REPO" dashboard --run-id <run_id> --once
 ```
 
-Full walkthrough: [`docs/USING_STRIATUM.md`](docs/USING_STRIATUM.md). Operator playbook: [`docs/HOW_TO_HUMAN.md`](docs/HOW_TO_HUMAN.md). Agent companion to the skill bundle: [`docs/HOW_TO_AGENT.md`](docs/HOW_TO_AGENT.md).
+Full walkthrough: [`docs/USING_STRIATUM.md`](docs/USING_STRIATUM.md). AI-operator playbook: [`docs/HOW_TO_AGENT.md`](docs/HOW_TO_AGENT.md). Human-principal escalation playbook: [`docs/HOW_TO_HUMAN.md`](docs/HOW_TO_HUMAN.md).
 
 ## Why striatum
 

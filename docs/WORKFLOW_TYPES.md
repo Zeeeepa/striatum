@@ -82,7 +82,7 @@ it. Prefer explicit `lane_id` values for repeatable runs.
 
 | Desired lane behavior | Use this lane shape | Current starting point |
 |---|---|---|
-| Fast local fixture or manual operator run | Single `local` process lane | `workflow init --style ...` |
+| Fast local fixture or operator-by-hand run | Single `local` process lane | `workflow init --style ...` |
 | One model does authoring and review | Single agent lane with `write` and `review` capabilities | `examples/code-change-flow/` |
 | Author and reviewer should be separate model sessions | Separate author/reviewer lanes or fresh reviewer jobs | Adapt `examples/docs-review-flow/` |
 | You want productive disagreement | Multiple reviewer lanes, often different model families | `examples/rfc-ledger-cleanup/` |
@@ -107,8 +107,8 @@ flowchart LR
   A["author/reviewer role"] --> L["local or codex lane"]
 ```
 
-Use this for early adoption, small low-risk work, or when one human
-operator is manually driving all sessions.
+Use this for early adoption, small low-risk work, or when one
+operator-by-hand session is driving all roles.
 
 **Author plus independent reviewer**
 

@@ -440,6 +440,123 @@ def test_report_accepts_helper_events_from_list_and_path_shapes(
         conn.close()
 
 
+def test_start_pty_helper_launches_explicit_transport_and_metadata(
+    tmp_path: Path, pg_url: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    helper = _fake_pty_helper(tmp_path)
+    monkeypatch.setenv("STRIATUM_SUPERVISOR_HELPER", str(helper))
+    conn = connect(pg_url)
+    started: dict[str, Any] | None = None
+    try:
+        repo = tmp_path / "repo"
+        _seed_supervisable_session(
+            conn,
+            repo,
+            repository_id="repo_a",
+            supervision_transport="pty_helper",
+        )
+        conn.commit()
+
+        started = handle_start(_ctx(conn, repo, "repo_a"), {"session_id": "sess_1"})
+
+        assert started["state"] == "attached"
+        assert started["transport"] == "pty_helper"
+        assert started["helper_process"]["pid"] is not None
+        assert started["pid"] == started["helper_process"]["pid"]
+        row = _one(
+            conn,
+            """
+            SELECT p.metadata_json, ps.pid, ps.state
+            FROM striatumd.process_supervisor_pointers p
+            JOIN striatumd.process_supervisors ps
+              ON ps.repository_id = p.repository_id
+             AND ps.supervisor_id = p.supervisor_id
+            WHERE p.repository_id = %s AND p.supervisor_id = %s
+            """,
+            ("repo_a", started["supervisor_id"]),
+        )
+        metadata = row["metadata_json"]
+        assert row["state"] == "attached"
+        assert row["pid"] == started["pid"]
+        assert metadata["transport"] == "pty_helper"
+        assert metadata["helper_pid"] == started["helper_process"]["pid"]
+        assert metadata["helper_events_offset"] > 0
+        assert Path(metadata["helper_events_path"]).exists()
+        assert [row["event_type"] for row in _events(conn, "repo_a")] == [
+            "supervisor.starting",
+            "supervisor.agent_started",
+            "supervisor.started",
+        ]
+    finally:
+        if started is not None:
+            try:
+                handle_stop(
+                    _ctx(conn, repo, "repo_a"),
+                    {"session_id": "sess_1", "reason": "cleanup"},
+                )
+            except Exception:
+                _kill_pid(started.get("pid"))
+        conn.close()
+
+
+def test_pty_helper_send_drains_packet_ack_through_report(
+    tmp_path: Path, pg_url: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    helper = _fake_pty_helper(tmp_path)
+    monkeypatch.setenv("STRIATUM_SUPERVISOR_HELPER", str(helper))
+    conn = connect(pg_url)
+    started: dict[str, Any] | None = None
+    try:
+        repo = tmp_path / "repo"
+        _seed_supervisable_session(
+            conn,
+            repo,
+            repository_id="repo_a",
+            supervision_transport="pty_helper",
+        )
+        _seed_work_packet(
+            conn,
+            repository_id="repo_a",
+            session_id="sess_1",
+            packet_id="wp_1",
+        )
+        conn.commit()
+        started = handle_start(_ctx(conn, repo, "repo_a"), {"session_id": "sess_1"})
+
+        sent = handle_send(
+            _ctx(conn, repo, "repo_a"),
+            {"session_id": "sess_1", "packet_id": "wp_1"},
+        )
+
+        assert sent["delivery_state"] == "delivered_unacknowledged"
+        events = _events(conn, "repo_a")
+        event_types = [row["event_type"] for row in events]
+        assert "supervisor.packet_delivered" in event_types
+        assert "supervisor.packet_accepted" in event_types
+        accepted = next(row for row in events if row["event_type"] == "supervisor.packet_accepted")
+        assert accepted["payload_json"]["payload"]["sequence"] == 1
+        metadata = _one(
+            conn,
+            """
+            SELECT metadata_json
+            FROM striatumd.process_supervisor_pointers
+            WHERE repository_id = %s AND supervisor_id = %s
+            """,
+            ("repo_a", started["supervisor_id"]),
+        )["metadata_json"]
+        assert metadata["helper_events_offset"] > 0
+    finally:
+        if started is not None:
+            try:
+                handle_stop(
+                    _ctx(conn, repo, "repo_a"),
+                    {"session_id": "sess_1", "reason": "cleanup"},
+                )
+            except Exception:
+                _kill_pid(started.get("pid"))
+        conn.close()
+
+
 def test_send_fails_closed_for_foreign_packet(tmp_path: Path, pg_url: str) -> None:
     conn = connect(pg_url)
     started: dict[str, Any] | None = None
@@ -509,10 +626,18 @@ def _seed_supervisable_session(
     *,
     repository_id: str,
     adapter: str = "process",
+    supervision_transport: str | None = None,
 ) -> None:
     repo_root.mkdir(parents=True, exist_ok=True)
     now = "2026-05-16T00:00:00Z"
     command = _supervised_command() if adapter == "process" else []
+    lane: dict[str, Any] = {
+        "adapter": adapter,
+        "command": command,
+        "display_model": "codex-gpt-5",
+    }
+    if supervision_transport is not None:
+        lane["supervision"] = {"transport": supervision_transport}
     workflow = {
         "schema_version": "striatum.workflow.v1",
         "workflow_id": "test-workflow",
@@ -520,13 +645,7 @@ def _seed_supervisable_session(
         "name": "Test workflow",
         "branch": {"mode": "manual"},
         "coordinator": {"role_id": "author", "lane_id": "codex"},
-        "lanes": {
-            "codex": {
-                "adapter": adapter,
-                "command": command,
-                "display_model": "codex-gpt-5",
-            }
-        },
+        "lanes": {"codex": lane},
         "roles": {"author": {"summary": "Author"}},
         "context_docs": [],
         "parallelism": {"mode": "serial", "max_active_jobs": 1},
@@ -761,6 +880,60 @@ def _supervised_command() -> list[str]:
         "time.sleep(60)\n"
     )
     return [sys.executable, "-c", script]
+
+
+def _fake_pty_helper(tmp_path: Path) -> Path:
+    helper = tmp_path / "fake-striatum-supervisor-helper"
+    helper.write_text(
+        "\n".join(
+            [
+                "#!/usr/bin/env python3",
+                "import json, os, select, signal, sys, time",
+                "running = True",
+                "def stop(*_args):",
+                "    global running",
+                "    running = False",
+                "signal.signal(signal.SIGTERM, stop)",
+                "spec = json.loads(sys.stdin.readline())",
+                "supervisor_id = spec['supervisor_id']",
+                "def emit(event_type, payload):",
+                "    print(json.dumps({",
+                "        'schema_version': 'striatum.supervisor_helper.event.v1',",
+                "        'event_type': event_type,",
+                "        'supervisor_id': supervisor_id,",
+                "        'timestamp': '2026-05-16T00:00:01Z',",
+                "        'payload': payload,",
+                "    }), flush=True)",
+                "emit('agent_started', {'pid': os.getpid()})",
+                "fd = os.open(spec['packet_input_path'], os.O_RDWR | os.O_NONBLOCK)",
+                "buffer = b''",
+                "sequence = 0",
+                "try:",
+                "    while running:",
+                "        readable, _, _ = select.select([fd], [], [], 0.05)",
+                "        if not readable:",
+                "            continue",
+                "        try:",
+                "            chunk = os.read(fd, 65536)",
+                "        except BlockingIOError:",
+                "            continue",
+                "        if not chunk:",
+                "            continue",
+                "        buffer += chunk",
+                "        while b'\\n' in buffer:",
+                "            frame, buffer = buffer.split(b'\\n', 1)",
+                "            sequence += 1",
+                "            emit('packet_accepted', {'bytes': len(frame) + 1, 'sequence': sequence})",
+                "finally:",
+                "    os.close(fd)",
+                "emit('agent_exited', {'exit_code': 0})",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    helper.chmod(0o700)
+    return helper
 
 
 def _ctx(conn: Any, repo_root: Path, repository_id: str) -> RepoHandlerContext:

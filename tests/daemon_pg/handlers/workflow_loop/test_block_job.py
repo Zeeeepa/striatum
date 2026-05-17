@@ -107,7 +107,7 @@ def test_block_job_human_checkpoint_moves_job_to_waiting_human(
                 "lease_id": "lease_1",
                 "kind": "needs_human",
                 "severity": "human_checkpoint",
-                "description": "needs human decision",
+                "description": "needs principal decision",
             },
         )
 

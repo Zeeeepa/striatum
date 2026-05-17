@@ -1,4 +1,4 @@
-"""RFC 0021: scaffold the DDD-shaped human-facing doc layout.
+"""RFC 0021: scaffold the DDD-shaped reader-facing doc layout.
 
 Public surface:
 

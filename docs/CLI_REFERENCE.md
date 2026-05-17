@@ -82,7 +82,7 @@ optional flags scaffold extra material:
   bundle for `claude_code` | `codex` | `gemini` | `generic` |
   `all`. Default profile is `claude_code`.
 - `--with-ddd-layout` (RFC 0021) — scaffold the seven canonical
-  human-facing DDD documents (`docs/SPEC.md`, `docs/PRD.md`,
+  reader-facing DDD documents (`docs/SPEC.md`, `docs/PRD.md`,
   `docs/DECISION_LOG.md`, `docs/UBIQUITOUS_LANGUAGE.md`,
   `docs/DDD.md`, `docs/rfcs/README.md`,
   `docs/rfcs/0001-template.md`). Existing files are preserved.

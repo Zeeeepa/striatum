@@ -70,6 +70,19 @@ def run_cli_text(repo: Path, *args: str, check: bool = True) -> str:
     return result.stdout
 
 
+def validate_workflow_cli(
+    repo: Path,
+    workflow_path: Path,
+    *,
+    allow_same_model_pairing: bool = True,
+    check: bool = True,
+) -> JsonDict:
+    args = ["workflow", "validate", str(workflow_path)]
+    if allow_same_model_pairing:
+        args.append("--allow-same-model-pairing")
+    return run_cli(repo, *args, check=check)
+
+
 def data(payload: JsonDict) -> JsonDict:
     value = payload["data"]
     assert isinstance(value, dict)
@@ -459,7 +472,7 @@ def test_mcp_handles_framed_body_with_embedded_newlines(tmp_path: Path) -> None:
 
 def test_workflow_validate_accepts_json_and_rejects_yaml(tmp_path: Path) -> None:
     init_repo(tmp_path)
-    valid = data(run_cli(tmp_path, "workflow", "validate", str(WORKFLOW)))
+    valid = data(validate_workflow_cli(tmp_path, WORKFLOW))
     assert valid["workflow_id"] == "rfc-ledger-cleanup"
     yaml_path = tmp_path / "workflow.yaml"
     yaml_path.write_text("schema_version: striatum.workflow.v1\n", encoding="utf-8")
@@ -565,7 +578,7 @@ def test_workflow_graph_exports_dot(tmp_path: Path) -> None:
 
 
 def test_docs_review_flow_fixture_validates_and_exports_graph(tmp_path: Path) -> None:
-    valid = data(run_cli(tmp_path, "workflow", "validate", str(DOCS_REVIEW_WORKFLOW)))
+    valid = data(validate_workflow_cli(tmp_path, DOCS_REVIEW_WORKFLOW))
     assert valid["workflow_id"] == "docs-review-flow"
     graph = data(
         run_cli(tmp_path, "workflow", "graph", str(DOCS_REVIEW_WORKFLOW), "--format", "json")
@@ -594,7 +607,7 @@ def test_v1_workflow_fixtures_validate_without_phase_progress(
     tmp_path: Path,
     fixture: Path,
 ) -> None:
-    valid = data(run_cli(tmp_path, "workflow", "validate", str(fixture)))
+    valid = data(validate_workflow_cli(tmp_path, fixture))
 
     assert valid["workflow_id"] == json.loads(fixture.read_text(encoding="utf-8"))["workflow_id"]
     assert valid["valid"] is True
@@ -1319,7 +1332,7 @@ def test_sealed_patch_mode_validates_but_refuses_to_start_without_containment(
     workflow["operator_writable_paths"] = ["docs/"]
     workflow_path = temporary_workflow(tmp_path, workflow)
     init_repo(tmp_path)
-    valid = data(run_cli(tmp_path, "workflow", "validate", str(workflow_path)))
+    valid = data(validate_workflow_cli(tmp_path, workflow_path))
     assert valid["workflow_id"] == workflow["workflow_id"]
     prepared = data(run_cli(tmp_path, "run", "prepare", "--workflow", str(workflow_path)))
     run_id = str(prepared["run_id"])
@@ -2469,7 +2482,7 @@ def test_recovery_requeue_stale_rejects_repo_write_jobs(tmp_path: Path) -> None:
         check=False,
     )
     assert rejected["returncode"] == 4
-    assert rejected["error"]["message"].startswith("repo-write stale jobs require manual inspection")
+    assert rejected["error"]["message"].startswith("repo-write stale jobs require operator inspection")
     assert "--force --justification" in rejected["error"]["message"]
 
 
@@ -2660,7 +2673,7 @@ def test_workflow_lane_constraints_validate_and_appear_in_packets(tmp_path: Path
     }
     workflow_path = temporary_workflow(tmp_path, workflow)
     init_repo(tmp_path)
-    run_cli(tmp_path, "workflow", "validate", str(workflow_path))
+    validate_workflow_cli(tmp_path, workflow_path)
     run_id = str(
         data(run_cli(tmp_path, "run", "prepare", "--workflow", str(workflow_path)))["run_id"]
     )
@@ -3199,9 +3212,7 @@ def test_declared_cycle_policy_requires_root_review_cycles(tmp_path: Path) -> No
             },
         ]
     )
-    valid = data(
-        run_cli(tmp_path, "workflow", "validate", str(temporary_workflow(tmp_path, workflow)))
-    )
+    valid = data(validate_workflow_cli(tmp_path, temporary_workflow(tmp_path, workflow)))
     assert valid["workflow_id"] == "rfc-0014-operational-artifact-home"
 
 
@@ -3858,7 +3869,7 @@ def test_workflow_validation_warns_on_deprecated_needs() -> None:
 
 def test_code_change_flow_runs_through_revision_cycle(tmp_path: Path) -> None:
     init_repo(tmp_path)
-    valid = data(run_cli(tmp_path, "workflow", "validate", str(CODE_CHANGE_WORKFLOW)))
+    valid = data(validate_workflow_cli(tmp_path, CODE_CHANGE_WORKFLOW))
     assert valid["workflow_id"] == "code-change-flow"
     run_id = str(
         data(run_cli(tmp_path, "run", "prepare", "--workflow", str(CODE_CHANGE_WORKFLOW)))["run_id"]
@@ -3995,7 +4006,7 @@ def test_failed_review_cycle_routes_to_human_checkpoint_after_max_iterations(
     tmp_path: Path,
 ) -> None:
     init_repo(tmp_path)
-    valid = data(run_cli(tmp_path, "workflow", "validate", str(FAILED_REVIEW_WORKFLOW)))
+    valid = data(validate_workflow_cli(tmp_path, FAILED_REVIEW_WORKFLOW))
     assert valid["workflow_id"] == "failed-review-revision-cycle"
     run_id = str(
         data(run_cli(tmp_path, "run", "prepare", "--workflow", str(FAILED_REVIEW_WORKFLOW)))[
@@ -4225,7 +4236,7 @@ def test_workflow_init_writes_validating_template(tmp_path: Path) -> None:
     assert cycles[0]["on_verdict"] == "needs_revision"
 
     for path in (minimal_dir, review_dir, code_change_dir):
-        validated = data(run_cli(tmp_path, "workflow", "validate", str(path / "workflow.json")))
+        validated = data(validate_workflow_cli(tmp_path, path / "workflow.json"))
         assert validated["valid"] is True
 
     # Refuses to overwrite an existing path; surface the error envelope so
@@ -4255,7 +4266,7 @@ def test_human_checkpoint_flow_records_owner_decision_and_unblocks_downstream(
     ``decision``, no lease required).
     """
     init_repo(tmp_path)
-    valid = data(run_cli(tmp_path, "workflow", "validate", str(HUMAN_CHECKPOINT_WORKFLOW)))
+    valid = data(validate_workflow_cli(tmp_path, HUMAN_CHECKPOINT_WORKFLOW))
     assert valid["workflow_id"] == "human-checkpoint-flow"
     run_id = str(
         data(run_cli(tmp_path, "run", "prepare", "--workflow", str(HUMAN_CHECKPOINT_WORKFLOW)))[
@@ -4445,7 +4456,7 @@ def test_adapter_unavailable_flow_rejects_at_validation(tmp_path: Path) -> None:
     }
     relaxed_path = tmp_path / "adapter-unavailable-relaxed.json"
     relaxed_path.write_text(json.dumps(workflow_payload), encoding="utf-8")
-    accepted = data(run_cli(tmp_path, "workflow", "validate", str(relaxed_path)))
+    accepted = data(validate_workflow_cli(tmp_path, relaxed_path))
     assert accepted["valid"] is True
     assert accepted["workflow_id"] == "adapter-unavailable-flow"
 

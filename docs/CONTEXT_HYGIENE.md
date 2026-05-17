@@ -1,8 +1,9 @@
 # Context Hygiene
 
 This doc is for anyone driving a coding agent against a target
-repository — the human operator opening a session, or the workflow
-author setting up a repo so future sessions inherit a clean baseline.
+repository — the AI operator opening a session, the human principal
+reviewing an escalation, or the workflow author setting up a repo so
+future sessions inherit a clean baseline.
 
 The core observation: **the size of the context window is not the
 determining factor of session quality.** Two sessions with the same
@@ -151,5 +152,5 @@ opening with intent and noticing the moment to crystallize.
 - `AGENTS.md` — the entry-point reading list this doc describes.
 - `docs/HOW_TO_AGENT.md` — what to do once a striatum workflow has
   handed you a work packet.
-- `docs/HOW_TO_HUMAN.md` — long-form playbook for driving striatum
-  by hand.
+- `docs/HOW_TO_HUMAN.md` — human-principal escalation playbook, with
+  operator-by-hand reference material.

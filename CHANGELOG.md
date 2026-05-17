@@ -73,9 +73,12 @@ in the roadmap/TODO and has several production slices landed:
   `supervise.report`, reports delivered-unacknowledged sends explicitly, and
   includes a standalone Go `striatum-supervisor-helper` that launches agents
   under PTY while emitting JSONL control events without importing domain DB
-  or RPC code. The daemon now implements `supervise.reattach_status` as a
-  read-only supervisor health DTO, and `doctor` surfaces non-healthy
-  reattach states for stale supervisors without mutating runner state.
+  or RPC code. Lanes can now opt in to `supervision.transport: "pty_helper"`,
+  letting `supervise.start` launch the helper, persist pointer metadata, and
+  ingest helper JSONL acknowledgements through the existing control-event
+  path. The daemon now implements `supervise.reattach_status` as a read-only
+  supervisor health DTO, and `doctor` surfaces non-healthy reattach states
+  for stale supervisors without mutating runner state.
 - **Workflow risk lint.**
   `striatum workflow lint` supports structured warnings, opt-in strict mode,
   accepted-risk rationale and decision references, advisory coverage scoring,
@@ -86,10 +89,12 @@ in the roadmap/TODO and has several production slices landed:
 - **Auto-finalize, archive, replay, packaging, and setup slices.**
   `recovery.auto_finalize` landed as a daemon/Postgres recovery method with
   dry-run and opt-in live modes, status/dashboard preview surfacing, and
-  auto-from-artifact provenance. Run archive and corpus verification
-  foundations, archive replay event-row hash recomputation, frontend bundle
-  integrity checks, and day-zero setup docs were advanced as part of the same
-  remediation sequence.
+  auto-from-artifact provenance. Recovery sweep acceptance coverage now pins
+  a dogfood-shaped run where three valid written review findings auto-finalize
+  without operator-on-behalf or override provenance. Run archive and corpus
+  verification foundations, archive replay event-row hash recomputation,
+  frontend bundle integrity checks, and day-zero setup docs were advanced as
+  part of the same remediation sequence.
 - **Redaction hardening.**
   Evidence redaction now treats `safe` policy entries as scalar-only, so
   injected objects/lists in otherwise safe fields are replaced with the
@@ -97,6 +102,11 @@ in the roadmap/TODO and has several production slices landed:
   case-insensitive for transcript/output/private path shapes, with synthetic
   injection coverage for workflow/job prompts, verdict rationales, blocker
   text, transcript-like fields, nested payloads, and path hygiene.
+- **Operator terminology cleanup.**
+  Reader-facing docs, CLI help, scaffold text, workflow templates, and
+  recovery skill templates now use principal/operator vocabulary where the
+  product means a user decision or operational action, while leaving durable
+  schema and event identifiers unchanged.
 - **CI portability.**
   The multi-repo harness CI install now includes the `daemon-pg` extra before
   running Postgres-backed tests, and Go supervisor process-launch tests resolve

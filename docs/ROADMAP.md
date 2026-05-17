@@ -461,10 +461,14 @@ decide whether to rename the packet helper to `packet inbox`.
   start-time identity, and recommended operator action. Daemon `doctor`
   now surfaces non-healthy reattach states for stale supervisors without
   changing supervisor state.
+- Lanes can opt in to `supervision.transport: "pty_helper"`. The Python
+  daemon launches `striatum-supervisor-helper`, persists helper pointer
+  metadata, and drains helper JSONL events through `supervise.report` during
+  start/send/stop/status.
 
-**Remaining Phase 6 debt:** daemon-owned helper launch wiring,
-actual restart reattach/lost-state recovery, stronger lane-liveness
-attestation, wrapper fixtures, and broader helper-only CI.
+**Remaining Phase 6 debt:** actual restart reattach/lost-state recovery,
+stronger lane-liveness attestation, wrapper fixtures, real Go-helper
+integration coverage, and broader helper-only CI.
 
 ---
 
@@ -526,10 +530,12 @@ lint risks.
   remains only as a compatibility alias for stale-artifact auto-publish.
 - The sweep invokes live auto-finalize before lazy lease expiry only when the
   workflow opted in and never supplies the standalone force override.
+- Recovery sweep acceptance coverage now pins a dogfood-shaped run where
+  three valid written review findings auto-finalize without
+  operator-on-behalf or override provenance.
 
 **Remaining Phase 8 debt:** decide default policy after dogfood confidence and
-run a dogfood proving zero operator-on-behalf publishes when valid artifacts
-already exist.
+collect live dogfood confidence before changing the dry-run-by-default policy.
 
 ---
 
@@ -560,17 +566,13 @@ introduced later.
 Order is **dependency-driven, not preference-driven**. Promote items up
 when their blocker clears.
 
-### 5.1 RFC 0050 V2 ergonomics polish
+### 5.1 ✅ completed — RFC 0050 V2 ergonomics polish
 
-**Closes:** [#12](https://github.com/halbritt/striatum/issues/12) (clipboard hijack), [#13](https://github.com/halbritt/striatum/issues/13) (ghost field).
+**Closed:** [#12](https://github.com/halbritt/striatum/issues/12) (clipboard hijack), [#13](https://github.com/halbritt/striatum/issues/13) (ghost field).
 
-Low-severity, bundled together. Single dogfood:
-- Restrict `copy_on_click.js` `[data-copy]` matching to allowlist container
-  classes (`.recipe-list`, `.code-recipe`, `.copyable-token`).
-- Purge `require_attested_lane` from `WorkflowGraphEditor.tsx` state on
-  job type change.
-- Add the 4 ergonomic refinements from dogfood-056's review (recovery
-  panel error-state CLI recipe fallback, override modal submit cue, etc.)
+The copy-on-click allowlist and workflow-editor purge are already covered by
+targeted tests. The dogfood-056 ergonomic review items are not tracked as
+active GitHub backlog unless they get promoted into explicit issues.
 
 ### 5.2 D105 follow-up — Go supervisor helper protocol
 
@@ -739,12 +741,16 @@ its implementation depends on RFC 0048 Phase A.
   business-logic flip.
 - **RFC 0053** (human principal as escalation-only) — TODO #44.
   RFC body + D103 + doc-side prose realignment shipped on main.
+  A follow-up wording sweep realigned reader-facing docs, CLI help,
+  scaffold output, workflow-template text, and recovery skill templates
+  around principal/operator language while preserving durable schema/state
+  identifiers.
   Deferred Phase A landed under remediation Phase 5: `escalation`
   artifact-kind schema, publish-time blocker linkage, and daemon RPC
   projection methods.
   Deferred Phase B: workflow.json schema-field rename
   (`human_checkpoint` → `escalation_checkpoint`), `waiting_human`
-  run-state rename, CLI prompt-string sweep.
+  run-state rename.
 - **RFC 0054** (day-zero usage guide) — TODO #45. Phase 0
   scaffold + **Phase A shipped in v1.55.0** (commit `a88f44d`):
   `docs/USING_STRIATUM.md` added as a new doc alongside

@@ -105,7 +105,7 @@ so external references keep resolving even as items move between sections.
 | 51 | Architecture remediation Phase 3 — daemon core strategy decision | ✅ done |
 | 52 | RFC 0061 Architecture remediation Phase 4 — daemon-first web service | 🟡 core web/API + artifact reads daemon-routed |
 | 53 | RFC 0062 Architecture remediation Phase 5 — real escalation inbox | 🟡 projection + escalation artifact schema/linkage landed |
-| 54 | RFC 0063 Architecture remediation Phase 6 — hardened PTY supervision | 🟡 control-event, helper protocol, and JSONL ingestion slices landed |
+| 54 | RFC 0063 Architecture remediation Phase 6 — hardened PTY supervision | 🟡 control-event, helper protocol, JSONL ingestion, and helper launch slices landed |
 | 55 | RFC 0064 Architecture remediation Phase 7 — workflow risk lint and review diversity enforcement | 🟡 validate refusal + generator coverage landed |
 | 56 | Architecture remediation Phase 8 — auto-finalize from front matter | 🟡 daemon recovery + visibility slices landed |
 | 57 | RFC 0065 Architecture remediation Phase 9 — UI packaging and bundle cleanup | ✅ done; chunking monitor only |
@@ -746,10 +746,10 @@ section is the canonical status snapshot.
     canonical `recovery.sweep`, runs auto-finalize before lazy lease
     expiry only when the workflow opted in, and routes stale-artifact
     auto-publish through explicit `recovery.auto_publish_stale_artifacts`.
-    Remaining: default policy decision after dogfood confidence and an
-    end-to-end dogfood with zero
-    operator-on-behalf publishes for
-    jobs that wrote valid artifacts.
+    Automated PG recovery coverage now pins a dogfood-shaped run where
+    three valid written artifacts auto-finalize with zero
+    `dogfood.publish_on_behalf` or operator-override provenance events.
+    Remaining: default policy decision after live dogfood confidence.
 
 43. **RFC 0052 V0 (committee deliberation workflow).** Proposed
     2026-05-14. Committee shape for high-stakes design phases: N
@@ -769,12 +769,15 @@ section is the canonical status snapshot.
     blockers or decisions; AI operator is the default driver. Same CLI
     surface, functionally bounded role. SPEC.md / GETTING_STARTED.md /
     HOW_TO_HUMAN.md prose realigned in commit 7e21399. D103 recorded
-    in DECISION_LOG. **Deferred follow-ups**: workflow.json
-    schema-field rename (`human_checkpoint` → `escalation_checkpoint`),
-    `waiting_human` run state rename, and CLI prompt-string sweep. The
-    `escalation` artifact kind, `striatum.escalation.v1` front matter schema,
-    publish-time blocker linkage, and daemon RPC projection methods landed
-    under remediation item 53.
+    in DECISION_LOG. A follow-up wording sweep realigned reader-facing docs,
+    CLI help, scaffold output, workflow-template text, and recovery skill
+    templates around principal/operator language while leaving durable
+    identifiers unchanged. **Deferred follow-ups**: workflow.json
+    schema-field rename (`human_checkpoint` → `escalation_checkpoint`) and
+    `waiting_human` run state rename. The `escalation` artifact kind,
+    `striatum.escalation.v1` front matter schema, publish-time blocker
+    linkage, and daemon RPC projection methods landed under remediation
+    item 53.
     ROADMAP §5.8.
 
 45. ~~**RFC 0054 V0 (day-zero usage guide).**~~ Phase A shipped
@@ -926,9 +929,13 @@ review and plan are root-level operator artifacts:
     `agent_exited` stop-state transitions. Follow-up slice landed daemon
     `supervise.reattach_status` as a read-only supervisor health DTO, with
     daemon `doctor` surfacing non-healthy reattach states for stale
-    supervisors. Remaining: daemon-owned helper launch wiring, actual
-    restart reattach/lost-state semantics, stronger lane-liveness
-    attestation, wrapper fixtures, and promotion of helper-only CI beyond
+    supervisors. Follow-up slice landed explicit `supervision.transport:
+    "pty_helper"` lane opt-in: the Python daemon launches
+    `striatum-supervisor-helper`, persists helper pointer metadata, and
+    drains helper JSONL acknowledgements through `supervise.report` during
+    start/send/stop/status. Remaining: actual restart reattach/lost-state
+    semantics, stronger lane-liveness attestation, wrapper fixtures, real
+    Go-helper integration coverage, and promotion of helper-only CI beyond
     focused tests.
 
 55. **Phase 7: workflow risk lint and review diversity enforcement.**
@@ -962,9 +969,10 @@ review and plan are root-level operator artifacts:
     auto-publish is explicit as `recovery.auto_publish_stale_artifacts`,
     and deprecated `recovery.auto` is no longer emitted by the CLI.
     The sweep invokes live auto-finalize only under workflow opt-in and
-    never supplies the standalone force override. Remaining: decide
-    global/default policy after dogfood confidence and cover dogfood-level
-    acceptance.
+    never supplies the standalone force override. Automated dogfood-shaped
+    acceptance coverage now proves valid written artifacts can auto-finalize
+    with zero operator-on-behalf publishes. Remaining: decide global/default
+    policy after live dogfood confidence.
 
 57. ~~**Phase 9: UI packaging and bundle cleanup.**~~ Done:
     `ui-build` depends on `ui-clean`, `ui-check-bundle` also runs a

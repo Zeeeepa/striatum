@@ -236,7 +236,7 @@ convention stabilizes), and `generic` (single Markdown guide for
 any other CLI). All profiles are byte-identical on re-install;
 operator edits are preserved unless you pass `--force`.
 
-To also scaffold the seven canonical human-facing DDD documents
+To also scaffold the seven canonical reader-facing DDD documents
 (RFC 0021) into the target repo's `docs/`:
 
 ```bash
@@ -491,7 +491,7 @@ not require an active lease.
   --session-id <session_id> --job-id <job_id> --lease-id <lease_id> \
   --kind missing_input \
   --severity human_checkpoint \
-  --description "Need human decision before continuing." \
+  --description "Need principal decision before continuing." \
   --json
 ```
 

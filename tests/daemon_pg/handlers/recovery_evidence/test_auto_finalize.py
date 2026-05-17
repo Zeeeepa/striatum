@@ -300,14 +300,16 @@ def _write_finding(
     *,
     byline: str,
     stable: bool = True,
+    path_text: str = "docs/review.md",
+    verdict_intent: str = "accept_with_findings",
 ) -> None:
-    path = repo_root / "docs" / "review.md"
-    path.parent.mkdir(parents=True)
+    path = repo_root / path_text
+    path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
         "---\n"
         'schema_version: "striatum.finding.v1"\n'
         'artifact_kind: "finding"\n'
-        'verdict_intent: "accept_with_findings"\n'
+        f'verdict_intent: "{verdict_intent}"\n'
         'severity: "low"\n'
         "---\n\n"
         "# Review\n"
@@ -450,7 +452,122 @@ def _seed_review_job(
         )
 
 
-def _insert_attached_supervisor(conn: Any, *, repository_id: str) -> None:
+def _insert_review_job_instance(
+    conn: Any,
+    *,
+    repository_id: str,
+    workflow_job_id: str,
+    job_id: str,
+    session_id: str,
+    session_ordinal: int,
+    lease_id: str,
+    message_id: str,
+    artifact_path: str,
+) -> None:
+    now = "2026-05-14T00:00:00Z"
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO striatumd.sessions (
+              repository_id, session_id, run_id, role_id, lane_id, slug, ordinal,
+              capabilities_json, state, registered_at, last_heartbeat_at
+            )
+            VALUES (%s, %s, 'run_1', 'reviewer', 'local',
+                    %s, %s, %s, 'active', %s, %s)
+            """,
+            (
+                repository_id,
+                session_id,
+                f"reviewer-local-{session_ordinal}",
+                session_ordinal,
+                Jsonb(["write"]),
+                now,
+                now,
+            ),
+        )
+        cur.execute(
+            """
+            INSERT INTO striatumd.jobs (
+              repository_id, job_id, run_id, workflow_job_id, title, job_type,
+              role_id, lane_selector_json, capability_requirements_json, state,
+              write_scope_json, expected_artifacts_json, idempotency_key,
+              created_at, started_at, current_message_id, current_lease_id
+            )
+            VALUES (%s, %s, 'run_1', %s, 'Review', 'review',
+                    'reviewer', %s, %s, 'running', %s, %s, %s,
+                    %s, %s, %s, %s)
+            """,
+            (
+                repository_id,
+                job_id,
+                workflow_job_id,
+                Jsonb({"lane_id": "local"}),
+                Jsonb({}),
+                Jsonb({"repo_write": True, "allowed_paths": ["docs/"], "forbidden_paths": []}),
+                Jsonb([
+                    {
+                        "logical_name": "review",
+                        "kind": "finding",
+                        "path": artifact_path,
+                        "required": True,
+                    }
+                ]),
+                f"{workflow_job_id}-1",
+                now,
+                now,
+                message_id,
+                lease_id,
+            ),
+        )
+        cur.execute(
+            """
+            INSERT INTO striatumd.queue_messages (
+              repository_id, message_id, run_id, job_id, kind, state,
+              target_role_id, target_lane_id, payload_json, created_at,
+              updated_at, claimed_at, acked_at, current_lease_id
+            )
+            VALUES (%s, %s, 'run_1', %s, 'work', 'acked',
+                    'reviewer', 'local', %s, %s, %s, %s, %s, %s)
+            """,
+            (repository_id, message_id, job_id, Jsonb({}), now, now, now, now, lease_id),
+        )
+        cur.execute(
+            """
+            INSERT INTO striatumd.leases (
+              repository_id, lease_id, run_id, resource_type, resource_id,
+              owner_session_id, state, acquired_at, expires_at,
+              last_heartbeat_at
+            )
+            VALUES (%s, %s, 'run_1', 'job', %s, %s,
+                    'active', %s, '2099-01-01T00:00:00Z', %s)
+            """,
+            (repository_id, lease_id, job_id, session_id, now, now),
+        )
+    _insert_attached_supervisor(
+        conn,
+        repository_id=repository_id,
+        supervisor_id=f"sup_{session_ordinal}",
+        session_id=session_id,
+    )
+    _insert_work_packet_and_clean_process(
+        conn,
+        repository_id=repository_id,
+        job_id=job_id,
+        session_id=session_id,
+        lease_id=lease_id,
+        message_id=message_id,
+        packet_id=f"wp_{session_ordinal}",
+        process_id=f"proc_{session_ordinal}",
+    )
+
+
+def _insert_attached_supervisor(
+    conn: Any,
+    *,
+    repository_id: str,
+    supervisor_id: str = "sup_1",
+    session_id: str = "sess_1",
+) -> None:
     with conn.cursor() as cur:
         cur.execute(
             """
@@ -459,16 +576,26 @@ def _insert_attached_supervisor(conn: Any, *, repository_id: str) -> None:
               command_json, cwd, scratch_path, pid, state, started_at,
               heartbeat_at
             )
-            VALUES (%s, 'sup_1', 'run_1', 'sess_1', 'test', %s, '/tmp',
+            VALUES (%s, %s, 'run_1', %s, 'test', %s, '/tmp',
                     '/tmp/scratch', 1234, 'attached', '2026-05-14T00:00:00Z',
                     '2026-05-14T00:00:00Z')
             """,
-            (repository_id, Jsonb(["agent"])),
+            (repository_id, supervisor_id, session_id, Jsonb(["agent"])),
         )
 
 
-def _insert_work_packet_and_clean_process(conn: Any, *, repository_id: str) -> None:
-    packet = {"packet_id": "wp_1"}
+def _insert_work_packet_and_clean_process(
+    conn: Any,
+    *,
+    repository_id: str,
+    job_id: str = "job_1",
+    session_id: str = "sess_1",
+    lease_id: str = "lease_1",
+    message_id: str = "msg_1",
+    packet_id: str = "wp_1",
+    process_id: str = "proc_1",
+) -> None:
+    packet = {"packet_id": packet_id}
     packet_json = json_dumps(packet)
     with conn.cursor() as cur:
         cur.execute(
@@ -477,10 +604,19 @@ def _insert_work_packet_and_clean_process(conn: Any, *, repository_id: str) -> N
               repository_id, packet_id, run_id, job_id, message_id, lease_id,
               session_id, packet_json, packet_sha256, created_at
             )
-            VALUES (%s, 'wp_1', 'run_1', 'job_1', 'msg_1', 'lease_1',
-                    'sess_1', %s, %s, '2026-05-14T00:00:00Z')
+            VALUES (%s, %s, 'run_1', %s, %s, %s,
+                    %s, %s, %s, '2026-05-14T00:00:00Z')
             """,
-            (repository_id, Jsonb(packet), sha256_bytes(packet_json.encode("utf-8"))),
+            (
+                repository_id,
+                packet_id,
+                job_id,
+                message_id,
+                lease_id,
+                session_id,
+                Jsonb(packet),
+                sha256_bytes(packet_json.encode("utf-8")),
+            ),
         )
         cur.execute(
             """
@@ -489,12 +625,12 @@ def _insert_work_packet_and_clean_process(conn: Any, *, repository_id: str) -> N
               packet_id, adapter, command_json, cwd, scratch_path, stdin_mode,
               stdio_mode, pid, state, exit_code, started_at, ended_at
             )
-            VALUES (%s, 'proc_1', 'run_1', 'job_1', 'sess_1', 'lease_1',
-                    'wp_1', 'test', %s, '/tmp', '/tmp/scratch', 'packet',
+            VALUES (%s, %s, 'run_1', %s, %s, %s,
+                    %s, 'test', %s, '/tmp', '/tmp/scratch', 'packet',
                     'suppressed', 1234, 'exited', 0, '2026-05-14T00:00:00Z',
                     '2026-05-14T00:01:00Z')
             """,
-            (repository_id, Jsonb(["agent"])),
+            (repository_id, process_id, job_id, session_id, lease_id, packet_id, Jsonb(["agent"])),
         )
 
 

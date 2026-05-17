@@ -21,7 +21,7 @@ from striatum.cli.mutations import current_git_branch
 
 
 def run_summary_export(conn: sqlite3.Connection, *, repo: Path, run_id: str, path_text: str) -> JsonObject:
-    """Write a compact human-facing run summary."""
+    """Write a compact reader-facing run summary."""
     run = row_by_id(conn, "runs", "run_id", run_id)
     target = repo_relative_path(repo, path_text)
     target.parent.mkdir(parents=True, exist_ok=True)
