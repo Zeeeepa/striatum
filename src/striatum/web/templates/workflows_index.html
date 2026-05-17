@@ -31,6 +31,7 @@
         <th>Workflow ID</th>
         <th>Status</th>
         <th>Last modified</th>
+        <th>Warnings</th>
         <th>Jobs</th>
         <th>Lanes</th>
         <th>Roles</th>
@@ -51,6 +52,20 @@
           {% endif %}
         </td>
         <td>{% if wf.modified_at %}<time datetime="{{ wf.modified_at }}">{{ wf.modified_at }}</time>{% else %}<span class="muted">—</span>{% endif %}</td>
+        <td>
+          {% if wf.lint_warning_count %}
+          <span class="status-pill status-waiting-human">{{ wf.lint_warning_count }} warning{{ "" if wf.lint_warning_count == 1 else "s" }}</span>
+          {% if wf.lint_warnings %}
+          <ul class="lint-warning-list lint-warning-list--compact">
+            {% for warning in wf.lint_warnings %}
+            <li>{% if warning.rule %}<code>{{ warning.rule }}</code>: {% endif %}{{ warning.message }}</li>
+            {% endfor %}
+          </ul>
+          {% endif %}
+          {% else %}
+          <span class="muted">0</span>
+          {% endif %}
+        </td>
         <td>{{ wf.job_count }}</td>
         <td>{{ wf.lane_count }}</td>
         <td>{{ wf.role_count }}</td>

@@ -9,7 +9,7 @@ CORE ?= python
 # when invoked from a Claude Code worktree (or any other cwd).
 MAKEFILE_DIR := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
 
-.PHONY: install lint typecheck pg-test test-multi-repo metadata-check package-smoke package-wheel-size smoke check release-check ui-install ui-update-lock ui-audit ui-clean ui-build ui-dev ui-test ui-bundle-hash ui-bundle-size ui-check-bundle ui-verify-bundle daemon-go-build daemon-go-test daemon-go-lint daemon-go-install daemon-go-release
+.PHONY: install lint typecheck pg-test test-multi-repo metadata-check package-smoke package-wheel-size smoke check release-check ui-install ui-update-lock ui-audit ui-clean ui-build ui-dev ui-test ui-bundle-hash ui-bundle-size ui-check-bundle ui-verify-bundle daemon-go-build daemon-go-test daemon-go-lint daemon-go-helper-check daemon-go-install daemon-go-release
 
 $(PYTHON):
 	python3 -m venv $(VENV)
@@ -83,6 +83,10 @@ daemon-go-test:
 
 daemon-go-lint:
 	$(MAKE) -C "$(MAKEFILE_DIR)/go" lint
+
+daemon-go-helper-check: $(VENV)/.installed
+	$(MAKE) -C "$(MAKEFILE_DIR)/go" helper-check
+	$(PYTHON) -m pytest tests/architecture/test_go_helper_boundary.py -q
 
 # RFC 0039 Phase 2 Step 6: copy the host-platform Go binary into the in-tree
 # wheel package-data path so a local `pip install -e .` install picks it up

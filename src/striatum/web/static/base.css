@@ -1291,6 +1291,18 @@ code.copyable,
 }
 .workflows-table tbody tr:hover { background: var(--bg-overlay); }
 
+.lint-warning-list {
+  margin: var(--space-1) 0 var(--space-3);
+  padding-left: 1.25rem;
+  color: var(--fg-muted);
+}
+.lint-warning-list--compact {
+  max-width: 36rem;
+  margin-bottom: 0;
+  font-size: 0.88em;
+}
+.lint-warning-list li + li { margin-top: 0.25rem; }
+
 .data-table { width: 100%; border-collapse: collapse; margin-top: var(--space-2); margin-bottom: var(--space-3); font-size: 0.92em; }
 .data-table th, .data-table td {
   padding: var(--space-1) var(--space-3);

@@ -126,6 +126,7 @@ EXPECTED_CAPABILITY: dict[str, str] = {
     "list.sessions": "read",
     "list.jobs": "read",
     "list.artifacts": "read",
+    "artifact.show": "read",
     "list.workflows": "read",
     "evidence.export": "read",
     "corpus.export": "read",

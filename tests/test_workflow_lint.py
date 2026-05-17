@@ -78,6 +78,21 @@ def _risky_review_workflow() -> dict[str, Any]:
     }
 
 
+def _same_model_revision_cycle_workflow() -> dict[str, Any]:
+    workflow = _risky_review_workflow()
+    workflow["workflow_id"] = "wf-lint-cycle"
+    workflow["review_revision_policy"] = {"root_review_needs_revision": "declared_cycle"}
+    workflow["cycles"] = [
+        {
+            "from": "review",
+            "to": "draft",
+            "on_verdict": "needs_revision",
+            "max_iterations": 1,
+        }
+    ]
+    return workflow
+
+
 def test_lint_workflow_reports_dogfood_risk_rules() -> None:
     payload = lint_workflow(_risky_review_workflow())
 
@@ -90,6 +105,15 @@ def test_lint_workflow_reports_dogfood_risk_rules() -> None:
         "repo_write_without_worktree_isolation",
         "missing_review_escalation_path",
     }.issubset(rules)
+
+
+def test_lint_workflow_reports_same_model_review_pair_and_revision_cycle() -> None:
+    payload = lint_workflow(_same_model_revision_cycle_workflow())
+
+    assert payload["valid"] is True
+    rules = {warning["rule"] for warning in payload["warnings"]}
+    assert "same_model_review_pair" in rules
+    assert "same_model_revision_cycle" in rules
 
 
 def test_workflow_lint_cli_returns_structured_warnings(
@@ -128,6 +152,28 @@ def test_workflow_lint_strict_refuses_warnings_without_override(
     assert details["strict"]["mode"] == "refused"
     assert details["strict"]["reason"] == "warnings_require_override_rationale"
     assert details["warning_count"] >= 5
+
+
+def test_workflow_lint_strict_refuses_same_model_revision_cycle_without_override(
+    tmp_path: Path, monkeypatch: Any
+) -> None:
+    monkeypatch.setenv("STRIATUM_TEST_HARNESS", "1")
+    monkeypatch.setenv("STRIATUM_DAEMON_REQUIRED", "0")
+    workflow_path = tmp_path / "workflow.json"
+    workflow_path.write_text(
+        json.dumps(_same_model_revision_cycle_workflow()), encoding="utf-8",
+    )
+
+    result = invoke(
+        ["workflow", "lint", str(workflow_path), "--strict", "--json"],
+        repo=tmp_path,
+    )
+
+    assert result["ok"] is False
+    details = result["error"]["details"]
+    rules = {warning["rule"] for warning in details["warnings"]}
+    assert details["strict"]["reason"] == "warnings_require_override_rationale"
+    assert "same_model_revision_cycle" in rules
 
 
 def test_workflow_lint_strict_accepts_explicit_override(

@@ -162,6 +162,7 @@ def insert_fixture(conn: Any, *, repository_id: str, repo_root: Path) -> None:
 @pytest.mark.parametrize(
     ("module_name", "method"),
     [
+        ("artifact_show", "artifact.show"),
         ("list_runs", "list.runs"),
         ("list_sessions", "list.sessions"),
         ("list_jobs", "list.jobs"),
@@ -279,6 +280,38 @@ def test_list_artifacts_filters_and_scopes_repository(pg_conn: Any, tmp_path: Pa
             repo_context(pg_conn, repository_id="repo_a", repo_root=repo_a),
             {"run_id": "run_1", "kind": "transcript"},
         )
+
+
+def test_artifact_show_returns_metadata_and_scopes_repository(pg_conn: Any, tmp_path: Path) -> None:
+    repo_a = tmp_path / "repo-a"
+    repo_b = tmp_path / "repo-b"
+    insert_repo(pg_conn, repo_a, "repo_a")
+    insert_repo(pg_conn, repo_b, "repo_b")
+    insert_fixture(pg_conn, repository_id="repo_a", repo_root=repo_a)
+    insert_fixture(pg_conn, repository_id="repo_b", repo_root=repo_b)
+    module = importlib.import_module("striatum.daemon_pg.handlers.reads.artifact_show")
+
+    result = module.handle(
+        repo_context(pg_conn, repository_id="repo_a", repo_root=repo_a),
+        {"artifact_id": "art_1"},
+    )
+
+    artifact = result["artifact"]
+    assert artifact["artifact_id"] == "art_1"
+    assert artifact["run_id"] == "run_1"
+    assert artifact["artifact_kind"] == "handoff"
+    assert artifact["repo_path"] == "docs/draft.md"
+    assert artifact["content_sha256"] == "sha256:artifact"
+    assert artifact["size_bytes"] == 12
+    assert artifact["author_line"] == "author: author-codex-001"
+
+    with pytest.raises(RpcError, match="artifact not found"):
+        module.handle(
+            repo_context(pg_conn, repository_id="repo_a", repo_root=repo_a),
+            {"artifact_id": "art_missing"},
+        )
+    with pytest.raises(RpcError, match="artifact_id must be a non-empty string"):
+        module.handle(repo_context(pg_conn, repository_id="repo_a", repo_root=repo_a), {})
 
 
 def test_list_workflows_scopes_repository(pg_conn: Any, tmp_path: Path) -> None:

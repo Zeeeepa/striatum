@@ -12,18 +12,12 @@ jobs:
       matrix:
         os: ["ubuntu-latest", "macos-latest"]
         python-version: ["3.11", "3.12"]
-        # RFC 0039 Phase 2 Step 6: daemon_core matrix axis. Both python and
-        # go run as explicit jobs (not in-process parametrization) so an
-        # all-skipped pass cannot occur (dogfood-047 F3 finding).
-        daemon-core: ["python", "go"]
-    # RFC 0039 V1.6 F3/F5 (dogfood-047): a Postgres service so the
-    # multi-repo harness can boot ephemeral databases. STRIATUM_MULTI_REPO_REQUIRE_PG=1
-    # (set below) converts harness skips to failures so a missing-PG CI
-    # environment can no longer masquerade as a green run. GitHub-hosted
-    # macOS runners don't support `services:`, so the multi-repo step is
-    # gated on Linux only — the macOS jobs still run the in-process unit
-    # tests + Go build + Go tests, just not the PG-backed multi-repo
-    # matrix.
+    # D105: Python is the production daemon core. Go CI is helper-focused;
+    # the old CORE=go multi-repo parity axis is intentionally not a release
+    # gate. The Postgres service remains for the Python multi-repo harness.
+    # STRIATUM_MULTI_REPO_REQUIRE_PG=1 converts missing-PG skips to failures.
+    # GitHub-hosted macOS runners don't support `services:`, so the
+    # multi-repo step is Linux-only.
     services:
       postgres:
         image: ${{ matrix.os == 'ubuntu-latest' && 'postgres:16' || '' }}
@@ -47,9 +41,8 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
       - uses: actions/setup-go@v5
-        if: matrix.daemon-core == 'go'
         with:
-          # go/go.mod requires 1.23 (RFC 0039 V1.5 — Phase 2 / pgx).
+          # go/go.mod requires 1.23.
           go-version: "1.23"
           cache-dependency-path: go/go.sum
       - uses: actions/setup-node@v4
@@ -61,34 +54,17 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           python -m pip install -e ".[dev]"
-      - name: Build Go daemon
-        if: matrix.daemon-core == 'go'
-        run: make daemon-go-build
-      - name: Verify Go binary present (RFC 0039 V1.6 F-ci)
-        if: matrix.daemon-core == 'go'
-        # dogfood-049 gemini F6: don't let a silent no-op make-build cause
-        # an all-skipped pass on the go matrix axis. Hard-fail here if
-        # go/bin/striatumd is missing after the build step.
-        run: |
-          if [ ! -x go/bin/striatumd ]; then
-            echo "::error::CORE=go selected but go/bin/striatumd is missing after make daemon-go-build" >&2
-            exit 1
-          fi
-          echo "ok: go/bin/striatumd $(go/bin/striatumd --version 2>/dev/null || echo present)"
-      - name: Go tests
-        if: matrix.daemon-core == 'go'
-        run: make daemon-go-test
-      - name: Multi-repo harness (CORE=${{ matrix.daemon-core }})
+      - name: Go helper check
+        run: make daemon-go-helper-check
+      - name: Multi-repo harness (CORE=python)
         # macOS GitHub-hosted runners can't run services:, so the
         # multi-repo step is Linux-only. Without the Postgres service the
         # STRIATUM_MULTI_REPO_REQUIRE_PG=1 below would intentionally fail
-        # — exactly what F3 wants. Run only on Ubuntu.
+        # — exactly what the harness guardrail wants. Run only on Ubuntu.
         if: matrix.os == 'ubuntu-latest'
         env:
-          # RFC 0039 Phase 2 Step 6 / dogfood-047 F3: hard-fail-on-missing-PG
-          # sentinel so an all-skipped pass cannot occur on the go axis.
           STRIATUM_MULTI_REPO_REQUIRE_PG: "1"
-        run: make test-multi-repo CORE=${{ matrix.daemon-core }}
+        run: make test-multi-repo CORE=python
       - name: UI install
         run: make ui-install
       - name: UI build hash check

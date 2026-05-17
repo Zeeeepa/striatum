@@ -13,6 +13,7 @@ from striatum.daemon_rpc.envelope import RpcError
 pytest_plugins = ("read_handler_fixtures",)
 
 METHODS = {
+    "artifact.show": "artifact_show.py",
     "status": "status.py",
     "dashboard": "dashboard.py",
     "list.runs": "list_runs.py",

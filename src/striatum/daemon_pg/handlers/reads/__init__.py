@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from . import artifact_show as artifact_show
 from . import archive as archive
 from . import corpus_export as corpus_export
 from . import dashboard as dashboard

@@ -103,6 +103,12 @@ def test_escalation_methods_are_declared_with_principal_capabilities() -> None:
     assert METHOD_REGISTRY["escalation.resolve"].effective_repository_scope_mode == "single_repo"
 
 
+def test_artifact_show_is_read_scoped_single_repo() -> None:
+    assert METHOD_REGISTRY["artifact.show"].required_capability == "read"
+    assert METHOD_REGISTRY["artifact.show"].effective_repository_scope_mode == "single_repo"
+    assert not METHOD_REGISTRY["artifact.show"].deprecated
+
+
 def test_auto_finalize_method_is_recovery_scoped_and_not_recovery_auto() -> None:
     assert METHOD_REGISTRY["recovery.auto_finalize"].required_capability == "recovery"
     assert (

@@ -703,7 +703,12 @@ run-scoped rows, artifact metadata, event metadata, and a self-verifying
 `manifest.json`. It does not copy artifact contents, transcripts,
 `.striatum/` scratch, or any external-service state. `striatum archive
 verify --bundle <dir>` checks an existing archive locally without daemon
-state.
+state. `striatum archive verify --bundle <dir> --replay` adds an offline
+semantic replay over the archived metadata: run/repository consistency,
+FK-style references among run rows, monotonic event ordering, and event-chain
+continuity when `previous_hash` / `row_hash` anchors are present. Because the
+archive stores artifact metadata rather than artifact bytes, artifact content
+hashes are checked only when the operator also provides `--repo-root <path>`.
 
 ## Branches And Commits
 
@@ -826,7 +831,7 @@ striatum recovery resume
 # Corpus export (RFC 0044 V1; RFC 0052 contract)
 striatum corpus export --since <ref> --out <dir>
 striatum archive create --run-id <id> --out <dir>
-striatum archive verify --bundle <dir>
+striatum archive verify --bundle <dir> [--replay] [--repo-root <path>]
 
 # Adapter
 striatum adapter run

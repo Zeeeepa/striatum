@@ -15,6 +15,9 @@ from typing import Any
 
 __all__ = ["discover", "list_repo_tree", "load_workflow_at"]
 
+_MAX_LINT_WARNING_MESSAGES = 3
+_MAX_LINT_WARNING_MESSAGE_CHARS = 220
+
 
 # Directories to skip during the rglob walk. Hidden striatum + git
 # state, common Python virtualenv dirs, build outputs, vendored
@@ -45,6 +48,50 @@ def _modified_at(path: Path) -> str | None:
         return None
 
 
+def _shorten_message(message: str) -> str:
+    compact = " ".join(message.split())
+    if len(compact) <= _MAX_LINT_WARNING_MESSAGE_CHARS:
+        return compact
+    return compact[: _MAX_LINT_WARNING_MESSAGE_CHARS - 3].rstrip() + "..."
+
+
+def _lint_summary(workflow: dict[str, Any], *, repo_root: Path) -> dict[str, Any]:
+    """Return a non-failing lint summary for web display."""
+    from striatum.workflow import lint_workflow
+
+    try:
+        payload = lint_workflow(workflow, repo_root=repo_root)
+    except Exception as exc:  # noqa: BLE001
+        return {
+            "lint_warning_count": 0,
+            "lint_warnings": [],
+            "lint_error": f"{type(exc).__name__}: {exc}"[:200],
+        }
+
+    raw_warnings = payload.get("warnings")
+    warnings = raw_warnings if isinstance(raw_warnings, list) else []
+    raw_count = payload.get("warning_count")
+    warning_count = raw_count if isinstance(raw_count, int) and not isinstance(raw_count, bool) else len(warnings)
+    short: list[dict[str, str | None]] = []
+    for warning in warnings[:_MAX_LINT_WARNING_MESSAGES]:
+        if isinstance(warning, dict):
+            raw_message = warning.get("message")
+            raw_rule = warning.get("rule")
+            message = raw_message if isinstance(raw_message, str) else ""
+            rule = raw_rule if isinstance(raw_rule, str) and raw_rule else None
+        else:
+            message = str(warning)
+            rule = None
+        if not message:
+            continue
+        short.append({"rule": rule, "message": _shorten_message(message)})
+    return {
+        "lint_warning_count": warning_count,
+        "lint_warnings": short,
+        "lint_error": None,
+    }
+
+
 def discover(repo: Path) -> list[dict[str, Any]]:
     """Discover every ``workflow.json`` under ``repo`` and report
     validation status per file. Never raises."""
@@ -67,6 +114,9 @@ def discover(repo: Path) -> list[dict[str, Any]]:
         entry: dict[str, Any] = {
             "path": rel,
             "modified_at": _modified_at(path),
+            "lint_warning_count": 0,
+            "lint_warnings": [],
+            "lint_error": None,
         }
         try:
             raw = path.read_text(encoding="utf-8")
@@ -116,6 +166,7 @@ def discover(repo: Path) -> list[dict[str, Any]]:
         entry["job_count"] = len(jobs) if isinstance(jobs, list) else 0
         entry["lane_count"] = len(lanes) if isinstance(lanes, dict) else 0
         entry["role_count"] = len(roles) if isinstance(roles, dict) else 0
+        entry.update(_lint_summary(data, repo_root=repo))
         entry["data"] = data
         found.append(entry)
     found.sort(key=lambda e: e["path"])
@@ -149,6 +200,9 @@ def load_workflow_at(repo: Path, rel_path: str) -> dict[str, Any] | None:
     entry: dict[str, Any] = {
         "path": rel,
         "modified_at": _modified_at(target),
+        "lint_warning_count": 0,
+        "lint_warnings": [],
+        "lint_error": None,
     }
     try:
         raw = target.read_text(encoding="utf-8")
@@ -178,6 +232,7 @@ def load_workflow_at(repo: Path, rel_path: str) -> dict[str, Any] | None:
         entry["message"] = f"{type(exc).__name__}: {exc}"[:1000]
     entry["workflow_id"] = data.get("workflow_id")
     entry["workflow_version"] = data.get("workflow_version")
+    entry.update(_lint_summary(data, repo_root=repo_root))
     entry["data"] = data
     return entry
 

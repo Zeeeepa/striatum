@@ -1,12 +1,18 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from importlib import import_module
 from pathlib import Path
 
 import pytest
 
-from striatum.archive import ARCHIVE_JSONL_FILES, verify_run_archive, write_run_archive
+from striatum.archive import (
+    ARCHIVE_JSON_FILES,
+    ARCHIVE_JSONL_FILES,
+    verify_run_archive,
+    write_run_archive,
+)
 from striatum.errors import StriatumError
 
 
@@ -17,7 +23,13 @@ def _archive(tmp_path: Path) -> Path:
         repo_root=tmp_path,
         repository_id="repo_a",
         run_id="run_1",
-        run={"repository_id": "repo_a", "run_id": "run_1", "state": "completed"},
+        run={
+            "repository_id": "repo_a",
+            "run_id": "run_1",
+            "workflow_snapshot_id": "wf_1",
+            "repo_root": str(tmp_path),
+            "state": "completed",
+        },
         workflow_snapshot={
             "repository_id": "repo_a",
             "workflow_snapshot_id": "wf_1",
@@ -49,6 +61,57 @@ def _archive(tmp_path: Path) -> Path:
     return out
 
 
+def _read_jsonl(archive: Path, kind: str) -> list[dict[str, object]]:
+    rows: list[dict[str, object]] = []
+    for line in (archive / ARCHIVE_JSONL_FILES[kind]).read_text(encoding="utf-8").splitlines():
+        if line:
+            loaded = json.loads(line)
+            assert isinstance(loaded, dict)
+            rows.append(loaded)
+    return rows
+
+
+def _write_jsonl(archive: Path, kind: str, rows: list[dict[str, object]]) -> None:
+    body = "\n".join(
+        json.dumps(row, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
+        for row in rows
+    )
+    (archive / ARCHIVE_JSONL_FILES[kind]).write_text(body + "\n", encoding="utf-8")
+    _refresh_manifest(archive)
+
+
+def _refresh_manifest(archive: Path) -> None:
+    manifest_path = archive / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    assert isinstance(manifest, dict)
+    for _kind, filename in ARCHIVE_JSON_FILES.items():
+        data = (archive / filename).read_bytes()
+        manifest["files"][filename] = {
+            "sha256": hashlib.sha256(data).hexdigest(),
+            "rows": 1,
+            "bytes": len(data),
+        }
+    for kind, filename in ARCHIVE_JSONL_FILES.items():
+        data = (archive / filename).read_bytes()
+        rows = sum(1 for line in data.decode("utf-8").splitlines() if line)
+        manifest["files"][filename] = {
+            "sha256": hashlib.sha256(data).hexdigest(),
+            "rows": rows,
+            "bytes": len(data),
+        }
+        manifest["row_counts"][kind] = rows
+    manifest.pop("bundle_sha256", None)
+    manifest["bundle_sha256"] = hashlib.sha256(
+        json.dumps(
+            manifest,
+            ensure_ascii=False,
+            separators=(",", ":"),
+            sort_keys=True,
+        ).encode("utf-8")
+    ).hexdigest()
+    manifest_path.write_text(json.dumps(manifest, sort_keys=True), encoding="utf-8")
+
+
 def test_verify_run_archive_accepts_writer_output(tmp_path: Path) -> None:
     result = verify_run_archive(_archive(tmp_path))
 
@@ -59,6 +122,15 @@ def test_verify_run_archive_accepts_writer_output(tmp_path: Path) -> None:
     assert isinstance(row_counts, dict)
     assert row_counts["artifacts"] == 1
     assert row_counts["events"] == 1
+
+
+def test_verify_run_archive_replay_accepts_writer_output(tmp_path: Path) -> None:
+    result = verify_run_archive(_archive(tmp_path), replay=True)
+
+    replay = result["replay"]
+    assert isinstance(replay, dict)
+    assert replay["status"] == "verified"
+    assert replay["artifact_content_hashes_checked"] == 0
 
 
 def test_verify_run_archive_rejects_tampered_jsonl(tmp_path: Path) -> None:
@@ -82,6 +154,52 @@ def test_verify_run_archive_rejects_manifest_row_count_mismatch(tmp_path: Path) 
         verify_run_archive(archive)
 
 
+def test_verify_run_archive_replay_rejects_broken_reference(tmp_path: Path) -> None:
+    archive = _archive(tmp_path)
+    artifacts = _read_jsonl(archive, "artifacts")
+    artifacts[0]["job_id"] = "missing_job"
+    _write_jsonl(archive, "artifacts", artifacts)
+
+    with pytest.raises(StriatumError, match="broken reference"):
+        verify_run_archive(archive, replay=True)
+
+
+def test_verify_run_archive_replay_rejects_broken_event_chain(tmp_path: Path) -> None:
+    archive = _archive(tmp_path)
+    events = _read_jsonl(archive, "events")
+    events.append(
+        {
+            "repository_id": "repo_a",
+            "event_id": 2,
+            "run_id": "run_1",
+            "event_type": "job.completed",
+            "previous_hash": "not-rowhash",
+            "row_hash": "rowhash2",
+        }
+    )
+    _write_jsonl(archive, "events", events)
+
+    with pytest.raises(StriatumError, match="event chain"):
+        verify_run_archive(archive, replay=True)
+
+
+def test_verify_run_archive_replay_optionally_checks_artifact_hash(
+    tmp_path: Path,
+) -> None:
+    archive = _archive(tmp_path)
+    artifact_path = tmp_path / "docs" / "out.md"
+    artifact_path.parent.mkdir()
+    artifact_path.write_text("different content\n", encoding="utf-8")
+
+    result = verify_run_archive(archive, replay=True)
+    replay = result["replay"]
+    assert isinstance(replay, dict)
+    assert replay["artifact_content_hashes_checked"] == 0
+
+    with pytest.raises(StriatumError, match="artifact content hash mismatch"):
+        verify_run_archive(archive, replay=True, repo_root=tmp_path)
+
+
 def test_archive_verify_cli_is_local_read_only(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     archive = _archive(tmp_path)
     from striatum.cli.parser import build_parser
@@ -100,6 +218,7 @@ def test_archive_verify_cli_is_local_read_only(tmp_path: Path, monkeypatch: pyte
             "verify",
             "--bundle",
             str(archive.relative_to(tmp_path)),
+            "--replay",
             "--json",
         ]
     )

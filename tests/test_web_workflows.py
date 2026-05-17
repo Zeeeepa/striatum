@@ -58,6 +58,86 @@ _VALID_WORKFLOW = {
 }
 
 
+def _same_model_warning_workflow() -> dict[str, object]:
+    return {
+        "schema_version": "striatum.workflow.v1",
+        "workflow_id": "wf-test-lint-warn",
+        "workflow_version": "1",
+        "name": "Test lint warning",
+        "branch": {"mode": "confirm", "suggested_name": "wf/lint", "allow_dirty": False},
+        "coordinator": {"role_id": "author", "lane_id": "author"},
+        "lanes": {
+            "author": {
+                "adapter": "process",
+                "display_model": "codex-gpt-5",
+                "command": ["echo"],
+                "worktree_isolation": "per_job",
+            },
+            "reviewer": {
+                "adapter": "process",
+                "display_model": "codex-gpt-5.1",
+                "command": ["echo"],
+                "capabilities": ["review"],
+            },
+        },
+        "roles": {"author": {}, "reviewer": {}},
+        "context_docs": [],
+        "parallelism": {
+            "mode": "declared",
+            "max_active_jobs": 1,
+            "require_disjoint_write_scopes": True,
+        },
+        "review_revision_policy": {"root_review_needs_revision": "human_checkpoint"},
+        "jobs": [
+            {
+                "id": "draft",
+                "type": "build",
+                "title": "Draft",
+                "role_id": "author",
+                "lane_id": "author",
+                "write_scope": {
+                    "mode": "repo_write",
+                    "repo_write": True,
+                    "allowed_paths": ["docs/drafts/"],
+                    "forbidden_paths": [".striatum/"],
+                },
+                "expected_artifacts": [
+                    {
+                        "logical_name": "draft",
+                        "kind": "handoff",
+                        "path": "docs/drafts/DRAFT.md",
+                        "required": True,
+                    }
+                ],
+            },
+            {
+                "id": "review",
+                "type": "review",
+                "title": "Review",
+                "role_id": "reviewer",
+                "lane_id": "reviewer",
+                "fresh_session_required": True,
+                "write_scope": {
+                    "mode": "review_only_artifact",
+                    "repo_write": False,
+                    "allowed_paths": ["docs/reviews/"],
+                    "forbidden_paths": [".striatum/"],
+                },
+                "expected_artifacts": [
+                    {
+                        "logical_name": "review",
+                        "kind": "finding",
+                        "path": "docs/reviews/REVIEW.md",
+                        "required": True,
+                    }
+                ],
+            },
+        ],
+        "edges": [{"from": "draft", "to": "review", "on": "completed"}],
+        "cycles": [],
+    }
+
+
 # --- discover() unit tests -----------------------------------------
 
 
@@ -73,6 +153,19 @@ def test_discover_finds_workflow_json(tmp_path: Path) -> None:
     assert found[0]["workflow_id"] == "wf-test-valid"
     assert found[0]["job_count"] == 1
     assert found[0]["modified_at"].endswith("Z")
+
+
+def test_discover_surfaces_lint_warning_summary(tmp_path: Path) -> None:
+    (tmp_path / "examples").mkdir()
+    (tmp_path / "examples" / "workflow.json").write_text(
+        json.dumps(_same_model_warning_workflow()), encoding="utf-8",
+    )
+    found = discover(tmp_path)
+
+    assert found[0]["status"] == "valid"
+    assert found[0]["lint_warning_count"] == 1
+    assert found[0]["lint_warnings"][0]["rule"] == "same_model_review_pair"
+    assert "same model family" in found[0]["lint_warnings"][0]["message"]
 
 
 def test_discover_reports_modified_at_utc(tmp_path: Path) -> None:
@@ -190,6 +283,24 @@ def test_workflows_index_renders(tmp_path: Path) -> None:
         _stop_service(proc)
 
 
+def test_workflows_index_renders_lint_warning_count_and_text(tmp_path: Path) -> None:
+    _git_init_repo(tmp_path)
+    _striatum_init(tmp_path)
+    (tmp_path / "examples").mkdir()
+    (tmp_path / "examples" / "workflow.json").write_text(
+        json.dumps(_same_model_warning_workflow()), encoding="utf-8",
+    )
+    proc, port = _spawn_service(tmp_path, "--web")
+    try:
+        status, _, body = _http_get_raw(port, "/workflows")
+        assert status == 200
+        assert b"1 warning" in body
+        assert b"same_model_review_pair" in body
+        assert b"same model family" in body
+    finally:
+        _stop_service(proc)
+
+
 def test_workflows_new_renders_chooser_island(tmp_path: Path) -> None:
     _git_init_repo(tmp_path)
     _striatum_init(tmp_path)
@@ -249,6 +360,25 @@ def test_workflow_detail_renders_valid(tmp_path: Path) -> None:
         assert b"wf-test-valid" in body
         assert b"<svg" in body
         assert b"review_only" in body
+    finally:
+        _stop_service(proc)
+
+
+def test_workflow_detail_renders_lint_warning_count_and_text(tmp_path: Path) -> None:
+    _git_init_repo(tmp_path)
+    _striatum_init(tmp_path)
+    (tmp_path / "examples").mkdir()
+    (tmp_path / "examples" / "workflow.json").write_text(
+        json.dumps(_same_model_warning_workflow()), encoding="utf-8",
+    )
+    proc, port = _spawn_service(tmp_path, "--web")
+    try:
+        status, _, body = _http_get_raw(port, "/workflows/examples/workflow.json")
+        assert status == 200
+        assert b"lint warnings: <code>1</code>" in body
+        assert b"1 warning" in body
+        assert b"same_model_review_pair" in body
+        assert b"same model family" in body
     finally:
         _stop_service(proc)
 

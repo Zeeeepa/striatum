@@ -207,26 +207,24 @@ mechanisms together collapse the operator-on-behalf burden by ~80%.
 - One end-to-end dogfood with **zero** operator-on-behalf publishes on
   jobs whose agents wrote valid artifacts (the success criterion).
 
-### 4.3 Dogfood-059: TODO #30 / RFC 0039 V1.6 — Go helper/runtime hardening
+### 4.3 ✅ completed — TODO #30 / RFC 0039 V1.6 Go helper/runtime hardening
 
 **Closes:** [TODO item 30](TODO.md#L527).
 
-**Why now:** v1.48.2 only fixed the Go version pin. D105 stops treating
-Go daemon parity as release-blocking, but the Go code that remains in tree
-still needs dependency and security hygiene before it can become a narrow
+**Status:** complete for the post-D105 helper-focused hardening slice. D105
+stops treating Go daemon parity as release-blocking; this item now closes only
+the dependency, CI, boundary, and startup hygiene needed for the narrow
 supervisor helper:
 
-- (F1) `(cd go && go mod tidy)` + commit `go.sum` — already present
-  locally; verify CI receives it cleanly and add `go mod verify`.
-- (F2) Remove the unauthenticated/no-audit socket-serving fallback in
-  `go/cmd/striatumd/main.go:49`, or delete that serving mode when the
-  helper protocol replaces it.
-- (F3) Replace `make test-multi-repo CORE=go` with a non-optional
-  Go-helper CI target once the helper protocol lands.
-- (F4) Keep denial/audit coverage for any Go RPC-serving path that remains
-  during transition.
-- (F5) Run Go race/audit tests only for helper-owned code paths or
-  transitional RPC code still shipped.
+- (F1) `go/Makefile verify` now runs `go mod verify` and
+  `go mod tidy -diff`.
+- (F2) A startup regression asserts `striatumd` refuses to serve without a
+  Postgres URL/config and does not bind its Unix socket.
+- (F3) CI runs `make daemon-go-helper-check` instead of a `CORE=go`
+  multi-repo parity axis.
+- (F4/F5) Helper boundary coverage now inspects transitive dependencies with
+  `go list -deps ./cmd/striatum-supervisor-helper`; transitional Go RPC
+  smoke/audit tests remain available but are not a parity gate.
 
 **Suggested implementer:** claude (Go + Python harness). Deliberately
 avoid codex (D101 precedent).
@@ -414,8 +412,10 @@ attestation, wrapper fixtures, and broader helper-only CI.
 - Opt-in strict mode landed: `workflow lint --strict` refuses warnings unless
   the operator supplies a non-empty `--override-rationale`, and JSON/API
   refusals include the lint payload under `error.details`.
+- The workflow browser/detail pages surface lint warning counts and short
+  warning lists without changing validation status.
 
-**Remaining Phase 7 debt:** generator/web surfacing, broader coverage scoring,
+**Remaining Phase 7 debt:** generator surfacing, broader coverage scoring,
 and audit linkage for accepted lint risks.
 
 ---
@@ -527,9 +527,10 @@ All three phases landed:
 ### 5.4 TODO item 26 — Codex/codex pairing validator rule
 
 5 documented instances (D095, D096, D097, D098, D100) of the implementer-
-↔-reviewer co-blindness anti-pattern. Soft warning landed; full
-refuse-by-default with `--allow-same-model-pairing` override knob is
-still open.
+↔-reviewer co-blindness anti-pattern. Soft warning and strict lint refusal
+with explicit override rationale have landed; full ordinary-validator
+refuse-by-default with `--allow-same-model-pairing` override knob is still
+open.
 
 **Suggested implementer:** any lane. Small validator extension to
 `src/striatum/workflow.py::_validate_lane_constraints`.
@@ -708,8 +709,9 @@ Release order after Phase 0:
    human principal.
 6. **TODO 54 / Phase 6:** harden process supervision with PTY support,
    wrapper control acks, and reattach/lost-state handling.
-7. **TODO 55 / Phase 7:** workflow risk lint and opt-in strict enforcement
-   landed; remaining generator/web/audit surfacing is tracked in §4.11.
+7. **TODO 55 / Phase 7:** workflow risk lint, opt-in strict enforcement,
+   and web surfacing landed; remaining generator/audit surfacing is tracked
+   in §4.11.
 8. **TODO 56 / Phase 8:** auto-finalize daemon method landed; remaining
    sweep/dashboard/web/dogfood work is tracked in §4.12.
 9. **TODO 57 / Phase 9:** clean-build, bundle-size, and wheel-size gates
@@ -739,7 +741,7 @@ dogfood. Order them by impact, not by RFC number.
 | [27](TODO.md) | RFC 0045 V1.5 | dogfood-043 | D097 | Cycle phase-jump validator gap; strict phase-skip; `phase_id` strict-on-v1; drag-drop dropdown bypass; malformed v1.1 tolerance. |
 | [28](TODO.md) | RFC 0040 V1.6 | dogfood-044 | D098 | Codex findings from dogfood-044 build review. |
 | [29](TODO.md) | RFC 0038 V1.6 | dogfood-045 | D099 | Real-bundle commit (`make ui-update-lock` + `make ui-build`) + supply-chain polish. **First `reject critical` override.** |
-| [30](TODO.md) | RFC 0039 V1.6 | dogfood-047 | D101 | F1-F5 (`go.sum`, auth fallback, hard-fail CI, audit denial test, race test in CI). **Already in active runway as 4.3.** |
+| [30](TODO.md) | RFC 0039 V1.6 | dogfood-047 | D101 | ✅ Completed in 4.3 as the post-D105 helper-focused hardening slice; full Go daemon parity remains out of scope. |
 | [31](TODO.md) | RFC 0043 V1.5 | dogfood-048 | D102 | Crash-recovery tombstone two-phase; daemon-required default flip; `daemon migrate-repo-local` subparser wiring; e2e tests. **Distinct from D095-D101 — both reviewers had real findings, not co-blindness.** |
 | (NEW) | RFC 0050 follow-up | dogfood-056 | (no override) | 5 reviewer findings filed as GH #9-13; 1 ergonomic from claude review. Already in active runway as 4.1 + 5.1. |
 
@@ -781,13 +783,12 @@ dogfood. Order them by impact, not by RFC number.
 ### 9.1 CI health (v1.55.0)
 
 CI's Multi-repo harness step now hard-fails on missing Postgres rather
-than silently skipping. RFC 0039 V1.6 F3+F5 (commit `18927a9`)
-provisions a Postgres 16 service on the ubuntu-latest matrix legs and
-sets `STRIATUM_MULTI_REPO_REQUIRE_PG=1`, so a missing-PG CI environment
-can no longer masquerade as a green run. GitHub-hosted macOS runners
-don't support `services:`, so the multi-repo step is gated to Linux;
-macOS still exercises in-process unit tests, the Go build, and `go
-test ./...`.
+than silently skipping. After TODO item 30, CI no longer carries a
+`CORE=go` multi-repo parity axis; it runs the Python-core multi-repo
+harness on ubuntu-latest and the helper-focused `make
+daemon-go-helper-check` on every matrix leg. GitHub-hosted macOS
+runners don't support `services:`, so the multi-repo step remains
+Linux-only.
 
 ### 9.2 Test failures status (v1.55.0)
 

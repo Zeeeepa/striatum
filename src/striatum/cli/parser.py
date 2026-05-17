@@ -759,6 +759,18 @@ def build_parser() -> argparse.ArgumentParser:
     archive_create.add_argument("--json", action="store_true")
     archive_verify = archive_sub.add_parser("verify")
     archive_verify.add_argument("--bundle", required=True)
+    archive_verify.add_argument(
+        "--replay",
+        action="store_true",
+        help="run offline semantic replay checks over the archive metadata",
+    )
+    archive_verify.add_argument(
+        "--repo-root",
+        help=(
+            "optional repository root used with replay verification to check "
+            "artifact content hashes from archived metadata"
+        ),
+    )
     archive_verify.add_argument("--json", action="store_true")
 
     decision = sub.add_parser("decision")

@@ -100,6 +100,46 @@ def _legacy_job_retry(repo: Path, *, run_id: str, job_id: str) -> JsonObject:
         return retry_job(conn, run_id=run_id, job_id=job_id)
 
 
+def _legacy_artifact_raw_fallback_enabled(code: str) -> bool:
+    return (
+        code in {"daemon_unreachable", "repo_not_registered"}
+        and os.environ.get("STRIATUM_TEST_HARNESS") == "1"
+        and os.environ.get("STRIATUM_DAEMON_REQUIRED") == "0"
+    )
+
+
+def _legacy_artifact_metadata(repo: Path, *, artifact_id: str) -> JsonObject | None:
+    conn: sqlite3.Connection | None = None
+    try:
+        conn = sqlite3.connect(str(db_path(repo)))
+        conn.row_factory = sqlite3.Row
+        row = conn.execute(
+            """
+            SELECT artifact_id, run_id, job_id, session_id, logical_name,
+                   artifact_kind, repo_path, content_sha256, size_bytes,
+                   publish_mode, created_at, author_line
+            FROM artifacts
+            WHERE artifact_id = ?
+            """,
+            (artifact_id,),
+        ).fetchone()
+        return dict(row) if row is not None else None
+    finally:
+        if conn is not None:
+            conn.close()
+
+
+def _artifact_file_path(repo: Path, repo_path: object) -> Path:
+    if not isinstance(repo_path, str) or not repo_path:
+        raise ValueError("artifact repo_path must be a non-empty string")
+    relative = Path(repo_path)
+    if relative.is_absolute():
+        raise ValueError("artifact repo_path must be repository-relative")
+    full = (repo / relative).resolve()
+    full.relative_to(repo.resolve())
+    return full
+
+
 def _send_legacy_fixture_error(handler: BaseHTTPRequestHandler, exc: Exception) -> bool:
     from striatum.errors import InvalidTransitionError, NotFoundError, StriatumError
 
@@ -1802,31 +1842,51 @@ class StriatumServiceHandler(BaseHTTPRequestHandler):
     def _handle_artifact_raw(self, artifact_id: str) -> None:
         """RFC 0013 V1: serve the raw bytes of an artifact for the web UI viewer.
 
-        Looks up the artifact row, opens the file at ``repo_path``, and streams
-        the bytes back. Read-only; no mutation gate. Returns 404 if the row or
-        the file is missing.
+        Looks up artifact metadata through the daemon, opens the file at
+        ``repo_path``, and streams the bytes back. Read-only; no mutation gate.
+        Returns 404 if the row or the file is missing.
         """
         if not artifact_id:
             self._send_json(400, {"ok": False, "error": {"code": 400, "message": "missing artifact id"}})
             return
-        conn: sqlite3.Connection | None = None
+        from striatum.service_daemon import ServiceDaemonRpcError, call_repo_method
+
         try:
-            conn = sqlite3.connect(str(db_path(self.state.repo)))
-            conn.row_factory = sqlite3.Row
-            row = conn.execute(
-                "SELECT artifact_kind, repo_path FROM artifacts WHERE artifact_id = ?",
-                (artifact_id,),
-            ).fetchone()
-        except sqlite3.Error as exc:
-            self._send_json(500, {"ok": False, "error": {"code": 500, "message": str(exc)}})
+            payload = call_repo_method(self.state.repo, "artifact.show", {"artifact_id": artifact_id})
+            artifact_raw = payload.get("artifact")
+            if not isinstance(artifact_raw, Mapping):
+                self._send_json(
+                    500,
+                    {"ok": False, "error": {"code": 500, "message": "daemon artifact DTO missing artifact"}},
+                )
+                return
+            artifact = artifact_raw
+        except ServiceDaemonRpcError as exc:
+            if _legacy_artifact_raw_fallback_enabled(exc.code):
+                try:
+                    legacy = _legacy_artifact_metadata(self.state.repo, artifact_id=artifact_id)
+                except sqlite3.Error as legacy_exc:
+                    self._send_json(500, {"ok": False, "error": {"code": 500, "message": str(legacy_exc)}})
+                    return
+                if legacy is None:
+                    self._send_json(404, {"ok": False, "error": {"code": 404, "message": "artifact not found"}})
+                    return
+                artifact = legacy
+            else:
+                self._send_json(
+                    exc.status,
+                    {"ok": False, "error": {"code": exc.code, "message": exc.message}},
+                )
+                return
+        except Exception as exc:  # noqa: BLE001
+            self._send_json(500, {"ok": False, "error": {"code": 500, "message": f"{type(exc).__name__}: {exc}"}})
             return
-        finally:
-            if conn is not None:
-                conn.close()
-        if row is None:
-            self._send_json(404, {"ok": False, "error": {"code": 404, "message": "artifact not found"}})
+
+        try:
+            repo_path = _artifact_file_path(self.state.repo, artifact.get("repo_path"))
+        except ValueError:
+            self._send_json(404, {"ok": False, "error": {"code": 404, "message": "artifact file missing on disk"}})
             return
-        repo_path = self.state.repo / str(row["repo_path"])
         if not repo_path.is_file():
             self._send_json(404, {"ok": False, "error": {"code": 404, "message": "artifact file missing on disk"}})
             return

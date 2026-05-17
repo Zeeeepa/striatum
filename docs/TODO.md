@@ -105,7 +105,7 @@ so external references keep resolving even as items move between sections.
 | 52 | RFC 0061 Architecture remediation Phase 4 — daemon-first web service | 🟡 mutation POST + run-list read slices landed |
 | 53 | RFC 0062 Architecture remediation Phase 5 — real escalation inbox | 🟡 projection + escalation artifact schema landed |
 | 54 | RFC 0063 Architecture remediation Phase 6 — hardened PTY supervision | 🟡 control-event + helper protocol slices landed |
-| 55 | RFC 0064 Architecture remediation Phase 7 — workflow risk lint and review diversity enforcement | 🟡 strict lint override slice landed |
+| 55 | RFC 0064 Architecture remediation Phase 7 — workflow risk lint and review diversity enforcement | 🟡 strict lint + web surfacing landed |
 | 56 | Architecture remediation Phase 8 — auto-finalize from front matter | 🟡 daemon recovery + visibility slices landed |
 | 57 | RFC 0065 Architecture remediation Phase 9 — UI packaging and bundle cleanup | ✅ done; chunking monitor only |
 | 58 | RFC 0059 Architecture remediation Phase 10 — day-zero setup improvements | ✅ done |
@@ -552,7 +552,13 @@ Legend: ✅ done · 🟡 most done (sub-tasks remain) · ⏳ open/blocked · �
     executable without `STRIATUM_PG_TEST_URL`) absorbed into RFC
     0039 V1.6 follow-up (item 30 below).
 
-30. **RFC 0039 / D105 Go helper-runtime hardening.** Codex needs_revision findings from
+30. ~~**RFC 0039 / D105 Go helper-runtime hardening.**~~ ✅ Done:
+    the post-D105 helper-focused slice landed `go/Makefile`
+    `verify`, `test-helper`, and `helper-check`; root
+    `daemon-go-helper-check`; helper-only CI; transitive helper dependency
+    inspection via `go list -deps ./cmd/striatum-supervisor-helper`; and
+    the startup no-Postgres/no-socket regression. Full Go daemon parity remains
+    out of scope under D105. Historical context: Codex needs_revision findings from
     dogfood-047 build review, deferred under D101 (decision
     `dec_f8d268f392ca44dd8a9bccb634249979`). Codex
     reviewer-of-claude-implementer pattern (distinct from codex/codex
@@ -591,13 +597,13 @@ Legend: ✅ done · 🟡 most done (sub-tasks remain) · ⏳ open/blocked · �
     (codex+codex specifically observed), the reviewer's findings
     cluster around the implementer's same blind spots, producing
     apparent "needs_revision" verdicts that 2-of-3 majority overrides.
-    Partial: a soft warning landed in the dogfood-043 prep commit;
-    full refuse-by-default (validator-level rejection with override
-    knob) remains deferred. Add a workflow validator rule that warns
-    or rejects same-model implementer↔reviewer pairs; alternative is
-    a workflow-authoring guideline plus catalog-template enforcement.
-    Pair with the dogfood-040 F39 note already documenting the same
-    anti-pattern.
+    Partial: a soft warning landed in the dogfood-043 prep commit, and
+    `workflow lint --strict` now refuses same-model review-pair and
+    revision-cycle warnings unless the operator supplies an explicit
+    override rationale. Full refuse-by-default as ordinary validator
+    rejection with an override knob remains deferred. Pair any future
+    validator/catalog enforcement with the dogfood-040 F39 note already
+    documenting the same anti-pattern.
 
 27. **RFC 0045 V1.5: address codex build review findings from
     dogfood-043** (cycle phase-jump validator gap, strict phase-skip
@@ -909,9 +915,10 @@ review and plan are root-level operator artifacts:
     revision/escalation path. Follow-up slice landed opt-in
     `workflow lint --strict`, which refuses warnings unless the operator
     supplies a non-empty `--override-rationale` and includes the refused
-    lint payload in JSON/API error details. Remaining: generator/web
-    surfacing, broader coverage scoring, and audit linkage for accepted
-    risks.
+    lint payload in JSON/API error details. Follow-up web slice surfaced
+    warning counts and short warning lists in the workflow index/detail
+    pages. Remaining: generator surfacing, broader coverage scoring, and
+    audit linkage for accepted risks.
 
 56. **Phase 8: auto-finalize from front matter.** Partial daemon slice
     landed: `recovery.auto_finalize` dry-run/live PG handler, CLI route,
@@ -952,10 +959,12 @@ review and plan are root-level operator artifacts:
     compatibility. A bounded run-archive foundation also landed:
     `striatum archive create --run-id <id> --out <dir>` writes a
     daemon/Postgres-backed local archive of run state, artifact metadata,
-    and event metadata, and `striatum archive verify --bundle <dir>`
-    validates the archive manifest and file hashes locally. Remaining
-    locally implementable work is archive replay verification. Corpus
-    Contract V2 fields remain blocked on RFC 0057 decisions.
+    and event metadata. `striatum archive verify --bundle <dir>` validates
+    the archive manifest and file hashes locally; `--replay` now adds
+    offline semantic checks for run/repository consistency, archived-row
+    references, event ordering, and event-chain continuity, with optional
+    artifact content hash checks via `--repo-root`. Corpus Contract V2
+    fields remain blocked on RFC 0057 decisions.
 
 60. **Phase 12: optional Git/PR integration.** Blocked on a product
     decision for commit authority and hosted-provider boundaries. The

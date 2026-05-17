@@ -509,7 +509,16 @@ def dispatch(args: argparse.Namespace) -> object:
         bundle = Path(args.bundle)
         if not bundle.is_absolute():
             bundle = repo / bundle
-        return verify_run_archive(bundle)
+        repo_root = None
+        if getattr(args, "repo_root", None) is not None:
+            repo_root = Path(str(args.repo_root))
+            if not repo_root.is_absolute():
+                repo_root = repo / repo_root
+        return verify_run_archive(
+            bundle,
+            replay=bool(getattr(args, "replay", False)),
+            repo_root=repo_root,
+        )
     if args.command == "archive" and args.archive_command == "create":
         raise StriatumError("archive create requires daemon-backed PostgreSQL state", exit_code=8)
     ensure_initialized(repo)

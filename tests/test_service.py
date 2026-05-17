@@ -678,6 +678,60 @@ def test_service_run_list_reads_daemon_dto_without_sqlite(
     }
 
 
+def test_artifact_raw_reads_daemon_dto_without_sqlite(tmp_path: Path, monkeypatch: Any) -> None:
+    from io import BytesIO
+
+    sys.path.insert(0, str(ROOT / "src"))
+    try:
+        import striatum.service as service
+        import striatum.service_daemon as service_daemon
+    finally:
+        sys.path.pop(0)
+
+    artifact_path = tmp_path / "docs" / "test" / "HELLO.md"
+    artifact_path.parent.mkdir(parents=True)
+    artifact_path.write_text("hello from daemon\n", encoding="utf-8")
+    calls: list[tuple[Path, str, dict[str, Any]]] = []
+
+    def sqlite_tripwire(*args: Any, **kwargs: Any) -> None:
+        raise AssertionError("artifact raw handler opened repo-local SQLite")
+
+    def fake_call_repo_method(
+        repo: Path, method: str, params: dict[str, Any]
+    ) -> dict[str, Any]:
+        calls.append((repo, method, dict(params)))
+        return {
+            "artifact": {
+                "artifact_id": "art_daemon",
+                "artifact_kind": "handoff",
+                "repo_path": "docs/test/HELLO.md",
+            }
+        }
+
+    handler = object.__new__(service.StriatumServiceHandler)
+    handler.state = service.ServiceState(
+        repo=tmp_path,
+        allow_mutations=False,
+        token=None,
+        web_enabled=True,
+    )
+    responses: list[int] = []
+    headers: dict[str, str] = {}
+    handler.wfile = BytesIO()
+    monkeypatch.setattr(handler, "send_response", lambda status: responses.append(status))
+    monkeypatch.setattr(handler, "send_header", lambda key, value: headers.update({key: value}))
+    monkeypatch.setattr(handler, "end_headers", lambda: None)
+    monkeypatch.setattr("striatum.service.sqlite3.connect", sqlite_tripwire)
+    monkeypatch.setattr(service_daemon, "call_repo_method", fake_call_repo_method)
+
+    handler._handle_artifact_raw("art_daemon")
+
+    assert calls == [(tmp_path, "artifact.show", {"artifact_id": "art_daemon"})]
+    assert responses == [200]
+    assert "text/markdown" in headers["Content-Type"]
+    assert handler.wfile.getvalue() == b"hello from daemon\n"
+
+
 def test_web_run_cancel_posts_daemon_rpc_without_sqlite(tmp_path: Path, monkeypatch: Any) -> None:
     calls: list[tuple[str, dict[str, Any]]] = []
     handler, sent = _web_mutation_handler(

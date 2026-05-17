@@ -1,4 +1,4 @@
-.PHONY: build build-helper test lint clean release release-linux-amd64 release-linux-arm64 release-darwin-amd64 release-darwin-arm64
+.PHONY: build build-helper verify test test-helper helper-check lint clean release release-linux-amd64 release-linux-arm64 release-darwin-amd64 release-darwin-arm64
 
 DAEMON_BIN := bin/striatumd
 HELPER_BIN := bin/striatum-supervisor-helper
@@ -12,8 +12,19 @@ build-helper:
 	mkdir -p bin
 	go build -o $(HELPER_BIN) ./cmd/striatum-supervisor-helper
 
+verify:
+	go mod verify
+	go mod tidy -diff
+
 test:
 	go test ./...
+
+test-helper:
+	go test ./cmd/striatum-supervisor-helper ./pkg/supervisor
+
+helper-check: verify
+	$(MAKE) build-helper
+	$(MAKE) test-helper
 
 lint:
 	go vet ./...
