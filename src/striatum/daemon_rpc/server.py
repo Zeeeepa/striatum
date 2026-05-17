@@ -210,6 +210,14 @@ class DaemonRpcRouter:
             raise RpcError("daemon_db_missing", "repo routes require daemon PostgreSQL")
         if envelope.method == "repo.list":
             return daemon_mod.repo_list_pg(self.pg_conn)
+        if envelope.method == "repo.resolve":
+            raw_path = envelope.params.get("path") or envelope.params.get("repo_root")
+            if not isinstance(raw_path, str) or not raw_path:
+                raise RpcError("schema_invalid", "repo.resolve requires path")
+            try:
+                return daemon_mod.repo_resolve_pg(self.pg_conn, Path(raw_path))
+            except NotFoundError as exc:
+                raise RpcError("repo_not_registered", str(exc)) from exc
         if envelope.method == "repo.add":
             raw_path = envelope.params.get("path")
             if not isinstance(raw_path, str) or not raw_path:
@@ -273,35 +281,52 @@ class DaemonRpcRouter:
         raise RpcError("method_unknown", f"method has no handler: {envelope.method}")
 
     def _route_dogfood(self, envelope: RpcEnvelope, *, repo_root: Path) -> dict[str, Any]:
-        from striatum.db import connect
-        from striatum.dogfood.operator_tools import publish_on_behalf, surgical_recovery
-
-        with connect(repo_root) as conn:
-            if envelope.method == "dogfood.publish_on_behalf":
-                return _raise_dogfood_helper_failure(
-                    publish_on_behalf(
-                        conn,
-                        repo=repo_root,
-                        session_id=str(envelope.params.get("session_id") or ""),
-                        artifact_path=str(envelope.params.get("artifact_path") or ""),
-                        artifact_kind=str(envelope.params.get("artifact_kind") or ""),
-                        logical_name=str(envelope.params.get("logical_name") or ""),
-                        reason=str(envelope.params.get("reason") or ""),
-                        verdict=_optional_str(envelope.params.get("verdict")),
-                        findings_artifact_id=_optional_str(envelope.params.get("findings_artifact_id")),
-                        verdict_rationale=_optional_str(envelope.params.get("verdict_rationale")),
-                        summary=_optional_str(envelope.params.get("summary")),
-                    )
-                )
-            if envelope.method == "dogfood.surgical_recovery":
-                return _raise_dogfood_helper_failure(
-                    surgical_recovery(
-                        conn,
-                        job_id=str(envelope.params.get("job_id") or ""),
-                        reason=str(envelope.params.get("reason") or ""),
-                        extend_lease_seconds=int(envelope.params.get("extend_lease_seconds") or 900),
-                    )
-                )
+        if envelope.method == "dogfood.publish_on_behalf":
+            repository_id = _repository_id(envelope.params)
+            raise RpcError(
+                "dogfood_publish_on_behalf_retired",
+                "dogfood.publish_on_behalf is not available in the Python daemon because "
+                "the legacy composite is SQLite-bound; use daemon-native work.ack, "
+                "artifact.publish, review.verdict, and work.complete until the Postgres "
+                "composite is ported",
+                details={
+                    "operation": "dogfood.publish_on_behalf",
+                    "repository_id": repository_id,
+                    "reason": str(envelope.params.get("reason") or ""),
+                    "blocker": "legacy_python_composite_uses_repo_local_sqlite_connection",
+                    "remediation": [
+                        "work.ack",
+                        "artifact.publish",
+                        "review.verdict or work.complete",
+                    ],
+                },
+            )
+        if envelope.method == "dogfood.surgical_recovery":
+            repository_id = _repository_id(envelope.params)
+            extend_seconds = int(envelope.params.get("extend_lease_seconds") or 900)
+            raise RpcError(
+                "dogfood_surgical_recovery_retired",
+                "dogfood.surgical_recovery is not available in the Python daemon because "
+                "the legacy composite is SQLite-bound and depends on dogfood-only "
+                "operator recovery policy; use ordinary recovery methods or port the "
+                "Postgres row-lock composite before enabling it",
+                details={
+                    "operation": "dogfood.surgical_recovery",
+                    "repository_id": repository_id,
+                    "job_id": str(envelope.params.get("job_id") or ""),
+                    "reason": str(envelope.params.get("reason") or ""),
+                    "extend_lease_seconds": extend_seconds,
+                    "blocker": (
+                        "legacy_python_composite_uses_repo_local_sqlite_connection_"
+                        "and_progress_lock_policy"
+                    ),
+                    "remediation": [
+                        "recovery.stale_leases",
+                        "recovery.requeue_stale for non-repo-write work",
+                        "recovery.cancel_job after operator inspection",
+                    ],
+                },
+            )
         raise RpcError("method_unknown", f"method has no handler: {envelope.method}")
 
 
@@ -350,29 +375,3 @@ def _row_value(row: Any, key: str) -> Any:
     if isinstance(row, (tuple, list)):
         return row[0]
     raise TypeError("database row must expose mapping-like keys or sequence values")
-
-
-def _optional_str(value: Any) -> str | None:
-    if value is None:
-        return None
-    text = str(value)
-    return text if text else None
-
-
-def _raise_dogfood_helper_failure(result: dict[str, Any]) -> dict[str, Any]:
-    if result.get("ok") is not False:
-        return result
-    error_value = result.get("error")
-    if isinstance(error_value, Mapping):
-        raw_code = error_value.get("code")
-        code = str(raw_code) if raw_code else "command_failed"
-        raw_message = error_value.get("message")
-        message = str(raw_message) if raw_message else code
-        raw_details = error_value.get("details")
-        details = dict(raw_details) if isinstance(raw_details, Mapping) else {}
-        raise RpcError(code, message, details=details)
-    raise RpcError(
-        "command_failed",
-        "dogfood helper returned a failure envelope",
-        details={"helper_result": result},
-    )

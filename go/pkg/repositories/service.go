@@ -24,6 +24,7 @@ type Service struct {
 func (s Service) Register(server *rpc.Server) {
 	server.Register("repo.add", s.Add)
 	server.Register("repo.list", s.List)
+	server.Register("repo.resolve", s.Resolve)
 	server.Register("repo.remove", s.Remove)
 }
 
@@ -122,6 +123,31 @@ func (s Service) List(ctx context.Context, envelope rpc.Envelope) (map[string]an
 	return map[string]any{"repositories": rows}, nil
 }
 
+func (s Service) Resolve(ctx context.Context, envelope rpc.Envelope) (map[string]any, error) {
+	if s.Runner == nil {
+		return nil, rpc.NewError("daemon_db_missing", "repo.resolve requires daemon PostgreSQL", nil)
+	}
+	path := stringParam(envelope.Params, "path")
+	if path == "" {
+		path = stringParam(envelope.Params, "repo_root")
+	}
+	if path == "" {
+		return nil, rpc.NewError("schema_invalid", "repo.resolve requires path", nil)
+	}
+	repo, err := canonicalRepo(path)
+	if err != nil {
+		return nil, err
+	}
+	row, err := findByRoot(ctx, s.Runner, repo, false)
+	if err != nil {
+		return nil, err
+	}
+	if row == nil {
+		return nil, rpc.NewError("repo_not_registered", fmt.Sprintf("active repository path is not registered: %s", repo), nil)
+	}
+	return publicRepository(row), nil
+}
+
 func (s Service) Remove(ctx context.Context, envelope rpc.Envelope) (map[string]any, error) {
 	if s.Runner == nil {
 		return nil, rpc.NewError("daemon_db_missing", "repo.remove requires daemon PostgreSQL", nil)
@@ -215,6 +241,21 @@ func findByRoot(ctx context.Context, runner db.Runner, repo string, includeRemov
 		return nil, err
 	}
 	return rows[0], nil
+}
+
+func publicRepository(row map[string]any) map[string]any {
+	return map[string]any{
+		"repository_id":  row["repository_id"],
+		"repo_root":      row["repo_root"],
+		"repo_identity":  row["repo_identity"],
+		"state_db_path":  row["state_db_path"],
+		"display_name":   row["display_name"],
+		"registered_at":  row["registered_at"],
+		"removed_at":     row["removed_at"],
+		"last_seen_at":   row["last_seen_at"],
+		"schema_version": row["last_schema_version"],
+		"state":          row["state"],
+	}
 }
 
 func queryRows(ctx context.Context, runner db.Runner, sql string, args ...any) ([]map[string]any, error) {

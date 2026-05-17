@@ -39,6 +39,7 @@
 | `worktree.list` | `read` | `single_repo` | 1 | 1 | no |
 | `dashboard.all` | `read` | `daemon_global` | 1 | 1 | no |
 | `repo.list` | `read` | `daemon_global` | 1 | 1 | no |
+| `repo.resolve` | `read` | `daemon_global` | 1 | 1 | no |
 | `session.register` | `claim` | `single_repo` | 1 | 1 | no |
 | `session.close` | `claim` | `single_repo` | 1 | 1 | no |
 | `work.claim_next` | `claim` | `single_repo` | 1 | 1 | no |

@@ -1,6 +1,6 @@
 # RFC 0070: Daemon Client and Service Boundary Completion
 
-Status: proposed
+Status: partially implemented
 Date: 2026-05-17
 Context: [RFC 0030](0030-daemon-rpc-server-and-version-skew-protocol.md), [RFC 0040](0040-mcp-driven-dogfood-harness.md), [RFC 0061](0061-daemon-first-web-service.md), [RFC 0068](0068-go-production-daemon-port.md), [RFC 0069](0069-pg-only-daemon-global-surfaces.md)
 
@@ -56,10 +56,26 @@ authoring/MCP surfaces ambiguous.
 - Dogfood composites are either PG-native with tests or absent from production
   MCP tools.
 
+## Implementation Notes
+
+- `repo.resolve` is registered as a daemon-global `read` method. This resolves
+  the bootstrap problem where a client cannot present a repository-scoped id
+  before the daemon has mapped a path to that id.
+- CLI and service RPC helpers now resolve repository ids through daemon RPC;
+  client-side imports of `striatum.daemon_pg.connection` are guarded against
+  by tests.
+- `/v1/invoke` routes daemon-mapped production mutations through
+  `service_daemon.call_repo_method()` and no longer re-enters
+  `striatum.api.invoke` for those mutations.
+- `dogfood.publish_on_behalf` and `dogfood.surgical_recovery` are retired in
+  both Python and Go daemon paths with explicit fail-closed RPC errors because
+  the historical composites were SQLite-bound. Operators should use primitive
+  daemon methods until a PostgreSQL-native composite is accepted.
+
 ## Open Questions
 
-- Should `repo.resolve` be daemon-global read capability or repository-scoped
-  read capability based on the resolved repository?
+- Resolved for the transition: `repo.resolve` is daemon-global `read` because
+  repository-scoped auth cannot know the repository id before resolution.
 - Should dogfood composites remain named `dogfood.*` after porting, or move to
   an operator-composite namespace?
 

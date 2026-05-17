@@ -17,7 +17,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from typing import Any, Mapping
 
-from striatum.api import invoke
+from striatum import api as _api
 from striatum.service_command_policy import is_read_command as is_read_command
 from striatum.service_http import (
     allowed_origins_for_bind as allowed_origins_for_bind,
@@ -90,6 +90,12 @@ JsonObject = dict[str, Any]
 _project_history_anthropic = _chat_session.project_history_anthropic
 _project_history_openai = _chat_session.project_history_openai
 _safe_git = _chat_session.safe_git
+
+
+def invoke(argv: list[str], *, repo: Path) -> JsonObject:
+    """Compatibility wrapper for tests that monkeypatch ``service.invoke``."""
+
+    return _api.invoke(argv, repo=repo)
 
 
 def _legacy_service() -> Any:

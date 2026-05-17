@@ -22,7 +22,7 @@ def test_repo_scoped_write_token_authorizes_repo_a_write_and_audits_allowed(
     )
 
     assert result["isError"] is True
-    assert result["structuredContent"]["error"] == "no_active_lease"
+    assert result["structuredContent"]["error"] == "dogfood_publish_on_behalf_retired"
     row = harness.audit_rows(transport="mcp")[-1]
     assert row["decision"] == "allowed"
     assert row["denial_reason"] is None

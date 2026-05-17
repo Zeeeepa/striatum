@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping
 
 from striatum.cli.daemon_required import daemon_socket_is_reachable, resolve_socket_path
-from striatum.cli.daemon_rpc_route import _call_with_handshake, _lookup_repository_id
+from striatum.cli.daemon_rpc_route import _call_with_handshake, _resolve_repository_id
 from striatum.daemon_rpc.envelope import RpcError
 from striatum.daemon_rpc.registry import METHOD_REGISTRY
 
@@ -31,6 +32,15 @@ def call_repo_method(repo: Path, method: str, params: Mapping[str, Any]) -> dict
 
     if method not in METHOD_REGISTRY:
         raise ServiceDaemonRpcError(500, "method_unknown", f"method has no registry entry: {method}")
+    if (
+        os.environ.get("STRIATUM_TEST_HARNESS") == "1"
+        and os.environ.get("STRIATUM_DAEMON_REQUIRED") == "0"
+    ):
+        raise ServiceDaemonRpcError(
+            503,
+            "daemon_unreachable",
+            f"daemon_unreachable: {method} is using the test-harness local fallback",
+        )
     sock_path = resolve_socket_path()
     if not daemon_socket_is_reachable(sock_path):
         raise ServiceDaemonRpcError(
@@ -38,13 +48,23 @@ def call_repo_method(repo: Path, method: str, params: Mapping[str, Any]) -> dict
             "daemon_unreachable",
             f"daemon_unreachable: {method} requires the Striatum daemon",
         )
-    repository_id = params.get("repository_id") or _lookup_repository_id(repo)
-    if repository_id is None:
+    try:
+        repository_id = params.get("repository_id") or _resolve_repository_id(sock_path, repo)
+        if repository_id is None:
+            raise ServiceDaemonRpcError(
+                503,
+                "repo_not_registered",
+                f"repo_not_registered: {method} requires a daemon-registered repository",
+            )
+    except OSError as exc:
         raise ServiceDaemonRpcError(
             503,
-            "repo_not_registered",
-            f"repo_not_registered: {method} requires a daemon-registered repository",
-        )
+            "daemon_unreachable",
+            f"daemon_unreachable: repository resolution for {method} failed: {exc}",
+        ) from exc
+    except RpcError as exc:
+        status, kind = _http_error_shape(exc.code)
+        raise ServiceDaemonRpcError(status, exc.code, str(exc), kind, dict(exc.details)) from exc
     rpc_params = dict(params)
     rpc_params.setdefault("repository_id", repository_id)
     try:

@@ -3,6 +3,11 @@ from __future__ import annotations
 import ast
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Callable
+
+import pytest
+
+from striatum import daemon
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -161,11 +166,6 @@ PRODUCTION_SQLITE_QUARANTINE = {
         "adapter transition",
         "legacy run prepare and workflow event helpers retained for fixtures",
     ),
-    # Dogfood compatibility routes are explicitly not production fallback.
-    Path("src/striatum/daemon_rpc/server.py"): SQLiteClassification(
-        "dogfood fixture",
-        "dogfood.* compatibility route opens legacy SQLite by design",
-    ),
     Path("src/striatum/dogfood/operator_tools.py"): SQLiteClassification(
         "dogfood fixture",
         "operator dogfood recovery tools are compatibility fixtures",
@@ -199,9 +199,7 @@ TEST_SQLITE_QUARANTINE_PREFIXES = {
 }
 
 
-DAEMON_RPC_DB_IMPORT_ALLOWLIST = {
-    Path("src/striatum/daemon_rpc/server.py"): {"connect"},
-}
+DAEMON_RPC_DB_IMPORT_ALLOWLIST: dict[Path, set[str]] = {}
 
 
 def test_daemon_pg_does_not_import_legacy_sqlite_db_module() -> None:
@@ -281,6 +279,56 @@ def test_legacy_service_owns_page_read_payload_fallbacks() -> None:
         assert f"def {name}(" in legacy_source
         assert f"def _{name}(" not in service_source
         assert f"def {name}(" not in service_source
+
+
+@pytest.mark.parametrize(
+    "call",
+    [
+        lambda: daemon.run_daemon_foreground(max_sweeps=1),
+        lambda: daemon.dashboard_all(token="dtok_missing.secret"),
+        lambda: daemon.daemon_sweep_once(),
+        lambda: daemon.daemon_mcp_resources(token="dtok_missing.secret"),
+        lambda: daemon.health(),
+        lambda: daemon.daemon_audit(),
+        lambda: daemon.read_doctor(repo=None, verbose=True),
+    ],
+)
+def test_production_daemon_global_surfaces_refuse_before_sqlite_registry_connect(
+    call: Callable[[], object],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    registry = tmp_path / "daemon" / "striatumd.sqlite3"
+    monkeypatch.setenv(daemon.ENV_REGISTRY, str(registry))
+    monkeypatch.setenv(daemon.ENV_RUNTIME, str(tmp_path / "runtime"))
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    monkeypatch.setenv("STRIATUM_DAEMON_DB_URL", "")
+    monkeypatch.setenv("STRIATUM_DAEMON_REQUIRED", "1")
+    monkeypatch.delenv("STRIATUM_TEST_HARNESS", raising=False)
+    monkeypatch.delenv(daemon.ENV_ALLOW_LEGACY_SQLITE_REGISTRY, raising=False)
+    monkeypatch.setenv(daemon.ENV_SQLITE_CONNECT_TRIPWIRE, "1")
+
+    with pytest.raises(daemon.DaemonRegistryError, match="legacy SQLite daemon registry is disabled"):
+        call()
+
+    assert not registry.exists()
+
+
+def test_legacy_sqlite_registry_requires_explicit_compatibility_escape(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    registry = tmp_path / "daemon" / "striatumd.sqlite3"
+    monkeypatch.setenv(daemon.ENV_REGISTRY, str(registry))
+    monkeypatch.setenv(daemon.ENV_RUNTIME, str(tmp_path / "runtime"))
+    monkeypatch.setenv("STRIATUM_DAEMON_REQUIRED", "1")
+    monkeypatch.delenv("STRIATUM_TEST_HARNESS", raising=False)
+    monkeypatch.setenv(daemon.ENV_ALLOW_LEGACY_SQLITE_REGISTRY, "1")
+
+    conn = daemon.connect_registry()
+    conn.close()
+
+    assert registry.exists()
 
 
 def test_test_sqlite_references_are_classified_as_test_fixtures() -> None:

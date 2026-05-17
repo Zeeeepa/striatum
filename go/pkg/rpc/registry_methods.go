@@ -36,6 +36,7 @@ var methodEntries = []MethodEntry{
 	{Method: "worktree.list", RequiredCapability: CapPtr(CapabilityRead), RepositoryScope: true, RepositoryScopeMode: ScopeSingleRepo, ParamsSchemaVersion: 1, AuditClass: "metadata", MinEnvelope: 1},
 	{Method: "dashboard.all", RequiredCapability: CapPtr(CapabilityRead), RepositoryScope: false, RepositoryScopeMode: ScopeDaemonGlobal, ParamsSchemaVersion: 1, AuditClass: "metadata", MinEnvelope: 1},
 	{Method: "repo.list", RequiredCapability: CapPtr(CapabilityRead), RepositoryScope: false, RepositoryScopeMode: ScopeDaemonGlobal, ParamsSchemaVersion: 1, AuditClass: "metadata", MinEnvelope: 1},
+	{Method: "repo.resolve", RequiredCapability: CapPtr(CapabilityRead), RepositoryScope: false, RepositoryScopeMode: ScopeDaemonGlobal, ParamsSchemaVersion: 1, AuditClass: "metadata", MinEnvelope: 1},
 	{Method: "session.register", RequiredCapability: CapPtr(CapabilityClaim), RepositoryScope: true, RepositoryScopeMode: ScopeSingleRepo, ParamsSchemaVersion: 1, AuditClass: "metadata", MinEnvelope: 1},
 	{Method: "session.close", RequiredCapability: CapPtr(CapabilityClaim), RepositoryScope: true, RepositoryScopeMode: ScopeSingleRepo, ParamsSchemaVersion: 1, AuditClass: "metadata", MinEnvelope: 1},
 	{Method: "work.claim_next", RequiredCapability: CapPtr(CapabilityClaim), RepositoryScope: true, RepositoryScopeMode: ScopeSingleRepo, ParamsSchemaVersion: 1, AuditClass: "metadata", MinEnvelope: 1},

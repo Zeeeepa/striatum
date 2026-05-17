@@ -1,6 +1,6 @@
 # RFC 0069: PostgreSQL-Only Daemon Global Surfaces
 
-Status: proposed
+Status: partially implemented
 Date: 2026-05-17
 Context: [RFC 0043](0043-postgres-as-sole-substrate-and-daemon-required-runtime.md), [RFC 0059](0059-eradicate-legacy-sqlite-fallbacks.md), [RFC 0060](0060-single-daemon-method-contract-source.md), [RFC 0068](0068-go-production-daemon-port.md), [REMEDIATION_SYNTHESIS_2026-05-17](../architecture/REMEDIATION_SYNTHESIS_2026-05-17.md)
 
@@ -59,6 +59,19 @@ Add a production registry tripwire and port daemon-global surfaces in order:
   creates `.striatum/state.sqlite3`.
 - Regression tests cover daemon start, dashboard-all, daemon sweep, MCP
   resources, health, and audit/doctor paths.
+
+## Implementation Notes
+
+- Production `connect_registry()` is now gated behind
+  `STRIATUM_ALLOW_LEGACY_SQLITE_REGISTRY=1` or the paired test-harness escape
+  (`STRIATUM_TEST_HARNESS=1` and `STRIATUM_DAEMON_REQUIRED=0`).
+- Python daemon startup with PostgreSQL configured now uses
+  `striatumd.daemon_meta` for the daemon instance id and passes the
+  PostgreSQL connection through daemon sweep execution instead of opening the
+  legacy SQLite registry.
+- Go owns `repo.add`, `repo.list`, `repo.remove`, `repo.resolve`, and a
+  read-only `dashboard.all` subset over daemon PostgreSQL. Residual aggregate
+  parity gaps remain in the roadmap.
 
 ## Open Questions
 

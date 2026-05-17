@@ -95,6 +95,28 @@ Recent checkpoints:
   daemon-owned PostgreSQL, including SQLite-source refusal, operational
   scratch initialization, active-path conflict checks, and repo-scoped
   capability revocation on removal.
+- Go now owns daemon-global `repo.resolve`, a read-capability bootstrap method
+  that normalizes a repository path and returns active repository metadata
+  without requiring CLI/web clients to open daemon PostgreSQL directly.
+- The transitional Python daemon also handles `repo.resolve` through
+  PostgreSQL so existing Python-daemon deployments do not regress while the Go
+  daemon default cutover is still in progress.
+- Python CLI and service repository-scoped RPC routing now resolve repository
+  ids through daemon RPC instead of importing daemon PostgreSQL connection
+  helpers. Resolution errors fail closed rather than falling back to local
+  state.
+- Production Python daemon startup no longer opens the legacy SQLite daemon
+  registry when PostgreSQL is configured. `connect_registry()` is explicitly
+  gated to migration/test compatibility escapes, and startup uses PostgreSQL
+  daemon metadata plus PostgreSQL sweep plumbing.
+- `/v1/invoke` now sends daemon-mapped production mutations through daemon
+  RPC. The local `striatum.api.invoke` path remains available for explicit
+  local/test surfaces and workflow authoring, not production run authority.
+- The Python daemon dogfood composite routes now fail closed before importing
+  `striatum.db.connect`; both Python and Go retire the SQLite-bound
+  `dogfood.publish_on_behalf` and `dogfood.surgical_recovery` composites in
+  favor of primitive daemon methods until a PostgreSQL-native composite is
+  designed.
 - Go now owns a read-only `dashboard.all` handler over daemon-owned
   PostgreSQL repositories. It reports per-repository status and stale-lease
   projections without opening SQLite; lazy lease expiry and full web-context

@@ -113,8 +113,8 @@ so external references keep resolving even as items move between sections.
 | 59 | RFC 0059 RFC 0066 Architecture remediation Phase 11 — replay, archive, and corpus v2 foundations | 🟡 corpus verify + run archive foundations landed |
 | 60 | RFC 0059 RFC 0067 Architecture remediation Phase 12 — optional Git/PR integration | ⏳ blocked on product decision |
 | 61 | RFC 0068 Go production daemon port and Python daemon retirement | ⏳ active |
-| 62 | RFC 0069 PostgreSQL-only daemon-global surfaces | ⏳ active |
-| 63 | RFC 0070 daemon client/service boundary completion | ⏳ active |
+| 62 | RFC 0069 PostgreSQL-only daemon-global surfaces | 🟡 most done |
+| 63 | RFC 0070 daemon client/service boundary completion | 🟡 most done |
 | 64 | RFC 0071 operator diagnostics and cutover evidence | ⏳ queued |
 
 Legend: ✅ done · 🟡 most done (sub-tasks remain) · ⏳ open/blocked · 💤 shelved
@@ -1211,23 +1211,33 @@ review and plan are root-level operator artifacts:
     `daemon.key.rotate`, `daemon.shutdown`, `daemon.migrate_repo_local`,
     `dogfood.publish_on_behalf`, and `dogfood.surgical_recovery`; the Go
     handler-coverage ledger reports zero generic `not_implemented` handlers
-    for active contract methods. Remaining Go-port debt is explicit
-    fail-closed/parity work rather than placeholder routing.
+    for active contract methods. Go also owns daemon-global `repo.resolve` for
+    repository path resolution without client-side direct PG access. Remaining
+    Go-port debt is explicit fail-closed/parity work rather than placeholder
+    routing.
 
-62. **RFC 0069: PostgreSQL-only daemon-global surfaces.** Active. Port daemon
+62. **RFC 0069: PostgreSQL-only daemon-global surfaces.** Most done. Port daemon
     startup bootstrap, health, audit, sweep, dashboard-all, daemon MCP
     resource list/read, and any remaining registry probes away from SQLite and
     into PostgreSQL/Go-owned daemon handlers. Production `connect_registry()`
     reachability is a bug unless the call is in a named one-way migration or
     fixture path. `dashboard.all` now has a Go/PostgreSQL read-only subset;
-    residual gaps are lazy lease expiry, phase progress, auto-finalize detail,
-    supervisor-stall detail, and repo-scoped-token filtering parity with the
-    legacy Python aggregate authorizer.
+    production Python daemon startup now uses PostgreSQL metadata/sweep
+    plumbing when PostgreSQL is configured, and `connect_registry()` is gated
+    behind explicit migration/test compatibility escapes. Residual gaps are
+    lazy lease expiry, phase progress, auto-finalize detail, supervisor-stall
+    detail, and repo-scoped-token filtering parity with the legacy Python
+    aggregate authorizer.
 
-63. **RFC 0070: daemon client/service boundary completion.** Active. Add
-    daemon-side repository resolution, remove client-side direct PG lookups,
-    route daemon-mapped `/v1/invoke` mutations through daemon RPC, and port or
-    unregister dogfood composites that still open repo-local SQLite.
+63. **RFC 0070: daemon client/service boundary completion.** Most done.
+    Daemon-side `repo.resolve` is registered as a daemon-global read bootstrap
+    method; CLI and service clients no longer open daemon PostgreSQL to map a
+    repo path to `repository_id`; daemon-mapped `/v1/invoke` production
+    mutations route through daemon RPC; and Python/Go dogfood composites now
+    fail closed before any repo-local SQLite import. Remaining work is to
+    decide whether to reintroduce PostgreSQL-native operator composites or
+    keep the primitive daemon-method workflow as the supported path, plus the
+    broader Python-daemon retirement under RFC 0068.
 
 64. **RFC 0071: operator diagnostics and cutover evidence.** Queued after
     items 61-63. Add a verify-only cutover report, authority diagnostics, and

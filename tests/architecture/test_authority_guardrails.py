@@ -35,6 +35,7 @@ BOOTSTRAP_OR_MIGRATION_METHODS: frozenset[str] = frozenset(
         "repo.add",
         "repo.remove",
         "repo.list",
+        "repo.resolve",
         "repo.init",
         "daemon.token.create",
         "daemon.token.revoke",

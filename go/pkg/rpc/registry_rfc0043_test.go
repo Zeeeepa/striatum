@@ -53,3 +53,16 @@ func TestDeprecatedAliasesRemainFlagged(t *testing.T) {
 		}
 	}
 }
+
+func TestRepoResolveIsDaemonGlobalRead(t *testing.T) {
+	entry, ok := MethodRegistry["repo.resolve"]
+	if !ok {
+		t.Fatal("missing method repo.resolve")
+	}
+	if entry.RequiredCapability == nil || *entry.RequiredCapability != CapabilityRead {
+		t.Fatalf("repo.resolve capability = %v, want read", entry.RequiredCapability)
+	}
+	if entry.RepositoryScope || entry.RepositoryScopeMode != ScopeDaemonGlobal {
+		t.Fatalf("repo.resolve scope = %v/%s, want daemon_global", entry.RepositoryScope, entry.RepositoryScopeMode)
+	}
+}

@@ -2,11 +2,19 @@
 
 from __future__ import annotations
 
+import os
+from dataclasses import dataclass
 from pathlib import Path
 
 SERVICE_CLI_LOCAL_READ_SUBCOMMANDS: dict[str, frozenset[str]] = {
     "workflow": frozenset({"validate", "lint", "plan", "graph", "templates"}),
 }
+
+
+@dataclass(frozen=True)
+class DaemonCommandRoute:
+    method: str
+    params: dict[str, object]
 
 
 def is_read_command(argv: list[str]) -> bool:
@@ -30,7 +38,39 @@ def is_read_command(argv: list[str]) -> bool:
     return False
 
 
+def daemon_mutation_route_for_argv(argv: list[str], repo: Path) -> DaemonCommandRoute | None:
+    """Return the daemon RPC route for production mutation-shaped invoke argv.
+
+    The test-harness direct path is deliberately preserved for legacy
+    SQLite-backed service tests. Production service invocations route
+    daemon-mapped mutations through RPC instead of re-entering local CLI
+    dispatch through ``striatum.api.invoke``.
+    """
+
+    if (
+        os.environ.get("STRIATUM_TEST_HARNESS") == "1"
+        and os.environ.get("STRIATUM_DAEMON_REQUIRED") == "0"
+    ):
+        return None
+    route = _daemon_route_for_argv(argv, repo)
+    if route is None:
+        return None
+    from striatum.daemon_rpc.registry import METHOD_REGISTRY
+
+    entry = METHOD_REGISTRY.get(route.method)
+    if entry is None or entry.required_capability == "read":
+        return None
+    return route
+
+
 def _daemon_method_for_argv(argv: list[str]) -> str | None:
+    route = _daemon_route_for_argv(argv, Path("."))
+    if route is None:
+        return None
+    return route.method
+
+
+def _daemon_route_for_argv(argv: list[str], repo: Path) -> DaemonCommandRoute | None:
     import contextlib
     import io
 
@@ -49,11 +89,11 @@ def _daemon_method_for_argv(argv: list[str]) -> str | None:
     if translator is None:
         return None
     try:
-        method, _params = translator(args, Path("."))
+        method, params = translator(args, repo)
     except Exception:  # noqa: BLE001 - malformed args are not read commands.
         return None
     from striatum.daemon_rpc.registry import METHOD_REGISTRY
 
     if method in METHOD_REGISTRY:
-        return method
+        return DaemonCommandRoute(method=method, params=dict(params))
     return None

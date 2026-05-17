@@ -2,9 +2,8 @@
 
 This module translates CLI argparse namespaces to daemon RPC envelopes
 and dispatches them over the Unix socket. When a CLI command maps to a
-registered RPC method AND the daemon is reachable, the call routes
-through ``DaemonRpcRouter`` (which uses the PG-backed handlers from
-RFC 0048 V1 Phase A) instead of the in-process SQLite path.
+registered RPC method, the call routes through the daemon RPC boundary
+instead of any in-process state path.
 
 The command-to-method table is declared in ``contracts/daemon_methods.json``
 under ``cli_routes``. This module owns only CLI-local parameter extraction.
@@ -50,13 +49,13 @@ def try_route(args: argparse.Namespace, repo: Path) -> tuple[bool, Any]:
     Returns ``(True, response_data)`` if the command was routed through
     the daemon (success or RPC error). The caller should return that
     value as the CLI result. Returns ``(False, None)`` if no routing
-    applies and dispatch should fall through to the legacy SQLite path.
+    applies and dispatch should fall through to CLI-local handling.
 
     Routing applies when:
     - The daemon socket is reachable.
     - The CLI verb has a registered RPC method in this module's lookup
       table.
-    - The repo (when relevant) is registered with the daemon.
+    - The repo (when relevant) resolves through daemon RPC.
 
     On RPC error (e.g., ``method_unknown``, ``capability_missing``), the
     function raises :class:`StriatumError` with an appropriate exit code.
@@ -85,7 +84,15 @@ def try_route(args: argparse.Namespace, repo: Path) -> tuple[bool, Any]:
     entry = METHOD_REGISTRY[method]
     repository_id: str | None = None
     if entry.repository_scope:
-        repository_id = params.get("repository_id") or _lookup_repository_id(repo)
+        try:
+            repository_id = params.get("repository_id") or _resolve_repository_id(sock_path, repo)
+        except OSError as exc:
+            raise StriatumError(
+                f"daemon_unreachable: repository resolution for {method} failed: {exc}",
+                exit_code=12,
+            ) from exc
+        except RpcError as exc:
+            raise _striatum_error_from_rpc_error(exc) from exc
         if repository_id is None:
             raise StriatumError(
                 f"repo_not_registered: {method} requires a daemon-registered repository",
@@ -116,6 +123,20 @@ def try_route(args: argparse.Namespace, repo: Path) -> tuple[bool, Any]:
     ):
         return (True, data["source"])
     return (True, data)
+
+
+def _striatum_error_from_rpc_error(error: RpcError) -> StriatumError:
+    return StriatumError(f"{error.code}: {error}", exit_code=_rpc_error_exit_code(error.code))
+
+
+def _rpc_error_exit_code(code: str) -> int:
+    if code == "method_unknown":
+        return 8
+    if code in ("token_missing", "capability_missing", "version_incompatible"):
+        return 14
+    if code == "duplicate_request":
+        return 9
+    return 1
 
 
 def _subcommand(args: argparse.Namespace) -> str | None:
@@ -175,40 +196,74 @@ def _call_with_handshake(sock_path: Path, method: str, params: Mapping[str, Any]
 _REPO_ID_CACHE: dict[str, str] = {}
 
 
-def _lookup_repository_id(repo: Path) -> str | None:
-    """Look up the repository_id for ``repo`` in the daemon's Postgres state.
+def _resolve_repository_id(sock_path: Path, repo: Path) -> str | None:
+    """Resolve ``repo`` to a daemon repository_id over RPC.
 
-    Cached per-process. Returns None if the repo isn't registered (caller
-    falls back to legacy SQLite or surfaces ``repo_not_migrated`` exit 12).
+    Cached per-process. Returns None only when the daemon reports no active
+    registration for the repository. Transport and RPC failures propagate so
+    daemon-routed callers fail closed instead of opening local state.
     """
     key = str(repo.resolve())
     if key in _REPO_ID_CACHE:
         return _REPO_ID_CACHE[key]
-    # Use daemon's PG connection via repo_local_migration helper if available.
-    try:
-        from striatum.daemon_pg.config import resolve_config
-        from striatum.daemon_pg.connection import connect
-
-        cfg = resolve_config()
-        if cfg.url is None:
-            return None
-        conn = connect(cfg.url)
-        try:
-            with conn.cursor() as cur:
-                cur.execute(
-                    "SELECT repository_id FROM striatumd.repositories WHERE repo_root = %s AND state = 'active'",
-                    (key,),
-                )
-                row = cur.fetchone()
-        finally:
-            conn.close()
-        if row is None:
-            return None
-        repo_id = str(row[0])
+    repo_id = _resolve_repository_id_uncached(sock_path, key)
+    if repo_id is not None:
         _REPO_ID_CACHE[key] = repo_id
-        return repo_id
-    except Exception:  # noqa: BLE001 — fall back to non-routed dispatch on any lookup failure.
+    return repo_id
+
+
+def _resolve_repository_id_uncached(sock_path: Path, repo_root: str) -> str | None:
+    """Internal seam for the forthcoming ``repo.resolve`` contract method."""
+    if "repo.resolve" in METHOD_REGISTRY:
+        response = _call_with_handshake(sock_path, "repo.resolve", {"path": repo_root})
+        data = _rpc_data_or_raise(response)
+        return _repository_id_from_resolve_payload(data)
+    response = _call_with_handshake(sock_path, "repo.list", {})
+    data = _rpc_data_or_raise(response)
+    return _repository_id_from_list_payload(data, repo_root)
+
+
+def _rpc_data_or_raise(response: Mapping[str, Any]) -> Any:
+    if bool(response.get("ok")):
+        return response.get("data")
+    raw_error = response.get("data")
+    err: Mapping[str, Any] = raw_error if isinstance(raw_error, Mapping) else {}
+    code = str(err.get("code") or "rpc_error")
+    message = str(err.get("message") or "daemon RPC call failed")
+    raw_details = err.get("details")
+    details = dict(raw_details) if isinstance(raw_details, Mapping) else {}
+    raise RpcError(code, message, details=details)
+
+
+def _repository_id_from_resolve_payload(data: Any) -> str | None:
+    if not isinstance(data, Mapping):
         return None
+    repository_id = data.get("repository_id")
+    if isinstance(repository_id, str) and repository_id:
+        return repository_id
+    repository = data.get("repository")
+    if isinstance(repository, Mapping):
+        repository_id = repository.get("repository_id")
+        if isinstance(repository_id, str) and repository_id:
+            return repository_id
+    return None
+
+
+def _repository_id_from_list_payload(data: Any, repo_root: str) -> str | None:
+    if not isinstance(data, Mapping):
+        return None
+    raw_repositories = data.get("repositories")
+    if not isinstance(raw_repositories, list):
+        return None
+    for item in raw_repositories:
+        if not isinstance(item, Mapping):
+            continue
+        if item.get("repo_root") != repo_root or item.get("state") != "active":
+            continue
+        repository_id = item.get("repository_id")
+        if isinstance(repository_id, str) and repository_id:
+            return repository_id
+    return None
 
 
 # ----- Per-verb translators -----

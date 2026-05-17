@@ -54,6 +54,8 @@ DEFAULT_SWEEP_TIMEOUT_SECONDS = 30.0
 
 ENV_REGISTRY = "STRIATUM_DAEMON_REGISTRY"
 ENV_RUNTIME = "STRIATUM_DAEMON_RUNTIME_DIR"
+ENV_ALLOW_LEGACY_SQLITE_REGISTRY = "STRIATUM_ALLOW_LEGACY_SQLITE_REGISTRY"
+ENV_SQLITE_CONNECT_TRIPWIRE = "STRIATUM_SQLITE_CONNECT_TRIPWIRE"
 
 
 class DaemonUnreachableError(StriatumError):
@@ -138,6 +140,9 @@ def _ensure_private_dir(path: Path) -> None:
 
 
 def connect_registry() -> sqlite3.Connection:
+    _require_legacy_sqlite_registry_allowed()
+    if os.environ.get(ENV_SQLITE_CONNECT_TRIPWIRE) == "1":
+        raise RuntimeError("sqlite_connect_tripwire: striatum.daemon.connect_registry() was called")
     path = registry_path()
     _ensure_private_dir(path.parent)
     existed = path.exists()
@@ -178,6 +183,32 @@ def connect_registry() -> sqlite3.Connection:
             "daemon SQLite registry has been cut over to PostgreSQL; configure STRIATUM_DAEMON_DB_URL or pass --postgres-url"
         )
     return conn
+
+
+def _legacy_sqlite_registry_allowed() -> bool:
+    if os.environ.get(ENV_ALLOW_LEGACY_SQLITE_REGISTRY) == "1":
+        return True
+    return (
+        os.environ.get("STRIATUM_TEST_HARNESS") == "1"
+        and os.environ.get("STRIATUM_DAEMON_REQUIRED") == "0"
+    )
+
+
+def _require_legacy_sqlite_registry_allowed() -> None:
+    if _legacy_sqlite_registry_allowed():
+        return
+    from striatum.daemon_pg.config import resolve_config
+
+    cfg = resolve_config()
+    if cfg.url is None:
+        raise DaemonRegistryError(
+            "legacy SQLite daemon registry is disabled in production; "
+            "configure STRIATUM_DAEMON_DB_URL or pass --postgres-url"
+        )
+    raise DaemonRegistryError(
+        "legacy SQLite daemon registry is disabled in production; "
+        "use the configured PostgreSQL daemon registry"
+    )
 
 
 def _apply_registry_v1(conn: sqlite3.Connection) -> None:
@@ -551,6 +582,29 @@ def _bootstrap_pg_admin_if_needed(pg_conn: Any) -> dict[str, str] | None:
     token = f"{token_id}.{secret}"
     write_runtime_token(token)
     return {"client_id": client_id, "token_id": token_id, "token": token}
+
+
+def _pg_instance_id(pg_conn: Any) -> str:
+    with pg_conn.cursor() as cur:
+        cur.execute("SELECT value FROM striatumd.daemon_meta WHERE key = 'instance_id'")
+        row = cur.fetchone()
+        if row is not None:
+            return str(row["value"] if isinstance(row, dict) else row[0])
+        value = uuid.uuid4().hex[:12]
+        cur.execute(
+            """
+            INSERT INTO striatumd.daemon_meta(key, value, updated_at)
+            VALUES (%s, %s, now())
+            ON CONFLICT (key) DO UPDATE
+            SET value = EXCLUDED.value, updated_at = now()
+            """,
+            ("instance_id", value),
+        )
+    try:
+        pg_conn.commit()
+    except Exception:  # noqa: BLE001 - autocommit connections do not need an explicit commit.
+        pass
+    return value
 
 
 def create_client(
@@ -1046,6 +1100,26 @@ def repo_list_pg(pg_conn: Any) -> dict[str, Any]:
     return {"repositories": repositories}
 
 
+def repo_resolve_pg(pg_conn: Any, path: Path) -> dict[str, Any]:
+    repo = _canonical_repo(path)
+    row = _find_repo_pg(pg_conn, str(repo), include_removed=False)
+    if row is None:
+        raise NotFoundError(f"active repository path is not registered: {repo}")
+    item = _pg_json_ready(row)
+    return {
+        "repository_id": str(item["repository_id"]),
+        "repo_root": str(item["repo_root"]),
+        "repo_identity": str(item["repo_identity"]),
+        "state_db_path": str(item["state_db_path"]),
+        "display_name": item.get("display_name"),
+        "registered_at": item.get("registered_at"),
+        "removed_at": item.get("removed_at"),
+        "last_seen_at": item.get("last_seen_at"),
+        "schema_version": int(item.get("last_schema_version") or 0),
+        "state": str(item["state"]),
+    }
+
+
 def _repo_list_legacy_sqlite() -> dict[str, Any]:
     conn = connect_registry()
     token = read_runtime_token()
@@ -1354,16 +1428,15 @@ def run_daemon_foreground(
         # token file under runtime_dir() is overwritten so the CLI can read
         # it for capability_token on each request.
         pg_bootstrap = _bootstrap_pg_admin_if_needed(daemon_pg_conn)
-    conn = connect_registry()
-    bootstrap_token: str | None = None
+    bootstrap: dict[str, str] | None
     if daemon_pg_conn is not None:
-        bootstrap_token = pg_bootstrap["token"] if pg_bootstrap is not None else read_runtime_token()
-    with conn:
-        if daemon_pg_conn is not None and bootstrap_token is None:
-            bootstrap = None
-        else:
-            bootstrap = _bootstrap_admin_if_needed(conn, token=bootstrap_token)
-        daemon_instance_id = _instance_id(conn)
+        bootstrap = pg_bootstrap
+        daemon_instance_id = _pg_instance_id(daemon_pg_conn)
+    else:
+        conn = connect_registry()
+        with conn:
+            bootstrap = _bootstrap_admin_if_needed(conn)
+            daemon_instance_id = _instance_id(conn)
     _ensure_private_dir(runtime_dir())
     pid = _read_pid()
     if pid is not None and _pid_alive(pid):
@@ -1462,7 +1535,7 @@ def run_daemon_foreground(
     sweeps = 0
     try:
         while not stopping:
-            daemon_sweep_once()
+            daemon_sweep_once(pg_conn=daemon_pg_conn)
             sweeps += 1
             if max_sweeps is not None and sweeps >= max_sweeps:
                 stop_event.set()
@@ -1733,7 +1806,23 @@ def daemon_sweep_once(
     *,
     per_run_timeout_seconds: float = DEFAULT_SWEEP_TIMEOUT_SECONDS,
     require_client_auth: bool = False,
+    pg_conn: Any | None = None,
 ) -> dict[str, Any]:
+    if pg_conn is not None or _pg_connection_configured():
+        owns_pg_conn = pg_conn is None
+        if pg_conn is None:
+            from striatum.daemon_pg.connection import connect_and_migrate
+
+            pg_conn = connect_and_migrate()
+        try:
+            return _daemon_sweep_once_pg(
+                pg_conn,
+                per_run_timeout_seconds=per_run_timeout_seconds,
+                require_client_auth=require_client_auth,
+            )
+        finally:
+            if owns_pg_conn and pg_conn is not None:
+                pg_conn.close()
     conn = connect_registry()
     token = read_runtime_token()
     with registry_transaction(conn):
@@ -1821,6 +1910,133 @@ def daemon_sweep_once(
             sweeps.append({"repository_id": int(repo_row["repository_id"]), "error": str(exc)})
     _ = token
     return {"mode": "daemon", "sweeps": sweeps}
+
+
+def _daemon_sweep_once_pg(
+    pg_conn: Any,
+    *,
+    per_run_timeout_seconds: float,
+    require_client_auth: bool,
+) -> dict[str, Any]:
+    from psycopg.types.json import Jsonb
+
+    from striatum.daemon_pg.handlers.context import RepoHandlerContext
+    from striatum.daemon_pg.handlers.recovery_evidence.sweep import handle as sweep_handle
+    from striatum.daemon_rpc.capability import RpcAuthContext
+    from striatum.daemon_rpc.request_log import append_audit_row
+
+    token = read_runtime_token()
+    if require_client_auth:
+        _require_pg_auth(
+            pg_conn,
+            command="daemon.sweep",
+            required=ADMIN_CAPABILITY,
+            token=token,
+        )
+    else:
+        append_audit_row(
+            pg_conn,
+            auth=RpcAuthContext(None, None, None, ADMIN_CAPABILITY, "allowed"),
+            method="daemon.sweep",
+            transport="daemon-internal",
+            request_id=f"daemon_sweep_{uuid.uuid4().hex}",
+            params={},
+        )
+    try:
+        pg_conn.commit()
+    except Exception:  # noqa: BLE001 - autocommit connections do not need an explicit commit.
+        pass
+
+    with _pg_dict_cursor(pg_conn) as cur:
+        cur.execute(
+            """
+            SELECT r.repository_id, r.repo_root, runs.run_id
+            FROM striatumd.repositories r
+            JOIN striatumd.runs runs
+              ON runs.repository_id = r.repository_id
+            WHERE r.state = 'active'
+              AND runs.state IN ('running', 'paused')
+            ORDER BY r.repository_id, runs.created_at, runs.run_id
+            """
+        )
+        rows = [_pg_row_dict(row) for row in cur.fetchall()]
+
+    sweeps: list[dict[str, Any]] = []
+    for row in rows:
+        repository_id = str(row["repository_id"])
+        run_id = str(row["run_id"])
+        started = time.monotonic()
+        try:
+            ctx = RepoHandlerContext(
+                pg_conn=pg_conn,
+                repository_id=repository_id,
+                repo_root=Path(str(row["repo_root"])),
+                auth=RpcAuthContext(None, None, repository_id, ADMIN_CAPABILITY, "allowed"),
+            )
+            result = sweep_handle(ctx, {"run_id": run_id})
+            elapsed = time.monotonic() - started
+            state = "active"
+            if elapsed > per_run_timeout_seconds:
+                state = "sweep_degraded"
+                result = {
+                    **result,
+                    "degraded": True,
+                    "degraded_reason": "sweep_timeout",
+                    "elapsed_seconds": elapsed,
+                }
+            _upsert_pg_scheduler_cursor(
+                pg_conn,
+                repository_id=repository_id,
+                run_id=run_id,
+                result=result,
+                state=state,
+                jsonb=Jsonb,
+            )
+            sweeps.append({"repository_id": repository_id, "run_id": run_id, "result": result})
+        except Exception as exc:  # noqa: BLE001
+            try:
+                pg_conn.rollback()
+            except Exception:  # noqa: BLE001
+                pass
+            result = {"error": str(exc)}
+            _upsert_pg_scheduler_cursor(
+                pg_conn,
+                repository_id=repository_id,
+                run_id=run_id,
+                result=result,
+                state="sweep_degraded",
+                jsonb=Jsonb,
+            )
+            sweeps.append({"repository_id": repository_id, "run_id": run_id, "error": str(exc)})
+    return {"mode": "daemon", "sweeps": sweeps}
+
+
+def _upsert_pg_scheduler_cursor(
+    pg_conn: Any,
+    *,
+    repository_id: str,
+    run_id: str,
+    result: Mapping[str, Any],
+    state: str,
+    jsonb: Any,
+) -> None:
+    with pg_conn.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO striatumd.scheduler_cursors(repository_id, run_id,
+              cursor_kind, last_sweep_at, next_sweep_after, last_result_json, state)
+            VALUES (%s, %s, 'recovery', now(), NULL, %s, %s)
+            ON CONFLICT (repository_id, run_id, cursor_kind)
+            DO UPDATE SET last_sweep_at = now(),
+                          last_result_json = EXCLUDED.last_result_json,
+                          state = EXCLUDED.state
+            """,
+            (repository_id, run_id, jsonb(dict(result)), state),
+        )
+    try:
+        pg_conn.commit()
+    except Exception:  # noqa: BLE001 - autocommit connections do not need an explicit commit.
+        pass
 
 
 def daemon_audit(limit: int = 100) -> dict[str, Any]:

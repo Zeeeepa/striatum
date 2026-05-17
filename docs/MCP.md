@@ -155,14 +155,15 @@ The local web chat surface is owner-only and reuses the mutation gate
 instead of token capabilities; when the daemon serves these tools
 through its MCP transport, `tools/list` filtering applies normally.
 
-Each tool is a thin shell over the existing CLI verb (via
-`striatum.api.invoke`); the daemon's audit chain records the same
-rows whether the operator ran the CLI directly or called the chat
-tool. RFC 0040 §2/§3 also scope composite operator tools
-(`dogfood.publish_on_behalf`, `dogfood.surgical_recovery`) that
-compose `ack` + `publish-artifact` + `verdict`/`complete` (or
-recovery + lease reactivation) into single audit-chain entries; those
-land in the daemon-side systems half of the RFC.
+Each local chat tool is a thin shell over the existing CLI verb (via
+`striatum.api.invoke`) for the owner-only web service surface. Production
+daemon MCP calls dispatch through daemon RPC and the daemon's audit chain.
+The historical RFC 0040 composite operator tools
+(`dogfood.publish_on_behalf`, `dogfood.surgical_recovery`) are retired in the
+production Python and Go daemon paths because their original implementation was
+SQLite-bound. Use primitive daemon methods (`ack`, `publish_artifact`,
+`verdict`/`complete`, and ordinary recovery tools) until a PostgreSQL-native
+composite is accepted.
 
 ### Example chat-tool sequence
 

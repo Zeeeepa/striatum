@@ -15,7 +15,7 @@ from striatum.daemon_rpc.server import DaemonRpcRouter, _domain_error_to_rpc
 from striatum.daemon_rpc.transport_http import validate_loopback_bind
 from striatum.daemon_rpc.transport_unix import bind_unix_socket
 from striatum.db import connect, init_repo
-from striatum.errors import WorkflowError
+from striatum.errors import NotFoundError, WorkflowError
 
 
 def test_envelope_v1_round_trip_and_rejects_version_skew() -> None:
@@ -266,6 +266,56 @@ def test_repo_scoped_rpc_refuses_unregistered_repo(monkeypatch: pytest.MonkeyPat
 
     assert response.ok is False
     assert response.data["code"] == "repo_not_registered"
+
+
+def test_repo_resolve_routes_through_python_pg_helper(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    calls: list[tuple[object, Path]] = []
+    pg_conn = object()
+
+    def fake_repo_resolve_pg(conn: object, path: Path) -> dict[str, Any]:
+        calls.append((conn, path))
+        return {
+            "repository_id": "repo_a",
+            "repo_root": str(path),
+            "state": "active",
+            "schema_version": 16,
+        }
+
+    monkeypatch.setattr("striatum.daemon.repo_resolve_pg", fake_repo_resolve_pg)
+
+    result = DaemonRpcRouter(pg_conn=pg_conn)._route_repo(
+        RpcEnvelope(
+            schema_version=1,
+            request_id="repo-resolve",
+            method="repo.resolve",
+            params={"path": str(tmp_path)},
+        )
+    )
+
+    assert result["repository_id"] == "repo_a"
+    assert calls == [(pg_conn, tmp_path)]
+
+
+def test_repo_resolve_missing_path_returns_repo_not_registered(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    def fake_repo_resolve_pg(_conn: object, path: Path) -> dict[str, Any]:
+        raise NotFoundError(f"active repository path is not registered: {path}")
+
+    monkeypatch.setattr("striatum.daemon.repo_resolve_pg", fake_repo_resolve_pg)
+
+    with pytest.raises(RpcError) as exc:
+        DaemonRpcRouter(pg_conn=object())._route_repo(
+            RpcEnvelope(
+                schema_version=1,
+                request_id="repo-resolve-missing",
+                method="repo.resolve",
+                params={"path": str(tmp_path)},
+            )
+        )
+
+    assert exc.value.code == "repo_not_registered"
 
 
 def test_method_registry_declares_expected_capabilities() -> None:

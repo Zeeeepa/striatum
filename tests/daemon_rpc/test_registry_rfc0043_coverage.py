@@ -146,6 +146,7 @@ EXPECTED_CAPABILITY: dict[str, str] = {
     "repo.add": "admin",
     "repo.remove": "admin",
     "repo.list": "read",
+    "repo.resolve": "read",
     "daemon.migrate": "admin",
     "daemon.migrate_repo_local": "admin",
 }
@@ -160,6 +161,7 @@ SERVER_INLINE_METHODS: frozenset[str] = frozenset(
         "repo.add",
         "repo.remove",
         "repo.list",
+        "repo.resolve",
         "daemon.token.create",
         "daemon.token.revoke",
         "daemon.token.rotate",
@@ -179,7 +181,6 @@ SERVER_INLINE_METHODS: frozenset[str] = frozenset(
         "workflow.generate.preview",
     }
 )
-
 
 def test_every_mutation_has_a_registered_method() -> None:
     missing: list[str] = []

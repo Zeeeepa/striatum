@@ -12,6 +12,7 @@ from striatum.cli.daemon_rpc_route import (
     _LOOKUP,
     _call_with_handshake,
     _load_cli_route_contracts,
+    _resolve_repository_id,
     _subcommand,
     try_route,
 )
@@ -644,8 +645,8 @@ def test_run_graph_human_cli_unwraps_source(monkeypatch: pytest.MonkeyPatch) -> 
         lambda _path: True,
     )
     monkeypatch.setattr(
-        "striatum.cli.daemon_rpc_route._lookup_repository_id",
-        lambda _repo: "repo_a",
+        "striatum.cli.daemon_rpc_route._resolve_repository_id",
+        lambda _sock_path, _repo: "repo_a",
     )
     monkeypatch.setattr(
         "striatum.cli.daemon_rpc_route._call_with_handshake",
@@ -1019,7 +1020,87 @@ def test_registered_rpc_command_fails_closed_when_repo_unregistered(monkeypatch:
     monkeypatch.delenv("STRIATUM_IN_DAEMON_HANDLER", raising=False)
     monkeypatch.setattr("striatum.cli.daemon_rpc_route.resolve_socket_path", lambda: Path("/tmp/striatumd.sock"))
     monkeypatch.setattr("striatum.cli.daemon_rpc_route.daemon_socket_is_reachable", lambda _path: True)
-    monkeypatch.setattr("striatum.cli.daemon_rpc_route._lookup_repository_id", lambda _repo: None)
+    monkeypatch.setattr("striatum.cli.daemon_rpc_route._resolve_repository_id", lambda _sock_path, _repo: None)
 
     with pytest.raises(StriatumError, match="repo_not_registered"):
         try_route(args, Path("/repo"))
+
+
+def test_repository_resolution_uses_daemon_rpc_repo_resolve_without_client_pg(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    calls: list[tuple[str, dict[str, Any]]] = []
+
+    def forbidden_pg_connect(*_args: object, **_kwargs: object) -> object:
+        raise AssertionError("client route must not open daemon Postgres")
+
+    monkeypatch.setattr("striatum.daemon_pg.connection.connect", forbidden_pg_connect)
+    monkeypatch.setattr("striatum.cli.daemon_rpc_route.METHOD_REGISTRY", dict(METHOD_REGISTRY))
+    monkeypatch.setattr("striatum.cli.daemon_rpc_route._REPO_ID_CACHE", {})
+
+    def fake_call(_sock_path: Path, method: str, params: Mapping[str, Any]) -> dict[str, Any]:
+        calls.append((method, dict(params)))
+        return {
+            "ok": True,
+            "data": {"repository_id": "repo_a"},
+        }
+
+    monkeypatch.setattr("striatum.cli.daemon_rpc_route._call_with_handshake", fake_call)
+
+    assert _resolve_repository_id(Path("/tmp/striatumd.sock"), repo) == "repo_a"
+    assert calls == [("repo.resolve", {"path": str(repo.resolve())})]
+
+
+def test_try_route_resolves_repository_by_daemon_rpc_without_client_pg(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    args = argparse.Namespace(command="status", run_id="run_1")
+    calls: list[tuple[str, dict[str, Any]]] = []
+
+    def forbidden_pg_connect(*_args: object, **_kwargs: object) -> object:
+        raise AssertionError("client route must not open daemon Postgres")
+
+    monkeypatch.delenv("STRIATUM_TEST_HARNESS", raising=False)
+    monkeypatch.delenv("STRIATUM_IN_DAEMON_HANDLER", raising=False)
+    monkeypatch.setattr("striatum.daemon_pg.connection.connect", forbidden_pg_connect)
+    monkeypatch.setattr("striatum.cli.daemon_rpc_route.METHOD_REGISTRY", dict(METHOD_REGISTRY))
+    monkeypatch.setattr("striatum.cli.daemon_rpc_route._REPO_ID_CACHE", {})
+    monkeypatch.setattr("striatum.cli.daemon_rpc_route.resolve_socket_path", lambda: Path("/tmp/striatumd.sock"))
+    monkeypatch.setattr("striatum.cli.daemon_rpc_route.daemon_socket_is_reachable", lambda _path: True)
+
+    def fake_call(_sock_path: Path, method: str, params: Mapping[str, Any]) -> dict[str, Any]:
+        calls.append((method, dict(params)))
+        if method == "repo.resolve":
+            return {
+                "ok": True,
+                "data": {"repository_id": "repo_a"},
+            }
+        return {"ok": True, "data": {"state": "running"}}
+
+    monkeypatch.setattr("striatum.cli.daemon_rpc_route._call_with_handshake", fake_call)
+
+    routed, data = try_route(args, repo)
+
+    assert routed is True
+    assert data == {"state": "running"}
+    assert calls == [
+        ("repo.resolve", {"path": str(repo.resolve())}),
+        ("status", {"run_id": "run_1", "repository_id": "repo_a"}),
+    ]
+
+
+def test_client_boundary_source_does_not_import_daemon_pg_lookup() -> None:
+    root = Path(__file__).resolve().parents[1]
+    route_text = (root / "src" / "striatum" / "cli" / "daemon_rpc_route.py").read_text(encoding="utf-8")
+    service_text = (root / "src" / "striatum" / "service_daemon.py").read_text(encoding="utf-8")
+
+    assert "striatum.daemon_pg.connection" not in route_text
+    assert "striatum.daemon_pg.connection" not in service_text
+    assert "resolve_config" not in route_text
+    assert "resolve_config" not in service_text

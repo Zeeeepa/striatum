@@ -204,33 +204,12 @@ def test_daemon_mcp_unknown_tool_is_default_denied_and_audited(monkeypatch) -> N
     assert audit_calls[0]["auth"].denial_reason == "method_unknown"
 
 
-def test_daemon_rpc_converts_dogfood_helper_failure_to_rpc_error(monkeypatch, tmp_path: Path) -> None:  # type: ignore[no-untyped-def]
+def test_daemon_rpc_dogfood_publish_on_behalf_fails_closed_without_sqlite(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:  # type: ignore[no-untyped-def]
     request_logs: list[dict[str, Any]] = []
-    details = {
-        "failed_step": "complete",
-        "composition_steps": [{"step": "ack", "status": "acked"}],
-    }
 
-    class FakeConnect:
-        def __enter__(self) -> object:
-            return object()
-
-        def __exit__(self, *_args: object) -> None:
-            return None
-
-    def fake_publish_on_behalf(*_args: Any, **_kwargs: Any) -> dict[str, Any]:
-        return {
-            "ok": False,
-            "status": "refused",
-            "error": {
-                "code": "composite_failed",
-                "message": "forced complete failure",
-                "details": details,
-            },
-        }
-
-    monkeypatch.setattr("striatum.db.connect", lambda _repo: FakeConnect())
-    monkeypatch.setattr("striatum.dogfood.operator_tools.publish_on_behalf", fake_publish_on_behalf)
     monkeypatch.setattr("striatum.daemon_rpc.server.request_id_seen", lambda *args, **kwargs: False)
     monkeypatch.setattr(
         "striatum.daemon_rpc.server.authorize",
@@ -250,17 +229,28 @@ def test_daemon_rpc_converts_dogfood_helper_failure_to_rpc_error(monkeypatch, tm
             schema_version=1,
             request_id="dogfood-failure",
             method="dogfood.publish_on_behalf",
-            params={"repository_id": "repo_a", "reason": "operator reason"},
+            params={
+                "repository_id": "repo_a",
+                "session_id": "sess_1",
+                "artifact_path": "docs/out.md",
+                "artifact_kind": "handoff",
+                "logical_name": "out",
+                "reason": "operator inspected the stalled session",
+            },
         ),
         connection_id="mcp",
     )
 
     assert response.ok is False
-    assert response.data["code"] == "composite_failed"
-    assert response.data["message"] == "forced complete failure"
-    assert response.data["details"] == details
+    assert response.data["code"] == "dogfood_publish_on_behalf_retired"
+    assert response.data["details"]["blocker"] == "legacy_python_composite_uses_repo_local_sqlite_connection"
+    assert response.data["details"]["remediation"] == [
+        "work.ack",
+        "artifact.publish",
+        "review.verdict or work.complete",
+    ]
     assert request_logs[0]["response"]["ok"] is False
-    assert request_logs[0]["response"]["data"]["code"] == "composite_failed"
+    assert request_logs[0]["response"]["data"]["code"] == "dogfood_publish_on_behalf_retired"
 
 
 def test_mcp_structured_error_uses_nested_rpc_error_codes(monkeypatch) -> None:  # type: ignore[no-untyped-def]
