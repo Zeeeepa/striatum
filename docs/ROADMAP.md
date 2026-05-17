@@ -314,6 +314,10 @@ fallback path or repo-administration path.
   `cli_routes` section and loaded by `src/striatum/cli/daemon_rpc_route.py`;
   that module retains only CLI-local parameter extraction. Focused tests keep
   workflow authoring CLI-local and catch route/contract drift.
+- `cross_repo.cancel` remains intentionally `not_implemented` even though its
+  parser-visible command and registry entry exist; shipping it requires a
+  PG-native participant-cancel path under each registered repository, not the
+  historical repo-local SQLite runner.
 
 ---
 

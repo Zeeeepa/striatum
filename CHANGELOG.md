@@ -119,6 +119,9 @@ Recent checkpoints:
 - Workflow browser and visual-editor route rendering/saving moved from
   `service.py` into `striatum.web.workflows`; the service now keeps only
   stable private wrappers and passes the existing template factory seam.
+- Documentation now records that parser-visible `cross-repo cancel` is still
+  an explicit `not_implemented` surface until cross-repo runs have a
+  PG-native participant-cancel implementation.
 - Workflow validation now rejects `needs_revision` cycles whose `from`/`to`
   jobs cross phase boundaries, closing the RFC 0045 V1.5 cycle phase-jump
   validator gap.

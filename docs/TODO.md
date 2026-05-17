@@ -869,6 +869,11 @@ review and plan are root-level operator artifacts:
     now builds from the same contract route map and keeps only CLI-local
     parameter extraction in `src/striatum/cli/daemon_rpc_route.py`; focused
     tests guard contract/route drift and fail-closed registered-method routing.
+    Recorded blocker: `cross_repo.cancel` remains explicitly
+    `not_implemented` despite its parser-visible command and registered method;
+    implementation needs a PG-native participant-cancel path for every
+    repository in a cross-repo run rather than the historical repo-local
+    SQLite runner.
 
 51. ~~**Phase 3: daemon core strategy decision.**~~ Done: D105 records
     Python as the primary production daemon core and narrows Go to a

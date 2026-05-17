@@ -733,6 +733,10 @@ Operator inspection commands:
 "$RUNNER" cross-repo why <cross_repo_run_id> --json
 ```
 
+`cross-repo cancel` is parser-visible but currently refuses with
+`not_implemented`; do not rely on it for production recovery until the daemon
+has a PG-native participant-cancel path for every repository in the run.
+
 If a participant repository disappears mid-run, the daemon pauses the
 cross-repo run and the operator must re-register the same repository id
 or cancel the run. Cross-repo coordination is best-effort local

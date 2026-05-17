@@ -187,7 +187,7 @@ striatum repo remove <id>
 striatum cross-repo list
 striatum cross-repo describe <cross_repo_run_id>
 striatum cross-repo why <cross_repo_run_id>
-striatum cross-repo cancel <cross_repo_run_id>
+striatum cross-repo cancel <cross_repo_run_id>  # currently refuses: not implemented
 ```
 
 `striatum daemon start` / `striatumd` runs the supported
@@ -317,8 +317,10 @@ capability gating on the PostgreSQL daemon substrate. Cross-repo
 workflow files declare `repositories`, `primary_repository`, and
 per-job `repository` aliases. The daemon DB records canonical
 `cross_repo_run_id` rows under participating repository scopes.
-`cross-repo list|describe|why|cancel`
-read or mutate those daemon records according to capability scope. Daemon
+`cross-repo list|describe|why` inspect those daemon records according to
+capability scope. `cross-repo cancel` is intentionally parser-visible but
+currently refuses with `not_implemented` until the daemon has a PG-native
+participant-cancel path for every repository in the cross-repo run. Daemon
 MCP `tools/list` is filtered by each token's effective capabilities and
 scope, and `tools/call` re-checks authorization and audits denials.
 
