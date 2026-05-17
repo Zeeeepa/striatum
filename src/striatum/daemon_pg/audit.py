@@ -6,7 +6,7 @@ import hashlib
 import hmac
 from typing import Any
 
-from striatum.db import json_dumps
+from striatum.primitives import json_dumps
 
 
 def v1_row_hash(row: dict[str, Any]) -> str:

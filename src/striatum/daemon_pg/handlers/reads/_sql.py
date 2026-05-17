@@ -10,7 +10,8 @@ from typing import Any
 
 from striatum.daemon_pg.handlers.context import RepoHandlerContext
 from striatum.daemon_rpc.envelope import RpcError
-from striatum.db import repo_relative_path, sha256_bytes
+from striatum.primitives import sha256_bytes
+from striatum.repo_policy import repo_relative_path
 
 
 RUN_STATES = {

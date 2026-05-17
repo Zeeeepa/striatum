@@ -20,6 +20,7 @@ from typing import Any
 
 import pytest
 
+import striatum.cli.workflow as workflow_mod
 from striatum.api import invoke
 from striatum.cli.workflow import workflow_upgrade
 from striatum.errors import WorkflowError
@@ -229,6 +230,43 @@ def test_upgrade_dry_run_reports_running_runs(tmp_path: Path) -> None:
     result = workflow_upgrade(path, repo=tmp_path, dry_run=True)
     assert result["status"] == "would_refuse_running"
     assert result["running_runs"]
+
+
+def test_upgrade_refuses_running_runs_from_pg_when_sqlite_absent(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _git_init_repo(tmp_path)
+    path = _write_workflow(tmp_path, _baseline_workflow())
+    monkeypatch.setattr(
+        workflow_mod,
+        "_running_runs_for_workflow_pg",
+        lambda **_kwargs: ["run_pg_active"],
+    )
+
+    with pytest.raises(WorkflowError) as exc_info:
+        workflow_upgrade(path, repo=tmp_path)
+
+    assert "run_pg_active" in str(exc_info.value)
+
+
+def test_upgrade_fails_closed_after_sqlite_cutover_when_pg_unavailable(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _git_init_repo(tmp_path)
+    path = _write_workflow(tmp_path, _baseline_workflow())
+    striatum_dir = tmp_path / ".striatum"
+    striatum_dir.mkdir()
+    (striatum_dir / "state.sqlite3.migrated").write_text("", encoding="utf-8")
+    monkeypatch.setattr(
+        workflow_mod,
+        "_running_runs_for_workflow_pg",
+        lambda **_kwargs: None,
+    )
+
+    with pytest.raises(WorkflowError, match="daemon PostgreSQL was unavailable"):
+        workflow_upgrade(path, repo=tmp_path)
 
 
 # --- target validation ------------------------------------------------

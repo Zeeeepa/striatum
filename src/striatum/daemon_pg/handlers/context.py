@@ -21,17 +21,15 @@ from striatum.artifacts import (
     markdown_title_block_author_lines,
 )
 from striatum.daemon_rpc.capability import RpcAuthContext
-from striatum.db import (
-    JsonObject,
-    adapter_constraint_enforcement,
-    adapter_enforcement_satisfies,
-    json_dumps,
-    path_allowed,
-    repo_relative_path,
-    sha256_bytes,
-)
 from striatum.errors import ArtifactError, InvalidTransitionError, LeaseError, NotFoundError
 from striatum.identity import artifact_author_identity, validate_operator_label
+from striatum.primitives import JsonObject, json_dumps, sha256_bytes
+from striatum.repo_policy import (
+    adapter_constraint_enforcement,
+    adapter_enforcement_satisfies,
+    path_allowed,
+    repo_relative_path,
+)
 
 
 def _jsonb(value: object) -> Jsonb:

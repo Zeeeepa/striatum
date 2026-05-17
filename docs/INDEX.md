@@ -17,7 +17,7 @@ collectively, not individually.
 | [WORKFLOW_TYPES.md](WORKFLOW_TYPES.md) | Workflow selector | Which workflow shape and lane set to choose; current starters, examples, defaults, and the roadmap toward a chooser UI. |
 | [WRITING_WORKFLOWS.md](WRITING_WORKFLOWS.md) | Workflow author | How to author `workflow.json` from scratch: required fields, scaffold layout, common graph shapes, validation. |
 | [CLI_REFERENCE.md](CLI_REFERENCE.md) | Anyone | Flat list of every CLI verb plus stable exit codes; `--help` is authoritative. |
-| [POSTGRES_TRANSITION.md](POSTGRES_TRANSITION.md) | Operator | The D094 / RFC 0043 PostgreSQL cutover runbook: prerequisites, daemon doctor, daemon startup, `striatum daemon migrate-repo-local`, tombstone vs delete, verification, exit codes 11 / 12, and RFC 0048 remaining work. |
+| [POSTGRES_TRANSITION.md](POSTGRES_TRANSITION.md) | Operator | The D094 / RFC 0043 PostgreSQL cutover runbook: prerequisites, daemon doctor role/grant repair, daemon service startup, `striatum adopt`, `striatum daemon migrate-repo-local`, tombstone vs delete, verification, and exit codes 11 / 12. |
 
 ## Specifications and decisions
 
@@ -31,6 +31,7 @@ collectively, not individually.
 | [UBIQUITOUS_LANGUAGE.md](UBIQUITOUS_LANGUAGE.md) | Anyone | Glossary of striatum-specific terms (run, session, lease, work packet, lane, etc.). |
 | [TODO.md](TODO.md) | Maintainer | Active product-improvement tracker. |
 | [ROADMAP.md](ROADMAP.md) | Operator kicking off / resuming work | Forward-looking sequencing of TODO items, RFC follow-ups, open GH issues, and active runway — read first when picking up cold. Stays in sync with version bumps. |
+| [architecture/COMMAND_AUTHORITY_MATRIX.md](architecture/COMMAND_AUTHORITY_MATRIX.md) | Maintainer | Phase 0 inventory of CLI/RPC authority paths across Python PG handlers, daemon fallback, Go handlers, and legacy SQLite dependencies. |
 
 ## Background and reference
 

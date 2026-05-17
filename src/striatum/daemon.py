@@ -934,7 +934,7 @@ def run_daemon_foreground(
     # RFC 0048 V1.5: resolve daemon.toml + env + flag in one shot so the
     # daemon picks up the configured PG URL regardless of how it was launched
     # (systemd unit, direct shell, etc.). Without this the systemd-launched
-    # daemon stayed pg_conn=None and CLI_ROUTES fallbacks failed.
+    # daemon stayed pg_conn=None and native PG handlers were unavailable.
     from striatum.daemon_pg.config import resolve_config
 
     _resolved_cfg = resolve_config(postgres_url=postgres_url)

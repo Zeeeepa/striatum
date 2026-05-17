@@ -2,99 +2,41 @@
 
 from __future__ import annotations
 
-import os
 from dataclasses import replace
 from pathlib import Path
-from typing import Any, Callable, Mapping
+from typing import Any, Mapping
 
-from striatum.api import invoke
 from striatum.daemon_apply.signing_key import key_loaded
 from striatum.daemon_rpc.capability import RpcAuthContext, authorize, require_allowed
 from striatum.daemon_rpc.envelope import RpcEnvelope, RpcError, RpcResponse
 from striatum.daemon_rpc.handshake import build_welcome
 from striatum.daemon_rpc.registry import METHOD_REGISTRY, METHODS_ETAG, describe_methods
 from striatum.daemon_rpc.request_log import append_audit_row, append_request_log, request_id_seen
+from striatum.errors import (
+    ArtifactError,
+    BranchConfirmationError,
+    InvalidTransitionError,
+    LeaseError,
+    NotFoundError,
+    StriatumError,
+    WorkflowError,
+)
 
 
-Handler = Callable[[RpcEnvelope], Mapping[str, Any]]
+CLI_ROUTES: dict[str, tuple[str, ...]] = {}
 
-CLI_ROUTES: dict[str, tuple[str, ...]] = {
-    # ----- Read -----
-    "status": ("status",),
-    "why": ("why",),
-    "doctor": ("doctor",),
-    "dashboard": ("dashboard",),
-    "evidence.export": ("evidence", "export"),
-    "corpus.export": ("corpus", "export"),
-    "run.summary": ("run", "summary"),
-    "run.graph": ("run", "graph"),
-    "workflow.validate": ("workflow", "validate"),
-    "workflow.plan": ("workflow", "plan"),
-    "workflow.graph": ("workflow", "graph"),
-    "workflow.templates.list": ("workflow", "templates", "list"),
-    "workflow.templates.show": ("workflow", "templates", "show"),
-    "list.runs": ("list", "runs"),
-    "list.sessions": ("list", "sessions"),
-    "list.jobs": ("list", "jobs"),
-    "list.artifacts": ("list", "artifacts"),
-    "list.workflows": ("list", "workflows"),
-    "worktree.list": ("worktree", "list"),
-    # ----- Claim -----
-    "session.register": ("register-session",),
-    "session.close": ("session", "close"),
-    "work.claim_next": ("claim-next",),
-    "work.ack": ("ack",),
-    "work.heartbeat": ("heartbeat",),
-    "work.release": ("release",),
-    "supervise.start": ("supervise", "start"),
-    "supervise.send": ("supervise", "send"),
-    "supervise.stop": ("supervise", "stop"),
-    "supervise.status": ("supervise", "status"),
-    "supervise.list": ("supervise", "list"),
-    # ----- Write -----
-    "work.send_message": ("send",),
-    "work.block": ("block",),
-    "work.complete": ("complete",),
-    "artifact.publish": ("publish-artifact",),
-    "worktree.create": ("worktree", "create"),
-    "worktree.release": ("worktree", "release"),
-    "workflow.init": ("workflow", "init"),
-    "workflow.generate": ("workflow", "generate"),
-    "workflow.upgrade": ("workflow", "upgrade"),
-    # ----- Review -----
-    "review.submit": ("submit-review",),
-    "review.verdict": ("verdict",),
-    "review.override": ("override-verdict",),
-    # ----- Admin -----
-    "decision.record": ("decision", "record"),
-    "checkpoint.resolve": ("checkpoint", "resolve"),
-    "branch.confirm": ("branch", "confirm"),
-    "run.prepare": ("run", "prepare"),
-    "run.start": ("run", "start"),
-    "run.pause": ("run", "pause"),
-    "run.resume": ("run", "resume"),
-    "run.cancel": ("run", "cancel"),
-    "run.retry_job": ("run", "retry-job"),
-    # ----- Recovery -----
-    "recovery.stale_leases": ("recovery", "stale-leases"),
-    "recovery.requeue_stale": ("recovery", "requeue-stale"),
-    "recovery.cancel_job": ("recovery", "cancel-job"),
-    "recovery.process_reconcile": ("recovery", "process-reconcile"),
-    "recovery.resume": ("recovery", "resume"),
-    "recovery.auto": ("recovery", "auto"),
-    "recovery.auto_publish_stale_artifacts": ("recovery", "auto"),
-    "recovery.watch": ("recovery", "watch"),
-    # ----- Legacy aliases (deprecated in the registry) -----
-    "ack": ("ack",),
-    "block": ("block",),
-    "heartbeat": ("heartbeat",),
-    "publish_artifact": ("publish-artifact",),
-    "complete": ("complete",),
-    "release": ("release",),
-    "claim_next": ("claim-next",),
-    "verdict": ("verdict",),
-    "submit_review": ("submit-review",),
-}
+LOCAL_FILE_AUTHORING_METHODS: frozenset[str] = frozenset(
+    {
+        "workflow.validate",
+        "workflow.plan",
+        "workflow.graph",
+        "workflow.templates.list",
+        "workflow.templates.show",
+        "workflow.init",
+        "workflow.generate",
+        "workflow.upgrade",
+    }
+)
 
 
 class DaemonRpcRouter:
@@ -159,6 +101,10 @@ class DaemonRpcRouter:
         except RpcError as exc:
             auth = _denied_auth(auth, exc.code)
             response = RpcResponse.error_response(request_id=envelope.request_id, error=exc)
+        except StriatumError as exc:
+            rpc_error = _domain_error_to_rpc(exc)
+            auth = _denied_auth(auth, rpc_error.code)
+            response = RpcResponse.error_response(request_id=envelope.request_id, error=rpc_error)
         return self._record_and_return(envelope, auth=auth, response=response, transport=transport)
 
     def _record_and_return(
@@ -244,24 +190,12 @@ class DaemonRpcRouter:
                     auth=auth,
                 )
                 return handler(ctx, envelope.params)
-        prefix = CLI_ROUTES.get(envelope.method)
-        if prefix is None:
-            raise RpcError("method_unknown", f"method has no handler: {envelope.method}")
-        args = [*prefix, *_params_to_args(envelope.params)]
-        # RFC 0048 Phase C: suppress the CLI's daemon-RPC hook so the daemon's
-        # internal in-process fallback doesn't loop back through itself.
-        os.environ["STRIATUM_IN_DAEMON_HANDLER"] = "1"
-        try:
-            result = invoke(args, repo=repo_root)
-        finally:
-            os.environ.pop("STRIATUM_IN_DAEMON_HANDLER", None)
-        if not result.get("ok"):
-            error = result.get("error")
-            if isinstance(error, dict):
-                raise RpcError("command_failed", str(error.get("message", "daemon RPC command failed")), exit_code=int(error.get("code", 1)))
-            raise RpcError("command_failed", "daemon RPC command failed", exit_code=1)
-        data = result.get("data")
-        return data if isinstance(data, dict) else {"result": data}
+        if envelope.method in LOCAL_FILE_AUTHORING_METHODS:
+            raise RpcError(
+                "not_implemented",
+                "workflow authoring is CLI-local and has no daemon live-state fallback",
+            )
+        raise RpcError("method_unknown", f"method has no handler: {envelope.method}")
 
     def _route_cross_repo(self, envelope: RpcEnvelope) -> dict[str, Any]:
         from striatum.cross_repo import describe_cross_repo_run, list_cross_repo_runs
@@ -334,6 +268,23 @@ def _denied_auth(auth: RpcAuthContext, reason: str) -> RpcAuthContext:
     )
 
 
+def _domain_error_to_rpc(exc: StriatumError) -> RpcError:
+    code = "command_failed"
+    if isinstance(exc, NotFoundError):
+        code = "not_found"
+    elif isinstance(exc, InvalidTransitionError):
+        code = "invalid_transition"
+    elif isinstance(exc, LeaseError):
+        code = "lease_error"
+    elif isinstance(exc, ArtifactError):
+        code = "artifact_error"
+    elif isinstance(exc, BranchConfirmationError):
+        code = "branch_confirmation_required"
+    elif isinstance(exc, WorkflowError):
+        code = "workflow_error"
+    return RpcError(code, str(exc), exit_code=exc.exit_code)
+
+
 def _row_value(row: Any, key: str) -> Any:
     if isinstance(row, dict):
         return row[key]
@@ -349,20 +300,3 @@ def _optional_str(value: Any) -> str | None:
         return None
     text = str(value)
     return text if text else None
-
-
-def _params_to_args(params: Mapping[str, Any]) -> list[str]:
-    args: list[str] = []
-    for key, value in params.items():
-        if key in {"repository_id", "capability_token"} or value is None:
-            continue
-        flag = "--" + key.replace("_", "-")
-        if isinstance(value, bool):
-            if value:
-                args.append(flag)
-        elif isinstance(value, list):
-            for item in value:
-                args.extend([flag, str(item)])
-        else:
-            args.extend([flag, str(value)])
-    return args

@@ -76,6 +76,52 @@ def test_run_summary_redaction_preserves_renderer_shape_and_redacts_unknowns() -
     assert redacted["new_future_field"] == EVIDENCE_FREE_TEXT_PLACEHOLDER
 
 
+def test_run_summary_redaction_removes_live_duration_for_open_runs() -> None:
+    redacted = redact_run_summary_payload(
+        {
+            "status": {"jobs": {}, "next_actions": []},
+            "doctor": {"ok": True, "problems": []},
+            "blockers": [],
+            "branch_context": {},
+            "timing": {
+                "created_at": "2026-05-15T00:00:00Z",
+                "started_at": "2026-05-15T00:00:00Z",
+                "completed_at": None,
+                "duration": "0h 0m 7s",
+            },
+            "artifacts": [],
+            "sessions": [],
+            "verdicts": [],
+            "verdicts_by_workflow_job": [],
+        }
+    )
+
+    assert redacted["timing"]["duration"] is None
+
+
+def test_run_summary_redaction_preserves_completed_duration() -> None:
+    redacted = redact_run_summary_payload(
+        {
+            "status": {"jobs": {}, "next_actions": []},
+            "doctor": {"ok": True, "problems": []},
+            "blockers": [],
+            "branch_context": {},
+            "timing": {
+                "created_at": "2026-05-15T00:00:00Z",
+                "started_at": "2026-05-15T00:00:00Z",
+                "completed_at": "2026-05-15T00:00:07Z",
+                "duration": "0h 0m 7s",
+            },
+            "artifacts": [],
+            "sessions": [],
+            "verdicts": [],
+            "verdicts_by_workflow_job": [],
+        }
+    )
+
+    assert redacted["timing"]["duration"] == "0h 0m 7s"
+
+
 def test_run_summary_redaction_redacts_session_prose_before_rendering() -> None:
     payload = {
         "status": {"jobs": {}, "next_actions": []},

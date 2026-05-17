@@ -4,10 +4,9 @@ Port of :func:`striatum.cli.recovery.auto_publish_stale_artifacts`
 (lines 731-980). Synthesis: docs/dogfood/057/DESIGN_SYNTHESIS.md L171-179.
 
 Naming note (review finding #1, REVIEW.md L117-119): the synthesis section
-header is ``recovery.auto_publish_stale_artifacts``, but the RPC method
-registered in ``CLI_ROUTES`` is ``recovery.auto`` (server.py:83). The
-``@register_pg_handler`` decorator MUST use ``"recovery.auto"`` so a grep
-of the registry finds it.
+header is ``recovery.auto_publish_stale_artifacts``, but the canonical RPC
+method is ``recovery.auto``. The ``@register_pg_handler`` decorator MUST use
+``"recovery.auto"`` so registry lookups find it.
 """
 
 from __future__ import annotations

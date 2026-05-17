@@ -8,7 +8,7 @@ import os
 import sqlite3
 import sys
 from pathlib import Path
-from typing import Any, Sequence
+from typing import Any, Sequence, cast
 
 from striatum.artifacts import publish_artifact
 from striatum.db import (
@@ -32,6 +32,7 @@ from striatum.errors import (
 from striatum.process_adapter import run_process_adapter
 from striatum.workflow import (
     create_run,
+    lint_workflow,
     load_workflow,
     plan_workflow,
     validate_workflow,
@@ -193,18 +194,43 @@ def dispatch(args: argparse.Namespace) -> object:
     # migrated) before the SQLite-backed fallback is touched. The
     # ``STRIATUM_DAEMON_REQUIRED=0`` opt-out exists for SQLite-backed
     # test fixtures and incremental legacy-fixture migration.
-    enforce_daemon_required(getattr(args, "command", None), repo)
+    enforce_daemon_required(
+        getattr(args, "command", None),
+        repo,
+        first_run=bool(getattr(args, "first_run", False)),
+    )
     daemon_forced = bool(getattr(args, "daemon", False)) or (
         os.environ.get("STRIATUM_DAEMON") == "1"
     )
     # RFC 0048 Phase C: route CLI verbs through daemon RPC (Unix socket)
     # when the verb maps to a registered RPC method AND the daemon is
     # reachable. Falls through to legacy SQLite dispatch when no mapping
-    # exists (init, skills, plugin, daemon, repo, serve, byline) or when
-    # the daemon is unreachable (test-harness mode or daemon offline).
+    # exists (init, skills, plugin, daemon, repo, serve, byline, and the
+    # session-scoped inbox helper) or when the daemon is unreachable
+    # (test-harness mode or daemon offline).
     if args.command == "self-update":
         return _dispatch_self_update(args)
-    if args.command not in {"daemon", "init", "skills", "plugin", "repo", "cross-repo", "serve", "byline", "inbox"}:
+    if args.command == "adopt":
+        from striatum.day_zero import adopt as adopt_repo
+
+        return adopt_repo(
+            repo,
+            profile=str(args.profile),
+            dry_run=bool(args.dry_run),
+            with_skills=bool(args.with_skills),
+            with_plugins=bool(args.with_plugins),
+            with_ddd_layout=bool(args.with_ddd_layout),
+            register=bool(args.register),
+            postgres_url=getattr(args, "postgres_url", None),
+        )
+    if args.command == "doctor" and bool(getattr(args, "first_run", False)):
+        from striatum.day_zero import first_run_smoke
+
+        return first_run_smoke(repo)
+    skip_daemon_route = args.command in {"daemon", "init", "skills", "plugin", "repo", "cross-repo", "serve", "byline"}
+    if args.command == "inbox" and getattr(args, "session_id", None):
+        skip_daemon_route = True
+    if not skip_daemon_route:
         try:
             from striatum.cli.daemon_rpc_route import try_route as _try_route_via_daemon
             routed, payload = _try_route_via_daemon(args, repo)
@@ -335,6 +361,27 @@ def dispatch(args: argparse.Namespace) -> object:
         if warnings:
             validation_result["warnings"] = warnings
         return validation_result
+    if args.command == "workflow" and args.workflow_command == "lint":
+        path = Path(args.path)
+        try:
+            loaded = json.loads(path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as exc:
+            return {
+                "workflow_id": "",
+                "valid": False,
+                "errors": [{"message": f"workflow JSON is invalid: {exc.msg}"}],
+                "warnings": [],
+                "warning_count": 0,
+            }
+        if not isinstance(loaded, dict):
+            return {
+                "workflow_id": "",
+                "valid": False,
+                "errors": [{"message": "workflow config must be a JSON object"}],
+                "warnings": [],
+                "warning_count": 0,
+            }
+        return lint_workflow(cast(dict[str, Any], loaded), repo_root=repo)
     if args.command == "workflow" and args.workflow_command == "plan":
         workflow = load_workflow(Path(args.path))
         return plan_workflow(workflow, repo_root=repo)
@@ -770,6 +817,12 @@ def dispatch(args: argparse.Namespace) -> object:
         if args.command == "byline":
             return _cli_byline(conn, session_id=args.session_id, job_id=args.job_id)
         if args.command == "inbox":
+            if not getattr(args, "session_id", None):
+                raise StriatumError(
+                    "principal inbox is daemon RPC only; start striatumd and retry, "
+                    "or pass --session-id for the legacy packet helper",
+                    exit_code=11,
+                )
             return _cli_inbox(conn, session_id=args.session_id)
         if args.command == "recovery" and args.recovery_command == "watch":
             from striatum.recovery import run_watch
@@ -813,6 +866,11 @@ def dispatch(args: argparse.Namespace) -> object:
                 blocker_id=args.blocker_id,
                 action=args.action,
                 decision_id=args.decision_id,
+            )
+        if args.command == "escalation":
+            raise StriatumError(
+                "escalation commands are daemon RPC only; start striatumd and retry",
+                exit_code=11,
             )
         if args.command == "adapter" and args.adapter_command == "run":
             return run_process_adapter(
@@ -1084,6 +1142,8 @@ def _dispatch_daemon(args: argparse.Namespace) -> object:
         pg = pg_doctor(
             postgres_url=getattr(args, "postgres_url", None),
             apply=bool(getattr(args, "apply_migrations", False)),
+            provision_rw_role=bool(getattr(args, "provision_rw_role", False)),
+            repair_grants=bool(getattr(args, "repair_grants", False)),
         )
         try:
             v1 = daemon_mod.read_doctor(repo=None, verbose=True)
@@ -1109,10 +1169,9 @@ def _dispatch_daemon(args: argparse.Namespace) -> object:
             v1 = {"ok": False, "error": str(exc)}
         result: dict[str, object] = {"mode": "daemon", "postgres": pg, "sqlite_registry": v1}
         if bool(getattr(args, "explain", False)):
-            # RFC 0048 V1.5: surface per-method routing (PG-backed vs
-            # SQLite-fallback). Reads the same registries DaemonRpcRouter
-            # consults so the operator can SEE which CLI verbs have made
-            # the substrate flip.
+            # RFC 0048 V1.5: surface per-method routing. Reads the same
+            # registries DaemonRpcRouter consults so the operator can see
+            # which methods are native PG-backed, inline, or CLI-local.
             from striatum.daemon_pg.handlers import registry as _pg_registry
             from striatum.daemon_rpc.registry import METHOD_REGISTRY
             from striatum.daemon_rpc.server import CLI_ROUTES
@@ -1125,7 +1184,7 @@ def _dispatch_daemon(args: argparse.Namespace) -> object:
                 explain_rows.append({
                     "method": method_name,
                     "pg_backed": pg_handler is not None,
-                    "sqlite_fallback_route": CLI_ROUTES.get(method_name),
+                    "daemon_cli_fallback_route": CLI_ROUTES.get(method_name),
                     "required_capability": entry.required_capability,
                     "repository_scope": entry.effective_repository_scope_mode,
                     "deprecated": getattr(entry, "deprecated", False),
@@ -1162,6 +1221,21 @@ def _dispatch_daemon(args: argparse.Namespace) -> object:
         return daemon_mod.daemon_audit(limit=int(args.limit))
     if args.daemon_command == "sweep":
         return daemon_mod.daemon_sweep_once(require_client_auth=True)
+    if args.daemon_command == "service":
+        from striatum.day_zero import service_install, service_start, service_status
+
+        if args.service_command == "install":
+            return service_install(
+                manager=args.manager,
+                dry_run=bool(args.dry_run),
+            )
+        if args.service_command == "start":
+            return service_start(
+                manager=args.manager,
+                dry_run=bool(args.dry_run),
+            )
+        if args.service_command == "status":
+            return service_status(manager=args.manager)
     raise StriatumError("unknown daemon command", exit_code=2)
 
 

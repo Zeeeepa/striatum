@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from striatum.db import JsonObject
+from striatum.primitives import JsonObject
 from striatum.workflow import load_workflow
 from striatum.workflow_generator.core import GeneratedWorkflow, GeneratorError
 
@@ -67,4 +67,3 @@ def _safe_target(repo: Path, relative: str) -> Path:
     except ValueError as exc:
         raise GeneratorError("generated path escapes repository", field_path="files.path") from exc
     return target
-

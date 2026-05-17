@@ -185,6 +185,28 @@ def build_parser() -> argparse.ArgumentParser:
     )
     self_update.add_argument("--json", action="store_true")
 
+    adopt = sub.add_parser(
+        "adopt",
+        help="guided day-zero setup for a target repository",
+    )
+    adopt.add_argument(
+        "--profile",
+        choices=["claude_code", "codex", "gemini", "generic", "all"],
+        default="claude_code",
+    )
+    adopt.add_argument("--postgres-url")
+    adopt.add_argument("--dry-run", action="store_true")
+    adopt.add_argument("--no-skills", dest="with_skills", action="store_false", default=True)
+    adopt.add_argument("--no-plugins", dest="with_plugins", action="store_false", default=True)
+    adopt.add_argument(
+        "--no-ddd-layout",
+        dest="with_ddd_layout",
+        action="store_false",
+        default=True,
+    )
+    adopt.add_argument("--no-register", dest="register", action="store_false", default=True)
+    adopt.add_argument("--json", action="store_true")
+
     daemon = sub.add_parser("daemon")
     daemon_sub = daemon.add_subparsers(dest="daemon_command", required=True)
     daemon_start = daemon_sub.add_parser("start")
@@ -205,9 +227,19 @@ def build_parser() -> argparse.ArgumentParser:
     daemon_doctor.add_argument("--postgres-url")
     daemon_doctor.add_argument("--apply-migrations", action="store_true")
     daemon_doctor.add_argument(
+        "--provision-rw-role",
+        action="store_true",
+        help="create the local striatumd_rw runtime role when the current Postgres user can create roles",
+    )
+    daemon_doctor.add_argument(
+        "--repair-grants",
+        action="store_true",
+        help="apply the runtime role grants/revokes required for append-only daemon tables",
+    )
+    daemon_doctor.add_argument(
         "--explain",
         action="store_true",
-        help="(RFC 0048 V1.5) show per-method PG-backed vs SQLite-fallback routing",
+        help="show per-method native PG, inline, or CLI-local daemon authority",
     )
     daemon_doctor.add_argument("--json", action="store_true")
     daemon_migrate = daemon_sub.add_parser("migrate")
@@ -296,6 +328,19 @@ def build_parser() -> argparse.ArgumentParser:
     daemon_audit.add_argument("--json", action="store_true")
     daemon_sweep = daemon_sub.add_parser("sweep")
     daemon_sweep.add_argument("--json", action="store_true")
+    daemon_service = daemon_sub.add_parser("service")
+    daemon_service_sub = daemon_service.add_subparsers(dest="service_command", required=True)
+    daemon_service_install = daemon_service_sub.add_parser("install")
+    daemon_service_install.add_argument("--manager", choices=["auto", "systemd", "launchd"], default="auto")
+    daemon_service_install.add_argument("--dry-run", action="store_true")
+    daemon_service_install.add_argument("--json", action="store_true")
+    daemon_service_start = daemon_service_sub.add_parser("start")
+    daemon_service_start.add_argument("--manager", choices=["auto", "systemd", "launchd"], default="auto")
+    daemon_service_start.add_argument("--dry-run", action="store_true")
+    daemon_service_start.add_argument("--json", action="store_true")
+    daemon_service_status = daemon_service_sub.add_parser("status")
+    daemon_service_status.add_argument("--manager", choices=["auto", "systemd", "launchd"], default="auto")
+    daemon_service_status.add_argument("--json", action="store_true")
 
     repo_cmd = sub.add_parser("repo")
     repo_sub = repo_cmd.add_subparsers(dest="repo_command", required=True)
@@ -339,6 +384,9 @@ def build_parser() -> argparse.ArgumentParser:
     validate = workflow_sub.add_parser("validate")
     validate.add_argument("path")
     validate.add_argument("--json", action="store_true")
+    lint = workflow_sub.add_parser("lint")
+    lint.add_argument("path")
+    lint.add_argument("--json", action="store_true")
     plan = workflow_sub.add_parser("plan")
     plan.add_argument("path")
     plan.add_argument("--json", action="store_true")
@@ -715,6 +763,11 @@ def build_parser() -> argparse.ArgumentParser:
     doctor = sub.add_parser("doctor")
     doctor.add_argument("--run-id")
     doctor.add_argument(
+        "--first-run",
+        action="store_true",
+        help="run day-zero checks for daemon, Postgres, token, registration, MCP, and sample read routing",
+    )
+    doctor.add_argument(
         "--verbose",
         action="store_true",
         help="include structured problem_records alongside the existing problems list",
@@ -853,6 +906,51 @@ def build_parser() -> argparse.ArgumentParser:
     )
     recovery_auto_publish.add_argument("--json", action="store_true")
 
+    recovery_auto_finalize = recovery_sub.add_parser(
+        "auto-finalize",
+        help=(
+            "RFC 0051 V1: publish and complete work from stable declared "
+            "expected artifacts with valid front matter and byline metadata. "
+            "Dry-run by default; live mode requires workflow opt-in or --force."
+        ),
+    )
+    recovery_auto_finalize.add_argument("--run-id", required=True)
+    recovery_auto_finalize.add_argument("--job-id")
+    recovery_auto_finalize.add_argument(
+        "--dry-run",
+        dest="dry_run",
+        action="store_true",
+        default=True,
+        help="report eligible artifacts without writing (default)",
+    )
+    recovery_auto_finalize.add_argument(
+        "--live",
+        dest="dry_run",
+        action="store_false",
+        help="perform eligible auto-finalize transitions",
+    )
+    recovery_auto_finalize.add_argument(
+        "--mtime-grace-seconds",
+        type=int,
+        default=None,
+        help="minimum artifact file age before it can auto-finalize",
+    )
+    recovery_auto_finalize.add_argument(
+        "--force",
+        action="store_true",
+        help="allow live mode before workflow recovery.auto_finalize opt-in",
+    )
+    recovery_auto_finalize.add_argument(
+        "--allow-no-process-execution",
+        dest="allow_no_process_execution",
+        action="store_true",
+        help=(
+            "allow model-bylined auto-finalize when no clean supervised "
+            "process execution row exists; records an explicit provenance event"
+        ),
+    )
+    recovery_auto_finalize.add_argument("--json", action="store_true")
+
     # RFC 0020 step 3: long-lived sweeper daemon.
     recovery_watch = recovery_sub.add_parser(
         "watch",
@@ -919,6 +1017,31 @@ def build_parser() -> argparse.ArgumentParser:
         help="optional decision artifact id to record alongside the resolution",
     )
     checkpoint_resolve_p.add_argument("--json", action="store_true")
+
+    escalation = sub.add_parser(
+        "escalation",
+        help="inspect and resolve human-principal escalation blockers",
+    )
+    escalation_sub = escalation.add_subparsers(dest="escalation_command", required=True)
+    escalation_list = escalation_sub.add_parser("list")
+    escalation_list.add_argument("--run-id")
+    escalation_list.add_argument(
+        "--state",
+        choices=["open", "resolved", "canceled", "all"],
+        default="open",
+    )
+    escalation_list.add_argument("--limit", type=_positive_int, default=100)
+    escalation_list.add_argument("--json", action="store_true")
+
+    escalation_show = escalation_sub.add_parser("show")
+    escalation_show.add_argument("--escalation-id", required=True)
+    escalation_show.add_argument("--json", action="store_true")
+
+    escalation_resolve = escalation_sub.add_parser("resolve")
+    escalation_resolve.add_argument("--escalation-id", required=True)
+    escalation_resolve.add_argument("--decision-id")
+    escalation_resolve.add_argument("--resolution-note")
+    escalation_resolve.add_argument("--json", action="store_true")
 
     adapter = sub.add_parser("adapter")
     adapter_sub = adapter.add_subparsers(dest="adapter_command", required=True)
@@ -1062,19 +1185,24 @@ def build_parser() -> argparse.ArgumentParser:
     byline.add_argument("--job-id", required=True)
     byline.add_argument("--json", action="store_true")
 
-    # V1.41: inbox helper. Operators publishing-on-behalf need the
-    # current packet's message_id, lease_id, and expected_artifacts.
-    # `striatum why <sid> --json` returns these but requires parsing;
-    # `inbox` is a thin focused alternative.
+    # V1.41: with --session-id this remains the packet helper operators use
+    # for publish-on-behalf flows. Without --session-id it is the
+    # human-principal escalation inbox.
     inbox = sub.add_parser(
         "inbox",
         help=(
-            "print the current packet for a session: workflow_job_id, "
-            "message_id, lease_id, expected_artifacts, and the "
-            "expected author line"
+            "print the human-principal escalation inbox, or the current "
+            "packet for a session when --session-id is supplied"
         ),
     )
-    inbox.add_argument("--session-id", required=True)
+    inbox.add_argument("--session-id")
+    inbox.add_argument("--run-id")
+    inbox.add_argument(
+        "--state",
+        choices=["open", "resolved", "canceled", "all"],
+        default="open",
+    )
+    inbox.add_argument("--limit", type=_positive_int, default=100)
     inbox.add_argument("--json", action="store_true")
 
     return parser

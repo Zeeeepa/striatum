@@ -13,11 +13,13 @@ from pathlib import Path
 from types import FrameType
 from typing import Literal
 
-from striatum import daemon
+import striatum.daemon as daemon
 
 ROOT = Path(__file__).resolve().parents[2]
 
 DaemonCore = Literal["python", "go"]
+# Python is the production daemon core. The Go value is retained for
+# transition/developer fixture coverage and future helper-runtime tests.
 
 _GO_BIN_ENV = "STRIATUMD_GO_BIN"
 _DEFAULT_GO_BIN = ROOT / "go" / "bin" / "striatumd"

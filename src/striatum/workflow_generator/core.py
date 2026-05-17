@@ -8,8 +8,9 @@ from dataclasses import dataclass, field
 from pathlib import PurePosixPath
 from typing import Any
 
-from striatum.db import ADAPTER_ENFORCEMENT_LEVELS, JsonObject, utc_now
 from striatum.errors import WorkflowError
+from striatum.primitives import JsonObject, utc_now
+from striatum.repo_policy import ADAPTER_ENFORCEMENT_LEVELS
 from striatum.workflow import (
     ALLOWED_POSTURES,
     CONSTRAINT_VALUES,

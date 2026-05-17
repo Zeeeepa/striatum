@@ -6,6 +6,7 @@ from typing import Any
 
 from striatum.daemon_pg.config import PostgresConfig, onboarding_hints, resolve_config
 from striatum.daemon_pg.migrations import LATEST_DAEMON_DB_VERSION, apply_migrations, read_schema_version
+from striatum.daemon_pg.roles import DEFAULT_DAEMON_RW_ROLE, repair_role_grants, role_repair_sql
 from striatum.errors import SchemaVersionError, StriatumError
 
 MIN_POSTGRES_VERSION_NUM = 140000
@@ -32,7 +33,13 @@ def connect_and_migrate(*, postgres_url: str | None = None, daemon_version: str 
     return conn
 
 
-def doctor(*, postgres_url: str | None = None, apply: bool = False) -> dict[str, Any]:
+def doctor(
+    *,
+    postgres_url: str | None = None,
+    apply: bool = False,
+    provision_rw_role: bool = False,
+    repair_grants: bool = False,
+) -> dict[str, Any]:
     config = resolve_config(postgres_url=postgres_url)
     result: dict[str, Any] = {
         "configured": config.url is not None,
@@ -42,6 +49,7 @@ def doctor(*, postgres_url: str | None = None, apply: bool = False) -> dict[str,
         "supported_floor": MIN_POSTGRES_VERSION_NUM,
         "latest_supported_schema": LATEST_DAEMON_DB_VERSION,
         "onboarding_hints": onboarding_hints() if config.url is None else [],
+        "runtime_role": DEFAULT_DAEMON_RW_ROLE,
         "ok": False,
     }
     if config.url is None:
@@ -65,6 +73,8 @@ def doctor(*, postgres_url: str | None = None, apply: bool = False) -> dict[str,
         if server_version_num < MIN_POSTGRES_VERSION_NUM:
             result["status"] = "unsupported_version"
             return result
+        if provision_rw_role:
+            result["role_provisioning"] = repair_role_grants(conn, provision_role=True)
         if apply:
             schema_version = apply_migrations(conn)
         else:
@@ -74,6 +84,8 @@ def doctor(*, postgres_url: str | None = None, apply: bool = False) -> dict[str,
             raise SchemaVersionError(
                 f"daemon PostgreSQL schema version {schema_version} is newer than supported {LATEST_DAEMON_DB_VERSION}"
             )
+        if repair_grants or (provision_rw_role and schema_version > 0):
+            result["grant_repair"] = repair_role_grants(conn, provision_role=False)
         result["privileges"] = _privilege_summary(conn)
         if result["privileges"]["audit_log_exists"] and not result["privileges"]["append_only_role_ok"]:
             # Test harnesses run the daemon as the ephemeral-DB owner — owners
@@ -95,6 +107,15 @@ def doctor(*, postgres_url: str | None = None, apply: bool = False) -> dict[str,
                 return result
             result["status"] = "unsafe_privileges"
             result["error"] = "daemon role must not have UPDATE or DELETE on striatumd.audit_log"
+            result["repair_sql"] = role_repair_sql(
+                database=str(result["privileges"]["database"]),
+                role=DEFAULT_DAEMON_RW_ROLE,
+            )
+            result["repair_hint"] = (
+                "run `striatum daemon doctor --provision-rw-role --repair-grants "
+                "--apply-migrations` as a database owner/admin, then configure "
+                "the daemon to connect as striatumd_rw"
+            )
             return result
         result["audit_status"] = "not_initialized" if schema_version == 0 else "available"
         result["status"] = "ok"

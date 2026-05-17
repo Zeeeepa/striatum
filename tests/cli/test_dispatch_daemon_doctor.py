@@ -24,6 +24,8 @@ def _doctor_args() -> argparse.Namespace:
         daemon_command="doctor",
         postgres_url=None,
         apply_migrations=False,
+        provision_rw_role=False,
+        repair_grants=False,
         explain=False,
     )
 
@@ -114,3 +116,28 @@ def test_sqlite_registry_success_path_unchanged(
     sqlite_registry = result["sqlite_registry"]
     assert isinstance(sqlite_registry, dict)
     assert sqlite_registry.get("problems") == []
+
+
+def test_role_repair_flags_are_passed_to_pg_doctor(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    seen: dict[str, Any] = {}
+
+    def _pg_doctor(**kwargs: Any) -> dict[str, Any]:
+        seen.update(kwargs)
+        return {"ok": True, "schema_version": 5, "status": "ok"}
+
+    monkeypatch.setattr("striatum.daemon_pg.connection.doctor", _pg_doctor)
+    monkeypatch.setattr(
+        daemon_mod,
+        "read_doctor",
+        lambda **_: {"mode": "daemon", "problems": [], "protocol_version": 1},
+    )
+    args = _doctor_args()
+    args.provision_rw_role = True
+    args.repair_grants = True
+
+    _dispatch_daemon(args)
+
+    assert seen["provision_rw_role"] is True
+    assert seen["repair_grants"] is True

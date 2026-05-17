@@ -88,6 +88,9 @@ live under `examples`. Historical execution prompts live under `prompts`.
 
 - Keep changes aligned with `docs/TODO.md` and accepted decisions in
   `docs/DECISION_LOG.md`.
+- Until generated daemon contracts land, new RPC methods or handwritten
+  route maps must update `docs/architecture/COMMAND_AUTHORITY_MATRIX.md`
+  and the authority guardrail tests.
 - Update `docs/DECISION_LOG.md` for product or architecture decisions.
 - Add or update tests for behavior changes.
 - Prefer generic terms: target repository, workflow fixture, runner state,

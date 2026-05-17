@@ -14,8 +14,8 @@ from striatum.daemon_pg.handlers.context import (
     transaction,
 )
 from striatum.daemon_pg.handlers.registry import register_pg_handler
-from striatum.db import json_dumps, sha256_bytes
 from striatum.errors import BranchConfirmationError
+from striatum.primitives import json_dumps, sha256_bytes
 
 
 @register_pg_handler("work.claim_next", "claim_next")

@@ -95,6 +95,12 @@ def redact_run_summary_payload(payload: dict[str, Any]) -> dict[str, Any]:
     sessions = payload.get("sessions")
     if isinstance(sessions, list):
         redacted["sessions"] = [_safe_session(entry) for entry in sessions if isinstance(entry, dict)]
+    timing = payload.get("timing")
+    if isinstance(timing, dict):
+        clean_timing = dict(timing)
+        if clean_timing.get("completed_at") in (None, ""):
+            clean_timing["duration"] = None
+        redacted["timing"] = clean_timing
     # The renderer only needs grouped verdicts, artifact/session summaries,
     # branch context, timing, status, doctor, and blockers. If a future helper
     # adds prose-heavy siblings, keep the shape but replace with a placeholder.

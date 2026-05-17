@@ -173,9 +173,9 @@ legacy `CLI_ROUTES` fallback.
   corruption surfaced; SQLite was quarantined and reset.
 
 **Next:** dogfood-058 (RFC 0048 V1.5) scopes the codex F1-F4 + claude
-HIGH#1/#2 + chain-migration items as a fix-up dogfood. RFC 0048 Phase B
-(Go-core parity) and Phase C (SQLite-removal flip) remain multi-week,
-NOT V1.7.
+HIGH#1/#2 + chain-migration items as a fix-up dogfood. Historical RFC 0048
+Phase B parity work was transition scaffolding; D105 now makes Python the
+primary production daemon core and redirects Go work to a narrow helper role.
 
 ### 4.2 Dogfood-058: RFC 0051 V1 implementation (auto-finalize from frontmatter)
 
@@ -188,7 +188,7 @@ mechanisms together collapse the operator-on-behalf burden by ~80%.
 
 **Scope:**
 - New event types `artifact.auto_finalized` and `job.auto_finalized`.
-- Lease-tick reconciliation: check declared `expected_artifacts[].path`
+- Daemon-owned recovery reconciliation: check declared `expected_artifacts[].path`
   exists, parse, validate frontmatter, byline matches `expected_author_line`,
   file mtime older than 10 seconds (anti-race).
 - Auto-finalize sequence: publish-artifact → record verdict (from
@@ -196,36 +196,257 @@ mechanisms together collapse the operator-on-behalf burden by ~80%.
 - Refusal cases preserved: malformed frontmatter, byline mismatch,
   missing required artifact — all fall through to existing lane-stall
   behavior with operator-override available.
-- Feature flag `STRIATUM_AUTO_FINALIZE_ENABLE=1` for V1; default-on in V1.1.
+- V1 live mode is gated by workflow `recovery.auto_finalize.enabled=true`
+  or an explicit operator `--force`; default-on policy waits for dogfood
+  confidence.
 
 **Deliverables:**
-- Source changes in supervisor reconciliation tick.
+- `recovery.auto_finalize` dry-run/live daemon method.
+- Follow-up daemon sweep/dashboard/web visibility.
 - 4 regression tests (see RFC 0051 §Acceptance).
 - One end-to-end dogfood with **zero** operator-on-behalf publishes on
   jobs whose agents wrote valid artifacts (the success criterion).
 
-### 4.3 Dogfood-059: TODO #30 / RFC 0039 V1.6 — Go core CI hardening
+### 4.3 Dogfood-059: TODO #30 / RFC 0039 V1.6 — Go helper/runtime hardening
 
 **Closes:** [TODO item 30](TODO.md#L527).
 
-**Why now:** v1.48.2 only fixed the Go version pin; the deeper Go-matrix
-hygiene from dogfood-047's codex review is still open:
+**Why now:** v1.48.2 only fixed the Go version pin. D105 stops treating
+Go daemon parity as release-blocking, but the Go code that remains in tree
+still needs dependency and security hygiene before it can become a narrow
+supervisor helper:
 
 - (F1) `(cd go && go mod tidy)` + commit `go.sum` — already present
-  locally; verify CI receives it cleanly.
-- (F2) Remove the unauthenticated/no-audit production fallback in
-  `go/cmd/striatumd/main.go:49` — serving without `--postgres-url` must
-  refuse to bind a socket, not install `AllowAllAuthorizer{}`.
-- (F3) `make test-multi-repo CORE=go` must hard-fail when Postgres is
-  unavailable (not skip). Add a sentinel assertion that the Go-core
-  smoke + audit tests actually executed.
-- (F4) Extend `tests/test_daemon_go_smoke.py` to assert unauthenticated
-  `daemon.describe` is denied + audit row present.
-- (F5) Make `go/pkg/db/audit_race_test.go` + `tests/test_daemon_go_audit.py`
-  actually run in CI (CI must provision Postgres for the `CORE=go` matrix).
+  locally; verify CI receives it cleanly and add `go mod verify`.
+- (F2) Remove the unauthenticated/no-audit socket-serving fallback in
+  `go/cmd/striatumd/main.go:49`, or delete that serving mode when the
+  helper protocol replaces it.
+- (F3) Replace `make test-multi-repo CORE=go` with a non-optional
+  Go-helper CI target once the helper protocol lands.
+- (F4) Keep denial/audit coverage for any Go RPC-serving path that remains
+  during transition.
+- (F5) Run Go race/audit tests only for helper-owned code paths or
+  transitional RPC code still shipped.
 
 **Suggested implementer:** claude (Go + Python harness). Deliberately
 avoid codex (D101 precedent).
+
+### 4.4 ✅ completed — Architecture remediation Phase 0: authority matrix and guardrails
+
+**Closes:** [TODO item 48](TODO.md).
+
+**Why now:** the 2026-05-16 architecture review found the main product
+risk is not a missing feature; it is authority ambiguity across daemon
+RPC, native Python PG handlers, Go handlers, `CLI_ROUTES`, and legacy
+SQLite. The next work has to make that ambiguity measurable before
+deleting fallbacks.
+
+**Landed in this slice:**
+- `docs/architecture/COMMAND_AUTHORITY_MATRIX.md` inventories the current
+  parser, route translator, daemon registry, Python PG handlers, and Go
+  handler registrations.
+- Guardrail tests fail when a daemon registry method lacks an explicit
+  authority classification or when a new `CLI_ROUTES` fallback appears
+  without being named as transition debt.
+- A SQLite-connect tripwire test covers representative production-mode
+  commands under daemon-required enforcement.
+- `recovery auto-publish` no longer emits the unregistered
+  `recovery.auto_publish` method.
+
+**Next after this ships:** TODO item 49/50 are now active. Keep the
+authority matrix and contract tests current while deleting fallback paths.
+
+---
+
+### 4.5 🟡 substantially completed — Architecture remediation Phase 1: production fallback closure
+
+**Updates:** [TODO item 49](TODO.md).
+
+**Landed in this slice:**
+- Native Python PG handlers now cover `run.graph`, `worktree.*`,
+  `supervise.*`, and a fail-closed `recovery.watch`, in addition to the
+  earlier read, workflow-loop, recovery, run lifecycle, branch, checkpoint,
+  and decision handlers.
+- `src/striatum/daemon_rpc/server.py` no longer imports or calls
+  `striatum.api.invoke`; `CLI_ROUTES` is empty and guarded by tests.
+- CLI translations now route `run graph`, `worktree create/release/list`,
+  and `supervise start/send/stop/status/list` through daemon RPC.
+- Workflow authoring methods are explicitly CLI-local: daemon RPC refuses
+  them with `not_implemented`, MCP tool listing hides them, and route tests
+  prevent accidental daemon routing.
+- `workflow upgrade` checks daemon PG for non-terminal runs and fails closed
+  after repo-local SQLite cutover if PG cannot be reached.
+
+**Remaining Phase 1 debt:** legacy SQLite domain code is still used by the
+local service, adapter/byline/inbox helpers, dogfood compatibility tools, and
+migration/test fixtures. Quarantine that code under a migration/service
+namespace while executing Phase 4; it is no longer a daemon production
+fallback path.
+
+---
+
+### 4.6 🟡 partially completed — Architecture remediation Phase 2: daemon method contract source
+
+**Updates:** [TODO item 50](TODO.md).
+
+**Landed in this slice:**
+- `contracts/daemon_methods.json` is the source for all 97 registered
+  daemon RPC methods, including deprecated aliases.
+- Python `src/striatum/daemon_rpc/registry.py` builds `METHOD_REGISTRY`,
+  `METHODS_ETAG`, and `daemon.describe` output from the contract while
+  preserving the public `MethodEntry` shape.
+- Go `go/pkg/rpc/registry_methods.go` is generated from the same contract
+  via `scripts/generate_go_rpc_registry.py`; `go generate ./pkg/rpc` is
+  reproducible and Go contract parity tests catch drift.
+- CLI/MCP contract tests now assert routed CLI methods are registered,
+  workflow authoring stays CLI-local, daemon fallback routes are unused,
+  and daemon MCP tools hide CLI-local and deprecated methods.
+
+**Remaining Phase 2 debt:** generate CLI route translation, MCP tool
+descriptors, and docs tables directly from the contract instead of only
+checking the current hand-written maps.
+
+---
+
+### 4.7 ✅ completed — Architecture remediation Phase 3: daemon core strategy
+
+**Closes:** [TODO item 51](TODO.md).
+
+**Decision:** D105 names Python as the primary production daemon core.
+Go is retained only for a narrow helper/runtime role, starting with
+PTY/process supervision where a small helper can improve signal handling
+without moving domain transitions out of the Python daemon.
+
+**Landed in this slice:**
+- `docs/DECISION_LOG.md` records D105 and marks D084 superseded.
+- TODO item 25 is closed as superseded rather than promoted into a
+  Go replacement-daemon phase.
+- TODO item 30 is narrowed to Go helper/runtime hygiene.
+- TODO item 54 now owns the narrow Go supervisor helper work.
+
+**Next after this ships:** Phase 4 can make the local web service
+daemon-first without needing to support two domain daemons.
+
+---
+
+### 4.8 🟡 partially completed — Architecture remediation Phase 4: daemon-first web service
+
+**Updates:** [TODO item 52](TODO.md).
+
+**Landed in this slice:**
+- Added `src/striatum/service_daemon.py` as a narrow local-service daemon RPC
+  helper.
+- Web POST handlers for run cancel/pause/resume, job cancel/retry, and branch
+  confirm now call daemon RPC instead of opening repo-local SQLite.
+- Focused service tests tripwire `striatum.db.connect` for those POST paths.
+
+**Remaining Phase 4 debt:** run-now still has multi-step SQLite transaction
+semantics; page reads, artifact reads, doctor/status/why, SSE, and startup
+health checks still need daemon DTOs; the service mutation gate still needs to
+derive from daemon method capabilities.
+
+---
+
+### 4.9 🟡 partially completed — Architecture remediation Phase 5: real escalation inbox
+
+**Updates:** [TODO item 53](TODO.md).
+
+**Landed in this slice:**
+- `escalation.list`, `escalation.show`, and `escalation.resolve` project
+  human-principal escalations over existing blocker rows.
+- The daemon method contract and generated Go registry include the escalation
+  methods.
+- CLI routing supports `striatum escalation list/show/resolve`.
+- `striatum inbox --json` now runs as documented for the principal inbox,
+  while `inbox --session-id` remains the session-packet helper.
+
+**Remaining Phase 5 debt:** add the `escalation` artifact kind/front matter,
+link escalation artifacts to records, consider a dedicated escalation table or
+stricter blocker payload schema, and decide whether to rename the packet helper
+to `packet inbox`.
+
+---
+
+### 4.10 🟡 partially completed — Architecture remediation Phase 6: supervisor control channel
+
+**Updates:** [TODO item 54](TODO.md).
+
+**Landed in this slice:**
+- `supervise.send` returns an explicit delivered-unacknowledged state.
+- `supervise.report` records wrapper control events for packet acceptance,
+  agent start, artifact observation, progress, and agent exit without reading
+  or parsing model stdout.
+- Supervision tests cover event recording and stopped-state transition on
+  reported agent exit.
+
+**Remaining Phase 6 debt:** implement the actual PTY helper/control channel,
+reattach/lost-state recovery, doctor surfacing for stale supervisors, stronger
+lane-liveness attestation, wrapper fixtures, and helper-only CI.
+
+---
+
+### 4.11 🟡 partially completed — Architecture remediation Phase 7: workflow risk lint
+
+**Updates:** [TODO item 55](TODO.md).
+
+**Landed in this slice:**
+- Added `striatum workflow lint <workflow.json> --json`.
+- Lint findings are structured separately from validation errors.
+- The first rules cover same-model review pairs/revision cycles,
+  non-fresh review context, broad repo-write scope, repo-write without
+  per-job worktree isolation, and review workflows with no revision or
+  human-checkpoint escalation path.
+- The local service read-command whitelist includes `workflow lint`.
+
+**Remaining Phase 7 debt:** refuse-by-default mode with explicit override
+rationale, generator/web surfacing, broader coverage scoring, and audit linkage
+for accepted lint risks.
+
+---
+
+### 4.12 🟡 partially completed — Architecture remediation Phase 8: auto-finalize from front matter
+
+**Updates:** [TODO item 39](TODO.md), [TODO item 56](TODO.md).
+
+**Landed in this slice:**
+- Added `recovery.auto_finalize` as a daemon/Postgres recovery method with
+  dry-run and workflow-opt-in live modes.
+- The checker validates declared required expected artifacts, stable mtime,
+  front matter, exact byline, active lease/session ownership, and lane
+  evidence before mutating state.
+- Live review auto-finalize publishes the finding, derives the verdict from
+  `verdict_intent`, records the verdict, and completes the job atomically.
+- Events `artifact.auto_finalized` and `job.auto_finalized` mark
+  auto-from-artifact reconciliation, and PG evidence artifact summaries expose
+  `publish_origin=auto_from_artifact`.
+- CLI routing and the shared daemon method contract include the split
+  `recovery.auto_finalize` method instead of overloading `recovery.auto`.
+
+**Remaining Phase 8 debt:** integrate auto-finalize into the daemon recovery
+sweep, surface eligibility/refusal reasons in dashboard and web, decide default
+policy after dogfood confidence, and run a dogfood proving zero
+operator-on-behalf publishes when valid artifacts already exist.
+
+---
+
+### 4.13 🟡 partially completed — Architecture remediation Phase 9: UI packaging and bundle cleanup
+
+**Updates:** [TODO item 57](TODO.md).
+
+**Landed in this slice:**
+- `make ui-build` now clears `src/striatum/web/static/build/` before Vite
+  emits assets, so stale hashed chunks cannot accumulate across builds.
+- `make ui-check-bundle` runs the existing bundle drift check plus a
+  deterministic bundle-size gate.
+- `@vitejs/plugin-react` moved from runtime dependencies to
+  `devDependencies`, with the lockfile updated.
+- Focused packaging tests pin the clean-build Makefile contract, build-only
+  dependency placement, and bundle-size checker behavior.
+
+**Remaining Phase 9 debt:** decide whether the current many-chunk Rollup output
+needs manual chunking, add a separate wheel-size budget if bundle-size is not
+sufficient, and keep package-data/manifest loading aligned if Vite manifest
+output is introduced later.
 
 ---
 
@@ -246,17 +467,22 @@ Low-severity, bundled together. Single dogfood:
 - Add the 4 ergonomic refinements from dogfood-056's review (recovery
   panel error-state CLI recipe fallback, override modal submit cue, etc.)
 
-### 5.2 RFC 0039 Phase 2 (TODO item 25) — Go core CLI integration
+### 5.2 D105 follow-up — Go supervisor helper protocol
 
-**Now unblocked** since RFC 0043 V1 landed (D094 in dogfood-048). Scope:
-- `striatum daemon start --core go` CLI integration.
-- Mutating workflow verbs on the Go core (currently delegated to Python).
-- Supervised processes implemented in Go (PTY + creack).
-- Release artifacts + macOS/Linux CI matrix across `daemon_core={python,go}`.
-- `make` wiring for end users.
+**Supersedes:** TODO item 25's Go replacement-daemon phase.
 
-This is a multi-week phase. May want to split into V2.0 / V2.0.5 / V2.0.6
-fragments if the surface grows.
+Scope:
+- Keep daemon RPC, authorization, audit, and domain transitions in Python.
+- Design a small daemon-to-helper protocol for PTY/process start, send,
+  stop, status, reattach, and lost-state reporting.
+- Remove or demote broad Go `not_implemented` domain method registrations.
+- Add helper-only CI and tests; do not require full `daemon_core={python,go}`
+  parity as release criteria.
+- Preserve generated contract/audit compatibility only where it supports
+  transition or helper boundaries.
+
+This remains a multi-week phase, but the unit of work is now supervision
+hardening rather than a second full daemon product.
 
 ### 5.3 ✅ shipped — RFC 0048 daemon-side substrate migration (v1.49.0–v1.55.0)
 
@@ -264,9 +490,10 @@ All three phases landed:
 
 - **Phase A** (v1.49.0): 16 single-repo mutation handlers ported into
   `src/striatum/daemon_pg/handlers/{workflow_loop,recovery_evidence}/`.
-- **Phase B** (v1.50.0–v1.54.0 + follow-up): Go-core parity in
-  `go/pkg/{reads,mutations}/`; daemon Unix-socket accept loop; 12 read
-  handlers byte-equivalent with the Python path.
+- **Phase B** (v1.50.0–v1.54.0 + follow-up): transition-era Go-core
+  parity in `go/pkg/{reads,mutations}/`; daemon Unix-socket accept loop;
+  12 read handlers byte-equivalent with the Python path. D105 later
+  narrowed future Go work to a helper role rather than continued parity.
 - **Phase C** (v1.51.0–v1.52.0): CLI dispatch routes ~30 mapped verbs
   through the daemon socket; mapped verbs fail closed instead of
   falling back to SQLite when the daemon is unreachable.
@@ -402,7 +629,9 @@ its implementation depends on RFC 0048 Phase A.
   business-logic flip.
 - **RFC 0053** (human principal as escalation-only) — TODO #44.
   RFC body + D103 + doc-side prose realignment shipped on main.
-  Deferred Phase A: `escalation` artifact-kind schema + RPC method.
+  Deferred Phase A: `escalation` artifact-kind schema + artifact linkage
+  remains; the first daemon RPC projection methods landed under
+  remediation Phase 5.
   Deferred Phase B: workflow.json schema-field rename
   (`human_checkpoint` → `escalation_checkpoint`), `waiting_human`
   run-state rename, CLI prompt-string sweep.
@@ -435,6 +664,45 @@ breaking schema change and should land paired with a
 daemon-side substrate flip (§5.3). RFC 0053 Phase B is blocked on
 the workflow.json version bump being scheduled. The other doc
 phases are unblocked.
+
+### 5.9 Architecture remediation sequence (TODO 49-60)
+
+This sequence comes from `STRIATUM_ARCHITECTURE_REMEDIATION_PLAN_2026-05-16.md`.
+It supersedes ad hoc expansion while the authority boundary is split
+between native PG handlers, daemon fallback, Go placeholders, and local
+service reads.
+
+Release order after Phase 0:
+
+1. **TODO 49 / Phase 1:** production daemon fallback is closed; remaining
+   legacy SQLite quarantine belongs with service/adapter cleanup.
+2. **TODO 50 / Phase 2:** contract source plus Python/Go registry
+   generation landed; remaining work is generated CLI/MCP/docs outputs.
+3. **TODO 51 / Phase 3:** decide the daemon core strategy and record it
+   in `docs/DECISION_LOG.md`.
+4. **TODO 52 / Phase 4:** make the web service a daemon client rather
+   than a parallel state-store peer.
+5. **TODO 53 / Phase 5:** implement a real escalation inbox for the
+   human principal.
+6. **TODO 54 / Phase 6:** harden process supervision with PTY support,
+   wrapper control acks, and reattach/lost-state handling.
+7. **TODO 55 / Phase 7:** add workflow risk lint and same-model review
+   enforcement.
+8. **TODO 56 / Phase 8:** auto-finalize daemon method landed; remaining
+   sweep/dashboard/web/dogfood work is tracked in §4.12.
+9. **TODO 57 / Phase 9:** clean-build and bundle-size gate landed;
+   remaining chunking/wheel-size follow-up is tracked in §4.13.
+10. **TODO 58 / Phase 10:** day-zero Postgres/daemon setup slice
+    landed: role/grant repair, service helpers, guided adoption,
+    first-run smoke, and a dev-only compose profile.
+11. **TODO 59 / Phase 11:** add replay, archive, and Corpus Contract V2
+    foundations.
+12. **TODO 60 / Phase 12:** add optional Git/PR integration without
+    autonomous commits.
+
+**Blocked on:** Phase 1 depends on the Phase 0 matrix staying current.
+Phases 4-12 should not displace Phase 1/2 unless a security bug forces an
+exception.
 
 ---
 

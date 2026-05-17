@@ -2,8 +2,7 @@
 
 Asserts that:
 - The handler module imports and registers ``recovery.stale_leases``.
-- The decorator argument matches the RPC method registered in
-  ``CLI_ROUTES`` (server.py:78).
+- The decorator argument matches the canonical daemon RPC method.
 - The handler signature is ``(ctx, params) -> dict[str, Any]``.
 - On an empty PG run state, the handler returns ``stale_count: 0`` with
   no events emitted (parity with the SQLite path on a fresh DB).

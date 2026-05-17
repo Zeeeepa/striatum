@@ -253,6 +253,66 @@ def _http_post_json(
         return exc.code, json.loads(exc.read().decode("utf-8"))
 
 
+def _web_mutation_handler(
+    tmp_path: Path,
+    monkeypatch: Any,
+    payload: dict[str, Any],
+    calls: list[tuple[str, dict[str, Any]]],
+) -> Any:
+    from email.message import Message
+    from io import BytesIO
+
+    import striatum.service as service
+    import striatum.service_daemon as service_daemon
+    import striatum.db as db
+
+    def sqlite_tripwire(*args: Any, **kwargs: Any) -> None:
+        raise AssertionError("web POST mutation handler opened repo-local SQLite")
+
+    def fake_call_repo_method(repo: Path, method: str, params: dict[str, Any]) -> dict[str, Any]:
+        assert repo == tmp_path
+        calls.append((method, dict(params)))
+        if method == "branch.confirm":
+            return {"run_id": params["run_id"], "state": "ready", "branch": params["branch"]}
+        if method == "run.start":
+            return {"run_id": params["run_id"], "state": "running"}
+        if method == "run.cancel":
+            return {"run_id": params["run_id"], "state": "canceled", "status": "canceled"}
+        if method == "run.pause":
+            return {"run_id": params["run_id"], "state": "running", "status": "paused"}
+        if method == "run.resume":
+            return {"run_id": params["run_id"], "state": "running", "status": "resumed"}
+        if method == "recovery.cancel_job":
+            return {"run_id": params["run_id"], "job_id": params["job_id"], "status": "canceled"}
+        if method == "run.retry_job":
+            return {"run_id": params["run_id"], "job_id": params["job_id"], "new_state": "queued"}
+        raise AssertionError(f"unexpected daemon RPC method: {method}")
+
+    raw = json.dumps(payload).encode("utf-8")
+    headers = Message()
+    headers["Content-Type"] = "application/json"
+    headers["Content-Length"] = str(len(raw))
+    sent: dict[str, Any] = {}
+
+    handler = object.__new__(service.StriatumServiceHandler)
+    handler.state = service.ServiceState(
+        repo=tmp_path,
+        allow_mutations=True,
+        token=None,
+        web_enabled=True,
+    )
+    handler.headers = headers
+    handler.rfile = BytesIO(raw)
+    monkeypatch.setattr(
+        handler,
+        "_send_json",
+        lambda status, body: sent.update({"status": status, "body": body}),
+    )
+    monkeypatch.setattr(db, "connect", sqlite_tripwire)
+    monkeypatch.setattr(service_daemon, "call_repo_method", fake_call_repo_method)
+    return handler, sent
+
+
 # ----- 1. Health endpoint --------------------------------------------------
 
 
@@ -525,6 +585,117 @@ def test_service_run_detail_passes_phase_progress_context(tmp_path: Path, monkey
     assert captured["phase_progress"][0]["jobs_completed"] == 1
 
 
+def test_web_run_cancel_posts_daemon_rpc_without_sqlite(tmp_path: Path, monkeypatch: Any) -> None:
+    calls: list[tuple[str, dict[str, Any]]] = []
+    handler, sent = _web_mutation_handler(
+        tmp_path,
+        monkeypatch,
+        {"reason": "operator requested stop"},
+        calls,
+    )
+
+    handler._handle_run_cancel("run_123")
+
+    assert sent["status"] == 200
+    assert sent["body"]["data"]["state"] == "canceled"
+    assert calls == [("run.cancel", {"run_id": "run_123", "reason": "operator requested stop"})]
+
+
+def test_web_run_pause_resume_post_daemon_rpc_without_sqlite(tmp_path: Path, monkeypatch: Any) -> None:
+    pause_calls: list[tuple[str, dict[str, Any]]] = []
+    pause_handler, pause_sent = _web_mutation_handler(
+        tmp_path,
+        monkeypatch,
+        {"reason": "operator pause"},
+        pause_calls,
+    )
+    pause_handler._handle_run_pause("run_123")
+
+    resume_calls: list[tuple[str, dict[str, Any]]] = []
+    resume_handler, resume_sent = _web_mutation_handler(
+        tmp_path,
+        monkeypatch,
+        {},
+        resume_calls,
+    )
+    resume_handler._handle_run_resume("run_123")
+
+    assert pause_sent["status"] == 200
+    assert resume_sent["status"] == 200
+    assert pause_calls == [("run.pause", {"run_id": "run_123", "reason": "operator pause"})]
+    assert resume_calls == [("run.resume", {"run_id": "run_123"})]
+
+
+def test_web_job_actions_post_daemon_rpc_without_sqlite(tmp_path: Path, monkeypatch: Any) -> None:
+    cancel_calls: list[tuple[str, dict[str, Any]]] = []
+    cancel_handler, cancel_sent = _web_mutation_handler(
+        tmp_path,
+        monkeypatch,
+        {"reason": "bad lane output", "cascade": False},
+        cancel_calls,
+    )
+    cancel_handler._handle_job_action("/run/run_123/job/job_456/cancel")
+
+    retry_calls: list[tuple[str, dict[str, Any]]] = []
+    retry_handler, retry_sent = _web_mutation_handler(
+        tmp_path,
+        monkeypatch,
+        {},
+        retry_calls,
+    )
+    retry_handler._handle_job_action("/run/run_123/job/job_456/retry")
+
+    assert cancel_sent["status"] == 200
+    assert retry_sent["status"] == 200
+    assert cancel_calls == [
+        (
+            "recovery.cancel_job",
+            {
+                "run_id": "run_123",
+                "job_id": "job_456",
+                "reason": "bad lane output",
+                "cascade": False,
+            },
+        )
+    ]
+    assert retry_calls == [("run.retry_job", {"run_id": "run_123", "job_id": "job_456"})]
+
+
+def test_web_branch_confirm_posts_daemon_rpc_then_run_start_without_sqlite(
+    tmp_path: Path,
+    monkeypatch: Any,
+) -> None:
+    calls: list[tuple[str, dict[str, Any]]] = []
+    handler, sent = _web_mutation_handler(
+        tmp_path,
+        monkeypatch,
+        {"branch": "striatum/demo", "create": True, "use_current": False},
+        calls,
+    )
+
+    handler._handle_run_branch_confirm("run_123")
+
+    assert sent == {
+        "status": 200,
+        "body": {
+            "ok": True,
+            "data": {"run_id": "run_123", "state": "running", "branch": "striatum/demo"},
+        },
+    }
+    assert calls == [
+        (
+            "branch.confirm",
+            {
+                "run_id": "run_123",
+                "branch": "striatum/demo",
+                "create": True,
+                "use_current": False,
+            },
+        ),
+        ("run.start", {"run_id": "run_123"}),
+    ]
+
+
 # ----- 6. Doctor endpoint --------------------------------------------------
 
 
@@ -724,6 +895,7 @@ def test_is_read_command_classification() -> None:
     assert is_read_command(["doctor"]) is True
     assert is_read_command(["list", "jobs"]) is True
     assert is_read_command(["workflow", "validate", "x"]) is True
+    assert is_read_command(["workflow", "lint", "x"]) is True
     assert is_read_command(["workflow", "init"]) is False
     assert is_read_command(["init"]) is False
     assert is_read_command(["claim-next"]) is False

@@ -541,20 +541,96 @@ def _phase_entry_jobs(
 
 def _running_runs_for_workflow(*, repo: Path, workflow_path: Path) -> list[str]:
     """Return non-terminal run ids referencing ``workflow_path`` in ``repo``."""
+    candidates = _workflow_source_path_candidates(repo=repo, workflow_path=workflow_path)
+    pg_running = _running_runs_for_workflow_pg(repo=repo, candidates=candidates)
+    if pg_running is not None:
+        return pg_running
     state_db = db_path(repo)
+    if _repo_sqlite_cutover_marker_exists(state_db):
+        raise WorkflowError(
+            "workflow upgrade cannot verify non-terminal runs because this "
+            "repository has been migrated off repo-local SQLite and daemon "
+            "PostgreSQL was unavailable",
+            field_path="path",
+        )
     if not state_db.exists():
         return []
+    return _running_runs_for_workflow_sqlite(state_db=state_db, candidates=candidates)
+
+
+def _workflow_source_path_candidates(*, repo: Path, workflow_path: Path) -> set[str]:
     target = str(workflow_path.resolve())
-    target_rel: str | None = None
     try:
         rel = workflow_path.resolve().relative_to(repo.resolve())
     except ValueError:
-        rel = None
-    if rel is not None:
-        target_rel = str(rel)
+        return {target}
     candidates = {target}
+    target_rel = rel.as_posix()
     if target_rel:
         candidates.add(target_rel)
+    return candidates
+
+
+def _running_runs_for_workflow_pg(*, repo: Path, candidates: set[str]) -> list[str] | None:
+    """Return PG-backed running runs, or ``None`` when PG is not configured."""
+    try:
+        from striatum.daemon_pg.config import resolve_config
+        from striatum.daemon_pg.connection import connect
+    except ImportError:
+        return None
+
+    try:
+        cfg = resolve_config()
+    except Exception:  # noqa: BLE001 - local authoring can run without daemon PG config.
+        return None
+    if cfg.url is None:
+        return None
+
+    conn = None
+    try:
+        conn = connect(cfg.url)
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT repository_id
+                FROM striatumd.repositories
+                WHERE repo_root = %s AND state = 'active'
+                """,
+                (str(repo.resolve()),),
+            )
+            row = cur.fetchone()
+            if row is None:
+                return None
+            repository_id = str(row[0])
+            cur.execute(
+                """
+                SELECT r.run_id
+                FROM striatumd.runs r
+                JOIN striatumd.workflow_snapshots w
+                  ON w.repository_id = r.repository_id
+                 AND w.workflow_snapshot_id = r.workflow_snapshot_id
+                WHERE r.repository_id = %s
+                  AND r.state NOT IN ('completed', 'failed', 'canceled')
+                  AND w.source_path = ANY(%s)
+                ORDER BY r.run_id
+                """,
+                (repository_id, sorted(candidates)),
+            )
+            return [str(row[0]) for row in cur.fetchall()]
+    except Exception:  # noqa: BLE001 - fall back to legacy guard before cutover.
+        return None
+    finally:
+        if conn is not None:
+            conn.close()
+
+
+def _repo_sqlite_cutover_marker_exists(state_db: Path) -> bool:
+    return state_db.with_name(state_db.name + ".tombstone").exists() or state_db.with_name(
+        state_db.name + ".migrated"
+    ).exists()
+
+
+def _running_runs_for_workflow_sqlite(*, state_db: Path, candidates: set[str]) -> list[str]:
     try:
         conn = sqlite3.connect(state_db)
     except sqlite3.Error:

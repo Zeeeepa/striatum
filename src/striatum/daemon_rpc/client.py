@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from striatum.daemon_rpc.envelope import RpcEnvelope, RpcError
-from striatum.db import json_loads
+from striatum.primitives import json_loads
 
 
 def call_unix(path: Path, envelope: RpcEnvelope, *, timeout_seconds: float = 30.0) -> dict[str, Any]:

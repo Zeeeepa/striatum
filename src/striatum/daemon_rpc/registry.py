@@ -1,17 +1,35 @@
-"""Generated-style daemon RPC method registry."""
+"""Daemon RPC method registry loaded from the contract source."""
 
 from __future__ import annotations
 
 import hashlib
+import json
+from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Literal
+from pathlib import Path
+from typing import Literal, cast
 
-from striatum.db import json_dumps
+from striatum.primitives import json_dumps
 
 Capability = Literal["read", "write", "review", "claim", "apply", "admin", "recovery", "surgical_recovery"]
 RepositoryScopeMode = Literal["single_repo", "cross_repo", "daemon_global"]
 CAPABILITIES: frozenset[str] = frozenset(
     {"read", "write", "review", "claim", "apply", "admin", "recovery", "surgical_recovery"}
+)
+_REPOSITORY_SCOPE_MODES: frozenset[str] = frozenset(
+    {"single_repo", "cross_repo", "daemon_global"}
+)
+_CONTRACT_SCHEMA_VERSION = 1
+_CONTRACT_METHOD_FIELDS: frozenset[str] = frozenset(
+    {
+        "method",
+        "required_capability",
+        "repository_scope_mode",
+        "params_schema_version",
+        "audit_class",
+        "min_envelope",
+        "deprecated",
+    }
 )
 
 
@@ -45,124 +63,163 @@ class MethodEntry:
         return "single_repo" if self.repository_scope else "daemon_global"
 
 
-_ENTRIES: tuple[MethodEntry, ...] = (
-    # ----- Handshake / discovery -----
-    MethodEntry("daemon.hello", None, False),
-    MethodEntry("daemon.describe", "read", False),
-    # ----- Read capability (per-repo) -----
-    MethodEntry("status", "read", True),
-    MethodEntry("why", "read", True),
-    MethodEntry("doctor", "read", True),
-    MethodEntry("dashboard", "read", True),
-    MethodEntry("evidence.export", "read", True),
-    MethodEntry("corpus.export", "read", True),
-    MethodEntry("run.summary", "read", True),
-    MethodEntry("run.graph", "read", True),
-    MethodEntry("workflow.validate", "read", True),
-    MethodEntry("workflow.plan", "read", True),
-    MethodEntry("workflow.graph", "read", True),
-    MethodEntry("workflow.templates.list", "read", True),
-    MethodEntry("workflow.templates.show", "read", True),
-    MethodEntry("workflow.generate.preview", "read", True),
-    MethodEntry("list.runs", "read", True),
-    MethodEntry("list.sessions", "read", True),
-    MethodEntry("list.jobs", "read", True),
-    MethodEntry("list.artifacts", "read", True),
-    MethodEntry("list.workflows", "read", True),
-    MethodEntry("worktree.list", "read", True),
-    # ----- Read capability (daemon-global) -----
-    MethodEntry("dashboard.all", "read", False),
-    MethodEntry("repo.list", "read", False),
-    # ----- Claim capability (per-repo) -----
-    MethodEntry("session.register", "claim", True),
-    MethodEntry("session.close", "claim", True),
-    MethodEntry("work.claim_next", "claim", True),
-    MethodEntry("work.ack", "claim", True),
-    MethodEntry("work.heartbeat", "claim", True),
-    MethodEntry("work.release", "claim", True),
-    MethodEntry("supervise.start", "claim", True),
-    MethodEntry("supervise.send", "claim", True),
-    MethodEntry("supervise.stop", "claim", True),
-    MethodEntry("supervise.status", "read", True),
-    MethodEntry("supervise.list", "read", True),
-    MethodEntry("supervise.reattach_status", "read", True),
-    # ----- Write capability (per-repo) -----
-    MethodEntry("work.send_message", "write", True),
-    MethodEntry("work.block", "write", True),
-    MethodEntry("work.complete", "write", True),
-    MethodEntry("artifact.publish", "write", True),
-    MethodEntry("worktree.create", "write", True),
-    MethodEntry("worktree.release", "write", True),
-    MethodEntry("workflow.init", "write", True),
-    MethodEntry("workflow.generate", "write", True),
-    MethodEntry("workflow.upgrade", "write", True),
-    MethodEntry("dogfood.publish_on_behalf", "write", True),
-    # ----- Review capability (per-repo) -----
-    MethodEntry("review.submit", "review", True),
-    MethodEntry("review.verdict", "review", True),
-    # ----- Admin capability (per-repo) -----
-    MethodEntry("review.override", "admin", True),
-    MethodEntry("decision.record", "admin", True),
-    MethodEntry("checkpoint.resolve", "admin", True),
-    MethodEntry("branch.confirm", "admin", True),
-    MethodEntry("run.prepare", "admin", True),
-    MethodEntry("run.start", "admin", True),
-    MethodEntry("run.pause", "admin", True),
-    MethodEntry("run.resume", "admin", True),
-    MethodEntry("run.cancel", "admin", True),
-    MethodEntry("run.retry_job", "admin", True),
-    MethodEntry("repo.init", "admin", True),
-    # ----- Recovery capability (per-repo) -----
-    MethodEntry("recovery.stale_leases", "recovery", True),
-    MethodEntry("recovery.requeue_stale", "recovery", True),
-    MethodEntry("recovery.cancel_job", "recovery", True),
-    MethodEntry("recovery.process_reconcile", "recovery", True),
-    MethodEntry("recovery.resume", "recovery", True),
-    MethodEntry("recovery.auto", "recovery", True),
-    MethodEntry("recovery.auto_publish_stale_artifacts", "recovery", True, deprecated=True),
-    MethodEntry("recovery.watch", "recovery", True),
-    # ----- Apply capability (per-repo) -----
-    MethodEntry("apply.reviewed_patch", "apply", True),
-    MethodEntry("apply.receipt.show", "read", True),
-    MethodEntry("apply.receipt.verify", "read", True),
-    # ----- Surgical recovery (per-repo) -----
-    MethodEntry("dogfood.surgical_recovery", "surgical_recovery", True),
-    # ----- Admin capability (daemon-global) -----
-    MethodEntry("repo.add", "admin", False),
-    MethodEntry("repo.remove", "admin", False),
-    MethodEntry("daemon.token.create", "admin", False),
-    MethodEntry("daemon.token.revoke", "admin", False),
-    MethodEntry("daemon.token.rotate", "admin", False),
-    MethodEntry("daemon.key.rotate", "admin", False),
-    MethodEntry("daemon.shutdown", "admin", False),
-    MethodEntry("daemon.migrate", "admin", False),
-    MethodEntry("daemon.migrate_repo_local", "admin", False),
-    # ----- Cross-repo coordination -----
-    MethodEntry("cross_repo.list", "read", False, repository_scope_mode="cross_repo"),
-    MethodEntry("cross_repo.describe", "read", False, repository_scope_mode="cross_repo"),
-    MethodEntry("cross_repo.why", "read", False, repository_scope_mode="cross_repo"),
-    MethodEntry("cross_repo.cancel", "recovery", False, repository_scope_mode="cross_repo"),
-    # ----- Deprecated aliases (RFC 0030 legacy vocabulary) -----
-    # Pre-RFC 0043 the registry used undotted names for the repo-local
-    # mutation surface. The dotted names above are the RFC 0043 §5
-    # canonical methods; the aliases below remain so existing server-side
-    # routing (CLI_ROUTES) and integration tests keep resolving while
-    # clients migrate. The CLI does not emit these names anymore.
-    MethodEntry("ack", "claim", True, deprecated=True),
-    MethodEntry("heartbeat", "claim", True, deprecated=True),
-    MethodEntry("release", "claim", True, deprecated=True),
-    MethodEntry("block", "write", True, deprecated=True),
-    MethodEntry("complete", "write", True, deprecated=True),
-    MethodEntry("publish_artifact", "write", True, deprecated=True),
-    MethodEntry("claim_next", "claim", True, deprecated=True),
-    MethodEntry("verdict", "review", True, deprecated=True),
-    MethodEntry("submit_review", "review", True, deprecated=True),
-)
+def _find_contract_path() -> Path:
+    module_path = Path(__file__).resolve()
+    for parent in module_path.parents:
+        candidate = parent / "contracts" / "daemon_methods.json"
+        if candidate.is_file():
+            return candidate
+    return module_path.parents[3] / "contracts" / "daemon_methods.json"
 
+
+CONTRACT_PATH = _find_contract_path()
+
+
+def _load_contract(path: Path = CONTRACT_PATH) -> Mapping[str, object]:
+    try:
+        loaded = json.loads(path.read_text(encoding="utf-8"))
+    except OSError as exc:
+        raise RuntimeError(f"daemon method contract not readable: {path}") from exc
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(f"daemon method contract is invalid JSON: {path}") from exc
+
+    if not isinstance(loaded, dict):
+        raise ValueError(f"daemon method contract must be a JSON object: {path}")
+    return cast(Mapping[str, object], loaded)
+
+
+def _entries_from_contract(payload: Mapping[str, object]) -> tuple[MethodEntry, ...]:
+    schema_version = payload.get("schema_version")
+    if (
+        not isinstance(schema_version, int)
+        or isinstance(schema_version, bool)
+        or schema_version != _CONTRACT_SCHEMA_VERSION
+    ):
+        raise ValueError(
+            "daemon method contract schema_version must be "
+            f"{_CONTRACT_SCHEMA_VERSION}"
+        )
+
+    methods = payload.get("methods")
+    if not isinstance(methods, list):
+        raise ValueError("daemon method contract methods must be a list")
+
+    entries: list[MethodEntry] = []
+    seen: set[str] = set()
+    duplicates: list[str] = []
+    for index, method_payload in enumerate(methods):
+        if not isinstance(method_payload, dict):
+            raise ValueError(f"daemon method contract entry {index} must be an object")
+        entry = _entry_from_contract(cast(Mapping[str, object], method_payload), index)
+        if entry.method in seen:
+            duplicates.append(entry.method)
+        seen.add(entry.method)
+        entries.append(entry)
+
+    if duplicates:
+        raise ValueError(
+            "daemon method contract contains duplicate methods: "
+            + ", ".join(sorted(duplicates))
+        )
+    return tuple(entries)
+
+
+def _entry_from_contract(record: Mapping[str, object], index: int) -> MethodEntry:
+    fields = set(record)
+    if fields != _CONTRACT_METHOD_FIELDS:
+        missing = sorted(_CONTRACT_METHOD_FIELDS - fields)
+        unexpected = sorted(fields - _CONTRACT_METHOD_FIELDS)
+        details: list[str] = []
+        if missing:
+            details.append("missing " + ", ".join(missing))
+        if unexpected:
+            details.append("unexpected " + ", ".join(unexpected))
+        raise ValueError(
+            f"daemon method contract entry {index} has invalid fields: "
+            + "; ".join(details)
+        )
+
+    method = _required_str(record, "method", index)
+    if not method:
+        raise ValueError(f"daemon method contract entry {index} has empty method")
+    required_capability = _capability(record["required_capability"], method)
+    repository_scope_mode = _repository_scope_mode(record["repository_scope_mode"], method)
+    params_schema_version = _positive_int(record, "params_schema_version", method)
+    audit_class = _required_str(record, "audit_class", index)
+    if not audit_class:
+        raise ValueError(f"daemon method contract entry {method!r} has empty audit_class")
+    min_envelope = _positive_int(record, "min_envelope", method)
+    deprecated = _required_bool(record, "deprecated", method)
+
+    scope_override: RepositoryScopeMode | None = (
+        repository_scope_mode if repository_scope_mode == "cross_repo" else None
+    )
+    return MethodEntry(
+        method=method,
+        required_capability=required_capability,
+        repository_scope=repository_scope_mode == "single_repo",
+        repository_scope_mode=scope_override,
+        params_schema_version=params_schema_version,
+        audit_class=audit_class,
+        min_envelope=min_envelope,
+        deprecated=deprecated,
+    )
+
+
+def _required_str(record: Mapping[str, object], field: str, index: int) -> str:
+    value = record[field]
+    if not isinstance(value, str):
+        raise ValueError(
+            f"daemon method contract entry {index} field {field!r} must be a string"
+        )
+    return value
+
+
+def _capability(value: object, method: str) -> Capability | None:
+    if value is None:
+        return None
+    if not isinstance(value, str) or value not in CAPABILITIES:
+        raise ValueError(
+            f"daemon method contract entry {method!r} has invalid required_capability"
+        )
+    return cast(Capability, value)
+
+
+def _repository_scope_mode(value: object, method: str) -> RepositoryScopeMode:
+    if not isinstance(value, str) or value not in _REPOSITORY_SCOPE_MODES:
+        raise ValueError(
+            f"daemon method contract entry {method!r} has invalid repository_scope_mode"
+        )
+    return cast(RepositoryScopeMode, value)
+
+
+def _positive_int(record: Mapping[str, object], field: str, method: str) -> int:
+    value = record[field]
+    if not isinstance(value, int) or isinstance(value, bool) or value < 1:
+        raise ValueError(
+            f"daemon method contract entry {method!r} field {field!r} "
+            "must be a positive integer"
+        )
+    return value
+
+
+def _required_bool(record: Mapping[str, object], field: str, method: str) -> bool:
+    value = record[field]
+    if not isinstance(value, bool):
+        raise ValueError(
+            f"daemon method contract entry {method!r} field {field!r} must be a boolean"
+        )
+    return value
+
+
+def _methods_etag(entries: tuple[MethodEntry, ...]) -> str:
+    material = [entry.public_dict() for entry in sorted(entries, key=lambda item: item.method)]
+    return "sha256:" + hashlib.sha256(json_dumps(material).encode("utf-8")).hexdigest()
+
+
+_ENTRIES: tuple[MethodEntry, ...] = _entries_from_contract(_load_contract())
 METHOD_REGISTRY: dict[str, MethodEntry] = {entry.method: entry for entry in _ENTRIES}
-METHODS_ETAG = "sha256:" + hashlib.sha256(
-    json_dumps([entry.public_dict() for entry in sorted(_ENTRIES, key=lambda item: item.method)]).encode("utf-8")
-).hexdigest()
+METHODS_ETAG = _methods_etag(_ENTRIES)
 
 
 def describe_methods() -> dict[str, object]:

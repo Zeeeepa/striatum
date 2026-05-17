@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from striatum import daemon as sqlite_daemon
-from striatum.db import utc_now
+from striatum.primitives import utc_now
 from striatum.daemon_pg.connection import connect
 from striatum.daemon_pg.migrations import apply_migrations, read_schema_version
 from striatum.errors import StriatumError

@@ -25,13 +25,12 @@ def test_module_registers_recovery_auto_not_long_name() -> None:
         from striatum.daemon_pg.handlers.registry import resolve_pg_handler
 
         assert resolve_pg_handler("recovery.auto") is mod.handle
-        # The longer name must NOT be registered (operator would not find
-        # it via grep of ``CLI_ROUTES``).
+        # The longer name must NOT be registered; current clients use the
+        # canonical ``recovery.auto`` method.
         assert resolve_pg_handler("recovery.auto_publish_stale_artifacts") is None
     else:
         assert rpc_method == "recovery.auto", (
-            "Decorator argument must match the RPC method registered in "
-            "server.py:83 (recovery.auto)"
+            "Decorator argument must match the canonical recovery.auto RPC method"
         )
 
 

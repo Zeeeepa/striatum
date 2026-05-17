@@ -9,6 +9,9 @@
 ```text
 striatum init [--with-skills <profile>] [--with-ddd-layout]
               [--ddd-layout-force] [--ddd-layout-dry-run]
+striatum adopt [--profile <profile>] [--postgres-url <url>]
+               [--dry-run] [--no-skills] [--no-plugins]
+               [--no-ddd-layout] [--no-register]
 striatum workflow validate
 striatum workflow plan
 striatum workflow graph
@@ -74,6 +77,13 @@ optional flags scaffold extra material:
 - `--ddd-layout-dry-run` (RFC 0021 V1.5) — preview without
   writing. Per-file statuses use the `would_*` vocabulary.
 
+`striatum adopt` is the day-zero guided flow. It initializes
+`.striatum/`, installs the selected skill/plugin profile, scaffolds the
+DDD docs, migrates/registers the repo into daemon PostgreSQL when a
+Postgres URL is configured, and returns a suggested starter workflow
+path. Use `--dry-run` to preview, or `--no-register` when you only want
+the filesystem setup.
+
 ## Agent / session work loop
 
 ```text
@@ -129,7 +139,12 @@ striatum daemon start
 striatum daemon status
 striatum daemon stop
 striatum daemon sweep
-striatum daemon doctor [--postgres-url <url>] [--apply-migrations] [--json]
+striatum daemon service install [--manager auto|systemd|launchd] [--dry-run]
+striatum daemon service start [--manager auto|systemd|launchd] [--dry-run]
+striatum daemon service status [--manager auto|systemd|launchd]
+striatum daemon doctor [--postgres-url <url>] [--apply-migrations]
+                       [--provision-rw-role] [--repair-grants]
+                       [--explain] [--json]
 striatum daemon migrate --from sqlite --to pg [--dry-run]
                          [--keep-sqlite-readonly]
 striatum daemon migrate-repo-local --from sqlite --to pg
@@ -176,6 +191,11 @@ capabilities, preserves audit rows, and never reuses
 across registered active runs; the normal recovery sweep also
 runs from the foreground daemon process.
 
+`daemon service install|start|status` renders and controls a user
+service for the local daemon. `--manager auto` chooses systemd user
+units on Linux and launchd agents on macOS; explicit `systemd` and
+`launchd` choices are available for testing or non-standard hosts.
+
 RFC 0033 V2 accepts system PostgreSQL as the daemon-owned
 storage substrate for daemon-global state. Configure it with
 `STRIATUM_DAEMON_DB_URL`, daemon config, or an explicit
@@ -192,6 +212,10 @@ remediation list operators need to bring the daemon online.
 `--apply-migrations` brings the daemon-owned schema forward
 in-place; without it, doctor reports the required version and
 exits so operators can review before applying.
+`--provision-rw-role` creates the local `striatumd_rw` runtime role
+when the current Postgres connection can create roles. `--repair-grants`
+applies the runtime grants and append-only revokes; when privileges are
+insufficient, doctor returns pasteable SQL for an admin session.
 
 `daemon migrate --from sqlite --to pg --dry-run` reports the V1
 registry rows that would be exported. Without `--dry-run`, it
@@ -238,6 +262,7 @@ striatum --daemon status [--run-id <id>]
 striatum --daemon doctor
 striatum --daemon why <job-id>
 striatum --daemon dashboard --all
+striatum doctor --first-run
 ```
 
 V1 read surfaces supported under `--daemon`: `status`, `doctor`,
@@ -246,6 +271,11 @@ with capability-denied semantics; the CLI does not fall back to
 direct repo-local mode. The V1 `--no-daemon` flag is retired
 (D094 / RFC 0043); parsing it returns the standard argparse
 "unrecognized arguments" error and exit code 2.
+
+`doctor --first-run` is a bootstrap smoke check, not a normal
+repo-state doctor run. It verifies daemon socket reachability,
+Postgres doctor status, runtime token presence, repository registration,
+MCP tool visibility, and one sample daemon read route.
 
 Daemon RPC method capabilities use the closed vocabulary `read`,
 `write`, `review`, `claim`, `apply`, `admin`, and `recovery`.

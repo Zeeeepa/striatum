@@ -125,20 +125,20 @@ distinct filename keeps `--profile all` collision-free with
 
 ```bash
 TARGET_REPO=/path/to/your/repo
-striatum --repo "$TARGET_REPO" init --with-skills claude_code --json
+striatum --repo "$TARGET_REPO" adopt --profile claude_code --json
 ```
 
-That single command initializes `.striatum/` in the target repo
-and writes the RFC 0015 skill bundle to
-`.claude/skills/striatum-*/`. The bundle teaches a Claude Code
-session how to drive the runner without reading the striatum
-source.
+That guided command initializes `.striatum/`, writes the RFC 0015
+skill bundle to `.claude/skills/striatum-*/`, scaffolds the DDD docs,
+and migrates/registers the repo with daemon PostgreSQL when the daemon
+DB URL is configured. The bundle teaches a Claude Code session how to
+drive the runner without reading the striatum source.
 
 ### If your agent is Codex CLI
 
 ```bash
 TARGET_REPO=/path/to/your/repo
-striatum --repo "$TARGET_REPO" init --with-skills codex --json
+striatum --repo "$TARGET_REPO" adopt --profile codex --json
 ```
 
 Writes the same five-skill bundle as Claude Code, flat-file at
@@ -148,7 +148,7 @@ Writes the same five-skill bundle as Claude Code, flat-file at
 
 ```bash
 TARGET_REPO=/path/to/your/repo
-striatum --repo "$TARGET_REPO" init --with-skills gemini --json
+striatum --repo "$TARGET_REPO" adopt --profile gemini --json
 ```
 
 Writes a single concatenated guide at
@@ -160,7 +160,7 @@ convention).
 
 ```bash
 TARGET_REPO=/path/to/your/repo
-striatum --repo "$TARGET_REPO" init --with-skills generic --json
+striatum --repo "$TARGET_REPO" adopt --profile generic --json
 ```
 
 Writes `striatum-STRIATUM_AGENT_GUIDE.md` at the repo root — the
@@ -170,7 +170,7 @@ to the Claude Code bundle's five sections concatenated.
 ### Install everything (you switch CLIs, or you want a fallback)
 
 ```bash
-striatum --repo "$TARGET_REPO" init --with-skills all --json
+striatum --repo "$TARGET_REPO" adopt --profile all --json
 # or, against an existing initialized repo:
 striatum --repo "$TARGET_REPO" skills install --profile all --json
 ```

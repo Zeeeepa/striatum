@@ -15,6 +15,7 @@ from striatum.daemon_pg.config import ENV_DAEMON_DB_URL, redact_url, resolve_con
 from striatum.daemon_pg.connection import doctor as pg_doctor
 from striatum.daemon_pg.cutover import CUTOVER_COMPLETED_KEY
 from striatum.daemon_pg.migrations import MIGRATIONS
+from striatum.daemon_pg.roles import role_repair_sql
 from striatum.errors import StriatumError
 
 
@@ -101,6 +102,17 @@ def test_daemon_doctor_cli_reports_postgres_missing_without_leaking(tmp_path: Pa
     assert payload["postgres"]["status"] == "missing_url"
     assert payload["postgres"]["ok"] is False
     assert payload["postgres"]["onboarding_hints"]
+
+
+def test_daemon_role_repair_sql_keeps_append_only_tables_protected() -> None:
+    sql = "\n".join(role_repair_sql(database="striatum_daemon"))
+
+    assert "CREATE ROLE \"striatumd_rw\" WITH LOGIN PASSWORD '<yourpass>'" in sql
+    assert "GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA striatumd" in sql
+    for table in ("audit_log", "events", "artifacts"):
+        assert f"REVOKE UPDATE, DELETE ON striatumd.{table} FROM \"striatumd_rw\"" in sql
+        assert f"GRANT SELECT, INSERT ON striatumd.{table} TO \"striatumd_rw\"" in sql
+    assert 'REVOKE DELETE ON striatumd.repo_event_chain_heads FROM "striatumd_rw"' in sql
 
 
 def test_baseline_migration_sql_names_expected_v2_tables() -> None:

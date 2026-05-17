@@ -5,8 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Mapping
 
-from striatum.db import json_dumps, json_loads
 from striatum.errors import StriatumError
+from striatum.primitives import json_dumps, json_loads
 
 SUPPORTED_ENVELOPE_VERSION = 1
 DEFAULT_FRAMING = "json"

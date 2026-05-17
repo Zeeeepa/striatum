@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 
-import hashlib
+import os
 import json
 import sqlite3
-import uuid
 from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -13,7 +12,6 @@ from typing import Any, Iterator, cast
 
 from striatum.errors import (
     StriatumError,
-    ArtifactError,
     BranchConfirmationError,
     InvalidTransitionError,
     LeaseError,
@@ -21,57 +19,42 @@ from striatum.errors import (
 )
 from striatum.identity import artifact_author_identity, session_lane_attestation
 from striatum.migrations import apply_migrations
+from striatum.primitives import JsonObject, json_dumps, json_loads, new_id, sha256_bytes, utc_now
+from striatum.repo_policy import (
+    ADAPTER_ENFORCEMENT_LEVELS,
+    DB_NAME,
+    STATE_DIR,
+    WORKTREES_SUBDIR,
+    adapter_constraint_enforcement,
+    adapter_enforcement_satisfies,
+    db_path,
+    lane_worktree_isolation,
+    path_allowed,
+    repo_relative_path,
+    state_dir,
+)
 
-# JSON columns are intentionally untyped at the SQLite boundary.
-JsonObject = dict[str, Any]
+SQLITE_CONNECT_TRIPWIRE_ENV = "STRIATUM_SQLITE_CONNECT_TRIPWIRE"
 
-STATE_DIR = ".striatum"
-DB_NAME = "state.sqlite3"
-WORKTREES_SUBDIR = "worktrees"
-ADAPTER_ENFORCEMENT_LEVELS = {
-    "unsupported": 0,
-    "advisory": 1,
-    "advisory_strict": 2,
-    "enforced": 3,
-}
-
-
-def utc_now() -> str:
-    """Return an RFC3339 UTC timestamp."""
-    return datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
-
-
-def new_id(prefix: str) -> str:
-    """Return an opaque stable-enough local id."""
-    return f"{prefix}_{uuid.uuid4().hex}"
-
-
-def json_dumps(value: object) -> str:
-    """Serialize JSON deterministically for hashing and storage."""
-    return json.dumps(value, sort_keys=True, separators=(",", ":"))
-
-
-def json_loads(value: str) -> JsonObject:
-    """Load a JSON object from a SQLite text column."""
-    loaded = json.loads(value)
-    if not isinstance(loaded, dict):
-        raise InvalidTransitionError("stored JSON value is not an object")
-    return cast(JsonObject, loaded)
-
-
-def sha256_bytes(payload: bytes) -> str:
-    """Return a hex SHA-256 digest."""
-    return hashlib.sha256(payload).hexdigest()
-
-
-def state_dir(repo: Path) -> Path:
-    """Return the repo-local state directory."""
-    return repo / STATE_DIR
-
-
-def db_path(repo: Path) -> Path:
-    """Return the repo-local SQLite database path."""
-    return state_dir(repo) / DB_NAME
+__all__ = [
+    "ADAPTER_ENFORCEMENT_LEVELS",
+    "DB_NAME",
+    "JsonObject",
+    "STATE_DIR",
+    "WORKTREES_SUBDIR",
+    "adapter_constraint_enforcement",
+    "adapter_enforcement_satisfies",
+    "db_path",
+    "json_dumps",
+    "json_loads",
+    "lane_worktree_isolation",
+    "new_id",
+    "path_allowed",
+    "repo_relative_path",
+    "sha256_bytes",
+    "state_dir",
+    "utc_now",
+]
 
 
 def connect(repo: Path) -> sqlite3.Connection:
@@ -89,6 +72,10 @@ def connect(repo: Path) -> sqlite3.Connection:
     matches the daemon-required path so operators see one consistent
     remediation.
     """
+    if os.environ.get(SQLITE_CONNECT_TRIPWIRE_ENV) == "1":
+        raise RuntimeError(
+            f"sqlite_connect_tripwire: striatum.db.connect({repo}) was called"
+        )
     target = db_path(repo)
     already_existed = target.exists()
     if not already_existed:
@@ -153,6 +140,16 @@ def init_repo(repo: Path) -> None:
     if ".striatum/" not in existing.splitlines():
         prefix = "" if existing == "" or existing.endswith("\n") else "\n"
         ignore_path.write_text(f"{existing}{prefix}.striatum/\n", encoding="utf-8")
+    # RFC 0048 V1.5 / V1.6 F3 (HARNESS_FRICTION_PATTERNS Pattern 5):
+    # if the repo has already been migrated to Postgres (sentinel or
+    # tombstone present), `init` is a no-op. The runtime state lives
+    # in the daemon-owned PG; the local `.striatum/` is operational
+    # scratch only. Trying to open a fresh sqlite here would trip the
+    # split-brain detector in `connect()`. Short-circuit cleanly.
+    sentinel = repo / ".striatum" / "state.sqlite3.migrated"
+    tombstone = repo / ".striatum" / "state.sqlite3.tombstone"
+    if not db_path(repo).exists() and (sentinel.exists() or tombstone.exists()):
+        return
     if not db_path(repo).exists():
         _refuse_init_when_install_lags_repo(repo)
     with connect(repo) as conn:
@@ -268,76 +265,10 @@ def row_by_id(conn: sqlite3.Connection, table: str, column: str, value: str) -> 
     return cast(sqlite3.Row, row)
 
 
-def repo_relative_path(repo: Path, path_text: str) -> Path:
-    """Resolve a repo-relative path and reject escapes."""
-    return _repo_relative_path(repo, path_text, allow_state=False)
-
-
-def _repo_relative_path(repo: Path, path_text: str, *, allow_state: bool) -> Path:
-    """Resolve a repo-relative path with optional state-dir allowance."""
-    path = Path(path_text)
-    if path.is_absolute():
-        raise ArtifactError("artifact path must be repo-relative")
-    resolved = (repo / path).resolve()
-    repo_resolved = repo.resolve()
-    try:
-        resolved.relative_to(repo_resolved)
-    except ValueError as exc:
-        raise ArtifactError("artifact path must stay inside the repository") from exc
-    if not allow_state and (
-        resolved == repo_resolved / STATE_DIR or (repo_resolved / STATE_DIR) in resolved.parents
-    ):
-        raise ArtifactError("artifact path cannot be under .striatum")
-    return resolved
-
-
-def path_allowed(repo: Path, path_text: str, write_scope: JsonObject) -> bool:
-    """Return whether a repo-relative path is allowed by the job write scope."""
-    resolved = repo_relative_path(repo, path_text)
-    allowed = write_scope.get("allowed_paths", [])
-    forbidden = write_scope.get("forbidden_paths", [STATE_DIR])
-    if not isinstance(allowed, list) or not isinstance(forbidden, list):
-        return False
-    for item in forbidden:
-        if not isinstance(item, str):
-            continue
-        denied = _repo_relative_path(repo, item, allow_state=True).resolve()
-        if resolved == denied or denied in resolved.parents:
-            return False
-    for item in allowed:
-        if not isinstance(item, str):
-            continue
-        base = _repo_relative_path(repo, item, allow_state=True).resolve()
-        if resolved == base or base in resolved.parents:
-            return True
-    return False
-
-
 def is_repo_write(job: sqlite3.Row) -> bool:
     """Return whether a job can write non-review artifacts."""
     scope = json_loads(str(job["write_scope_json"]))
     return scope.get("repo_write") is True or scope.get("mode") == "repo_write"
-
-
-def lane_worktree_isolation(workflow: JsonObject, lane_id: str | None) -> str:
-    """Return the lane's declared worktree isolation mode.
-
-    Defaults to ``"off"`` when the lane is missing, the field is absent, or
-    the field is not a recognized string. RFC 0008 V1 only supports
-    ``"off"`` and ``"per_job"``.
-    """
-    if lane_id is None:
-        return "off"
-    lanes = workflow.get("lanes", {})
-    if not isinstance(lanes, dict):
-        return "off"
-    lane = lanes.get(lane_id)
-    if not isinstance(lane, dict):
-        return "off"
-    mode = lane.get("worktree_isolation")
-    if isinstance(mode, str) and mode in {"off", "per_job"}:
-        return mode
-    return "off"
 
 
 def job_lane_id(job: sqlite3.Row) -> str | None:
@@ -1436,30 +1367,6 @@ def build_adapter_constraints(lane_config: JsonObject) -> JsonObject:
         "enforcement": enforcement,
         "satisfied": all(item["satisfied"] for item in enforcement),
     }
-
-
-def adapter_constraint_enforcement(adapter: object, *, constraint: str, requested: str) -> str:
-    """Return the enforcement level an adapter can provide for a requested constraint.
-
-    `advisory_strict` is a best-effort enforcement that the runner actively
-    sets up but cannot fully prevent; e.g. for `network=forbidden` the process
-    adapter scrubs proxy env vars and sets a sentinel `STRIATUM_NETWORK_POLICY`,
-    but a child process that ignores the policy can still open sockets.
-    """
-    if adapter == "process":
-        if constraint == "transcripts" and requested == "off":
-            return "enforced"
-        if constraint == "network" and requested == "forbidden":
-            return "advisory_strict"
-        if constraint == "repo_scope" and requested == "local_only":
-            return "advisory_strict"
-        return "advisory"
-    return "unsupported"
-
-
-def adapter_enforcement_satisfies(*, actual: str, required: str) -> bool:
-    """Return whether an actual enforcement level satisfies a workflow requirement."""
-    return ADAPTER_ENFORCEMENT_LEVELS[actual] >= ADAPTER_ENFORCEMENT_LEVELS[required]
 
 
 def complete_job(

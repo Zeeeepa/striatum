@@ -48,11 +48,9 @@ def try_route(args: argparse.Namespace, repo: Path) -> tuple[bool, Any]:
     """
     if os.environ.get("STRIATUM_TEST_HARNESS") == "1":
         return (False, None)
-    # RFC 0048 Phase C: when the daemon's _route falls back to CLI_ROUTES
-    # for an un-ported method, it calls `invoke()` in-process which re-enters
-    # `dispatch()`. Without this guard, the re-entry would route back through
-    # the daemon RPC and loop. The daemon sets STRIATUM_IN_DAEMON_HANDLER=1
-    # in the daemon-internal invoke path so this hook short-circuits.
+    # Historical daemon-internal invoke paths set this guard. Keep honoring it
+    # so compatibility/test helpers can still re-enter dispatch locally without
+    # trying to route back through daemon RPC.
     if os.environ.get("STRIATUM_IN_DAEMON_HANDLER") == "1":
         return (False, None)
     translator = _LOOKUP.get((args.command, _subcommand(args)))
@@ -91,14 +89,22 @@ def try_route(args: argparse.Namespace, repo: Path) -> tuple[bool, Any]:
         elif code == "duplicate_request":
             exit_code = 9
         raise StriatumError(f"{code}: {msg}", exit_code=exit_code)
-    return (True, response.get("data"))
+    data = response.get("data")
+    if (
+        method == "run.graph"
+        and not bool(getattr(args, "json", False))
+        and isinstance(data, dict)
+        and isinstance(data.get("source"), str)
+    ):
+        return (True, data["source"])
+    return (True, data)
 
 
 def _subcommand(args: argparse.Namespace) -> str | None:
     """Extract a verb's subcommand attribute (e.g., ``run_command`` for ``run``)."""
     for attr in ("run_command", "workflow_command", "list_command", "recovery_command",
                  "evidence_command", "corpus_command", "decision_command",
-                 "checkpoint_command", "branch_command", "session_command",
+                 "checkpoint_command", "escalation_command", "branch_command", "session_command",
                  "worktree_command", "supervise_command", "cross_repo_command"):
         v = getattr(args, attr, None)
         if v is not None:
@@ -256,6 +262,18 @@ def _route_run_summary(args: argparse.Namespace, repo: Path) -> tuple[str, dict[
     return ("run.summary", {"run_id": args.run_id, "path": getattr(args, "path", None)})
 
 
+def _route_run_graph(args: argparse.Namespace, repo: Path) -> tuple[str, dict[str, Any]]:
+    return (
+        "run.graph",
+        {
+            "run_id": args.run_id,
+            "format": args.format,
+            "graph_orient": getattr(args, "graph_orient", "tb"),
+            "graph_style": getattr(args, "graph_style", "layered"),
+        },
+    )
+
+
 def _route_register_session(args: argparse.Namespace, repo: Path) -> tuple[str, dict[str, Any]]:
     params: dict[str, Any] = {
         "run_id": args.run_id,
@@ -274,6 +292,10 @@ def _route_register_session(args: argparse.Namespace, repo: Path) -> tuple[str, 
     if getattr(args, "reason", None):
         params["reason"] = args.reason
     return ("session.register", params)
+
+
+def _route_session_close(args: argparse.Namespace, repo: Path) -> tuple[str, dict[str, Any]]:
+    return ("session.close", {"session_id": args.session_id, "reason": args.reason})
 
 
 def _route_claim_next(args: argparse.Namespace, repo: Path) -> tuple[str, dict[str, Any]]:
@@ -307,6 +329,17 @@ def _route_release(args: argparse.Namespace, repo: Path) -> tuple[str, dict[str,
         "reason": getattr(args, "reason", ""),
         "requeue": bool(getattr(args, "requeue", False)),
     })
+
+
+def _route_send(args: argparse.Namespace, repo: Path) -> tuple[str, dict[str, Any]]:
+    return (
+        "work.send_message",
+        {
+            "session_id": args.session_id,
+            "kind": args.kind,
+            "body_json": args.body_json,
+        },
+    )
 
 
 def _route_block(args: argparse.Namespace, repo: Path) -> tuple[str, dict[str, Any]]:
@@ -381,10 +414,11 @@ def _route_override_verdict(args: argparse.Namespace, repo: Path) -> tuple[str, 
 
 
 def _route_recovery(args: argparse.Namespace, repo: Path) -> tuple[str, dict[str, Any]]:
-    sub = (getattr(args, "recovery_command", None) or "").replace("-", "_")
+    recovery_command = str(getattr(args, "recovery_command", None) or "")
+    sub = recovery_command.replace("-", "_")
     if not sub:
         raise StriatumError("recovery subcommand required", exit_code=2)
-    method = f"recovery.{sub}"
+    method = "recovery.auto" if recovery_command == "auto-publish" else f"recovery.{sub}"
     params: dict[str, Any] = {}
     if getattr(args, "run_id", None):
         params["run_id"] = args.run_id
@@ -418,6 +452,8 @@ def _route_recovery(args: argparse.Namespace, repo: Path) -> tuple[str, dict[str
         "interval_seconds",
         "exit_on_terminal",
         "max_sweeps",
+        "mtime_grace_seconds",
+        "allow_no_process_execution",
     ):
         value = getattr(args, name, None)
         if value is not None:
@@ -459,6 +495,27 @@ def _route_checkpoint_resolve(args: argparse.Namespace, repo: Path) -> tuple[str
     })
 
 
+def _route_inbox(args: argparse.Namespace, repo: Path) -> tuple[str, dict[str, Any]]:
+    return ("escalation.list", _selected_params(args, ("run_id", "state", "limit")))
+
+
+def _route_escalation(args: argparse.Namespace, repo: Path) -> tuple[str, dict[str, Any]]:
+    sub = str(getattr(args, "escalation_command", "") or "")
+    if sub == "list":
+        params = _selected_params(args, ("run_id", "state", "limit"))
+        return ("escalation.list", params)
+    if sub == "show":
+        return ("escalation.show", {"escalation_id": args.escalation_id})
+    if sub == "resolve":
+        params = {"escalation_id": args.escalation_id}
+        if getattr(args, "decision_id", None):
+            params["decision_id"] = args.decision_id
+        if getattr(args, "resolution_note", None):
+            params["resolution_note"] = args.resolution_note
+        return ("escalation.resolve", params)
+    raise StriatumError("escalation subcommand required", exit_code=2)
+
+
 def _route_branch_confirm(args: argparse.Namespace, repo: Path) -> tuple[str, dict[str, Any]]:
     return ("branch.confirm", {
         "run_id": args.run_id,
@@ -467,6 +524,51 @@ def _route_branch_confirm(args: argparse.Namespace, repo: Path) -> tuple[str, di
         "use_current": bool(getattr(args, "use_current", False)),
         "strict": bool(getattr(args, "strict", False)),
     })
+
+
+def _route_worktree(args: argparse.Namespace, repo: Path) -> tuple[str, dict[str, Any]]:
+    sub = str(getattr(args, "worktree_command", "") or "")
+    if sub == "create":
+        return (
+            "worktree.create",
+            {
+                "session_id": args.session_id,
+                "job_id": args.job_id,
+                "lease_id": args.lease_id,
+            },
+        )
+    if sub == "release":
+        return ("worktree.release", {"worktree_id": args.worktree_id})
+    if sub == "list":
+        return ("worktree.list", {"run_id": getattr(args, "run_id", None)})
+    raise StriatumError("worktree subcommand required", exit_code=2)
+
+
+def _route_supervise(args: argparse.Namespace, repo: Path) -> tuple[str, dict[str, Any]]:
+    sub = str(getattr(args, "supervise_command", "") or "")
+    if sub == "start":
+        return ("supervise.start", {"session_id": args.session_id})
+    if sub == "send":
+        return (
+            "supervise.send",
+            {"session_id": args.session_id, "packet_id": args.packet_id},
+        )
+    if sub == "stop":
+        return (
+            "supervise.stop",
+            {"session_id": args.session_id, "reason": args.reason},
+        )
+    if sub == "status":
+        return ("supervise.status", {"session_id": args.session_id})
+    if sub == "list":
+        return (
+            "supervise.list",
+            {
+                "run_id": args.run_id,
+                "state": getattr(args, "state", None),
+            },
+        )
+    raise StriatumError("supervise subcommand required", exit_code=2)
 
 
 # (command, subcommand) -> translator
@@ -483,11 +585,14 @@ _LOOKUP: dict[tuple[str, str | None], Callable[[argparse.Namespace, Path], tuple
     ("run", "cancel"): _route_run_cancel,
     ("run", "retry-job"): _route_run_retry_job,
     ("run", "summary"): _route_run_summary,
+    ("run", "graph"): _route_run_graph,
     ("register-session", None): _route_register_session,
+    ("session", "close"): _route_session_close,
     ("claim-next", None): _route_claim_next,
     ("ack", None): _route_ack,
     ("heartbeat", None): _route_heartbeat,
     ("release", None): _route_release,
+    ("send", None): _route_send,
     ("block", None): _route_block,
     ("complete", None): _route_complete,
     ("publish-artifact", None): _route_publish_artifact,
@@ -501,10 +606,23 @@ _LOOKUP: dict[tuple[str, str | None], Callable[[argparse.Namespace, Path], tuple
     ("recovery", "resume"): _route_recovery,
     ("recovery", "auto"): _route_recovery,
     ("recovery", "auto-publish"): _route_recovery,
+    ("recovery", "auto-finalize"): _route_recovery,
     ("recovery", "watch"): _route_recovery,
     ("evidence", "export"): _route_evidence_export,
     ("corpus", "export"): _route_corpus_export,
     ("decision", "record"): _route_decision_record,
     ("checkpoint", "resolve"): _route_checkpoint_resolve,
+    ("inbox", None): _route_inbox,
+    ("escalation", "list"): _route_escalation,
+    ("escalation", "show"): _route_escalation,
+    ("escalation", "resolve"): _route_escalation,
     ("branch", "confirm"): _route_branch_confirm,
+    ("worktree", "create"): _route_worktree,
+    ("worktree", "release"): _route_worktree,
+    ("worktree", "list"): _route_worktree,
+    ("supervise", "start"): _route_supervise,
+    ("supervise", "send"): _route_supervise,
+    ("supervise", "stop"): _route_supervise,
+    ("supervise", "status"): _route_supervise,
+    ("supervise", "list"): _route_supervise,
 }

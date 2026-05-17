@@ -42,8 +42,11 @@ for the operator runbook.
 
 RFC 0048 (v1.49.0 → v1.55.0) completed the substrate port: every
 single-repo mutation, recovery, and read handler runs natively
-against the daemon's per-repo Postgres tables, with Go-core parity
-in `go/pkg/{reads,mutations}/`. The
+against the daemon's per-repo Postgres tables in the Python daemon
+core. The Go tree retains helper/runtime and developer-harness
+counterparts for selected read and mutation paths, but it is not a
+second production daemon core and is not planned to displace the
+Python daemon. The
 `STRIATUM_DAEMON_REQUIRED=0 STRIATUM_TEST_HARNESS=1` escape no
 longer takes effect for ported methods — mapped CLI verbs fail
 closed instead of falling back to SQLite when the daemon is
@@ -100,6 +103,13 @@ binary supports is refused; client/daemon version skew refuses with
 exit code 10. The pre-D094 repo-local SQLite migration list is
 retained only for the `migrate-repo-local` golden fixture and is not
 applied by ordinary CLI verbs.
+
+Day-zero setup is guided by `striatum adopt`, `daemon service
+install/start/status`, `daemon doctor --provision-rw-role
+--repair-grants`, and `doctor --first-run`. These helpers are local
+bootstrap surfaces: they may initialize scratch files, render a user
+service, repair local Postgres grants, or run smoke checks, but they do
+not become an alternate workflow-state authority.
 
 The `migrate-repo-local` command converts an existing pre-D094
 `.striatum/state.sqlite3` into per-repo Postgres rows and finalizes
@@ -1296,28 +1306,22 @@ schema/API foundation for future stronger supervision. Existing direct
 repo-local supervision remains the compatibility path until daemon
 spawn, reattach, and routing take over method by method.
 
-RFC 0039 introduces a second daemon implementation in Go (`go/cmd/striatumd`)
-behind the same RFC 0030 envelope-v1 wire protocol and the same RFC 0033
-PostgreSQL substrate. The Python daemon (`striatum daemon start` /
-`striatumd` console script) and the Go daemon (`go install
-github.com/halbritt/striatum/go/cmd/striatumd`) are mutually exclusive
-implementations of the same daemon contract; the operator-facing
-`daemon core` field enumerates which language is running. V1 closed set
-is `{python, go}` and V1 default is `python`. Mutual exclusion is
-enforced at the PostgreSQL layer: a daemon refuses to start with exit
-code 14 `daemon_already_running` when `pg_stat_activity` already lists a
-`striatumd-*` connection. RFC 0039 Phase 1 (dogfood-042) lands Steps 1+2
-only — the Go daemon's envelope-v1 RPC skeleton with a read-only method
-registry (`daemon.hello`, `daemon.welcome`, `daemon.describe`,
-`daemon.status`, `daemon.version`, `audit.show`, `repo.list`) plus the
-PostgreSQL connection, migration, and audit-chain layer that reads the
-Python migrations under `src/striatum/daemon_pg/sql/` directly. CLI
-selection via `striatum daemon start --core go`, mutating verbs,
-supervised processes, distribution binaries, and the default-core flip
-are deferred to Phase 2 / future RFCs. The audit-chain v2 row hash is
-byte-for-byte compatible across cores (cross-language hash parity is a
-release blocker), so audit chains written by either core verify with
-either core's verifier.
+Python is the production daemon core. RFC 0039 introduced a Go
+`go/cmd/striatumd` prototype behind the RFC 0030 envelope-v1 wire
+protocol and RFC 0033 PostgreSQL substrate, but the Phase 3 architecture
+decision narrows Go to supervisor/helper/runtime and developer-harness
+roles. It is supporting runtime material, not a peer production daemon
+implementation, and there is no plan to make Go the default.
+Historical RFC 0039 Phase 1 work
+(dogfood-042) remains useful as a read-only RPC skeleton and
+cross-language audit/hash compatibility fixture: `daemon.hello`,
+`daemon.welcome`, `daemon.describe`, `daemon.status`, `daemon.version`,
+`audit.show`, and `repo.list`, plus PostgreSQL connection, migration,
+and audit-chain code that reads the Python migrations under
+`src/striatum/daemon_pg/sql/` directly. Production mutating verbs,
+daemon-owned supervision, migration ownership, and release packaging
+remain Python-daemon responsibilities unless a future accepted decision
+changes that boundary.
 
 ### Local Web UI
 

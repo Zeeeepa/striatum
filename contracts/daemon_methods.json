@@ -1,0 +1,887 @@
+{
+  "schema_version": 1,
+  "methods": [
+    {
+      "method": "daemon.hello",
+      "required_capability": null,
+      "repository_scope_mode": "daemon_global",
+      "params_schema_version": 1,
+      "audit_class": "metadata",
+      "min_envelope": 1,
+      "deprecated": false
+    },
+    {
+      "method": "daemon.describe",
+      "required_capability": "read",
+      "repository_scope_mode": "daemon_global",
+      "params_schema_version": 1,
+      "audit_class": "metadata",
+      "min_envelope": 1,
+      "deprecated": false
+    },
+    {
+      "method": "status",
+      "required_capability": "read",
+      "repository_scope_mode": "single_repo",
+      "params_schema_version": 1,
+      "audit_class": "metadata",
+      "min_envelope": 1,
+      "deprecated": false
+    },
+    {
+      "method": "why",
+      "required_capability": "read",
+      "repository_scope_mode": "single_repo",
+      "params_schema_version": 1,
+      "audit_class": "metadata",
+      "min_envelope": 1,
+      "deprecated": false
+    },
+    {
+      "method": "doctor",
+      "required_capability": "read",
+      "repository_scope_mode": "single_repo",
+      "params_schema_version": 1,
+      "audit_class": "metadata",
+      "min_envelope": 1,
+      "deprecated": false
+    },
+    {
+      "method": "dashboard",
+      "required_capability": "read",
+      "repository_scope_mode": "single_repo",
+      "params_schema_version": 1,
+      "audit_class": "metadata",
+      "min_envelope": 1,
+      "deprecated": false
+    },
+    {
+      "method": "evidence.export",
+      "required_capability": "read",
+      "repository_scope_mode": "single_repo",
+      "params_schema_version": 1,
+      "audit_class": "metadata",
+      "min_envelope": 1,
+      "deprecated": false
+    },
+    {
+      "method": "corpus.export",
+      "required_capability": "read",
+      "repository_scope_mode": "single_repo",
+      "params_schema_version": 1,
+      "audit_class": "metadata",
+      "min_envelope": 1,
+      "deprecated": false
+    },
+    {
+      "method": "run.summary",
+      "required_capability": "read",
+      "repository_scope_mode": "single_repo",
+      "params_schema_version": 1,
+      "audit_class": "metadata",
+      "min_envelope": 1,
+      "deprecated": false
+    },
+    {
+      "method": "run.graph",
+      "required_capability": "read",
+      "repository_scope_mode": "single_repo",
+      "params_schema_version": 1,
+      "audit_class": "metadata",
+      "min_envelope": 1,
+      "deprecated": false
+    },
+    {
+      "method": "workflow.validate",
+      "required_capability": "read",
+      "repository_scope_mode": "single_repo",
+      "params_schema_version": 1,
+      "audit_class": "metadata",
+      "min_envelope": 1,
+      "deprecated": false
+    },
+    {
+      "method": "workflow.plan",
+      "required_capability": "read",
+      "repository_scope_mode": "single_repo",
+      "params_schema_version": 1,
+      "audit_class": "metadata",
+      "min_envelope": 1,
+      "deprecated": false
+    },
+    {
+      "method": "workflow.graph",
+      "required_capability": "read",
+      "repository_scope_mode": "single_repo",
+      "params_schema_version": 1,
+      "audit_class": "metadata",
+      "min_envelope": 1,
+      "deprecated": false
+    },
+    {
+      "method": "workflow.templates.list",
+      "required_capability": "read",
+      "repository_scope_mode": "single_repo",
+      "params_schema_version": 1,
+      "audit_class": "metadata",
+      "min_envelope": 1,
+      "deprecated": false
+    },
+    {
+      "method": "workflow.templates.show",
+      "required_capability": "read",
+      "repository_scope_mode": "single_repo",
+      "params_schema_version": 1,
+      "audit_class": "metadata",
+      "min_envelope": 1,
+      "deprecated": false
+    },
+    {
+      "method": "workflow.generate.preview",
+      "required_capability": "read",
+      "repository_scope_mode": "single_repo",
+      "params_schema_version": 1,
+      "audit_class": "metadata",
+      "min_envelope": 1,
+      "deprecated": false
+    },
+    {
+      "method": "list.runs",
+      "required_capability": "read",
+      "repository_scope_mode": "single_repo",
+      "params_schema_version": 1,
+      "audit_class": "metadata",
+      "min_envelope": 1,
+      "deprecated": false
+    },
+    {
+      "method": "list.sessions",
+      "required_capability": "read",
+      "repository_scope_mode": "single_repo",
+      "params_schema_version": 1,
+      "audit_class": "metadata",
+      "min_envelope": 1,
+      "deprecated": false
+    },
+    {
+      "method": "list.jobs",
+      "required_capability": "read",
+      "repository_scope_mode": "single_repo",
+      "params_schema_version": 1,
+      "audit_class": "metadata",
+      "min_envelope": 1,
+      "deprecated": false
+    },
+    {
+      "method": "list.artifacts",
+      "required_capability": "read",
+      "repository_scope_mode": "single_repo",
+      "params_schema_version": 1,
+      "audit_class": "metadata",
+      "min_envelope": 1,
+      "deprecated": false
+    },
+    {
+      "method": "list.workflows",
+      "required_capability": "read",
+      "repository_scope_mode": "single_repo",
+      "params_schema_version": 1,
+      "audit_class": "metadata",
+      "min_envelope": 1,
+      "deprecated": false
+    },
+    {
+      "method": "escalation.list",
+      "required_capability": "read",
+      "repository_scope_mode": "single_repo",
+      "params_schema_version": 1,
+      "audit_class": "metadata",
+      "min_envelope": 1,
+      "deprecated": false
+    },
+    {
+      "method": "escalation.show",
+      "required_capability": "read",
+      "repository_scope_mode": "single_repo",
+      "params_schema_version": 1,
+      "audit_class": "metadata",
+      "min_envelope": 1,
+      "deprecated": false
+    },
+    {
+      "method": "escalation.resolve",
+      "required_capability": "admin",
+      "repository_scope_mode": "single_repo",
+      "params_schema_version": 1,
+      "audit_class": "metadata",
+      "min_envelope": 1,
+      "deprecated": false
+    },
+    {
+      "method": "worktree.list",
+      "required_capability": "read",
+      "repository_scope_mode": "single_repo",
+      "params_schema_version": 1,
+      "audit_class": "metadata",
+      "min_envelope": 1,
+      "deprecated": false
+    },
+    {
+      "method": "dashboard.all",
+      "required_capability": "read",
+      "repository_scope_mode": "daemon_global",
+      "params_schema_version": 1,
+      "audit_class": "metadata",
+      "min_envelope": 1,
+      "deprecated": false
+    },
+    {
+      "method": "repo.list",
+      "required_capability": "read",
+      "repository_scope_mode": "daemon_global",
+      "params_schema_version": 1,
+      "audit_class": "metadata",
+      "min_envelope": 1,
+      "deprecated": false
+    },
+    {
+      "method": "session.register",
+      "required_capability": "claim",
+      "repository_scope_mode": "single_repo",
+      "params_schema_version": 1,
+      "audit_class": "metadata",
+      "min_envelope": 1,
+      "deprecated": false
+    },
+    {
+      "method": "session.close",
+      "required_capability": "claim",
+      "repository_scope_mode": "single_repo",
+      "params_schema_version": 1,
+      "audit_class": "metadata",
+      "min_envelope": 1,
+      "deprecated": false
+    },
+    {
+      "method": "work.claim_next",
+      "required_capability": "claim",
+      "repository_scope_mode": "single_repo",
+      "params_schema_version": 1,
+      "audit_class": "metadata",
+      "min_envelope": 1,
+      "deprecated": false
+    },
+    {
+      "method": "work.ack",
+      "required_capability": "claim",
+      "repository_scope_mode": "single_repo",
+      "params_schema_version": 1,
+      "audit_class": "metadata",
+      "min_envelope": 1,
+      "deprecated": false
+    },
+    {
+      "method": "work.heartbeat",
+      "required_capability": "claim",
+      "repository_scope_mode": "single_repo",
+      "params_schema_version": 1,
+      "audit_class": "metadata",
+      "min_envelope": 1,
+      "deprecated": false
+    },
+    {
+      "method": "work.release",
+      "required_capability": "claim",
+      "repository_scope_mode": "single_repo",
+      "params_schema_version": 1,
+      "audit_class": "metadata",
+      "min_envelope": 1,
+      "deprecated": false
+    },
+    {
+      "method": "supervise.start",
+      "required_capability": "claim",
+      "repository_scope_mode": "single_repo",
+      "params_schema_version": 1,
+      "audit_class": "metadata",
+      "min_envelope": 1,
+      "deprecated": false
+    },
+    {
+      "method": "supervise.send",
+      "required_capability": "claim",
+      "repository_scope_mode": "single_repo",
+      "params_schema_version": 1,
+      "audit_class": "metadata",
+      "min_envelope": 1,
+      "deprecated": false
+    },
+    {
+      "method": "supervise.report",
+      "required_capability": "claim",
+      "repository_scope_mode": "single_repo",
+      "params_schema_version": 1,
+      "audit_class": "metadata",
+      "min_envelope": 1,
+      "deprecated": false
+    },
+    {
+      "method": "supervise.stop",
+      "required_capability": "claim",
+      "repository_scope_mode": "single_repo",
+      "params_schema_version": 1,
+      "audit_class": "metadata",
+      "min_envelope": 1,
+      "deprecated": false
+    },
+    {
+      "method": "supervise.status",
+      "required_capability": "read",
+      "repository_scope_mode": "single_repo",
+      "params_schema_version": 1,
+      "audit_class": "metadata",
+      "min_envelope": 1,
+      "deprecated": false
+    },
+    {
+      "method": "supervise.list",
+      "required_capability": "read",
+      "repository_scope_mode": "single_repo",
+      "params_schema_version": 1,
+      "audit_class": "metadata",
+      "min_envelope": 1,
+      "deprecated": false
+    },
+    {
+      "method": "supervise.reattach_status",
+      "required_capability": "read",
+      "repository_scope_mode": "single_repo",
+      "params_schema_version": 1,
+      "audit_class": "metadata",
+      "min_envelope": 1,
+      "deprecated": false
+    },
+    {
+      "method": "work.send_message",
+      "required_capability": "write",
+      "repository_scope_mode": "single_repo",
+      "params_schema_version": 1,
+      "audit_class": "metadata",
+      "min_envelope": 1,
+      "deprecated": false
+    },
+    {
+      "method": "work.block",
+      "required_capability": "write",
+      "repository_scope_mode": "single_repo",
+      "params_schema_version": 1,
+      "audit_class": "metadata",
+      "min_envelope": 1,
+      "deprecated": false
+    },
+    {
+      "method": "work.complete",
+      "required_capability": "write",
+      "repository_scope_mode": "single_repo",
+      "params_schema_version": 1,
+      "audit_class": "metadata",
+      "min_envelope": 1,
+      "deprecated": false
+    },
+    {
+      "method": "artifact.publish",
+      "required_capability": "write",
+      "repository_scope_mode": "single_repo",
+      "params_schema_version": 1,
+      "audit_class": "metadata",
+      "min_envelope": 1,
+      "deprecated": false
+    },
+    {
+      "method": "worktree.create",
+      "required_capability": "write",
+      "repository_scope_mode": "single_repo",
+      "params_schema_version": 1,
+      "audit_class": "metadata",
+      "min_envelope": 1,
+      "deprecated": false
+    },
+    {
+      "method": "worktree.release",
+      "required_capability": "write",
+      "repository_scope_mode": "single_repo",
+      "params_schema_version": 1,
+      "audit_class": "metadata",
+      "min_envelope": 1,
+      "deprecated": false
+    },
+    {
+      "method": "workflow.init",
+      "required_capability": "write",
+      "repository_scope_mode": "single_repo",
+      "params_schema_version": 1,
+      "audit_class": "metadata",
+      "min_envelope": 1,
+      "deprecated": false
+    },
+    {
+      "method": "workflow.generate",
+      "required_capability": "write",
+      "repository_scope_mode": "single_repo",
+      "params_schema_version": 1,
+      "audit_class": "metadata",
+      "min_envelope": 1,
+      "deprecated": false
+    },
+    {
+      "method": "workflow.upgrade",
+      "required_capability": "write",
+      "repository_scope_mode": "single_repo",
+      "params_schema_version": 1,
+      "audit_class": "metadata",
+      "min_envelope": 1,
+      "deprecated": false
+    },
+    {
+      "method": "dogfood.publish_on_behalf",
+      "required_capability": "write",
+      "repository_scope_mode": "single_repo",
+      "params_schema_version": 1,
+      "audit_class": "metadata",
+      "min_envelope": 1,
+      "deprecated": false
+    },
+    {
+      "method": "review.submit",
+      "required_capability": "review",
+      "repository_scope_mode": "single_repo",
+      "params_schema_version": 1,
+      "audit_class": "metadata",
+      "min_envelope": 1,
+      "deprecated": false
+    },
+    {
+      "method": "review.verdict",
+      "required_capability": "review",
+      "repository_scope_mode": "single_repo",
+      "params_schema_version": 1,
+      "audit_class": "metadata",
+      "min_envelope": 1,
+      "deprecated": false
+    },
+    {
+      "method": "review.override",
+      "required_capability": "admin",
+      "repository_scope_mode": "single_repo",
+      "params_schema_version": 1,
+      "audit_class": "metadata",
+      "min_envelope": 1,
+      "deprecated": false
+    },
+    {
+      "method": "decision.record",
+      "required_capability": "admin",
+      "repository_scope_mode": "single_repo",
+      "params_schema_version": 1,
+      "audit_class": "metadata",
+      "min_envelope": 1,
+      "deprecated": false
+    },
+    {
+      "method": "checkpoint.resolve",
+      "required_capability": "admin",
+      "repository_scope_mode": "single_repo",
+      "params_schema_version": 1,
+      "audit_class": "metadata",
+      "min_envelope": 1,
+      "deprecated": false
+    },
+    {
+      "method": "branch.confirm",
+      "required_capability": "admin",
+      "repository_scope_mode": "single_repo",
+      "params_schema_version": 1,
+      "audit_class": "metadata",
+      "min_envelope": 1,
+      "deprecated": false
+    },
+    {
+      "method": "run.prepare",
+      "required_capability": "admin",
+      "repository_scope_mode": "single_repo",
+      "params_schema_version": 1,
+      "audit_class": "metadata",
+      "min_envelope": 1,
+      "deprecated": false
+    },
+    {
+      "method": "run.start",
+      "required_capability": "admin",
+      "repository_scope_mode": "single_repo",
+      "params_schema_version": 1,
+      "audit_class": "metadata",
+      "min_envelope": 1,
+      "deprecated": false
+    },
+    {
+      "method": "run.pause",
+      "required_capability": "admin",
+      "repository_scope_mode": "single_repo",
+      "params_schema_version": 1,
+      "audit_class": "metadata",
+      "min_envelope": 1,
+      "deprecated": false
+    },
+    {
+      "method": "run.resume",
+      "required_capability": "admin",
+      "repository_scope_mode": "single_repo",
+      "params_schema_version": 1,
+      "audit_class": "metadata",
+      "min_envelope": 1,
+      "deprecated": false
+    },
+    {
+      "method": "run.cancel",
+      "required_capability": "admin",
+      "repository_scope_mode": "single_repo",
+      "params_schema_version": 1,
+      "audit_class": "metadata",
+      "min_envelope": 1,
+      "deprecated": false
+    },
+    {
+      "method": "run.retry_job",
+      "required_capability": "admin",
+      "repository_scope_mode": "single_repo",
+      "params_schema_version": 1,
+      "audit_class": "metadata",
+      "min_envelope": 1,
+      "deprecated": false
+    },
+    {
+      "method": "repo.init",
+      "required_capability": "admin",
+      "repository_scope_mode": "single_repo",
+      "params_schema_version": 1,
+      "audit_class": "metadata",
+      "min_envelope": 1,
+      "deprecated": false
+    },
+    {
+      "method": "recovery.stale_leases",
+      "required_capability": "recovery",
+      "repository_scope_mode": "single_repo",
+      "params_schema_version": 1,
+      "audit_class": "metadata",
+      "min_envelope": 1,
+      "deprecated": false
+    },
+    {
+      "method": "recovery.requeue_stale",
+      "required_capability": "recovery",
+      "repository_scope_mode": "single_repo",
+      "params_schema_version": 1,
+      "audit_class": "metadata",
+      "min_envelope": 1,
+      "deprecated": false
+    },
+    {
+      "method": "recovery.cancel_job",
+      "required_capability": "recovery",
+      "repository_scope_mode": "single_repo",
+      "params_schema_version": 1,
+      "audit_class": "metadata",
+      "min_envelope": 1,
+      "deprecated": false
+    },
+    {
+      "method": "recovery.process_reconcile",
+      "required_capability": "recovery",
+      "repository_scope_mode": "single_repo",
+      "params_schema_version": 1,
+      "audit_class": "metadata",
+      "min_envelope": 1,
+      "deprecated": false
+    },
+    {
+      "method": "recovery.resume",
+      "required_capability": "recovery",
+      "repository_scope_mode": "single_repo",
+      "params_schema_version": 1,
+      "audit_class": "metadata",
+      "min_envelope": 1,
+      "deprecated": false
+    },
+    {
+      "method": "recovery.auto",
+      "required_capability": "recovery",
+      "repository_scope_mode": "single_repo",
+      "params_schema_version": 1,
+      "audit_class": "metadata",
+      "min_envelope": 1,
+      "deprecated": false
+    },
+    {
+      "method": "recovery.auto_finalize",
+      "required_capability": "recovery",
+      "repository_scope_mode": "single_repo",
+      "params_schema_version": 1,
+      "audit_class": "metadata",
+      "min_envelope": 1,
+      "deprecated": false
+    },
+    {
+      "method": "recovery.auto_publish_stale_artifacts",
+      "required_capability": "recovery",
+      "repository_scope_mode": "single_repo",
+      "params_schema_version": 1,
+      "audit_class": "metadata",
+      "min_envelope": 1,
+      "deprecated": true
+    },
+    {
+      "method": "recovery.watch",
+      "required_capability": "recovery",
+      "repository_scope_mode": "single_repo",
+      "params_schema_version": 1,
+      "audit_class": "metadata",
+      "min_envelope": 1,
+      "deprecated": false
+    },
+    {
+      "method": "apply.reviewed_patch",
+      "required_capability": "apply",
+      "repository_scope_mode": "single_repo",
+      "params_schema_version": 1,
+      "audit_class": "metadata",
+      "min_envelope": 1,
+      "deprecated": false
+    },
+    {
+      "method": "apply.receipt.show",
+      "required_capability": "read",
+      "repository_scope_mode": "single_repo",
+      "params_schema_version": 1,
+      "audit_class": "metadata",
+      "min_envelope": 1,
+      "deprecated": false
+    },
+    {
+      "method": "apply.receipt.verify",
+      "required_capability": "read",
+      "repository_scope_mode": "single_repo",
+      "params_schema_version": 1,
+      "audit_class": "metadata",
+      "min_envelope": 1,
+      "deprecated": false
+    },
+    {
+      "method": "dogfood.surgical_recovery",
+      "required_capability": "surgical_recovery",
+      "repository_scope_mode": "single_repo",
+      "params_schema_version": 1,
+      "audit_class": "metadata",
+      "min_envelope": 1,
+      "deprecated": false
+    },
+    {
+      "method": "repo.add",
+      "required_capability": "admin",
+      "repository_scope_mode": "daemon_global",
+      "params_schema_version": 1,
+      "audit_class": "metadata",
+      "min_envelope": 1,
+      "deprecated": false
+    },
+    {
+      "method": "repo.remove",
+      "required_capability": "admin",
+      "repository_scope_mode": "daemon_global",
+      "params_schema_version": 1,
+      "audit_class": "metadata",
+      "min_envelope": 1,
+      "deprecated": false
+    },
+    {
+      "method": "daemon.token.create",
+      "required_capability": "admin",
+      "repository_scope_mode": "daemon_global",
+      "params_schema_version": 1,
+      "audit_class": "metadata",
+      "min_envelope": 1,
+      "deprecated": false
+    },
+    {
+      "method": "daemon.token.revoke",
+      "required_capability": "admin",
+      "repository_scope_mode": "daemon_global",
+      "params_schema_version": 1,
+      "audit_class": "metadata",
+      "min_envelope": 1,
+      "deprecated": false
+    },
+    {
+      "method": "daemon.token.rotate",
+      "required_capability": "admin",
+      "repository_scope_mode": "daemon_global",
+      "params_schema_version": 1,
+      "audit_class": "metadata",
+      "min_envelope": 1,
+      "deprecated": false
+    },
+    {
+      "method": "daemon.key.rotate",
+      "required_capability": "admin",
+      "repository_scope_mode": "daemon_global",
+      "params_schema_version": 1,
+      "audit_class": "metadata",
+      "min_envelope": 1,
+      "deprecated": false
+    },
+    {
+      "method": "daemon.shutdown",
+      "required_capability": "admin",
+      "repository_scope_mode": "daemon_global",
+      "params_schema_version": 1,
+      "audit_class": "metadata",
+      "min_envelope": 1,
+      "deprecated": false
+    },
+    {
+      "method": "daemon.migrate",
+      "required_capability": "admin",
+      "repository_scope_mode": "daemon_global",
+      "params_schema_version": 1,
+      "audit_class": "metadata",
+      "min_envelope": 1,
+      "deprecated": false
+    },
+    {
+      "method": "daemon.migrate_repo_local",
+      "required_capability": "admin",
+      "repository_scope_mode": "daemon_global",
+      "params_schema_version": 1,
+      "audit_class": "metadata",
+      "min_envelope": 1,
+      "deprecated": false
+    },
+    {
+      "method": "cross_repo.list",
+      "required_capability": "read",
+      "repository_scope_mode": "cross_repo",
+      "params_schema_version": 1,
+      "audit_class": "metadata",
+      "min_envelope": 1,
+      "deprecated": false
+    },
+    {
+      "method": "cross_repo.describe",
+      "required_capability": "read",
+      "repository_scope_mode": "cross_repo",
+      "params_schema_version": 1,
+      "audit_class": "metadata",
+      "min_envelope": 1,
+      "deprecated": false
+    },
+    {
+      "method": "cross_repo.why",
+      "required_capability": "read",
+      "repository_scope_mode": "cross_repo",
+      "params_schema_version": 1,
+      "audit_class": "metadata",
+      "min_envelope": 1,
+      "deprecated": false
+    },
+    {
+      "method": "cross_repo.cancel",
+      "required_capability": "recovery",
+      "repository_scope_mode": "cross_repo",
+      "params_schema_version": 1,
+      "audit_class": "metadata",
+      "min_envelope": 1,
+      "deprecated": false
+    },
+    {
+      "method": "ack",
+      "required_capability": "claim",
+      "repository_scope_mode": "single_repo",
+      "params_schema_version": 1,
+      "audit_class": "metadata",
+      "min_envelope": 1,
+      "deprecated": true
+    },
+    {
+      "method": "heartbeat",
+      "required_capability": "claim",
+      "repository_scope_mode": "single_repo",
+      "params_schema_version": 1,
+      "audit_class": "metadata",
+      "min_envelope": 1,
+      "deprecated": true
+    },
+    {
+      "method": "release",
+      "required_capability": "claim",
+      "repository_scope_mode": "single_repo",
+      "params_schema_version": 1,
+      "audit_class": "metadata",
+      "min_envelope": 1,
+      "deprecated": true
+    },
+    {
+      "method": "block",
+      "required_capability": "write",
+      "repository_scope_mode": "single_repo",
+      "params_schema_version": 1,
+      "audit_class": "metadata",
+      "min_envelope": 1,
+      "deprecated": true
+    },
+    {
+      "method": "complete",
+      "required_capability": "write",
+      "repository_scope_mode": "single_repo",
+      "params_schema_version": 1,
+      "audit_class": "metadata",
+      "min_envelope": 1,
+      "deprecated": true
+    },
+    {
+      "method": "publish_artifact",
+      "required_capability": "write",
+      "repository_scope_mode": "single_repo",
+      "params_schema_version": 1,
+      "audit_class": "metadata",
+      "min_envelope": 1,
+      "deprecated": true
+    },
+    {
+      "method": "claim_next",
+      "required_capability": "claim",
+      "repository_scope_mode": "single_repo",
+      "params_schema_version": 1,
+      "audit_class": "metadata",
+      "min_envelope": 1,
+      "deprecated": true
+    },
+    {
+      "method": "verdict",
+      "required_capability": "review",
+      "repository_scope_mode": "single_repo",
+      "params_schema_version": 1,
+      "audit_class": "metadata",
+      "min_envelope": 1,
+      "deprecated": true
+    },
+    {
+      "method": "submit_review",
+      "required_capability": "review",
+      "repository_scope_mode": "single_repo",
+      "params_schema_version": 1,
+      "audit_class": "metadata",
+      "min_envelope": 1,
+      "deprecated": true
+    }
+  ]
+}

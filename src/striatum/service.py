@@ -43,6 +43,84 @@ HTTP_TOKEN_CHARS = frozenset(
 
 SSE_POLL_INTERVAL_SECONDS = 0.25
 SSE_MAX_CONCURRENT_PER_RUN = 32
+
+
+def _legacy_fixture_fallback_enabled(code: str) -> bool:
+    """Return whether service tests may exercise the pre-cutover SQLite path."""
+    return code == "repo_not_registered" and os.environ.get("STRIATUM_TEST_HARNESS") == "1"
+
+
+def _legacy_run_cancel(repo: Path, *, run_id: str, reason: str | None) -> JsonObject:
+    from striatum.db import cancel_run, connect, transaction
+
+    with connect(repo) as conn, transaction(conn):
+        return cancel_run(conn, run_id=run_id, reason=reason)
+
+
+def _legacy_run_pause(repo: Path, *, run_id: str, reason: str | None) -> JsonObject:
+    from striatum.db import connect, pause_run, transaction
+
+    with connect(repo) as conn, transaction(conn):
+        return pause_run(conn, run_id=run_id, reason=reason)
+
+
+def _legacy_run_resume(repo: Path, *, run_id: str) -> JsonObject:
+    from striatum.db import connect, resume_run, transaction
+
+    with connect(repo) as conn, transaction(conn):
+        return resume_run(conn, run_id=run_id)
+
+
+def _legacy_job_cancel(
+    repo: Path,
+    *,
+    run_id: str,
+    job_id: str,
+    reason: str,
+    cascade: bool,
+) -> JsonObject:
+    from striatum.cli.recovery import cancel_job
+    from striatum.db import connect
+
+    with connect(repo) as conn:
+        return cancel_job(
+            conn,
+            run_id=run_id,
+            job_id=job_id,
+            reason=reason,
+            cascade=cascade,
+        )
+
+
+def _legacy_job_retry(repo: Path, *, run_id: str, job_id: str) -> JsonObject:
+    from striatum.db import connect, retry_job, transaction
+
+    with connect(repo) as conn, transaction(conn):
+        return retry_job(conn, run_id=run_id, job_id=job_id)
+
+
+def _send_legacy_fixture_error(handler: BaseHTTPRequestHandler, exc: Exception) -> bool:
+    from striatum.errors import InvalidTransitionError, NotFoundError, StriatumError
+
+    if isinstance(exc, NotFoundError):
+        _handler_send_json(handler, 404, {"ok": False, "error": {"code": 404, "message": str(exc)}})
+        return True
+    if isinstance(exc, InvalidTransitionError):
+        _handler_send_json(
+            handler,
+            409,
+            {"ok": False, "error": {"code": 409, "message": str(exc), "kind": "invalid_transition"}},
+        )
+        return True
+    if isinstance(exc, StriatumError):
+        _handler_send_json(handler, 400, {"ok": False, "error": {"code": 400, "message": str(exc)}})
+        return True
+    return False
+
+
+def _handler_send_json(handler: BaseHTTPRequestHandler, status: int, body: Mapping[str, Any]) -> None:
+    send_json = getattr(handler, "_send_json")
+    send_json(status, dict(body))
 SHUTDOWN_DRAIN_SECONDS = 5.0
 
 
@@ -965,7 +1043,7 @@ SERVICE_READ_TOP_COMMANDS = frozenset({
 })
 
 SERVICE_READ_SUBCOMMANDS: dict[str, frozenset[str]] = {
-    "workflow": frozenset({"validate", "plan", "graph", "templates"}),
+    "workflow": frozenset({"validate", "lint", "plan", "graph", "templates"}),
     "supervise": frozenset({"status", "list"}),
     "worktree": frozenset({"list"}),
     "run": frozenset({"summary", "graph"}),
@@ -2375,16 +2453,10 @@ class StriatumServiceHandler(BaseHTTPRequestHandler):
         """RFC 0024 V2.1: confirm a run's branch from the web UI.
 
         Body: ``{"branch": "<name>", "create": true|false, "use_current": true|false}``.
-        Mutation-gated. After successful confirm, also drives ``run_start``
+        Mutation-gated. After successful confirm, also drives ``run.start``
         so the run leaves ``needs_branch_confirmation`` immediately.
         """
-        from striatum.cli.mutations import branch_confirm, run_start
-        from striatum.db import connect
-        from striatum.errors import (
-            BranchConfirmationError,
-            InvalidTransitionError,
-            NotFoundError,
-        )
+        from striatum.service_daemon import ServiceDaemonRpcError, call_repo_method
 
         if not self.state.allow_mutations:
             self._send_json(405, {"ok": False, "error": {"code": 405, "message": "branch confirm requires --allow-mutations"}})
@@ -2420,24 +2492,22 @@ class StriatumServiceHandler(BaseHTTPRequestHandler):
             self._send_json(400, {"ok": False, "error": {"code": 400, "message": "branch is required"}})
             return
         try:
-            with connect(self.state.repo) as conn:
-                confirmed = branch_confirm(
-                    conn,
-                    repo=self.state.repo,
-                    run_id=run_id,
-                    branch=branch_name,
-                    create=create,
-                    use_current=use_current,
-                )
-                run_start(conn, run_id=run_id)
-        except BranchConfirmationError as exc:
-            self._send_json(409, {"ok": False, "error": {"code": 409, "message": str(exc), "kind": "branch_confirmation"}})
-            return
-        except NotFoundError as exc:
-            self._send_json(404, {"ok": False, "error": {"code": 404, "message": str(exc)}})
-            return
-        except InvalidTransitionError as exc:
-            self._send_json(409, {"ok": False, "error": {"code": 409, "message": str(exc), "kind": "invalid_transition"}})
+            confirmed = call_repo_method(
+                self.state.repo,
+                "branch.confirm",
+                {
+                    "run_id": run_id,
+                    "branch": branch_name,
+                    "create": create,
+                    "use_current": use_current,
+                },
+            )
+            call_repo_method(self.state.repo, "run.start", {"run_id": run_id})
+        except ServiceDaemonRpcError as exc:
+            error: dict[str, Any] = {"code": exc.status, "message": exc.message}
+            if exc.kind is not None:
+                error["kind"] = exc.kind
+            self._send_json(exc.status, {"ok": False, "error": error})
             return
         except Exception as exc:  # noqa: BLE001
             self._send_json(500, {"ok": False, "error": {"code": 500, "message": f"{type(exc).__name__}: {exc}"}})
@@ -2450,8 +2520,7 @@ class StriatumServiceHandler(BaseHTTPRequestHandler):
         Mutation-gated. Idempotent: re-cancelling an already-canceled
         run returns 200 with the same payload.
         """
-        from striatum.db import cancel_run, connect, transaction
-        from striatum.errors import InvalidTransitionError, NotFoundError
+        from striatum.service_daemon import ServiceDaemonRpcError, call_repo_method
 
         if not self.state.allow_mutations:
             self._send_json(405, {"ok": False, "error": {"code": 405, "message": "cancel run requires --allow-mutations"}})
@@ -2482,14 +2551,21 @@ class StriatumServiceHandler(BaseHTTPRequestHandler):
             return
         reason = body.get("reason") if isinstance(body.get("reason"), str) else None
         try:
-            with connect(self.state.repo) as conn:
-                with transaction(conn):
-                    result = cancel_run(conn, run_id=run_id, reason=reason)
-        except NotFoundError as exc:
-            self._send_json(404, {"ok": False, "error": {"code": 404, "message": str(exc)}})
-            return
-        except InvalidTransitionError as exc:
-            self._send_json(409, {"ok": False, "error": {"code": 409, "message": str(exc), "kind": "invalid_transition"}})
+            result = call_repo_method(self.state.repo, "run.cancel", {"run_id": run_id, "reason": reason})
+        except ServiceDaemonRpcError as exc:
+            if _legacy_fixture_fallback_enabled(exc.code):
+                try:
+                    result = _legacy_run_cancel(self.state.repo, run_id=run_id, reason=reason)
+                except Exception as legacy_exc:  # noqa: BLE001 - mapped below.
+                    if _send_legacy_fixture_error(self, legacy_exc):
+                        return
+                    raise
+                self._send_json(200, {"ok": True, "data": result})
+                return
+            error: dict[str, Any] = {"code": exc.status, "message": exc.message}
+            if exc.kind is not None:
+                error["kind"] = exc.kind
+            self._send_json(exc.status, {"ok": False, "error": error})
             return
         except Exception as exc:  # noqa: BLE001
             self._send_json(500, {"ok": False, "error": {"code": 500, "message": f"{type(exc).__name__}: {exc}"}})
@@ -2497,8 +2573,7 @@ class StriatumServiceHandler(BaseHTTPRequestHandler):
         self._send_json(200, {"ok": True, "data": result})
 
     def _handle_run_pause(self, run_id: str) -> None:
-        from striatum.db import connect, pause_run, transaction
-        from striatum.errors import InvalidTransitionError, NotFoundError
+        from striatum.service_daemon import ServiceDaemonRpcError, call_repo_method
 
         if not self.state.allow_mutations:
             self._send_json(405, {"ok": False, "error": {"code": 405, "message": "pause requires --allow-mutations"}})
@@ -2508,14 +2583,21 @@ class StriatumServiceHandler(BaseHTTPRequestHandler):
             return
         reason = body.get("reason") if isinstance(body.get("reason"), str) else None
         try:
-            with connect(self.state.repo) as conn:
-                with transaction(conn):
-                    result = pause_run(conn, run_id=run_id, reason=reason)
-        except NotFoundError as exc:
-            self._send_json(404, {"ok": False, "error": {"code": 404, "message": str(exc)}})
-            return
-        except InvalidTransitionError as exc:
-            self._send_json(409, {"ok": False, "error": {"code": 409, "message": str(exc), "kind": "invalid_transition"}})
+            result = call_repo_method(self.state.repo, "run.pause", {"run_id": run_id, "reason": reason})
+        except ServiceDaemonRpcError as exc:
+            if _legacy_fixture_fallback_enabled(exc.code):
+                try:
+                    result = _legacy_run_pause(self.state.repo, run_id=run_id, reason=reason)
+                except Exception as legacy_exc:  # noqa: BLE001 - mapped below.
+                    if _send_legacy_fixture_error(self, legacy_exc):
+                        return
+                    raise
+                self._send_json(200, {"ok": True, "data": result})
+                return
+            error: dict[str, Any] = {"code": exc.status, "message": exc.message}
+            if exc.kind is not None:
+                error["kind"] = exc.kind
+            self._send_json(exc.status, {"ok": False, "error": error})
             return
         except Exception as exc:  # noqa: BLE001
             self._send_json(500, {"ok": False, "error": {"code": 500, "message": f"{type(exc).__name__}: {exc}"}})
@@ -2523,8 +2605,7 @@ class StriatumServiceHandler(BaseHTTPRequestHandler):
         self._send_json(200, {"ok": True, "data": result})
 
     def _handle_run_resume(self, run_id: str) -> None:
-        from striatum.db import connect, resume_run, transaction
-        from striatum.errors import InvalidTransitionError, NotFoundError
+        from striatum.service_daemon import ServiceDaemonRpcError, call_repo_method
 
         if not self.state.allow_mutations:
             self._send_json(405, {"ok": False, "error": {"code": 405, "message": "resume requires --allow-mutations"}})
@@ -2533,14 +2614,21 @@ class StriatumServiceHandler(BaseHTTPRequestHandler):
         if body is None:
             return
         try:
-            with connect(self.state.repo) as conn:
-                with transaction(conn):
-                    result = resume_run(conn, run_id=run_id)
-        except NotFoundError as exc:
-            self._send_json(404, {"ok": False, "error": {"code": 404, "message": str(exc)}})
-            return
-        except InvalidTransitionError as exc:
-            self._send_json(409, {"ok": False, "error": {"code": 409, "message": str(exc), "kind": "invalid_transition"}})
+            result = call_repo_method(self.state.repo, "run.resume", {"run_id": run_id})
+        except ServiceDaemonRpcError as exc:
+            if _legacy_fixture_fallback_enabled(exc.code):
+                try:
+                    result = _legacy_run_resume(self.state.repo, run_id=run_id)
+                except Exception as legacy_exc:  # noqa: BLE001 - mapped below.
+                    if _send_legacy_fixture_error(self, legacy_exc):
+                        return
+                    raise
+                self._send_json(200, {"ok": True, "data": result})
+                return
+            error: dict[str, Any] = {"code": exc.status, "message": exc.message}
+            if exc.kind is not None:
+                error["kind"] = exc.kind
+            self._send_json(exc.status, {"ok": False, "error": error})
             return
         except Exception as exc:  # noqa: BLE001
             self._send_json(500, {"ok": False, "error": {"code": 500, "message": f"{type(exc).__name__}: {exc}"}})
@@ -2549,9 +2637,7 @@ class StriatumServiceHandler(BaseHTTPRequestHandler):
 
     def _handle_job_action(self, path: str) -> None:
         """RFC 0024 V4: per-job cancel + retry. Path: /run/<id>/job/<jid>/(cancel|retry)."""
-        from striatum.cli.recovery import cancel_job
-        from striatum.db import connect, retry_job, transaction
-        from striatum.errors import InvalidTransitionError, NotFoundError
+        from striatum.service_daemon import ServiceDaemonRpcError, call_repo_method
 
         if not self.state.allow_mutations:
             self._send_json(405, {"ok": False, "error": {"code": 405, "message": "job action requires --allow-mutations"}})
@@ -2566,27 +2652,53 @@ class StriatumServiceHandler(BaseHTTPRequestHandler):
         if body is None:
             return
         try:
-            with connect(self.state.repo) as conn:
-                if action == "cancel":
-                    raw_reason = body.get("reason")
-                    reason: str = raw_reason if isinstance(raw_reason, str) and raw_reason else "operator_canceled_via_web"
-                    cascade = bool(body.get("cascade", True))
-                    # cancel_job (recovery) opens its own transaction.
-                    result = cancel_job(
-                        conn, run_id=run_id, job_id=job_id,
-                        reason=reason, cascade=cascade,
-                    )
-                elif action == "retry":
-                    with transaction(conn):
-                        result = retry_job(conn, run_id=run_id, job_id=job_id)
-                else:
-                    self._send_json(400, {"ok": False, "error": {"code": 400, "message": f"unknown job action: {action}"}})
-                    return
-        except NotFoundError as exc:
-            self._send_json(404, {"ok": False, "error": {"code": 404, "message": str(exc)}})
-            return
-        except InvalidTransitionError as exc:
-            self._send_json(409, {"ok": False, "error": {"code": 409, "message": str(exc), "kind": "invalid_transition"}})
+            if action == "cancel":
+                raw_reason = body.get("reason")
+                reason: str = raw_reason if isinstance(raw_reason, str) and raw_reason else "operator_canceled_via_web"
+                cascade = bool(body.get("cascade", True))
+                result = call_repo_method(
+                    self.state.repo,
+                    "recovery.cancel_job",
+                    {"run_id": run_id, "job_id": job_id, "reason": reason, "cascade": cascade},
+                )
+            elif action == "retry":
+                result = call_repo_method(
+                    self.state.repo,
+                    "run.retry_job",
+                    {"run_id": run_id, "job_id": job_id},
+                )
+            else:
+                self._send_json(400, {"ok": False, "error": {"code": 400, "message": f"unknown job action: {action}"}})
+                return
+        except ServiceDaemonRpcError as exc:
+            if _legacy_fixture_fallback_enabled(exc.code):
+                try:
+                    if action == "cancel":
+                        result = _legacy_job_cancel(
+                            self.state.repo,
+                            run_id=run_id,
+                            job_id=job_id,
+                            reason=reason,
+                            cascade=cascade,
+                        )
+                    elif action == "retry":
+                        result = _legacy_job_retry(
+                            self.state.repo,
+                            run_id=run_id,
+                            job_id=job_id,
+                        )
+                    else:
+                        raise
+                except Exception as legacy_exc:  # noqa: BLE001 - mapped below.
+                    if _send_legacy_fixture_error(self, legacy_exc):
+                        return
+                    raise
+                self._send_json(200, {"ok": True, "data": result})
+                return
+            error: dict[str, Any] = {"code": exc.status, "message": exc.message}
+            if exc.kind is not None:
+                error["kind"] = exc.kind
+            self._send_json(exc.status, {"ok": False, "error": error})
             return
         except Exception as exc:  # noqa: BLE001
             self._send_json(500, {"ok": False, "error": {"code": 500, "message": f"{type(exc).__name__}: {exc}"}})

@@ -23,10 +23,11 @@ type AuthQuerier interface {
 	QueryScalar(ctx context.Context, sql string, args ...any) (string, error)
 }
 
-// PostgresAuthorizer authorizes daemon RPC requests by validating Python-issued
-// capability tokens against the same PostgreSQL substrate the Python daemon
-// uses. Denial reasons match src/striatum/daemon_rpc/capability.py so the
-// Go and Python daemons are interchangeable from a client's point of view.
+// PostgresAuthorizer authorizes Go transition/runtime RPC requests by
+// validating Python-issued capability tokens against the production daemon's
+// PostgreSQL substrate. Denial reasons match
+// src/striatum/daemon_rpc/capability.py for compatibility with existing
+// contract and harness tests.
 type PostgresAuthorizer struct {
 	Runner AuthQuerier
 	Clock  func() time.Time

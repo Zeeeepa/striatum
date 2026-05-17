@@ -9,7 +9,7 @@ CORE ?= python
 # when invoked from a Claude Code worktree (or any other cwd).
 MAKEFILE_DIR := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
 
-.PHONY: install lint typecheck pg-test test-multi-repo metadata-check package-smoke smoke check release-check ui-install ui-update-lock ui-audit ui-build ui-dev ui-test ui-bundle-hash ui-check-bundle ui-verify-bundle daemon-go-build daemon-go-test daemon-go-lint daemon-go-install daemon-go-release
+.PHONY: install lint typecheck pg-test test-multi-repo metadata-check package-smoke smoke check release-check ui-install ui-update-lock ui-audit ui-clean ui-build ui-dev ui-test ui-bundle-hash ui-bundle-size ui-check-bundle ui-verify-bundle daemon-go-build daemon-go-test daemon-go-lint daemon-go-install daemon-go-release
 
 $(PYTHON):
 	python3 -m venv $(VENV)
@@ -39,7 +39,11 @@ ui-update-lock:
 ui-audit:
 	npm audit --prefix "$(MAKEFILE_DIR)/src/striatum/web/frontend" --audit-level=high
 
-ui-build:
+ui-clean:
+	rm -rf "$(MAKEFILE_DIR)/src/striatum/web/static/build"
+	mkdir -p "$(MAKEFILE_DIR)/src/striatum/web/static/build"
+
+ui-build: ui-clean
 	npm run build --prefix "$(MAKEFILE_DIR)/src/striatum/web/frontend"
 	$(MAKE) ui-bundle-hash
 
@@ -64,7 +68,11 @@ ui-verify-bundle:
 	[bad.append(f"{n} below {MIN_BYTES} bytes ({(root/n).stat().st_size} B)") for n in entries if (root/n).is_file() and (root/n).stat().st_size < MIN_BYTES and not any(p.stat().st_size >= MIN_BYTES for p in root.glob("island-shared-*.js"))]; \
 	sys.exit("ui-verify-bundle: " + "; ".join(bad)) if bad else print("ui-verify-bundle: ok")'
 
-ui-check-bundle: ui-build ui-verify-bundle
+ui-bundle-size:
+	python3 "$(MAKEFILE_DIR)/scripts/check_ui_bundle_size.py" \
+	  --root "$(MAKEFILE_DIR)/src/striatum/web/static/build"
+
+ui-check-bundle: ui-build ui-verify-bundle ui-bundle-size
 	git -C "$(MAKEFILE_DIR)" diff --exit-code -- src/striatum/web/static/build
 
 daemon-go-build:

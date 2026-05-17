@@ -75,36 +75,41 @@ isn't doing its job — that's harness friction worth filing.
 # 1. Install.
 pip install striatum-orchestrator
 
-# 2. Bring up the daemon. doctor verifies the Postgres role +
-#    audit-log append-only invariants. --apply-migrations is safe
-#    on a fresh DB.
-striatum daemon doctor --apply-migrations
-
-# 3. Start the daemon (systemd user unit if you have one, or just
-#    `striatum daemon start` for a foreground process).
-systemctl --user start striatumd.service   # if you set up the unit
-#    OR
-striatum daemon start --json &
-
-# 4. Register a target repo and install the agent skill bundle.
-TARGET_REPO=/path/to/your/repo
-striatum --repo "$TARGET_REPO" init \
-  --with-skills claude_code \
-  --with-ddd-layout \
+# 2. Verify and repair the local Postgres role/grants.
+striatum daemon doctor \
+  --apply-migrations \
+  --provision-rw-role \
+  --repair-grants \
   --json
+
+# 3. Install/start a user service, or use foreground daemon start.
+striatum daemon service install --manager auto --json
+striatum daemon service start --manager auto --json
+# OR: striatum daemon start --json &
+
+# 4. Adopt a target repo: init scratch, install skills/plugins,
+#    scaffold DDD docs, and migrate/register the repo in Postgres.
+TARGET_REPO=/path/to/your/repo
+striatum --repo "$TARGET_REPO" adopt --profile claude_code --json
+
+# 5. Smoke-test the first-run path end to end.
+striatum --repo "$TARGET_REPO" doctor --first-run --json
 ```
 
-What `init --with-skills --with-ddd-layout` does:
+What `adopt` does:
 
 - Creates `.striatum/` next to the target repo (runtime scratch).
 - Writes the operator skill bundle to
   `.claude/skills/striatum-*/` (or `~/.codex/skills/` for codex,
   etc.).
+- Writes the agent-CLI plugin bundle for the selected profile when one
+  exists.
 - Scaffolds the seven canonical DDD docs under `docs/` (per
   RFC 0021) — `SPEC.md`, `PRD.md`, `DECISION_LOG.md`,
   `UBIQUITOUS_LANGUAGE.md`, `DDD.md`, `rfcs/README.md`,
   `rfcs/0001-template.md`. Existing files are preserved.
-- Registers the repo with the daemon in Postgres.
+- Migrates/registers the repo with the daemon-owned Postgres substrate
+  and reports a suggested starter workflow path.
 
 If the target repo follows the recommended layout in
 [`CONSUMER_REPO_LAYOUT.md`](CONSUMER_REPO_LAYOUT.md), your

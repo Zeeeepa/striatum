@@ -5,9 +5,8 @@ Asserts:
 - Every mutation exposed by ``src/striatum/cli/mutations.py`` has a
   registered method in the daemon RPC registry under the RFC 0043
   dotted vocabulary.
-- Every registered method routes to a CLI verb via
-  :data:`striatum.daemon_rpc.server.CLI_ROUTES` (excepting the
-  daemon-only families that the server handles inline).
+- Every registered production method routes through a native PG handler
+  or a deliberately inline daemon path.
 - The capabilities required for each method match the RFC 0043 §5 table.
 - Legacy undotted method names remain in the registry but are flagged
   ``deprecated`` so clients migrate.
@@ -37,7 +36,7 @@ from striatum.cli.supervise import (
 )
 from striatum.cli.worktree import worktree_create, worktree_list, worktree_release
 from striatum.daemon_rpc.registry import CAPABILITIES, METHOD_REGISTRY
-from striatum.daemon_rpc.server import CLI_ROUTES
+from striatum.daemon_rpc.server import LOCAL_FILE_AUTHORING_METHODS
 
 # Function-name → RFC 0043 §5 method name. The mapping is explicit so a
 # new mutation must declare its intended method when added.
@@ -143,7 +142,7 @@ EXPECTED_CAPABILITY: dict[str, str] = {
     "daemon.migrate_repo_local": "admin",
 }
 
-# Methods that the server handles inline (no CLI_ROUTES entry needed).
+# Methods that the server handles inline (no PG handler needed).
 SERVER_INLINE_METHODS: frozenset[str] = frozenset(
     {
         "daemon.hello",
@@ -205,17 +204,32 @@ def test_required_capabilities_match_rfc0043_section_5() -> None:
     assert not mismatches, "RFC 0043 §5 capability mismatches: " + "; ".join(mismatches)
 
 
-def test_every_canonical_method_routes_via_cli_or_server_inline() -> None:
+def _pg_handlers() -> set[str]:
+    import striatum.daemon_pg.handlers  # noqa: F401 - registers decorators.
+    from striatum.daemon_pg.handlers.registry import resolve_pg_handler
+
+    return {
+        method
+        for method in METHOD_REGISTRY
+        if resolve_pg_handler(method) is not None
+    }
+
+
+def test_every_canonical_method_routes_via_pg_or_server_inline() -> None:
+    pg_handlers = _pg_handlers()
     unrouted: list[str] = []
     for method, entry in METHOD_REGISTRY.items():
         if entry.deprecated:
             continue
         if method in SERVER_INLINE_METHODS:
             continue
-        if method not in CLI_ROUTES:
-            unrouted.append(method)
+        if method in LOCAL_FILE_AUTHORING_METHODS:
+            continue
+        if method in pg_handlers:
+            continue
+        unrouted.append(method)
     assert not unrouted, (
-        "method registered but has no CLI route or inline handler: "
+        "method registered but has no PG handler or inline handler: "
         + ", ".join(unrouted)
     )
 

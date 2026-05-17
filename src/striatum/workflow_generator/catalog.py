@@ -7,7 +7,7 @@ from functools import lru_cache
 from importlib.resources import files
 from typing import Any
 
-from striatum.db import JsonObject
+from striatum.primitives import JsonObject
 from striatum.workflow import HARNESS_PROFILE_TOOL_FAMILIES
 from striatum.workflow_generator.core import GeneratorError
 

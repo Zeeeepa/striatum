@@ -10,7 +10,7 @@ from striatum import __version__
 from striatum.daemon_pg.audit import v2_row_hash
 from striatum.daemon_rpc.capability import RpcAuthContext
 from striatum.daemon_rpc.envelope import SUPPORTED_ENVELOPE_VERSION, RpcError
-from striatum.db import json_dumps
+from striatum.primitives import json_dumps
 
 DEFAULT_RETENTION_DAYS = 7
 

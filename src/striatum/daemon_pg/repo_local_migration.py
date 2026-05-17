@@ -16,11 +16,12 @@ from pathlib import Path
 from typing import Any, Iterator
 
 from striatum import daemon as daemon_registry
-from striatum.db import db_path, json_dumps, utc_now
 from striatum.daemon_pg.connection import connect
 from striatum.daemon_pg.migrations import apply_migrations
 from striatum.errors import SchemaVersionError, StriatumError
 from striatum.migrations import LATEST_VERSION, current_user_version
+from striatum.primitives import json_dumps, utc_now
+from striatum.repo_policy import db_path
 
 
 class MigrationInProgressError(StriatumError):

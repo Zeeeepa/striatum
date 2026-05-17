@@ -28,7 +28,7 @@ from typing import Any, BinaryIO, TextIO, cast
 from urllib.parse import parse_qs, urlparse
 
 from striatum.api import invoke
-from striatum.db import JsonObject, json_dumps
+from striatum.primitives import JsonObject, json_dumps
 
 JsonRpcId = str | int | None
 FramingMode = str  # "auto" | "framed" | "line"
@@ -527,6 +527,7 @@ class DaemonRpcServer:
             return []
         from striatum.daemon_rpc.capability import authorize
         from striatum.daemon_rpc.registry import METHOD_REGISTRY
+        from striatum.daemon_rpc.server import LOCAL_FILE_AUTHORING_METHODS
 
         token_value = params.get("token")
         if token_value is not None and not isinstance(token_value, str):
@@ -535,6 +536,10 @@ class DaemonRpcServer:
         tools: list[JsonObject] = []
         for entry in sorted(METHOD_REGISTRY.values(), key=lambda item: item.method):
             if entry.required_capability is None or entry.method.startswith("daemon."):
+                continue
+            if entry.deprecated:
+                continue
+            if entry.method in LOCAL_FILE_AUTHORING_METHODS:
                 continue
             auth = authorize(
                 self.pg_conn,

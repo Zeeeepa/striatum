@@ -38,6 +38,7 @@ ENV_TEST_HARNESS = "STRIATUM_TEST_HARNESS"
 # bootstrap path; ``skills`` and ``plugin`` touch installer files only.
 DAEMON_OPTIONAL_COMMANDS: frozenset[str] = frozenset(
     {
+        "adopt",
         "daemon",
         "init",
         "skills",
@@ -195,13 +196,15 @@ def repo_is_migrated(repo_path: Path) -> bool:
     return False
 
 
-def enforce_daemon_required(command: str | None, repo: Path) -> None:
+def enforce_daemon_required(command: str | None, repo: Path, *, first_run: bool = False) -> None:
     """Raise the RFC 0043 §3 refusals when enforcement is enabled.
 
     The dispatcher calls this before the SQLite/in-process fallback so
     the operator sees codes 11/12 immediately instead of the legacy
     ``state.sqlite3 not found`` failure mode.
     """
+    if command == "doctor" and first_run:
+        return
     requirement = resolve_requirement(command)
     if requirement is None:
         return

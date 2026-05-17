@@ -30,7 +30,10 @@ Two related changes shape the current product:
 3. **RFC 0048 (V1.49.0 → V1.55.0)** finished the substrate port on
    the daemon side: every mutation, recovery, and read handler now
    has a native PG handler in `src/striatum/daemon_pg/handlers/`
-   and a Go-core counterpart in `go/pkg/{reads,mutations}/`. The
+   owned by the Python production daemon core. The Go tree keeps
+   helper/runtime and developer-harness counterparts for selected
+   paths, but it is not a peer production daemon core and is not
+   planned to displace Python. The
    CLI dispatch routes mapped verbs through the daemon's Unix
    socket; mapped methods fail closed instead of falling back to
    SQLite when the daemon is unreachable. **Schema v6**
@@ -96,9 +99,22 @@ Connect the daemon as `striatumd_rw` rather than the database owner.
 The next section ("Configure the daemon DB connection") shows the three
 surfaces for that connection string.
 
-A future `daemon doctor --provision-rw-role` (RFC 0048 V1.5 follow-up)
-will automate this step; until then it is a one-time manual operator
-action per Postgres install.
+`daemon doctor` can now apply the common local repair path directly:
+
+```bash
+striatum daemon doctor \
+  --postgres-url "$STRIATUM_DAEMON_DB_URL" \
+  --apply-migrations \
+  --provision-rw-role \
+  --repair-grants \
+  --json
+```
+
+If the current database role cannot create roles or grant privileges,
+the JSON output includes `repair_sql` / `manual_sql` with the statements
+to run from an admin `psql` session. Connect the daemon as
+`striatumd_rw` after provisioning; running as the database owner still
+fails the append-only privilege check.
 
 ## Configure the daemon DB connection
 
@@ -138,8 +154,28 @@ the daemon.
 ## Start the daemon
 
 ```bash
-striatum daemon start --json &
+striatum daemon service install --manager auto --json
+striatum daemon service start --manager auto --json
 ```
+
+For foreground debugging, use `striatum daemon start --json`.
+
+## Dev-local Postgres profile
+
+Production-local setup uses your system PostgreSQL service plus the
+dedicated runtime role above. For disposable contributor smoke tests,
+the repo also includes `examples/dev-postgres/docker-compose.yml`:
+
+```bash
+cd examples/dev-postgres
+docker compose up -d
+export STRIATUM_DAEMON_DB_URL=postgresql://striatum_admin:striatum_dev_password@127.0.0.1:5432/striatum_daemon
+striatum daemon doctor --apply-migrations --provision-rw-role --repair-grants --json
+```
+
+Do not treat the compose profile as the production path; it exists only
+to make local development reproducible without editing a system
+PostgreSQL cluster.
 
 `striatum daemon start` (also exposed as the `striatumd` console
 script) is the supported foreground entry point. The startup
@@ -160,14 +196,14 @@ touch no state.
 ## Register the target repo
 
 ```bash
-striatum repo add /path/to/target --json
+striatum --repo /path/to/target adopt --profile claude_code --json
 ```
 
-`repo add` canonicalizes the repository root, derives a
-realpath/inode-based identity, and refuses symlink or
-path-traversal ambiguity. `--init` is required when no `.striatum/`
-exists. `--no-migrate` refuses registration when repo-local
-migrations would be needed.
+`adopt` initializes `.striatum/` scratch when needed, installs local
+agent assets, scaffolds DDD docs, migrates/registers the repo into
+daemon PostgreSQL, and reports a suggested workflow path. The lower
+level `daemon migrate-repo-local --from sqlite --to pg --repo <path>`
+remains available for scripted cutovers.
 
 The first `repo add` (or `daemon start`) bootstraps a single admin
 token and writes a `0600` runtime fallback file under the
@@ -306,10 +342,12 @@ remaining substrate-port work on the daemon side:
   `src/striatum/daemon_pg/handlers/{workflow_loop,recovery_evidence}/`.
   `DaemonRpcRouter._route` resolves the PG handler before falling
   through to the legacy SQLite dispatch.
-- **Phase B (v1.50.0–v1.54.0 + follow-up)** — Go-core parity: 12
-  read handlers (`go/pkg/reads/`) and the mutation surface
-  (`go/pkg/mutations/`) registered on the Go daemon before the
-  not-implemented stub loop.
+- **Phase B (v1.50.0–v1.54.0 + follow-up)** — Go helper/runtime
+  fixtures: 12 read handlers (`go/pkg/reads/`) and selected mutation
+  plumbing (`go/pkg/mutations/`) were implemented as developer-harness
+  counterparts. After the Phase 3 architecture decision, this work is
+  retained as support code and compatibility evidence, not as a path to
+  a peer production daemon core.
 - **Phase C (v1.51.0–v1.52.0)** — CLI dispatch routes ~30 verbs
   through the Unix-socket daemon RPC; the daemon bootstraps an
   admin client into `striatumd.clients` (Postgres) and writes its

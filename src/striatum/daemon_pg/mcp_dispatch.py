@@ -10,7 +10,7 @@ from striatum.daemon_rpc.envelope import SUPPORTED_ENVELOPE_VERSION, RpcEnvelope
 from striatum.daemon_rpc.registry import METHOD_REGISTRY
 from striatum.daemon_rpc import request_log
 from striatum.daemon_rpc.server import DaemonRpcRouter
-from striatum.db import JsonObject
+from striatum.primitives import JsonObject
 
 
 def dispatch_mcp_tool_call(

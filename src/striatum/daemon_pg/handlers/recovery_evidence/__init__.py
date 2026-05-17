@@ -16,12 +16,13 @@ Method → module index:
     recovery.process_reconcile → process_reconcile.handle
     recovery.resume         → resume_blocker.handle
     recovery.auto           → auto_publish_stale_artifacts.handle
+    recovery.auto_finalize  → auto_finalize.handle
     evidence.export         → evidence_export.handle
+    recovery.watch          → watch.handle (fail closed)
 
 Naming-mismatch follow-up (REVIEW.md L117-119, finding #1):
 ``recovery.auto_publish_stale_artifacts`` was the synthesis section title
-but the registered RPC method in ``CLI_ROUTES`` (server.py:83) is
-``recovery.auto``. Track B's module file is named
+but the canonical daemon RPC method is ``recovery.auto``. Track B's module file is named
 ``auto_publish_stale_artifacts.py`` to match the synthesis title for
 grep-ability, but the ``@register_pg_handler`` argument uses
 ``"recovery.auto"`` so registry lookups succeed.
@@ -29,6 +30,7 @@ grep-ability, but the ``@register_pg_handler`` argument uses
 
 from __future__ import annotations
 
+from . import auto_finalize  # noqa: F401
 from . import auto_publish_stale_artifacts  # noqa: F401  (decorator side-effect)
 from . import cancel_job  # noqa: F401
 from . import evidence_export  # noqa: F401
@@ -36,8 +38,10 @@ from . import process_reconcile  # noqa: F401
 from . import requeue_stale  # noqa: F401
 from . import resume_blocker  # noqa: F401
 from . import stale_leases  # noqa: F401
+from . import watch  # noqa: F401
 
 __all__ = [
+    "auto_finalize",
     "auto_publish_stale_artifacts",
     "cancel_job",
     "evidence_export",
@@ -45,4 +49,5 @@ __all__ = [
     "requeue_stale",
     "resume_blocker",
     "stale_leases",
+    "watch",
 ]

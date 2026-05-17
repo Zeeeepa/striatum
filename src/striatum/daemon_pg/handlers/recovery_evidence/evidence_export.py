@@ -22,8 +22,8 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from striatum.cli.evidence import redact_evidence_payload, render_evidence_markdown
-from striatum.db import repo_relative_path
 from striatum.errors import NotFoundError
+from striatum.repo_policy import repo_relative_path
 
 from ._shim import RepoHandlerContext, register_pg_handler
 from ._sql import fetch_all, parse_json, row_by_id, utc_now
@@ -273,8 +273,31 @@ def _evidence_artifact_summaries(
         sql=(
             "SELECT a.artifact_id, a.job_id, a.session_id, a.logical_name, "
             "       a.artifact_kind, a.repo_path, a.content_sha256, "
-            "       a.author_line "
+            "       a.author_line, "
+            "       CASE "
+            "         WHEN auto_event.event_id IS NOT NULL THEN 'auto_from_artifact' "
+            "         WHEN override_event.event_id IS NOT NULL THEN 'operator_override_no_process_execution' "
+            "         ELSE 'explicit_publish' "
+            "       END AS publish_origin "
             "FROM striatumd.artifacts a "
+            "LEFT JOIN LATERAL ("
+            "  SELECT e.event_id "
+            "  FROM striatumd.events e "
+            "  WHERE e.repository_id = a.repository_id "
+            "    AND e.artifact_id = a.artifact_id "
+            "    AND e.event_type = 'artifact.auto_finalized' "
+            "  ORDER BY e.event_id DESC "
+            "  LIMIT 1"
+            ") auto_event ON true "
+            "LEFT JOIN LATERAL ("
+            "  SELECT e.event_id "
+            "  FROM striatumd.events e "
+            "  WHERE e.repository_id = a.repository_id "
+            "    AND e.artifact_id = a.artifact_id "
+            "    AND e.event_type = 'provenance.publish_without_process_execution' "
+            "  ORDER BY e.event_id DESC "
+            "  LIMIT 1"
+            ") override_event ON true "
             "WHERE a.repository_id = %(repository_id)s "
             "  AND a.run_id = %(run_id)s "
             "ORDER BY a.repo_path"

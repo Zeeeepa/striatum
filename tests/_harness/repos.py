@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping
 
-from striatum import daemon
+import striatum.daemon as daemon
 from striatum.db import db_path, init_repo, json_dumps, new_id, sha256_bytes, utc_now
 from striatum.workflow import validate_workflow
 

@@ -1,8 +1,7 @@
-// Package reads is the Go-core port of RFC 0048 Phase B for the
-// read-surface CLI verbs. Each exported Handle* function mirrors a
-// Python read handler in src/striatum/daemon_pg/handlers/reads/ and
-// returns the same top-level JSON shape so CLI + operator UI parity
-// holds across the two daemon cores.
+// Package reads contains the Go RFC 0048 Phase B transition handlers for
+// read-surface CLI verbs. Each exported Handle* function mirrors a Python
+// read handler in src/striatum/daemon_pg/handlers/reads/ and returns the same
+// top-level JSON shape so compatibility fixtures can compare the two paths.
 //
 // Scope (this file holds the shared helpers; per-method files in this
 // package hold the handlers):

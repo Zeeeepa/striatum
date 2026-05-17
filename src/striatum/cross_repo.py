@@ -10,8 +10,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Mapping, Protocol
 
-from striatum.db import json_dumps, new_id, sha256_bytes, utc_now
 from striatum.errors import InvalidTransitionError, NotFoundError
+from striatum.primitives import json_dumps, new_id, sha256_bytes, utc_now
 
 
 def _dict_cursor(conn: Any) -> Any:

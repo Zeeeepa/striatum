@@ -10,18 +10,14 @@ from pathlib import Path, PurePosixPath
 from typing import Any, cast
 
 from striatum.artifacts import ALLOWED_ARTIFACT_KINDS
-from striatum.db import (
+from striatum.db import insert_event
+from striatum.errors import WorkflowError
+from striatum.primitives import JsonObject, json_dumps, new_id, sha256_bytes, utc_now
+from striatum.repo_policy import (
     ADAPTER_ENFORCEMENT_LEVELS,
-    JsonObject,
     adapter_constraint_enforcement,
     adapter_enforcement_satisfies,
-    insert_event,
-    json_dumps,
-    new_id,
-    sha256_bytes,
-    utc_now,
 )
-from striatum.errors import WorkflowError
 
 # JSON workflow files are user-authored and need dynamic validation.
 JsonValue = dict[str, Any]
@@ -254,6 +250,53 @@ def plan_workflow(
     if warnings:
         plan["warnings"] = warnings
     return plan
+
+
+def lint_workflow(workflow: JsonObject, *, repo_root: Path | None = None) -> JsonObject:
+    """Return advisory workflow risk findings separate from validation.
+
+    Structural validation remains authoritative for accept/reject. This lint
+    surface records dogfood-derived risk patterns that may be acceptable with
+    an explicit operator rationale.
+    """
+
+    warnings: list[str] = []
+    try:
+        validate_workflow(workflow, warnings=warnings, repo_root=repo_root)
+    except WorkflowError as exc:
+        error: JsonObject = {"message": str(exc)}
+        field_path = getattr(exc, "field_path", None)
+        if isinstance(field_path, str) and field_path:
+            error["field_path"] = field_path
+        return {
+            "workflow_id": str(workflow.get("workflow_id") or ""),
+            "valid": False,
+            "errors": [error],
+            "warnings": [],
+            "warning_count": 0,
+        }
+
+    findings: list[JsonObject] = [
+        {
+            "rule": "validation_warning",
+            "severity": "warning",
+            "message": warning,
+        }
+        for warning in warnings
+    ]
+    job_map = workflow_job_map(workflow)
+    _lint_same_model_review_pairs(workflow, job_map=job_map, findings=findings)
+    _lint_review_freshness(job_map=job_map, findings=findings)
+    _lint_write_scope_risk(workflow, job_map=job_map, findings=findings)
+    _lint_missing_escalation_path(workflow, job_map=job_map, findings=findings)
+
+    return {
+        "workflow_id": str(workflow.get("workflow_id") or ""),
+        "valid": True,
+        "errors": [],
+        "warnings": findings,
+        "warning_count": len(findings),
+    }
 
 
 def workflow_graph_data(workflow: JsonObject) -> JsonObject:
@@ -2125,6 +2168,201 @@ def _warn_same_lane_review_implement_cycles(
                 f"dogfood-042 D095/D096 this often fails to converge. "
                 f"Set cycle.allow_same_lane=true to suppress."
             )
+
+
+def _lint_same_model_review_pairs(
+    workflow: JsonObject,
+    *,
+    job_map: dict[str, JsonValue],
+    findings: list[JsonObject],
+) -> None:
+    lanes = workflow.get("lanes")
+    if not isinstance(lanes, dict):
+        return
+    emitted: set[tuple[str, str, str]] = set()
+
+    def family_for_job(job: JsonValue) -> str | None:
+        lane_id = job.get("lane_id")
+        if not isinstance(lane_id, str):
+            return None
+        lane = lanes.get(lane_id)
+        if not isinstance(lane, dict):
+            return None
+        display_model = lane.get("display_model")
+        source = display_model if isinstance(display_model, str) and display_model else lane_id
+        return _model_family(source)
+
+    for from_id, to_id, _gate in edge_dependency_pairs(workflow):
+        upstream = job_map[from_id]
+        review_job = job_map[to_id]
+        if review_job.get("type") != "review" or upstream.get("type") in VERDICT_JOB_TYPES:
+            continue
+        upstream_family = family_for_job(upstream)
+        review_family = family_for_job(review_job)
+        if upstream_family is None or review_family is None or upstream_family != review_family:
+            continue
+        key = ("edge", from_id, to_id)
+        if key in emitted:
+            continue
+        emitted.add(key)
+        findings.append(
+            {
+                "rule": "same_model_review_pair",
+                "severity": "warning",
+                "message": (
+                    f"review job {to_id!r} and upstream job {from_id!r} use "
+                    f"the same model family {review_family!r}; use an independent "
+                    "review lane or record an explicit override rationale"
+                ),
+                "job_id": to_id,
+                "related_job_id": from_id,
+                "model_family": review_family,
+            }
+        )
+
+    for cycle in workflow.get("cycles", []):
+        if not isinstance(cycle, dict):
+            continue
+        if cycle.get("allow_same_model") is True:
+            continue
+        cycle_from = cycle.get("from")
+        cycle_to = cycle.get("to")
+        if not isinstance(cycle_from, str) or not isinstance(cycle_to, str):
+            continue
+        cycle_review = job_map.get(cycle_from)
+        implementer = job_map.get(cycle_to)
+        if not isinstance(cycle_review, dict) or not isinstance(implementer, dict):
+            continue
+        if cycle_review.get("type") not in VERDICT_JOB_TYPES:
+            continue
+        review_family = family_for_job(cycle_review)
+        implementer_family = family_for_job(implementer)
+        if review_family is None or implementer_family is None or review_family != implementer_family:
+            continue
+        key = ("cycle", cycle_from, cycle_to)
+        if key in emitted:
+            continue
+        emitted.add(key)
+        findings.append(
+            {
+                "rule": "same_model_revision_cycle",
+                "severity": "warning",
+                "message": (
+                    f"revision cycle {cycle_from!r} -> {cycle_to!r} returns review "
+                    f"to the same model family {review_family!r}; set "
+                    "cycle.allow_same_model=true only with an override rationale"
+                ),
+                "job_id": cycle_from,
+                "related_job_id": cycle_to,
+                "model_family": review_family,
+            }
+        )
+
+
+def _lint_review_freshness(
+    *, job_map: dict[str, JsonValue], findings: list[JsonObject]
+) -> None:
+    for job_id, job in job_map.items():
+        if job.get("type") != "review":
+            continue
+        if _effective_fresh_session_required(job) or job.get("reviewer_context_policy") == "fresh":
+            continue
+        findings.append(
+            {
+                "rule": "review_without_fresh_context",
+                "severity": "warning",
+                "message": (
+                    f"review job {job_id!r} does not require a fresh session; "
+                    "fresh review context reduces reviewer contamination"
+                ),
+                "job_id": job_id,
+            }
+        )
+
+
+def _lint_write_scope_risk(
+    workflow: JsonObject,
+    *,
+    job_map: dict[str, JsonValue],
+    findings: list[JsonObject],
+) -> None:
+    lanes = workflow.get("lanes")
+    lane_map = lanes if isinstance(lanes, dict) else {}
+    for job_id, job in job_map.items():
+        scope = job.get("write_scope")
+        if not isinstance(scope, dict):
+            continue
+        repo_write = scope.get("repo_write") is True or scope.get("mode") == "repo_write"
+        if not repo_write:
+            continue
+        allowed = scope.get("allowed_paths")
+        broad = not isinstance(allowed, list) or not allowed or any(
+            item in {"", ".", "./", "/"} for item in allowed if isinstance(item, str)
+        )
+        if broad:
+            findings.append(
+                {
+                    "rule": "broad_write_scope",
+                    "severity": "warning",
+                    "message": (
+                        f"repo-write job {job_id!r} has broad or empty allowed_paths; "
+                        "narrow write scope before running untrusted changes"
+                    ),
+                    "job_id": job_id,
+                }
+            )
+        lane_id = job.get("lane_id")
+        lane = lane_map.get(lane_id) if isinstance(lane_id, str) else None
+        if not isinstance(lane, dict) or lane.get("worktree_isolation") != "per_job":
+            findings.append(
+                {
+                    "rule": "repo_write_without_worktree_isolation",
+                    "severity": "warning",
+                    "message": (
+                        f"repo-write job {job_id!r} is not on a per-job worktree lane; "
+                        "parallel or revision work can collide in the main worktree"
+                    ),
+                    "job_id": job_id,
+                }
+            )
+
+
+def _lint_missing_escalation_path(
+    workflow: JsonObject,
+    *,
+    job_map: dict[str, JsonValue],
+    findings: list[JsonObject],
+) -> None:
+    has_review = any(job.get("type") in VERDICT_JOB_TYPES for job in job_map.values())
+    if not has_review:
+        return
+    policy = workflow.get("review_revision_policy")
+    root_policy = policy.get("root_review_needs_revision") if isinstance(policy, dict) else None
+    has_revision_cycle = any(
+        isinstance(cycle, dict) and cycle.get("on_verdict") == "needs_revision"
+        for cycle in workflow.get("cycles", [])
+    )
+    if has_revision_cycle or root_policy == "human_checkpoint":
+        return
+    findings.append(
+        {
+            "rule": "missing_review_escalation_path",
+            "severity": "warning",
+            "message": (
+                "workflow has review jobs but no needs_revision cycle or "
+                "review_revision_policy.root_review_needs_revision=human_checkpoint"
+            ),
+        }
+    )
+
+
+def _model_family(value: str) -> str:
+    tokens = [token for token in re.split(r"[^a-z0-9]+", value.lower()) if token]
+    if not tokens:
+        return value.lower()
+    if tokens[0] in {"openai", "anthropic", "google"} and len(tokens) > 1:
+        return tokens[1]
+    return tokens[0]
 
 
 def _has_path(edges: list[tuple[str, str]], *, source: str, target: str) -> bool:
