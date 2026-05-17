@@ -15,6 +15,7 @@ from . import list_runs as list_runs
 from . import list_sessions as list_sessions
 from . import list_workflows as list_workflows
 from . import run_graph as run_graph
+from . import run_posture_verdicts as run_posture_verdicts
 from . import run_summary as run_summary
 from . import status as status
 from . import why as why

@@ -49,6 +49,7 @@ Legend:
 | `archive.create` | `archive create` | read | single_repo | pg | placeholder | no | no | foundation |
 | `run.summary` | `run summary` | read | single_repo | pg | real | no | no | stable |
 | `run.graph` | `run graph` | read | single_repo | pg | placeholder | no | no | stable |
+| `run.posture_verdicts` | web posture verdict drill-down | read | single_repo | pg | real | no | no | stable |
 | `workflow.validate` | `workflow validate` | read | single_repo | local_file_authoring | placeholder | no | no live state | CLI-local |
 | `workflow.plan` | `workflow plan` | read | single_repo | local_file_authoring | placeholder | no | no live state | CLI-local |
 | `workflow.graph` | `workflow graph` | read | single_repo | local_file_authoring | placeholder | no | no live state | CLI-local |

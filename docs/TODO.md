@@ -103,7 +103,7 @@ so external references keep resolving even as items move between sections.
 | 49 | RFC 0059 Architecture remediation Phase 1 — close production SQLite fallback | 🟡 production fallback closed; legacy SQLite quarantine remains |
 | 50 | RFC 0060 Architecture remediation Phase 2 — single daemon method contract source | 🟡 contract source + Python/Go registry + MCP descriptors landed |
 | 51 | Architecture remediation Phase 3 — daemon core strategy decision | ✅ done |
-| 52 | RFC 0061 Architecture remediation Phase 4 — daemon-first web service | 🟡 mutation POST, run-list read, and chat-briefing read slices landed |
+| 52 | RFC 0061 Architecture remediation Phase 4 — daemon-first web service | 🟡 posture drill-down daemon read landed |
 | 53 | RFC 0062 Architecture remediation Phase 5 — real escalation inbox | 🟡 projection + escalation artifact schema/linkage landed |
 | 54 | RFC 0063 Architecture remediation Phase 6 — hardened PTY supervision | 🟡 control-event, helper protocol, and JSONL ingestion slices landed |
 | 55 | RFC 0064 Architecture remediation Phase 7 — workflow risk lint and review diversity enforcement | 🟡 generator coverage + accepted-risk reference landed |
@@ -849,7 +849,9 @@ review and plan are root-level operator artifacts:
     `list.runs` DTOs in production; a `STRIATUM_TEST_HARNESS` fallback
     preserves legacy subprocess web fixtures only. Chat-session briefing now
     uses daemon `list.runs` DTOs for its active-run summary without opening
-    repo-local SQLite. Remaining: split `service.py`, replace the rest of the
+    repo-local SQLite. The posture-verdict drill-down page now uses daemon
+    `run.posture_verdicts` in production, again with only the test-harness
+    SQLite fallback. Remaining: split `service.py`, replace the rest of the
     direct SQLite-shaped reads with daemon RPC DTOs, replace run-now's
     multi-step SQLite transaction carefully, move SSE/doctor/status reads,
     and derive mutation authorization from daemon method capabilities.

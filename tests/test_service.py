@@ -719,6 +719,102 @@ def test_chat_briefing_active_runs_reads_daemon_dto_without_sqlite(
     assert "run_completed" not in briefing
 
 
+def test_run_posture_verdicts_reads_daemon_dto_without_sqlite(
+    tmp_path: Path, monkeypatch: Any
+) -> None:
+    sys.path.insert(0, str(ROOT / "src"))
+    try:
+        import striatum.service as service
+        import striatum.service_daemon as service_daemon
+    finally:
+        sys.path.pop(0)
+
+    captured: dict[str, Any] = {}
+    calls: list[tuple[Path, str, dict[str, Any]]] = []
+
+    class FakeTemplate:
+        def render(self, **kwargs: Any) -> str:
+            captured.update(kwargs)
+            return "ok"
+
+    class FakeEnvironment:
+        def get_template(self, name: str) -> FakeTemplate:
+            assert name == "run_posture_verdicts.html"
+            return FakeTemplate()
+
+    def sqlite_tripwire(*args: Any, **kwargs: Any) -> None:
+        raise AssertionError("posture verdict page opened repo-local SQLite")
+
+    def fake_call_repo_method(
+        repo: Path, method: str, params: dict[str, Any]
+    ) -> dict[str, Any]:
+        calls.append((repo, method, dict(params)))
+        return {
+            "run": {
+                "run_id": "run_daemon",
+                "state": "running",
+                "branch_name": "main",
+            },
+            "posture": "security",
+            "verdicts": [
+                {
+                    "verdict_id": "verdict_daemon",
+                    "verdict": "accept",
+                    "rationale": "survived security review",
+                    "job_id": "job_review",
+                    "workflow_job_id": "review",
+                    "role_id": "reviewer",
+                    "lane_id": "codex",
+                    "session_slug": "reviewer-codex-001",
+                    "created_at": "2026-05-17T00:00:00Z",
+                    "provenance": "natural",
+                    "lane_attestation_chip": {
+                        "attested": False,
+                        "reason": "no_attached_supervisor",
+                        "supervisor_id": None,
+                        "state": "unattested",
+                    },
+                }
+            ],
+        }
+
+    handler = object.__new__(service.StriatumServiceHandler)
+    handler.state = service.ServiceState(
+        repo=tmp_path,
+        allow_mutations=False,
+        token=None,
+        web_enabled=True,
+    )
+    sent: dict[str, Any] = {}
+    monkeypatch.setattr(
+        handler,
+        "_send_html",
+        lambda status, body: sent.update({"status": status, "body": body}),
+    )
+    monkeypatch.setattr(
+        handler,
+        "_send_json",
+        lambda status, body: sent.update({"status": status, "body": body}),
+    )
+    monkeypatch.setattr(service, "_jinja_env", lambda: FakeEnvironment())
+    monkeypatch.setattr("striatum.service.sqlite3.connect", sqlite_tripwire)
+    monkeypatch.setattr(service_daemon, "call_repo_method", fake_call_repo_method)
+
+    handler._render_run_posture_verdicts_page("run_daemon", "security")
+
+    assert sent == {"status": 200, "body": "ok"}
+    assert calls == [
+        (
+            tmp_path,
+            "run.posture_verdicts",
+            {"run_id": "run_daemon", "posture": "security"},
+        )
+    ]
+    assert captured["run"]["run_id"] == "run_daemon"
+    assert captured["posture"] == "security"
+    assert captured["verdicts"][0]["workflow_job_id"] == "review"
+
+
 def test_artifact_raw_reads_daemon_dto_without_sqlite(tmp_path: Path, monkeypatch: Any) -> None:
     from io import BytesIO
 

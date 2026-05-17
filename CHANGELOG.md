@@ -1,5 +1,56 @@
 # Changelog
 
+## Unreleased — 2026-05-17
+
+### Architecture remediation follow-through
+
+The remediation plan from the 2026-05-16 architecture review is now tracked
+in the roadmap/TODO and has several production slices landed:
+
+- **Command authority and fallback guardrails.**
+  `docs/architecture/COMMAND_AUTHORITY_MATRIX.md` now names the authority
+  owner for daemon RPC, CLI translation, Python PG handlers, Go helper
+  registrations, and remaining SQLite quarantine paths. Guardrail tests
+  keep daemon registry methods classified, prevent new CLI fallback routes
+  from appearing silently, and tripwire representative production commands
+  against direct SQLite opens.
+- **Single daemon method contract source.**
+  `contracts/daemon_methods.json` drives Python daemon registration,
+  `daemon.describe`, generated Go registry metadata, MCP tool descriptors,
+  and contract parity tests. Workflow authoring remains explicitly CLI-local.
+- **Python-primary daemon strategy.**
+  D105 supersedes the Go replacement-daemon plan. Python remains the
+  production domain daemon; Go is limited to narrow runtime/helper roles
+  such as PTY supervision.
+- **Daemon-first web service.**
+  The local web service now uses daemon RPC for run cancel/pause/resume, job
+  cancel/retry, branch confirm, run listing, chat briefing active-run
+  summaries, and the posture-verdict drill-down page. The new
+  `run.posture_verdicts` daemon DTO backs the posture page, with legacy
+  SQLite retained only for the subprocess test-harness escape.
+- **Escalation inbox foundation.**
+  `escalation.list`, `escalation.show`, and `escalation.resolve` project
+  human-principal escalations from blocker state. The `escalation` artifact
+  kind, `striatum.escalation.v1` front matter schema, CLI routes, daemon
+  contract entries, and artifact-to-blocker linkage are in place.
+- **Supervisor control channel.**
+  Supervision now records structured control events through
+  `supervise.report`, reports delivered-unacknowledged sends explicitly, and
+  includes a standalone Go `striatum-supervisor-helper` that launches agents
+  under PTY while emitting JSONL control events without importing domain DB
+  or RPC code.
+- **Workflow risk lint.**
+  `striatum workflow lint` supports structured warnings, opt-in strict mode,
+  accepted-risk rationale and decision references, advisory coverage scoring,
+  service/API surfacing, workflow browser warnings, and generator preview
+  summaries.
+- **Auto-finalize, archive, replay, packaging, and setup slices.**
+  `recovery.auto_finalize` landed as a daemon/Postgres recovery method with
+  dry-run and opt-in live modes, status/dashboard preview surfacing, and
+  auto-from-artifact provenance. Run archive and corpus verification
+  foundations, frontend bundle integrity checks, and day-zero setup docs were
+  advanced as part of the same remediation sequence.
+
 ## v1.55.0 — 2026-05-15
 
 ### RFC 0048 V1.5 hardening + Schema v6

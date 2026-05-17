@@ -21,6 +21,7 @@ METHODS = {
     "list.jobs": "list_jobs.py",
     "list.artifacts": "list_artifacts.py",
     "list.workflows": "list_workflows.py",
+    "run.posture_verdicts": "run_posture_verdicts.py",
     "run.summary": "run_summary.py",
     "why": "why.py",
     "doctor": "doctor.py",

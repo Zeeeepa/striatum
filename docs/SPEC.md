@@ -1401,6 +1401,10 @@ Routes:
   layout, state-colored nodes via CSS custom properties, click
   to navigate to a job's detail page, SVG `<title>` tooltip on
   hover for accessibility.
+- `GET /run/<run_id>/posture/<posture>` →
+  `run_posture_verdicts.html`. Production reads use daemon
+  `run.posture_verdicts`; the legacy SQLite path exists only for
+  subprocess test fixtures.
 - `GET /run/<run_id>/job/<job_id>` → `job_detail.html`. Job
   metadata + verdict + posture chip + artifacts list.
 - `GET /run/<run_id>/artifact/<artifact_id>` →

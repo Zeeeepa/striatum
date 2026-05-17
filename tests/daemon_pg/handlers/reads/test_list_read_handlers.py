@@ -168,6 +168,7 @@ def insert_fixture(conn: Any, *, repository_id: str, repo_root: Path) -> None:
         ("list_jobs", "list.jobs"),
         ("list_artifacts", "list.artifacts"),
         ("list_workflows", "list.workflows"),
+        ("run_posture_verdicts", "run.posture_verdicts"),
     ],
 )
 def test_read_handlers_register_with_locked_signature(module_name: str, method: str) -> None:

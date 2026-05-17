@@ -108,6 +108,14 @@ def _legacy_artifact_raw_fallback_enabled(code: str) -> bool:
     )
 
 
+def _legacy_web_read_fallback_enabled(code: str) -> bool:
+    return (
+        code in {"daemon_unreachable", "repo_not_registered"}
+        and os.environ.get("STRIATUM_TEST_HARNESS") == "1"
+        and os.environ.get("STRIATUM_DAEMON_REQUIRED") == "0"
+    )
+
+
 def _legacy_artifact_metadata(repo: Path, *, artifact_id: str) -> JsonObject | None:
     conn: sqlite3.Connection | None = None
     try:
@@ -973,6 +981,45 @@ def _view_file_run_breadcrumb(conn: sqlite3.Connection, *, rel_path: str) -> Jso
         return None
     row = rows[0]
     return {"run_id": row["run_id"], "branch_name": row["branch_name"]}
+
+
+def _legacy_run_posture_verdicts_payload(repo: Path, *, run_id: str, posture: str) -> JsonObject:
+    with sqlite3.connect(str(db_path(repo))) as conn:
+        conn.row_factory = sqlite3.Row
+        run_row = conn.execute(
+            "SELECT run_id, state, branch_name FROM runs WHERE run_id = ?", (run_id,),
+        ).fetchone()
+        if run_row is None:
+            raise KeyError("run not found")
+        rows = conn.execute(
+            """
+            SELECT v.verdict_id, v.verdict, v.rationale, v.created_at,
+                   v.job_id, v.findings_artifact_id, v.session_id,
+                   j.workflow_job_id, j.role_id, j.lane_selector_json,
+                   s.slug AS session_slug
+            FROM verdicts v
+            JOIN jobs j ON j.job_id = v.job_id
+            JOIN sessions s ON s.session_id = v.session_id
+            WHERE v.run_id = ? AND v.posture = ?
+            ORDER BY v.created_at DESC
+            """,
+            (run_id, posture),
+        ).fetchall()
+        verdicts = []
+        for row in rows:
+            item = dict(row)
+            try:
+                item["lane_id"] = (json.loads(item.get("lane_selector_json") or "{}")).get("lane_id")
+            except (json.JSONDecodeError, TypeError):
+                item["lane_id"] = None
+            verdicts.append(item)
+        verdicts = _shape_verdict_rows(conn, verdicts=verdicts)
+    return {
+        "run": dict(run_row),
+        "posture": posture,
+        "verdicts": verdicts,
+        "count": len(verdicts),
+    }
 
 
 def _shape_verdict_rows(
@@ -1988,41 +2035,50 @@ class StriatumServiceHandler(BaseHTTPRequestHandler):
             self._send_json(400, {"ok": False, "error": {"code": 400, "message": "invalid posture"}})
             return
         try:
-            with sqlite3.connect(str(db_path(self.state.repo))) as conn:
-                conn.row_factory = sqlite3.Row
-                run_row = conn.execute(
-                    "SELECT run_id, state, branch_name FROM runs WHERE run_id = ?", (run_id,),
-                ).fetchone()
-                if run_row is None:
-                    self._send_json(404, {"ok": False, "error": {"code": 404, "message": "run not found"}})
-                    return
-                rows = conn.execute(
-                    """
-                    SELECT v.verdict_id, v.verdict, v.rationale, v.created_at,
-                           v.job_id, v.findings_artifact_id, v.session_id,
-                           j.workflow_job_id, j.role_id, j.lane_selector_json,
-                           s.slug AS session_slug
-                    FROM verdicts v
-                    JOIN jobs j ON j.job_id = v.job_id
-                    JOIN sessions s ON s.session_id = v.session_id
-                    WHERE v.run_id = ? AND v.posture = ?
-                    ORDER BY v.created_at DESC
-                    """,
-                    (run_id, posture),
-                ).fetchall()
-                verdicts = []
-                for r in rows:
-                    d = dict(r)
+            from striatum.service_daemon import ServiceDaemonRpcError, call_repo_method
+
+            try:
+                payload = call_repo_method(
+                    self.state.repo,
+                    "run.posture_verdicts",
+                    {"run_id": run_id, "posture": posture},
+                )
+            except ServiceDaemonRpcError as exc:
+                if _legacy_web_read_fallback_enabled(exc.code):
                     try:
-                        d["lane_id"] = (json.loads(d.get("lane_selector_json") or "{}")).get("lane_id")
-                    except (json.JSONDecodeError, TypeError):
-                        d["lane_id"] = None
-                    verdicts.append(d)
-                verdicts = _shape_verdict_rows(conn, verdicts=verdicts)
+                        payload = _legacy_run_posture_verdicts_payload(
+                            self.state.repo,
+                            run_id=run_id,
+                            posture=posture,
+                        )
+                    except KeyError:
+                        self._send_json(404, {"ok": False, "error": {"code": 404, "message": "run not found"}})
+                        return
+                else:
+                    self._send_json(
+                        exc.status,
+                        {"ok": False, "error": {"code": exc.code, "message": exc.message}},
+                    )
+                    return
+            run = payload.get("run")
+            verdicts = payload.get("verdicts")
+            if not isinstance(run, Mapping) or not isinstance(verdicts, list):
+                self._send_json(
+                    500,
+                    {
+                        "ok": False,
+                        "error": {"code": 500, "message": "daemon posture verdict DTO missing fields"},
+                    },
+                )
+                return
             html = _jinja_env().get_template("run_posture_verdicts.html").render(
-                run=dict(run_row),
-                posture=posture,
-                verdicts=verdicts,
+                run=dict(run),
+                posture=str(payload.get("posture") or posture),
+                verdicts=[
+                    dict(verdict)
+                    for verdict in verdicts
+                    if isinstance(verdict, Mapping)
+                ],
             )
             self._send_html(200, html)
         except Exception as exc:  # noqa: BLE001
