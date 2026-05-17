@@ -106,7 +106,7 @@ so external references keep resolving even as items move between sections.
 | 52 | RFC 0061 Architecture remediation Phase 4 — daemon-first web service | 🟡 mutation POST, run-list read, and chat-briefing read slices landed |
 | 53 | RFC 0062 Architecture remediation Phase 5 — real escalation inbox | 🟡 projection + escalation artifact schema/linkage landed |
 | 54 | RFC 0063 Architecture remediation Phase 6 — hardened PTY supervision | 🟡 control-event, helper protocol, and JSONL ingestion slices landed |
-| 55 | RFC 0064 Architecture remediation Phase 7 — workflow risk lint and review diversity enforcement | 🟡 strict lint + web surfacing landed |
+| 55 | RFC 0064 Architecture remediation Phase 7 — workflow risk lint and review diversity enforcement | 🟡 generator coverage + accepted-risk reference landed |
 | 56 | Architecture remediation Phase 8 — auto-finalize from front matter | 🟡 daemon recovery + visibility slices landed |
 | 57 | RFC 0065 Architecture remediation Phase 9 — UI packaging and bundle cleanup | ✅ done; chunking monitor only |
 | 58 | RFC 0059 Architecture remediation Phase 10 — day-zero setup improvements | ✅ done |
@@ -898,8 +898,11 @@ review and plan are root-level operator artifacts:
     supplies a non-empty `--override-rationale` and includes the refused
     lint payload in JSON/API error details. Follow-up web slice surfaced
     warning counts and short warning lists in the workflow index/detail
-    pages. Remaining: generator surfacing, broader coverage scoring, and
-    audit linkage for accepted risks.
+    pages. Follow-up generator slice added advisory coverage scoring,
+    surfaced lint in generated workflow preview envelopes and the workflow
+    chooser, and lets strict overrides record an
+    `--accepted-risk-decision-id`. Remaining: durable audit persistence
+    policy for accepted lint risks.
 
 56. **Phase 8: auto-finalize from front matter.** Bounded daemon slice
     landed: `recovery.auto_finalize` dry-run/live PG handler, CLI route,

@@ -30,6 +30,7 @@ import {
 import type {
   GeneratedWorkflow,
   WorkflowChooserProps,
+  WorkflowLintSummary,
   WorkflowTemplate,
 } from "../../shared/types";
 
@@ -62,6 +63,22 @@ const STEP_LABELS = ["Template", "Details", "Preview", "Save"];
 function recommendedForText(value: string | string[] | undefined): string {
   if (!value) return "";
   return Array.isArray(value) ? value.join("; ") : value;
+}
+
+function lintSummaryText(lint: WorkflowLintSummary | undefined): string {
+  if (!lint) return "";
+  const warningLabel =
+    lint.warning_count === 1
+      ? "1 lint warning"
+      : `${lint.warning_count} lint warnings`;
+  const coverage = lint.coverage;
+  let scoreLabel = "";
+  if (Number.isFinite(coverage.score) && Number.isFinite(coverage.max_score)) {
+    scoreLabel = ` (${coverage.score}/${coverage.max_score})`;
+  } else if (Number.isFinite(coverage.score)) {
+    scoreLabel = ` (score ${coverage.score})`;
+  }
+  return `${warningLabel}; coverage ${coverage.level}${scoreLabel}`;
 }
 
 function buildSpec(form: FormState): GenerationSpec {
@@ -340,9 +357,14 @@ export default function WorkflowChooser(props: WorkflowChooserProps) {
         <div className="preview-meta">
           Preview generated at {tsLabel}. Preview writes nothing on disk.
         </div>
+        {data.lint && (
+          <div className="chooser-lint-summary" role="status">
+            <strong>Lint:</strong> {lintSummaryText(data.lint)}
+          </div>
+        )}
         {data.warnings.length > 0 && (
           <div className="island-error" role="status">
-            <strong>Warnings:</strong>
+            <strong>Generator warnings:</strong>
             <ul>
               {data.warnings.map((w, i) => (
                 <li key={i}>{w}</li>
@@ -462,4 +484,4 @@ export default function WorkflowChooser(props: WorkflowChooserProps) {
   );
 }
 
-export const __testing = { buildSpec, recommendedForText };
+export const __testing = { buildSpec, lintSummaryText, recommendedForText };

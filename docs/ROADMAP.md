@@ -424,9 +424,16 @@ lane-liveness attestation, wrapper fixtures, and broader helper-only CI.
   refusals include the lint payload under `error.details`.
 - The workflow browser/detail pages surface lint warning counts and short
   warning lists without changing validation status.
+- Lint now includes advisory coverage scoring for reviewer independence,
+  fresh context, write isolation, revision/escalation path, and review
+  posture diversity.
+- Workflow generator preview envelopes and the workflow chooser surface the
+  lint summary separately from generator warnings.
+- Strict overrides can record an operator-supplied
+  `--accepted-risk-decision-id` reference.
 
-**Remaining Phase 7 debt:** generator surfacing, broader coverage scoring,
-and audit linkage for accepted lint risks.
+**Remaining Phase 7 debt:** durable audit persistence policy for accepted
+lint risks.
 
 ---
 
@@ -726,8 +733,9 @@ Release order after Phase 0:
 6. **TODO 54 / Phase 6:** harden process supervision with PTY support,
    wrapper control acks, and reattach/lost-state handling.
 7. **TODO 55 / Phase 7:** workflow risk lint, opt-in strict enforcement,
-   and web surfacing landed; remaining generator/audit surfacing is tracked
-   in §4.11.
+   web surfacing, generator preview surfacing, coverage scoring, and
+   accepted-risk decision references landed; durable audit persistence
+   policy is tracked in §4.11.
 8. **TODO 56 / Phase 8:** auto-finalize daemon method, status/dashboard/web
    visibility, and bounded sweep integration landed; remaining default-policy
    and dogfood acceptance work is tracked in §4.12.

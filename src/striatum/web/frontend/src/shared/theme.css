@@ -273,6 +273,16 @@
   margin-bottom: var(--space-2);
 }
 
+.chooser-lint-summary {
+  color: var(--fg-primary);
+  background: var(--bg-overlay);
+  border-left: 3px solid var(--accent);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius);
+  margin: var(--space-2) 0;
+  font-size: 0.9em;
+}
+
 .chooser-confirm-dialog {
   border: 1px solid var(--border);
   border-radius: var(--radius);

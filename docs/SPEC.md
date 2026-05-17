@@ -160,6 +160,10 @@ lane modifiers, and optional closed-vocabulary custom plan into an
 ordinary `striatum.workflow.v1` JSON object, then calls the existing
 workflow validator before returning success. `workflow init --style`
 is compatibility sugar over this generator with `lane_set: "local"`.
+Generator preview envelopes also include the same advisory workflow lint
+payload exposed by `workflow lint`, including warning count and coverage
+summary; lint remains informational and does not change validation
+status.
 
 The bundled template catalog is package data under
 `striatum.workflow_templates/catalog.json`; V1 does not fetch remote

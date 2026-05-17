@@ -81,6 +81,15 @@ async function flush(): Promise<void> {
   });
 }
 
+function setInputValue(input: HTMLInputElement, value: string): void {
+  const setter = Object.getOwnPropertyDescriptor(
+    window.HTMLInputElement.prototype,
+    "value",
+  )?.set;
+  setter?.call(input, value);
+  input.dispatchEvent(new Event("input", { bubbles: true }));
+}
+
 describe("WorkflowChooser fetch contract", () => {
   it("reads templates from {ok:true, data:{templates}} and renders shape cards", async () => {
     await act(async () => {
@@ -123,5 +132,76 @@ describe("WorkflowChooser fetch contract", () => {
     });
     await flush();
     expect(container.textContent).toContain("Failed to load workflow templates");
+  });
+
+  it("renders generated lint separately from generator warnings", async () => {
+    const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
+      if (init?.method === "POST") {
+        return {
+          ok: true,
+          status: 200,
+          statusText: "OK",
+          async json() {
+            return {
+              ok: true,
+              data: {
+                workflow: { workflow_id: "demo" },
+                files: [{ path: "docs/demo/workflow.json", bytes: 42 }],
+                warnings: ["generator chose default branch"],
+                lint: {
+                  warning_count: 2,
+                  coverage: {
+                    level: "weak",
+                    score: 3,
+                  },
+                },
+              },
+            };
+          },
+        };
+      }
+      return {
+        ok: true,
+        status: 200,
+        statusText: "OK",
+        async json() {
+          return TEMPLATES_ENVELOPE;
+        },
+      };
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await act(async () => {
+      root = createRoot(container);
+      root.render(
+        createElement(WorkflowChooser, {
+          allowMutations: false,
+          templatesUrl: "/workflow-templates",
+        }),
+      );
+    });
+    await flush();
+
+    await act(async () => {
+      (container.querySelector('[role="radio"]') as HTMLButtonElement).click();
+    });
+    await act(async () => {
+      (container.querySelector(".primary-button") as HTMLButtonElement).click();
+    });
+    await act(async () => {
+      setInputValue(
+        container.querySelector("#chooser-workflow-id") as HTMLInputElement,
+        "demo",
+      );
+    });
+    await act(async () => {
+      (container.querySelector(".primary-button") as HTMLButtonElement).click();
+    });
+    await flush();
+
+    expect(container.textContent).toContain("Lint:");
+    expect(container.textContent).toContain("2 lint warnings; coverage weak (score 3)");
+    expect(container.textContent).toContain("Generator warnings:");
+    expect(container.textContent).toContain("generator chose default branch");
   });
 });

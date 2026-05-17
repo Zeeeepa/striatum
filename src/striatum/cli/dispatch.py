@@ -379,6 +379,23 @@ def dispatch(args: argparse.Namespace) -> object:
                 "--override-rationale is valid only with workflow lint --strict",
                 exit_code=2,
             )
+        accepted_risk_decision_id = getattr(
+            args,
+            "accepted_risk_decision_id",
+            None,
+        )
+        if accepted_risk_decision_id is not None:
+            if not str(accepted_risk_decision_id).strip():
+                raise StriatumError(
+                    "--accepted-risk-decision-id must be non-empty",
+                    exit_code=2,
+                )
+            if not args.strict or args.override_rationale is None:
+                raise StriatumError(
+                    "--accepted-risk-decision-id is valid only with "
+                    "workflow lint --strict --override-rationale",
+                    exit_code=2,
+                )
         path = Path(args.path)
         try:
             loaded = json.loads(path.read_text(encoding="utf-8"))
@@ -393,6 +410,7 @@ def dispatch(args: argparse.Namespace) -> object:
                 },
                 strict=bool(args.strict),
                 override_rationale=args.override_rationale,
+                accepted_risk_decision_id=accepted_risk_decision_id,
             )
         if not isinstance(loaded, dict):
             return _apply_strict_workflow_lint(
@@ -405,12 +423,14 @@ def dispatch(args: argparse.Namespace) -> object:
                 },
                 strict=bool(args.strict),
                 override_rationale=args.override_rationale,
+                accepted_risk_decision_id=accepted_risk_decision_id,
             )
         payload = lint_workflow(cast(dict[str, Any], loaded), repo_root=repo)
         return _apply_strict_workflow_lint(
             payload,
             strict=bool(args.strict),
             override_rationale=args.override_rationale,
+            accepted_risk_decision_id=accepted_risk_decision_id,
         )
     if args.command == "workflow" and args.workflow_command == "plan":
         workflow = load_workflow(Path(args.path))
@@ -1029,8 +1049,22 @@ def _apply_strict_workflow_lint(
     *,
     strict: bool,
     override_rationale: str | None,
+    accepted_risk_decision_id: str | None = None,
 ) -> dict[str, Any]:
     """Apply ``workflow lint --strict`` refusal semantics to a lint payload."""
+    decision_id = (
+        accepted_risk_decision_id.strip()
+        if accepted_risk_decision_id is not None
+        else None
+    )
+    if decision_id == "":
+        raise StriatumError("--accepted-risk-decision-id must be non-empty", exit_code=2)
+    if decision_id is not None and (not strict or override_rationale is None):
+        raise StriatumError(
+            "--accepted-risk-decision-id is valid only with workflow lint "
+            "--strict --override-rationale",
+            exit_code=2,
+        )
     if not strict:
         return payload
 
@@ -1051,6 +1085,8 @@ def _apply_strict_workflow_lint(
     if warning_count == 0:
         result = dict(payload)
         result["strict"] = {"mode": "passed", "warning_count": 0}
+        if decision_id is not None:
+            result["strict"]["accepted_risk_decision_id"] = decision_id
         return result
 
     rationale = override_rationale.strip() if override_rationale is not None else ""
@@ -1076,6 +1112,8 @@ def _apply_strict_workflow_lint(
         "warning_count": warning_count,
         "override_rationale": rationale,
     }
+    if decision_id is not None:
+        result["strict"]["accepted_risk_decision_id"] = decision_id
     return result
 
 

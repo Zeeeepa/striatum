@@ -103,11 +103,27 @@ export interface GeneratedWorkflowFile {
   status?: "created" | "updated" | "skipped";
 }
 
+export type WorkflowLintCoverageLevel = "strong" | "adequate" | "weak";
+
+export interface WorkflowLintCoverage {
+  level: WorkflowLintCoverageLevel;
+  score: number;
+  max_score?: number;
+  checks?: unknown[];
+}
+
+export interface WorkflowLintSummary {
+  warning_count: number;
+  warnings?: unknown[];
+  coverage: WorkflowLintCoverage;
+}
+
 export interface GeneratedWorkflow {
   workflow: Record<string, unknown>;
   files: GeneratedWorkflowFile[];
   graph?: { nodes: number; edges: number; cycles?: number };
   warnings: string[];
+  lint?: WorkflowLintSummary;
 }
 
 export interface WorkflowChooserProps {

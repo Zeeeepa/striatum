@@ -15,6 +15,7 @@ from striatum.workflow import (
     ALLOWED_POSTURES,
     CONSTRAINT_VALUES,
     HARNESS_PROFILE_TOOL_FAMILIES,
+    lint_workflow,
     validate_workflow,
     workflow_graph_data,
 )
@@ -200,6 +201,7 @@ class GeneratedWorkflow:
     metadata: JsonObject
     warnings: list[str]
     validation: JsonObject
+    lint: JsonObject
 
     def to_json(self) -> JsonObject:
         return {
@@ -208,6 +210,7 @@ class GeneratedWorkflow:
             "metadata": self.metadata,
             "warnings": self.warnings,
             "validation": self.validation,
+            "lint": self.lint,
         }
 
 
@@ -246,6 +249,7 @@ def generate_workflow(spec: WorkflowGenerationSpec | JsonObject) -> GeneratedWor
         validate_workflow(workflow)
     except WorkflowError as exc:
         raise GeneratorError(str(exc), field_path=exc.field_path or "workflow") from exc
+    lint = lint_workflow(workflow)
     graph = workflow_graph_data(workflow)["graph"]
     workflow_path = f"{normalized.scaffold_root}/workflow.json"
     files = _render_files(normalized, workflow, roles)
@@ -264,6 +268,7 @@ def generate_workflow(spec: WorkflowGenerationSpec | JsonObject) -> GeneratedWor
         metadata=metadata,
         warnings=warnings,
         validation={"ok": True, "workflow_id": normalized.workflow_id},
+        lint=lint,
     )
 
 

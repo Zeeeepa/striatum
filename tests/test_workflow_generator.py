@@ -70,6 +70,16 @@ def test_builtin_shapes_validate() -> None:
         assert generated.metadata["shape"] == shape
 
 
+def test_generated_workflow_surfaces_lint_summary() -> None:
+    generated = generate_workflow(_spec("review", "local"))
+    payload = generated.to_json()
+
+    assert payload["lint"]["valid"] is True
+    assert payload["lint"]["warning_count"] >= 1
+    assert payload["lint"]["coverage"]["level"] in {"weak", "adequate", "strong"}
+    assert payload["lint"]["coverage"]["max_score"] >= 1
+
+
 def test_multi_phase_shape_emits_v1_1_phased_graph() -> None:
     spec = _spec("multi_phase", "author_reviewer")
     spec["options"] = {

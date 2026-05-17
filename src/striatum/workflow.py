@@ -274,6 +274,7 @@ def lint_workflow(workflow: JsonObject, *, repo_root: Path | None = None) -> Jso
             "errors": [error],
             "warnings": [],
             "warning_count": 0,
+            "coverage": _invalid_lint_coverage(),
         }
 
     findings: list[JsonObject] = [
@@ -289,6 +290,7 @@ def lint_workflow(workflow: JsonObject, *, repo_root: Path | None = None) -> Jso
     _lint_review_freshness(job_map=job_map, findings=findings)
     _lint_write_scope_risk(workflow, job_map=job_map, findings=findings)
     _lint_missing_escalation_path(workflow, job_map=job_map, findings=findings)
+    coverage = _lint_coverage(workflow, job_map=job_map, findings=findings)
 
     return {
         "workflow_id": str(workflow.get("workflow_id") or ""),
@@ -296,6 +298,7 @@ def lint_workflow(workflow: JsonObject, *, repo_root: Path | None = None) -> Jso
         "errors": [],
         "warnings": findings,
         "warning_count": len(findings),
+        "coverage": coverage,
     }
 
 
@@ -2354,6 +2357,170 @@ def _lint_missing_escalation_path(
             ),
         }
     )
+
+
+def _invalid_lint_coverage() -> JsonObject:
+    checks = [
+        _lint_coverage_check(
+            "reviewer_independence",
+            passed=False,
+            reason="workflow is invalid; reviewer independence was not evaluated",
+        ),
+        _lint_coverage_check(
+            "fresh_context",
+            passed=False,
+            reason="workflow is invalid; review context freshness was not evaluated",
+        ),
+        _lint_coverage_check(
+            "write_isolation",
+            passed=False,
+            reason="workflow is invalid; write isolation was not evaluated",
+        ),
+        _lint_coverage_check(
+            "revision_or_escalation_path",
+            passed=False,
+            reason="workflow is invalid; revision and escalation paths were not evaluated",
+        ),
+        _lint_coverage_check(
+            "posture_diversity",
+            passed=False,
+            reason="workflow is invalid; review posture diversity was not evaluated",
+        ),
+    ]
+    return {
+        "score": 0,
+        "max_score": len(checks),
+        "level": "weak",
+        "checks": checks,
+    }
+
+
+def _lint_coverage(
+    workflow: JsonObject,
+    *,
+    job_map: dict[str, JsonValue],
+    findings: list[JsonObject],
+) -> JsonObject:
+    rules = {str(finding.get("rule")) for finding in findings}
+    review_jobs = [
+        job
+        for job in job_map.values()
+        if job.get("type") in VERDICT_JOB_TYPES
+    ]
+    reviewer_independent = not (
+        {"same_model_review_pair", "same_model_revision_cycle"} & rules
+    )
+    fresh_context = "review_without_fresh_context" not in rules
+    write_isolated = not (
+        {"broad_write_scope", "repo_write_without_worktree_isolation"}
+        & rules
+    )
+    has_revision_or_escalation = "missing_review_escalation_path" not in rules
+    checks = [
+        _lint_coverage_check(
+            "reviewer_independence",
+            passed=reviewer_independent,
+            reason=(
+                "workflow has no review jobs"
+                if not review_jobs
+                else "review lanes are model-family independent"
+                if reviewer_independent
+                else "one or more review lanes share model family with implementation work"
+            ),
+        ),
+        _lint_coverage_check(
+            "fresh_context",
+            passed=fresh_context,
+            reason=(
+                "workflow has no review jobs"
+                if not review_jobs
+                else "review jobs require fresh context"
+                if fresh_context
+                else "one or more review jobs can reuse contaminated context"
+            ),
+        ),
+        _lint_coverage_check(
+            "write_isolation",
+            passed=write_isolated,
+            reason=(
+                "repo-write jobs are narrowly scoped and isolated"
+                if write_isolated
+                else "one or more repo-write jobs are broad or lack per-job isolation"
+            ),
+        ),
+        _lint_coverage_check(
+            "revision_or_escalation_path",
+            passed=has_revision_or_escalation,
+            reason=(
+                "workflow has no review jobs"
+                if not review_jobs
+                else "review verdicts have a revision or human escalation path"
+                if has_revision_or_escalation
+                else "review verdicts lack a revision or human escalation path"
+            ),
+        ),
+        _lint_coverage_check(
+            "posture_diversity",
+            passed=_has_review_posture_diversity(review_jobs),
+            reason=_review_posture_diversity_reason(review_jobs),
+        ),
+    ]
+    score = sum(1 for check in checks if check["passed"] is True)
+    max_score = len(checks)
+    return {
+        "score": score,
+        "max_score": max_score,
+        "level": _lint_coverage_level(score=score, max_score=max_score),
+        "checks": checks,
+    }
+
+
+def _lint_coverage_check(
+    check_id: str,
+    *,
+    passed: bool,
+    reason: str,
+) -> JsonObject:
+    return {
+        "id": check_id,
+        "passed": passed,
+        "weight": 1,
+        "reason": reason,
+    }
+
+
+def _has_review_posture_diversity(review_jobs: list[JsonValue]) -> bool:
+    if not review_jobs:
+        return True
+    postures = {
+        str(job.get("review_posture") or "neutral")
+        for job in review_jobs
+    }
+    return len(postures) >= 2
+
+
+def _review_posture_diversity_reason(review_jobs: list[JsonValue]) -> str:
+    if not review_jobs:
+        return "workflow has no review jobs"
+    postures = sorted(
+        {
+            str(job.get("review_posture") or "neutral")
+            for job in review_jobs
+        }
+    )
+    if len(postures) >= 2:
+        return f"review jobs cover multiple postures: {', '.join(postures)}"
+    return f"review jobs cover only one posture: {postures[0]}"
+
+
+def _lint_coverage_level(*, score: int, max_score: int) -> str:
+    if max_score <= 0:
+        return "weak"
+    if score == max_score:
+        return "strong"
+    if score >= max(1, (max_score * 3 + 4) // 5):
+        return "adequate"
+    return "weak"
 
 
 def _model_family(value: str) -> str:

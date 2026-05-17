@@ -404,6 +404,8 @@ def test_service_workflow_template_and_generate_endpoints(tmp_path: Path) -> Non
         status, body = _http_post_json(port, "/workflows/generate/preview", {"spec": spec})
         assert status == 200
         assert body["data"]["workflow"]["workflow_id"] == "demo"
+        assert body["data"]["lint"]["valid"] is True
+        assert "coverage" in body["data"]["lint"]
         assert not (tmp_path / "workflows" / "demo").exists()
 
         status, body = _http_post_json(

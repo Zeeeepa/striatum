@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { __testing } from "../islands/workflow-chooser";
 
-const { buildSpec, recommendedForText } = __testing;
+const { buildSpec, lintSummaryText, recommendedForText } = __testing;
 
 describe("workflow-chooser.buildSpec", () => {
   it("trims lane commands and drops empty entries", () => {
@@ -82,5 +82,52 @@ describe("workflow-chooser.recommendedForText", () => {
 
   it("returns empty string for undefined", () => {
     expect(recommendedForText(undefined)).toBe("");
+  });
+});
+
+describe("workflow-chooser.lintSummaryText", () => {
+  it("formats lint warning count and coverage level with score", () => {
+    expect(
+      lintSummaryText({
+        warning_count: 2,
+        warnings: ["same-family reviewers", "weak coverage"],
+        coverage: {
+          level: "weak",
+          score: 3,
+          max_score: 8,
+          checks: [],
+        },
+      }),
+    ).toBe("2 lint warnings; coverage weak (3/8)");
+  });
+
+  it("uses the singular label for one lint warning", () => {
+    expect(
+      lintSummaryText({
+        warning_count: 1,
+        coverage: {
+          level: "adequate",
+          score: 5,
+          max_score: 8,
+          checks: [],
+        },
+      }),
+    ).toContain("1 lint warning");
+  });
+
+  it("formats compact lint coverage when max score is absent", () => {
+    expect(
+      lintSummaryText({
+        warning_count: 0,
+        coverage: {
+          level: "strong",
+          score: 7,
+        },
+      }),
+    ).toBe("0 lint warnings; coverage strong (score 7)");
+  });
+
+  it("returns an empty string when lint is absent", () => {
+    expect(lintSummaryText(undefined)).toBe("");
   });
 });

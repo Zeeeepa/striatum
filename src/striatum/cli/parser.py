@@ -398,6 +398,13 @@ def build_parser() -> argparse.ArgumentParser:
         "--override-rationale",
         help="explicit operator rationale for accepting strict lint warnings",
     )
+    lint.add_argument(
+        "--accepted-risk-decision-id",
+        help=(
+            "decision id documenting accepted strict lint risk; valid only "
+            "with --strict --override-rationale"
+        ),
+    )
     lint.add_argument("--json", action="store_true")
     plan = workflow_sub.add_parser("plan")
     plan.add_argument("path")

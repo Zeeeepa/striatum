@@ -105,6 +105,17 @@ def test_lint_workflow_reports_dogfood_risk_rules() -> None:
         "repo_write_without_worktree_isolation",
         "missing_review_escalation_path",
     }.issubset(rules)
+    coverage = payload["coverage"]
+    assert coverage["level"] == "weak"
+    assert coverage["score"] < coverage["max_score"]
+    check_ids = {check["id"] for check in coverage["checks"]}
+    assert {
+        "reviewer_independence",
+        "fresh_context",
+        "write_isolation",
+        "revision_or_escalation_path",
+        "posture_diversity",
+    } == check_ids
 
 
 def test_lint_workflow_reports_same_model_review_pair_and_revision_cycle() -> None:
@@ -206,6 +217,39 @@ def test_workflow_lint_strict_accepts_explicit_override(
     }
 
 
+def test_workflow_lint_strict_override_records_accepted_risk_decision(
+    tmp_path: Path, monkeypatch: Any
+) -> None:
+    monkeypatch.setenv("STRIATUM_TEST_HARNESS", "1")
+    monkeypatch.setenv("STRIATUM_DAEMON_REQUIRED", "0")
+    workflow_path = tmp_path / "workflow.json"
+    workflow_path.write_text(json.dumps(_risky_review_workflow()), encoding="utf-8")
+
+    result = invoke(
+        [
+            "workflow",
+            "lint",
+            str(workflow_path),
+            "--strict",
+            "--override-rationale",
+            "accepted for dogfood continuity",
+            "--accepted-risk-decision-id",
+            "D123",
+            "--json",
+        ],
+        repo=tmp_path,
+    )
+
+    assert result["ok"] is True
+    payload = result["data"]
+    assert payload["strict"] == {
+        "mode": "overridden",
+        "warning_count": payload["warning_count"],
+        "override_rationale": "accepted for dogfood continuity",
+        "accepted_risk_decision_id": "D123",
+    }
+
+
 def test_workflow_lint_override_rationale_requires_strict(
     tmp_path: Path, monkeypatch: Any
 ) -> None:
@@ -230,11 +274,36 @@ def test_workflow_lint_override_rationale_requires_strict(
     assert "--strict" in result["error"]["message"]
 
 
+def test_workflow_lint_accepted_risk_decision_requires_strict_override(
+    tmp_path: Path, monkeypatch: Any
+) -> None:
+    monkeypatch.setenv("STRIATUM_TEST_HARNESS", "1")
+    monkeypatch.setenv("STRIATUM_DAEMON_REQUIRED", "0")
+    workflow_path = tmp_path / "workflow.json"
+    workflow_path.write_text(json.dumps(_risky_review_workflow()), encoding="utf-8")
+
+    result = invoke(
+        [
+            "workflow",
+            "lint",
+            str(workflow_path),
+            "--accepted-risk-decision-id",
+            "D123",
+        ],
+        repo=tmp_path,
+    )
+
+    assert result["ok"] is False
+    assert result["error"]["code"] == 2
+    assert "--override-rationale" in result["error"]["message"]
+
+
 def test_lint_workflow_reports_structural_errors_without_raising() -> None:
     payload = lint_workflow({"schema_version": "striatum.workflow.v1"})
 
     assert payload["valid"] is False
     assert "missing required fields" in payload["errors"][0]["message"]
+    assert payload["coverage"]["level"] == "weak"
 
 
 def test_workflow_lint_strict_refuses_invalid_workflow(

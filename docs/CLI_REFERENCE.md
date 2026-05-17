@@ -61,14 +61,19 @@ non-terminal run referencing it in the target repository's
 scoped to harness-profile fragments only; other corrections will
 land as separate verbs.
 
-`workflow lint <path> [--strict] [--override-rationale <text>]`
+`workflow lint <path> [--strict] [--override-rationale <text>] [--accepted-risk-decision-id <id>]`
 returns structured advisory warnings for operational workflow risks
 such as same-model review pairs, review jobs without fresh context,
 broad write scopes, repo-write jobs without per-job worktree
 isolation, and review workflows without revision or escalation paths.
+The JSON payload also includes advisory coverage scoring for reviewer
+independence, fresh context, write isolation, revision/escalation path,
+and review posture diversity.
 With `--strict`, lint warnings refuse the command unless the operator
 records a non-empty override rationale; JSON/API refusals include the
-lint payload under `error.details`.
+lint payload under `error.details`. `--accepted-risk-decision-id`
+records the decision reference for an accepted strict override and is
+valid only with `--strict --override-rationale`.
 
 `striatum init` creates `.striatum/` in the target repo. The
 optional flags scaffold extra material:
