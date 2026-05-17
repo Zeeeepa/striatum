@@ -46,7 +46,10 @@ in the roadmap/TODO and has several production slices landed:
   binding; the old SQLite integrity check is limited to the subprocess
   compatibility harness. The web SSE event stream now polls daemon
   `run.events` in production, with the old SQLite event tail kept only for
-  the same subprocess harness.
+  the same subprocess harness. As the first behavior-preserving split,
+  pure HTTP/security helpers moved from `service.py` into
+  `service_http.py` while keeping the existing `striatum.service` imports
+  stable.
 - **Escalation inbox foundation.**
   `escalation.list`, `escalation.show`, and `escalation.resolve` project
   human-principal escalations from blocker state. The `escalation` artifact

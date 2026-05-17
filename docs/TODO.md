@@ -871,8 +871,11 @@ review and plan are root-level operator artifacts:
     only for subprocess fixtures. The job detail page now calls daemon
     `job.detail` for page state in production, with override-verdict
     context-token minting kept local and direct SQLite retained only for
-    subprocess fixtures. Remaining: split `service.py` after the route
-    authority cleanup.
+    subprocess fixtures. First behavior-preserving split landed:
+    `service_http.py` owns pure HTTP/security helpers while `service.py`
+    re-exports the same names for existing callers. Remaining: continue
+    splitting `service.py` along stable boundaries, starting with
+    chat-session helpers and then legacy subprocess-fixture fallbacks.
 
 53. **Phase 5: real escalation inbox.** First slice landed:
     `escalation.list`, `escalation.show`, and `escalation.resolve`

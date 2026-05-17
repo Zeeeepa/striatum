@@ -10,7 +10,6 @@ Mutations are gated behind ``--allow-mutations``.
 
 from __future__ import annotations
 
-import hmac
 import hashlib
 import json
 import os
@@ -31,16 +30,20 @@ from urllib.parse import parse_qs, quote, unquote, urlsplit
 
 from striatum.api import invoke
 from striatum.db import db_path
+from striatum.service_http import (
+    LOOPBACK_HOSTS as LOOPBACK_HOSTS,
+    OriginTuple as OriginTuple,
+    allowed_origins_for_bind as allowed_origins_for_bind,
+    argv_value as _argv_value,
+    is_json_content_type as is_json_content_type,
+    make_web_context_token as make_web_context_token,
+    parse_header_origin as parse_header_origin,
+    parse_host_origin as parse_host_origin,
+    tokens_match as tokens_match,
+    verify_web_context_token as verify_web_context_token,
+)
 
 JsonObject = dict[str, Any]
-OriginTuple = tuple[str, str, int]
-
-LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
-HTTP_TOKEN_CHARS = frozenset(
-    "!#$%&'*+-.^_`|~0123456789"
-    "abcdefghijklmnopqrstuvwxyz"
-    "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
-)
 
 SSE_POLL_INTERVAL_SECONDS = 0.25
 SSE_MAX_CONCURRENT_PER_RUN = 32
@@ -1658,170 +1661,6 @@ def _daemon_method_for_argv(argv: list[str]) -> str | None:
     if method in METHOD_REGISTRY:
         return method
     return None
-
-
-def tokens_match(provided: str, expected: str) -> bool:
-    """Constant-time token comparison that masks length differences.
-
-    ``hmac.compare_digest`` short-circuits on length mismatch, leaking
-    the expected length through wall-clock time. Padding both sides to
-    a fixed minimum and explicitly comparing lengths after the
-    constant-time digest avoids the leak (design-review F1).
-    """
-    p = provided.encode("utf-8")
-    e = expected.encode("utf-8")
-    target = max(len(p), len(e), 64)
-    p_padded = p.ljust(target, b"\x00")
-    e_padded = e.ljust(target, b"\x00")
-    return hmac.compare_digest(p_padded, e_padded) and len(p) == len(e)
-
-
-def _argv_value(argv: list[str], flag: str) -> str | None:
-    """Return the value for ``--flag`` in an argv list, or ``None``.
-
-    Supports both ``--flag value`` and ``--flag=value`` shapes.
-    """
-    for index, token in enumerate(argv):
-        if token == flag and index + 1 < len(argv):
-            return argv[index + 1]
-        if token.startswith(flag + "="):
-            return token[len(flag) + 1 :]
-    return None
-
-
-def is_json_content_type(ctype: str) -> bool:
-    """GH #9: strict JSON Content-Type match.
-
-    Splits at the first parameter separator and lowercases the bare
-    media type, so ``application/json`` and ``application/json;
-    charset=utf-8`` accept but ``text/plain`` and ``text/application/
-    json`` reject. Substring matching is unsafe because attackers can
-    use ``Content-Type: text/plain`` (a CORS "simple" request) to elide
-    preflight, or sneak through with bogus prefixes.
-    """
-    if not ctype or "," in ctype or "\r" in ctype or "\n" in ctype:
-        return False
-    parts = ctype.split(";")
-    base = parts[0].strip().lower()
-    if base != "application/json":
-        return False
-    for raw_param in parts[1:]:
-        param = raw_param.strip()
-        if not param:
-            return False
-        name, separator, value = param.partition("=")
-        if not separator:
-            return False
-        if not _is_http_token(name.strip()):
-            return False
-        if not _is_content_type_param_value(value.strip()):
-            return False
-    return True
-
-
-def _is_http_token(value: str) -> bool:
-    return bool(value) and all(ch in HTTP_TOKEN_CHARS for ch in value)
-
-
-def _is_content_type_param_value(value: str) -> bool:
-    if not value:
-        return False
-    if value.startswith('"'):
-        if len(value) < 2 or not value.endswith('"'):
-            return False
-        inner = value[1:-1]
-        return "\r" not in inner and "\n" not in inner
-    return _is_http_token(value)
-
-
-def _loopback_aliases(host: str) -> set[str]:
-    normalized = host.strip().lower()
-    if normalized == "localhost":
-        return {"localhost", "127.0.0.1", "::1"}
-    if normalized == "127.0.0.1":
-        return {"127.0.0.1", "localhost"}
-    if normalized == "::1":
-        return {"::1", "localhost"}
-    return {normalized}
-
-
-def allowed_origins_for_bind(host: str, port: int) -> set[OriginTuple]:
-    return {("http", alias, port) for alias in _loopback_aliases(host)}
-
-
-def parse_host_origin(host_header: str) -> OriginTuple | None:
-    """Parse a request Host header into the service's HTTP origin tuple."""
-    value = host_header.strip()
-    if not value or "," in value or "://" in value or "@" in value:
-        return None
-    try:
-        parsed = urlsplit("//" + value)
-        port = parsed.port
-    except ValueError:
-        return None
-    if parsed.hostname is None or port is None:
-        return None
-    return ("http", parsed.hostname.lower(), int(port))
-
-
-def parse_header_origin(origin_or_referer: str) -> OriginTuple | None:
-    """Return the origin tuple of an Origin or Referer header, or
-    ``None`` if the value is malformed or schemeless.
-
-    Browsers only set ``Origin``/``Referer`` to absolute URLs (or the
-    literal ``null`` for some sandboxed contexts). We refuse anything
-    we cannot parse — there is no benign reason for an Origin/Referer
-    we cannot interpret to bypass same-origin enforcement.
-    """
-    if not origin_or_referer:
-        return None
-    value = origin_or_referer.strip()
-    if value == "null" or "://" not in value:
-        return None
-    try:
-        parsed = urlsplit(value)
-    except ValueError:
-        return None
-    if parsed.scheme != "http" or not parsed.netloc:
-        return None
-    try:
-        port = parsed.port
-    except ValueError:
-        return None
-    if parsed.hostname is None:
-        return None
-    return ("http", parsed.hostname.lower(), int(port) if port is not None else 80)
-
-
-def make_web_context_token(secret: bytes, *, run_id: str, job_id: str, session_id: str) -> str:
-    """GH #10: mint a process-local HMAC token binding the rendered
-    job page to a specific override action.
-
-    The token is purely defense-in-depth on top of the GH #9 CSRF
-    mitigations: it lets the server reject override-verdict POSTs whose
-    DOM-derived identifiers were tampered with between page render and
-    submit. We use ``hashlib.blake2b`` so the secret never leaves the
-    process and the token has a fixed short shape.
-    """
-    payload = "\x1f".join(["override_verdict", run_id, job_id, session_id]).encode("utf-8")
-    return hashlib.blake2b(payload, key=secret, digest_size=16).hexdigest()
-
-
-def verify_web_context_token(
-    secret: bytes,
-    *,
-    token: str,
-    run_id: str,
-    job_id: str,
-    session_id: str,
-) -> bool:
-    expected = make_web_context_token(
-        secret,
-        run_id=run_id,
-        job_id=job_id,
-        session_id=session_id,
-    )
-    return hmac.compare_digest(expected, token)
 
 
 def utcnow_iso() -> str:

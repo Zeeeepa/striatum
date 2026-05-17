@@ -379,9 +379,15 @@ daemon-first without needing to support two domain daemons.
   expected-artifact, artifact, process-evidence, and verdict state. Override
   context-token minting remains local to the web service; the direct SQLite
   page read is limited to the subprocess test-harness fallback.
+- `src/striatum/service_http.py` now owns the pure HTTP/security helpers
+  for token comparison, JSON content-type validation, origin parsing, bind
+  origin derivation, argv flag lookup, and web-context HMAC tokens. The
+  names remain re-exported through `service.py` for existing callers and
+  tests.
 
-**Remaining Phase 4 debt:** `service.py` remains due for a split now that the
-route authority cleanup has moved the listed page reads onto daemon DTOs.
+**Remaining Phase 4 debt:** continue splitting `service.py` along stable
+boundaries, starting with chat-session helpers and then legacy
+subprocess-fixture fallbacks after the daemon-routed paths are stable.
 
 ---
 
