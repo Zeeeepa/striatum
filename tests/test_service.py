@@ -1196,6 +1196,84 @@ def test_json_read_endpoints_route_daemon_without_invoke_or_sqlite(
     ]
 
 
+def test_doctor_page_reads_daemon_dto_without_sqlite(
+    tmp_path: Path, monkeypatch: Any
+) -> None:
+    sys.path.insert(0, str(ROOT / "src"))
+    try:
+        import striatum.service as service
+        import striatum.service_daemon as service_daemon
+    finally:
+        sys.path.pop(0)
+
+    captured: dict[str, Any] = {}
+    calls: list[tuple[Path, str, dict[str, Any]]] = []
+
+    class FakeTemplate:
+        def render(self, **kwargs: Any) -> str:
+            captured.update(kwargs)
+            return "ok"
+
+    class FakeEnvironment:
+        def get_template(self, name: str) -> FakeTemplate:
+            assert name == "doctor.html"
+            return FakeTemplate()
+
+    def sqlite_tripwire(*args: Any, **kwargs: Any) -> None:
+        raise AssertionError("doctor page opened repo-local SQLite")
+
+    def fake_call_repo_method(
+        repo: Path, method: str, params: dict[str, Any]
+    ) -> dict[str, Any]:
+        calls.append((repo, method, dict(params)))
+        return {
+            "ok": False,
+            "schema_version": 5,
+            "problems": ["human_checkpoint_open"],
+            "problem_records": [
+                {
+                    "check": "human_checkpoint_open",
+                    "severity": "info",
+                    "run_id": "run_1",
+                    "blocker_id": "blk_1",
+                }
+            ],
+        }
+
+    handler = object.__new__(service.StriatumServiceHandler)
+    handler.state = service.ServiceState(
+        repo=tmp_path,
+        allow_mutations=False,
+        token=None,
+        web_enabled=True,
+    )
+    sent: dict[str, Any] = {}
+    monkeypatch.setattr(
+        handler,
+        "_send_html",
+        lambda status, body: sent.update({"status": status, "body": body}),
+    )
+    monkeypatch.setattr(
+        handler,
+        "_send_json",
+        lambda status, body: sent.update({"status": status, "body": body}),
+    )
+    monkeypatch.setattr(service, "_jinja_env", lambda: FakeEnvironment())
+    monkeypatch.setattr("striatum.service_legacy.sqlite3.connect", sqlite_tripwire)
+    monkeypatch.setattr(service_daemon, "call_repo_method", fake_call_repo_method)
+
+    handler._render_doctor_page()
+
+    assert sent == {"status": 200, "body": "ok"}
+    assert calls == [(tmp_path, "doctor", {"verbose": True})]
+    records = captured["doctor"]["problem_records"]
+    assert records[0]["recipes"] == [
+        "striatum checkpoint resolve --blocker-id blk_1 --action continue",
+        "striatum checkpoint resolve --blocker-id blk_1 --action cancel",
+    ]
+    assert captured["problem_groups"] == {"human_checkpoint_open": records}
+
+
 def test_web_run_cancel_posts_daemon_rpc_without_sqlite(tmp_path: Path, monkeypatch: Any) -> None:
     calls: list[tuple[str, dict[str, Any]]] = []
     handler, sent = _web_mutation_handler(

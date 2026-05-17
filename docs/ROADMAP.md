@@ -357,6 +357,9 @@ daemon-first without needing to support two domain daemons.
   run artifact rollups now call daemon read DTOs directly instead of routing
   through the legacy CLI invoke wrapper. Test-harness fallbacks preserve the
   old subprocess fixture path only.
+- The `/doctor` HTML page now calls daemon `doctor` in production, with
+  grouped problem records and per-record recovery recipes still shaped for
+  the template. Direct SQLite remains only in the test-harness fallback.
 - The artifact detail page now calls daemon `artifact.show` with optional
   web context for run scoping, expected author line, and operator-on-behalf
   provenance. The existing raw-artifact endpoint remains backward-compatible

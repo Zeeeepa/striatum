@@ -869,7 +869,10 @@ review and plan are root-level operator artifacts:
     artifact-rollup read endpoints now call daemon read DTOs directly
     instead of the legacy CLI invoke wrapper. The artifact detail page now
     uses daemon `artifact.show` with optional web context for run scoping,
-    expected author line, and provenance events. The `/v1/invoke` mutation
+    expected author line, and provenance events. The `/doctor` HTML page now
+    renders from daemon `doctor` in production, with per-record recipe shaping
+    kept in web presentation code and direct SQLite retained only for the
+    subprocess fixture fallback. The `/v1/invoke` mutation
     gate now derives daemon-routed read classification from
     `METHOD_REGISTRY.required_capability`, with only CLI-local workflow
     authoring reads left in an explicit service allowlist. Production service

@@ -1436,7 +1436,9 @@ Routes:
   Production metadata reads use daemon `artifact.show` with optional
   web context for run scoping, expected author line, and provenance trail
   rows; the legacy SQLite path exists only for subprocess test fixtures.
-- `GET /doctor` → `doctor.html`.
+- `GET /doctor` → `doctor.html`. Production page state comes from daemon
+  `doctor` with verbose problem records; direct SQLite is limited to the
+  subprocess compatibility fallback.
 - `GET /static/<path>` → bundled asset (CSS / JS islands).
 - All HTML responses set `Content-Security-Policy: default-src 'self';
   script-src 'self'; style-src 'self'; img-src 'self' data:;

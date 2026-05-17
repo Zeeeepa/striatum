@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any, Callable, Mapping
 
 from striatum.db import db_path
+from striatum.web.doctor import shape_doctor_records
 
 
 JsonObject = dict[str, Any]
@@ -456,7 +457,7 @@ def legacy_doctor_page_payload(repo: Path) -> JsonObject:
     with sqlite3.connect(str(db_path(repo))) as conn:
         conn.row_factory = sqlite3.Row
         doctor_payload = doctor_command(conn, repo=repo, run_id=None, verbose=True)
-    records = _shape_doctor_records(list(doctor_payload.get("problem_records") or []))
+    records = shape_doctor_records(list(doctor_payload.get("problem_records") or []))
     doctor_payload["problem_records"] = records
     return doctor_payload
 
@@ -977,45 +978,6 @@ def _artifact_provenance_trail(
         item["payload"] = payload if isinstance(payload, dict) else {}
         trail.append(item)
     return trail
-
-
-def _doctor_record_recipes(record: Mapping[str, Any]) -> list[str]:
-    check = str(record.get("check") or "")
-    context = record.get("context")
-    ctx = context if isinstance(context, dict) else {}
-    run_id = str(ctx.get("run_id") or "")
-    job_id = str(ctx.get("job_id") or "")
-    session_id = str(ctx.get("session_id") or "")
-    blocker_id = str(ctx.get("blocker_id") or "")
-    recipes: list[str] = []
-    if check in {"process_running_but_pid_gone", "process_running_with_expired_lease"} and run_id:
-        recipes.append(f"striatum recovery process-reconcile --run-id {run_id}")
-    elif check == "supervisor_lost_with_held_lease":
-        if run_id and job_id:
-            recipes.append(
-                f'striatum recovery cancel-job --run-id {run_id} --job-id {job_id} --reason "supervisor lost with held lease"'
-            )
-        if session_id:
-            recipes.append(f"striatum supervise stop --session-id {session_id}")
-    elif check == "active_session_on_terminal_run" and session_id:
-        recipes.append(f"striatum session close --session-id {session_id} --reason terminal_run_cleanup")
-    elif check in {"orphaned_worktree", "missing_worktree"} and run_id:
-        recipes.append(f"striatum doctor --run-id {run_id} --verbose")
-    elif check == "human_checkpoint_open" and blocker_id:
-        recipes.append(f"striatum checkpoint resolve --blocker-id {blocker_id} --action continue")
-        recipes.append(f"striatum checkpoint resolve --blocker-id {blocker_id} --action cancel")
-    return recipes
-
-
-def _shape_doctor_records(records: list[Any]) -> list[JsonObject]:
-    shaped: list[JsonObject] = []
-    for record in records:
-        if not isinstance(record, dict):
-            continue
-        item = dict(record)
-        item["recipes"] = _doctor_record_recipes(item)
-        shaped.append(item)
-    return shaped
 
 
 def _view_file_run_breadcrumb(conn: sqlite3.Connection, *, rel_path: str) -> JsonObject | None:
