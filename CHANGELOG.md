@@ -138,6 +138,11 @@ Recent checkpoints:
   inside the target repository for `run prepare`, install the packaged RPC
   method contract into wheels, and use the current `striatum-orchestrator`
   distribution artifact names.
+- Artifact view template-context shaping, byline display, recorded
+  attestation chips, lane-evidence chips, and expected-artifact row shaping
+  moved into `striatum.web.artifacts`; the daemon-backed artifact page no
+  longer reaches into the legacy SQLite fallback module for pure
+  presentation shaping.
 
 - **Command authority and fallback guardrails.**
   `docs/architecture/COMMAND_AUTHORITY_MATRIX.md` now names the authority

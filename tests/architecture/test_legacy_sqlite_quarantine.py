@@ -264,6 +264,9 @@ def test_legacy_service_owns_page_read_payload_fallbacks() -> None:
     assert top_level_legacy_imports == []
     assert "def _legacy_service(" in service_source
     assert "striatum.service_legacy" not in service_source
+    assert "_legacy_shape_artifact_rows" not in service_source
+    assert '_LazyLegacyCallable("_byline_line")' not in service_source
+    assert '_LazyLegacyCallable("legacy_shape_artifact_rows")' not in service_source
 
     page_payload_builders = {
         "legacy_run_detail_payload",

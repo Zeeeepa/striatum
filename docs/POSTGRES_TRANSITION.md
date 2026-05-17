@@ -339,8 +339,9 @@ remaining substrate-port work on the daemon side:
 - **Phase A (v1.49.0)** — 16 single-repo mutation handlers ported to
   PG-backed daemon handlers under
   `src/striatum/daemon_pg/handlers/{workflow_loop,recovery_evidence}/`.
-  `DaemonRpcRouter._route` resolves the PG handler before falling
-  through to the legacy SQLite dispatch.
+  `DaemonRpcRouter._route` initially resolved the PG handler before
+  transition-era SQLite dispatch; current mapped CLI verbs fail closed
+  instead of falling back.
 - **Phase B (v1.50.0–v1.54.0 + follow-up)** — Go helper/runtime
   fixtures: 12 read handlers (`go/pkg/reads/`) and selected mutation
   plumbing (`go/pkg/mutations/`) were implemented as developer-harness
@@ -361,8 +362,8 @@ remaining substrate-port work on the daemon side:
   pointer).
 - **Mapped CLI fail-closed (follow-up)** — mapped daemon RPC verbs
   no longer fall back to SQLite when the daemon is unreachable;
-  unmapped bootstrap and admin surfaces still fall through by
-  design.
+  CLI-local bootstrap and admin surfaces remain explicit out-of-band
+  helpers, not SQLite fallback routes.
 
 For ported methods, `STRIATUM_DAEMON_REQUIRED=0
 STRIATUM_TEST_HARNESS=1` no longer takes effect — the CLI dispatch

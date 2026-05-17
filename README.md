@@ -37,7 +37,10 @@ flowchart LR
   CLI -- "publish provenance" --> Artifacts
 ```
 
-The daemon owns live state. The target repository owns durable provenance. `.striatum/` next to each target repo is operational scratch (supervised wrapper FIFOs, pidfiles, the capability-token cache).
+The daemon owns live state. The target repository owns durable provenance.
+`.striatum/` next to each target repo is operational scratch (supervised
+wrapper FIFOs, pidfiles, and transient supervisor scratch). The daemon runtime
+token lives under the daemon runtime directory as `client-token`.
 
 ## The two roles
 

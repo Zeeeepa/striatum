@@ -17,6 +17,9 @@ from pathlib import Path
 from typing import Any, Callable, Mapping
 
 from striatum.db import db_path
+from striatum.web.artifacts import byline_line as _byline_line
+from striatum.web.artifacts import lane_evidence_chip as _lane_evidence_chip
+from striatum.web.artifacts import shape_artifact_rows
 from striatum.web.doctor import shape_doctor_records
 
 
@@ -636,97 +639,6 @@ def _lane_attestation_chip(
     }
 
 
-def _recorded_artifact_attestation_chip(
-    author_line: Any,
-    *,
-    expected_author_line: Any = None,
-    attestation_override_rationale: Any = None,
-) -> JsonObject:
-    actual = str(author_line).strip().lower() if author_line else ""
-    expected = (
-        str(expected_author_line).strip().lower()
-        if expected_author_line is not None
-        else ""
-    )
-    if attestation_override_rationale:
-        return {
-            "state": "unattested",
-            "attested": False,
-            "reason": "operator_override",
-            "supervisor_id": None,
-            "label": "unattested",
-        }
-    if actual.startswith("author: operator"):
-        return {
-            "state": "unattested",
-            "attested": False,
-            "reason": "operator_byline",
-            "supervisor_id": None,
-            "label": "unattested",
-        }
-    if expected and actual == expected:
-        return {
-            "state": "attested",
-            "attested": True,
-            "reason": None,
-            "supervisor_id": None,
-            "label": "attested",
-        }
-    return {
-        "state": "unattested",
-        "attested": False,
-        "reason": "expected_author_line_mismatch" if expected else "expected_author_line_missing",
-        "supervisor_id": None,
-        "label": "unattested",
-    }
-
-
-def _lane_evidence_chip(*, attestation_override_rationale: Any = None) -> JsonObject:
-    rationale = (
-        str(attestation_override_rationale).strip()
-        if attestation_override_rationale is not None
-        else ""
-    )
-    if rationale:
-        return {
-            "state": "override",
-            "label": "override",
-            "muted": False,
-            "rationale": rationale,
-        }
-    return {
-        "state": "not_yet_correlated",
-        "label": "not yet correlated",
-        "muted": True,
-        "rationale": None,
-    }
-
-
-def _byline_line(
-    author_line: Any,
-    *,
-    expected_author_line: Any = None,
-    attested: bool | None = None,
-    operator_label: Any = None,
-) -> JsonObject:
-    actual = str(author_line) if author_line is not None else None
-    expected = str(expected_author_line) if expected_author_line is not None else None
-    if attested is False:
-        label = str(operator_label).strip() if operator_label else ""
-        display = f"author: operator [self-declared: {label}]" if label else "author: operator"
-    else:
-        display = actual if actual else "author: <missing>"
-    return {
-        "author_line": actual,
-        "expected_author_line": expected,
-        "display": display,
-        "attested": attested,
-        "matches_expected": (
-            None if actual is None or expected is None else actual == expected
-        ),
-    }
-
-
 def _verdict_chip(verdict: Any, *, provenance: str, rationale: Any = None) -> JsonObject:
     normalized = str(verdict or "unknown")
     normalized_provenance = provenance.replace("_", "-")
@@ -1061,28 +973,7 @@ def legacy_shape_artifact_rows(
     expected_rows: list[JsonObject],
 ) -> list[dict[str, Any]]:
     del conn
-    expected_by_path = {str(row.get("path")): row for row in expected_rows}
-    for artifact in artifacts:
-        expected = expected_by_path.get(str(artifact.get("repo_path")))
-        expected_author_line = expected.get("expected_author_line") if expected else None
-        override_rationale = artifact.get("attestation_override_rationale")
-        attestation = _recorded_artifact_attestation_chip(
-            artifact.get("author_line"),
-            expected_author_line=expected_author_line,
-            attestation_override_rationale=override_rationale,
-        )
-        artifact["expected_author_line"] = expected_author_line
-        artifact["byline_line"] = _byline_line(
-            artifact.get("author_line"),
-            expected_author_line=expected_author_line,
-            attested=bool(attestation.get("attested")),
-        )
-        artifact["lane_attestation_chip"] = attestation
-        artifact["lane_evidence_chip"] = _lane_evidence_chip(
-            attestation_override_rationale=override_rationale,
-        )
-        artifact["attestation_override_rationale"] = override_rationale
-    return artifacts
+    return shape_artifact_rows(artifacts=artifacts, expected_rows=expected_rows)
 
 
 def send_legacy_fixture_error(handler: BaseHTTPRequestHandler, exc: Exception) -> bool:

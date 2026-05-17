@@ -42,7 +42,8 @@ Striatum is a local-first runner whose authoritative live state
 lives in a daemon-owned PostgreSQL instance under a `repository_id`
 scope per target repository (D094 / RFC 0043). `.striatum/` next to
 the target repo is operational scratch only — supervised wrapper
-FIFOs, pidfiles, the daemon capability-token cache. The runner —
+FIFOs, pidfiles, and transient supervisor scratch. The daemon runtime
+token lives under the daemon runtime directory as `client-token`. The runner —
 not your prose, and not direct database access — advances state.
 You move the workflow forward by calling `striatum` CLI verbs.
 

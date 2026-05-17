@@ -166,8 +166,11 @@ target repository's working tree. After this RFC:
 │       └── pid                 # process identity file
 ├── worktrees/
 │   └── <worktree_id>/          # git worktree (RFC 0008); no metadata file
-└── daemon-token                # cached operator capability token (mode 0600)
+└── bin/                       # optional supervised lane wrappers
 ```
+
+The daemon runtime token is outside the target repository, under the daemon
+runtime directory as `client-token`.
 
 Nothing in `.striatum/` is durable workflow truth. `striatum doctor`
 treats files outside this allowlist as warnings, and the `.gitignore`
@@ -578,8 +581,9 @@ Terms to add to `docs/UBIQUITOUS_LANGUAGE.md` after acceptance:
   Replaces the V1 sense of `.striatum/state.sqlite3`.
 - **Operational scratch** — the post-D094 role of `.striatum/`: a
   filesystem location next to the target repo for supervised wrapper
-  FIFOs, pidfiles, transient supervisor stdout, and the daemon
-  capability-token cache. Nothing here is durable workflow truth.
+  FIFOs, pidfiles, transient supervisor stdout, optional lane wrappers, and
+  plugin scratch. The daemon runtime token lives under the daemon runtime
+  directory as `client-token`. Nothing here is durable workflow truth.
 - **Daemon-required CLI** — the post-D094 default and only CLI behavior.
   Every verb routes through the daemon RPC envelope; the daemon is the
   single writer. There is no SQLite fallback.

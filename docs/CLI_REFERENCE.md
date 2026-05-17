@@ -155,8 +155,8 @@ striatum dashboard --all
 `dashboard --all` (RFC 0028 V1) groups registered repositories and
 reports repo-local runs, blockers, claimable jobs, stale leases,
 and degraded repositories. It is registry-backed and requires a
-daemon `read` capability token (bootstrapped by `repo add` or
-`daemon start`) even when `--daemon` is not passed.
+daemon `read` capability token (bootstrapped by `daemon start`) even
+when `--daemon` is not passed.
 
 ## Daemon and multi-repo registry (RFC 0028 V1)
 
@@ -182,7 +182,7 @@ striatum daemon migrate-repo-local --from sqlite --to pg
 striatumd                     # console-script alias for `daemon start`
 striatum repo add <path> [--init] [--no-migrate]
 striatum repo list
-striatum repo remove <path>
+striatum repo remove <id>
 striatum cross-repo list
 striatum cross-repo describe <cross_repo_run_id>
 striatum cross-repo why <cross_repo_run_id>

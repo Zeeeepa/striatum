@@ -453,6 +453,11 @@ daemon-first without needing to support two domain daemons.
 - `src/striatum/web/job_detail.py` now owns job-detail template context
   shaping and override-context-token minting. `service.py` keeps daemon
   RPC/fallback and HTTP response mapping for the route.
+- `src/striatum/web/artifacts.py` now also owns artifact-view template
+  context shaping, byline display, recorded attestation chips, lane-evidence
+  chips, and expected-artifact row shaping. The daemon-backed artifact page
+  no longer reaches into `legacy_sqlite.service` for pure presentation
+  shaping.
 
 **Remaining Phase 4 debt:** continue splitting `service.py` along stable
 non-SQLite request-handling and rendering boundaries after the daemon-routed

@@ -214,7 +214,6 @@ After `init`, the target repo contains:
 .striatum/
   scratch/            # per-supervisor named pipes / pidfiles (RFC 0009)
   bin/                # optional; e.g., claude-supervised-wrapper.sh
-  daemon-token        # optional; 0600 capability-token cache (RFC 0033)
 ```
 
 `.striatum/` is operational scratch only. Authoritative workflow

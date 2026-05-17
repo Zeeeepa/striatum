@@ -82,9 +82,12 @@ from striatum.web.static_assets import (
     load_static_asset as _load_static_asset,
 )
 from striatum.web.artifacts import (
+    ArtifactViewPayloadError as _ArtifactViewPayloadError,
     artifact_content_type as _artifact_content_type,
-    inline_artifact_body as _inline_artifact_body,
+    artifact_view_template_context as _artifact_view_template_context,
+    byline_line as _byline_line_web,
     resolve_artifact_file as _resolve_artifact_file,
+    shape_artifact_rows as _shape_artifact_rows_web,
 )
 from striatum.web.job_detail import (
     JobDetailPayloadError as _JobDetailPayloadError,
@@ -117,8 +120,6 @@ class _LazyLegacyCallable:
         return getattr(_legacy_service(), self._name)(*args, **kwargs)
 
 
-_byline_line = _LazyLegacyCallable("_byline_line")
-_shape_artifact_rows = _LazyLegacyCallable("legacy_shape_artifact_rows")
 _shape_verdict_rows = _LazyLegacyCallable("_shape_verdict_rows")
 _legacy_artifact_metadata = _LazyLegacyCallable("legacy_artifact_metadata")
 _legacy_artifact_raw_fallback_enabled = _LazyLegacyCallable(
@@ -140,7 +141,6 @@ _legacy_run_posture_verdicts_payload = _LazyLegacyCallable(
     "legacy_run_posture_verdicts_payload"
 )
 _legacy_run_resume = _LazyLegacyCallable("legacy_run_resume")
-_legacy_shape_artifact_rows = _shape_artifact_rows
 _legacy_stream_events_body = _LazyLegacyCallable("legacy_stream_events_body")
 _legacy_verify_state_health = _LazyLegacyCallable("legacy_verify_state_health")
 _legacy_view_file_run_breadcrumb = _LazyLegacyCallable("legacy_view_file_run_breadcrumb")
@@ -151,6 +151,31 @@ _send_legacy_run_now_error = _LazyLegacyCallable("send_legacy_run_now_error")
 _short_git_status = _LazyLegacyCallable("short_git_status")
 
 SSE_POLL_INTERVAL_SECONDS = 0.25
+
+
+def _shape_artifact_rows(
+    _conn: object = None,
+    *,
+    artifacts: list[dict[str, Any]],
+    expected_rows: list[Mapping[str, Any]],
+) -> list[dict[str, Any]]:
+    del _conn
+    return _shape_artifact_rows_web(artifacts=artifacts, expected_rows=expected_rows)
+
+
+def _byline_line(
+    author_line: Any,
+    *,
+    expected_author_line: Any = None,
+    attested: bool | None = None,
+    operator_label: Any = None,
+) -> dict[str, Any]:
+    return _byline_line_web(
+        author_line,
+        expected_author_line=expected_author_line,
+        attested=attested,
+        operator_label=operator_label,
+    )
 
 
 def _handler_send_json(handler: BaseHTTPRequestHandler, status: int, body: Mapping[str, Any]) -> None:
@@ -851,39 +876,18 @@ class StriatumServiceHandler(BaseHTTPRequestHandler):
                         {"ok": False, "error": {"code": exc.code, "message": exc.message}},
                     )
                     return
-            run_raw = payload.get("run")
-            artifact_raw = payload.get("artifact")
-            if not isinstance(run_raw, Mapping) or not isinstance(artifact_raw, Mapping):
+            try:
+                context = _artifact_view_template_context(
+                    self.state.repo,
+                    payload,
+                )
+            except _ArtifactViewPayloadError as exc:
                 self._send_json(
                     500,
-                    {
-                        "ok": False,
-                        "error": {"code": 500, "message": "daemon artifact DTO missing fields"},
-                    },
+                    {"ok": False, "error": {"code": 500, "message": str(exc)}},
                 )
                 return
-            run = dict(run_raw)
-            artifact = dict(artifact_raw)
-            if "lane_attestation_chip" not in artifact:
-                expected_rows = [
-                    {
-                        "path": artifact.get("repo_path"),
-                        "expected_author_line": payload.get("expected_author_line"),
-                    }
-                ]
-                artifact = _legacy_shape_artifact_rows(
-                    None,
-                    artifacts=[artifact],
-                    expected_rows=expected_rows,
-                )[0]
-            if "provenance_trail" not in artifact:
-                trail = payload.get("provenance_trail")
-                artifact["provenance_trail"] = trail if isinstance(trail, list) else []
-            body = _inline_artifact_body(self.state.repo, artifact)
-            html = _jinja_env().get_template("artifact_view.html").render(
-                run=run, artifact=artifact,
-                rendered_md=body.rendered_md, body_text=body.body_text,
-            )
+            html = _jinja_env().get_template("artifact_view.html").render(**context)
             self._send_html(200, html)
         except Exception as exc:  # noqa: BLE001
             self._send_json(500, {"ok": False, "error": {"code": 500, "message": str(exc)}})

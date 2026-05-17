@@ -76,8 +76,8 @@ Verification run in the follow-up:
 
 The CLI dispatch hook now refuses to fall back to legacy SQLite for mapped,
 registered RPC methods when the daemon is unreachable or the target repository
-is not registered. Unmapped bootstrap and admin surfaces still fall through by
-design.
+is not registered. CLI-local bootstrap and admin surfaces remain explicit
+out-of-band helpers, not SQLite fallback routes.
 
 ## Pre-flight checks before next workflow / commit
 

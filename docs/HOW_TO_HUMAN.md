@@ -28,9 +28,9 @@ The AI operator escalates to you in one of two shapes:
    `committee_stalemate` (RFC 0052), `override_required`.
 2. **An AI-self-declared escalation.** An `escalation` artifact
    the AI operator published when it judged itself stuck and no
-   declared blocker class fit. (Artifact-kind schema lands in the
-   RFC 0053 Phase A follow-up; today this surface is approximated
-   by a `blocker` with operator-chosen text.)
+   declared blocker class fit. `striatum.escalation.v1` artifacts are
+   linked to existing escalation-class blockers; publishing one enriches
+   the escalation inbox projection but does not create a new live blocker.
 
 Either way the escalation appears in your inbox alongside
 ordinary state. Check it whenever you sit down at the runner:
@@ -103,8 +103,9 @@ striatum --repo "$TARGET_REPO" recovery resume \
   --json
 ```
 
-(A dedicated `striatum escalation resolve` verb is on the RFC 0053
-Phase A backlog; for now `recovery resume` is the path.)
+The dedicated `striatum escalation resolve --escalation-id <id>` verb is
+also available for escalation-class blockers and records an
+`escalation.resolved` event with the decision id or resolution note.
 
 The AI operator picks up the next packet automatically.
 
@@ -191,8 +192,8 @@ different fixture or copy the example into a scratch tree first.
 ```
 
 This creates `.striatum/` as operational scratch under the target
-repo (supervised wrapper FIFOs, pidfiles, the daemon
-capability-token cache) and adds `.striatum/` to that repo's
+repo (supervised wrapper FIFOs, pidfiles, and transient supervisor
+scratch) and adds `.striatum/` to that repo's
 `.gitignore`. Authoritative workflow state lives in the daemon-
 owned PostgreSQL instance under a `repository_id` scope per D094 /
 RFC 0043; `init` registers the repository with the daemon when one
@@ -653,7 +654,7 @@ scratch only and does not create `.striatum/state.sqlite3`. If a
 pre-D094 repo-local SQLite source exists, registration refuses and
 points at `daemon migrate-repo-local`.
 
-`repo remove <path>` is idempotent, revokes live repo-scoped
+`repo remove <id>` is idempotent, revokes live repo-scoped
 capabilities, preserves audit rows, and never reuses
 `repository_id` (re-adding allocates a fresh id).
 

@@ -63,8 +63,8 @@ during state transitions; see § Corpus Export And Augmentation Boundary.
 ## State Store
 
 `striatum init` creates `.striatum/` next to the target repository as
-operational scratch (supervised wrapper FIFOs, pidfiles, the
-capability-token cache) and ensures `.striatum/` is ignored by git.
+operational scratch (supervised wrapper FIFOs, pidfiles, and transient
+supervisor scratch) and ensures `.striatum/` is ignored by git.
 The authoritative workflow state lives in the daemon-owned PostgreSQL
 instance under a `repository_id` scope; `striatum init` registers the
 repository with the daemon when one is reachable.

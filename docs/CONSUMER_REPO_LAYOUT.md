@@ -41,8 +41,9 @@ target-repo/
 Per RFC 0043 V1.6 and D094, every Striatum verb requires the daemon
 and the daemon's authoritative live state is PostgreSQL. `.striatum/`
 next to a target repo only holds operational scratch: supervised
-wrapper FIFOs, pidfiles, the capability-token cache, supervisor
-stdout sinks. **Never the workflow source of truth; never an artifact
+wrapper FIFOs, pidfiles, transient supervisor scratch, and supervisor
+stdout sinks. The daemon runtime token lives under the daemon runtime
+directory as `client-token`. **Never the workflow source of truth; never an artifact
 destination.**
 
 - Should be in `.gitignore`. `striatum init` adds it automatically.

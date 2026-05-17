@@ -119,7 +119,8 @@ Legend: ✅ done · 🟡 most done (sub-tasks remain) · ⏳ open/blocked · �
 
 ### Repo Split (2026-05-07)
 
-- ~~**R1.** Public repository and Python distribution name `striatum`. Engram
+- ~~**R1.** Public repository name `striatum` and Python distribution name
+  `striatum-orchestrator`. Engram
   extraction tagged `striatum-extraction-2026-05-07`; history-preserving split
   from the former `agent-runner/` prefix.~~
 
@@ -960,7 +961,10 @@ review and plan are root-level operator artifacts:
     HTTP error mapping for those pages. Follow-up split landed:
     `web/job_detail.py` owns job-detail template context shaping and
     override-context-token minting while `service.py` keeps daemon
-    RPC/fallback and HTTP response mapping.
+    RPC/fallback and HTTP response mapping. Follow-up split landed:
+    `web/artifacts.py` now also owns artifact-view template-context shaping,
+    byline display, recorded attestation chips, lane-evidence chips, and
+    expected-artifact row shaping.
     Remaining: continue splitting `service.py` along stable non-SQLite
     request-handling and rendering boundaries.
 
