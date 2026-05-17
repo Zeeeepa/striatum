@@ -89,6 +89,10 @@ in the roadmap/TODO and has several production slices landed:
   case-insensitive for transcript/output/private path shapes, with synthetic
   injection coverage for workflow/job prompts, verdict rationales, blocker
   text, transcript-like fields, nested payloads, and path hygiene.
+- **CI portability.**
+  The multi-repo harness CI install now includes the `daemon-pg` extra before
+  running Postgres-backed tests, and Go supervisor process-launch tests resolve
+  `true`/`cat` from `PATH` instead of assuming Linux-style absolute paths.
 
 ## v1.55.0 — 2026-05-15
 

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"sync"
@@ -161,11 +162,21 @@ func TestLaunchEmptyCommandRejected(t *testing.T) {
 	}
 }
 
+func testCommandPath(t *testing.T, name string) string {
+	t.Helper()
+	path, err := exec.LookPath(name)
+	if err != nil {
+		t.Skipf("%s not present in PATH; skipping process launch test", name)
+	}
+	return path
+}
+
 func TestLaunchPTYWired(t *testing.T) {
-	// V1.6: PTY path is functional. Spawn /bin/true under PTY and assert
+	truePath := testCommandPath(t, "true")
+	// V1.6: PTY path is functional. Spawn true under PTY and assert
 	// we got a PID + StdinWriter back; the master fd is the writer.
 	res, err := Launch(context.Background(), t.TempDir(), "sup_pty_001", LaunchSpec{
-		Command: []string{"/bin/true"},
+		Command: []string{truePath},
 		UsePTY:  true,
 	})
 	if err != nil {
@@ -182,9 +193,10 @@ func TestLaunchPTYWired(t *testing.T) {
 }
 
 func TestLaunchPipeMode(t *testing.T) {
+	truePath := testCommandPath(t, "true")
 	dir := t.TempDir()
 	res, err := Launch(context.Background(), dir, "sup_pipe_001", LaunchSpec{
-		Command: []string{"/bin/true"},
+		Command: []string{truePath},
 		UsePTY:  false,
 	})
 	if err != nil {
@@ -200,16 +212,14 @@ func TestLaunchPipeMode(t *testing.T) {
 	_ = res.Cmd.Wait()
 }
 
-// TestLaunchPTYEchoTable exercises F-pty end-to-end: spawn /bin/cat under
+// TestLaunchPTYEchoTable exercises F-pty end-to-end: spawn cat under
 // PTY, write a payload to the master fd (the daemon's StdinWriter handle),
-// and read it back. The slave side reaches /bin/cat as ordinary stdin and
+// and read it back. The slave side reaches cat as ordinary stdin and
 // is echoed to stdout. This is the only test that proves packet delivery
-// actually traverses the PTY round trip — the /bin/true case in
+// actually traverses the PTY round trip — the true case in
 // TestLaunchPTYWired only proves Start succeeded.
 func TestLaunchPTYEchoTable(t *testing.T) {
-	if _, err := os.Stat("/bin/cat"); err != nil {
-		t.Skip("/bin/cat not present; skipping PTY echo table test")
-	}
+	catPath := testCommandPath(t, "cat")
 	cases := []struct {
 		name    string
 		payload string
@@ -224,7 +234,7 @@ func TestLaunchPTYEchoTable(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
 			res, err := Launch(ctx, t.TempDir(), "sup_pty_echo_"+tc.name, LaunchSpec{
-				Command: []string{"/bin/cat"},
+				Command: []string{catPath},
 				UsePTY:  true,
 			})
 			if err != nil {
