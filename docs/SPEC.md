@@ -1610,10 +1610,14 @@ The supervise CLI surface:
   `SIGTERM`, waits up to five seconds, falls back to `SIGKILL` if the
   process is still present, removes the FIFO, marks the row `stopped`,
   and records `supervisor.stopped`.
-- `striatum supervise status --session-id <id>` probes liveness via
-  `os.kill(pid, 0)`. An active row whose pid is gone is transitioned to
-  `lost` with a `supervisor.lost` event before returning. Status itself
-  never starts or kills processes.
+- `striatum supervise status --session-id <id>` probes PID liveness via
+  `os.kill(pid, 0)` and lane progress through the active lease/session/
+  supervisor heartbeat timestamps. An active row whose pid is gone is
+  transitioned to `lost` with a `supervisor.lost` event before returning.
+  An attached row whose pid exists but whose active lease has stale progress
+  returns `liveness: "stalled"` plus `last_progress_at`,
+  `last_progress_age_seconds`, active lease metadata, and
+  `stall_after_seconds`. Status itself never starts or kills processes.
 - `striatum supervise list --run-id <id> [--state <state>]` lists rows
   for a run, optionally filtered by state.
 - Daemon RPC `supervise.reattach_status` returns a read-only
@@ -1624,8 +1628,15 @@ The supervise CLI surface:
   `needs_verification`, or `terminal`. It does not mutate state; actual
   restart reattach/lost-state transitions remain daemon lifecycle work.
 
-Recovery: when a session's lease expires, `expire_leases` marks any
-`attached` supervisor for that session as `lost` and records
+Recovery: before ordinary stale-lease handling, `recovery.sweep` evaluates
+attached supervisors with active claimed/running work. A stale-but-unexpired
+heartbeat emits `supervisor.heartbeat_stall` once per lease/supervisor so
+`doctor`, `why`, and status surfaces show the lane as suspect. When the
+same attached supervisor's active lease has expired, sweep opens a
+`heartbeat_stall_lease_expired` blocker, transitions the job/message to
+`blocked`, expires the lease with `release_reason='heartbeat_stall'`, marks
+the supervisor row/pointer `lost`, and records `supervisor.heartbeat_stall`,
+`lease.expired`, `job.blocked`, and
 `supervisor.lease_expired_with_supervisor`. The OS process is not
 auto-killed; operator inspection is required, mirroring D036's stale-lease
 policy for repo-write work.
@@ -1653,7 +1664,10 @@ so dashboards and scripts react before the lease default expiry (30
 minutes) is hit. In daemon/Pg mode, `doctor` also surfaces non-healthy
 `supervise.reattach_status` states (`lost_candidate`, `needs_repair`,
 and `needs_verification`) so stale supervisor repair is visible before
-a mutating recovery path runs. `striatum supervise stop` is idempotent
+a mutating recovery path runs. It also reports
+`supervisor_attached_stale_heartbeat` and
+`supervisor_heartbeat_stall_lease_expired` for attached supervisors whose
+control-plane progress is stale. `striatum supervise stop` is idempotent
 against a supervisor whose latest row is already `lost` or `stopped`:
 rather than raising `InvalidTransitionError`, it returns the existing
 terminal row plus a `note` describing the prior state.

@@ -6,6 +6,11 @@ from collections.abc import Mapping
 from typing import Any
 
 from striatum.daemon_pg.handlers.context import RepoHandlerContext
+from striatum.daemon_pg.handlers.recovery_evidence.supervisor_stalls import (
+    DEFAULT_SUPERVISOR_STALL_AFTER_SECONDS,
+    STALL_BLOCKER_KIND,
+    stalled_supervisors,
+)
 from striatum.daemon_pg.handlers.supervision import reattach_status_payload
 from striatum.daemon_rpc.envelope import RpcError
 
@@ -58,6 +63,7 @@ def doctor_payload(ctx: RepoHandlerContext, *, run_id: str | None, verbose: bool
                     }
                 )
     _append_supervisor_health_records(ctx, run_id=run_id, problems=problems, records=records)
+    _append_supervisor_stall_records(ctx, run_id=run_id, problems=problems, records=records)
     result: dict[str, Any] = {"ok": not problems, "schema_version": 5, "problems": problems}
     if verbose:
         result["problem_records"] = records
@@ -91,5 +97,46 @@ def _append_supervisor_health_records(
                 "pid_identity": supervisor["pid_identity"],
                 "reattach_reason": supervisor["reattach_reason"],
                 "recommended_action": supervisor["recommended_action"],
+            }
+        )
+
+
+def _append_supervisor_stall_records(
+    ctx: RepoHandlerContext,
+    *,
+    run_id: str | None,
+    problems: list[str],
+    records: list[dict[str, Any]],
+) -> None:
+    for row in stalled_supervisors(
+        ctx,
+        run_id=run_id,
+        stall_after_seconds=DEFAULT_SUPERVISOR_STALL_AFTER_SECONDS,
+    ):
+        expired = bool(row["lease_expired"])
+        check = (
+            "supervisor_heartbeat_stall_lease_expired"
+            if expired
+            else "supervisor_attached_stale_heartbeat"
+        )
+        problems.append(check)
+        records.append(
+            {
+                "check": check,
+                "severity": "blocked" if expired else "warning",
+                "supervisor_id": row["supervisor_id"],
+                "run_id": row["run_id"],
+                "session_id": row["session_id"],
+                "job_id": row["job_id"],
+                "workflow_job_id": row["workflow_job_id"],
+                "lease_id": row["lease_id"],
+                "blocker_kind": STALL_BLOCKER_KIND if expired else None,
+                "last_progress_at": row["last_progress_at"],
+                "last_progress_age_seconds": row["last_progress_age_seconds"],
+                "stall_after_seconds": row["stall_after_seconds"],
+                "lease_expires_at": row["lease_expires_at"],
+                "recommended_action": (
+                    "run_recovery_sweep" if expired else "inspect_supervisor_progress"
+                ),
             }
         )

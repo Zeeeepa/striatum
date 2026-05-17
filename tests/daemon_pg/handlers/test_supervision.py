@@ -17,6 +17,7 @@ from _harness.pg import create_ephemeral_database, drop_ephemeral_database
 from striatum.daemon_pg.connection import connect
 from striatum.daemon_pg.handlers.context import RepoHandlerContext
 from striatum.daemon_pg.handlers.registry import resolve_pg_handler
+from striatum.daemon_pg.handlers.reads import _read_model
 from striatum.daemon_pg.handlers.supervision import (
     handle_list,
     handle_reattach_status,
@@ -199,6 +200,66 @@ def test_reattach_status_summarizes_liveness_identity_and_repair(
             "supervisor_reattach_lost_candidate",
             "supervisor_reattach_needs_repair",
         } <= checks
+    finally:
+        conn.close()
+
+
+def test_status_and_doctor_surface_stalled_attached_supervisor(
+    tmp_path: Path, pg_url: str
+) -> None:
+    conn = connect(pg_url)
+    try:
+        repo = tmp_path / "repo"
+        _seed_supervisable_session(conn, repo, repository_id="repo_a")
+        _seed_work_packet(
+            conn,
+            repository_id="repo_a",
+            session_id="sess_1",
+            packet_id="wp_1",
+        )
+        _link_seeded_work_to_lease(conn, repository_id="repo_a")
+        pid = os.getpid()
+        pid_start = process_start_time(pid)
+        assert pid_start is not None
+        _insert_supervisor_snapshot(
+            conn,
+            repository_id="repo_a",
+            supervisor_id="sup_stalled",
+            session_id="sess_1",
+            pid=pid,
+            pid_start_time=pid_start,
+            with_pointer=True,
+            with_daemon=True,
+        )
+        conn.commit()
+
+        status = handle_status(_ctx(conn, repo, "repo_a"), {"session_id": "sess_1"})
+
+        assert status["state"] == "attached"
+        assert status["liveness"] == "stalled"
+        assert status["lane_attestation"] == "unattested"
+        assert status["lane_attestation_reason"] == "supervisor_stalled"
+        assert status["active_lease_id"] == "lease_1"
+        assert status["lease_expired"] is True
+        assert status["last_progress_age_seconds"] >= 300
+
+        read_status = _read_model.status_payload(
+            _ctx(conn, repo, "repo_a"),
+            run_id="run_1",
+        )
+        assert read_status["supervisor_stalls"]["expired_count"] == 1
+        assert "supervisor_stall_investigate" in read_status["next_actions"]
+
+        doctor = doctor_payload(_ctx(conn, repo, "repo_a"), run_id="run_1", verbose=True)
+        assert doctor["ok"] is False
+        assert "supervisor_heartbeat_stall_lease_expired" in doctor["problems"]
+        stall_record = next(
+            row
+            for row in doctor["problem_records"]
+            if row["check"] == "supervisor_heartbeat_stall_lease_expired"
+        )
+        assert stall_record["blocker_kind"] == "heartbeat_stall_lease_expired"
+        assert stall_record["recommended_action"] == "run_recovery_sweep"
     finally:
         conn.close()
 
@@ -1059,3 +1120,23 @@ def _kill_pid(value: object) -> None:
         os.kill(value, signal.SIGKILL)
     except OSError:
         return
+
+
+def _link_seeded_work_to_lease(conn: Any, *, repository_id: str) -> None:
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            UPDATE striatumd.jobs
+            SET current_message_id = 'msg_1', current_lease_id = 'lease_1'
+            WHERE repository_id = %s AND job_id = 'job_1'
+            """,
+            (repository_id,),
+        )
+        cur.execute(
+            """
+            UPDATE striatumd.queue_messages
+            SET current_lease_id = 'lease_1'
+            WHERE repository_id = %s AND message_id = 'msg_1'
+            """,
+            (repository_id,),
+        )

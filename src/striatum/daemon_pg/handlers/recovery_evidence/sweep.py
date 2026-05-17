@@ -18,7 +18,14 @@ from striatum.daemon_pg.handlers.registry import register_pg_handler
 from striatum.errors import NotFoundError
 from striatum.recovery.policy import resolve_policy
 
-from . import auto_finalize, process_reconcile, requeue_stale, resume_blocker, stale_leases
+from . import (
+    auto_finalize,
+    process_reconcile,
+    requeue_stale,
+    resume_blocker,
+    stale_leases,
+    supervisor_stalls,
+)
 from ._sql import fetch_all, is_repo_write_scope
 
 
@@ -61,6 +68,14 @@ def handle(ctx: RepoHandlerContext, params: Mapping[str, Any]) -> dict[str, Any]
                 still_stuck=still_stuck,
             )
 
+    stall_actions = _append_supervisor_stall_actions(
+        ctx,
+        params=params,
+        run_id=run_id,
+        dry_run=dry_run,
+        actions=actions,
+    )
+
     inventory = (
         _stale_leases_preview(ctx, run_id=run_id)
         if dry_run
@@ -81,6 +96,7 @@ def handle(ctx: RepoHandlerContext, params: Mapping[str, Any]) -> dict[str, Any]
         dry_run=dry_run,
         policy=policy,
         inventory=inventory,
+        skip_lease_ids=stall_actions,
         actions=actions,
         still_stuck=still_stuck,
     )
@@ -206,6 +222,41 @@ def _append_process_reconcile_actions(
         })
 
 
+def _append_supervisor_stall_actions(
+    ctx: RepoHandlerContext,
+    *,
+    params: Mapping[str, Any],
+    run_id: str,
+    dry_run: bool,
+    actions: list[dict[str, Any]],
+) -> set[str]:
+    stall_after_seconds = int(
+        params.get("supervisor_stall_after_seconds")
+        or supervisor_stalls.DEFAULT_SUPERVISOR_STALL_AFTER_SECONDS
+    )
+    generated = [
+        *supervisor_stalls.record_stall_warnings(
+            ctx,
+            run_id=run_id,
+            dry_run=dry_run,
+            stall_after_seconds=stall_after_seconds,
+        ),
+        *supervisor_stalls.block_expired_stalls(
+            ctx,
+            run_id=run_id,
+            dry_run=dry_run,
+            stall_after_seconds=stall_after_seconds,
+        ),
+    ]
+    actions.extend(generated)
+    return {
+        str(action["lease_id"])
+        for action in generated
+        if action.get("kind") in {"supervisor_stall_block_eligible", "supervisor_stall_blocked"}
+        and action.get("lease_id") is not None
+    }
+
+
 def _append_requeue_actions(
     ctx: RepoHandlerContext,
     *,
@@ -213,6 +264,7 @@ def _append_requeue_actions(
     dry_run: bool,
     policy: Mapping[str, Any],
     inventory: Mapping[str, Any],
+    skip_lease_ids: set[str],
     actions: list[dict[str, Any]],
     still_stuck: list[dict[str, Any]],
 ) -> None:
@@ -220,6 +272,9 @@ def _append_requeue_actions(
     cap = int(policy.get("max_requeues_per_sweep", 8))
     for entry in inventory.get("stale_leases", []):
         if not isinstance(entry, dict):
+            continue
+        lease_id = str(entry.get("lease_id")) if entry.get("lease_id") is not None else None
+        if lease_id in skip_lease_ids or entry.get("release_reason") == supervisor_stalls.STALL_RELEASE_REASON:
             continue
         if requeued >= cap:
             still_stuck.append({

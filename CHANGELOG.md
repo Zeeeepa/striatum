@@ -82,7 +82,12 @@ in the roadmap/TODO and has several production slices landed:
   persistent FIFO contract. The daemon now implements
   `supervise.reattach_status` as a read-only supervisor health DTO, and
   `doctor` surfaces non-healthy reattach states for stale supervisors without
-  mutating runner state.
+  mutating runner state. Recovery sweep now owns attached-supervisor
+  heartbeat-stall detection: `supervise.status` can report
+  `liveness: "stalled"` with `last_progress_age_seconds`, `doctor` and
+  `status` surface stale attached supervisors, and expired stalled leases
+  become open `heartbeat_stall_lease_expired` blockers without auto-killing
+  the OS process.
 - **Workflow risk lint.**
   `striatum workflow lint` supports structured warnings, opt-in strict mode,
   accepted-risk rationale and decision references, advisory coverage scoring,
@@ -639,8 +644,9 @@ shipped in v1.46.0-v1.48.1 are unaffected.
 
 ### Fixed — claude / gemini lane wrappers exit cleanly without producing artifacts
 
-Root cause for the 10+ instance "claude lane stall" and many "gemini wrote
-artifact but didn't publish" failure modes was identified by inspecting
+Root cause for the 10+ instance claude permission-prompt no-publish stall and
+many "gemini wrote artifact but didn't publish" failure modes was identified
+by inspecting
 `$STRIATUM_SCRATCH_DIR/{claude,gemini}-logs/packet-NNNN.log` after
 dogfood-056: each agent CLI's permission system was prompting interactively
 on the striatum CLI shell calls the packet required, and since stdin was

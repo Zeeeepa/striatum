@@ -11,6 +11,10 @@ from striatum.daemon_pg.handlers.context import RepoHandlerContext
 from striatum.daemon_pg.handlers.recovery_evidence.auto_finalize import (
     dry_run_projection as auto_finalize_dry_run_projection,
 )
+from striatum.daemon_pg.handlers.recovery_evidence.supervisor_stalls import (
+    DEFAULT_SUPERVISOR_STALL_AFTER_SECONDS,
+    stalled_supervisors,
+)
 from striatum.daemon_rpc.envelope import RpcError
 
 from ._sql import (
@@ -77,6 +81,7 @@ def status_payload(ctx: RepoHandlerContext, *, run_id: str | None) -> dict[str, 
     non_accepting = latest_non_accepting_verdicts(ctx, run_id=run_id)
     claimable = claimable_jobs(ctx, run_id=run_id)
     health = process_health(ctx, run_id=run_id)
+    supervisor_stalls = supervisor_stall_health(ctx, run_id=run_id)
     auto_finalize = (
         auto_finalize_projection(ctx, run_id=run_id) if run_id is not None else None
     )
@@ -97,6 +102,9 @@ def status_payload(ctx: RepoHandlerContext, *, run_id: str | None) -> dict[str, 
     for extra in health.get("next_actions", []):
         if extra not in actions:
             actions.append(extra)
+    for extra in supervisor_stalls.get("next_actions", []):
+        if extra not in actions:
+            actions.append(extra)
     result = {
         "runs": runs,
         "provenance_mode": provenance_mode(ctx, run_id=run_id),
@@ -109,6 +117,7 @@ def status_payload(ctx: RepoHandlerContext, *, run_id: str | None) -> dict[str, 
         "claimable_jobs": claimable,
         "blocked_downstream_jobs": blocked_downstream_jobs(ctx, run_id=run_id),
         "process_health": health,
+        "supervisor_stalls": supervisor_stalls,
         "auto_finalize_dry_run": auto_finalize,
         "next_actions": actions,
     }
@@ -308,6 +317,40 @@ def process_health(ctx: RepoHandlerContext, *, run_id: str | None) -> dict[str, 
         "lost_count": int(row.get("lost_count") or 0),
         "timed_out_count": int(row.get("timed_out_count") or 0),
         "next_actions": ["recovery_process_reconcile"] if stale_running_count > 0 else [],
+    }
+
+
+def supervisor_stall_health(ctx: RepoHandlerContext, *, run_id: str | None) -> dict[str, Any]:
+    rows = stalled_supervisors(
+        ctx,
+        run_id=run_id,
+        stall_after_seconds=DEFAULT_SUPERVISOR_STALL_AFTER_SECONDS,
+    )
+    expired = [row for row in rows if row["lease_expired"]]
+    warnings = [row for row in rows if not row["lease_expired"]]
+    return {
+        "stalled_count": len(rows),
+        "warning_count": len(warnings),
+        "expired_count": len(expired),
+        "stall_after_seconds": DEFAULT_SUPERVISOR_STALL_AFTER_SECONDS,
+        "supervisors": [_supervisor_stall_summary(row) for row in rows],
+        "next_actions": ["supervisor_stall_investigate"] if rows else [],
+    }
+
+
+def _supervisor_stall_summary(row: Mapping[str, Any]) -> dict[str, Any]:
+    return {
+        "supervisor_id": row["supervisor_id"],
+        "run_id": row["run_id"],
+        "session_id": row["session_id"],
+        "job_id": row["job_id"],
+        "workflow_job_id": row["workflow_job_id"],
+        "lease_id": row["lease_id"],
+        "message_id": row.get("message_id"),
+        "last_progress_at": row["last_progress_at"],
+        "last_progress_age_seconds": row["last_progress_age_seconds"],
+        "lease_expires_at": row["lease_expires_at"],
+        "lease_expired": row["lease_expired"],
     }
 
 

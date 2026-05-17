@@ -19,6 +19,7 @@ from .test_auto_finalize import (
     _insert_attached_supervisor,
     _insert_review_job_instance,
     _insert_work_packet_and_clean_process,
+    _one,
     _seed_review_job,
     _states,
     _write_finding,
@@ -243,6 +244,132 @@ def test_recovery_sweep_dry_run_reports_auto_finalize_without_mutation(
         conn.close()
 
 
+def test_recovery_sweep_blocks_expired_attached_supervisor_stall(
+    tmp_path: Path,
+    pg_url: str,
+) -> None:
+    conn = connect(pg_url)
+    try:
+        repo_root = tmp_path / "repo_a"
+        _seed_review_job(
+            conn,
+            repo_root,
+            repository_id="repo_a",
+            auto_finalize_enabled=False,
+        )
+        _insert_attached_supervisor(conn, repository_id="repo_a")
+        _expire_seeded_lease(conn, repository_id="repo_a")
+        conn.commit()
+
+        result = handle(
+            _ctx(conn, repo_root, repository_id="repo_a"),
+            {"run_id": "run_1", "dry_run": False, "supervisor_stall_after_seconds": 1},
+        )
+
+        assert [action["kind"] for action in result["actions"]] == [
+            "supervisor_stall_blocked"
+        ]
+        action = result["actions"][0]
+        assert action["job_id"] == "job_1"
+        assert action["lease_id"] == "lease_1"
+        assert action["lease_expired"] is True
+        assert action["blocker_id"].startswith("blk_")
+
+        assert _states(conn, repository_id="repo_a") == {
+            "job": "blocked",
+            "job_lease": None,
+            "message": "blocked",
+            "message_lease": None,
+            "lease": "expired",
+            "lease_reason": "heartbeat_stall",
+            "run": "running",
+            "run_stop_reason": None,
+            "session": "active",
+        }
+        assert _one(
+            conn,
+            """
+            SELECT blocker_kind, severity, state, job_id, session_id
+            FROM striatumd.blockers
+            WHERE repository_id = %s
+            """,
+            ("repo_a",),
+        ) == {
+            "blocker_kind": "heartbeat_stall_lease_expired",
+            "severity": "blocked",
+            "state": "open",
+            "job_id": "job_1",
+            "session_id": "sess_1",
+        }
+        assert _one(
+            conn,
+            """
+            SELECT state, stop_reason
+            FROM striatumd.process_supervisors
+            WHERE repository_id = %s AND supervisor_id = 'sup_1'
+            """,
+            ("repo_a",),
+        ) == {
+            "state": "lost",
+            "stop_reason": "lease expired after supervisor heartbeat stall",
+        }
+        event_types = [row["event_type"] for row in _events(conn, "repo_a")]
+        assert "supervisor.heartbeat_stall" in event_types
+        assert "lease.expired" in event_types
+        assert "job.blocked" in event_types
+        assert "supervisor.lease_expired_with_supervisor" in event_types
+
+        second = handle(
+            _ctx(conn, repo_root, repository_id="repo_a"),
+            {"run_id": "run_1", "dry_run": False, "supervisor_stall_after_seconds": 1},
+        )
+        assert second["actions"] == []
+        assert _count(conn, "striatumd.blockers", repository_id="repo_a") == 1
+    finally:
+        conn.close()
+
+
+def test_recovery_sweep_dry_run_reports_expired_supervisor_stall_without_mutation(
+    tmp_path: Path,
+    pg_url: str,
+) -> None:
+    conn = connect(pg_url)
+    try:
+        repo_root = tmp_path / "repo_a"
+        _seed_review_job(
+            conn,
+            repo_root,
+            repository_id="repo_a",
+            auto_finalize_enabled=False,
+        )
+        _insert_attached_supervisor(conn, repository_id="repo_a")
+        _expire_seeded_lease(conn, repository_id="repo_a")
+        conn.commit()
+
+        result = handle(
+            _ctx(conn, repo_root, repository_id="repo_a"),
+            {"run_id": "run_1", "dry_run": True, "supervisor_stall_after_seconds": 1},
+        )
+
+        assert [action["kind"] for action in result["actions"]] == [
+            "supervisor_stall_block_eligible"
+        ]
+        assert _count(conn, "striatumd.blockers", repository_id="repo_a") == 0
+        assert _states(conn, repository_id="repo_a")["job"] == "running"
+        assert _states(conn, repository_id="repo_a")["lease"] == "active"
+        assert _one(
+            conn,
+            """
+            SELECT state
+            FROM striatumd.process_supervisors
+            WHERE repository_id = %s AND supervisor_id = 'sup_1'
+            """,
+            ("repo_a",),
+        ) == {"state": "attached"}
+    finally:
+        conn.close()
+
+
 def test_recovery_auto_deprecated_alias_stays_auto_publish_not_sweep() -> None:
     from striatum.daemon_pg.handlers.registry import resolve_pg_handler
 
@@ -290,3 +417,24 @@ def _states_by_lease(conn: Any, *, repository_id: str) -> dict[str, str]:
             (repository_id,),
         )
         return {str(row["lease_id"]): str(row["state"]) for row in cur.fetchall()}
+
+
+def _expire_seeded_lease(conn: Any, *, repository_id: str) -> None:
+    with conn.cursor(row_factory=dict_row) as cur:
+        cur.execute(
+            """
+            UPDATE striatumd.leases
+            SET expires_at = '2026-05-14T00:10:00Z',
+                last_heartbeat_at = '2026-05-14T00:00:00Z'
+            WHERE repository_id = %s AND lease_id = 'lease_1'
+            """,
+            (repository_id,),
+        )
+        cur.execute(
+            """
+            UPDATE striatumd.process_supervisors
+            SET heartbeat_at = '2026-05-14T00:00:00Z'
+            WHERE repository_id = %s AND supervisor_id = 'sup_1'
+            """,
+            (repository_id,),
+        )

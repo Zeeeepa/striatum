@@ -22,6 +22,10 @@ from striatum.daemon_pg.handlers.context import (
     transaction,
     workflow_for_run,
 )
+from striatum.daemon_pg.handlers.recovery_evidence.supervisor_stalls import (
+    DEFAULT_SUPERVISOR_STALL_AFTER_SECONDS,
+    supervisor_progress_for_session,
+)
 from striatum.daemon_pg.handlers.registry import register_pg_handler
 from striatum.daemon_rpc.envelope import RpcError
 from striatum.errors import InvalidTransitionError, NotFoundError
@@ -480,9 +484,17 @@ def handle_status(ctx: RepoHandlerContext, params: Mapping[str, Any]) -> dict[st
         pid_value = supervisor.get("pid")
         pid = int(pid_value) if pid_value is not None else None
         liveness = "gone"
+        progress: dict[str, Any] | None = None
         if pid is not None and state in SUPERVISOR_ACTIVE_STATES:
             if _pid_alive(pid):
                 liveness = "alive"
+                progress = supervisor_progress_for_session(
+                    ctx,
+                    session_id=session_id,
+                    stall_after_seconds=DEFAULT_SUPERVISOR_STALL_AFTER_SECONDS,
+                )
+                if progress is not None and progress["stalled"]:
+                    liveness = "stalled"
             else:
                 reason = "pid is gone observed by status"
                 _mark_lost(
@@ -504,12 +516,23 @@ def handle_status(ctx: RepoHandlerContext, params: Mapping[str, Any]) -> dict[st
 
         view = _supervisor_view(supervisor)
         view["liveness"] = liveness
+        if progress is not None:
+            view["active_lease_id"] = progress["lease_id"]
+            view["active_lease_expires_at"] = progress["lease_expires_at"]
+            view["active_lease_last_heartbeat_at"] = progress["lease_last_heartbeat_at"]
+            view["last_progress_at"] = progress["last_progress_at"]
+            view["last_progress_age_seconds"] = progress["last_progress_age_seconds"]
+            view["stall_after_seconds"] = progress["stall_after_seconds"]
+            view["lease_expired"] = progress["lease_expired"]
         view["lane_attestation"] = (
             "attested" if view.get("state") == "attached" and liveness == "alive" else "unattested"
         )
-        view["lane_attestation_reason"] = (
-            None if view["lane_attestation"] == "attested" else "no_live_attached_supervisor"
-        )
+        if view["lane_attestation"] == "attested":
+            view["lane_attestation_reason"] = None
+        elif liveness == "stalled":
+            view["lane_attestation_reason"] = "supervisor_stalled"
+        else:
+            view["lane_attestation_reason"] = "no_live_attached_supervisor"
         return view
 
 

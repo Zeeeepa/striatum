@@ -245,8 +245,12 @@ Legend: ✅ done · 🟡 most done (sub-tasks remain) · ⏳ open/blocked · �
    supervisors `lost`, `doctor` checks for dead pids and missing stdin pipes,
    PTY helper transport, and the explicit `supervision.stdin_delivery`
    value `"one_shot_eof"` for single-prompt commands that require stdin EOF.
-   **Remaining:** runner-owned stall alarms/blockers for attached but idle
-   supervisors (GH #20) and broader helper integration coverage.
+   Runner-owned stall alarms/blockers now surface attached supervisors whose
+   heartbeat/progress is stale, including `liveness: "stalled"` status,
+   `doctor`/`status` read-model warnings, and
+   `heartbeat_stall_lease_expired` blockers when the lease expires without
+   auto-killing the OS process. **Remaining:** broader helper integration
+   coverage.
 
 2. **Adapter constraint enforcement.** Workflow validation supports lane
    `required_enforcement` and rejects lanes whose adapters cannot satisfy it
@@ -937,11 +941,13 @@ review and plan are root-level operator artifacts:
     start/send/stop/status. Follow-up slice landed explicit
     `supervision.stdin_delivery: "one_shot_eof"` for pipe-transport lanes,
     letting single-prompt commands consume one packet and then receive EOF
-    while preserving persistent FIFO behavior by default. Remaining: actual
-    restart reattach/lost-state semantics, runner-owned stall
-    alarms/blockers, stronger lane-liveness attestation, wrapper fixtures,
-    real Go-helper integration coverage, and promotion of helper-only CI
-    beyond focused tests.
+    while preserving persistent FIFO behavior by default. Follow-up slice
+    landed runner-owned stall alarms/blockers for attached but idle
+    supervisors, including stalled status liveness, doctor/status surfacing,
+    and lease-expired blockers. Remaining: actual restart reattach/lost-state
+    semantics, stronger lane-liveness attestation, wrapper fixtures, real
+    Go-helper integration coverage, and promotion of helper-only CI beyond
+    focused tests.
 
 55. **Phase 7: workflow risk lint and review diversity enforcement.**
     `workflow lint <workflow.json> --json` returns structured advisory

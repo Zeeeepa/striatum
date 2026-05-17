@@ -32,7 +32,7 @@ dependency edges, and "what would I do next" framing. Update on every
 | v1.46.0 | RFC 0050 V1 (dogfood-054 + 054b) | UI primitives + dashboard parity + 4-finding provenance fix-up. |
 | v1.47.0 | RFC 0050 V1.5 (dogfood-055 + 055b) | Template extensions + 3-finding provenance fix-up. |
 | v1.48.0 | RFC 0050 V2 (dogfood-056) + RFC 0051 (draft) | Recovery panel island + override modal + copy-on-click + graph-editor data binding. |
-| v1.48.1 | claude/gemini wrapper auth fix | `claude --print --permission-mode acceptEdits --allowedTools "Bash"`; gemini `--approval-mode yolo`. Closes the 10+ instance lane-stall pattern at its root. |
+| v1.48.1 | claude/gemini wrapper auth fix | `claude --print --permission-mode acceptEdits --allowedTools "Bash"`; gemini `--approval-mode yolo`. Closes the 10+ instance permission-prompt no-publish pattern at its root. |
 | v1.48.2 | CI green | Python typecheck + Go version pin. |
 
 ## 3. Operator decision rules — read this before doing any work
@@ -182,8 +182,9 @@ primary production daemon core and redirects Go work to a narrow helper role.
 **Closes:** RFC 0051 (this is its V1 landing).
 
 **Why next:** RFC 0051 is the operational complement to v1.48.1. The wrapper
-fix prevents lane stalls at the *cause*; auto-finalize is the safety net
-for genuinely-crashed agents that still wrote a valid artifact. Both
+fix prevents permission-prompt no-publish stalls at that cause;
+auto-finalize is the safety net for genuinely-crashed agents that still
+wrote a valid artifact. Both
 mechanisms together collapse the operator-on-behalf burden by ~80%.
 
 **Scope:**
@@ -469,11 +470,15 @@ decide whether to rename the packet helper to `packet inbox`.
   `supervision.stdin_delivery: "one_shot_eof"` for single-prompt commands
   that read stdin until EOF. Default supervised lanes keep the persistent
   FIFO contract.
+- Runner-owned supervisor stall detection now marks stale attached lanes as
+  `liveness: "stalled"` in `supervise.status`, adds status/doctor surfacing,
+  and opens `heartbeat_stall_lease_expired` blockers when an attached
+  supervisor's active lease expires without progress. The recovery path does
+  not auto-kill the OS process.
 
 **Remaining Phase 6 debt:** actual restart reattach/lost-state recovery,
-runner-owned stall alarms/blockers, stronger lane-liveness attestation,
-wrapper fixtures, real Go-helper integration coverage, and broader
-helper-only CI.
+stronger lane-liveness attestation, wrapper fixtures, real Go-helper
+integration coverage, and broader helper-only CI.
 
 ---
 
@@ -878,6 +883,7 @@ dogfood. Order them by impact, not by RFC number.
 | [16](https://github.com/halbritt/striatum/issues/16) | Add complete operator initialization prompt | `b9add6f` via `docs/issues/16/` workflow. **First production use of the new GH-issue workflow type.** Verify verdict `accept` severity `info`. End-to-end 21 minutes wall-clock, zero operator-on-behalf publishes — empirically validated v1.48.1's wrapper auth fix. |
 | [17](https://github.com/halbritt/striatum/issues/17) | Striatum doc consistency for Engram memory integration | `docs/issues/17/` workflow plus RFC 0057 Corpus Contract V2 scaffold; remaining V2 implementation is tracked under TODO 59. |
 | [18](https://github.com/halbritt/striatum/issues/18) | Supervised lane stdin EOF hang for `cmd -` commands | Explicit `supervision.stdin_delivery: "one_shot_eof"` opt-in for pipe-transport lanes, with claim-next/send metadata and PG tests. |
+| [20](https://github.com/halbritt/striatum/issues/20) | `supervise`: lane-stall timeouts and alarms should be in the runner | Runner-owned heartbeat/lease stall blockers, stalled liveness, and doctor/status surfacing. |
 
 ---
 
@@ -966,9 +972,11 @@ striatum why <run_id>     # tail events, see state, see blockers
 striatum dashboard --run-id <run_id> --once     # compact frame
 
 # 5. Per-job recovery if a lane stalls
-#    First check the wrapper log for the agent's last words:
-ls .striatum/scratch/sup_*/{claude,codex,gemini}-logs/packet-*.log
-#    Then operator-on-behalf per §3.1, or compose a review per §3.3 if claude.
+#    Start with control-plane evidence:
+striatum doctor --run-id <run_id> --verbose --json
+striatum supervise status --session-id <S> --json
+striatum why <job_or_blocker_id>
+#    Wrapper logs are secondary evidence, not the stall detector.
 
 # 6. Override needs_revision verdicts only after the fix-up ratifies (§3.2)
 
