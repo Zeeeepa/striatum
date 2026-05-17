@@ -54,6 +54,10 @@ from striatum.web.chat_session import (
     split_system as _split_system,
     utc_now_iso as _utc_now_iso,
 )
+from striatum.web.static_assets import (
+    StaticAssetError as StaticAssetError,
+    load_static_asset as _load_static_asset,
+)
 
 JsonObject = dict[str, Any]
 _project_history_anthropic = _chat_session.project_history_anthropic
@@ -2382,32 +2386,17 @@ class StriatumServiceHandler(BaseHTTPRequestHandler):
 
     def _serve_static_asset(self, relative: str) -> None:
         """RFC 0013 V1: serve a bundled SPA asset from striatum.web.static."""
-        if not relative or ".." in relative or relative.startswith("/"):
-            self._send_json(400, {"ok": False, "error": {"code": 400, "message": "invalid asset path"}})
-            return
         try:
-            from importlib.resources import files
-
-            asset = files("striatum.web.static").joinpath(relative)
-            if not asset.is_file():
-                self._send_json(404, {"ok": False, "error": {"code": 404, "message": "asset not found"}})
-                return
-            data = asset.read_bytes()
-        except (FileNotFoundError, ModuleNotFoundError, OSError):
-            self._send_json(404, {"ok": False, "error": {"code": 404, "message": "asset not found"}})
+            asset = _load_static_asset(relative)
+        except StaticAssetError as exc:
+            self._send_json(
+                exc.status_code,
+                {"ok": False, "error": {"code": exc.status_code, "message": exc.message}},
+            )
             return
-        suffix = relative.rsplit(".", 1)[-1].lower()
-        content_type = {
-            "html": "text/html; charset=utf-8",
-            "css": "text/css; charset=utf-8",
-            "js": "application/javascript; charset=utf-8",
-            "json": "application/json",
-            "svg": "image/svg+xml",
-            "png": "image/png",
-        }.get(suffix, "application/octet-stream")
         self.send_response(200)
-        self.send_header("Content-Type", content_type)
-        self.send_header("Content-Length", str(len(data)))
+        self.send_header("Content-Type", asset.content_type)
+        self.send_header("Content-Length", str(len(asset.data)))
         self.send_header(
             "Content-Security-Policy",
             "default-src 'self'; script-src 'self'; style-src 'self'; "
@@ -2416,7 +2405,7 @@ class StriatumServiceHandler(BaseHTTPRequestHandler):
         self.send_header("Connection", "close")
         self.end_headers()
         try:
-            self.wfile.write(data)
+            self.wfile.write(asset.data)
         except BrokenPipeError:
             return
 

@@ -33,6 +33,9 @@ Recent checkpoints:
   `striatum.legacy_sqlite.service`; the root `service_legacy.py` module is
   gone, and quarantine tests now assert that the primary service only loads
   the explicit legacy package through a lazy fallback boundary.
+- Static asset lookup and content-type mapping moved from `service.py` into
+  `striatum.web.static_assets`, keeping HTTP response writing in the service
+  handler while making the non-SQLite web split independently testable.
 
 - **Command authority and fallback guardrails.**
   `docs/architecture/COMMAND_AUTHORITY_MATRIX.md` now names the authority
@@ -92,7 +95,9 @@ Recent checkpoints:
   fixture payload, SSE event tail, and legacy startup integrity check are now
   quarantined there as well. `service.py` no longer imports or opens
   repo-local SQLite directly, and importing the primary service no longer
-  eagerly imports the legacy SQLite fallback module.
+  eagerly imports the legacy SQLite fallback module. Static asset lookup and
+  MIME selection now live in `striatum.web.static_assets`, with service-level
+  response writing kept unchanged.
 - **Escalation inbox foundation.**
   `escalation.list`, `escalation.show`, and `escalation.resolve` project
   human-principal escalations from blocker state. The `escalation` artifact

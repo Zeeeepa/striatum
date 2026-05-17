@@ -900,7 +900,9 @@ review and plan are root-level operator artifacts:
     fixture payload, SSE event tail, and legacy startup integrity check.
     `service.py` no longer imports or opens repo-local SQLite directly, and
     the quarantined module is loaded lazily only when a legacy fallback is
-    invoked.
+    invoked. Follow-up split landed: `web/static_assets.py` owns static
+    asset lookup, path validation, and content-type mapping while
+    `service.py` keeps HTTP response writing and CSP/header behavior.
     Remaining: continue splitting `service.py` along stable non-SQLite
     request-handling and rendering boundaries.
 
