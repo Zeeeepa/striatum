@@ -13,7 +13,8 @@ choice each.
 3. PG runtime migration discipline (code-level dual-read, no SQL).
 4. CLI prompt-string sweep target list with rename-vs-stay
    justification.
-5. `escalation` artifact-kind scope decision (in vs deferred).
+5. `escalation` artifact-kind scope decision; historical resolution was
+   deferral from this rename slice and landing in follow-up Phase 5 work.
 6. Back-compat test plan (4-5 named tests).
 7. Deprecation-warning audit-row format.
 

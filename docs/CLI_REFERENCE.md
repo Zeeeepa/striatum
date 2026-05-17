@@ -187,7 +187,7 @@ striatum repo remove <id>
 striatum cross-repo list
 striatum cross-repo describe <cross_repo_run_id>
 striatum cross-repo why <cross_repo_run_id>
-striatum cross-repo cancel <cross_repo_run_id>  # currently refuses: not implemented
+striatum cross-repo cancel <cross_repo_run_id> [--reason <text>]
 ```
 
 `striatum daemon start` / `striatumd` runs the supported
@@ -318,11 +318,13 @@ workflow files declare `repositories`, `primary_repository`, and
 per-job `repository` aliases. The daemon DB records canonical
 `cross_repo_run_id` rows under participating repository scopes.
 `cross-repo list|describe|why` inspect those daemon records according to
-capability scope. `cross-repo cancel` is intentionally parser-visible but
-currently refuses with `not_implemented` until the daemon has a PG-native
-participant-cancel path for every repository in the cross-repo run. Daemon
-MCP `tools/list` is filtered by each token's effective capabilities and
-scope, and `tools/call` re-checks authorization and audits denials.
+capability scope. `cross-repo cancel` is the `cross_repo.cancel` recovery
+route: it cancels non-terminal participant runs through the PG-native
+participant runner, skips terminal participants and preparing participants
+that never created a local run, and returns `blocked` with diagnostics when a
+participant cannot be canceled. Daemon MCP `tools/list` is filtered by each
+token's effective capabilities and scope, and `tools/call` re-checks
+authorization and audits denials.
 
 RFC 0036 adds no new CLI verb. Regenerate agent-facing MCP guidance with
 `striatum skills install` or `striatum plugin install`; chat workflow

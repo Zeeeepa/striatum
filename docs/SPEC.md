@@ -1385,11 +1385,12 @@ Audit segment append-only manifests are implemented, but production
 retention/rotation policy is deferred; the active registry can grow until
 an operator or future RFC supplies rotation/export behavior.
 
-Registry-backed mode alone does not strengthen lane attestation. RFC 0031
-adds daemon-owned supervisor metadata and repo-local pointers as the V2
-schema/API foundation for future stronger supervision. Existing direct
-repo-local supervision remains the compatibility path until daemon
-spawn, reattach, and routing take over method by method.
+Production supervision metadata, lane attestation inputs, and supervisor
+pointers live in daemon-owned PostgreSQL under the registered repository
+scope. `supervise.*` CLI calls are daemon clients, not direct repo-local
+state edits. Legacy repo-local supervision shapes survive only as migration
+sources and subprocess compatibility fixtures; they are not a production
+authority boundary.
 
 Python is the production daemon core. RFC 0039 introduced a Go
 `go/cmd/striatumd` prototype behind the RFC 0030 envelope-v1 wire

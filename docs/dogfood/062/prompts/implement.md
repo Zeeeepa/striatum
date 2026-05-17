@@ -1,7 +1,7 @@
 # Implement task — RFC 0046 V1.7 attestation gap closure
 
 Build to `DESIGN_SYNTHESIS.md`. Single track. Sub-agents per layer
-(PG gate, SQLite mirror, tests).
+(PG production gate, legacy_sqlite fixture/quarantine regression, tests).
 
 **Required inputs:** `DESIGN_SYNTHESIS.md`, `review/design/REVIEW.md`.
 Every gemini design-review finding addressed before publishing build.

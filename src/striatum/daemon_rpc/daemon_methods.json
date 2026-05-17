@@ -59,7 +59,11 @@
     {"command": "supervise", "subcommand": "send", "method": "supervise.send", "params": "supervise_send"},
     {"command": "supervise", "subcommand": "stop", "method": "supervise.stop", "params": "supervise_stop"},
     {"command": "supervise", "subcommand": "status", "method": "supervise.status", "params": "supervise_status"},
-    {"command": "supervise", "subcommand": "list", "method": "supervise.list", "params": "supervise_list"}
+    {"command": "supervise", "subcommand": "list", "method": "supervise.list", "params": "supervise_list"},
+    {"command": "cross-repo", "subcommand": "list", "method": "cross_repo.list", "params": "cross_repo"},
+    {"command": "cross-repo", "subcommand": "describe", "method": "cross_repo.describe", "params": "cross_repo"},
+    {"command": "cross-repo", "subcommand": "why", "method": "cross_repo.why", "params": "cross_repo"},
+    {"command": "cross-repo", "subcommand": "cancel", "method": "cross_repo.cancel", "params": "cross_repo"}
   ],
   "methods": [
     {

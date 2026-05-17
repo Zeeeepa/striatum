@@ -49,7 +49,7 @@ so external references keep resolving even as items move between sections.
 | F12 | RFC 0016 step 3 (Unicode fancy + --graph-orient, dogfood-012) | ✅ done |
 | F13 | RFC 0013 step 7 (web UI mutation buttons, dogfood-013) | ✅ done |
 | F14 | RFC 0020 V1 (autonomous recovery sweeper, dogfood-014) | ✅ done |
-| F15 | RFC 0020 step 3 (`recovery watch` daemon, dogfood-015) | ✅ done |
+| F15 | RFC 0020 step 3 (`recovery watch` foreground scheduler over daemon sweep, dogfood-015) | ✅ done |
 | F16 | RFC 0018 V1 (review postures, dogfood-016) | ✅ done |
 | F17 | RFC 0021 V1 (DDD layout scaffold, dogfood-017) | ✅ done |
 | F18 | RFC 0018 step 3 V1.5 (verdicts.posture + introspection, dogfood-018) | ✅ done |
@@ -872,11 +872,10 @@ review and plan are root-level operator artifacts:
     now builds from the same contract route map and keeps only CLI-local
     parameter extraction in `src/striatum/cli/daemon_rpc_route.py`; focused
     tests guard contract/route drift and fail-closed registered-method routing.
-    Recorded blocker: `cross_repo.cancel` remains explicitly
-    `not_implemented` despite its parser-visible command and registered method;
-    implementation needs a PG-native participant-cancel path for every
-    repository in a cross-repo run rather than the historical repo-local
-    SQLite runner.
+    `cross_repo.cancel` now participates in the same declarative CLI route
+    map, requires the `recovery` capability, and uses a PG-native
+    participant-cancel runner rather than the historical repo-local SQLite
+    runner.
 
 51. ~~**Phase 3: daemon core strategy decision.**~~ Done: D105 records
     Python as the primary production daemon core and narrows Go to a

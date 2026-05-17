@@ -68,7 +68,9 @@ class FakeCursor:
         elif normalized.startswith("UPDATE striatumd.cross_repo_runs SET state = 'canceling'"):
             self.conn.runs[str(params[0])]["state"] = "canceling"
         elif normalized.startswith("UPDATE striatumd.cross_repo_runs SET state = %s"):
-            self.conn.runs[str(params[3])]["state"] = params[0]
+            row = self.conn.runs[str(params[4])]
+            row["state"] = params[0]
+            row["last_reconcile_error"] = params[3]
         elif normalized.startswith("SELECT cross_repo_run_id FROM striatumd.cross_repo_runs WHERE state = 'preparing'"):
             self.result = [row for row in self.conn.runs.values() if row["state"] == "preparing"]
         elif normalized.startswith("SELECT * FROM striatumd.cross_repo_runs"):
@@ -105,6 +107,7 @@ class FakeConn:
 @dataclass
 class FakeRunner:
     fail_start_alias: str | None = None
+    fail_cancel_alias: str | None = None
     intact: bool = True
     prepared: list[str] = field(default_factory=list)
     started: list[str] = field(default_factory=list)
@@ -122,7 +125,10 @@ class FakeRunner:
         self.started.append(alias)
 
     def cancel(self, *, repository_id: str, local_run_id: str, reason: str) -> None:
-        self.canceled.append(local_run_id.removeprefix("run_"))
+        alias = local_run_id.removeprefix("run_")
+        if alias == self.fail_cancel_alias:
+            raise RuntimeError(f"cancel failed for {alias}")
+        self.canceled.append(alias)
 
     def participant_intact(self, *, repository_id: str, local_run_id: str | None) -> bool:
         return self.intact
@@ -164,6 +170,91 @@ def test_prepare_start_cancel_and_describe_cross_repo_run() -> None:
     canceled = cancel_cross_repo_run(conn, cross_repo_run_id="xrun_1", local_runner=runner, reason="test")
     assert canceled["state"] == "canceled"
     assert set(runner.canceled) == {"primary", "consumer"}
+
+
+def test_cancel_skips_terminal_participants() -> None:
+    conn = FakeConn()
+    runner = FakeRunner()
+    prepare_cross_repo_run(
+        conn,
+        workflow=_workflow(),
+        local_runner=runner,
+        cross_repo_run_id="xrun_1",
+    )
+    start_cross_repo_run(conn, cross_repo_run_id="xrun_1", local_runner=runner)
+    conn.participants[("xrun_1", "consumer")]["state"] = "completed"
+    runner.canceled.clear()
+
+    canceled = cancel_cross_repo_run(
+        conn,
+        cross_repo_run_id="xrun_1",
+        local_runner=runner,
+        reason="test",
+    )
+
+    assert canceled["state"] == "canceled"
+    assert canceled["skipped_terminal"] == ["consumer"]
+    assert runner.canceled == ["primary"]
+    states = {
+        alias: row["state"]
+        for (_run_id, alias), row in conn.participants.items()
+    }
+    assert states == {"consumer": "completed", "primary": "canceled"}
+
+
+def test_cancel_skips_preparing_participants_without_local_run() -> None:
+    conn = FakeConn()
+    runner = FakeRunner()
+    prepare_cross_repo_run(
+        conn,
+        workflow=_workflow(),
+        local_runner=runner,
+        cross_repo_run_id="xrun_1",
+    )
+    conn.runs["xrun_1"]["state"] = "preparing"
+    conn.participants[("xrun_1", "consumer")]["state"] = "preparing"
+    conn.participants[("xrun_1", "consumer")]["local_run_id"] = None
+    runner.canceled.clear()
+
+    canceled = cancel_cross_repo_run(
+        conn,
+        cross_repo_run_id="xrun_1",
+        local_runner=runner,
+        reason="operator request",
+    )
+
+    assert canceled["state"] == "canceled"
+    assert canceled["skipped_no_local_run"] == ["consumer"]
+    assert runner.canceled == ["primary"]
+    states = {
+        alias: row["state"]
+        for (_run_id, alias), row in conn.participants.items()
+    }
+    assert states == {"consumer": "canceled", "primary": "canceled"}
+
+
+def test_cancel_records_blocked_error_details() -> None:
+    conn = FakeConn()
+    runner = FakeRunner(fail_cancel_alias="consumer")
+    prepare_cross_repo_run(
+        conn,
+        workflow=_workflow(),
+        local_runner=runner,
+        cross_repo_run_id="xrun_1",
+    )
+    start_cross_repo_run(conn, cross_repo_run_id="xrun_1", local_runner=runner)
+
+    canceled = cancel_cross_repo_run(
+        conn,
+        cross_repo_run_id="xrun_1",
+        local_runner=runner,
+        reason="operator request",
+    )
+
+    assert canceled["state"] == "blocked"
+    assert canceled["blocked"] == ["consumer"]
+    assert canceled["blocked_errors"] == {"consumer": "cancel failed for consumer"}
+    assert conn.runs["xrun_1"]["last_reconcile_error"] == "consumer: cancel failed for consumer"
 
 
 def test_start_failure_blocks_and_records_primary_checkpoint() -> None:

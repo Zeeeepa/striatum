@@ -237,7 +237,7 @@ def dispatch(args: argparse.Namespace) -> object:
         from striatum.day_zero import first_run_smoke
 
         return first_run_smoke(repo)
-    skip_daemon_route = args.command in {"daemon", "init", "skills", "plugin", "cross-repo", "serve", "byline"}
+    skip_daemon_route = args.command in {"daemon", "init", "skills", "plugin", "serve", "byline"}
     if args.command == "corpus" and getattr(args, "corpus_command", None) == "verify":
         skip_daemon_route = True
     if args.command == "archive" and getattr(args, "archive_command", None) == "verify":
@@ -1508,7 +1508,12 @@ def _dispatch_daemon_repo(args: argparse.Namespace) -> object:
 
 
 def _dispatch_cross_repo(args: argparse.Namespace) -> object:
-    from striatum.cross_repo import describe_cross_repo_run, list_cross_repo_runs
+    from striatum.cross_repo import (
+        PgCrossRepoLocalRunner,
+        cancel_cross_repo_run,
+        describe_cross_repo_run,
+        list_cross_repo_runs,
+    )
     from striatum.daemon_pg.connection import connect_and_migrate
 
     conn = connect_and_migrate(postgres_url=getattr(args, "postgres_url", None))
@@ -1529,11 +1534,14 @@ def _dispatch_cross_repo(args: argparse.Namespace) -> object:
                 "participants": described["participants"],
             }
         if args.cross_repo_command == "cancel":
-            raise StriatumError(
-                "cross-repo cancel requires the daemon lifecycle service; "
-                "the full multi-repo daemon harness is deferred to TODO Open item 19",
-                exit_code=8,
+            result = cancel_cross_repo_run(
+                conn,
+                cross_repo_run_id=str(args.cross_repo_run_id),
+                local_runner=PgCrossRepoLocalRunner(conn),
+                reason=str(args.reason),
             )
+            conn.commit()
+            return result
     finally:
         close = getattr(conn, "close", None)
         if callable(close):

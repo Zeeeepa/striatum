@@ -736,16 +736,21 @@ Operator inspection commands:
 "$RUNNER" cross-repo list --json
 "$RUNNER" cross-repo describe <cross_repo_run_id> --json
 "$RUNNER" cross-repo why <cross_repo_run_id> --json
+"$RUNNER" cross-repo cancel <cross_repo_run_id> --reason "<why>" --json
 ```
 
-`cross-repo cancel` is parser-visible but currently refuses with
-`not_implemented`; do not rely on it for production recovery until the daemon
-has a PG-native participant-cancel path for every repository in the run.
+`cross-repo cancel` is the recovery cancel path for cross-repo runs. It routes
+through daemon RPC, cancels non-terminal participant runs via the PG-native
+participant runner, skips terminal participants, and returns `blocked` with
+participant diagnostics when any repository cannot be canceled.
 
 If a participant repository disappears mid-run, the daemon pauses the
-cross-repo run and the operator must re-register the same repository id
-or cancel the run. Cross-repo coordination is best-effort local
-orchestration, not atomic file mutation across repositories.
+cross-repo run and the operator must re-register the same repository id or run
+`striatum cross-repo cancel <cross_repo_run_id> --reason "<why>"`. If cancel
+returns `blocked`, inspect participant states, repair or re-register the
+unreachable repository, then retry cancel or cancel the affected participant
+manually. Cross-repo coordination is best-effort local orchestration, not
+atomic file mutation across repositories.
 
 Daemon MCP mutation tools follow least privilege. A read-only token sees
 only read tools. Mutation grants (`write`, `review`, `claim`, `apply`,

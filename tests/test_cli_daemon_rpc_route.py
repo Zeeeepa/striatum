@@ -3,7 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 
 import pytest
 
@@ -738,6 +738,82 @@ def test_supervise_routes_to_pg_handlers() -> None:
     assert status_params == {"session_id": "sess_1"}
     assert list_method == "supervise.list"
     assert list_params == {"run_id": "run_1", "state": "attached"}
+
+
+def test_cross_repo_commands_route_to_daemon_rpc() -> None:
+    list_method, list_params = _route(
+        "cross-repo",
+        "list",
+        cross_repo_command="list",
+    )
+    describe_method, describe_params = _route(
+        "cross-repo",
+        "describe",
+        cross_repo_command="describe",
+        cross_repo_run_id="xrun_1",
+    )
+    why_method, why_params = _route(
+        "cross-repo",
+        "why",
+        cross_repo_command="why",
+        cross_repo_run_id="xrun_1",
+    )
+    cancel_method, cancel_params = _route(
+        "cross-repo",
+        "cancel",
+        cross_repo_command="cancel",
+        cross_repo_run_id="xrun_1",
+        reason="operator requested",
+    )
+
+    assert list_method == "cross_repo.list"
+    assert list_params == {}
+    assert describe_method == "cross_repo.describe"
+    assert describe_params == {"cross_repo_run_id": "xrun_1"}
+    assert why_method == "cross_repo.why"
+    assert why_params == {"cross_repo_run_id": "xrun_1"}
+    assert cancel_method == "cross_repo.cancel"
+    assert cancel_params == {
+        "cross_repo_run_id": "xrun_1",
+        "reason": "operator requested",
+    }
+
+
+def test_cross_repo_cancel_routes_when_daemon_is_reachable(monkeypatch: pytest.MonkeyPatch) -> None:
+    args = argparse.Namespace(
+        command="cross-repo",
+        cross_repo_command="cancel",
+        cross_repo_run_id="xrun_1",
+        reason="operator requested",
+    )
+    captured: dict[str, object] = {}
+
+    monkeypatch.delenv("STRIATUM_TEST_HARNESS", raising=False)
+    monkeypatch.delenv("STRIATUM_IN_DAEMON_HANDLER", raising=False)
+    monkeypatch.setattr(
+        "striatum.cli.daemon_rpc_route.resolve_socket_path",
+        lambda: Path("/tmp/striatumd.sock"),
+    )
+    monkeypatch.setattr(
+        "striatum.cli.daemon_rpc_route.daemon_socket_is_reachable",
+        lambda _path: True,
+    )
+
+    def fake_call(_path: Path, method: str, params: Mapping[str, Any]) -> dict[str, Any]:
+        captured["method"] = method
+        captured["params"] = dict(params)
+        return {"ok": True, "data": {"cross_repo_run_id": "xrun_1", "state": "canceled"}}
+
+    monkeypatch.setattr("striatum.cli.daemon_rpc_route._call_with_handshake", fake_call)
+
+    routed, data = try_route(args, Path("/repo"))
+
+    assert routed is True
+    assert data == {"cross_repo_run_id": "xrun_1", "state": "canceled"}
+    assert captured == {
+        "method": "cross_repo.cancel",
+        "params": {"cross_repo_run_id": "xrun_1", "reason": "operator requested"},
+    }
 
 
 def test_decision_record_preserves_run_path_and_followup() -> None:

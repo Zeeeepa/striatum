@@ -121,7 +121,7 @@ PYTHONPATH=src python3 -m striatum.cli --help
 | File | When to read |
 |---|---|
 | [`docs/USING_STRIATUM.md`](docs/USING_STRIATUM.md) | The day-zero usage guide — operator + principal in one pass. |
-| [`docs/HOW_TO_HUMAN.md`](docs/HOW_TO_HUMAN.md) | Long-form playbook: every CLI verb in the order an operator uses it. |
+| [`docs/HOW_TO_HUMAN.md`](docs/HOW_TO_HUMAN.md) | Human-principal escalation playbook; retains manual operator reference for debugging and demos. |
 | [`docs/HOW_TO_AGENT.md`](docs/HOW_TO_AGENT.md) | Long-form companion to the RFC 0015 agent skill bundle. |
 | [`docs/POSTGRES_TRANSITION.md`](docs/POSTGRES_TRANSITION.md) | Operator runbook for the D094 / RFC 0043 PostgreSQL cutover and per-repo migration. |
 | [`docs/WORKFLOW_TYPES.md`](docs/WORKFLOW_TYPES.md) | Workflow shapes and lane sets; starters, examples, defaults. |

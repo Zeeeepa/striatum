@@ -174,3 +174,7 @@
 | `supervise stop` | `supervise.stop` | `claim` | `single_repo` |
 | `supervise status` | `supervise.status` | `read` | `single_repo` |
 | `supervise list` | `supervise.list` | `read` | `single_repo` |
+| `cross-repo list` | `cross_repo.list` | `read` | `cross_repo` |
+| `cross-repo describe` | `cross_repo.describe` | `read` | `cross_repo` |
+| `cross-repo why` | `cross_repo.why` | `read` | `cross_repo` |
+| `cross-repo cancel` | `cross_repo.cancel` | `recovery` | `cross_repo` |

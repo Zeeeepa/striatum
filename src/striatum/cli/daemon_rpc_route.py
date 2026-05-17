@@ -599,6 +599,15 @@ def _params_supervise_list(args: argparse.Namespace, repo: Path) -> dict[str, An
     }
 
 
+def _params_cross_repo(args: argparse.Namespace, repo: Path) -> dict[str, Any]:
+    params: dict[str, Any] = {}
+    if getattr(args, "cross_repo_run_id", None):
+        params["cross_repo_run_id"] = str(args.cross_repo_run_id)
+    if getattr(args, "cross_repo_command", None) == "cancel":
+        params["reason"] = str(getattr(args, "reason", "") or "")
+    return params
+
+
 _PARAM_BUILDERS: dict[str, ParamBuilder] = {
     "status": _params_status,
     "why": _params_why,
@@ -648,6 +657,7 @@ _PARAM_BUILDERS: dict[str, ParamBuilder] = {
     "supervise_stop": _params_supervise_stop,
     "supervise_status": _params_supervise_status,
     "supervise_list": _params_supervise_list,
+    "cross_repo": _params_cross_repo,
 }
 
 

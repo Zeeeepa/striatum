@@ -99,9 +99,9 @@ striatum --repo "$TARGET_REPO" doctor --first-run --json
 What `adopt` does:
 
 - Creates `.striatum/` next to the target repo (runtime scratch).
-- Writes the operator skill bundle to
-  `.claude/skills/striatum-*/` (or `~/.codex/skills/` for codex,
-  etc.).
+- Writes the operator skill bundle to the agent's project-scope location
+  such as `.claude/skills/striatum-*/` or `.codex/agents/striatum-*.md`
+  (`~/.codex/agents/striatum-*.md` for user-scope Codex installs).
 - Writes the agent-CLI plugin bundle for the selected profile when one
   exists.
 - Scaffolds the seven canonical DDD docs under `docs/` (per

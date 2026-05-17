@@ -11,9 +11,9 @@ and the cycle-1 budget discipline.
 - **Design review (gemini adversarial `threat_model`)**: bounce if
   the threat model has a gap (forged-byline-with-leftover-row,
   supervise-without-run, override-without-justification, race).
-- **Build review codex `threat_model`**: bounce if the gate isn't
-  invoked on BOTH publish paths (PG + SQLite mirror), or if the
-  SQL is interpolated rather than parameterized.
+- **Build review codex `threat_model`**: bounce if the PG production gate
+  is missing, if legacy_sqlite fixture/quarantine regression coverage drifts
+  from it, or if the SQL is interpolated rather than parameterized.
 - **Build review claude `ergonomics_dx`**: bounce if the refusal
   doesn't cite the operator's next command (supervise start or
   --allow-no-process-execution).

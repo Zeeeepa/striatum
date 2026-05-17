@@ -1,13 +1,22 @@
 # RFC 0060: Single Daemon Method Contract Source
 
 ## Status
-Draft
+Implemented
 
 ## Summary
-Scaffolding for architecture remediation Phase 2.
+`contracts/daemon_methods.json` is the single source for daemon method
+metadata and CLI route declarations. Python loads `METHOD_REGISTRY` from that
+contract, Go registry fixtures are generated from it, and
+`docs/architecture/DAEMON_METHOD_TABLES.md` is generated from the same file.
 
 ## Motivation
-Derived from the STRIATUM Architecture Review and Remediation Plan (2026-05-16).
+The 2026-05-16 remediation review found drift between parser-visible commands,
+daemon method metadata, MCP descriptors, Go placeholders, and hand-written
+documentation. One contract keeps routing, capability, scope, and docs aligned.
 
 ## Proposed Implementation
-To be detailed based on the remediation plan.
+Completed work includes contract-loaded Python registry entries, generated Go
+registry metadata, generated method tables, declarative `cli_routes`, route
+lookup tests, MCP descriptor derivation from `METHOD_REGISTRY`, and guardrails
+that keep workflow authoring local while daemon-owned live-state verbs route
+through RPC.

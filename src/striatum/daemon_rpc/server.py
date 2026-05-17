@@ -172,7 +172,7 @@ class DaemonRpcRouter:
         if envelope.method.startswith("repo."):
             return self._route_repo(envelope)
         if envelope.method.startswith("cross_repo."):
-            return self._route_cross_repo(envelope)
+            return self._route_cross_repo(envelope, auth=auth)
         if envelope.method.startswith("apply."):
             from striatum.daemon_apply.apply_service import handle_apply_rpc
 
@@ -231,8 +231,18 @@ class DaemonRpcRouter:
             return daemon_mod.repo_remove_pg(self.pg_conn, identifier)
         raise RpcError("method_unknown", f"method has no handler: {envelope.method}")
 
-    def _route_cross_repo(self, envelope: RpcEnvelope) -> dict[str, Any]:
-        from striatum.cross_repo import describe_cross_repo_run, list_cross_repo_runs
+    def _route_cross_repo(
+        self,
+        envelope: RpcEnvelope,
+        *,
+        auth: RpcAuthContext,
+    ) -> dict[str, Any]:
+        from striatum.cross_repo import (
+            PgCrossRepoLocalRunner,
+            cancel_cross_repo_run,
+            describe_cross_repo_run,
+            list_cross_repo_runs,
+        )
 
         if self.pg_conn is None:
             raise RpcError("daemon_db_missing", "cross-repo routes require daemon PostgreSQL")
@@ -251,9 +261,14 @@ class DaemonRpcRouter:
                 "participants": described["participants"],
             }
         if envelope.method == "cross_repo.cancel":
-            raise RpcError(
-                "not_implemented",
-                "cross-repo cancel requires the daemon lifecycle service; full E2E harness is deferred",
+            return cancel_cross_repo_run(
+                self.pg_conn,
+                cross_repo_run_id=run_id,
+                local_runner=PgCrossRepoLocalRunner(self.pg_conn, auth=auth),
+                reason=str(
+                    envelope.params.get("reason")
+                    or "operator canceled cross-repo run"
+                ),
             )
         raise RpcError("method_unknown", f"method has no handler: {envelope.method}")
 

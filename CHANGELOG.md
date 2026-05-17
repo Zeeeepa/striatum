@@ -125,9 +125,11 @@ Recent checkpoints:
 - JSON read helpers, repo-tree reads, daemon-read fallback handling, and
   run-event SSE route control moved from `service.py` into
   `striatum.service_api_routes`, preserving handler wrappers for direct tests.
-- Documentation now records that parser-visible `cross-repo cancel` is still
-  an explicit `not_implemented` surface until cross-repo runs have a
-  PG-native participant-cancel implementation.
+- `cross-repo cancel` now routes through the daemon RPC contract to
+  `cross_repo.cancel`, uses the PG-native participant-cancel runner, delegates
+  each non-terminal participant to the daemon `run.cancel` handler, skips
+  terminal or not-yet-local participants, and records blocked participant
+  diagnostics in `last_reconcile_error`.
 - PostgreSQL `recovery.sweep` now executes configured checkpoint-timeout
   escalation hooks (`marker_file`, `webhook`, `shell`) through the shared
   recovery hook dispatcher, keeps dry-runs side-effect-free, and folds hook

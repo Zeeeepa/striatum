@@ -162,27 +162,18 @@ close threads in the interactive TUI.
 
 ### Skills / tools
 
-Codex skills (`developers.openai.com/codex/skills`,
-`blog.fsck.com/2025/12/19/codex-skills/`) package reusable workflows
-behind a `SKILL.md` file with YAML front matter (`name`, `description`)
-plus optional `references/`, `scripts/`, `assets/` siblings.
+Historical note: this research predated Striatum's current Codex profile.
+Current Striatum installs Codex-facing skill guidance as flat agent docs under
+`.codex/agents/striatum-*.md` for project scope or
+`~/.codex/agents/striatum-*.md` for user scope, matching
+`src/striatum/skills/install.py` and the regression tests.
 
-Discovery scopes (per upstream docs):
+Current Striatum install scopes:
 
 | Scope | Path |
 |-------|------|
-| Repository (local, sub-folder) | `.agents/skills` in cwd |
-| Repository (shared) | `.agents/skills` at repo root |
-| User | `$HOME/.agents/skills` |
-| System | bundled with Codex |
-
-Note: the Codex docs use `.agents/skills`. The third-party
-`config.toml` reference and several blog posts mention
-`$CODEX_HOME/skills` (`~/.codex/skills`); both surfaces exist
-(`developers.openai.com/codex/skills`,
-`developers.openai.com/codex/config-reference`). For Striatum's
-purposes, the project-scoped `.agents/skills` path is the relevant one
-because it can be checked into a target repo.
+| Repository/project | `.codex/agents/striatum-*.md` |
+| User | `~/.codex/agents/striatum-*.md` |
 
 Selection: progressive disclosure. Codex loads only `name` +
 `description` + path at startup (capped at ~2% of context, ~8 KB), and
@@ -512,9 +503,10 @@ Justification for each value:
 - `feature_flags.agent_teams: "unsupported"` — Codex has no public
   "agent teams" concept comparable to Claude Code's; subagents are the
   only delegation primitive.
-- `feature_flags.skills: "allowed"` — `.agents/skills` and
-  `$CODEX_HOME/skills` both work; project-scoped skills survive Striatum
-  worktree creation as long as they are committed.
+- `feature_flags.skills: "allowed"` — Striatum writes Codex profile docs to
+  `.codex/agents/` for project scope and `~/.codex/agents/` for user scope;
+  project-scoped docs survive Striatum worktree creation as long as they are
+  committed.
 - `feature_flags.custom_agent_roles: "allowed"` — `.codex/agents/*.toml`
   and `~/.codex/agents/*.toml`.
 - `feature_flags.hooks: "allowed"` — `[features] codex_hooks = true`
@@ -709,11 +701,10 @@ and `.codex/` / `.agents/` are at the project root.
   programmatic resume. RFC 0010's `tool_family` is correctly tool-, not
   invocation-shape-, scoped, so the same `codex_default` profile could
   describe both lane shapes.
-- **Skills path divergence** — upstream Codex docs use
-  `.agents/skills` while several blog posts and the config reference
-  mention `$CODEX_HOME/skills`. Striatum should not pin to one path in
-  the profile until upstream picks; the profile can declare
-  `skills: "allowed"` and let workflow authors choose.
+- **Skills path divergence resolved for Striatum** — older research compared
+  `.agents/skills` and `$CODEX_HOME/skills`. Striatum now pins its generated
+  Codex profile docs to `.codex/agents/` / `~/.codex/agents/` and tests that
+  install shape directly.
 - **Resume vs ephemeral**. `--ephemeral` forecloses `codex exec resume`.
   If a Striatum lane wants long-running supervised Codex (RFC 0009), it
   must drop `--ephemeral` *and* keep `CODEX_HOME` durable across

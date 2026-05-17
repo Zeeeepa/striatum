@@ -1,13 +1,23 @@
 # RFC 0062: Real Escalation Inbox
 
 ## Status
-Draft
+Partially implemented
 
 ## Summary
-Scaffolding for architecture remediation Phase 5.
+Escalations now have daemon-backed projection routes and an operator inbox:
+`escalation.list`, `escalation.show`, `escalation.resolve`, `striatum inbox`,
+and the `striatum.escalation.v1` artifact front-matter schema have landed.
+Artifact linkage into the inbox projection is implemented for the shipped
+schema.
 
 ## Motivation
-Derived from the STRIATUM Architecture Review and Remediation Plan (2026-05-16).
+RFC 0053 made the human principal an escalation-only role, but the product
+needed a real projection rather than scattered blocker prose and artifact
+conventions.
 
 ## Proposed Implementation
-To be detailed based on the remediation plan.
+Completed work covers list/show/resolve daemon methods, the CLI inbox
+projection, escalation artifact validation, and artifact linkage. Remaining
+decisions are policy and schema hardening: whether artifact-only escalation
+creation should synthesize inbox rows, and whether blocker payload shape should
+be tightened further or moved into a dedicated typed escalation table.

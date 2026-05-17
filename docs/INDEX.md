@@ -75,6 +75,6 @@ collectively, not individually.
 
 | File | Summary |
 |---|---|
-| [../README.md](../README.md) | Top-level pitch + install + two quick starts (human and agent) + this index. |
+| [../README.md](../README.md) | Top-level pitch, daemon/Postgres quick start, project status, and documentation table. |
 | [../AGENTS.md](../AGENTS.md) | Project instructions for agents and contributors working on the striatum source. |
 | [../CHANGELOG.md](../CHANGELOG.md) | Per-version release notes since `0.1.0`. |

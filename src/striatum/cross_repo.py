@@ -1,13 +1,14 @@
 """Daemon-owned cross-repository workflow lifecycle helpers.
 
-The dogfood-035 slice is intentionally unit-testable: callers inject the
-repo-local operations so this module can exercise daemon coordination without
-requiring the deferred multi-repo daemon harness.
+The dogfood-035 coordination surface remains intentionally unit-testable:
+callers inject repo-local operations for prepare/start/reconcile scenarios,
+while daemon and CLI cancel paths use the PG-native participant runner below.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Mapping, Protocol
 
 from striatum.errors import InvalidTransitionError, NotFoundError
@@ -247,14 +248,28 @@ def cancel_cross_repo_run(
         return {"cross_repo_run_id": cross_repo_run_id, "state": run["state"], "canceled": []}
     canceled: list[str] = []
     blocked: list[str] = []
+    blocked_errors: dict[str, str] = {}
+    skipped_terminal: list[str] = []
+    skipped_no_local_run: list[str] = []
     with _dict_cursor(conn) as cur:
         cur.execute(
             "UPDATE striatumd.cross_repo_runs SET state = 'canceling' WHERE cross_repo_run_id = %s",
             (cross_repo_run_id,),
         )
     for participant in _participants(conn, cross_repo_run_id):
+        if participant.state in TERMINAL_STATES:
+            skipped_terminal.append(participant.repository_alias)
+            continue
         if participant.local_run_id is None:
+            if participant.state == "preparing":
+                skipped_no_local_run.append(participant.repository_alias)
+                _update_participant(conn, cross_repo_run_id, participant.repository_alias, "canceled")
+                continue
             blocked.append(participant.repository_alias)
+            blocked_errors[participant.repository_alias] = (
+                f"participant {participant.repository_alias} has no local_run_id"
+            )
+            _update_participant(conn, cross_repo_run_id, participant.repository_alias, "blocked")
             continue
         try:
             local_runner.cancel(
@@ -264,20 +279,124 @@ def cancel_cross_repo_run(
             )
             canceled.append(participant.repository_alias)
             _update_participant(conn, cross_repo_run_id, participant.repository_alias, "canceled")
-        except Exception:
+        except Exception as exc:
             blocked.append(participant.repository_alias)
+            blocked_errors[participant.repository_alias] = str(exc)
             _update_participant(conn, cross_repo_run_id, participant.repository_alias, "blocked")
     state = "blocked" if blocked else "canceled"
+    last_error = None
+    if blocked_errors:
+        last_error = "; ".join(
+            f"{alias}: {message}" for alias, message in sorted(blocked_errors.items())
+        )
     with _dict_cursor(conn) as cur:
         cur.execute(
             """
             UPDATE striatumd.cross_repo_runs
-            SET state = %s, canceled_at = CASE WHEN %s = 'canceled' THEN %s ELSE canceled_at END
+            SET state = %s,
+                canceled_at = CASE WHEN %s = 'canceled' THEN %s ELSE canceled_at END,
+                last_reconcile_error = %s
             WHERE cross_repo_run_id = %s
             """,
-            (state, state, utc_now(), cross_repo_run_id),
+            (state, state, utc_now(), last_error, cross_repo_run_id),
         )
-    return {"cross_repo_run_id": cross_repo_run_id, "state": state, "canceled": canceled, "blocked": blocked}
+    result: dict[str, Any] = {
+        "cross_repo_run_id": cross_repo_run_id,
+        "state": state,
+        "canceled": canceled,
+        "blocked": blocked,
+    }
+    if blocked_errors:
+        result["blocked_errors"] = blocked_errors
+    if skipped_terminal:
+        result["skipped_terminal"] = skipped_terminal
+    if skipped_no_local_run:
+        result["skipped_no_local_run"] = skipped_no_local_run
+    return result
+
+
+class PgCrossRepoLocalRunner:
+    """PG-native participant operations for cross-repo daemon routes."""
+
+    def __init__(self, conn: Any, *, auth: Any | None = None) -> None:
+        self.conn = conn
+        self.auth = auth
+
+    def prepare(
+        self,
+        *,
+        repository_id: str,
+        repository_alias: str,
+        cross_repo_run_id: str,
+    ) -> str:
+        del repository_id, repository_alias, cross_repo_run_id
+        raise InvalidTransitionError(
+            "PG cross-repo runner does not prepare participant runs"
+        )
+
+    def start(self, *, repository_id: str, local_run_id: str) -> None:
+        del repository_id, local_run_id
+        raise InvalidTransitionError("PG cross-repo runner does not start participant runs")
+
+    def cancel(self, *, repository_id: str, local_run_id: str, reason: str) -> None:
+        from dataclasses import replace
+
+        from striatum.daemon_pg.handlers.context import RepoHandlerContext
+        from striatum.daemon_pg.handlers.run_lifecycle.run_state import handle_run_cancel
+        from striatum.daemon_rpc.capability import RpcAuthContext
+
+        repo_root = _active_repo_root(self.conn, repository_id)
+        base_auth = self.auth
+        if isinstance(base_auth, RpcAuthContext):
+            auth = replace(base_auth, repository_id=repository_id)
+        else:
+            auth = RpcAuthContext(
+                None,
+                None,
+                repository_id,
+                "recovery",
+                "allowed",
+            )
+        handle_run_cancel(
+            RepoHandlerContext(
+                pg_conn=self.conn,
+                repository_id=repository_id,
+                repo_root=repo_root,
+                auth=auth,
+            ),
+            {"run_id": local_run_id, "reason": reason},
+        )
+
+    def participant_intact(
+        self,
+        *,
+        repository_id: str,
+        local_run_id: str | None,
+    ) -> bool:
+        if local_run_id is None:
+            return False
+        with _dict_cursor(self.conn) as cur:
+            cur.execute(
+                """
+                SELECT 1
+                FROM striatumd.runs
+                WHERE repository_id = %s AND run_id = %s
+                """,
+                (repository_id, local_run_id),
+            )
+            return cur.fetchone() is not None
+
+    def human_checkpoint(
+        self,
+        *,
+        repository_id: str,
+        local_run_id: str | None,
+        reason: str,
+    ) -> None:
+        del repository_id, local_run_id, reason
+        raise InvalidTransitionError(
+            "PG cross-repo runner does not create participant checkpoints"
+        )
 
 
 def reconcile_cross_repo_preparing(
@@ -366,6 +485,22 @@ def _repositories(workflow: Mapping[str, Any]) -> dict[str, str]:
     if workflow.get("primary_repository") not in result:
         raise InvalidTransitionError("cross-repo workflow primary_repository is invalid")
     return result
+
+
+def _active_repo_root(conn: Any, repository_id: str) -> Path:
+    with _dict_cursor(conn) as cur:
+        cur.execute(
+            """
+            SELECT repo_root
+            FROM striatumd.repositories
+            WHERE repository_id = %s AND state = 'active'
+            """,
+            (repository_id,),
+        )
+        row = cur.fetchone()
+    if row is None:
+        raise NotFoundError(f"active repository not found: {repository_id}")
+    return Path(str(_row_value(row, "repo_root"))).expanduser().resolve()
 
 
 def _cross_repo_run(conn: Any, cross_repo_run_id: str) -> dict[str, Any]:

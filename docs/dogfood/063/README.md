@@ -24,11 +24,11 @@ to a workflow-schema bump.
   existing PG state.
 - `workflow upgrade <path>` rule that rewrites v1 workflows to v1.2
   with the rename applied.
-- Define `escalation` artifact-kind schema (front-matter shape +
-  validation rules) + add `escalation.publish` and `escalation.resolve`
-  RPC methods. Or scope-down: defer escalation artifact-kind to a
-  separate dogfood (064) so 063 is "rename only". Design phase
-  decides.
+- Escalation artifact-kind scope was deferred from this rename slice and
+  landed in the follow-up Phase 5 work (`striatum.escalation.v1`,
+  daemon escalation projection routes, and `striatum inbox`). Remaining
+  escalation decisions are artifact-only creation policy and stricter blocker
+  payload/table shape.
 - CLI prompt-string sweep: every verb whose stderr / prompt text
   says "human confirmation required" or similar says "operator
   confirmation" or "escalation required" instead.

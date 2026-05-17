@@ -8,6 +8,12 @@ author: triager-unknown-model-001
 
 # GH #16 — SCOPE
 
+Historical note: this issue scope was written during the RFC 0048 transition.
+The current product contract is daemon-owned PostgreSQL as the only live-state
+substrate, daemon-required CLI/web/MCP clients, and no production direct
+SQLite mode. Read any older "direct mode" language below as historical
+pre-cutover context, not current operator guidance.
+
 Bound scope for the GH #16 fix job. The implementer must follow each
 acceptance bullet literally; the verify job will cite by ID.
 
@@ -69,7 +75,8 @@ Required shape — fill-in block must include:
 - [RS-4] Workflow path.
 - [RS-5] Intended branch / branch-confirmation policy.
 - [RS-6] Existing run id if resuming, otherwise whether to prepare/start a new run.
-- [RS-7] Daemon/Postgres state and whether direct mode is allowed for this run.
+- [RS-7] Daemon/Postgres state and confirmation that the daemon-required
+  runtime is available for this run.
 - [RS-8] Required docs to read first.
 - [RS-9] Expected artifact root.
 - [RS-10] Operator report path and update cadence.
@@ -134,18 +141,14 @@ ordinals, or marker names to product docs or core code."
 
 ## 5. Daemon/Postgres caveat
 
-RFC 0043 V1 has landed (D094, dogfood-048): the Postgres-backed daemon
-is shippable. The default has **not yet** been flipped to
-`daemon-required` (item 31(b) in `docs/ROADMAP.md` §6); the
-`STRIATUM_DAEMON_REQUIRED=0 + STRIATUM_TEST_HARNESS=1` escape still
-works as a test-harness mode, and RFC 0048 phase C will remove that
-escape entirely. The fill-in block guidance for the
-"Daemon/Postgres state" field (RS-7) must therefore ask the human to
-declare one of three current modes — (a) daemon + Postgres, (b) direct
-mode against the SQLite substrate, (c) test-harness escape with
-`STRIATUM_DAEMON_REQUIRED=0 + STRIATUM_TEST_HARNESS=1` — and warn that
-mode (c) is scheduled for removal in RFC 0048 phase C. The prompt
-should not assume any one mode is current.
+RFC 0043 V1 and RFC 0048 have landed: daemon-owned PostgreSQL is the current
+live-state substrate and the daemon is required for Striatum verbs. The
+fill-in block guidance for the "Daemon/Postgres state" field (RS-7) should
+ask the human to confirm daemon socket reachability, Postgres doctor status,
+runtime token availability, and repository registration. Direct SQLite mode is
+not a current run mode; any `STRIATUM_DAEMON_REQUIRED=0` or
+`STRIATUM_TEST_HARNESS=1` wording is limited to historical fixtures and test
+compatibility.
 
 ## 6. Cross-references the implementer should embed
 

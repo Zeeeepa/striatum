@@ -8,7 +8,10 @@ author: operator
 
 ## Status
 
-Scaffolded 2026-05-16. Not yet launched.
+Scaffolded 2026-05-16 as the schema-rename planning slice. The escalation
+artifact-kind decision was deferred from this run and later landed in the
+Phase 5 escalation-inbox work; remaining escalation policy questions are
+tracked in the roadmap/TODO rather than here.
 
 ## Pre-flight
 
@@ -38,8 +41,8 @@ striatum --repo . dashboard --run-id <run_id>
 
 ## Decisions
 
-(empty — track the `escalation` artifact-kind scope decision when synth
-makes it)
+- Escalation artifact-kind scope deferred from this run; follow-up Phase 5
+  shipped `striatum.escalation.v1`, inbox projection, and list/show/resolve.
 
 ## Post-landing checklist
 

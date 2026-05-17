@@ -331,6 +331,85 @@ def test_daemon_pg_migrations_name_rpc_supervisor_apply_and_repo_local_tables() 
     assert "mutation_queue" not in sql
 
 
+def test_cross_repo_cancel_routes_to_pg_native_lifecycle(monkeypatch: pytest.MonkeyPatch) -> None:
+    import striatum.cross_repo as cross_repo_mod
+
+    captured: dict[str, Any] = {}
+    fake_conn = object()
+
+    class FakeRunner:
+        def __init__(self, conn: object, *, auth: RpcAuthContext) -> None:
+            captured["runner_conn"] = conn
+            captured["runner_auth"] = auth
+
+    def fake_cancel_cross_repo_run(
+        conn: object,
+        *,
+        cross_repo_run_id: str,
+        local_runner: object,
+        reason: str,
+    ) -> dict[str, Any]:
+        captured["conn"] = conn
+        captured["cross_repo_run_id"] = cross_repo_run_id
+        captured["local_runner"] = local_runner
+        captured["reason"] = reason
+        return {"cross_repo_run_id": cross_repo_run_id, "state": "canceled"}
+
+    monkeypatch.setattr(cross_repo_mod, "PgCrossRepoLocalRunner", FakeRunner)
+    monkeypatch.setattr(cross_repo_mod, "cancel_cross_repo_run", fake_cancel_cross_repo_run)
+
+    router = DaemonRpcRouter(pg_conn=fake_conn)
+    auth = RpcAuthContext("client", "token", None, "recovery", "allowed")
+    result = router._route_cross_repo(  # noqa: SLF001 - route dispatch regression.
+        RpcEnvelope(
+            schema_version=1,
+            request_id="xrun-cancel",
+            method="cross_repo.cancel",
+            params={"cross_repo_run_id": "xrun_1", "reason": "operator request"},
+        ),
+        auth=auth,
+    )
+
+    assert result == {"cross_repo_run_id": "xrun_1", "state": "canceled"}
+    assert captured["conn"] is fake_conn
+    assert captured["runner_conn"] is fake_conn
+    assert captured["runner_auth"] is auth
+    assert captured["cross_repo_run_id"] == "xrun_1"
+    assert captured["reason"] == "operator request"
+
+
+def test_cross_repo_cancel_requires_run_id() -> None:
+    router = DaemonRpcRouter(pg_conn=object())
+    with pytest.raises(RpcError) as exc:
+        router._route_cross_repo(  # noqa: SLF001 - route dispatch regression.
+            RpcEnvelope(
+                schema_version=1,
+                request_id="xrun-cancel-missing",
+                method="cross_repo.cancel",
+                params={},
+            ),
+            auth=RpcAuthContext("client", "token", None, "recovery", "allowed"),
+        )
+
+    assert exc.value.code == "schema_invalid"
+
+
+def test_cross_repo_cancel_requires_recovery_capability() -> None:
+    router = DaemonRpcRouter(pg_conn=None)
+    response = router.handle(
+        RpcEnvelope(
+            schema_version=1,
+            request_id="xrun-cancel-auth",
+            method="cross_repo.cancel",
+            params={"cross_repo_run_id": "xrun_1"},
+        ),
+        require_handshake=False,
+    )
+
+    assert response.ok is False
+    assert response.data["code"] == "token_missing"
+
+
 def test_repo_local_migration_adds_daemon_supervisor_pointer_table(tmp_path: Path) -> None:
     repo = tmp_path / "repo"
     repo.mkdir()

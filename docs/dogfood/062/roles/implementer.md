@@ -11,9 +11,8 @@ sub-agents per layer.
   — the PG-side gate.
 - `src/striatum/daemon_pg/handlers/context.py` — if synthesis says
   to surface `process_execution_count`.
-- `src/striatum/cli/mutations.py` — the SQLite legacy path mirror
-  (must match the PG gate behavior; both code paths can co-exist
-  per RFC 0048 V1.5 hardened state).
+- `src/striatum/cli/mutations.py` — legacy SQLite fixture/quarantine
+  regression coverage only. Production publish authority is the PG gate.
 - `tests/test_lane_attestation_v17.py` — new file, 4 acceptance
   tests.
 - `tests/daemon_pg/` — PG-specific regressions if synthesis adds

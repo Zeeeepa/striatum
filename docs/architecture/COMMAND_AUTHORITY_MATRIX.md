@@ -134,7 +134,7 @@ Legend:
 | `cross_repo.list` | `cross-repo list` | read | cross_repo | direct cross-repo service | real | no | no | stable |
 | `cross_repo.describe` | `cross-repo describe` | read | cross_repo | direct cross-repo service | real | no | no | stable |
 | `cross_repo.why` | `cross-repo why` | read | cross_repo | direct cross-repo service | real | no | no | stable |
-| `cross_repo.cancel` | `cross-repo cancel` | recovery | cross_repo | direct not_implemented | explicit not_implemented | no | no | not implemented |
+| `cross_repo.cancel` | `cross-repo cancel` | recovery | cross_repo | daemon RPC + PG participant cancel | placeholder | no | no | stable |
 
 ## Deprecated Alias Methods
 
@@ -174,8 +174,8 @@ remediation phases should either daemon-route, quarantine, or delete.
 | `daemon migrate` | daemon registry migration helper | source registry migration only | legacy_migration |
 | `daemon migrate-repo-local` | per-repo SQLite -> Postgres migration | intentional source SQLite import | legacy_migration |
 | `daemon status` / `stop` / `health` / `audit` / `sweep` | daemon lifecycle helpers | daemon registry/audit paths | bootstrap_admin |
-| `cross-repo list` / `describe` / `why` | direct PG helper | no | daemon_read_out_of_band |
-| `cross-repo cancel` | direct refusal | no | not_implemented |
+| `cross-repo list` / `describe` / `why` | daemon RPC cross-repo helpers | no | daemon_read_out_of_band |
+| `cross-repo cancel` | daemon RPC + PG participant cancel | no | daemon_recovery |
 | `workflow validate` / `lint` / `plan` / `graph` | local authoring helpers; daemon RPC fails closed | no live state | local_file_authoring |
 | `workflow init` / `generate` / `templates` | local authoring helpers; daemon RPC fails closed | no live state | local_file_authoring |
 | `workflow upgrade` | local authoring helper with PG running-run guard | legacy SQLite only before cutover; fails closed after cutover if PG unavailable | local_file_authoring |
