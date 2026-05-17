@@ -875,9 +875,12 @@ review and plan are root-level operator artifacts:
     context-token minting kept local and direct SQLite retained only for
     subprocess fixtures. First behavior-preserving split landed:
     `service_http.py` owns pure HTTP/security helpers while `service.py`
-    re-exports the same names for existing callers. Remaining: continue
-    splitting `service.py` along stable boundaries, starting with
-    chat-session helpers and then legacy subprocess-fixture fallbacks.
+    re-exports the same names for existing callers. Follow-up split landed:
+    `web/chat_session.py` owns chat transcript projection, briefing,
+    JSONL append, timestamp, stable-hash, safe-git, and multipart helpers.
+    Remaining: continue splitting `service.py` along stable boundaries, with
+    legacy subprocess-fixture fallbacks as the next low-risk quarantine
+    target.
 
 53. **Phase 5: real escalation inbox.** First slice landed:
     `escalation.list`, `escalation.show`, and `escalation.resolve`

@@ -384,10 +384,14 @@ daemon-first without needing to support two domain daemons.
   origin derivation, argv flag lookup, and web-context HMAC tokens. The
   names remain re-exported through `service.py` for existing callers and
   tests.
+- `src/striatum/web/chat_session.py` now owns chat transcript projection,
+  chat-briefing construction, JSONL append, timestamp, stable-hash,
+  safe-git, and multipart parsing helpers. `service.py` keeps thin
+  compatibility aliases for tests and request handlers.
 
 **Remaining Phase 4 debt:** continue splitting `service.py` along stable
-boundaries, starting with chat-session helpers and then legacy
-subprocess-fixture fallbacks after the daemon-routed paths are stable.
+boundaries, with legacy subprocess-fixture fallbacks as the next low-risk
+quarantine target after the daemon-routed paths are stable.
 
 ---
 

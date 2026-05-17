@@ -49,7 +49,9 @@ in the roadmap/TODO and has several production slices landed:
   the same subprocess harness. As the first behavior-preserving split,
   pure HTTP/security helpers moved from `service.py` into
   `service_http.py` while keeping the existing `striatum.service` imports
-  stable.
+  stable. Chat transcript projection, briefing, JSONL append, timestamp,
+  stable-hash, safe-git, and multipart helpers now live in
+  `striatum.web.chat_session`, with thin `service.py` compatibility aliases.
 - **Escalation inbox foundation.**
   `escalation.list`, `escalation.show`, and `escalation.resolve` project
   human-principal escalations from blocker state. The `escalation` artifact
