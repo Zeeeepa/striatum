@@ -28,7 +28,9 @@ in the roadmap/TODO and has several production slices landed:
   chat briefing active-run
   summaries, the JSON read endpoints for status/doctor/why/dashboard/run
   artifacts, the artifact detail page, and the posture-verdict drill-down
-  page. Run-now now calls daemon `run.prepare`, `branch.confirm`, and
+  page. The run detail page now renders from daemon `run.detail` in
+  production, keeping SVG/HTML rendering local while moving page state to a
+  read DTO. Run-now now calls daemon `run.prepare`, `branch.confirm`, and
   `run.start` in production, preserving the historical 422 field-level
   workflow validation response through daemon RPC error details. The new
   `run.posture_verdicts` daemon DTO backs the posture page,

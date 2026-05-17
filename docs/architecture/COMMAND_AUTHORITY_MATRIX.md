@@ -48,6 +48,7 @@ Legend:
 | `corpus.export` | `corpus export` | read | single_repo | pg | real | no | no | stable |
 | `archive.create` | `archive create` | read | single_repo | pg | placeholder | no | no | foundation |
 | `run.summary` | `run summary` | read | single_repo | pg | real | no | no | stable |
+| `run.detail` | web run detail DTO | read | single_repo | pg | real | no | no | stable |
 | `run.graph` | `run graph` | read | single_repo | pg | placeholder | no | no | stable |
 | `run.events` | web SSE event stream DTO | read | single_repo | pg | real | no | no | stable |
 | `run.posture_verdicts` | web posture verdict drill-down | read | single_repo | pg | real | no | no | stable |

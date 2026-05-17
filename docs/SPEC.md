@@ -1410,7 +1410,9 @@ Routes:
   SVG dependency graph (RFC 0022 step 3) — layered top-down
   layout, state-colored nodes via CSS custom properties, click
   to navigate to a job's detail page, SVG `<title>` tooltip on
-  hover for accessibility.
+  hover for accessibility. Production page-state reads use daemon
+  `run.detail`; the web service keeps HTML/SVG rendering local, and the
+  legacy SQLite page read exists only for subprocess test fixtures.
 - `GET /run/<run_id>/posture/<posture>` →
   `run_posture_verdicts.html`. Production reads use daemon
   `run.posture_verdicts`; the legacy SQLite path exists only for

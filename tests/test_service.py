@@ -542,15 +542,16 @@ def test_status_derives_phase_progress_from_snapshot(tmp_path: Path) -> None:
 
 
 def test_service_run_detail_passes_phase_progress_context(tmp_path: Path, monkeypatch: Any) -> None:
-    run_id = _insert_phased_run(tmp_path)
     sys.path.insert(0, str(ROOT / "src"))
     try:
         import striatum.service as service
+        import striatum.service_daemon as service_daemon
         import striatum.web.graph_svg as graph_svg
     finally:
         sys.path.pop(0)
 
     captured: dict[str, Any] = {}
+    calls: list[tuple[Path, str, dict[str, Any]]] = []
 
     class FakeTemplate:
         def render(self, **kwargs: Any) -> str:
@@ -561,6 +562,57 @@ def test_service_run_detail_passes_phase_progress_context(tmp_path: Path, monkey
         def get_template(self, name: str) -> FakeTemplate:
             assert name == "run_detail.html"
             return FakeTemplate()
+
+    def sqlite_tripwire(*args: Any, **kwargs: Any) -> None:
+        raise AssertionError("run-detail page opened repo-local SQLite")
+
+    def fake_call_repo_method(
+        repo: Path, method: str, params: dict[str, Any]
+    ) -> dict[str, Any]:
+        calls.append((repo, method, dict(params)))
+        return {
+            "run": {
+                "run_id": "run_phased",
+                "state": "running",
+                "branch_name": "main",
+                "created_at": "2026-05-13T00:00:00Z",
+                "started_at": "2026-05-13T00:00:01Z",
+                "completed_at": None,
+                "paused_at": None,
+            },
+            "workflow": {
+                "schema_version": "striatum.workflow.v1.1",
+                "workflow_id": "wf_phased",
+                "workflow_version": "v1",
+                "name": "Phased",
+                "branch": {"suggested_name": "feature/phased", "allow_dirty": True},
+                "jobs": [],
+                "edges": [],
+                "cycles": [],
+            },
+            "jobs": [
+                {
+                    "job_id": "job_run_phased_design_a",
+                    "workflow_job_id": "design_a",
+                    "state": "completed",
+                    "role_id": "author",
+                }
+            ],
+            "next_actions": ["claim_available_work"],
+            "recovery_panel": {"run_id": "run_phased", "blockers": [], "recipes": []},
+            "verdicts_by_posture": {"security": 1},
+            "sessions": [{"session_id": "sess_1"}],
+            "phase_progress": [
+                {
+                    "id": "phase_design",
+                    "name": "Design",
+                    "jobs_completed": 1,
+                }
+            ],
+            "current_phase_id": "phase_design",
+            "suggested_branch_name": "feature/phased",
+            "allow_dirty": True,
+        }
 
     handler = object.__new__(service.StriatumServiceHandler)
     handler.state = service.ServiceState(
@@ -587,13 +639,18 @@ def test_service_run_detail_passes_phase_progress_context(tmp_path: Path, monkey
         "render_run_graph",
         lambda workflow, node_states, *, run_id, jobs: "<svg></svg>",
     )
+    monkeypatch.setattr("striatum.service.sqlite3.connect", sqlite_tripwire)
+    monkeypatch.setattr(service_daemon, "call_repo_method", fake_call_repo_method)
 
-    handler._render_run_detail_page(run_id)
+    handler._render_run_detail_page("run_phased")
 
     assert sent == {"status": 200, "body": "ok"}
+    assert calls == [(tmp_path, "run.detail", {"run_id": "run_phased"})]
     assert captured["current_phase_id"] == "phase_design"
     assert captured["phase_progress"][0]["name"] == "Design"
     assert captured["phase_progress"][0]["jobs_completed"] == 1
+    assert captured["suggested_branch_name"] == "feature/phased"
+    assert captured["allow_dirty"] is True
 
 
 def test_service_run_list_reads_daemon_dto_without_sqlite(

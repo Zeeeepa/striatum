@@ -105,6 +105,116 @@ def _legacy_workflow_run_now(repo: Path, *, workflow_path: Path) -> JsonObject:
     return {"run_id": run_id, "status": "running"}
 
 
+def _legacy_run_detail_payload(repo: Path, *, run_id: str) -> JsonObject:
+    from striatum.cli.introspect import status as status_command
+
+    with sqlite3.connect(str(db_path(repo))) as conn:
+        conn.row_factory = sqlite3.Row
+        run_row = conn.execute(
+            "SELECT * FROM runs WHERE run_id = ?", (run_id,)
+        ).fetchone()
+        if run_row is None:
+            raise KeyError(run_id)
+        run = dict(run_row)
+        job_rows = conn.execute(
+            "SELECT * FROM jobs WHERE run_id = ? ORDER BY workflow_job_id",
+            (run_id,),
+        ).fetchall()
+        jobs = [dict(row) for row in job_rows]
+        for job in jobs:
+            lane_selector = _json_loads_object(job.get("lane_selector_json"), {})
+            lane_id = lane_selector.get("lane_id") if isinstance(lane_selector, dict) else None
+            job["lane_id"] = lane_id
+            job["state_chip"] = _state_chip("job", job.get("state"))
+            session_id = None
+            packet = _latest_work_packet_for_job(conn, job_id=str(job["job_id"]))
+            if job.get("current_lease_id"):
+                lease_row = conn.execute(
+                    "SELECT owner_session_id FROM leases WHERE lease_id = ?",
+                    (job["current_lease_id"],),
+                ).fetchone()
+                if lease_row is not None:
+                    session_id = str(lease_row["owner_session_id"])
+            if session_id is None and packet and packet.get("session_id"):
+                session_id = str(packet["session_id"])
+            job["lane_attestation_chip"] = _lane_attestation_chip(
+                conn,
+                session_id=session_id,
+            )
+            artifact_rows = conn.execute(
+                "SELECT * FROM artifacts WHERE job_id = ? ORDER BY created_at",
+                (job["job_id"],),
+            ).fetchall()
+            artifacts = [dict(row) for row in artifact_rows]
+            job["expected_artifact_rows"] = _expected_artifact_rows(
+                job=job,
+                artifacts=artifacts,
+                packet=packet,
+            )
+            job["artifacts"] = _shape_artifact_rows(
+                conn,
+                artifacts=artifacts,
+                expected_rows=job["expected_artifact_rows"],
+            )
+            verdict_rows = conn.execute(
+                """
+                SELECT *
+                FROM verdicts
+                WHERE job_id = ?
+                ORDER BY created_at DESC, verdict_id DESC
+                """,
+                (job["job_id"],),
+            ).fetchall()
+            shaped_verdicts = _shape_verdict_rows(
+                conn,
+                verdicts=[dict(row) for row in verdict_rows],
+            )
+            job["latest_verdict"] = shaped_verdicts[0] if shaped_verdicts else None
+        snapshot_row = conn.execute(
+            "SELECT workflow_json FROM workflow_snapshots WHERE workflow_snapshot_id = ?",
+            (str(run["workflow_snapshot_id"]),),
+        ).fetchone()
+        workflow = (
+            json.loads(str(snapshot_row["workflow_json"]))
+            if snapshot_row is not None else {}
+        )
+        status_payload = status_command(conn, run_id=run_id)
+        next_actions = status_payload.get("next_actions") or []
+        recovery_panel = _recovery_panel_payload(
+            conn,
+            run_id=run_id,
+            next_actions=list(next_actions),
+            auto_finalize_dry_run=(
+                status_payload.get("auto_finalize_dry_run")
+                if isinstance(status_payload.get("auto_finalize_dry_run"), Mapping)
+                else None
+            ),
+        )
+        run["state_chip"] = _state_chip("run", run.get("state"))
+    suggested_branch_name = ""
+    allow_dirty = False
+    try:
+        br = workflow.get("branch") or {}
+        if isinstance(br, dict):
+            suggested_branch_name = str(br.get("suggested_name") or "")
+            allow_dirty = bool(br.get("allow_dirty"))
+    except (AttributeError, TypeError):
+        pass
+    return {
+        "run": run,
+        "jobs": jobs,
+        "workflow": workflow,
+        "next_actions": list(next_actions),
+        "recovery_panel": recovery_panel,
+        "verdicts_by_posture": status_payload.get("verdicts_by_posture") or {},
+        "sessions": status_payload.get("sessions") or [],
+        "phase_progress": status_payload.get("phases") or [],
+        "current_phase_id": status_payload.get("current_phase_id"),
+        "suggested_branch_name": suggested_branch_name,
+        "allow_dirty": allow_dirty,
+    }
+
+
 def _legacy_job_cancel(
     repo: Path,
     *,
@@ -2293,97 +2403,44 @@ class StriatumServiceHandler(BaseHTTPRequestHandler):
             self._send_json(500, {"ok": False, "error": {"code": 500, "message": str(exc)}})
 
     def _render_run_detail_page(self, run_id: str) -> None:
-        from striatum.cli.introspect import status as status_command
         from striatum.web.graph_svg import (
             compute_node_states_from_jobs,
             render_run_graph,
         )
         try:
-            with sqlite3.connect(str(db_path(self.state.repo))) as conn:
-                conn.row_factory = sqlite3.Row
-                run_row = conn.execute(
-                    "SELECT * FROM runs WHERE run_id = ?", (run_id,)
-                ).fetchone()
-                if run_row is None:
-                    self._send_json(404, {"ok": False, "error": {"code": 404, "message": "run not found"}})
+            from striatum.service_daemon import ServiceDaemonRpcError, call_repo_method
+
+            try:
+                payload = call_repo_method(self.state.repo, "run.detail", {"run_id": run_id})
+            except ServiceDaemonRpcError as exc:
+                if _legacy_web_read_fallback_enabled(exc.code):
+                    try:
+                        payload = _legacy_run_detail_payload(self.state.repo, run_id=run_id)
+                    except KeyError:
+                        self._send_json(404, {"ok": False, "error": {"code": 404, "message": "run not found"}})
+                        return
+                else:
+                    self._send_json(
+                        exc.status,
+                        {"ok": False, "error": {"code": exc.code, "message": exc.message}},
+                    )
                     return
-                run = dict(run_row)
-                job_rows = conn.execute(
-                    "SELECT * FROM jobs WHERE run_id = ? ORDER BY workflow_job_id",
-                    (run_id,),
-                ).fetchall()
-                jobs = [dict(row) for row in job_rows]
-                for job in jobs:
-                    lane_selector = _json_loads_object(job.get("lane_selector_json"), {})
-                    lane_id = lane_selector.get("lane_id") if isinstance(lane_selector, dict) else None
-                    job["lane_id"] = lane_id
-                    job["state_chip"] = _state_chip("job", job.get("state"))
-                    session_id = None
-                    packet = _latest_work_packet_for_job(conn, job_id=str(job["job_id"]))
-                    if job.get("current_lease_id"):
-                        lease_row = conn.execute(
-                            "SELECT owner_session_id FROM leases WHERE lease_id = ?",
-                            (job["current_lease_id"],),
-                        ).fetchone()
-                        if lease_row is not None:
-                            session_id = str(lease_row["owner_session_id"])
-                    if session_id is None:
-                        if packet and packet.get("session_id"):
-                            session_id = str(packet["session_id"])
-                    job["lane_attestation_chip"] = _lane_attestation_chip(
-                        conn,
-                        session_id=session_id,
-                    )
-                    artifact_rows = conn.execute(
-                        "SELECT * FROM artifacts WHERE job_id = ? ORDER BY created_at",
-                        (job["job_id"],),
-                    ).fetchall()
-                    artifacts = [dict(row) for row in artifact_rows]
-                    job["expected_artifact_rows"] = _expected_artifact_rows(
-                        job=job,
-                        artifacts=artifacts,
-                        packet=packet,
-                    )
-                    job["artifacts"] = _shape_artifact_rows(
-                        conn,
-                        artifacts=artifacts,
-                        expected_rows=job["expected_artifact_rows"],
-                    )
-                    verdict_rows = conn.execute(
-                        """
-                        SELECT *
-                        FROM verdicts
-                        WHERE job_id = ?
-                        ORDER BY created_at DESC, verdict_id DESC
-                        """,
-                        (job["job_id"],),
-                    ).fetchall()
-                    shaped_verdicts = _shape_verdict_rows(
-                        conn,
-                        verdicts=[dict(row) for row in verdict_rows],
-                    )
-                    job["latest_verdict"] = shaped_verdicts[0] if shaped_verdicts else None
-                snapshot_row = conn.execute(
-                    "SELECT workflow_json FROM workflow_snapshots WHERE workflow_snapshot_id = ?",
-                    (str(run["workflow_snapshot_id"]),),
-                ).fetchone()
-                workflow = (
-                    json.loads(str(snapshot_row["workflow_json"]))
-                    if snapshot_row is not None else {}
+            run_raw = payload.get("run")
+            workflow_raw = payload.get("workflow")
+            jobs_raw = payload.get("jobs")
+            if not isinstance(run_raw, Mapping) or not isinstance(workflow_raw, Mapping) or not isinstance(jobs_raw, list):
+                self._send_json(
+                    500,
+                    {"ok": False, "error": {"code": 500, "message": "daemon run detail DTO missing fields"}},
                 )
-                status_payload = status_command(conn, run_id=run_id)
-                next_actions = status_payload.get("next_actions") or []
-                recovery_panel = _recovery_panel_payload(
-                    conn,
-                    run_id=run_id,
-                    next_actions=list(next_actions),
-                    auto_finalize_dry_run=(
-                        status_payload.get("auto_finalize_dry_run")
-                        if isinstance(status_payload.get("auto_finalize_dry_run"), Mapping)
-                        else None
-                    ),
-                )
-                run["state_chip"] = _state_chip("run", run.get("state"))
+                return
+            run = dict(run_raw)
+            workflow = dict(workflow_raw)
+            jobs = [
+                dict(job)
+                for job in jobs_raw
+                if isinstance(job, Mapping)
+            ]
             node_states = compute_node_states_from_jobs(jobs)
             graph_svg = render_run_graph(
                 workflow,
@@ -2391,27 +2448,18 @@ class StriatumServiceHandler(BaseHTTPRequestHandler):
                 run_id=run_id,
                 jobs=jobs,
             )
-            suggested_branch_name = ""
-            allow_dirty = False
-            try:
-                br = workflow.get("branch") or {}
-                if isinstance(br, dict):
-                    suggested_branch_name = str(br.get("suggested_name") or "")
-                    allow_dirty = bool(br.get("allow_dirty"))
-            except (AttributeError, TypeError):
-                pass
             html = _jinja_env().get_template("run_detail.html").render(
                 run=run,
                 jobs=jobs,
                 graph_svg=graph_svg,
-                next_actions=next_actions,
-                recovery_panel=recovery_panel,
-                verdicts_by_posture=status_payload.get("verdicts_by_posture") or {},
-                sessions=status_payload.get("sessions") or [],
-                phase_progress=status_payload.get("phases") or [],
-                current_phase_id=status_payload.get("current_phase_id"),
-                suggested_branch_name=suggested_branch_name,
-                allow_dirty=allow_dirty,
+                next_actions=payload.get("next_actions") or [],
+                recovery_panel=payload.get("recovery_panel") or {},
+                verdicts_by_posture=payload.get("verdicts_by_posture") or {},
+                sessions=payload.get("sessions") or [],
+                phase_progress=payload.get("phase_progress") or [],
+                current_phase_id=payload.get("current_phase_id"),
+                suggested_branch_name=payload.get("suggested_branch_name") or "",
+                allow_dirty=bool(payload.get("allow_dirty")),
             )
             self._send_html(200, html)
         except Exception as exc:  # noqa: BLE001

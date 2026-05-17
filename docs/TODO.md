@@ -866,9 +866,12 @@ review and plan are root-level operator artifacts:
     limited to the same subprocess fixture path. Workflow run-now now calls
     daemon `run.prepare`, `branch.confirm`, and `run.start` in production,
     with the direct SQLite lifecycle retained only for subprocess fixtures.
+    The run detail page now calls daemon `run.detail` for page state in
+    production, with HTML/SVG rendering kept local and direct SQLite retained
+    only for subprocess fixtures.
     Remaining: split
     `service.py`, replace the rest of the direct SQLite-shaped reads with
-    daemon RPC DTOs, starting with run detail and job detail.
+    daemon RPC DTOs, starting with job detail.
 
 53. **Phase 5: real escalation inbox.** First slice landed:
     `escalation.list`, `escalation.show`, and `escalation.resolve`

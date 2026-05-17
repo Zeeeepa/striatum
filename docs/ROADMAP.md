@@ -371,10 +371,13 @@ daemon-first without needing to support two domain daemons.
   historical field-level workflow validation response through daemon RPC
   error details. The direct SQLite lifecycle remains only in the subprocess
   test-harness fallback.
+- The run detail page now calls daemon `run.detail` in production for run,
+  job, session, recovery-panel, verdict, and phase-progress state. The web
+  service still owns HTML/SVG rendering, and the legacy SQLite page read is
+  limited to the subprocess test-harness fallback.
 
-**Remaining Phase 4 debt:** run detail and job detail still need daemon DTOs;
-`service.py` remains due for a split once the route authority cleanup is
-complete.
+**Remaining Phase 4 debt:** job detail still needs a daemon DTO; `service.py`
+remains due for a split once the route authority cleanup is complete.
 
 ---
 

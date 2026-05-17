@@ -168,6 +168,7 @@ def insert_fixture(conn: Any, *, repository_id: str, repo_root: Path) -> None:
         ("list_jobs", "list.jobs"),
         ("list_artifacts", "list.artifacts"),
         ("list_workflows", "list.workflows"),
+        ("run_detail", "run.detail"),
         ("run_events", "run.events"),
         ("run_posture_verdicts", "run.posture_verdicts"),
     ],
