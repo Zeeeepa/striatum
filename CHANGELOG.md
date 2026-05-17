@@ -94,6 +94,9 @@ Recent checkpoints:
   canonical `recovery.sweep` RPC, with the broken `recovery.watch` method and
   CLI route removed from the shared contract, generated docs, Python registry,
   and Go registry.
+- Documentation stale-state cleanup now records the shipped status for the
+  workflow chooser, chat-assisted workflow scaffolding, escalation artifact
+  schema/inbox, current-scope process supervision, and the RFC 0039 blocker.
 - Doctor page DTO loading, legacy fallback selection, record recipe shaping,
   and problem grouping moved from `service.py` into `striatum.web.doctor`.
 - Workflow browser index/detail page DTO shaping moved from `service.py` into

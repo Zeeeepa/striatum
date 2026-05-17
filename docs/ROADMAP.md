@@ -948,7 +948,6 @@ is the runner-owned historical bootstrap successor, and
 
 | Item | Blocker | Unblock criterion |
 |---|---|---|
-| 5.2 (RFC 0039 Phase 2) | Was: RFC 0043 V1. | **Now unblocked.** |
 | RFC 0049 spike | Shelved by D106; depends on external billing semantics and PTY/MCP stability | Explicit operator-funded spike + measurement. |
 | RFC 0057 Corpus V2 | Product contract decisions for multi-corpus identity, redaction tier, watermarks, and injection policy | Accepted RFC 0057 design. |
 | Phase 12 Git/PR integration | Product decision for commit authority and hosted-provider boundaries | Accepted RFC/decision before commit apply or hosted PR work. |

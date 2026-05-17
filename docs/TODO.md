@@ -17,7 +17,7 @@ so external references keep resolving even as items move between sections.
 | R3 | `--repo` flag replaces `TARGET_REPO=..` | ✅ done |
 | R4 | Standalone metadata, license, CI, fresh-clone smoke | ✅ done |
 | R5 | Engram retains incubation copy + pointer | ✅ done |
-| 1 | Process adapter (single-shot + supervised) | 🟡 most done |
+| 1 | Process adapter (single-shot + supervised) | ✅ done for current scope |
 | 2 | Adapter constraint enforcement | 🟡 most done |
 | 3 | Workflow authoring tooling | ✅ done |
 | 4 | Human-checkpoint UX | ✅ done |
@@ -235,7 +235,7 @@ Legend: ✅ done · 🟡 most done (sub-tasks remain) · ⏳ open/blocked · �
 
 ## In Progress
 
-1. **Process adapter.** Single-shot `adapter run` is shipped
+1. ~~**Process adapter.**~~ ✅ Done for current scope: single-shot `adapter run` is shipped
    (`src/striatum/process_adapter.py`). Long-lived supervision (RFC 0009,
    accepted) landed in `src/striatum/supervisor.py` plus
    `.striatum/bin/{claude,codex,gemini}-supervised-wrapper.sh`:

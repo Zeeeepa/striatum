@@ -103,8 +103,9 @@ V1 implementation note: the generator core, built-in package-data
 catalog, CLI `workflow templates` / `workflow generate` surface, local
 service catalog and generation endpoints, custom-plan compiler, and
 `workflow init --style` compatibility rewire are accepted for this
-slice. The web chooser UI remains deferred; the chat-assisted
-scaffolding tool landed in RFC 0036 V1.
+slice. The web chooser UI later landed in RFC 0038, and the chat-assisted
+scaffolding tool landed in RFC 0036 V1. Future target-repo catalog
+extensions remain a separate decision.
 
 ### 1. Generator concepts
 
