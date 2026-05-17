@@ -876,6 +876,7 @@ def _validate_phases(
 
     phase_order: list[str] = []
     phase_by_id: dict[str, JsonObject] = {}
+    phase_index_by_id: dict[str, int] = {}
     for phase_index, phase_value in enumerate(phases_value):
         if not isinstance(phase_value, dict):
             raise WorkflowError(
@@ -909,6 +910,7 @@ def _validate_phases(
                 )
         phase_order.append(phase_id)
         phase_by_id[phase_id] = phase
+        phase_index_by_id[phase_id] = phase_index
 
     phase_position = {phase_id: index for index, phase_id in enumerate(phase_order)}
     job_phase: dict[str, str] = {}
@@ -954,9 +956,37 @@ def _validate_phases(
         synthesis_by_phase[phase_id] = job_id
 
     for phase_id in phase_order:
+        phase = phase_by_id[phase_id]
+        phase_index = phase_index_by_id[phase_id]
+        declared_synthesis_id = phase.get("synthesis_job_id")
+        if not isinstance(declared_synthesis_id, str) or declared_synthesis_id == "":
+            raise WorkflowError(
+                f"phase {phase_id!r} must declare synthesis_job_id",
+                field_path=f"phases[{phase_index}].synthesis_job_id",
+            )
+        if declared_synthesis_id not in job_map:
+            raise WorkflowError(
+                f"phase {phase_id!r} synthesis_job_id {declared_synthesis_id!r} references unknown job",
+                field_path=f"phases[{phase_index}].synthesis_job_id",
+            )
+        if (
+            job_map[declared_synthesis_id].get("type") != "phase_synthesis"
+            or job_phase.get(declared_synthesis_id) != phase_id
+        ):
+            raise WorkflowError(
+                f"phase {phase_id!r} synthesis_job_id must reference a phase_synthesis "
+                "job in the same phase",
+                field_path=f"phases[{phase_index}].synthesis_job_id",
+            )
         synthesis_id = synthesis_by_phase.get(phase_id)
         if synthesis_id is None:
             raise WorkflowError(f"phase {phase_id!r} must declare exactly one phase_synthesis job")
+        if declared_synthesis_id != synthesis_id:
+            raise WorkflowError(
+                f"phase {phase_id!r} synthesis_job_id {declared_synthesis_id!r} "
+                f"does not match phase_synthesis job {synthesis_id!r}",
+                field_path=f"phases[{phase_index}].synthesis_job_id",
+            )
         if job_count_by_phase[phase_id] < 2:
             raise WorkflowError(
                 f"phase {phase_id!r} phase_synthesis job must have at least one peer job"

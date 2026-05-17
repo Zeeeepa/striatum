@@ -111,7 +111,20 @@ def test_multi_phase_shape_emits_v1_1_phased_graph() -> None:
 
     validate_workflow(workflow)
     assert workflow["schema_version"] == "striatum.workflow.v1.1"
-    assert [phase["id"] for phase in workflow["phases"]] == ["phase_1_design", "phase_2_build"]
+    assert workflow["phases"] == [
+        {
+            "id": "phase_1_design",
+            "name": "Design",
+            "description": "Parallel design tracks",
+            "color": "#6b7280",
+            "synthesis_job_id": "phase_1_design__synthesis",
+        },
+        {
+            "id": "phase_2_build",
+            "name": "Build",
+            "synthesis_job_id": "phase_2_build__synthesis",
+        },
+    ]
 
     jobs = {job["id"]: job for job in workflow["jobs"]}
     assert jobs["phase_1_design__python__draft"]["phase_id"] == "phase_1_design"

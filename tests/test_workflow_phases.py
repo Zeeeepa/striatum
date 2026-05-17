@@ -56,8 +56,8 @@ def _workflow() -> dict[str, Any]:
             "require_disjoint_write_scopes": True,
         },
         "phases": [
-            {"id": "phase_1_design", "name": "Design"},
-            {"id": "phase_2_build", "name": "Build"},
+            {"id": "phase_1_design", "name": "Design", "synthesis_job_id": "synthesize_design"},
+            {"id": "phase_2_build", "name": "Build", "synthesis_job_id": "synthesize_build"},
         ],
         "jobs": [
             _job("design_a", "phase_1_design"),
@@ -155,6 +155,32 @@ def test_declared_phases_require_every_job_to_have_known_phase_id() -> None:
         validate_workflow(workflow)
 
 
+def test_declared_phases_require_valid_synthesis_job_id() -> None:
+    workflow = _workflow()
+    del workflow["phases"][0]["synthesis_job_id"]
+
+    with pytest.raises(WorkflowError, match="must declare synthesis_job_id"):
+        validate_workflow(workflow)
+
+    workflow = _workflow()
+    workflow["phases"][0]["synthesis_job_id"] = "missing"
+
+    with pytest.raises(WorkflowError, match="references unknown job"):
+        validate_workflow(workflow)
+
+    workflow = _workflow()
+    workflow["phases"][0]["synthesis_job_id"] = "design_a"
+
+    with pytest.raises(WorkflowError, match="same phase"):
+        validate_workflow(workflow)
+
+    workflow = _workflow()
+    workflow["phases"][0]["synthesis_job_id"] = "synthesize_build"
+
+    with pytest.raises(WorkflowError, match="same phase"):
+        validate_workflow(workflow)
+
+
 def test_declared_phases_reject_conflicting_phase_aliases() -> None:
     workflow = _workflow()
     workflow["jobs"][0]["phase"] = "phase_2_build"
@@ -167,7 +193,7 @@ def test_each_phase_requires_exactly_one_synthesis_job() -> None:
     workflow = _workflow()
     workflow["jobs"][1]["type"] = "handoff"
 
-    with pytest.raises(WorkflowError, match="exactly one phase_synthesis"):
+    with pytest.raises(WorkflowError, match="same phase"):
         validate_workflow(workflow)
 
     workflow = _workflow()
@@ -209,7 +235,9 @@ def test_cross_phase_edges_must_use_source_synthesis_to_next_phase() -> None:
 
 def test_cross_phase_edges_cannot_skip_phases() -> None:
     workflow = _workflow()
-    workflow["phases"].append({"id": "phase_3_ship", "name": "Ship"})
+    workflow["phases"].append(
+        {"id": "phase_3_ship", "name": "Ship", "synthesis_job_id": "synthesize_ship"}
+    )
     workflow["jobs"].extend(
         [
             _job("ship_a", "phase_3_ship"),

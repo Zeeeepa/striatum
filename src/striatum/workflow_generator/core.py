@@ -487,6 +487,7 @@ def _compile_multi_phase(
             terminal_ids.extend(_terminal_job_ids(track_jobs, track_edges, id_map=id_map))
         synthesis_id = f"{phase_id}__synthesis"
         synthesis_lane = _phase_synthesis_lane(spec, raw_phase)
+        phase["synthesis_job_id"] = synthesis_id
         phase_jobs.append(_phase_synthesis_job(phase_id, phase_name, synthesis_id, synthesis_lane, spec.artifact_root))
         for terminal_id in sorted(set(terminal_ids)):
             phase_edges.append({"from": terminal_id, "to": synthesis_id, "on": "completed"})

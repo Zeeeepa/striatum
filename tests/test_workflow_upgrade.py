@@ -310,8 +310,16 @@ def test_upgrade_add_phases_preview_writes_nothing_without_apply(tmp_path: Path)
     assert result["status"] == "would_update"
     assert result["mode"] == "add_phases"
     assert result["phases_added"] == [
-        {"id": "phase_design", "name": "Design"},
-        {"id": "phase_build", "name": "Build"},
+        {
+            "id": "phase_design",
+            "name": "Design",
+            "synthesis_job_id": "phase_design__synthesis",
+        },
+        {
+            "id": "phase_build",
+            "name": "Build",
+            "synthesis_job_id": "phase_build__synthesis",
+        },
     ]
     assert {"job_id": "design_python", "phase_id": "phase_design"} in result["jobs_relabelled"]
     assert path.read_text(encoding="utf-8") == snapshot
@@ -326,8 +334,16 @@ def test_upgrade_add_phases_apply_rewrites_to_v1_1(tmp_path: Path) -> None:
     on_disk = json.loads(path.read_text(encoding="utf-8"))
     assert on_disk["schema_version"] == "striatum.workflow.v1.1"
     assert on_disk["phases"] == [
-        {"id": "phase_design", "name": "Design"},
-        {"id": "phase_build", "name": "Build"},
+        {
+            "id": "phase_design",
+            "name": "Design",
+            "synthesis_job_id": "phase_design__synthesis",
+        },
+        {
+            "id": "phase_build",
+            "name": "Build",
+            "synthesis_job_id": "phase_build__synthesis",
+        },
     ]
     jobs = {job["id"]: job for job in on_disk["jobs"]}
     assert jobs["design_python"]["phase_id"] == "phase_design"

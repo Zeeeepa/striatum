@@ -37,12 +37,14 @@
     {
       "id": "phase_1_design",
       "name": "Design",
+      "synthesis_job_id": "synthesize_design",
       "color": "#6b7280",
       "description": "Parallel design tracks and synthesis"
     },
     {
       "id": "phase_2_build",
       "name": "Build",
+      "synthesis_job_id": "synthesize_build",
       "color": "#2563eb",
       "description": "Parallel build tracks and synthesis"
     }

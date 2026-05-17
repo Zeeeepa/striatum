@@ -37,8 +37,14 @@ def _insert_phased_run(repo: Path) -> str:
         "workflow_version": "v1",
         "name": "Phased",
         "phases": [
-            {"id": "phase_design", "name": "Design", "description": "Design work", "color": "#6b7280"},
-            {"id": "phase_build", "name": "Build"},
+            {
+                "id": "phase_design",
+                "name": "Design",
+                "description": "Design work",
+                "color": "#6b7280",
+                "synthesis_job_id": "synthesize_design",
+            },
+            {"id": "phase_build", "name": "Build", "synthesis_job_id": "synthesize_build"},
         ],
         "jobs": [
             {"id": "design_a", "type": "generic", "role_id": "author", "phase_id": "phase_design"},

@@ -372,6 +372,10 @@ def _infer_phase_upgrade(workflow: JsonObject) -> tuple[JsonObject, JsonObject]:
         ):
             _append_edge(new_edges, seen_edges, synthesis_id, job_id)
 
+    for phase in phases:
+        phase_id = str(phase["id"])
+        phase["synthesis_job_id"] = synthesis_by_phase[phase_id]
+
     upgraded = dict(workflow)
     upgraded["schema_version"] = "striatum.workflow.v1.1"
     upgraded["phases"] = phases
