@@ -14,10 +14,8 @@ func HandleDoctor(ctx context.Context, runner db.Runner, envelope rpc.Envelope) 
 	repositoryID, _ := envelope.Params["repository_id"].(string)
 	problems := []string{}
 
-	var schemaVersion int
-	if err := runner.QueryRow(ctx,
-		`SELECT MAX(version) FROM striatumd.schema_meta`,
-	).Scan(&schemaVersion); err != nil {
+	schemaVersion, err := db.ReadSchemaVersion(ctx, runner)
+	if err != nil {
 		problems = append(problems, "schema_meta.read_failed: "+err.Error())
 	}
 

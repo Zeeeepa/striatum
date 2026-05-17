@@ -112,6 +112,10 @@ so external references keep resolving even as items move between sections.
 | 58 | RFC 0059 Architecture remediation Phase 10 — day-zero setup improvements | ✅ done |
 | 59 | RFC 0059 RFC 0066 Architecture remediation Phase 11 — replay, archive, and corpus v2 foundations | 🟡 corpus verify + run archive foundations landed |
 | 60 | RFC 0059 RFC 0067 Architecture remediation Phase 12 — optional Git/PR integration | ⏳ blocked on product decision |
+| 61 | RFC 0068 Go production daemon port and Python daemon retirement | ⏳ active |
+| 62 | RFC 0069 PostgreSQL-only daemon-global surfaces | ⏳ active |
+| 63 | RFC 0070 daemon client/service boundary completion | ⏳ active |
+| 64 | RFC 0071 operator diagnostics and cutover evidence | ⏳ queued |
 
 Legend: ✅ done · 🟡 most done (sub-tasks remain) · ⏳ open/blocked · 💤 shelved
 
@@ -569,42 +573,40 @@ Legend: ✅ done · 🟡 most done (sub-tasks remain) · ⏳ open/blocked · �
     executable without `STRIATUM_PG_TEST_URL`) absorbed into RFC
     0039 V1.6 follow-up (item 30 below).
 
-30. ~~**RFC 0039 / D105 Go helper-runtime hardening.**~~ ✅ Done:
-    the post-D105 helper-focused slice landed `go/Makefile`
+30. ~~**RFC 0039 / D105 Go support-runtime hardening.**~~ ✅ Done,
+    historical: the helper-focused slice landed `go/Makefile`
     `verify`, `test-helper`, and `helper-check`; root
-    `daemon-go-helper-check`; helper-only CI; transitive helper dependency
+    `daemon-go-helper-check`; focused Go CI; transitive helper dependency
     inspection via `go list -deps ./cmd/striatum-supervisor-helper`; and
-    the startup no-Postgres/no-socket regression. Full Go daemon parity remains
-    out of scope under D105. Historical context: Codex needs_revision findings from
+    the startup no-Postgres/no-socket regression. D107 later reopened full Go
+    daemon parity as item 61 / RFC 0068. Historical context: Codex needs_revision findings from
     dogfood-047 build review, deferred under D101 (decision
     `dec_f8d268f392ca44dd8a9bccb634249979`). Codex
     reviewer-of-claude-implementer pattern (distinct from codex/codex
     co-blindness; same axis as D099 dogfood-045). Land the codex
-    F1-F5 deltas only where they still apply after D105's
-    Python-primary decision: (F1) `(cd go && go mod tidy)` and commit
+    F1-F5 deltas under the Go port where they still apply: (F1)
+    `(cd go && go mod tidy)` and commit
     `go.sum` so `pgx/v5` and indirect dependencies are
     cryptographically pinned and helper builds succeed; (F2) remove
     the unauthenticated/no-audit socket-serving fallback in
-    `go/cmd/striatumd/main.go:49` or delete that serving mode as part
-    of demoting Go to helper-only; (F3) replace the old
+    `go/cmd/striatumd/main.go:49` or gate that serving mode behind the
+    RFC 0068 conformance boundary; (F3) replace the old
     `make test-multi-repo CORE=go` parity expectation with a
-    non-optional Go-helper test target once the helper protocol lands;
+    non-optional Go conformance target once the production port lands;
     (F4) keep denial/audit coverage for any Go RPC-serving path that
     remains during transition; (F5) run Go database/audit race tests
-    in CI only for helper-owned code paths or transitional RPC code
+    in CI for helper-owned code paths and any transitional RPC code
     still shipped. Gemini accept_with_findings medium threat_model also
     flagged dependency-budget hygiene (`go mod verify`) and
-    migration-advisory-lock persistence under the new `pgx` pool; keep
-    the dependency hygiene, but do not make full Go daemon parity a
-    release blocker without a new decision.
+    migration-advisory-lock persistence under the new `pgx` pool; keep that
+    hygiene in the RFC 0068 conformance gate.
 
-25. ~~**Phase 2 (RFC 0039 Steps 3-6): Go replacement daemon.**~~
-    Superseded by D105. Do not pursue `striatum daemon start --core go`,
-    mutating workflow verbs on a second domain daemon, or a release matrix
-    across `daemon_core={python,go}` as product strategy. Preserve the
-    generated contract and audit compatibility work as transition evidence,
-    then redirect process/PTY work to item 54's narrow Go supervisor
-    helper.
+25. **Phase 2 (RFC 0039 Steps 3-6): Go replacement daemon.**
+    Reopened by D107 / RFC 0068. Do pursue `striatum daemon start --core go`
+    as the target production daemon path, but only behind the shared
+    contract/Postgres/audit/MCP/service/recovery conformance gate. The Python
+    CLI may remain a client; the Python daemon is transitional until Go parity
+    is reached. This item is now tracked by item 61 and dogfood 065.
 
 26. ~~**Harness improvement: forbid codex/codex implementer+reviewer
     pairing in workflow validator.**~~ ✅ Done: cycle-exhaustion observed three
@@ -877,10 +879,12 @@ review and plan are root-level operator artifacts:
     participant-cancel runner rather than the historical repo-local SQLite
     runner.
 
-51. ~~**Phase 3: daemon core strategy decision.**~~ Done: D105 records
-    Python as the primary production daemon core and narrows Go to a
-    supervisor/helper runtime role. Roadmap and backlog now stop treating
-    full Go daemon parity as release-blocking product strategy.
+51. ~~**Phase 3: daemon core strategy decision.**~~ Done, superseded:
+    D105 briefly recorded Python as the primary production daemon core, but
+    D107 / RFC 0068 supersedes it. The active strategy is a full Go production
+    daemon port, Python daemon retirement after parity, Python CLI/web clients
+    where useful, and SQLite eradication from production and compatibility
+    paths.
 
 52. **Phase 4: daemon-first web service.** Initial slices landed:
     web POST mutations for run cancel/pause/resume, job cancel/retry, and
@@ -1163,6 +1167,32 @@ review and plan are root-level operator artifacts:
     Commit application, PR creation, hosted-provider authentication, provider
     plugins/connectors, and confirmation semantics require an accepted decision
     or RFC first.
+
+61. **RFC 0068: Go production daemon port.** Active. D107 supersedes D105:
+    port production daemon ownership to Go, retire the Python daemon after
+    parity, keep Python CLI/web clients where useful, and remove SQLite from
+    production and compatibility paths. First slice landed in dogfood 065:
+    Go `--describe` reports supported schema and migration count, the Python
+    launcher rejects stale Go daemon binaries before socket bind, Go migration
+    SHA-source verification refuses extra newer source migrations, and Go
+    `doctor` reads `schema_meta['substrate_version']` correctly.
+
+62. **RFC 0069: PostgreSQL-only daemon-global surfaces.** Active. Port daemon
+    startup bootstrap, health, audit, sweep, dashboard-all, daemon MCP
+    resource list/read, and any remaining registry probes away from SQLite and
+    into PostgreSQL/Go-owned daemon handlers. Production `connect_registry()`
+    reachability is a bug unless the call is in a named one-way migration or
+    fixture path.
+
+63. **RFC 0070: daemon client/service boundary completion.** Active. Add
+    daemon-side repository resolution, remove client-side direct PG lookups,
+    route daemon-mapped `/v1/invoke` mutations through daemon RPC, and port or
+    unregister dogfood composites that still open repo-local SQLite.
+
+64. **RFC 0071: operator diagnostics and cutover evidence.** Queued after
+    items 61-63. Add a verify-only cutover report, authority diagnostics, and
+    generated or stricter-guarded authority documentation after the production
+    authority cleanup lands.
 
 ## GH issue follow-ups
 

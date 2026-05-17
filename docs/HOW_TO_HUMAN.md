@@ -854,22 +854,22 @@ apply receipts in daemon-owned state. The receipt is an AI guardrail: it
 does not prove model-token authorship or resistance to a malicious local
 operator with filesystem or database access.
 
-### Go runtime/helper developer fixture (RFC 0039 history)
+### Go daemon port notes (RFC 0039 / RFC 0068)
 
-> Status: historical/developer fixture. The Python daemon (`striatum
-> daemon start`) is the production core. Go is narrowed to
-> supervisor/helper/runtime and harness roles; it is not a peer
-> production daemon implementation and is not planned to become the
-> default.
+> Status: active architecture backlog. D107 / RFC 0068 makes the Go
+> production-daemon port the target, but the Python daemon (`striatum
+> daemon start`) remains the incumbent until Go reaches the shared
+> contract, Postgres, audit, authorization, MCP, service, recovery, and
+> packaging parity gate.
 
 RFC 0039 produced a Go `go/cmd/striatumd` prototype that speaks the
 RFC 0030 envelope-v1 wire protocol over the RFC 0033 PostgreSQL
-substrate. Phase 1 (Steps 1+2) landed the read-only RPC skeleton and the
-PostgreSQL connection/migration/audit layer. The Phase 3 architecture
-decision keeps Python as the primary daemon core, so production mutating
-verbs, daemon-owned supervision, migration ownership, and release
-packaging remain Python-daemon responsibilities unless a future accepted
-decision changes that boundary.
+substrate. Phase 1 (Steps 1+2) landed the read-side RPC skeleton and the
+PostgreSQL connection/migration/audit layer. The D105 Python-primary
+constraint was superseded by D107; production mutating verbs,
+daemon-owned supervision, migration ownership, MCP tools, service
+integration, and release packaging are now RFC 0068 port work rather than
+out of scope.
 
 Build the binary from a contributor checkout:
 
@@ -891,10 +891,10 @@ Run it directly for developer inspection:
   --migrations-dir src/striatum/daemon_pg/sql
 ```
 
-The historical read-only method registry exposes `daemon.hello`,
-`daemon.welcome`, `daemon.describe`, `daemon.status`, `daemon.version`,
-`audit.show`, and `repo.list`. Other verbs return `method_not_found`
-because the Go binary is not the production mutation surface.
+The current Go method registry is incomplete. `daemon.describe` exposes
+the supported schema, migration count, method etag, and implemented
+method table; methods still backed by placeholders are RFC 0068 blockers,
+not accepted product behavior.
 
 Coexistence rule: only one daemon may own the PostgreSQL substrate at a
 time. **Stop the Python daemon before starting the Go daemon** (and vice
@@ -902,17 +902,16 @@ versa). The Go binary refuses to start with exit code 14
 `daemon_already_running` when it detects another `striatumd-*`
 connection in `pg_stat_activity`.
 
-The RFC 0035 multi-repo test harness can still target the Go fixture for
-compatibility checks through the `daemon_core` parameter; Python remains
-the production default:
+The RFC 0035 multi-repo test harness can target the Go core for
+compatibility and conformance work through the `daemon_core` parameter:
 
 ```python
 from _harness.multi_repo import MultiRepoHarness
 
-# Production/default path — Python core.
+# Incumbent/default path while RFC 0068 is in progress.
 harness = MultiRepoHarness(daemon_pg_url=...)
 
-# Opt into the Go fixture. The harness invokes `make -C go build` if
+# Opt into the Go core. The harness invokes `make -C go build` if
 # the binary is missing; set STRIATUMD_GO_BIN=/path/to/striatumd to
 # skip the build step and reuse a prebuilt binary.
 harness = MultiRepoHarness(daemon_pg_url=..., daemon_core="go")

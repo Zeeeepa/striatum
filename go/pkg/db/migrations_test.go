@@ -3,6 +3,7 @@ package db
 import (
 	"context"
 	"errors"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -90,6 +91,36 @@ func TestGoEmbeddedMigrationsMatchPythonSource(t *testing.T) {
 	sourcePath := filepath.Join("..", "..", "..", "src", "striatum", "daemon_pg", "sql")
 	if err := VerifyMigrationsSHASource(sourcePath); err != nil {
 		t.Fatalf("embedded migrations differ from Python source: %v", err)
+	}
+}
+
+func TestVerifyMigrationsSHASourceRejectsExtraSourceMigration(t *testing.T) {
+	sourcePath := filepath.Join("..", "..", "..", "src", "striatum", "daemon_pg", "sql")
+	tmp := t.TempDir()
+	entries, err := os.ReadDir(sourcePath)
+	if err != nil {
+		t.Fatalf("read source migrations: %v", err)
+	}
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".sql") {
+			continue
+		}
+		body, err := os.ReadFile(filepath.Join(sourcePath, entry.Name()))
+		if err != nil {
+			t.Fatalf("read source migration: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(tmp, entry.Name()), body, 0o644); err != nil {
+			t.Fatalf("write copied migration: %v", err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(tmp, "9999_future.sql"), []byte("SELECT 1;\n"), 0o644); err != nil {
+		t.Fatalf("write future migration: %v", err)
+	}
+
+	err = VerifyMigrationsSHASource(tmp)
+
+	if err == nil || !strings.Contains(err.Error(), "newer than the embedded Go daemon migrations") {
+		t.Fatalf("expected extra migration refusal, got %v", err)
 	}
 }
 

@@ -4,11 +4,14 @@ from __future__ import annotations
 
 import argparse
 import os
+import subprocess
 import shutil
 from pathlib import Path
 from typing import Any
 
 from striatum import daemon as daemon_mod
+from striatum.daemon_pg.migrations import LATEST_DAEMON_DB_VERSION
+from striatum.daemon_rpc.registry import METHODS_ETAG
 from striatum.daemon_pg.config import resolve_config
 from striatum.daemon_pg.repo_local_migration import (
     RepoLocalMigrationOptions,
@@ -83,19 +86,19 @@ def launch_daemon_start(args: argparse.Namespace) -> Any:
 def resolve_go_binary() -> Path:
     packaged = _resolve_packaged_go_binary()
     if packaged is not None:
-        return packaged
+        return _verify_go_binary_contract(packaged)
     override = os.environ.get(ENV_GO_BIN)
     if override:
         binary = Path(override).expanduser().resolve()
         if not binary.exists():
             raise StriatumError(f"{ENV_GO_BIN}={override} does not exist", exit_code=2)
-        return binary
+        return _verify_go_binary_contract(binary)
     repo_binary = Path(__file__).resolve().parents[3] / "go" / "bin" / "striatumd"
     if repo_binary.exists():
-        return repo_binary
+        return _verify_go_binary_contract(repo_binary)
     path_binary = shutil.which("striatumd-go") or shutil.which("striatumd")
     if path_binary:
-        return Path(path_binary).resolve()
+        return _verify_go_binary_contract(Path(path_binary).resolve())
     raise StriatumError(
         "Go daemon binary not found; set STRIATUMD_GO_BIN or build go/bin/striatumd",
         exit_code=2,
@@ -107,7 +110,7 @@ def _resolve_packaged_go_binary() -> Path | None:
         from striatum import _daemongo
     except Exception:
         return None
-    for name in ("resolve_binary", "binary_path", "path"):
+    for name in ("find_binary", "resolve_binary", "binary_path", "path"):
         resolver = getattr(_daemongo, name, None)
         if resolver is None:
             continue
@@ -120,3 +123,59 @@ def _resolve_packaged_go_binary() -> Path | None:
             if path.exists():
                 return path
     return None
+
+
+def _verify_go_binary_contract(binary: Path) -> Path:
+    """Reject stale Go daemon binaries before they can bind a socket."""
+
+    try:
+        result = subprocess.run(
+            [str(binary), "--describe"],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise StriatumError(
+            f"Go daemon binary {binary} cannot self-describe; rebuild go/bin/striatumd: {exc}",
+            exit_code=2,
+        ) from exc
+    if result.returncode != 0:
+        detail = (result.stderr or result.stdout).strip()
+        raise StriatumError(
+            f"Go daemon binary {binary} failed --describe; rebuild go/bin/striatumd"
+            + (f": {detail}" if detail else ""),
+            exit_code=2,
+        )
+    fields = _parse_go_describe(result.stdout)
+    expected_schema = str(LATEST_DAEMON_DB_VERSION)
+    if fields.get("supported_schema") != expected_schema:
+        raise StriatumError(
+            f"Go daemon binary {binary} supports schema {fields.get('supported_schema') or 'unknown'}; "
+            f"expected {expected_schema}. Rebuild go/bin/striatumd.",
+            exit_code=2,
+        )
+    if fields.get("migration_count") != expected_schema:
+        raise StriatumError(
+            f"Go daemon binary {binary} embeds {fields.get('migration_count') or 'unknown'} migrations; "
+            f"expected {expected_schema}. Rebuild go/bin/striatumd.",
+            exit_code=2,
+        )
+    if fields.get("methods_etag") != METHODS_ETAG:
+        raise StriatumError(
+            f"Go daemon binary {binary} has method contract {fields.get('methods_etag') or 'unknown'}; "
+            f"expected {METHODS_ETAG}. Regenerate and rebuild the Go daemon.",
+            exit_code=2,
+        )
+    return binary
+
+
+def _parse_go_describe(output: str) -> dict[str, str]:
+    fields: dict[str, str] = {}
+    for part in output.split():
+        if "=" not in part:
+            continue
+        key, value = part.split("=", 1)
+        fields[key] = value
+    return fields

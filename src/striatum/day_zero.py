@@ -9,6 +9,7 @@ import uuid
 from pathlib import Path
 from typing import Any, Literal
 
+import striatum
 from striatum.cli.daemon_required import daemon_socket_is_reachable, resolve_socket_path
 from striatum.daemon import read_runtime_token, token_file
 from striatum.daemon_pg.config import resolve_config
@@ -320,7 +321,7 @@ def _call_rpc_sequence(socket: Path, envelope: Any) -> dict[str, Any]:
             hello_envelope(
                 request_id=uuid.uuid4().hex,
                 client_name="striatum-first-run",
-                client_version="1.67.0",
+                client_version=striatum.__version__,
             ).encode()
             + b"\n"
         )

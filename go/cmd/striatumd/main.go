@@ -91,7 +91,19 @@ func main() {
 	flag.Parse()
 
 	if describe {
-		fmt.Printf("core=go envelope=%d framing=%s methods_etag=%s\n", rpc.SupportedEnvelopeVersion, rpc.DefaultFraming, rpc.MethodsETag())
+		migrationSHAs, err := db.MigrationSHASet()
+		if err != nil {
+			log.Fatalf("load migration sha set: %v", err)
+		}
+		fmt.Printf(
+			"core=go envelope=%d framing=%s supported_schema=%d methods_etag=%s daemon_version=%s migration_count=%d\n",
+			rpc.SupportedEnvelopeVersion,
+			rpc.DefaultFraming,
+			db.LatestDaemonDBVersion,
+			rpc.MethodsETag(),
+			daemonVersion,
+			len(migrationSHAs),
+		)
 		return
 	}
 

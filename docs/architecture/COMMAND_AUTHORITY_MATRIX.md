@@ -13,13 +13,14 @@ method plus CLI commands that are intentionally outside the production workflow
 mutation path. It is transition scaffolding for the architecture remediation
 plan. Contract metadata and CLI route reference tables are generated in
 `docs/architecture/DAEMON_METHOD_TABLES.md`; authority classification,
-SQLite-dependency notes, and Go-helper status still live here. Every new RPC
+SQLite-dependency notes, and Go-port status still live here. Every new RPC
 method or handwritten route map must update this file and the guardrails in
 `tests/architecture/test_authority_guardrails.py`.
 
-D105 names Python as the primary production daemon core. The Go columns below
-remain transition/developer-harness evidence and should not be read as a
-long-term second product surface.
+D107 / RFC 0068 supersedes D105. The Go columns below are no longer
+D105-bounded reference material; they are the production-port backlog. Any
+`placeholder` or SQLite-backed row is active debt before the Python daemon can
+retire.
 
 Legend:
 
@@ -211,3 +212,5 @@ remediation phases should either daemon-route, quarantine, or delete.
 6. Go has real handlers for the core reads, workflow loop, recovery, apply
    receipts, and cross-repo reads, but a large placeholder set remains around
    supervisor, workflow authoring, repo/admin, dogfood tools, and dashboard-all.
+   Under D107 these placeholders are production-port blockers, not accepted
+   D105-era gaps.

@@ -30,10 +30,10 @@ Two related changes shape the current product:
 3. **RFC 0048 (V1.49.0 → V1.55.0)** finished the substrate port on
    the daemon side: every mutation, recovery, and read handler now
    has a native PG handler in `src/striatum/daemon_pg/handlers/`
-   owned by the Python production daemon core. The Go tree keeps
-   helper/runtime and developer-harness counterparts for selected
-   paths, but it is not a peer production daemon core and is not
-   planned to displace Python. The
+   owned by the incumbent Python daemon core. D107 / RFC 0068 later
+   restored the Go production-daemon port as active backlog; the Go
+   tree's selected parity/support code is now port scaffolding rather
+   than a permanent boundary. The
    CLI dispatch routes mapped verbs through the daemon's Unix
    socket; mapped methods fail closed instead of falling back to
    SQLite when the daemon is unreachable. **Schema v6**
@@ -345,12 +345,11 @@ remaining substrate-port work on the daemon side:
   `DaemonRpcRouter._route` initially resolved the PG handler before
   transition-era SQLite dispatch; current mapped CLI verbs fail closed
   instead of falling back.
-- **Phase B (v1.50.0–v1.54.0 + follow-up)** — Go helper/runtime
+- **Phase B (v1.50.0–v1.54.0 + follow-up)** — Go parity/support
   fixtures: 12 read handlers (`go/pkg/reads/`) and selected mutation
   plumbing (`go/pkg/mutations/`) were implemented as developer-harness
-  counterparts. After the Phase 3 architecture decision, this work is
-  retained as support code and compatibility evidence, not as a path to
-  a peer production daemon core.
+  counterparts. D107 / RFC 0068 makes this work seed material for the
+  production Go daemon port, not a finished parity claim.
 - **Phase C (v1.51.0–v1.52.0)** — CLI dispatch routes ~30 verbs
   through the Unix-socket daemon RPC; the daemon bootstraps an
   admin client into `striatumd.clients` (Postgres) and writes its

@@ -1,0 +1,74 @@
+# RFC 0069: PostgreSQL-Only Daemon Global Surfaces
+
+Status: proposed
+Date: 2026-05-17
+Context: [RFC 0043](0043-postgres-as-sole-substrate-and-daemon-required-runtime.md), [RFC 0059](0059-eradicate-legacy-sqlite-fallbacks.md), [RFC 0060](0060-single-daemon-method-contract-source.md), [RFC 0068](0068-go-production-daemon-port.md), [REMEDIATION_SYNTHESIS_2026-05-17](../architecture/REMEDIATION_SYNTHESIS_2026-05-17.md)
+
+## Problem
+
+The repo registrar has moved to PostgreSQL, but some daemon-global surfaces in
+the current Python daemon still call the legacy SQLite registry helpers. That
+keeps a second state authority reachable from production daemon code and
+weakens both RFC 0043 and the RFC 0068 Go-port target.
+
+Known remaining surfaces include daemon startup bootstrap, `dashboard.all`,
+`daemon_sweep_once`, daemon MCP resource list/read helpers, daemon health, and
+daemon audit/doctor probes.
+
+## Goals
+
+- Make production daemon-global reads and sweeps PostgreSQL-only.
+- Make the Go daemon the target owner for these global surfaces.
+- Permit legacy SQLite registry access only in migration and explicitly gated
+  test-harness compatibility paths.
+- Fail closed when a PostgreSQL DTO or handler is missing instead of opening
+  SQLite.
+- Keep `repo.add`, `repo.list`, and `repo.remove` PG-native.
+
+## Non-Goals
+
+- Delete every historical SQLite migration fixture.
+- Change the daemon RPC envelope or capability vocabulary.
+- Flip the default daemon core; RFC 0068 owns the full port and retirement
+  sequence.
+
+## Proposal
+
+Add a production registry tripwire and port daemon-global surfaces in order:
+
+1. Guard `connect_registry()` so production calls are impossible outside
+   migration/test compatibility.
+2. Move daemon startup bootstrap, health, audit, and doctor data to
+   `striatumd.*` tables.
+3. Replace `daemon_sweep_once()` with a PostgreSQL-backed scheduler cursor that
+   invokes the existing PG `recovery.sweep` handler per active run.
+4. Rebuild `dashboard.all` and daemon MCP resources from daemon PostgreSQL rows
+   and repository-scoped PG read handlers.
+5. Mark missing global DTOs as `not_implemented` until implemented; do not
+   fall back to SQLite.
+
+## Acceptance Criteria
+
+- With `STRIATUM_SQLITE_CONNECT_TRIPWIRE=1` and no test/migration escape,
+  production daemon-global commands either use PostgreSQL or fail before
+  `connect_registry()`.
+- `dashboard.all`, `striatum://daemon/repos`,
+  `striatum://daemon/dashboard`, and repository MCP resources work against a
+  PG-only fixture.
+- `daemon_sweep_once()` records PG recovery events/cursors and never opens or
+  creates `.striatum/state.sqlite3`.
+- Regression tests cover daemon start, dashboard-all, daemon sweep, MCP
+  resources, health, and audit/doctor paths.
+
+## Open Questions
+
+- Should daemon-global audit/doctor remain direct helper functions, or become
+  first-class daemon RPC methods before the SQLite gate is closed?
+- Should `dashboard.all` use one aggregate query or N repository-scoped handler
+  calls for simpler authority reuse?
+
+## Domain Modeling
+
+This RFC is a boundary clarification. The daemon-owned PostgreSQL instance is
+the aggregate authority for registered target repositories and daemon-global
+metadata. SQLite survives only as migration source material and fixture data.

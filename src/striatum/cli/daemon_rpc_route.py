@@ -24,6 +24,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Mapping, cast
 
+import striatum
 from striatum.cli.daemon_required import daemon_socket_is_reachable, resolve_socket_path
 from striatum.daemon_rpc.client import hello_envelope
 from striatum.daemon_rpc.envelope import RpcEnvelope, RpcError
@@ -140,7 +141,7 @@ def _call_with_handshake(sock_path: Path, method: str, params: Mapping[str, Any]
         hello = hello_envelope(
             request_id=uuid.uuid4().hex,
             client_name="striatum-cli",
-            client_version="1.51.0",
+            client_version=striatum.__version__,
         )
         stream.write(hello.encode() + b"\n")
         stream.flush()

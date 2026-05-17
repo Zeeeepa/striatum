@@ -1,12 +1,10 @@
 # RFC 0039: Go Daemon Core
 
-Status: superseded in scope by D105 (Go retained for helper/runtime and
-developer harnesses; Python remains the production daemon core)
+Status: reopened by D107 / RFC 0068 (Go production daemon port target)
 Date: 2026-05-13
-Supersession note: this RFC records the original Go-core proposal.
-D105 narrows Go to process/PTY helper runtime, packaging-sensitive
-subprocess work, and developer harnesses unless a new decision reopens a
-full daemon rewrite.
+Supersession note: D105 temporarily narrowed Go to support/runtime work.
+D107/RFC 0068 supersedes that constraint and restores the Go production daemon
+port as the target architecture.
 Context:
 [`RFC 0028`](0028-long-running-daemon-and-multi-repository-control-plane.md),
 [`RFC 0030`](0030-daemon-rpc-server-and-version-skew-protocol.md),
@@ -14,7 +12,7 @@ Context:
 [`RFC 0032`](0032-cross-repo-workflows-and-mcp-mutation-capabilities.md),
 [`RFC 0033`](0033-storage-substrate-rewrite-for-daemon-v2.md),
 [`RFC 0035`](0035-multi-repo-test-harness-for-cross-repo-workflows.md),
-[`docs/DECISION_LOG.md`](../DECISION_LOG.md) (D082, D084, D086, D087, D088),
+[`docs/DECISION_LOG.md`](../DECISION_LOG.md) (D082, D084, D086, D087, D088, D107),
 `src/striatum/daemon.py`,
 `src/striatum/daemon_rpc/`,
 `src/striatum/daemon_apply/`,
@@ -331,11 +329,12 @@ Three phases:
 - CI runs both daemon test matrices.
 - Documentation labels each daemon's tradeoffs.
 
-**Superseded Phase 2 / Phase 3 ideas:**
-D105 closed the path where Go becomes the default daemon and Python is
-retired. Python remains the production daemon core; Go is limited to
-helper/runtime, subprocess, packaging-sensitive, and developer-harness
-roles unless a future decision reopens the rewrite.
+**Phase 2 / Phase 3 reopened by D107 / RFC 0068:**
+D107 restores the path where Go becomes the production daemon and the Python
+daemon retires after parity. The Python CLI may remain the operator client,
+but daemon ownership, PostgreSQL migrations, audit, authorization, MCP,
+recovery, and supervision must move behind the Go daemon before the default
+flips.
 
 RFC 0039 covers Phase 1 only.
 

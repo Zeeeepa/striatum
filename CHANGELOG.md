@@ -9,6 +9,22 @@ in the roadmap/TODO and has several production slices landed:
 
 Recent checkpoints:
 
+- D107 supersedes D105: the active target is a Go production daemon port,
+  Python daemon retirement after parity, Python CLI/web clients where useful,
+  and SQLite eradication from production and compatibility paths. RFC 0068
+  records the port; RFC 0069-0071 scaffold the daemon-global PG, client
+  boundary, and diagnostic follow-ups.
+- The Go daemon launch contract now reports supported daemon PostgreSQL schema
+  and migration count from `--describe`; the Python launcher refuses stale Go
+  daemon binaries before socket bind when their schema, migration count, or
+  method contract does not match the source tree.
+- Go migration SHA-source verification now rejects extra newer Python-source
+  migrations, closing the stale-binary gap where an old Go binary could pass
+  hash checks until it hit a migrated database.
+- Go `doctor` now reads `striatumd.schema_meta['substrate_version']` instead
+  of querying a nonexistent `schema_meta.version` column.
+- Daemon RPC handshakes from the CLI and day-zero first-run smoke now use
+  `striatum.__version__` instead of hardcoded client versions.
 - `supervise.status`, `doctor`, and `status` now surface stalled attached
   supervisors, and recovery sweep opens
   `heartbeat_stall_lease_expired` blockers when stalled leases expire.
@@ -219,10 +235,11 @@ Recent checkpoints:
   translation, runtime CLI route lookup through the declarative `cli_routes`
   map, and contract parity tests. Workflow authoring remains explicitly
   CLI-local.
-- **Python-primary daemon strategy.**
-  D105 supersedes the Go replacement-daemon plan. Python remains the
-  production domain daemon; Go is limited to narrow runtime/helper roles
-  such as PTY supervision.
+- **Go production-daemon strategy.**
+  D107 supersedes D105 and restores the Go production-daemon port as the
+  active architecture target. The Python daemon remains the incumbent until
+  Go reaches contract, Postgres, audit, authorization, MCP, service,
+  recovery, and packaging parity.
 - **Daemon-first web service.**
   The local web service now uses daemon RPC for run cancel/pause/resume, job
   cancel/retry, branch confirm, workflow run-now lifecycles, run listing,

@@ -7,8 +7,10 @@ from typing import Any, Mapping
 
 import pytest
 
+import striatum
 from striatum.cli.daemon_rpc_route import (
     _LOOKUP,
+    _call_with_handshake,
     _load_cli_route_contracts,
     _subcommand,
     try_route,
@@ -657,6 +659,73 @@ def test_run_graph_human_cli_unwraps_source(monkeypatch: pytest.MonkeyPatch) -> 
 
     assert routed is True
     assert data == "flowchart TD\n"
+
+
+def test_call_with_handshake_uses_striatum_version_for_hello(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, str] = {}
+
+    class FakeEnvelope:
+        def __init__(self, payload: bytes) -> None:
+            self.payload = payload
+
+        def encode(self) -> bytes:
+            return self.payload
+
+    class FakeStream:
+        def __init__(self) -> None:
+            self.responses = [
+                b'{"ok": true, "data": {}}\n',
+                b'{"ok": true, "data": {"called": true}}\n',
+            ]
+
+        def write(self, data: bytes) -> int:
+            return len(data)
+
+        def flush(self) -> None:
+            return None
+
+        def readline(self) -> bytes:
+            return self.responses.pop(0)
+
+    class FakeSocket:
+        def __enter__(self) -> FakeSocket:
+            return self
+
+        def __exit__(self, *_exc: object) -> None:
+            return None
+
+        def settimeout(self, _seconds: float) -> None:
+            return None
+
+        def connect(self, _path: str) -> None:
+            return None
+
+        def makefile(self, _mode: str) -> FakeStream:
+            return FakeStream()
+
+    def fake_hello_envelope(*, request_id: str, client_name: str, client_version: str) -> FakeEnvelope:
+        captured["request_id"] = request_id
+        captured["client_name"] = client_name
+        captured["client_version"] = client_version
+        return FakeEnvelope(b"hello")
+
+    monkeypatch.setattr("striatum.cli.daemon_rpc_route.socket.socket", lambda *_args: FakeSocket())
+    monkeypatch.setattr("striatum.cli.daemon_rpc_route.hello_envelope", fake_hello_envelope)
+    monkeypatch.setattr("striatum.daemon.read_runtime_token", lambda: "tok.secret")
+
+    response = _call_with_handshake(Path("/tmp/striatumd.sock"), "doctor", {"verbose": False})
+
+    assert response == {"ok": True, "data": {"called": True}}
+    assert captured["client_name"] == "striatum-cli"
+    assert captured["client_version"] == striatum.__version__
+
+
+def test_daemon_rpc_route_source_has_no_legacy_handshake_versions() -> None:
+    source = Path(__file__).resolve().parents[1] / "src" / "striatum" / "cli" / "daemon_rpc_route.py"
+    text = source.read_text(encoding="utf-8")
+    legacy_versions = {".".join(("1", "51", "0")), ".".join(("1", "67", "0"))}
+
+    assert [version for version in legacy_versions if version in text] == []
 
 
 def test_worktree_routes_to_pg_handlers() -> None:

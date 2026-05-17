@@ -40,11 +40,10 @@ for the operator runbook.
 
 RFC 0048 (v1.49.0 → v1.55.0) completed the substrate port: every
 single-repo mutation, recovery, and read handler runs natively
-against the daemon's per-repo Postgres tables in the Python daemon
-core. The Go tree retains helper/runtime and developer-harness
-counterparts for selected read and mutation paths, but it is not a
-second production daemon core and is not planned to displace the
-Python daemon. The
+against the daemon's per-repo Postgres tables in the current Python daemon
+core. D107 / RFC 0068 changes the target architecture: the production daemon
+is being ported to Go, the Python daemon is transitional until Go parity is
+reached, and the Python CLI/web layers may remain daemon clients. The
 `STRIATUM_DAEMON_REQUIRED=0 STRIATUM_TEST_HARNESS=1` escape no
 longer takes effect for ported methods — mapped CLI verbs fail
 closed instead of falling back to SQLite when the daemon is
@@ -1392,22 +1391,13 @@ state edits. Legacy repo-local supervision shapes survive only as migration
 sources and subprocess compatibility fixtures; they are not a production
 authority boundary.
 
-Python is the production daemon core. RFC 0039 introduced a Go
-`go/cmd/striatumd` prototype behind the RFC 0030 envelope-v1 wire
-protocol and RFC 0033 PostgreSQL substrate, but the Phase 3 architecture
-decision narrows Go to supervisor/helper/runtime and developer-harness
-roles. It is supporting runtime material, not a peer production daemon
-implementation, and there is no plan to make Go the default.
-Historical RFC 0039 Phase 1 work
-(dogfood-042) remains useful as a read-only RPC skeleton and
-cross-language audit/hash compatibility fixture: `daemon.hello`,
-`daemon.welcome`, `daemon.describe`, `daemon.status`, `daemon.version`,
-`audit.show`, and `repo.list`, plus PostgreSQL connection, migration,
-and audit-chain code that reads the Python migrations under
-`src/striatum/daemon_pg/sql/` directly. Production mutating verbs,
-daemon-owned supervision, migration ownership, and release packaging
-remain Python-daemon responsibilities unless a future accepted decision
-changes that boundary.
+The current Python daemon is the incumbent implementation, not the desired
+permanent boundary. RFC 0039 introduced `go/cmd/striatumd` behind the RFC 0030
+envelope-v1 wire protocol and RFC 0033 PostgreSQL substrate. RFC 0068 now makes
+that Go daemon the target production core. It must pass the same contract,
+PostgreSQL schema, audit-chain, authorization, MCP, recovery, service, and
+packaging gates before the default flips. After parity, the Python daemon is
+retired; the Python CLI/web service may remain as clients of the Go daemon.
 
 ### Local Web UI
 

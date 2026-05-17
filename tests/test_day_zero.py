@@ -4,8 +4,9 @@ import argparse
 from pathlib import Path
 from typing import Any
 
+import striatum
 from striatum.cli.dispatch import dispatch
-from striatum.day_zero import first_run_smoke, service_install, service_start, service_status
+from striatum.day_zero import _call_rpc_sequence, first_run_smoke, service_install, service_start, service_status
 
 
 def test_service_install_dry_run_renders_systemd_unit(tmp_path: Path, monkeypatch: Any) -> None:
@@ -94,3 +95,72 @@ def test_first_run_smoke_reports_checks_without_leaking_token(tmp_path: Path, mo
         "mcp_capability",
         "sample_read_route",
     }
+
+
+def test_first_run_rpc_sequence_uses_striatum_version_for_hello(
+    tmp_path: Path,
+    monkeypatch: Any,
+) -> None:
+    captured: dict[str, str] = {}
+
+    class FakeEnvelope:
+        def __init__(self, payload: bytes) -> None:
+            self.payload = payload
+
+        def encode(self) -> bytes:
+            return self.payload
+
+    class FakeStream:
+        def __init__(self) -> None:
+            self.responses = [
+                b'{"ok": true, "data": {}}\n',
+                b'{"ok": true, "data": {"doctor": "ok"}}\n',
+            ]
+
+        def write(self, data: bytes) -> int:
+            return len(data)
+
+        def flush(self) -> None:
+            return None
+
+        def readline(self) -> bytes:
+            return self.responses.pop(0)
+
+    class FakeSocket:
+        def __enter__(self) -> FakeSocket:
+            return self
+
+        def __exit__(self, *_exc: object) -> None:
+            return None
+
+        def settimeout(self, _seconds: float) -> None:
+            return None
+
+        def connect(self, _path: str) -> None:
+            return None
+
+        def makefile(self, _mode: str) -> FakeStream:
+            return FakeStream()
+
+    def fake_hello_envelope(*, request_id: str, client_name: str, client_version: str) -> FakeEnvelope:
+        captured["request_id"] = request_id
+        captured["client_name"] = client_name
+        captured["client_version"] = client_version
+        return FakeEnvelope(b"hello")
+
+    monkeypatch.setattr("socket.socket", lambda *_args: FakeSocket())
+    monkeypatch.setattr("striatum.daemon_rpc.client.hello_envelope", fake_hello_envelope)
+
+    response = _call_rpc_sequence(tmp_path / "striatumd.sock", FakeEnvelope(b"doctor"))
+
+    assert response == {"ok": True, "data": {"doctor": "ok"}}
+    assert captured["client_name"] == "striatum-first-run"
+    assert captured["client_version"] == striatum.__version__
+
+
+def test_day_zero_source_has_no_legacy_handshake_versions() -> None:
+    source = Path(__file__).resolve().parents[1] / "src" / "striatum" / "day_zero.py"
+    text = source.read_text(encoding="utf-8")
+    legacy_versions = {".".join(("1", "51", "0")), ".".join(("1", "67", "0"))}
+
+    assert [version for version in legacy_versions if version in text] == []

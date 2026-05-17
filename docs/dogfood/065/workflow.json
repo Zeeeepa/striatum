@@ -1,0 +1,895 @@
+{
+  "schema_version": "striatum.workflow.v1",
+  "workflow_id": "dogfood-065-go-production-daemon-port-scaffold",
+  "workflow_version": "1",
+  "name": "dogfood-065: Go production daemon port scaffold across core, SQLite, client boundary, and decisions",
+  "context_docs": [
+    "docs/dogfood/065/README.md",
+    "docs/dogfood/065/OPERATOR_REPORT.md",
+    "docs/architecture/REMEDIATION_SYNTHESIS_2026-05-17.md",
+    "docs/rfcs/0068-go-production-daemon-port.md",
+    "docs/rfcs/0069-pg-only-daemon-global-surfaces.md",
+    "docs/rfcs/0070-daemon-client-service-boundary.md",
+    "docs/rfcs/0071-operator-diagnostics-and-cutover-evidence.md",
+    "docs/SPEC.md",
+    "docs/DECISION_LOG.md",
+    "docs/TODO.md",
+    "docs/UBIQUITOUS_LANGUAGE.md",
+    "docs/architecture/COMMAND_AUTHORITY_MATRIX.md",
+    "contracts/daemon_methods.json"
+  ],
+  "coordinator": {
+    "lane": "codex"
+  },
+  "parallelism": {
+    "max_active_jobs": 7
+  },
+  "branch": {
+    "mode": "auto",
+    "suggested_name": "striatum/dogfood-065-go-daemon-port"
+  },
+  "lanes": {
+    "codex": {
+      "adapter": "process",
+      "command": [
+        "bash",
+        "-lc",
+        "PYTHONPATH=src python3 -m striatum.cli skills install --profile all --scope user --force --json >/dev/null && export PATH=\"$PWD/.venv/bin:$PATH\" && exec .striatum/bin/codex-supervised-wrapper.sh"
+      ],
+      "model": "codex",
+      "strategy_version": "2026-05-17",
+      "native_delegation": {
+        "mode": "preferred",
+        "instruction": "Use sub-agents per subsystem. Reconcile them before publishing."
+      },
+      "feature_flags": {
+        "subagents": "preferred",
+        "skills": "encouraged",
+        "mcp": "allowed"
+      },
+      "supervision": {
+        "compatible": true,
+        "stdin_format": "newline_delimited_json",
+        "wrapper_required": true
+      }
+    },
+    "claude_code": {
+      "adapter": "process",
+      "command": [
+        "bash",
+        "-lc",
+        "PYTHONPATH=src python3 -m striatum.cli skills install --profile all --scope user --force --json >/dev/null && export PATH=\"$PWD/.venv/bin:$PATH\" && exec .striatum/bin/claude-supervised-wrapper.sh"
+      ],
+      "model": "claude_code",
+      "strategy_version": "2026-05-17",
+      "native_delegation": {
+        "mode": "allowed",
+        "instruction": "Use local sub-agents only. Do not delegate across repositories."
+      },
+      "feature_flags": {
+        "subagents": "allowed",
+        "remote_subagents_a2a": "forbidden",
+        "skills": "allowed",
+        "mcp": "allowed",
+        "native_worktree": "forbidden"
+      },
+      "supervision": {
+        "compatible": "verify_pipe_behavior_first",
+        "stdin_format": "prompt_text",
+        "wrapper_required": true
+      }
+    },
+    "gemini": {
+      "adapter": "process",
+      "command": [
+        "bash",
+        "-lc",
+        "PYTHONPATH=src python3 -m striatum.cli skills install --profile all --scope user --force --json >/dev/null && export PATH=\"$PWD/.venv/bin:$PATH\" && exec .striatum/bin/gemini-supervised-wrapper.sh"
+      ],
+      "model": "gemini",
+      "strategy_version": "2026-05-17",
+      "native_delegation": {
+        "mode": "allowed",
+        "instruction": "Design and review only. Do not implement code tracks."
+      },
+      "feature_flags": {
+        "subagents": "allowed",
+        "skills": "allowed",
+        "mcp": "allowed"
+      },
+      "supervision": {
+        "compatible": true,
+        "stdin_format": "prompt_text",
+        "wrapper_required": true
+      }
+    }
+  },
+  "roles": {
+    "coordinator": {
+      "description": "Operator orchestration and scope enforcement"
+    },
+    "designer": {
+      "description": "Architecture design and synthesis"
+    },
+    "implementer": {
+      "description": "Track implementation"
+    },
+    "reviewer": {
+      "description": "Fresh independent review"
+    }
+  },
+  "jobs": [
+    {
+      "id": "design_codex",
+      "type": "generic",
+      "title": "Design codex - Go daemon port four-track plan",
+      "role_id": "designer",
+      "lane_id": "codex",
+      "parallel_group": "design",
+      "fresh_session_required": true,
+      "objective": "Design the dogfood-065 implementation plan across four tracks: Track A Go daemon core parity/schema, Track B SQLite eradication, Track C client/service/MCP boundary, and Track D docs/decision consolidation. Lock concrete path ownership, dependency ordering, acceptance tests, and current blockers. Treat RFC 0068 as the Go-production direction, while identifying every D105/D107 doc inconsistency that Track D must settle.",
+      "task_prompt": {
+        "path": "docs/dogfood/065/prompts/design.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/dogfood/065/design/codex/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "codex_design",
+          "kind": "handoff",
+          "path": "docs/dogfood/065/design/codex/DESIGN.md",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "design_claude",
+      "type": "generic",
+      "title": "Design claude - Go daemon port four-track plan",
+      "role_id": "designer",
+      "lane_id": "claude_code",
+      "parallel_group": "design",
+      "fresh_session_required": true,
+      "objective": "Same as design_codex, with special attention to path isolation, operator cutover risk, and how Track B and Track C avoid reintroducing a second live-state authority.",
+      "task_prompt": {
+        "path": "docs/dogfood/065/prompts/design.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/dogfood/065/design/claude_code/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "claude_design",
+          "kind": "handoff",
+          "path": "docs/dogfood/065/design/claude_code/DESIGN.md",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "design_gemini",
+      "type": "generic",
+      "title": "Design gemini - Go daemon port four-track plan",
+      "role_id": "designer",
+      "lane_id": "gemini",
+      "parallel_group": "design",
+      "fresh_session_required": true,
+      "objective": "Same as design_codex, with adversarial focus on hidden SQLite fallback, stale generated contracts, method hiding versus not_implemented placeholders, and default-core flip risk.",
+      "task_prompt": {
+        "path": "docs/dogfood/065/prompts/design.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/dogfood/065/design/gemini/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "gemini_design",
+          "kind": "handoff",
+          "path": "docs/dogfood/065/design/gemini/DESIGN.md",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "synth",
+      "type": "synthesis",
+      "title": "Synthesize dogfood-065 four-track lock",
+      "role_id": "designer",
+      "lane_id": "codex",
+      "objective": "Reconcile the three designs into one locked implementation plan. Output one track table with owners, allowed paths, forbidden paths, ordered tasks, test gates, and handoff dependencies. Do not edit README.md or OPERATOR_REPORT.md.",
+      "task_prompt": {
+        "path": "docs/dogfood/065/prompts/synth.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/dogfood/065/synthesis/"
+        ],
+        "forbidden_paths": [
+          ".striatum/",
+          "docs/dogfood/065/README.md",
+          "docs/dogfood/065/OPERATOR_REPORT.md",
+          "docs/dogfood/065/workflow.json",
+          "docs/dogfood/065/prompts/",
+          "docs/dogfood/065/roles/",
+          "docs/dogfood/065/design/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "design_synthesis",
+          "kind": "synthesis",
+          "path": "docs/dogfood/065/synthesis/DESIGN_SYNTHESIS.md",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "review_design",
+      "type": "review",
+      "title": "Review design synthesis - threat model",
+      "role_id": "reviewer",
+      "lane_id": "gemini",
+      "fresh_session_required": true,
+      "reviewer_context_policy": "fresh",
+      "review_posture": "threat_model",
+      "objective": "Review the synthesis before implementation. Bounce if any implementation track has overlapping write scope, if any track is allowed to write .striatum, if README.md or OPERATOR_REPORT.md are assigned to an agent, if D105/D107 inconsistency is left unowned, or if Go schema-version parity lacks a concrete acceptance test.",
+      "task_prompt": {
+        "path": "docs/dogfood/065/prompts/review_design.md"
+      },
+      "write_scope": {
+        "mode": "review_only_artifact",
+        "repo_write": false,
+        "allowed_paths": [
+          "docs/dogfood/065/review/design/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "design_review",
+          "kind": "finding",
+          "path": "docs/dogfood/065/review/design/REVIEW.md",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "implement_track_a_go_core",
+      "type": "build",
+      "title": "Track A - Go daemon core parity and schema",
+      "role_id": "implementer",
+      "lane_id": "codex",
+      "parallel_group": "implement",
+      "fresh_session_required": true,
+      "required_review_postures": [
+        "threat_model"
+      ],
+      "objective": "Implement Track A from synthesis. Scope: Go daemon core parity and schema freshness. Close the current Go schema-version lag, make Go refuse stale migrations/method contracts/generated registry, replace production not_implemented placeholders owned by the core, and add a daemon-core conformance target that can run CORE=go without silent skips. Do not edit client/service/MCP boundary code owned by Track C or docs/decision files owned by Track D.",
+      "task_prompt": {
+        "path": "docs/dogfood/065/prompts/implement_track_a.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "go/cmd/striatumd/",
+          "go/pkg/apply/",
+          "go/pkg/crossrepo/",
+          "go/pkg/db/",
+          "go/pkg/mcp/",
+          "go/pkg/mutations/",
+          "go/pkg/reads/",
+          "go/pkg/rpc/auth_pg.go",
+          "go/pkg/rpc/capability.go",
+          "go/pkg/rpc/envelope.go",
+          "go/pkg/rpc/registry.go",
+          "go/pkg/rpc/server.go",
+          "go/go.mod",
+          "go/go.sum",
+          "go/Makefile",
+          "Makefile",
+          "tests/_harness/daemon.py",
+          "tests/daemon_core/",
+          "tests/test_daemon_go_conformance.py",
+          "tests/test_daemon_go_schema_freshness.py",
+          "docs/dogfood/065/build/track_a/"
+        ],
+        "forbidden_paths": [
+          ".striatum/",
+          "contracts/daemon_methods.json",
+          "go/pkg/rpc/registry_methods.go",
+          "src/striatum/",
+          "docs/DECISION_LOG.md",
+          "docs/SPEC.md",
+          "docs/TODO.md",
+          "docs/ROADMAP.md",
+          "docs/rfcs/",
+          "docs/dogfood/065/README.md",
+          "docs/dogfood/065/OPERATOR_REPORT.md"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "track_a_handoff",
+          "kind": "handoff",
+          "path": "docs/dogfood/065/build/track_a/HANDOFF.md",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "implement_track_b_sqlite_eradication",
+      "type": "build",
+      "title": "Track B - SQLite eradication and PG-only global surfaces",
+      "role_id": "implementer",
+      "lane_id": "claude_code",
+      "parallel_group": "implement",
+      "fresh_session_required": true,
+      "required_review_postures": [
+        "threat_model"
+      ],
+      "objective": "Implement Track B from synthesis. Scope: RFC 0069 PostgreSQL-only daemon-global surfaces and SQLite eradication. Gate connect_registry in production, port daemon startup/health/audit/doctor/dashboard-all/sweep/MCP-resource reads to PostgreSQL, and quarantine or delete SQLite-backed helpers outside explicit migration/test fixtures. Do not edit Go code, contracts, client/service boundary code, or decision docs.",
+      "task_prompt": {
+        "path": "docs/dogfood/065/prompts/implement_track_b.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "src/striatum/daemon.py",
+          "src/striatum/daemon_pg/global_surfaces.py",
+          "src/striatum/daemon_pg/registry.py",
+          "src/striatum/daemon_pg/handlers/reads/dashboard_all.py",
+          "src/striatum/daemon_pg/handlers/reads/daemon_resources.py",
+          "src/striatum/daemon_pg/handlers/recovery_evidence/daemon_sweep.py",
+          "src/striatum/daemon_pg/sql/",
+          "src/striatum/legacy_sqlite/",
+          "tests/daemon_pg/test_pg_only_global_surfaces.py",
+          "tests/daemon_pg/test_daemon_sweep_pg_only.py",
+          "tests/architecture/test_legacy_sqlite_quarantine.py",
+          "tests/test_daemon.py",
+          "docs/dogfood/065/build/track_b/"
+        ],
+        "forbidden_paths": [
+          ".striatum/",
+          "go/",
+          "contracts/daemon_methods.json",
+          "src/striatum/service.py",
+          "src/striatum/service_api_routes.py",
+          "src/striatum/service_command_policy.py",
+          "src/striatum/service_daemon.py",
+          "src/striatum/service_http.py",
+          "src/striatum/service_request_io.py",
+          "src/striatum/service_request_security.py",
+          "src/striatum/service_routes.py",
+          "src/striatum/service_runtime.py",
+          "src/striatum/service_server.py",
+          "src/striatum/service_sse.py",
+          "src/striatum/service_state.py",
+          "src/striatum/web/",
+          "src/striatum/mcp.py",
+          "src/striatum/api.py",
+          "src/striatum/daemon_rpc/",
+          "src/striatum/cli/",
+          "docs/DECISION_LOG.md",
+          "docs/SPEC.md",
+          "docs/TODO.md",
+          "docs/ROADMAP.md",
+          "docs/rfcs/",
+          "docs/dogfood/065/README.md",
+          "docs/dogfood/065/OPERATOR_REPORT.md"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "track_b_handoff",
+          "kind": "handoff",
+          "path": "docs/dogfood/065/build/track_b/HANDOFF.md",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "implement_track_c_boundary",
+      "type": "build",
+      "title": "Track C - Client, service, and MCP boundary",
+      "role_id": "implementer",
+      "lane_id": "codex",
+      "parallel_group": "implement",
+      "fresh_session_required": true,
+      "required_review_postures": [
+        "ergonomics_dx"
+      ],
+      "objective": "Implement Track C from synthesis. Scope: RFC 0070 client/service/MCP boundary. Add daemon-side repository resolution, remove client-side PostgreSQL resolution for normal CLI/web calls, route daemon-mapped /v1/invoke mutations through daemon RPC, classify LocalRpcServer and invoke-backed chat tools as local-authoring or legacy/test, and port or hide dogfood composite tools. Track C owns daemon method contract edits and generated registry artifacts.",
+      "task_prompt": {
+        "path": "docs/dogfood/065/prompts/implement_track_c.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "contracts/daemon_methods.json",
+          "src/striatum/daemon_rpc/",
+          "src/striatum/daemon_rpc/daemon_methods.json",
+          "src/striatum/cli/daemon_rpc_route.py",
+          "src/striatum/cli/dispatch.py",
+          "src/striatum/cli/parser.py",
+          "src/striatum/service.py",
+          "src/striatum/service_api_routes.py",
+          "src/striatum/service_command_policy.py",
+          "src/striatum/service_daemon.py",
+          "src/striatum/service_http.py",
+          "src/striatum/service_request_io.py",
+          "src/striatum/service_request_security.py",
+          "src/striatum/service_routes.py",
+          "src/striatum/service_runtime.py",
+          "src/striatum/service_server.py",
+          "src/striatum/service_sse.py",
+          "src/striatum/service_state.py",
+          "src/striatum/web/",
+          "src/striatum/mcp.py",
+          "src/striatum/api.py",
+          "src/striatum/dogfood/",
+          "scripts/generate_daemon_method_tables.py",
+          "scripts/generate_go_rpc_registry.py",
+          "go/pkg/rpc/registry_methods.go",
+          "docs/architecture/DAEMON_METHOD_TABLES.md",
+          "tests/daemon_rpc/",
+          "tests/test_cli_daemon_rpc_route.py",
+          "tests/test_service.py",
+          "tests/test_mcp_capability_scope_e2e.py",
+          "tests/test_mcp_dogfood_e2e.py",
+          "tests/test_mcp_mutation_capabilities.py",
+          "docs/dogfood/065/build/track_c/"
+        ],
+        "forbidden_paths": [
+          ".striatum/",
+          "go/cmd/",
+          "go/pkg/apply/",
+          "go/pkg/crossrepo/",
+          "go/pkg/db/",
+          "go/pkg/mcp/",
+          "go/pkg/mutations/",
+          "go/pkg/reads/",
+          "go/pkg/rpc/auth_pg.go",
+          "go/pkg/rpc/capability.go",
+          "go/pkg/rpc/envelope.go",
+          "go/pkg/rpc/registry.go",
+          "go/pkg/rpc/server.go",
+          "src/striatum/daemon.py",
+          "src/striatum/legacy_sqlite/",
+          "docs/DECISION_LOG.md",
+          "docs/SPEC.md",
+          "docs/TODO.md",
+          "docs/ROADMAP.md",
+          "docs/rfcs/",
+          "docs/dogfood/065/README.md",
+          "docs/dogfood/065/OPERATOR_REPORT.md"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "track_c_handoff",
+          "kind": "handoff",
+          "path": "docs/dogfood/065/build/track_c/HANDOFF.md",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "implement_track_d_docs_decisions",
+      "type": "build",
+      "title": "Track D - Docs and decision consolidation",
+      "role_id": "implementer",
+      "lane_id": "claude_code",
+      "parallel_group": "implement",
+      "fresh_session_required": true,
+      "required_review_postures": [
+        "neutral"
+      ],
+      "objective": "Implement Track D from synthesis. Scope: docs and decisions only. Record or reconcile D107/D105, align RFC 0068-0071, SPEC, TODO, ROADMAP, UBIQUITOUS_LANGUAGE, architecture synthesis, and authority matrix wording so the Go production daemon port direction is explicit without claiming completed parity. Do not edit README.md or OPERATOR_REPORT.md in docs/dogfood/065.",
+      "task_prompt": {
+        "path": "docs/dogfood/065/prompts/implement_track_d.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/DECISION_LOG.md",
+          "docs/SPEC.md",
+          "docs/TODO.md",
+          "docs/ROADMAP.md",
+          "docs/UBIQUITOUS_LANGUAGE.md",
+          "docs/architecture/COMMAND_AUTHORITY_MATRIX.md",
+          "docs/architecture/REMEDIATION_SYNTHESIS_2026-05-17.md",
+          "docs/rfcs/0068-go-production-daemon-port.md",
+          "docs/rfcs/0069-pg-only-daemon-global-surfaces.md",
+          "docs/rfcs/0070-daemon-client-service-boundary.md",
+          "docs/rfcs/0071-operator-diagnostics-and-cutover-evidence.md",
+          "docs/rfcs/README.md",
+          "tests/test_doc_links.py",
+          "tests/test_docs_generic_language.py",
+          "docs/dogfood/065/build/track_d/"
+        ],
+        "forbidden_paths": [
+          ".striatum/",
+          "docs/dogfood/065/README.md",
+          "docs/dogfood/065/OPERATOR_REPORT.md",
+          "docs/dogfood/065/workflow.json",
+          "docs/dogfood/065/prompts/",
+          "docs/dogfood/065/roles/",
+          "src/",
+          "go/",
+          "contracts/daemon_methods.json"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "track_d_handoff",
+          "kind": "handoff",
+          "path": "docs/dogfood/065/build/track_d/HANDOFF.md",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "review_track_a",
+      "type": "review",
+      "title": "Review Track A - Go core threat model",
+      "role_id": "reviewer",
+      "lane_id": "claude_code",
+      "parallel_group": "track_reviews",
+      "fresh_session_required": true,
+      "reviewer_context_policy": "fresh",
+      "review_posture": "threat_model",
+      "objective": "Review Track A only. Verify Go schema-version freshness, method-contract freshness, audit-chain equivalence, capability denials, no silent skips in CORE=go tests, and no edits outside the Track A scope.",
+      "task_prompt": {
+        "path": "docs/dogfood/065/prompts/review_build.md"
+      },
+      "write_scope": {
+        "mode": "review_only_artifact",
+        "repo_write": false,
+        "allowed_paths": [
+          "docs/dogfood/065/review/track_a/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "track_a_review",
+          "kind": "finding",
+          "path": "docs/dogfood/065/review/track_a/REVIEW.md",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "review_track_b",
+      "type": "review",
+      "title": "Review Track B - SQLite eradication threat model",
+      "role_id": "reviewer",
+      "lane_id": "gemini",
+      "parallel_group": "track_reviews",
+      "fresh_session_required": true,
+      "reviewer_context_policy": "fresh",
+      "review_posture": "threat_model",
+      "objective": "Review Track B only. Verify production connect_registry calls are impossible, daemon-global surfaces use PostgreSQL or fail closed, migration/test exceptions are bounded, and no .striatum or parent-owned dogfood files are touched.",
+      "task_prompt": {
+        "path": "docs/dogfood/065/prompts/review_build.md"
+      },
+      "write_scope": {
+        "mode": "review_only_artifact",
+        "repo_write": false,
+        "allowed_paths": [
+          "docs/dogfood/065/review/track_b/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "track_b_review",
+          "kind": "finding",
+          "path": "docs/dogfood/065/review/track_b/REVIEW.md",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "review_track_c",
+      "type": "review",
+      "title": "Review Track C - Client/service/MCP ergonomics",
+      "role_id": "reviewer",
+      "lane_id": "claude_code",
+      "parallel_group": "track_reviews",
+      "fresh_session_required": true,
+      "reviewer_context_policy": "fresh",
+      "review_posture": "ergonomics_dx",
+      "objective": "Review Track C only. Verify CLI/web/service callers are daemon clients, repo.resolve is authorization-safe, local authoring remains explicit, /v1/invoke no longer routes production mutations through api.invoke, and dogfood composites are PG-native or hidden.",
+      "task_prompt": {
+        "path": "docs/dogfood/065/prompts/review_build.md"
+      },
+      "write_scope": {
+        "mode": "review_only_artifact",
+        "repo_write": false,
+        "allowed_paths": [
+          "docs/dogfood/065/review/track_c/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "track_c_review",
+          "kind": "finding",
+          "path": "docs/dogfood/065/review/track_c/REVIEW.md",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "review_track_d",
+      "type": "review",
+      "title": "Review Track D - Docs and decisions",
+      "role_id": "reviewer",
+      "lane_id": "gemini",
+      "parallel_group": "track_reviews",
+      "fresh_session_required": true,
+      "reviewer_context_policy": "fresh",
+      "review_posture": "neutral",
+      "objective": "Review Track D only. Verify D105/D107 status is coherent, RFC 0068-0071 match operator direction, docs do not over-claim Go parity, and README.md/OPERATOR_REPORT.md under dogfood-065 were not edited.",
+      "task_prompt": {
+        "path": "docs/dogfood/065/prompts/review_build.md"
+      },
+      "write_scope": {
+        "mode": "review_only_artifact",
+        "repo_write": false,
+        "allowed_paths": [
+          "docs/dogfood/065/review/track_d/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "track_d_review",
+          "kind": "finding",
+          "path": "docs/dogfood/065/review/track_d/REVIEW.md",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "integration_synthesis",
+      "type": "synthesis",
+      "title": "Integration synthesis - Go port cutover evidence",
+      "role_id": "designer",
+      "lane_id": "codex",
+      "objective": "Integrate the four implementation handoffs and four track reviews. Produce a concise cutover status: completed, blocked, deferred, tests run, current Go gaps, current SQLite exceptions, and docs/decision state. Do not edit parent-owned dogfood files.",
+      "task_prompt": {
+        "path": "docs/dogfood/065/prompts/integration_synthesis.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/dogfood/065/synthesis/"
+        ],
+        "forbidden_paths": [
+          ".striatum/",
+          "docs/dogfood/065/README.md",
+          "docs/dogfood/065/OPERATOR_REPORT.md",
+          "docs/dogfood/065/workflow.json",
+          "docs/dogfood/065/prompts/",
+          "docs/dogfood/065/roles/",
+          "docs/dogfood/065/design/",
+          "docs/dogfood/065/build/",
+          "docs/dogfood/065/review/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "integration_synthesis",
+          "kind": "synthesis",
+          "path": "docs/dogfood/065/synthesis/INTEGRATION_SYNTHESIS.md",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "final_review",
+      "type": "review",
+      "title": "Final review - dogfood-065 readiness",
+      "role_id": "reviewer",
+      "lane_id": "gemini",
+      "fresh_session_required": true,
+      "reviewer_context_policy": "fresh",
+      "review_posture": "threat_model",
+      "objective": "Final fresh review of the integrated result. Accept only if the scaffold's four tracks stayed disjoint, production authority still runs through daemon/PostgreSQL, Go parity claims are evidence-backed, SQLite exceptions are named and bounded, and parent-owned dogfood files remain untouched by agents.",
+      "task_prompt": {
+        "path": "docs/dogfood/065/prompts/final_review.md"
+      },
+      "write_scope": {
+        "mode": "review_only_artifact",
+        "repo_write": false,
+        "allowed_paths": [
+          "docs/dogfood/065/review/final/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "final_review",
+          "kind": "finding",
+          "path": "docs/dogfood/065/review/final/REVIEW.md",
+          "required": true
+        }
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "from": "design_codex",
+      "to": "synth",
+      "on": "completed"
+    },
+    {
+      "from": "design_claude",
+      "to": "synth",
+      "on": "completed"
+    },
+    {
+      "from": "design_gemini",
+      "to": "synth",
+      "on": "completed"
+    },
+    {
+      "from": "synth",
+      "to": "review_design",
+      "on": "completed"
+    },
+    {
+      "from": "review_design",
+      "to": "implement_track_a_go_core",
+      "on": "completed"
+    },
+    {
+      "from": "review_design",
+      "to": "implement_track_b_sqlite_eradication",
+      "on": "completed"
+    },
+    {
+      "from": "review_design",
+      "to": "implement_track_c_boundary",
+      "on": "completed"
+    },
+    {
+      "from": "review_design",
+      "to": "implement_track_d_docs_decisions",
+      "on": "completed"
+    },
+    {
+      "from": "implement_track_a_go_core",
+      "to": "review_track_a",
+      "on": "completed"
+    },
+    {
+      "from": "implement_track_b_sqlite_eradication",
+      "to": "review_track_b",
+      "on": "completed"
+    },
+    {
+      "from": "implement_track_c_boundary",
+      "to": "review_track_c",
+      "on": "completed"
+    },
+    {
+      "from": "implement_track_d_docs_decisions",
+      "to": "review_track_d",
+      "on": "completed"
+    },
+    {
+      "from": "review_track_a",
+      "to": "integration_synthesis",
+      "on": "completed"
+    },
+    {
+      "from": "review_track_b",
+      "to": "integration_synthesis",
+      "on": "completed"
+    },
+    {
+      "from": "review_track_c",
+      "to": "integration_synthesis",
+      "on": "completed"
+    },
+    {
+      "from": "review_track_d",
+      "to": "integration_synthesis",
+      "on": "completed"
+    },
+    {
+      "from": "integration_synthesis",
+      "to": "final_review",
+      "on": "completed"
+    }
+  ],
+  "cycles": [
+    {
+      "from": "review_design",
+      "to": "synth",
+      "on_verdict": "needs_revision",
+      "max_iterations": 1,
+      "allow_same_lane": false
+    },
+    {
+      "from": "review_track_a",
+      "to": "implement_track_a_go_core",
+      "on_verdict": "needs_revision",
+      "max_iterations": 1,
+      "allow_same_lane": false
+    },
+    {
+      "from": "review_track_b",
+      "to": "implement_track_b_sqlite_eradication",
+      "on_verdict": "needs_revision",
+      "max_iterations": 1,
+      "allow_same_lane": false
+    },
+    {
+      "from": "review_track_c",
+      "to": "implement_track_c_boundary",
+      "on_verdict": "needs_revision",
+      "max_iterations": 1,
+      "allow_same_lane": false
+    },
+    {
+      "from": "review_track_d",
+      "to": "implement_track_d_docs_decisions",
+      "on_verdict": "needs_revision",
+      "max_iterations": 1,
+      "allow_same_lane": false
+    },
+    {
+      "from": "final_review",
+      "to": "integration_synthesis",
+      "on_verdict": "needs_revision",
+      "max_iterations": 1,
+      "allow_same_lane": false
+    }
+  ],
+  "provenance_mode": "attested_bylines"
+}

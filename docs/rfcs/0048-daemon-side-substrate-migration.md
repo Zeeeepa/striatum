@@ -158,12 +158,13 @@ delegated handler for the PG-backed one as each lands. SQLite
 delegation stays as a fallback for un-ported methods during the
 transition.
 
-### Phase B — Go helper/read parity
+### Phase B — Go read/support parity
 
 Phase B shipped read-handler parity and selected mutation plumbing in the Go
-helper/runtime tree. D105 narrowed Go away from a peer production daemon
-core, so the remaining Go work is support-code and developer-harness parity,
-not a prerequisite for the Python daemon's production substrate flip.
+support tree. D105 temporarily narrowed Go away from a peer production daemon
+core, but D107 / RFC 0068 supersedes that boundary and makes remaining Go
+daemon parity active port work. This does not reopen RFC 0048's completed
+Python/Postgres substrate cutover.
 
 ### Phase C — Migration sentinel & SQLite removal (completed)
 
@@ -179,8 +180,9 @@ not a prerequisite for the Python daemon's production substrate flip.
 ## Migration & rollout
 
 RFC 0048 completed across v1.49.0-v1.55.0. Phase A handler porting, Phase C
-CLI fail-closed routing, and V1.5 hardening are no longer pending. Go helper
-parity remains useful support code under D105, not a substrate-flip blocker.
+CLI fail-closed routing, and V1.5 hardening are no longer pending. Go parity
+work now continues under D107 / RFC 0068, while this RFC remains limited to
+the completed Python/Postgres substrate flip.
 
 Existing repos that have already run `migrate-repo-local` continue
 to work — the daemon already has their PG state; Phase A handlers
@@ -191,8 +193,8 @@ just start reading it natively instead of routing through SQLite.
 - Phase A acceptance per method: PG-backed handlers pass the same
   pytest suite as the SQLite-backed equivalent, byte-identical state
   reads back, audit chain hashes match.
-- Phase B acceptance: Go read/helper parity is retained as developer-harness
-  support under D105.
+- Phase B acceptance: Go read/support parity was retained as developer-harness
+  evidence; D107 / RFC 0068 owns production Go daemon parity.
 - Phase C acceptance: production mapped verbs fail closed without the daemon;
   the paired SQLite escape is test-harness/migration-only.
 

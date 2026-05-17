@@ -22,9 +22,10 @@ dependency edges, and "what would I do next" framing. Update on every
   Schema v6 event-chain columns, capability-denial coverage, audit-chain row
   locking, append-only role-grant checks, and the inline helper wiring needed
   by recovery paths.
-- **Current workstream:** TODO 49-60 / RFC 0059-0067 architecture remediation.
-  Phase 4 daemon-first web-service cleanup remains the active implementation
-  runway; Phases 7, 8, and 12 have explicit product-decision blockers.
+- **Current workstream:** TODO 61-64 / RFC 0068-0071 architecture remediation.
+  D107 supersedes D105: the target is now a Go production daemon port, Python
+  daemon retirement after parity, Python CLI/web clients where useful, and
+  SQLite eradication from production and compatibility paths.
 - **CI:** GitHub Actions has been backlogged during the 2026-05-17
   remediation commits. Treat latest-head CI failures as stop-the-line; queued
   and in-progress older runs are not by themselves blockers.
@@ -184,9 +185,9 @@ legacy `CLI_ROUTES` fallback.
   prevents the daemon-required CLI from working end-to-end. State-store
   corruption surfaced; SQLite was quarantined and reset.
 
-**Follow-up:** completed through RFC 0048 V1.5 / v1.55.0. Historical RFC 0048
-Phase B parity work was transition scaffolding; D105 now makes Python the
-primary production daemon core and redirects Go work to a narrow helper role.
+**Follow-up:** completed through RFC 0048 V1.5 / v1.55.0. D105 briefly made
+Python the primary production daemon core, but D107 / RFC 0068 supersedes that
+constraint and restores the Go production daemon port as the target.
 
 ### 4.2 🟡 landed bounded slice — RFC 0051 V1 auto-finalize from front matter
 
@@ -203,21 +204,20 @@ enabled. That policy waits on live dogfood confidence plus an explicit product
 decision about when Striatum may complete work from durable artifacts without
 per-workflow opt-in.
 
-### 4.3 ✅ completed — TODO #30 / RFC 0039 V1.6 Go helper/runtime hardening
+### 4.3 ✅ completed — TODO #30 / RFC 0039 V1.6 Go support-runtime hardening
 
 **Closes:** [TODO item 30](TODO.md#L527).
 
-**Status:** complete for the post-D105 helper-focused hardening slice. D105
-stops treating Go daemon parity as release-blocking; this item now closes only
-the dependency, CI, boundary, and startup hygiene needed for the narrow
-supervisor helper:
+**Status:** complete for the historical helper-focused hardening slice. D107
+later reopened full Go daemon parity under RFC 0068, so this item is now
+supporting groundwork rather than the daemon-core end state:
 
 - (F1) `go/Makefile verify` now runs `go mod verify` and
   `go mod tidy -diff`.
 - (F2) A startup regression asserts `striatumd` refuses to serve without a
   Postgres URL/config and does not bind its Unix socket.
-- (F3) CI runs `make daemon-go-helper-check` instead of a `CORE=go`
-  multi-repo parity axis.
+- (F3) CI currently runs `make daemon-go-helper-check`; RFC 0068 will add a
+  production Go daemon conformance gate before default flip.
 - (F4/F5) Helper boundary coverage now inspects transitive dependencies with
   `go list -deps ./cmd/striatum-supervisor-helper`; transitional Go RPC
   smoke/audit tests remain available but are not a parity gate.
@@ -320,21 +320,20 @@ fallback path or repo-administration path.
 
 ---
 
-### 4.7 ✅ completed — Architecture remediation Phase 3: daemon core strategy
+### 4.7 ✅ completed / superseded — Architecture remediation Phase 3: daemon core strategy
 
 **Closes:** [TODO item 51](TODO.md).
 
-**Decision:** D105 names Python as the primary production daemon core.
-Go is retained only for a narrow helper/runtime role, starting with
-PTY/process supervision where a small helper can improve signal handling
-without moving domain transitions out of the Python daemon.
+**Decision:** D105 named Python as the primary production daemon core, but
+D107 supersedes it. The active target is now RFC 0068: Go production daemon
+port, Python daemon retirement after parity, Python CLI/web clients where
+useful, and SQLite removal from production and compatibility paths.
 
 **Landed in this slice:**
-- `docs/DECISION_LOG.md` records D105 and marks D084 superseded.
-- TODO item 25 is closed as superseded rather than promoted into a
-  Go replacement-daemon phase.
-- TODO item 30 is narrowed to Go helper/runtime hygiene.
-- TODO item 54 now owns the narrow Go supervisor helper work.
+- `docs/DECISION_LOG.md` records D107 and marks D105 superseded.
+- TODO item 25 is reopened under RFC 0068.
+- TODO item 30 remains completed helper groundwork.
+- TODO item 61 owns the Go daemon port and Python-daemon retirement.
 
 **Next after this ships:** Phase 4 can make the local web service
 daemon-first without needing to support two domain daemons.
@@ -713,16 +712,18 @@ The copy-on-click allowlist and workflow-editor purge are already covered by
 targeted tests. The dogfood-056 ergonomic review items are not tracked as
 active GitHub backlog unless they get promoted into explicit issues.
 
-### 5.2 ✅ completed — D105 follow-up / Go supervisor helper protocol
+### 5.2 ✅ completed, superseded — D105 follow-up / Go supervisor protocol
 
-**Supersedes:** TODO item 25's Go replacement-daemon phase.
+**Historical note:** this slice was planned under D105. D107 / RFC 0068
+later reopened TODO item 25's Go replacement-daemon phase.
 
-Shipped scope:
+Shipped scope from the D105 interval:
 - Daemon RPC, authorization, audit, and domain transitions remain in Python.
-- The Go helper handles the narrow PTY/process supervision protocol for start,
+- The Go support code handles the narrow PTY/process supervision protocol for start,
   send, stop/status, wrapper control events, reattach, and lost-state reporting.
-- Broad Go replacement-daemon parity is no longer release criteria.
-- Helper-only CI and integration coverage validate the Python/Go boundary.
+- That interval did not deliver broad Go replacement-daemon parity.
+- Focused CI and integration coverage validate the existing Python/Go boundary;
+  RFC 0068 owns the broader conformance gate.
 
 ### 5.3 ✅ shipped — RFC 0048 daemon-side substrate migration (v1.49.0–v1.55.0)
 
@@ -732,8 +733,8 @@ All three phases landed:
   `src/striatum/daemon_pg/handlers/{workflow_loop,recovery_evidence}/`.
 - **Phase B** (v1.50.0–v1.54.0 + follow-up): transition-era Go-core
   parity in `go/pkg/{reads,mutations}/`; daemon Unix-socket accept loop;
-  12 read handlers byte-equivalent with the Python path. D105 later
-  narrowed future Go work to a helper role rather than continued parity.
+  12 read handlers byte-equivalent with the Python path. D105 temporarily
+  narrowed future Go work; D107 / RFC 0068 later reopened full parity.
 - **Phase C** (v1.51.0–v1.52.0): CLI dispatch routes ~30 mapped verbs
   through the daemon socket; mapped verbs fail closed instead of
   falling back to SQLite when the daemon is unreachable.
@@ -916,11 +917,12 @@ breaking schema change and should land paired with a
 bump being scheduled. RFC 0052 implementation is unblocked but unscheduled.
 The other doc phases are unblocked.
 
-### 5.9 Architecture remediation sequence (TODO 49-60)
+### 5.9 Architecture remediation sequence (TODO 49-64)
 
 This sequence comes from `STRIATUM_ARCHITECTURE_REMEDIATION_PLAN_2026-05-16.md`.
-Production daemon fallback is now closed; remaining work is legacy SQLite
-quarantine, policy decisions, and optional integration surfaces.
+Production daemon fallback is now closed for mapped Python paths, but D107
+changes the active runway: port the production daemon to Go and eliminate
+SQLite from production and compatibility paths.
 
 Release order after Phase 0:
 
@@ -929,8 +931,8 @@ Release order after Phase 0:
 2. **TODO 50 / Phase 2:** contract source plus Python/Go registry
    generation, generated MCP descriptors, generated docs tables, and
    declarative runtime CLI route translation landed.
-3. **TODO 51 / Phase 3:** decide the daemon core strategy and record it
-   in `docs/DECISION_LOG.md`.
+3. **TODO 51 / Phase 3:** D105 decided Python-primary temporarily; D107 later
+   superseded it.
 4. **TODO 52 / Phase 4:** make the web service a daemon client rather
    than a parallel state-store peer.
 5. **TODO 53 / Phase 5:** implement a real escalation inbox for the
@@ -956,10 +958,19 @@ Release order after Phase 0:
     Contract V2 fields wait on RFC 0057 decisions.
 12. **TODO 60 / Phase 12:** optional Git/PR integration waits on a product
     decision for commit authority and hosted-provider boundaries.
+13. **TODO 61 / RFC 0068:** port the production daemon to Go, add stale-binary
+    and conformance gates, and retire the Python daemon after parity.
+14. **TODO 62 / RFC 0069:** move daemon-global surfaces to PostgreSQL/Go.
+15. **TODO 63 / RFC 0070:** complete daemon client/service boundaries and
+    remove direct client DB access.
+16. **TODO 64 / RFC 0071:** add post-cutover diagnostics once authority cleanup
+    lands.
 
 **Blocked on:** current blockers are Phase 7 accepted-risk persistence,
-Phase 8 default auto-finalize policy, Phase 11 Corpus V2 decisions, and
-Phase 12 Git/PR authority.
+Phase 8 default auto-finalize policy, Phase 11 Corpus V2 decisions, Phase 12
+Git/PR authority, and the normal dogfood substrate mismatch recorded in
+dogfoods 064/065. The Go port itself is unblocked and should proceed without
+waiting for human approval.
 
 ---
 
@@ -974,7 +985,7 @@ dogfood. Order them by impact, not by RFC number.
 | [27](TODO.md) | RFC 0045 V1.5 | dogfood-043 | D097 | ✅ Completed: cycle phase-jump, Python/editor phase-field mismatch, explicit synthesis-job metadata validation, frontend drag-drop phase bypass, and invalid/unknown phase display tolerance have landed. |
 | [28](TODO.md) | RFC 0040 V1.6 | dogfood-044 | D098 | Composite publish-on-behalf failure observability landed; remaining packet-evidence debt is provenance/packet-design work. |
 | [29](TODO.md) | RFC 0038 V1.6 | dogfood-045 | D099 | ✅ Completed: real-bundle commit + supply-chain polish. **First `reject critical` override.** |
-| [30](TODO.md) | RFC 0039 V1.6 | dogfood-047 | D101 | ✅ Completed in 4.3 as the post-D105 helper-focused hardening slice; full Go daemon parity remains out of scope. |
+| [30](TODO.md) | RFC 0039 V1.6 | dogfood-047 | D101 | ✅ Completed in 4.3 as helper groundwork; full Go daemon parity is reopened by D107 / RFC 0068. |
 | [31](TODO.md) | RFC 0043 V1.5 | dogfood-048 | D102 | ✅ Completed / tracker stale: crash-recovery tombstone two-phase, daemon-required default flip, `daemon migrate-repo-local` subparser wiring, focused `make test-rfc0043`, and a foreground-daemon refusal smoke have landed. **Distinct from D095-D101 — both reviewers had real findings, not co-blindness.** |
 | (NEW) | RFC 0050 follow-up | dogfood-056 | (no override) | 5 reviewer findings filed as GH #9-13; 1 ergonomic from claude review. Already in active runway as 4.1 + 5.1. |
 

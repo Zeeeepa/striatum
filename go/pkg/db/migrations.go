@@ -130,25 +130,56 @@ func (m Migration) SHA256() string {
 	return hex.EncodeToString(sum[:])
 }
 
+func MigrationSHASet() (map[string]string, error) {
+	migrations, err := Migrations()
+	if err != nil {
+		return nil, err
+	}
+	result := map[string]string{}
+	for _, migration := range migrations {
+		result[filepath.Base(migration.Path)] = migration.SHA256()
+	}
+	return result, nil
+}
+
 // VerifyMigrationsSHASource compares the embedded migration SHAs against the
 // SQL files on disk at the supplied path. The comparison is by-filename and
 // guards against drift between the Go-embedded SQL and the Python source-of-
-// truth tree. Returns a non-nil error if any file is missing or differs.
+// truth tree. Returns a non-nil error if any file is missing, differs, or the
+// source tree contains newer migration files the Go binary did not embed.
 func VerifyMigrationsSHASource(path string) error {
-	migrations, err := Migrations()
+	embedded, err := MigrationSHASet()
 	if err != nil {
 		return err
 	}
-	for _, migration := range migrations {
-		name := filepath.Base(migration.Path)
-		body, err := os.ReadFile(filepath.Join(path, name))
+	entries, err := os.ReadDir(path)
+	if err != nil {
+		return fmt.Errorf("read source migration directory: %w", err)
+	}
+	source := map[string]string{}
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".sql") {
+			continue
+		}
+		body, err := os.ReadFile(filepath.Join(path, entry.Name()))
 		if err != nil {
-			return fmt.Errorf("read source migration %s: %w", name, err)
+			return fmt.Errorf("read source migration %s: %w", entry.Name(), err)
 		}
 		sum := sha256.Sum256(body)
-		actual := hex.EncodeToString(sum[:])
-		if actual != migration.SHA256() {
-			return fmt.Errorf("migration %s sha mismatch: embedded=%s source=%s", name, migration.SHA256(), actual)
+		source[entry.Name()] = hex.EncodeToString(sum[:])
+	}
+	for name, embeddedSHA := range embedded {
+		actual, ok := source[name]
+		if !ok {
+			return fmt.Errorf("source migration %s is missing", name)
+		}
+		if actual != embeddedSHA {
+			return fmt.Errorf("migration %s sha mismatch: embedded=%s source=%s", name, embeddedSHA, actual)
+		}
+	}
+	for name := range source {
+		if _, ok := embedded[name]; !ok {
+			return fmt.Errorf("source migration %s is newer than the embedded Go daemon migrations; rebuild go/bin/striatumd", name)
 		}
 	}
 	return nil
