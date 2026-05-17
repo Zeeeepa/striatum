@@ -894,7 +894,7 @@ review and plan are root-level operator artifacts:
     `web/chat_session.py` owns chat transcript projection, briefing,
     JSONL append, timestamp, stable-hash, safe-git, multipart, session
     path/listing, display-message, and workflow-write confirmation helpers.
-    Follow-up quarantine landed: `service_legacy.py` owns gated
+    Follow-up quarantine landed: `legacy_sqlite/service.py` owns gated
     subprocess-fixture mutation fallbacks, legacy error mappers, legacy
     page-read payload builders, the view-file breadcrumb lookup, doctor-page
     fixture payload, SSE event tail, and legacy startup integrity check.

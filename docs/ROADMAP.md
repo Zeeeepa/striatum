@@ -396,10 +396,10 @@ daemon-first without needing to support two domain daemons.
   safe-git, multipart parsing, session path/listing, display-message, and
   workflow-write confirmation helpers. `service.py` keeps HTTP routing,
   provider/tool orchestration, and response handling.
-- `src/striatum/service_legacy.py` now owns the gated subprocess-fixture
+- `src/striatum/legacy_sqlite/service.py` now owns the gated subprocess-fixture
   mutation fallbacks and legacy error mappers, narrowing `service.py` toward
   request handling plus rendering.
-- `src/striatum/service_legacy.py` also owns the remaining legacy page-read
+- `src/striatum/legacy_sqlite/service.py` also owns the remaining legacy page-read
   payload builders, view-file breadcrumb lookup, doctor-page fixture payload,
   SSE event tail, and legacy startup integrity check. `service.py` no longer
   imports or opens repo-local SQLite directly.

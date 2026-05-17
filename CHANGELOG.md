@@ -27,6 +27,10 @@ Recent checkpoints:
 - Chat transcript, briefing, session listing, display projection, and
   workflow-write confirmation helpers now live in `striatum.web.chat_session`
   with focused regression coverage.
+- Web-only legacy SQLite fallbacks moved from the root service namespace into
+  `striatum.legacy_sqlite.service`; the root `service_legacy.py` module is
+  gone, and quarantine tests now assert that the primary service imports the
+  explicit legacy package.
 
 - **Command authority and fallback guardrails.**
   `docs/architecture/COMMAND_AUTHORITY_MATRIX.md` now names the authority
@@ -81,10 +85,11 @@ Recent checkpoints:
   `striatum.web.chat_session`, leaving `service.py` focused on HTTP routing,
   provider streaming, and response handling.
   The gated subprocess-fixture mutation fallbacks and legacy error mappers
-  now live in `service_legacy.py`. The remaining legacy page-read payload
-  builders, view-file breadcrumb lookup, doctor-page fixture payload, SSE
-  event tail, and legacy startup integrity check are now quarantined there as
-  well; `service.py` no longer imports or opens repo-local SQLite directly.
+  now live in `striatum.legacy_sqlite.service`. The remaining legacy
+  page-read payload builders, view-file breadcrumb lookup, doctor-page
+  fixture payload, SSE event tail, and legacy startup integrity check are now
+  quarantined there as well; `service.py` no longer imports or opens
+  repo-local SQLite directly.
 - **Escalation inbox foundation.**
   `escalation.list`, `escalation.show`, and `escalation.resolve` project
   human-principal escalations from blocker state. The `escalation` artifact

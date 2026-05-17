@@ -27,7 +27,7 @@ from typing import Any, Mapping
 from urllib.parse import parse_qs, quote, unquote, urlsplit
 
 from striatum.api import invoke
-from striatum.service_legacy import (
+from striatum.legacy_sqlite.service import (
     _byline_line as _legacy_byline_line,
     _shape_verdict_rows as _legacy_shape_verdict_rows,
     legacy_artifact_metadata as _legacy_artifact_metadata,

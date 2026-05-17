@@ -106,7 +106,7 @@ PRODUCTION_SQLITE_QUARANTINE = {
         "service transition",
         "legacy recovery watcher retained for fixture and service transition",
     ),
-    Path("src/striatum/service_legacy.py"): SQLiteClassification(
+    Path("src/striatum/legacy_sqlite/service.py"): SQLiteClassification(
         "service transition",
         "gated subprocess-fixture web fallbacks and legacy page reads isolated from primary service code",
     ),
@@ -249,7 +249,14 @@ def test_service_primary_module_no_longer_opens_legacy_sqlite() -> None:
 
 def test_legacy_service_owns_page_read_payload_fallbacks() -> None:
     service_source = (ROOT / "src" / "striatum" / "service.py").read_text(encoding="utf-8")
-    legacy_source = (ROOT / "src" / "striatum" / "service_legacy.py").read_text(encoding="utf-8")
+    root_compat_path = ROOT / "src" / "striatum" / "service_legacy.py"
+    legacy_source = (
+        ROOT / "src" / "striatum" / "legacy_sqlite" / "service.py"
+    ).read_text(encoding="utf-8")
+
+    assert not root_compat_path.exists()
+    assert "from striatum.legacy_sqlite.service import" in service_source
+    assert "striatum.service_legacy" not in service_source
 
     page_payload_builders = {
         "legacy_run_detail_payload",
