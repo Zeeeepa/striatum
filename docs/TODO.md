@@ -972,6 +972,11 @@ review and plan are root-level operator artifacts:
     expected-artifact row shaping. Follow-up split landed:
     `service_sse.py` owns daemon-backed run-event streaming while
     `service.py` keeps slot accounting and legacy fixture fallback selection.
+    Follow-up split landed: `web/chat_routes.py` owns chat index/session
+    rendering, chat creation, provider send/tool-loop handling, workflow-write
+    confirmation, stop redirects, and transcript SSE tailing while
+    `service.py` keeps route dispatch plus compatibility aliases for briefing
+    and git context helpers.
     Remaining: continue splitting `service.py` along stable non-SQLite
     request-handling and rendering boundaries.
 

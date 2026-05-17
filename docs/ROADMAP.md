@@ -464,6 +464,10 @@ daemon-first without needing to support two domain daemons.
 - `src/striatum/web/run_posture_verdicts.py` now owns posture-verdict
   template-context shaping and verdict-row filtering. `service.py` keeps the
   daemon RPC/fallback and HTTP error mapping for the route.
+- `src/striatum/web/chat_routes.py` now owns chat page rendering, chat
+  creation, provider send/tool-loop handling, workflow-write confirmation,
+  stop redirects, and transcript SSE tailing. `service.py` keeps route
+  dispatch and stable briefing/git-helper compatibility aliases.
 
 **Remaining Phase 4 debt:** continue splitting `service.py` along stable
 non-SQLite request-handling and rendering boundaries after the daemon-routed

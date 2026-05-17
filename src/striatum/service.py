@@ -17,8 +17,7 @@ import signal
 import socket
 import socketserver
 import threading
-import time
-import uuid
+import time  # noqa: F401 - compatibility monkeypatch seam for legacy SSE tests.
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from typing import Any, Mapping
@@ -42,6 +41,7 @@ from striatum.service_request_security import (
 )
 from striatum import service_request_io as _request_io
 from striatum.service_sse import (
+    encode_sse_event as _encode_sse_event,
     sse_since as _sse_since,
     stream_daemon_events as _stream_daemon_events,
 )
@@ -64,17 +64,9 @@ from striatum.web.doctor import (
     doctor_page_response as _doctor_page_response,
 )
 from striatum.web import chat_session as _chat_session
-from striatum.web.chat_session import (
-    append_jsonl as _append_jsonl,
-    chat_session_path as _chat_session_path,
-    find_pending_tool_confirmation as _find_pending_tool_confirmation,
-    list_chat_sessions as _list_chat_sessions,
-    queue_workflow_write_confirmation as _queue_workflow_write_confirmation,
-    read_chat_history as _read_chat_history,
-    read_display_messages as _read_display_messages,
-    safe_git as _safe_git,
-    split_system as _split_system,
-    utc_now_iso as _utc_now_iso,
+from striatum.web import chat_routes as _chat_routes
+from striatum.web.chat_routes import (
+    ChatRouteContext as _ChatRouteContext,
 )
 from striatum.web import template_env as _template_env
 from striatum.web.static_assets import (
@@ -105,6 +97,7 @@ from striatum.web.workflow_generation import (
 JsonObject = dict[str, Any]
 _project_history_anthropic = _chat_session.project_history_anthropic
 _project_history_openai = _chat_session.project_history_openai
+_safe_git = _chat_session.safe_git
 
 
 def _legacy_service() -> Any:
@@ -190,9 +183,7 @@ SHUTDOWN_DRAIN_SECONDS = 5.0
 def _is_safe_id(value: str) -> bool:
     """RFC 0023 V1: chat session ids and similar paths must be ASCII
     alphanumeric / underscore / hyphen only."""
-    if not value:
-        return False
-    return all(ch.isalnum() or ch in "-_" for ch in value)
+    return _chat_routes.is_safe_id(value)
 
 
 def _escape_html(s: str) -> str:
@@ -1432,343 +1423,57 @@ class StriatumServiceHandler(BaseHTTPRequestHandler):
         except ChatProviderError:
             return None
 
+    def _chat_route_context(self) -> _ChatRouteContext:
+        return _ChatRouteContext(
+            repo=self.state.repo,
+            allow_mutations=self.state.allow_mutations,
+            chat_config=self._chat_config,
+            read_form_body=lambda max_bytes: self._read_form_body(
+                max_bytes=max_bytes
+            ),
+            send_json=self._send_json,
+            send_html=self._send_html,
+            send_response=self.send_response,
+            send_header=self.send_header,
+            end_headers=self.end_headers,
+            wfile=self.wfile,
+            jinja_env=_jinja_env,
+            build_chat_briefing=lambda repo, allow_mutations: _build_chat_briefing(
+                repo,
+                allow_mutations=allow_mutations,
+            ),
+            html_escape=_escape_html,
+            token_factory=lambda: secrets.token_urlsafe(24),
+            poll_interval_seconds=SSE_POLL_INTERVAL_SECONDS,
+        )
+
     def _render_chat_index_page(self) -> None:
-        config = self._chat_config()
-        sessions = _list_chat_sessions(self.state.repo) if config else []
-        try:
-            html = _jinja_env().get_template("chat_index.html").render(
-                chat_configured=config is not None,
-                sessions=sessions,
-                model=getattr(config, "model", None),
-                flavor=getattr(config, "flavor", None),
-                mutations_allowed=self.state.allow_mutations,
-                env_help="",
-            )
-            self._send_html(200, html)
-        except Exception as exc:  # noqa: BLE001
-            self._send_json(500, {"ok": False, "error": {"code": 500, "message": str(exc)}})
+        _chat_routes.render_chat_index_page(self._chat_route_context())
 
     def _render_chat_subpath(self, subpath: str) -> None:
-        if not subpath:
-            self._send_json(404, {"ok": False, "error": {"code": 404, "message": "missing chat session"}})
-            return
-        parts = subpath.strip("/").split("/")
-        session_id = parts[0]
-        if not _is_safe_id(session_id):
-            self._send_json(400, {"ok": False, "error": {"code": 400, "message": "invalid chat session id"}})
-            return
-        if len(parts) == 1:
-            self._render_chat_session_page(session_id)
-            return
-        if len(parts) == 2 and parts[1] == "events":
-            self._stream_chat_events(session_id)
-            return
-        self._send_json(404, {"ok": False, "error": {"code": 404, "message": "not found"}})
+        _chat_routes.render_chat_subpath(self._chat_route_context(), subpath)
 
     def _render_chat_session_page(self, session_id: str) -> None:
-        from striatum.web.markdown import render as md_render
-        config = self._chat_config()
-        path = _chat_session_path(self.state.repo, session_id)
-        if path is None or not path.is_file():
-            self._send_json(404, {"ok": False, "error": {"code": 404, "message": "chat session not found"}})
-            return
-        messages = _read_display_messages(
-            path,
-            markdown_render=md_render,
-            html_escape=_escape_html,
-        )
-        try:
-            html = _jinja_env().get_template("chat.html").render(
-                session_id=session_id,
-                messages=messages,
-                model=getattr(config, "model", None),
-                flavor=getattr(config, "flavor", None),
-            )
-            self._send_html(200, html)
-        except Exception as exc:  # noqa: BLE001
-            self._send_json(500, {"ok": False, "error": {"code": 500, "message": str(exc)}})
+        _chat_routes.render_chat_session_page(self._chat_route_context(), session_id)
 
     def _handle_chat_new(self) -> None:
-        if not self.state.allow_mutations:
-            self._send_json(405, {"ok": False, "error": {"code": 405, "message": "chat new requires --allow-mutations"}})
-            return
-        config = self._chat_config()
-        if config is None:
-            self._send_json(412, {"ok": False, "error": {"code": 412, "message": "chat is not configured; set STRIATUM_CHAT_API_BASE_URL / API_KEY / MODEL / API_FLAVOR"}})
-            return
-        # Read but discard the form body if present.
-        self._read_form_body(max_bytes=4096)
-        session_id = uuid.uuid4().hex[:8]
-        target = _chat_session_path(self.state.repo, session_id)
-        if target is None:
-            self._send_json(500, {"ok": False, "error": {"code": 500, "message": "could not allocate chat session"}})
-            return
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text("", encoding="utf-8")
-        # RFC 0023 V1.5: seed the transcript with the system briefing
-        # so the model has bearings on its first turn.
-        try:
-            briefing = _build_chat_briefing(self.state.repo, allow_mutations=self.state.allow_mutations)
-            _append_jsonl(
-                target,
-                {"role": "system", "content": briefing,
-                 "created_at": _utc_now_iso()},
-            )
-        except Exception:  # noqa: BLE001
-            pass  # Briefing failure must not block chat creation.
-        self.send_response(303)
-        self.send_header("Location", f"/chat/{session_id}")
-        self.send_header("Content-Length", "0")
-        self.end_headers()
+        _chat_routes.handle_chat_new(self._chat_route_context())
 
     def _handle_chat_send(self, session_id: str) -> None:
-        if not _is_safe_id(session_id):
-            self._send_json(400, {"ok": False, "error": {"code": 400, "message": "invalid chat session id"}})
-            return
-        if not self.state.allow_mutations:
-            self._send_json(405, {"ok": False, "error": {"code": 405, "message": "chat send requires --allow-mutations"}})
-            return
-        config = self._chat_config()
-        if config is None:
-            self._send_json(412, {"ok": False, "error": {"code": 412, "message": "chat is not configured"}})
-            return
-        path = _chat_session_path(self.state.repo, session_id)
-        if path is None or not path.is_file():
-            self._send_json(404, {"ok": False, "error": {"code": 404, "message": "chat session not found"}})
-            return
-        form = self._read_form_body(max_bytes=64 * 1024)
-        if form is None:
-            return
-        message = (form.get("message") or [""])[0]
-        if not isinstance(message, str) or not message.strip():
-            self._send_json(400, {"ok": False, "error": {"code": 400, "message": "message is required"}})
-            return
-        # Append the user turn.
-        _append_jsonl(path, {"role": "user", "content": message, "created_at": _utc_now_iso()})
-        # RFC 0023 V1.5: tool-call loop. Up to MAX_TOOL_ITERATIONS
-        # rounds of (request → assistant text + tool calls → execute
-        # tools → re-request with results). Loop terminates when the
-        # model returns a stop without tool calls.
-        from striatum.web.chat_provider import stream_chat_response, ChatProviderError
-        from striatum.web.chat_tools import (
-            execute_tool, tool_schemas, wrap_tool_result,
-        )
-        tools = tool_schemas(allow_mutations=self.state.allow_mutations, flavor=config.flavor)
-        max_iterations = 10
-        try:
-            for iteration in range(max_iterations):
-                history = _read_chat_history(path, flavor=config.flavor)
-                # Pull the briefing system message out (Anthropic API
-                # uses a top-level `system` field; OpenAI accepts it
-                # as a system-role message).
-                system_text, conversational = _split_system(history)
-                tool_calls: list[dict[str, Any]] = []
-                assistant_text = ""
-                for event in stream_chat_response(
-                    config, conversational,
-                    tools=tools, system=system_text,
-                ):
-                    etype = event.get("type")
-                    if etype == "text":
-                        chunk = str(event.get("text") or "")
-                        if chunk:
-                            assistant_text += chunk
-                    elif etype == "tool_call":
-                        tool_calls.append(event)
-                    elif etype == "stop":
-                        break
-                # Persist assistant text (if any) before tool execution.
-                if assistant_text:
-                    _append_jsonl(
-                        path,
-                        {"role": "assistant", "content": assistant_text,
-                         "streaming": False, "created_at": _utc_now_iso()},
-                    )
-                if not tool_calls:
-                    break
-                # Persist + execute each tool call.
-                for call in tool_calls:
-                    tool_id = str(call.get("id") or "")
-                    tool_name = str(call.get("name") or "")
-                    tool_args = call.get("args") or {}
-                    if not isinstance(tool_args, dict):
-                        tool_args = {}
-                    _append_jsonl(
-                        path,
-                        {"role": "tool_use", "tool_use_id": tool_id,
-                         "tool_name": tool_name, "tool_input": tool_args,
-                         "created_at": _utc_now_iso()},
-                    )
-                    if tool_name == "generate_workflow_write":
-                        raw_result = _queue_workflow_write_confirmation(
-                            path=path,
-                            session_id=session_id,
-                            tool_id=tool_id,
-                            tool_args=tool_args,
-                            allow_mutations=self.state.allow_mutations,
-                            token_factory=lambda: secrets.token_urlsafe(24),
-                        )
-                        wrapped = wrap_tool_result(tool_name, tool_args, raw_result)
-                        _append_jsonl(
-                            path,
-                            {"role": "tool_result", "tool_use_id": tool_id,
-                             "tool_name": tool_name, "result": wrapped,
-                             "created_at": _utc_now_iso()},
-                        )
-                        continue
-                    raw_result = execute_tool(
-                        tool_name,
-                        tool_args,
-                        repo=self.state.repo,
-                        allow_mutations=self.state.allow_mutations,
-                    )
-                    wrapped = wrap_tool_result(tool_name, tool_args, raw_result)
-                    _append_jsonl(
-                        path,
-                        {"role": "tool_result", "tool_use_id": tool_id,
-                         "tool_name": tool_name, "result": wrapped,
-                         "created_at": _utc_now_iso()},
-                    )
-            else:
-                # Loop hit cap.
-                _append_jsonl(
-                    path,
-                    {"role": "system", "content":
-                        f"[loop cap] tool-call loop hit {max_iterations} iterations; halted.",
-                     "created_at": _utc_now_iso()},
-                )
-        except ChatProviderError as exc:
-            _append_jsonl(
-                path,
-                {"role": "system", "content": f"[chat error] {exc}",
-                 "created_at": _utc_now_iso()},
-            )
-            self._send_json(502, {"ok": False, "error": {"code": 502, "message": str(exc)}})
-            return
-        except Exception as exc:  # noqa: BLE001
-            _append_jsonl(
-                path,
-                {"role": "system", "content": f"[unexpected error] {type(exc).__name__}: {exc}",
-                 "created_at": _utc_now_iso()},
-            )
-            self._send_json(500, {"ok": False, "error": {"code": 500, "message": "chat send failed"}})
-            return
-        self.send_response(204)
-        self.send_header("Content-Length", "0")
-        self.end_headers()
+        _chat_routes.handle_chat_send(self._chat_route_context(), session_id)
 
     def _handle_chat_confirm_tool(self, session_id: str, tool_id: str) -> None:
-        if not _is_safe_id(session_id) or not _is_safe_id(tool_id):
-            self._send_json(400, {"ok": False, "error": {"code": 400, "message": "invalid chat confirmation id"}})
-            return
-        if not self.state.allow_mutations:
-            self._send_json(405, {"ok": False, "error": {"code": 405, "message": "mutations_disabled", "kind": "mutations_disabled"}})
-            return
-        path = _chat_session_path(self.state.repo, session_id)
-        if path is None or not path.is_file():
-            self._send_json(404, {"ok": False, "error": {"code": 404, "message": "chat session not found"}})
-            return
-        form = self._read_form_body(max_bytes=4096)
-        if form is None:
-            return
-        token = (form.get("token") or [""])[0]
-        action = (form.get("action") or ["confirm"])[0]
-        pending = _find_pending_tool_confirmation(path=path, tool_id=tool_id)
-        if pending is None:
-            self._send_json(404, {"ok": False, "error": {"code": 404, "message": "confirmation not found"}})
-            return
-        if str(pending.get("confirmation_token") or "") != token:
-            self._send_json(403, {"ok": False, "error": {"code": 403, "message": "confirmation token mismatch"}})
-            return
-        if action == "cancel":
-            _append_jsonl(
-                path,
-                {"role": "system", "content": "[mutation_canceled] operator canceled generate_workflow_write",
-                 "created_at": _utc_now_iso()},
-            )
-            _append_jsonl(path, {**pending, "state": "used", "used_at": _utc_now_iso(), "confirmation_token": "<used>"})
-            self._send_json(200, {"ok": False, "error": {"code": "mutation_canceled", "message": "operator canceled workflow write"}})
-            return
-        raw_tool_args = pending.get("tool_input")
-        tool_args: dict[str, Any] = dict(raw_tool_args) if isinstance(raw_tool_args, dict) else {}
-        from striatum.web.chat_tools import execute_tool, wrap_tool_result
-
-        raw_result = execute_tool(
-            "generate_workflow_write",
-            tool_args,
-            repo=self.state.repo,
-            allow_mutations=True,
-            operator_confirmed=True,
+        _chat_routes.handle_chat_confirm_tool(
+            self._chat_route_context(),
+            session_id,
+            tool_id,
         )
-        _append_jsonl(path, {**pending, "state": "used", "used_at": _utc_now_iso(), "confirmation_token": "<used>"})
-        _append_jsonl(
-            path,
-            {"role": "tool_result", "tool_use_id": tool_id,
-             "tool_name": "generate_workflow_write",
-             "result": wrap_tool_result("generate_workflow_write", tool_args, raw_result),
-             "created_at": _utc_now_iso()},
-        )
-        if raw_result.startswith("[error]"):
-            self._send_json(400, {"ok": False, "error": {"code": 400, "message": raw_result}})
-            return
-        self._send_json(200, json.loads(raw_result))
 
     def _handle_chat_stop(self, session_id: str) -> None:
-        if not _is_safe_id(session_id):
-            self._send_json(400, {"ok": False, "error": {"code": 400, "message": "invalid chat session id"}})
-            return
-        if not self.state.allow_mutations:
-            self._send_json(405, {"ok": False, "error": {"code": 405, "message": "chat stop requires --allow-mutations"}})
-            return
-        # V1: stopping is a no-op since each request is independent.
-        # The transcript JSONL persists; cleanup is via `striatum chat purge`
-        # (V1.5).
-        self.send_response(303)
-        self.send_header("Location", "/chat")
-        self.send_header("Content-Length", "0")
-        self.end_headers()
+        _chat_routes.handle_chat_stop(self._chat_route_context(), session_id)
 
     def _stream_chat_events(self, session_id: str) -> None:
-        if not _is_safe_id(session_id):
-            self._send_json(400, {"ok": False, "error": {"code": 400, "message": "invalid chat session id"}})
-            return
-        path = _chat_session_path(self.state.repo, session_id)
-        if path is None:
-            self._send_json(404, {"ok": False, "error": {"code": 404, "message": "chat session not found"}})
-            return
-        # SSE stream that tails the JSONL file. Send the tail of the
-        # current state, then poll for new lines.
-        self.send_response(200)
-        self.send_header("Content-Type", "text/event-stream")
-        self.send_header("Cache-Control", "no-cache")
-        self.send_header("Connection", "keep-alive")
-        self.send_header(
-            "Content-Security-Policy",
-            "default-src 'self'; script-src 'self'; style-src 'self'; "
-            "img-src 'self' data:; connect-src 'self'",
-        )
-        self.end_headers()
-        last_offset = 0
-        deadline = time.monotonic() + 600.0  # 10 min cap
-        try:
-            while time.monotonic() < deadline:
-                if path.is_file():
-                    size = path.stat().st_size
-                    if size > last_offset:
-                        with path.open("rb") as fh:
-                            fh.seek(last_offset)
-                            chunk = fh.read()
-                        last_offset = size
-                        for raw_line in chunk.decode("utf-8", errors="replace").splitlines():
-                            if not raw_line.strip():
-                                continue
-                            self.wfile.write(b"data: ")
-                            self.wfile.write(raw_line.encode("utf-8"))
-                            self.wfile.write(b"\n\n")
-                            self.wfile.flush()
-                time.sleep(SSE_POLL_INTERVAL_SECONDS)
-        except (BrokenPipeError, ConnectionResetError):
-            return
+        _chat_routes.stream_chat_events(self._chat_route_context(), session_id)
 
     def _render_view_path(self, subpath: str) -> None:
         from striatum.web.view_file import ViewFileError, view_file_payload
@@ -1870,6 +1575,15 @@ class StriatumServiceHandler(BaseHTTPRequestHandler):
             poll_interval_seconds=SSE_POLL_INTERVAL_SECONDS,
             call_method=service_daemon.call_repo_method,
         )
+
+    def _write_sse_event(
+        self,
+        event: str,
+        event_id: int,
+        payload: JsonObject,
+    ) -> None:
+        self.wfile.write(_encode_sse_event(event, int(event_id), payload))
+        self.wfile.flush()
 
     # --- request helpers ----------------------------------------------
 

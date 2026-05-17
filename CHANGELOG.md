@@ -102,6 +102,10 @@ Recent checkpoints:
 - Workflow browser index/detail page DTO shaping moved from `service.py` into
   `striatum.web.workflows`, keeping the handler responsible only for template
   rendering and HTTP error mapping.
+- Chat index/session rendering, chat creation, provider send/tool loop,
+  workflow-write confirmation, stop redirects, and transcript SSE tailing
+  moved from `service.py` into `striatum.web.chat_routes`; service-private
+  briefing and git-helper aliases remain stable.
 - Workflow validation now rejects `needs_revision` cycles whose `from`/`to`
   jobs cross phase boundaries, closing the RFC 0045 V1.5 cycle phase-jump
   validator gap.
