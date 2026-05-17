@@ -108,8 +108,107 @@ def test_workflow_lint_cli_returns_structured_warnings(
     assert payload["warning_count"] >= 5
 
 
+def test_workflow_lint_strict_refuses_warnings_without_override(
+    tmp_path: Path, monkeypatch: Any
+) -> None:
+    monkeypatch.setenv("STRIATUM_TEST_HARNESS", "1")
+    monkeypatch.setenv("STRIATUM_DAEMON_REQUIRED", "0")
+    workflow_path = tmp_path / "workflow.json"
+    workflow_path.write_text(json.dumps(_risky_review_workflow()), encoding="utf-8")
+
+    result = invoke(
+        ["workflow", "lint", str(workflow_path), "--strict", "--json"],
+        repo=tmp_path,
+    )
+
+    assert result["ok"] is False
+    error = result["error"]
+    assert error["code"] == 8
+    details = error["details"]
+    assert details["strict"]["mode"] == "refused"
+    assert details["strict"]["reason"] == "warnings_require_override_rationale"
+    assert details["warning_count"] >= 5
+
+
+def test_workflow_lint_strict_accepts_explicit_override(
+    tmp_path: Path, monkeypatch: Any
+) -> None:
+    monkeypatch.setenv("STRIATUM_TEST_HARNESS", "1")
+    monkeypatch.setenv("STRIATUM_DAEMON_REQUIRED", "0")
+    workflow_path = tmp_path / "workflow.json"
+    workflow_path.write_text(json.dumps(_risky_review_workflow()), encoding="utf-8")
+
+    result = invoke(
+        [
+            "workflow",
+            "lint",
+            str(workflow_path),
+            "--strict",
+            "--override-rationale",
+            "accepted for fixture coverage",
+            "--json",
+        ],
+        repo=tmp_path,
+    )
+
+    assert result["ok"] is True
+    payload = result["data"]
+    assert payload["strict"] == {
+        "mode": "overridden",
+        "warning_count": payload["warning_count"],
+        "override_rationale": "accepted for fixture coverage",
+    }
+
+
+def test_workflow_lint_override_rationale_requires_strict(
+    tmp_path: Path, monkeypatch: Any
+) -> None:
+    monkeypatch.setenv("STRIATUM_TEST_HARNESS", "1")
+    monkeypatch.setenv("STRIATUM_DAEMON_REQUIRED", "0")
+    workflow_path = tmp_path / "workflow.json"
+    workflow_path.write_text(json.dumps(_risky_review_workflow()), encoding="utf-8")
+
+    result = invoke(
+        [
+            "workflow",
+            "lint",
+            str(workflow_path),
+            "--override-rationale",
+            "not attached to strict mode",
+        ],
+        repo=tmp_path,
+    )
+
+    assert result["ok"] is False
+    assert result["error"]["code"] == 2
+    assert "--strict" in result["error"]["message"]
+
+
 def test_lint_workflow_reports_structural_errors_without_raising() -> None:
     payload = lint_workflow({"schema_version": "striatum.workflow.v1"})
 
     assert payload["valid"] is False
     assert "missing required fields" in payload["errors"][0]["message"]
+
+
+def test_workflow_lint_strict_refuses_invalid_workflow(
+    tmp_path: Path, monkeypatch: Any
+) -> None:
+    monkeypatch.setenv("STRIATUM_TEST_HARNESS", "1")
+    monkeypatch.setenv("STRIATUM_DAEMON_REQUIRED", "0")
+    workflow_path = tmp_path / "workflow.json"
+    workflow_path.write_text(
+        json.dumps({"schema_version": "striatum.workflow.v1"}),
+        encoding="utf-8",
+    )
+
+    result = invoke(["workflow", "lint", str(workflow_path), "--strict"], repo=tmp_path)
+
+    assert result["ok"] is False
+    assert result["error"]["code"] == 8
+    details = result["error"]["details"]
+    assert details["valid"] is False
+    assert details["strict"] == {
+        "mode": "refused",
+        "reason": "invalid_workflow",
+    }

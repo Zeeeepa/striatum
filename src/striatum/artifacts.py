@@ -38,6 +38,7 @@ ALLOWED_ARTIFACT_KINDS: frozenset[str] = frozenset({
     "prompt", "finding", "findings_ledger", "synthesis", "marker",
     "handoff", "decision", "patch_summary", "test_report", "other",
     "support_ledger", "action_item_ledger", "harness_improvement_proposal",
+    "escalation",
 })
 
 
@@ -75,6 +76,14 @@ class FrontMatterSchema:
 
 def _is_str(value: object) -> str | None:
     return None if isinstance(value, str) else "must be a string"
+
+
+def _is_non_empty_str(value: object) -> str | None:
+    if not isinstance(value, str):
+        return "must be a non-empty string"
+    if value.strip() == "":
+        return "must be a non-empty string"
+    return None
 
 
 def _is_bool(value: object) -> str | None:
@@ -134,6 +143,16 @@ _HARNESS_PROPOSAL_TARGETS: tuple[str, ...] = (
     "spec",
     "defaults",
     "documentation",
+)
+_BLOCKER_SEVERITIES: tuple[str, ...] = ("blocked", "human_checkpoint")
+_ESCALATION_BLOCKER_KINDS: tuple[str, ...] = (
+    "ambiguous_goal",
+    "missing_authority",
+    "contradicting_decisions",
+    "no_available_reviewer_lane",
+    "committee_stalemate",
+    "override_required",
+    "ai_self_declared",
 )
 
 
@@ -228,6 +247,29 @@ FRONT_MATTER_SCHEMAS: dict[str, FrontMatterSchema] = {
             FrontMatterField("expected_benefit", True, _is_str),
             FrontMatterField("risk", False, _is_str),
             FrontMatterField("rollback", False, _is_str),
+        ),
+    ),
+    "escalation": FrontMatterSchema(
+        schema_version="striatum.escalation.v1",
+        artifact_kind="escalation",
+        fields=(
+            FrontMatterField("schema_version", True, _equals("striatum.escalation.v1")),
+            FrontMatterField("artifact_kind", True, _equals("escalation")),
+            FrontMatterField("escalation_id", True, _is_non_empty_str),
+            FrontMatterField("run_id", True, _is_non_empty_str),
+            FrontMatterField("job_id", False, _is_non_empty_str),
+            FrontMatterField("session_id", False, _is_non_empty_str),
+            FrontMatterField("severity", True, _one_of("severity", _BLOCKER_SEVERITIES)),
+            FrontMatterField(
+                "blocker_kind",
+                True,
+                _one_of("blocker_kind", _ESCALATION_BLOCKER_KINDS),
+            ),
+            FrontMatterField("description", True, _is_non_empty_str),
+            FrontMatterField("reasoning", True, _is_non_empty_str),
+            FrontMatterField("requested_action", True, _is_non_empty_str),
+            FrontMatterField("related_artifacts", False, _is_str_list),
+            FrontMatterField("created_at", True, _is_non_empty_str),
         ),
     ),
 }
@@ -358,9 +400,10 @@ def ensure_required_front_matter(
 
     Other schema-bearing kinds (``finding``, ``decision``,
     ``findings_ledger``, ``support_ledger``, ``action_item_ledger``,
-    ``harness_improvement_proposal``) carry semantic required fields
-    (``verdict_intent``, ``outcome``, ``audited_artifact``, etc.) that
-    the publisher cannot invent. For backward compatibility with
+    ``harness_improvement_proposal``, ``escalation``) carry semantic
+    required fields (``verdict_intent``, ``outcome``,
+    ``audited_artifact``, ``reasoning``, etc.) that the publisher cannot
+    invent. For backward compatibility with
     artifacts authored before V1 front matter became conventional, the
     publisher continues to silently accept those kinds when front
     matter is absent; downstream renderers record ``actual_author_line``

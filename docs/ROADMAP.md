@@ -359,11 +359,12 @@ derive from daemon method capabilities.
 - CLI routing supports `striatum escalation list/show/resolve`.
 - `striatum inbox --json` now runs as documented for the principal inbox,
   while `inbox --session-id` remains the session-packet helper.
+- The `escalation` artifact kind and `striatum.escalation.v1` front matter
+  schema landed, with workflow validation and publish-artifact coverage.
 
-**Remaining Phase 5 debt:** add the `escalation` artifact kind/front matter,
-link escalation artifacts to records, consider a dedicated escalation table or
-stricter blocker payload schema, and decide whether to rename the packet helper
-to `packet inbox`.
+**Remaining Phase 5 debt:** link escalation artifacts to records, consider a
+dedicated escalation table or stricter blocker payload schema, and decide
+whether to rename the packet helper to `packet inbox`.
 
 ---
 
@@ -397,10 +398,12 @@ lane-liveness attestation, wrapper fixtures, and helper-only CI.
   per-job worktree isolation, and review workflows with no revision or
   human-checkpoint escalation path.
 - The local service read-command whitelist includes `workflow lint`.
+- Opt-in strict mode landed: `workflow lint --strict` refuses warnings unless
+  the operator supplies a non-empty `--override-rationale`, and JSON/API
+  refusals include the lint payload under `error.details`.
 
-**Remaining Phase 7 debt:** refuse-by-default mode with explicit override
-rationale, generator/web surfacing, broader coverage scoring, and audit linkage
-for accepted lint risks.
+**Remaining Phase 7 debt:** generator/web surfacing, broader coverage scoring,
+and audit linkage for accepted lint risks.
 
 ---
 
@@ -442,11 +445,12 @@ operator-on-behalf publishes when valid artifacts already exist.
   `devDependencies`, with the lockfile updated.
 - Focused packaging tests pin the clean-build Makefile contract, build-only
   dependency placement, and bundle-size checker behavior.
+- The package wheel now has a size gate aligned with the UI bundle gate.
 
-**Remaining Phase 9 debt:** decide whether the current many-chunk Rollup output
-needs manual chunking, add a separate wheel-size budget if bundle-size is not
-sufficient, and keep package-data/manifest loading aligned if Vite manifest
-output is introduced later.
+**Remaining Phase 9 debt:** none currently actionable. Manual chunking is
+monitor-only until bundle evidence shows the current Rollup output is a
+problem; keep package-data/manifest loading aligned if Vite manifest output is
+introduced later.
 
 ---
 
@@ -517,12 +521,12 @@ still open.
 
 ### 5.5 RFC 0049 (experimental) — Interactive claude lane via MCP — **SHELVED**
 
-Decision recorded in v1.55.0 session memory
-[[project-v1-55-session-close-2026-05-15]]: shelved. v1.48.1's wrapper
-auth fix bought time; RFC 0049 is now a *capability* RFC, not a
-*blocker*. Reopen if subscription-quota economics shift or Anthropic
-plan-credit terms change materially. (~100× token-per-dollar
-improvement potential on Max 20x remains attractive but not urgent.)
+Decision D106 records the durable shelf decision. v1.48.1's wrapper auth fix
+bought time; RFC 0049 is now a *capability* RFC, not a *blocker*. Reopen if
+subscription-quota economics shift, Anthropic plan-credit terms change
+materially, or an operator explicitly funds the PTY/MCP spike. (~100×
+token-per-dollar improvement potential on Max 20x remains attractive but not
+urgent.)
 
 ### 5.6 RFC 0047 — Decision-record propagation
 
@@ -689,19 +693,19 @@ Release order after Phase 0:
    human principal.
 6. **TODO 54 / Phase 6:** harden process supervision with PTY support,
    wrapper control acks, and reattach/lost-state handling.
-7. **TODO 55 / Phase 7:** add workflow risk lint and same-model review
-   enforcement.
+7. **TODO 55 / Phase 7:** workflow risk lint and opt-in strict enforcement
+   landed; remaining generator/web/audit surfacing is tracked in §4.11.
 8. **TODO 56 / Phase 8:** auto-finalize daemon method landed; remaining
    sweep/dashboard/web/dogfood work is tracked in §4.12.
-9. **TODO 57 / Phase 9:** clean-build and bundle-size gate landed;
-   remaining chunking/wheel-size follow-up is tracked in §4.13.
+9. **TODO 57 / Phase 9:** clean-build, bundle-size, and wheel-size gates
+   landed; chunking is monitor-only and tracked in §4.13.
 10. **TODO 58 / Phase 10:** day-zero Postgres/daemon setup slice
     landed: role/grant repair, service helpers, guided adoption,
     first-run smoke, and a dev-only compose profile.
-11. **TODO 59 / Phase 11:** add replay, archive, and Corpus Contract V2
-    foundations.
-12. **TODO 60 / Phase 12:** add optional Git/PR integration without
-    autonomous commits.
+11. **TODO 59 / Phase 11:** add replay/archive foundations; Corpus Contract
+    V2 fields wait on RFC 0057 decisions.
+12. **TODO 60 / Phase 12:** optional Git/PR integration waits on a product
+    decision for commit authority and hosted-provider boundaries.
 
 **Blocked on:** Phase 1 depends on the Phase 0 matrix staying current.
 Phases 4-12 should not displace Phase 1/2 unless a security bug forces an
@@ -731,7 +735,9 @@ dogfood. Order them by impact, not by RFC number.
 | Item | Blocker | Unblock criterion |
 |---|---|---|
 | 5.2 (RFC 0039 Phase 2) | Was: RFC 0043 V1. | **Now unblocked.** |
-| RFC 0049 spike | Anthropic billing semantics for interactive PTY sessions on Max 20x | Spike + measurement. |
+| RFC 0049 spike | Shelved by D106; depends on external billing semantics and PTY/MCP stability | Explicit operator-funded spike + measurement. |
+| RFC 0057 Corpus V2 | Product contract decisions for multi-corpus identity, redaction tier, watermarks, and injection policy | Accepted RFC 0057 design. |
+| Phase 12 Git/PR integration | Product decision for commit authority and hosted-provider boundaries | Accepted RFC/decision before commit apply or hosted PR work. |
 | RFC 0048 Phase A | Operator capacity (multi-week) | None — schedulable. |
 | Item 32 (Engram-side RFC 0044 Phase 1) | External repo (`~/git/engram/`) | Engram-side work; **not Striatum's TODO**. |
 | Item F1 (historical bootstrap fixture) | No active operator demand | Tmux harness retirement; cleanup task. |

@@ -22,7 +22,7 @@ so external references keep resolving even as items move between sections.
 | 3 | Workflow authoring tooling | ✅ done |
 | 4 | Human-checkpoint UX | ✅ done |
 | 5 | Decision-artifact support | ✅ done |
-| 6 | Artifact schema (front matter) | ✅ 7 kinds + open registry |
+| 6 | Artifact schema (front matter) | ✅ 8 kinds + open registry |
 | 7 | Redaction tests | 🟡 coverage continues |
 | 8 | Recovery commands | ✅ done |
 | 9 | TUI / local dashboard | ✅ done |
@@ -88,11 +88,11 @@ so external references keep resolving even as items move between sections.
 | F51 | v1.48.1 wrapper auth fix — closes 10+ instance claude/gemini no-publish stall (validated by gh-16) | ✅ done |
 | F52 | v1.48.2 CI green — Python typecheck + Go matrix pin (6 days of red closed) | ✅ done |
 | F53 | `docs/issues/<N>/` GH-issue-driven workflow type (gh-16 first instance, accept verdict) | ✅ done |
-| 33 | RFC 0042 V1 run-list workflow identity | 🟡 run-list identity landed; graph viewer remains |
-| 34 | RFC 0046 V1 lane evidence guard at publish-artifact | 🟡 partially active via operator override path |
+| 33 | RFC 0042 V1 run-list workflow identity | ✅ done |
+| 34 | RFC 0046 V1 lane evidence guard at publish-artifact | ✅ done |
 | 35 | RFC 0047 V1 decision-record propagation + `compromised` run state | ✅ done |
 | 36 | RFC 0048 daemon-side substrate migration (Phases A+B+C + V1.5 hardening + migration 0006) | ✅ done (v1.55.0) |
-| 37 | RFC 0049 interactive claude lane via MCP (experimental, decision needed) | ⏳ open |
+| 37 | RFC 0049 interactive claude lane via MCP (experimental) | 💤 shelved |
 | 38 | RFC 0050 follow-ups — GH #9-13 V2 surface findings | ✅ done |
 | 39 | RFC 0051 V1 auto-finalize from frontmatter (downgraded urgency post-v1.48.1) | 🟡 daemon method slice landed |
 | 40 | GH #14 — recovery cannot clear terminal-run `process_exit_nonzero` blocker | ✅ done |
@@ -103,16 +103,16 @@ so external references keep resolving even as items move between sections.
 | 50 | RFC 0060 Architecture remediation Phase 2 — single daemon method contract source | 🟡 contract source + Python/Go registry generation landed |
 | 51 | Architecture remediation Phase 3 — daemon core strategy decision | ✅ done |
 | 52 | RFC 0061 Architecture remediation Phase 4 — daemon-first web service | 🟡 mutation POST slice landed |
-| 53 | RFC 0062 Architecture remediation Phase 5 — real escalation inbox | 🟡 projection + principal inbox slice landed |
+| 53 | RFC 0062 Architecture remediation Phase 5 — real escalation inbox | 🟡 projection + escalation artifact schema landed |
 | 54 | RFC 0063 Architecture remediation Phase 6 — hardened PTY supervision | 🟡 control-event ack slice landed |
-| 55 | RFC 0064 Architecture remediation Phase 7 — workflow risk lint and review diversity enforcement | 🟡 workflow lint warning slice landed |
+| 55 | RFC 0064 Architecture remediation Phase 7 — workflow risk lint and review diversity enforcement | 🟡 strict lint override slice landed |
 | 56 | Architecture remediation Phase 8 — auto-finalize from front matter | 🟡 daemon recovery slice landed |
-| 57 | RFC 0065 Architecture remediation Phase 9 — UI packaging and bundle cleanup | 🟡 build clean + bundle/wheel size gates landed |
+| 57 | RFC 0065 Architecture remediation Phase 9 — UI packaging and bundle cleanup | ✅ done; chunking monitor only |
 | 58 | RFC 0059 Architecture remediation Phase 10 — day-zero setup improvements | ✅ done |
 | 59 | RFC 0059 RFC 0066 Architecture remediation Phase 11 — replay, archive, and corpus v2 foundations | 🟡 corpus verify foundation landed |
-| 60 | RFC 0059 RFC 0067 Architecture remediation Phase 12 — optional Git/PR integration | ⏳ open |
+| 60 | RFC 0059 RFC 0067 Architecture remediation Phase 12 — optional Git/PR integration | ⏳ blocked on product decision |
 
-Legend: ✅ done · 🟡 most done (sub-tasks remain) · ⏳ open
+Legend: ✅ done · 🟡 most done (sub-tasks remain) · ⏳ open/blocked · 💤 shelved
 
 ## Completed
 
@@ -260,13 +260,14 @@ Legend: ✅ done · 🟡 most done (sub-tasks remain) · ⏳ open
    `enforced` (filesystem isolation, network namespacing).
 
 6. **Artifact schema support.** Optional Markdown `author:` metadata is
-   machine-validated; per-kind front-matter schemas exist for seven kinds:
+   machine-validated; per-kind front-matter schemas exist for eight kinds:
    `decision` (`striatum.decision.v1`), `finding` (`striatum.finding.v1`),
    `findings_ledger` (`striatum.findings_ledger.v1`), `synthesis`
    (`striatum.synthesis.v1`), `support_ledger` (`striatum.support_ledger.v1`,
    RFC 0003), `action_item_ledger` (`striatum.action_item_ledger.v1`, RFC
-   0004), and `harness_improvement_proposal`
-   (`striatum.harness_improvement_proposal.v1`, RFC 0005). Migration version
+   0004), `harness_improvement_proposal`
+   (`striatum.harness_improvement_proposal.v1`, RFC 0005), and
+   `escalation` (`striatum.escalation.v1`, RFC 0053). Migration version
    5 dropped the SQL `CHECK` on `artifact_kind`; allowed kinds now live in
    `striatum.artifacts.ALLOWED_ARTIFACT_KINDS` and are enforced by both
    `publish-artifact` (exit 6) and workflow validation (exit 8). The
@@ -669,21 +670,24 @@ Items 33-39 cover RFCs proposed after RFC 0045 (item 27 boundary).
 Sequencing and acceptance criteria live in `docs/ROADMAP.md`; this
 section is the canonical status snapshot.
 
-33. **RFC 0042 V1 (run-list workflow identity).** Partial slice landed:
+33. ~~**RFC 0042 V1 (run-list workflow identity).**~~ Done:
     `striatum list runs` and daemon `list.runs` return a
     `workflow_identity` triple (`workflow_id`, `workflow_version`,
     `workflow_snapshot_id`), and the web run list renders the workflow
     name with local workflow and default-branch GitHub affordances when
-    available. Remaining: RFC 0042 graph viewer pan/zoom/fit controls,
-    graph label legibility, keyboard controls, and docs for those
-    graph-specific interactions.
+    available. The run detail graph viewer now has pan, zoom in/out,
+    fit, reset, and keyboard navigation controls, with focused web
+    regression coverage.
 
-34. **RFC 0046 V1 (lane evidence guard at publish-artifact).** Closes
+34. ~~**RFC 0046 V1 (lane evidence guard at publish-artifact).**~~ Closes
     GH #2 + #5. V1.7 scope. Already exercised informally in
     dogfoods-054b/055b/056 (operator-on-behalf publishes use
-    `--allow-no-process-execution --override-rationale`); the V1
-    runtime check at `publish-artifact` is what still needs to land
-    formally. Status: proposed, partially active in operator practice.
+    `--allow-no-process-execution --override-rationale`). Done:
+    daemon/Postgres publish validates model-bylined artifacts against
+    path-specific supervisor `artifact_observed` evidence when present,
+    keeps the clean `process_executions` fallback for legacy wrappers,
+    stores `attestation_override_rationale` on artifacts via PG
+    migration 0008, and records override provenance events.
 
 35. ~~**RFC 0047 V1 (decision-record propagation +
     `compromised` run state).**~~ Done: SQLite and daemon/Postgres
@@ -712,13 +716,15 @@ section is the canonical status snapshot.
     for ported verbs. Closes gemini A1 from dogfood-050 + codex F2
     from dogfood-049. ROADMAP §5.3.
 
-37. **RFC 0049 (interactive claude lane via MCP).** Experimental,
-    spike required. Motivated by Anthropic's 2026-06-15 plan-credit
+37. **RFC 0049 (interactive claude lane via MCP).** Shelved capability
+    RFC. Motivated by Anthropic's 2026-06-15 plan-credit
     policy (`claude -p` moves off subscription quota onto separate
     $20-$200/month credit). On Max 20x the subscription is ~100×
     token-per-dollar improvement. **v1.48.1's wrapper auth fix relieved
     the urgency** — RFC 0049 is now a capability RFC rather than a
-    blocker. Decision needed: spike or shelve? ROADMAP §5.5.
+    blocker. D106 records the durable shelf decision. Reopen only if
+    billing terms change materially or an operator explicitly funds the
+    PTY/MCP spike. ROADMAP §5.5.
 
 38. **RFC 0050 (operator UI rework and provenance honesty).** All
     three phases landed:
@@ -777,8 +783,10 @@ section is the canonical status snapshot.
     in DECISION_LOG. **Deferred follow-ups**: workflow.json
     schema-field rename (`human_checkpoint` → `escalation_checkpoint`),
     `waiting_human` run state rename, CLI prompt-string sweep, and
-    `escalation` artifact-kind schema + artifact linkage. The first
-    daemon RPC projection methods landed under remediation item 53.
+    escalation artifact linkage. The `escalation` artifact kind and
+    `striatum.escalation.v1` front matter schema landed with focused
+    publish/workflow validation; the first daemon RPC projection
+    methods landed under remediation item 53.
     ROADMAP §5.8.
 
 45. ~~**RFC 0054 V0 (day-zero usage guide).**~~ Phase A shipped
@@ -862,10 +870,12 @@ review and plan are root-level operator artifacts:
     project explicit escalations over `striatumd.blockers`; the daemon
     contract and Go registry include the methods; CLI routing supports
     `striatum escalation ...`; and `striatum inbox --json` now shows the
-    principal escalation inbox without requiring a session id. Remaining:
-    dedicated `escalation` artifact kind/schema, artifact linkage, typed
-    escalation table or stricter blocker payload schema, and eventual
-    packet-helper rename (`packet inbox`) if needed.
+    principal escalation inbox without requiring a session id. Follow-up
+    slice landed the `escalation` artifact kind and
+    `striatum.escalation.v1` front matter schema. Remaining: artifact
+    linkage to escalation records, typed escalation table or stricter
+    blocker payload schema, and eventual packet-helper rename
+    (`packet inbox`) if needed.
 
 54. **Phase 6: hardened PTY supervision / Go helper.** Add daemon-owned
     PTY supervision through a narrow helper protocol, with Python retaining
@@ -880,14 +890,16 @@ review and plan are root-level operator artifacts:
     moves into the Go helper without a new decision.
 
 55. **Phase 7: workflow risk lint and review diversity enforcement.**
-    First slice landed: `workflow lint <workflow.json> --json` returns
-    structured advisory warnings for same-model review pairs/revision
-    cycles, review jobs without fresh context, broad repo-write scopes,
-    repo-write jobs without per-job worktree isolation, and review
-    workflows missing a revision/escalation path. Remaining:
-    refuse-by-default option with explicit override rationale,
-    generator/web surfacing, broader coverage scoring, and audit linkage
-    for accepted risks.
+    `workflow lint <workflow.json> --json` returns structured advisory
+    warnings for same-model review pairs/revision cycles, review jobs
+    without fresh context, broad repo-write scopes, repo-write jobs
+    without per-job worktree isolation, and review workflows missing a
+    revision/escalation path. Follow-up slice landed opt-in
+    `workflow lint --strict`, which refuses warnings unless the operator
+    supplies a non-empty `--override-rationale` and includes the refused
+    lint payload in JSON/API error details. Remaining: generator/web
+    surfacing, broader coverage scoring, and audit linkage for accepted
+    risks.
 
 56. **Phase 8: auto-finalize from front matter.** Partial daemon slice
     landed: `recovery.auto_finalize` dry-run/live PG handler, CLI route,
@@ -900,13 +912,13 @@ review and plan are root-level operator artifacts:
     and web, decide global/default policy after dogfood confidence, and
     cover dogfood-level acceptance.
 
-57. **Phase 9: UI packaging and bundle cleanup.** Partial slice landed:
+57. ~~**Phase 9: UI packaging and bundle cleanup.**~~ Done:
     `ui-build` depends on `ui-clean`, `ui-check-bundle` also runs a
     bundle-size gate, `@vitejs/plugin-react` moved to `devDependencies`,
     the package wheel has a size gate aligned with the UI bundle gate,
-    and packaging tests pin those contracts. Remaining: decide whether
-    the current many-chunk Rollup output needs manual chunking and keep
-    package-data rules aligned with any future manifest output.
+    and packaging tests pin those contracts. Manual chunking is now a
+    monitor-only performance decision: no code slice remains until bundle
+    evidence shows the current Rollup output is a problem.
 
 58. ~~**Phase 10: day-zero setup improvements.**~~ Done:
     `daemon doctor --provision-rw-role` / `--repair-grants` can repair
@@ -925,12 +937,15 @@ review and plan are root-level operator artifacts:
     deterministic RFC 0044 V1 bundles without daemon state, hosted
     services, or external memory dependencies, and treats missing
     `corpus_contract_version` as implied V1 per RFC 0057 backward
-    compatibility. Remaining: first-class run archives, archive replay
-    verification, and Corpus Contract V2 fields after RFC 0057 decisions.
+    compatibility. Remaining locally implementable work is first-class
+    run archives and archive replay verification. Corpus Contract V2
+    fields remain blocked on RFC 0057 decisions.
 
-60. **Phase 12: optional Git/PR integration.** Add read-only git
-    snapshot methods, commit request artifacts, explicit confirmed commit
-    apply, and optional hosted integrations as plugins only.
+60. **Phase 12: optional Git/PR integration.** Blocked on a product
+    decision for commit authority and hosted-provider boundaries. The
+    likely future shape is read-only git snapshot methods first, commit
+    request artifacts second, explicit confirmed commit apply only after
+    a decision, and optional hosted integrations as plugins only.
 
 ## GH issue follow-ups (not yet bound to a workflow)
 

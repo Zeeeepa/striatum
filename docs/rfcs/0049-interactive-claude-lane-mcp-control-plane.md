@@ -1,10 +1,16 @@
 # RFC 0049 — Interactive claude lane via MCP control plane
 
-**Status:** proposed (experimental — needs spike before commitment)
+**Status:** shelved (D106; experimental spike required before commitment)
 **Scope:** V1.8 or V2.0 depending on Claude Code interactive-headless stability
 **Closes (partially):** the economic skew between Max-plan subscription quota and the Agent SDK monthly credit
 
 ## Background
+
+**2026-05-17 update:** D106 shelves this RFC as an inactive capability
+experiment. The billing economics may still justify a future spike, but the
+v1.48.1 wrapper-auth fix removed the urgent no-publish blocker and the
+remaining PTY/MCP/billing assumptions are not locally implementable without
+operator-funded measurement.
 
 Today the claude lane wrapper (`/.striatum/bin/claude-supervised-wrapper.sh`)
 spawns one `claude --print` process per work packet. The choice was made

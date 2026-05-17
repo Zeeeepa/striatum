@@ -1,6 +1,6 @@
 # RFC 0046 — Lane evidence guard at publish-artifact
 
-**Status:** proposed
+**Status:** accepted / landed
 **Scope:** V1.7 (single-version)
 **Closes:** GH #2, GH #5
 
@@ -23,8 +23,7 @@ lives at the publish-artifact layer, not the byline layer.
 ## Goals
 
 - At publish-artifact time, refuse to attest a model byline unless the
-  session has a matching `process_executions` row whose output covers
-  the declared `expected_artifacts[].path`.
+  session has daemon evidence for the declared artifact path.
 - Provide an explicit operator opt-out
   `--allow-no-process-execution` that records the override in the
   audit chain.
@@ -42,37 +41,31 @@ lives at the publish-artifact layer, not the byline layer.
 
 ### Trust boundary
 
-The supervised process's `process_executions` row is the authoritative
-evidence record. Schema (existing):
+Daemon evidence is the authoritative record. For current supervised
+wrappers, path-specific evidence is a `supervisor.artifact_observed`
+event whose payload includes the artifact repo-relative path. For
+legacy wrappers that have not yet emitted path observations, a clean
+`process_executions` row remains a compatibility fallback.
 
-```
-process_executions(
-  process_id, run_id, job_id, session_id,
-  command_json, started_at, ended_at, exit_code,
-  duration_seconds, stdout_path, stderr_path,
-  declared_output_paths_json, observed_output_paths_json,
-  state                          -- running | completed | lost | timed_out
-)
-```
+For each artifact published under a model byline:
 
-For each artifact published under a model byline, there must exist at
-least one `process_executions` row where:
-- `session_id` matches the publisher's session,
-- `state` is `completed` (not `lost` or `timed_out`),
-- `observed_output_paths_json` contains the artifact's repo-relative path.
+- If the session has any `supervisor.artifact_observed` events, at least
+  one observed path must normalize to the artifact's repo-relative path.
+- Otherwise, there must exist at least one `process_executions` row for
+  the session with `state='exited'` and `exit_code=0`.
 
 ### Refusal path
 
-`publish_artifact` in `src/striatum/artifacts.py`:
+`publish_artifact` in the daemon/Postgres workflow-loop handler:
 
 1. After existing scope + byline + schema validation, compute the
    `expected_author_line` for `(job, session)`.
 2. Parse the canonical byline: if it matches the operator template
    (`author: operator` or `author: operator [self-declared: ...]`),
    pass through. The trust gap doesn't apply.
-3. If the byline is a model byline (`<role>-<model>-<ord>`), look up
-   `process_executions` rows for the session and verify the artifact
-   path appears in at least one row's `observed_output_paths_json`.
+3. If the byline is a model byline (`<role>-<model>-<ord>`), check
+   path-specific supervisor observations first, then the legacy clean
+   process-execution fallback.
 4. If no match, raise `ArtifactError("lane_evidence_missing: artifact
    path <path> not present in any process_executions row for session
    <sid>; pass --allow-no-process-execution to override with an
@@ -92,15 +85,15 @@ least one `process_executions` row where:
 
 ### Schema migration
 
-Add to repo-local schema (next version after current `LATEST_VERSION`):
+Add to the daemon/Postgres schema:
 
 ```sql
-ALTER TABLE artifacts ADD COLUMN attestation_override_rationale TEXT;
+ALTER TABLE striatumd.artifacts
+  ADD COLUMN IF NOT EXISTS attestation_override_rationale text;
 ```
 
-Same on the Postgres daemon side. Existing artifacts continue to read
-the column as `NULL`; downstream consumers treat `NULL` as "no
-override".
+Migration 0008 carries this change. Existing artifacts continue to read
+the column as `NULL`; downstream consumers treat `NULL` as "no override".
 
 ### CLI surface
 
@@ -127,26 +120,30 @@ Per `CLAUDE_DESIGN_UI_REWORK_PROMPT.md`:
 
 ### Dashboard parity
 
-`striatum dashboard --once --run-id <id>` adds an `evidence` column
-to the per-job line:
-- `evid:ok` (process_executions match),
-- `evid:absent` (no row, no override — blocked from publish),
-- `evid:override` (override flag used).
+Deferred. The landed V1 guard records override evidence on the artifact
+row and provenance event; dashboard summarization can be added as a
+separate visibility slice if operators need it.
 
 ## Acceptance
 
-- `tests/test_lane_evidence_guard.py`:
-  - Session with a `process_executions` row covering the artifact
-    path → publish succeeds with model byline.
-  - Session without a `process_executions` row + model byline
+- `tests/daemon_pg/handlers/workflow_loop/test_publish_artifact.py`:
+  - Session with path-specific `supervisor.artifact_observed` evidence
+    → publish succeeds with model byline.
+  - Session with observations for other paths
+    → publish refuses with exit code 6 and the named error.
+  - Session without any artifact-observed events but with a clean legacy
+    `process_executions` row
+    → publish succeeds with model byline.
+  - Session without daemon evidence + model byline
     → publish refuses with exit code 6 and the named error.
   - `--allow-no-process-execution` without `--override-rationale`
     → refuses with exit code 2.
   - `--allow-no-process-execution --override-rationale "..."`
-    → publish succeeds, event recorded.
+    → publish succeeds, event and artifact rationale recorded.
   - Operator-byline (no model byline) → publish passes through
-    regardless of `process_executions`.
-- `make lint`, `make typecheck`, `make test -m "not multi_repo"` green.
+    regardless of daemon evidence.
+- `tests/daemon_pg/test_migration_0008_lane_evidence.py` pins the
+  migration version and column.
 
 ## Migration
 
@@ -156,8 +153,9 @@ Existing repos: add the `attestation_override_rationale` column with
 
 ## Rollout
 
-- v1.43.0: ship the schema migration + guard + override flag + tests.
-- Bump exit-code register: reuse exit code 6 (artifact error) for
+- Post-v1.55 backlog burndown: ship PG migration 0008 + guard + override
+  storage + tests.
+- Exit-code register unchanged: reuse exit code 6 (artifact error) for
   refusal; no new code.
 
 ## Open questions
@@ -168,4 +166,6 @@ Existing repos: add the `attestation_override_rationale` column with
    sourced through `identity.py`.
 2. For multi-process supervisor sessions (e.g. sub-agent dispatch in
    RFC 0027), do we require evidence from the parent process or any
-   process? Default V1.7: any matching process_executions row counts.
+   process? Default V1.7: any matching path-specific supervisor
+   observation counts; legacy process rows are used only when no
+   observations exist for the session.

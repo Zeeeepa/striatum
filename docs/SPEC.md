@@ -547,6 +547,13 @@ artifact kind, and content hash. Transcript artifacts are rejected by default.
 Markdown artifacts may include YAML front matter or title-block `author:`
 metadata; when they do, the line must exactly match the work packet's lowercase
 author line. The publisher still records artifacts rather than rewriting them.
+Model-bylined artifacts require lane evidence: if the daemon supervisor has
+reported `artifact_observed` events for the session, one must match the
+published repo-relative path; otherwise the legacy clean `process_executions`
+fallback applies for wrappers that have not yet reported path-specific
+observations. The operator-only `--allow-no-process-execution
+--override-rationale` path records both a provenance event and the artifact's
+`attestation_override_rationale`.
 
 `complete` and review `verdict` commands verify all required artifacts before
 terminal job transition.
@@ -632,6 +639,15 @@ V1 schemas:
   `artifact_kind: harness_improvement_proposal`, `target` (one of `prompt`,
   `workflow`, `spec`, `defaults`, `documentation`), and `expected_benefit`
   (string); optional `risk` and `rollback` (strings).
+- `striatum.escalation.v1` (kind `escalation`, RFC 0053): required
+  `schema_version`, `artifact_kind: escalation`, `escalation_id`, `run_id`,
+  `severity` (one of `blocked`, `human_checkpoint`), `blocker_kind` (one of
+  `ambiguous_goal`, `missing_authority`, `contradicting_decisions`,
+  `no_available_reviewer_lane`, `committee_stalemate`, `override_required`,
+  `ai_self_declared`), `description`, `reasoning`, `requested_action`, and
+  `created_at`; optional `job_id`, `session_id`, and `related_artifacts`
+  (list of strings). These artifacts are AI-authored escalation requests for
+  the human principal; they do not create a dedicated live-state table.
 
 Other artifact kinds (`prompt`, `marker`, `handoff`, `patch_summary`,
 `test_report`, `other`) remain unschemaed in V1 and pass through without a
@@ -833,13 +849,13 @@ that already grep `problems` keep working.
 ### Dashboard
 
 `striatum dashboard --run-id <id>` renders a compact, dependency-free terminal
-view over the same SQLite state that `status` and `why` expose. It refreshes
-every 2 seconds by default and shows run state and branch, job counts by
-state, verdict counts, open blockers (including human checkpoints), claimable
-work grouped by role/lane, deterministic next actions, and the most recent
-events. `--refresh <seconds>` changes cadence; `--once` renders a single frame
-to stdout and exits, which makes the dashboard useful in scripts and CI
-assertions that should not redraw a TUI.
+view over the same daemon-owned PostgreSQL state that `status` and `why`
+expose. It refreshes every 2 seconds by default and shows run state and branch,
+job counts by state, verdict counts, open blockers (including human
+checkpoints), claimable work grouped by role/lane, deterministic next actions,
+and the most recent events. `--refresh <seconds>` changes cadence; `--once`
+renders a single frame to stdout and exits, which makes the dashboard useful in
+scripts and CI assertions that should not redraw a TUI.
 
 When the terminal is at least 100 columns wide and 30 lines tall and the
 run's workflow has at least one edge, the dashboard appends a *graph
@@ -873,7 +889,7 @@ annotation when they differ), run timing (`created_at`, `started_at`,
 `completed_at`, and a wall-clock `duration`), job counts, verdicts grouped by
 review job with attempt counts, artifacts annotated with structured author
 bylines, blockers, and verification state. The renderer is deterministic so
-two runs with the same SQLite state produce the same Markdown.
+two runs with the same daemon state produce the same Markdown.
 
 ### Recovery
 

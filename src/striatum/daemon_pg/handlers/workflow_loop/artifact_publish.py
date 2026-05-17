@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any, cast
 
 from striatum.artifacts import (
@@ -109,9 +109,9 @@ def publish_artifact_inline(
             INSERT INTO striatumd.artifacts (
               repository_id, artifact_id, run_id, job_id, session_id, logical_name,
               artifact_kind, repo_path, content_sha256, size_bytes, publish_mode,
-              created_at, author_line
+              created_at, author_line, attestation_override_rationale
             )
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'create', %s, %s)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'create', %s, %s, %s)
             """,
             (
                 ctx.repository_id,
@@ -126,6 +126,7 @@ def publish_artifact_inline(
                 len(payload),
                 now,
                 actual_author_line,
+                stored_rationale,
             ),
         )
     ctx.append_event(
@@ -242,7 +243,9 @@ def _lane_evidence_present(
     session_id: str,
     path_text: str,
 ) -> bool:
-    del path_text
+    observed = _supervisor_artifact_observed(ctx, session_id=session_id, path_text=path_text)
+    if observed is not None:
+        return observed
     with ctx.cursor() as cur:
         cur.execute(
             """
@@ -257,6 +260,82 @@ def _lane_evidence_present(
             (ctx.repository_id, session_id),
         )
         return cur.fetchone() is not None
+
+
+def _supervisor_artifact_observed(
+    ctx: RepoHandlerContext,
+    *,
+    session_id: str,
+    path_text: str,
+) -> bool | None:
+    target_path = _normalize_evidence_path(path_text)
+    if target_path is None:
+        return False
+    with ctx.cursor() as cur:
+        cur.execute(
+            """
+            SELECT payload_json
+            FROM striatumd.events
+            WHERE repository_id = %s
+              AND actor_session_id = %s
+              AND event_type = 'supervisor.artifact_observed'
+            ORDER BY event_id
+            """,
+            (ctx.repository_id, session_id),
+        )
+        rows = cur.fetchall()
+    saw_observation = False
+    for row in rows:
+        for observed_path in _artifact_observed_paths(row["payload_json"]):
+            saw_observation = True
+            if _normalize_evidence_path(observed_path) == target_path:
+                return True
+    return False if saw_observation else None
+
+
+def _artifact_observed_paths(payload_json: Any) -> list[str]:
+    if not isinstance(payload_json, Mapping):
+        return []
+    candidates: list[str] = []
+    payloads: list[Mapping[str, Any]] = [payload_json]
+    inner = payload_json.get("payload")
+    if isinstance(inner, Mapping):
+        payloads.append(inner)
+    for payload in payloads:
+        for key in ("path", "repo_path", "artifact_path"):
+            value = payload.get(key)
+            if isinstance(value, str):
+                candidates.append(value)
+        for key in (
+            "paths",
+            "repo_paths",
+            "artifact_paths",
+            "observed_output_paths",
+            "observed_output_paths_json",
+        ):
+            value = payload.get(key)
+            if isinstance(value, list):
+                candidates.extend(item for item in value if isinstance(item, str))
+    return candidates
+
+
+def _normalize_evidence_path(value: object) -> str | None:
+    if not isinstance(value, str):
+        return None
+    text = value.strip().replace("\\", "/")
+    if not text:
+        return None
+    pure = PurePosixPath(text)
+    if pure.is_absolute():
+        return None
+    parts: list[str] = []
+    for part in pure.parts:
+        if part in ("", "."):
+            continue
+        if part == "..":
+            return None
+        parts.append(part)
+    return "/".join(parts) if parts else None
 
 
 def _is_operator_byline(byline: str) -> bool:

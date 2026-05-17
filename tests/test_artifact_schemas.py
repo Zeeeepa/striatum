@@ -699,6 +699,131 @@ def test_workflow_validation_accepts_three_new_kinds(tmp_path: Path) -> None:
     assert data(accepted)["valid"] is True
 
 
+def test_workflow_validation_accepts_escalation_kind(tmp_path: Path) -> None:
+    """validate_workflow accepts the RFC 0053 escalation artifact kind."""
+    init_repo(tmp_path)
+    workflow = _minimal_workflow_for_kind(
+        "escalation", path="docs/kind-test/ESCALATION.md"
+    )
+    accepted = run_cli(
+        tmp_path,
+        "workflow",
+        "validate",
+        str(_temp_workflow(tmp_path, workflow)),
+    )
+    assert accepted["returncode"] == 0
+    assert data(accepted)["valid"] is True
+
+
+def test_escalation_front_matter_validates_human_principal_request(
+    tmp_path: Path,
+) -> None:
+    """A well-formed striatum.escalation.v1 artifact publishes cleanly."""
+    author, job_id, lease_id, run_id = claim_author(tmp_path)
+    good = (
+        "---\n"
+        'schema_version: "striatum.escalation.v1"\n'
+        'artifact_kind: "escalation"\n'
+        'escalation_id: "esc_0001"\n'
+        f'run_id: "{run_id}"\n'
+        f'job_id: "{job_id}"\n'
+        f'session_id: "{author}"\n'
+        'severity: "blocked"\n'
+        'blocker_kind: "ai_self_declared"\n'
+        'description: "Need principal direction before changing scope."\n'
+        'reasoning: "Existing decisions do not cover the requested scope expansion."\n'
+        'requested_action: "Decide whether to expand the write scope."\n'
+        'related_artifacts: ["docs/reviews/rfc-ledger/DRAFT.md"]\n'
+        'created_at: "2026-05-17T00:00:00Z"\n'
+        "---\n"
+        "\n"
+        "Escalation body for the principal.\n"
+    )
+    write_artifact(tmp_path, f"{DRAFT_DIR}/ESCALATION.md", good)
+    accepted = publish(
+        tmp_path,
+        session_id=author,
+        job_id=job_id,
+        lease_id=lease_id,
+        kind="escalation",
+        logical_name="principal_escalation",
+        path=f"{DRAFT_DIR}/ESCALATION.md",
+    )
+    assert accepted["returncode"] == 0
+    assert data(accepted)["status"] == "published"
+
+
+def test_escalation_front_matter_rejects_unbounded_blocker_kind(
+    tmp_path: Path,
+) -> None:
+    """Escalation artifacts cannot invent new blocker classes ad hoc."""
+    author, job_id, lease_id, run_id = claim_author(tmp_path)
+    bad = (
+        "---\n"
+        'schema_version: "striatum.escalation.v1"\n'
+        'artifact_kind: "escalation"\n'
+        'escalation_id: "esc_0002"\n'
+        f'run_id: "{run_id}"\n'
+        'severity: "blocked"\n'
+        'blocker_kind: "network_is_weird"\n'
+        'description: "Need help."\n'
+        'reasoning: "The AI operator cannot pick a safe next action."\n'
+        'requested_action: "Choose the next action."\n'
+        'created_at: "2026-05-17T00:00:00Z"\n'
+        "---\n"
+    )
+    write_artifact(tmp_path, f"{DRAFT_DIR}/ESCALATION_BAD.md", bad)
+    rejected = publish(
+        tmp_path,
+        session_id=author,
+        job_id=job_id,
+        lease_id=lease_id,
+        kind="escalation",
+        logical_name="bad_principal_escalation",
+        path=f"{DRAFT_DIR}/ESCALATION_BAD.md",
+        check=False,
+    )
+    assert rejected["returncode"] == 6
+    error = rejected["error"]
+    assert isinstance(error, dict)
+    message = str(error.get("message", ""))
+    assert "blocker_kind" in message
+    assert "network_is_weird" in message
+
+
+def test_escalation_front_matter_requires_reasoning(tmp_path: Path) -> None:
+    """Escalation artifacts must explain why principal input is needed."""
+    author, job_id, lease_id, run_id = claim_author(tmp_path)
+    bad = (
+        "---\n"
+        'schema_version: "striatum.escalation.v1"\n'
+        'artifact_kind: "escalation"\n'
+        'escalation_id: "esc_0003"\n'
+        f'run_id: "{run_id}"\n'
+        'severity: "human_checkpoint"\n'
+        'blocker_kind: "missing_authority"\n'
+        'description: "Authority is missing."\n'
+        'requested_action: "Approve or reject the dependency change."\n'
+        'created_at: "2026-05-17T00:00:00Z"\n'
+        "---\n"
+    )
+    write_artifact(tmp_path, f"{DRAFT_DIR}/ESCALATION_MISSING_REASONING.md", bad)
+    rejected = publish(
+        tmp_path,
+        session_id=author,
+        job_id=job_id,
+        lease_id=lease_id,
+        kind="escalation",
+        logical_name="missing_reasoning_escalation",
+        path=f"{DRAFT_DIR}/ESCALATION_MISSING_REASONING.md",
+        check=False,
+    )
+    assert rejected["returncode"] == 6
+    error = rejected["error"]
+    assert isinstance(error, dict)
+    assert "reasoning" in str(error.get("message", ""))
+
+
 def test_action_item_ledger_front_matter_validates(tmp_path: Path) -> None:
     """A well-formed striatum.action_item_ledger.v1 publishes; bad revision_round fails."""
     author, job_id, lease_id, _ = claim_author(tmp_path)

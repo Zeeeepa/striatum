@@ -80,11 +80,17 @@ def test_run_detail_graph_tooltip_hooks_and_next_actions_banner(tmp_path: Path) 
         assert b"data-job-id=" in body
         assert b"data-role-id=" in body
         assert b"data-state=" in body
+        assert b"data-graph-controls" in body
+        assert b"data-graph-pan-zoom" in body
     finally:
         _stop_service(proc)
     template = (ROOT / "src/striatum/web/templates/run_detail.html").read_text(encoding="utf-8")
     assert "next-actions-banner" in template
     assert "run.state not in ('completed', 'failed', 'canceled')" in template
+    script = (ROOT / "src/striatum/web/static/run_detail.js").read_text(encoding="utf-8")
+    assert "enableGraphViewport" in script
+    assert "data-graph-zoom" in script
+    assert "ArrowLeft" in script
 
 
 def test_base_js_localtime_storage_and_shortcuts() -> None:

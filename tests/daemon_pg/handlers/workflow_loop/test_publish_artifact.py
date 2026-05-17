@@ -215,6 +215,88 @@ def test_attested_model_publish_requires_process_execution_or_override(
         assert _events(conn, "repo_a")[1]["payload_json"]["rationale"] == (
             "manual recovery publish"
         )
+        assert _one(
+            conn,
+            """
+            SELECT attestation_override_rationale
+            FROM striatumd.artifacts
+            WHERE repository_id = %s AND artifact_id = %s
+            """,
+            ("repo_a", result["artifact_id"]),
+        ) == {"attestation_override_rationale": "manual recovery publish"}
+    finally:
+        conn.close()
+
+
+def test_attested_model_publish_uses_path_specific_supervisor_evidence(
+    tmp_path: Path, pg_url: str
+) -> None:
+    conn = connect(pg_url)
+    try:
+        repo_root = tmp_path / "repo_a"
+        artifact_path = repo_root / "docs" / "out.md"
+        artifact_path.parent.mkdir(parents=True)
+        artifact_path.write_text(
+            "# Output\nauthor: implementer-codex-gpt-5-001\n\nDone.\n",
+            encoding="utf-8",
+        )
+        _seed_running_job(conn, repo_root, repository_id="repo_a")
+        _insert_attached_supervisor(conn, repository_id="repo_a")
+        _insert_clean_process_execution(conn, repository_id="repo_a")
+        _insert_artifact_observed_event(
+            conn,
+            repo_root=repo_root,
+            repository_id="repo_a",
+            path_text="docs/other.md",
+        )
+        conn.commit()
+
+        with pytest.raises(ArtifactError, match="lane_evidence_missing"):
+            handle(
+                _ctx(conn, repo_root, repository_id="repo_a"),
+                {
+                    "session_id": "sess_1",
+                    "job_id": "job_1",
+                    "lease_id": "lease_1",
+                    "path": "docs/out.md",
+                    "kind": "finding",
+                    "logical_name": "out",
+                },
+            )
+
+        _insert_artifact_observed_event(
+            conn,
+            repo_root=repo_root,
+            repository_id="repo_a",
+            path_text="./docs/out.md",
+        )
+        conn.commit()
+
+        result = handle(
+            _ctx(conn, repo_root, repository_id="repo_a"),
+            {
+                "session_id": "sess_1",
+                "job_id": "job_1",
+                "lease_id": "lease_1",
+                "path": "docs/out.md",
+                "kind": "finding",
+                "logical_name": "out",
+            },
+        )
+
+        assert result["status"] == "published"
+        assert _one(
+            conn,
+            """
+            SELECT repo_path, attestation_override_rationale
+            FROM striatumd.artifacts
+            WHERE repository_id = %s AND artifact_id = %s
+            """,
+            ("repo_a", result["artifact_id"]),
+        ) == {
+            "repo_path": "docs/out.md",
+            "attestation_override_rationale": None,
+        }
     finally:
         conn.close()
 
@@ -367,6 +449,54 @@ def _insert_attached_supervisor(conn: Any, *, repository_id: str) -> None:
             """,
             (repository_id, Jsonb(["agent"])),
         )
+
+
+def _insert_clean_process_execution(conn: Any, *, repository_id: str) -> None:
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO striatumd.work_packets (
+              repository_id, packet_id, run_id, job_id, message_id, lease_id,
+              session_id, packet_json, packet_sha256, created_at
+            )
+            VALUES (%s, 'pkt_1', 'run_1', 'job_1', 'msg_1', 'lease_1',
+                    'sess_1', %s, 'sha-packet', '2026-05-14T00:00:00Z')
+            """,
+            (repository_id, Jsonb({})),
+        )
+        cur.execute(
+            """
+            INSERT INTO striatumd.process_executions (
+              repository_id, process_id, run_id, job_id, session_id, lease_id,
+              packet_id, adapter, command_json, cwd, scratch_path, stdin_mode,
+              stdio_mode, pid, state, exit_code, started_at, ended_at
+            )
+            VALUES (%s, 'proc_1', 'run_1', 'job_1', 'sess_1', 'lease_1',
+                    'pkt_1', 'process', %s, '/tmp', '/tmp/scratch',
+                    'packet', 'suppressed', 1234, 'exited', 0,
+                    '2026-05-14T00:00:00Z', '2026-05-14T00:00:01Z')
+            """,
+            (repository_id, Jsonb(["agent"])),
+        )
+
+
+def _insert_artifact_observed_event(
+    conn: Any,
+    *,
+    repo_root: Path,
+    repository_id: str,
+    path_text: str,
+) -> None:
+    _ctx(conn, repo_root, repository_id=repository_id).append_event(
+        run_id="run_1",
+        event_type="supervisor.artifact_observed",
+        actor_session_id="sess_1",
+        payload={
+            "supervisor_id": "sup_1",
+            "control_event_type": "artifact_observed",
+            "payload": {"path": path_text},
+        },
+    )
 
 
 def _one(conn: Any, sql: str, args: tuple[object, ...]) -> dict[str, Any]:

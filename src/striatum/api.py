@@ -27,7 +27,11 @@ def invoke(args: Sequence[str], *, repo: str | Path = ".") -> JsonObject:
         code = exc.code if isinstance(exc.code, int) else 2
         return {"ok": False, "error": {"message": "invalid striatum command arguments", "code": code}}
     except StriatumError as exc:
-        return {"ok": False, "error": {"message": str(exc), "code": exc.exit_code}}
+        error: JsonObject = {"message": str(exc), "code": exc.exit_code}
+        details = getattr(exc, "details", None)
+        if isinstance(details, dict):
+            error["details"] = details
+        return {"ok": False, "error": error}
     except sqlite3.Error as exc:
         return {"ok": False, "error": {"message": str(exc), "code": 1}}
     return {"ok": True, "data": result}

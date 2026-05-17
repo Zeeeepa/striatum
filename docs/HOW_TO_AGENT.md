@@ -135,9 +135,9 @@ understand:
 
 Workflow-authored Markdown artifacts of kind `decision`, `finding`,
 `findings_ledger`, `synthesis`, `support_ledger`,
-`action_item_ledger`, and `harness_improvement_proposal` carry V1
-front matter. The publisher rejects invalid front matter with exit
-code 6 and never rewrites your file. See
+`action_item_ledger`, `harness_improvement_proposal`, and
+`escalation` carry V1 front matter. The publisher rejects invalid
+front matter with exit code 6 and never rewrites your file. See
 [SPEC.md § Artifact Front Matter Schemas](SPEC.md#artifact-front-matter-schemas)
 for the required-field list per kind.
 
@@ -202,7 +202,7 @@ and ask the operator to recover stale work.
   in your work packet.
 - Do not parse a supervisor's own output for workflow state. The
   supervisor never speaks; you and it interact only through stdin
-  packets and the runner's SQLite state.
+  packets and the runner's daemon-owned state.
 - Do not assume any external memory or retrieval service (Engram or
   otherwise) is reachable. The runner never requires one. Treat
   packet `context` references and the canonical docs in your work

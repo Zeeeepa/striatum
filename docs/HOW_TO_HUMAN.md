@@ -1015,7 +1015,9 @@ control:
 On a run detail page, non-terminal runs show deterministic next
 actions immediately below the run header. Graph nodes are clickable
 and expose job id, role, state, and duration on hover or keyboard
-focus.
+focus. The graph viewport supports drag-to-pan, arrow-key panning,
+zoom in/out (`+` / `-`), fit (`f`), and reset (`0`) through the
+visible graph controls.
 
 The run list's Workflow column uses the snapshotted workflow identity:
 the visible label is the workflow `name` when available, the metadata
@@ -1026,8 +1028,8 @@ default-branch source-directory link.
 ## Dashboards and graphs
 
 For a compact at-a-glance view of a run, use the dashboard. It is
-a dependency-free terminal renderer over the same SQLite state
-that `status` exposes:
+a dependency-free terminal renderer over the same daemon-owned
+PostgreSQL state that `status` exposes:
 
 ```bash
 "$RUNNER" --repo "$TARGET_REPO" dashboard --run-id <run_id>

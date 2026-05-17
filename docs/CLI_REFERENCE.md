@@ -13,6 +13,7 @@ striatum adopt [--profile <profile>] [--postgres-url <url>]
                [--dry-run] [--no-skills] [--no-plugins]
                [--no-ddd-layout] [--no-register]
 striatum workflow validate
+striatum workflow lint
 striatum workflow plan
 striatum workflow graph
 striatum workflow init
@@ -58,6 +59,15 @@ non-terminal run referencing it in the target repository's
 scoped to harness-profile fragments only; other corrections will
 land as separate verbs.
 
+`workflow lint <path> [--strict] [--override-rationale <text>]`
+returns structured advisory warnings for operational workflow risks
+such as same-model review pairs, review jobs without fresh context,
+broad write scopes, repo-write jobs without per-job worktree
+isolation, and review workflows without revision or escalation paths.
+With `--strict`, lint warnings refuse the command unless the operator
+records a non-empty override rationale; JSON/API refusals include the
+lint payload under `error.details`.
+
 `striatum init` creates `.striatum/` in the target repo. The
 optional flags scaffold extra material:
 
@@ -100,6 +110,15 @@ striatum verdict
 striatum submit-review
 striatum decision record
 ```
+
+`publish-artifact` validates lease ownership, write scope, path
+safety, artifact kind, front matter, and byline. Model-bylined
+artifacts require lane evidence: a path-specific supervised
+`artifact_observed` event when the wrapper reports one, or the legacy
+clean `process_executions` fallback. Operators can explicitly bypass
+missing lane evidence with `--allow-no-process-execution
+--override-rationale <text>`; the rationale is stored on the artifact
+row and in the provenance event.
 
 ## Worktree (opt-in per lane via `worktree_isolation: per_job`)
 

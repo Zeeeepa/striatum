@@ -120,6 +120,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             ref = getattr(exc, "ref", None)
             if isinstance(ref, str):
                 error["ref"] = ref
+            details = getattr(exc, "details", None)
+            if isinstance(details, dict):
+                error["details"] = details
             print(json_dumps({"ok": False, "error": error}))
         else:
             print(str(exc), file=sys.stderr)
@@ -365,26 +368,44 @@ def dispatch(args: argparse.Namespace) -> object:
             validation_result["warnings"] = warnings
         return validation_result
     if args.command == "workflow" and args.workflow_command == "lint":
+        if args.override_rationale is not None and not args.strict:
+            raise StriatumError(
+                "--override-rationale is valid only with workflow lint --strict",
+                exit_code=2,
+            )
         path = Path(args.path)
         try:
             loaded = json.loads(path.read_text(encoding="utf-8"))
         except json.JSONDecodeError as exc:
-            return {
-                "workflow_id": "",
-                "valid": False,
-                "errors": [{"message": f"workflow JSON is invalid: {exc.msg}"}],
-                "warnings": [],
-                "warning_count": 0,
-            }
+            return _apply_strict_workflow_lint(
+                {
+                    "workflow_id": "",
+                    "valid": False,
+                    "errors": [{"message": f"workflow JSON is invalid: {exc.msg}"}],
+                    "warnings": [],
+                    "warning_count": 0,
+                },
+                strict=bool(args.strict),
+                override_rationale=args.override_rationale,
+            )
         if not isinstance(loaded, dict):
-            return {
-                "workflow_id": "",
-                "valid": False,
-                "errors": [{"message": "workflow config must be a JSON object"}],
-                "warnings": [],
-                "warning_count": 0,
-            }
-        return lint_workflow(cast(dict[str, Any], loaded), repo_root=repo)
+            return _apply_strict_workflow_lint(
+                {
+                    "workflow_id": "",
+                    "valid": False,
+                    "errors": [{"message": "workflow config must be a JSON object"}],
+                    "warnings": [],
+                    "warning_count": 0,
+                },
+                strict=bool(args.strict),
+                override_rationale=args.override_rationale,
+            )
+        payload = lint_workflow(cast(dict[str, Any], loaded), repo_root=repo)
+        return _apply_strict_workflow_lint(
+            payload,
+            strict=bool(args.strict),
+            override_rationale=args.override_rationale,
+        )
     if args.command == "workflow" and args.workflow_command == "plan":
         workflow = load_workflow(Path(args.path))
         return plan_workflow(workflow, repo_root=repo)
@@ -977,6 +998,71 @@ def _workflow_generate(args: argparse.Namespace, repo: Path) -> object:
     if args.dry_run:
         return generated.to_json()
     return write_generated_workflow(generated, repo=repo)
+
+
+def _apply_strict_workflow_lint(
+    payload: dict[str, Any],
+    *,
+    strict: bool,
+    override_rationale: str | None,
+) -> dict[str, Any]:
+    """Apply ``workflow lint --strict`` refusal semantics to a lint payload."""
+    if not strict:
+        return payload
+
+    if payload.get("valid") is not True:
+        refused = dict(payload)
+        refused["strict"] = {
+            "mode": "refused",
+            "reason": "invalid_workflow",
+        }
+        exc = StriatumError(
+            "workflow lint strict mode refused invalid workflow",
+            exit_code=8,
+        )
+        setattr(exc, "details", refused)
+        raise exc
+
+    warning_count = _workflow_lint_warning_count(payload)
+    if warning_count == 0:
+        result = dict(payload)
+        result["strict"] = {"mode": "passed", "warning_count": 0}
+        return result
+
+    rationale = override_rationale.strip() if override_rationale is not None else ""
+    if not rationale:
+        refused = dict(payload)
+        refused["strict"] = {
+            "mode": "refused",
+            "reason": "warnings_require_override_rationale",
+            "warning_count": warning_count,
+        }
+        exc = StriatumError(
+            "workflow lint strict mode refused "
+            f"{warning_count} warning(s); pass --override-rationale "
+            "with a non-empty rationale to accept them",
+            exit_code=8,
+        )
+        setattr(exc, "details", refused)
+        raise exc
+
+    result = dict(payload)
+    result["strict"] = {
+        "mode": "overridden",
+        "warning_count": warning_count,
+        "override_rationale": rationale,
+    }
+    return result
+
+
+def _workflow_lint_warning_count(payload: dict[str, Any]) -> int:
+    raw_count = payload.get("warning_count")
+    if isinstance(raw_count, int) and not isinstance(raw_count, bool):
+        return raw_count
+    warnings = payload.get("warnings")
+    if isinstance(warnings, list):
+        return len(warnings)
+    return 0
 
 
 def _parse_keyed_json_arrays(values: list[str], flag: str) -> dict[str, list[str]]:
