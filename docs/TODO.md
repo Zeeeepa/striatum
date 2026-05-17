@@ -940,6 +940,9 @@ review and plan are root-level operator artifacts:
     workflow generation preview/write response shaping. Follow-up split
     landed: `service_request_io.py` owns request-body parsing plus JSON/HTML
     response helpers while `service.py` keeps route-level wrappers.
+    Follow-up split landed: `web/doctor.py` owns doctor page DTO loading,
+    gated legacy fallback selection, record recipe shaping, and problem
+    grouping while `service.py` keeps template rendering and response mapping.
     Remaining: continue splitting `service.py` along stable non-SQLite
     request-handling and rendering boundaries.
 

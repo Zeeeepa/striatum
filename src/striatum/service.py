@@ -59,7 +59,10 @@ from striatum.service_state import (
     ServiceState as ServiceState,
     utcnow_iso as utcnow_iso,
 )
-from striatum.web.doctor import shape_doctor_records as _shape_doctor_records
+from striatum.web.doctor import (
+    DoctorPageError as _DoctorPageError,
+    doctor_page_response as _doctor_page_response,
+)
 from striatum.web import chat_session as _chat_session
 from striatum.web.chat_session import (
     append_jsonl as _append_jsonl,
@@ -1455,31 +1458,21 @@ class StriatumServiceHandler(BaseHTTPRequestHandler):
 
     def _render_doctor_page(self) -> None:
         try:
-            from striatum.service_daemon import ServiceDaemonRpcError, call_repo_method
-
-            try:
-                doctor_payload = call_repo_method(self.state.repo, "doctor", {"verbose": True})
-            except ServiceDaemonRpcError as exc:
-                if _legacy_web_read_fallback_enabled(exc.code):
-                    doctor_payload = _legacy_doctor_page_payload(self.state.repo)
-                else:
-                    self._send_json(
-                        exc.status,
-                        {"ok": False, "error": {"code": exc.code, "message": exc.message}},
-                    )
-                    return
-            raw_records = doctor_payload.get("problem_records")
-            records = _shape_doctor_records(raw_records if isinstance(raw_records, list) else [])
-            doctor_payload = dict(doctor_payload)
-            doctor_payload["problem_records"] = records
-            groups: dict[str, list[dict[str, Any]]] = {}
-            for record in records:
-                groups.setdefault(str(record.get("check") or "unknown"), []).append(record)
+            response = _doctor_page_response(
+                self.state.repo,
+                legacy_fallback_enabled=_legacy_web_read_fallback_enabled,
+                legacy_payload=_legacy_doctor_page_payload,
+            )
             html = _jinja_env().get_template("doctor.html").render(
-                doctor=doctor_payload,
-                problem_groups=groups,
+                doctor=response.doctor,
+                problem_groups=response.problem_groups,
             )
             self._send_html(200, html)
+        except _DoctorPageError as exc:
+            self._send_json(
+                exc.status,
+                {"ok": False, "error": {"code": exc.code, "message": exc.message}},
+            )
         except Exception as exc:  # noqa: BLE001
             self._send_json(500, {"ok": False, "error": {"code": 500, "message": str(exc)}})
 

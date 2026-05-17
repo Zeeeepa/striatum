@@ -87,6 +87,8 @@ Recent checkpoints:
   shaping moved from `service.py` into `striatum.web.workflow_generation`.
 - Request-body parsing and JSON/HTML response helpers moved from `service.py`
   into `striatum.service_request_io`, keeping the handler wrappers stable.
+- Doctor page DTO loading, legacy fallback selection, record recipe shaping,
+  and problem grouping moved from `service.py` into `striatum.web.doctor`.
 - Workflow validation now rejects `needs_revision` cycles whose `from`/`to`
   jobs cross phase boundaries, closing the RFC 0045 V1.5 cycle phase-jump
   validator gap.
@@ -179,7 +181,8 @@ Recent checkpoints:
   security policy now lives in `striatum.service_request_security`. Workflow
   generation endpoint response helpers now live in
   `striatum.web.workflow_generation`. Request-body parsing plus JSON/HTML
-  response helpers now live in `striatum.service_request_io`.
+  response helpers now live in `striatum.service_request_io`. Doctor page
+  response shaping now lives in `striatum.web.doctor`.
 - **Escalation inbox foundation.**
   `escalation.list`, `escalation.show`, and `escalation.resolve` project
   human-principal escalations from blocker state. The `escalation` artifact

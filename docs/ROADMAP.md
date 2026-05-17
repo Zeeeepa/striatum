@@ -438,6 +438,9 @@ daemon-first without needing to support two domain daemons.
 - `src/striatum/service_request_io.py` now owns request-body parsing and
   JSON/HTML response helpers. `service.py` keeps stable route-level wrapper
   methods for existing call sites and tests.
+- `src/striatum/web/doctor.py` now owns doctor page DTO loading, gated legacy
+  fallback selection, record recipe shaping, and problem grouping. `service.py`
+  keeps template rendering and response mapping for `/doctor`.
 
 **Remaining Phase 4 debt:** continue splitting `service.py` along stable
 non-SQLite request-handling and rendering boundaries after the daemon-routed
