@@ -23,7 +23,9 @@ Recent checkpoints:
 - The Postgres supervision handler suite now launches the real
   `go/bin/striatum-supervisor-helper` in a focused integration test and
   verifies start, send, packet acknowledgement, status drain, and agent-exit
-  event ingestion across the Python/Go boundary.
+  event ingestion across the Python/Go boundary. CI now promotes that check
+  through a Linux/Postgres `daemon-go-helper-integration` target instead of
+  relying on full-suite discovery.
 - Chat transcript, briefing, session listing, display projection, and
   workflow-write confirmation helpers now live in `striatum.web.chat_session`
   with focused regression coverage.
@@ -124,7 +126,8 @@ Recent checkpoints:
   lane command all match. The Postgres supervision handler tests now include
   a focused integration case that launches the built Go helper and verifies
   helper event ingestion across `supervise.start`, `supervise.send`, and
-  `supervise.status`.
+  `supervise.status`; CI now runs that case explicitly through
+  `make daemon-go-helper-integration` on Linux runners with Postgres.
 - **Workflow risk lint.**
   `striatum workflow lint` supports structured warnings, opt-in strict mode,
   accepted-risk rationale and decision references, advisory coverage scoring,

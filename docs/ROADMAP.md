@@ -489,9 +489,12 @@ decide whether to rename the packet helper to `packet inbox`.
   a work packet through the PTY-helper transport, drains packet-acknowledged
   and agent-exited JSONL events, and verifies the Python daemon state/event
   projection.
+- `make daemon-go-helper-integration` now builds the Go helper and runs that
+  focused Postgres-backed integration test, and CI runs the target on
+  Linux runners with the Postgres service.
 
 **Remaining Phase 6 debt:** actual restart reattach/lost-state recovery,
-wrapper fixtures, and broader helper-only CI.
+and wrapper fixtures.
 
 ---
 
