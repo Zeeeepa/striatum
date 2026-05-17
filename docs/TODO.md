@@ -1238,7 +1238,7 @@ review and plan are root-level operator artifacts:
     default daemon core flips.
 
 62. **RFC 0069: PostgreSQL-only daemon-global surfaces.** Most done. Port daemon
-    health, sweep, dashboard-all, daemon MCP resource list/read, and
+    sweep, dashboard-all, daemon MCP resource list/read, and
     any remaining registry probes away from SQLite and into PostgreSQL/Go-owned
     daemon handlers. Go now owns first-start PostgreSQL admin/runtime-token
     bootstrap. Production `connect_registry()` reachability is a bug unless
@@ -1249,13 +1249,14 @@ review and plan are root-level operator artifacts:
     runs. Daemon MCP resource list/read now use PostgreSQL-backed repository
     visibility plus status/doctor/run/why/blocker/dashboard/stale-lease
     projections when `pg_conn` is present, with SQLite-registry tripwire
-    coverage. `striatum daemon audit` now reads from and audits to PostgreSQL
-    when a daemon DB is configured, with legacy field names retained for CLI
-    compatibility. `connect_registry()` requires the paired test-harness
-    compatibility escape; the old single-variable legacy-registry opt-in is
-    diagnostic-only. Residual daemon-global gaps are full
+    coverage. `striatum daemon health` and `striatum daemon audit` now read
+    from and audit to PostgreSQL when a daemon DB is configured, with legacy
+    audit field names retained for CLI compatibility. `connect_registry()`
+    requires the paired test-harness compatibility escape; the old
+    single-variable legacy-registry opt-in is diagnostic-only. Residual
+    daemon-global gaps are full
     `dashboard.all` parity for phase progress, auto-finalize detail,
-    supervisor-stall detail, and any remaining health/doctor registry probes.
+    supervisor-stall detail, and any remaining doctor registry probes.
 
 63. **RFC 0070: daemon client/service boundary completion.** Most done.
     Daemon-side `repo.resolve` is registered as a daemon-global read bootstrap

@@ -2099,6 +2099,15 @@ def daemon_audit_pg(pg_conn: Any, *, limit: int = 100, token: str | None = None)
 
 
 def health() -> dict[str, Any]:
+    if _pg_connection_configured():
+        from striatum.daemon_pg.connection import connect_and_migrate
+
+        pg_conn = connect_and_migrate()
+        try:
+            return health_pg(pg_conn)
+        finally:
+            pg_conn.close()
+
     conn = connect_registry()
     with registry_transaction(conn):
         audit_request(
@@ -2107,6 +2116,25 @@ def health() -> dict[str, Any]:
             auth=AuthContext(None, None, None, None, "allowed"),
             transport="cli",
         )
+    return {"mode": "daemon", "ok": True, "protocol_version": PROTOCOL_VERSION}
+
+
+def health_pg(pg_conn: Any) -> dict[str, Any]:
+    from striatum.daemon_rpc.capability import RpcAuthContext
+    from striatum.daemon_rpc.request_log import append_audit_row
+
+    append_audit_row(
+        pg_conn,
+        auth=RpcAuthContext(None, None, None, None, "allowed"),
+        method="health",
+        transport="cli",
+        request_id=f"cli_{uuid.uuid4().hex}",
+        params={},
+    )
+    try:
+        pg_conn.commit()
+    except Exception:  # noqa: BLE001 - autocommit connections do not need an explicit commit.
+        pass
     return {"mode": "daemon", "ok": True, "protocol_version": PROTOCOL_VERSION}
 
 

@@ -159,6 +159,9 @@ Recent checkpoints:
   daemon DB is configured, keeps the legacy audit output field names for CLI
   compatibility, and has SQLite-registry tripwire coverage for direct and
   dispatcher paths.
+- `striatum daemon health` now uses PostgreSQL and appends to the PostgreSQL
+  audit chain when a daemon DB is configured, avoiding the legacy registry
+  probe while preserving the existing health JSON shape.
 - `supervise.status`, `doctor`, and `status` now surface stalled attached
   supervisors, and recovery sweep opens
   `heartbeat_stall_lease_expired` blockers when stalled leases expire.
