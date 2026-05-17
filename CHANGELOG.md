@@ -30,7 +30,9 @@ in the roadmap/TODO and has several production slices landed:
   artifacts, the artifact detail page, and the posture-verdict drill-down
   page. The run detail page now renders from daemon `run.detail` in
   production, keeping SVG/HTML rendering local while moving page state to a
-  read DTO. Run-now now calls daemon `run.prepare`, `branch.confirm`, and
+  read DTO. The job detail page now renders from daemon `job.detail`,
+  including expected artifacts, process evidence, and verdict override
+  context. Run-now now calls daemon `run.prepare`, `branch.confirm`, and
   `run.start` in production, preserving the historical 422 field-level
   workflow validation response through daemon RPC error details. The new
   `run.posture_verdicts` daemon DTO backs the posture page,

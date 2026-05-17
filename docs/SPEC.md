@@ -1418,7 +1418,10 @@ Routes:
   `run.posture_verdicts`; the legacy SQLite path exists only for
   subprocess test fixtures.
 - `GET /run/<run_id>/job/<job_id>` → `job_detail.html`. Job
-  metadata + verdict + posture chip + artifacts list.
+  metadata + verdict + posture chip + artifacts list. Production
+  page-state reads use daemon `job.detail`; override-verdict context-token
+  minting remains local to the web service, and the legacy SQLite page read
+  exists only for subprocess test fixtures.
 - `GET /run/<run_id>/artifact/<artifact_id>` →
   `artifact_view.html`. Metadata + sha256 + raw-API pointer.
   Production metadata reads use daemon `artifact.show` with optional

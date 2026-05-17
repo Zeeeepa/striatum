@@ -112,6 +112,7 @@ EXPECTED_CAPABILITY: dict[str, str] = {
     "run.retry_job": "admin",
     "run.summary": "read",
     "run.detail": "read",
+    "job.detail": "read",
     "run.graph": "read",
     "run.events": "read",
     "run.posture_verdicts": "read",

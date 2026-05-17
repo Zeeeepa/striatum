@@ -163,6 +163,7 @@ def insert_fixture(conn: Any, *, repository_id: str, repo_root: Path) -> None:
     ("module_name", "method"),
     [
         ("artifact_show", "artifact.show"),
+        ("job_detail", "job.detail"),
         ("list_runs", "list.runs"),
         ("list_sessions", "list.sessions"),
         ("list_jobs", "list.jobs"),

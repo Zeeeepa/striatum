@@ -653,6 +653,103 @@ def test_service_run_detail_passes_phase_progress_context(tmp_path: Path, monkey
     assert captured["allow_dirty"] is True
 
 
+def test_service_job_detail_reads_daemon_dto_without_sqlite(
+    tmp_path: Path, monkeypatch: Any
+) -> None:
+    sys.path.insert(0, str(ROOT / "src"))
+    try:
+        import striatum.service as service
+        import striatum.service_daemon as service_daemon
+    finally:
+        sys.path.pop(0)
+
+    captured: dict[str, Any] = {}
+    calls: list[tuple[Path, str, dict[str, Any]]] = []
+
+    class FakeTemplate:
+        def render(self, **kwargs: Any) -> str:
+            captured.update(kwargs)
+            return "ok"
+
+    class FakeEnvironment:
+        def get_template(self, name: str) -> FakeTemplate:
+            assert name == "job_detail.html"
+            return FakeTemplate()
+
+    def sqlite_tripwire(*args: Any, **kwargs: Any) -> None:
+        raise AssertionError("job-detail page opened repo-local SQLite")
+
+    def fake_call_repo_method(
+        repo: Path, method: str, params: dict[str, Any]
+    ) -> dict[str, Any]:
+        calls.append((repo, method, dict(params)))
+        return {
+            "run": {"run_id": "run_123", "state": "running", "branch_name": "main"},
+            "job": {
+                "job_id": "job_456",
+                "workflow_job_id": "review",
+                "state": "completed",
+                "job_type": "review",
+                "role_id": "reviewer",
+                "lane_id": "codex",
+                "attempt": 1,
+                "created_at": "2026-05-17T00:00:00Z",
+                "lane_attestation_chip": {
+                    "attested": False,
+                    "reason": "no_attached_supervisor",
+                    "supervisor_id": None,
+                    "state": "unattested",
+                },
+            },
+            "artifacts": [],
+            "latest_verdict": {
+                "verdict_id": "verdict_1",
+                "session_id": "sess_1",
+                "verdict": "accept",
+                "provenance": "natural",
+                "override_rationale": None,
+            },
+            "verdicts": [],
+            "expected_artifact_rows": [
+                {"path": "docs/review.md", "status": "missing_required"}
+            ],
+            "process_evidence": [{"process_id": "proc_1", "state": "failed"}],
+        }
+
+    handler = object.__new__(service.StriatumServiceHandler)
+    handler.state = service.ServiceState(
+        repo=tmp_path,
+        allow_mutations=False,
+        token=None,
+        web_enabled=True,
+    )
+    sent: dict[str, Any] = {}
+    monkeypatch.setattr(
+        handler,
+        "_send_html",
+        lambda status, body: sent.update({"status": status, "body": body}),
+    )
+    monkeypatch.setattr(
+        handler,
+        "_send_json",
+        lambda status, body: sent.update({"status": status, "body": body}),
+    )
+    monkeypatch.setattr(service, "_jinja_env", lambda: FakeEnvironment())
+    monkeypatch.setattr("striatum.service.sqlite3.connect", sqlite_tripwire)
+    monkeypatch.setattr(service_daemon, "call_repo_method", fake_call_repo_method)
+
+    handler._render_job_detail_page("run_123", "review")
+
+    assert sent == {"status": 200, "body": "ok"}
+    assert calls == [(tmp_path, "job.detail", {"run_id": "run_123", "job_id": "review"})]
+    assert captured["run"]["run_id"] == "run_123"
+    assert captured["job"]["job_id"] == "job_456"
+    assert captured["expected_artifact_rows"][0]["path"] == "docs/review.md"
+    assert captured["process_evidence"][0]["process_id"] == "proc_1"
+    assert captured["override_session_id"] == "sess_1"
+    assert captured["override_context_token"]
+
+
 def test_service_run_list_reads_daemon_dto_without_sqlite(
     tmp_path: Path, monkeypatch: Any
 ) -> None:

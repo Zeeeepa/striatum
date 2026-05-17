@@ -375,9 +375,13 @@ daemon-first without needing to support two domain daemons.
   job, session, recovery-panel, verdict, and phase-progress state. The web
   service still owns HTML/SVG rendering, and the legacy SQLite page read is
   limited to the subprocess test-harness fallback.
+- The job detail page now calls daemon `job.detail` in production for job,
+  expected-artifact, artifact, process-evidence, and verdict state. Override
+  context-token minting remains local to the web service; the direct SQLite
+  page read is limited to the subprocess test-harness fallback.
 
-**Remaining Phase 4 debt:** job detail still needs a daemon DTO; `service.py`
-remains due for a split once the route authority cleanup is complete.
+**Remaining Phase 4 debt:** `service.py` remains due for a split now that the
+route authority cleanup has moved the listed page reads onto daemon DTOs.
 
 ---
 

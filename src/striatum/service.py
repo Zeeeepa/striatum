@@ -215,6 +215,76 @@ def _legacy_run_detail_payload(repo: Path, *, run_id: str) -> JsonObject:
     }
 
 
+def _legacy_job_detail_payload(repo: Path, *, run_id: str, job_ref: str) -> JsonObject:
+    from striatum.cli.introspect import latest_verdict_row
+
+    with sqlite3.connect(str(db_path(repo))) as conn:
+        conn.row_factory = sqlite3.Row
+        run_row = conn.execute(
+            "SELECT * FROM runs WHERE run_id = ?", (run_id,)
+        ).fetchone()
+        job_row = conn.execute(
+            "SELECT * FROM jobs WHERE run_id = ? "
+            "AND (job_id = ? OR workflow_job_id = ?)",
+            (run_id, job_ref, job_ref),
+        ).fetchone()
+        if run_row is None or job_row is None:
+            raise KeyError(job_ref)
+        job_id = str(job_row["job_id"])
+        run = dict(run_row)
+        job = dict(job_row)
+        lane_selector = _json_loads_object(job.get("lane_selector_json"), {})
+        job["lane_id"] = (
+            lane_selector.get("lane_id") if isinstance(lane_selector, dict) else None
+        )
+        job["state_chip"] = _state_chip("job", job.get("state"))
+        run["state_chip"] = _state_chip("run", run.get("state"))
+        artifact_rows = conn.execute(
+            "SELECT * FROM artifacts WHERE job_id = ? ORDER BY created_at",
+            (job_id,),
+        ).fetchall()
+        artifacts = [dict(row) for row in artifact_rows]
+        packet = _latest_work_packet_for_job(conn, job_id=job_id)
+        job["work_packet"] = packet
+        job["expected_artifact_rows"] = _expected_artifact_rows(
+            job=job,
+            artifacts=artifacts,
+            packet=packet,
+        )
+        artifacts = _shape_artifact_rows(
+            conn,
+            artifacts=artifacts,
+            expected_rows=job["expected_artifact_rows"],
+        )
+        job["lane_attestation_chip"] = _lane_attestation_chip(
+            conn,
+            session_id=str(packet["session_id"]) if packet and packet.get("session_id") else None,
+        )
+        job["process_evidence"] = _process_evidence_rows(
+            conn,
+            run_id=run_id,
+            job_id=job_id,
+        )
+        verdict_rows = conn.execute(
+            "SELECT * FROM verdicts WHERE job_id = ? ORDER BY created_at DESC, verdict_id DESC",
+            (job_id,),
+        ).fetchall()
+        verdicts = _shape_verdict_rows(
+            conn,
+            verdicts=[dict(row) for row in verdict_rows],
+        )
+        latest_verdict = verdicts[0] if verdicts else latest_verdict_row(conn, job_id=job_id)
+    return {
+        "run": run,
+        "job": job,
+        "artifacts": artifacts,
+        "latest_verdict": dict(latest_verdict) if isinstance(latest_verdict, sqlite3.Row) else latest_verdict,
+        "verdicts": verdicts,
+        "expected_artifact_rows": job["expected_artifact_rows"],
+        "process_evidence": job["process_evidence"],
+    }
+
+
 def _legacy_job_cancel(
     repo: Path,
     *,
@@ -2466,81 +2536,69 @@ class StriatumServiceHandler(BaseHTTPRequestHandler):
             self._send_json(500, {"ok": False, "error": {"code": 500, "message": str(exc)}})
 
     def _render_job_detail_page(self, run_id: str, job_id: str) -> None:
-        from striatum.cli.introspect import latest_verdict_row
         try:
-            with sqlite3.connect(str(db_path(self.state.repo))) as conn:
-                conn.row_factory = sqlite3.Row
-                run_row = conn.execute(
-                    "SELECT * FROM runs WHERE run_id = ?", (run_id,)
-                ).fetchone()
-                # Accept either the full job_id (left-rail jobs list)
-                # or the workflow_job_id (SVG graph nodes from
-                # graph_svg.render_run_graph). The latter is more
-                # readable in URLs and is unique per run.
-                job_row = conn.execute(
-                    "SELECT * FROM jobs WHERE run_id = ? "
-                    "AND (job_id = ? OR workflow_job_id = ?)",
-                    (run_id, job_id, job_id),
-                ).fetchone()
-                if run_row is None or job_row is None:
-                    self._send_json(404, {"ok": False, "error": {"code": 404, "message": "not found"}})
+            from striatum.service_daemon import ServiceDaemonRpcError, call_repo_method
+
+            try:
+                payload = call_repo_method(
+                    self.state.repo,
+                    "job.detail",
+                    {"run_id": run_id, "job_id": job_id},
+                )
+            except ServiceDaemonRpcError as exc:
+                if _legacy_web_read_fallback_enabled(exc.code):
+                    try:
+                        payload = _legacy_job_detail_payload(
+                            self.state.repo,
+                            run_id=run_id,
+                            job_ref=job_id,
+                        )
+                    except KeyError:
+                        self._send_json(404, {"ok": False, "error": {"code": 404, "message": "not found"}})
+                        return
+                else:
+                    self._send_json(
+                        exc.status,
+                        {"ok": False, "error": {"code": exc.code, "message": exc.message}},
+                    )
                     return
-                # Subsequent queries (artifacts, latest_verdict_row)
-                # need the full job_id; resolve it from the row we
-                # just looked up.
-                job_id = str(job_row["job_id"])
-                run = dict(run_row)
-                job = dict(job_row)
-                lane_selector = _json_loads_object(job.get("lane_selector_json"), {})
-                job["lane_id"] = (
-                    lane_selector.get("lane_id") if isinstance(lane_selector, dict) else None
+            run_raw = payload.get("run")
+            job_raw = payload.get("job")
+            if not isinstance(run_raw, Mapping) or not isinstance(job_raw, Mapping):
+                self._send_json(
+                    500,
+                    {"ok": False, "error": {"code": 500, "message": "daemon job detail DTO missing fields"}},
                 )
-                job["state_chip"] = _state_chip("job", job.get("state"))
-                run["state_chip"] = _state_chip("run", run.get("state"))
-                artifact_rows = conn.execute(
-                    "SELECT * FROM artifacts WHERE job_id = ? ORDER BY created_at",
-                    (job_id,),
-                ).fetchall()
-                artifacts = [dict(row) for row in artifact_rows]
-                packet = _latest_work_packet_for_job(conn, job_id=job_id)
-                job["work_packet"] = packet
-                job["expected_artifact_rows"] = _expected_artifact_rows(
-                    job=job,
-                    artifacts=artifacts,
-                    packet=packet,
-                )
-                artifacts = _shape_artifact_rows(
-                    conn,
-                    artifacts=artifacts,
-                    expected_rows=job["expected_artifact_rows"],
-                )
-                job["lane_attestation_chip"] = _lane_attestation_chip(
-                    conn,
-                    session_id=str(packet["session_id"]) if packet and packet.get("session_id") else None,
-                )
-                job["process_evidence"] = _process_evidence_rows(
-                    conn,
-                    run_id=run_id,
-                    job_id=job_id,
-                )
-                verdict_rows = conn.execute(
-                    "SELECT * FROM verdicts WHERE job_id = ? ORDER BY created_at DESC, verdict_id DESC",
-                    (job_id,),
-                ).fetchall()
-                verdicts = _shape_verdict_rows(
-                    conn,
-                    verdicts=[dict(row) for row in verdict_rows],
-                )
-                latest_verdict = verdicts[0] if verdicts else latest_verdict_row(conn, job_id=job_id)
+                return
+            run = dict(run_raw)
+            job = dict(job_raw)
+            artifacts = [
+                dict(artifact)
+                for artifact in payload.get("artifacts") or []
+                if isinstance(artifact, Mapping)
+            ]
+            verdicts = [
+                dict(verdict)
+                for verdict in payload.get("verdicts") or []
+                if isinstance(verdict, Mapping)
+            ]
+            latest_raw = payload.get("latest_verdict")
+            latest_verdict = dict(latest_raw) if isinstance(latest_raw, Mapping) else None
+            expected_artifact_rows = [
+                dict(row)
+                for row in payload.get("expected_artifact_rows") or []
+                if isinstance(row, Mapping)
+            ]
+            process_evidence = [
+                dict(row)
+                for row in payload.get("process_evidence") or []
+                if isinstance(row, Mapping)
+            ]
             # GH #10: mint a context token binding the rendered page to
             # the override-verdict action's (run_id, job_id, session_id).
             override_session_id = ""
             if latest_verdict is not None:
-                override_session_id = str(
-                    latest_verdict["session_id"]
-                    if isinstance(latest_verdict, sqlite3.Row)
-                    else latest_verdict.get("session_id", "")
-                ) or ""
+                override_session_id = str(latest_verdict.get("session_id", "")) or ""
             override_context_token = ""
             if override_session_id:
                 override_context_token = make_web_context_token(
@@ -2555,8 +2613,8 @@ class StriatumServiceHandler(BaseHTTPRequestHandler):
                 artifacts=artifacts,
                 latest_verdict=latest_verdict,
                 verdicts=verdicts,
-                expected_artifact_rows=job["expected_artifact_rows"],
-                process_evidence=job["process_evidence"],
+                expected_artifact_rows=expected_artifact_rows,
+                process_evidence=process_evidence,
                 override_context_token=override_context_token,
                 override_session_id=override_session_id,
             )

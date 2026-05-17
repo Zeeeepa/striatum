@@ -9,6 +9,7 @@ from . import dashboard as dashboard
 from . import doctor as doctor
 from . import evidence_export as evidence_export
 from . import escalations as escalations
+from . import job_detail as job_detail
 from . import list_artifacts as list_artifacts
 from . import list_jobs as list_jobs
 from . import list_runs as list_runs
