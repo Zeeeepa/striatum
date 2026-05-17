@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 
+from striatum.cli import daemon as daemon_cli
 from striatum.cli.daemon import (
     ENV_DAEMON_CORE,
     ENV_GO_BIN,
@@ -51,6 +52,74 @@ def test_daemon_core_rejects_unknown(monkeypatch: pytest.MonkeyPatch) -> None:
         resolve_daemon_core(None)
 
     assert exc.value.exit_code == 2
+
+
+def test_go_daemon_launcher_execs_with_migrations_sha_source(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    binary = tmp_path / "striatumd"
+    socket = tmp_path / "runtime" / "striatumd.sock"
+    captured: dict[str, object] = {}
+
+    monkeypatch.setattr(daemon_cli, "resolve_go_binary", lambda: binary)
+    monkeypatch.setattr(daemon_cli.daemon_mod, "socket_path", lambda: socket)
+
+    def fake_execv(path: str, argv: list[str]) -> None:
+        captured["path"] = path
+        captured["argv"] = argv
+        raise SystemExit(0)
+
+    monkeypatch.setattr(daemon_cli.os, "execv", fake_execv)
+
+    with pytest.raises(SystemExit):
+        daemon_cli.run_go_daemon_foreground(postgres_url="postgresql://example/striatum")
+
+    migrations_sha_source = daemon_cli.resolve_migrations_sha_source()
+    assert migrations_sha_source == (
+        Path(__file__).resolve().parents[2] / "src" / "striatum" / "daemon_pg" / "sql"
+    )
+    assert captured["path"] == str(binary)
+    assert captured["argv"] == [
+        str(binary),
+        "--socket",
+        str(socket),
+        "--postgres-url",
+        "postgresql://example/striatum",
+        "--migrations-sha-source",
+        str(migrations_sha_source),
+    ]
+
+
+def test_go_daemon_launcher_rejects_stale_binary_before_exec(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    binary = tmp_path / "striatumd"
+    binary.write_text(
+        "#!/bin/sh\n"
+        "if [ \"$1\" = \"--describe\" ]; then\n"
+        f"  echo core=go supported_schema={LATEST_DAEMON_DB_VERSION - 1} "
+        f"migration_count={LATEST_DAEMON_DB_VERSION} methods_etag={METHODS_ETAG}\n"
+        "  exit 0\n"
+        "fi\n"
+        "exit 99\n",
+        encoding="utf-8",
+    )
+    binary.chmod(0o755)
+    exec_called = False
+
+    def fake_execv(path: str, argv: list[str]) -> None:
+        nonlocal exec_called
+        exec_called = True
+        raise AssertionError(f"stale Go daemon should not exec: {path} {argv}")
+
+    monkeypatch.setattr(daemon_cli, "_resolve_packaged_go_binary", lambda: None)
+    monkeypatch.setattr(daemon_cli.os, "execv", fake_execv)
+    monkeypatch.setenv(ENV_GO_BIN, str(binary))
+
+    with pytest.raises(StriatumError, match="supports schema"):
+        daemon_cli.run_go_daemon_foreground(postgres_url="postgresql://example/striatum")
+
+    assert exec_called is False
 
 
 def test_go_binary_env_override(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

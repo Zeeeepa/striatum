@@ -16,6 +16,7 @@ from striatum.daemon_pg.config import resolve_config
 from striatum.daemon_pg.repo_local_migration import (
     RepoLocalMigrationOptions,
     migrate_repo_local,
+    verify_repo_cutover,
 )
 from striatum.errors import StriatumError
 
@@ -35,15 +36,16 @@ def dispatch_daemon(args: argparse.Namespace) -> Any:
         repo_arg = getattr(args, "repo_local_repo", None) or getattr(args, "repo", None)
         if not repo_arg:
             raise StriatumError("migrate-repo-local requires --repo", exit_code=2)
-        return migrate_repo_local(
-            RepoLocalMigrationOptions(
-                repo=Path(repo_arg),
-                postgres_url=config.url,
-                dry_run=bool(getattr(args, "dry_run", False)),
-                keep_sqlite_readonly=bool(getattr(args, "keep_sqlite_readonly", True)),
-                confirm_delete=bool(getattr(args, "confirm_delete", False)),
-            )
+        options = RepoLocalMigrationOptions(
+            repo=Path(repo_arg),
+            postgres_url=config.url,
+            dry_run=bool(getattr(args, "dry_run", False)),
+            keep_sqlite_readonly=bool(getattr(args, "keep_sqlite_readonly", True)),
+            confirm_delete=bool(getattr(args, "confirm_delete", False)),
         )
+        if bool(getattr(args, "verify_cutover", False)):
+            return verify_repo_cutover(options)
+        return migrate_repo_local(options)
     raise StriatumError("unknown daemon command", exit_code=2)
 
 
@@ -73,6 +75,7 @@ def run_go_daemon_foreground(*, postgres_url: str | None = None) -> Any:
     command.extend(["--socket", str(socket_path)])
     if postgres_url:
         command.extend(["--postgres-url", postgres_url])
+    command.extend(["--migrations-sha-source", str(resolve_migrations_sha_source())])
     os.execv(str(binary), command)
 
 
@@ -103,6 +106,10 @@ def resolve_go_binary() -> Path:
         "Go daemon binary not found; set STRIATUMD_GO_BIN or build go/bin/striatumd",
         exit_code=2,
     )
+
+
+def resolve_migrations_sha_source() -> Path:
+    return Path(__file__).resolve().parents[1] / "daemon_pg" / "sql"
 
 
 def _resolve_packaged_go_binary() -> Path | None:
