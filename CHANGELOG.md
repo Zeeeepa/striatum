@@ -85,6 +85,9 @@ Recent checkpoints:
   CSRF/context-token tests.
 - Workflow template listing/show and workflow generation preview/write response
   shaping moved from `service.py` into `striatum.web.workflow_generation`.
+- Workflow validation now rejects `needs_revision` cycles whose `from`/`to`
+  jobs cross phase boundaries, closing the RFC 0045 V1.5 cycle phase-jump
+  validator gap.
 - Roadmap kickoff status and remediation sequencing notes were refreshed to
   match the post-v1.55.0 daemon-first architecture work and the current
   blocked-policy boundaries.

@@ -189,3 +189,18 @@ def test_cross_phase_edges_cannot_skip_phases() -> None:
 
     with pytest.raises(WorkflowError, match="skips phases"):
         validate_workflow(workflow)
+
+
+def test_revision_cycles_must_stay_within_one_phase() -> None:
+    workflow = _workflow()
+    workflow["cycles"] = [
+        {
+            "from": "synthesize_build",
+            "to": "design_a",
+            "on_verdict": "needs_revision",
+            "max_iterations": 1,
+        }
+    ]
+
+    with pytest.raises(WorkflowError, match="revision cycles must stay within"):
+        validate_workflow(workflow)

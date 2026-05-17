@@ -661,6 +661,12 @@ def validate_workflow(
                     "cross-repo cycles must declare cross_repo_cycle=true",
                     field_path=f"cycles[{cycle_index}].cross_repo_cycle",
                 )
+        _validate_phase_cycle(
+            cycle_index,
+            from_id,
+            to_id,
+            phase_index=phase_index,
+        )
     _validate_cycle_targets_feed_sources(workflow, job_map=job_map)
     _validate_parallelism(jobs)
     _validate_parallelism_config(workflow, cross_repo=cross_repo)
@@ -994,6 +1000,27 @@ def _validate_phase_edges(
                 f"workflow edge {from_id!r} -> {to_id!r} cannot target a later "
                 "phase_synthesis job"
             )
+
+
+def _validate_phase_cycle(
+    cycle_index: int,
+    from_id: str,
+    to_id: str,
+    *,
+    phase_index: PhaseIndex,
+) -> None:
+    if not phase_index["declared"]:
+        return
+    job_phase = cast(dict[str, str], phase_index["job_phase"])
+    from_phase = job_phase[from_id]
+    to_phase = job_phase[to_id]
+    if from_phase == to_phase:
+        return
+    raise WorkflowError(
+        f"workflow cycle {from_id!r} -> {to_id!r} crosses phases; "
+        "revision cycles must stay within a single phase",
+        field_path=f"cycles[{cycle_index}].to",
+    )
 
 
 def edge_dependency_pairs(
