@@ -36,7 +36,9 @@ in the roadmap/TODO and has several production slices landed:
   authoring reads kept in an explicit service list. Production service
   startup now checks daemon/repository health through daemon `doctor` before
   binding; the old SQLite integrity check is limited to the subprocess
-  compatibility harness.
+  compatibility harness. The web SSE event stream now polls daemon
+  `run.events` in production, with the old SQLite event tail kept only for
+  the same subprocess harness.
 - **Escalation inbox foundation.**
   `escalation.list`, `escalation.show`, and `escalation.resolve` project
   human-principal escalations from blocker state. The `escalation` artifact

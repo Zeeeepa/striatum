@@ -1299,6 +1299,79 @@ def test_serve_unix_socket_binds_with_0600(tmp_path: Path) -> None:
 # ----- 10. SSE replay via ?since ------------------------------------------
 
 
+def test_sse_stream_reads_daemon_events_without_sqlite(
+    tmp_path: Path, monkeypatch: Any
+) -> None:
+    from io import BytesIO
+
+    sys.path.insert(0, str(ROOT / "src"))
+    try:
+        import striatum.service as service
+        import striatum.service_daemon as service_daemon
+    finally:
+        sys.path.pop(0)
+
+    calls: list[tuple[Path, str, dict[str, Any]]] = []
+    batches: list[dict[str, Any]] = [
+        {
+            "run": {"run_id": "run_daemon", "state": "running"},
+            "events": [
+                {
+                    "event_id": 11,
+                    "run_id": "run_daemon",
+                    "type": "demo.event",
+                    "actor_session_id": "sess_1",
+                    "job_id": "job_1",
+                    "payload": {"i": 1},
+                    "created_at": "2026-05-17T00:00:00Z",
+                }
+            ],
+        },
+        {"run": {"run_id": "run_daemon", "state": "completed"}, "events": []},
+    ]
+
+    def sqlite_tripwire(*args: Any, **kwargs: Any) -> None:
+        raise AssertionError("SSE stream opened repo-local SQLite")
+
+    def fake_call_repo_method(
+        repo: Path, method: str, params: dict[str, Any]
+    ) -> dict[str, Any]:
+        calls.append((repo, method, dict(params)))
+        return batches.pop(0)
+
+    handler = object.__new__(service.StriatumServiceHandler)
+    handler.state = service.ServiceState(
+        repo=tmp_path,
+        allow_mutations=False,
+        token=None,
+        web_enabled=True,
+    )
+    responses: list[int] = []
+    headers: dict[str, str] = {}
+    handler.wfile = BytesIO()
+    monkeypatch.delenv("STRIATUM_TEST_HARNESS", raising=False)
+    monkeypatch.delenv("STRIATUM_DAEMON_REQUIRED", raising=False)
+    monkeypatch.setattr(handler, "send_response", lambda status: responses.append(status))
+    monkeypatch.setattr(handler, "send_header", lambda key, value: headers.update({key: value}))
+    monkeypatch.setattr(handler, "end_headers", lambda: None)
+    monkeypatch.setattr("striatum.service.time.sleep", lambda seconds: None)
+    monkeypatch.setattr("striatum.service.sqlite3.connect", sqlite_tripwire)
+    monkeypatch.setattr(service_daemon, "call_repo_method", fake_call_repo_method)
+
+    handler._stream_events("run_daemon", since=10)
+
+    assert calls == [
+        (tmp_path, "run.events", {"run_id": "run_daemon", "since_event_id": 10, "limit": 100}),
+        (tmp_path, "run.events", {"run_id": "run_daemon", "since_event_id": 11, "limit": 100}),
+    ]
+    assert responses == [200]
+    assert headers["Content-Type"] == "text/event-stream"
+    body = handler.wfile.getvalue().decode("utf-8")
+    assert "event: striatum.event" in body
+    assert '"type": "demo.event"' in body
+    assert "event: striatum.run_terminal" in body
+
+
 def test_serve_sse_replay_with_since(tmp_path: Path) -> None:
     _git_init_repo(tmp_path)
     _striatum_init(tmp_path)

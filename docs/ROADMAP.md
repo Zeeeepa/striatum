@@ -363,9 +363,12 @@ daemon-first without needing to support two domain daemons.
 - Production service startup now verifies daemon/repository health through
   daemon `doctor` before binding. The old SQLite integrity check remains
   only for subprocess fixtures running under the legacy test-harness escape.
+- The web SSE stream now uses daemon `run.events` in production and retains
+  direct SQLite event tailing only for subprocess fixtures under the same
+  test-harness escape.
 
 **Remaining Phase 4 debt:** run-now still has multi-step SQLite transaction
-semantics; run detail, job detail, and SSE still need daemon DTOs.
+semantics; run detail and job detail still need daemon DTOs.
 
 ---
 

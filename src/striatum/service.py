@@ -3820,6 +3820,80 @@ class StriatumServiceHandler(BaseHTTPRequestHandler):
         if not self.state.acquire_sse_slot(run_id):
             self._send_json(429, {"ok": False, "error": {"code": 429, "message": f"too many concurrent SSE streams for run {run_id}"}})
             return
+        try:
+            if _legacy_web_read_fallback_enabled("daemon_unreachable"):
+                self._stream_events_legacy_body(run_id, since=since)
+                return
+            self._stream_events_daemon_body(run_id, since=since)
+        finally:
+            self.state.release_sse_slot(run_id)
+
+    def _stream_events_daemon_body(self, run_id: str, *, since: int) -> None:
+        from striatum.service_daemon import ServiceDaemonRpcError, call_repo_method
+
+        last_id = since
+        try:
+            payload = call_repo_method(
+                self.state.repo,
+                "run.events",
+                {"run_id": run_id, "since_event_id": last_id, "limit": 100},
+            )
+        except ServiceDaemonRpcError as exc:
+            self._send_json(
+                exc.status,
+                {"ok": False, "error": {"code": exc.code, "message": exc.message}},
+            )
+            return
+        try:
+            self.send_response(200)
+            self.send_header("Content-Type", "text/event-stream")
+            self.send_header("Cache-Control", "no-cache")
+            self.send_header("Connection", "close")
+            self.send_header("X-Accel-Buffering", "no")
+            self.end_headers()
+            while not self.state.shutting_down:
+                rows = payload.get("events")
+                events = rows if isinstance(rows, list) else []
+                for row in events:
+                    if not isinstance(row, Mapping):
+                        continue
+                    event_id = int(row.get("event_id") or last_id)
+                    self._write_sse_event("striatum.event", event_id, dict(row))
+                    last_id = event_id
+                run_raw = payload.get("run")
+                run: Mapping[str, Any] = run_raw if isinstance(run_raw, Mapping) else {}
+                run_state = str(run.get("state") or "")
+                if run_state in {"completed", "failed", "canceled"} and not events:
+                    self._write_sse_event(
+                        "striatum.run_terminal",
+                        last_id,
+                        {"run_id": run_id, "state": run_state},
+                    )
+                    break
+                time.sleep(SSE_POLL_INTERVAL_SECONDS)
+                try:
+                    payload = call_repo_method(
+                        self.state.repo,
+                        "run.events",
+                        {"run_id": run_id, "since_event_id": last_id, "limit": 100},
+                    )
+                except ServiceDaemonRpcError as exc:
+                    self._write_sse_event(
+                        "striatum.error",
+                        last_id,
+                        {"run_id": run_id, "code": exc.code, "message": exc.message},
+                    )
+                    break
+            if self.state.shutting_down:
+                self._write_sse_event(
+                    "striatum.shutdown",
+                    last_id,
+                    {"run_id": run_id, "reason": "service_shutting_down"},
+                )
+        except (BrokenPipeError, ConnectionResetError):
+            return
+
+    def _stream_events_legacy_body(self, run_id: str, *, since: int) -> None:
         conn: sqlite3.Connection | None = None
         try:
             self.send_response(200)
@@ -3872,7 +3946,6 @@ class StriatumServiceHandler(BaseHTTPRequestHandler):
         finally:
             if conn is not None:
                 conn.close()
-            self.state.release_sse_slot(run_id)
 
     def _write_sse_event(self, event: str, event_id: int, payload: JsonObject) -> None:
         body = (

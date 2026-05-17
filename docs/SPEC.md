@@ -1141,10 +1141,10 @@ Endpoints (all return the same `{ok, data | error}` envelope as
 - `GET /v1/runs/<id>` — daemon `status` scoped to the run.
 - `GET /v1/runs/<id>/why?id=<entity>` — daemon `why`.
 - `GET /v1/runs/<id>/dashboard` — daemon `dashboard` DTO.
-- `GET /v1/runs/<id>/events` — Server-Sent Events stream. Honors
-  `?since=<event_id>` and `Last-Event-ID` for replay. Emits a
-  `striatum.run_terminal` event and closes when the run reaches a
-  terminal state.
+- `GET /v1/runs/<id>/events` — Server-Sent Events stream over daemon
+  `run.events` in production. Honors `?since=<event_id>` and
+  `Last-Event-ID` for replay. Emits a `striatum.run_terminal` event and
+  closes when the run reaches a terminal state.
 - `GET /v1/doctor` — daemon `doctor` with verbose problem records.
 
 The daemon-backed read endpoints above retain legacy CLI invoke fallback only

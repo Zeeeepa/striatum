@@ -861,9 +861,12 @@ review and plan are root-level operator artifacts:
     authoring reads left in an explicit service allowlist. Production service
     startup now verifies daemon/repository health via daemon `doctor` before
     binding; the old SQLite integrity check remains only for subprocess
-    fixtures under the test-harness escape. Remaining: split `service.py`,
-    replace the rest of the direct SQLite-shaped reads with daemon RPC DTOs,
-    replace run-now's multi-step SQLite transaction carefully, and move SSE.
+    fixtures under the test-harness escape. The web SSE stream now uses
+    daemon `run.events` in production, with direct SQLite event tailing
+    limited to the same subprocess fixture path. Remaining: split
+    `service.py`, replace the rest of the direct SQLite-shaped reads with
+    daemon RPC DTOs, and replace run-now's multi-step SQLite transaction
+    carefully.
 
 53. **Phase 5: real escalation inbox.** First slice landed:
     `escalation.list`, `escalation.show`, and `escalation.resolve`
