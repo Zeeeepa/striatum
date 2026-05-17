@@ -56,7 +56,10 @@ in the roadmap/TODO and has several production slices landed:
   stable-hash, safe-git, and multipart helpers now live in
   `striatum.web.chat_session`, with thin `service.py` compatibility aliases.
   The gated subprocess-fixture mutation fallbacks and legacy error mappers
-  now live in `service_legacy.py`.
+  now live in `service_legacy.py`. The remaining legacy page-read payload
+  builders, view-file breadcrumb lookup, doctor-page fixture payload, SSE
+  event tail, and legacy startup integrity check are now quarantined there as
+  well; `service.py` no longer imports or opens repo-local SQLite directly.
 - **Escalation inbox foundation.**
   `escalation.list`, `escalation.show`, and `escalation.resolve` project
   human-principal escalations from blocker state. The `escalation` artifact

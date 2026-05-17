@@ -639,7 +639,7 @@ def test_service_run_detail_passes_phase_progress_context(tmp_path: Path, monkey
         "render_run_graph",
         lambda workflow, node_states, *, run_id, jobs: "<svg></svg>",
     )
-    monkeypatch.setattr("striatum.service.sqlite3.connect", sqlite_tripwire)
+    monkeypatch.setattr("striatum.service_legacy.sqlite3.connect", sqlite_tripwire)
     monkeypatch.setattr(service_daemon, "call_repo_method", fake_call_repo_method)
 
     handler._render_run_detail_page("run_phased")
@@ -735,7 +735,7 @@ def test_service_job_detail_reads_daemon_dto_without_sqlite(
         lambda status, body: sent.update({"status": status, "body": body}),
     )
     monkeypatch.setattr(service, "_jinja_env", lambda: FakeEnvironment())
-    monkeypatch.setattr("striatum.service.sqlite3.connect", sqlite_tripwire)
+    monkeypatch.setattr("striatum.service_legacy.sqlite3.connect", sqlite_tripwire)
     monkeypatch.setattr(service_daemon, "call_repo_method", fake_call_repo_method)
 
     handler._render_job_detail_page("run_123", "review")
@@ -823,7 +823,7 @@ def test_service_run_list_reads_daemon_dto_without_sqlite(
         lambda status, body: sent.update({"status": status, "body": body}),
     )
     monkeypatch.setattr(service, "_jinja_env", lambda: FakeEnvironment())
-    monkeypatch.setattr("striatum.service.sqlite3.connect", sqlite_tripwire)
+    monkeypatch.setattr("striatum.service_legacy.sqlite3.connect", sqlite_tripwire)
     monkeypatch.setattr(service_daemon, "call_repo_method", fake_call_repo_method)
 
     handler._render_run_list_page()
@@ -870,7 +870,7 @@ def test_chat_briefing_active_runs_reads_daemon_dto_without_sqlite(
         }
 
     monkeypatch.setattr(service, "_safe_git", lambda repo, argv: "")
-    monkeypatch.setattr("striatum.service.sqlite3.connect", sqlite_tripwire)
+    monkeypatch.setattr("striatum.service_legacy.sqlite3.connect", sqlite_tripwire)
     monkeypatch.setattr(service_daemon, "call_repo_method", fake_call_repo_method)
 
     briefing = service._build_chat_briefing(tmp_path)
@@ -958,7 +958,7 @@ def test_run_posture_verdicts_reads_daemon_dto_without_sqlite(
         lambda status, body: sent.update({"status": status, "body": body}),
     )
     monkeypatch.setattr(service, "_jinja_env", lambda: FakeEnvironment())
-    monkeypatch.setattr("striatum.service.sqlite3.connect", sqlite_tripwire)
+    monkeypatch.setattr("striatum.service_legacy.sqlite3.connect", sqlite_tripwire)
     monkeypatch.setattr(service_daemon, "call_repo_method", fake_call_repo_method)
 
     handler._render_run_posture_verdicts_page("run_daemon", "security")
@@ -1019,7 +1019,7 @@ def test_artifact_raw_reads_daemon_dto_without_sqlite(tmp_path: Path, monkeypatc
     monkeypatch.setattr(handler, "send_response", lambda status: responses.append(status))
     monkeypatch.setattr(handler, "send_header", lambda key, value: headers.update({key: value}))
     monkeypatch.setattr(handler, "end_headers", lambda: None)
-    monkeypatch.setattr("striatum.service.sqlite3.connect", sqlite_tripwire)
+    monkeypatch.setattr("striatum.service_legacy.sqlite3.connect", sqlite_tripwire)
     monkeypatch.setattr(service_daemon, "call_repo_method", fake_call_repo_method)
 
     handler._handle_artifact_raw("art_daemon")
@@ -1103,7 +1103,7 @@ def test_artifact_view_reads_daemon_dto_without_sqlite(tmp_path: Path, monkeypat
         lambda status, body: sent.update({"status": status, "body": body}),
     )
     monkeypatch.setattr(service, "_jinja_env", lambda: FakeEnvironment())
-    monkeypatch.setattr("striatum.service.sqlite3.connect", sqlite_tripwire)
+    monkeypatch.setattr("striatum.service_legacy.sqlite3.connect", sqlite_tripwire)
     monkeypatch.setattr(service_daemon, "call_repo_method", fake_call_repo_method)
 
     handler._render_artifact_view_page("run_daemon", "art_daemon")
@@ -1151,7 +1151,7 @@ def test_json_read_endpoints_route_daemon_without_invoke_or_sqlite(
         calls.append((repo, method, dict(params)))
         return {"method": method, "params": dict(params)}
 
-    monkeypatch.setattr("striatum.service.sqlite3.connect", sqlite_tripwire)
+    monkeypatch.setattr("striatum.service_legacy.sqlite3.connect", sqlite_tripwire)
     monkeypatch.setattr(service, "invoke", invoke_tripwire)
     monkeypatch.setattr(service_daemon, "call_repo_method", fake_call_repo_method)
 
@@ -1494,7 +1494,7 @@ def test_service_startup_checks_daemon_doctor_without_sqlite(
 
     monkeypatch.delenv("STRIATUM_TEST_HARNESS", raising=False)
     monkeypatch.delenv("STRIATUM_DAEMON_REQUIRED", raising=False)
-    monkeypatch.setattr("striatum.service.sqlite3.connect", sqlite_tripwire)
+    monkeypatch.setattr("striatum.service_legacy.sqlite3.connect", sqlite_tripwire)
     monkeypatch.setattr(service_daemon, "call_repo_method", fake_call_repo_method)
 
     service._verify_service_startup(tmp_path)
@@ -1644,7 +1644,7 @@ def test_sse_stream_reads_daemon_events_without_sqlite(
     monkeypatch.setattr(handler, "send_header", lambda key, value: headers.update({key: value}))
     monkeypatch.setattr(handler, "end_headers", lambda: None)
     monkeypatch.setattr("striatum.service.time.sleep", lambda seconds: None)
-    monkeypatch.setattr("striatum.service.sqlite3.connect", sqlite_tripwire)
+    monkeypatch.setattr("striatum.service_legacy.sqlite3.connect", sqlite_tripwire)
     monkeypatch.setattr(service_daemon, "call_repo_method", fake_call_repo_method)
 
     handler._stream_events("run_daemon", since=10)

@@ -884,10 +884,12 @@ review and plan are root-level operator artifacts:
     `web/chat_session.py` owns chat transcript projection, briefing,
     JSONL append, timestamp, stable-hash, safe-git, and multipart helpers.
     Follow-up quarantine landed: `service_legacy.py` owns gated
-    subprocess-fixture mutation fallbacks and legacy error mappers.
-    Remaining: continue splitting `service.py` along stable boundaries, with
-    the remaining legacy page-read payload fallbacks as the next low-risk
-    quarantine target.
+    subprocess-fixture mutation fallbacks, legacy error mappers, legacy
+    page-read payload builders, the view-file breadcrumb lookup, doctor-page
+    fixture payload, SSE event tail, and legacy startup integrity check.
+    `service.py` no longer imports or opens repo-local SQLite directly.
+    Remaining: continue splitting `service.py` along stable non-SQLite
+    request-handling and rendering boundaries.
 
 53. **Phase 5: real escalation inbox.** First slice landed:
     `escalation.list`, `escalation.show`, and `escalation.resolve`

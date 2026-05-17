@@ -394,10 +394,14 @@ daemon-first without needing to support two domain daemons.
 - `src/striatum/service_legacy.py` now owns the gated subprocess-fixture
   mutation fallbacks and legacy error mappers, narrowing `service.py` toward
   request handling plus rendering.
+- `src/striatum/service_legacy.py` also owns the remaining legacy page-read
+  payload builders, view-file breadcrumb lookup, doctor-page fixture payload,
+  SSE event tail, and legacy startup integrity check. `service.py` no longer
+  imports or opens repo-local SQLite directly.
 
 **Remaining Phase 4 debt:** continue splitting `service.py` along stable
-boundaries, with the remaining legacy page-read payload fallbacks as the next
-low-risk quarantine target after the daemon-routed paths are stable.
+non-SQLite request-handling and rendering boundaries after the daemon-routed
+paths are stable.
 
 ---
 

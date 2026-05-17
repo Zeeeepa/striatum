@@ -106,13 +106,9 @@ PRODUCTION_SQLITE_QUARANTINE = {
         "service transition",
         "legacy recovery watcher retained for fixture and service transition",
     ),
-    Path("src/striatum/service.py"): SQLiteClassification(
-        "service transition",
-        "local web service keeps gated legacy fixture fallbacks during daemon-first transition",
-    ),
     Path("src/striatum/service_legacy.py"): SQLiteClassification(
         "service transition",
-        "gated subprocess-fixture web fallbacks isolated from primary service code",
+        "gated subprocess-fixture web fallbacks and legacy page reads isolated from primary service code",
     ),
     # Adapter, supervisor, artifact, byline, and workflow helpers whose
     # production authority has moved to daemon/Postgres but whose legacy
@@ -243,6 +239,31 @@ def test_production_sqlite_references_are_quarantined_by_category() -> None:
         and classification.reason
         for classification in PRODUCTION_SQLITE_QUARANTINE.values()
     )
+
+
+def test_service_primary_module_no_longer_opens_legacy_sqlite() -> None:
+    offenders = _sqlite_references_under(ROOT / "src" / "striatum")
+
+    assert Path("src/striatum/service.py") not in offenders
+
+
+def test_legacy_service_owns_page_read_payload_fallbacks() -> None:
+    service_source = (ROOT / "src" / "striatum" / "service.py").read_text(encoding="utf-8")
+    legacy_source = (ROOT / "src" / "striatum" / "service_legacy.py").read_text(encoding="utf-8")
+
+    page_payload_builders = {
+        "legacy_run_detail_payload",
+        "legacy_job_detail_payload",
+        "legacy_run_posture_verdicts_payload",
+        "legacy_artifact_view_payload",
+        "legacy_doctor_page_payload",
+        "legacy_view_file_run_breadcrumb",
+    }
+
+    for name in page_payload_builders:
+        assert f"def {name}(" in legacy_source
+        assert f"def _{name}(" not in service_source
+        assert f"def {name}(" not in service_source
 
 
 def test_test_sqlite_references_are_classified_as_test_fixtures() -> None:
