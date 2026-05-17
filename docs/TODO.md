@@ -115,7 +115,7 @@ so external references keep resolving even as items move between sections.
 | 61 | RFC 0068 Go production daemon port and Python daemon retirement | ⏳ active |
 | 62 | RFC 0069 PostgreSQL-only daemon-global surfaces | 🟡 most done |
 | 63 | RFC 0070 daemon client/service boundary completion | 🟡 most done |
-| 64 | RFC 0071 operator diagnostics and cutover evidence | ⏳ queued |
+| 64 | RFC 0071 operator diagnostics and cutover evidence | 🟡 first slice landed |
 
 Legend: ✅ done · 🟡 most done (sub-tasks remain) · ⏳ open/blocked · 💤 shelved
 
@@ -1239,10 +1239,14 @@ review and plan are root-level operator artifacts:
     keep the primitive daemon-method workflow as the supported path, plus the
     broader Python-daemon retirement under RFC 0068.
 
-64. **RFC 0071: operator diagnostics and cutover evidence.** Queued after
-    items 61-63. Add a verify-only cutover report, authority diagnostics, and
-    generated or stricter-guarded authority documentation after the production
-    authority cleanup lands.
+64. **RFC 0071: operator diagnostics and cutover evidence.** First slice
+    landed: `striatum daemon doctor --authority --json` reports
+    `striatum.authority_report.v1`, including PostgreSQL live-state authority,
+    legacy SQLite registry status, method fallback counts, remaining
+    migration/test-only SQLite exceptions, and remediation recommendations.
+    Remaining: repository-specific verify-cutover evidence and a decision on
+    how much of the command authority matrix should be generated versus
+    curated.
 
 ## GH issue follow-ups
 

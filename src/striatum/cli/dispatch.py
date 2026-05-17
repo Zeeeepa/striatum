@@ -1416,35 +1416,28 @@ def _dispatch_daemon(args: argparse.Namespace) -> object:
                 }
             else:
                 v1 = {"ok": False, "error": str(exc)}
+        except daemon_mod.DaemonRegistryError as exc:
+            if pg.get("ok") and "legacy SQLite daemon registry is disabled" in str(exc):
+                v1 = _post_pg_cutover_sqlite_registry_result(
+                    "Legacy SQLite daemon registry is disabled in production; "
+                    "PostgreSQL is the authoritative daemon state."
+                )
+            else:
+                v1 = {"ok": False, "error": str(exc)}
         except Exception as exc:  # noqa: BLE001 - daemon doctor must still report PG onboarding.
             v1 = {"ok": False, "error": str(exc)}
         result: dict[str, object] = {"mode": "daemon", "postgres": pg, "sqlite_registry": v1}
-        if bool(getattr(args, "explain", False)):
-            # RFC 0048 V1.5: surface per-method routing. Reads the same
-            # registries DaemonRpcRouter consults so the operator can see
-            # which methods are native PG-backed, inline, or CLI-local.
-            from striatum.daemon_pg.handlers import registry as _pg_registry
-            from striatum.daemon_rpc.registry import METHOD_REGISTRY
-            from striatum.daemon_rpc.server import CLI_ROUTES
-            # Importing the handlers package triggers decorator registration
-            # so the registry reflects the running handler set.
-            import striatum.daemon_pg.handlers  # noqa: F401
-            explain_rows: list[dict[str, object]] = []
-            for method_name, entry in sorted(METHOD_REGISTRY.items()):
-                pg_handler = _pg_registry.resolve_pg_handler(method_name)
-                explain_rows.append({
-                    "method": method_name,
-                    "pg_backed": pg_handler is not None,
-                    "daemon_cli_fallback_route": CLI_ROUTES.get(method_name),
-                    "required_capability": entry.required_capability,
-                    "repository_scope": entry.effective_repository_scope_mode,
-                    "deprecated": getattr(entry, "deprecated", False),
-                })
-            result["explain"] = {
-                "method_count": len(explain_rows),
-                "pg_backed_count": sum(1 for r in explain_rows if r["pg_backed"]),
-                "rows": explain_rows,
-            }
+        explain: dict[str, object] | None = None
+        if bool(getattr(args, "explain", False)) or bool(getattr(args, "authority", False)):
+            explain = _daemon_method_authority_explain()
+        if bool(getattr(args, "explain", False)) and explain is not None:
+            result["explain"] = explain
+        if bool(getattr(args, "authority", False)):
+            result["authority"] = _daemon_authority_report(
+                postgres=pg,
+                sqlite_registry=v1,
+                explain=explain or _daemon_method_authority_explain(),
+            )
         return result
     if args.daemon_command == "migrate":
         from striatum.daemon_pg.config import resolve_config
@@ -1488,6 +1481,105 @@ def _dispatch_daemon(args: argparse.Namespace) -> object:
         if args.service_command == "status":
             return service_status(manager=args.manager)
     raise StriatumError("unknown daemon command", exit_code=2)
+
+
+def _post_pg_cutover_sqlite_registry_result(note: str) -> dict[str, object]:
+    return {
+        "ok": True,
+        "status": "post_pg_cutover_unused",
+        "note": note,
+    }
+
+
+def _daemon_method_authority_explain() -> dict[str, object]:
+    # RFC 0048 V1.5 / RFC 0071: surface per-method routing. Reads the same
+    # registries DaemonRpcRouter consults so the operator can see which methods
+    # are native PG-backed, inline, or CLI-local.
+    from striatum.daemon_pg.handlers import registry as _pg_registry
+    from striatum.daemon_rpc.registry import METHOD_REGISTRY
+    from striatum.daemon_rpc.server import CLI_ROUTES
+
+    import striatum.daemon_pg.handlers  # noqa: F401 - register decorators.
+
+    explain_rows: list[dict[str, object]] = []
+    for method_name, entry in sorted(METHOD_REGISTRY.items()):
+        pg_handler = _pg_registry.resolve_pg_handler(method_name)
+        explain_rows.append({
+            "method": method_name,
+            "pg_backed": pg_handler is not None,
+            "daemon_cli_fallback_route": CLI_ROUTES.get(method_name),
+            "required_capability": entry.required_capability,
+            "repository_scope": entry.effective_repository_scope_mode,
+            "deprecated": getattr(entry, "deprecated", False),
+        })
+    return {
+        "method_count": len(explain_rows),
+        "pg_backed_count": sum(1 for row in explain_rows if row["pg_backed"]),
+        "cli_fallback_route_count": sum(
+            1 for row in explain_rows if row["daemon_cli_fallback_route"] is not None
+        ),
+        "rows": explain_rows,
+    }
+
+
+def _daemon_authority_report(
+    *,
+    postgres: dict[str, Any],
+    sqlite_registry: dict[str, Any],
+    explain: dict[str, object],
+) -> dict[str, object]:
+    from striatum import daemon as daemon_mod
+
+    sqlite_status = "error"
+    if sqlite_registry.get("status") == "post_pg_cutover_unused":
+        sqlite_status = "disabled"
+    elif sqlite_registry.get("ok") or (
+        "error" not in sqlite_registry and sqlite_registry.get("ok") is not False
+    ):
+        sqlite_status = "legacy_registry_reachable"
+    method_fallback_count = int(explain.get("cli_fallback_route_count") or 0)
+    legacy_registry_escape = os.environ.get(daemon_mod.ENV_ALLOW_LEGACY_SQLITE_REGISTRY) == "1"
+    test_harness_escape = (
+        os.environ.get("STRIATUM_TEST_HARNESS") == "1"
+        and os.environ.get("STRIATUM_DAEMON_REQUIRED") == "0"
+    )
+    ok = bool(postgres.get("ok")) and sqlite_status == "disabled" and method_fallback_count == 0
+    recommendations: list[str] = []
+    if not bool(postgres.get("ok")):
+        recommendations.append("configure daemon PostgreSQL and rerun daemon doctor")
+    if sqlite_status != "disabled":
+        recommendations.append("disable legacy SQLite registry access outside migration/test fixtures")
+    if method_fallback_count:
+        recommendations.append("remove daemon CLI fallback routes before Go cutover")
+    if legacy_registry_escape:
+        recommendations.append(f"unset {daemon_mod.ENV_ALLOW_LEGACY_SQLITE_REGISTRY} for production")
+    return {
+        "schema_version": "striatum.authority_report.v1",
+        "ok": ok,
+        "live_state_authority": "daemon_postgresql" if postgres.get("ok") else "unavailable",
+        "postgres": {
+            "ok": bool(postgres.get("ok")),
+            "status": postgres.get("status"),
+            "schema_version": postgres.get("schema_version"),
+        },
+        "legacy_sqlite": {
+            "registry_status": sqlite_status,
+            "registry_escape_enabled": legacy_registry_escape,
+            "test_harness_escape_enabled": test_harness_escape,
+            "remaining_allowed_uses": [
+                "daemon migrate from sqlite to pg",
+                "daemon migrate-repo-local source import",
+                "legacy_sqlite service fixture fallback",
+                "test fixtures",
+            ],
+        },
+        "daemon_methods": {
+            "method_count": explain.get("method_count"),
+            "pg_backed_count": explain.get("pg_backed_count"),
+            "cli_fallback_route_count": method_fallback_count,
+        },
+        "recommendations": recommendations,
+    }
 
 
 def _dispatch_daemon_repo(args: argparse.Namespace) -> object:

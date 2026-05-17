@@ -241,6 +241,11 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="show per-method native PG, inline, or CLI-local daemon authority",
     )
+    daemon_doctor.add_argument(
+        "--authority",
+        action="store_true",
+        help="include a cutover authority report for PostgreSQL and legacy SQLite paths",
+    )
     daemon_doctor.add_argument("--json", action="store_true")
     daemon_migrate = daemon_sub.add_parser("migrate")
     daemon_migrate.add_argument("--from", dest="from_substrate", choices=["sqlite"], required=True)

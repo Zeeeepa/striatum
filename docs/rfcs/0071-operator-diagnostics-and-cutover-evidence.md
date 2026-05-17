@@ -1,6 +1,6 @@
 # RFC 0071: Operator Diagnostics and Cutover Evidence
 
-Status: proposed
+Status: partially implemented
 Date: 2026-05-17
 Context: [RFC 0043](0043-postgres-as-sole-substrate-and-daemon-required-runtime.md), [RFC 0058](0058-operator-progress-surface.md), [RFC 0069](0069-pg-only-daemon-global-surfaces.md), [RFC 0070](0070-daemon-client-service-boundary.md)
 
@@ -47,10 +47,21 @@ After RFC 0069 and RFC 0070 land:
 - Documentation points operators to diagnostics without implying direct DB
   inspection is acceptable.
 
+## Implementation Notes
+
+- `striatum daemon doctor --authority --json` now emits
+  `striatum.authority_report.v1` with PostgreSQL status, legacy SQLite
+  registry status, daemon method fallback counts, allowed migration/test-only
+  SQLite exceptions, and remediation recommendations.
+- The daemon doctor treats a production-disabled legacy SQLite registry as the
+  expected post-cutover state when PostgreSQL doctor is healthy.
+- Repository-specific cutover verification remains open; the first slice is
+  daemon/global authority evidence.
+
 ## Open Questions
 
-- Should cutover verification be a repo command, a daemon doctor section, or
-  both?
+- Should repository-specific cutover verification be a repo command, a daemon
+  doctor section, or both?
 - How much of `docs/architecture/COMMAND_AUTHORITY_MATRIX.md` should be
   generated versus curated?
 

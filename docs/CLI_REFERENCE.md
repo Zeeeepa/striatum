@@ -171,7 +171,7 @@ striatum daemon service start [--manager auto|systemd|launchd] [--dry-run]
 striatum daemon service status [--manager auto|systemd|launchd]
 striatum daemon doctor [--postgres-url <url>] [--apply-migrations]
                        [--provision-rw-role] [--repair-grants]
-                       [--explain] [--json]
+                       [--explain] [--authority] [--json]
 striatum daemon migrate --from sqlite --to pg [--dry-run]
                          [--keep-sqlite-readonly]
 striatum daemon migrate-repo-local --from sqlite --to pg
@@ -245,6 +245,9 @@ exits so operators can review before applying.
 when the current Postgres connection can create roles. `--repair-grants`
 applies the runtime grants and append-only revokes; when privileges are
 insufficient, doctor returns pasteable SQL for an admin session.
+`--authority` adds a cutover report that names PostgreSQL live-state
+authority, legacy SQLite registry status, method fallback counts, and
+remaining migration/test-only SQLite exceptions.
 
 `daemon migrate --from sqlite --to pg --dry-run` reports the V1
 registry rows that would be exported. Without `--dry-run`, it

@@ -82,7 +82,7 @@ and, when behavior changes, `docs/SPEC.md`.
 | [0068](0068-go-production-daemon-port.md) | accepted | Go production daemon port: supersede D105, retire the Python daemon after parity, keep Python CLI/web clients where useful, and eradicate SQLite from production and compatibility paths. |
 | [0069](0069-pg-only-daemon-global-surfaces.md) | partially implemented | PostgreSQL-only daemon-global surfaces for startup, health, audit, sweep, dashboard-all, and daemon MCP resources. |
 | [0070](0070-daemon-client-service-boundary.md) | partially implemented | Daemon client/service boundary completion: daemon-side repo resolution, `/v1/invoke` daemon routing, local API/MCP quarantine, and dogfood composite disposition. |
-| [0071](0071-operator-diagnostics-and-cutover-evidence.md) | proposed | Operator diagnostics and cutover evidence after the authority cleanup lands. |
+| [0071](0071-operator-diagnostics-and-cutover-evidence.md) | partially implemented | Operator diagnostics and cutover evidence after the authority cleanup lands. |
 
 ## Template
 
