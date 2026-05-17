@@ -1251,8 +1251,9 @@ review and plan are root-level operator artifacts:
     projections when `pg_conn` is present, with SQLite-registry tripwire
     coverage. `striatum daemon audit` now reads from and audits to PostgreSQL
     when a daemon DB is configured, with legacy field names retained for CLI
-    compatibility. `connect_registry()` is gated behind explicit migration/test
-    compatibility escapes. Residual daemon-global gaps are full
+    compatibility. `connect_registry()` requires the paired test-harness
+    compatibility escape; the old single-variable legacy-registry opt-in is
+    diagnostic-only. Residual daemon-global gaps are full
     `dashboard.all` parity for phase progress, auto-finalize detail,
     supervisor-stall detail, and any remaining health/doctor registry probes.
 

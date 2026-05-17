@@ -191,8 +191,6 @@ def connect_registry() -> sqlite3.Connection:
 
 
 def _legacy_sqlite_registry_allowed() -> bool:
-    if os.environ.get(ENV_ALLOW_LEGACY_SQLITE_REGISTRY) == "1":
-        return True
     return (
         os.environ.get("STRIATUM_TEST_HARNESS") == "1"
         and os.environ.get("STRIATUM_DAEMON_REQUIRED") == "0"

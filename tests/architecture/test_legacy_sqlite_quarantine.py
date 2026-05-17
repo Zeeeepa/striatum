@@ -311,7 +311,7 @@ def test_production_daemon_global_surfaces_refuse_before_sqlite_registry_connect
     assert not registry.exists()
 
 
-def test_legacy_sqlite_registry_requires_explicit_compatibility_escape(
+def test_legacy_sqlite_registry_refuses_unpaired_compatibility_escape(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -321,6 +321,23 @@ def test_legacy_sqlite_registry_requires_explicit_compatibility_escape(
     monkeypatch.setenv("STRIATUM_DAEMON_REQUIRED", "1")
     monkeypatch.delenv("STRIATUM_TEST_HARNESS", raising=False)
     monkeypatch.setenv(daemon.ENV_ALLOW_LEGACY_SQLITE_REGISTRY, "1")
+
+    with pytest.raises(daemon.DaemonRegistryError, match="legacy SQLite daemon registry is disabled"):
+        daemon.connect_registry()
+
+    assert not registry.exists()
+
+
+def test_legacy_sqlite_registry_allows_test_harness_pair_only(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    registry = tmp_path / "daemon" / "striatumd.sqlite3"
+    monkeypatch.setenv(daemon.ENV_REGISTRY, str(registry))
+    monkeypatch.setenv(daemon.ENV_RUNTIME, str(tmp_path / "runtime"))
+    monkeypatch.setenv("STRIATUM_DAEMON_REQUIRED", "0")
+    monkeypatch.setenv("STRIATUM_TEST_HARNESS", "1")
+    monkeypatch.delenv(daemon.ENV_ALLOW_LEGACY_SQLITE_REGISTRY, raising=False)
 
     conn = daemon.connect_registry()
     conn.close()

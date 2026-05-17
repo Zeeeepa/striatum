@@ -346,6 +346,10 @@ Recent checkpoints:
 - The legacy `byline` helper and `inbox --session-id` packet helper are also
   retired outside fixtures; production clients should use daemon read
   surfaces.
+- The legacy SQLite daemon registry compatibility escape now requires the
+  paired test-harness markers; setting only
+  `STRIATUM_ALLOW_LEGACY_SQLITE_REGISTRY=1` no longer reopens production
+  registry access.
 - `daemon migrate-repo-local --verify-cutover --json` now emits
   `striatum.repo_cutover_report.v1` using PostgreSQL queries plus raw
   source/tombstone/sentinel file checks, without opening SQLite as a database.
