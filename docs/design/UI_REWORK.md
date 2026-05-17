@@ -1452,10 +1452,11 @@ muted "not yet correlated" chip until GH #5 V1.7 lands the
   `override-verdict --session-id ... --job-id ...
   [--auto-fresh-session] --verdict ... --rationale ...
   [--findings-artifact-id ...] --json`.
-- `src/striatum/service.py` — the existing
-  `POST /v1/invoke` whitelist already routes `override-verdict`
-  through `striatum.api.invoke` when `--allow-mutations` is on.
-  No changes required.
+- `src/striatum/service.py` — this V1.41 design originally used the
+  `POST /v1/invoke` whitelist and `striatum.api.invoke` mutation path. The
+  current production service routes daemon-mapped reads and mutations through
+  daemon RPC; `api.invoke` remains only for explicit local authoring and
+  compatibility fixtures.
 
 **Backend / model support required.** None. V1.41 B1
 (`override-verdict --auto-fresh-session`) is shipped.

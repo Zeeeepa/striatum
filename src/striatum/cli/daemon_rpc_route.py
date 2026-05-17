@@ -60,7 +60,10 @@ def try_route(args: argparse.Namespace, repo: Path) -> tuple[bool, Any]:
     On RPC error (e.g., ``method_unknown``, ``capability_missing``), the
     function raises :class:`StriatumError` with an appropriate exit code.
     """
-    if os.environ.get("STRIATUM_TEST_HARNESS") == "1":
+    if (
+        os.environ.get("STRIATUM_TEST_HARNESS") == "1"
+        and os.environ.get("STRIATUM_DAEMON_REQUIRED") == "0"
+    ):
         return (False, None)
     # Historical daemon-internal invoke paths set this guard. Keep honoring it
     # so compatibility/test helpers can still re-enter dispatch locally without

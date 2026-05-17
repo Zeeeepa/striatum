@@ -192,8 +192,8 @@ V1 satisfies the Seed Requirements above through the surface documented in
   RFC 0009).
 - Opt-in per-job git worktree isolation (RFC 0008) for parallel repo-write
   jobs, with `worktree create | release | list`.
-- A minimal local Python API (`striatum.api.invoke`) and a stdio JSON-RPC
-  MCP-like wrapper with `Content-Length` framing.
+- A minimal local Python API (`striatum.api.invoke`) for local authoring/test
+  compatibility, plus daemon RPC/MCP surfaces for production run authority.
 
 Out of V1: hosted services, transcript capture, web/Slack dashboards,
 plugin marketplaces, automatic commits, and AI-inferred build

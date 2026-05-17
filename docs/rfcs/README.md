@@ -24,7 +24,7 @@ and, when behavior changes, `docs/SPEC.md`.
 | [0009](0009-long-lived-process-supervision.md) | accepted | Architecture for V2 supervised agent processes that span multiple work packets. |
 | [0010](0010-tool-harness-profiles.md) | accepted | Add tool-specific harness profiles for native delegation and provider features. V1+V1.5+V2 implemented (D056). |
 | [0011](0011-session-close-and-run-terminal-auto-close.md) | accepted | Explicit session-close CLI plus auto-close of active sessions on run-terminal transitions. |
-| [0012](0012-local-service-api.md) | accepted | Local HTTP / Unix-socket API on top of `striatum.api.invoke`, with SSE for events. V1 implemented (D058) under dogfood-006. |
+| [0012](0012-local-service-api.md) | accepted | Local HTTP / Unix-socket API. Historical V1 shipped on top of `striatum.api.invoke` with SSE for events; current production daemon-mapped reads/mutations route through daemon RPC under RFC 0070. |
 | [0013](0013-local-web-ui.md) | accepted (V1+step 7) | Static SPA bundled with the runner, served by `striatum serve --web`. V1 (D059, dogfood-007) shipped read-only views; step 7 (D065, dogfood-013) shipped mutation buttons (verdict, decision, checkpoint resolve continue/cancel, requeue stale review-only) over the existing RFC 0012 mutation gate. |
 | [0014](0014-process-adapter-completion-guarantees.md) | accepted | Post-exit output validation, configurable timeouts, and liveness reconciliation for one-shot `adapter run`. V1 implemented (D057). Closes [#1](https://github.com/halbritt/striatum/issues/1). |
 | [0015](0015-self-contained-agent-skills.md) | accepted (V1+step 3) | `striatum skills install` generates a self-contained agent skill bundle for any installed agent CLI. V1 (D061, dogfood-009) shipped Claude Code + generic profiles; step 3 (D063, dogfood-011) shipped Codex + Gemini profiles + `--profile all`. |
@@ -81,7 +81,7 @@ and, when behavior changes, `docs/SPEC.md`.
 | [0067](0067-optional-git-pr-integration.md) | blocked on product decision | Optional Git/PR integration remains read-only-local-only until commit authority and hosted-provider boundaries are accepted. |
 | [0068](0068-go-production-daemon-port.md) | accepted | Go production daemon port: supersede D105, retire the Python daemon after parity, keep Python CLI/web clients where useful, and eradicate SQLite from production and compatibility paths. |
 | [0069](0069-pg-only-daemon-global-surfaces.md) | partially implemented | PostgreSQL-only daemon-global surfaces for startup, health, audit, sweep, dashboard-all, and daemon MCP resources. |
-| [0070](0070-daemon-client-service-boundary.md) | partially implemented | Daemon client/service boundary completion: daemon-side repo resolution, `/v1/invoke` daemon routing, local API/MCP quarantine, and dogfood composite disposition. |
+| [0070](0070-daemon-client-service-boundary.md) | partially implemented | Daemon client/service boundary completion: daemon-side repo resolution, `/v1/invoke` daemon routing for mapped reads/mutations, local API/MCP quarantine, and dogfood composite disposition. |
 | [0071](0071-operator-diagnostics-and-cutover-evidence.md) | partially implemented | Operator diagnostics and cutover evidence after the authority cleanup lands. |
 
 ## Template

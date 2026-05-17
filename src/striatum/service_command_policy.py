@@ -38,13 +38,13 @@ def is_read_command(argv: list[str]) -> bool:
     return False
 
 
-def daemon_mutation_route_for_argv(argv: list[str], repo: Path) -> DaemonCommandRoute | None:
-    """Return the daemon RPC route for production mutation-shaped invoke argv.
+def daemon_route_for_argv(argv: list[str], repo: Path) -> DaemonCommandRoute | None:
+    """Return the daemon RPC route for production service invoke argv.
 
     The test-harness direct path is deliberately preserved for legacy
-    SQLite-backed service tests. Production service invocations route
-    daemon-mapped mutations through RPC instead of re-entering local CLI
-    dispatch through ``striatum.api.invoke``.
+    SQLite-backed service tests. Production service invocations route mapped
+    daemon methods through RPC instead of re-entering local CLI dispatch through
+    ``striatum.api.invoke``.
     """
 
     if (
@@ -53,6 +53,15 @@ def daemon_mutation_route_for_argv(argv: list[str], repo: Path) -> DaemonCommand
     ):
         return None
     route = _daemon_route_for_argv(argv, repo)
+    if route is None:
+        return None
+    return route
+
+
+def daemon_mutation_route_for_argv(argv: list[str], repo: Path) -> DaemonCommandRoute | None:
+    """Return the daemon RPC route for production mutation-shaped invoke argv."""
+
+    route = daemon_route_for_argv(argv, repo)
     if route is None:
         return None
     from striatum.daemon_rpc.registry import METHOD_REGISTRY

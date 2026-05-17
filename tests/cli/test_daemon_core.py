@@ -72,7 +72,11 @@ def test_go_daemon_launcher_execs_with_migrations_sha_source(
     monkeypatch.setattr(daemon_cli.os, "execv", fake_execv)
 
     with pytest.raises(SystemExit):
-        daemon_cli.run_go_daemon_foreground(postgres_url="postgresql://example/striatum")
+        daemon_cli.run_go_daemon_foreground(
+            postgres_url="postgresql://example/striatum",
+            sweep_interval_seconds=12.5,
+            max_sweeps=3,
+        )
 
     migrations_sha_source = daemon_cli.resolve_migrations_sha_source()
     assert migrations_sha_source == (
@@ -85,9 +89,57 @@ def test_go_daemon_launcher_execs_with_migrations_sha_source(
         str(socket),
         "--postgres-url",
         "postgresql://example/striatum",
+        "--sweep-interval-seconds",
+        "12.5",
+        "--max-sweeps",
+        "3",
         "--migrations-sha-source",
         str(migrations_sha_source),
     ]
+
+
+def test_launch_daemon_start_passes_sweep_options_to_go(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_run_go_daemon_foreground(
+        *,
+        postgres_url: str | None = None,
+        sweep_interval_seconds: float = 60.0,
+        max_sweeps: int | None = None,
+    ) -> dict[str, object]:
+        captured["postgres_url"] = postgres_url
+        captured["sweep_interval_seconds"] = sweep_interval_seconds
+        captured["max_sweeps"] = max_sweeps
+        return {"started": True}
+
+    monkeypatch.setattr(
+        daemon_cli,
+        "run_go_daemon_foreground",
+        fake_run_go_daemon_foreground,
+    )
+    args = build_parser().parse_args(
+        [
+            "daemon",
+            "start",
+            "--core",
+            "go",
+            "--postgres-url",
+            "postgresql://example/striatum",
+            "--sweep-interval-seconds",
+            "7.5",
+            "--max-sweeps",
+            "2",
+        ]
+    )
+
+    assert daemon_cli.launch_daemon_start(args) == {"started": True}
+    assert captured == {
+        "postgres_url": "postgresql://example/striatum",
+        "sweep_interval_seconds": 7.5,
+        "max_sweeps": 2,
+    }
 
 
 def test_go_daemon_launcher_rejects_stale_binary_before_exec(

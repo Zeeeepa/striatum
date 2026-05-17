@@ -979,6 +979,10 @@ state. CLI flags
 `recovery_policy` get diagnostic-only output; today's flow is
 preserved as closely as the daemon PG substrate allows.
 
+The Go production-daemon port also runs a resident active-run recovery
+scheduler over the same `recovery.sweep` behavior. That scheduler updates
+daemon-owned PostgreSQL scheduler cursors and does not open repo-local SQLite.
+
 `recovery auto-publish --run-id <id> [--dry-run]` emits the explicit
 `recovery.auto_publish_stale_artifacts` daemon method. It is the
 stale-lease auto-publish path for declared on-disk expected artifacts.
@@ -1151,13 +1155,14 @@ IPs, hostnames that resolve outside loopback) are refused at startup with
 exit 8 — the no-hosted-services boundary (D020) is preserved by
 construction.
 
-Endpoints (all return the same `{ok, data | error}` envelope as
-`striatum.api.invoke`):
+Endpoints return the same `{ok, data | error}` envelope used by Striatum's
+CLI/API clients:
 
 - `GET /v1/health` — `{started_at, version, mode}`. No DB hit.
-- `POST /v1/invoke` — body `{argv: [...]}`; routes through
-  `api.invoke`. Returns 405 when the argv falls outside the read-verb
-  whitelist and `--allow-mutations` is off.
+- `POST /v1/invoke` — body `{argv: [...]}`; daemon-mapped production reads
+  and mutations route through daemon RPC. Explicit CLI-local authoring and
+  test/fixture surfaces may still use `api.invoke`. Returns 405 when the argv
+  falls outside the read-verb whitelist and `--allow-mutations` is off.
 - `GET /v1/runs` — daemon `status`.
 - `GET /v1/runs/<id>` — daemon `status` scoped to the run.
 - `GET /v1/runs/<id>/why?id=<entity>` — daemon `why`.
@@ -1168,10 +1173,10 @@ Endpoints (all return the same `{ok, data | error}` envelope as
   closes when the run reaches a terminal state.
 - `GET /v1/doctor` — daemon `doctor` with verbose problem records.
 
-The daemon-backed read endpoints above retain legacy CLI invoke fallback only
-for subprocess compatibility tests (`STRIATUM_TEST_HARNESS=1` and
-`STRIATUM_DAEMON_REQUIRED=0`); production service reads fail closed when the
-daemon or repository registration is unavailable.
+The daemon-backed service endpoints above retain legacy CLI invoke fallback
+only for subprocess compatibility tests (`STRIATUM_TEST_HARNESS=1` and
+`STRIATUM_DAEMON_REQUIRED=0`); production service reads and mutations fail
+closed when the daemon or repository registration is unavailable.
 Production service startup also calls daemon `doctor` before binding, so a
 missing daemon or unregistered repository is reported before the HTTP/Unix
 socket listener starts. The historical SQLite integrity check is retained

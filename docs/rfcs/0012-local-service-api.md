@@ -3,14 +3,20 @@
 Status: accepted (V1)
 Date: 2026-05-08
 
+Current status note (2026-05-17): RFC 0070 supersedes the original
+production dispatch detail. The service still preserves the RFC 0012 HTTP
+shape, mutation gate, and envelope, but daemon-mapped production reads and
+mutations now dispatch through daemon RPC. `striatum.api.invoke` remains a
+local authoring and compatibility fixture path.
+
 ## V1 Implementation Slice
 
 Implemented under dogfood-006. The V1 build slice landed:
 
 - `src/striatum/service.py` (new) — `ThreadingHTTPServer` for TCP and
-  a Unix-socket variant. Endpoints route every state mutation through
-  `striatum.api.invoke`; the events stream reads the `events` table via
-  a dedicated read connection.
+  a Unix-socket variant. The original V1 endpoints routed state mutation
+  through `striatum.api.invoke` and read events directly; current production
+  endpoints use daemon RPC for daemon-owned state.
 - `striatum serve` CLI verb with `--unix`, `--host`, `--port`,
   `--token`, `--allow-mutations`, `--idle-timeout-seconds`, `--web`,
   `--json` flags.
@@ -64,7 +70,7 @@ The interview-log version of the same conversation (Q005) phrased it as
 "an optional Unix-socket or local HTTP API later for Slack, TUI, and web
 adapters."
 
-Today only two adapter surfaces exist:
+At the time of this V1 RFC, only two adapter surfaces existed:
 
 - `striatum.api.invoke(args, repo=...)` — in-process Python API. Same
   command vocabulary as the CLI; same JSON envelope. Useful for embedding
@@ -80,20 +86,19 @@ network client drive Striatum. Anyone wanting that today has to shell out
 to the CLI per call — paying its startup cost on each invocation and
 losing live event streaming entirely.
 
-The runner already records detailed event rows in SQLite. A long-lived
-local service could expose those events as a stream so live UIs do not
-have to poll, while exposing the rest of the CLI vocabulary as plain
-HTTP endpoints.
+The original runner recorded detailed event rows in SQLite. The current
+daemon-required runtime exposes live state from daemon-owned PostgreSQL via
+daemon RPC, while keeping this RFC's local HTTP/Unix-socket product shape.
 
 ## Goals
 
 - Expose the existing CLI command vocabulary over HTTP and a
   Unix-domain socket without inventing a parallel command surface.
-- Reuse `striatum.api.invoke` as the single dispatch path. The service
-  does not call SQLite directly, does not reimplement transitions, and
-  does not bypass artifact validation.
-- Stream `events` table rows as Server-Sent Events so live UIs (web,
-  TUI watchers, editor extensions) react in real time without polling.
+- Reuse the existing command dispatch path rather than inventing a parallel
+  command surface. Historical V1 used `striatum.api.invoke`; current
+  production daemon-mapped commands route through daemon RPC.
+- Stream event rows as Server-Sent Events so live UIs (web, TUI watchers,
+  editor extensions) react in real time without polling.
 - Default to localhost-only / Unix-socket-only so the existing
   no-hosted-services product boundary (D020) is preserved by
   construction.
@@ -122,7 +127,8 @@ HTTP endpoints.
 
 Add a new CLI command `striatum serve` and a new module
 `src/striatum/service.py` that runs a local-only HTTP/Unix-socket
-server. The server's request handlers reduce to `api.invoke` calls.
+server. The historical V1 server's request handlers reduced to `api.invoke`
+calls; current production handlers use daemon RPC for daemon-owned state.
 
 ### CLI surface
 
@@ -161,13 +167,12 @@ Flag semantics:
 ### HTTP surface
 
 All endpoints return `{"ok": bool, "data": {} | "error": {message,
-code}}` — the same envelope `api.invoke` already uses. JSON Content-
-Type unless noted.
+code}}`, the standard Striatum envelope. JSON Content-Type unless noted.
 
 | Method | Path | Purpose |
 |---|---|---|
 | `GET` | `/v1/health` | Liveness check; returns `{ok:true, data:{started_at, version}}`. Cheap; no DB hit. |
-| `POST` | `/v1/invoke` | Body: `{"argv": [...]}` (the same arg vector the CLI takes after the `striatum` binary). Response: identical to `api.invoke`. |
+| `POST` | `/v1/invoke` | Body: `{"argv": [...]}` (the same arg vector the CLI takes after the `striatum` binary). Current production daemon-mapped reads/mutations dispatch through daemon RPC and return the standard envelope. |
 | `GET` | `/v1/runs` | Convenience: list runs. Equivalent to `striatum status --json`. |
 | `GET` | `/v1/runs/{run_id}` | Single run snapshot (state, jobs, latest verdicts, blockers). |
 | `GET` | `/v1/runs/{run_id}/why?id=<entity_id>` | Convenience over `striatum why`. |
@@ -215,18 +220,16 @@ push direction we need), survives proxies and middleboxes trivially,
 and requires no separate framing library. A future RFC can add
 WebSocket if bidirectional control is needed.
 
-### Reuse of `api.invoke`
+### Historical Reuse of `api.invoke`
 
-Each handler builds an argv vector and calls
-`striatum.api.invoke(argv, repo=service_repo)`. The service does not
-import from `striatum.db` directly except to read events for the SSE
-stream. State transitions, validation, artifact publishing, and
-verdict recording all flow through the existing dispatcher.
+The V1 implementation built an argv vector and called
+`striatum.api.invoke(argv, repo=service_repo)`. Current production
+daemon-mapped handlers dispatch through daemon RPC; `api.invoke` remains
+reserved for explicit local authoring and compatibility fixtures.
 
-This keeps the service trivially correct: any change to CLI behaviour
-(mutation rules, error codes, exit semantics) is automatically
-reflected. The service contract surface is the union of the CLI and
-SSE event types, both of which already have stable shapes.
+This kept the original V1 service small. Current production correctness comes
+from the daemon method registry, capability metadata, and daemon RPC handlers;
+the service still preserves the RFC 0012 local transport and envelope shape.
 
 ### Auth model
 

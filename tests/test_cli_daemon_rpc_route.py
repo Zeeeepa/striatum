@@ -1014,6 +1014,31 @@ def test_registered_rpc_command_fails_closed_when_daemon_unreachable(monkeypatch
         try_route(args, Path("/repo"))
 
 
+def test_registered_rpc_command_fails_closed_with_bare_test_harness(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    args = argparse.Namespace(command="status", run_id="run_1")
+    monkeypatch.setenv("STRIATUM_TEST_HARNESS", "1")
+    monkeypatch.delenv("STRIATUM_DAEMON_REQUIRED", raising=False)
+    monkeypatch.delenv("STRIATUM_IN_DAEMON_HANDLER", raising=False)
+    monkeypatch.setattr("striatum.cli.daemon_rpc_route.resolve_socket_path", lambda: Path("/tmp/missing.sock"))
+    monkeypatch.setattr("striatum.cli.daemon_rpc_route.daemon_socket_is_reachable", lambda _path: False)
+
+    with pytest.raises(StriatumError, match="daemon_unreachable"):
+        try_route(args, Path("/repo"))
+
+
+def test_registered_rpc_command_allows_explicit_legacy_test_opt_out(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    args = argparse.Namespace(command="status", run_id="run_1")
+    monkeypatch.setenv("STRIATUM_TEST_HARNESS", "1")
+    monkeypatch.setenv("STRIATUM_DAEMON_REQUIRED", "0")
+    monkeypatch.delenv("STRIATUM_IN_DAEMON_HANDLER", raising=False)
+
+    assert try_route(args, Path("/repo")) == (False, None)
+
+
 def test_registered_rpc_command_fails_closed_when_repo_unregistered(monkeypatch: pytest.MonkeyPatch) -> None:
     args = argparse.Namespace(command="status", run_id="run_1")
     monkeypatch.delenv("STRIATUM_TEST_HARNESS", raising=False)

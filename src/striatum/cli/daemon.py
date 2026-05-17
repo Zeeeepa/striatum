@@ -68,13 +68,21 @@ def run_python_daemon_foreground(args: argparse.Namespace) -> Any:
     )
 
 
-def run_go_daemon_foreground(*, postgres_url: str | None = None) -> Any:
+def run_go_daemon_foreground(
+    *,
+    postgres_url: str | None = None,
+    sweep_interval_seconds: float = 60.0,
+    max_sweeps: int | None = None,
+) -> Any:
     binary = resolve_go_binary()
     command = [str(binary)]
     socket_path = daemon_mod.socket_path()
     command.extend(["--socket", str(socket_path)])
     if postgres_url:
         command.extend(["--postgres-url", postgres_url])
+    command.extend(["--sweep-interval-seconds", str(float(sweep_interval_seconds))])
+    if max_sweeps is not None:
+        command.extend(["--max-sweeps", str(max_sweeps)])
     command.extend(["--migrations-sha-source", str(resolve_migrations_sha_source())])
     os.execv(str(binary), command)
 
@@ -83,7 +91,11 @@ def launch_daemon_start(args: argparse.Namespace) -> Any:
     core = resolve_daemon_core(getattr(args, "core", None))
     if core == "python":
         return run_python_daemon_foreground(args)
-    return run_go_daemon_foreground(postgres_url=getattr(args, "postgres_url", None))
+    return run_go_daemon_foreground(
+        postgres_url=getattr(args, "postgres_url", None),
+        sweep_interval_seconds=float(args.sweep_interval_seconds),
+        max_sweeps=args.max_sweeps,
+    )
 
 
 def resolve_go_binary() -> Path:

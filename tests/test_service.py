@@ -483,6 +483,69 @@ def test_v1_invoke_daemon_mapped_mutation_uses_daemon_rpc_not_api_invoke(
     ]
 
 
+def test_v1_invoke_daemon_mapped_read_uses_daemon_rpc_not_api_invoke(
+    tmp_path: Path, monkeypatch: Any
+) -> None:
+    sys.path.insert(0, str(ROOT / "src"))
+    try:
+        from email.message import Message
+        from io import BytesIO
+
+        import striatum.api as api
+        import striatum.service as service
+        import striatum.service_daemon as service_daemon
+    finally:
+        sys.path.pop(0)
+
+    monkeypatch.delenv("STRIATUM_TEST_HARNESS", raising=False)
+    monkeypatch.delenv("STRIATUM_DAEMON_REQUIRED", raising=False)
+
+    def invoke_tripwire(*args: Any, **kwargs: Any) -> None:
+        raise AssertionError("/v1/invoke read fell back to striatum.api.invoke")
+
+    calls: list[tuple[Path, str, dict[str, Any]]] = []
+
+    def fake_call_repo_method(
+        repo: Path, method: str, params: dict[str, Any]
+    ) -> dict[str, Any]:
+        calls.append((repo, method, dict(params)))
+        return {"method": method, "items": []}
+
+    monkeypatch.setattr(api, "invoke", invoke_tripwire)
+    monkeypatch.setattr(service_daemon, "call_repo_method", fake_call_repo_method)
+
+    raw = json.dumps({"argv": ["status"]}).encode("utf-8")
+    headers = Message()
+    headers["Content-Type"] = "application/json"
+    headers["Content-Length"] = str(len(raw))
+    sent: dict[str, Any] = {}
+    handler = object.__new__(service.StriatumServiceHandler)
+    handler.state = service.ServiceState(
+        repo=tmp_path,
+        allow_mutations=False,
+        token=None,
+        web_enabled=False,
+    )
+    handler.path = "/v1/invoke"
+    handler.headers = headers
+    handler.rfile = BytesIO(raw)
+    monkeypatch.setattr(handler, "_authenticate", lambda: True)
+    monkeypatch.setattr(handler, "_requires_same_origin", lambda path: False)
+    monkeypatch.setattr(
+        handler,
+        "_send_json",
+        lambda status, body: sent.update({"status": status, "body": body}),
+    )
+
+    handler._dispatch_post()
+
+    assert sent == {
+        "status": 200,
+        "body": {"ok": True, "data": {"method": "status", "items": []}},
+    }
+    assert calls == [(tmp_path, "status", {})]
+
+
 def test_service_workflow_template_and_generate_endpoints(tmp_path: Path) -> None:
     proc, port = _spawn_service(tmp_path)
     spec: dict[str, Any] = {
@@ -1756,6 +1819,9 @@ def test_serve_unix_socket_binds_with_0600(tmp_path: Path) -> None:
     finally:
         if socket_path.exists():
             socket_path.unlink()
+        pid_path = socket_path.with_suffix(socket_path.suffix + ".pid")
+        if pid_path.exists():
+            pid_path.unlink()
         if sock_dir.exists():
             sock_dir.rmdir()
 

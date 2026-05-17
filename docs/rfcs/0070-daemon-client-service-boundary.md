@@ -14,7 +14,7 @@ authoring/MCP surfaces ambiguous.
 ## Goals
 
 - Add daemon-side repository resolution so clients do not open PostgreSQL.
-- Route daemon-mapped `/v1/invoke` mutations through daemon RPC.
+- Route daemon-mapped `/v1/invoke` reads and mutations through daemon RPC.
 - Keep workflow authoring helpers local and explicit.
 - Either port dogfood composite tools to PostgreSQL or quarantine/unregister
   them as historical compatibility tools.
@@ -34,7 +34,7 @@ authoring/MCP surfaces ambiguous.
    repository id for a repo root under daemon authorization.
 2. Update CLI and web service helpers to ask the daemon for repository
    resolution instead of importing `striatum.daemon_pg.connection`.
-3. Update `/v1/invoke` so daemon-routed mutations call
+3. Update `/v1/invoke` so daemon-routed reads and mutations call
    `service_daemon.call_repo_method()` and local authoring remains on an
    explicit allowlist.
 4. Mark `LocalRpcServer` and invoke-backed chat tools as local-authoring or
@@ -50,7 +50,7 @@ authoring/MCP surfaces ambiguous.
   repository resolution.
 - Monkeypatching client-side PG connect to raise does not break daemon-routed
   CLI/web calls.
-- `/v1/invoke` succeeds for daemon-routed mutations when
+- `/v1/invoke` succeeds for daemon-routed reads and mutations when
   `striatum.api.invoke` is monkeypatched to fail.
 - Daemon MCP lists only supported production methods for production tokens.
 - Dogfood composites are either PG-native with tests or absent from production
@@ -64,9 +64,9 @@ authoring/MCP surfaces ambiguous.
 - CLI and service RPC helpers now resolve repository ids through daemon RPC;
   client-side imports of `striatum.daemon_pg.connection` are guarded against
   by tests.
-- `/v1/invoke` routes daemon-mapped production mutations through
+- `/v1/invoke` routes daemon-mapped production reads and mutations through
   `service_daemon.call_repo_method()` and no longer re-enters
-  `striatum.api.invoke` for those mutations.
+  `striatum.api.invoke` for those methods.
 - `dogfood.publish_on_behalf` and `dogfood.surgical_recovery` are retired in
   both Python and Go daemon paths with explicit fail-closed RPC errors because
   the historical composites were SQLite-bound. Operators should use primitive

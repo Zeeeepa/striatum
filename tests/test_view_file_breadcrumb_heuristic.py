@@ -7,7 +7,7 @@ from test_cli_mvp import prepare_started_run
 from test_web_ui import _http_get_raw, _spawn_service, _stop_service
 
 
-def test_view_file_breadcrumb_links_unambiguous_dogfood_run(tmp_path: Path) -> None:
+def test_view_file_breadcrumb_omits_legacy_sqlite_run_link(tmp_path: Path) -> None:
     run_id = prepare_started_run(tmp_path)
     target = tmp_path / "docs" / "dogfood" / "055" / "build" / "HANDOFF.md"
     target.parent.mkdir(parents=True)
@@ -23,7 +23,7 @@ def test_view_file_breadcrumb_links_unambiguous_dogfood_run(tmp_path: Path) -> N
     try:
         status, _, body = _http_get_raw(port, "/view/docs/dogfood/055/build/HANDOFF.md")
         assert status == 200
-        assert f'/run/{run_id}'.encode() in body
+        assert f'/run/{run_id}'.encode() not in body
     finally:
         _stop_service(proc)
 

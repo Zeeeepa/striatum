@@ -234,9 +234,10 @@ D094/D104 supersede the original D006/D009 CLI-only framing. In DDD terms:
 - Direct live-state writes from outside the daemon are forbidden
   even when database permissions allow them; they bypass the
   invariant checks and break the model.
-- Adapters (process, supervisor, web service, MCP wrapper) all
-  go through `striatum.api.invoke` and then through the same
-  CLI dispatch. There is one write path.
+- Production adapters (supervisor, web service, MCP/chat surfaces) go through
+  daemon RPC methods and the same method registry/capability contract.
+  `striatum.api.invoke` remains a local authoring and fixture compatibility
+  wrapper, not a production state-authority boundary.
 
 This is what makes the vocabulary load-bearing: a reviewer
 cannot return `looks good` because the CLI doesn't accept that.

@@ -2,12 +2,14 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"log"
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -17,6 +19,7 @@ import (
 	"github.com/halbritt/striatum/go/pkg/db"
 	"github.com/halbritt/striatum/go/pkg/mutations"
 	"github.com/halbritt/striatum/go/pkg/reads"
+	recoverypkg "github.com/halbritt/striatum/go/pkg/recovery"
 	"github.com/halbritt/striatum/go/pkg/repositories"
 	"github.com/halbritt/striatum/go/pkg/rpc"
 	"github.com/halbritt/striatum/go/pkg/supervisor"
@@ -85,11 +88,15 @@ func main() {
 	var migrate bool
 	var describe bool
 	var migrationsSHASource string
+	var sweepIntervalSeconds float64
+	var maxSweeps optionalIntFlag
 	flag.StringVar(&socketPath, "socket", defaultSocketPath(), "Unix socket path")
 	flag.StringVar(&postgresURL, "postgres-url", "", "PostgreSQL connection URL")
 	flag.BoolVar(&migrate, "migrate", true, "apply daemon PostgreSQL migrations before serving when a URL is configured")
 	flag.BoolVar(&describe, "describe", false, "print daemon metadata and exit")
 	flag.StringVar(&migrationsSHASource, "migrations-sha-source", "", "verify embedded migration SHAs against SQL files at this path before serving")
+	flag.Float64Var(&sweepIntervalSeconds, "sweep-interval-seconds", 60.0, "seconds between resident recovery sweeps")
+	flag.Var(&maxSweeps, "max-sweeps", "maximum resident recovery sweeps before exiting; when set to 0, one startup sweep still runs")
 	flag.Parse()
 
 	if describe {
@@ -115,8 +122,10 @@ func main() {
 		}
 	}
 
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
+	signalCtx, stopSignals := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stopSignals()
+	ctx, cancel := context.WithCancel(signalCtx)
+	defer cancel()
 
 	substrateSchema := 0
 	var recorder *db.AuditRecorder
@@ -187,9 +196,74 @@ func main() {
 		log.Fatalf("listen on %s: %v", socketPath, err)
 	}
 	log.Printf("striatumd-go listening on %s", socketPath)
+	schedulerErr := startRecoveryScheduler(ctx, cancel, runner, sweepIntervalSeconds, maxSweeps)
+	go func() {
+		<-ctx.Done()
+		_ = listener.Close()
+	}()
 	if err := server.Serve(ctx, listener); err != nil && ctx.Err() == nil {
+		cancel()
 		log.Fatalf("serve: %v", err)
 	}
+	cancel()
+	if schedulerErr != nil {
+		err := <-schedulerErr
+		if err != nil && !errors.Is(err, context.Canceled) {
+			log.Fatalf("recovery scheduler: %v", err)
+		}
+	}
+}
+
+func startRecoveryScheduler(ctx context.Context, cancel context.CancelFunc, runner db.Runner, sweepIntervalSeconds float64, maxSweepsFlag optionalIntFlag) <-chan error {
+	done := make(chan error, 1)
+	var maxSweeps *int
+	if maxSweepsFlag.Provided {
+		value := maxSweepsFlag.Value
+		maxSweeps = &value
+	}
+	interval := time.Duration(sweepIntervalSeconds * float64(time.Second))
+	go func() {
+		result, err := recoverypkg.RunScheduler(ctx, recoverypkg.SchedulerOptions{
+			Interval:  interval,
+			MaxSweeps: maxSweeps,
+			SweepOnce: recoverypkg.ActiveRunSweep{
+				Runner: runner,
+				Author: "striatumd-go",
+			}.SweepOnce,
+		})
+		if err == nil {
+			log.Printf("recovery scheduler stopped after %d sweep(s): %s", result.Sweeps, result.Reason)
+			if result.Reason == recoverypkg.ReasonMaxSweepsReached {
+				cancel()
+			}
+		} else if !errors.Is(err, context.Canceled) {
+			cancel()
+		}
+		done <- err
+	}()
+	return done
+}
+
+type optionalIntFlag struct {
+	Value    int
+	Provided bool
+}
+
+func (f *optionalIntFlag) Set(value string) error {
+	parsed, err := strconv.Atoi(value)
+	if err != nil {
+		return err
+	}
+	f.Value = parsed
+	f.Provided = true
+	return nil
+}
+
+func (f *optionalIntFlag) String() string {
+	if f == nil || !f.Provided {
+		return ""
+	}
+	return strconv.Itoa(f.Value)
 }
 
 func registerHandlers(server *rpc.Server, runner db.Runner) {

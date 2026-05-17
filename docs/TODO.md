@@ -325,7 +325,10 @@ Legend: ✅ done · 🟡 most done (sub-tasks remain) · ⏳ open/blocked · �
     through `daemon_pg/mcp_dispatch.py::dispatch_mcp_tool_call` →
     composite tools `dogfood.publish_on_behalf` +
     `dogfood.surgical_recovery` are now functional through the MCP
-    path; (F2/F3) `publish_on_behalf` runs ack/publish/verdict inside
+    path in the historical SQLite-era implementation; D107/RFC 0070 later
+    retired those SQLite-bound composites from production Python and Go daemon
+    paths until a PostgreSQL-native replacement is accepted. (F2/F3)
+    `publish_on_behalf` runs ack/publish/verdict inside
     one outer transaction with rollback-event emission on failure, and
     review verdicts are validated + recorded with `findings_artifact_id`
     defaulting from the published artifact when kind=`finding`; (F4)
@@ -1218,8 +1221,13 @@ review and plan are root-level operator artifacts:
     for active contract methods. Go also owns daemon-global `repo.resolve` for
     repository path resolution without client-side direct PG access, and fresh
     Go startup now bootstraps the first PostgreSQL admin client plus the
-    private runtime `client-token`. Remaining Go-port debt is explicit
-    fail-closed/parity work rather than placeholder routing.
+    private runtime `client-token`. Go daemon startup now also launches a
+    resident PostgreSQL recovery scheduler after socket bind; it runs an
+    immediate active-run sweep, records `daemon.recovery_sweep`, upserts
+    scheduler cursors, and exposes `--sweep-interval-seconds` plus test-only
+    `--max-sweeps` launcher plumbing. Remaining Go-port debt is explicit
+    fail-closed/parity work and a CI/release conformance gate before the
+    default daemon core flips.
 
 62. **RFC 0069: PostgreSQL-only daemon-global surfaces.** Most done. Port daemon
     health, audit, sweep, dashboard-all, daemon MCP resource list/read, and
@@ -1229,18 +1237,19 @@ review and plan are root-level operator artifacts:
     the call is in a named one-way migration or fixture path. `dashboard.all`
     now has a Go/PostgreSQL read-only subset; production Python daemon startup
     now uses PostgreSQL metadata/sweep plumbing when PostgreSQL is configured,
-    and `connect_registry()` is gated behind explicit migration/test
-    compatibility escapes. Residual gaps are lazy lease expiry, phase
-    progress, auto-finalize detail, supervisor-stall detail, and
-    repo-scoped-token filtering parity with the legacy Python aggregate
-    authorizer.
+    and the Go daemon has a resident recovery scheduler over active PostgreSQL
+    runs. `connect_registry()` is gated behind explicit migration/test
+    compatibility escapes. Residual daemon-global gaps are full
+    `dashboard.all` parity for phase progress, auto-finalize detail,
+    supervisor-stall detail, repo-scoped-token filtering, and daemon MCP
+    resource parity with the legacy Python aggregate authorizer.
 
 63. **RFC 0070: daemon client/service boundary completion.** Most done.
     Daemon-side `repo.resolve` is registered as a daemon-global read bootstrap
     method; CLI and service clients no longer open daemon PostgreSQL to map a
-    repo path to `repository_id`; daemon-mapped `/v1/invoke` production
-    mutations route through daemon RPC; and Python/Go dogfood composites now
-    fail closed before any repo-local SQLite import. Remaining work is to
+    repo path to `repository_id`; daemon-mapped `/v1/invoke` production reads
+    and mutations route through daemon RPC; and Python/Go dogfood composites
+    now fail closed before any repo-local SQLite import. Remaining work is to
     decide whether to reintroduce PostgreSQL-native operator composites or
     keep the primitive daemon-method workflow as the supported path, plus the
     broader Python-daemon retirement under RFC 0068.

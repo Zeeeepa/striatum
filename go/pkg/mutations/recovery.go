@@ -469,6 +469,36 @@ func HandleRecoveryAuto(ctx context.Context, runner db.Runner, envelope rpc.Enve
 	})
 }
 
+func SweepRun(ctx context.Context, runner db.Runner, repositoryID string, runID string, author string) (map[string]any, error) {
+	if author == "" {
+		author = "striatumd-go"
+	}
+	result, err := HandleRecoveryAuto(ctx, runner, rpc.Envelope{
+		SchemaVersion: rpc.SupportedEnvelopeVersion,
+		RequestID:     "daemon_sweep_" + runID,
+		Method:        "recovery.sweep",
+		Params: map[string]any{
+			"repository_id": repositoryID,
+			"run_id":        runID,
+		},
+	})
+	if err != nil {
+		return nil, err
+	}
+	_, err = withTx(ctx, runner, func(tx db.TxRunner) (map[string]any, error) {
+		_, err := appendEvent(ctx, tx, repositoryID, runID, "daemon.recovery_sweep", nil, nil, nil, nil, nil, map[string]any{
+			"author":        author,
+			"repository_id": repositoryID,
+			"result":        result,
+		})
+		return map[string]any{}, err
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
 func autoPublishableArtifacts(ctx context.Context, runner any, repositoryID string, repoRoot string, job map[string]any, sessionID string, expectedByline string) ([]map[string]any, error) {
 	publishable := []map[string]any{}
 	for _, item := range asList(job["expected_artifacts_json"]) {

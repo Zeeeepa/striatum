@@ -11,7 +11,7 @@ from striatum.service_sse import (
     sse_since as parse_sse_since,
     stream_daemon_events,
 )
-from striatum.service_command_policy import daemon_mutation_route_for_argv
+from striatum.service_command_policy import daemon_route_for_argv
 from striatum.web.workflows import list_repo_tree
 
 JsonObject = dict[str, Any]
@@ -54,9 +54,9 @@ def handle_health(ctx: ServiceApiRouteContext) -> None:
 
 
 def handle_invoke(ctx: ServiceApiRouteContext, argv: list[str]) -> None:
-    daemon_route = daemon_mutation_route_for_argv(argv, ctx.state.repo)
+    daemon_route = daemon_route_for_argv(argv, ctx.state.repo)
     if daemon_route is not None:
-        handle_daemon_mutation(ctx, daemon_route.method, daemon_route.params)
+        handle_daemon_invoke_route(ctx, daemon_route.method, daemon_route.params)
         return
     result = ctx.invoke_func(argv)
     status = 200 if result.get("ok") else 500
@@ -71,7 +71,7 @@ def handle_invoke(ctx: ServiceApiRouteContext, argv: list[str]) -> None:
     ctx.send_json(status, result)
 
 
-def handle_daemon_mutation(
+def handle_daemon_invoke_route(
     ctx: ServiceApiRouteContext,
     method: str,
     params: Mapping[str, Any],
@@ -254,7 +254,7 @@ def _rpc_error(code: str, message: str) -> JsonObject:
 
 __all__ = [
     "ServiceApiRouteContext",
-    "handle_daemon_mutation",
+    "handle_daemon_invoke_route",
     "handle_daemon_read",
     "handle_doctor",
     "handle_health",

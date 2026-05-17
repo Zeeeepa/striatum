@@ -172,7 +172,7 @@ remediation phases should either daemon-route, quarantine, or delete.
 | `plugin install` / `plugin uninstall` | local filesystem installer | no workflow state | bootstrap_admin |
 | `self-update` | local pip + installer helper | no workflow state | bootstrap_admin |
 | `daemon start` | daemon lifecycle launcher | no repo-local workflow SQLite | bootstrap_admin |
-| `daemon service install` / `start` / `status` | local service-manager helper | no workflow state | bootstrap_admin |
+| `daemon service install` / `start` / `status` | local service-manager helper; Go start forwards resident recovery scheduler flags | no workflow state | bootstrap_admin |
 | `daemon doctor` | daemon PG doctor plus legacy registry probe | legacy registry probe only | bootstrap_admin |
 | `doctor --first-run` | day-zero smoke over daemon socket, PG doctor, token, MCP, and sample read route | no workflow state | bootstrap_admin |
 | `daemon migrate` | daemon registry migration helper | source registry migration only | legacy_migration |
@@ -214,10 +214,16 @@ remediation phases should either daemon-route, quarantine, or delete.
    composites. Operators should use primitive daemon methods (`work.ack`,
    `artifact.publish`, `review.verdict`, `work.complete`, and ordinary
    `recovery.*`) until a PostgreSQL-native composite is designed.
-6. `striatum.db` remains the legacy SQLite engine, but substrate-neutral
+6. Go daemon startup now owns the resident active-run recovery scheduler:
+   it calls Go `recovery.sweep`, records `daemon.recovery_sweep`, and upserts
+   `striatumd.scheduler_cursors` without production SQLite.
+7. `/v1/invoke` routes daemon-mapped production reads and mutations through
+   daemon RPC; `striatum.api.invoke` remains only for local authoring and
+   explicit test/fixture compatibility paths.
+8. `striatum.db` remains the legacy SQLite engine, but substrate-neutral
    helpers now live in `primitives.py` and `repo_policy.py`; guardrails keep
    daemon PG/RPC production modules from importing SQLite helpers.
-7. Go no longer has generic `not_implemented` handlers for active contract
+9. Go no longer has generic `not_implemented` handlers for active contract
    methods. Remaining Go-port debt is explicit fail-closed or parity work:
    `apply.reviewed_patch`, dogfood composites, daemon key/shutdown hooks,
    the retired repo-local migration import, and web/service DTO parity gaps

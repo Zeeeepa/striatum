@@ -52,7 +52,8 @@ The Go daemon port lands through independent, testable slices:
    PostgreSQL.
 4. **Client and service boundary.** Keep the Python CLI/web service as clients:
    no direct PostgreSQL repo resolution, no `striatum.api.invoke` production
-   mutations, and no Python daemon fallback.
+   run authority for daemon-mapped reads or mutations, and no Python daemon
+   fallback.
 5. **SQLite eradication.** Delete or port remaining SQLite-backed service,
    dogfood, adapter, byline, inbox, recovery, corpus, and local API helpers.
    Migration fixtures must be named as one-way import fixtures and isolated

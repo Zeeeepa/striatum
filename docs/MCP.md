@@ -115,8 +115,8 @@ Example tool call:
 {"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"status","arguments":{}}}
 ```
 
-The JSON-RPC result includes `structuredContent`, which is the
-`striatum.api.invoke` envelope:
+The JSON-RPC result includes `structuredContent`, which uses Striatum's
+standard `{ok, data | error}` envelope:
 
 ```json
 {"ok":true,"data":{"runs":[]}}
@@ -155,9 +155,9 @@ The local web chat surface is owner-only and reuses the mutation gate
 instead of token capabilities; when the daemon serves these tools
 through its MCP transport, `tools/list` filtering applies normally.
 
-Each local chat tool is a thin shell over the existing CLI verb (via
-`striatum.api.invoke`) for the owner-only web service surface. Production
-daemon MCP calls dispatch through daemon RPC and the daemon's audit chain.
+Each local owner/test chat tool can shell through the local CLI/API wrapper.
+Production daemon MCP/chat calls dispatch through daemon RPC and the daemon's
+audit chain.
 The historical RFC 0040 composite operator tools
 (`dogfood.publish_on_behalf`, `dogfood.surgical_recovery`) are retired in the
 production Python and Go daemon paths because their original implementation was

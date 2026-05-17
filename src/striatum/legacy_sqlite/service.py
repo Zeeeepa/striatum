@@ -28,7 +28,11 @@ JsonObject = dict[str, Any]
 
 def legacy_fixture_fallback_enabled(code: str) -> bool:
     """Return whether service tests may exercise the pre-cutover SQLite path."""
-    return code == "repo_not_registered" and os.environ.get("STRIATUM_TEST_HARNESS") == "1"
+    return (
+        code in {"daemon_unreachable", "repo_not_registered"}
+        and os.environ.get("STRIATUM_TEST_HARNESS") == "1"
+        and os.environ.get("STRIATUM_DAEMON_REQUIRED") == "0"
+    )
 
 
 def legacy_artifact_raw_fallback_enabled(code: str) -> bool:

@@ -11,9 +11,11 @@ the current Python daemon still call the legacy SQLite registry helpers. That
 keeps a second state authority reachable from production daemon code and
 weakens both RFC 0043 and the RFC 0068 Go-port target.
 
-Known remaining surfaces include daemon startup bootstrap, `dashboard.all`,
-`daemon_sweep_once`, daemon MCP resource list/read helpers, daemon health, and
-daemon audit/doctor probes.
+Known surfaces included daemon startup bootstrap, `dashboard.all`, the Python
+`daemon_sweep_once` registry path, daemon MCP resource list/read helpers,
+daemon health, and daemon audit/doctor probes. Startup bootstrap, dashboard-all
+subset, and the Go resident recovery scheduler have landed; residual work is
+tracked below.
 
 ## Goals
 
@@ -40,8 +42,9 @@ Add a production registry tripwire and port daemon-global surfaces in order:
    migration/test compatibility.
 2. Move daemon startup bootstrap, health, audit, and doctor data to
    `striatumd.*` tables.
-3. Replace `daemon_sweep_once()` with a PostgreSQL-backed scheduler cursor that
-   invokes the existing PG `recovery.sweep` handler per active run.
+3. Replace the Python `daemon_sweep_once()` registry path with a
+   PostgreSQL-backed scheduler cursor that invokes the existing PG
+   `recovery.sweep` handler per active run.
 4. Rebuild `dashboard.all` and daemon MCP resources from daemon PostgreSQL rows
    and repository-scoped PG read handlers.
 5. Mark missing global DTOs as `not_implemented` until implemented; do not
@@ -55,8 +58,8 @@ Add a production registry tripwire and port daemon-global surfaces in order:
 - `dashboard.all`, `striatum://daemon/repos`,
   `striatum://daemon/dashboard`, and repository MCP resources work against a
   PG-only fixture.
-- `daemon_sweep_once()` records PG recovery events/cursors and never opens or
-  creates `.striatum/state.sqlite3`.
+- The daemon recovery scheduler records PostgreSQL recovery events/cursors and
+  never opens or creates `.striatum/state.sqlite3`.
 - Regression tests cover daemon start, dashboard-all, daemon sweep, MCP
   resources, health, and audit/doctor paths.
 
@@ -72,6 +75,11 @@ Add a production registry tripwire and port daemon-global surfaces in order:
 - Go owns `repo.add`, `repo.list`, `repo.remove`, `repo.resolve`, and a
   read-only `dashboard.all` subset over daemon PostgreSQL. Residual aggregate
   parity gaps remain in the roadmap.
+- The Go daemon now starts a resident recovery scheduler loop after socket
+  bind. The loop runs an immediate PostgreSQL active-run sweep, calls the Go
+  `recovery.sweep` path per active run, records `daemon.recovery_sweep`
+  events, and upserts `striatumd.scheduler_cursors`. Operators can tune it
+  with `--sweep-interval-seconds`; tests can bound it with `--max-sweeps`.
 
 ## Open Questions
 

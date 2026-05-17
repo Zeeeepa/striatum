@@ -375,7 +375,9 @@ daemon-first without needing to support two domain daemons.
   with the default `artifact.show` metadata response.
 - `/v1/invoke` now derives daemon-routed read classification from
   `METHOD_REGISTRY.required_capability`; only CLI-local workflow authoring
-  reads remain in an explicit service-side allowlist.
+  reads remain in an explicit service-side allowlist, and daemon-mapped
+  production reads/mutations dispatch through daemon RPC instead of
+  `striatum.api.invoke`.
 - Production service startup now verifies daemon/repository health through
   daemon `doctor` before binding. The old SQLite integrity check remains
   only for subprocess fixtures running under the legacy test-harness escape.
@@ -961,9 +963,11 @@ Release order after Phase 0:
     Contract V2 fields wait on RFC 0057 decisions.
 12. **TODO 60 / Phase 12:** optional Git/PR integration waits on a product
     decision for commit authority and hosted-provider boundaries.
-13. **TODO 61 / RFC 0068:** port the production daemon to Go, add stale-binary
-    and conformance gates, and retire the Python daemon after parity.
-14. **TODO 62 / RFC 0069:** move daemon-global surfaces to PostgreSQL/Go.
+13. **TODO 61 / RFC 0068:** port the production daemon to Go, keep the
+    resident recovery scheduler in Go, add the remaining conformance gate, and
+    retire the Python daemon after parity.
+14. **TODO 62 / RFC 0069:** move daemon-global surfaces to PostgreSQL/Go,
+    including scheduler cursors and residual dashboard/MCP parity.
 15. **TODO 63 / RFC 0070:** complete daemon client/service boundaries and
     remove direct client DB access.
 16. **TODO 64 / RFC 0071:** add post-cutover diagnostics once authority cleanup

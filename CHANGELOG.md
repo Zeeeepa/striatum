@@ -24,6 +24,11 @@ Recent checkpoints:
 - Fresh Go daemon startup now bootstraps the first PostgreSQL admin client
   and writes the private runtime `client-token`, matching the Python daemon's
   first-start auth contract.
+- The Go daemon now starts a resident recovery scheduler after socket bind.
+  It runs an immediate PostgreSQL active-run sweep, calls the Go
+  `recovery.sweep` path, records `daemon.recovery_sweep`, updates
+  `striatumd.scheduler_cursors`, and accepts `--sweep-interval-seconds` plus
+  bounded-test `--max-sweeps` flags through the Python launcher.
 - Go `doctor` now reads `striatumd.schema_meta['substrate_version']` instead
   of querying a nonexistent `schema_meta.version` column.
 - Daemon RPC handshakes from the CLI and day-zero first-run smoke now use
@@ -112,9 +117,10 @@ Recent checkpoints:
   registry when PostgreSQL is configured. `connect_registry()` is explicitly
   gated to migration/test compatibility escapes, and startup uses PostgreSQL
   daemon metadata plus PostgreSQL sweep plumbing.
-- `/v1/invoke` now sends daemon-mapped production mutations through daemon
-  RPC. The local `striatum.api.invoke` path remains available for explicit
-  local/test surfaces and workflow authoring, not production run authority.
+- `/v1/invoke` now sends daemon-mapped production reads and mutations through
+  daemon RPC. The local `striatum.api.invoke` path remains available for
+  explicit local/test surfaces and workflow authoring, not production run
+  authority.
 - The Python daemon dogfood composite routes now fail closed before importing
   `striatum.db.connect`; both Python and Go retire the SQLite-bound
   `dogfood.publish_on_behalf` and `dogfood.surgical_recovery` composites in
@@ -129,8 +135,8 @@ Recent checkpoints:
   file read with no production SQLite touchpoint.
 - Go now owns a read-only `dashboard.all` handler over daemon-owned
   PostgreSQL repositories. It reports per-repository status and stale-lease
-  projections without opening SQLite; lazy lease expiry and full web-context
-  parity remain tracked as RFC 0069 residual gaps.
+  projections without opening SQLite; full web-context parity remains tracked
+  as an RFC 0069 residual gap.
 - `supervise.status`, `doctor`, and `status` now surface stalled attached
   supervisors, and recovery sweep opens
   `heartbeat_stall_lease_expired` blockers when stalled leases expire.

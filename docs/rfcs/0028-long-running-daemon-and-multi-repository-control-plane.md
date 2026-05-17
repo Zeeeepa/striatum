@@ -35,8 +35,9 @@ Every workflow operation is episodic. A command starts, opens the state
 database, performs one mutation or read, and exits. Long-running concerns
 are therefore implemented as separate, partial mechanisms:
 
-- `striatum serve` exposes a local HTTP/Unix-socket service, but it is an
-  adapter over `striatum.api.invoke`, not the authoritative scheduler.
+- `striatum serve` exposed a local HTTP/Unix-socket service. In V1 it was an
+  adapter over `striatum.api.invoke`; current production service calls
+  daemon RPC for daemon-owned state.
 - `python -m striatum.mcp` exposes a stdio MCP-like wrapper, but it is scoped
   to one target repository and one child-process session.
 - `striatum supervise` records long-lived agent processes, but supervision
