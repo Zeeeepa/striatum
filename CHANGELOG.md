@@ -125,6 +125,9 @@ Recent checkpoints:
 - Backlog records for the same-model validator rule and real UI bundle /
   supply-chain polish were closed after verifying the current validator,
   package, bundle, and guardrail tests cover the formerly open work.
+- Job-detail page DTO shaping moved from `service.py` into
+  `striatum.web.job_detail`, leaving the route handler responsible for daemon
+  RPC/fallback, template selection, and HTTP error mapping.
 
 - **Command authority and fallback guardrails.**
   `docs/architecture/COMMAND_AUTHORITY_MATRIX.md` now names the authority

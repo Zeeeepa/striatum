@@ -953,7 +953,10 @@ review and plan are root-level operator artifacts:
     grouping while `service.py` keeps template rendering and response mapping.
     Follow-up split landed: `web/workflows.py` owns workflow browser index and
     detail page DTO shaping while `service.py` keeps template rendering and
-    HTTP error mapping for those pages.
+    HTTP error mapping for those pages. Follow-up split landed:
+    `web/job_detail.py` owns job-detail template context shaping and
+    override-context-token minting while `service.py` keeps daemon
+    RPC/fallback and HTTP response mapping.
     Remaining: continue splitting `service.py` along stable non-SQLite
     request-handling and rendering boundaries.
 

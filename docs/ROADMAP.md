@@ -447,6 +447,9 @@ daemon-first without needing to support two domain daemons.
 - `src/striatum/web/workflows.py` now owns workflow browser index/detail page
   DTO shaping, including small index entries and detail graph-SVG selection.
   `service.py` keeps template rendering and HTTP error mapping for those pages.
+- `src/striatum/web/job_detail.py` now owns job-detail template context
+  shaping and override-context-token minting. `service.py` keeps daemon
+  RPC/fallback and HTTP response mapping for the route.
 
 **Remaining Phase 4 debt:** continue splitting `service.py` along stable
 non-SQLite request-handling and rendering boundaries after the daemon-routed

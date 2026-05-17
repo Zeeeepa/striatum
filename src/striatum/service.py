@@ -86,6 +86,10 @@ from striatum.web.artifacts import (
     inline_artifact_body as _inline_artifact_body,
     resolve_artifact_file as _resolve_artifact_file,
 )
+from striatum.web.job_detail import (
+    JobDetailPayloadError as _JobDetailPayloadError,
+    job_detail_template_context as _job_detail_template_context,
+)
 from striatum.web.run_list import run_list_view_item as _run_list_view_item
 from striatum.web.workflow_generation import (
     generator_error_response as _generator_error_response,
@@ -798,61 +802,19 @@ class StriatumServiceHandler(BaseHTTPRequestHandler):
                         {"ok": False, "error": {"code": exc.code, "message": exc.message}},
                     )
                     return
-            run_raw = payload.get("run")
-            job_raw = payload.get("job")
-            if not isinstance(run_raw, Mapping) or not isinstance(job_raw, Mapping):
+            try:
+                context = _job_detail_template_context(
+                    payload,
+                    web_context_secret=self.state.web_context_secret,
+                )
+            except _JobDetailPayloadError as exc:
                 self._send_json(
                     500,
-                    {"ok": False, "error": {"code": 500, "message": "daemon job detail DTO missing fields"}},
+                    {"ok": False, "error": {"code": 500, "message": str(exc)}},
                 )
                 return
-            run = dict(run_raw)
-            job = dict(job_raw)
-            artifacts = [
-                dict(artifact)
-                for artifact in payload.get("artifacts") or []
-                if isinstance(artifact, Mapping)
-            ]
-            verdicts = [
-                dict(verdict)
-                for verdict in payload.get("verdicts") or []
-                if isinstance(verdict, Mapping)
-            ]
-            latest_raw = payload.get("latest_verdict")
-            latest_verdict = dict(latest_raw) if isinstance(latest_raw, Mapping) else None
-            expected_artifact_rows = [
-                dict(row)
-                for row in payload.get("expected_artifact_rows") or []
-                if isinstance(row, Mapping)
-            ]
-            process_evidence = [
-                dict(row)
-                for row in payload.get("process_evidence") or []
-                if isinstance(row, Mapping)
-            ]
-            # GH #10: mint a context token binding the rendered page to
-            # the override-verdict action's (run_id, job_id, session_id).
-            override_session_id = ""
-            if latest_verdict is not None:
-                override_session_id = str(latest_verdict.get("session_id", "")) or ""
-            override_context_token = ""
-            if override_session_id:
-                override_context_token = make_web_context_token(
-                    self.state.web_context_secret,
-                    run_id=str(run["run_id"]),
-                    job_id=str(job["job_id"]),
-                    session_id=override_session_id,
-                )
             html = _jinja_env().get_template("job_detail.html").render(
-                run=run,
-                job=job,
-                artifacts=artifacts,
-                latest_verdict=latest_verdict,
-                verdicts=verdicts,
-                expected_artifact_rows=expected_artifact_rows,
-                process_evidence=process_evidence,
-                override_context_token=override_context_token,
-                override_session_id=override_session_id,
+                **context,
             )
             self._send_html(200, html)
         except Exception as exc:  # noqa: BLE001
