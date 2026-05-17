@@ -425,6 +425,11 @@ daemon-first without needing to support two domain daemons.
 - `src/striatum/service_state.py` now owns process-local service state,
   GitHub remote/default-branch caching, shutdown signaling, web-context secret
   generation, and per-run SSE slot accounting.
+- `src/striatum/service_runtime.py` now owns local service runtime helpers for
+  version/mode reporting, loopback bind validation, PID-file single-instance
+  checks, startup exceptions, and idle shutdown waiting.
+- `src/striatum/web/template_env.py` now owns HTML escaping and Jinja
+  environment construction for server-rendered web templates.
 
 **Remaining Phase 4 debt:** continue splitting `service.py` along stable
 non-SQLite request-handling and rendering boundaries after the daemon-routed

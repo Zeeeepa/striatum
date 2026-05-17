@@ -926,7 +926,11 @@ review and plan are root-level operator artifacts:
     `service.py` keeps daemon polling and stream-loop control. Follow-up split
     landed: `service_state.py` owns process-local service state, GitHub
     remote/default-branch caching, shutdown signaling, web-context secret
-    generation, and per-run SSE slot accounting.
+    generation, and per-run SSE slot accounting. Follow-up split landed:
+    `service_runtime.py` owns version/mode reporting, loopback bind
+    validation, PID-file single-instance checks, startup exceptions, and idle
+    shutdown waiting. Follow-up split landed: `web/template_env.py` owns HTML
+    escaping and Jinja environment construction for server-rendered templates.
     Remaining: continue splitting `service.py` along stable non-SQLite
     request-handling and rendering boundaries.
 

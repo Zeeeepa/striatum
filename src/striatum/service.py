@@ -42,6 +42,15 @@ from striatum.service_sse import (
     encode_sse_event as _encode_sse_event,
     sse_since as _sse_since,
 )
+from striatum.service_runtime import (
+    ServiceAlreadyRunningError as ServiceAlreadyRunningError,
+    ServiceConfigError as ServiceConfigError,
+    check_single_instance as _check_single_instance,
+    ensure_loopback as _ensure_loopback,
+    service_mode as _service_mode,
+    striatum_version as _striatum_version,
+    wait_for_service_shutdown as _wait_for_service_shutdown,
+)
 from striatum.service_state import (
     SSE_MAX_CONCURRENT_PER_RUN as SSE_MAX_CONCURRENT_PER_RUN,
     ServiceState as ServiceState,
@@ -62,6 +71,7 @@ from striatum.web.chat_session import (
     split_system as _split_system,
     utc_now_iso as _utc_now_iso,
 )
+from striatum.web import template_env as _template_env
 from striatum.web.static_assets import (
     StaticAssetError as StaticAssetError,
     load_static_asset as _load_static_asset,
@@ -145,13 +155,7 @@ def _is_safe_id(value: str) -> bool:
 
 
 def _escape_html(s: str) -> str:
-    return (
-        s.replace("&", "&amp;")
-        .replace("<", "&lt;")
-        .replace(">", "&gt;")
-        .replace('"', "&quot;")
-        .replace("'", "&#x27;")
-    )
+    return _template_env.escape_html(s)
 
 
 def _build_chat_briefing(repo: Path, *, allow_mutations: bool = False) -> str:
@@ -163,29 +167,11 @@ def _build_chat_briefing(repo: Path, *, allow_mutations: bool = False) -> str:
 
 
 def _jinja_env() -> Any:
-    """Return a cached Jinja2 environment that loads templates from the
-    ``striatum.web.templates`` package.
-
-    RFC 0022 V1: server-rendered multi-page UI uses Jinja2; the
-    environment is constructed lazily and cached on the function via
-    ``functools.lru_cache``.
-    """
-    return _jinja_env_factory()
+    return _template_env.jinja_env()
 
 
 def _jinja_env_factory() -> Any:
-    from functools import lru_cache
-
-    @lru_cache(maxsize=1)
-    def _build() -> Any:
-        from jinja2 import Environment, PackageLoader, select_autoescape
-        return Environment(
-            loader=PackageLoader("striatum.web", "templates"),
-            autoescape=select_autoescape(["html"]),
-            keep_trailing_newline=False,
-        )
-
-    return _build()
+    return _template_env.jinja_env_factory()
 
 
 class StriatumServiceHandler(BaseHTTPRequestHandler):
@@ -2282,24 +2268,6 @@ class StriatumServiceHandler(BaseHTTPRequestHandler):
             return
 
 
-def _striatum_version() -> str:
-    try:
-        from importlib.metadata import version as _meta_version
-
-        return _meta_version("striatum")
-    except Exception:  # noqa: BLE001
-        return "unknown"
-
-
-def _service_mode(server: Any) -> str:
-    sock = getattr(server, "socket", None)
-    if sock is None:
-        return "unknown"
-    if sock.family == socket.AF_UNIX:
-        return "unix"
-    return "tcp"
-
-
 # --- server classes ----------------------------------------------------
 
 
@@ -2352,15 +2320,6 @@ def run_service(
         allow_mutations=allow_mutations,
         idle_timeout_seconds=idle_timeout_seconds,
         web_enabled=web_enabled,
-    )
-
-
-def _ensure_loopback(host: str) -> None:
-    if host in LOOPBACK_HOSTS:
-        return
-    raise ServiceConfigError(
-        f"refusing to bind to non-loopback host {host!r}; allowed: "
-        f"{sorted(LOOPBACK_HOSTS)}"
     )
 
 
@@ -2468,26 +2427,6 @@ def _make_handler(state: ServiceState) -> type[StriatumServiceHandler]:
     return _Bound
 
 
-def _check_single_instance(pid_path: Path) -> None:
-    if not pid_path.exists():
-        return
-    try:
-        text = pid_path.read_text(encoding="utf-8").strip()
-        existing_pid = int(text)
-    except (OSError, ValueError):
-        return
-    try:
-        os.kill(existing_pid, 0)
-    except ProcessLookupError:
-        return
-    except PermissionError:
-        # Process exists, owned by another uid. Treat as alive.
-        pass
-    raise ServiceAlreadyRunningError(
-        f"service already running (pid {existing_pid}); pid file {pid_path}"
-    )
-
-
 def _serve_forever(
     *,
     server: HTTPServer,
@@ -2553,36 +2492,3 @@ def _serve_forever(
         except OSError:
             pass
     return {"started": True, **startup}
-
-
-def _wait_for_service_shutdown(
-    shutdown_event: threading.Event,
-    *,
-    idle_timeout_seconds: int | None,
-) -> None:
-    deadline = (
-        None
-        if idle_timeout_seconds is None
-        else time.monotonic() + float(idle_timeout_seconds)
-    )
-    while not shutdown_event.is_set():
-        if deadline is None:
-            shutdown_event.wait(timeout=0.2)
-            continue
-        remaining = deadline - time.monotonic()
-        if remaining <= 0:
-            return
-        shutdown_event.wait(timeout=min(0.2, remaining))
-
-
-# --- exception types ---------------------------------------------------
-
-
-class ServiceConfigError(Exception):
-    """Raised at startup for refusing to bind a non-loopback host or
-    similar config errors. Mapped to exit 8 by the CLI dispatcher."""
-
-
-class ServiceAlreadyRunningError(Exception):
-    """Raised when a PID file points at a live process. Mapped to
-    exit 7 by the CLI dispatcher."""

@@ -73,6 +73,12 @@ Recent checkpoints:
 - Local service process state, GitHub remote/default-branch caching,
   shutdown signaling, web-context secret generation, and per-run SSE slot
   accounting moved from `service.py` into `striatum.service_state`.
+- Local service runtime helpers for version/mode reporting, loopback binding
+  validation, PID-file single-instance checks, startup exceptions, and idle
+  shutdown waiting moved from `service.py` into `striatum.service_runtime`.
+- Web template environment construction and HTML escaping helpers moved from
+  `service.py` into `striatum.web.template_env`, keeping the existing
+  `striatum.service` private aliases stable for tests and route methods.
 - Roadmap kickoff status and remediation sequencing notes were refreshed to
   match the post-v1.55.0 daemon-first architecture work and the current
   blocked-policy boundaries.
@@ -151,7 +157,9 @@ Recent checkpoints:
   `striatum.web.view_file`; `service.py` keeps route-level rendering and the
   legacy run-breadcrumb fallback injection. SSE replay offset parsing and event
   framing now live in `striatum.service_sse`. Local service process state and
-  per-run SSE slot accounting now live in `striatum.service_state`.
+  per-run SSE slot accounting now live in `striatum.service_state`. Service
+  runtime helpers now live in `striatum.service_runtime`, and template
+  environment helpers now live in `striatum.web.template_env`.
 - **Escalation inbox foundation.**
   `escalation.list`, `escalation.show`, and `escalation.resolve` project
   human-principal escalations from blocker state. The `escalation` artifact
