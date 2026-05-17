@@ -25,6 +25,9 @@ Recent checkpoints:
   of querying a nonexistent `schema_meta.version` column.
 - Daemon RPC handshakes from the CLI and day-zero first-run smoke now use
   `striatum.__version__` instead of hardcoded client versions.
+- The Go daemon now has an executable handler-coverage ledger for missing
+  and placeholder methods, and `recovery.sweep` is registered on the Go
+  mutation surface instead of only the deprecated `recovery.auto` alias.
 - `supervise.status`, `doctor`, and `status` now surface stalled attached
   supervisors, and recovery sweep opens
   `heartbeat_stall_lease_expired` blockers when stalled leases expire.

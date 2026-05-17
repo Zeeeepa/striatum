@@ -1175,7 +1175,10 @@ review and plan are root-level operator artifacts:
     Go `--describe` reports supported schema and migration count, the Python
     launcher rejects stale Go daemon binaries before socket bind, Go migration
     SHA-source verification refuses extra newer source migrations, and Go
-    `doctor` reads `schema_meta['substrate_version']` correctly.
+    `doctor` reads `schema_meta['substrate_version']` correctly. A Go
+    handler-coverage test now records every missing or placeholder contract
+    method explicitly, and `recovery.sweep` is wired to the Go recovery sweep
+    handler instead of only the deprecated `recovery.auto` alias.
 
 62. **RFC 0069: PostgreSQL-only daemon-global surfaces.** Active. Port daemon
     startup bootstrap, health, audit, sweep, dashboard-all, daemon MCP

@@ -76,6 +76,7 @@ func TestRegisterInstallsInitialMutationHandlers(t *testing.T) {
 		"recovery.cancel_job",
 		"recovery.process_reconcile",
 		"recovery.resume",
+		"recovery.sweep",
 		"recovery.auto",
 	} {
 		handler, ok := server.Handlers[method]

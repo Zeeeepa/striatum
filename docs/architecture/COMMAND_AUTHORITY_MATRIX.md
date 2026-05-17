@@ -15,7 +15,9 @@ plan. Contract metadata and CLI route reference tables are generated in
 `docs/architecture/DAEMON_METHOD_TABLES.md`; authority classification,
 SQLite-dependency notes, and Go-port status still live here. Every new RPC
 method or handwritten route map must update this file and the guardrails in
-`tests/architecture/test_authority_guardrails.py`.
+`tests/architecture/test_authority_guardrails.py`. Go daemon handler coverage
+is also executable in `go/cmd/striatumd/handler_coverage_test.go`, which
+classifies contract methods as missing, placeholder-backed, or implemented.
 
 D107 / RFC 0068 supersedes D105. The Go columns below are no longer
 D105-bounded reference material; they are the production-port backlog. Any
