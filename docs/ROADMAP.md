@@ -482,6 +482,11 @@ daemon-first without needing to support two domain daemons.
   handling, including mutation gates, request-body validation, daemon RPC
   dispatch, dirty-tree/schema error mapping, and legacy fixture fallback
   delegation. `service.py` keeps route dispatch and stable private wrappers.
+- `src/striatum/web/workflows.py` now also owns workflow browser and
+  visual-editor route rendering/saving, including index/new/detail/edit
+  template rendering, edit POST body parsing, validation-error projection,
+  and stale-write metadata. `service.py` keeps route dispatch and stable
+  private wrappers.
 
 **Remaining Phase 4 debt:** continue splitting `service.py` along stable
 non-SQLite request-handling and rendering boundaries after the daemon-routed

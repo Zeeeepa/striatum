@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import hashlib
+from collections.abc import Callable
 from datetime import UTC, datetime
 from dataclasses import dataclass
 from pathlib import Path
@@ -18,9 +19,15 @@ from typing import Any
 __all__ = [
     "WorkflowFileError",
     "WorkflowDetailPageResponse",
+    "WorkflowRouteContext",
     "discover",
+    "handle_workflow_edit_save",
     "list_repo_tree",
     "load_workflow_at",
+    "render_workflow_detail_page",
+    "render_workflow_edit_page",
+    "render_workflows_index_page",
+    "render_workflows_new_page",
     "save_workflow_file",
     "workflow_detail_page_response",
     "workflow_edit_payload",
@@ -28,6 +35,9 @@ __all__ = [
 ]
 
 JsonObject = dict[str, Any]
+JsonSender = Callable[[int, JsonObject], None]
+HtmlSender = Callable[[int, str], None]
+TemplateEnvFactory = Callable[[], Any]
 _MAX_LINT_WARNING_MESSAGES = 3
 _MAX_LINT_WARNING_MESSAGE_CHARS = 220
 
@@ -80,6 +90,17 @@ class WorkflowFileError(Exception):
 class WorkflowDetailPageResponse:
     workflow: JsonObject
     graph_svg: str | None
+
+
+@dataclass(frozen=True)
+class WorkflowRouteContext:
+    repo: Path
+    allow_mutations: bool
+    headers: Any
+    rfile: Any
+    send_json: JsonSender
+    send_html: HtmlSender
+    jinja_env: TemplateEnvFactory
 
 
 def _resolve_edit_path(repo: Path, rel_path: str) -> _WorkflowPath:
@@ -147,6 +168,119 @@ def workflow_edit_payload(repo: Path, rel_path: str) -> dict[str, Any]:
         "workflow_data": workflow_data,
         "workflow_sha256": sha256,
     }
+
+
+def render_workflows_index_page(ctx: WorkflowRouteContext) -> None:
+    try:
+        workflows = workflow_index_page_response(ctx.repo)
+        html = ctx.jinja_env().get_template("workflows_index.html").render(
+            workflows=workflows,
+        )
+        ctx.send_html(200, html)
+    except Exception as exc:  # noqa: BLE001
+        ctx.send_json(500, _error(500, str(exc)))
+
+
+def render_workflows_new_page(ctx: WorkflowRouteContext) -> None:
+    try:
+        html = ctx.jinja_env().get_template("workflow_new.html").render(
+            allow_mutations=ctx.allow_mutations,
+        )
+        ctx.send_html(200, html)
+    except Exception as exc:  # noqa: BLE001
+        ctx.send_json(500, _error(500, str(exc)))
+
+
+def render_workflow_detail_page(ctx: WorkflowRouteContext, rel_path: str) -> None:
+    try:
+        response = workflow_detail_page_response(ctx.repo, rel_path)
+        html = ctx.jinja_env().get_template("workflow_detail.html").render(
+            workflow=response.workflow,
+            graph_svg=response.graph_svg,
+        )
+        ctx.send_html(200, html)
+    except WorkflowFileError as exc:
+        ctx.send_json(exc.status_code, _error(exc.status_code, exc.message))
+    except Exception as exc:  # noqa: BLE001
+        ctx.send_json(500, _error(500, str(exc)))
+
+
+def render_workflow_edit_page(ctx: WorkflowRouteContext, rel_path: str) -> None:
+    try:
+        payload = workflow_edit_payload(ctx.repo, rel_path)
+        html = ctx.jinja_env().get_template("workflow_edit.html").render(
+            rel_path=payload["rel_path"],
+            is_new=payload["is_new"],
+            workflow_json=json.dumps(payload["workflow_data"]),
+            workflow_sha256=payload["workflow_sha256"],
+        )
+        ctx.send_html(200, html)
+    except WorkflowFileError as exc:
+        ctx.send_json(exc.status_code, _error(exc.status_code, exc.message))
+    except Exception as exc:  # noqa: BLE001
+        ctx.send_json(500, _error(500, str(exc)))
+
+
+def handle_workflow_edit_save(ctx: WorkflowRouteContext, rel_path: str) -> None:
+    if not ctx.allow_mutations:
+        ctx.send_json(405, _error(405, "workflow edit requires --allow-mutations"))
+        return
+    data = _read_workflow_edit_body(ctx, rel_path)
+    if data is None:
+        return
+    try:
+        result = save_workflow_file(
+            ctx.repo,
+            rel_path,
+            data,
+            if_match=ctx.headers.get("If-Match", ""),
+        )
+    except WorkflowFileError as exc:
+        error: JsonObject = {"code": exc.status_code, "message": exc.message}
+        if exc.errors is not None:
+            error["errors"] = exc.errors
+        if exc.current_sha256 is not None:
+            error["current_sha256"] = exc.current_sha256
+        ctx.send_json(exc.status_code, {"ok": False, "error": error})
+        return
+    ctx.send_json(200, {"ok": True, "data": result})
+
+
+def _read_workflow_edit_body(
+    ctx: WorkflowRouteContext,
+    rel_path: str,
+) -> dict[str, Any] | None:
+    if not rel_path:
+        ctx.send_json(404, _error(404, "missing path"))
+        return None
+    if rel_path.startswith("/") or "\x00" in rel_path or ".." in Path(rel_path).parts:
+        ctx.send_json(400, _error(400, "invalid path"))
+        return None
+    ctype = ctx.headers.get("Content-Type", "")
+    if "application/json" not in ctype:
+        ctx.send_json(415, _error(415, "Content-Type must be application/json"))
+        return None
+    try:
+        length = int(ctx.headers.get("Content-Length") or "0")
+    except ValueError:
+        length = 0
+    if length > 1024 * 1024:
+        ctx.send_json(413, _error(413, "body too large (1 MB cap)"))
+        return None
+    try:
+        raw = ctx.rfile.read(length).decode("utf-8", errors="replace") if length > 0 else ""
+    except OSError as exc:
+        ctx.send_json(400, _error(400, str(exc)))
+        return None
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        ctx.send_json(400, _error(400, f"invalid JSON: {exc}"))
+        return None
+    if not isinstance(data, dict):
+        ctx.send_json(400, _error(400, "body must be a JSON object"))
+        return None
+    return data
 
 
 def save_workflow_file(
@@ -491,3 +625,7 @@ def list_repo_tree(repo: Path, rel_path: str) -> dict[str, Any] | None:
             }
         )
     return {"path": "/".join(rel_parts), "entries": entries}
+
+
+def _error(code: int, message: str) -> JsonObject:
+    return {"ok": False, "error": {"code": code, "message": message}}

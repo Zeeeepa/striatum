@@ -985,7 +985,9 @@ review and plan are root-level operator artifacts:
     writer callbacks. Follow-up split landed: `web/run_actions.py` owns
     workflow run-now, branch-confirm, run cancel/pause/resume, and job
     cancel/retry route handling while `service.py` keeps route dispatch and
-    stable private wrappers.
+    stable private wrappers. Follow-up split landed: `web/workflows.py` now
+    also owns workflow browser and visual-editor route rendering/saving while
+    `service.py` keeps route dispatch and stable private wrappers.
     Remaining: continue splitting `service.py` along stable non-SQLite
     request-handling and rendering boundaries.
 

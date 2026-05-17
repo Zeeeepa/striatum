@@ -10,7 +10,6 @@ Mutations are gated behind ``--allow-mutations``.
 
 from __future__ import annotations
 
-import json
 import os
 import secrets
 import signal
@@ -83,6 +82,8 @@ from striatum.web import run_actions as _run_actions
 from striatum.web.run_actions import RunActionContext as _RunActionContext
 from striatum.web import run_pages as _run_pages
 from striatum.web.run_pages import RunPageContext as _RunPageContext
+from striatum.web import workflows as _workflows
+from striatum.web.workflows import WorkflowRouteContext as _WorkflowRouteContext
 from striatum.web.workflow_generation import (
     generator_error_response as _generator_error_response,
     workflow_generate_response as _workflow_generate_response,
@@ -599,129 +600,39 @@ class StriatumServiceHandler(BaseHTTPRequestHandler):
         )
 
     def _render_workflows_index_page(self) -> None:
-        from striatum.web.workflows import workflow_index_page_response
-        try:
-            workflows = workflow_index_page_response(self.state.repo)
-            html = _jinja_env().get_template("workflows_index.html").render(
-                workflows=workflows,
-            )
-            self._send_html(200, html)
-        except Exception as exc:  # noqa: BLE001
-            self._send_json(500, {"ok": False, "error": {"code": 500, "message": str(exc)}})
+        _workflows.render_workflows_index_page(self._workflow_route_context())
 
     def _render_workflows_new_page(self) -> None:
-        try:
-            html = _jinja_env().get_template("workflow_new.html").render(
-                allow_mutations=self.state.allow_mutations,
-            )
-            self._send_html(200, html)
-        except Exception as exc:  # noqa: BLE001
-            self._send_json(500, {"ok": False, "error": {"code": 500, "message": str(exc)}})
+        _workflows.render_workflows_new_page(self._workflow_route_context())
 
     def _render_workflow_detail_page(self, rel_path: str) -> None:
-        from striatum.web.workflows import WorkflowFileError, workflow_detail_page_response
-
-        try:
-            response = workflow_detail_page_response(self.state.repo, rel_path)
-            html = _jinja_env().get_template("workflow_detail.html").render(
-                workflow=response.workflow,
-                graph_svg=response.graph_svg,
-            )
-            self._send_html(200, html)
-        except WorkflowFileError as exc:
-            self._send_json(
-                exc.status_code,
-                {"ok": False, "error": {"code": exc.status_code, "message": exc.message}},
-            )
-        except Exception as exc:  # noqa: BLE001
-            self._send_json(500, {"ok": False, "error": {"code": 500, "message": str(exc)}})
+        _workflows.render_workflow_detail_page(
+            self._workflow_route_context(),
+            rel_path,
+        )
 
     def _render_workflow_edit_page(self, rel_path: str) -> None:
-        """RFC 0024 V1.5: render the visual builder for a workflow path.
-
-        Existing files load their parsed JSON (even if invalid — the
-        editor opens so the user can fix). Non-existent paths render an
-        empty scaffold derived from the path stem.
-        """
-        from striatum.web.workflows import WorkflowFileError, workflow_edit_payload
-
-        try:
-            payload = workflow_edit_payload(self.state.repo, rel_path)
-            html = _jinja_env().get_template("workflow_edit.html").render(
-                rel_path=payload["rel_path"],
-                is_new=payload["is_new"],
-                workflow_json=json.dumps(payload["workflow_data"]),
-                workflow_sha256=payload["workflow_sha256"],
-            )
-            self._send_html(200, html)
-        except WorkflowFileError as exc:
-            self._send_json(
-                exc.status_code,
-                {"ok": False, "error": {"code": exc.status_code, "message": exc.message}},
-            )
-        except Exception as exc:  # noqa: BLE001
-            self._send_json(500, {"ok": False, "error": {"code": 500, "message": str(exc)}})
+        _workflows.render_workflow_edit_page(
+            self._workflow_route_context(),
+            rel_path,
+        )
 
     def _handle_workflow_edit_save(self, rel_path: str) -> None:
-        """RFC 0024 V1.5: POST endpoint for the visual builder.
+        _workflows.handle_workflow_edit_save(
+            self._workflow_route_context(),
+            rel_path,
+        )
 
-        Mutation-gated. Validates the body via ``validate_workflow``;
-        on failure returns 422 with the error message; on success
-        atomically writes ``<path>.tmp`` then renames into place and
-        returns 200.
-        """
-        from striatum.web.workflows import WorkflowFileError, save_workflow_file
-
-        if not self.state.allow_mutations:
-            self._send_json(405, {"ok": False, "error": {"code": 405, "message": "workflow edit requires --allow-mutations"}})
-            return
-        if not rel_path:
-            self._send_json(404, {"ok": False, "error": {"code": 404, "message": "missing path"}})
-            return
-        if rel_path.startswith("/") or "\x00" in rel_path or ".." in Path(rel_path).parts:
-            self._send_json(400, {"ok": False, "error": {"code": 400, "message": "invalid path"}})
-            return
-        # F1 (design review): refuse non-JSON content-types and cap body size.
-        ctype = self.headers.get("Content-Type", "")
-        if "application/json" not in ctype:
-            self._send_json(415, {"ok": False, "error": {"code": 415, "message": "Content-Type must be application/json"}})
-            return
-        try:
-            length = int(self.headers.get("Content-Length") or "0")
-        except ValueError:
-            length = 0
-        if length > 1024 * 1024:
-            self._send_json(413, {"ok": False, "error": {"code": 413, "message": "body too large (1 MB cap)"}})
-            return
-        try:
-            raw = self.rfile.read(length).decode("utf-8", errors="replace") if length > 0 else ""
-        except OSError as exc:
-            self._send_json(400, {"ok": False, "error": {"code": 400, "message": str(exc)}})
-            return
-        try:
-            data = json.loads(raw)
-        except json.JSONDecodeError as exc:
-            self._send_json(400, {"ok": False, "error": {"code": 400, "message": f"invalid JSON: {exc}"}})
-            return
-        if not isinstance(data, dict):
-            self._send_json(400, {"ok": False, "error": {"code": 400, "message": "body must be a JSON object"}})
-            return
-        try:
-            result = save_workflow_file(
-                self.state.repo,
-                rel_path,
-                data,
-                if_match=self.headers.get("If-Match", ""),
-            )
-        except WorkflowFileError as exc:
-            error: JsonObject = {"code": exc.status_code, "message": exc.message}
-            if exc.errors is not None:
-                error["errors"] = exc.errors
-            if exc.current_sha256 is not None:
-                error["current_sha256"] = exc.current_sha256
-            self._send_json(exc.status_code, {"ok": False, "error": error})
-            return
-        self._send_json(200, {"ok": True, "data": result})
+    def _workflow_route_context(self) -> _WorkflowRouteContext:
+        return _WorkflowRouteContext(
+            repo=self.state.repo,
+            allow_mutations=self.state.allow_mutations,
+            headers=self.headers,
+            rfile=self.rfile,
+            send_json=self._send_json,
+            send_html=self._send_html,
+            jinja_env=_jinja_env,
+        )
 
     def _run_action_context(self) -> _RunActionContext:
         return _RunActionContext(
