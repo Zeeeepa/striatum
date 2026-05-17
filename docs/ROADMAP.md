@@ -477,6 +477,11 @@ daemon-first without needing to support two domain daemons.
   orchestration, including daemon metadata lookup, gated legacy fallback
   selection, file loading, content-type selection, and response header/body
   framing through callbacks supplied by the service wrapper.
+- `src/striatum/web/run_actions.py` now owns workflow run-now,
+  branch-confirm, run cancel/pause/resume, and job cancel/retry route
+  handling, including mutation gates, request-body validation, daemon RPC
+  dispatch, dirty-tree/schema error mapping, and legacy fixture fallback
+  delegation. `service.py` keeps route dispatch and stable private wrappers.
 
 **Remaining Phase 4 debt:** continue splitting `service.py` along stable
 non-SQLite request-handling and rendering boundaries after the daemon-routed

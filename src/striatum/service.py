@@ -79,6 +79,8 @@ from striatum.web.artifacts import (
     serve_artifact_raw as _serve_artifact_raw,
     shape_artifact_rows as _shape_artifact_rows_web,
 )
+from striatum.web import run_actions as _run_actions
+from striatum.web.run_actions import RunActionContext as _RunActionContext
 from striatum.web import run_pages as _run_pages
 from striatum.web.run_pages import RunPageContext as _RunPageContext
 from striatum.web.workflow_generation import (
@@ -721,385 +723,45 @@ class StriatumServiceHandler(BaseHTTPRequestHandler):
             return
         self._send_json(200, {"ok": True, "data": result})
 
+    def _run_action_context(self) -> _RunActionContext:
+        return _RunActionContext(
+            repo=self.state.repo,
+            allow_mutations=self.state.allow_mutations,
+            headers=self.headers,
+            rfile=self.rfile,
+            send_json=self._send_json,
+            read_json_body_strict=self._read_json_body_strict,
+            legacy_error_handler=self,
+            legacy_web_read_fallback_enabled=_legacy_web_read_fallback_enabled,
+            legacy_fixture_fallback_enabled=_legacy_fixture_fallback_enabled,
+            legacy_workflow_run_now=_legacy_workflow_run_now,
+            legacy_run_cancel=_legacy_run_cancel,
+            legacy_run_pause=_legacy_run_pause,
+            legacy_run_resume=_legacy_run_resume,
+            legacy_job_cancel=_legacy_job_cancel,
+            legacy_job_retry=_legacy_job_retry,
+            send_legacy_run_now_error=_send_legacy_run_now_error,
+            send_legacy_fixture_error=_send_legacy_fixture_error,
+            short_git_status=_short_git_status,
+        )
+
     def _handle_workflow_run_now(self, rel_path: str) -> None:
-        """RFC 0024 V2: POST /workflows/run/<path> — lift workflow.json into a fresh run.
-
-        Mutation-gated. Validates path safety + content-type + body cap.
-        Calls daemon ``run.prepare`` (which validates the workflow);
-        auto-branch confirms when ``branch.mode == auto``; calls daemon
-        ``run.start``.
-        Returns ``{run_id}`` on 200; ``409`` on dirty-tree branch refusal;
-        ``422`` on validation failure.
-        """
-        from striatum.errors import InvalidTransitionError, WorkflowError
-        from striatum.service_daemon import ServiceDaemonRpcError, call_repo_method
-
-        if not self.state.allow_mutations:
-            self._send_json(405, {"ok": False, "error": {"code": 405, "message": "run requires --allow-mutations"}})
-            return
-        if not rel_path:
-            self._send_json(404, {"ok": False, "error": {"code": 404, "message": "missing path"}})
-            return
-        if rel_path.startswith("/") or "\x00" in rel_path or ".." in Path(rel_path).parts:
-            self._send_json(400, {"ok": False, "error": {"code": 400, "message": "invalid path"}})
-            return
-        ctype = self.headers.get("Content-Type", "")
-        if "application/json" not in ctype:
-            self._send_json(415, {"ok": False, "error": {"code": 415, "message": "Content-Type must be application/json"}})
-            return
-        try:
-            length = int(self.headers.get("Content-Length") or "0")
-        except ValueError:
-            length = 0
-        if length > 1024 * 1024:
-            self._send_json(413, {"ok": False, "error": {"code": 413, "message": "body too large (1 MB cap)"}})
-            return
-        # Body is reserved for V3 overrides; ignored in V2.
-        try:
-            _ = self.rfile.read(length).decode("utf-8", errors="replace") if length > 0 else ""
-        except OSError as exc:
-            self._send_json(400, {"ok": False, "error": {"code": 400, "message": str(exc)}})
-            return
-        repo_root = self.state.repo.resolve()
-        target = (self.state.repo / rel_path).resolve()
-        try:
-            target.relative_to(repo_root)
-        except ValueError:
-            self._send_json(400, {"ok": False, "error": {"code": 400, "message": "path escapes repo"}})
-            return
-        rel_parts = target.relative_to(repo_root).parts
-        if rel_parts and rel_parts[0] in (".git", ".striatum"):
-            self._send_json(404, {"ok": False, "error": {"code": 404, "message": "hidden path"}})
-            return
-        if not target.is_file():
-            self._send_json(404, {"ok": False, "error": {"code": 404, "message": "workflow.json not found"}})
-            return
-        try:
-            workflow_arg = "/".join(rel_parts)
-            prepared = call_repo_method(self.state.repo, "run.prepare", {"workflow": workflow_arg})
-            run_id = str(prepared["run_id"])
-            requires_confirm = (
-                prepared.get("state") == "needs_branch_confirmation"
-                and prepared.get("branch_mode") != "auto"
-            )
-            if prepared.get("branch_mode") == "auto":
-                suggested = prepared.get("suggested_branch_name")
-                if isinstance(suggested, str) and suggested:
-                    call_repo_method(
-                        self.state.repo,
-                        "branch.confirm",
-                        {"run_id": run_id, "branch": suggested, "create": True},
-                    )
-            if requires_confirm:
-                self._send_json(200, {"ok": True, "data": {"run_id": run_id, "status": "needs_branch_confirmation", "suggested_branch_name": prepared.get("suggested_branch_name")}})
-                return
-            call_repo_method(self.state.repo, "run.start", {"run_id": run_id})
-        except ServiceDaemonRpcError as exc:
-            if _legacy_web_read_fallback_enabled(exc.code):
-                try:
-                    result = _legacy_workflow_run_now(self.state.repo, workflow_path=target)
-                except Exception as legacy_exc:  # noqa: BLE001 - mapped below.
-                    if _send_legacy_run_now_error(self, self.state.repo, legacy_exc):
-                        return
-                    raise
-                self._send_json(200, {"ok": True, "data": result})
-                return
-            if exc.code in {"workflow_error", "schema_invalid"}:
-                msg = exc.message
-                if "git checkout failed" in msg:
-                    self._send_json(409, {"ok": False, "error": {"code": 409, "message": msg, "kind": "dirty_tree", "git_status": _short_git_status(self.state.repo)}})
-                    return
-                errors = []
-                details = exc.details or {}
-                field_path = details.get("field_path")
-                if isinstance(field_path, str) and field_path:
-                    errors.append({"field_path": field_path, "message": msg})
-                self._send_json(422, {"ok": False, "error": {"code": 422, "message": msg, "errors": errors}})
-                return
-            error: dict[str, Any] = {"code": exc.status, "message": exc.message}
-            if exc.kind is not None:
-                error["kind"] = exc.kind
-            self._send_json(exc.status, {"ok": False, "error": error})
-            return
-        except WorkflowError as exc:
-            # RFC 0024 V3 (closes V2 design-review F3): dirty-tree
-            # checkout failures bubble up here as WorkflowError. Detect
-            # them and re-emit as a structured 409 with `git status`
-            # so the operator sees what's blocking without dropping
-            # to a terminal.
-            msg = str(exc)
-            if "git checkout failed" in msg:
-                self._send_json(409, {"ok": False, "error": {"code": 409, "message": msg, "kind": "dirty_tree", "git_status": _short_git_status(self.state.repo)}})
-                return
-            errors = []
-            field_path = getattr(exc, "field_path", None)
-            if isinstance(field_path, str) and field_path:
-                errors.append({"field_path": field_path, "message": str(exc)})
-            self._send_json(422, {"ok": False, "error": {"code": 422, "message": str(exc), "errors": errors}})
-            return
-        except InvalidTransitionError as exc:
-            self._send_json(409, {"ok": False, "error": {"code": 409, "message": str(exc), "kind": "invalid_transition"}})
-            return
-        except Exception as exc:  # noqa: BLE001
-            self._send_json(500, {"ok": False, "error": {"code": 500, "message": f"{type(exc).__name__}: {exc}"}})
-            return
-        self._send_json(200, {"ok": True, "data": {"run_id": run_id, "status": "running"}})
+        _run_actions.handle_workflow_run_now(self._run_action_context(), rel_path)
 
     def _handle_run_branch_confirm(self, run_id: str) -> None:
-        """RFC 0024 V2.1: confirm a run's branch from the web UI.
-
-        Body: ``{"branch": "<name>", "create": true|false, "use_current": true|false}``.
-        Mutation-gated. After successful confirm, also drives ``run.start``
-        so the run leaves ``needs_branch_confirmation`` immediately.
-        """
-        from striatum.service_daemon import ServiceDaemonRpcError, call_repo_method
-
-        if not self.state.allow_mutations:
-            self._send_json(405, {"ok": False, "error": {"code": 405, "message": "branch confirm requires --allow-mutations"}})
-            return
-        ctype = self.headers.get("Content-Type", "")
-        if "application/json" not in ctype:
-            self._send_json(415, {"ok": False, "error": {"code": 415, "message": "Content-Type must be application/json"}})
-            return
-        try:
-            length = int(self.headers.get("Content-Length") or "0")
-        except ValueError:
-            length = 0
-        if length > 64 * 1024:
-            self._send_json(413, {"ok": False, "error": {"code": 413, "message": "body too large"}})
-            return
-        try:
-            raw = self.rfile.read(length).decode("utf-8", errors="replace") if length > 0 else "{}"
-        except OSError as exc:
-            self._send_json(400, {"ok": False, "error": {"code": 400, "message": str(exc)}})
-            return
-        try:
-            body = json.loads(raw or "{}")
-        except json.JSONDecodeError as exc:
-            self._send_json(400, {"ok": False, "error": {"code": 400, "message": f"invalid JSON: {exc}"}})
-            return
-        if not isinstance(body, dict):
-            self._send_json(400, {"ok": False, "error": {"code": 400, "message": "body must be a JSON object"}})
-            return
-        branch_name = body.get("branch")
-        create = bool(body.get("create", True))
-        use_current = bool(body.get("use_current", False))
-        if not isinstance(branch_name, str) or not branch_name:
-            self._send_json(400, {"ok": False, "error": {"code": 400, "message": "branch is required"}})
-            return
-        try:
-            confirmed = call_repo_method(
-                self.state.repo,
-                "branch.confirm",
-                {
-                    "run_id": run_id,
-                    "branch": branch_name,
-                    "create": create,
-                    "use_current": use_current,
-                },
-            )
-            call_repo_method(self.state.repo, "run.start", {"run_id": run_id})
-        except ServiceDaemonRpcError as exc:
-            error: dict[str, Any] = {"code": exc.status, "message": exc.message}
-            if exc.kind is not None:
-                error["kind"] = exc.kind
-            self._send_json(exc.status, {"ok": False, "error": error})
-            return
-        except Exception as exc:  # noqa: BLE001
-            self._send_json(500, {"ok": False, "error": {"code": 500, "message": f"{type(exc).__name__}: {exc}"}})
-            return
-        self._send_json(200, {"ok": True, "data": {"run_id": run_id, "state": "running", "branch": confirmed.get("branch")}})
+        _run_actions.handle_run_branch_confirm(self._run_action_context(), run_id)
 
     def _handle_run_cancel(self, run_id: str) -> None:
-        """RFC 0024 V3: cancel a run from the web UI.
-
-        Mutation-gated. Idempotent: re-cancelling an already-canceled
-        run returns 200 with the same payload.
-        """
-        from striatum.service_daemon import ServiceDaemonRpcError, call_repo_method
-
-        if not self.state.allow_mutations:
-            self._send_json(405, {"ok": False, "error": {"code": 405, "message": "cancel run requires --allow-mutations"}})
-            return
-        ctype = self.headers.get("Content-Type", "")
-        if "application/json" not in ctype:
-            self._send_json(415, {"ok": False, "error": {"code": 415, "message": "Content-Type must be application/json"}})
-            return
-        try:
-            length = int(self.headers.get("Content-Length") or "0")
-        except ValueError:
-            length = 0
-        if length > 64 * 1024:
-            self._send_json(413, {"ok": False, "error": {"code": 413, "message": "body too large"}})
-            return
-        try:
-            raw = self.rfile.read(length).decode("utf-8", errors="replace") if length > 0 else "{}"
-        except OSError as exc:
-            self._send_json(400, {"ok": False, "error": {"code": 400, "message": str(exc)}})
-            return
-        try:
-            body = json.loads(raw or "{}")
-        except json.JSONDecodeError as exc:
-            self._send_json(400, {"ok": False, "error": {"code": 400, "message": f"invalid JSON: {exc}"}})
-            return
-        if not isinstance(body, dict):
-            self._send_json(400, {"ok": False, "error": {"code": 400, "message": "body must be a JSON object"}})
-            return
-        reason = body.get("reason") if isinstance(body.get("reason"), str) else None
-        try:
-            result = call_repo_method(self.state.repo, "run.cancel", {"run_id": run_id, "reason": reason})
-        except ServiceDaemonRpcError as exc:
-            if _legacy_fixture_fallback_enabled(exc.code):
-                try:
-                    result = _legacy_run_cancel(self.state.repo, run_id=run_id, reason=reason)
-                except Exception as legacy_exc:  # noqa: BLE001 - mapped below.
-                    if _send_legacy_fixture_error(self, legacy_exc):
-                        return
-                    raise
-                self._send_json(200, {"ok": True, "data": result})
-                return
-            error: dict[str, Any] = {"code": exc.status, "message": exc.message}
-            if exc.kind is not None:
-                error["kind"] = exc.kind
-            self._send_json(exc.status, {"ok": False, "error": error})
-            return
-        except Exception as exc:  # noqa: BLE001
-            self._send_json(500, {"ok": False, "error": {"code": 500, "message": f"{type(exc).__name__}: {exc}"}})
-            return
-        self._send_json(200, {"ok": True, "data": result})
+        _run_actions.handle_run_cancel(self._run_action_context(), run_id)
 
     def _handle_run_pause(self, run_id: str) -> None:
-        from striatum.service_daemon import ServiceDaemonRpcError, call_repo_method
-
-        if not self.state.allow_mutations:
-            self._send_json(405, {"ok": False, "error": {"code": 405, "message": "pause requires --allow-mutations"}})
-            return
-        body = self._read_json_body_strict(64 * 1024)
-        if body is None:
-            return
-        reason = body.get("reason") if isinstance(body.get("reason"), str) else None
-        try:
-            result = call_repo_method(self.state.repo, "run.pause", {"run_id": run_id, "reason": reason})
-        except ServiceDaemonRpcError as exc:
-            if _legacy_fixture_fallback_enabled(exc.code):
-                try:
-                    result = _legacy_run_pause(self.state.repo, run_id=run_id, reason=reason)
-                except Exception as legacy_exc:  # noqa: BLE001 - mapped below.
-                    if _send_legacy_fixture_error(self, legacy_exc):
-                        return
-                    raise
-                self._send_json(200, {"ok": True, "data": result})
-                return
-            error: dict[str, Any] = {"code": exc.status, "message": exc.message}
-            if exc.kind is not None:
-                error["kind"] = exc.kind
-            self._send_json(exc.status, {"ok": False, "error": error})
-            return
-        except Exception as exc:  # noqa: BLE001
-            self._send_json(500, {"ok": False, "error": {"code": 500, "message": f"{type(exc).__name__}: {exc}"}})
-            return
-        self._send_json(200, {"ok": True, "data": result})
+        _run_actions.handle_run_pause(self._run_action_context(), run_id)
 
     def _handle_run_resume(self, run_id: str) -> None:
-        from striatum.service_daemon import ServiceDaemonRpcError, call_repo_method
-
-        if not self.state.allow_mutations:
-            self._send_json(405, {"ok": False, "error": {"code": 405, "message": "resume requires --allow-mutations"}})
-            return
-        body = self._read_json_body_strict(64 * 1024)
-        if body is None:
-            return
-        try:
-            result = call_repo_method(self.state.repo, "run.resume", {"run_id": run_id})
-        except ServiceDaemonRpcError as exc:
-            if _legacy_fixture_fallback_enabled(exc.code):
-                try:
-                    result = _legacy_run_resume(self.state.repo, run_id=run_id)
-                except Exception as legacy_exc:  # noqa: BLE001 - mapped below.
-                    if _send_legacy_fixture_error(self, legacy_exc):
-                        return
-                    raise
-                self._send_json(200, {"ok": True, "data": result})
-                return
-            error: dict[str, Any] = {"code": exc.status, "message": exc.message}
-            if exc.kind is not None:
-                error["kind"] = exc.kind
-            self._send_json(exc.status, {"ok": False, "error": error})
-            return
-        except Exception as exc:  # noqa: BLE001
-            self._send_json(500, {"ok": False, "error": {"code": 500, "message": f"{type(exc).__name__}: {exc}"}})
-            return
-        self._send_json(200, {"ok": True, "data": result})
+        _run_actions.handle_run_resume(self._run_action_context(), run_id)
 
     def _handle_job_action(self, path: str) -> None:
-        """RFC 0024 V4: per-job cancel + retry. Path: /run/<id>/job/<jid>/(cancel|retry)."""
-        from striatum.service_daemon import ServiceDaemonRpcError, call_repo_method
-
-        if not self.state.allow_mutations:
-            self._send_json(405, {"ok": False, "error": {"code": 405, "message": "job action requires --allow-mutations"}})
-            return
-        # Parse /run/<rid>/job/<jid>/<action>.
-        parts = path.strip("/").split("/")
-        if len(parts) != 5 or parts[0] != "run" or parts[2] != "job":
-            self._send_json(400, {"ok": False, "error": {"code": 400, "message": "invalid job-action path"}})
-            return
-        run_id, job_id, action = parts[1], parts[3], parts[4]
-        body = self._read_json_body_strict(64 * 1024)
-        if body is None:
-            return
-        try:
-            if action == "cancel":
-                raw_reason = body.get("reason")
-                reason: str = raw_reason if isinstance(raw_reason, str) and raw_reason else "operator_canceled_via_web"
-                cascade = bool(body.get("cascade", True))
-                result = call_repo_method(
-                    self.state.repo,
-                    "recovery.cancel_job",
-                    {"run_id": run_id, "job_id": job_id, "reason": reason, "cascade": cascade},
-                )
-            elif action == "retry":
-                result = call_repo_method(
-                    self.state.repo,
-                    "run.retry_job",
-                    {"run_id": run_id, "job_id": job_id},
-                )
-            else:
-                self._send_json(400, {"ok": False, "error": {"code": 400, "message": f"unknown job action: {action}"}})
-                return
-        except ServiceDaemonRpcError as exc:
-            if _legacy_fixture_fallback_enabled(exc.code):
-                try:
-                    if action == "cancel":
-                        result = _legacy_job_cancel(
-                            self.state.repo,
-                            run_id=run_id,
-                            job_id=job_id,
-                            reason=reason,
-                            cascade=cascade,
-                        )
-                    elif action == "retry":
-                        result = _legacy_job_retry(
-                            self.state.repo,
-                            run_id=run_id,
-                            job_id=job_id,
-                        )
-                    else:
-                        raise
-                except Exception as legacy_exc:  # noqa: BLE001 - mapped below.
-                    if _send_legacy_fixture_error(self, legacy_exc):
-                        return
-                    raise
-                self._send_json(200, {"ok": True, "data": result})
-                return
-            error: dict[str, Any] = {"code": exc.status, "message": exc.message}
-            if exc.kind is not None:
-                error["kind"] = exc.kind
-            self._send_json(exc.status, {"ok": False, "error": error})
-            return
-        except Exception as exc:  # noqa: BLE001
-            self._send_json(500, {"ok": False, "error": {"code": 500, "message": f"{type(exc).__name__}: {exc}"}})
-            return
-        self._send_json(200, {"ok": True, "data": result})
+        _run_actions.handle_job_action(self._run_action_context(), path)
 
     def _read_json_body_strict(self, max_bytes: int) -> "dict[str, Any] | None":
         return _request_io.read_json_body_strict(

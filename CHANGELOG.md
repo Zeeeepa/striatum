@@ -112,6 +112,10 @@ Recent checkpoints:
 - Artifact raw download orchestration moved from `service.py` into
   `striatum.web.artifacts`, with the service wrapper still owning the HTTP
   handler entry point and response writer callbacks.
+- Workflow run-now, branch-confirm, run cancel/pause/resume, and job
+  cancel/retry route handling moved from `service.py` into
+  `striatum.web.run_actions`, preserving the private service wrappers and
+  legacy fixture fallback/error-mapping boundaries.
 - Workflow validation now rejects `needs_revision` cycles whose `from`/`to`
   jobs cross phase boundaries, closing the RFC 0045 V1.5 cycle phase-jump
   validator gap.
