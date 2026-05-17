@@ -620,8 +620,9 @@ Legend: ✅ done · 🟡 most done (sub-tasks remain) · ⏳ open/blocked · �
 
 27. **RFC 0045 V1.5: address codex build review findings from
     dogfood-043** (cycle phase-jump validator gap closed; strict phase-skip
-    restriction and phase_id strict-on-v1 check already enforced; remaining
-    drag-drop dropdown bypass and malformed v1.1 tolerance) — see D097.
+    restriction, phase field compatibility, and phase_id strict-on-v1 check
+    already enforced; remaining drag-drop dropdown bypass and malformed v1.1
+    tolerance) — see D097.
     Cycle-exhaustion
     override per D097 (decision
     `dec_2c5fbf49e91441aca3562a66919ea8c1`). 2-of-3 cross-lane

@@ -905,7 +905,7 @@ dogfood. Order them by impact, not by RFC number.
 
 | TODO | RFC | Origin | Decision | Scope |
 |---:|---|---|---|---|
-| [27](TODO.md) | RFC 0045 V1.5 | dogfood-043 | D097 | Cycle phase-jump validator gap closed; remaining drag-drop dropdown bypass + malformed v1.1 tolerance follow-up. |
+| [27](TODO.md) | RFC 0045 V1.5 | dogfood-043 | D097 | Cycle phase-jump and Python/editor phase-field mismatch closed; remaining drag-drop dropdown bypass + malformed v1.1 tolerance follow-up. |
 | [28](TODO.md) | RFC 0040 V1.6 | dogfood-044 | D098 | Codex findings from dogfood-044 build review. |
 | [29](TODO.md) | RFC 0038 V1.6 | dogfood-045 | D099 | Real-bundle commit (`make ui-update-lock` + `make ui-build`) + supply-chain polish. **First `reject critical` override.** |
 | [30](TODO.md) | RFC 0039 V1.6 | dogfood-047 | D101 | ✅ Completed in 4.3 as the post-D105 helper-focused hardening slice; full Go daemon parity remains out of scope. |

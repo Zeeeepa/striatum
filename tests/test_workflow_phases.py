@@ -101,6 +101,22 @@ def test_v1_1_phases_validate_and_materialize_synthesis_fan_in() -> None:
     }
 
 
+def test_v1_1_accepts_canonical_phase_field_from_editor() -> None:
+    workflow = _workflow()
+    for job in workflow["jobs"]:
+        job["phase"] = job.pop("phase_id")
+
+    validate_workflow(workflow)
+
+    phase_index = workflow_phase_index(workflow)
+    assert phase_index["job_phase"] == {
+        "design_a": "phase_1_design",
+        "synthesize_design": "phase_1_design",
+        "build_a": "phase_2_build",
+        "synthesize_build": "phase_2_build",
+    }
+
+
 def test_v1_rejects_phase_fields() -> None:
     workflow = _workflow()
     workflow["schema_version"] = "striatum.workflow.v1"
@@ -115,18 +131,35 @@ def test_v1_rejects_phase_fields() -> None:
     with pytest.raises(WorkflowError, match="must not declare phase_id"):
         validate_workflow(workflow)
 
+    workflow = _workflow()
+    workflow["schema_version"] = "striatum.workflow.v1"
+    del workflow["phases"]
+    for job in workflow["jobs"]:
+        job["phase"] = job.pop("phase_id")
+
+    with pytest.raises(WorkflowError, match="must not declare phase"):
+        validate_workflow(workflow)
+
 
 def test_declared_phases_require_every_job_to_have_known_phase_id() -> None:
     workflow = _workflow()
     del workflow["jobs"][2]["phase_id"]
 
-    with pytest.raises(WorkflowError, match="must declare phase_id"):
+    with pytest.raises(WorkflowError, match="must declare phase"):
         validate_workflow(workflow)
 
     workflow = _workflow()
     workflow["jobs"][2]["phase_id"] = "missing"
 
-    with pytest.raises(WorkflowError, match="references unknown phase_id"):
+    with pytest.raises(WorkflowError, match="references unknown phase"):
+        validate_workflow(workflow)
+
+
+def test_declared_phases_reject_conflicting_phase_aliases() -> None:
+    workflow = _workflow()
+    workflow["jobs"][0]["phase"] = "phase_2_build"
+
+    with pytest.raises(WorkflowError, match="conflicting phase and phase_id"):
         validate_workflow(workflow)
 
 

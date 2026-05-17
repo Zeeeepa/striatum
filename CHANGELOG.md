@@ -88,6 +88,9 @@ Recent checkpoints:
 - Workflow validation now rejects `needs_revision` cycles whose `from`/`to`
   jobs cross phase boundaries, closing the RFC 0045 V1.5 cycle phase-jump
   validator gap.
+- Workflow validation now accepts canonical job `phase` fields from the React
+  workflow editor, keeps `phase_id` as a compatibility alias, and rejects
+  conflicting aliases.
 - Roadmap kickoff status and remediation sequencing notes were refreshed to
   match the post-v1.55.0 daemon-first architecture work and the current
   blocked-policy boundaries.

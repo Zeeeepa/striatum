@@ -834,6 +834,11 @@ def _validate_phases(
             )
         for job_index, job in enumerate(jobs):
             job_id = str(job.get("id") or f"jobs[{job_index}]")
+            if "phase" in job:
+                raise WorkflowError(
+                    f"striatum.workflow.v1 job {job_id!r} must not declare phase",
+                    field_path=f"jobs[{job_index}].phase",
+                )
             if "phase_id" in job:
                 raise WorkflowError(
                     f"striatum.workflow.v1 job {job_id!r} must not declare phase_id",
@@ -849,6 +854,11 @@ def _validate_phases(
     if phases_value is None or phases_value == []:
         for job_index, job in enumerate(jobs):
             job_id = str(job.get("id") or f"jobs[{job_index}]")
+            if "phase" in job:
+                raise WorkflowError(
+                    f"job {job_id!r} may declare phase only when workflow phases are declared",
+                    field_path=f"jobs[{job_index}].phase",
+                )
             if "phase_id" in job:
                 raise WorkflowError(
                     f"job {job_id!r} may declare phase_id only when workflow phases are declared",
@@ -913,16 +923,16 @@ def _validate_phases(
 
     for job_index, job in enumerate(jobs):
         job_id = _string(job, "id")
-        phase_id = job.get("phase_id")
+        phase_id = _job_phase_id(job, job_index=job_index, job_id=job_id)
         if not isinstance(phase_id, str) or phase_id == "":
             raise WorkflowError(
-                f"job {job_id!r} must declare phase_id when workflow phases are declared",
-                field_path=f"jobs[{job_index}].phase_id",
+                f"job {job_id!r} must declare phase when workflow phases are declared",
+                field_path=f"jobs[{job_index}].phase",
             )
         if phase_id not in phase_by_id:
             raise WorkflowError(
-                f"job {job_id!r} references unknown phase_id {phase_id!r}",
-                field_path=f"jobs[{job_index}].phase_id",
+                f"job {job_id!r} references unknown phase {phase_id!r}",
+                field_path=f"jobs[{job_index}].phase",
             )
         job_phase[job_id] = phase_id
         job_count_by_phase[phase_id] += 1
@@ -960,6 +970,17 @@ def _validate_phases(
         "job_phase": job_phase,
         "synthesis_by_phase": synthesis_by_phase,
     }
+
+
+def _job_phase_id(job: JsonValue, *, job_index: int, job_id: str) -> Any:
+    phase = job.get("phase")
+    phase_id = job.get("phase_id")
+    if phase is not None and phase_id is not None and phase != phase_id:
+        raise WorkflowError(
+            f"job {job_id!r} declares conflicting phase and phase_id values",
+            field_path=f"jobs[{job_index}].phase",
+        )
+    return phase if phase is not None else phase_id
 
 
 def _validate_phase_edges(
