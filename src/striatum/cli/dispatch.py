@@ -1427,37 +1427,24 @@ def _dispatch_daemon(args: argparse.Namespace) -> object:
             provision_rw_role=bool(getattr(args, "provision_rw_role", False)),
             repair_grants=bool(getattr(args, "repair_grants", False)),
         )
-        try:
-            v1 = daemon_mod.read_doctor(repo=None, verbose=True)
-        except daemon_mod.DaemonAuthError as exc:
-            # RFC 0048 Phase C: the runtime token is minted into Postgres's
-            # `striatumd.clients` by `_bootstrap_pg_admin_if_needed`. The
-            # SQLite registry's `clients` table is no longer populated at
-            # daemon startup, so its auth probe denies with `token_invalid`
-            # by design once PG is authoritative. Surface that as a benign
-            # post-cutover signal instead of a doctor failure.
-            if pg.get("ok") and "token_invalid" in str(exc):
-                v1 = {
-                    "ok": True,
-                    "status": "post_pg_cutover_unused",
-                    "note": (
-                        "SQLite client registry is no longer the authoritative "
-                        "auth surface; doctor probe skipped."
-                    ),
-                }
-            else:
+        daemon_diagnostics: dict[str, object] | None = None
+        if pg.get("ok"):
+            v1 = _post_pg_cutover_sqlite_registry_result(
+                "Legacy SQLite daemon registry is disabled in production; "
+                "PostgreSQL is the authoritative daemon state."
+            )
+            try:
+                daemon_diagnostics = daemon_mod.read_doctor(repo=None, verbose=True)
+            except Exception as exc:  # noqa: BLE001 - daemon doctor must still report PG onboarding.
+                daemon_diagnostics = {"ok": False, "error": str(exc)}
+        else:
+            try:
+                v1 = daemon_mod.read_doctor(repo=None, verbose=True)
+            except Exception as exc:  # noqa: BLE001 - daemon doctor must still report PG onboarding.
                 v1 = {"ok": False, "error": str(exc)}
-        except daemon_mod.DaemonRegistryError as exc:
-            if pg.get("ok") and "legacy SQLite daemon registry is disabled" in str(exc):
-                v1 = _post_pg_cutover_sqlite_registry_result(
-                    "Legacy SQLite daemon registry is disabled in production; "
-                    "PostgreSQL is the authoritative daemon state."
-                )
-            else:
-                v1 = {"ok": False, "error": str(exc)}
-        except Exception as exc:  # noqa: BLE001 - daemon doctor must still report PG onboarding.
-            v1 = {"ok": False, "error": str(exc)}
         result: dict[str, object] = {"mode": "daemon", "postgres": pg, "sqlite_registry": v1}
+        if daemon_diagnostics is not None:
+            result["daemon_diagnostics"] = daemon_diagnostics
         explain: dict[str, object] | None = None
         if bool(getattr(args, "explain", False)) or bool(getattr(args, "authority", False)):
             explain = _daemon_method_authority_explain()
@@ -1574,7 +1561,12 @@ def _daemon_authority_report(
         os.environ.get("STRIATUM_TEST_HARNESS") == "1"
         and os.environ.get("STRIATUM_DAEMON_REQUIRED") == "0"
     )
-    ok = bool(postgres.get("ok")) and sqlite_status == "disabled" and method_fallback_count == 0
+    ok = (
+        bool(postgres.get("ok"))
+        and sqlite_status == "disabled"
+        and method_fallback_count == 0
+        and not legacy_registry_escape
+    )
     recommendations: list[str] = []
     if not bool(postgres.get("ok")):
         recommendations.append("configure daemon PostgreSQL and rerun daemon doctor")

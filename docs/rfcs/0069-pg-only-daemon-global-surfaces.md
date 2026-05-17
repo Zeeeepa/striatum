@@ -14,8 +14,9 @@ weakens both RFC 0043 and the RFC 0068 Go-port target.
 Known surfaces included daemon startup bootstrap, `dashboard.all`, the Python
 `daemon_sweep_once` registry path, daemon MCP resource list/read helpers,
 daemon health, and daemon audit/doctor probes. Startup bootstrap, dashboard-all
-subset, daemon MCP resources, PostgreSQL-backed daemon health/audit reads, and
-the Go resident recovery scheduler have landed; residual work is tracked below.
+subset, daemon MCP resources, PostgreSQL-backed daemon health/audit/doctor
+reads, and the Go resident recovery scheduler have landed; residual work is
+tracked below.
 
 ## Goals
 
@@ -90,6 +91,11 @@ Add a production registry tripwire and port daemon-global surfaces in order:
   to the PostgreSQL audit chain and returns the existing compact health
   response when a daemon DB is configured. The legacy SQLite health probe
   remains only for unconfigured fixture/migration paths.
+- `daemon doctor` now treats the legacy SQLite registry as post-cutover unused
+  after a successful PostgreSQL doctor check instead of probing it. The direct
+  `read_doctor` helper uses PostgreSQL for global and repo-scoped diagnostics
+  when a daemon DB is configured and leaves the old registry path only for
+  unconfigured fixture/migration compatibility.
 - The Go daemon now starts a resident recovery scheduler loop after socket
   bind. The loop runs an immediate PostgreSQL active-run sweep, calls the Go
   `recovery.sweep` path per active run, records `daemon.recovery_sweep`
@@ -98,8 +104,6 @@ Add a production registry tripwire and port daemon-global surfaces in order:
 
 ## Open Questions
 
-- Should daemon-global doctor remain a direct helper function, or become
-  first-class daemon RPC methods before the SQLite gate is closed?
 - Should `dashboard.all` use one aggregate query or N repository-scoped handler
   calls for simpler authority reuse?
 

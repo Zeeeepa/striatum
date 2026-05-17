@@ -817,13 +817,14 @@ def _require_pg_auth(
     *,
     command: str,
     required: str,
+    repository_id: str | None = None,
     token: str | None = None,
     payload: Mapping[str, Any] | None = None,
-) -> None:
+) -> Any:
     from striatum.daemon_rpc.capability import authorize
     from striatum.daemon_rpc.request_log import append_audit_row
 
-    auth = authorize(pg_conn, required=required, repository_id=None, token=token)
+    auth = authorize(pg_conn, required=required, repository_id=repository_id, token=token)
     append_audit_row(
         pg_conn,
         auth=auth,
@@ -841,6 +842,7 @@ def _require_pg_auth(
         if auth.denial_reason and auth.denial_reason.startswith("token_"):
             raise DaemonAuthError(f"daemon authorization failed: {auth.denial_reason}")
         raise DaemonCapabilityError(f"daemon authorization failed: {auth.denial_reason}")
+    return auth
 
 
 def repo_add(
@@ -1597,6 +1599,20 @@ def read_doctor(
     verbose: bool = False,
     token: str | None = None,
 ) -> dict[str, Any]:
+    if _pg_connection_configured():
+        from striatum.daemon_pg.connection import connect_and_migrate
+
+        pg_conn = connect_and_migrate()
+        try:
+            _bootstrap_pg_admin_if_needed(pg_conn)
+            try:
+                pg_conn.commit()
+            except Exception:  # noqa: BLE001 - autocommit connections do not need an explicit commit.
+                pass
+            return read_doctor_pg(pg_conn, repo=repo, run_id=run_id, verbose=verbose, token=token)
+        finally:
+            pg_conn.close()
+
     conn = connect_registry()
     token = read_runtime_token() if token is None else token
     with registry_transaction(conn):
@@ -1617,6 +1633,110 @@ def read_doctor(
     if verbose:
         data["daemon_problem_records"] = problems
     return {"mode": "daemon", "repository_id": repository_id, "protocol_version": PROTOCOL_VERSION, **data}
+
+
+def read_doctor_pg(
+    pg_conn: Any,
+    *,
+    repo: Path | None = None,
+    run_id: str | None = None,
+    verbose: bool = False,
+    token: str | None = None,
+) -> dict[str, Any]:
+    from striatum.daemon_pg.handlers.context import RepoHandlerContext
+    from striatum.daemon_pg.handlers.reads.doctor import doctor_payload
+
+    token = read_runtime_token() if token is None else token
+    if repo is None:
+        _require_pg_auth(
+            pg_conn,
+            command="doctor",
+            required=READ_CAPABILITY,
+            token=token,
+            payload={"run_id": run_id, "verbose": verbose},
+        )
+        problems = daemon_doctor_records_pg(pg_conn)
+        data: dict[str, Any] = {"problems": [str(p["message"]) for p in problems]}
+        if verbose:
+            data["problem_records"] = problems
+        return {"mode": "daemon", "protocol_version": PROTOCOL_VERSION, **data}
+
+    resolved = _canonical_repo(repo)
+    repo_row = _find_repo_pg(pg_conn, str(resolved))
+    if repo_row is None:
+        raise DaemonCapabilityError("repository is not registered with daemon")
+    repository_id = str(repo_row["repository_id"])
+    auth = _require_pg_auth(
+        pg_conn,
+        command="doctor",
+        required=READ_CAPABILITY,
+        repository_id=repository_id,
+        token=token,
+        payload={"run_id": run_id, "verbose": verbose},
+    )
+    ctx = RepoHandlerContext(
+        pg_conn=pg_conn,
+        repository_id=repository_id,
+        repo_root=Path(str(repo_row["repo_root"])),
+        auth=auth,
+    )
+    data = doctor_payload(ctx, run_id=run_id, verbose=verbose)
+    daemon_problems = daemon_doctor_records_pg(pg_conn)
+    data["daemon_problems"] = [str(p["message"]) for p in daemon_problems]
+    if verbose:
+        data["daemon_problem_records"] = daemon_problems
+    return {"mode": "daemon", "repository_id": repository_id, "protocol_version": PROTOCOL_VERSION, **data}
+
+
+def daemon_doctor_records_pg(pg_conn: Any) -> list[dict[str, Any]]:
+    from striatum.daemon_pg.audit import verify_rows
+
+    records: list[dict[str, Any]] = []
+    rt = runtime_dir()
+    if rt.exists() and rt.stat().st_mode & 0o077:
+        records.append({"check": "daemon_runtime_permissions", "id": str(rt), "message": "daemon runtime directory is not owner-only", "context": {"mode": oct(rt.stat().st_mode & 0o777)}})
+    if token_file().exists() and token_file().stat().st_mode & 0o077:
+        records.append({"check": "daemon_token_permissions", "id": str(token_file()), "message": "daemon token fallback file is not owner-only", "context": {"mode": oct(token_file().stat().st_mode & 0o777)}})
+    with _pg_dict_cursor(pg_conn) as cur:
+        cur.execute("SELECT * FROM striatumd.audit_log ORDER BY audit_id")
+        audit_rows = [_pg_json_ready(_pg_row_dict(row)) for row in cur.fetchall()]
+        records.extend(verify_rows(audit_rows))
+        cur.execute(
+            """
+            SELECT repository_id, repo_root, state_db_path
+            FROM striatumd.repositories
+            WHERE state = 'active'
+            ORDER BY repository_id
+            """
+        )
+        active_repos = [_pg_json_ready(_pg_row_dict(row)) for row in cur.fetchall()]
+        cur.execute(
+            """
+            SELECT COUNT(*) AS count
+            FROM striatumd.audit_log a
+            JOIN striatumd.repositories r ON r.repository_id = a.repository_id
+            WHERE r.state = 'removed'
+            """
+        )
+        removed_refs = _pg_row_dict(cur.fetchone())
+        cur.execute(
+            """
+            SELECT repository_id, run_id, last_result_json
+            FROM striatumd.scheduler_cursors
+            WHERE state = 'sweep_degraded'
+            ORDER BY repository_id, run_id
+            """
+        )
+        degraded = [_pg_json_ready(_pg_row_dict(row)) for row in cur.fetchall()]
+    for row in active_repos:
+        state_path = Path(str(row["state_db_path"]))
+        if not state_path.exists():
+            records.append({"check": "daemon_repo_state_missing", "id": str(row["repository_id"]), "message": "registered repository operational scratch is missing", "context": {"repo_root": row["repo_root"], "state_db_path": str(state_path)}})
+    if int(removed_refs["count"]) > 0:
+        records.append({"check": "daemon_removed_repo_audit_refs", "id": "audit_log", "message": "removed repository ids remain in retained audit rows", "context": {"count": int(removed_refs["count"])}})
+    for row in degraded:
+        records.append({"check": "daemon_sweep_degraded", "id": f"{row['repository_id']}:{row['run_id']}", "message": "daemon recovery sweep is degraded", "context": {"last_result_json": row["last_result_json"]}})
+    return records
 
 
 def daemon_doctor_records(conn: sqlite3.Connection) -> list[dict[str, Any]]:

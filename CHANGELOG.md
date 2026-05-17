@@ -162,6 +162,11 @@ Recent checkpoints:
 - `striatum daemon health` now uses PostgreSQL and appends to the PostgreSQL
   audit chain when a daemon DB is configured, avoiding the legacy registry
   probe while preserving the existing health JSON shape.
+- `daemon doctor` no longer probes the legacy SQLite registry after a
+  successful PostgreSQL doctor check. It reports the SQLite registry as
+  post-cutover/unused, carries PostgreSQL-backed daemon diagnostics separately,
+  and `read_doctor` uses PostgreSQL for global and repo-scoped diagnostics when
+  a daemon DB is configured.
 - `supervise.status`, `doctor`, and `status` now surface stalled attached
   supervisors, and recovery sweep opens
   `heartbeat_stall_lease_expired` blockers when stalled leases expire.

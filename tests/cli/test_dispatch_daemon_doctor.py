@@ -1,12 +1,4 @@
-"""``daemon doctor`` SQLite-registry probe behavior after RFC 0048 Phase C.
-
-The runtime token is minted into ``striatumd.clients`` by
-``_bootstrap_pg_admin_if_needed`` and the SQLite registry's ``clients``
-table is no longer populated at daemon startup. When PG is authoritative,
-``read_doctor`` raises ``DaemonAuthError(token_invalid)``; the dispatcher
-should surface that as a benign ``post_pg_cutover_unused`` signal rather
-than an error payload.
-"""
+"""``daemon doctor`` registry reporting after the PostgreSQL cutover."""
 
 from __future__ import annotations
 
@@ -31,7 +23,7 @@ def _doctor_args() -> argparse.Namespace:
     )
 
 
-def test_sqlite_registry_post_pg_cutover_surfaces_as_benign(
+def test_sqlite_registry_post_pg_cutover_surfaces_as_disabled_and_records_diagnostics_error(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(
@@ -51,7 +43,11 @@ def test_sqlite_registry_post_pg_cutover_surfaces_as_benign(
     assert isinstance(sqlite_registry, dict)
     assert sqlite_registry["ok"] is True
     assert sqlite_registry["status"] == "post_pg_cutover_unused"
-    assert "no longer the authoritative" in sqlite_registry["note"]
+    assert "PostgreSQL is the authoritative" in sqlite_registry["note"]
+    assert result["daemon_diagnostics"] == {
+        "ok": False,
+        "error": "daemon authorization failed: token_invalid",
+    }
 
 
 def test_sqlite_registry_disabled_with_pg_ok_surfaces_as_benign(
@@ -78,6 +74,13 @@ def test_sqlite_registry_disabled_with_pg_ok_surfaces_as_benign(
     assert sqlite_registry["ok"] is True
     assert sqlite_registry["status"] == "post_pg_cutover_unused"
     assert "PostgreSQL is the authoritative" in sqlite_registry["note"]
+    assert result["daemon_diagnostics"] == {
+        "ok": False,
+        "error": (
+            "legacy SQLite daemon registry is disabled in production; "
+            "use the configured PostgreSQL daemon registry"
+        ),
+    }
 
 
 def test_sqlite_registry_token_invalid_with_pg_down_reports_error(
@@ -120,8 +123,12 @@ def test_sqlite_registry_other_auth_failure_reports_error(
     assert isinstance(result, dict)
     sqlite_registry = result["sqlite_registry"]
     assert isinstance(sqlite_registry, dict)
-    assert sqlite_registry["ok"] is False
-    assert "token_revoked" in sqlite_registry["error"]
+    assert sqlite_registry["ok"] is True
+    assert sqlite_registry["status"] == "post_pg_cutover_unused"
+    assert result["daemon_diagnostics"] == {
+        "ok": False,
+        "error": "daemon authorization failed: token_revoked",
+    }
 
 
 def test_sqlite_registry_success_path_unchanged(
@@ -142,7 +149,8 @@ def test_sqlite_registry_success_path_unchanged(
     assert isinstance(result, dict)
     sqlite_registry = result["sqlite_registry"]
     assert isinstance(sqlite_registry, dict)
-    assert sqlite_registry.get("problems") == []
+    assert sqlite_registry["status"] == "post_pg_cutover_unused"
+    assert result["daemon_diagnostics"] == {"mode": "daemon", "problems": [], "protocol_version": 1}
 
 
 def test_daemon_doctor_authority_report_names_cutover_state(
@@ -199,7 +207,7 @@ def test_daemon_doctor_authority_report_flags_legacy_registry_escape(
     authority = result["authority"]
     assert isinstance(authority, dict)
     assert authority["ok"] is False
-    assert authority["legacy_sqlite"]["registry_status"] == "legacy_registry_reachable"
+    assert authority["legacy_sqlite"]["registry_status"] == "disabled"
     assert authority["legacy_sqlite"]["registry_escape_enabled"] is True
     assert any("STRIATUM_ALLOW_LEGACY_SQLITE_REGISTRY" in item for item in authority["recommendations"])
 

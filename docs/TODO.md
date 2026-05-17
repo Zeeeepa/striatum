@@ -1249,14 +1249,15 @@ review and plan are root-level operator artifacts:
     runs. Daemon MCP resource list/read now use PostgreSQL-backed repository
     visibility plus status/doctor/run/why/blocker/dashboard/stale-lease
     projections when `pg_conn` is present, with SQLite-registry tripwire
-    coverage. `striatum daemon health` and `striatum daemon audit` now read
-    from and audit to PostgreSQL when a daemon DB is configured, with legacy
-    audit field names retained for CLI compatibility. `connect_registry()`
-    requires the paired test-harness compatibility escape; the old
-    single-variable legacy-registry opt-in is diagnostic-only. Residual
-    daemon-global gaps are full
+    coverage. `striatum daemon health`, `striatum daemon audit`, and
+    daemon-global/repo-scoped `read_doctor` now read from and audit to
+    PostgreSQL when a daemon DB is configured, with legacy audit field names
+    retained for CLI compatibility. `connect_registry()` requires the paired
+    test-harness compatibility escape; the old single-variable legacy-registry
+    opt-in is diagnostic-only. Residual daemon-global gaps are full
     `dashboard.all` parity for phase progress, auto-finalize detail,
-    supervisor-stall detail, and any remaining doctor registry probes.
+    supervisor-stall detail, and any remaining registry probes found by
+    guardrail scans.
 
 63. **RFC 0070: daemon client/service boundary completion.** Most done.
     Daemon-side `repo.resolve` is registered as a daemon-global read bootstrap
