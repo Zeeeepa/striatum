@@ -20,7 +20,6 @@ Method → module index:
     recovery.auto           → auto_publish_stale_artifacts.handle (deprecated alias)
     recovery.auto_finalize  → auto_finalize.handle
     evidence.export         → evidence_export.handle
-    recovery.watch          → watch.handle (fail closed)
 """
 
 from __future__ import annotations
@@ -34,7 +33,6 @@ from . import requeue_stale  # noqa: F401
 from . import resume_blocker  # noqa: F401
 from . import stale_leases  # noqa: F401
 from . import sweep  # noqa: F401
-from . import watch  # noqa: F401
 
 __all__ = [
     "auto_finalize",
@@ -46,5 +44,4 @@ __all__ = [
     "resume_blocker",
     "stale_leases",
     "sweep",
-    "watch",
 ]

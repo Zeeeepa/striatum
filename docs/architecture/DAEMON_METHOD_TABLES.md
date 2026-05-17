@@ -84,7 +84,6 @@
 | `recovery.auto` | `recovery` | `single_repo` | 1 | 1 | yes |
 | `recovery.auto_publish_stale_artifacts` | `recovery` | `single_repo` | 1 | 1 | no |
 | `recovery.auto_finalize` | `recovery` | `single_repo` | 1 | 1 | no |
-| `recovery.watch` | `recovery` | `single_repo` | 1 | 1 | no |
 | `apply.reviewed_patch` | `apply` | `single_repo` | 1 | 1 | no |
 | `apply.receipt.show` | `read` | `single_repo` | 1 | 1 | no |
 | `apply.receipt.verify` | `read` | `single_repo` | 1 | 1 | no |
@@ -157,7 +156,6 @@
 | `recovery auto` | `recovery.sweep` | `recovery` | `single_repo` |
 | `recovery auto-publish` | `recovery.auto_publish_stale_artifacts` | `recovery` | `single_repo` |
 | `recovery auto-finalize` | `recovery.auto_finalize` | `recovery` | `single_repo` |
-| `recovery watch` | `recovery.watch` | `recovery` | `single_repo` |
 | `evidence export` | `evidence.export` | `read` | `single_repo` |
 | `corpus export` | `corpus.export` | `read` | `single_repo` |
 | `archive create` | `archive.create` | `read` | `single_repo` |

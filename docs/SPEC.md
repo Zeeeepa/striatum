@@ -966,7 +966,7 @@ live auto-finalize the default. It then runs lazy lease expiry, optional
 process reconciliation, optional autonomous review-only requeue
 (D036-safe), human-checkpoint timeout escalation, and eligible-blocker
 doctor flagging — and returns a structured envelope `{run_id, swept_at,
-policy_source, dry_run, actions, escalations, still_stuck}`. Workflows
+run_state, policy_source, dry_run, actions, escalations, still_stuck}`. Workflows
 declare a `recovery_policy` block to opt into autonomous behavior.
 Escalation is represented by daemon state plus blocker/escalation
 artifact projections; any local notification hook is non-authoritative
@@ -986,17 +986,17 @@ CLI.
 
 `recovery watch --run-id <id>` (RFC 0020 step 3) is the long-lived
 counterpart for operators who want one foreground command instead of
-a cron entry. It wraps `run_auto_sweep` in a sleep loop with a per-
-run pidfile (`.striatum/scratch/recovery-watch-<run_id>.pid`),
-`SIGTERM` / `SIGINT` graceful shutdown via interruptible `wait`,
-JSONL emission per sweep plus a final `watch_exit` envelope, exit-
-on-terminal-run-state default (`--no-exit-on-terminal` keeps
-looping), and `--max-sweeps N` for tests / probes. The same CLI
-overrides as `recovery auto` are accepted and resolve once at
-startup. A pidfile collision with an alive watcher exits 4 with
-`another recovery watch is active (pid <N>)`; stale pidfiles (dead
-PIDs) are overwritten cleanly. The watcher does not duplicate sweep
-logic — every sweep is the existing one-shot path.
+a cron entry. In production it is not a daemon RPC method; the CLI
+keeps the sleep loop, pidfile
+(`.striatum/scratch/recovery-watch-<run_id>.pid`), `SIGTERM` /
+`SIGINT` graceful shutdown, JSONL stream, and final `watch_exit`
+envelope in the foreground process while each iteration calls daemon
+RPC `recovery.sweep`. The sweep envelope's `run_state` drives the
+exit-on-terminal default (`--no-exit-on-terminal` keeps looping), and
+`--max-sweeps N` caps tests / probes. The same CLI overrides as
+`recovery auto` are accepted. A pidfile collision with an alive watcher
+exits 4 with `another recovery watch is active (pid <N>)`; stale
+pidfiles (dead PIDs) are overwritten cleanly.
 
 ### Self-Contained Agent Skills
 

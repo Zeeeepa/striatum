@@ -60,6 +60,7 @@ def handle(ctx: RepoHandlerContext, params: Mapping[str, Any]) -> dict[str, Any]
         if str(run["state"]) != "running":
             return _envelope(
                 run_id=run_id,
+                run_state=str(run["state"]),
                 swept_at=swept_at,
                 policy=policy,
                 dry_run=dry_run,
@@ -118,9 +119,11 @@ def handle(ctx: RepoHandlerContext, params: Mapping[str, Any]) -> dict[str, Any]
         actions=actions,
         still_stuck=still_stuck,
     )
+    run = ctx.row_by_id("runs", "run_id", run_id)
 
     return _envelope(
         run_id=run_id,
+        run_state=str(run["state"]),
         swept_at=swept_at,
         policy=policy,
         dry_run=dry_run,
@@ -551,6 +554,7 @@ def _seconds_between(start: str, end: str) -> float:
 def _envelope(
     *,
     run_id: str,
+    run_state: str,
     swept_at: str,
     policy: Mapping[str, Any],
     dry_run: bool,
@@ -560,6 +564,7 @@ def _envelope(
 ) -> dict[str, Any]:
     return {
         "run_id": run_id,
+        "run_state": run_state,
         "swept_at": swept_at,
         "policy_source": policy.get("policy_source", "default"),
         "dry_run": bool(dry_run),

@@ -1003,13 +1003,13 @@ def build_parser() -> argparse.ArgumentParser:
     )
     recovery_auto_finalize.add_argument("--json", action="store_true")
 
-    # RFC 0020 step 3: long-lived sweeper daemon.
+    # RFC 0020 step 3: long-lived foreground recovery scheduler.
     recovery_watch = recovery_sub.add_parser(
         "watch",
         help=(
-            "RFC 0020 step 3: long-lived autonomous-recovery sweeper. "
-            "Wraps `recovery auto` in a sleep loop with single-instance "
-            "pidfile + signal-driven shutdown + JSONL emission."
+            "RFC 0020 step 3: long-lived foreground scheduler over daemon "
+            "`recovery.sweep`, with single-instance pidfile, signal-driven "
+            "shutdown, and JSONL emission."
         ),
     )
     recovery_watch.add_argument("--run-id", required=True)

@@ -81,7 +81,6 @@ var methodEntries = []MethodEntry{
 	{Method: "recovery.auto", RequiredCapability: CapPtr(CapabilityRecovery), RepositoryScope: true, RepositoryScopeMode: ScopeSingleRepo, ParamsSchemaVersion: 1, AuditClass: "metadata", MinEnvelope: 1, Deprecated: true},
 	{Method: "recovery.auto_publish_stale_artifacts", RequiredCapability: CapPtr(CapabilityRecovery), RepositoryScope: true, RepositoryScopeMode: ScopeSingleRepo, ParamsSchemaVersion: 1, AuditClass: "metadata", MinEnvelope: 1},
 	{Method: "recovery.auto_finalize", RequiredCapability: CapPtr(CapabilityRecovery), RepositoryScope: true, RepositoryScopeMode: ScopeSingleRepo, ParamsSchemaVersion: 1, AuditClass: "metadata", MinEnvelope: 1},
-	{Method: "recovery.watch", RequiredCapability: CapPtr(CapabilityRecovery), RepositoryScope: true, RepositoryScopeMode: ScopeSingleRepo, ParamsSchemaVersion: 1, AuditClass: "metadata", MinEnvelope: 1},
 	{Method: "apply.reviewed_patch", RequiredCapability: CapPtr(CapabilityApply), RepositoryScope: true, RepositoryScopeMode: ScopeSingleRepo, ParamsSchemaVersion: 1, AuditClass: "metadata", MinEnvelope: 1},
 	{Method: "apply.receipt.show", RequiredCapability: CapPtr(CapabilityRead), RepositoryScope: true, RepositoryScopeMode: ScopeSingleRepo, ParamsSchemaVersion: 1, AuditClass: "metadata", MinEnvelope: 1},
 	{Method: "apply.receipt.verify", RequiredCapability: CapPtr(CapabilityRead), RepositoryScope: true, RepositoryScopeMode: ScopeSingleRepo, ParamsSchemaVersion: 1, AuditClass: "metadata", MinEnvelope: 1},

@@ -548,10 +548,11 @@ substrate flip enables.
   reserved code is 10 (RFC 0030 version-skew refusal). If another RFC
   has claimed 11 or 12 in flight, this RFC takes whatever the next two
   free codes are; the numbering is not load-bearing.
-- **Recovery sweeper relocation.** RFC 0020's `recovery watch` daemon
-  and RFC 0028 V1's foreground sweep process both make sense to fold
-  into the now-mandatory daemon's normal duties. Out of scope for this
-  RFC; explicit follow-up.
+- **Recovery sweeper relocation.** The daemon now owns the one-shot
+  `recovery.sweep` mutation surface. `recovery watch` remains foreground
+  CLI scheduler glue over that RPC so its pidfile, signal handling, and
+  JSONL stream stay process-local while mutation authority stays in the
+  daemon.
 - **Web UI workflow file references.** RFC 0024's workflow browser
   references files in the target repo's working tree. The daemon now
   mediates state, but the workflow JSON is still a file the agent

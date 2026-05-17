@@ -90,6 +90,10 @@ Recent checkpoints:
 - Daemon-backed run-event SSE streaming moved from `service.py` into
   `striatum.service_sse`, keeping the handler responsible for slot accounting
   and legacy fixture fallback selection.
+- `recovery watch` is now a daemon-backed foreground scheduler over the
+  canonical `recovery.sweep` RPC, with the broken `recovery.watch` method and
+  CLI route removed from the shared contract, generated docs, Python registry,
+  and Go registry.
 - Doctor page DTO loading, legacy fallback selection, record recipe shaping,
   and problem grouping moved from `service.py` into `striatum.web.doctor`.
 - Workflow browser index/detail page DTO shaping moved from `service.py` into

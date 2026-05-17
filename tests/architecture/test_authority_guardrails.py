@@ -234,6 +234,34 @@ def test_production_daemon_required_commands_refuse_before_sqlite_connect(
         dispatch(args)
 
 
+def test_recovery_watch_scheduler_refuses_before_sqlite_connect(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.delenv("STRIATUM_TEST_HARNESS", raising=False)
+    monkeypatch.setenv("STRIATUM_DAEMON_REQUIRED", "1")
+    monkeypatch.setenv("STRIATUM_SQLITE_CONNECT_TRIPWIRE", "1")
+    monkeypatch.setenv("STRIATUM_DAEMON_SOCKET", str(tmp_path / "missing.sock"))
+
+    parser = build_parser()
+    args = parser.parse_args(
+        [
+            "--repo",
+            str(tmp_path),
+            "recovery",
+            "watch",
+            "--run-id",
+            "run_1",
+            "--max-sweeps",
+            "1",
+            "--json",
+        ]
+    )
+
+    with pytest.raises(StriatumError, match="daemon_unreachable"):
+        dispatch(args)
+
+
 def test_daemon_routed_command_fails_closed_when_route_layer_crashes(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

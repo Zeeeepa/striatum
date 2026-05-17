@@ -195,7 +195,7 @@ func registerHandlers(server *rpc.Server, runner db.Runner) {
 		"run.pause", "run.resume", "run.cancel", "run.retry_job", "repo.init",
 		"recovery.stale_leases", "recovery.requeue_stale",
 		"recovery.cancel_job", "recovery.process_reconcile", "recovery.resume",
-		"recovery.auto", "recovery.watch", "dogfood.surgical_recovery",
+		"recovery.auto", "dogfood.surgical_recovery",
 		"repo.add", "repo.remove", "daemon.token.create", "daemon.token.revoke",
 		"daemon.token.rotate", "daemon.key.rotate", "daemon.shutdown",
 		"daemon.migrate", "daemon.migrate_repo_local", "ack", "heartbeat",

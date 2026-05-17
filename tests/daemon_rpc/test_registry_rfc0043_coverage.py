@@ -99,7 +99,6 @@ EXPECTED_CAPABILITY: dict[str, str] = {
     "recovery.auto": "recovery",
     "recovery.auto_publish_stale_artifacts": "recovery",
     "recovery.auto_finalize": "recovery",
-    "recovery.watch": "recovery",
     "worktree.create": "write",
     "worktree.release": "write",
     "worktree.list": "read",

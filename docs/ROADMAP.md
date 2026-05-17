@@ -258,7 +258,8 @@ authority matrix and contract tests current while deleting fallback paths.
 
 **Landed in this slice:**
 - Native Python PG handlers now cover `run.graph`, `worktree.*`,
-  `supervise.*`, and a fail-closed `recovery.watch`, in addition to the
+  `supervise.*`, and the `recovery watch` CLI-local scheduler now delegates
+  to daemon `recovery.sweep` without a `recovery.watch` RPC, in addition to the
   earlier read, workflow-loop, recovery, run lifecycle, branch, checkpoint,
   and decision handlers.
 - `src/striatum/daemon_rpc/server.py` no longer imports or calls
@@ -292,7 +293,7 @@ fallback path or repo-administration path.
 **Updates:** [TODO item 50](TODO.md).
 
 **Landed in this slice:**
-- `contracts/daemon_methods.json` is the source for all 99 registered
+- `contracts/daemon_methods.json` is the source for all 104 registered
   daemon RPC methods, including deprecated aliases.
 - Python `src/striatum/daemon_rpc/registry.py` builds `METHOD_REGISTRY`,
   `METHODS_ETAG`, and `daemon.describe` output from the contract while

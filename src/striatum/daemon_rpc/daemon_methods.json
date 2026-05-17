@@ -42,7 +42,6 @@
     {"command": "recovery", "subcommand": "auto", "method": "recovery.sweep", "params": "recovery"},
     {"command": "recovery", "subcommand": "auto-publish", "method": "recovery.auto_publish_stale_artifacts", "params": "recovery"},
     {"command": "recovery", "subcommand": "auto-finalize", "method": "recovery.auto_finalize", "params": "recovery"},
-    {"command": "recovery", "subcommand": "watch", "method": "recovery.watch", "params": "recovery"},
     {"command": "evidence", "subcommand": "export", "method": "evidence.export", "params": "evidence_export"},
     {"command": "corpus", "subcommand": "export", "method": "corpus.export", "params": "corpus_export"},
     {"command": "archive", "subcommand": "create", "method": "archive.create", "params": "archive_create"},
@@ -758,15 +757,6 @@
     },
     {
       "method": "recovery.auto_finalize",
-      "required_capability": "recovery",
-      "repository_scope_mode": "single_repo",
-      "params_schema_version": 1,
-      "audit_class": "metadata",
-      "min_envelope": 1,
-      "deprecated": false
-    },
-    {
-      "method": "recovery.watch",
       "required_capability": "recovery",
       "repository_scope_mode": "single_repo",
       "params_schema_version": 1,

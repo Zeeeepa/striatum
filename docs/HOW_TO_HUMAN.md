@@ -587,8 +587,8 @@ Common recovery paths are:
   before requeueing anything.
 
 For unattended runs against a **single** repo, `recovery watch`
-is a foreground daemon that wraps `recovery auto` in a sleep
-loop. One pidfile per run
+is a foreground scheduler that calls daemon `recovery.sweep` in a sleep
+loop. It keeps one pidfile per run
 (`.striatum/scratch/recovery-watch-<run_id>.pid`); `SIGTERM` /
 `SIGINT` shuts it down cleanly. Exits when the run reaches a
 terminal state by default.

@@ -546,6 +546,10 @@ def test_recovery_auto_routes_to_registered_recovery_sweep_method() -> None:
     }
 
 
+def test_recovery_watch_is_cli_local_daemon_scheduler_not_rpc_route() -> None:
+    assert ("recovery", "watch") not in _LOOKUP
+
+
 def test_recovery_auto_publish_routes_to_explicit_auto_publish_method() -> None:
     method, params = _route(
         "recovery",

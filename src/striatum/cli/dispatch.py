@@ -244,6 +244,13 @@ def dispatch(args: argparse.Namespace) -> object:
         skip_daemon_route = True
     if args.command == "inbox" and getattr(args, "session_id", None):
         skip_daemon_route = True
+    recovery_watch = (
+        args.command == "recovery"
+        and getattr(args, "recovery_command", None) == "watch"
+    )
+    legacy_test_harness = os.environ.get("STRIATUM_TEST_HARNESS") == "1"
+    if recovery_watch:
+        skip_daemon_route = True
     if not skip_daemon_route:
         try:
             from striatum.cli.daemon_rpc_route import try_route as _try_route_via_daemon
@@ -561,6 +568,50 @@ def dispatch(args: argparse.Namespace) -> object:
         )
     if args.command == "archive" and args.archive_command == "create":
         raise StriatumError("archive create requires daemon-backed PostgreSQL state", exit_code=8)
+    if recovery_watch and not legacy_test_harness:
+        from striatum.recovery import run_daemon_watch
+        from striatum.service_daemon import ServiceDaemonRpcError
+
+        cli_overrides = {
+            "autonomous_review_requeue": getattr(
+                args, "autonomous_review_requeue", None
+            ),
+            "autonomous_process_reconcile": getattr(
+                args, "autonomous_process_reconcile", None
+            ),
+            "max_requeues_per_sweep": getattr(
+                args, "max_requeues_per_sweep", None
+            ),
+            "checkpoint_timeout_seconds": getattr(
+                args, "checkpoint_timeout_seconds", None
+            ),
+            "eligible_after_seconds": getattr(
+                args, "eligible_after_seconds", None
+            ),
+        }
+        try:
+            exit_code = run_daemon_watch(
+                repo=repo,
+                run_id=args.run_id,
+                interval_seconds=float(args.interval_seconds),
+                exit_on_terminal=bool(args.exit_on_terminal),
+                max_sweeps=getattr(args, "max_sweeps", None),
+                cli_overrides=cli_overrides,
+                json_output=bool(args.json),
+            )
+        except ServiceDaemonRpcError as exc:
+            if exc.code == "daemon_unreachable":
+                exit_code = 11
+            elif exc.code == "repo_not_registered":
+                exit_code = 12
+            else:
+                exit_code = 1
+            raise StriatumError(f"{exc.code}: {exc.message}", exit_code=exit_code) from exc
+        if exit_code != 0:
+            raise InvalidTransitionError(
+                f"recovery watch refused (exit {exit_code})"
+            )
+        return None
     ensure_initialized(repo)
     with connect(repo) as conn:
         if args.command == "run" and args.run_command == "prepare":

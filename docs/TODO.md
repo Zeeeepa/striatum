@@ -837,8 +837,9 @@ review and plan are root-level operator artifacts:
     fallback is closed: `CLI_ROUTES` is empty, `DaemonRpcRouter` no longer
     imports or calls `striatum.api.invoke`, workflow authoring methods fail
     closed in daemon RPC as CLI-local helpers, and `run.graph`,
-    `worktree.*`, `supervise.*`, and `recovery.watch` now have native PG
-    handlers (with `recovery.watch` intentionally fail-closed). The
+    `worktree.*`, and `supervise.*` now have native PG handlers, and
+    `recovery watch` now runs as a CLI-local daemon scheduler over
+    `recovery.sweep` instead of a broken `recovery.watch` RPC. The
     substrate-neutral helpers were split into `primitives.py` and
     `repo_policy.py`; guardrails now prevent `daemon_pg` and production
     `daemon_rpc` code from importing the legacy SQLite module except for

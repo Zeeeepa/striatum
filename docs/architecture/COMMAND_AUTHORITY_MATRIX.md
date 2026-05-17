@@ -118,7 +118,6 @@ Legend:
 | `recovery.auto_publish_stale_artifacts` | `recovery auto-publish` | recovery | single_repo | pg | real | no | no | explicit stale-artifact auto-publish |
 | `recovery.auto` | deprecated alias | recovery | single_repo | pg alias | real | no | no | deprecated compatibility alias for stale-artifact auto-publish; current CLI does not emit it |
 | `recovery.auto_finalize` | `recovery auto-finalize` | recovery | single_repo | pg | real | no | no | experimental/workflow-opt-in |
-| `recovery.watch` | `recovery watch` | recovery | single_repo | pg fail_closed | placeholder | no | no | live daemon RPC integration deferred; use `recovery.sweep` |
 | `apply.reviewed_patch` | n/a | apply | single_repo | direct apply service | fail_closed | no | no | fail closed until apply authority |
 | `apply.receipt.show` | n/a | read | single_repo | direct apply service | real | no | no | stable |
 | `apply.receipt.verify` | n/a | read | single_repo | direct apply service | real | no | no | stable |
@@ -180,6 +179,7 @@ remediation phases should either daemon-route, quarantine, or delete.
 | `workflow validate` / `lint` / `plan` / `graph` | local authoring helpers; daemon RPC fails closed | no live state | local_file_authoring |
 | `workflow init` / `generate` / `templates` | local authoring helpers; daemon RPC fails closed | no live state | local_file_authoring |
 | `workflow upgrade` | local authoring helper with PG running-run guard | legacy SQLite only before cutover; fails closed after cutover if PG unavailable | local_file_authoring |
+| `recovery watch` | foreground scheduler repeatedly calling daemon `recovery.sweep` | no production SQLite | daemon_scheduler |
 | `run graph` | daemon RPC to PG handler | no | daemon_native |
 | `send` | daemon RPC to PG handler | no | daemon_native |
 | `adapter run` | local single-shot process-adapter compatibility path | yes | transition debt |
@@ -196,7 +196,9 @@ remediation phases should either daemon-route, quarantine, or delete.
    sweep emitted by `striatum recovery auto`. `recovery auto-publish`
    emits the explicit `recovery.auto_publish_stale_artifacts` method.
    `recovery.auto` remains only as a deprecated compatibility alias for
-   older stale-artifact auto-publish clients.
+   older stale-artifact auto-publish clients. `striatum recovery watch`
+   is CLI-local scheduler glue over `recovery.sweep`, not a registered
+   `recovery.watch` RPC method.
 3. `repo.add`, `repo.list`, and `repo.remove` now route through daemon RPC
    and register against `striatumd.repositories` without opening or creating
    `.striatum/state.sqlite3`; `--init` creates only operational scratch.
