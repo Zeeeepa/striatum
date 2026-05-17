@@ -84,6 +84,8 @@ from striatum.web import run_pages as _run_pages
 from striatum.web.run_pages import RunPageContext as _RunPageContext
 from striatum.web import workflows as _workflows
 from striatum.web.workflows import WorkflowRouteContext as _WorkflowRouteContext
+from striatum.web import view_file as _view_file
+from striatum.web.view_file import ViewRouteContext as _ViewRouteContext
 from striatum.web.workflow_generation import (
     generator_error_response as _generator_error_response,
     workflow_generate_response as _workflow_generate_response,
@@ -763,33 +765,17 @@ class StriatumServiceHandler(BaseHTTPRequestHandler):
     def _stream_chat_events(self, session_id: str) -> None:
         _chat_routes.stream_chat_events(self._chat_route_context(), session_id)
 
-    def _render_view_path(self, subpath: str) -> None:
-        from striatum.web.view_file import ViewFileError, view_file_payload
-
-        if not subpath:
-            try:
-                html = _jinja_env().get_template("view_tree.html").render(root_path="")
-                self._send_html(200, html)
-            except Exception as exc:  # noqa: BLE001
-                self._send_json(500, {"ok": False, "error": {"code": 500, "message": str(exc)}})
-            return
-        try:
-            ctx = view_file_payload(self.state.repo, subpath)
-        except ViewFileError as exc:
-            self._send_json(
-                exc.status_code,
-                {"ok": False, "error": {"code": exc.status_code, "message": exc.message}},
-            )
-            return
-        ctx["run_breadcrumb"] = _legacy_view_file_run_breadcrumb(
-            self.state.repo,
-            rel_path=str(ctx["rel_path"]),
+    def _view_route_context(self) -> _ViewRouteContext:
+        return _ViewRouteContext(
+            repo=self.state.repo,
+            send_json=self._send_json,
+            send_html=self._send_html,
+            jinja_env=_jinja_env,
+            legacy_view_file_run_breadcrumb=_legacy_view_file_run_breadcrumb,
         )
-        try:
-            html = _jinja_env().get_template("view_file.html").render(**ctx)
-            self._send_html(200, html)
-        except Exception as exc:  # noqa: BLE001
-            self._send_json(500, {"ok": False, "error": {"code": 500, "message": str(exc)}})
+
+    def _render_view_path(self, subpath: str) -> None:
+        _view_file.render_view_path(self._view_route_context(), subpath)
 
     def _read_form_body(self, *, max_bytes: int) -> dict[str, list[str]] | None:
         return _request_io.read_form_body(

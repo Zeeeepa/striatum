@@ -992,7 +992,10 @@ review and plan are root-level operator artifacts:
     cancel/retry route handling while `service.py` keeps route dispatch and
     stable private wrappers. Follow-up split landed: `web/workflows.py` now
     also owns workflow browser and visual-editor route rendering/saving while
-    `service.py` keeps route dispatch and stable private wrappers.
+    `service.py` keeps route dispatch and stable private wrappers. Follow-up
+    split landed: `web/view_file.py` now also owns repository file-view route
+    rendering while `service.py` injects the legacy dogfood run-breadcrumb
+    callback.
     Remaining: continue splitting `service.py` along stable non-SQLite
     request-handling and rendering boundaries.
 

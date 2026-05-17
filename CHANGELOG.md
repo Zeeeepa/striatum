@@ -119,6 +119,9 @@ Recent checkpoints:
 - Workflow browser and visual-editor route rendering/saving moved from
   `service.py` into `striatum.web.workflows`; the service now keeps only
   stable private wrappers and passes the existing template factory seam.
+- Repository `/view` page rendering moved from `service.py` into
+  `striatum.web.view_file`, with the legacy dogfood run-breadcrumb lookup
+  injected through the service wrapper.
 - Documentation now records that parser-visible `cross-repo cancel` is still
   an explicit `not_implemented` surface until cross-repo runs have a
   PG-native participant-cancel implementation.
