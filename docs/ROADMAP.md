@@ -435,6 +435,9 @@ daemon-first without needing to support two domain daemons.
   web-context validation decisions.
 - `src/striatum/web/workflow_generation.py` now owns workflow template
   listing/show and workflow generation preview/write response shaping.
+- `src/striatum/service_request_io.py` now owns request-body parsing and
+  JSON/HTML response helpers. `service.py` keeps stable route-level wrapper
+  methods for existing call sites and tests.
 
 **Remaining Phase 4 debt:** continue splitting `service.py` along stable
 non-SQLite request-handling and rendering boundaries after the daemon-routed

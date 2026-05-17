@@ -40,6 +40,7 @@ from striatum.service_request_security import (
     verify_override_verdict_context as _verify_override_verdict_context,
     verify_same_origin_mutation as _verify_same_origin_mutation,
 )
+from striatum import service_request_io as _request_io
 from striatum.service_sse import (
     encode_sse_event as _encode_sse_event,
     sse_since as _sse_since,
@@ -65,7 +66,6 @@ from striatum.web.chat_session import (
     chat_session_path as _chat_session_path,
     find_pending_tool_confirmation as _find_pending_tool_confirmation,
     list_chat_sessions as _list_chat_sessions,
-    parse_simple_multipart as _parse_simple_multipart,
     queue_workflow_write_confirmation as _queue_workflow_write_confirmation,
     read_chat_history as _read_chat_history,
     read_display_messages as _read_display_messages,
@@ -1446,33 +1446,12 @@ class StriatumServiceHandler(BaseHTTPRequestHandler):
         self._send_json(200, {"ok": True, "data": result})
 
     def _read_json_body_strict(self, max_bytes: int) -> "dict[str, Any] | None":
-        """RFC 0024 V4 helper: validate Content-Type, cap body, parse JSON
-        as object. Sends error response and returns None on failure."""
-        # GH #9: exact media-type match (see is_json_content_type).
-        if not is_json_content_type(self.headers.get("Content-Type", "")):
-            self._send_json(415, {"ok": False, "error": {"code": 415, "message": "Content-Type must be application/json"}})
-            return None
-        try:
-            length = int(self.headers.get("Content-Length") or "0")
-        except ValueError:
-            length = 0
-        if length > max_bytes:
-            self._send_json(413, {"ok": False, "error": {"code": 413, "message": "body too large"}})
-            return None
-        try:
-            raw = self.rfile.read(length).decode("utf-8", errors="replace") if length > 0 else "{}"
-        except OSError as exc:
-            self._send_json(400, {"ok": False, "error": {"code": 400, "message": str(exc)}})
-            return None
-        try:
-            body = json.loads(raw or "{}")
-        except json.JSONDecodeError as exc:
-            self._send_json(400, {"ok": False, "error": {"code": 400, "message": f"invalid JSON: {exc}"}})
-            return None
-        if not isinstance(body, dict):
-            self._send_json(400, {"ok": False, "error": {"code": 400, "message": "body must be a JSON object"}})
-            return None
-        return body
+        return _request_io.read_json_body_strict(
+            self.headers,
+            self.rfile,
+            self._send_json,
+            max_bytes=max_bytes,
+        )
 
     def _render_doctor_page(self) -> None:
         try:
@@ -1880,43 +1859,15 @@ class StriatumServiceHandler(BaseHTTPRequestHandler):
             self._send_json(500, {"ok": False, "error": {"code": 500, "message": str(exc)}})
 
     def _read_form_body(self, *, max_bytes: int) -> dict[str, list[str]] | None:
-        from urllib.parse import parse_qs as _parse_qs
-        try:
-            length = int(self.headers.get("Content-Length") or "0")
-        except ValueError:
-            length = 0
-        if length > max_bytes:
-            self._send_json(413, {"ok": False, "error": {"code": 413, "message": "form body too large"}})
-            return None
-        if length <= 0:
-            return {}
-        try:
-            raw = self.rfile.read(length).decode("utf-8", errors="replace")
-        except OSError as exc:
-            self._send_json(400, {"ok": False, "error": {"code": 400, "message": str(exc)}})
-            return None
-        ctype = self.headers.get("Content-Type", "")
-        if "multipart/form-data" in ctype:
-            # Minimal multipart parser for our one-field form.
-            return _parse_simple_multipart(raw, ctype)
-        return _parse_qs(raw, keep_blank_values=True)
+        return _request_io.read_form_body(
+            self.headers,
+            self.rfile,
+            self._send_json,
+            max_bytes=max_bytes,
+        )
 
     def _send_html(self, status: int, body: str) -> None:
-        data = body.encode("utf-8")
-        self.send_response(status)
-        self.send_header("Content-Type", "text/html; charset=utf-8")
-        self.send_header("Content-Length", str(len(data)))
-        self.send_header(
-            "Content-Security-Policy",
-            "default-src 'self'; script-src 'self'; style-src 'self'; "
-            "img-src 'self' data:; connect-src 'self'",
-        )
-        self.send_header("Connection", "close")
-        self.end_headers()
-        try:
-            self.wfile.write(data)
-        except BrokenPipeError:
-            return
+        _request_io.send_html_response(self, status, body)
 
     def _serve_static_asset(self, relative: str) -> None:
         """RFC 0013 V1: serve a bundled SPA asset from striatum.web.static."""
@@ -2118,50 +2069,10 @@ class StriatumServiceHandler(BaseHTTPRequestHandler):
         self._send_json(decision.status, {"ok": False, "error": error})
 
     def _read_json_body(self) -> JsonObject | None:
-        # GH #9: strict Content-Type. Substring matching is unsafe —
-        # browsers can elide CORS preflight by sending a payload with
-        # Content-Type: text/plain (a "simple" request), which would
-        # otherwise pass a substring check for "application/json".
-        if not is_json_content_type(self.headers.get("Content-Type", "")):
-            self._send_json(
-                415,
-                {"ok": False, "error": {"code": 415, "message": "Content-Type must be application/json"}},
-            )
-            return None
-        length_header = self.headers.get("Content-Length")
-        if not length_header:
-            self._send_json(400, {"ok": False, "error": {"code": 400, "message": "missing Content-Length"}})
-            return None
-        try:
-            length = int(length_header)
-        except ValueError:
-            self._send_json(400, {"ok": False, "error": {"code": 400, "message": "invalid Content-Length"}})
-            return None
-        raw = self.rfile.read(length).decode("utf-8")
-        try:
-            parsed = json.loads(raw)
-        except json.JSONDecodeError:
-            self._send_json(400, {"ok": False, "error": {"code": 400, "message": "request body must be JSON"}})
-            return None
-        if not isinstance(parsed, dict):
-            self._send_json(400, {"ok": False, "error": {"code": 400, "message": "request body must be a JSON object"}})
-            return None
-        return parsed
+        return _request_io.read_json_body(self.headers, self.rfile, self._send_json)
 
     def _send_json(self, status: int, payload: JsonObject) -> None:
-        try:
-            body = (json.dumps(payload) + "\n").encode("utf-8")
-        except (TypeError, ValueError):
-            body = b'{"ok":false,"error":{"code":500,"message":"json encoding failed"}}\n'
-        self.send_response(status)
-        self.send_header("Content-Type", "application/json")
-        self.send_header("Content-Length", str(len(body)))
-        self.send_header("Connection", "close")
-        self.end_headers()
-        try:
-            self.wfile.write(body)
-        except BrokenPipeError:
-            return
+        _request_io.send_json_response(self, status, payload)
 
 
 # --- server classes ----------------------------------------------------
