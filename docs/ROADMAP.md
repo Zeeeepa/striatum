@@ -621,7 +621,7 @@ remains the default posture until evidence supports a default-on change.
 
 ---
 
-### 4.13 🟡 partially completed — Architecture remediation Phase 9: UI packaging and bundle cleanup
+### 4.13 ✅ completed — Architecture remediation Phase 9: UI packaging and bundle cleanup
 
 **Updates:** [TODO item 57](TODO.md).
 
@@ -702,9 +702,9 @@ with explicit override rationale have landed. The CLI `workflow validate`
 path now refuses same-model review-pair/revision-cycle lint findings by
 default, with `--allow-same-model-pairing` as the explicit operator override.
 
-**Remaining:** if this policy is promoted beyond the CLI validation surface,
-coordinate daemon `run.prepare` and generator entry-point override semantics
-instead of adding hidden refusals.
+**Status:** complete for the validator-rule TODO. Durable accepted-risk
+policy is tracked under TODO 55; do not add hidden daemon/generator refusals
+without an accepted authority decision.
 
 ### 5.5 RFC 0049 (experimental) — Interactive claude lane via MCP — **SHELVED**
 
@@ -921,7 +921,7 @@ dogfood. Order them by impact, not by RFC number.
 |---:|---|---|---|---|
 | [27](TODO.md) | RFC 0045 V1.5 | dogfood-043 | D097 | ✅ Completed: cycle phase-jump, Python/editor phase-field mismatch, explicit synthesis-job metadata validation, frontend drag-drop phase bypass, and invalid/unknown phase display tolerance have landed. |
 | [28](TODO.md) | RFC 0040 V1.6 | dogfood-044 | D098 | Composite publish-on-behalf failure observability landed; remaining packet-evidence debt is provenance/packet-design work. |
-| [29](TODO.md) | RFC 0038 V1.6 | dogfood-045 | D099 | Real-bundle commit (`make ui-update-lock` + `make ui-build`) + supply-chain polish. **First `reject critical` override.** |
+| [29](TODO.md) | RFC 0038 V1.6 | dogfood-045 | D099 | ✅ Completed: real-bundle commit + supply-chain polish. **First `reject critical` override.** |
 | [30](TODO.md) | RFC 0039 V1.6 | dogfood-047 | D101 | ✅ Completed in 4.3 as the post-D105 helper-focused hardening slice; full Go daemon parity remains out of scope. |
 | [31](TODO.md) | RFC 0043 V1.5 | dogfood-048 | D102 | ✅ Completed / tracker stale: crash-recovery tombstone two-phase, daemon-required default flip, `daemon migrate-repo-local` subparser wiring, focused `make test-rfc0043`, and a foreground-daemon refusal smoke have landed. **Distinct from D095-D101 — both reviewers had real findings, not co-blindness.** |
 | (NEW) | RFC 0050 follow-up | dogfood-056 | (no override) | 5 reviewer findings filed as GH #9-13; 1 ergonomic from claude review. Already in active runway as 4.1 + 5.1. |

@@ -382,23 +382,14 @@ Legend: ✅ done · 🟡 most done (sub-tasks remain) · ⏳ open/blocked · �
     pending operator `make ui-update-lock` + `make ui-build`; supply-chain
     polish items) absorbed into RFC 0038 V1.6 follow-up (item 29 below).
 
-29. **RFC 0038 V1.6 follow-up.** Codex reject-override deltas from
-    dogfood-045 build review (decision `dec_ccfa1685878d41d69ccc6496cd6612fd`,
-    D099): (a) committed bundles under `src/striatum/web/static/build/`
-    are still the V1 placeholders pending operator-side
-    `make ui-update-lock` + `make ui-build` + lockfile/bundle commit
-    (HANDOFF.md Deviation: real-bundle commit); (b) move
-    `@vitejs/plugin-react` to `devDependencies` during the same
-    lockfile regeneration; (c) verify build verification gates
-    (`make lint` / `make typecheck` / `make test` / `make ui-test`)
-    pass against real output. Cross-lane majority accepted the source-side
-    fixes; codex `reject critical` (threat_model posture) overridden because
-    the missing real-bundle step is an operator-side mechanical follow-up
-    explicitly documented in the HANDOFF, not an architectural defect. Land
-    the real-bundle commit + supply-chain polish via a near-term operator
-    sweep rather than a full dogfood cycle. This is the first reject-severity
-    override (D099) on the books — prior cycle-exhaustion overrides
-    (D095/D096/D097/D098) all overrode `needs_revision`.
+29. ~~**RFC 0038 V1.6 follow-up.**~~ ✅ Done: the real bundle is committed
+    under `src/striatum/web/static/build/`, `@vitejs/plugin-react` lives in
+    `devDependencies`, the lockfile matches, and package/bundle guardrails
+    cover the former placeholder and dependency-placement risks. Verification
+    in the 2026-05-17 remediation pass included `make ui-check-bundle`,
+    `make ui-test`, `make lint`, `make typecheck`, and full `make test`.
+    Historical context: codex reject-override deltas from dogfood-045 build
+    review (decision `dec_ccfa1685878d41d69ccc6496cd6612fd`, D099).
 
 22. ~~**Implement RFC 0043 V1 (Postgres as Sole Substrate, daemon-required).**
     Per D094 (accepted; supersedes D006/D007/D036 and SQLite half of D009).~~
@@ -613,8 +604,8 @@ Legend: ✅ done · 🟡 most done (sub-tasks remain) · ⏳ open/blocked · �
     then redirect process/PTY work to item 54's narrow Go supervisor
     helper.
 
-26. **Harness improvement: forbid codex/codex implementer+reviewer
-    pairing in workflow validator.** Cycle-exhaustion observed three
+26. ~~**Harness improvement: forbid codex/codex implementer+reviewer
+    pairing in workflow validator.**~~ ✅ Done: cycle-exhaustion observed three
     times across recent runs (dogfood-042 Track A per D095;
     dogfood-042 Track C per D096; dogfood-043 Python build per D097).
     When the implementer and a reviewer are both the same model
@@ -625,11 +616,9 @@ Legend: ✅ done · 🟡 most done (sub-tasks remain) · ⏳ open/blocked · �
     --strict` refuses same-model review-pair and revision-cycle warnings
     unless the operator supplies an explicit override rationale; and
     `workflow validate` now refuses the same lint findings by default unless
-    `--allow-same-model-pairing` is passed. Remaining related work is limited
-    to coordinated daemon `run.prepare` / generator entry-point override
-    semantics if the refusal is promoted outside the CLI validation surface.
-    Pair any future validator/catalog enforcement with the dogfood-040 F39
-    note already documenting the same anti-pattern.
+    `--allow-same-model-pairing` is passed. Durable accepted-risk policy is
+    tracked separately under Phase 7 / TODO 55; do not keep this row open for
+    future policy decisions.
 
 27. ~~**RFC 0045 V1.5: address codex build review findings from
     dogfood-043** (cycle phase-jump validator gap closed; strict phase-skip

@@ -122,6 +122,9 @@ Recent checkpoints:
   exceptions instead of falling through to the legacy dispatch body; an
   architecture guardrail keeps the SQLite-connect tripwire armed for that
   path.
+- Backlog records for the same-model validator rule and real UI bundle /
+  supply-chain polish were closed after verifying the current validator,
+  package, bundle, and guardrail tests cover the formerly open work.
 
 - **Command authority and fallback guardrails.**
   `docs/architecture/COMMAND_AUTHORITY_MATRIX.md` now names the authority
