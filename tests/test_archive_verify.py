@@ -190,6 +190,63 @@ def test_verify_run_archive_replay_rejects_broken_reference(tmp_path: Path) -> N
         verify_run_archive(archive, replay=True)
 
 
+@pytest.mark.parametrize(
+    ("kind", "id_field", "id_value"),
+    [
+        ("verdicts", "verdict_id", "verdict_1"),
+        ("blockers", "blocker_id", "blocker_1"),
+        ("process_executions", "process_id", "process_1"),
+        ("job_worktrees", "worktree_id", "worktree_1"),
+    ],
+)
+def test_verify_run_archive_replay_rejects_duplicate_row_family_ids(
+    tmp_path: Path,
+    kind: str,
+    id_field: str,
+    id_value: str,
+) -> None:
+    archive = _archive(tmp_path)
+    row: dict[str, object] = {
+        "repository_id": "repo_a",
+        "run_id": "run_1",
+        id_field: id_value,
+    }
+    _write_jsonl(archive, kind, [row, dict(row)])
+
+    with pytest.raises(StriatumError, match=f"duplicate {id_field}"):
+        verify_run_archive(archive, replay=True)
+
+
+@pytest.mark.parametrize(
+    ("kind", "id_field"),
+    [
+        ("verdicts", "verdict_id"),
+        ("blockers", "blocker_id"),
+        ("process_executions", "process_id"),
+        ("job_worktrees", "worktree_id"),
+    ],
+)
+def test_verify_run_archive_replay_rejects_missing_row_family_ids(
+    tmp_path: Path,
+    kind: str,
+    id_field: str,
+) -> None:
+    archive = _archive(tmp_path)
+    _write_jsonl(
+        archive,
+        kind,
+        [
+            {
+                "repository_id": "repo_a",
+                "run_id": "run_1",
+            }
+        ],
+    )
+
+    with pytest.raises(StriatumError, match=f"invalid {id_field}"):
+        verify_run_archive(archive, replay=True)
+
+
 def test_verify_run_archive_replay_rejects_broken_event_chain(tmp_path: Path) -> None:
     archive = _archive(tmp_path)
     events = _read_jsonl(archive, "events")

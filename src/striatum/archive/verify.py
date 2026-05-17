@@ -324,6 +324,18 @@ def _build_indexes(payload: _ArchivePayload) -> dict[str, dict[str, dict[str, An
         "leases": _index_rows(payload.rows["leases"], "lease_id", "leases"),
         "work_packets": _index_rows(payload.rows["work_packets"], "packet_id", "work_packets"),
         "artifacts": _index_rows(payload.rows["artifacts"], "artifact_id", "artifacts"),
+        "verdicts": _index_rows(payload.rows["verdicts"], "verdict_id", "verdicts"),
+        "blockers": _index_rows(payload.rows["blockers"], "blocker_id", "blockers"),
+        "process_executions": _index_rows(
+            payload.rows["process_executions"],
+            "process_id",
+            "process_executions",
+        ),
+        "job_worktrees": _index_rows(
+            payload.rows["job_worktrees"],
+            "worktree_id",
+            "job_worktrees",
+        ),
     }
 
 

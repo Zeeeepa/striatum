@@ -91,6 +91,8 @@ Recent checkpoints:
 - Workflow validation now accepts canonical job `phase` fields from the React
   workflow editor, keeps `phase_id` as a compatibility alias, and rejects
   conflicting aliases.
+- Archive replay verification now rejects duplicate or missing ids for
+  archived verdict, blocker, process-execution, and job-worktree rows.
 - Roadmap kickoff status and remediation sequencing notes were refreshed to
   match the post-v1.55.0 daemon-first architecture work and the current
   blocked-policy boundaries.

@@ -886,8 +886,8 @@ Release order after Phase 0:
     landed: role/grant repair, service helpers, guided adoption,
     first-run smoke, and a dev-only compose profile.
 11. **TODO 59 / Phase 11:** replay/archive foundations landed, including
-    offline event-chain and row-hash verification; Corpus Contract V2 fields
-    wait on RFC 0057 decisions.
+    offline event-chain, row-hash, and archived row-id verification; Corpus
+    Contract V2 fields wait on RFC 0057 decisions.
 12. **TODO 60 / Phase 12:** optional Git/PR integration waits on a product
     decision for commit authority and hosted-provider boundaries.
 

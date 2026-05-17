@@ -1080,8 +1080,9 @@ review and plan are root-level operator artifacts:
     offline semantic checks for run/repository consistency, archived-row
     references, event ordering, event-chain continuity, and event-row hash
     recomputation, with optional artifact content hash checks via
-    `--repo-root`. Corpus Contract V2 fields remain blocked on RFC 0057
-    decisions.
+    `--repo-root`. Follow-up replay hardening rejects duplicate or missing
+    ids for archived verdict, blocker, process-execution, and job-worktree
+    rows. Corpus Contract V2 fields remain blocked on RFC 0057 decisions.
 
 60. **Phase 12: optional Git/PR integration.** Blocked on a product
     decision for commit authority and hosted-provider boundaries. Safe
