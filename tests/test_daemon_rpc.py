@@ -11,10 +11,11 @@ from striatum.daemon_rpc.capability import RpcAuthContext
 from striatum.daemon_rpc.envelope import RpcEnvelope, RpcError
 from striatum.daemon_rpc.handshake import build_welcome
 from striatum.daemon_rpc.registry import METHOD_REGISTRY, METHODS_ETAG, describe_methods
-from striatum.daemon_rpc.server import DaemonRpcRouter
+from striatum.daemon_rpc.server import DaemonRpcRouter, _domain_error_to_rpc
 from striatum.daemon_rpc.transport_http import validate_loopback_bind
 from striatum.daemon_rpc.transport_unix import bind_unix_socket
 from striatum.db import connect, init_repo
+from striatum.errors import WorkflowError
 
 
 def test_envelope_v1_round_trip_and_rejects_version_skew() -> None:
@@ -92,6 +93,15 @@ def test_router_welcome_reports_sealed_apply_unsupported_without_key(monkeypatch
     assert response.ok is True
     assert response.data["sealed_apply"]["supported"] is False
     assert response.data["sealed_apply"]["key_loaded"] is False
+
+
+def test_workflow_error_rpc_details_preserve_field_path() -> None:
+    error = _domain_error_to_rpc(
+        WorkflowError("workflow job references unknown role", field_path="jobs[0].role_id")
+    )
+
+    assert error.code == "workflow_error"
+    assert error.details == {"field_path": "jobs[0].role_id"}
 
 
 def test_apply_reviewed_patch_ignores_client_supplied_signing_key(monkeypatch: pytest.MonkeyPatch) -> None:

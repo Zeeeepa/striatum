@@ -72,6 +72,39 @@ def _legacy_run_resume(repo: Path, *, run_id: str) -> JsonObject:
         return resume_run(conn, run_id=run_id)
 
 
+def _legacy_workflow_run_now(repo: Path, *, workflow_path: Path) -> JsonObject:
+    from striatum.cli.mutations import branch_confirm, run_start
+    from striatum.db import connect, transaction
+    from striatum.workflow import create_run
+
+    with connect(repo) as conn:
+        with transaction(conn):
+            prepared = create_run(conn, repo=repo, workflow_path=workflow_path)
+        run_id = str(prepared["run_id"])
+        requires_confirm = (
+            prepared.get("state") == "needs_branch_confirmation"
+            and prepared.get("branch_mode") != "auto"
+        )
+        if prepared.get("branch_mode") == "auto":
+            suggested = prepared.get("suggested_branch_name")
+            if isinstance(suggested, str) and suggested:
+                branch_confirm(
+                    conn,
+                    repo=repo,
+                    run_id=run_id,
+                    branch=suggested,
+                    create=True,
+                )
+        if requires_confirm:
+            return {
+                "run_id": run_id,
+                "status": "needs_branch_confirmation",
+                "suggested_branch_name": prepared.get("suggested_branch_name"),
+            }
+        run_start(conn, run_id=run_id)
+    return {"run_id": run_id, "status": "running"}
+
+
 def _legacy_job_cancel(
     repo: Path,
     *,
@@ -167,9 +200,79 @@ def _send_legacy_fixture_error(handler: BaseHTTPRequestHandler, exc: Exception) 
     return False
 
 
+def _send_legacy_run_now_error(handler: BaseHTTPRequestHandler, repo: Path, exc: Exception) -> bool:
+    from striatum.errors import (
+        BranchConfirmationError,
+        InvalidTransitionError,
+        WorkflowError,
+    )
+
+    if isinstance(exc, BranchConfirmationError):
+        _handler_send_json(
+            handler,
+            409,
+            {"ok": False, "error": {"code": 409, "message": str(exc), "kind": "branch_confirmation"}},
+        )
+        return True
+    if isinstance(exc, InvalidTransitionError):
+        _handler_send_json(
+            handler,
+            409,
+            {"ok": False, "error": {"code": 409, "message": str(exc), "kind": "invalid_transition"}},
+        )
+        return True
+    if isinstance(exc, WorkflowError):
+        msg = str(exc)
+        if "git checkout failed" in msg:
+            _handler_send_json(
+                handler,
+                409,
+                {
+                    "ok": False,
+                    "error": {
+                        "code": 409,
+                        "message": msg,
+                        "kind": "dirty_tree",
+                        "git_status": _short_git_status(repo),
+                    },
+                },
+            )
+            return True
+        errors = []
+        if exc.field_path:
+            errors.append({"field_path": exc.field_path, "message": msg})
+        _handler_send_json(
+            handler,
+            422,
+            {"ok": False, "error": {"code": 422, "message": msg, "errors": errors}},
+        )
+        return True
+    return _send_legacy_fixture_error(handler, exc)
+
+
 def _handler_send_json(handler: BaseHTTPRequestHandler, status: int, body: Mapping[str, Any]) -> None:
     send_json = getattr(handler, "_send_json")
     send_json(status, dict(body))
+
+
+def _short_git_status(repo: Path) -> str:
+    try:
+        proc = subprocess.run(
+            ["git", "status", "--short"],
+            cwd=repo,
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return ""
+    lines = (proc.stdout or "").splitlines()
+    if len(lines) > 80:
+        lines = lines[:80] + [f"... ({len(lines) - 80} more lines)"]
+    return "\n".join(lines)
+
+
 SHUTDOWN_DRAIN_SECONDS = 5.0
 
 
@@ -2737,19 +2840,14 @@ class StriatumServiceHandler(BaseHTTPRequestHandler):
         """RFC 0024 V2: POST /workflows/run/<path> — lift workflow.json into a fresh run.
 
         Mutation-gated. Validates path safety + content-type + body cap.
-        Calls ``create_run`` (which validates the workflow); auto-branch
-        confirms when ``branch.mode == auto``; calls ``run_start``.
+        Calls daemon ``run.prepare`` (which validates the workflow);
+        auto-branch confirms when ``branch.mode == auto``; calls daemon
+        ``run.start``.
         Returns ``{run_id}`` on 200; ``409`` on dirty-tree branch refusal;
         ``422`` on validation failure.
         """
-        from striatum.cli.mutations import branch_confirm, run_start
-        from striatum.db import connect, transaction
-        from striatum.errors import (
-            BranchConfirmationError,
-            InvalidTransitionError,
-            WorkflowError,
-        )
-        from striatum.workflow import create_run
+        from striatum.errors import InvalidTransitionError, WorkflowError
+        from striatum.service_daemon import ServiceDaemonRpcError, call_repo_method
 
         if not self.state.allow_mutations:
             self._send_json(405, {"ok": False, "error": {"code": 405, "message": "run requires --allow-mutations"}})
@@ -2792,37 +2890,52 @@ class StriatumServiceHandler(BaseHTTPRequestHandler):
             self._send_json(404, {"ok": False, "error": {"code": 404, "message": "workflow.json not found"}})
             return
         try:
-            with connect(self.state.repo) as conn:
-                with transaction(conn):
-                    prepared = create_run(conn, repo=self.state.repo, workflow_path=target)
-                run_id = str(prepared["run_id"])
-                # Auto-branch: drive branch_confirm so the run can move on.
-                # Manual-branch: stop with state=needs_branch_confirmation;
-                # the operator must confirm separately. (Synthesis F1 for
-                # the "fold the dirty-tree status into the 409" finding is
-                # deferred to V3.)
-                requires_confirm = (
-                    prepared.get("state") == "needs_branch_confirmation"
-                    and prepared.get("branch_mode") != "auto"
-                )
-                if prepared.get("branch_mode") == "auto":
-                    suggested = prepared.get("suggested_branch_name")
-                    if isinstance(suggested, str) and suggested:
-                        try:
-                            branch_confirm(
-                                conn,
-                                repo=self.state.repo,
-                                run_id=run_id,
-                                branch=suggested,
-                                create=True,
-                            )
-                        except BranchConfirmationError as exc:
-                            self._send_json(409, {"ok": False, "error": {"code": 409, "message": str(exc), "kind": "branch_confirmation"}})
-                            return
-                if requires_confirm:
-                    self._send_json(200, {"ok": True, "data": {"run_id": run_id, "status": "needs_branch_confirmation", "suggested_branch_name": prepared.get("suggested_branch_name")}})
+            workflow_arg = "/".join(rel_parts)
+            prepared = call_repo_method(self.state.repo, "run.prepare", {"workflow": workflow_arg})
+            run_id = str(prepared["run_id"])
+            requires_confirm = (
+                prepared.get("state") == "needs_branch_confirmation"
+                and prepared.get("branch_mode") != "auto"
+            )
+            if prepared.get("branch_mode") == "auto":
+                suggested = prepared.get("suggested_branch_name")
+                if isinstance(suggested, str) and suggested:
+                    call_repo_method(
+                        self.state.repo,
+                        "branch.confirm",
+                        {"run_id": run_id, "branch": suggested, "create": True},
+                    )
+            if requires_confirm:
+                self._send_json(200, {"ok": True, "data": {"run_id": run_id, "status": "needs_branch_confirmation", "suggested_branch_name": prepared.get("suggested_branch_name")}})
+                return
+            call_repo_method(self.state.repo, "run.start", {"run_id": run_id})
+        except ServiceDaemonRpcError as exc:
+            if _legacy_web_read_fallback_enabled(exc.code):
+                try:
+                    result = _legacy_workflow_run_now(self.state.repo, workflow_path=target)
+                except Exception as legacy_exc:  # noqa: BLE001 - mapped below.
+                    if _send_legacy_run_now_error(self, self.state.repo, legacy_exc):
+                        return
+                    raise
+                self._send_json(200, {"ok": True, "data": result})
+                return
+            if exc.code in {"workflow_error", "schema_invalid"}:
+                msg = exc.message
+                if "git checkout failed" in msg:
+                    self._send_json(409, {"ok": False, "error": {"code": 409, "message": msg, "kind": "dirty_tree", "git_status": _short_git_status(self.state.repo)}})
                     return
-                run_start(conn, run_id=run_id)
+                errors = []
+                details = exc.details or {}
+                field_path = details.get("field_path")
+                if isinstance(field_path, str) and field_path:
+                    errors.append({"field_path": field_path, "message": msg})
+                self._send_json(422, {"ok": False, "error": {"code": 422, "message": msg, "errors": errors}})
+                return
+            error: dict[str, Any] = {"code": exc.status, "message": exc.message}
+            if exc.kind is not None:
+                error["kind"] = exc.kind
+            self._send_json(exc.status, {"ok": False, "error": error})
+            return
         except WorkflowError as exc:
             # RFC 0024 V3 (closes V2 design-review F3): dirty-tree
             # checkout failures bubble up here as WorkflowError. Detect
@@ -2831,25 +2944,12 @@ class StriatumServiceHandler(BaseHTTPRequestHandler):
             # to a terminal.
             msg = str(exc)
             if "git checkout failed" in msg:
-                git_status = ""
-                try:
-                    import subprocess
-                    proc = subprocess.run(
-                        ["git", "status", "--short"],
-                        cwd=self.state.repo, capture_output=True, text=True,
-                        timeout=5, check=False,
-                    )
-                    lines = (proc.stdout or "").splitlines()
-                    if len(lines) > 80:
-                        lines = lines[:80] + [f"... ({len(lines) - 80} more lines)"]
-                    git_status = "\n".join(lines)
-                except (OSError, subprocess.SubprocessError):
-                    pass
-                self._send_json(409, {"ok": False, "error": {"code": 409, "message": msg, "kind": "dirty_tree", "git_status": git_status}})
+                self._send_json(409, {"ok": False, "error": {"code": 409, "message": msg, "kind": "dirty_tree", "git_status": _short_git_status(self.state.repo)}})
                 return
             errors = []
-            if getattr(exc, "field_path", None):
-                errors.append({"field_path": exc.field_path, "message": str(exc)})
+            field_path = getattr(exc, "field_path", None)
+            if isinstance(field_path, str) and field_path:
+                errors.append({"field_path": field_path, "message": str(exc)})
             self._send_json(422, {"ok": False, "error": {"code": 422, "message": str(exc), "errors": errors}})
             return
         except InvalidTransitionError as exc:

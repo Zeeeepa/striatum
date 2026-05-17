@@ -366,9 +366,15 @@ daemon-first without needing to support two domain daemons.
 - The web SSE stream now uses daemon `run.events` in production and retains
   direct SQLite event tailing only for subprocess fixtures under the same
   test-harness escape.
+- The workflow run-now POST path now calls daemon `run.prepare`,
+  `branch.confirm`, and `run.start` in production, while preserving its
+  historical field-level workflow validation response through daemon RPC
+  error details. The direct SQLite lifecycle remains only in the subprocess
+  test-harness fallback.
 
-**Remaining Phase 4 debt:** run-now still has multi-step SQLite transaction
-semantics; run detail and job detail still need daemon DTOs.
+**Remaining Phase 4 debt:** run detail and job detail still need daemon DTOs;
+`service.py` remains due for a split once the route authority cleanup is
+complete.
 
 ---
 

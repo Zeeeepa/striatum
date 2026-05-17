@@ -24,10 +24,14 @@ in the roadmap/TODO and has several production slices landed:
   such as PTY supervision.
 - **Daemon-first web service.**
   The local web service now uses daemon RPC for run cancel/pause/resume, job
-  cancel/retry, branch confirm, run listing, chat briefing active-run
+  cancel/retry, branch confirm, workflow run-now lifecycles, run listing,
+  chat briefing active-run
   summaries, the JSON read endpoints for status/doctor/why/dashboard/run
   artifacts, the artifact detail page, and the posture-verdict drill-down
-  page. The new `run.posture_verdicts` daemon DTO backs the posture page,
+  page. Run-now now calls daemon `run.prepare`, `branch.confirm`, and
+  `run.start` in production, preserving the historical 422 field-level
+  workflow validation response through daemon RPC error details. The new
+  `run.posture_verdicts` daemon DTO backs the posture page,
   while `artifact.show` can now include run, expected-author, and provenance
   context for the artifact page. Legacy CLI/SQLite fallbacks are retained
   only for the subprocess test-harness escape. The `/v1/invoke`

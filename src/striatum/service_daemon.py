@@ -20,6 +20,7 @@ class ServiceDaemonRpcError(Exception):
     code: str
     message: str
     kind: str | None = None
+    details: dict[str, Any] | None = None
 
     def __str__(self) -> str:
         return self.message
@@ -56,14 +57,16 @@ def call_repo_method(repo: Path, method: str, params: Mapping[str, Any]) -> dict
         ) from exc
     except RpcError as exc:
         status, kind = _http_error_shape(exc.code)
-        raise ServiceDaemonRpcError(status, exc.code, str(exc), kind) from exc
+        raise ServiceDaemonRpcError(status, exc.code, str(exc), kind, dict(exc.details)) from exc
     if not bool(response.get("ok")):
         raw_error = response.get("data")
         err: Mapping[str, Any] = raw_error if isinstance(raw_error, dict) else {}
         code = str(err.get("code") or "rpc_error")
         message = str(err.get("message") or "daemon RPC call failed")
+        raw_details = err.get("details")
+        details = dict(raw_details) if isinstance(raw_details, Mapping) else {}
         status, kind = _http_error_shape(code)
-        raise ServiceDaemonRpcError(status, code, message, kind)
+        raise ServiceDaemonRpcError(status, code, message, kind, details)
     data = response.get("data")
     if isinstance(data, dict):
         return data

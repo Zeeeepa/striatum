@@ -274,6 +274,13 @@ def _web_mutation_handler(
     def fake_call_repo_method(repo: Path, method: str, params: dict[str, Any]) -> dict[str, Any]:
         assert repo == tmp_path
         calls.append((method, dict(params)))
+        if method == "run.prepare":
+            return {
+                "run_id": "run_123",
+                "state": "ready",
+                "branch_mode": "auto",
+                "suggested_branch_name": "striatum/demo",
+            }
         if method == "branch.confirm":
             return {"run_id": params["run_id"], "state": "ready", "branch": params["branch"]}
         if method == "run.start":
@@ -1109,6 +1116,134 @@ def test_web_job_actions_post_daemon_rpc_without_sqlite(tmp_path: Path, monkeypa
         )
     ]
     assert retry_calls == [("run.retry_job", {"run_id": "run_123", "job_id": "job_456"})]
+
+
+def test_workflow_run_now_posts_daemon_lifecycle_without_sqlite(
+    tmp_path: Path,
+    monkeypatch: Any,
+) -> None:
+    workflow_path = tmp_path / "examples" / "wf" / "workflow.json"
+    workflow_path.parent.mkdir(parents=True)
+    workflow_path.write_text("{}", encoding="utf-8")
+    calls: list[tuple[str, dict[str, Any]]] = []
+    handler, sent = _web_mutation_handler(tmp_path, monkeypatch, {}, calls)
+
+    handler._handle_workflow_run_now("examples/wf/workflow.json")
+
+    assert sent == {
+        "status": 200,
+        "body": {"ok": True, "data": {"run_id": "run_123", "status": "running"}},
+    }
+    assert calls == [
+        ("run.prepare", {"workflow": "examples/wf/workflow.json"}),
+        (
+            "branch.confirm",
+            {"run_id": "run_123", "branch": "striatum/demo", "create": True},
+        ),
+        ("run.start", {"run_id": "run_123"}),
+    ]
+
+
+def test_workflow_run_now_maps_daemon_workflow_error_details_to_422(
+    tmp_path: Path,
+    monkeypatch: Any,
+) -> None:
+    from email.message import Message
+    from io import BytesIO
+
+    import striatum.db as db
+    import striatum.service as service
+    import striatum.service_daemon as service_daemon
+
+    workflow_path = tmp_path / "examples" / "wf" / "workflow.json"
+    workflow_path.parent.mkdir(parents=True)
+    workflow_path.write_text("{}", encoding="utf-8")
+    raw = b"{}"
+    headers = Message()
+    headers["Content-Type"] = "application/json"
+    headers["Content-Length"] = str(len(raw))
+    calls: list[tuple[str, dict[str, Any]]] = []
+    sent: dict[str, Any] = {}
+
+    def sqlite_tripwire(*args: Any, **kwargs: Any) -> None:
+        raise AssertionError("web run-now opened repo-local SQLite")
+
+    def fake_call_repo_method(
+        repo: Path, method: str, params: dict[str, Any]
+    ) -> dict[str, Any]:
+        assert repo == tmp_path
+        calls.append((method, dict(params)))
+        raise service_daemon.ServiceDaemonRpcError(
+            400,
+            "workflow_error",
+            "workflow job references unknown role",
+            details={"field_path": "jobs[0].role_id"},
+        )
+
+    handler = object.__new__(service.StriatumServiceHandler)
+    handler.state = service.ServiceState(
+        repo=tmp_path,
+        allow_mutations=True,
+        token=None,
+        web_enabled=True,
+    )
+    handler.headers = headers
+    handler.rfile = BytesIO(raw)
+    monkeypatch.setattr(
+        handler,
+        "_send_json",
+        lambda status, body: sent.update({"status": status, "body": body}),
+    )
+    monkeypatch.setattr(db, "connect", sqlite_tripwire)
+    monkeypatch.setattr(service_daemon, "call_repo_method", fake_call_repo_method)
+
+    handler._handle_workflow_run_now("examples/wf/workflow.json")
+
+    assert sent["status"] == 422
+    assert sent["body"]["error"]["code"] == 422
+    assert sent["body"]["error"]["errors"] == [
+        {
+            "field_path": "jobs[0].role_id",
+            "message": "workflow job references unknown role",
+        }
+    ]
+    assert calls == [("run.prepare", {"workflow": "examples/wf/workflow.json"})]
+
+
+def test_service_daemon_rpc_error_preserves_response_details(
+    tmp_path: Path,
+    monkeypatch: Any,
+) -> None:
+    sys.path.insert(0, str(ROOT / "src"))
+    try:
+        import striatum.service_daemon as service_daemon
+    finally:
+        sys.path.pop(0)
+
+    monkeypatch.setattr(service_daemon, "resolve_socket_path", lambda: tmp_path / "daemon.sock")
+    monkeypatch.setattr(service_daemon, "daemon_socket_is_reachable", lambda path: True)
+    monkeypatch.setattr(service_daemon, "_lookup_repository_id", lambda repo: "repo_test")
+    monkeypatch.setattr(
+        service_daemon,
+        "_call_with_handshake",
+        lambda sock_path, method, params: {
+            "ok": False,
+            "data": {
+                "code": "workflow_error",
+                "message": "workflow job references unknown role",
+                "details": {"field_path": "jobs[0].role_id"},
+            },
+        },
+    )
+
+    try:
+        service_daemon.call_repo_method(tmp_path, "run.prepare", {"workflow": "workflow.json"})
+    except service_daemon.ServiceDaemonRpcError as exc:
+        assert exc.status == 400
+        assert exc.code == "workflow_error"
+        assert exc.details == {"field_path": "jobs[0].role_id"}
+    else:  # pragma: no cover - defensive assertion path.
+        raise AssertionError("expected ServiceDaemonRpcError")
 
 
 def test_web_branch_confirm_posts_daemon_rpc_then_run_start_without_sqlite(

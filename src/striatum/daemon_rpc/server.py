@@ -270,6 +270,7 @@ def _denied_auth(auth: RpcAuthContext, reason: str) -> RpcAuthContext:
 
 def _domain_error_to_rpc(exc: StriatumError) -> RpcError:
     code = "command_failed"
+    details: dict[str, object] = {}
     if isinstance(exc, NotFoundError):
         code = "not_found"
     elif isinstance(exc, InvalidTransitionError):
@@ -282,7 +283,10 @@ def _domain_error_to_rpc(exc: StriatumError) -> RpcError:
         code = "branch_confirmation_required"
     elif isinstance(exc, WorkflowError):
         code = "workflow_error"
-    return RpcError(code, str(exc), exit_code=exc.exit_code)
+        field_path = getattr(exc, "field_path", None)
+        if isinstance(field_path, str) and field_path:
+            details["field_path"] = field_path
+    return RpcError(code, str(exc), exit_code=exc.exit_code, details=details)
 
 
 def _row_value(row: Any, key: str) -> Any:
