@@ -402,7 +402,8 @@ daemon-first without needing to support two domain daemons.
 - `src/striatum/legacy_sqlite/service.py` also owns the remaining legacy page-read
   payload builders, view-file breadcrumb lookup, doctor-page fixture payload,
   SSE event tail, and legacy startup integrity check. `service.py` no longer
-  imports or opens repo-local SQLite directly.
+  imports or opens repo-local SQLite directly, and its compatibility aliases
+  load the quarantined module lazily only when a legacy fallback is invoked.
 
 **Remaining Phase 4 debt:** continue splitting `service.py` along stable
 non-SQLite request-handling and rendering boundaries after the daemon-routed

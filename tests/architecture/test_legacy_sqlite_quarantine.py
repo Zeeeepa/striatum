@@ -255,7 +255,14 @@ def test_legacy_service_owns_page_read_payload_fallbacks() -> None:
     ).read_text(encoding="utf-8")
 
     assert not root_compat_path.exists()
-    assert "from striatum.legacy_sqlite.service import" in service_source
+    service_tree = ast.parse(service_source)
+    top_level_legacy_imports = [
+        node
+        for node in service_tree.body
+        if _imports_module(node, "striatum.legacy_sqlite")
+    ]
+    assert top_level_legacy_imports == []
+    assert "def _legacy_service(" in service_source
     assert "striatum.service_legacy" not in service_source
 
     page_payload_builders = {
@@ -329,6 +336,14 @@ def _sqlite_references_under(root: Path) -> dict[Path, set[str]]:
                 if dotted in {"sqlite3", "striatum.db"}:
                     offenders.setdefault(rel, set()).add(f"usage {dotted}")
     return offenders
+
+
+def _imports_module(node: ast.AST, module: str) -> bool:
+    if isinstance(node, ast.Import):
+        return any(alias.name == module or alias.name.startswith(f"{module}.") for alias in node.names)
+    if isinstance(node, ast.ImportFrom):
+        return node.module == module or bool(node.module and node.module.startswith(f"{module}."))
+    return False
 
 
 def _dotted_name(node: ast.AST) -> str | None:

@@ -27,33 +27,6 @@ from typing import Any, Mapping
 from urllib.parse import parse_qs, quote, unquote, urlsplit
 
 from striatum.api import invoke
-from striatum.legacy_sqlite.service import (
-    _byline_line as _legacy_byline_line,
-    _shape_verdict_rows as _legacy_shape_verdict_rows,
-    legacy_artifact_metadata as _legacy_artifact_metadata,
-    legacy_artifact_raw_fallback_enabled as _legacy_artifact_raw_fallback_enabled,
-    legacy_artifact_view_payload as _legacy_artifact_view_payload,
-    legacy_doctor_page_payload as _legacy_doctor_page_payload,
-    legacy_fixture_fallback_enabled as _legacy_fixture_fallback_enabled,
-    legacy_job_cancel as _legacy_job_cancel,
-    legacy_job_detail_payload as _legacy_job_detail_payload,
-    legacy_job_retry as _legacy_job_retry,
-    legacy_run_cancel as _legacy_run_cancel,
-    legacy_run_detail_payload as _legacy_run_detail_payload,
-    legacy_run_list_items_for_test_harness as _legacy_run_list_items_for_test_harness,
-    legacy_run_pause as _legacy_run_pause,
-    legacy_run_posture_verdicts_payload as _legacy_run_posture_verdicts_payload,
-    legacy_run_resume as _legacy_run_resume,
-    legacy_shape_artifact_rows as _legacy_shape_artifact_rows,
-    legacy_stream_events_body as _legacy_stream_events_body,
-    legacy_verify_state_health as _legacy_verify_state_health,
-    legacy_view_file_run_breadcrumb as _legacy_view_file_run_breadcrumb,
-    legacy_web_read_fallback_enabled as _legacy_web_read_fallback_enabled,
-    legacy_workflow_run_now as _legacy_workflow_run_now,
-    send_legacy_fixture_error as _send_legacy_fixture_error,
-    send_legacy_run_now_error as _send_legacy_run_now_error,
-    short_git_status as _short_git_status,
-)
 from striatum.service_http import (
     LOOPBACK_HOSTS as LOOPBACK_HOSTS,
     OriginTuple as OriginTuple,
@@ -85,9 +58,54 @@ from striatum.web.chat_session import (
 JsonObject = dict[str, Any]
 _project_history_anthropic = _chat_session.project_history_anthropic
 _project_history_openai = _chat_session.project_history_openai
-_byline_line = _legacy_byline_line
-_shape_artifact_rows = _legacy_shape_artifact_rows
-_shape_verdict_rows = _legacy_shape_verdict_rows
+
+
+def _legacy_service() -> Any:
+    from striatum.legacy_sqlite import service as legacy_service
+
+    return legacy_service
+
+
+class _LazyLegacyCallable:
+    def __init__(self, name: str) -> None:
+        self._name = name
+
+    def __call__(self, *args: Any, **kwargs: Any) -> Any:
+        return getattr(_legacy_service(), self._name)(*args, **kwargs)
+
+
+_byline_line = _LazyLegacyCallable("_byline_line")
+_shape_artifact_rows = _LazyLegacyCallable("legacy_shape_artifact_rows")
+_shape_verdict_rows = _LazyLegacyCallable("_shape_verdict_rows")
+_legacy_artifact_metadata = _LazyLegacyCallable("legacy_artifact_metadata")
+_legacy_artifact_raw_fallback_enabled = _LazyLegacyCallable(
+    "legacy_artifact_raw_fallback_enabled"
+)
+_legacy_artifact_view_payload = _LazyLegacyCallable("legacy_artifact_view_payload")
+_legacy_doctor_page_payload = _LazyLegacyCallable("legacy_doctor_page_payload")
+_legacy_fixture_fallback_enabled = _LazyLegacyCallable("legacy_fixture_fallback_enabled")
+_legacy_job_cancel = _LazyLegacyCallable("legacy_job_cancel")
+_legacy_job_detail_payload = _LazyLegacyCallable("legacy_job_detail_payload")
+_legacy_job_retry = _LazyLegacyCallable("legacy_job_retry")
+_legacy_run_cancel = _LazyLegacyCallable("legacy_run_cancel")
+_legacy_run_detail_payload = _LazyLegacyCallable("legacy_run_detail_payload")
+_legacy_run_list_items_for_test_harness = _LazyLegacyCallable(
+    "legacy_run_list_items_for_test_harness"
+)
+_legacy_run_pause = _LazyLegacyCallable("legacy_run_pause")
+_legacy_run_posture_verdicts_payload = _LazyLegacyCallable(
+    "legacy_run_posture_verdicts_payload"
+)
+_legacy_run_resume = _LazyLegacyCallable("legacy_run_resume")
+_legacy_shape_artifact_rows = _shape_artifact_rows
+_legacy_stream_events_body = _LazyLegacyCallable("legacy_stream_events_body")
+_legacy_verify_state_health = _LazyLegacyCallable("legacy_verify_state_health")
+_legacy_view_file_run_breadcrumb = _LazyLegacyCallable("legacy_view_file_run_breadcrumb")
+_legacy_web_read_fallback_enabled = _LazyLegacyCallable("legacy_web_read_fallback_enabled")
+_legacy_workflow_run_now = _LazyLegacyCallable("legacy_workflow_run_now")
+_send_legacy_fixture_error = _LazyLegacyCallable("send_legacy_fixture_error")
+_send_legacy_run_now_error = _LazyLegacyCallable("send_legacy_run_now_error")
+_short_git_status = _LazyLegacyCallable("short_git_status")
 
 SSE_POLL_INTERVAL_SECONDS = 0.25
 SSE_MAX_CONCURRENT_PER_RUN = 32

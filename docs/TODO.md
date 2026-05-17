@@ -898,7 +898,9 @@ review and plan are root-level operator artifacts:
     subprocess-fixture mutation fallbacks, legacy error mappers, legacy
     page-read payload builders, the view-file breadcrumb lookup, doctor-page
     fixture payload, SSE event tail, and legacy startup integrity check.
-    `service.py` no longer imports or opens repo-local SQLite directly.
+    `service.py` no longer imports or opens repo-local SQLite directly, and
+    the quarantined module is loaded lazily only when a legacy fallback is
+    invoked.
     Remaining: continue splitting `service.py` along stable non-SQLite
     request-handling and rendering boundaries.
 
