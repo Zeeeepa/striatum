@@ -4,9 +4,9 @@ Status: accepted (V2 slice)
 Date: 2026-05-11
 Context:
 [`RFC 0028`](0028-long-running-daemon-and-multi-repository-control-plane.md),
-[`RFC 0030`](0030-daemon-rpc-server-and-version-skew-protocol.md) (proposed),
-[`RFC 0031`](0031-daemon-owned-supervision-and-sealed-apply-boundary.md) (proposed),
-[`RFC 0033`](0033-storage-substrate-rewrite-for-daemon-v2.md) (proposed),
+[`RFC 0030`](0030-daemon-rpc-server-and-version-skew-protocol.md) (accepted),
+[`RFC 0031`](0031-daemon-owned-supervision-and-sealed-apply-boundary.md) (accepted),
+[`RFC 0033`](0033-storage-substrate-rewrite-for-daemon-v2.md) (accepted),
 [`docs/DECISION_LOG.md`](../DECISION_LOG.md) (D082, D083, D086),
 [`docs/MCP.md`](../MCP.md),
 [`docs/SPEC.md`](../SPEC.md) § "Registry-Backed Multi-Repo Coordination",

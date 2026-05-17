@@ -1,7 +1,11 @@
 # RFC 0043: PostgreSQL as the Sole Substrate and Daemon-Required Runtime
 
-Status: proposed
+Status: accepted / implemented (D094)
 Date: 2026-05-12
+Implementation note: bare `STRIATUM_DAEMON_REQUIRED=0` is no longer a
+production opt-out. Legacy SQLite paths are reachable only through
+explicitly paired test-harness compatibility (`STRIATUM_TEST_HARNESS=1`)
+or migration fixtures.
 Context:
 [`docs/DECISION_LOG.md`](../DECISION_LOG.md) (D094 supersedes D006/D007/D036
 and the SQLite half of D009; D082, D084, D086, D087, D088 cite the daemon-first
@@ -392,8 +396,8 @@ substrate flip enables.
   `tests/fixtures/v1_repo_local_sqlite/`.
 - **Skill bundles** (RFC 0015) and **plugin bundles** (RFC 0025) regenerate
   with new "Do not write to `.striatum/state.sqlite3`" language replaced
-  by "Do not bypass the daemon; the CLI is the only client." The
-  underlying invariant — agents do not touch the substrate directly —
+  by "Do not bypass the daemon; use the supplied runner client commands."
+  The underlying invariant — agents do not touch the substrate directly —
   is preserved.
 - **`STRIATUM_DAEMON_DB_URL`** remains the configuration entry point.
   Per-repo workflow tables live in the same database; the daemon owns
@@ -597,8 +601,10 @@ bounded context expands from "repo-local SQLite plus daemon Postgres"
 to "daemon Postgres, namespaced by repository." Aggregate roots
 (Run, Session, Job, Lease, Artifact, Verdict, Blocker) are unchanged
 in their identity and invariants; their storage substrate is the
-implementation detail this RFC moves. The CLI-as-only-write-surface
-invariant (D009 first half) is preserved.
+implementation detail this RFC moves. The original CLI-only write-boundary
+invariant (D009 first half) becomes a daemon-method write-boundary
+invariant under D104: CLI is one approved local client, not the sole
+production interface.
 
 ## V1.5 deltas
 
@@ -628,9 +634,10 @@ env-gated on `STRIATUM_DAEMON_REQUIRED=1`, so the default CLI
 behavior silently fell through to the SQLite path — directly
 contradicting §3 of this RFC. V1.5 flips the resolver:
 
-* `STRIATUM_DAEMON_REQUIRED=0` is now the explicit opt-out for
-  legacy SQLite-backed test fixtures and incremental migration of
-  in-tree fixtures.
+* Bare `STRIATUM_DAEMON_REQUIRED=0` is no longer a production opt-out.
+  Legacy SQLite-backed fixtures require the explicit paired test-harness
+  context (`STRIATUM_DAEMON_REQUIRED=0 STRIATUM_TEST_HARNESS=1`) or a
+  migration fixture.
 * Any other value, including the env var being unset, returns a
   populated `DaemonRequirement` and the dispatcher enforces the
   exit-code-11/12 refusals before any SQLite-backed code runs.

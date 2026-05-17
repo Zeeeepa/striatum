@@ -24,7 +24,7 @@ collectively, not individually.
 | File | Audience | Summary |
 |---|---|---|
 | [SPEC.md](SPEC.md) | Anyone | The implementation contract for the V1 surface. The source of truth when this index and the runner disagree. |
-| [DDD.md](DDD.md) | Anyone curious about the framing | Why the vocabulary is the model, not bookkeeping; bounded context, aggregate roots, value objects, the events log, and the CLI-as-only-write-surface invariant. |
+| [DDD.md](DDD.md) | Anyone curious about the framing | Why the vocabulary is the model, not bookkeeping; bounded context, aggregate roots, value objects, the events log, and the daemon-method write-boundary invariant. |
 | [DOC_MAP.md](DOC_MAP.md) | Anyone editing the docs | The boundary contract: which doc owns what, what each doc deliberately does *not* contain, and the direction citations should flow. |
 | [PRD.md](PRD.md) | Product reader | The product requirements that drove the V1 design. |
 | [DECISION_LOG.md](DECISION_LOG.md) | Product / architecture reader | Every product and architecture decision (`D###` rows) with reason, consequences, and revisit triggers. |
@@ -61,7 +61,7 @@ collectively, not individually.
 
 | File | Summary |
 |---|---|
-| [rfcs/](rfcs/) | All accepted/proposed RFCs (RFC 0001–RFC 0035 as of v1.25.0). Each RFC has its own `.md` file plus an entry in `rfcs/README.md`. |
+| [rfcs/](rfcs/) | All accepted/proposed Striatum RFCs. Each RFC has its own `.md` file plus a current entry in `rfcs/README.md`. |
 
 ## Dogfood material
 

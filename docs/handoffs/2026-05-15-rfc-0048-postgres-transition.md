@@ -8,8 +8,9 @@ Six version bumps shipped during the original session; the follow-up
 implementation completed the Go-core mutation port and the mapped CLI
 fail-closed flip. The substrate flip is now mechanically complete for the
 Python core reads + mutations, Go-core reads + mutations, and CLI routing for
-the mapped daemon verbs. The remaining work is the V1.5 hardening bundle and
-broader parity/integration evidence.
+the mapped daemon verbs. Current status note (2026-05-17): the V1.5 hardening
+bundle referenced here completed in v1.55.0; use `CHANGELOG.md`,
+`docs/TODO.md`, and `docs/ROADMAP.md` for current open work.
 
 ## What landed
 

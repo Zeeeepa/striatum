@@ -441,6 +441,9 @@ daemon-first without needing to support two domain daemons.
 - `src/striatum/web/doctor.py` now owns doctor page DTO loading, gated legacy
   fallback selection, record recipe shaping, and problem grouping. `service.py`
   keeps template rendering and response mapping for `/doctor`.
+- `src/striatum/web/workflows.py` now owns workflow browser index/detail page
+  DTO shaping, including small index entries and detail graph-SVG selection.
+  `service.py` keeps template rendering and HTTP error mapping for those pages.
 
 **Remaining Phase 4 debt:** continue splitting `service.py` along stable
 non-SQLite request-handling and rendering boundaries after the daemon-routed
@@ -718,16 +721,17 @@ decisions can reopen a compromised run to `completed` while preserving the
 supersession trail. The daemon/Postgres projection is carried by migration
 0007.
 
-### 5.7 Engram memory integration — Striatum Corpus Contract V2
+### 5.7 Optional memory/corpus integration — Striatum Corpus Contract V2
 
 **Driven by:** `~/git/engram/STRIATUM_MEMORY_ROADMAP.md` (Engram-side
-roadmap dated 2026-05-14). Engram is positioning to become the local
-memory layer for Striatum operators and workflow agents — retrieval-
-backed working memory over operator/agent logs, RFCs, designs, reviews,
-operator reports, changelogs, git history, issues, blockers, and
-generated artifacts.
+roadmap dated 2026-05-14). Treat that roadmap as an external consumer
+request, not a Striatum runtime dependency. Engram may augment Striatum
+operators and workflow agents with retrieval-backed memory over exported
+corpora, but Striatum must keep running with Engram absent and must not
+pull from Engram unless an accepted policy explicitly opts a workflow or
+operator surface into augmentation.
 
-**RFC 0052 scaffold landed (2026-05-14).** See
+**RFC 0057 scaffold landed (2026-05-14).** See
 [`docs/rfcs/0057-corpus-contract-v2.md`](rfcs/0057-corpus-contract-v2.md)
 for the bounded V2 decision surface (contract version, multi-corpus
 identity, redaction-tier metadata, incremental-export watermarks,
@@ -747,16 +751,14 @@ of a future dogfood resolves the decisions.
   pinning that no `import engram` / no `from engram` / no `memory.*`
   capabilities exist in Striatum source.
 
-**What Engram is asking for (Striatum-side asks):**
+**External consumer asks (Striatum-side):**
 
-1. **Corpus Contract V2 RFC** — new Striatum RFC (next free number; would
-   be 0052 since 0051 just shipped). Define bundle manifest shape, source
-   kinds, required + optional metadata, stable item IDs, content hashes,
-   instance and repository identity, privacy/redaction metadata,
+1. **Corpus Contract V2 RFC** — RFC 0057. Define bundle manifest shape,
+   source kinds, required + optional metadata, stable item IDs, content
+   hashes, instance and repository identity, privacy/redaction metadata,
    incremental-export watermarks, validation rules, and backward
-   compatibility. This is the dependency for everything Engram does
-   downstream (their projections, retrieval, context injection); their
-   roadmap is gated on it.
+   compatibility. This is the dependency for external consumers that
+   ingest Striatum exports.
 
 2. **Multi-corpus support in the exporter** — emit
    `corpus_id = striatum:<repo-or-instance-id>` rather than the V1
@@ -769,11 +771,12 @@ of a future dogfood resolves the decisions.
    phases.
 
 4. **Context-injection policy** (RFC-level decision, not implementation
-   yet) — when/how Striatum pulls from Engram, per-packet memory budget
-   defaults, which workflows opt into augmentation. Engram lists
-   operator-startup summaries, workflow scaffolding, agent-packet prep,
-   review-cycle prep, blocker/recovery investigation, and UI/CLI memory
-   search as the candidate consumers.
+   yet) — whether Striatum may request optional augmentation from an
+   external memory service, per-packet memory budget defaults, and which
+   workflows opt in. Candidate consumers include operator-startup
+   summaries, workflow scaffolding, agent-packet prep, review-cycle prep,
+   blocker/recovery investigation, and UI/CLI memory search, but none of
+   these may become hard prerequisites.
 
 **Open decisions to make before implementation** (from Engram's roadmap
 §Open Decisions, applicable to our side):
@@ -787,13 +790,14 @@ of a future dogfood resolves the decisions.
 - How to record Engram availability without creating a runtime dependency.
 - Default per-packet memory injection budget.
 
-**Suggested implementer:** any lane. Phase 1 is a design RFC + the
-contract test; no end-user surface changes yet. Subsequent Striatum-side
-phases (multi-corpus exporter, then context-injection integration) are
-separate dogfoods.
+**Suggested implementer:** any lane. The next Striatum-side phase is a
+design RFC + contract tests; no end-user surface changes yet. Subsequent
+phases (multi-corpus exporter, then optional context-injection
+integration) are separate dogfoods.
 
-**Blocked on:** nothing on our side. Engram's Phase 1 (their RFC 0045)
-is gated on this Striatum-side contract, so this unblocks them.
+**Blocked on:** product decisions inside RFC 0057 for multi-corpus
+identity, redaction tier, watermarks, and injection policy. This is not a
+runtime blocker for Striatum's core daemon/remediation work.
 
 **Forward link:** §11 lists the Engram-side roadmap for context;
 Engram's full backlog is at `~/git/engram/STRIATUM_MEMORY_ROADMAP.md`.
@@ -804,17 +808,19 @@ Five RFCs scaffolded in one operator session on 2026-05-14. They
 cluster around the AI-operator-as-default + human-principal-as-
 escalation model and the doc surfaces that express it.
 
-Landing order: RFC 0053 first (already shipped to main — RFC + D103
-+ doc-side fixes in SPEC, GETTING_STARTED, HOW_TO_HUMAN, plus the
+Landing order: RFC 0053 first (already shipped to main — RFC, D103,
+and doc-side fixes in SPEC, GETTING_STARTED, HOW_TO_HUMAN, plus the
 UBIQUITOUS_LANGUAGE softening in fb0175c). Then RFC 0054 / 0055 /
-0056 in any order (all single-track doc work). RFC 0052 lands later;
-its implementation depends on RFC 0048 Phase A.
+0056 in any order (all single-track doc work). RFC 0052 implementation
+is unblocked by the completed RFC 0048 substrate flip, but remains lower
+priority than the active remediation runway unless scheduled explicitly.
 
 - **RFC 0052** (committee deliberation workflow) — TODO #43.
   Phase 0 scaffold + schema sketches landed. V1.9/V2.0 implementation.
   Composes with RFC 0053 (committee stalemate is one of the named
-  escalation triggers). Blocked on RFC 0048 daemon-side
-  business-logic flip.
+  escalation triggers). No longer blocked on RFC 0048; schedule as its
+  own dogfood when committee workflow implementation becomes the next
+  product priority.
 - **RFC 0053** (human principal as escalation-only) — TODO #44.
   RFC body + D103 + doc-side prose realignment shipped on main.
   A follow-up wording sweep realigned reader-facing docs, CLI help,
@@ -852,10 +858,9 @@ prompt sweep) is its own dogfood; the workflow.json bump is a
 breaking schema change and should land paired with a
 `workflow upgrade` rule.
 
-**Blocked on:** RFC 0052 implementation is blocked on RFC 0048
-daemon-side substrate flip (§5.3). RFC 0053 Phase B is blocked on
-the workflow.json version bump being scheduled. The other doc
-phases are unblocked.
+**Blocked on:** RFC 0053 Phase B is blocked on the workflow.json version
+bump being scheduled. RFC 0052 implementation is unblocked but unscheduled.
+The other doc phases are unblocked.
 
 ### 5.9 Architecture remediation sequence (TODO 49-60)
 
@@ -911,7 +916,7 @@ dogfood. Order them by impact, not by RFC number.
 
 | TODO | RFC | Origin | Decision | Scope |
 |---:|---|---|---|---|
-| [27](TODO.md) | RFC 0045 V1.5 | dogfood-043 | D097 | Cycle phase-jump, Python/editor phase-field mismatch, and explicit synthesis-job metadata validation closed; remaining frontend drag-drop dropdown bypass + invalid/unknown phase display tolerance follow-up. |
+| [27](TODO.md) | RFC 0045 V1.5 | dogfood-043 | D097 | ✅ Completed: cycle phase-jump, Python/editor phase-field mismatch, explicit synthesis-job metadata validation, frontend drag-drop phase bypass, and invalid/unknown phase display tolerance have landed. |
 | [28](TODO.md) | RFC 0040 V1.6 | dogfood-044 | D098 | Composite publish-on-behalf failure observability landed; remaining packet-evidence debt is provenance/packet-design work. |
 | [29](TODO.md) | RFC 0038 V1.6 | dogfood-045 | D099 | Real-bundle commit (`make ui-update-lock` + `make ui-build`) + supply-chain polish. **First `reject critical` override.** |
 | [30](TODO.md) | RFC 0039 V1.6 | dogfood-047 | D101 | ✅ Completed in 4.3 as the post-D105 helper-focused hardening slice; full Go daemon parity remains out of scope. |
@@ -932,9 +937,8 @@ is the runner-owned historical bootstrap successor, and
 | RFC 0049 spike | Shelved by D106; depends on external billing semantics and PTY/MCP stability | Explicit operator-funded spike + measurement. |
 | RFC 0057 Corpus V2 | Product contract decisions for multi-corpus identity, redaction tier, watermarks, and injection policy | Accepted RFC 0057 design. |
 | Phase 12 Git/PR integration | Product decision for commit authority and hosted-provider boundaries | Accepted RFC/decision before commit apply or hosted PR work. |
-| RFC 0048 Phase A | Operator capacity (multi-week) | None — schedulable. |
 | Item 32 (Engram-side RFC 0044 Phase 1) | External repo (`~/git/engram/`) | Engram-side work; **not Striatum's TODO**. |
-| Item 16 (generic language sweep) | No active operator demand | Cleanup task. |
+| Item 16 (generic language sweep) | Ongoing documentation hygiene | Active sweep on 2026-05-17; keep open as a standing review item. |
 
 ---
 
@@ -997,7 +1001,7 @@ the `--permission-mode acceptEdits --allowedTools "Bash"` flags.
 
 Read these before driving a multi-step run:
 
-- `/home/halbritt/.claude/projects/-home-halbritt-git-striatum/memory/MEMORY.md`
+- `~/.claude/projects/<encoded-striatum-repo>/memory/MEMORY.md`
   — operator lessons learned (dogfood-driven over free-form, autonomous
   run decisions, finalize-without-asking, OPERATOR_REPORT incrementality,
   claude-stall recovery, lane attestation gap, CI poll discipline).
@@ -1011,7 +1015,7 @@ and the scope is one RFC phase or one self-contained fix.
 
 ```bash
 # 0. Pre-flight
-cd /home/halbritt/git/striatum
+cd <striatum-repo>
 git status                                 # main, clean
 gh issue list --state open --label rfc-XXXX  # know what you're closing
 cat docs/ROADMAP.md                        # this doc
@@ -1071,7 +1075,7 @@ $EDITOR docs/ROADMAP.md                                # promote what's done, ad
 | If you want... | Read |
 |---|---|
 | Authoritative status of any item | `docs/TODO.md` |
-| Architectural rationale for a decision | `docs/DECISION_LOG.md` (latest D103) |
+| Architectural rationale for a decision | `docs/DECISION_LOG.md` (latest accepted rows) |
 | RFC design + acceptance criteria | `docs/rfcs/<NNNN>-*.md` and `docs/rfcs/README.md` index |
 | Per-dogfood outcomes + interventions | `docs/dogfood/<N>/OPERATOR_REPORT.md` |
 | Operator-facing CLI verbs + skills | `docs/HOW_TO_AGENT.md`, `docs/SPEC.md` |

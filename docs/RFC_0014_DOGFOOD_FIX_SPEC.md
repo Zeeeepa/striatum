@@ -49,8 +49,9 @@ The validation run produced these runner-level findings:
   committing `.striatum/`.
 - Make `status` and `why` sufficient for coordinator recovery after blocks.
 - Reduce the most common review-artifact command sequence to one safe command.
-- Preserve the V1 control-plane boundary: SQLite is live state; repo artifacts
-  are durable provenance.
+- Preserve the original V1 control-plane boundary: SQLite was live state and
+  repo artifacts were durable provenance. Current production state authority
+  is daemon-owned PostgreSQL; this file is historical.
 - Keep provider/model portability. Adapter constraints are declared in workflow
   config and recorded as enforced or advisory per adapter.
 - Make root-review revision behavior explicit in RFC-style workflows.

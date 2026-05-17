@@ -1,15 +1,19 @@
 # V1 MVP Design Input: Codex
 
+Historical note: this is original V1 design input. Current live-state
+authority is daemon-owned PostgreSQL per `docs/SPEC.md`, D094, and RFC
+0043; do not use this document for current substrate or daemon-required
+behavior.
+
 ## 1. Lane verdict
 
 Verdict: `accept_with_conditions`.
 
-The V1 MVP is buildable if it stays tightly scoped around a deterministic
+The V1 MVP was buildable if it stayed tightly scoped around a deterministic
 SQLite control plane, a JSON workflow loader, and a CLI mutation surface. The
-most important implementation choice is to keep queue ownership simple:
-SQLite is authoritative, all state transitions happen through `striatum`,
-and every claim/ack/complete path checks an active lease owned by the calling
-session.
+original implementation choice was to keep queue ownership simple: SQLite was
+authoritative, all state transitions happened through `striatum`, and every
+claim/ack/complete path checked an active lease owned by the calling session.
 
 Non-negotiable design conditions:
 

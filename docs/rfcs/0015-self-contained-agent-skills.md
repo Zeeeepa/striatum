@@ -337,8 +337,10 @@ The bundle is "self-contained" in three concrete senses:
 - **RFC 0012 / 0013** — local API and web UI. Independent. Skills
   describe how to drive the CLI; the API/UI are alternate front
   ends. A future skill (`striatum-serve`) could cover them.
-- **D006 / D007 / D009** — SQLite is the live state, repo files are
-  durable provenance, agents update state through the CLI. The skill
+- **D006 / D007 / D009, superseded by D094 / D104 for current
+  substrate/interface behavior** — daemon-owned PostgreSQL is the live
+  state, repo files are durable provenance, and agents update state
+  through daemon methods exposed by the approved local clients. The skill
   bundle's "What not to do" sections enforce these boundaries.
 - **D020** — no hosted services. Skills ship inside the installed
   package; generation is offline; bundle content emits no external

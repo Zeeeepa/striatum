@@ -307,7 +307,11 @@ Legend: ✅ done · 🟡 most done (sub-tasks remain) · ⏳ open/blocked · �
 16. **Keep generic language current.** New docs should say "target
     repository", "workflow fixture", "runner state", "artifact", and
     "adapter" rather than assuming Engram-specific paths or marker names.
-    No active sub-task.
+    Current sweep (2026-05-17): refreshed current docs, RFC status notes,
+    prompts, and root reference artifacts so daemon-owned PostgreSQL is the
+    authoritative live state, `.striatum/` is operational scratch, and Engram
+    remains optional external augmentation rather than a runtime dependency.
+    Keep this item open as standing documentation hygiene.
 
 20. ~~**RFC 0040 V1.5 follow-up.** Six codex findings (F1-F6) from
     dogfood-040 build review iteration 2.~~ ✅ Done: shipped under
@@ -627,20 +631,22 @@ Legend: ✅ done · 🟡 most done (sub-tasks remain) · ⏳ open/blocked · �
     Pair any future validator/catalog enforcement with the dogfood-040 F39
     note already documenting the same anti-pattern.
 
-27. **RFC 0045 V1.5: address codex build review findings from
+27. ~~**RFC 0045 V1.5: address codex build review findings from
     dogfood-043** (cycle phase-jump validator gap closed; strict phase-skip
-    restriction, phase field compatibility, phase_id strict-on-v1 check, and
-    `phases[].synthesis_job_id` validation/generation already enforced;
-    remaining frontend drag-drop dropdown bypass and invalid/unknown phase
-    display tolerance) — see D097.
+    restriction, phase field compatibility, phase_id strict-on-v1 check,
+    `phases[].synthesis_job_id` validation/generation, frontend drag-drop
+    phase bypass, and invalid/unknown phase display tolerance all landed) —
+    see D097.~~ ✅ Done.
     Cycle-exhaustion
     override per D097 (decision
     `dec_2c5fbf49e91441aca3562a66919ea8c1`). 2-of-3 cross-lane
     reviewers accept (claude accept_with_findings low, gemini accept
     low); codex needs_revision overridden because the codex/codex
     implementer+reviewer pairing produced the third instance of the
-    convergent-blind-spot anti-pattern (D095, D096, D097). Land the
-    codex findings deltas via a future dogfood.
+    convergent-blind-spot anti-pattern (D095, D096, D097). The frontend
+    follow-up now keeps invalid/missing phase jobs visible in an invalid
+    bucket, removes the explicit-phase `(unset)` dropdown bypass, and defaults
+    new explicit-phase jobs to the first declared phase.
 
 31. ~~**RFC 0043 V1.5 follow-up.** Codex + gemini needs_revision findings
     from dogfood-048 build review, deferred under D102 (decision
@@ -780,8 +786,8 @@ section is the canonical status snapshot.
     `debate_synthesis`); solves D095-D102 reviewer co-blindness via
     lane composition rather than RFC 0018 posture labelling. Phase 0
     scaffold landed (RFC body + schema sketches). Status: queued; no
-    implementation dogfood scheduled. V1.9/V2.0 — depends on RFC 0048
-    daemon-side business-logic flip. ROADMAP §5.8.
+    implementation dogfood scheduled. V1.9/V2.0 — unblocked by the
+    completed RFC 0048 substrate flip. ROADMAP §5.8.
 
 44. **RFC 0053 V0 (human principal as escalation-only).** Proposed
     2026-05-14; doc-side fixes landed. Names the human role as
@@ -953,6 +959,9 @@ review and plan are root-level operator artifacts:
     Follow-up split landed: `web/doctor.py` owns doctor page DTO loading,
     gated legacy fallback selection, record recipe shaping, and problem
     grouping while `service.py` keeps template rendering and response mapping.
+    Follow-up split landed: `web/workflows.py` owns workflow browser index and
+    detail page DTO shaping while `service.py` keeps template rendering and
+    HTTP error mapping for those pages.
     Remaining: continue splitting `service.py` along stable non-SQLite
     request-handling and rendering boundaries.
 

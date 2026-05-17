@@ -1,5 +1,10 @@
 # V1 MVP Design Input: Gemini
 
+Historical note: this is original V1 design input. Current live-state
+authority is daemon-owned PostgreSQL per `docs/SPEC.md`, D094, and RFC
+0043; do not use this document for current substrate or daemon-required
+behavior.
+
 ## 1. Lane Verdict
 
 The architectural foundation of `striatum`—a deterministic local control plane over SQLite, decoupled from AI logic—is conceptually sound and aligns well with local-first, portable requirements. However, the scope specified for the V1 MVP (leases, multi-agent queues, bounded cycles, heartbeats) is overly ambitious and highly susceptible to distributed state bugs disguised as local CLI complexity.

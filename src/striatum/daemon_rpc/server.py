@@ -55,6 +55,7 @@ class DaemonRpcRouter:
         require_handshake: bool = True,
     ) -> RpcResponse:
         auth = RpcAuthContext(None, None, _repository_id(envelope.params), None, "allowed")
+        authorized_for_route = False
         if self.pg_conn is not None and request_id_seen(self.pg_conn, request_id=envelope.request_id):
             error = RpcError("duplicate_request", "daemon RPC request_id was already used")
             return RpcResponse.error_response(request_id=envelope.request_id, error=error)
@@ -96,14 +97,17 @@ class DaemonRpcRouter:
                     )
                 require_allowed(auth)
                 repo_root = self._repo_root_for(envelope, auth=auth)
+                authorized_for_route = True
                 data = self._route(envelope, repo_root=repo_root, auth=auth)
             response = RpcResponse.ok_response(request_id=envelope.request_id, data=data)
         except RpcError as exc:
-            auth = _denied_auth(auth, exc.code)
+            if not authorized_for_route:
+                auth = _denied_auth(auth, exc.code)
             response = RpcResponse.error_response(request_id=envelope.request_id, error=exc)
         except StriatumError as exc:
             rpc_error = _domain_error_to_rpc(exc)
-            auth = _denied_auth(auth, rpc_error.code)
+            if not authorized_for_route:
+                auth = _denied_auth(auth, rpc_error.code)
             response = RpcResponse.error_response(request_id=envelope.request_id, error=rpc_error)
         return self._record_and_return(envelope, auth=auth, response=response, transport=transport)
 

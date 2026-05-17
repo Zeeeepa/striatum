@@ -13,6 +13,11 @@ sources:
 
 # P005 Synthesis: Sealed Provenance Mode
 
+Current-context note (2026-05-17): this synthesis predates the D094/D104
+daemon-required runtime. References below to `.striatum/state.sqlite3` are
+historical substrate examples; current Striatum live state is daemon-owned
+PostgreSQL.
+
 ## 0. TL;DR
 
 Five independent analyses of the P005 operator-bypass loophole converge on a
@@ -374,7 +379,7 @@ Rationale for Option A:
 
 1. The receipt survives `git clone` — downstream readers (humans, CI,
    later runs) can verify provenance from commit metadata alone, without
-   access to `.striatum/state.sqlite3`.
+   access to Striatum's live daemon state.
 2. The boundary is enforced by signature verification, not by filesystem
    ACLs on `.git/hooks/` that are easy to misconfigure across platforms.
 3. Codex's apply-service invariants (I1–I4) already assume an entity

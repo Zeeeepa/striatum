@@ -183,10 +183,10 @@ remediation phases should either daemon-route, quarantine, or delete.
 | `workflow upgrade` | local authoring helper with PG running-run guard | legacy SQLite only before cutover; fails closed after cutover if PG unavailable | local_file_authoring |
 | `run graph` | daemon RPC to PG handler | no | daemon_native |
 | `send` | daemon RPC to PG handler | no | daemon_native |
-| `adapter run` | local process adapter over SQLite state | yes | transition debt |
+| `adapter run` | local single-shot process-adapter compatibility path | yes | transition debt |
 | `byline` | local helper over current packet state | yes | operator-helper transition |
 | `inbox --session-id` | local session-packet helper | yes | operator-helper transition |
-| `serve` | local HTTP/web service over `striatum.api.invoke` plus direct reads | yes | service transition debt |
+| `serve` | local HTTP/web service over daemon RPC plus explicit CLI-local authoring helpers | no production SQLite | service cleanup debt |
 
 ## Immediate Findings
 

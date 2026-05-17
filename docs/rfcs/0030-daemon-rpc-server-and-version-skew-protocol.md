@@ -2,6 +2,11 @@
 
 Status: accepted (V2)
 Date: 2026-05-11
+Supersession note: D094 / RFC 0043 retired `--no-daemon` and made
+daemon-owned PostgreSQL mandatory for workflow-state verbs. Any older
+sections below that mention direct repo-local fallback or optional daemon
+mode are historical context; current behavior is exit 11 for unreachable
+daemon and exit 12 for unmigrated repositories.
 Context:
 [`RFC 0028`](0028-long-running-daemon-and-multi-repository-control-plane.md),
 [`RFC 0033`](0033-storage-substrate-rewrite-for-daemon-v2.md) (accepted V2),
@@ -20,9 +25,9 @@ key off the substrate choice.
 Implementation status: dogfood-034 lands the envelope-v1 codec, JSON
 framing helpers, owner-local transport guards, `daemon.hello` /
 `daemon.welcome`, `daemon.describe`, the capability-bound method registry,
-and PostgreSQL request/audit helper wiring. Full daemon accept-loop CLI
-routing remains behind the daemon V2 transition path; direct repo-local mode
-continues as the compatibility fallback until a later retirement decision.
+and PostgreSQL request/audit helper wiring. Later RFC 0048/D094 work
+completed daemon accept-loop CLI routing and retired production
+repo-local direct mode.
 
 ## Problem
 
@@ -31,7 +36,9 @@ The Unix socket bound by `striatumd` is a lifecycle marker; CLI and MCP
 clients open the daemon registry SQLite directly under capability
 checks. D082 ratifies the long-term product as "daemon with CLI client"
 — daemon-mediated routing becomes primary and direct repo-local CLI mode
-becomes a compatibility shim to be retired by a future RFC.
+becomes a compatibility shim. D094/RFC 0043 later retire that shim for
+production and make the paired test-harness escape the only direct-mode
+path.
 
 Closing finding A1 from dogfood-031 means designing a real RPC layer
 that:
@@ -166,9 +173,8 @@ Refuse / downgrade rules:
   cache `daemon.describe` against this etag.
 
 No silent downgrade: the CLI never falls back to direct repo-local mode
-on a daemon version mismatch. The operator must either upgrade the
-daemon, downgrade the CLI, or explicitly invoke `--no-daemon` for
-verbs that still support direct mode.
+on a daemon version mismatch. The operator must upgrade the daemon or
+downgrade the CLI.
 
 ### 4. Capability binding
 
@@ -242,15 +248,15 @@ state.
 V2 verbs route as follows:
 
 - **Read verbs** (`status`, `why`, `doctor`, `dashboard`, `list`,
-  `evidence`): default to daemon RPC. `--no-daemon` falls back to
-  direct repo-local mode.
+  `evidence`): route through daemon RPC in production. Unreachable
+  daemon refuses with exit code 11; unmigrated repositories refuse with
+  exit code 12.
 - **Mutating workflow verbs** (`workflow validate`, `run prepare`,
   `run start`, `session register`, `claim-next`, `ack`,
   `publish-artifact`, `verdict`, `submit-review`, `complete`,
-  `release`, `block`, `heartbeat`): default to daemon RPC. `--no-daemon`
-  is honored during the V2 transition but documented as a sunset path
-  per D082. A future RFC retires `--no-daemon` once daemon-mediated
-  paths are stable.
+  `release`, `block`, `heartbeat`): route through daemon RPC in
+  production. `--no-daemon` is retired; legacy SQLite compatibility is
+  test-harness/migration-only.
 - **Admin verbs** (`repo add/list/remove`, `daemon start/stop/status`,
   `daemon token *`, `daemon migrate`, `daemon shutdown`): daemon-only.
   No direct fallback.
@@ -263,11 +269,12 @@ turns each CLI invocation into one or more RPC calls.
 
 - V1 daemon registry SQLite is migrated to the new substrate via RFC
   0033 §4 before RFC 0030 ships.
-- V1 `--daemon` read routing semantics are preserved. The same CLI
-  command flags and exit codes still apply; only the underlying
-  transport changes from direct-SQLite-read to RPC.
-- Direct repo-local CLI mode without `--daemon` continues to work for
-  read verbs and (during the transition) for mutating workflow verbs.
+- V1 `--daemon` read routing semantics were preserved during the
+  transition. Current production behavior requires the daemon for all
+  Striatum verbs.
+- Direct repo-local CLI mode was transition-only. Current production
+  uses daemon-owned PostgreSQL; legacy SQLite compatibility is limited
+  to migration and explicit test fixtures.
 - Existing dogfood workflows (`docs/dogfood/030`, `docs/dogfood/031`)
   do not need re-running. New runs may be configured to require
   daemon-mediated mode via a workflow-level `require_daemon: true`
@@ -279,8 +286,8 @@ turns each CLI invocation into one or more RPC calls.
   per-test runtime directory and a per-test substrate (RFC 0033 §7).
 - CLI tests gain a `--daemon-url` plumbing that the harness sets so
   RPC traffic in tests goes to the per-test daemon.
-- Direct-mode tests assert that `--no-daemon` continues to work for
-  V1-compatible read verbs.
+- Legacy direct-mode tests are fixture-only; production behavior asserts
+  daemon-required refusal.
 - Version-skew tests inject mismatched envelope / methods to assert
   the refuse/downgrade rules.
 
@@ -304,8 +311,8 @@ turns each CLI invocation into one or more RPC calls.
 - RFC 0033 substrate migration runs first (operator UX).
 - Then `striatum daemon start` opens the RPC server; CLI clients begin
   routing through the daemon by default.
-- Direct-mode mutation verbs continue to work for one or more minor
-  releases. A future RFC names the retirement window.
+- Direct-mode mutation verbs were transition-only. D094/RFC 0043 and
+  D104 retired them for production use.
 - Existing CLI scripts that pass `--repo /path` keep working because
   the daemon resolves the repo against its registry.
 
@@ -349,12 +356,11 @@ turns each CLI invocation into one or more RPC calls.
   the CLI can cache.
 - A request log row exists on the substrate (RFC 0033) for every
   request; default retention applies.
-- Read verbs route through the daemon by default; `--no-daemon` falls
-  back to repo-local SQLite for those verbs only.
-- Mutating workflow verbs route through the daemon; `--no-daemon`
-  during the transition window works and emits a documented "direct
-  mode is being retired" warning.
-- Admin verbs refuse `--no-daemon` outright.
+- Read verbs route through the daemon in production; unreachable daemon
+  refuses instead of falling back to repo-local SQLite.
+- Mutating workflow verbs route through the daemon in production; the
+  transition-era `--no-daemon` path is retired.
+- Admin verbs also require the daemon boundary.
 - `dashboard --all` continues to work end-to-end against the new RPC
   routing.
 - Documentation in `docs/SPEC.md`, `docs/MCP.md`, `docs/CLI_REFERENCE.md`,

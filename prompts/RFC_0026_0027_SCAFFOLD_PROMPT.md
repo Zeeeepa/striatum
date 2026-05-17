@@ -1,15 +1,15 @@
 # RFC 0026/0027 Dogfood Scaffold Prompt
 
-Status: reusable
+Status: historical/reference
 Date: 2026-05-10
 author: coordinator-codex-gpt-5.5-001
 
-Use this prompt to ask a fresh CLI agent to scaffold, validate, and stop on a
-Striatum dogfood workflow for RFC 0026 and RFC 0027. The prompt intentionally
-includes setup commands from session inception.
+Historical note: this prompt predates daemon-required/PostgreSQL operation
+and contains dogfood-era branch/path assumptions. Rewrite placeholders and
+daemon readiness commands before reuse.
 
 ```text
-You are working in /Users/halbritt/git/striatum.
+You are working in <striatum-repo>.
 
 Goal: from a fresh agent session, set up Striatum guidance, scaffold a full
 dogfood workflow for RFC 0026 + RFC 0027, validate it, and stop. Do not
@@ -113,7 +113,8 @@ Workflow shape:
 - all reviews use reviewer_context_policy fresh
 - reviews use review_only_artifact write scopes
 - include bounded needs_revision cycles from design reviews back to synthesize_design and build reviews back to implement
-- forbidden_paths must include .striatum/ or .striatum/state.sqlite3 everywhere appropriate
+- forbidden_paths must include `.striatum/` everywhere appropriate; live state
+  is daemon-owned PostgreSQL, not a repo-local SQLite file
 
 Implementation write scope should be tight and include only likely surfaces:
 
@@ -154,11 +155,11 @@ git status --short
 Do not run these yet, but include them in your final answer as the exact next
 commands for the human to begin the run:
 
-PYTHONPATH=src python3 -m striatum.cli --repo /Users/halbritt/git/striatum init --json
-PYTHONPATH=src python3 -m striatum.cli --repo /Users/halbritt/git/striatum workflow validate docs/dogfood/<id>/workflow.json --json
-PYTHONPATH=src python3 -m striatum.cli --repo /Users/halbritt/git/striatum run prepare --workflow docs/dogfood/<id>/workflow.json --json
-PYTHONPATH=src python3 -m striatum.cli --repo /Users/halbritt/git/striatum run start --run-id <run_id> --json
-PYTHONPATH=src python3 -m striatum.cli --repo /Users/halbritt/git/striatum dashboard --run-id <run_id> --once
+PYTHONPATH=src python3 -m striatum.cli --repo <striatum-repo> init --json
+PYTHONPATH=src python3 -m striatum.cli --repo <striatum-repo> workflow validate docs/dogfood/<id>/workflow.json --json
+PYTHONPATH=src python3 -m striatum.cli --repo <striatum-repo> run prepare --workflow docs/dogfood/<id>/workflow.json --json
+PYTHONPATH=src python3 -m striatum.cli --repo <striatum-repo> run start --run-id <run_id> --json
+PYTHONPATH=src python3 -m striatum.cli --repo <striatum-repo> dashboard --run-id <run_id> --once
 
 Report:
 

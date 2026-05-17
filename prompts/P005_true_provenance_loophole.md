@@ -1,9 +1,12 @@
 # P005: The True Provenance Loophole
 
-Status: active
+Status: historical/reference
 Date: 2026-05-10
 Scope: system architecture research
 Primary outcome: solicit novel architectural strategies for operator containment.
+Current-context note: Striatum is now daemon-required with daemon-owned
+PostgreSQL and daemon MCP/plugin mutation surfaces. This prompt's
+Python/SQLite wording is historical; rewrite it before reuse.
 
 ## Context
 
@@ -13,10 +16,10 @@ This prompt is designed to be given to other frontier LLMs (e.g., in a fresh cha
 
 # The "Provenance Loophole" in AI Orchestration
 
-I am working with **Striatum**, an orchestration tool for terminal-based AI agents. The system uses a **local-first control plane** (SQLite, deterministic Python runner) to coordinate multiple "lanes" (agent sessions) through a deterministic workflow (e.g., `Draft -> Peer Review -> Synthesis -> Apply`).
+I am working with **Striatum**, an orchestration tool for terminal-based AI agents. The system uses a **local-first control plane** (daemon-owned PostgreSQL, deterministic Python runner) to coordinate multiple "lanes" (agent sessions) through a deterministic workflow (e.g., `Draft -> Peer Review -> Synthesis -> Apply`).
 
 ### The System Architecture:
-1.  **The Runner:** A deterministic Python/SQLite local control plane that enforces workflow gates and records an append-only event log.
+1.  **The Runner:** A deterministic daemon/PostgreSQL local control plane that enforces workflow gates and records an append-only event log.
 2.  **The Lanes:** Sub-processes spawned locally by the runner to perform specific jobs. These lanes are "attested," meaning the runner can verify that a specific supervised process actually performed the work.
 3.  **The Operator:** A cloud-based **frontier model** running in its own native coding harness (e.g., Gemini CLI or Claude Code) that drives the runner. The operator uses a **Striatum Driver Plugin** to interact with the local control plane (initialize runs, register sessions, etc.).
 

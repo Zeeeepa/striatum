@@ -89,6 +89,9 @@ Recent checkpoints:
   into `striatum.service_request_io`, keeping the handler wrappers stable.
 - Doctor page DTO loading, legacy fallback selection, record recipe shaping,
   and problem grouping moved from `service.py` into `striatum.web.doctor`.
+- Workflow browser index/detail page DTO shaping moved from `service.py` into
+  `striatum.web.workflows`, keeping the handler responsible only for template
+  rendering and HTTP error mapping.
 - Workflow validation now rejects `needs_revision` cycles whose `from`/`to`
   jobs cross phase boundaries, closing the RFC 0045 V1.5 cycle phase-jump
   validator gap.
@@ -98,6 +101,9 @@ Recent checkpoints:
 - Explicit v1.1 phase arrays now require `phases[].synthesis_job_id` to
   point at the same phase's unique `phase_synthesis` job; generator, upgrade,
   fixtures, and phase-progress tests now emit the field.
+- The React workflow editor now keeps missing/unknown phase jobs visible in an
+  invalid phase bucket, removes the explicit-phase `(unset)` dropdown bypass,
+  and defaults newly dropped jobs to the first declared phase.
 - `dogfood.publish_on_behalf` mid-composite failures now report the failed
   step, partial composition steps, and nested specific error details through
   the helper result, rollback event, daemon RPC error, and MCP
@@ -107,6 +113,11 @@ Recent checkpoints:
 - Roadmap kickoff status and remediation sequencing notes were refreshed to
   match the post-v1.55.0 daemon-first architecture work and the current
   blocked-policy boundaries.
+- Current docs, RFC status notes, reusable prompts, and root reference
+  artifacts were swept for stale substrate/runtime guidance: daemon-owned
+  PostgreSQL is now the live-state authority, `.striatum/` is operational
+  scratch, RFC 0048 is marked completed, and Engram is framed only as optional
+  external augmentation.
 
 - **Command authority and fallback guardrails.**
   `docs/architecture/COMMAND_AUTHORITY_MATRIX.md` now names the authority
@@ -3422,7 +3433,7 @@ to V1.5 per the RFC's own implementation path.
 - RFC 0019 (D067): `docs/DDD.md` documents striatum's domain-
   driven framing — bounded context, ubiquitous language,
   aggregate roots, value objects, domain events, the
-  CLI-as-only-write-surface invariant, and an "Adding to the
+  original CLI-only write-boundary invariant, and an "Adding to the
   model" section that gives future RFCs a citation pattern.
   README `## What It Is For` cites it; `docs/INDEX.md` lists
   it; the RFC template gets an optional `## Domain Modeling`

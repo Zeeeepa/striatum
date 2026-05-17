@@ -2,6 +2,10 @@
 
 Status: accepted (V2)
 Date: 2026-05-11
+Supersession note: D094 / RFC 0043 extends this substrate decision to
+per-repository workflow state. Daemon-owned PostgreSQL is now the sole
+live-state substrate; repo-local SQLite is only a migration source,
+tombstone, or test fixture.
 Context:
 [`RFC 0028`](0028-long-running-daemon-and-multi-repository-control-plane.md),
 [`RFC 0030`](0030-daemon-rpc-server-and-version-skew-protocol.md) (proposed),
@@ -43,8 +47,10 @@ eventual port to Go. SQLite is fine for a repo-local short-lived CLI; it is
 not the right substrate for a daemon-first product with multi-tenant
 queries, streaming projections, and resident process supervision.
 
-Repo-local `.striatum/state.sqlite3` stays. The substrate rewrite is for
-daemon-owned state only.
+At the time RFC 0033 landed, repo-local `.striatum/state.sqlite3` stayed and
+the substrate rewrite was for daemon-owned global state only. D094/RFC 0043
+later superseded that carve-out and moved per-repository workflow state into
+daemon-owned PostgreSQL.
 
 ## Goals
 
@@ -57,13 +63,14 @@ daemon-owned state only.
   substrate, including operator UX for in-place upgrade.
 - Specify test infrastructure: how does the test suite spin the new
   substrate up and down deterministically?
-- Preserve the repo-local SQLite model. The substrate rewrite must not
-  bleed into `.striatum/state.sqlite3` semantics.
+- Preserve the then-current repo-local workflow model for the RFC 0033
+  slice. This goal is historical; D094/RFC 0043 later replaced repo-local
+  SQLite as production workflow authority.
 
 ## Non-Goals
 
-- Replacing repo-local `.striatum/state.sqlite3`. That stays SQLite under
-  D006/D007 unless a future RFC explicitly proposes change.
+- Replacing repo-local `.striatum/state.sqlite3` in the RFC 0033 slice. That
+  later happened explicitly through D094/RFC 0043.
 - Introducing a hosted or networked storage tier. Local-first is preserved.
 - Defining the daemon RPC wire protocol. That lives in RFC 0030 and
   references this RFC for the persistence model.
@@ -329,11 +336,12 @@ The daemon may not assume single-writer semantics anymore:
 
 - V1 SQLite registry remains readable until the operator runs `daemon
   migrate`. After migration, V1 reads are refused.
-- Repo-local `.striatum/state.sqlite3` is unaffected; existing workflows
-  continue to mutate it directly until RFC 0030 defines and ships daemon
-  RPC routing. V1 dogfood workflows do not need re-running.
-- Direct CLI mode (`--no-daemon`) continues to use repo-local SQLite only
-  and is unaffected by this RFC.
+- Repo-local `.striatum/state.sqlite3` was unaffected by RFC 0033 itself.
+  Current production workflow state now lives in daemon-owned PostgreSQL per
+  D094/RFC 0043; V1 SQLite survives only as migration source, tombstone, or
+  fixture material.
+- Direct CLI mode (`--no-daemon`) was unaffected by RFC 0033. It is now
+  retired for production use.
 
 ## Downsides and risks
 

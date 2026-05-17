@@ -623,19 +623,16 @@ active sessions on terminal runs, close each listed `session_id`.
 
 ## Daemon / multi-repo coordination (RFC 0028 V1)
 
-`striatum daemon` adds optional registry-backed coordination
-across multiple repositories without changing direct
-repo-local CLI behavior. In V1 the daemon is a foreground
-sweep process plus a shared owner-only registry SQLite; CLI
-and MCP clients open the registry directly under token /
-capability checks. There is **no daemon RPC server** in V1
-and the Unix socket bound by `striatumd` is a lifecycle
-marker, not a request router.
+`striatum daemon` is now the required local control plane for every
+workflow-state verb. It owns the PostgreSQL substrate for registered
+target repositories, exposes daemon RPC to CLI/MCP/web clients, runs
+recovery sweeps, and enforces capability-scoped access. `.striatum/`
+next to a target repo is operational scratch only.
 
 Start the daemon and register two target repos:
 
 ```bash
-# Foreground sweep process (also exposed as `striatumd`).
+# Foreground daemon process (also exposed as `striatumd`).
 "$RUNNER" daemon start --json &
 
 # Register repos. The first `repo add` (or `daemon start`)
@@ -659,26 +656,24 @@ registration when daemon-side schema migrations would be needed.
 capabilities, preserves audit rows, and never reuses
 `repository_id` (re-adding allocates a fresh id).
 
-Read across registered repos with `--daemon`:
+Read across registered repos:
 
 ```bash
-"$RUNNER" --daemon status --json
-"$RUNNER" --daemon doctor --json
-"$RUNNER" --daemon why <job-or-blocker-id> --json
-"$RUNNER" --daemon dashboard --all
+"$RUNNER" status --json
+"$RUNNER" doctor --json
+"$RUNNER" why <job-or-blocker-id> --json
+"$RUNNER" dashboard --all
 ```
 
-`--daemon` (or `STRIATUM_DAEMON=1`) routes the read verb
-through the daemon RPC envelope under a `read` token. Read
-surfaces supported: `status`, `doctor`, `why`, `dashboard --all`.
-The CLI refuses (does not silently fall back to direct mode) on
-forced-daemon verbs that are not registered. The V1 `--no-daemon`
-flag is retired (D094 / RFC 0043); parsing it returns the standard
-argparse "unrecognized arguments" error.
+Mapped CLI verbs route through the daemon RPC envelope under the
+appropriate token/capability. The V1 `--no-daemon` flag is retired
+(D094 / RFC 0043); parsing it returns the standard argparse
+"unrecognized arguments" error. A missing daemon refuses with exit
+code 11 (`daemon_unreachable`); an unmigrated pre-D094 repository
+refuses with exit code 12 (`repo_not_migrated`).
 
-`dashboard --all` is registry-backed even without `--daemon`
-because it fans out across the registry; it requires the same
-`read` token bootstrapped by `repo add` / `daemon start`.
+`dashboard --all` fans out across daemon-registered repositories and
+requires `read` capability.
 
 Audit shape:
 
@@ -695,16 +690,13 @@ Audit shape:
 What daemon mode does **not** ship today:
 
 - It does not ship Windows daemon support, sealed-apply
-  authority owning hosted semantics, mutation MCP tools beyond
-  the current closed set, or remote/network-accessible serving.
+  authority owning hosted semantics, or remote/network-accessible serving.
 - It does not bundle PostgreSQL; operators install and own the
   Postgres service. Bundled, embedded, and Dockerized
   distributions are deferred (RFC 0033 §8, inherited by RFC 0043).
-- RFC 0048 (proposed, V2.0 phase) covers the remaining daemon-side
-  handler-port work where some single-repo business logic still
-  delegates through the SQLite-backed CLI path under the
-  `STRIATUM_DAEMON_REQUIRED=0 STRIATUM_TEST_HARNESS=1` test-harness
-  escape.
+- Legacy SQLite is not a production fallback. It remains only as a
+  migration source, tombstone, golden fixture, or explicitly gated
+  subprocess compatibility path.
 
 ## Cross-repo workflow foundation
 
@@ -725,8 +717,9 @@ registered repositories:
 Every job in that workflow declares its `repository` alias explicitly.
 Artifact paths and write scopes are interpreted relative to that job's
 target repo. The daemon DB owns the `cross_repo_run_id`; each
-participant repo keeps its own repo-local run state and records a
-`runs.cross_repo_run_id` back-reference.
+participant repo's workflow rows live in daemon Postgres under that
+repo's `repository_id` and record a `runs.cross_repo_run_id`
+back-reference.
 
 Operator inspection commands:
 
@@ -777,11 +770,10 @@ migrations and roles, but it does not install, start, stop, or
 upgrade PostgreSQL. Bundled, embedded, and Dockerized Postgres
 distributions are deferred.
 
-RFC 0048 (proposed, V2.0 phase) covers the remaining daemon-side
-handler-port work where some single-repo business logic still
-delegates through the SQLite-backed CLI dispatch path under the
-`STRIATUM_DAEMON_REQUIRED=0 STRIATUM_TEST_HARNESS=1` test-harness
-escape; production operators leave the variable unset.
+RFC 0048 completed in v1.55.0: production mapped verbs are
+daemon/Postgres-backed and fail closed without daemon authority.
+The paired `STRIATUM_DAEMON_REQUIRED=0 STRIATUM_TEST_HARNESS=1`
+escape is for subprocess compatibility fixtures only.
 
 Cut over a V1 daemon registry (RFC 0033 §4):
 
@@ -832,10 +824,11 @@ top of this storage substrate. The daemon RPC envelope is versioned JSON;
 or framing incompatibility refuses with exit code 10 and does not silently
 fall back to direct mode.
 
-Daemon-owned supervision is represented by daemon DB supervisor rows plus
-repo-local supervisor pointers. The compatibility `striatum supervise`
-verbs still work in direct mode, and future daemon-routed `supervise.*`
-calls use the same packet/FIFO and lane-attestation invariants.
+Daemon-owned supervision is represented by daemon DB supervisor rows and
+per-repository pointer state under the registered repository scope. The
+`striatum supervise` compatibility verbs remain CLI clients of the daemon
+surface, and daemon-routed `supervise.*` calls use the same packet/FIFO
+and lane-attestation invariants.
 
 Sealed apply is intentionally fail-closed. `apply.reviewed_patch` requires
 daemon apply authority and a loadable daemon signing key, and it records

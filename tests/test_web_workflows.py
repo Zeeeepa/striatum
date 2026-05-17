@@ -11,7 +11,9 @@ from striatum.web.workflows import (
     discover,
     load_workflow_at,
     save_workflow_file,
+    workflow_detail_page_response,
     workflow_edit_payload,
+    workflow_index_page_response,
 )
 
 from test_web_ui import (
@@ -316,6 +318,66 @@ def test_save_workflow_file_stale_if_match_reports_current_sha(tmp_path: Path) -
         assert exc.current_sha256
     else:  # pragma: no cover - pytest assertion context.
         raise AssertionError("expected If-Match refusal")
+
+
+# --- workflow page response helpers ---------------------------------
+
+
+def test_workflow_index_page_response_strips_parsed_data(tmp_path: Path) -> None:
+    (tmp_path / "examples").mkdir()
+    (tmp_path / "examples" / "workflow.json").write_text(
+        json.dumps(_VALID_WORKFLOW), encoding="utf-8",
+    )
+
+    entries = workflow_index_page_response(tmp_path)
+
+    assert entries[0]["path"] == "examples/workflow.json"
+    assert entries[0]["status"] == "valid"
+    assert "data" not in entries[0]
+
+
+def test_workflow_detail_page_response_renders_graph_for_valid_workflow(tmp_path: Path) -> None:
+    (tmp_path / "examples").mkdir()
+    (tmp_path / "examples" / "workflow.json").write_text(
+        json.dumps(_VALID_WORKFLOW), encoding="utf-8",
+    )
+
+    response = workflow_detail_page_response(tmp_path, "examples/workflow.json")
+
+    assert response.workflow["status"] == "valid"
+    assert response.workflow["workflow_id"] == "wf-test-valid"
+    assert response.graph_svg is not None
+    assert "<svg" in response.graph_svg
+
+
+def test_workflow_detail_page_response_rejects_invalid_path(tmp_path: Path) -> None:
+    try:
+        workflow_detail_page_response(tmp_path, "../../etc/passwd")
+    except WorkflowFileError as exc:
+        assert exc.status_code == 400
+        assert exc.message == "invalid path"
+    else:  # pragma: no cover - pytest assertion context.
+        raise AssertionError("expected invalid path refusal")
+
+
+def test_workflow_detail_page_response_reports_missing_path(tmp_path: Path) -> None:
+    try:
+        workflow_detail_page_response(tmp_path, "")
+    except WorkflowFileError as exc:
+        assert exc.status_code == 404
+        assert exc.message == "missing path"
+    else:  # pragma: no cover - pytest assertion context.
+        raise AssertionError("expected missing path refusal")
+
+
+def test_workflow_detail_page_response_reports_not_found(tmp_path: Path) -> None:
+    try:
+        workflow_detail_page_response(tmp_path, "nope/workflow.json")
+    except WorkflowFileError as exc:
+        assert exc.status_code == 404
+        assert exc.message == "workflow not found"
+    else:  # pragma: no cover - pytest assertion context.
+        raise AssertionError("expected workflow not found refusal")
 
 
 # --- routes ---------------------------------------------------------

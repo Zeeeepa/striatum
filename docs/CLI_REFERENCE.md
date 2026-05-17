@@ -56,8 +56,8 @@ field is empty or already matches the catalog default; a non-default
 custom instruction is reported as a `refused_conflict` unless
 `--force` is supplied. `--dry-run` emits the change set without
 writing. The verb refuses to mutate a workflow that has any
-non-terminal run referencing it in the target repository's
-`.striatum/state.sqlite3`; cancel or complete the run first. V1 is
+non-terminal daemon-registered run referencing it; cancel or complete
+the run first. V1 is
 scoped to harness-profile fragments only; other corrections will
 land as separate verbs.
 
@@ -199,8 +199,9 @@ Both `daemon start` and the first `repo add` bootstrap a single
 admin token when the registry has no clients and write a
 `0600` runtime-fallback file. Token secrets are never read from
 environment variables, never logged to audit, and never stored in
-the registry. Authorization vocabulary in V1 is `read` and
-`admin` only.
+the registry. Authorization uses the closed daemon method
+capability vocabulary: `read`, `write`, `review`, `claim`,
+`apply`, `admin`, `recovery`, and `surgical_recovery`.
 
 `repo add` canonicalizes the repository root, refuses
 symlink/path-traversal ambiguity, derives a realpath/inode-based
@@ -271,17 +272,19 @@ RFC 0030/0031 add the daemon V2 RPC and supervision/apply foundation on
 top of RFC 0033. The wire envelope is versioned JSON; `daemon.hello`
 negotiates envelope/framing, `daemon.describe` publishes the method
 registry and `methods_etag`, and incompatible clients refuse with exit
-code 10. RFC 0048 (proposed, V2.0 phase) covers the remaining daemon-
-side handler-port work where some single-repo business logic still
-delegates through the SQLite-backed CLI path under the
-`STRIATUM_DAEMON_REQUIRED=0 STRIATUM_TEST_HARNESS=1` test-harness
-escape; production operators leave the variable unset.
+code 10. RFC 0048 completed the production handler-port work in
+v1.49.0-v1.55.0: mapped production verbs are daemon/Postgres-backed and
+fail closed without daemon reachability, repository registration, and
+capability authorization. Legacy SQLite paths remain only for migration
+sources, golden fixtures, and explicitly gated subprocess compatibility
+tests under `STRIATUM_DAEMON_REQUIRED=0 STRIATUM_TEST_HARNESS=1`.
 
-## Daemon-routed read mode
+## Daemon-required runtime
 
-Pass `--daemon` (or set `STRIATUM_DAEMON=1`) on a read verb to
-explicitly route through the daemon registry under token
-authorization:
+Production commands route through the daemon authority boundary. Some
+read verbs still accept `--daemon` (or `STRIATUM_DAEMON=1`) as an
+explicit compatibility spelling, but it is no longer the switch that
+turns daemon mode on:
 
 ```text
 striatum --daemon status [--run-id <id>]
@@ -291,12 +294,10 @@ striatum --daemon dashboard --all
 striatum doctor --first-run
 ```
 
-V1 read surfaces supported under `--daemon`: `status`, `doctor`,
-`why`, `dashboard --all`. Forced-daemon mutation verbs refuse
-with capability-denied semantics; the CLI does not fall back to
-direct repo-local mode. The V1 `--no-daemon` flag is retired
-(D094 / RFC 0043); parsing it returns the standard argparse
-"unrecognized arguments" error and exit code 2.
+The V1 `--no-daemon` flag is retired (D094 / RFC 0043); parsing it
+returns the standard argparse "unrecognized arguments" error and exit
+code 2. Production mutation and read verbs do not fall back to direct
+repo-local mode.
 
 `doctor --first-run` is a bootstrap smoke check, not a normal
 repo-state doctor run. It verifies daemon socket reachability,

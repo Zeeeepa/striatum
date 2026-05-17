@@ -17,13 +17,17 @@ from typing import Any
 
 __all__ = [
     "WorkflowFileError",
+    "WorkflowDetailPageResponse",
     "discover",
     "list_repo_tree",
     "load_workflow_at",
     "save_workflow_file",
+    "workflow_detail_page_response",
     "workflow_edit_payload",
+    "workflow_index_page_response",
 ]
 
+JsonObject = dict[str, Any]
 _MAX_LINT_WARNING_MESSAGES = 3
 _MAX_LINT_WARNING_MESSAGE_CHARS = 220
 
@@ -70,6 +74,12 @@ class WorkflowFileError(Exception):
         self.message = message
         self.errors = errors
         self.current_sha256 = current_sha256
+
+
+@dataclass(frozen=True)
+class WorkflowDetailPageResponse:
+    workflow: JsonObject
+    graph_svg: str | None
 
 
 def _resolve_edit_path(repo: Path, rel_path: str) -> _WorkflowPath:
@@ -334,6 +344,11 @@ def discover(repo: Path) -> list[dict[str, Any]]:
     return found
 
 
+def workflow_index_page_response(repo: Path) -> list[JsonObject]:
+    """Return workflow index entries without parsed workflow bodies."""
+    return [{k: v for k, v in entry.items() if k != "data"} for entry in discover(repo)]
+
+
 def load_workflow_at(repo: Path, rel_path: str) -> dict[str, Any] | None:
     """Load and validate a single workflow file at ``repo/rel_path``.
 
@@ -396,6 +411,28 @@ def load_workflow_at(repo: Path, rel_path: str) -> dict[str, Any] | None:
     entry.update(_lint_summary(data, repo_root=repo_root))
     entry["data"] = data
     return entry
+
+
+def workflow_detail_page_response(repo: Path, rel_path: str) -> WorkflowDetailPageResponse:
+    """Return workflow detail page data for a safe repo-relative path."""
+    from striatum.web.graph_svg import render_run_graph
+
+    if not rel_path:
+        raise WorkflowFileError(404, "missing path")
+    if rel_path.startswith("/") or "\x00" in rel_path or ".." in Path(rel_path).parts:
+        raise WorkflowFileError(400, "invalid path")
+    entry = load_workflow_at(repo, rel_path)
+    if entry is None:
+        raise WorkflowFileError(404, "workflow not found")
+
+    graph_svg: str | None = None
+    data = entry.get("data")
+    if isinstance(data, dict) and entry.get("status") == "valid":
+        try:
+            graph_svg = render_run_graph(data, node_states={}, run_id=None)
+        except Exception:  # noqa: BLE001
+            graph_svg = None
+    return WorkflowDetailPageResponse(workflow=entry, graph_svg=graph_svg)
 
 
 def list_repo_tree(repo: Path, rel_path: str) -> dict[str, Any] | None:

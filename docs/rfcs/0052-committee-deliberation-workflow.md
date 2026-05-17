@@ -1,7 +1,7 @@
 # RFC 0052 — Committee deliberation workflow with arbitration, panels, and adversarial review
 
 **Status:** proposed
-**Scope:** V1.9 or V2.0 (depends on RFC 0048 daemon-side business-logic landing)
+**Scope:** V1.9 or V2.0 (unblocked by completed RFC 0048; unscheduled)
 **Closes (partially):** reviewer-co-blindness anti-pattern visible in D095–D102; the
 publish → disagree → revisit → revisit latency tax on high-stakes design phases.
 

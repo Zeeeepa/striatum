@@ -1,5 +1,10 @@
 # V1 MVP Design Input: Claude
 
+Historical note: this is original V1 design input. Current live-state
+authority is daemon-owned PostgreSQL per `docs/SPEC.md`, D094, and RFC
+0043; do not use this document for current substrate or daemon-required
+behavior.
+
 Lane: Claude Opus design lane for `striatum` P001.
 Date: 2026-05-06.
 Posture: design notes only, no code, no source/spec/decision/language edits.
@@ -622,7 +627,8 @@ Artifact policy (D016, D028):
   optional: a workflow can declare `expected_artifacts.kind=marker` to
   produce a per-step marker file under
   `docs/reviews/<run_id>/markers/<NN>_<NAME>.md`, but the runner never
-  reads them back as state. SQLite is authoritative.
+  reads them back as state. At original V1, SQLite was authoritative; current
+  production authority is daemon-owned PostgreSQL.
 - Transcripts: not captured by default. If an operator turns on diagnostic
   capture for a session, output goes to
   `.striatum/diagnostics/<session_id>.log`, gitignored, and never
@@ -774,8 +780,9 @@ Risks:
   that a coordinator session cannot publish a non-coordinator artifact or
   emit a verdict.
 - R2. Marker-as-bus regression. Mitigation: code review checklist forbids
-  reading marker files from core. SQLite is authoritative. Document this
-  rule in `docs/SPEC.md` under non-negotiables.
+  reading marker files from core. At original V1, SQLite was authoritative;
+  current production authority is daemon-owned PostgreSQL. Document this rule
+  in `docs/SPEC.md` under non-negotiables.
 - R3. Persistent-session contamination in reviews. Mitigation: reviewer
   role default is `fresh_role`; `fresh_session_required` is set at the job
   level for any review or synthesis where independence matters.

@@ -1,7 +1,9 @@
 # Striatum Architecture Remediation Plan
 
 Date: 2026-05-16
-Companion review: `/home/halbritt/STRIATUM_ARCHITECTURE_REVIEW_2026-05-16.md`
+Companion review: `STRIATUM_ARCHITECTURE_REVIEW_2026-05-16.md`
+Status: active plan with shipped progress. Current completion status lives
+in `CHANGELOG.md`, `docs/TODO.md`, and `docs/ROADMAP.md`.
 
 ## Goal
 

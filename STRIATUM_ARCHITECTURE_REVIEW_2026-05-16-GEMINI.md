@@ -2,6 +2,9 @@
 **Date:** 2026-05-16
 **Target:** `~/git/striatum/`
 **Reviewer:** Expert Systems Architect
+**Status:** historical snapshot as of 2026-05-16. Current remediation
+status lives in `CHANGELOG.md`, `docs/TODO.md`, and `docs/ROADMAP.md`;
+D105 supersedes any Go-primary direction in this report.
 
 ---
 

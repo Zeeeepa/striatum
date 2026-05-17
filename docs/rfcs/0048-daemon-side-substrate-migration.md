@@ -1,8 +1,13 @@
-# RFC 0048 — Daemon-side substrate migration (V2.0 phase)
+# RFC 0048 — Daemon-side substrate migration
 
-**Status:** accepted (V1 Phase A landed in dogfood-057 / v1.49.0; codex F1-F4 + claude HIGH#1/#2 absorbed into V1.5 follow-up)
-**Scope:** V2.0 (multi-week phase, NOT V1.7)
+**Status:** accepted / completed (v1.49.0-v1.55.0)
+**Scope:** completed production handler-port and fallback-closure work
 **Closes:** gemini A1 finding from dogfood-050 (substrate mismatch)
+
+Completion note: RFC 0048 is no longer pending V1.5 hardening. By
+v1.55.0 production mapped verbs are PG-native/fail-closed through daemon
+RPC, `CLI_ROUTES` fallback is empty, and legacy SQLite remains only for
+migration/test-fixture compatibility paths.
 
 ## V1 Phase A landing summary (2026-05-14, v1.49.0)
 
@@ -33,11 +38,11 @@ quarantined as `.striatum/state.sqlite3.corrupt` and reset via
 `striatum init`. Postgres `striatum_daemon` retains the pre-rollback
 73-run snapshot.
 
-## V1.5 follow-up — non-negotiable risks accepted in V1 Phase A
+## V1.5 follow-up — completed hardening
 
 The build-review verdicts on V1 Phase A flagged real findings that did
-NOT block the V1 landing but MUST be addressed in V1.5 before V1
-becomes the daemon-required default path:
+not block the V1 landing. They were addressed during the v1.49.0-v1.55.0
+RFC 0048 completion work:
 
 - **F1 (codex threat_model)** — fail-closed routing rule: once a method
   is registered as PG-backed, all PG handler exceptions, capability
@@ -153,53 +158,43 @@ delegated handler for the PG-backed one as each lands. SQLite
 delegation stays as a fallback for un-ported methods during the
 transition.
 
-### Phase B — Go core parity
+### Phase B — Go helper/read parity
 
-- Implement every PG-backed handler in `go/pkg/rpc/` /
-  `go/pkg/apply/` against `striatumd.*` Postgres tables.
-- Wire `cmd/striatumd/main.go` to register the real handlers
-  (currently registers fail-closed `not_implemented` returns per
-  codex F2 from dogfood-049).
-- Add cross-implementation parity tests:
-  `make test-multi-repo CORE=python` and `CORE=go` produce
-  byte-identical Postgres state for the same workflow input.
+Phase B shipped read-handler parity and selected mutation plumbing in the Go
+helper/runtime tree. D105 narrowed Go away from a peer production daemon
+core, so the remaining Go work is support-code and developer-harness parity,
+not a prerequisite for the Python daemon's production substrate flip.
 
-### Phase C — Migration sentinel & SQLite removal
+### Phase C — Migration sentinel & SQLite removal (completed)
 
-- After all Phase A methods are ported, flip the default: daemon
-  CLI verbs no longer fall back to SQLite delegation at all.
-- Update `repo_local_migration.py` to flip
+- Daemon CLI verbs no longer fall back to SQLite delegation in production.
+- `repo_local_migration.py` flips
   `.striatum/state.sqlite3.migrated` sentinel to
   `.striatum/state.sqlite3.tombstone` immediately after the daemon's
   first successful PG write, eliminating the brief window where
   both substrates contain partial state.
-- Deprecate the `STRIATUM_DAEMON_REQUIRED=0 + STRIATUM_TEST_HARNESS=1`
-  escape entirely; the test suite uses PG fixtures (existing
-  `tests/_harness/pg.py` already provides this for multi-repo tests).
+- The `STRIATUM_DAEMON_REQUIRED=0 + STRIATUM_TEST_HARNESS=1` escape is
+  test-harness compatibility only and not an operator run mode.
 
 ## Migration & rollout
 
-- Each Phase A method ships in its own minor release (v1.5x.0).
-- Phase B lands as v1.6x.0 (Go parity).
-- Phase C lands as v2.0.0 (the actual substrate flip completion,
-  superseding the V1.6 hardening).
+RFC 0048 completed across v1.49.0-v1.55.0. Phase A handler porting, Phase C
+CLI fail-closed routing, and V1.5 hardening are no longer pending. Go helper
+parity remains useful support code under D105, not a substrate-flip blocker.
 
 Existing repos that have already run `migrate-repo-local` continue
 to work — the daemon already has their PG state; Phase A handlers
 just start reading it natively instead of routing through SQLite.
 
-## Acceptance (per phase)
+## Acceptance (completed)
 
-- Phase A acceptance per method: PG-backed handler passes the same
+- Phase A acceptance per method: PG-backed handlers pass the same
   pytest suite as the SQLite-backed equivalent, byte-identical state
   reads back, audit chain hashes match.
-- Phase B acceptance: `make test-multi-repo CORE=go` runs the same
-  workflow as `CORE=python` against the same PG instance, both
-  produce identical state, audit chain hashes match across cores.
-- Phase C acceptance: `STRIATUM_DAEMON_REQUIRED=0 +
-  STRIATUM_TEST_HARNESS=1` no longer affects the test outcome (the
-  pair becomes a no-op); the test suite is PG-fixture green
-  without it.
+- Phase B acceptance: Go read/helper parity is retained as developer-harness
+  support under D105.
+- Phase C acceptance: production mapped verbs fail closed without the daemon;
+  the paired SQLite escape is test-harness/migration-only.
 
 ## Open questions
 

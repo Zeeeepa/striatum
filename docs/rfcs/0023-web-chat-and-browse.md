@@ -15,9 +15,10 @@ to a future dogfood, which this RFC subsumes,
 `docs/AGENTS.md` § "Product Boundary" — *no hosted striatum
 services* and *no implicit cloud calls without an RFC*; this
 RFC is that explicit decision for chat,
-`docs/DECISION_LOG.md` D006/D009/D028 — CLI as only-legal-
-write-surface; SQLite as authoritative live state; transcripts
-deliberately off.
+`docs/DECISION_LOG.md` D006/D009/D028, superseded for current
+substrate/interface behavior by D094/D104 — daemon methods are the
+legal production write boundary; daemon-owned PostgreSQL is
+authoritative live state; transcripts deliberately off.
 
 ## Problem
 

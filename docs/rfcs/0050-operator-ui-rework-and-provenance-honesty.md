@@ -1,7 +1,8 @@
 # RFC 0050 — Operator UI rework and provenance honesty
 
-**Status:** proposed (V1 in flight)
-**Scope:** V1 / V1.5 / V2 multi-phase
+**Status:** accepted / implemented across v1.46.0-v1.48.0
+**Scope:** historical UI rework plan; active service cleanup is tracked by
+RFC 0061 / TODO 52
 **Canonical design:** [`docs/design/UI_REWORK.md`](../design/UI_REWORK.md)
 **Closes (partially):** `CLAUDE_DESIGN_UI_REWORK_PROMPT.md` deliverable; §8.10 deferred items
 

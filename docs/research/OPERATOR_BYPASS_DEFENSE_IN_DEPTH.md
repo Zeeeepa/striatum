@@ -8,6 +8,11 @@ companion: docs/research/TRUE_PROVENANCE_AND_CONTAINMENT.md
 
 # Operator Bypass: A Defense-in-Depth Response to P005
 
+Current-context note (2026-05-17): this research response predates the
+D094/D104 daemon-required runtime. References below to SQLite state are
+historical substrate examples; current Striatum live state is daemon-owned
+PostgreSQL.
+
 ## 0. TL;DR
 
 True provenance for an AI-orchestrated workflow has three concentric layers,
@@ -254,7 +259,7 @@ cryptographic signatures rooted at the runner.
 
 **Why this is stronger than Strategy 1's hash ledger.**
 
-- Even if the operator modifies `state.sqlite3`, it cannot forge the
+- Even if the operator tampers with the state store, it cannot forge the
   runner's signature on a new lane public key without the master key.
 - The master key never enters operator-accessible memory (it's only used
   by the runner binary; if you also use Strategy 2, the key file is
@@ -495,7 +500,7 @@ tokens at the entry point of each verb.
 **Concept.** Run lane execution inside a Trusted Execution Environment
 (Confidential VM, Intel TDX, AMD SEV-SNP, or AWS Nitro Enclave). The TEE
 produces an attestation report bound to the lane's output. The runner,
-the master key, and SQLite state can be tamper-protected by hardware.
+the master key, and daemon-owned state can be tamper-protected by hardware.
 
 **Mechanism.**
 

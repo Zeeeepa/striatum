@@ -48,11 +48,13 @@ You move the workflow forward by calling `striatum` CLI verbs.
 
 Two rules to internalize before you do anything else:
 
-1. **Do not bypass the daemon.** The CLI is the only client; the
-   daemon is the single writer. Do not open Postgres directly, and
-   do not expect to find `.striatum/state.sqlite3` — on a migrated
-   repo it has been finalized as a read-only tombstone that no
-   Striatum verb opens.
+1. **Do not bypass the daemon.** The daemon is the single writer.
+   CLI commands, daemon MCP/chat tools, and the local web service are
+   clients of that boundary. When your packet supplies CLI commands,
+   run those commands verbatim. Do not open Postgres directly, and do
+   not expect to find `.striatum/state.sqlite3` — on a migrated repo it
+   has been finalized as a read-only tombstone that no Striatum verb
+   opens.
 2. **Do not advance state by printing phrases.** "I have completed
    the task" is not a state transition. `striatum complete --job-id
    <id> --lease-id <id>` is.
@@ -84,16 +86,15 @@ dependency.
 ### Driving dogfoods via the MCP chat tools (RFC 0040 V1)
 
 If you are the *operator session* (the AI session that supervises a
-dogfood, not the supervised role itself) and the operator has
-configured `striatum serve --web --allow-mutations`, prefer the MCP
-chat tools listed in
+dogfood, not the supervised role itself) and the operator has configured
+daemon MCP/chat tools for the run, prefer the tools listed in
 [`docs/MCP.md`](MCP.md#dogfood-lifecycle-tools) over shelling out to
-the bash CLI. Each tool is a thin shell over the matching CLI verb,
-but the chat surface keeps session/lease/message ids structured so
+the bash CLI. The tool surface routes through the same daemon RPC
+authority boundary and keeps session/lease/message ids structured so
 you do not have to copy them between turns. Dogfood-lifecycle tools
-that mutate runner state are hidden when `--allow-mutations` is not
-in force; `run_summary` and `evidence_export` are read-shaped and
-stay available either way.
+that mutate runner state are hidden unless the operator explicitly
+enables mutation-capable service/MCP access; `run_summary` and
+`evidence_export` are read-shaped and stay available either way.
 
 If you are the *supervised role*, the bash CLI commands supplied in
 the work packet's `commands` block are still the only thing you
@@ -185,9 +186,9 @@ and ask the operator to recover stale work.
 
 ## What you should *not* do
 
-- Do not bypass the daemon. The CLI is the only client; the
-  daemon is the single writer. Never open the daemon's Postgres
-  directly, and do not open or rely on
+- Do not bypass the daemon. The daemon is the single writer; CLI,
+  MCP/chat, and web-service surfaces are clients of that boundary.
+  Never open the daemon's Postgres directly, and do not open or rely on
   `.striatum/state.sqlite3.tombstone` (a migrated repo's read-only
   remnant) as live state.
 - Do not write to `.striatum/scratch/` or `.striatum/bin/` unless

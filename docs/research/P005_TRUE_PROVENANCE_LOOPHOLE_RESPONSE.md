@@ -9,6 +9,11 @@ Related context:
 [`docs/research/TRUE_PROVENANCE_AND_CONTAINMENT.md`](TRUE_PROVENANCE_AND_CONTAINMENT.md),
 [`docs/dogfood/FRICTION_LOG.md`](../dogfood/FRICTION_LOG.md)
 
+Current-context note (2026-05-17): this exploratory response predates the
+D094/D104 daemon-required runtime. References below to SQLite or CLI-only
+state are historical; current Striatum live state is daemon-owned PostgreSQL
+and CLI/MCP/web surfaces are clients of the daemon boundary.
+
 ## Executive thesis
 
 The operator bypass cannot be solved inside the current plugin contract. If
@@ -23,8 +28,8 @@ needs harder mechanical boundaries than a human-operated workflow: the
 top-level AI can plan and route work, but it must be technically unable to
 author protected source bytes outside the workflow.
 
-The reason is simple: the operator is currently inside the same trust domain
-as the repository, the SQLite state store, the hooks, and the code that
+The reason is simple: the operator is inside the same trust domain
+as the repository, the daemon/PostgreSQL state store, the hooks, and the code that
 performs validation. Any enforcement rule placed inside that domain is just
 another file or process the operator can route around. Prompt instructions,
 skill bundles, byline checks, and advisory driver plugins improve behavior,
@@ -143,8 +148,8 @@ The operator can bypass at multiple layers:
   is a local client-side hook.
 - It can patch or delete the hook before committing.
 - It can edit files after Striatum records an artifact hash.
-- It can write directly to `.striatum/state.sqlite3` or replace the local
-  Striatum code that performs validation.
+- It can attempt to tamper with the daemon/PostgreSQL state authority or
+  replace the local Striatum code that performs validation.
 - It can create a fake supervisor process, keep it alive, and ghost-write the
   artifact unless the artifact submission path is also isolated.
 - It can generate a patch outside Striatum and submit it through an attested

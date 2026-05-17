@@ -2,7 +2,10 @@
 
 Date: 2026-05-16
 Reviewer: Codex, systems architecture review
-Scope reviewed: `/home/halbritt/git/striatum` on `main` at recent HEAD `a2fbb7f`, with existing staged/untracked dogfood material under `docs/dogfood/061` through `063` left untouched.
+Scope reviewed: `<striatum-repo>` on `main` at recent HEAD `a2fbb7f`, with existing staged/untracked dogfood material under `docs/dogfood/061` through `063` left untouched.
+Status: historical snapshot as of 2026-05-16. Current remediation status
+lives in `CHANGELOG.md`, `docs/TODO.md`, and `docs/ROADMAP.md`; D105
+supersedes any Go-primary direction in this review.
 
 ## Executive summary
 

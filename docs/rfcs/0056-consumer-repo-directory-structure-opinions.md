@@ -1,7 +1,6 @@
 # RFC 0056 — Consumer-repo directory-structure opinions
 
-**Status:** proposed (scaffold only — recommendations doc lands in
-Phase A; scaffold updates in Phase B)
+**Status:** proposed (Phase A shipped; optional scaffold updates in Phase B)
 **Scope:** V1.7 documentation + V1.8 `init --with-ddd-layout` extension
 **Composes with:** RFC 0021 (`init --with-ddd-layout` scaffold —
 likely host for the recommended layout), RFC 0053 (operator/principal

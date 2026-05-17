@@ -56,21 +56,22 @@ terminal-AI agents on real repos with state that survives session death.
 - **Gas Town** is a **multi-rig, multi-agent town** with an OS-level
   coordinator (Mayor), federation across machines (Wasteland/DoltHub),
   proxy server, browser dashboard, and 20–30 agents as the design target.
-- **Striatum** is **one-target-repo, local-first, single-binary**.
+- **Striatum** is **target-repository-scoped, local-first, and daemon-backed**.
   [`AGENTS.md`](AGENTS.md) is explicit: "Do not introduce hosted services,
   cloud APIs, telemetry, transcript capture, or external persistence
   without an explicit product decision."
-  [`docs/UBIQUITOUS_LANGUAGE.md:25`](docs/UBIQUITOUS_LANGUAGE.md:25) defines
-  the unit as a "repo-local control plane."
+  [`docs/UBIQUITOUS_LANGUAGE.md`](docs/UBIQUITOUS_LANGUAGE.md) defines
+  the unit as a registered target repository under a daemon `repository_id`.
 
 ### 2. State store
 
 - **Gas Town**: git-backed hooks + Beads (Dolt-backed) + git worktrees.
   State is distributed across repo artifacts, Dolt rows, and worktree
   filesystems. Federation requires DoltHub.
-- **Striatum**: a single SQLite file at `.striatum/state.sqlite3`. Repo
-  files are durable provenance, never the live message bus
-  ([`docs/UBIQUITOUS_LANGUAGE.md:29`](docs/UBIQUITOUS_LANGUAGE.md:29)).
+- **Striatum**: daemon-owned PostgreSQL under a per-repository
+  `repository_id`. Repository files are durable provenance, never the
+  live message bus; `.striatum/` is operational scratch only
+  ([`docs/UBIQUITOUS_LANGUAGE.md`](docs/UBIQUITOUS_LANGUAGE.md)).
 
 ### 3. Workflow shape
 
@@ -105,9 +106,10 @@ terminal-AI agents on real repos with state that survives session death.
 - **Gas Town**: `gt nudge` (live IPC), `gt mail send` (durable mailbox),
   `gt prime` (re-hydrate context). Standard stdout is invisible to other
   agents — they must use `nudge`.
-- **Striatum**: SQLite message queue + work packets delivered via stdin
-  pipe to a supervised agent. No agent-to-agent prose channel;
-  communication is structured (artifacts, blockers, verdicts).
+- **Striatum**: daemon/Postgres queue messages + work packets delivered
+  through CLI/MCP/supervisor surfaces, including stdin pipes for supervised
+  agents. No agent-to-agent prose channel; communication is structured
+  (artifacts, blockers, verdicts).
 
 ### 7. Privacy / transcripts
 
@@ -132,9 +134,9 @@ terminal-AI agents on real repos with state that survives session death.
 
 Gas Town is a **multi-rig agent town with an AI mayor, distributed
 git-backed state, federation, and a "go fast — propel yourself"
-philosophy**. Striatum is a **single-repo deterministic SQLite
+philosophy**. Striatum is a **local deterministic daemon/Postgres
 coordinator with declarative workflows, structured verdicts, redaction
-discipline, and an explicit anti-federation product boundary**. They
+discipline, and an explicit anti-hosted product boundary**. They
 share workshop primitives (worktree isolation, persistent identity /
 ephemeral session, supervised long-lived processes, lease recovery) but
 disagree on almost every axis above those primitives — Gas Town

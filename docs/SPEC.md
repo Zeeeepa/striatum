@@ -9,24 +9,22 @@ This specification binds the V1 MVP described in
 
 ## Product Boundary
 
-`striatum` V1 is a local Python CLI for orchestrating terminal-agent
-workflow state inside one repository. It also includes optional RFC
-0028 V1 registry-backed multi-repository read visibility and a
-foreground recovery sweep process. It does not provide hosted services,
-external persistence, telemetry, Slack, remote serving, sealed source
-apply, daemon-owned supervision, or automatic commits.
+`striatum` is a standalone, local-first workflow runner for
+terminal-based AI coding agents. It coordinates registered target
+repositories through a local daemon, daemon RPC methods, and
+capability-gated client surfaces (CLI, MCP, and local web UI). It
+does not provide hosted services, external persistence, telemetry,
+Slack/remote serving, transcript capture, provider SDK integration,
+malicious-local-operator-resistant sealed apply, or automatic commits.
 
-RFC 0033 V2 accepts system PostgreSQL as the future daemon-owned storage
-substrate. That decision affects daemon-global registry, audit,
-capability, scheduler, and RPC-session state only. It does not replace
-repo-local run state or introduce hosted persistence. RFC 0030 and RFC
-0031 build on that substrate with a daemon RPC foundation,
-daemon-owned-supervisor metadata, and apply receipts. RFC 0032 adds the
-V2 schema/migration and capability-gating foundation for cross-repository
-workflow mutation and daemon MCP mutation tools; full multi-repo
-end-to-end daemon harness coverage remains deferred to TODO Open item 19.
-Hosted service semantics and malicious-local-operator-resistant sealed
-apply remain out of scope.
+RFC 0033, RFC 0043, and RFC 0048 establish the current substrate:
+daemon-owned PostgreSQL is authoritative for daemon-global state and
+per-repository workflow state; `.striatum/` next to a target repository
+is operational scratch only. RFC 0030 supplies the daemon RPC envelope,
+RFC 0031 supplies daemon-owned supervision/apply foundations, and RFC
+0032 supplies cross-repository workflow and MCP mutation capability
+foundations. Hosted service semantics and bundled PostgreSQL remain
+separate future product decisions.
 
 The authoritative live state is the daemon-owned PostgreSQL instance
 (RFC 0033) under a `repository_id` scope per registered target
@@ -422,9 +420,10 @@ Workflows may declare `provenance_mode`. The closed set is `advisory`,
 `attested_bylines`, and `sealed_patch`; absent mode defaults to
 `advisory`.
 
-`advisory` is the current local CLI mode: Striatum records workflow
-state, artifacts, verdicts, and evidence, but it does not prevent an
-operator with native file tools from editing source bytes directly.
+`advisory` is the current default provenance level: Striatum records
+workflow state, artifacts, verdicts, and evidence, but it does not
+prevent an operator with native file tools from editing source bytes
+directly.
 
 `attested_bylines` means RFC 0026 lane-liveness attestation affects
 byline derivation and optional review-job gates. It still does not prove
@@ -434,10 +433,11 @@ source edits.
 `sealed_patch` is the reserved hard-containment mode. The workflow
 validator accepts structurally valid `sealed_patch` workflows with
 non-overlapping repo-relative `protected_paths` and
-`operator_writable_paths`. Direct repo-local `run start` still refuses
-sealed runs; daemon-mediated sealed apply is represented by RFC 0031
-apply receipts and fail-closed apply authority. Silent downgrade to
-`advisory` is a correctness bug.
+`operator_writable_paths`. Daemon-backed `run start` refuses sealed
+runs unless the daemon has the required containment/apply authority.
+Daemon-mediated sealed apply is represented by RFC 0031 apply receipts
+and fail-closed apply authority. Silent downgrade to `advisory` is a
+correctness bug.
 
 ## Run Lifecycle
 
@@ -580,9 +580,11 @@ gates.
 
 `evidence export` writes a redacted Markdown snapshot of run, job, blocker,
 verdict, artifact, status, doctor, and downstream-blocking state. Export paths
-must stay inside the repository and outside `.striatum/`; SQLite state is
-not committed. Free-text fields that may contain agent or user prose, including
-blocker descriptions and verdict rationales, are redacted in the export.
+must stay inside the repository and outside `.striatum/`; the daemon DB
+remains live state outside the repository, and `.striatum/` scratch or
+migration tombstones are not durable provenance. Free-text fields that may
+contain agent or user prose, including blocker descriptions and verdict
+rationales, are redacted in the export.
 Workflow job titles are omitted by default; job and artifact authorship is
 reported through stable identity metadata: role id, lane id, declared model
 display name, and workflow job id.
@@ -958,9 +960,10 @@ process reconciliation, optional autonomous review-only requeue
 (D036-safe), human-checkpoint timeout escalation, and eligible-blocker
 doctor flagging — and returns a structured envelope `{run_id, swept_at,
 policy_source, dry_run, actions, escalations, still_stuck}`. Workflows
-declare a `recovery_policy` block to opt into autonomous behavior and an
-`escalation_hook` (`marker_file`, `webhook`, or `shell`) for
-genuinely-stuck runs. CLI flags
+declare a `recovery_policy` block to opt into autonomous behavior.
+Escalation is represented by daemon state plus blocker/escalation
+artifact projections; any local notification hook is non-authoritative
+and must never be treated as workflow state. CLI flags
 (`--autonomous-review-requeue`, `--autonomous-process-reconcile`,
 `--max-requeue`, `--checkpoint-timeout`, `--eligible-after`,
 `--dry-run`) override workflow defaults. Workflows that omit
@@ -1230,11 +1233,11 @@ source to `state.sqlite3.tombstone` at mode 0444), and
 cleanup. CLI verbs against an unmigrated repo refuse with exit code
 12 (`repo_not_migrated`) and point at this command. See
 [`docs/POSTGRES_TRANSITION.md`](POSTGRES_TRANSITION.md) for the
-full operator runbook. RFC 0048 (proposed, V2.0 phase) covers the
-remaining daemon-side handler-port work where some single-repo
-business logic still delegates through the SQLite-backed CLI path
-under the `STRIATUM_DAEMON_REQUIRED=0 STRIATUM_TEST_HARNESS=1`
-escape; production operators leave the variable unset.
+full operator runbook. RFC 0048 completed in v1.55.0: production mapped
+verbs are daemon/Postgres-backed and fail closed without the daemon or
+repository registration. Legacy SQLite paths are quarantined for
+migration sources, golden fixtures, and explicitly gated subprocess
+compatibility tests only.
 
 Registry location is platform-local and overrideable for tests with
 `STRIATUM_DAEMON_REGISTRY`; runtime files are overrideable with
@@ -1243,16 +1246,15 @@ macOS uses Application Support for registry state and Caches for
 runtime files. Windows daemon support is not claimed in V1.
 
 `striatum repo add <path>` registers an initialized target repository.
-It authorizes the daemon admin token before opening the repo-local state
-database. If `.striatum/state.sqlite3` is absent, registration refuses
-unless `--init` is passed; `--init` is the explicit opt-in that runs the
-same initialization as `striatum init`. With `--no-migrate`, registration
-checks whether repo-local migrations would be needed before connecting
-through the migrating repo-local path. The command canonicalizes the
-repository root, refuses symlink/path-traversal ambiguity including
-symlinked parent components and state-database symlink escapes, derives a
-realpath/inode-based repository identity from the root and state DB, and
-refuses active path re-occupation by a different identity. `repo remove` is
+It authorizes the daemon admin token before recording the repository in
+daemon-owned Postgres. If `.striatum/` scratch is absent, registration
+refuses unless `--init` is passed; `--init` is the explicit opt-in that
+runs the same initialization as `striatum init`. With `--no-migrate`,
+registration refuses if an existing pre-D094 repo-local SQLite source
+still requires migration. The command canonicalizes the repository root,
+refuses symlink/path-traversal ambiguity including symlinked parent
+components, derives a realpath/inode-based repository identity from the
+root, and refuses active path re-occupation by a different identity. `repo remove` is
 idempotent, marks the repository removed, revokes live repo-scoped
 capabilities, preserves audit rows, and never reuses `repository_id`;
 re-adding allocates a fresh id.
@@ -1263,7 +1265,9 @@ registry has no clients and write the local runtime fallback file with
 `0600` permissions. Operators should treat runtime-file token storage as
 degraded compared with an OS keyring. Plaintext token secrets are not read
 from environment variables and are never stored in the registry or audit
-log. Authorization vocabulary is only `read` and `admin` in V1.
+log. Authorization uses the closed daemon method capability vocabulary:
+`read`, `write`, `review`, `claim`, `apply`, `admin`, `recovery`, and
+`surgical_recovery`.
 
 Daemon audit rows are metadata-only. They include client id when known,
 repository id when scoped, command, authorization result, denial reason
@@ -1278,19 +1282,16 @@ It is per-machine daemon evidence, not transcript evidence, authorship
 proof, human identity proof, model proof, source provenance, or
 resistance to a local filesystem writer.
 
-Registry-backed read surfaces in V1 are `status`, `doctor`, `why`, and
-`dashboard --all`. Forced daemon mode for unsupported verbs refuses with
-capability-denied semantics instead of falling back to direct mode;
-`--daemon dashboard --run-id` is refused rather than substituting the
-`status` payload. `dashboard --all` fans out over registered repo-local
-state stores and degrades individual bad repositories rather than treating
-registry copies as live run truth. It is registry-backed even without
-`--daemon`, so it requires a daemon token bootstrapped by `repo add`,
-`daemon start`, or otherwise supplied through the client surface. Daemon MCP is
-resources-only; `tools/list` is empty and `striatum://daemon/audit` is not
-exposed as a V1 MCP resource. Daemon MCP clients must pass an explicit
-token parameter; repo-scoped read tokens filter resource lists and are
-denied when reading other repositories.
+All production workflow reads and mutations route through daemon RPC.
+`status`, `doctor`, `why`, run dashboards, run/job/artifact detail DTOs,
+SSE event reads, and `dashboard --all` read daemon/Postgres state under
+capability checks. `dashboard --all` fans out across registered target
+repositories and degrades individual bad repositories without treating
+repository files or scratch paths as live run truth. Daemon MCP exposes
+capability-gated tools derived from the method registry and read-only
+resources derived from daemon state. MCP clients must pass an explicit
+token parameter; repo-scoped tokens filter resource lists and are denied
+when reading or mutating another repository.
 
 RFC 0030 adds the daemon V2 RPC server-side foundation. The envelope is JSON
 `schema_version: 1` with client-supplied `request_id`, dotted `method`,
@@ -1318,12 +1319,12 @@ through the daemon or be documented as a bootstrap/admin/debug exception.
 
 RFC 0031 adds daemon-owned supervision and sealed-apply foundation
 state. The daemon DB contains `daemon_supervisors` and `apply_receipts`;
-repo-local SQLite contains `process_supervisor_pointers` so existing
-packet delivery, lane-attestation, and evidence paths continue to read
-repo-local workflow truth. The daemon `apply.reviewed_patch` route is an
-AI guardrail and fails closed without signing-key/apply authority; it is
-not a cryptographic non-repudiation claim against a malicious local
-operator.
+`process_supervisor_pointers` live in the daemon-owned per-repo
+PostgreSQL tables under `repository_id`, so packet delivery,
+lane-attestation, and evidence paths read the same live substrate. The
+daemon `apply.reviewed_patch` route is an AI guardrail and fails closed
+without signing-key/apply authority; it is not a cryptographic
+non-repudiation claim against a malicious local operator.
 
 RFC 0032 extends the daemon V2 capability vocabulary to `read`, `write`,
 `review`, `claim`, `apply`, `admin`, and `recovery`, and each registry
@@ -1339,9 +1340,9 @@ for operator-driven workflow mutation, not an optional convenience wrapper.
 
 RFC 0032 also adds daemon DB tables for `cross_repo_runs`,
 `cross_repo_run_repositories`, `cross_repo_cycle_counters`, and
-`audit_repositories`, plus a repo-local nullable `runs.cross_repo_run_id`
-back-reference. The daemon DB is canonical for the cross-repo run; each
-participant repository keeps its own local run state. Cross-repo lifecycle
+`audit_repositories`, plus a per-repo `runs.cross_repo_run_id`
+back-reference. The daemon DB is canonical for the cross-repo run and for
+each participant repository's workflow state. Cross-repo lifecycle
 coordination is best-effort across local repos, not distributed
 filesystem atomicity. The dogfood-035 implementation shipped unit and
 mock-based lifecycle coverage. Dogfood-037 adds developer-only
@@ -1355,9 +1356,9 @@ The foreground sweep process uses the existing `recovery auto` policy
 against active registered runs without requiring one `recovery watch`
 process per run. The running process uses internal authority for its
 periodic sweep. The manual `striatum daemon sweep` CLI verb is admin-gated
-and audited. V1 does not auto-resolve human checkpoints, does not requeue
-repo-write stale work, and does not take over process supervision.
-Each per-run sweep writes a repo-local `daemon.recovery_sweep` event with
+and audited. The sweep does not auto-resolve human checkpoints, requeue
+repo-write stale work, or substitute for daemon-owned process supervision.
+Each per-run sweep writes a daemon `daemon.recovery_sweep` event with
 payload `author: striatumd-<instance-id>`; review-only stale requeue
 events produced by this path carry the same payload author. Other
 underlying recovery event bylines remain direct-recovery semantics and are
@@ -1505,13 +1506,16 @@ mechanically restricted), and `unsupported` (the adapter cannot represent
 the constraint). Workflow validation rejects a lane whose `required_enforcement`
 asks for a stronger level than the adapter can provide.
 
-`adapter run` is the minimal local process adapter. It launches the configured
-`process` lane command for an active claimed lease, can pass the stored work
-packet on stdin, sets `STRIATUM_*` environment variables, creates a
+`adapter run` is the remaining single-shot process-adapter compatibility
+path. It launches the configured `process` lane command for an active
+claimed lease, can pass the stored work packet on stdin, sets
+`STRIATUM_*` environment variables, creates a
 `.striatum/scratch/<process_id>` scratch directory, and records process
-metadata plus lifecycle events in SQLite. Stdout and stderr are suppressed
-unless the operator explicitly requests inherited stdio; Striatum does not
-capture transcripts. The process adapter graduates `network=forbidden` and
+metadata plus lifecycle events through the legacy compatibility schema.
+The daemon-owned supervised-session path is the production long-lived
+process path. Stdout and stderr are suppressed unless the operator
+explicitly requests inherited stdio; Striatum does not capture transcripts.
+The process adapter graduates `network=forbidden` and
 `repo_scope=local_only` to `advisory_strict`; transcript-off is `enforced`.
 
 ### Process Supervision

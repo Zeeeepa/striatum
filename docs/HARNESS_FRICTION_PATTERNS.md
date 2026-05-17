@@ -159,6 +159,11 @@ split-brain`.
   should be a no-op or, at worst, refresh the runtime artifacts
   without trying to open the absent sqlite.
 
+Current status: the friction taxonomy remains useful, but substrate and
+routing details in older notes may describe transition-era SQLite/direct
+mode behavior. Current production behavior is daemon-required with
+daemon-owned PostgreSQL as the authoritative workflow state.
+
 **Where the fixes live (proposed).**
 
 - F1: `src/striatum/daemon_pg/repo_local_migration.py::_resume_sqlite_finalization_after_checkpoint`

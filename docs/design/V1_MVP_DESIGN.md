@@ -2,6 +2,10 @@
 
 Status: synthesized design
 Date: 2026-05-06
+Historical note: this is the original V1 MVP design. Current live-state
+authority is daemon-owned PostgreSQL per `docs/SPEC.md`, D094, and RFC
+0043; do not use this document for current substrate or daemon-required
+behavior.
 
 This design synthesizes the required model-lane inputs:
 
@@ -11,10 +15,11 @@ This design synthesizes the required model-lane inputs:
 
 ## 1. MVP Boundary
 
-V1 is a local Python CLI MVP for repo-local terminal-agent orchestration. The
-control plane is deterministic. Agents mutate state through `striatum`
-commands. SQLite is authoritative for live workflow state; repo artifacts are
-durable provenance only.
+V1 started as a local Python CLI MVP for repo-local terminal-agent
+orchestration. The original control plane was deterministic and routed
+agent state changes through `striatum` commands. At that time SQLite was
+authoritative for live workflow state and repo artifacts were durable
+provenance only; current production authority is daemon-owned PostgreSQL.
 
 In scope:
 

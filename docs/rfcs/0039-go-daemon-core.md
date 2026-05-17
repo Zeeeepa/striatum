@@ -1,7 +1,12 @@
 # RFC 0039: Go Daemon Core
 
-Status: proposed (Phase 1 Steps 1+2 landed in dogfood-042; Steps 3-6 deferred to a Phase 2 dogfood)
+Status: superseded in scope by D105 (Go retained for helper/runtime and
+developer harnesses; Python remains the production daemon core)
 Date: 2026-05-13
+Supersession note: this RFC records the original Go-core proposal.
+D105 narrows Go to process/PTY helper runtime, packaging-sensitive
+subprocess work, and developer harnesses unless a new decision reopens a
+full daemon rewrite.
 Context:
 [`RFC 0028`](0028-long-running-daemon-and-multi-repository-control-plane.md),
 [`RFC 0030`](0030-daemon-rpc-server-and-version-skew-protocol.md),
@@ -326,17 +331,11 @@ Three phases:
 - CI runs both daemon test matrices.
 - Documentation labels each daemon's tradeoffs.
 
-**Phase 2 — Go default (separate future RFC):**
-- After production validation, flip the `striatum daemon start`
-  default to Go.
-- Python daemon stays as a fallback for one release cycle.
-
-**Phase 3 — Python retirement (separate future RFC):**
-- Python daemon code removed from `src/striatum/`.
-- The Python `daemon_rpc/`, `daemon_apply/`, `daemon_supervisor/`,
-  and `daemon_pg/` packages become library-only (used by CLI client
-  for envelope parsing); the daemon-server code is removed.
-- Single-binary `striatumd-go` is the only daemon.
+**Superseded Phase 2 / Phase 3 ideas:**
+D105 closed the path where Go becomes the default daemon and Python is
+retired. Python remains the production daemon core; Go is limited to
+helper/runtime, subprocess, packaging-sensitive, and developer-harness
+roles unless a future decision reopens the rewrite.
 
 RFC 0039 covers Phase 1 only.
 
@@ -637,4 +636,3 @@ risk).
   The store is implemented but not yet dependency-injected into the
   daemon boot path; lands when the daemon switches from in-memory
   fakes to PG-backed in V1.7.
-

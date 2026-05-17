@@ -14,6 +14,10 @@ const {
   buildPhaseLayout,
   hasExplicitPhases,
   jobPhaseId,
+  jobHasInvalidPhase,
+  phaseSelectState,
+  INVALID_PHASE_BUCKET_ID,
+  PHASE_SELECT_INVALID_VALUE,
   phaseIdForY,
   PHASE_BAND_HEIGHT,
   PHASE_NODE_TOP,
@@ -139,6 +143,15 @@ describe("workflow-graph-editor.newJobFromBlock", () => {
     const job = newJobFromBlock({ kind: "implementation", jobType: "build" }, []);
     expect(job.write_scope?.mode).toBe("repo_write");
   });
+
+  it("can assign a default phase when adding into an explicit-phase workflow", () => {
+    const job = newJobFromBlock(
+      { kind: "implementation", jobType: "build" },
+      [],
+      "p1",
+    );
+    expect(job.phase).toBe("p1");
+  });
 });
 
 describe("workflow-graph-editor.PALETTE_BLOCKS", () => {
@@ -255,13 +268,27 @@ describe("workflow-graph-editor.jobsToNodes (v1.1 phase bucketing)", () => {
     expect(byId.consolidate_2.y).toBe(PHASE_BAND_HEIGHT + PHASE_NODE_TOP);
   });
 
-  it("places unknown-phase jobs into the first phase", () => {
+  it("keeps unknown-phase jobs visible in an invalid bucket", () => {
     const nodes = jobsToNodes({
       phases: [{ id: "p1" }, { id: "p2" }],
       jobs: [{ id: "orphan", phase: "p_missing" }],
     });
     expect(nodes).toHaveLength(1);
-    expect(nodes[0].position.y).toBe(PHASE_NODE_TOP);
+    expect(nodes[0].position.y).toBe(PHASE_BAND_HEIGHT * 2 + PHASE_NODE_TOP);
+    expect(nodes[0].className).toBe("invalid-phase-node");
+    expect(nodes[0].data).toMatchObject({ phaseInvalid: true });
+    expect(nodes[0].data.label).toContain("invalid phase=p_missing");
+  });
+
+  it("keeps missing-phase jobs visible and visibly invalid", () => {
+    const nodes = jobsToNodes({
+      phases: [{ id: "p1" }, { id: "p2" }],
+      jobs: [{ id: "missing" }],
+    });
+    expect(nodes).toHaveLength(1);
+    expect(nodes[0].position.y).toBe(PHASE_BAND_HEIGHT * 2 + PHASE_NODE_TOP);
+    expect(nodes[0].className).toBe("invalid-phase-node");
+    expect(nodes[0].data.label).toContain("invalid phase=(missing)");
   });
 });
 
@@ -349,6 +376,58 @@ describe("workflow-graph-editor.buildPhaseLayout", () => {
       ["design_a", "design_b", "synth_1"].sort(),
     );
     expect(layout.jobPhaseMap.get("build_a")).toBe("phase_2_build");
+  });
+
+  it("does not silently assign unknown or missing phases to the first phase", () => {
+    const workflow = {
+      phases: [{ id: "p1" }, { id: "p2" }],
+      jobs: [
+        { id: "valid", phase: "p1" },
+        { id: "unknown", phase: "not_declared" },
+        { id: "missing" },
+      ],
+    };
+    const layout = buildPhaseLayout(workflow);
+    expect(layout.byPhaseId.get("p1")?.jobIds).toEqual(["valid"]);
+    expect(layout.jobPhaseMap.get("unknown")).toBe(INVALID_PHASE_BUCKET_ID);
+    expect(layout.jobPhaseMap.get("missing")).toBe(INVALID_PHASE_BUCKET_ID);
+    expect(layout.byPhaseId.get(INVALID_PHASE_BUCKET_ID)?.jobIds.sort()).toEqual(
+      ["missing", "unknown"].sort(),
+    );
+    expect(jobHasInvalidPhase(workflow.jobs[1], layout)).toBe(true);
+    expect(jobHasInvalidPhase(workflow.jobs[0], layout)).toBe(false);
+  });
+});
+
+describe("workflow-graph-editor.phaseSelectState", () => {
+  it("uses a valid phase id when the job declares one", () => {
+    expect(
+      phaseSelectState({ id: "j", phase: "p2" }, [{ id: "p1" }, { id: "p2" }]),
+    ).toMatchObject({
+      valid: true,
+      value: "p2",
+    });
+  });
+
+  it("uses a disabled invalid sentinel instead of an unset value", () => {
+    const unknown = phaseSelectState(
+      { id: "j", phase: "missing_phase" },
+      [{ id: "p1" }],
+    );
+    expect(unknown).toMatchObject({
+      valid: false,
+      value: PHASE_SELECT_INVALID_VALUE,
+      invalidLabel: "Invalid: missing_phase",
+    });
+    expect(unknown.value).not.toBe("");
+
+    const missing = phaseSelectState({ id: "j" }, [{ id: "p1" }]);
+    expect(missing).toMatchObject({
+      valid: false,
+      value: PHASE_SELECT_INVALID_VALUE,
+      invalidLabel: "Missing phase",
+    });
+    expect(missing.value).not.toBe("");
   });
 });
 

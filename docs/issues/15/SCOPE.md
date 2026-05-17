@@ -13,6 +13,11 @@ The implementer must reconcile current operator-facing docs with D094/RFC
 0043 and the shipped `daemon migrate-repo-local` surface, while preserving
 RFC 0048 as remaining substrate-port work.
 
+Current status (2026-05-17): this scope artifact is historical. RFC 0048
+completed in v1.55.0; current docs should treat daemon-owned PostgreSQL as
+the production live-state substrate and mention SQLite only for migration,
+tombstone, or fixture contexts.
+
 ## 1. Issue covered
 
 - GH #15 - Docs: clarify PostgreSQL transition guidance.

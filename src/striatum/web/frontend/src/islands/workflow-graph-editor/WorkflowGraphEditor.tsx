@@ -81,6 +81,8 @@ const PHASE_COLUMN_WIDTH = 260;
 const PHASE_ROW_HEIGHT = 96;
 const PHASE_BAND_WIDTH = 4000;
 const PHASE_PALETTE_LEN = 4;
+const INVALID_PHASE_BUCKET_ID = "__striatum_invalid_phase__";
+const PHASE_SELECT_INVALID_VALUE = "__striatum_invalid_phase_select__";
 
 interface InternalEdge extends WorkflowEdge {
   isCycle?: boolean;
@@ -96,6 +98,7 @@ interface PhaseLayoutEntry {
   paletteIndex: number;
   bandTop: number;
   jobIds: string[];
+  invalid?: boolean;
 }
 
 interface PhaseLayout {
@@ -146,15 +149,61 @@ function buildPhaseLayout(workflow: WorkflowDocument): PhaseLayout {
     return { phases: entries, byPhaseId, jobPhaseMap, hasExplicit };
   }
 
-  const firstPhaseId = entries[0].phase.id;
   for (const job of jobs) {
     const declared = jobPhaseId(job);
-    const resolved = declared && byPhaseId.has(declared) ? declared : firstPhaseId;
+    let resolved = declared && byPhaseId.has(declared) ? declared : "";
+    if (!resolved) {
+      let invalidEntry = entries.find((entry) => entry.invalid);
+      if (!invalidEntry) {
+        invalidEntry = {
+          phase: {
+            id: INVALID_PHASE_BUCKET_ID,
+            title: "Invalid or missing phase",
+          },
+          index: entries.length,
+          paletteIndex: entries.length % PHASE_PALETTE_LEN,
+          bandTop: entries.length * PHASE_BAND_HEIGHT,
+          jobIds: [],
+          invalid: true,
+        };
+        entries.push(invalidEntry);
+        byPhaseId.set(INVALID_PHASE_BUCKET_ID, invalidEntry);
+      }
+      resolved = INVALID_PHASE_BUCKET_ID;
+    }
     jobPhaseMap.set(job.id, resolved);
     byPhaseId.get(resolved)!.jobIds.push(job.id);
   }
 
   return { phases: entries, byPhaseId, jobPhaseMap, hasExplicit };
+}
+
+function phaseIsReal(layout: PhaseLayout, phaseId: string): boolean {
+  const entry = layout.byPhaseId.get(phaseId);
+  return Boolean(entry && !entry.invalid);
+}
+
+function jobHasInvalidPhase(job: WorkflowJob, layout: PhaseLayout): boolean {
+  return (
+    layout.hasExplicit &&
+    layout.jobPhaseMap.get(job.id) === INVALID_PHASE_BUCKET_ID
+  );
+}
+
+function invalidPhaseLabel(job: WorkflowJob): string {
+  const declared = jobPhaseId(job);
+  return declared ? `invalid phase=${declared}` : "invalid phase=(missing)";
+}
+
+function phaseSelectState(job: WorkflowJob, phases: WorkflowPhase[]) {
+  const declared = jobPhaseId(job);
+  const valid = declared !== "" && phases.some((phase) => phase.id === declared);
+  return {
+    declared,
+    valid,
+    value: valid ? declared : PHASE_SELECT_INVALID_VALUE,
+    invalidLabel: declared ? `Invalid: ${declared}` : "Missing phase",
+  };
 }
 
 function jobNodeLabel(job: WorkflowJob): string {
@@ -234,11 +283,18 @@ function jobsToNodes(workflow: WorkflowDocument): Node[] {
         const x = groupIndex * PHASE_COLUMN_WIDTH + rowIndex * 24;
         const y =
           phaseEntry.bandTop + PHASE_NODE_TOP + rowIndex * PHASE_ROW_HEIGHT;
+        const invalidPhase = jobHasInvalidPhase(job, layout);
         nodes.push({
           id: job.id,
           type: "default",
           position: { x, y },
-          data: { label: jobNodeLabel(job) },
+          className: invalidPhase ? "invalid-phase-node" : undefined,
+          data: {
+            label: invalidPhase
+              ? `${jobNodeLabel(job)}\n${invalidPhaseLabel(job)}`
+              : jobNodeLabel(job),
+            ...(invalidPhase ? { phaseInvalid: true } : {}),
+          },
         });
       });
     });
@@ -254,8 +310,8 @@ function workflowToEdges(workflow: WorkflowDocument): Edge[] {
     const targetPhase = layout.jobPhaseMap.get(e.to) ?? "";
     const crossPhase =
       layout.hasExplicit &&
-      sourcePhase !== "" &&
-      targetPhase !== "" &&
+      phaseIsReal(layout, sourcePhase) &&
+      phaseIsReal(layout, targetPhase) &&
       sourcePhase !== targetPhase;
     const baseEdge: Edge = {
       id: `e-${e.from}->${e.to}-${e.on ?? "completed"}`,
@@ -285,8 +341,8 @@ function workflowToEdges(workflow: WorkflowDocument): Edge[] {
     const targetPhase = layout.jobPhaseMap.get(c.to) ?? "";
     const crossPhase =
       layout.hasExplicit &&
-      sourcePhase !== "" &&
-      targetPhase !== "" &&
+      phaseIsReal(layout, sourcePhase) &&
+      phaseIsReal(layout, targetPhase) &&
       sourcePhase !== targetPhase;
     const className = crossPhase ? "cycle-edge cross-phase-edge" : "cycle-edge";
     out.push({
@@ -344,6 +400,7 @@ function syncWorkflowEdges(
 function newJobFromBlock(
   block: { kind: string; jobType: string },
   existing: WorkflowJob[],
+  defaultPhase?: string,
 ): WorkflowJob {
   const baseId = block.kind;
   let n = 1;
@@ -369,6 +426,7 @@ function newJobFromBlock(
             forbidden_paths: [".striatum/"],
           },
     expected_artifacts: [],
+    ...(defaultPhase ? { phase: defaultPhase } : {}),
   };
 }
 
@@ -521,6 +579,7 @@ function Inspector({ job, workflow, onChange, onDelete }: InspectorProps) {
   const roleOptions = [""].concat(Object.keys(workflow.roles ?? {}));
   const laneOptions = [""].concat(Object.keys(workflow.lanes ?? {}));
   const phases = workflow.phases ?? [];
+  const phaseState = phases.length > 0 ? phaseSelectState(job, phases) : null;
   const allowedPaths = safeArr(job.write_scope?.allowed_paths);
   const forbiddenPaths = safeArr(job.write_scope?.forbidden_paths);
   const requiredPostures = safeArr(job.required_review_postures);
@@ -615,18 +674,28 @@ function Inspector({ job, workflow, onChange, onDelete }: InspectorProps) {
           <label htmlFor={`inspector-phase-${job.id}`}>phase</label>
           <select
             id={`inspector-phase-${job.id}`}
-            value={jobPhaseId(job)}
+            value={phaseState?.value ?? ""}
+            aria-invalid={phaseState?.valid === false}
             onChange={(e) =>
-              onChange(job.id, { phase: e.target.value || undefined })
+              onChange(job.id, { phase: e.target.value, phase_id: undefined })
             }
           >
-            <option value="">(unset)</option>
+            {phaseState?.valid === false && (
+              <option value={PHASE_SELECT_INVALID_VALUE} disabled>
+                {phaseState.invalidLabel}
+              </option>
+            )}
             {phases.map((p) => (
               <option key={p.id} value={p.id}>
                 {phaseDisplayName(p)}
               </option>
             ))}
           </select>
+          {phaseState?.valid === false && (
+            <p className="phase-invalid-help" role="alert">
+              Choose a declared phase before saving.
+            </p>
+          )}
         </div>
       )}
 
@@ -1073,8 +1142,12 @@ function WorkflowGraphEditorImpl(props: WorkflowGraphEditorProps) {
       });
       if (refusedJobId) {
         const declared = layout.jobPhaseMap.get(refusedJobId) ?? "?";
+        const phaseText =
+          declared === INVALID_PHASE_BUCKET_ID
+            ? "an invalid or missing phase"
+            : declared;
         setDragError(
-          `Drag refused: ${refusedJobId} belongs to phase ${declared}. Use the inspector phase field to move it, then add the required phase_synthesis dependency.`,
+          `Drag refused: ${refusedJobId} belongs to ${phaseText}. Use the inspector phase field to move it, then add the required phase_synthesis dependency.`,
         );
       } else if (
         changes.some((c) => c.type === "position" && c.dragging === false)
@@ -1109,7 +1182,7 @@ function WorkflowGraphEditorImpl(props: WorkflowGraphEditorProps) {
   }) => {
     setWorkflow((prev) => {
       const jobs = safeArr(prev.jobs);
-      const job = newJobFromBlock(block, jobs);
+      const job = newJobFromBlock(block, jobs, prev.phases?.[0]?.id);
       const nextJobs = [...jobs, job];
       const next = syncWorkflowJobs(prev, nextJobs);
       setNodes(jobsToNodes(next));
@@ -1381,6 +1454,10 @@ export const __testing = {
   buildPhaseLayout,
   hasExplicitPhases,
   jobPhaseId,
+  jobHasInvalidPhase,
+  phaseSelectState,
+  INVALID_PHASE_BUCKET_ID,
+  PHASE_SELECT_INVALID_VALUE,
   phaseIdForY,
   PHASE_BAND_HEIGHT,
   PHASE_NODE_TOP,

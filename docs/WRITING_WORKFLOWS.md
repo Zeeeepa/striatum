@@ -227,7 +227,7 @@ land, the recommended convention is:
 
 ```text
 <your-repo>/
-├── .striatum/                 # gitignored; runtime state (sqlite, scratch)
+├── .striatum/                 # gitignored; operational scratch
 └── striatum/                  # committed; durable workflow output
     └── <workflow-slug>/
         ├── RUN_SUMMARY.md
@@ -239,12 +239,12 @@ land, the recommended convention is:
             └── <final-review>.md
 ```
 
-The pair `.striatum/` (runtime, gitignored) and `striatum/`
+The pair `.striatum/` (scratch, gitignored) and `striatum/`
 (provenance, committed) is a clean visual reminder of the
-distinction the runner makes between live state and durable
-artifacts. It also makes "remove all striatum output" a single
-`rm -rf striatum/` for first-contact users who want to try the
-runner without scattering files across `docs/`.
+distinction the runner makes between daemon-owned live state and
+durable artifacts. It also makes "remove all striatum output" a
+single `rm -rf striatum/` for first-contact users who want to try
+the runner without scattering files across `docs/`.
 
 If your project already has an artifact convention (`docs/reviews/`,
 `docs/specs/`, `docs/decisions/`, `evidence/`, etc.), use it.

@@ -2,6 +2,9 @@
 
 Status: accepted
 Date: 2026-05-06
+Current-status note: this is an early V1 RFC. Current production live state is
+daemon-owned PostgreSQL under D094/RFC 0043; SQLite references below describe
+the historical V1 substrate that motivated the recovery work.
 Context:
 `docs/RFC_0014_DOGFOOD_FIX_SPEC.md`,
 `docs/reviews/rfc-0014-operational-artifact-home/STRIATUM_VALIDATION_NOTES.md`

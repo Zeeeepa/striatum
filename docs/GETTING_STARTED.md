@@ -240,11 +240,11 @@ If you are trying striatum on a real repo and want the runner's
 output corralled (so a single `rm -rf` cleans up if you change
 your mind), the recommended convention is a top-level
 `striatum/` directory — sibling to the gitignored `.striatum/`
-state directory but committed:
+scratch directory but committed:
 
 ```text
 <your-repo>/
-├── .striatum/             # gitignored runtime state
+├── .striatum/             # gitignored operational scratch
 └── striatum/              # committed durable output
     └── <workflow-slug>/
         ├── RUN_SUMMARY.md

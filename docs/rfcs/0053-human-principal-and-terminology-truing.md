@@ -1,12 +1,14 @@
 # RFC 0053 — Human principal as escalation-only role + terminology truing
 
-**Status:** proposed (doc-side fixes land with this RFC; schema rename
-deferred)
-**Scope:** V1.7 prose + V1.8/V2 schema and CLI sweep
+**Status:** proposed (core escalation surfaces partially landed)
+**Scope:** prose + escalation surfaces landed; vocabulary rename and
+notification rails remain deferred
 **Closes (partially):** the ambient "human operator" framing baked into
 `docs/SPEC.md`, `docs/GETTING_STARTED.md`, `docs/HOW_TO_HUMAN.md`, and the
 remaining `human` references in `docs/UBIQUITOUS_LANGUAGE.md` partially
 softened in [fb0175c](https://github.com/halbritt/striatum/commit/fb0175c).
+Landed since the original proposal: `striatum.escalation.v1` validation
+and linkage, escalation inbox projections, and `escalation list/show/resolve`.
 
 ## Background
 
@@ -83,8 +85,8 @@ The principal does NOT:
   session vocabulary.
 - Adding new capability classes; escalation moves use existing
   `write` / `review` capabilities.
-- Defining the `escalation` artifact kind's full schema; that lands in
-  a follow-up design RFC alongside the workflow-schema bump.
+- Redefining the landed `escalation` artifact kind's schema; future work is
+  limited to compatible extensions or a separately accepted schema bump.
 - Changing run-state-machine semantics in this commit. The
   `waiting_human` run state becomes vocabulary-misleading but stays as
   a state name until the schema bump (deferred follow-up).
@@ -150,9 +152,8 @@ in the inbox alongside declared escalations.
 
 Both shapes surface through the same surfaces (`striatum inbox`,
 dashboard, web UI). The principal resolves either by recording a
-decision (`striatum decision record`) or by resolving the blocker
-(today: `striatum recovery resume` / operator-on-behalf override;
-future: a dedicated `striatum escalation resolve` verb, deferred).
+decision (`striatum decision record`) or by resolving the escalation
+through the landed `striatum escalation resolve` surface.
 
 ## Interaction with existing surfaces
 
@@ -181,18 +182,19 @@ future: a dedicated `striatum escalation resolve` verb, deferred).
 2. **CLI prompt-string sweep.** Any verb whose stderr / prompt text
    says "human confirmation required" or similar should say "operator
    confirmation."
-3. **`escalation` artifact-kind schema.** Front matter, validator
-   rules, dotted RPC method (e.g. `escalation.publish`,
-   `escalation.resolve`), interaction with RFC 0051 auto-finalize.
+3. **`escalation` artifact-kind schema.** Landed: front matter,
+   validator rules, linkage, inbox projections, and
+   `escalation list/show/resolve`. Future schema changes need a
+   compatible extension or a new RFC.
 4. **HOW_TO_AGENT.md alignment.** Minor pass for cross-references.
 5. **Notification rails.** Paging / web UI badge / inbox-by-email if
    escalation-discovery latency proves to matter.
 
 ## Open questions
 
-1. Should `striatum blocker resolve` (or `escalation resolve`) be a
-   first-class verb, or does the principal always go through
-   `decision record`?
+1. Resolved for V1: `striatum escalation resolve` is a first-class
+   surface. Principals may still record decisions when that is the
+   clearer artifact.
 2. Is the principal's session registered (so audit trails attribute
    the decision to a specific session), or are principal moves
    attributed only by `author: human-principal` byline? RFC 0026
@@ -208,8 +210,8 @@ future: a dedicated `striatum escalation resolve` verb, deferred).
 - **Phase 0 (this RFC):** principle on record; doc-side fixes
   (SPEC / GETTING_STARTED / HOW_TO_HUMAN) land with the RFC; D103
   recorded.
-- **Phase A (V1.7 or V1.8):** `escalation` artifact-kind schema,
-  validator, dotted RPC method; CLI prompt-string sweep.
+- **Phase A (landed):** `escalation` artifact-kind schema, validator,
+  linkage, inbox projections, and `escalation list/show/resolve`.
 - **Phase B (workflow-schema bump):** `human_checkpoint` →
   `escalation_checkpoint` rename, `waiting_human` →
   `waiting_principal`, `workflow upgrade` rule.

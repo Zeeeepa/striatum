@@ -551,10 +551,11 @@ new profile is a workflow decision, not a runtime decision.
 - **RFC 0012 — local service API.** Independent of this RFC. A
   future Striatum-as-MCP-server (deferred under RFC 0010 V2)
   would populate the `mcpServers` entry that V1 ships empty.
-- **D006 / D009** — SQLite is the live state, agents update state
-  through the CLI. Plugin slash commands wrap the CLI; they do
-  not touch SQLite directly. The bundle's hooks stub, when an
-  operator opts in, also calls the CLI.
+- **D006 / D009, superseded for current substrate/interface behavior by
+  D094 / D104** — daemon-owned PostgreSQL is the live state, and agents
+  update state through approved daemon clients. Plugin slash commands wrap
+  the CLI; they do not touch live state directly. The bundle's hooks stub,
+  when an operator opts in, also calls the CLI.
 - **D020** — no hosted services. Plugin bundles ship inside the
   installed Python distribution. Generation is offline. The
   marketplace fixture is `local`-source by construction; no git

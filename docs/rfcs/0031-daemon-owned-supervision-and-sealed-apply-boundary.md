@@ -20,12 +20,14 @@ RFC 0031 is sequenced after RFC 0030 lands because daemon-owned supervision
 and sealed-apply authority both flow over the RPC trust boundary RFC 0030
 establishes.
 
-Implementation status: dogfood-034 adds daemon DB tables for daemon-owned
-supervisors and apply receipts, a repo-local pointer table that preserves
-`.striatum/state.sqlite3` as workflow truth, daemon RPC method declarations
-for `supervise.*` and `apply.*`, and fail-closed apply-key/refusal helpers.
-The first production apply path remains explicitly capability-gated and must
-not be described as third-party cryptographic non-repudiation.
+Implementation status: dogfood-034 added daemon DB tables for daemon-owned
+supervisors and apply receipts, daemon RPC method declarations for
+`supervise.*` and `apply.*`, and fail-closed apply-key/refusal helpers.
+D094/RFC 0043 later moved per-repository workflow and supervisor pointer
+state into daemon-owned PostgreSQL; the original repo-local pointer table is
+transition history. The first production apply path remains explicitly
+capability-gated and must not be described as third-party cryptographic
+non-repudiation.
 
 ## Problem
 
@@ -195,10 +197,9 @@ chain. CLI/MCP clients invoke the RPC but never directly Popen() the
 lane command.
 
 For backward compatibility during the V2 transition, V1's
-`striatum supervise start --session-id ...` continues to work via
-`--no-daemon` direct mode for one minor release; it routes through the
-daemon by default. Workflows declaring `require_daemon: true` (a new
-workflow-level field defined here) refuse `--no-daemon` outright.
+`striatum supervise start --session-id ...` kept a one-minor-release
+direct-mode path. That transition is now closed: production supervision
+routes through the daemon boundary, and `--no-daemon` is retired.
 
 ### 3. Daemon process lifecycle
 

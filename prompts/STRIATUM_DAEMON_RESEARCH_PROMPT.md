@@ -1,11 +1,14 @@
 # Striatum Daemon Research Prompt
 
-Status: reusable
+Status: historical/reference
 Date: 2026-05-10
 author: coordinator-codex-gpt-5.5-001
 
-Use this prompt with outside LLMs to critique or extend the proposed
-long-running daemon / multi-repository control-plane direction.
+Historical note: this prompt captured the pre-D094 daemon decision point.
+Current Striatum is daemon-required with daemon-owned PostgreSQL as live
+state. Reuse it only after rewriting the current-shape section for a new
+question such as packaging, helper runtime, supervision hardening, or hosted
+boundary policy.
 
 ```text
 You are reviewing a proposed future architecture for Striatum, a local-first
@@ -26,14 +29,15 @@ must remain, except for these product principles:
 
 Current shape, for context:
 
-- Striatum is currently Python.
-- The CLI is primary.
-- Live state is repo-local SQLite under `.striatum/state.sqlite3`.
-- There is a local HTTP/Unix-socket service, but it delegates to the CLI/API
-  and is not the authoritative scheduler.
-- There is an MCP-like stdio wrapper scoped to a single target repo.
-- There is supervised process support, but it is operated through CLI verbs.
-- Recovery can run as one-shot or per-run watch loops.
+- Striatum's production daemon core is Python.
+- CLI, MCP, and local web surfaces are clients of daemon RPC.
+- Live state is daemon-owned PostgreSQL under a per-repository
+  `repository_id`; `.striatum/` is operational scratch only.
+- There is a local HTTP/Unix-socket service that acts as a daemon client.
+- Daemon MCP exposes capability-gated tools and read resources.
+- Supervised process support is daemon-owned; the Go tree is helper/runtime
+  and developer-harness material rather than a peer production daemon core.
+- Recovery can run as one-shot, per-run watch loops, or daemon sweeps.
 
 Proposed direction:
 
@@ -47,15 +51,16 @@ Questions to answer:
 
 1. Is this product direction sound, or does it betray the local-first/simple
    CLI nature that makes Striatum valuable?
-2. Should the long-term product be "CLI with optional daemon" or "daemon with
-   CLI client"?
+2. Given the accepted daemon-required direction, where should CLI/MCP/web
+   client boundaries remain narrowest?
 3. What should "multi-tenant" mean for a local tool: repository tenants,
    operator tenants, client capability tenants, or something else?
-4. Should state remain per-repo SQLite, move to a central daemon store, use a
-   hybrid registry + per-repo stores, or replace SQLite entirely?
-5. If replacing SQLite, what storage substrate would you choose and why?
-6. Should the daemon be implemented in Python first, rewritten in Go, built
-   in TypeScript/Node, or split across languages?
+4. How should daemon-owned PostgreSQL be packaged or provisioned without
+   weakening the local-first boundary?
+5. What helper-runtime responsibilities should remain outside the Python
+   daemon core?
+6. Which future hosted, multi-tenant, or bundled-distribution boundaries need
+   explicit product decisions before implementation?
 7. How should MCP tools/resources be exposed without making prompt injection
    or confused-deputy attacks too easy?
 8. Should daemon mode be required for sealed patch provenance, or merely a
@@ -70,7 +75,7 @@ Please produce:
 - storage recommendation;
 - language/runtime recommendation;
 - security and authorization model;
-- migration plan from the current CLI/SQLite design;
+- migration or packaging plan from the current daemon/PostgreSQL design;
 - benefits and downsides;
 - acceptance criteria for a first RFC slice;
 - a list of things that should remain explicitly out of scope.

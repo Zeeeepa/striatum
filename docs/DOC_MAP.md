@@ -100,7 +100,7 @@ When two docs disagree, the home wins.
   already has, written down.
 - **What it owns:** the bounded context, the aggregate-roots
   table, the value-object list, the events-log explanation, the
-  CLI-as-only-write-surface invariant, the "Adding to the
+  daemon-method write-boundary invariant, the "Adding to the
   model" pattern future RFCs cite.
 - **What it doesn't:** any current-behavior detail (that's
   SPEC), any historical decision (that's the log), any glossary

@@ -10,6 +10,12 @@ related_research:
 
 # P005: Provenance Bypass — Architectural Strategies for True Provenance
 
+Current-context note (2026-05-17): this research response predates the
+D094/D104 daemon-required runtime. References below to SQLite or CLI-only
+state describe the source context at the time; current Striatum live state is
+daemon-owned PostgreSQL and CLI/MCP/web surfaces are clients of that daemon
+boundary.
+
 ## Executive Summary
 
 The Operator Bypass loophole exists because Striatum cannot independently verify that repository changes match the workflow claims recorded in SQLite. The runner is deliberately blind to agent internals (D028) and cannot observe what the operator's harness is doing.
@@ -28,10 +34,10 @@ All three are local, mechanical, and consistent with Striatum's product boundary
 
 Striatum is a domain-driven design of workflow orchestration. Key ideas:
 
-- **CLI as the only write surface:** Every legal mutation passes through `striatum <verb>`. No direct SQLite writes.
+- **Daemon as the write authority:** Every legal mutation passes through a Striatum client surface into the daemon. No direct database writes.
 - **Aggregate roots:** Run, Session, Job, Lease, Work packet, Artifact, Verdict, Blocker.
 - **Domain events:** The `events` table is an append-only event log. Read models are derived from events.
-- **Live state:** SQLite under `.striatum/state.sqlite3` — not marker files, terminal panes, or committed repos.
+- **Live state:** daemon-owned PostgreSQL scoped per registered target repository — not marker files, terminal panes, or committed repos.
 
 ### Core Boundaries (Deliberately Enforced)
 
@@ -171,7 +177,9 @@ The question is whether this should be:
 - **D048** — Worktree isolation (opt-in per lane)
 - **D020** — No cloud services, telemetry, external persistence
 - **D028** — No transcript capture
-- **D006/D009** — CLI as only write surface, SQLite as authoritative
+- **D006/D009** — original CLI-only/SQLite-authoritative framing
+  (superseded for current production behavior by D094/D104:
+  daemon-method write boundary over daemon-owned PostgreSQL)
 - **D037** — Process/tmux adapters are launch boundaries only
 
 ## See Also

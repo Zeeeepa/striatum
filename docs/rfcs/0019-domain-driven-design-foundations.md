@@ -17,8 +17,8 @@ new *vocabulary* rather than new *plumbing*
 ## Problem
 
 A reader meeting striatum for the first time can come to the
-wrong conclusion about why it works. The CLI surface looks like
-"a workflow runner with a SQLite state file and verdicts." Most
+wrong conclusion about why it works. The CLI/service surface looks like
+"a workflow runner with a database and verdicts." Most
 operators have seen ten of those. They look at striatum, see
 familiar parts (state, jobs, queues), and ask: *"what's the
 magic?"*
@@ -28,10 +28,10 @@ workflow runner with extra ceremony," they will adopt it as a
 glorified Make and miss the actual benefit. They will work
 *around* the vocabulary instead of *with* it: marker files used
 as state, prose used to advance jobs, ad-hoc shell scripts
-making SQLite writes the runner doesn't see, reviews returned as
+making storage writes the runner doesn't see, reviews returned as
 "looks good" instead of as `accept_with_findings` + a structured
 finding artifact. The runner survives this for a while — it's
-permissive at the SQLite level — and then a six-job workflow
+permissive at the storage level — and then a six-job workflow
 with three reviewers and a `needs_revision` cycle melts down,
 and the operator concludes the tool was the problem.
 
@@ -58,7 +58,7 @@ reading as accidental.
 - **Name the framing.** Add a top-level `docs/DDD.md` that
   describes striatum's bounded context, ubiquitous language,
   aggregate roots, value objects, domain events, and the
-  CLI-as-only-write-surface invariant. This is the document a
+  daemon-method write-boundary invariant. This is the document a
   reader is pointed at when they ask *"why isn't this just a
   workflow runner with extra steps?"*
 - **Map every existing concept to a DDD pattern.** The
@@ -224,14 +224,15 @@ This is not "we happened to write events." It's the load-bearing
 shape: the runner's read model is *derived* from events; the
 SQL state is the materialized projection.
 
-#### CLI as the only write surface
+#### Daemon Methods As The Write Surface
 
-D006/D009 in DECISION_LOG name this directly. In DDD terms:
+D094/D104 supersede the original D006/D009 CLI-only framing. In DDD terms:
 
-- The runner is an *application service* whose only legal
-  invocations are CLI verbs.
-- Direct SQLite writes from outside the runner are forbidden
-  even when the file permissions allow them; they bypass the
+- The runner is an *application service* whose legal production
+  invocations are daemon methods reached through approved local clients
+  (CLI, MCP/chat tools, and the local web service).
+- Direct live-state writes from outside the daemon are forbidden
+  even when database permissions allow them; they bypass the
   invariant checks and break the model.
 - Adapters (process, supervisor, web service, MCP wrapper) all
   go through `striatum.api.invoke` and then through the same

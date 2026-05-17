@@ -1,13 +1,16 @@
 # Engram Developer Request: RFC 0044 Phase 1 Engram-side Implementation
 
-**Audience:** Engram operator AI / developer working in `~/git/engram/`
+**Audience:** Engram operator AI / developer working in `<engram-repo>`
 **Status:** Striatum-side V1 already landed (Striatum v1.35.0, dogfood-046)
+**Current-context note:** This is an external Engram follow-up handoff.
+Striatum corpus export was introduced in v1.35.0; see the current
+CHANGELOG and RFC 0057 before treating the bundle contract as final.
 **Striatum reference:** [`docs/rfcs/0044-engram-phase-1-implementation-spec.md`](docs/rfcs/0044-engram-phase-1-implementation-spec.md) (in this repo) — read this whole file first
 **Constraints:** Engram's `AGENTS.md` / `CLAUDE.md` is authoritative for changes in Engram's repo. Augmentation-not-dependency: Engram must keep working without Striatum, and Striatum must keep working without Engram.
 
 ## Context
 
-Striatum is a local-first orchestrator for terminal-based AI coding agents. It's at `~/git/striatum/` and just shipped a corpus-export verb (`striatum corpus export --since <ref> --out <dir>`) that emits a redacted JSONL bundle of Striatum's software-building corpus (RFCs, decisions, operator reports, run summaries, commits, audit-chain rows, etc.) in a format designed for Engram to ingest.
+Striatum is a local-first orchestrator for terminal-based AI coding agents. The Striatum-side corpus-export verb (`striatum corpus export --since <ref> --out <dir>`) emits a redacted JSONL bundle of Striatum's software-building corpus (RFCs, decisions, operator reports, run summaries, commits, audit-chain rows, etc.) in a format designed for Engram to ingest.
 
 The Engram half of the integration is **not implemented**. That's this request. Once it lands, an operator working in Striatum can run `striatum corpus export ...` and then `engram ingest-striatum ...` to give Engram a memory of the Striatum codebase's own evolution. The MCP server you build then lets future Striatum-operator AIs query that memory as an optional memory layer.
 
@@ -29,17 +32,17 @@ Run `striatum corpus export --since <ref> --out <dir>` on the Striatum repo. It 
 
 **Replay-stable:** Two `--since X --out Y` runs over the same commit range produce byte-identical JSONLs (other than `generated_at` in the manifest).
 
-**Redaction:** `.env`, `.env.local`, `.striatum/state.sqlite3`, `transcripts/*`, `raw_model_output/*`, `keys/private.pem`, and similar paths are denylisted. Commit messages have co-author emails and 64-char tokens scrubbed.
+**Redaction:** `.env`, `.env.local`, `.striatum/`, SQLite migration tombstones, `transcripts/*`, `raw_model_output/*`, `keys/private.pem`, and similar paths are denylisted. Commit messages have co-author emails and 64-char tokens scrubbed.
 
 **Augmentation boundary regression-pinned:** Striatum has zero `import engram` / `from engram` / `memory.*` references; `pyproject.toml` is Engram-free; a regression test (`tests/test_cli_corpus_export.py::test_no_engram_imports_or_memory_capabilities_in_striatum`) keeps it that way.
 
 ## What to build on the Engram side
 
-All paths below are inside `~/git/engram/`.
+All paths below are inside `<engram-repo>`.
 
 ### 1. New `source_kind='striatum'` in the raw evidence enum
 
-Engram already has `source_kind` enum values `chatgpt`, `claude`, `gemini`, `obsidian`, `capture`, `future` per `~/git/engram/migrations/001_raw_evidence.sql` (and follow-up migrations 003/005 added `claude`/`gemini`). Add migration `00X_source_kind_striatum.sql` that extends the enum with `'striatum'`. Same shape as the existing migrations.
+Engram already has `source_kind` enum values `chatgpt`, `claude`, `gemini`, `obsidian`, `capture`, `future` per `<engram-repo>/migrations/001_raw_evidence.sql` (and follow-up migrations 003/005 added `claude`/`gemini`). Add migration `00X_source_kind_striatum.sql` that extends the enum with `'striatum'`. Same shape as the existing migrations.
 
 ### 2. New `corpus_id` column on raw_evidence + claims (or wherever corpus separation lives)
 
@@ -61,7 +64,7 @@ engram ingest-striatum --bundle <dir> [--repo <name>]
 
 ### 4. `engram-mcp-stdio` standalone MCP server
 
-A new binary/entry-point at (suggestion) `~/git/engram/agent-runner/engram-mcp-stdio` that speaks MCP over stdio (loopback-only, zero outbound network) and exposes four **read-only** retrieval tools:
+A new binary/entry-point at (suggestion) `<engram-repo>/agent-runner/engram-mcp-stdio` that speaks MCP over stdio (loopback-only, zero outbound network) and exposes four **read-only** retrieval tools:
 
 | Tool | Args | Returns |
 |------|------|---------|
@@ -100,11 +103,11 @@ Pin the boundary with an Engram-side regression test analogous to Striatum's: `g
 
 ```bash
 # In Striatum repo
-cd ~/git/striatum
+cd <striatum-repo>
 .venv/bin/striatum corpus export --since v1.30.0 --out /tmp/striatum-bundle
 
 # In Engram repo
-cd ~/git/engram
+cd <engram-repo>
 ./run-migrations.sh   # or however you apply migrations
 .venv/bin/engram ingest-striatum --bundle /tmp/striatum-bundle --repo striatum
 .venv/bin/engram describe-corpus striatum

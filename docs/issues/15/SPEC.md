@@ -1,3 +1,8 @@
+Current status (2026-05-17): GH #15 is historical context. RFC 0048
+completed in v1.55.0, and current operator-facing docs should describe
+daemon-owned PostgreSQL as the production live-state substrate with
+repo-local SQLite limited to migration sources, tombstones, and fixtures.
+The issue body below is preserved verbatim as the original report.
 
     # GH #15 -- Docs: clarify PostgreSQL transition guidance
 

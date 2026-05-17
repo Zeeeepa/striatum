@@ -1,7 +1,7 @@
 # RFC 0054 — Day-zero "How to use Striatum" guide
 
-**Status:** proposed (scaffold only — doc lands in Phase A)
-**Scope:** V1.7 documentation
+**Status:** proposed (Phase A shipped)
+**Scope:** V1.7 documentation; Phase A added `docs/USING_STRIATUM.md`
 **Composes with:** RFC 0053 (human principal as escalation-only role +
 AI operator as default driver), RFC 0055 (marketing-friendly README +
 architecture graphics), RFC 0056 (consumer-repo directory-structure

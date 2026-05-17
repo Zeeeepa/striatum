@@ -13,6 +13,13 @@ The V1 surface that has shipped covers the Seed Requirements below. Engram
 is the reference customer and first validation fixture; the runner itself is
 generic. Remaining product work is tracked in `docs/TODO.md`.
 
+Current status note (2026-05-17): the seed decisions below preserve the
+product framing that led to V1, but several substrate/interface decisions
+have been superseded by D094 and D104. Current Striatum live state is
+daemon-owned PostgreSQL scoped per registered target repository; `.striatum/`
+is operational scratch; CLI, MCP/chat tools, and the local web service are
+clients of the daemon boundary.
+
 Accepted foundation:
 
 - D001: Start with a PRD backed by a decision log. Use RFCs for contested
@@ -110,13 +117,15 @@ message bus.
 - Keep agents introspectable through tmux.
 - Consider a TUI dashboard first and a web dashboard with chat later.
 - Provide a lightweight local message bus for agent/coordinator communication.
-- Use SQLite for local live state: runs, jobs, messages, events, verdicts,
-  process metadata, and artifact references.
-- Store local state under `.striatum/` in the target repo by default.
+- Use daemon-owned PostgreSQL for local live state: runs, jobs, messages,
+  events, verdicts, process metadata, and artifact references.
+- Store operational scratch under `.striatum/` in the target repo by
+  default; repository files remain durable provenance.
 - Provide queue semantics for work delivery, acknowledgements, leases, retries,
   blockers, and completion signals.
-- Provide a binary/CLI control surface that agents use to mutate orchestration
-  state instead of writing SQLite directly.
+- Provide daemon method clients (CLI, MCP/chat tools, and local web service)
+  that agents use to mutate orchestration state instead of writing live state
+  directly.
 - Require agent/session identity for queue claims and job-state mutations.
 - Provide human-readable agent session slugs for dashboards and tmux, while
   preserving stable internal session ids.
@@ -152,9 +161,9 @@ message bus.
 V1 satisfies the Seed Requirements above through the surface documented in
 `docs/SPEC.md` and `README.md`:
 
-- Repo-local SQLite state under `.striatum/state.sqlite3` with a
-  forward-only migration system (`PRAGMA user_version`); a database newer
-  than the runner exits with code 9.
+- Current live state in daemon-owned PostgreSQL scoped per registered target
+  repository, with `.striatum/` retained as operational scratch and
+  pre-D094 SQLite only as migration/tombstone/fixture material.
 - JSON workflow validation, snapshots, dry-run planning, Mermaid/JSON graph
   export, and `workflow init` starter trees (`minimal`, `review`,
   `code-change`).

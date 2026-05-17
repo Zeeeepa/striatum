@@ -6,7 +6,8 @@ Scope: redesign of the local web UI (`striatum serve --web`) and the
        terminal dashboard (`striatum dashboard`) for operator-driven runs.
 Source of truth: `docs/SPEC.md`, `docs/UBIQUITOUS_LANGUAGE.md`,
        `docs/DECISION_LOG.md`, RFCs 0013/0022/0023/0024/0026/0029/0037/0038/0040,
-       the live schema (`src/striatum/schema.py`), the live templates under
+       the daemon PostgreSQL schema/migrations under `src/striatum/daemon_pg/`,
+       the live templates under
        `src/striatum/web/templates/`, and the V1.41 / V1.42 burn-down recorded
        in `CHANGELOG.md`.
 
@@ -50,10 +51,11 @@ information layout, a recovery-first run-detail page, and parity with
   supervised child's stdout/stderr, must not stream a `--verbose-log`
   side channel by default. The process-adapter diagnostic envelope
   (`blockers.payload_json`) is the only legitimate post-exit detail.
-- **No externalized live state.** `.striatum/state.sqlite3` is the live
-  authority (D006/D007/D009). Templates and islands read the existing
-  HTTP API; they do not synthesize their own state machines, do not
-  cache run state across navigations, and do not write SQLite directly.
+- **No externalized live state.** The daemon-owned PostgreSQL repository
+  scope is the live authority (D094 / RFC 0043). Templates and islands
+  read the existing HTTP/API surface; they do not synthesize their own
+  state machines, do not cache run state across navigations, and do not
+  write live state directly.
 - **No verdict laundering.** An override verdict (`verdicts.source =
   'operator_override'`) must always render the operator's rationale
   beside the verdict pill; it must never visually substitute for the

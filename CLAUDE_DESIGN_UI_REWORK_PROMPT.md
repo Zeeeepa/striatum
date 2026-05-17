@@ -1,6 +1,7 @@
 # Claude Design Prompt: Striatum UI Rework
 
-You are Claude Design working on `/home/halbritt/git/striatum`. Your job is
+You are Claude Design working on `<striatum-repo>` (for example
+`~/git/striatum`). Your job is
 to produce an implementation-ready UI redesign handoff for Codex implementers.
 Do not implement code in this pass.
 
@@ -42,8 +43,9 @@ tests that describe operator flows.
 Redesign the Striatum operator UI around the current product direction:
 a local-first orchestration runner for terminal-based AI coding agents
 that drives multi-lane workflows (designer → synth → reviewer → builder
-→ build-review) over a target repository, with `.striatum/state.sqlite3`
-as the authoritative live state. The design must help an operator drive
+→ build-review) over a target repository, with daemon-owned PostgreSQL
+as authoritative live state and `.striatum/` as operational scratch. The
+design must help an operator drive
 runs through claim → ack → publish → complete, triage stale leases and
 checkpoints, override verdicts, inspect artifacts and audit chains, and
 recover process-adapter failures — without implying unsupported
@@ -76,8 +78,8 @@ behavior, and acceptance checks over broad visual direction.
   attestation chip, verdict provenance chip, posture chip) should be
   recognisable across both surfaces, even though the renderers differ.
 - Do not require new backend capabilities unless you explicitly label
-  them as future/backlog. The runner is the only writer of state
-  (D006/D009); UI changes must not introduce new writers or new
+  them as future/backlog. The daemon is the only writer of live state
+  (D094/D104); UI changes must not introduce new writers or new
   state machines.
 - Do not capture stdout/stderr transcripts (D028). UI must never propose
   a "live terminal output" panel that mirrors a supervised process.

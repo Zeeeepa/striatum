@@ -104,7 +104,8 @@ Context:
 Striatum's current adapter model intentionally starts from the minimum
 portable process contract: command, cwd, environment, stdin, stdout, stderr,
 exit code, and optional PTY. That boundary keeps the runner generic and
-protects SQLite as the authoritative workflow state.
+protects the daemon-owned PostgreSQL workflow state from provider-specific
+hooks.
 
 The leading terminal-agent tools are moving faster than the common process
 contract. Claude Code exposes custom sub-agents and experimental agent teams.

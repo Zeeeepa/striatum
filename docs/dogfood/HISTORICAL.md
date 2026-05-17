@@ -11,7 +11,9 @@
 > Read the runs here only when you need to understand a
 > specific historical pattern or harness friction; do not copy
 > their workflow shape into a new dogfood without checking a
-> recent run (e.g. run 020) first.
+> recent run and the current `docs/TODO.md` / `docs/rfcs/README.md`
+> entries first. Older runs may mention SQLite and direct mode; current
+> runs require daemon-owned PostgreSQL.
 
 The dogfood runs collected here are the incubation history of
 striatum-on-striatum work between RFC 0001 and the v1.0.0 line.
@@ -41,11 +43,11 @@ Use the skill at /path/to/striatum/docs/dogfood/001/SKILL.md to
 start and drive dogfood-001.
 ```
 
-Starting a dogfood run does not launch an interactive orchestrator
-chat. The runner creates SQLite workflow state, makes jobs
-claimable, and can supervise an agent process. Humans drive the
-run with `striatum` commands and watch it through `dashboard`,
-`status`, `why`, and the artifacts the agents publish.
+In this historical run, starting a dogfood created SQLite workflow
+state. Current dogfood runs use daemon-owned PostgreSQL as live state,
+make jobs claimable through daemon RPC, and can supervise agent
+processes. Operators watch them through `dashboard`, `status`, `why`,
+and the artifacts agents publish.
 
 ## Dogfood 003 — RFC 0010 V1 (tool harness profiles)
 

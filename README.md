@@ -3,7 +3,7 @@
 **A local workflow runner for terminal-based AI coding agents.** Coordinates Codex / Claude Code / Gemini CLI sessions across draft → review → repair → synthesize loops, with audit-chain provenance for every decision and no hosted coordinator.
 
 - **Local-first.** All workflow state lives in a daemon-owned PostgreSQL you control. No outbound calls, no transcript capture, no telemetry. The runner itself never imports a model vendor.
-- **Multi-lane reviews.** Run N implementers in parallel and route their outputs through deterministic review cycles. The vocabulary in [`docs/UBIQUITOUS_LANGUAGE.md`](docs/UBIQUITOUS_LANGUAGE.md) is the model; CLI verbs are the only legal state mutations.
+- **Multi-lane reviews.** Run N implementers in parallel and route their outputs through deterministic review cycles. The vocabulary in [`docs/UBIQUITOUS_LANGUAGE.md`](docs/UBIQUITOUS_LANGUAGE.md) is the model; daemon RPC methods are the state-mutation boundary, with CLI/MCP/web surfaces acting as clients.
 - **Audit chain.** Every event and audit row carries a SHA-256 anchor chained to its predecessor. The chain is per-repository for events, daemon-global for the RPC audit log; `daemon doctor` verifies both.
 - **Provider portability.** Wrap any model whose runtime is a command. Add a lane to a workflow; the rest of the system doesn't change.
 - **Replayable evidence.** `corpus export` produces a redacted JSONL bundle with stable hashes — share what happened without sharing live state.
@@ -53,8 +53,11 @@ The [day-zero usage guide](docs/USING_STRIATUM.md) walks new arrivals through bo
 ```bash
 pip install striatum-orchestrator
 
-# Bring up the daemon (Postgres prerequisite — see docs/POSTGRES_TRANSITION.md).
+# Check/provision the daemon's Postgres substrate.
 striatum daemon doctor --apply-migrations
+
+# Start the daemon in a separate terminal and keep it running.
+striatum daemon start
 
 # Register a target repo and install the operator skill bundle.
 TARGET_REPO=/path/to/your/repo
@@ -89,7 +92,7 @@ Three problems the runner is built around:
 - **Platforms**: Linux + macOS. Python 3.11+. Postgres 14+ (system install).
 - **PyPI**: `striatum-orchestrator` (the bare `striatum` package on PyPI is unrelated). Python module name is `striatum`.
 - **License**: Apache-2.0.
-- **RFCs**: [`docs/rfcs/README.md`](docs/rfcs/README.md). RFC 0048 (substrate port to PG-native daemon handlers) completed in v1.55.0. Active RFC work: RFC 0050 operator UI rework, RFC 0058 target-repo adoption.
+- **RFCs**: [`docs/rfcs/README.md`](docs/rfcs/README.md). RFC 0048 (substrate port to PG-native daemon handlers) completed in v1.55.0. Active work is tracked in [`docs/TODO.md`](docs/TODO.md) and [`docs/ROADMAP.md`](docs/ROADMAP.md).
 - **Contributions**: follow [`AGENTS.md`](AGENTS.md). Make changes through the dogfood workflow when the change is RFC-class; cowboy commits are fine for small bugs and docs.
 
 ## Install from source

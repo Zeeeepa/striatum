@@ -7,7 +7,7 @@ from _harness.multi_repo import MultiRepoHarness
 pytestmark = pytest.mark.multi_repo
 
 
-def test_repo_scoped_write_token_allows_repo_a_write_and_audits_allowed(
+def test_repo_scoped_write_token_authorizes_repo_a_write_and_audits_allowed(
     multi_repo_harness: MultiRepoHarness,
     clean_daemon_db: None,
 ) -> None:
@@ -18,11 +18,14 @@ def test_repo_scoped_write_token_allows_repo_a_write_and_audits_allowed(
     result = harness.mcp_client(token, repo_index=0).call_tool(
         "dogfood.publish_on_behalf",
         repository_id=str(harness.repos[0].repository_id),
+        arguments={"reason": "capability scope smoke"},
     )
 
-    assert result["isError"] is False
+    assert result["isError"] is True
+    assert result["structuredContent"]["error"] == "no_active_lease"
     row = harness.audit_rows(transport="mcp")[-1]
     assert row["decision"] == "allowed"
+    assert row["denial_reason"] is None
     assert row["method"] == "dogfood.publish_on_behalf"
 
 

@@ -2,9 +2,9 @@
 
 A first-time reader of striatum can come to the wrong conclusion about
 why it works. The CLI surface looks like "a workflow runner with a
-SQLite state file and verdicts." Most operators have seen ten of
+daemon, a database, and verdicts." Most operators have seen ten of
 those. They look at striatum, see familiar parts, and ask: *"what's
-the magic?"*
+load-bearing?"*
 
 If they conclude there isn't any, they will work *around* the
 vocabulary instead of *with* it: marker files used as state, prose
@@ -18,7 +18,8 @@ concludes the tool was the problem.
 The actual answer is that striatum is a **domain-driven design** of
 workflow orchestration. The vocabulary in
 [`UBIQUITOUS_LANGUAGE.md`](UBIQUITOUS_LANGUAGE.md) is the *model*.
-The CLI verbs are the model's only legal mutators. The schemas
+Daemon RPC methods are the model's state-mutation boundary; CLI,
+MCP, and web surfaces are clients of that boundary. The schemas
 (workflow, work packet, artifact front matter) are the model's
 grammar. The boundary decisions in
 [`DECISION_LOG.md`](DECISION_LOG.md) (D006, D009, D020, D028) are
@@ -51,11 +52,11 @@ What striatum deliberately does **not** model:
 - The user's intent. The runner records decisions; it does not infer
   them.
 
-The boundary is visible in the CLI surface: every legal mutation
-passes through `striatum <verb>`, and every refusal returns a stable
-exit code (3-9). If a feature wants to live outside that boundary
-(telemetry, hosted service, transcript capture, automatic commits),
-it lives outside striatum.
+The boundary is visible in the client surfaces: every production
+mutation passes through a daemon-owned method and every refusal
+returns a stable error code. If a feature wants to live outside that
+boundary (telemetry, hosted service, transcript capture, automatic
+commits), it lives outside striatum.
 
 ## Ubiquitous language
 
@@ -78,8 +79,9 @@ glossary. Three things to internalize:
 
 ## Aggregate roots
 
-Each row maps to an existing SQLite table; the runner enforces the
-listed invariants atomically inside a `BEGIN IMMEDIATE` transaction.
+Each row maps to a daemon-owned PostgreSQL table under the run's
+`repository_id` scope; the runner enforces the listed invariants
+inside short transactional daemon handlers.
 
 | Aggregate | Table | Identity | Invariants the runner enforces |
 |---|---|---|---|
@@ -125,18 +127,19 @@ This is not "we happened to write events." It's the load-bearing
 shape: the runner's read model is *derived* from events; the SQL
 state is the materialized projection.
 
-## CLI as the only write surface
+## Daemon Methods As The Write Surface
 
 D006/D009 in DECISION_LOG name this directly. In DDD terms:
 
-- The runner is an *application service* whose only legal
-  invocations are CLI verbs.
-- Direct SQLite writes from outside the runner are forbidden even
-  when the file permissions allow them; they bypass the invariant
-  checks and break the model.
-- Adapters (process, supervisor, web service, MCP wrapper) all go
-  through `striatum.api.invoke` and then through the same CLI
-  dispatch. There is one write path.
+- The runner is an *application service* whose production mutations
+  are daemon RPC methods.
+- Direct database writes from outside the daemon are forbidden even
+  when the file permissions or local Postgres role allow them; they
+  bypass the invariant checks and break the model.
+- CLI, MCP, web, process-adapter, and supervisor surfaces all route
+  state changes through the same daemon-owned method vocabulary.
+  Local file-authoring helpers such as `workflow validate` and
+  `workflow graph` do not mutate live workflow state.
 
 This is what makes the vocabulary load-bearing: a reviewer cannot
 return `looks good` because the CLI doesn't accept that. The
@@ -166,9 +169,9 @@ Concrete recent examples:
   validator rule, packet exposure.
 - RFC 0015 added `skill bundle` and `skills manifest` (value
   objects) — glossary, install path, doctor checks.
-- RFC 0018 (proposed) adds `review posture` (value object) and
+- RFC 0018 added `review posture` (value object) and
   `required_review_postures` (build-job invariant) — glossary,
-  validator rule, packet exposure, completion gate.
+  validator rule, packet exposure, verdict recording, and introspection.
 - RFC 0020 V1 added `recovery_policy` and `sweep envelope` (value
   objects) — validator rule, sweep dispatcher, doctor surface.
 

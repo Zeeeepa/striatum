@@ -9,8 +9,8 @@ Striatum is a local-first orchestration tool. The MCP-like wrapper is a small
 stdio JSON-RPC adapter over the same daemon-mediated command surface as the
 CLI; it is not a second control plane and does not write live state directly.
 
-The CLI remains the product contract. The wrapper only gives local tools a
-structured stdio surface for the same commands.
+The daemon method contract remains the product boundary. The CLI and
+the wrapper are local clients over that same audited command surface.
 
 ## Architecture
 
@@ -207,27 +207,20 @@ Example:
 
 ## Boundary
 
-The wrapper deliberately avoids hosted services, sockets, telemetry,
-transcript capture, external persistence, and direct SQLite writes. It is a
-local adapter over the existing CLI/API semantics.
+The wrapper deliberately avoids hosted services, network listening sockets,
+telemetry, transcript capture, external persistence, and direct database
+writes. It is a local adapter over the existing CLI/API semantics.
 
 ## Daemon MCP Surface
 
-RFC 0028 V1 adds a separate MCP handler for the optional local
-multi-repo registry. It is resources-only in V1: `tools/list` returns an
-empty list, `tools/call` has no mutation route, and `striatum/invoke` is
-not part of the daemon MCP surface. The handler opens the owner-only
-registry SQLite directly; it does not connect to a daemon RPC server in
-V1.
-
-RFC 0033 V2 changes the daemon-owned storage substrate, and RFC 0030/0031
-add the daemon RPC/supervision/apply foundation on top of it. RFC 0032
-adds the daemon MCP mutation foundation when the PostgreSQL daemon
-substrate is active. Mutation tools are generated from the daemon RPC
-method registry, filtered by the caller's effective capability/scope, and
-re-authorized on every `tools/call`. Denied calls append metadata-only
-audit/request-log rows with `transport = "mcp"`. There is no MCP-specific
-trust shortcut and no daemon-MCP equivalent of `serve --allow-mutations`.
+Daemon MCP is a daemon RPC client surface over the daemon-owned
+PostgreSQL substrate. It is not the old resources-only registry handler:
+`tools/list` returns the caller's effective method-registry tools,
+`tools/call` dispatches through daemon RPC, and every call is
+re-authorized under the provided token and repository scope. Denied calls
+append metadata-only audit/request-log rows with `transport = "mcp"`.
+There is no MCP-specific trust shortcut and no daemon-MCP equivalent of
+`serve --allow-mutations`.
 
 Daemon resources:
 
@@ -250,13 +243,9 @@ implicitly applied to MCP clients. `striatum://daemon/audit` is
 intentionally absent in V1; audit is available only through daemon admin
 CLI registry surfaces.
 
-When the RFC 0033 V2 substrate is active, daemon MCP resources read from
-the daemon DB instead of the V1 registry SQLite. The authorization and
-resources-only boundaries above remain the same unless a later accepted
-RFC changes them.
-
 Daemon MCP mutation capabilities use the closed RFC 0032 vocabulary:
-`read`, `write`, `review`, `claim`, `apply`, `admin`, and `recovery`.
+`read`, `write`, `review`, `claim`, `apply`, `admin`, `recovery`, and
+`surgical_recovery`.
 `tools/list` returns the effective tool set: method registry entries
 intersected with the token's grants and repository scope. `tools/call`
 fails closed for unknown methods, missing tokens, revoked/expired tokens,
