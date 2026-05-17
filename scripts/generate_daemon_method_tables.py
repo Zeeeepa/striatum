@@ -12,67 +12,6 @@ from dataclasses import dataclass
 from typing import Any
 
 
-CLI_ROUTE_SAMPLES: tuple[tuple[str, str | None], ...] = (
-    ("status", None),
-    ("why", None),
-    ("doctor", None),
-    ("dashboard", None),
-    ("list", "runs"),
-    ("list", "sessions"),
-    ("list", "jobs"),
-    ("list", "artifacts"),
-    ("list", "workflows"),
-    ("run", "prepare"),
-    ("run", "start"),
-    ("run", "pause"),
-    ("run", "resume"),
-    ("run", "cancel"),
-    ("run", "retry-job"),
-    ("run", "summary"),
-    ("run", "graph"),
-    ("register-session", None),
-    ("session", "close"),
-    ("claim-next", None),
-    ("ack", None),
-    ("heartbeat", None),
-    ("release", None),
-    ("send", None),
-    ("block", None),
-    ("complete", None),
-    ("publish-artifact", None),
-    ("verdict", None),
-    ("submit-review", None),
-    ("override-verdict", None),
-    ("recovery", "stale-leases"),
-    ("recovery", "requeue-stale"),
-    ("recovery", "cancel-job"),
-    ("recovery", "process-reconcile"),
-    ("recovery", "resume"),
-    ("recovery", "auto"),
-    ("recovery", "auto-publish"),
-    ("recovery", "auto-finalize"),
-    ("recovery", "watch"),
-    ("evidence", "export"),
-    ("corpus", "export"),
-    ("archive", "create"),
-    ("decision", "record"),
-    ("checkpoint", "resolve"),
-    ("inbox", None),
-    ("escalation", "list"),
-    ("escalation", "show"),
-    ("escalation", "resolve"),
-    ("branch", "confirm"),
-    ("worktree", "create"),
-    ("worktree", "release"),
-    ("worktree", "list"),
-    ("supervise", "start"),
-    ("supervise", "send"),
-    ("supervise", "stop"),
-    ("supervise", "status"),
-    ("supervise", "list"),
-)
-
-
 @dataclass(frozen=True)
 class MethodContract:
     method: str
@@ -82,6 +21,14 @@ class MethodContract:
     audit_class: str
     min_envelope: int
     deprecated: bool
+
+
+@dataclass(frozen=True)
+class CliRouteContract:
+    command: str
+    subcommand: str | None
+    method: str
+    params: str
 
 
 def main() -> int:
@@ -95,13 +42,14 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    repo_root = pathlib.Path(__file__).resolve().parents[1]
     contract_path = pathlib.Path(args.contract)
     output_path = pathlib.Path(args.out)
-    methods = load_contract(contract_path)
+    payload = load_contract_payload(contract_path)
+    methods = load_contract(payload)
+    cli_routes = load_cli_routes(payload, methods)
     rendered = render_markdown(
         methods,
-        cli_routes=load_cli_routes(repo_root, methods),
+        cli_routes=cli_routes,
         source=contract_path.as_posix(),
     )
 
@@ -127,9 +75,15 @@ def main() -> int:
     return 0
 
 
-def load_contract(path: pathlib.Path) -> list[MethodContract]:
+def load_contract_payload(path: pathlib.Path) -> dict[str, Any]:
     raw = json.loads(path.read_text(encoding="utf-8"))
-    raw_methods = raw.get("methods") if isinstance(raw, dict) else raw
+    if not isinstance(raw, dict):
+        raise ValueError("daemon method contract must be a JSON object")
+    return raw
+
+
+def load_contract(raw: dict[str, Any]) -> list[MethodContract]:
+    raw_methods = raw.get("methods")
     if not isinstance(raw_methods, list):
         raise ValueError("daemon method contract must contain a 'methods' list")
 
@@ -195,26 +149,34 @@ class CliRoute:
     repository_scope_mode: str
 
 
-def load_cli_routes(repo_root: pathlib.Path, methods: list[MethodContract]) -> list[CliRoute]:
-    sys.path.insert(0, str(repo_root / "src"))
-    from striatum.cli.daemon_rpc_route import _LOOKUP  # noqa: PLC0415
-
+def load_cli_routes(raw: dict[str, Any], methods: list[MethodContract]) -> list[CliRoute]:
+    raw_routes = raw.get("cli_routes")
+    if not isinstance(raw_routes, list):
+        raise ValueError("daemon method contract must contain a 'cli_routes' list")
     by_method = {method.method: method for method in methods}
     routes: list[CliRoute] = []
-    for command, subcommand in CLI_ROUTE_SAMPLES:
-        translator = _LOOKUP.get((command, subcommand)) or _LOOKUP.get((command, None))
-        if translator is None:
-            raise ValueError(f"CLI route sample has no translator: {command} {subcommand}")
-        method_name, _params = translator(_args_for_route(command, subcommand), repo_root)
+    seen: set[tuple[str, str | None]] = set()
+    for index, route in enumerate(raw_routes):
+        if not isinstance(route, dict):
+            raise ValueError(f"contract cli_routes[{index}] must be an object")
+        route_contract = _cli_route_contract(route, index)
+        key = (route_contract.command, route_contract.subcommand)
+        if key in seen:
+            raise ValueError(
+                f"duplicate CLI route in contract: "
+                f"{format_command(route_contract.command, route_contract.subcommand)}"
+            )
+        seen.add(key)
+        method_name = route_contract.method
         contract = by_method.get(method_name)
         if contract is None:
             raise ValueError(
-                f"CLI route {format_command(command, subcommand)!r} emits "
+                f"CLI route {format_command(route_contract.command, route_contract.subcommand)!r} emits "
                 f"unregistered method {method_name!r}"
             )
         routes.append(
             CliRoute(
-                command=format_command(command, subcommand),
+                command=format_command(route_contract.command, route_contract.subcommand),
                 method=method_name,
                 required_capability=contract.required_capability,
                 repository_scope_mode=contract.repository_scope_mode,
@@ -223,90 +185,32 @@ def load_cli_routes(repo_root: pathlib.Path, methods: list[MethodContract]) -> l
     return routes
 
 
-def _args_for_route(command: str, subcommand: str | None) -> argparse.Namespace:
-    return argparse.Namespace(
+def _cli_route_contract(route: dict[str, Any], index: int) -> CliRouteContract:
+    fields = set(route)
+    expected = {"command", "subcommand", "method", "params"}
+    if fields != expected:
+        missing = sorted(expected - fields)
+        unexpected = sorted(fields - expected)
+        details: list[str] = []
+        if missing:
+            details.append("missing " + ", ".join(missing))
+        if unexpected:
+            details.append("unexpected " + ", ".join(unexpected))
+        raise ValueError(
+            f"contract cli_routes[{index}] has invalid fields: "
+            + "; ".join(details)
+        )
+    command = _required_str(route, "command", f"cli_routes[{index}]")
+    subcommand_value = route["subcommand"]
+    if subcommand_value is not None and not isinstance(subcommand_value, str):
+        raise ValueError(f"cli_routes[{index}]: subcommand must be a string or null")
+    method = _required_str(route, "method", f"cli_routes[{index}]")
+    params = _required_str(route, "params", f"cli_routes[{index}]")
+    return CliRouteContract(
         command=command,
-        run_command=subcommand if command == "run" else None,
-        workflow_command=subcommand if command == "workflow" else None,
-        list_command=subcommand if command == "list" else None,
-        recovery_command=subcommand if command == "recovery" else None,
-        evidence_command=subcommand if command == "evidence" else None,
-        corpus_command=subcommand if command == "corpus" else None,
-        archive_command=subcommand if command == "archive" else None,
-        decision_command=subcommand if command == "decision" else None,
-        checkpoint_command=subcommand if command == "checkpoint" else None,
-        escalation_command=subcommand if command == "escalation" else None,
-        branch_command=subcommand if command == "branch" else None,
-        session_command=subcommand if command == "session" else None,
-        worktree_command=subcommand if command == "worktree" else None,
-        supervise_command=subcommand if command == "supervise" else None,
-        cross_repo_command=subcommand if command == "cross-repo" else None,
-        id="target_1",
-        run_id="run_1",
-        job_id="job_1",
-        session_id="sess_1",
-        lease_id="lease_1",
-        message_id="msg_1",
-        workflow="workflow.yaml",
-        role="worker",
-        lane="codex",
-        fresh=True,
-        capability=["read"],
-        parent_session_id=None,
-        operator_label=None,
-        force_non_fresh=False,
-        lease_seconds=600,
-        extend_seconds=600,
-        kind="note",
-        body_json="{}",
-        severity="blocked",
-        description="blocked on dependency",
-        summary="done",
-        logical_name="artifact",
-        path="docs/out.md",
-        verdict="accept",
-        findings_artifact_id=None,
-        rationale="reviewed",
-        allow_no_process_execution=False,
-        override_rationale=None,
-        auto_fresh_session=False,
-        state="running",
-        workflow_job_id="job_a",
-        limit=10,
-        format="json",
-        graph_orient="tb",
-        graph_style="layered",
-        reason="operator requested",
-        cascade=False,
-        force=False,
-        justification=None,
-        blocker_id="blocker_1",
-        escalation_id="esc_1",
-        resolution_note="resolved by principal",
-        complete=False,
-        dry_run=True,
-        autonomous_review_requeue=True,
-        autonomous_process_reconcile=True,
-        max_requeues_per_sweep=1,
-        checkpoint_timeout_seconds=60,
-        eligible_after_seconds=30,
-        interval_seconds=5,
-        exit_on_terminal=True,
-        max_sweeps=1,
-        mtime_grace_seconds=30,
-        since="HEAD~1",
-        out="tmp/export",
-        title="Decision",
-        outcome="accepted",
-        decision_id="decision_1",
-        follow_up=None,
-        action="continue",
-        branch="work/branch",
-        create=False,
-        use_current=False,
-        strict=False,
-        worktree_id="worktree_1",
-        packet_id="packet_1",
+        subcommand=subcommand_value,
+        method=method,
+        params=params,
     )
 
 

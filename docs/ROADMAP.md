@@ -283,7 +283,7 @@ fallback path.
 
 ---
 
-### 4.6 🟡 partially completed — Architecture remediation Phase 2: daemon method contract source
+### 4.6 ✅ completed — Architecture remediation Phase 2: daemon method contract source
 
 **Updates:** [TODO item 50](TODO.md).
 
@@ -304,12 +304,11 @@ fallback path.
   hand-written in `mcp.py`.
 - `scripts/generate_daemon_method_tables.py` renders
   `docs/architecture/DAEMON_METHOD_TABLES.md` from the daemon method
-  contract and the current CLI translator, with `--check` coverage to catch
-  checked-in documentation drift.
-
-**Remaining Phase 2 debt:** replace runtime CLI route translation with a
-generated/declarative contract-derived map instead of only checking the current
-hand-written translator through generated documentation.
+  contract, with `--check` coverage to catch checked-in documentation drift.
+- The runtime CLI command-to-RPC route map is now declared in the contract's
+  `cli_routes` section and loaded by `src/striatum/cli/daemon_rpc_route.py`;
+  that module retains only CLI-local parameter extraction. Focused tests keep
+  workflow authoring CLI-local and catch route/contract drift.
 
 ---
 

@@ -6,27 +6,41 @@ registered RPC method AND the daemon is reachable, the call routes
 through ``DaemonRpcRouter`` (which uses the PG-backed handlers from
 RFC 0048 V1 Phase A) instead of the in-process SQLite path.
 
-The hook in :func:`try_route` returns ``None`` to fall through to legacy
-SQLite dispatch when no RPC mapping exists. That keeps the bootstrap
-verbs (``init``, ``skills``, ``plugin``, ``daemon``, ``repo``,
-``serve``, ``byline``) and other unported surfaces working unchanged.
+The command-to-method table is declared in ``contracts/daemon_methods.json``
+under ``cli_routes``. This module owns only CLI-local parameter extraction.
+The hook in :func:`try_route` returns ``None`` to fall through when no RPC
+mapping exists, which keeps bootstrap/admin and workflow-authoring surfaces
+CLI-local.
 """
 
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import socket
 import uuid
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Mapping
+from typing import Any, Callable, Mapping, cast
 
 from striatum.cli.daemon_required import daemon_socket_is_reachable, resolve_socket_path
 from striatum.daemon_rpc.client import hello_envelope
 from striatum.daemon_rpc.envelope import RpcEnvelope, RpcError
-from striatum.daemon_rpc.registry import METHOD_REGISTRY
+from striatum.daemon_rpc.registry import CONTRACT_PATH, METHOD_REGISTRY
 from striatum.db import json_loads
 from striatum.errors import StriatumError
+
+ParamBuilder = Callable[[argparse.Namespace, Path], dict[str, Any]]
+RouteTranslator = Callable[[argparse.Namespace, Path], tuple[str, dict[str, Any]]]
+
+
+@dataclass(frozen=True)
+class _CliRouteContract:
+    command: str
+    subcommand: str | None
+    method: str
+    params: str
 
 
 def try_route(args: argparse.Namespace, repo: Path) -> tuple[bool, Any]:
@@ -197,32 +211,30 @@ def _lookup_repository_id(repo: Path) -> str | None:
 # Daemon RPC params keys follow RFC 0030 envelope convention.
 
 
-def _route_status(args: argparse.Namespace, repo: Path) -> tuple[str, dict[str, Any]]:
+def _params_status(args: argparse.Namespace, repo: Path) -> dict[str, Any]:
     params: dict[str, Any] = {}
     if getattr(args, "run_id", None):
         params["run_id"] = args.run_id
-    return ("status", params)
+    return params
 
 
-def _route_why(args: argparse.Namespace, repo: Path) -> tuple[str, dict[str, Any]]:
-    return ("why", {"target_id": args.id})
+def _params_why(args: argparse.Namespace, repo: Path) -> dict[str, Any]:
+    return {"target_id": args.id}
 
 
-def _route_doctor(args: argparse.Namespace, repo: Path) -> tuple[str, dict[str, Any]]:
-    return ("doctor", {"verbose": bool(getattr(args, "verbose", False))})
+def _params_doctor(args: argparse.Namespace, repo: Path) -> dict[str, Any]:
+    return {"verbose": bool(getattr(args, "verbose", False))}
 
 
-def _route_dashboard(args: argparse.Namespace, repo: Path) -> tuple[str, dict[str, Any]]:
-    return ("dashboard", {"run_id": getattr(args, "run_id", None)})
+def _params_dashboard(args: argparse.Namespace, repo: Path) -> dict[str, Any]:
+    return {"run_id": getattr(args, "run_id", None)}
 
 
-def _route_list(args: argparse.Namespace, repo: Path) -> tuple[str, dict[str, Any]]:
-    sub = getattr(args, "list_command", None) or "runs"
-    params = _selected_params(
+def _params_list(args: argparse.Namespace, repo: Path) -> dict[str, Any]:
+    return _selected_params(
         args,
         ("run_id", "state", "role", "lane", "workflow_job_id", "kind", "limit"),
     )
-    return (f"list.{sub}", params)
 
 
 def _selected_params(args: argparse.Namespace, names: tuple[str, ...]) -> dict[str, Any]:
@@ -234,47 +246,44 @@ def _selected_params(args: argparse.Namespace, names: tuple[str, ...]) -> dict[s
     return params
 
 
-def _route_run_prepare(args: argparse.Namespace, repo: Path) -> tuple[str, dict[str, Any]]:
-    return ("run.prepare", {"workflow": args.workflow})
+def _params_run_prepare(args: argparse.Namespace, repo: Path) -> dict[str, Any]:
+    return {"workflow": args.workflow}
 
 
-def _route_run_start(args: argparse.Namespace, repo: Path) -> tuple[str, dict[str, Any]]:
-    return ("run.start", {"run_id": args.run_id})
+def _params_run_start(args: argparse.Namespace, repo: Path) -> dict[str, Any]:
+    return {"run_id": args.run_id}
 
 
-def _route_run_pause(args: argparse.Namespace, repo: Path) -> tuple[str, dict[str, Any]]:
-    return ("run.pause", {"run_id": args.run_id, "reason": getattr(args, "reason", "")})
+def _params_run_pause(args: argparse.Namespace, repo: Path) -> dict[str, Any]:
+    return {"run_id": args.run_id, "reason": getattr(args, "reason", "")}
 
 
-def _route_run_resume(args: argparse.Namespace, repo: Path) -> tuple[str, dict[str, Any]]:
-    return ("run.resume", {"run_id": args.run_id})
+def _params_run_resume(args: argparse.Namespace, repo: Path) -> dict[str, Any]:
+    return {"run_id": args.run_id}
 
 
-def _route_run_cancel(args: argparse.Namespace, repo: Path) -> tuple[str, dict[str, Any]]:
-    return ("run.cancel", {"run_id": args.run_id, "reason": getattr(args, "reason", "")})
+def _params_run_cancel(args: argparse.Namespace, repo: Path) -> dict[str, Any]:
+    return {"run_id": args.run_id, "reason": getattr(args, "reason", "")}
 
 
-def _route_run_retry_job(args: argparse.Namespace, repo: Path) -> tuple[str, dict[str, Any]]:
-    return ("run.retry_job", {"run_id": args.run_id, "job_id": args.job_id})
+def _params_run_retry_job(args: argparse.Namespace, repo: Path) -> dict[str, Any]:
+    return {"run_id": args.run_id, "job_id": args.job_id}
 
 
-def _route_run_summary(args: argparse.Namespace, repo: Path) -> tuple[str, dict[str, Any]]:
-    return ("run.summary", {"run_id": args.run_id, "path": getattr(args, "path", None)})
+def _params_run_summary(args: argparse.Namespace, repo: Path) -> dict[str, Any]:
+    return {"run_id": args.run_id, "path": getattr(args, "path", None)}
 
 
-def _route_run_graph(args: argparse.Namespace, repo: Path) -> tuple[str, dict[str, Any]]:
-    return (
-        "run.graph",
-        {
-            "run_id": args.run_id,
-            "format": args.format,
-            "graph_orient": getattr(args, "graph_orient", "tb"),
-            "graph_style": getattr(args, "graph_style", "layered"),
-        },
-    )
+def _params_run_graph(args: argparse.Namespace, repo: Path) -> dict[str, Any]:
+    return {
+        "run_id": args.run_id,
+        "format": args.format,
+        "graph_orient": getattr(args, "graph_orient", "tb"),
+        "graph_style": getattr(args, "graph_style", "layered"),
+    }
 
 
-def _route_register_session(args: argparse.Namespace, repo: Path) -> tuple[str, dict[str, Any]]:
+def _params_register_session(args: argparse.Namespace, repo: Path) -> dict[str, Any]:
     params: dict[str, Any] = {
         "run_id": args.run_id,
         "role": args.role,
@@ -291,79 +300,76 @@ def _route_register_session(args: argparse.Namespace, repo: Path) -> tuple[str, 
         params["force_non_fresh"] = True
     if getattr(args, "reason", None):
         params["reason"] = args.reason
-    return ("session.register", params)
+    return params
 
 
-def _route_session_close(args: argparse.Namespace, repo: Path) -> tuple[str, dict[str, Any]]:
-    return ("session.close", {"session_id": args.session_id, "reason": args.reason})
+def _params_session_close(args: argparse.Namespace, repo: Path) -> dict[str, Any]:
+    return {"session_id": args.session_id, "reason": args.reason}
 
 
-def _route_claim_next(args: argparse.Namespace, repo: Path) -> tuple[str, dict[str, Any]]:
-    return ("work.claim_next", {
+def _params_claim_next(args: argparse.Namespace, repo: Path) -> dict[str, Any]:
+    return {
         "session_id": args.session_id,
         "lease_seconds": getattr(args, "lease_seconds", None),
-    })
+    }
 
 
-def _route_ack(args: argparse.Namespace, repo: Path) -> tuple[str, dict[str, Any]]:
-    return ("work.ack", {
+def _params_ack(args: argparse.Namespace, repo: Path) -> dict[str, Any]:
+    return {
         "session_id": args.session_id,
         "message_id": args.message_id,
         "lease_id": args.lease_id,
-    })
+    }
 
 
-def _route_heartbeat(args: argparse.Namespace, repo: Path) -> tuple[str, dict[str, Any]]:
-    return ("work.heartbeat", {
+def _params_heartbeat(args: argparse.Namespace, repo: Path) -> dict[str, Any]:
+    return {
         "session_id": args.session_id,
         "lease_id": args.lease_id,
         "extend_seconds": getattr(args, "extend_seconds", None),
-    })
+    }
 
 
-def _route_release(args: argparse.Namespace, repo: Path) -> tuple[str, dict[str, Any]]:
-    return ("work.release", {
+def _params_release(args: argparse.Namespace, repo: Path) -> dict[str, Any]:
+    return {
         "session_id": args.session_id,
         "message_id": args.message_id,
         "lease_id": args.lease_id,
         "reason": getattr(args, "reason", ""),
         "requeue": bool(getattr(args, "requeue", False)),
-    })
+    }
 
 
-def _route_send(args: argparse.Namespace, repo: Path) -> tuple[str, dict[str, Any]]:
-    return (
-        "work.send_message",
-        {
-            "session_id": args.session_id,
-            "kind": args.kind,
-            "body_json": args.body_json,
-        },
-    )
+def _params_send(args: argparse.Namespace, repo: Path) -> dict[str, Any]:
+    return {
+        "session_id": args.session_id,
+        "kind": args.kind,
+        "body_json": args.body_json,
+    }
 
 
-def _route_block(args: argparse.Namespace, repo: Path) -> tuple[str, dict[str, Any]]:
-    return ("work.block", {
+def _params_block(args: argparse.Namespace, repo: Path) -> dict[str, Any]:
+    return {
         "session_id": args.session_id,
         "job_id": args.job_id,
         "lease_id": args.lease_id,
         "kind": args.kind,
         "severity": args.severity,
         "description": args.description,
-    })
+    }
 
 
-def _route_complete(args: argparse.Namespace, repo: Path) -> tuple[str, dict[str, Any]]:
-    return ("work.complete", {
+def _params_complete(args: argparse.Namespace, repo: Path) -> dict[str, Any]:
+    return {
         "session_id": args.session_id,
         "job_id": args.job_id,
         "lease_id": args.lease_id,
         "summary": getattr(args, "summary", ""),
-    })
+    }
 
 
-def _route_publish_artifact(args: argparse.Namespace, repo: Path) -> tuple[str, dict[str, Any]]:
-    return ("artifact.publish", {
+def _params_publish_artifact(args: argparse.Namespace, repo: Path) -> dict[str, Any]:
+    return {
         "session_id": args.session_id,
         "job_id": args.job_id,
         "lease_id": args.lease_id,
@@ -372,22 +378,22 @@ def _route_publish_artifact(args: argparse.Namespace, repo: Path) -> tuple[str, 
         "path": args.path,
         "allow_no_process_execution": bool(getattr(args, "allow_no_process_execution", False)),
         "override_rationale": getattr(args, "override_rationale", None),
-    })
+    }
 
 
-def _route_verdict(args: argparse.Namespace, repo: Path) -> tuple[str, dict[str, Any]]:
-    return ("review.verdict", {
+def _params_verdict(args: argparse.Namespace, repo: Path) -> dict[str, Any]:
+    return {
         "session_id": args.session_id,
         "job_id": args.job_id,
         "lease_id": args.lease_id,
         "verdict": args.verdict,
         "findings_artifact_id": getattr(args, "findings_artifact_id", None),
         "rationale": getattr(args, "rationale", ""),
-    })
+    }
 
 
-def _route_submit_review(args: argparse.Namespace, repo: Path) -> tuple[str, dict[str, Any]]:
-    return ("review.submit", {
+def _params_submit_review(args: argparse.Namespace, repo: Path) -> dict[str, Any]:
+    return {
         "session_id": args.session_id,
         "job_id": args.job_id,
         "lease_id": args.lease_id,
@@ -399,31 +405,24 @@ def _route_submit_review(args: argparse.Namespace, repo: Path) -> tuple[str, dic
         "findings_artifact_id": getattr(args, "findings_artifact_id", None),
         "allow_no_process_execution": bool(getattr(args, "allow_no_process_execution", False)),
         "override_rationale": getattr(args, "override_rationale", None),
-    })
+    }
 
 
-def _route_override_verdict(args: argparse.Namespace, repo: Path) -> tuple[str, dict[str, Any]]:
-    return ("review.override", {
+def _params_override_verdict(args: argparse.Namespace, repo: Path) -> dict[str, Any]:
+    return {
         "session_id": args.session_id,
         "job_id": args.job_id,
         "verdict": args.verdict,
         "rationale": args.rationale,
         "findings_artifact_id": getattr(args, "findings_artifact_id", None),
         "auto_fresh_session": bool(getattr(args, "auto_fresh_session", False)),
-    })
+    }
 
 
-def _route_recovery(args: argparse.Namespace, repo: Path) -> tuple[str, dict[str, Any]]:
+def _params_recovery(args: argparse.Namespace, repo: Path) -> dict[str, Any]:
     recovery_command = str(getattr(args, "recovery_command", None) or "")
-    sub = recovery_command.replace("-", "_")
-    if not sub:
+    if not recovery_command:
         raise StriatumError("recovery subcommand required", exit_code=2)
-    if recovery_command == "auto":
-        method = "recovery.sweep"
-    elif recovery_command == "auto-publish":
-        method = "recovery.auto_publish_stale_artifacts"
-    else:
-        method = f"recovery.{sub}"
     params: dict[str, Any] = {}
     if getattr(args, "run_id", None):
         params["run_id"] = args.run_id
@@ -463,32 +462,32 @@ def _route_recovery(args: argparse.Namespace, repo: Path) -> tuple[str, dict[str
         value = getattr(args, name, None)
         if value is not None:
             params[name] = value
-    return (method, params)
+    return params
 
 
-def _route_evidence_export(args: argparse.Namespace, repo: Path) -> tuple[str, dict[str, Any]]:
-    return ("evidence.export", {
+def _params_evidence_export(args: argparse.Namespace, repo: Path) -> dict[str, Any]:
+    return {
         "run_id": getattr(args, "run_id", None),
         "path": getattr(args, "path", None),
-    })
+    }
 
 
-def _route_corpus_export(args: argparse.Namespace, repo: Path) -> tuple[str, dict[str, Any]]:
-    return ("corpus.export", {
+def _params_corpus_export(args: argparse.Namespace, repo: Path) -> dict[str, Any]:
+    return {
         "since": args.since,
         "out": args.out,
-    })
+    }
 
 
-def _route_archive_create(args: argparse.Namespace, repo: Path) -> tuple[str, dict[str, Any]]:
-    return ("archive.create", {
+def _params_archive_create(args: argparse.Namespace, repo: Path) -> dict[str, Any]:
+    return {
         "run_id": args.run_id,
         "out": args.out,
-    })
+    }
 
 
-def _route_decision_record(args: argparse.Namespace, repo: Path) -> tuple[str, dict[str, Any]]:
-    return ("decision.record", {
+def _params_decision_record(args: argparse.Namespace, repo: Path) -> dict[str, Any]:
+    return {
         "run_id": args.run_id,
         "path": args.path,
         "title": args.title,
@@ -496,146 +495,249 @@ def _route_decision_record(args: argparse.Namespace, repo: Path) -> tuple[str, d
         "decision_id": getattr(args, "decision_id", None),
         "rationale": getattr(args, "rationale", ""),
         "follow_up": getattr(args, "follow_up", None),
-    })
+    }
 
 
-def _route_checkpoint_resolve(args: argparse.Namespace, repo: Path) -> tuple[str, dict[str, Any]]:
-    return ("checkpoint.resolve", {
+def _params_checkpoint_resolve(args: argparse.Namespace, repo: Path) -> dict[str, Any]:
+    return {
         "blocker_id": args.blocker_id,
         "action": args.action,
         "decision_id": getattr(args, "decision_id", None),
-    })
+    }
 
 
-def _route_inbox(args: argparse.Namespace, repo: Path) -> tuple[str, dict[str, Any]]:
-    return ("escalation.list", _selected_params(args, ("run_id", "state", "limit")))
+def _params_inbox(args: argparse.Namespace, repo: Path) -> dict[str, Any]:
+    return _selected_params(args, ("run_id", "state", "limit"))
 
 
-def _route_escalation(args: argparse.Namespace, repo: Path) -> tuple[str, dict[str, Any]]:
-    sub = str(getattr(args, "escalation_command", "") or "")
-    if sub == "list":
-        params = _selected_params(args, ("run_id", "state", "limit"))
-        return ("escalation.list", params)
-    if sub == "show":
-        return ("escalation.show", {"escalation_id": args.escalation_id})
-    if sub == "resolve":
-        params = {"escalation_id": args.escalation_id}
-        if getattr(args, "decision_id", None):
-            params["decision_id"] = args.decision_id
-        if getattr(args, "resolution_note", None):
-            params["resolution_note"] = args.resolution_note
-        return ("escalation.resolve", params)
-    raise StriatumError("escalation subcommand required", exit_code=2)
+def _params_escalation_list(args: argparse.Namespace, repo: Path) -> dict[str, Any]:
+    return _selected_params(args, ("run_id", "state", "limit"))
 
 
-def _route_branch_confirm(args: argparse.Namespace, repo: Path) -> tuple[str, dict[str, Any]]:
-    return ("branch.confirm", {
+def _params_escalation_show(args: argparse.Namespace, repo: Path) -> dict[str, Any]:
+    return {"escalation_id": args.escalation_id}
+
+
+def _params_escalation_resolve(args: argparse.Namespace, repo: Path) -> dict[str, Any]:
+    params = {"escalation_id": args.escalation_id}
+    if getattr(args, "decision_id", None):
+        params["decision_id"] = args.decision_id
+    if getattr(args, "resolution_note", None):
+        params["resolution_note"] = args.resolution_note
+    return params
+
+
+def _params_branch_confirm(args: argparse.Namespace, repo: Path) -> dict[str, Any]:
+    return {
         "run_id": args.run_id,
         "branch": args.branch,
         "create": bool(getattr(args, "create", False)),
         "use_current": bool(getattr(args, "use_current", False)),
         "strict": bool(getattr(args, "strict", False)),
-    })
+    }
 
 
-def _route_worktree(args: argparse.Namespace, repo: Path) -> tuple[str, dict[str, Any]]:
-    sub = str(getattr(args, "worktree_command", "") or "")
-    if sub == "create":
-        return (
-            "worktree.create",
-            {
-                "session_id": args.session_id,
-                "job_id": args.job_id,
-                "lease_id": args.lease_id,
-            },
-        )
-    if sub == "release":
-        return ("worktree.release", {"worktree_id": args.worktree_id})
-    if sub == "list":
-        return ("worktree.list", {"run_id": getattr(args, "run_id", None)})
-    raise StriatumError("worktree subcommand required", exit_code=2)
+def _params_worktree_create(args: argparse.Namespace, repo: Path) -> dict[str, Any]:
+    return {
+        "session_id": args.session_id,
+        "job_id": args.job_id,
+        "lease_id": args.lease_id,
+    }
 
 
-def _route_supervise(args: argparse.Namespace, repo: Path) -> tuple[str, dict[str, Any]]:
-    sub = str(getattr(args, "supervise_command", "") or "")
-    if sub == "start":
-        return ("supervise.start", {"session_id": args.session_id})
-    if sub == "send":
-        return (
-            "supervise.send",
-            {"session_id": args.session_id, "packet_id": args.packet_id},
-        )
-    if sub == "stop":
-        return (
-            "supervise.stop",
-            {"session_id": args.session_id, "reason": args.reason},
-        )
-    if sub == "status":
-        return ("supervise.status", {"session_id": args.session_id})
-    if sub == "list":
-        return (
-            "supervise.list",
-            {
-                "run_id": args.run_id,
-                "state": getattr(args, "state", None),
-            },
-        )
-    raise StriatumError("supervise subcommand required", exit_code=2)
+def _params_worktree_release(args: argparse.Namespace, repo: Path) -> dict[str, Any]:
+    return {"worktree_id": args.worktree_id}
 
 
-# (command, subcommand) -> translator
-_LOOKUP: dict[tuple[str, str | None], Callable[[argparse.Namespace, Path], tuple[str, dict[str, Any]]]] = {
-    ("status", None): _route_status,
-    ("why", None): _route_why,
-    ("doctor", None): _route_doctor,
-    ("dashboard", None): _route_dashboard,
-    ("list", None): _route_list,
-    ("run", "prepare"): _route_run_prepare,
-    ("run", "start"): _route_run_start,
-    ("run", "pause"): _route_run_pause,
-    ("run", "resume"): _route_run_resume,
-    ("run", "cancel"): _route_run_cancel,
-    ("run", "retry-job"): _route_run_retry_job,
-    ("run", "summary"): _route_run_summary,
-    ("run", "graph"): _route_run_graph,
-    ("register-session", None): _route_register_session,
-    ("session", "close"): _route_session_close,
-    ("claim-next", None): _route_claim_next,
-    ("ack", None): _route_ack,
-    ("heartbeat", None): _route_heartbeat,
-    ("release", None): _route_release,
-    ("send", None): _route_send,
-    ("block", None): _route_block,
-    ("complete", None): _route_complete,
-    ("publish-artifact", None): _route_publish_artifact,
-    ("verdict", None): _route_verdict,
-    ("submit-review", None): _route_submit_review,
-    ("override-verdict", None): _route_override_verdict,
-    ("recovery", "stale-leases"): _route_recovery,
-    ("recovery", "requeue-stale"): _route_recovery,
-    ("recovery", "cancel-job"): _route_recovery,
-    ("recovery", "process-reconcile"): _route_recovery,
-    ("recovery", "resume"): _route_recovery,
-    ("recovery", "auto"): _route_recovery,
-    ("recovery", "auto-publish"): _route_recovery,
-    ("recovery", "auto-finalize"): _route_recovery,
-    ("recovery", "watch"): _route_recovery,
-    ("evidence", "export"): _route_evidence_export,
-    ("corpus", "export"): _route_corpus_export,
-    ("archive", "create"): _route_archive_create,
-    ("decision", "record"): _route_decision_record,
-    ("checkpoint", "resolve"): _route_checkpoint_resolve,
-    ("inbox", None): _route_inbox,
-    ("escalation", "list"): _route_escalation,
-    ("escalation", "show"): _route_escalation,
-    ("escalation", "resolve"): _route_escalation,
-    ("branch", "confirm"): _route_branch_confirm,
-    ("worktree", "create"): _route_worktree,
-    ("worktree", "release"): _route_worktree,
-    ("worktree", "list"): _route_worktree,
-    ("supervise", "start"): _route_supervise,
-    ("supervise", "send"): _route_supervise,
-    ("supervise", "stop"): _route_supervise,
-    ("supervise", "status"): _route_supervise,
-    ("supervise", "list"): _route_supervise,
+def _params_worktree_list(args: argparse.Namespace, repo: Path) -> dict[str, Any]:
+    return {"run_id": getattr(args, "run_id", None)}
+
+
+def _params_supervise_start(args: argparse.Namespace, repo: Path) -> dict[str, Any]:
+    return {"session_id": args.session_id}
+
+
+def _params_supervise_send(args: argparse.Namespace, repo: Path) -> dict[str, Any]:
+    return {"session_id": args.session_id, "packet_id": args.packet_id}
+
+
+def _params_supervise_stop(args: argparse.Namespace, repo: Path) -> dict[str, Any]:
+    return {"session_id": args.session_id, "reason": args.reason}
+
+
+def _params_supervise_status(args: argparse.Namespace, repo: Path) -> dict[str, Any]:
+    return {"session_id": args.session_id}
+
+
+def _params_supervise_list(args: argparse.Namespace, repo: Path) -> dict[str, Any]:
+    return {
+        "run_id": args.run_id,
+        "state": getattr(args, "state", None),
+    }
+
+
+_PARAM_BUILDERS: dict[str, ParamBuilder] = {
+    "status": _params_status,
+    "why": _params_why,
+    "doctor": _params_doctor,
+    "dashboard": _params_dashboard,
+    "list": _params_list,
+    "run_prepare": _params_run_prepare,
+    "run_start": _params_run_start,
+    "run_pause": _params_run_pause,
+    "run_resume": _params_run_resume,
+    "run_cancel": _params_run_cancel,
+    "run_retry_job": _params_run_retry_job,
+    "run_summary": _params_run_summary,
+    "run_graph": _params_run_graph,
+    "register_session": _params_register_session,
+    "session_close": _params_session_close,
+    "claim_next": _params_claim_next,
+    "ack": _params_ack,
+    "heartbeat": _params_heartbeat,
+    "release": _params_release,
+    "send": _params_send,
+    "block": _params_block,
+    "complete": _params_complete,
+    "publish_artifact": _params_publish_artifact,
+    "verdict": _params_verdict,
+    "submit_review": _params_submit_review,
+    "override_verdict": _params_override_verdict,
+    "recovery": _params_recovery,
+    "evidence_export": _params_evidence_export,
+    "corpus_export": _params_corpus_export,
+    "archive_create": _params_archive_create,
+    "decision_record": _params_decision_record,
+    "checkpoint_resolve": _params_checkpoint_resolve,
+    "inbox": _params_inbox,
+    "escalation_list": _params_escalation_list,
+    "escalation_show": _params_escalation_show,
+    "escalation_resolve": _params_escalation_resolve,
+    "branch_confirm": _params_branch_confirm,
+    "worktree_create": _params_worktree_create,
+    "worktree_release": _params_worktree_release,
+    "worktree_list": _params_worktree_list,
+    "supervise_start": _params_supervise_start,
+    "supervise_send": _params_supervise_send,
+    "supervise_stop": _params_supervise_stop,
+    "supervise_status": _params_supervise_status,
+    "supervise_list": _params_supervise_list,
 }
+
+
+def _load_cli_route_contracts(path: Path = CONTRACT_PATH) -> tuple[_CliRouteContract, ...]:
+    try:
+        loaded = json.loads(path.read_text(encoding="utf-8"))
+    except OSError as exc:
+        raise RuntimeError(f"daemon method contract not readable: {path}") from exc
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(f"daemon method contract is invalid JSON: {path}") from exc
+    if not isinstance(loaded, dict):
+        raise ValueError(f"daemon method contract must be a JSON object: {path}")
+    raw_routes = loaded.get("cli_routes")
+    if not isinstance(raw_routes, list):
+        raise ValueError("daemon method contract cli_routes must be a list")
+
+    routes: list[_CliRouteContract] = []
+    seen: set[tuple[str, str | None]] = set()
+    duplicates: list[str] = []
+    for index, route_payload in enumerate(raw_routes):
+        if not isinstance(route_payload, dict):
+            raise ValueError(f"daemon CLI route contract entry {index} must be an object")
+        route = _cli_route_from_contract(cast(Mapping[str, object], route_payload), index)
+        key = (route.command, route.subcommand)
+        if key in seen:
+            duplicates.append(_format_route_key(key))
+        seen.add(key)
+        routes.append(route)
+
+    if duplicates:
+        raise ValueError(
+            "daemon method contract contains duplicate CLI routes: "
+            + ", ".join(sorted(duplicates))
+        )
+    return tuple(routes)
+
+
+def _cli_route_from_contract(
+    record: Mapping[str, object],
+    index: int,
+) -> _CliRouteContract:
+    expected_fields = {"command", "subcommand", "method", "params"}
+    fields = set(record)
+    if fields != expected_fields:
+        missing = sorted(expected_fields - fields)
+        unexpected = sorted(fields - expected_fields)
+        details: list[str] = []
+        if missing:
+            details.append("missing " + ", ".join(missing))
+        if unexpected:
+            details.append("unexpected " + ", ".join(unexpected))
+        raise ValueError(
+            f"daemon CLI route contract entry {index} has invalid fields: "
+            + "; ".join(details)
+        )
+
+    command = _required_contract_str(record, "command", index)
+    subcommand_value = record["subcommand"]
+    if subcommand_value is not None and not isinstance(subcommand_value, str):
+        raise ValueError(
+            f"daemon CLI route contract entry {index} field 'subcommand' "
+            "must be a string or null"
+        )
+    method = _required_contract_str(record, "method", index)
+    params = _required_contract_str(record, "params", index)
+    return _CliRouteContract(
+        command=command,
+        subcommand=subcommand_value,
+        method=method,
+        params=params,
+    )
+
+
+def _required_contract_str(record: Mapping[str, object], field: str, index: int) -> str:
+    value = record[field]
+    if not isinstance(value, str) or not value:
+        raise ValueError(
+            f"daemon CLI route contract entry {index} field {field!r} "
+            "must be a non-empty string"
+        )
+    return value
+
+
+def _format_route_key(key: tuple[str, str | None]) -> str:
+    command, subcommand = key
+    return command if subcommand is None else f"{command} {subcommand}"
+
+
+def _translator_from_contract(route: _CliRouteContract) -> RouteTranslator:
+    if route.method not in METHOD_REGISTRY:
+        raise ValueError(
+            f"daemon CLI route {_format_route_key((route.command, route.subcommand))!r} "
+            f"references unregistered method {route.method!r}"
+        )
+    builder = _PARAM_BUILDERS.get(route.params)
+    if builder is None:
+        raise ValueError(
+            f"daemon CLI route {_format_route_key((route.command, route.subcommand))!r} "
+            f"references unknown params builder {route.params!r}"
+        )
+
+    def _translate(args: argparse.Namespace, repo: Path) -> tuple[str, dict[str, Any]]:
+        return (route.method, builder(args, repo))
+
+    return _translate
+
+
+def _lookup_from_contract(
+    routes: tuple[_CliRouteContract, ...] | None = None,
+) -> dict[tuple[str, str | None], RouteTranslator]:
+    route_contracts = routes if routes is not None else _load_cli_route_contracts()
+    return {
+        (route.command, route.subcommand): _translator_from_contract(route)
+        for route in route_contracts
+    }
+
+
+# (command, subcommand) -> translator. Derived from contracts/daemon_methods.json.
+_LOOKUP: dict[tuple[str, str | None], RouteTranslator] = _lookup_from_contract()

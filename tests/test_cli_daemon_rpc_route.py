@@ -7,7 +7,12 @@ from typing import Any
 
 import pytest
 
-from striatum.cli.daemon_rpc_route import _LOOKUP, try_route
+from striatum.cli.daemon_rpc_route import (
+    _LOOKUP,
+    _load_cli_route_contracts,
+    _subcommand,
+    try_route,
+)
 from striatum.daemon_rpc.registry import METHOD_REGISTRY
 from striatum.daemon_rpc.server import LOCAL_FILE_AUTHORING_METHODS
 from striatum.errors import StriatumError
@@ -63,7 +68,7 @@ def _args_for_lookup(command: str, subcommand: str | None) -> argparse.Namespace
         command=command,
         run_command=subcommand if command == "run" else None,
         workflow_command=subcommand if command == "workflow" else None,
-        list_command="runs" if command == "list" else None,
+        list_command=subcommand if command == "list" else None,
         recovery_command=subcommand if command == "recovery" else None,
         evidence_command=subcommand if command == "evidence" else None,
         corpus_command=subcommand if command == "corpus" else None,
@@ -156,7 +161,8 @@ def _translated_methods() -> dict[tuple[str, str | None], str]:
 
 def _route(command: str, subcommand: str | None, **kwargs: object) -> tuple[str, dict[str, object]]:
     args = argparse.Namespace(command=command, **kwargs)
-    translator = _LOOKUP[(command, subcommand)]
+    key = (command, subcommand if subcommand is not None else _subcommand(args))
+    translator = _LOOKUP[key]
     return translator(args, Path("/repo"))
 
 
@@ -172,6 +178,12 @@ def test_all_daemon_routed_cli_methods_are_registered_contract_methods() -> None
     missing = [f"{key!r} -> {method}" for key, method in translated.items() if method not in contract]
 
     assert not missing, "CLI daemon route translates to unregistered methods: " + ", ".join(missing)
+
+
+def test_daemon_cli_route_lookup_is_derived_from_contract() -> None:
+    contract_keys = {(route.command, route.subcommand) for route in _load_cli_route_contracts()}
+
+    assert set(_LOOKUP) == contract_keys
 
 
 def test_cli_local_workflow_authoring_methods_are_not_daemon_routed() -> None:

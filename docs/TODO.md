@@ -101,7 +101,7 @@ so external references keep resolving even as items move between sections.
 | 42 | GH #17 — Striatum doc consistency for Engram memory integration | ✅ done |
 | 48 | Architecture remediation Phase 0 — command authority matrix and fallback guardrails | ✅ done |
 | 49 | RFC 0059 Architecture remediation Phase 1 — close production SQLite fallback | 🟡 production fallback closed; legacy SQLite quarantine remains |
-| 50 | RFC 0060 Architecture remediation Phase 2 — single daemon method contract source | 🟡 contract source + registries/descriptors/docs landed |
+| 50 | RFC 0060 Architecture remediation Phase 2 — single daemon method contract source | ✅ done |
 | 51 | Architecture remediation Phase 3 — daemon core strategy decision | ✅ done |
 | 52 | RFC 0061 Architecture remediation Phase 4 — daemon-first web service | 🟡 core web/API + artifact reads daemon-routed |
 | 53 | RFC 0062 Architecture remediation Phase 5 — real escalation inbox | 🟡 projection + escalation artifact schema/linkage landed |
@@ -828,7 +828,7 @@ review and plan are root-level operator artifacts:
     adapter, byline, inbox, dogfood compatibility, and migration fixtures
     still use legacy SQLite shapes.
 
-50. **Phase 2: single method-contract source.** Contract source is now
+50. ~~**Phase 2: single method-contract source.**~~ ✅ Done. Contract source is now
     live at `contracts/daemon_methods.json`; Python `METHOD_REGISTRY`
     loads from it; Go `go/pkg/rpc/registry_methods.go` is generated from
     it via `scripts/generate_go_rpc_registry.py`; parity tests guard
@@ -836,11 +836,11 @@ review and plan are root-level operator artifacts:
     registered, CLI-local workflow methods stay hidden, deprecated
     aliases are not advertised as MCP tools, and daemon MCP tool descriptors
     are derived from `METHOD_REGISTRY`. `scripts/generate_daemon_method_tables.py`
-    now renders `docs/architecture/DAEMON_METHOD_TABLES.md` from the contract
-    and current CLI translator with `--check` drift coverage. Remaining
-    follow-up: replace runtime CLI route translation with a generated or
-    declarative contract-derived map instead of the current hand-written
-    translator.
+    now renders `docs/architecture/DAEMON_METHOD_TABLES.md` from the contract,
+    including the declarative `cli_routes` section. Runtime CLI route lookup
+    now builds from the same contract route map and keeps only CLI-local
+    parameter extraction in `src/striatum/cli/daemon_rpc_route.py`; focused
+    tests guard contract/route drift and fail-closed registered-method routing.
 
 51. ~~**Phase 3: daemon core strategy decision.**~~ Done: D105 records
     Python as the primary production daemon core and narrows Go to a
