@@ -855,11 +855,13 @@ review and plan are root-level operator artifacts:
     artifact-rollup read endpoints now call daemon read DTOs directly
     instead of the legacy CLI invoke wrapper. The artifact detail page now
     uses daemon `artifact.show` with optional web context for run scoping,
-    expected author line, and provenance events. Remaining: split
+    expected author line, and provenance events. The `/v1/invoke` mutation
+    gate now derives daemon-routed read classification from
+    `METHOD_REGISTRY.required_capability`, with only CLI-local workflow
+    authoring reads left in an explicit service allowlist. Remaining: split
     `service.py`, replace the rest of the direct SQLite-shaped reads with
     daemon RPC DTOs, replace run-now's multi-step SQLite transaction
-    carefully, move SSE, and derive mutation authorization from daemon
-    method capabilities.
+    carefully, and move SSE.
 
 53. **Phase 5: real escalation inbox.** First slice landed:
     `escalation.list`, `escalation.show`, and `escalation.resolve`

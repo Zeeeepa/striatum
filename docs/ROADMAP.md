@@ -357,11 +357,13 @@ daemon-first without needing to support two domain daemons.
   web context for run scoping, expected author line, and operator-on-behalf
   provenance. The existing raw-artifact endpoint remains backward-compatible
   with the default `artifact.show` metadata response.
+- `/v1/invoke` now derives daemon-routed read classification from
+  `METHOD_REGISTRY.required_capability`; only CLI-local workflow authoring
+  reads remain in an explicit service-side allowlist.
 
 **Remaining Phase 4 debt:** run-now still has multi-step SQLite transaction
 semantics; run detail, job detail, SSE, and startup health checks still need
-daemon DTOs; the service mutation gate still needs to derive from daemon
-method capabilities.
+daemon DTOs.
 
 ---
 

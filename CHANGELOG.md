@@ -30,7 +30,10 @@ in the roadmap/TODO and has several production slices landed:
   page. The new `run.posture_verdicts` daemon DTO backs the posture page,
   while `artifact.show` can now include run, expected-author, and provenance
   context for the artifact page. Legacy CLI/SQLite fallbacks are retained
-  only for the subprocess test-harness escape.
+  only for the subprocess test-harness escape. The `/v1/invoke`
+  mutation gate now classifies daemon-routed commands from
+  `METHOD_REGISTRY.required_capability`, with only CLI-local workflow
+  authoring reads kept in an explicit service list.
 - **Escalation inbox foundation.**
   `escalation.list`, `escalation.show`, and `escalation.resolve` project
   human-principal escalations from blocker state. The `escalation` artifact

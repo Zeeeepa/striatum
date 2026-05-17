@@ -1156,10 +1156,11 @@ Auth: Unix sockets bind `0o600` (filesystem permissions are the
 boundary); HTTP loopback supports an optional `--token` validated by
 length-safe constant-time compare. Single-instance enforcement via a
 PID file; stale PID files are overwritten. Graceful shutdown on SIGTERM /
-SIGINT. Mutations gate behind `--allow-mutations`; the gate is a
-whitelist of read verbs (`status`, `why`, `doctor`, `list`, `evidence`,
-`dashboard`, plus subcommand-aware reads under `workflow`, `supervise`,
-`worktree`, `run`, `recovery`).
+SIGINT. Mutations gate behind `--allow-mutations`; daemon-routed commands
+are classified as read-only only when the daemon method contract has
+`required_capability: "read"`. CLI-local workflow authoring reads
+(`workflow validate`, `workflow lint`, `workflow plan`, `workflow graph`,
+`workflow templates`) remain explicitly allowed without mutation mode.
 
 ### Registry-Backed Multi-Repo Coordination
 

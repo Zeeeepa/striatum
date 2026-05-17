@@ -1343,14 +1343,17 @@ def test_is_read_command_classification() -> None:
     assert is_read_command(["status"]) is True
     assert is_read_command(["why", "id"]) is True
     assert is_read_command(["doctor"]) is True
-    assert is_read_command(["list", "jobs"]) is True
+    assert is_read_command(["list", "jobs", "--run-id", "x"]) is True
     assert is_read_command(["workflow", "validate", "x"]) is True
     assert is_read_command(["workflow", "lint", "x"]) is True
+    assert is_read_command(["run", "graph", "--run-id", "x"]) is True
+    assert is_read_command(["supervise", "status", "--session-id", "s"]) is True
     assert is_read_command(["workflow", "init"]) is False
     assert is_read_command(["init"]) is False
     assert is_read_command(["claim-next"]) is False
-    assert is_read_command(["publish-artifact"]) is False
-    assert is_read_command(["recovery", "stale-leases", "--run-id", "x"]) is True
+    assert is_read_command(["publish-artifact", "--session-id", "s", "--job-id", "j", "--path", "x"]) is False
+    assert is_read_command(["run", "pause", "--run-id", "x"]) is False
+    assert is_read_command(["recovery", "stale-leases", "--run-id", "x"]) is False
     assert is_read_command(["recovery", "process-reconcile", "--run-id", "x"]) is False
     assert is_read_command([]) is False
 

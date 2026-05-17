@@ -1319,41 +1319,62 @@ def _jinja_env_factory() -> Any:
 
     return _build()
 
-# Top-level CLI verbs whose all subcommands are reads. Subcommand-aware
-# whitelists for the four mixed parents follow.
-SERVICE_READ_TOP_COMMANDS = frozenset({
-    "status",
-    "why",
-    "doctor",
-    "list",
-    "evidence",
-    "dashboard",
-})
-
-SERVICE_READ_SUBCOMMANDS: dict[str, frozenset[str]] = {
+# CLI-local authoring commands that do not have daemon methods because they
+# read repository files rather than workflow state. Daemon-routed commands
+# are classified from METHOD_REGISTRY below.
+SERVICE_CLI_LOCAL_READ_SUBCOMMANDS: dict[str, frozenset[str]] = {
     "workflow": frozenset({"validate", "lint", "plan", "graph", "templates"}),
-    "supervise": frozenset({"status", "list"}),
-    "worktree": frozenset({"list"}),
-    "run": frozenset({"summary", "graph"}),
-    "recovery": frozenset({"stale-leases"}),
 }
 
 
 def is_read_command(argv: list[str]) -> bool:
     """Return True when ``argv`` resolves to a known read-only command.
 
-    The whitelist approach is conservative: any command not explicitly
-    listed is treated as a mutation. Future mutating verbs default to
-    blocked when ``--allow-mutations`` is off.
+    Daemon-routed commands are classified by the daemon method contract's
+    required capability. CLI-local file-authoring reads keep a small explicit
+    list because they intentionally are not daemon RPC methods.
     """
     if not argv:
         return False
+    method = _daemon_method_for_argv(argv)
+    if method is not None:
+        from striatum.daemon_rpc.registry import METHOD_REGISTRY
+
+        entry = METHOD_REGISTRY.get(method)
+        return entry is not None and entry.required_capability == "read"
     top = argv[0]
-    if top in SERVICE_READ_TOP_COMMANDS:
-        return True
-    if top in SERVICE_READ_SUBCOMMANDS and len(argv) >= 2:
-        return argv[1] in SERVICE_READ_SUBCOMMANDS[top]
+    if top in SERVICE_CLI_LOCAL_READ_SUBCOMMANDS and len(argv) >= 2:
+        return argv[1] in SERVICE_CLI_LOCAL_READ_SUBCOMMANDS[top]
     return False
+
+
+def _daemon_method_for_argv(argv: list[str]) -> str | None:
+    import contextlib
+    import io
+
+    from striatum.cli import build_parser
+    from striatum.cli.daemon_rpc_route import _LOOKUP, _subcommand
+
+    parser = build_parser()
+    try:
+        with contextlib.redirect_stderr(io.StringIO()):
+            args = parser.parse_args(argv)
+    except SystemExit:
+        return None
+    translator = _LOOKUP.get((args.command, _subcommand(args)))
+    if translator is None:
+        translator = _LOOKUP.get((args.command, None))
+    if translator is None:
+        return None
+    try:
+        method, _params = translator(args, Path("."))
+    except Exception:  # noqa: BLE001 - malformed args are not read commands.
+        return None
+    from striatum.daemon_rpc.registry import METHOD_REGISTRY
+
+    if method in METHOD_REGISTRY:
+        return method
+    return None
 
 
 def tokens_match(provided: str, expected: str) -> bool:
