@@ -129,6 +129,68 @@ def handle(ctx: RepoHandlerContext, params: Mapping[str, Any]) -> dict[str, Any]
     }
 
 
+def dry_run_projection(
+    ctx: RepoHandlerContext,
+    *,
+    run_id: str,
+    mtime_grace_seconds: int = DEFAULT_MTIME_GRACE_SECONDS,
+) -> dict[str, Any]:
+    """Return the read-only auto-finalize projection used by status surfaces."""
+    try:
+        run = ctx.row_by_id("runs", "run_id", run_id)
+    except NotFoundError:
+        raise
+    params: dict[str, Any] = {
+        "run_id": run_id,
+        "dry_run": True,
+        "mtime_grace_seconds": mtime_grace_seconds,
+    }
+    policy = _policy_result(ctx, run_id=run_id, params=params)
+    if run["state"] != "running":
+        return _empty_result(
+            run_id=run_id,
+            dry_run=True,
+            reason=f"run is not running: {run['state']}",
+            policy=policy,
+        )
+
+    eligible: list[dict[str, Any]] = []
+    skipped: list[dict[str, Any]] = []
+    for row in _candidate_rows(ctx, run_id=run_id, job_id=None):
+        try:
+            evaluation = _evaluate_candidate(
+                ctx,
+                row=row,
+                mtime_grace_seconds=mtime_grace_seconds,
+                allow_no_process_execution=False,
+            )
+        except Exception as exc:  # noqa: BLE001 - projection should not break status.
+            skipped.append(
+                {
+                    "workflow_job_id": row.get("workflow_job_id"),
+                    "job_id": row.get("job_id"),
+                    "reason": f"auto-finalize dry-run projection failed: {exc}",
+                }
+            )
+            continue
+        if evaluation["eligible"]:
+            eligible.append(evaluation["candidate"])
+        else:
+            skipped.append(evaluation["skip"])
+
+    return {
+        "run_id": run_id,
+        "dry_run": True,
+        "policy": policy,
+        "eligible_count": len(eligible),
+        "eligible": eligible,
+        "finalized_count": 0,
+        "finalized": [],
+        "skipped_count": len(skipped),
+        "skipped": skipped,
+    }
+
+
 def _dry_run(params: Mapping[str, Any]) -> bool:
     value = params.get("dry_run")
     if value is None:
@@ -666,4 +728,4 @@ def _published_artifact_id(
     raise InvalidTransitionError("review auto-finalize could not resolve findings artifact id")
 
 
-__all__ = ["handle"]
+__all__ = ["dry_run_projection", "handle"]

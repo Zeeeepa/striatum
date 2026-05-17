@@ -6,6 +6,7 @@ from pathlib import Path
 
 from test_cli_mvp import claim, prepare_started_run, register, write_artifact
 from test_web_ui import _http_get_raw, _spawn_service, _stop_service
+from striatum.service import _jinja_env
 
 
 def test_run_detail_renders_recovery_panel_with_blocker_recipe(tmp_path: Path) -> None:
@@ -50,3 +51,51 @@ def test_run_detail_renders_recovery_panel_with_blocker_recipe(tmp_path: Path) -
         assert b"recovery auto-publish" in body
     finally:
         _stop_service(proc)
+
+
+def test_recovery_panel_template_renders_auto_finalize_projection() -> None:
+    template = _jinja_env().from_string(
+        "{% import '_recovery_panel.html' as recovery_ui %}"
+        "{{ recovery_ui.recovery_panel(panel) }}"
+    )
+    html = template.render(
+        panel={
+            "run_id": "run_123",
+            "blockers": [],
+            "human_checkpoints": [],
+            "blocked": [],
+            "recipes": [],
+            "auto_publish_recipe": None,
+            "auto_finalize_dry_run": {
+                "eligible_count": 1,
+                "eligible": [
+                    {
+                        "workflow_job_id": "review_docs",
+                        "artifacts": [{"path": "docs/review.md"}],
+                    }
+                ],
+                "skipped_count": 1,
+                "skipped": [
+                    {
+                        "workflow_job_id": "review_api",
+                        "reason": "expected_artifact validation refused",
+                        "artifacts": [
+                            {
+                                "path": "docs/api.md",
+                                "reason": "finding artifact front matter is required for auto-finalize",
+                            }
+                        ],
+                    }
+                ],
+                "policy": {"live_allowed": False},
+            },
+        }
+    )
+
+    assert "Auto-finalize dry run" in html
+    assert "1 eligible" in html
+    assert "1 refused" in html
+    assert "live allowed: no" in html
+    assert "review_docs" in html
+    assert "docs/review.md" in html
+    assert "finding artifact front matter is required for auto-finalize" in html

@@ -100,16 +100,16 @@ so external references keep resolving even as items move between sections.
 | 42 | GH #17 — Striatum doc consistency for Engram memory integration | ✅ done |
 | 48 | Architecture remediation Phase 0 — command authority matrix and fallback guardrails | ✅ done |
 | 49 | RFC 0059 Architecture remediation Phase 1 — close production SQLite fallback | 🟡 production fallback closed; legacy SQLite quarantine remains |
-| 50 | RFC 0060 Architecture remediation Phase 2 — single daemon method contract source | 🟡 contract source + Python/Go registry generation landed |
+| 50 | RFC 0060 Architecture remediation Phase 2 — single daemon method contract source | 🟡 contract source + Python/Go registry + MCP descriptors landed |
 | 51 | Architecture remediation Phase 3 — daemon core strategy decision | ✅ done |
 | 52 | RFC 0061 Architecture remediation Phase 4 — daemon-first web service | 🟡 mutation POST + run-list read slices landed |
 | 53 | RFC 0062 Architecture remediation Phase 5 — real escalation inbox | 🟡 projection + escalation artifact schema landed |
-| 54 | RFC 0063 Architecture remediation Phase 6 — hardened PTY supervision | 🟡 control-event ack slice landed |
+| 54 | RFC 0063 Architecture remediation Phase 6 — hardened PTY supervision | 🟡 control-event + helper protocol slices landed |
 | 55 | RFC 0064 Architecture remediation Phase 7 — workflow risk lint and review diversity enforcement | 🟡 strict lint override slice landed |
-| 56 | Architecture remediation Phase 8 — auto-finalize from front matter | 🟡 daemon recovery slice landed |
+| 56 | Architecture remediation Phase 8 — auto-finalize from front matter | 🟡 daemon recovery + visibility slices landed |
 | 57 | RFC 0065 Architecture remediation Phase 9 — UI packaging and bundle cleanup | ✅ done; chunking monitor only |
 | 58 | RFC 0059 Architecture remediation Phase 10 — day-zero setup improvements | ✅ done |
-| 59 | RFC 0059 RFC 0066 Architecture remediation Phase 11 — replay, archive, and corpus v2 foundations | 🟡 corpus verify foundation landed |
+| 59 | RFC 0059 RFC 0066 Architecture remediation Phase 11 — replay, archive, and corpus v2 foundations | 🟡 corpus verify + run archive foundations landed |
 | 60 | RFC 0059 RFC 0067 Architecture remediation Phase 12 — optional Git/PR integration | ⏳ blocked on product decision |
 
 Legend: ✅ done · 🟡 most done (sub-tasks remain) · ⏳ open/blocked · 💤 shelved
@@ -757,9 +757,12 @@ section is the canonical status snapshot.
     front matter, required byline, active lease/session ownership, and
     lane evidence; review jobs derive the verdict from
     `verdict_intent`; auto-finalized artifacts are marked in PG evidence
-    summaries. Remaining: daemon sweep integration, dashboard/web
-    visibility, default policy decision after dogfood confidence, and
-    an end-to-end dogfood with zero operator-on-behalf publishes for
+    summaries. A follow-up slice now surfaces dry-run eligibility and
+    refusal reasons through status/dashboard projections and the web recovery
+    panel without changing the dry-run-by-default/live-opt-in policy.
+    Remaining: daemon sweep integration, default policy decision after
+    dogfood confidence, and an end-to-end dogfood with zero
+    operator-on-behalf publishes for
     jobs that wrote valid artifacts.
 
 43. **RFC 0052 V0 (committee deliberation workflow).** Proposed
@@ -845,10 +848,11 @@ review and plan are root-level operator artifacts:
     loads from it; Go `go/pkg/rpc/registry_methods.go` is generated from
     it via `scripts/generate_go_rpc_registry.py`; parity tests guard
     Python/Go drift; CLI/MCP contract tests ensure routed methods are
-    registered, CLI-local workflow methods stay hidden, and deprecated
-    aliases are not advertised as MCP tools. Remaining follow-up:
-    generate CLI route translation, MCP descriptors, and docs tables
-    directly from the contract instead of checking hand-written maps.
+    registered, CLI-local workflow methods stay hidden, deprecated
+    aliases are not advertised as MCP tools, and daemon MCP tool descriptors
+    are derived from `METHOD_REGISTRY`. Remaining follow-up: generate CLI
+    route translation and docs tables directly from the contract instead of
+    checking hand-written maps.
 
 51. ~~**Phase 3: daemon core strategy decision.**~~ Done: D105 records
     Python as the primary production daemon core and narrows Go to a
@@ -887,10 +891,15 @@ review and plan are root-level operator artifacts:
     delivered-unacknowledged state and `supervise.report` records wrapper
     control events (`packet_accepted`, `agent_started`,
     `artifact_observed`, `progress`, `agent_exited`) as daemon events
-    without parsing model output. Remaining: PTY helper, durable control
-    channel, reattach/lost-state semantics, stronger lane-liveness
-    attestation, helper-only CI, and explicit tests that no domain mutation
-    moves into the Go helper without a new decision.
+    without parsing model output. Follow-up slice landed a standalone
+    `striatum-supervisor-helper` binary and protocol: it launches the agent
+    under PTY, forwards packet bytes from stdin or a FIFO, and emits JSONL
+    control events while an architecture guardrail keeps it out of DB/RPC,
+    mutation, read, apply, and cross-repo packages. Remaining: durable
+    Python consumption of helper control events, reattach/lost-state
+    semantics, doctor surfacing for stale supervisors, stronger lane-liveness
+    attestation, wrapper fixtures, and promotion of helper-only CI beyond
+    focused tests.
 
 55. **Phase 7: workflow risk lint and review diversity enforcement.**
     `workflow lint <workflow.json> --json` returns structured advisory
@@ -909,10 +918,10 @@ review and plan are root-level operator artifacts:
     method contract entry, generated Go registry entry, explicit
     `artifact.auto_finalized` and `job.auto_finalized` events, review
     `verdict_intent` handling, no-partial-publish guard, workflow opt-in
-    live policy, and PG evidence `publish_origin=auto_from_artifact`.
+    live policy, PG evidence `publish_origin=auto_from_artifact`, and
+    status/dashboard/web dry-run visibility for eligibility/refusal reasons.
     Remaining: integrate the checker into the daemon recovery sweep,
-    surface "eligible for auto-finalize" and refusal reasons in dashboard
-    and web, decide global/default policy after dogfood confidence, and
+    decide global/default policy after dogfood confidence, and
     cover dogfood-level acceptance.
 
 57. ~~**Phase 9: UI packaging and bundle cleanup.**~~ Done:
@@ -940,9 +949,13 @@ review and plan are root-level operator artifacts:
     deterministic RFC 0044 V1 bundles without daemon state, hosted
     services, or external memory dependencies, and treats missing
     `corpus_contract_version` as implied V1 per RFC 0057 backward
-    compatibility. Remaining locally implementable work is first-class
-    run archives and archive replay verification. Corpus Contract V2
-    fields remain blocked on RFC 0057 decisions.
+    compatibility. A bounded run-archive foundation also landed:
+    `striatum archive create --run-id <id> --out <dir>` writes a
+    daemon/Postgres-backed local archive of run state, artifact metadata,
+    and event metadata, and `striatum archive verify --bundle <dir>`
+    validates the archive manifest and file hashes locally. Remaining
+    locally implementable work is archive replay verification. Corpus
+    Contract V2 fields remain blocked on RFC 0057 decisions.
 
 60. **Phase 12: optional Git/PR integration.** Blocked on a product
     decision for commit authority and hosted-provider boundaries. The
@@ -950,7 +963,7 @@ review and plan are root-level operator artifacts:
     request artifacts second, explicit confirmed commit apply only after
     a decision, and optional hosted integrations as plugins only.
 
-## GH issue follow-ups (not yet bound to a workflow)
+## GH issue follow-ups
 
 40. ~~**GH #14 — recovery cannot clear terminal-run
     `process_exit_nonzero` blocker.**~~ Done: `docs/issues/14/`
@@ -969,25 +982,6 @@ review and plan are root-level operator artifacts:
     Done: `docs/issues/17/` completed with accepting review and RFC 0057
     now carries the Corpus Contract V2 decision surface. Remaining Corpus
     V2 implementation is tracked separately under Phase 11 / TODO 59.
-
-42. **GH #17 — update Striatum doc consistency for Engram memory
-    integration.** Engram has been reprioritized around Striatum (see
-    `~/git/engram/STRIATUM_MEMORY_ROADMAP.md`, dated 2026-05-14).
-    Striatum docs should reflect: Engram ingests Striatum corpora;
-    Striatum runs without Engram (augmentation, not dependency).
-    Overlaps with ROADMAP §5.7. 🟡 Doc-consistency pass landed under
-    the `docs/issues/17/` workflow (2026-05-14): SPEC §"Corpus Export
-    And Augmentation Boundary" + product-boundary wording, RFC 0052
-    scaffold under `docs/rfcs/0057-corpus-contract-v2.md` (open
-    decisions only, no V2 acceptance criteria yet), `striatum corpus
-    export` documented in CLI_REFERENCE + HOW_TO_HUMAN + SPEC CLI
-    listing, augmentation-boundary callout in HOW_TO_AGENT and MCP,
-    UBIQUITOUS_LANGUAGE entries for `Striatum corpus`, `Striatum
-    corpus export`, `memory augmentation`,
-    `augmentation-not-dependency`, and `corpus contract version`,
-    ENGRAM_INCUBATION_CONTEXT.md re-pointed at the current direction.
-    Remains open until RFC 0052 V2 acceptance lands; downstream
-    Engram-side work (item 32) is separate.
 
 ## Immediate Follow-Up
 

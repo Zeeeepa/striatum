@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from . import archive as archive
 from . import corpus_export as corpus_export
 from . import dashboard as dashboard
 from . import doctor as doctor

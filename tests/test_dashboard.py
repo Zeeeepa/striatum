@@ -66,6 +66,54 @@ def test_render_frame_shows_job_state_counts() -> None:
     assert "claim_available_work" in output
 
 
+def test_render_frame_shows_auto_finalize_dry_run_refusals() -> None:
+    dashboard = _import_dashboard()
+    payload = {
+        "run": {"run_id": "run_test", "branch_name": "main", "state": "running"},
+        "status": {
+            "jobs": {"running": 1},
+            "open_blockers": [],
+            "human_checkpoints": [],
+            "latest_non_accepting_review_verdicts": [],
+            "claimable_jobs": [],
+            "next_actions": ["recovery_auto_finalize"],
+            "auto_finalize_dry_run": {
+                "eligible_count": 1,
+                "eligible": [
+                    {
+                        "workflow_job_id": "review_docs",
+                        "artifacts": [{"path": "docs/review.md"}],
+                    }
+                ],
+                "skipped_count": 1,
+                "skipped": [
+                    {
+                        "workflow_job_id": "review_api",
+                        "reason": "expected_artifact validation refused",
+                        "artifacts": [
+                            {
+                                "path": "docs/api.md",
+                                "reason": "finding artifact front matter is required for auto-finalize",
+                            }
+                        ],
+                    }
+                ],
+                "policy": {"live_allowed": False},
+            },
+        },
+        "events": [],
+        "updated_at": "2026-05-07T00:00:00Z",
+    }
+
+    output = dashboard.render_frame(payload, terminal_width=120)
+
+    assert "Auto-finalize dry run:" in output
+    assert "eligible=1 refused=1 live_allowed=no" in output
+    assert "eligible review_docs docs/review.md" in output
+    assert "refused review_api expected_artifact validation refused" in output
+    assert "finding artifact front matter is required for auto-finalize" in output
+
+
 def test_render_frame_shows_compact_phase_progress() -> None:
     dashboard = _import_dashboard()
     payload = {

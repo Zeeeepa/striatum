@@ -751,6 +751,16 @@ def build_parser() -> argparse.ArgumentParser:
     corpus_verify.add_argument("--bundle", required=True)
     corpus_verify.add_argument("--json", action="store_true")
 
+    archive = sub.add_parser("archive")
+    archive_sub = archive.add_subparsers(dest="archive_command", required=True)
+    archive_create = archive_sub.add_parser("create")
+    archive_create.add_argument("--run-id", required=True)
+    archive_create.add_argument("--out", required=True)
+    archive_create.add_argument("--json", action="store_true")
+    archive_verify = archive_sub.add_parser("verify")
+    archive_verify.add_argument("--bundle", required=True)
+    archive_verify.add_argument("--json", action="store_true")
+
     decision = sub.add_parser("decision")
     decision_sub = decision.add_subparsers(dest="decision_command", required=True)
     decision_record = decision_sub.add_parser("record")

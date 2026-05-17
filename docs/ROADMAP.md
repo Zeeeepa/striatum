@@ -290,7 +290,7 @@ fallback path.
 **Updates:** [TODO item 50](TODO.md).
 
 **Landed in this slice:**
-- `contracts/daemon_methods.json` is the source for all 97 registered
+- `contracts/daemon_methods.json` is the source for all 99 registered
   daemon RPC methods, including deprecated aliases.
 - Python `src/striatum/daemon_rpc/registry.py` builds `METHOD_REGISTRY`,
   `METHODS_ETAG`, and `daemon.describe` output from the contract while
@@ -301,10 +301,13 @@ fallback path.
 - CLI/MCP contract tests now assert routed CLI methods are registered,
   workflow authoring stays CLI-local, daemon fallback routes are unused,
   and daemon MCP tools hide CLI-local and deprecated methods.
+- Daemon MCP tool descriptors are now generated from `METHOD_REGISTRY`, so
+  method name, required capability, and repository-scope mode are no longer
+  hand-written in `mcp.py`.
 
-**Remaining Phase 2 debt:** generate CLI route translation, MCP tool
-descriptors, and docs tables directly from the contract instead of only
-checking the current hand-written maps.
+**Remaining Phase 2 debt:** generate CLI route translation and docs tables
+directly from the contract instead of only checking the current hand-written
+maps.
 
 ---
 
@@ -383,10 +386,16 @@ whether to rename the packet helper to `packet inbox`.
   or parsing model stdout.
 - Supervision tests cover event recording and stopped-state transition on
   reported agent exit.
+- A standalone Go `striatum-supervisor-helper` binary now launches agents
+  under PTY, forwards packet bytes from stdin or a FIFO, and emits JSONL
+  control events (`agent_started`, `packet_accepted`, `progress`,
+  `agent_exited`, `helper_error`) without importing daemon DB/RPC,
+  mutation, read, apply, or cross-repo authority packages.
 
-**Remaining Phase 6 debt:** implement the actual PTY helper/control channel,
-reattach/lost-state recovery, doctor surfacing for stale supervisors, stronger
-lane-liveness attestation, wrapper fixtures, and helper-only CI.
+**Remaining Phase 6 debt:** implement Python-side durable consumption of
+helper control events through existing `supervise.report`, reattach/lost-state
+recovery, doctor surfacing for stale supervisors, stronger lane-liveness
+attestation, wrapper fixtures, and broader helper-only CI.
 
 ---
 
@@ -428,10 +437,12 @@ and audit linkage for accepted lint risks.
   `publish_origin=auto_from_artifact`.
 - CLI routing and the shared daemon method contract include the split
   `recovery.auto_finalize` method instead of overloading `recovery.auto`.
+- Status/dashboard projections now include an `auto_finalize_dry_run` preview
+  with eligible candidates and refusal reasons, and the web recovery panel can
+  render the same preview without enabling live auto-finalize globally.
 
 **Remaining Phase 8 debt:** integrate auto-finalize into the daemon recovery
-sweep, surface eligibility/refusal reasons in dashboard and web, decide default
-policy after dogfood confidence, and run a dogfood proving zero
+sweep, decide default policy after dogfood confidence, and run a dogfood proving zero
 operator-on-behalf publishes when valid artifacts already exist.
 
 ---
@@ -749,37 +760,19 @@ dogfood. Order them by impact, not by RFC number.
 
 ---
 
-## 8. Open GitHub issues
-
-### 8.1 RFC 0050 V2 surface (filed 2026-05-14 by operator from gemini's dogfood-056 review)
-
-Bundle #9 + #10 + #11 into the security hardening dogfood (§4.1); leave
-#12 + #13 for ergonomics polish (§5.1).
-
-| # | Sev | Title | Bundle |
-|---|---|---|---|
-| [9](https://github.com/halbritt/striatum/issues/9) | HIGH | CSRF on `/v1/invoke` — no Content-Type validation | §4.1 dogfood-057 |
-| [10](https://github.com/halbritt/striatum/issues/10) | MEDIUM | Override modal trusts DOM `data-*` for job/session IDs | §4.1 dogfood-057 |
-| [11](https://github.com/halbritt/striatum/issues/11) | MEDIUM | Recovery panel dry-run relies on CLI-side read-only guarantee | §4.1 dogfood-057 |
-| [12](https://github.com/halbritt/striatum/issues/12) | LOW | `copy-on-click` works on any `data-copy` — clipboard poisoning | §5.1 polish |
-| [13](https://github.com/halbritt/striatum/issues/13) | LOW | Workflow editor — `require_attested_lane` not purged on type change | §5.1 polish |
-
-### 8.2 Operator-reported (pre-existing or filed during this session)
-
-Each gets a `docs/issues/<N>/` workflow when scheduled (per the type
-shipped with gh-16).
-
-| # | Kind | Title | Suggested workflow |
-|---|---|---|---|
-| [14](https://github.com/halbritt/striatum/issues/14) | bug | Recovery cannot clear terminal-run `process_exit_nonzero` blocker without lease | `docs/issues/14/` (gh-issue-driven 3-job). Triage must decide whether the fix is (a) `recovery checkpoint resolve` accepts the blocker on terminal runs, (b) a new `recovery dismiss-blocker --blocker-id <id>` verb, or (c) the process adapter's post-completion blocker insertion is gated by job state. Real product bug with concrete repro from Engram-side. |
-| [15](https://github.com/halbritt/striatum/issues/15) | docs | Clarify PostgreSQL transition guidance (`README.md`, `docs/SPEC.md`, `docs/GETTING_STARTED.md`, `docs/HOW_TO_HUMAN.md`) | `docs/issues/15/` OR fold into RFC 0043 V1.5 follow-up dogfood (item 31). Lighter-weight option: docs-only sweep before item 31 lands. |
-| [17](https://github.com/halbritt/striatum/issues/17) | docs | Striatum doc consistency for Engram memory integration | `docs/issues/17/` paired with the Corpus Contract V2 RFC scaffold (§5.7). Engram side is gated on Striatum's contract decision; this issue cleans up the docs that lag the integration direction. |
-
-### 8.3 Resolved this session
+## 8. Resolved GitHub issue follow-ups
 
 | # | Title | Closed by |
 |---|---|---|
+| [9](https://github.com/halbritt/striatum/issues/9) | CSRF on `/v1/invoke` — no Content-Type validation | RFC 0048 V1 Phase A / dogfood-057 security hardening. |
+| [10](https://github.com/halbritt/striatum/issues/10) | Override modal trusts DOM `data-*` for job/session IDs | RFC 0048 V1 Phase A / dogfood-057 security hardening. |
+| [11](https://github.com/halbritt/striatum/issues/11) | Recovery panel dry-run relies on CLI-side read-only guarantee | RFC 0048 V1 Phase A / dogfood-057 security hardening. |
+| [12](https://github.com/halbritt/striatum/issues/12) | `copy-on-click` works on any `data-copy` — clipboard poisoning | RFC 0050 V2 ergonomics polish. |
+| [13](https://github.com/halbritt/striatum/issues/13) | Workflow editor — `require_attested_lane` not purged on type change | RFC 0050 V2 ergonomics polish. |
+| [14](https://github.com/halbritt/striatum/issues/14) | Recovery cannot clear terminal-run `process_exit_nonzero` blocker without lease | `docs/issues/14/` workflow with accepting review. |
+| [15](https://github.com/halbritt/striatum/issues/15) | Clarify PostgreSQL transition guidance | `docs/issues/15/` workflow and transition-doc sweep. |
 | [16](https://github.com/halbritt/striatum/issues/16) | Add complete operator initialization prompt | `b9add6f` via `docs/issues/16/` workflow. **First production use of the new GH-issue workflow type.** Verify verdict `accept` severity `info`. End-to-end 21 minutes wall-clock, zero operator-on-behalf publishes — empirically validated v1.48.1's wrapper auth fix. |
+| [17](https://github.com/halbritt/striatum/issues/17) | Striatum doc consistency for Engram memory integration | `docs/issues/17/` workflow plus RFC 0057 Corpus Contract V2 scaffold; remaining V2 implementation is tracked under TODO 59. |
 
 ---
 

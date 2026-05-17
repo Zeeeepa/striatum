@@ -43,6 +43,8 @@ def _env(tmp_path: Path) -> dict[str, str]:
     return {
         daemon.ENV_REGISTRY: str(tmp_path / "daemon" / "striatumd.sqlite3"),
         daemon.ENV_RUNTIME: str(tmp_path / "runtime"),
+        "XDG_CONFIG_HOME": str(tmp_path / "config"),
+        "STRIATUM_DAEMON_DB_URL": "",
     }
 
 

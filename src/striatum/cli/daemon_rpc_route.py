@@ -105,7 +105,7 @@ def _subcommand(args: argparse.Namespace) -> str | None:
     for attr in ("run_command", "workflow_command", "list_command", "recovery_command",
                  "evidence_command", "corpus_command", "decision_command",
                  "checkpoint_command", "escalation_command", "branch_command", "session_command",
-                 "worktree_command", "supervise_command", "cross_repo_command"):
+                 "worktree_command", "supervise_command", "cross_repo_command", "archive_command"):
         v = getattr(args, attr, None)
         if v is not None:
             return str(v)
@@ -475,6 +475,13 @@ def _route_corpus_export(args: argparse.Namespace, repo: Path) -> tuple[str, dic
     })
 
 
+def _route_archive_create(args: argparse.Namespace, repo: Path) -> tuple[str, dict[str, Any]]:
+    return ("archive.create", {
+        "run_id": args.run_id,
+        "out": args.out,
+    })
+
+
 def _route_decision_record(args: argparse.Namespace, repo: Path) -> tuple[str, dict[str, Any]]:
     return ("decision.record", {
         "run_id": args.run_id,
@@ -610,6 +617,7 @@ _LOOKUP: dict[tuple[str, str | None], Callable[[argparse.Namespace, Path], tuple
     ("recovery", "watch"): _route_recovery,
     ("evidence", "export"): _route_evidence_export,
     ("corpus", "export"): _route_corpus_export,
+    ("archive", "create"): _route_archive_create,
     ("decision", "record"): _route_decision_record,
     ("checkpoint", "resolve"): _route_checkpoint_resolve,
     ("inbox", None): _route_inbox,

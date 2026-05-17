@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal, cast
 
-from striatum.primitives import json_dumps
+from striatum.primitives import JsonObject, json_dumps
 
 Capability = Literal["read", "write", "review", "claim", "apply", "admin", "recovery", "surgical_recovery"]
 RepositoryScopeMode = Literal["single_repo", "cross_repo", "daemon_global"]
@@ -61,6 +61,16 @@ class MethodEntry:
         if self.repository_scope_mode is not None:
             return self.repository_scope_mode
         return "single_repo" if self.repository_scope else "daemon_global"
+
+
+def mcp_tool_descriptor(entry: MethodEntry) -> JsonObject:
+    """Return the daemon MCP tool descriptor for a registry method entry."""
+    return {
+        "name": entry.method,
+        "description": f"Invoke daemon RPC method `{entry.method}`.",
+        "required_capability": entry.required_capability,
+        "repository_scope_mode": entry.effective_repository_scope_mode,
+    }
 
 
 def _find_contract_path() -> Path:

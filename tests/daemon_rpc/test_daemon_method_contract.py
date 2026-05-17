@@ -6,7 +6,7 @@ from collections.abc import Mapping
 from typing import Any, cast
 
 from striatum.daemon_rpc import registry
-from striatum.daemon_rpc.registry import METHOD_REGISTRY, METHODS_ETAG
+from striatum.daemon_rpc.registry import METHOD_REGISTRY, METHODS_ETAG, mcp_tool_descriptor
 from striatum.db import json_dumps
 
 EXPECTED_METHOD_FIELDS = {
@@ -111,6 +111,21 @@ def test_auto_finalize_method_is_recovery_scoped_and_not_recovery_auto() -> None
     )
     assert "recovery.auto_finalize" in METHOD_REGISTRY
     assert not METHOD_REGISTRY["recovery.auto_finalize"].deprecated
+
+
+def test_mcp_tool_descriptor_is_derived_from_method_entry() -> None:
+    assert mcp_tool_descriptor(METHOD_REGISTRY["status"]) == {
+        "name": "status",
+        "description": "Invoke daemon RPC method `status`.",
+        "required_capability": "read",
+        "repository_scope_mode": "single_repo",
+    }
+    assert mcp_tool_descriptor(METHOD_REGISTRY["dogfood.surgical_recovery"]) == {
+        "name": "dogfood.surgical_recovery",
+        "description": "Invoke daemon RPC method `dogfood.surgical_recovery`.",
+        "required_capability": "surgical_recovery",
+        "repository_scope_mode": "single_repo",
+    }
 
 
 def _contract_payload() -> dict[str, Any]:

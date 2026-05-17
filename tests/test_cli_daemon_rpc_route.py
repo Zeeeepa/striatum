@@ -67,6 +67,7 @@ def _args_for_lookup(command: str, subcommand: str | None) -> argparse.Namespace
         recovery_command=subcommand if command == "recovery" else None,
         evidence_command=subcommand if command == "evidence" else None,
         corpus_command=subcommand if command == "corpus" else None,
+        archive_command=subcommand if command == "archive" else None,
         decision_command=subcommand if command == "decision" else None,
         checkpoint_command=subcommand if command == "checkpoint" else None,
         escalation_command=subcommand if command == "escalation" else None,
@@ -278,6 +279,19 @@ def test_corpus_export_routes_to_daemon_rpc() -> None:
 
     assert method == "corpus.export"
     assert params == {"since": "HEAD~1", "out": "tmp/corpus"}
+
+
+def test_archive_create_routes_to_daemon_rpc() -> None:
+    method, params = _route(
+        "archive",
+        "create",
+        archive_command="create",
+        run_id="run_1",
+        out="archives/run_1",
+    )
+
+    assert method == "archive.create"
+    assert params == {"run_id": "run_1", "out": "archives/run_1"}
 
 
 def test_heartbeat_preserves_extend_seconds() -> None:

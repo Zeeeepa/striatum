@@ -793,6 +793,7 @@ def _recovery_panel_payload(
     *,
     run_id: str,
     next_actions: list[Any],
+    auto_finalize_dry_run: Mapping[str, Any] | None = None,
 ) -> JsonObject:
     blockers = _open_blocker_rows(conn, run_id=run_id)
     auto_publish_recipe = (
@@ -813,6 +814,7 @@ def _recovery_panel_payload(
         "blocked": [b for b in blockers if b.get("severity") != "human_checkpoint"],
         "next_actions": [str(action) for action in next_actions],
         "auto_publish_recipe": auto_publish_recipe,
+        "auto_finalize_dry_run": dict(auto_finalize_dry_run or {}),
         "recipes": recipes,
     }
 
@@ -2049,6 +2051,11 @@ class StriatumServiceHandler(BaseHTTPRequestHandler):
                     conn,
                     run_id=run_id,
                     next_actions=list(next_actions),
+                    auto_finalize_dry_run=(
+                        status_payload.get("auto_finalize_dry_run")
+                        if isinstance(status_payload.get("auto_finalize_dry_run"), Mapping)
+                        else None
+                    ),
                 )
                 run["state_chip"] = _state_chip("run", run.get("state"))
             node_states = compute_node_states_from_jobs(jobs)

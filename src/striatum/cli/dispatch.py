@@ -197,7 +197,11 @@ def dispatch(args: argparse.Namespace) -> object:
     # migrated) before the SQLite-backed fallback is touched. The
     # ``STRIATUM_DAEMON_REQUIRED=0`` opt-out exists for SQLite-backed
     # test fixtures and incremental legacy-fixture migration.
-    if not (args.command == "corpus" and getattr(args, "corpus_command", None) == "verify"):
+    local_verify = (
+        (args.command == "corpus" and getattr(args, "corpus_command", None) == "verify")
+        or (args.command == "archive" and getattr(args, "archive_command", None) == "verify")
+    )
+    if not local_verify:
         enforce_daemon_required(
             getattr(args, "command", None),
             repo,
@@ -233,6 +237,8 @@ def dispatch(args: argparse.Namespace) -> object:
         return first_run_smoke(repo)
     skip_daemon_route = args.command in {"daemon", "init", "skills", "plugin", "repo", "cross-repo", "serve", "byline"}
     if args.command == "corpus" and getattr(args, "corpus_command", None) == "verify":
+        skip_daemon_route = True
+    if args.command == "archive" and getattr(args, "archive_command", None) == "verify":
         skip_daemon_route = True
     if args.command == "inbox" and getattr(args, "session_id", None):
         skip_daemon_route = True
@@ -497,6 +503,15 @@ def dispatch(args: argparse.Namespace) -> object:
         if not bundle.is_absolute():
             bundle = repo / bundle
         return verify_corpus_bundle(bundle)
+    if args.command == "archive" and args.archive_command == "verify":
+        from striatum.archive import verify_run_archive
+
+        bundle = Path(args.bundle)
+        if not bundle.is_absolute():
+            bundle = repo / bundle
+        return verify_run_archive(bundle)
+    if args.command == "archive" and args.archive_command == "create":
+        raise StriatumError("archive create requires daemon-backed PostgreSQL state", exit_code=8)
     ensure_initialized(repo)
     with connect(repo) as conn:
         if args.command == "run" and args.run_command == "prepare":

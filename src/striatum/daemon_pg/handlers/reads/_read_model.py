@@ -8,6 +8,9 @@ from typing import Any
 
 from striatum.cli.introspect import next_actions as legacy_next_actions
 from striatum.daemon_pg.handlers.context import RepoHandlerContext
+from striatum.daemon_pg.handlers.recovery_evidence.auto_finalize import (
+    dry_run_projection as auto_finalize_dry_run_projection,
+)
 from striatum.daemon_rpc.envelope import RpcError
 
 from ._sql import (
@@ -74,6 +77,9 @@ def status_payload(ctx: RepoHandlerContext, *, run_id: str | None) -> dict[str, 
     non_accepting = latest_non_accepting_verdicts(ctx, run_id=run_id)
     claimable = claimable_jobs(ctx, run_id=run_id)
     health = process_health(ctx, run_id=run_id)
+    auto_finalize = (
+        auto_finalize_projection(ctx, run_id=run_id) if run_id is not None else None
+    )
     actions = legacy_next_actions(
         open_blockers=open_blockers,
         human_checkpoints=human_checkpoints,
@@ -82,6 +88,12 @@ def status_payload(ctx: RepoHandlerContext, *, run_id: str | None) -> dict[str, 
         has_orphan_supervisor=has_supervisor_lost_with_held_lease(ctx, run_id=run_id),
         has_stale_leases=has_stale_leases_with_on_disk_artifacts(ctx, run_id=run_id),
     )
+    if (
+        auto_finalize
+        and int(auto_finalize.get("eligible_count") or 0) > 0
+        and "recovery_auto_finalize" not in actions
+    ):
+        actions.append("recovery_auto_finalize")
     for extra in health.get("next_actions", []):
         if extra not in actions:
             actions.append(extra)
@@ -97,6 +109,7 @@ def status_payload(ctx: RepoHandlerContext, *, run_id: str | None) -> dict[str, 
         "claimable_jobs": claimable,
         "blocked_downstream_jobs": blocked_downstream_jobs(ctx, run_id=run_id),
         "process_health": health,
+        "auto_finalize_dry_run": auto_finalize,
         "next_actions": actions,
     }
     if run_id is not None:
@@ -104,6 +117,10 @@ def status_payload(ctx: RepoHandlerContext, *, run_id: str | None) -> dict[str, 
         if phase is not None:
             result.update(phase)
     return result
+
+
+def auto_finalize_projection(ctx: RepoHandlerContext, *, run_id: str) -> dict[str, Any]:
+    return auto_finalize_dry_run_projection(ctx, run_id=run_id)
 
 
 def provenance_mode(ctx: RepoHandlerContext, *, run_id: str | None) -> str | None:

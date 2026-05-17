@@ -129,6 +129,7 @@ EXPECTED_CAPABILITY: dict[str, str] = {
     "list.workflows": "read",
     "evidence.export": "read",
     "corpus.export": "read",
+    "archive.create": "read",
     "supervise.start": "claim",
     "supervise.send": "claim",
     "supervise.stop": "claim",

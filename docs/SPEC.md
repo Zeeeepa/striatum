@@ -696,6 +696,15 @@ The contract version, multi-corpus identity, redaction-tier metadata,
 incremental-export watermark, and optional context-injection policy that
 power V2 are scoped by [RFC 0057](rfcs/0057-corpus-contract-v2.md).
 
+`striatum archive create --run-id <id> --out <dir>` is the Phase 11 V1 run
+archive foundation. It is a daemon/Postgres-backed read command that writes
+a local archive directory for one run: run row, workflow snapshot,
+run-scoped rows, artifact metadata, event metadata, and a self-verifying
+`manifest.json`. It does not copy artifact contents, transcripts,
+`.striatum/` scratch, or any external-service state. `striatum archive
+verify --bundle <dir>` checks an existing archive locally without daemon
+state.
+
 ## Branches And Commits
 
 Workflow startup is gated by the workflow's `branch.mode` setting.
@@ -816,6 +825,8 @@ striatum recovery resume
 
 # Corpus export (RFC 0044 V1; RFC 0052 contract)
 striatum corpus export --since <ref> --out <dir>
+striatum archive create --run-id <id> --out <dir>
+striatum archive verify --bundle <dir>
 
 # Adapter
 striatum adapter run

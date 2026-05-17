@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from striatum.daemon_rpc.capability import RpcAuthContext
-from striatum.daemon_rpc.registry import CAPABILITIES, METHOD_REGISTRY
+from striatum.daemon_rpc.registry import CAPABILITIES, METHOD_REGISTRY, mcp_tool_descriptor
 from striatum.daemon_rpc.server import LOCAL_FILE_AUTHORING_METHODS
 from striatum.mcp import DaemonRpcServer
 
@@ -108,6 +108,9 @@ def test_daemon_mcp_tools_match_registered_non_deprecated_authorized_methods(mon
 
     names = {tool["name"] for tool in tools}
     assert names == _expected_daemon_mcp_tools(allowed_capabilities)
+    tools_by_name = {str(tool["name"]): tool for tool in tools}
+    for name in names:
+        assert tools_by_name[str(name)] == mcp_tool_descriptor(METHOD_REGISTRY[str(name)])
     assert not (names & LOCAL_FILE_AUTHORING_METHODS)
     assert not {
         method

@@ -14,7 +14,11 @@ from psycopg.types.json import Jsonb
 from _harness.pg import create_ephemeral_database, drop_ephemeral_database
 from striatum.daemon_pg.connection import connect
 from striatum.daemon_pg.handlers.context import RepoHandlerContext
-from striatum.daemon_pg.handlers.recovery_evidence.auto_finalize import handle
+from striatum.daemon_pg.handlers.reads import _read_model
+from striatum.daemon_pg.handlers.recovery_evidence.auto_finalize import (
+    dry_run_projection,
+    handle,
+)
 from striatum.daemon_pg.handlers.recovery_evidence.evidence_export import (
     _evidence_artifact_summaries,
 )
@@ -139,6 +143,65 @@ def test_auto_finalize_dry_run_reports_unstable_file_without_mutation(
         )
         assert _count(conn, "striatumd.artifacts", repository_id="repo_a") == 0
         assert _count(conn, "striatumd.verdicts", repository_id="repo_a") == 0
+        assert _states(conn, repository_id="repo_a")["job"] == "running"
+    finally:
+        conn.close()
+
+
+def test_auto_finalize_dry_run_projection_reports_status_eligibility(
+    tmp_path: Path, pg_url: str
+) -> None:
+    conn = connect(pg_url)
+    try:
+        repo_root = tmp_path / "repo_a"
+        _write_finding(repo_root, byline="author: reviewer-codex-gpt-5-001")
+        _seed_review_job(conn, repo_root, repository_id="repo_a")
+        _insert_attached_supervisor(conn, repository_id="repo_a")
+        _insert_work_packet_and_clean_process(conn, repository_id="repo_a")
+        conn.commit()
+
+        ctx = _ctx(conn, repo_root, repository_id="repo_a")
+        projection = dry_run_projection(ctx, run_id="run_1", mtime_grace_seconds=0)
+        status_payload = _read_model.status_payload(ctx, run_id="run_1")
+        dashboard_payload = _read_model.dashboard_payload(ctx, run_id="run_1")
+
+        assert projection["eligible_count"] == 1
+        assert projection["finalized_count"] == 0
+        assert projection["policy"]["live_allowed"] is True
+        assert status_payload["auto_finalize_dry_run"]["eligible_count"] == 1
+        assert "recovery_auto_finalize" in status_payload["next_actions"]
+        assert dashboard_payload["status"]["auto_finalize_dry_run"]["eligible_count"] == 1
+        assert _count(conn, "striatumd.artifacts", repository_id="repo_a") == 0
+        assert _states(conn, repository_id="repo_a")["job"] == "running"
+    finally:
+        conn.close()
+
+
+def test_status_auto_finalize_projection_reports_refusal_without_live_opt_in(
+    tmp_path: Path, pg_url: str
+) -> None:
+    conn = connect(pg_url)
+    try:
+        repo_root = tmp_path / "repo_a"
+        _write_finding(repo_root, byline="author: reviewer-codex-gpt-5-001", stable=False)
+        _seed_review_job(conn, repo_root, repository_id="repo_a", auto_finalize_enabled=False)
+        _insert_attached_supervisor(conn, repository_id="repo_a")
+        _insert_work_packet_and_clean_process(conn, repository_id="repo_a")
+        conn.commit()
+
+        ctx = _ctx(conn, repo_root, repository_id="repo_a")
+        payload = _read_model.status_payload(ctx, run_id="run_1")
+        projection = payload["auto_finalize_dry_run"]
+
+        assert projection["policy"]["live_allowed"] is False
+        assert projection["eligible_count"] == 0
+        assert projection["skipped_count"] == 1
+        assert projection["skipped"][0]["reason"] == "expected_artifact validation refused"
+        assert projection["skipped"][0]["artifacts"][0]["reason"] == (
+            "expected artifact file mtime is inside the grace period"
+        )
+        assert "recovery_auto_finalize" not in payload["next_actions"]
+        assert _count(conn, "striatumd.artifacts", repository_id="repo_a") == 0
         assert _states(conn, repository_id="repo_a")["job"] == "running"
     finally:
         conn.close()

@@ -25,6 +25,8 @@ striatum run prepare
 striatum branch confirm
 striatum run start
 striatum run summary
+striatum archive create
+striatum archive verify
 ```
 
 `workflow init [--style minimal|review|code-change] <path>`
@@ -418,6 +420,20 @@ them at runtime and runs identically when no consumer is configured. The
 V2 contract decisions (multi-corpus identity, redaction-tier metadata,
 incremental watermarks, optional context-injection policy) are scoped by
 [RFC 0057](rfcs/0057-corpus-contract-v2.md).
+
+## Run archive
+
+```text
+striatum archive create --run-id <id> --out <dir>
+striatum archive verify --bundle <dir>
+```
+
+`archive create` is a daemon/Postgres-backed read command that writes a
+local archive directory for one run. The V1 archive contains the run row,
+workflow snapshot, run-scoped rows, artifact metadata, and event metadata
+plus a self-verifying `manifest.json`; it does not copy artifact contents,
+transcripts, or `.striatum/` scratch. `archive verify` is local and
+read-only against an existing archive bundle.
 
 ## Adapter
 

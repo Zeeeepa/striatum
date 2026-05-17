@@ -526,7 +526,7 @@ class DaemonRpcServer:
         if self.pg_conn is None:
             return []
         from striatum.daemon_rpc.capability import authorize
-        from striatum.daemon_rpc.registry import METHOD_REGISTRY
+        from striatum.daemon_rpc.registry import METHOD_REGISTRY, mcp_tool_descriptor
         from striatum.daemon_rpc.server import LOCAL_FILE_AUTHORING_METHODS
 
         token_value = params.get("token")
@@ -548,14 +548,7 @@ class DaemonRpcServer:
                 token=token_value,
             )
             if auth.decision == "allowed":
-                tools.append(
-                    {
-                        "name": entry.method,
-                        "description": f"Invoke daemon RPC method `{entry.method}`.",
-                        "required_capability": entry.required_capability,
-                        "repository_scope_mode": entry.effective_repository_scope_mode,
-                    }
-                )
+                tools.append(mcp_tool_descriptor(entry))
         return tools
 
     def call_daemon_tool(self, params: JsonObject) -> JsonObject:

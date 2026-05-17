@@ -328,6 +328,14 @@ def render_frame(
             lines.extend(override_lines)
             lines.append("")
 
+        auto_finalize_lines = _render_auto_finalize(
+            _as_dict(status_payload.get("auto_finalize_dry_run")),
+            width,
+        )
+        if auto_finalize_lines:
+            lines.extend(auto_finalize_lines)
+            lines.append("")
+
         claim_lines = _render_claimable(claimable)
         next_lines = _render_next_actions(next_actions, right_col_width - 4)
         for combined in _zip_columns(claim_lines, next_lines, left_col_width, right_col_width):
@@ -689,6 +697,59 @@ def _render_verdict_overrides(overrides: Sequence[Any], width: int) -> list[str]
         if rationale:
             lines.append(_truncate(f"  rationale: {rationale}", width))
         lines.append(_truncate(detail, width))
+    return lines
+
+
+def _render_auto_finalize(projection: Mapping[str, Any], width: int) -> list[str]:
+    if not projection:
+        return []
+    eligible = _as_list(projection.get("eligible"))
+    skipped = _as_list(projection.get("skipped"))
+    if not eligible and not skipped:
+        return []
+    policy = _as_dict(projection.get("policy"))
+    live_allowed = "yes" if policy.get("live_allowed") else "no"
+    lines = [
+        _truncate(
+            "Auto-finalize dry run: "
+            f"eligible={int(projection.get('eligible_count') or len(eligible))} "
+            f"refused={int(projection.get('skipped_count') or len(skipped))} "
+            f"live_allowed={live_allowed}",
+            width,
+        )
+    ]
+    for row in eligible[:3]:
+        if not isinstance(row, Mapping):
+            continue
+        artifacts = _as_list(row.get("artifacts"))
+        paths = [
+            str(artifact.get("path"))
+            for artifact in artifacts
+            if isinstance(artifact, Mapping) and artifact.get("path")
+        ]
+        detail = f"  eligible {row.get('workflow_job_id') or row.get('job_id') or '?'}"
+        if paths:
+            detail += " " + ", ".join(paths[:2])
+        lines.append(_truncate(detail, width))
+    for row in skipped[:3]:
+        if not isinstance(row, Mapping):
+            continue
+        reason = str(row.get("reason") or "refused")
+        artifact_reasons = []
+        for artifact in _as_list(row.get("artifacts")):
+            if isinstance(artifact, Mapping) and artifact.get("reason"):
+                artifact_reasons.append(str(artifact["reason"]))
+        if artifact_reasons:
+            reason += ": " + "; ".join(artifact_reasons[:2])
+        lines.append(
+            _truncate(
+                f"  refused {row.get('workflow_job_id') or row.get('job_id') or '?'} {reason}",
+                width,
+            )
+        )
+    hidden = max(0, len(eligible) + len(skipped) - 6)
+    if hidden:
+        lines.append(f"  +{hidden} more auto-finalize rows")
     return lines
 
 

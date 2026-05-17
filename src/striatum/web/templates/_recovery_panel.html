@@ -10,6 +10,46 @@
   <div id="island-recovery-panel"
        class="recovery-panel-island"
        data-props='{{ {"runId": panel.run_id, "recipes": panel.recipes or []} | tojson }}'></div>
+  {% set auto_finalize = panel.auto_finalize_dry_run or {} %}
+  {% if auto_finalize.eligible or auto_finalize.skipped %}
+  <div class="callout recovery-auto-finalize">
+    <strong>Auto-finalize dry run</strong>
+    <span class="muted">
+      {{ auto_finalize.eligible_count or 0 }} eligible /
+      {{ auto_finalize.skipped_count or 0 }} refused /
+      live allowed: {{ "yes" if auto_finalize.policy and auto_finalize.policy.live_allowed else "no" }}
+    </span>
+    {% if auto_finalize.eligible %}
+    <ul>
+      {% for candidate in auto_finalize.eligible[:3] %}
+      <li>
+        <span class="status-pill status-ready">eligible</span>
+        <code>{{ candidate.workflow_job_id or candidate.job_id }}</code>
+        {% for artifact in candidate.artifacts or [] %}
+        <code>{{ artifact.path }}</code>
+        {% endfor %}
+      </li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+    {% if auto_finalize.skipped %}
+    <ul>
+      {% for candidate in auto_finalize.skipped[:3] %}
+      <li>
+        <span class="status-pill status-blocked">refused</span>
+        <code>{{ candidate.workflow_job_id or candidate.job_id or "run" }}</code>
+        <span>{{ candidate.reason }}</span>
+        {% for artifact in candidate.artifacts or [] %}
+        {% if artifact.reason %}
+        <span class="muted">{{ artifact.path }}: {{ artifact.reason }}</span>
+        {% endif %}
+        {% endfor %}
+      </li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+  </div>
+  {% endif %}
   {% if panel.blockers %}
   <ul class="recovery-blocker-list">
     {% for blocker in panel.human_checkpoints + panel.blocked %}
