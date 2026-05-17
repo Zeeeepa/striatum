@@ -417,6 +417,9 @@ daemon-first without needing to support two domain daemons.
 - `src/striatum/web/artifacts.py` now owns safe artifact file resolution, raw
   download content-type selection, and inline Markdown rendering helpers for
   artifact views.
+- `src/striatum/service_command_policy.py` now owns `/v1/invoke`
+  read/mutation command classification; `service.py` keeps the
+  `is_read_command` compatibility import and route-level request handling.
 
 **Remaining Phase 4 debt:** continue splitting `service.py` along stable
 non-SQLite request-handling and rendering boundaries after the daemon-routed

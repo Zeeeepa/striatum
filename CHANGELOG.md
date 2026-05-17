@@ -55,6 +55,9 @@ Recent checkpoints:
 - Artifact web helpers for safe repo-relative path resolution, raw download
   content-type selection, and inline Markdown rendering moved from
   `service.py` into `striatum.web.artifacts`.
+- The `/v1/invoke` read/mutation classifier moved from `service.py` into
+  `striatum.service_command_policy`, keeping the legacy
+  `striatum.service.is_read_command` import surface stable.
 
 - **Command authority and fallback guardrails.**
   `docs/architecture/COMMAND_AUTHORITY_MATRIX.md` now names the authority
@@ -123,7 +126,9 @@ Recent checkpoints:
   GitHub remote parsing, workflow source-path normalization, tree-link
   construction, and state chips now live in `striatum.web.run_list`. Artifact
   path validation, raw download content-type selection, and inline Markdown
-  rendering now live in `striatum.web.artifacts`.
+  rendering now live in `striatum.web.artifacts`. The `/v1/invoke`
+  read/mutation classifier now lives in `striatum.service_command_policy`,
+  keeping the service route focused on request validation and dispatch.
 - **Escalation inbox foundation.**
   `escalation.list`, `escalation.show`, and `escalation.resolve` project
   human-principal escalations from blocker state. The `escalation` artifact

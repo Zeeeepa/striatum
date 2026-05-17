@@ -911,7 +911,9 @@ review and plan are root-level operator artifacts:
     normalization, workflow tree-link construction, and run state-chip shaping.
     Follow-up split landed: `web/artifacts.py` owns safe repo-relative artifact
     path resolution, raw download content-type selection, and inline Markdown
-    rendering helpers for artifact views.
+    rendering helpers for artifact views. Follow-up split landed:
+    `service_command_policy.py` owns `/v1/invoke` read/mutation classification
+    while `service.py` preserves the `is_read_command` compatibility import.
     Remaining: continue splitting `service.py` along stable non-SQLite
     request-handling and rendering boundaries.
 
