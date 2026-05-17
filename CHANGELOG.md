@@ -310,6 +310,8 @@ Recent checkpoints:
   scratch-only bootstrap and no longer create repo-local SQLite. The legacy
   SQLite initializer is retained behind the explicit test-harness
   compatibility escape for remaining fixtures.
+- `adapter run` is retired outside that same legacy fixture escape, closing
+  another production path to the repo-local SQLite process-adapter tables.
 - Fresh-clone and package smoke scripts now exercise the daemon/Postgres repo
   registration path when PostgreSQL is available, keep their smoke workflow
   inside the target repository for `run prepare`, install the packaged RPC

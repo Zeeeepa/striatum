@@ -86,11 +86,15 @@ from striatum.cli.workflow_init import workflow_init
 from striatum.cli.worktree import worktree_create, worktree_list, worktree_release
 
 
-def _legacy_sqlite_init_enabled() -> bool:
+def _legacy_sqlite_test_harness_enabled() -> bool:
     return (
         os.environ.get("STRIATUM_TEST_HARNESS") == "1"
         and os.environ.get("STRIATUM_DAEMON_REQUIRED") == "0"
     )
+
+
+def _is_legacy_adapter_run(args: argparse.Namespace) -> bool:
+    return args.command == "adapter" and getattr(args, "adapter_command", None) == "run"
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -199,6 +203,11 @@ def _skills_install_dispatch(
 def dispatch(args: argparse.Namespace) -> object:
     """Dispatch a parsed command."""
     repo = Path(args.repo).resolve()
+    if _is_legacy_adapter_run(args) and not _legacy_sqlite_test_harness_enabled():
+        raise StriatumError(
+            "adapter run is retired outside legacy test fixtures; use daemon-supervised process lanes",
+            exit_code=8,
+        )
     # RFC 0043 §3 (V1.5): daemon-required enforcement is the default. Fail
     # fast with exit code 11 (daemon socket unreachable) or 12 (repo not
     # migrated) before the SQLite-backed fallback is touched. The
@@ -297,7 +306,7 @@ def dispatch(args: argparse.Namespace) -> object:
             "scratch_dir": str(state_dir / "scratch"),
             "state_store": "daemon_postgres",
         }
-        if _legacy_sqlite_init_enabled():
+        if _legacy_sqlite_test_harness_enabled():
             init_repo(repo)
             init_result["db"] = str(repo / ".striatum" / "state.sqlite3")
             init_result["compatibility_mode"] = "legacy_sqlite_test_harness"

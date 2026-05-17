@@ -186,7 +186,7 @@ remediation phases should either daemon-route, quarantine, or delete.
 | `recovery watch` | foreground scheduler repeatedly calling daemon `recovery.sweep` | no production SQLite | daemon_scheduler |
 | `run graph` | daemon RPC to PG handler | no | daemon_native |
 | `send` | daemon RPC to PG handler | no | daemon_native |
-| `adapter run` | local single-shot process-adapter compatibility path | yes | transition debt |
+| `adapter run` | retired outside explicit legacy test fixtures | no production SQLite | legacy fixture only |
 | `byline` | local helper over current packet state | yes | operator-helper transition |
 | `inbox --session-id` | local session-packet helper | yes | operator-helper transition |
 | `serve` | local HTTP/web service over daemon RPC plus explicit CLI-local authoring helpers | no production SQLite | service cleanup debt |

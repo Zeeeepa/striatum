@@ -27,6 +27,41 @@ ROOT = Path(__file__).resolve().parents[1]
 JsonDict = dict[str, Any]
 
 
+def test_adapter_run_is_retired_outside_legacy_test_harness(tmp_path: Path) -> None:
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(ROOT / "src")
+    env["STRIATUM_DAEMON_REQUIRED"] = "1"
+    env["STRIATUM_SQLITE_CONNECT_TRIPWIRE"] = "1"
+    env.pop("STRIATUM_TEST_HARNESS", None)
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "striatum.cli",
+            "--repo",
+            str(tmp_path),
+            "adapter",
+            "run",
+            "--session-id",
+            "session_1",
+            "--lease-id",
+            "lease_1",
+            "--json",
+        ],
+        env=env,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 8
+    payload = json.loads(result.stdout)
+    assert payload["ok"] is False
+    assert "adapter run is retired" in payload["error"]["message"]
+    assert not (tmp_path / ".striatum" / "state.sqlite3").exists()
+
+
 def _run_cli(repo: Path, *args: str, check: bool = True) -> JsonDict:
     env = os.environ.copy()
     env["PYTHONPATH"] = str(ROOT / "src")

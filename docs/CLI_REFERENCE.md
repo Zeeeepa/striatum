@@ -471,6 +471,9 @@ artifact content hashes against files in a local repository checkout.
 striatum adapter run
 ```
 
+`adapter run` is retired outside the explicit legacy test-fixture
+compatibility environment. Use daemon-supervised process lanes instead.
+
 ## Session lifecycle
 
 ```text
