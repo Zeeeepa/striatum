@@ -343,6 +343,11 @@ striatum list artifacts
 striatum list workflows
 ```
 
+`list runs` includes the workflow identity triple for each run:
+`workflow_id`, `workflow_version`, and `workflow_snapshot_id`. The web
+run list uses the same snapshot identity to display the workflow name
+and link back to the workflow detail when the source path is known.
+
 ## Inspection and recovery
 
 ```text
@@ -373,6 +378,7 @@ dashboard's graph panel renderer (RFC 0016).
 
 ```text
 striatum corpus export --since <ref> --out <dir>
+striatum corpus verify --bundle <dir>
 ```
 
 `corpus export` emits a redacted JSONL bundle of Striatum's durable
@@ -381,6 +387,10 @@ audit-chain entries, changelog entries, ubiquitous-language terms,
 harness-friction patterns, recent commits) plus a verifying
 `manifest.json`. Re-running over unchanged inputs produces byte-identical
 JSONL files and stable per-file SHA-256s (only `generated_at` varies).
+`corpus verify` is a local read-only checker for an existing bundle; it
+validates the manifest, per-file hashes and byte counts, JSONL row shape,
+duplicate row ids, row/file `sub_kind` consistency, row counts, and the
+implied V1 corpus contract version.
 
 The bundle is operator-triggered local provenance, never streamed to any
 external service. Optional consumers (Engram is the first reference under

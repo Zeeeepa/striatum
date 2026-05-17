@@ -26,11 +26,27 @@ def test_run_list_filter_controls_data_island_and_duration(tmp_path: Path) -> No
         status, _, body = _http_get_raw(port, "/")
         assert status == 200
         assert b'id="run-list-filter"' in body
-        assert b"Search runs by id, branch, workflow id" in body
+        assert b"Search runs by id, branch, workflow" in body
         assert b"Last 7 days" in body
         assert b"<th>Duration</th>" in body
         assert b"run-list-data" in body
         assert b"/static/run_list.js" in body
+    finally:
+        _stop_service(proc)
+
+
+def test_run_list_renders_workflow_identity_and_links(tmp_path: Path) -> None:
+    _git_init_repo(tmp_path)
+    _striatum_init(tmp_path)
+    _prepare_run(tmp_path)
+    proc, port = _spawn_service(tmp_path, "--web")
+    try:
+        status, _, body = _http_get_raw(port, "/")
+        assert status == 200
+        assert b'data-workflow-name="Redesign test"' in body
+        assert b"Redesign test" in body
+        assert b"wf-redesign-test" in body
+        assert b"/workflows/" in body
     finally:
         _stop_service(proc)
 

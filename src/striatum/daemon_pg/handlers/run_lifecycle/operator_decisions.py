@@ -36,7 +36,7 @@ def handle(ctx: RepoHandlerContext, params: Mapping[str, Any]) -> dict[str, Any]
         raise ArtifactError("decision id cannot be empty or contain whitespace")
 
     with transaction(ctx):
-        run = ctx.row_by_id("runs", "run_id", run_id)
+        run = ctx.row_by_id("runs", "run_id", run_id, for_update=True)
         _refuse_duplicate_decision(
             ctx,
             run_id=run_id,
@@ -95,6 +95,15 @@ def handle(ctx: RepoHandlerContext, params: Mapping[str, Any]) -> dict[str, Any]
                 "sha256": digest,
             },
         )
+        propagation = _propagate_decision_outcome(
+            ctx,
+            run=dict(run),
+            run_id=run_id,
+            decision_id=decision_id,
+            outcome=outcome,
+            decision_path=path_text,
+            now=created_at,
+        )
         return {
             "status": "recorded",
             "run_id": run_id,
@@ -103,8 +112,7 @@ def handle(ctx: RepoHandlerContext, params: Mapping[str, Any]) -> dict[str, Any]
             "path": path_text,
             "outcome": outcome,
             "sha256": digest,
-            "run_state_transition": None,
-            "superseded_verdict_count": 0,
+            **propagation,
         }
 
 
@@ -178,6 +186,84 @@ def _repo_root_for(ctx: RepoHandlerContext, run: Mapping[str, Any]) -> Path:
     if raw is None:
         return ctx.repo_root
     return Path(str(raw)).expanduser().resolve()
+
+
+def _propagate_decision_outcome(
+    ctx: RepoHandlerContext,
+    *,
+    run: Mapping[str, Any],
+    run_id: str,
+    decision_id: str,
+    outcome: str,
+    decision_path: str,
+    now: str,
+) -> dict[str, object]:
+    current_state = str(run["state"])
+    if outcome == "rejected":
+        if current_state == "compromised":
+            return {"run_state_transition": None, "superseded_verdict_count": 0}
+        with ctx.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE striatumd.runs
+                   SET state = 'compromised'
+                 WHERE repository_id = %s
+                   AND run_id = %s
+                """,
+                (ctx.repository_id, run_id),
+            )
+            cur.execute(
+                """
+                UPDATE striatumd.verdicts
+                   SET superseded_by_decision_id = %s,
+                       superseded_at = %s
+                 WHERE repository_id = %s
+                   AND run_id = %s
+                   AND verdict IN ('accept', 'accept_with_findings')
+                   AND superseded_by_decision_id IS NULL
+                """,
+                (decision_id, now, ctx.repository_id, run_id),
+            )
+            superseded_count = cur.rowcount or 0
+        ctx.append_event(
+            run_id=run_id,
+            event_type="run.compromised",
+            payload={
+                "decision_id": decision_id,
+                "decision_path": decision_path,
+                "previous_state": current_state,
+                "superseded_verdict_count": int(superseded_count),
+            },
+        )
+        return {
+            "run_state_transition": {"from": current_state, "to": "compromised"},
+            "superseded_verdict_count": int(superseded_count),
+        }
+    if outcome == "accepted" and current_state == "compromised":
+        with ctx.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE striatumd.runs
+                   SET state = 'completed'
+                 WHERE repository_id = %s
+                   AND run_id = %s
+                """,
+                (ctx.repository_id, run_id),
+            )
+        ctx.append_event(
+            run_id=run_id,
+            event_type="run.reopened_after_compromised",
+            payload={
+                "decision_id": decision_id,
+                "decision_path": decision_path,
+                "previous_state": current_state,
+            },
+        )
+        return {
+            "run_state_transition": {"from": current_state, "to": "completed"},
+            "superseded_verdict_count": 0,
+        }
+    return {"run_state_transition": None, "superseded_verdict_count": 0}
 
 
 def _required_text(params: Mapping[str, Any], key: str, *, method: str) -> str:

@@ -586,6 +586,24 @@ table.runs-table tbody tr:hover { background: var(--bg-overlay); }
 .posture-list { list-style: none; padding: 0; }
 .posture-list li { display: flex; gap: var(--space-2); align-items: center; margin-bottom: var(--space-1); }
 
+.workflow-cell {
+  min-width: 18rem;
+}
+.workflow-primary {
+  max-width: 34rem;
+  overflow-wrap: anywhere;
+  font-weight: 600;
+}
+.workflow-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-2);
+  align-items: center;
+  margin-top: 0.125rem;
+  color: var(--fg-secondary);
+  font-size: 0.8125rem;
+}
+
 .graph-container {
   background: var(--bg-base);
   border: 1px solid var(--border);

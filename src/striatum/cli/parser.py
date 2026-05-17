@@ -735,6 +735,9 @@ def build_parser() -> argparse.ArgumentParser:
     corpus_export.add_argument("--since", required=True)
     corpus_export.add_argument("--out", required=True)
     corpus_export.add_argument("--json", action="store_true")
+    corpus_verify = corpus_sub.add_parser("verify")
+    corpus_verify.add_argument("--bundle", required=True)
+    corpus_verify.add_argument("--json", action="store_true")
 
     decision = sub.add_parser("decision")
     decision_sub = decision.add_subparsers(dest="decision_command", required=True)

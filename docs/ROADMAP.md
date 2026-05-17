@@ -527,8 +527,11 @@ improvement potential on Max 20x remains attractive but not urgent.)
 ### 5.6 RFC 0047 — Decision-record propagation
 
 Closes the GH #3 design surface (now-closed issue had no implementation
-beyond an event row). Proposes `compromised` run state + supersession
-columns on `verdicts` + propagation logic. V1.8 scope.
+beyond an event row). Landed projection semantics: rejected decisions move
+the run to `compromised` and supersede accepting verdicts; accepted
+decisions can reopen a compromised run to `completed` while preserving the
+supersession trail. The daemon/Postgres projection is carried by migration
+0007.
 
 ### 5.7 Engram memory integration — Striatum Corpus Contract V2
 

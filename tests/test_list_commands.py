@@ -229,6 +229,13 @@ def test_list_runs_returns_runs_with_workflow_id(tmp_path: Path) -> None:
     row = rows[0]
     assert row["run_id"] == run_id
     assert row["workflow_id"] == "rfc-ledger-cleanup"
+    assert row["workflow_version"] == "2026-05-06"
+    assert row["workflow_snapshot_id"]
+    assert row["workflow_identity"] == {
+        "workflow_id": "rfc-ledger-cleanup",
+        "workflow_version": "2026-05-06",
+        "workflow_snapshot_id": row["workflow_snapshot_id"],
+    }
     assert row["state"] == "running"
     assert row["branch_name"] == "striatum/list-test"
     assert "created_at" in row and "started_at" in row and "completed_at" in row

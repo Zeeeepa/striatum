@@ -38,6 +38,7 @@ RUN_STATES: tuple[str, ...] = (
     "completed",
     "failed",
     "canceled",
+    "compromised",
 )
 
 SESSION_STATES: tuple[str, ...] = ("active", "expired", "stopped", "lost", "closed")
@@ -106,7 +107,8 @@ def list_runs(
     _validate_choice(state, allowed=RUN_STATES, label="run state")
     sql = """
         SELECT r.run_id, r.state, r.branch_name, r.created_at, r.started_at,
-               r.completed_at, w.workflow_id
+               r.completed_at, w.workflow_id, w.workflow_version,
+               w.workflow_snapshot_id
         FROM runs r
         LEFT JOIN workflow_snapshots w
           ON w.workflow_snapshot_id = r.workflow_snapshot_id
@@ -115,7 +117,15 @@ def list_runs(
         LIMIT ?
     """
     rows = conn.execute(sql, (state, state, int(limit))).fetchall()
-    items: list[JsonObject] = [dict(row) for row in rows]
+    items: list[JsonObject] = []
+    for row in rows:
+        item = dict(row)
+        item["workflow_identity"] = {
+            "workflow_id": item.get("workflow_id"),
+            "workflow_version": item.get("workflow_version"),
+            "workflow_snapshot_id": item.get("workflow_snapshot_id"),
+        }
+        items.append(item)
     return _envelope(items)
 
 

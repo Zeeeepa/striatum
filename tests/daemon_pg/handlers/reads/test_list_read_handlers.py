@@ -193,6 +193,13 @@ def test_list_runs_filters_and_scopes_repository(pg_conn: Any, tmp_path: Path) -
     assert result["count"] == 1
     assert result["items"][0]["run_id"] == "run_1"
     assert result["items"][0]["workflow_id"] == "workflow-a"
+    assert result["items"][0]["workflow_version"] == "1"
+    assert result["items"][0]["workflow_snapshot_id"] == "snap_1"
+    assert result["items"][0]["workflow_identity"] == {
+        "workflow_id": "workflow-a",
+        "workflow_version": "1",
+        "workflow_snapshot_id": "snap_1",
+    }
     with pytest.raises(RpcError, match="unknown run state"):
         module.handle(repo_context(pg_conn, repository_id="repo_a", repo_root=repo_a), {"state": "weird"})
 

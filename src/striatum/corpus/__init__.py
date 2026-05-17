@@ -4,5 +4,6 @@ from __future__ import annotations
 
 from striatum.corpus.export import export_corpus_bundle
 from striatum.corpus.types import SCHEMA_VERSION
+from striatum.corpus.verify import verify_corpus_bundle
 
-__all__ = ["SCHEMA_VERSION", "export_corpus_bundle"]
+__all__ = ["SCHEMA_VERSION", "export_corpus_bundle", "verify_corpus_bundle"]

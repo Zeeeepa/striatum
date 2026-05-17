@@ -47,6 +47,7 @@
       row.dataset.runId || "",
       row.dataset.branch || "",
       row.dataset.workflowId || "",
+      row.dataset.workflowName || "",
     ].join(" ").toLowerCase();
     const searchMatches = !filter.search || haystack.includes(filter.search.toLowerCase());
     const stateMatches = filter.state === "all" || (row.dataset.state || "") === filter.state;

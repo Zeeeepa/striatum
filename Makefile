@@ -9,7 +9,7 @@ CORE ?= python
 # when invoked from a Claude Code worktree (or any other cwd).
 MAKEFILE_DIR := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
 
-.PHONY: install lint typecheck pg-test test-multi-repo metadata-check package-smoke smoke check release-check ui-install ui-update-lock ui-audit ui-clean ui-build ui-dev ui-test ui-bundle-hash ui-bundle-size ui-check-bundle ui-verify-bundle daemon-go-build daemon-go-test daemon-go-lint daemon-go-install daemon-go-release
+.PHONY: install lint typecheck pg-test test-multi-repo metadata-check package-smoke package-wheel-size smoke check release-check ui-install ui-update-lock ui-audit ui-clean ui-build ui-dev ui-test ui-bundle-hash ui-bundle-size ui-check-bundle ui-verify-bundle daemon-go-build daemon-go-test daemon-go-lint daemon-go-install daemon-go-release
 
 $(PYTHON):
 	python3 -m venv $(VENV)
@@ -125,10 +125,18 @@ metadata-check: $(VENV)/.installed
 package-smoke: $(VENV)/.installed
 	PYTHON_FOR_BUILD=$(PYTHON) scripts/package_smoke.sh
 
+package-wheel-size: $(VENV)/.installed
+	tmp="$$(mktemp -d)"; \
+	mkdir -p "$$tmp/source"; \
+	trap 'rm -rf "$$tmp"' EXIT; \
+	tar --exclude .git --exclude .striatum --exclude .venv --exclude .pytest_cache --exclude .mypy_cache --exclude .ruff_cache --exclude __pycache__ --exclude build --exclude dist -C "$(MAKEFILE_DIR)" -cf - . | tar -C "$$tmp/source" -xf -; \
+	$(PYTHON) -m build --wheel --outdir "$$tmp/dist" "$$tmp/source" >/dev/null; \
+	$(PYTHON) "$(MAKEFILE_DIR)/scripts/check_wheel_size.py" --wheel "$$tmp/dist"
+
 smoke:
 	scripts/fresh_clone_smoke.sh
 
-check: lint typecheck test ui-check-bundle ui-test metadata-check package-smoke
+check: lint typecheck test ui-check-bundle ui-test metadata-check package-wheel-size package-smoke
 
 release-check: check smoke
 

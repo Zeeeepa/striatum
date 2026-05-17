@@ -212,6 +212,84 @@ def test_decision_record_handler_registered() -> None:
     assert resolve_pg_handler("decision.record") is handle
 
 
+def test_rejected_decision_marks_run_compromised_and_supersedes_verdict(
+    tmp_path: Path,
+    pg_url: str,
+) -> None:
+    conn = connect(pg_url)
+    try:
+        repo_root = tmp_path / "repo_a"
+        _seed_run(conn, repo_root, repository_id="repo_a")
+        _seed_accepting_verdict(conn, repository_id="repo_a")
+        conn.commit()
+
+        result = handle(
+            _ctx(conn, repo_root, repository_id="repo_a"),
+            {
+                "run_id": "run_1",
+                "path": "docs/decisions/reject.md",
+                "decision_id": "reject-001",
+                "outcome": "rejected",
+                "title": "Reject compromised run",
+            },
+        )
+
+        assert result["run_state_transition"] == {"from": "completed", "to": "compromised"}
+        assert result["superseded_verdict_count"] == 1
+        assert _one(
+            conn,
+            "SELECT state FROM striatumd.runs WHERE repository_id = %s AND run_id = 'run_1'",
+            ("repo_a",),
+        ) == {"state": "compromised"}
+        assert _one(
+            conn,
+            """
+            SELECT superseded_by_decision_id
+            FROM striatumd.verdicts
+            WHERE repository_id = %s AND verdict_id = 'verdict_accept'
+            """,
+            ("repo_a",),
+        ) == {"superseded_by_decision_id": "reject-001"}
+        event_types = [row["event_type"] for row in _events(conn, "repo_a")]
+        assert event_types == ["decision.recorded", "run.compromised"]
+    finally:
+        conn.close()
+
+
+def test_accepted_decision_reopens_compromised_run(
+    tmp_path: Path,
+    pg_url: str,
+) -> None:
+    conn = connect(pg_url)
+    try:
+        repo_root = tmp_path / "repo_a"
+        _seed_run(conn, repo_root, repository_id="repo_a", run_state="compromised")
+        conn.commit()
+
+        result = handle(
+            _ctx(conn, repo_root, repository_id="repo_a"),
+            {
+                "run_id": "run_1",
+                "path": "docs/decisions/reopen.md",
+                "decision_id": "accept-001",
+                "outcome": "accepted",
+                "title": "Reopen compromised run",
+            },
+        )
+
+        assert result["run_state_transition"] == {"from": "compromised", "to": "completed"}
+        assert result["superseded_verdict_count"] == 0
+        assert _one(
+            conn,
+            "SELECT state FROM striatumd.runs WHERE repository_id = %s AND run_id = 'run_1'",
+            ("repo_a",),
+        ) == {"state": "completed"}
+        event_types = [row["event_type"] for row in _events(conn, "repo_a")]
+        assert event_types == ["decision.recorded", "run.reopened_after_compromised"]
+    finally:
+        conn.close()
+
+
 def _ctx(conn: Any, repo_root: Path, *, repository_id: str) -> RepoHandlerContext:
     return RepoHandlerContext(
         pg_conn=conn,
@@ -221,7 +299,13 @@ def _ctx(conn: Any, repo_root: Path, *, repository_id: str) -> RepoHandlerContex
     )
 
 
-def _seed_run(conn: Any, repo_root: Path, *, repository_id: str) -> None:
+def _seed_run(
+    conn: Any,
+    repo_root: Path,
+    *,
+    repository_id: str,
+    run_state: str = "completed",
+) -> None:
     repo_root.mkdir(parents=True)
     now = "2026-05-14T00:00:00Z"
     workflow = {
@@ -265,9 +349,50 @@ def _seed_run(conn: Any, repo_root: Path, *, repository_id: str) -> None:
               repository_id, run_id, workflow_snapshot_id, repo_root, state,
               created_at, started_at
             )
-            VALUES (%s, 'run_1', 'snap_1', %s, 'completed', %s, %s)
+            VALUES (%s, 'run_1', 'snap_1', %s, %s, %s, %s)
             """,
-            (repository_id, str(repo_root), now, now),
+            (repository_id, str(repo_root), run_state, now, now),
+        )
+
+
+def _seed_accepting_verdict(conn: Any, *, repository_id: str) -> None:
+    now = "2026-05-14T00:00:00Z"
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO striatumd.sessions (
+              repository_id, session_id, run_id, role_id, lane_id, slug,
+              ordinal, state, registered_at
+            )
+            VALUES (%s, 'sess_review', 'run_1', 'reviewer', 'local',
+                    'reviewer-local-1', 1, 'closed', %s)
+            """,
+            (repository_id, now),
+        )
+        cur.execute(
+            """
+            INSERT INTO striatumd.jobs (
+              repository_id, job_id, run_id, workflow_job_id, title, job_type,
+              role_id, lane_selector_json, capability_requirements_json, state,
+              attempt, max_attempts, fresh_session_required, write_scope_json,
+              expected_artifacts_json, idempotency_key, created_at
+            )
+            VALUES (%s, 'job_review', 'run_1', 'review', 'Review', 'review',
+                    'reviewer', '{}'::jsonb, '[]'::jsonb, 'completed',
+                    1, 1, true, '{}'::jsonb, '[]'::jsonb, 'idem-review', %s)
+            """,
+            (repository_id, now),
+        )
+        cur.execute(
+            """
+            INSERT INTO striatumd.verdicts (
+              repository_id, verdict_id, run_id, job_id, session_id,
+              verdict, created_at
+            )
+            VALUES (%s, 'verdict_accept', 'run_1', 'job_review',
+                    'sess_review', 'accept_with_findings', %s)
+            """,
+            (repository_id, now),
         )
 
 

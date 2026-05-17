@@ -22,6 +22,7 @@ RUN_STATES = {
     "completed",
     "failed",
     "canceled",
+    "compromised",
 }
 SESSION_STATES = {"active", "expired", "stopped", "lost", "closed"}
 JOB_STATES = {

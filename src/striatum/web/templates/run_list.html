@@ -8,7 +8,7 @@
   <form class="filter-toolbar" id="run-list-filter" aria-label="Run filters">
     <label class="filter-search">
       <span>Search</span>
-      <input type="search" id="run-search" placeholder="Search runs by id, branch, workflow id..." autocomplete="off">
+      <input type="search" id="run-search" placeholder="Search runs by id, branch, workflow..." autocomplete="off">
     </label>
     <button type="button" class="secondary-button compact-button" id="run-search-clear">Clear search</button>
     <fieldset class="segmented-control" aria-label="Run state">
@@ -42,11 +42,24 @@
     </thead>
     <tbody>
       {% for run in runs %}
-      <tr data-run-id="{{ run.run_id }}" data-state="{{ run.state }}" data-branch="{{ run.branch_name or '' }}" data-workflow-id="{{ run.workflow_id or '' }}" data-created-at="{{ run.created_at or '' }}" data-started-at="{{ run.started_at or '' }}" data-completed-at="{{ run.completed_at or '' }}">
+      <tr data-run-id="{{ run.run_id }}" data-state="{{ run.state }}" data-branch="{{ run.branch_name or '' }}" data-workflow-id="{{ run.workflow_id or '' }}" data-workflow-name="{{ run.workflow_name or '' }}" data-created-at="{{ run.created_at or '' }}" data-started-at="{{ run.started_at or '' }}" data-completed-at="{{ run.completed_at or '' }}">
         <td><a href="/run/{{ run.run_id }}" class="run-link">{{ run.run_id }}</a></td>
         <td>{{ ui.run_state_pill(run.state, run.paused_at) }}</td>
         <td><code class="branch-name">{{ run.branch_name or "—" }}</code></td>
-        <td>{% if run.workflow_id %}<code>{{ run.workflow_id }}</code>{% else %}<span class="muted">—</span>{% endif %}</td>
+        <td class="workflow-cell">
+          {% if run.workflow_id %}
+          <div class="workflow-primary">
+            {% if run.workflow_local_url %}<a href="{{ run.workflow_local_url }}">{{ run.workflow_name or run.workflow_id }}</a>{% else %}{{ run.workflow_name or run.workflow_id }}{% endif %}
+          </div>
+          <div class="workflow-meta">
+            <code>{{ run.workflow_id }}</code>
+            {% if run.workflow_version %}<span>v{{ run.workflow_version }}</span>{% endif %}
+            {% if run.workflow_github_url %}<a href="{{ run.workflow_github_url }}" rel="noreferrer">GitHub</a>{% endif %}
+          </div>
+          {% else %}
+          <span class="muted">—</span>
+          {% endif %}
+        </td>
         <td><time datetime="{{ run.created_at }}">{{ run.created_at }}</time></td>
         <td class="run-duration">—</td>
       </tr>

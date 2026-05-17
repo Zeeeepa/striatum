@@ -20,7 +20,8 @@ def handle(ctx: RepoHandlerContext, params: Mapping[str, Any]) -> dict[str, Any]
         cur.execute(
             """
             SELECT r.run_id, r.state, r.branch_name, r.created_at, r.started_at,
-                   r.completed_at, w.workflow_id
+                   r.completed_at, w.workflow_id, w.workflow_version,
+                   w.workflow_snapshot_id
             FROM striatumd.runs r
             LEFT JOIN striatumd.workflow_snapshots w
               ON w.repository_id = r.repository_id
@@ -32,5 +33,13 @@ def handle(ctx: RepoHandlerContext, params: Mapping[str, Any]) -> dict[str, Any]
             """,
             (ctx.repository_id, state, state, limit),
         )
-        items = [row_to_json(row) for row in cur.fetchall()]
+        items = []
+        for row in cur.fetchall():
+            item = row_to_json(row)
+            item["workflow_identity"] = {
+                "workflow_id": item.get("workflow_id"),
+                "workflow_version": item.get("workflow_version"),
+                "workflow_snapshot_id": item.get("workflow_snapshot_id"),
+            }
+            items.append(item)
     return {"items": items, "count": len(items)}

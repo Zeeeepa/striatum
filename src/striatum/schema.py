@@ -28,7 +28,7 @@ CREATE TABLE IF NOT EXISTS runs (
   repo_root TEXT NOT NULL,
   state TEXT NOT NULL CHECK (state IN (
     'needs_branch_confirmation','ready','running','blocked',
-    'completed','failed','canceled'
+    'completed','failed','canceled','compromised'
   )),
   branch_name TEXT,
   branch_base TEXT,

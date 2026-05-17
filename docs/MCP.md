@@ -6,8 +6,8 @@ Date: 2026-05-07
 ## Overview
 
 Striatum is a local-first orchestration tool. The MCP-like wrapper is a small
-stdio JSON-RPC adapter over `striatum.api.invoke`; it is not a second control
-plane and does not write SQLite directly.
+stdio JSON-RPC adapter over the same daemon-mediated command surface as the
+CLI; it is not a second control plane and does not write live state directly.
 
 The CLI remains the product contract. The wrapper only gives local tools a
 structured stdio surface for the same commands.
@@ -21,8 +21,9 @@ Striatum can run as a local stdio JSON-RPC server:
   fallback. See [Framing](#framing) below.
 - **Root Directory:** start it inside, or pass `--repo` for, the target
   repository.
-- **State authority:** `.striatum/state.sqlite3`, mutated only through the
-  existing CLI dispatcher via `striatum.api.invoke`.
+- **State authority:** daemon-owned PostgreSQL scoped to the registered
+  target repository. `.striatum/` beside the target repo is operational
+  scratch only.
 
 Development command:
 

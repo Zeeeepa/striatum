@@ -19,6 +19,7 @@ import signal
 import socket
 import socketserver
 import sqlite3
+import subprocess
 import threading
 import time
 import uuid
@@ -26,7 +27,7 @@ from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from typing import Any, Mapping
-from urllib.parse import parse_qs, unquote, urlsplit
+from urllib.parse import parse_qs, quote, unquote, urlsplit
 
 from striatum.api import invoke
 from striatum.db import db_path
@@ -154,6 +155,89 @@ def _append_jsonl(path: Path, entry: dict[str, Any]) -> None:
     line = json.dumps(entry, ensure_ascii=False) + "\n"
     with path.open("a", encoding="utf-8") as fh:
         fh.write(line)
+
+
+def _git_config_get(repo: Path, key: str) -> str | None:
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(repo), "config", "--get", key],
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+    except OSError:
+        return None
+    if result.returncode != 0:
+        return None
+    value = result.stdout.strip()
+    return value or None
+
+
+def _git_symbolic_ref(repo: Path, ref: str) -> str | None:
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(repo), "symbolic-ref", "--short", ref],
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+    except OSError:
+        return None
+    if result.returncode != 0:
+        return None
+    value = result.stdout.strip()
+    return value or None
+
+
+def _parse_github_remote(value: str | None) -> str | None:
+    if not value:
+        return None
+    raw = value.strip()
+    if raw.startswith("git@github.com:"):
+        path = raw.removeprefix("git@github.com:")
+    elif raw.startswith("ssh://git@github.com/"):
+        path = raw.removeprefix("ssh://git@github.com/")
+    else:
+        parsed = urlsplit(raw)
+        if parsed.scheme not in {"http", "https"} or parsed.netloc.lower() != "github.com":
+            return None
+        path = parsed.path.lstrip("/")
+    path = path.removesuffix(".git").strip("/")
+    parts = [part for part in path.split("/") if part]
+    if len(parts) != 2:
+        return None
+    owner, repo = parts
+    return f"https://github.com/{quote(owner, safe='')}/{quote(repo, safe='')}"
+
+
+def _workflow_directory(source_path: str) -> str:
+    path = Path(source_path)
+    if path.name:
+        parent = path.parent.as_posix()
+        return "" if parent == "." else parent
+    return source_path.strip("/")
+
+
+def _repo_relative_source_path(repo: Path, source_path: str) -> str:
+    if not source_path:
+        return ""
+    path = Path(source_path)
+    if not path.is_absolute():
+        return source_path
+    try:
+        return path.resolve().relative_to(repo.resolve()).as_posix()
+    except ValueError:
+        return source_path
+
+
+def _workflow_tree_url(base_url: str | None, branch: str | None, source_path: str | None) -> str | None:
+    if not base_url or not branch or not source_path:
+        return None
+    directory = _workflow_directory(source_path)
+    branch_part = quote(branch, safe="")
+    if not directory:
+        return f"{base_url}/tree/{branch_part}"
+    return f"{base_url}/tree/{branch_part}/{quote(directory, safe='/-._~')}"
 
 
 def _read_chat_history(path: Path, *, flavor: str = "openai_chat") -> list[dict[str, Any]]:
@@ -1262,11 +1346,28 @@ class ServiceState:
         self._sse_counts: dict[str, int] = {}
         self._sse_lock = threading.Lock()
         self._shutdown = threading.Event()
+        self._github_base_url: str | None | bool = False
+        self._default_branch: str | None = None
         # GH #10: process-local HMAC secret for binding rendered job
         # pages to override-verdict POSTs. Rotated on every service
         # restart; tokens become invalid after restart, which is
         # acceptable because the page must be reloaded after restart.
         self.web_context_secret = secrets.token_bytes(32)
+
+    def github_base_url(self) -> str | None:
+        if self._github_base_url is False:
+            self._github_base_url = _parse_github_remote(_git_config_get(self.repo, "remote.origin.url"))
+        return self._github_base_url if isinstance(self._github_base_url, str) else None
+
+    def default_branch(self) -> str:
+        if self._default_branch is None:
+            remote_head = _git_symbolic_ref(self.repo, "refs/remotes/origin/HEAD")
+            if remote_head and "/" in remote_head:
+                self._default_branch = remote_head.rsplit("/", 1)[1]
+            else:
+                local_head = _git_symbolic_ref(self.repo, "HEAD")
+                self._default_branch = local_head or "main"
+        return self._default_branch
 
     def acquire_sse_slot(self, run_id: str) -> bool:
         with self._sse_lock:
@@ -1696,7 +1797,10 @@ class StriatumServiceHandler(BaseHTTPRequestHandler):
                 rows = conn.execute(
                     """
                     SELECT r.run_id, r.state, r.branch_name, r.created_at,
-                           r.started_at, r.completed_at, ws.workflow_json
+                           r.started_at, r.completed_at,
+                           ws.workflow_snapshot_id, ws.workflow_id,
+                           ws.workflow_version, ws.source_path,
+                           ws.workflow_json
                     FROM runs r
                     LEFT JOIN workflow_snapshots ws
                       ON ws.workflow_snapshot_id = r.workflow_snapshot_id
@@ -1706,14 +1810,30 @@ class StriatumServiceHandler(BaseHTTPRequestHandler):
                 runs = []
                 for row in rows:
                     run = dict(row)
-                    workflow_id = ""
+                    workflow_id = str(run.get("workflow_id") or "")
+                    workflow_name = workflow_id
                     try:
                         workflow = json.loads(str(run.pop("workflow_json") or "{}"))
                         if isinstance(workflow, dict):
-                            workflow_id = str(workflow.get("workflow_id") or "")
+                            workflow_id = workflow_id or str(workflow.get("workflow_id") or "")
+                            workflow_name = str(workflow.get("name") or workflow_name or workflow_id)
                     except json.JSONDecodeError:
                         run.pop("workflow_json", None)
                     run["workflow_id"] = workflow_id
+                    run["workflow_name"] = workflow_name
+                    run["workflow_identity"] = {
+                        "workflow_id": workflow_id or None,
+                        "workflow_version": run.get("workflow_version"),
+                        "workflow_snapshot_id": run.get("workflow_snapshot_id"),
+                    }
+                    source_path = _repo_relative_source_path(self.state.repo, str(run.get("source_path") or ""))
+                    run["workflow_source_path"] = source_path
+                    run["workflow_local_url"] = f"/workflows/{quote(source_path, safe='/-._~')}" if source_path else None
+                    run["workflow_github_url"] = _workflow_tree_url(
+                        self.state.github_base_url(),
+                        self.state.default_branch(),
+                        source_path,
+                    )
                     run["state_chip"] = _state_chip("run", run.get("state"))
                     runs.append(run)
             html = _jinja_env().get_template("run_list.html").render(runs=runs)

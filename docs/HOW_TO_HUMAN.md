@@ -1017,6 +1017,12 @@ actions immediately below the run header. Graph nodes are clickable
 and expose job id, role, state, and duration on hover or keyboard
 focus.
 
+The run list's Workflow column uses the snapshotted workflow identity:
+the visible label is the workflow `name` when available, the metadata
+shows `workflow_id` and version, the local link opens the workflow
+detail page, and repositories with a GitHub `origin` also get a
+default-branch source-directory link.
+
 ## Dashboards and graphs
 
 For a compact at-a-glance view of a run, use the dashboard. It is

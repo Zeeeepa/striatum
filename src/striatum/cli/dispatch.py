@@ -194,11 +194,12 @@ def dispatch(args: argparse.Namespace) -> object:
     # migrated) before the SQLite-backed fallback is touched. The
     # ``STRIATUM_DAEMON_REQUIRED=0`` opt-out exists for SQLite-backed
     # test fixtures and incremental legacy-fixture migration.
-    enforce_daemon_required(
-        getattr(args, "command", None),
-        repo,
-        first_run=bool(getattr(args, "first_run", False)),
-    )
+    if not (args.command == "corpus" and getattr(args, "corpus_command", None) == "verify"):
+        enforce_daemon_required(
+            getattr(args, "command", None),
+            repo,
+            first_run=bool(getattr(args, "first_run", False)),
+        )
     daemon_forced = bool(getattr(args, "daemon", False)) or (
         os.environ.get("STRIATUM_DAEMON") == "1"
     )
@@ -228,6 +229,8 @@ def dispatch(args: argparse.Namespace) -> object:
 
         return first_run_smoke(repo)
     skip_daemon_route = args.command in {"daemon", "init", "skills", "plugin", "repo", "cross-repo", "serve", "byline"}
+    if args.command == "corpus" and getattr(args, "corpus_command", None) == "verify":
+        skip_daemon_route = True
     if args.command == "inbox" and getattr(args, "session_id", None):
         skip_daemon_route = True
     if not skip_daemon_route:
@@ -466,6 +469,13 @@ def dispatch(args: argparse.Namespace) -> object:
             raise StriatumError(str(exc), exit_code=8) from exc
         except ServiceAlreadyRunningError as exc:
             raise StriatumError(str(exc), exit_code=7) from exc
+    if args.command == "corpus" and args.corpus_command == "verify":
+        from striatum.corpus import verify_corpus_bundle
+
+        bundle = Path(args.bundle)
+        if not bundle.is_absolute():
+            bundle = repo / bundle
+        return verify_corpus_bundle(bundle)
     ensure_initialized(repo)
     with connect(repo) as conn:
         if args.command == "run" and args.run_command == "prepare":
