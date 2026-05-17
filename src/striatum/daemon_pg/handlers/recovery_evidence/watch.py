@@ -14,7 +14,7 @@ def handle(ctx: RepoHandlerContext, params: Mapping[str, Any]) -> dict[str, Any]
     _ = (ctx, params)
     raise RpcError(
         "not_implemented",
-        "recovery.watch is not supported inside daemon RPC; use the daemon recovery sweep or run recovery.auto explicitly",
+        "recovery.watch live daemon RPC integration is deferred; run recovery.sweep explicitly",
     )
 
 

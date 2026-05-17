@@ -108,10 +108,11 @@ Legend:
 | `recovery.cancel_job` | `recovery cancel-job` | recovery | single_repo | pg | real | no | no | stable |
 | `recovery.process_reconcile` | `recovery process-reconcile` | recovery | single_repo | pg | real | no | no | stable |
 | `recovery.resume` | `recovery resume` | recovery | single_repo | pg | real | no | no | stable |
-| `recovery.auto` | `recovery auto`; `recovery auto-publish` currently maps here | recovery | single_repo | pg | real | no | no | overloaded, needs contract cleanup |
+| `recovery.sweep` | `recovery auto` | recovery | single_repo | pg | real | no | no | canonical one-shot recovery sweep; runs workflow-opt-in auto-finalize before lazy lease expiry |
+| `recovery.auto_publish_stale_artifacts` | `recovery auto-publish` | recovery | single_repo | pg | real | no | no | explicit stale-artifact auto-publish |
+| `recovery.auto` | deprecated alias | recovery | single_repo | pg alias | real | no | no | deprecated compatibility alias for stale-artifact auto-publish; current CLI does not emit it |
 | `recovery.auto_finalize` | `recovery auto-finalize` | recovery | single_repo | pg | real | no | no | experimental/workflow-opt-in |
-| `recovery.auto_publish_stale_artifacts` | deprecated alias | recovery | single_repo | no pg handler | absent from Go registry | no | no | deprecated alias |
-| `recovery.watch` | `recovery watch` | recovery | single_repo | pg fail_closed | placeholder | no | no | not implemented in daemon RPC; use `recovery.auto` |
+| `recovery.watch` | `recovery watch` | recovery | single_repo | pg fail_closed | placeholder | no | no | live daemon RPC integration deferred; use `recovery.sweep` |
 | `apply.reviewed_patch` | n/a | apply | single_repo | direct apply service | fail_closed | no | no | fail closed until apply authority |
 | `apply.receipt.show` | n/a | read | single_repo | direct apply service | real | no | no | stable |
 | `apply.receipt.verify` | n/a | read | single_repo | direct apply service | real | no | no | stable |
@@ -187,12 +188,11 @@ remediation phases should either daemon-route, quarantine, or delete.
    PG-backed reads, workflow-loop mutations, recovery handlers, run/admin
    lifecycle mutations, worktree/supervision handlers, and CLI-local workflow
    authoring helpers.
-2. `recovery.auto_finalize` is now split out for RFC 0051 front-matter
-   auto-finalize. `recovery.auto` still carries the older overload:
-   `parser.py` exposes `recovery auto` as the RFC 0020 sweep, while
-   `recovery auto-publish` maps to the V1.41 stale-artifact auto-publish
-   behavior. A later contract cleanup should split that stale-artifact method
-   instead of preserving the overload.
+2. `recovery.sweep` is now the canonical RFC 0020 one-shot recovery
+   sweep emitted by `striatum recovery auto`. `recovery auto-publish`
+   emits the explicit `recovery.auto_publish_stale_artifacts` method.
+   `recovery.auto` remains only as a deprecated compatibility alias for
+   older stale-artifact auto-publish clients.
 3. Dogfood composite tools still open repo-local SQLite directly from
    `DaemonRpcRouter._route_dogfood`. They are compatibility helpers, not a
    production authority path.

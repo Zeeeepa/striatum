@@ -67,7 +67,8 @@ def test_deprecated_aliases_are_preserved_from_contract() -> None:
     }
 
     assert LEGACY_ALIASES <= contract_deprecated
-    assert "recovery.auto_publish_stale_artifacts" in contract_deprecated
+    assert "recovery.auto" in contract_deprecated
+    assert "recovery.auto_publish_stale_artifacts" not in contract_deprecated
     assert contract_deprecated == registry_deprecated
 
 
@@ -117,6 +118,18 @@ def test_auto_finalize_method_is_recovery_scoped_and_not_recovery_auto() -> None
     )
     assert "recovery.auto_finalize" in METHOD_REGISTRY
     assert not METHOD_REGISTRY["recovery.auto_finalize"].deprecated
+
+
+def test_recovery_sweep_and_auto_publish_methods_are_split() -> None:
+    assert METHOD_REGISTRY["recovery.sweep"].required_capability == "recovery"
+    assert METHOD_REGISTRY["recovery.sweep"].effective_repository_scope_mode == "single_repo"
+    assert not METHOD_REGISTRY["recovery.sweep"].deprecated
+    assert (
+        METHOD_REGISTRY["recovery.auto_publish_stale_artifacts"].required_capability
+        == "recovery"
+    )
+    assert not METHOD_REGISTRY["recovery.auto_publish_stale_artifacts"].deprecated
+    assert METHOD_REGISTRY["recovery.auto"].deprecated
 
 
 def test_mcp_tool_descriptor_is_derived_from_method_entry() -> None:

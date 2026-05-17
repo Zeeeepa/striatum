@@ -418,7 +418,12 @@ def _route_recovery(args: argparse.Namespace, repo: Path) -> tuple[str, dict[str
     sub = recovery_command.replace("-", "_")
     if not sub:
         raise StriatumError("recovery subcommand required", exit_code=2)
-    method = "recovery.auto" if recovery_command == "auto-publish" else f"recovery.{sub}"
+    if recovery_command == "auto":
+        method = "recovery.sweep"
+    elif recovery_command == "auto-publish":
+        method = "recovery.auto_publish_stale_artifacts"
+    else:
+        method = f"recovery.{sub}"
     params: dict[str, Any] = {}
     if getattr(args, "run_id", None):
         params["run_id"] = args.run_id

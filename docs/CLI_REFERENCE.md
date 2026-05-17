@@ -378,6 +378,8 @@ striatum doctor
 striatum evidence export
 striatum run graph
 striatum recovery auto
+striatum recovery auto-publish
+striatum recovery auto-finalize
 striatum recovery watch
 striatum recovery stale-leases
 striatum recovery requeue-stale
@@ -394,6 +396,13 @@ colored by current job state. Mermaid output appends
 `classDef`/`class` lines; JSON adds `current_state`, `attempt`,
 and a `latest_verdict` block on review nodes; `ascii` reuses the
 dashboard's graph panel renderer (RFC 0016).
+
+`recovery auto` emits the daemon `recovery.sweep` method. The sweep
+runs workflow-opt-in `recovery.auto_finalize` before lazy lease expiry,
+then the existing stale-lease, process-reconcile, and review-only requeue
+recovery pieces where policy allows. `recovery auto-publish` emits the
+explicit `recovery.auto_publish_stale_artifacts` method; the deprecated
+`recovery.auto` alias is not emitted by the current CLI.
 
 ## Corpus export (RFC 0044 V1 / RFC 0052 contract)
 

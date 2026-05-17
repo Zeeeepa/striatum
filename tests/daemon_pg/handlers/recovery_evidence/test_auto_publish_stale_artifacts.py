@@ -1,9 +1,9 @@
-"""Parity test for ``recovery.auto`` PG handler.
+"""Parity test for ``recovery.auto_publish_stale_artifacts`` PG handler.
 
-Naming-mismatch follow-up (REVIEW.md L117-119): the file is named
-``auto_publish_stale_artifacts.py`` after the synthesis section title,
-but the registered RPC method is ``recovery.auto``. This test pins both
-facts so the next reviewer sees the intentional asymmetry.
+``recovery.auto_publish_stale_artifacts`` is the canonical method for
+stale-artifact auto-publish. ``recovery.auto`` remains as a deprecated
+compatibility alias for older daemon clients that used the old overloaded
+name.
 """
 
 from __future__ import annotations
@@ -11,11 +11,7 @@ from __future__ import annotations
 import inspect
 
 
-def test_module_registers_recovery_auto_not_long_name() -> None:
-    """The decorator argument must be ``recovery.auto`` even though the
-    module file is named ``auto_publish_stale_artifacts``. This is the
-    explicit fix for finding #1 in the design review (REVIEW.md L117-119).
-    """
+def test_module_registers_explicit_method_and_deprecated_alias() -> None:
     from ._helpers import import_handler
 
     mod = import_handler("auto_publish_stale_artifacts")
@@ -24,14 +20,10 @@ def test_module_registers_recovery_auto_not_long_name() -> None:
     if rpc_method is None:
         from striatum.daemon_pg.handlers.registry import resolve_pg_handler
 
+        assert resolve_pg_handler("recovery.auto_publish_stale_artifacts") is mod.handle
         assert resolve_pg_handler("recovery.auto") is mod.handle
-        # The longer name must NOT be registered; current clients use the
-        # canonical ``recovery.auto`` method.
-        assert resolve_pg_handler("recovery.auto_publish_stale_artifacts") is None
     else:
-        assert rpc_method == "recovery.auto", (
-            "Decorator argument must match the canonical recovery.auto RPC method"
-        )
+        assert rpc_method == "recovery.auto_publish_stale_artifacts"
 
 
 def test_handler_signature_is_ctx_params() -> None:

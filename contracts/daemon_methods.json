@@ -632,7 +632,25 @@
       "deprecated": false
     },
     {
+      "method": "recovery.sweep",
+      "required_capability": "recovery",
+      "repository_scope_mode": "single_repo",
+      "params_schema_version": 1,
+      "audit_class": "metadata",
+      "min_envelope": 1,
+      "deprecated": false
+    },
+    {
       "method": "recovery.auto",
+      "required_capability": "recovery",
+      "repository_scope_mode": "single_repo",
+      "params_schema_version": 1,
+      "audit_class": "metadata",
+      "min_envelope": 1,
+      "deprecated": true
+    },
+    {
+      "method": "recovery.auto_publish_stale_artifacts",
       "required_capability": "recovery",
       "repository_scope_mode": "single_repo",
       "params_schema_version": 1,
@@ -648,15 +666,6 @@
       "audit_class": "metadata",
       "min_envelope": 1,
       "deprecated": false
-    },
-    {
-      "method": "recovery.auto_publish_stale_artifacts",
-      "required_capability": "recovery",
-      "repository_scope_mode": "single_repo",
-      "params_schema_version": 1,
-      "audit_class": "metadata",
-      "min_envelope": 1,
-      "deprecated": true
     },
     {
       "method": "recovery.watch",

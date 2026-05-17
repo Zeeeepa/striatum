@@ -929,19 +929,31 @@ completes remediated non-review work after validation; nonzero-exit and
 timeout blockers require `--force`.
 
 `recovery auto --run-id <id>` (RFC 0020 V1) is a one-shot autonomous
-sweeper composable with cron / systemd timer. It runs lazy lease
-expiry, optional process reconciliation, optional autonomous review-
-only requeue (D036-safe), human-checkpoint timeout escalation, and
-eligible-blocker doctor flagging — and returns a structured envelope
-`{run_id, swept_at, policy_source, dry_run, actions, escalations,
-still_stuck}`. Workflows declare a `recovery_policy` block to opt
-into autonomous behavior and an `escalation_hook` (`marker_file`,
-`webhook`, or `shell`) for genuinely-stuck runs. CLI flags
+sweeper composable with cron / systemd timer. In daemon RPC the
+canonical method is `recovery.sweep`. The sweep first evaluates
+`recovery.auto_finalize` only when the workflow opted into
+`recovery.auto_finalize.enabled=true`; live sweep mode never supplies
+the standalone auto-finalize `--force` override and does not make global
+live auto-finalize the default. It then runs lazy lease expiry, optional
+process reconciliation, optional autonomous review-only requeue
+(D036-safe), human-checkpoint timeout escalation, and eligible-blocker
+doctor flagging — and returns a structured envelope `{run_id, swept_at,
+policy_source, dry_run, actions, escalations, still_stuck}`. Workflows
+declare a `recovery_policy` block to opt into autonomous behavior and an
+`escalation_hook` (`marker_file`, `webhook`, or `shell`) for
+genuinely-stuck runs. CLI flags
 (`--autonomous-review-requeue`, `--autonomous-process-reconcile`,
 `--max-requeue`, `--checkpoint-timeout`, `--eligible-after`,
 `--dry-run`) override workflow defaults. Workflows that omit
 `recovery_policy` get diagnostic-only output; today's flow is
-preserved byte-for-byte.
+preserved as closely as the daemon PG substrate allows.
+
+`recovery auto-publish --run-id <id> [--dry-run]` emits the explicit
+`recovery.auto_publish_stale_artifacts` daemon method. It is the
+stale-lease auto-publish path for declared on-disk expected artifacts.
+The deprecated `recovery.auto` daemon method remains only as a
+compatibility alias for older clients and is not emitted by the current
+CLI.
 
 `recovery watch --run-id <id>` (RFC 0020 step 3) is the long-lived
 counterpart for operators who want one foreground command instead of

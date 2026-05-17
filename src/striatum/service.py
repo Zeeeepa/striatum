@@ -4179,10 +4179,10 @@ def _serve_forever(
     # --web is passed; no warning needed. Earlier versions emitted
     # one here; the warning is dropped now that the SSR pages ship.
     try:
-        if idle_timeout_seconds is None:
-            shutdown_event.wait()
-        else:
-            shutdown_event.wait(timeout=idle_timeout_seconds)
+        _wait_for_service_shutdown(
+            shutdown_event,
+            idle_timeout_seconds=idle_timeout_seconds,
+        )
         # Either signal-driven shutdown or idle timeout. Shut the server
         # synchronously now; serve_forever's poll loop will pick up the
         # request within its poll interval (default 0.5s).
@@ -4203,6 +4203,26 @@ def _serve_forever(
         except OSError:
             pass
     return {"started": True, **startup}
+
+
+def _wait_for_service_shutdown(
+    shutdown_event: threading.Event,
+    *,
+    idle_timeout_seconds: int | None,
+) -> None:
+    deadline = (
+        None
+        if idle_timeout_seconds is None
+        else time.monotonic() + float(idle_timeout_seconds)
+    )
+    while not shutdown_event.is_set():
+        if deadline is None:
+            shutdown_event.wait(timeout=0.2)
+            continue
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return
+        shutdown_event.wait(timeout=min(0.2, remaining))
 
 
 # --- exception types ---------------------------------------------------

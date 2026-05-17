@@ -508,7 +508,33 @@ def test_recovery_resume_preserves_blocker_and_completion_fields() -> None:
     }
 
 
-def test_recovery_auto_publish_routes_to_registered_recovery_auto_method() -> None:
+def test_recovery_auto_routes_to_registered_recovery_sweep_method() -> None:
+    method, params = _route(
+        "recovery",
+        "auto",
+        recovery_command="auto",
+        run_id="run_1",
+        dry_run=True,
+        autonomous_review_requeue=True,
+        autonomous_process_reconcile=False,
+        max_requeues_per_sweep=2,
+        checkpoint_timeout_seconds=60,
+        eligible_after_seconds=30,
+    )
+
+    assert method == "recovery.sweep"
+    assert params == {
+        "run_id": "run_1",
+        "dry_run": True,
+        "autonomous_review_requeue": True,
+        "autonomous_process_reconcile": False,
+        "max_requeues_per_sweep": 2,
+        "checkpoint_timeout_seconds": 60,
+        "eligible_after_seconds": 30,
+    }
+
+
+def test_recovery_auto_publish_routes_to_explicit_auto_publish_method() -> None:
     method, params = _route(
         "recovery",
         "auto-publish",
@@ -517,7 +543,7 @@ def test_recovery_auto_publish_routes_to_registered_recovery_auto_method() -> No
         dry_run=True,
     )
 
-    assert method == "recovery.auto"
+    assert method == "recovery.auto_publish_stale_artifacts"
     assert params == {
         "run_id": "run_1",
         "dry_run": True,

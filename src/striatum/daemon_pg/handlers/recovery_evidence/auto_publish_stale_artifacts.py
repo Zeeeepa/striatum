@@ -1,12 +1,13 @@
-"""PG handler for ``recovery.auto`` (a.k.a. ``recovery.auto_publish_stale_artifacts``).
+"""PG handler for ``recovery.auto_publish_stale_artifacts``.
 
 Port of :func:`striatum.cli.recovery.auto_publish_stale_artifacts`
 (lines 731-980). Synthesis: docs/dogfood/057/DESIGN_SYNTHESIS.md L171-179.
 
-Naming note (review finding #1, REVIEW.md L117-119): the synthesis section
-header is ``recovery.auto_publish_stale_artifacts``, but the canonical RPC
-method is ``recovery.auto``. The ``@register_pg_handler`` decorator MUST use
-``"recovery.auto"`` so registry lookups find it.
+``recovery.auto_publish_stale_artifacts`` is now the canonical daemon method
+for stale-artifact auto-publish. ``recovery.auto`` remains registered as a
+deprecated compatibility alias because older daemon clients used that method
+name for this stale-artifact behavior before ``recovery.sweep`` took over the
+one-shot autonomous recovery sweep.
 """
 
 from __future__ import annotations
@@ -34,7 +35,7 @@ def _declared_get(declared: object, key: str, default: object = None) -> object:
     return default
 
 
-@register_pg_handler("recovery.auto")
+@register_pg_handler("recovery.auto_publish_stale_artifacts", "recovery.auto")
 def handle(ctx: RepoHandlerContext, params: Mapping[str, Any]) -> dict[str, Any]:
     """V1.41 stale-lease auto-publish flow, ported to PG.
 
@@ -59,7 +60,7 @@ def handle(ctx: RepoHandlerContext, params: Mapping[str, Any]) -> dict[str, Any]
     run_id = str(params.get("run_id") or "")
     dry_run = bool(params.get("dry_run") or False)
     if not run_id:
-        raise NotFoundError("recovery.auto requires run_id")
+        raise NotFoundError("recovery.auto_publish_stale_artifacts requires run_id")
     run = row_by_id(ctx, table="runs", id_column="run_id", value=run_id)
     if not run:
         raise NotFoundError(f"run {run_id!r} not found")
@@ -343,9 +344,9 @@ def _live_publish_and_complete(
         from striatum.errors import InvalidTransitionError
 
         raise InvalidTransitionError(
-            "recovery.auto live mode requires Track A's PG publish/complete "
-            "helpers; rerun with dry_run=true to preview, then publish + "
-            "complete via the registered RPC verbs"
+            "recovery.auto_publish_stale_artifacts live mode requires Track A's "
+            "PG publish/complete helpers; rerun with dry_run=true to preview, "
+            "then publish + complete via the registered RPC verbs"
         ) from exc
 
     try:

@@ -39,5 +39,5 @@ def test_recovery_watch_fails_closed() -> None:
         mod.handle(ctx, {"run_id": "run_1"})
 
     assert exc.value.code == "not_implemented"
-    assert "recovery.watch is not supported inside daemon RPC" in str(exc.value)
-    assert "recovery.auto" in str(exc.value)
+    assert "recovery.watch live daemon RPC integration is deferred" in str(exc.value)
+    assert "recovery.sweep" in str(exc.value)

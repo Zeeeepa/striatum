@@ -440,10 +440,16 @@ and audit linkage for accepted lint risks.
 - Status/dashboard projections now include an `auto_finalize_dry_run` preview
   with eligible candidates and refusal reasons, and the web recovery panel can
   render the same preview without enabling live auto-finalize globally.
+- The recovery method surface is split: `recovery.sweep` is the canonical
+  daemon RPC for `striatum recovery auto`, `recovery auto-publish` emits
+  `recovery.auto_publish_stale_artifacts`, and deprecated `recovery.auto`
+  remains only as a compatibility alias for stale-artifact auto-publish.
+- The sweep invokes live auto-finalize before lazy lease expiry only when the
+  workflow opted in and never supplies the standalone force override.
 
-**Remaining Phase 8 debt:** integrate auto-finalize into the daemon recovery
-sweep, decide default policy after dogfood confidence, and run a dogfood proving zero
-operator-on-behalf publishes when valid artifacts already exist.
+**Remaining Phase 8 debt:** decide default policy after dogfood confidence and
+run a dogfood proving zero operator-on-behalf publishes when valid artifacts
+already exist.
 
 ---
 
@@ -712,8 +718,9 @@ Release order after Phase 0:
 7. **TODO 55 / Phase 7:** workflow risk lint, opt-in strict enforcement,
    and web surfacing landed; remaining generator/audit surfacing is tracked
    in §4.11.
-8. **TODO 56 / Phase 8:** auto-finalize daemon method landed; remaining
-   sweep/dashboard/web/dogfood work is tracked in §4.12.
+8. **TODO 56 / Phase 8:** auto-finalize daemon method, status/dashboard/web
+   visibility, and bounded sweep integration landed; remaining default-policy
+   and dogfood acceptance work is tracked in §4.12.
 9. **TODO 57 / Phase 9:** clean-build, bundle-size, and wheel-size gates
    landed; chunking is monitor-only and tracked in §4.13.
 10. **TODO 58 / Phase 10:** day-zero Postgres/daemon setup slice

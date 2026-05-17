@@ -738,8 +738,12 @@ section is the canonical status snapshot.
     summaries. A follow-up slice now surfaces dry-run eligibility and
     refusal reasons through status/dashboard projections and the web recovery
     panel without changing the dry-run-by-default/live-opt-in policy.
-    Remaining: daemon sweep integration, default policy decision after
-    dogfood confidence, and an end-to-end dogfood with zero
+    The bounded sweep integration now routes `recovery auto` through
+    canonical `recovery.sweep`, runs auto-finalize before lazy lease
+    expiry only when the workflow opted in, and routes stale-artifact
+    auto-publish through explicit `recovery.auto_publish_stale_artifacts`.
+    Remaining: default policy decision after dogfood confidence and an
+    end-to-end dogfood with zero
     operator-on-behalf publishes for
     jobs that wrote valid artifacts.
 
@@ -892,16 +896,21 @@ review and plan are root-level operator artifacts:
     pages. Remaining: generator surfacing, broader coverage scoring, and
     audit linkage for accepted risks.
 
-56. **Phase 8: auto-finalize from front matter.** Partial daemon slice
+56. **Phase 8: auto-finalize from front matter.** Bounded daemon slice
     landed: `recovery.auto_finalize` dry-run/live PG handler, CLI route,
     method contract entry, generated Go registry entry, explicit
     `artifact.auto_finalized` and `job.auto_finalized` events, review
     `verdict_intent` handling, no-partial-publish guard, workflow opt-in
     live policy, PG evidence `publish_origin=auto_from_artifact`, and
     status/dashboard/web dry-run visibility for eligibility/refusal reasons.
-    Remaining: integrate the checker into the daemon recovery sweep,
-    decide global/default policy after dogfood confidence, and
-    cover dogfood-level acceptance.
+    Follow-up checkpoint split the overloaded recovery method surface:
+    `recovery.sweep` is the canonical `recovery auto` RPC, stale-artifact
+    auto-publish is explicit as `recovery.auto_publish_stale_artifacts`,
+    and deprecated `recovery.auto` is no longer emitted by the CLI.
+    The sweep invokes live auto-finalize only under workflow opt-in and
+    never supplies the standalone force override. Remaining: decide
+    global/default policy after dogfood confidence and cover dogfood-level
+    acceptance.
 
 57. ~~**Phase 9: UI packaging and bundle cleanup.**~~ Done:
     `ui-build` depends on `ui-clean`, `ui-check-bundle` also runs a

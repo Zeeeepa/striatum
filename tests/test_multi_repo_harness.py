@@ -43,8 +43,8 @@ def test_register_all_after_reset_restores_repository_rows(multi_repo_harness: M
     repo_ids = harness.register_all()
 
     assert len(repo_ids) == 2
-    rows = harness.daemon_db_query("SELECT repository_id FROM striatumd.repositories ORDER BY repo_root")
-    assert [row["repository_id"] for row in rows] == sorted(repo_ids)
+    rows = harness.daemon_db_query("SELECT repository_id FROM striatumd.repositories")
+    assert {row["repository_id"] for row in rows} == set(repo_ids)
 
 
 def test_stop_drops_ephemeral_database_removes_scratch_and_socket(
