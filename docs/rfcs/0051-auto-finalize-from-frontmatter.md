@@ -179,9 +179,10 @@ This RFC does not loosen it. Specifically:
   per-workflow or per-job? Argument for: some workflows want strict
   agent-only finalization. Argument against: lane-stall pattern is
   universal; opt-out would re-introduce the original burden.
-  **Proposed resolution:** ship as default-on in V1; add
-  `auto_finalize: false` opt-out on `workflow_job` if a real use
-  case emerges in V1.5.
+  **Implemented resolution:** ship dry-run-visible and live workflow
+  opt-in. A global/default-on policy requires live dogfood confidence
+  plus an explicit product decision; no default-on flip is implied by
+  V1 implementation.
 
 - **OQ-3:** What happens if the agent calls `publish-artifact`
   *after* auto-finalize fires? Argument for race: idempotent —
@@ -218,7 +219,6 @@ self-resolving.
 
 - New event types — no existing event renamed or removed.
 - New audit marker `lane_finalization=auto_from_artifact` — additive.
-- Default-on behavior changes lease-tick semantics — feature-flag
-  with `STRIATUM_AUTO_FINALIZE_ENABLE=1` in V1 for one release;
-  flip default on in V1.1 once dogfood confirms zero unintended
-  finalizations.
+- Live auto-finalize changes lease-tick semantics and remains workflow
+  opt-in. Keep dry-run visibility as the default posture until live
+  dogfood evidence and a product decision justify any default-on change.

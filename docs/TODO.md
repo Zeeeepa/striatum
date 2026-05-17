@@ -106,8 +106,8 @@ so external references keep resolving even as items move between sections.
 | 52 | RFC 0061 Architecture remediation Phase 4 — daemon-first web service | 🟡 core web/API + artifact reads daemon-routed |
 | 53 | RFC 0062 Architecture remediation Phase 5 — real escalation inbox | 🟡 projection + escalation artifact schema/linkage landed |
 | 54 | RFC 0063 Architecture remediation Phase 6 — hardened PTY supervision | ✅ done |
-| 55 | RFC 0064 Architecture remediation Phase 7 — workflow risk lint and review diversity enforcement | 🟡 validate refusal + generator coverage landed |
-| 56 | Architecture remediation Phase 8 — auto-finalize from front matter | 🟡 daemon recovery + visibility slices landed |
+| 55 | RFC 0064 Architecture remediation Phase 7 — workflow risk lint and review diversity enforcement | ⏳ accepted-risk persistence blocked on product decision |
+| 56 | Architecture remediation Phase 8 — auto-finalize from front matter | ⏳ default policy blocked on live dogfood confidence |
 | 57 | RFC 0065 Architecture remediation Phase 9 — UI packaging and bundle cleanup | ✅ done; chunking monitor only |
 | 58 | RFC 0059 Architecture remediation Phase 10 — day-zero setup improvements | ✅ done |
 | 59 | RFC 0059 RFC 0066 Architecture remediation Phase 11 — replay, archive, and corpus v2 foundations | 🟡 corpus verify + run archive foundations landed |
@@ -997,8 +997,12 @@ review and plan are root-level operator artifacts:
     reference with `--accepted-risk-decision-id`. Follow-up validator slice made
     `workflow validate` refuse same-model review-pair and revision-cycle
     findings by default, with `--allow-same-model-pairing` as the explicit
-    operator override. Remaining: durable audit persistence policy for
-    accepted lint risks.
+    operator override. Blocked policy: do not implement durable persistence
+    for accepted lint risks until a product decision chooses the authority
+    surface (decision artifact linkage, daemon audit row, workflow metadata,
+    run-preparation record, or another explicit durable home). Current
+    `workflow lint` remains CLI-local and non-mutating; durable evidence is the
+    operator-recorded decision referenced by `--accepted-risk-decision-id`.
 
 56. **Phase 8: auto-finalize from front matter.** Bounded daemon slice
     landed: `recovery.auto_finalize` dry-run/live PG handler, CLI route,
@@ -1014,8 +1018,10 @@ review and plan are root-level operator artifacts:
     The sweep invokes live auto-finalize only under workflow opt-in and
     never supplies the standalone force override. Automated dogfood-shaped
     acceptance coverage now proves valid written artifacts can auto-finalize
-    with zero operator-on-behalf publishes. Remaining: decide global/default
-    policy after live dogfood confidence.
+    with zero operator-on-behalf publishes. Blocked policy: global/default-on
+    auto-finalize requires live dogfood confidence plus an explicit product
+    decision; until then live auto-finalize remains workflow opt-in and dry-run
+    visibility remains the default posture.
 
 57. ~~**Phase 9: UI packaging and bundle cleanup.**~~ Done:
     `ui-build` depends on `ui-clean`, `ui-check-bundle` also runs a
@@ -1054,10 +1060,11 @@ review and plan are root-level operator artifacts:
     decisions.
 
 60. **Phase 12: optional Git/PR integration.** Blocked on a product
-    decision for commit authority and hosted-provider boundaries. The
-    likely future shape is read-only git snapshot methods first, commit
-    request artifacts second, explicit confirmed commit apply only after
-    a decision, and optional hosted integrations as plugins only.
+    decision for commit authority and hosted-provider boundaries. Safe
+    implementation may start only with read-only local git snapshot surfaces.
+    Commit application, PR creation, hosted-provider authentication, provider
+    plugins/connectors, and confirmation semantics require an accepted decision
+    or RFC first.
 
 ## GH issue follow-ups
 

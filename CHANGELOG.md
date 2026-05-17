@@ -58,6 +58,11 @@ Recent checkpoints:
 - The `/v1/invoke` read/mutation classifier moved from `service.py` into
   `striatum.service_command_policy`, keeping the legacy
   `striatum.service.is_read_command` import surface stable.
+- Phase 7, Phase 8, and Phase 12 policy blockers are now explicit in the
+  backlog/RFCs: accepted lint-risk persistence waits on a durable authority
+  decision, global/default auto-finalize waits on live dogfood confidence plus
+  a product decision, and Git/PR integration remains read-only-local-only until
+  commit authority and hosted-provider boundaries are accepted.
 
 - **Command authority and fallback guardrails.**
   `docs/architecture/COMMAND_AUTHORITY_MATRIX.md` now names the authority

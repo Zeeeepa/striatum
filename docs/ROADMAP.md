@@ -550,8 +550,11 @@ decide whether to rename the packet helper to `packet inbox`.
 - Strict overrides can record an operator-supplied
   `--accepted-risk-decision-id` reference.
 
-**Remaining Phase 7 debt:** durable audit persistence policy for accepted
-lint risks.
+**Remaining Phase 7 debt:** blocked on product decision. Accepted lint-risk
+persistence needs an explicit durable authority choice before implementation
+continues; current `workflow lint` remains CLI-local/non-mutating and durable
+evidence is the operator-recorded decision referenced by
+`--accepted-risk-decision-id`.
 
 ---
 
@@ -585,8 +588,9 @@ lint risks.
   three valid written review findings auto-finalize without
   operator-on-behalf or override provenance.
 
-**Remaining Phase 8 debt:** decide default policy after dogfood confidence and
-collect live dogfood confidence before changing the dry-run-by-default policy.
+**Remaining Phase 8 debt:** blocked on live dogfood confidence plus a product
+decision. Live auto-finalize remains workflow opt-in, and dry-run visibility
+remains the default posture until evidence supports a default-on change.
 
 ---
 
