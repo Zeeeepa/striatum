@@ -97,6 +97,12 @@ def _is_legacy_adapter_run(args: argparse.Namespace) -> bool:
     return args.command == "adapter" and getattr(args, "adapter_command", None) == "run"
 
 
+def _is_legacy_operator_helper(args: argparse.Namespace) -> bool:
+    if args.command == "byline":
+        return True
+    return args.command == "inbox" and bool(getattr(args, "session_id", None))
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """Run the CLI."""
     parser = build_parser()
@@ -208,6 +214,11 @@ def dispatch(args: argparse.Namespace) -> object:
             "adapter run is retired outside legacy test fixtures; use daemon-supervised process lanes",
             exit_code=8,
         )
+    if _is_legacy_operator_helper(args) and not _legacy_sqlite_test_harness_enabled():
+        raise StriatumError(
+            "legacy operator helpers are retired outside test fixtures; use daemon RPC read surfaces",
+            exit_code=8,
+        )
     # RFC 0043 §3 (V1.5): daemon-required enforcement is the default. Fail
     # fast with exit code 11 (daemon socket unreachable) or 12 (repo not
     # migrated) before the SQLite-backed fallback is touched. The
@@ -229,11 +240,10 @@ def dispatch(args: argparse.Namespace) -> object:
     # RFC 0048 Phase C: route CLI verbs through daemon RPC (Unix socket)
     # when the verb maps to a registered RPC method AND the daemon is
     # reachable. Falls through to legacy SQLite dispatch only when no mapping
-    # exists (init, skills, plugin, daemon, serve, byline, and the
-    # session-scoped inbox helper) or when the explicit test-harness
-    # compatibility guard disables daemon routing. Once routing is attempted,
-    # unexpected route failures must fail closed instead of opening legacy
-    # state.
+    # exists (init, skills, plugin, daemon, serve, and fixture-only helpers)
+    # or when the explicit test-harness compatibility guard disables daemon
+    # routing. Once routing is attempted, unexpected route failures must fail
+    # closed instead of opening legacy state.
     if args.command == "self-update":
         return _dispatch_self_update(args)
     if args.command == "adopt":

@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+import json
+import os
+import subprocess
+import sys
 from pathlib import Path
 
 import sqlite3
@@ -12,6 +16,41 @@ from test_web_ui import _http_get_raw, _spawn_service, _stop_service
 
 MODEL_BYLINE = "author: author-codex-gpt-5.5-001"
 OPERATOR_BYLINE = "author: operator"
+
+
+def test_legacy_operator_helpers_retired_outside_test_harness(tmp_path: Path) -> None:
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(Path(__file__).resolve().parents[1] / "src")
+    env["STRIATUM_DAEMON_REQUIRED"] = "1"
+    env["STRIATUM_SQLITE_CONNECT_TRIPWIRE"] = "1"
+    env.pop("STRIATUM_TEST_HARNESS", None)
+
+    commands = [
+        ["byline", "--session-id", "session_1", "--job-id", "job_1"],
+        ["inbox", "--session-id", "session_1"],
+    ]
+    for command in commands:
+        result = subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "striatum.cli",
+                "--repo",
+                str(tmp_path),
+                *command,
+                "--json",
+            ],
+            env=env,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+
+        assert result.returncode == 8
+        payload = json.loads(result.stdout)
+        assert payload["ok"] is False
+        assert "legacy operator helpers are retired" in payload["error"]["message"]
+        assert not (tmp_path / ".striatum" / "state.sqlite3").exists()
 
 
 def _unattested_author_fixture(repo: Path) -> tuple[str, str, str]:

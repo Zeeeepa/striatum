@@ -312,6 +312,9 @@ Recent checkpoints:
   compatibility escape for remaining fixtures.
 - `adapter run` is retired outside that same legacy fixture escape, closing
   another production path to the repo-local SQLite process-adapter tables.
+- The legacy `byline` helper and `inbox --session-id` packet helper are also
+  retired outside fixtures; production clients should use daemon read
+  surfaces.
 - Fresh-clone and package smoke scripts now exercise the daemon/Postgres repo
   registration path when PostgreSQL is available, keep their smoke workflow
   inside the target repository for `run prepare`, install the packaged RPC

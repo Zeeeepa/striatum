@@ -187,8 +187,8 @@ remediation phases should either daemon-route, quarantine, or delete.
 | `run graph` | daemon RPC to PG handler | no | daemon_native |
 | `send` | daemon RPC to PG handler | no | daemon_native |
 | `adapter run` | retired outside explicit legacy test fixtures | no production SQLite | legacy fixture only |
-| `byline` | local helper over current packet state | yes | operator-helper transition |
-| `inbox --session-id` | local session-packet helper | yes | operator-helper transition |
+| `byline` | retired outside explicit legacy test fixtures | no production SQLite | legacy fixture only |
+| `inbox --session-id` | retired outside explicit legacy test fixtures | no production SQLite | legacy fixture only |
 | `serve` | local HTTP/web service over daemon RPC plus explicit CLI-local authoring helpers | no production SQLite | service cleanup debt |
 
 ## Immediate Findings

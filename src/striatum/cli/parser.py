@@ -1227,9 +1227,8 @@ def build_parser() -> argparse.ArgumentParser:
     list_workflows_p.add_argument("--limit", type=_positive_int, default=100)
     list_workflows_p.add_argument("--json", action="store_true")
 
-    # V1.41 (harness friction burn-down): byline helper. Operators
-    # publishing-on-behalf need the exact expected_author_line without
-    # spelunking `python3 -c "from striatum.artifacts import ..."`.
+    # V1.41 historical harness helper. Current production clients should use
+    # daemon read surfaces instead of the legacy repo-local packet helper.
     byline = sub.add_parser(
         "byline",
         help=(
@@ -1242,9 +1241,8 @@ def build_parser() -> argparse.ArgumentParser:
     byline.add_argument("--job-id", required=True)
     byline.add_argument("--json", action="store_true")
 
-    # V1.41: with --session-id this remains the packet helper operators use
-    # for publish-on-behalf flows. Without --session-id it is the
-    # human-principal escalation inbox.
+    # V1.41: without --session-id this is the human-principal escalation
+    # inbox. With --session-id it is retained only for legacy test fixtures.
     inbox = sub.add_parser(
         "inbox",
         help=(

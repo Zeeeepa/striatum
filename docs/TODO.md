@@ -861,9 +861,9 @@ review and plan are root-level operator artifacts:
     and `striatum adopt` now use the same scratch-only bootstrap; the legacy
     SQLite initializer remains reachable only under the explicit
     `STRIATUM_TEST_HARNESS=1` / `STRIATUM_DAEMON_REQUIRED=0` fixture path.
-    `adapter run` is now retired outside that same legacy fixture escape.
-    Local web, byline, inbox, dogfood compatibility, and migration fixtures
-    still use legacy SQLite shapes.
+    `adapter run`, `byline`, and `inbox --session-id` are now retired outside
+    that same legacy fixture escape. Local web, dogfood compatibility, and
+    migration fixtures still use legacy SQLite shapes.
 
 50. ~~**Phase 2: single method-contract source.**~~ ✅ Done. Contract source is now
     live at `contracts/daemon_methods.json`; Python `METHOD_REGISTRY`
