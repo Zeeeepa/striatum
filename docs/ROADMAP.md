@@ -353,11 +353,15 @@ daemon-first without needing to support two domain daemons.
   run artifact rollups now call daemon read DTOs directly instead of routing
   through the legacy CLI invoke wrapper. Test-harness fallbacks preserve the
   old subprocess fixture path only.
+- The artifact detail page now calls daemon `artifact.show` with optional
+  web context for run scoping, expected author line, and operator-on-behalf
+  provenance. The existing raw-artifact endpoint remains backward-compatible
+  with the default `artifact.show` metadata response.
 
 **Remaining Phase 4 debt:** run-now still has multi-step SQLite transaction
-semantics; run detail, job detail, artifact detail reads, SSE, and startup
-health checks still need daemon DTOs; the service mutation gate still needs
-to derive from daemon method capabilities.
+semantics; run detail, job detail, SSE, and startup health checks still need
+daemon DTOs; the service mutation gate still needs to derive from daemon
+method capabilities.
 
 ---
 

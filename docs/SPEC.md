@@ -1414,7 +1414,9 @@ Routes:
   metadata + verdict + posture chip + artifacts list.
 - `GET /run/<run_id>/artifact/<artifact_id>` →
   `artifact_view.html`. Metadata + sha256 + raw-API pointer.
-  Inline Markdown rendering is queued for V1.5.
+  Production metadata reads use daemon `artifact.show` with optional
+  web context for run scoping, expected author line, and provenance trail
+  rows; the legacy SQLite path exists only for subprocess test fixtures.
 - `GET /doctor` → `doctor.html`.
 - `GET /static/<path>` → bundled asset (CSS / JS islands).
 - All HTML responses set `Content-Security-Policy: default-src 'self';
@@ -1423,7 +1425,9 @@ Routes:
 - Path traversal (`..`, leading `/`, null bytes) on
   `/run/<id>/...` paths is rejected with HTTP 400.
 - `GET /v1/artifacts/<artifact_id>/raw` streams the raw bytes of a
-  published artifact; read-only, no mutation gate.
+  published artifact; read-only, no mutation gate. The endpoint uses the
+  default daemon `artifact.show` metadata shape and does not request web
+  context.
 - `GET /v1/health` includes an `allow_mutations: bool` field
   (RFC 0013 step 7); the page reads this on load to decide
   whether to render mutation buttons.

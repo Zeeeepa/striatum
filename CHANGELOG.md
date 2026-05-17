@@ -26,10 +26,11 @@ in the roadmap/TODO and has several production slices landed:
   The local web service now uses daemon RPC for run cancel/pause/resume, job
   cancel/retry, branch confirm, run listing, chat briefing active-run
   summaries, the JSON read endpoints for status/doctor/why/dashboard/run
-  artifacts, and the posture-verdict drill-down page. The new
-  `run.posture_verdicts` daemon DTO backs the posture page; legacy
-  CLI/SQLite fallbacks are retained only for the subprocess test-harness
-  escape.
+  artifacts, the artifact detail page, and the posture-verdict drill-down
+  page. The new `run.posture_verdicts` daemon DTO backs the posture page,
+  while `artifact.show` can now include run, expected-author, and provenance
+  context for the artifact page. Legacy CLI/SQLite fallbacks are retained
+  only for the subprocess test-harness escape.
 - **Escalation inbox foundation.**
   `escalation.list`, `escalation.show`, and `escalation.resolve` project
   human-principal escalations from blocker state. The `escalation` artifact

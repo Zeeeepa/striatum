@@ -869,6 +869,103 @@ def test_artifact_raw_reads_daemon_dto_without_sqlite(tmp_path: Path, monkeypatc
     assert handler.wfile.getvalue() == b"hello from daemon\n"
 
 
+def test_artifact_view_reads_daemon_dto_without_sqlite(tmp_path: Path, monkeypatch: Any) -> None:
+    sys.path.insert(0, str(ROOT / "src"))
+    try:
+        import striatum.service as service
+        import striatum.service_daemon as service_daemon
+    finally:
+        sys.path.pop(0)
+
+    captured: dict[str, Any] = {}
+    calls: list[tuple[Path, str, dict[str, Any]]] = []
+
+    class FakeTemplate:
+        def render(self, **kwargs: Any) -> str:
+            captured.update(kwargs)
+            return "ok"
+
+    class FakeEnvironment:
+        def get_template(self, name: str) -> FakeTemplate:
+            assert name == "artifact_view.html"
+            return FakeTemplate()
+
+    def sqlite_tripwire(*args: Any, **kwargs: Any) -> None:
+        raise AssertionError("artifact view page opened repo-local SQLite")
+
+    def fake_call_repo_method(
+        repo: Path, method: str, params: dict[str, Any]
+    ) -> dict[str, Any]:
+        calls.append((repo, method, dict(params)))
+        return {
+            "run": {"run_id": "run_daemon", "state": "running", "branch_name": "main"},
+            "artifact": {
+                "artifact_id": "art_daemon",
+                "run_id": "run_daemon",
+                "job_id": "job_draft",
+                "session_id": "sess_1",
+                "logical_name": "draft",
+                "artifact_kind": "handoff",
+                "repo_path": "docs/draft.md",
+                "content_sha256": "sha256:artifact",
+                "size_bytes": 12,
+                "publish_mode": "create",
+                "created_at": "2026-05-17T00:00:00Z",
+                "author_line": "author: author-codex-001",
+                "attestation_override_rationale": None,
+            },
+            "expected_author_line": "author: author-codex-001",
+            "provenance_trail": [
+                {
+                    "event_type": "provenance.publish_without_process_execution",
+                    "payload": {"artifact_id": "art_daemon"},
+                }
+            ],
+        }
+
+    handler = object.__new__(service.StriatumServiceHandler)
+    handler.state = service.ServiceState(
+        repo=tmp_path,
+        allow_mutations=False,
+        token=None,
+        web_enabled=True,
+    )
+    sent: dict[str, Any] = {}
+    monkeypatch.setattr(
+        handler,
+        "_send_html",
+        lambda status, body: sent.update({"status": status, "body": body}),
+    )
+    monkeypatch.setattr(
+        handler,
+        "_send_json",
+        lambda status, body: sent.update({"status": status, "body": body}),
+    )
+    monkeypatch.setattr(service, "_jinja_env", lambda: FakeEnvironment())
+    monkeypatch.setattr("striatum.service.sqlite3.connect", sqlite_tripwire)
+    monkeypatch.setattr(service_daemon, "call_repo_method", fake_call_repo_method)
+
+    handler._render_artifact_view_page("run_daemon", "art_daemon")
+
+    assert sent == {"status": 200, "body": "ok"}
+    assert calls == [
+        (
+            tmp_path,
+            "artifact.show",
+            {
+                "artifact_id": "art_daemon",
+                "run_id": "run_daemon",
+                "include_web_context": True,
+            },
+        )
+    ]
+    assert captured["run"]["run_id"] == "run_daemon"
+    artifact = captured["artifact"]
+    assert artifact["expected_author_line"] == "author: author-codex-001"
+    assert artifact["lane_attestation_chip"]["attested"] is True
+    assert artifact["provenance_trail"][0]["payload"]["artifact_id"] == "art_daemon"
+
+
 def test_json_read_endpoints_route_daemon_without_invoke_or_sqlite(
     tmp_path: Path, monkeypatch: Any
 ) -> None:

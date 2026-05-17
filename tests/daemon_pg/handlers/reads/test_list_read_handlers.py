@@ -315,6 +315,123 @@ def test_artifact_show_returns_metadata_and_scopes_repository(pg_conn: Any, tmp_
         module.handle(repo_context(pg_conn, repository_id="repo_a", repo_root=repo_a), {})
 
 
+def test_artifact_show_web_context_scopes_run_and_projects_provenance(
+    pg_conn: Any, tmp_path: Path
+) -> None:
+    repo_a = tmp_path / "repo-a"
+    repo_b = tmp_path / "repo-b"
+    insert_repo(pg_conn, repo_a, "repo_a")
+    insert_repo(pg_conn, repo_b, "repo_b")
+    insert_fixture(pg_conn, repository_id="repo_a", repo_root=repo_a)
+    insert_fixture(pg_conn, repository_id="repo_b", repo_root=repo_b)
+    now = datetime.now(UTC)
+    with pg_conn.cursor() as cur:
+        cur.execute(
+            """
+            UPDATE striatumd.jobs
+            SET expected_artifacts_json = %s
+            WHERE repository_id = 'repo_a' AND job_id = 'job_draft'
+            """,
+            (Jsonb([{"path": "docs/draft.md", "kind": "handoff", "logical_name": "draft"}]),),
+        )
+        cur.execute(
+            """
+            INSERT INTO striatumd.queue_messages(
+              repository_id, message_id, run_id, job_id, kind, state,
+              priority, target_session_id, target_role_id, target_lane_id,
+              payload_json, claim_count, max_claims, created_at, updated_at
+            )
+            VALUES (
+              'repo_a', 'msg_artifact_show', 'run_1', 'job_draft', 'work',
+              'claimed', 0, 'sess_1', 'author', 'codex', '{}'::jsonb,
+              1, 1, %s, %s
+            )
+            """,
+            (now, now),
+        )
+        cur.execute(
+            """
+            INSERT INTO striatumd.leases(
+              repository_id, lease_id, run_id, resource_type, resource_id,
+              owner_session_id, state, acquired_at, expires_at,
+              last_heartbeat_at
+            )
+            VALUES (
+              'repo_a', 'lease_artifact_show', 'run_1', 'job', 'job_draft',
+              'sess_1', 'active', %s, %s, %s
+            )
+            """,
+            (now, now, now),
+        )
+        cur.execute(
+            """
+            INSERT INTO striatumd.work_packets(
+              repository_id, packet_id, run_id, job_id, message_id, lease_id,
+              session_id, packet_json, packet_sha256, created_at
+            )
+            VALUES (
+              'repo_a', 'packet_artifact_show', 'run_1', 'job_draft',
+              'msg_artifact_show', 'lease_artifact_show', 'sess_1',
+              %s, 'sha256:packet', %s
+            )
+            """,
+            (
+                Jsonb(
+                    {
+                        "expected_artifacts": [
+                            {
+                                "path": "docs/draft.md",
+                                "author_line": "author: author-codex-001",
+                            }
+                        ]
+                    }
+                ),
+                now,
+            ),
+        )
+        cur.execute(
+            """
+            INSERT INTO striatumd.events(
+              repository_id, event_id, run_id, event_type, actor_session_id,
+              job_id, artifact_id, payload_json, created_at
+            )
+            VALUES (
+              'repo_a', 101, 'run_1',
+              'provenance.publish_without_process_execution', 'sess_1',
+              'job_draft', 'art_1', %s, %s
+            ),
+            (
+              'repo_b', 102, 'run_1',
+              'provenance.publish_without_process_execution', 'sess_1',
+              'job_draft', 'art_1', %s, %s
+            )
+            """,
+            (
+                Jsonb({"artifact_id": "art_1", "note": "scoped"}),
+                now,
+                Jsonb({"artifact_id": "art_1", "note": "wrong-repo"}),
+                now,
+            ),
+        )
+    pg_conn.commit()
+    module = importlib.import_module("striatum.daemon_pg.handlers.reads.artifact_show")
+
+    result = module.handle(
+        repo_context(pg_conn, repository_id="repo_a", repo_root=repo_a),
+        {"artifact_id": "art_1", "run_id": "run_1", "include_web_context": True},
+    )
+
+    assert result["run"] == {"run_id": "run_1", "state": "running", "branch_name": "main"}
+    assert result["artifact"]["artifact_id"] == "art_1"
+    assert result["expected_author_line"] == "author: author-codex-001"
+    assert [event["payload"]["note"] for event in result["provenance_trail"]] == ["scoped"]
+    with pytest.raises(RpcError, match="artifact not found in run"):
+        module.handle(
+            repo_context(pg_conn, repository_id="repo_a", repo_root=repo_a),
+            {"artifact_id": "art_1", "run_id": "run_missing", "include_web_context": True},
+        )
+
+
 def test_list_workflows_scopes_repository(pg_conn: Any, tmp_path: Path) -> None:
     repo_a = tmp_path / "repo-a"
     repo_b = tmp_path / "repo-b"

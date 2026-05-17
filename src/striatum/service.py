@@ -1022,6 +1022,53 @@ def _legacy_run_posture_verdicts_payload(repo: Path, *, run_id: str, posture: st
     }
 
 
+def _legacy_artifact_view_payload(repo: Path, *, run_id: str, artifact_id: str) -> JsonObject:
+    with sqlite3.connect(str(db_path(repo))) as conn:
+        conn.row_factory = sqlite3.Row
+        run_row = conn.execute(
+            "SELECT * FROM runs WHERE run_id = ?", (run_id,)
+        ).fetchone()
+        artifact_row = conn.execute(
+            "SELECT * FROM artifacts WHERE artifact_id = ? AND run_id = ?",
+            (artifact_id, run_id),
+        ).fetchone()
+        if run_row is None or artifact_row is None:
+            raise KeyError("not found")
+        artifact = dict(artifact_row)
+        job_row = None
+        if artifact.get("job_id"):
+            job_row = conn.execute(
+                "SELECT * FROM jobs WHERE job_id = ?",
+                (str(artifact["job_id"]),),
+            ).fetchone()
+        packet = (
+            _latest_work_packet_for_job(conn, job_id=str(artifact["job_id"]))
+            if artifact.get("job_id")
+            else None
+        )
+        expected_rows = (
+            _expected_artifact_rows(
+                job=dict(job_row),
+                artifacts=[artifact],
+                packet=packet,
+            )
+            if job_row is not None
+            else []
+        )
+        shaped = _shape_artifact_rows(
+            conn,
+            artifacts=[artifact],
+            expected_rows=expected_rows,
+        )
+        artifact = shaped[0]
+        artifact["provenance_trail"] = _artifact_provenance_trail(
+            conn,
+            artifact_id=artifact_id,
+            run_id=run_id,
+        )
+        return {"run": dict(run_row), "artifact": artifact}
+
+
 def _shape_verdict_rows(
     conn: sqlite3.Connection,
     *,
@@ -1074,7 +1121,7 @@ def _shape_verdict_rows(
 
 
 def _shape_artifact_rows(
-    conn: sqlite3.Connection,
+    conn: sqlite3.Connection | None,
     *,
     artifacts: list[dict[str, Any]],
     expected_rows: list[JsonObject],
@@ -2347,51 +2394,63 @@ class StriatumServiceHandler(BaseHTTPRequestHandler):
 
     def _render_artifact_view_page(self, run_id: str, artifact_id: str) -> None:
         try:
-            with sqlite3.connect(str(db_path(self.state.repo))) as conn:
-                conn.row_factory = sqlite3.Row
-                run_row = conn.execute(
-                    "SELECT * FROM runs WHERE run_id = ?", (run_id,)
-                ).fetchone()
-                artifact_row = conn.execute(
-                    "SELECT * FROM artifacts WHERE artifact_id = ? AND run_id = ?",
-                    (artifact_id, run_id),
-                ).fetchone()
-                if run_row is None or artifact_row is None:
-                    self._send_json(404, {"ok": False, "error": {"code": 404, "message": "not found"}})
-                    return
-                run = dict(run_row)
-                artifact = dict(artifact_row)
-                job_row = None
-                if artifact.get("job_id"):
-                    job_row = conn.execute(
-                        "SELECT * FROM jobs WHERE job_id = ?",
-                        (str(artifact["job_id"]),),
-                    ).fetchone()
-                packet = (
-                    _latest_work_packet_for_job(conn, job_id=str(artifact["job_id"]))
-                    if artifact.get("job_id")
-                    else None
+            from striatum.service_daemon import ServiceDaemonRpcError, call_repo_method
+
+            try:
+                payload = call_repo_method(
+                    self.state.repo,
+                    "artifact.show",
+                    {
+                        "artifact_id": artifact_id,
+                        "run_id": run_id,
+                        "include_web_context": True,
+                    },
                 )
-                expected_rows = (
-                    _expected_artifact_rows(
-                        job=dict(job_row),
-                        artifacts=[artifact],
-                        packet=packet,
+            except ServiceDaemonRpcError as exc:
+                if _legacy_web_read_fallback_enabled(exc.code):
+                    try:
+                        payload = _legacy_artifact_view_payload(
+                            self.state.repo,
+                            run_id=run_id,
+                            artifact_id=artifact_id,
+                        )
+                    except KeyError:
+                        self._send_json(404, {"ok": False, "error": {"code": 404, "message": "not found"}})
+                        return
+                else:
+                    self._send_json(
+                        exc.status,
+                        {"ok": False, "error": {"code": exc.code, "message": exc.message}},
                     )
-                    if job_row is not None
-                    else []
+                    return
+            run_raw = payload.get("run")
+            artifact_raw = payload.get("artifact")
+            if not isinstance(run_raw, Mapping) or not isinstance(artifact_raw, Mapping):
+                self._send_json(
+                    500,
+                    {
+                        "ok": False,
+                        "error": {"code": 500, "message": "daemon artifact DTO missing fields"},
+                    },
                 )
-                shaped = _shape_artifact_rows(
-                    conn,
+                return
+            run = dict(run_raw)
+            artifact = dict(artifact_raw)
+            if "lane_attestation_chip" not in artifact:
+                expected_rows = [
+                    {
+                        "path": artifact.get("repo_path"),
+                        "expected_author_line": payload.get("expected_author_line"),
+                    }
+                ]
+                artifact = _shape_artifact_rows(
+                    None,
                     artifacts=[artifact],
                     expected_rows=expected_rows,
-                )
-                artifact = shaped[0]
-                artifact["provenance_trail"] = _artifact_provenance_trail(
-                    conn,
-                    artifact_id=artifact_id,
-                    run_id=run_id,
-                )
+                )[0]
+            if "provenance_trail" not in artifact:
+                trail = payload.get("provenance_trail")
+                artifact["provenance_trail"] = trail if isinstance(trail, list) else []
             # RFC 0023 V1: inline-render Markdown artifacts.
             rendered_md: str | None = None
             body_text: str | None = None

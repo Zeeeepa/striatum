@@ -60,7 +60,7 @@ Legend:
 | `list.sessions` | `list sessions` | read | single_repo | pg | real | no | no | stable |
 | `list.jobs` | `list jobs` | read | single_repo | pg | real | no | no | stable |
 | `list.artifacts` | `list artifacts` | read | single_repo | pg | real | no | no | stable |
-| `artifact.show` | web artifact raw DTO | read | single_repo | pg | placeholder | no | no | stable |
+| `artifact.show` | web artifact raw/detail DTO | read | single_repo | pg | real | no | no | stable |
 | `list.workflows` | `list workflows` | read | single_repo | pg | real | no | no | stable |
 | `worktree.list` | `worktree list` | read | single_repo | pg | placeholder | no | no | stable |
 | `dashboard.all` | `dashboard --all` | read | daemon_global | direct | placeholder | no | no | Python stable, Go gap |

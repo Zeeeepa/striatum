@@ -103,7 +103,7 @@ so external references keep resolving even as items move between sections.
 | 49 | RFC 0059 Architecture remediation Phase 1 — close production SQLite fallback | 🟡 production fallback closed; legacy SQLite quarantine remains |
 | 50 | RFC 0060 Architecture remediation Phase 2 — single daemon method contract source | 🟡 contract source + Python/Go registry + MCP descriptors landed |
 | 51 | Architecture remediation Phase 3 — daemon core strategy decision | ✅ done |
-| 52 | RFC 0061 Architecture remediation Phase 4 — daemon-first web service | 🟡 core web/API reads daemon-routed |
+| 52 | RFC 0061 Architecture remediation Phase 4 — daemon-first web service | 🟡 core web/API + artifact reads daemon-routed |
 | 53 | RFC 0062 Architecture remediation Phase 5 — real escalation inbox | 🟡 projection + escalation artifact schema/linkage landed |
 | 54 | RFC 0063 Architecture remediation Phase 6 — hardened PTY supervision | 🟡 control-event, helper protocol, and JSONL ingestion slices landed |
 | 55 | RFC 0064 Architecture remediation Phase 7 — workflow risk lint and review diversity enforcement | 🟡 generator coverage + accepted-risk reference landed |
@@ -853,10 +853,13 @@ review and plan are root-level operator artifacts:
     `run.posture_verdicts` in production, again with only the test-harness
     SQLite fallback. The `/v1` status, doctor, why, dashboard, and run
     artifact-rollup read endpoints now call daemon read DTOs directly
-    instead of the legacy CLI invoke wrapper. Remaining: split `service.py`,
-    replace the rest of the direct SQLite-shaped reads with daemon RPC DTOs,
-    replace run-now's multi-step SQLite transaction carefully, move SSE, and
-    derive mutation authorization from daemon method capabilities.
+    instead of the legacy CLI invoke wrapper. The artifact detail page now
+    uses daemon `artifact.show` with optional web context for run scoping,
+    expected author line, and provenance events. Remaining: split
+    `service.py`, replace the rest of the direct SQLite-shaped reads with
+    daemon RPC DTOs, replace run-now's multi-step SQLite transaction
+    carefully, move SSE, and derive mutation authorization from daemon
+    method capabilities.
 
 53. **Phase 5: real escalation inbox.** First slice landed:
     `escalation.list`, `escalation.show`, and `escalation.resolve`
