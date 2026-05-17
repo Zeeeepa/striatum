@@ -10,6 +10,11 @@ If you want a quick install summary instead, see the
 [`HOW_TO_HUMAN.md`](HOW_TO_HUMAN.md) and
 [`HOW_TO_AGENT.md`](HOW_TO_AGENT.md).
 
+When resuming Striatum development work, read
+[`operator/BRIEF.md`](operator/BRIEF.md) after the project instructions.
+That brief is the bounded current-state handoff; older
+`docs/handoffs/` files are provenance.
+
 ## What is Striatum?
 
 Striatum is a local workflow runner for terminal-based AI coding

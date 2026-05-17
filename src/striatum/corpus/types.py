@@ -13,6 +13,9 @@ SOURCE_KIND = "striatum"
 SUB_KINDS: tuple[str, ...] = (
     "rfc",
     "decision_log_row",
+    "operator_brief",
+    "work_plan",
+    "progress_note",
     "operator_report",
     "run_summary",
     "audit_chain_entry",
@@ -25,6 +28,9 @@ SUB_KINDS: tuple[str, ...] = (
 JSONL_FILES: Mapping[str, str] = {
     "rfc": "rfcs.jsonl",
     "decision_log_row": "decision_log_rows.jsonl",
+    "operator_brief": "operator_briefs.jsonl",
+    "work_plan": "work_plans.jsonl",
+    "progress_note": "progress_notes.jsonl",
     "operator_report": "operator_reports.jsonl",
     "run_summary": "run_summaries.jsonl",
     "audit_chain_entry": "audit_chain.jsonl",
@@ -56,9 +62,12 @@ class CorpusRow:
     content: str
     provenance: CorpusProvenance
     observed_at: str
+    artifact_kind: str | None = None
+    retrieval_priority: str | None = None
+    supersedes: str | None = None
 
     def to_json(self) -> dict[str, object]:
-        return {
+        row: dict[str, object] = {
             "source_kind": SOURCE_KIND,
             "external_id": self.external_id,
             "sub_kind": self.sub_kind,
@@ -66,6 +75,13 @@ class CorpusRow:
             "provenance": self.provenance.to_json(),
             "observed_at": self.observed_at,
         }
+        if self.artifact_kind is not None:
+            row["artifact_kind"] = self.artifact_kind
+        if self.retrieval_priority is not None:
+            row["retrieval_priority"] = self.retrieval_priority
+        if self.supersedes is not None:
+            row["supersedes"] = self.supersedes
+        return row
 
 
 @dataclass(frozen=True)

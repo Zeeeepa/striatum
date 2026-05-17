@@ -38,7 +38,8 @@ ALLOWED_ARTIFACT_KINDS: frozenset[str] = frozenset({
     "prompt", "finding", "findings_ledger", "synthesis", "marker",
     "handoff", "decision", "patch_summary", "test_report", "other",
     "support_ledger", "action_item_ledger", "harness_improvement_proposal",
-    "escalation",
+    "escalation", "operator_brief", "work_plan", "progress_note",
+    "operator_report",
 })
 
 
@@ -86,6 +87,12 @@ def _is_non_empty_str(value: object) -> str | None:
     return None
 
 
+def _is_nullable_non_empty_str(value: object) -> str | None:
+    if value is None:
+        return None
+    return _is_non_empty_str(value)
+
+
 def _is_bool(value: object) -> str | None:
     return None if isinstance(value, bool) else "must be a boolean"
 
@@ -102,6 +109,18 @@ def _is_str_list(value: object) -> str | None:
     for item in value:
         if not isinstance(item, str):
             return "must be a list of strings"
+    return None
+
+
+def _is_scope_links(value: object) -> str | None:
+    problem = _is_str_list(value)
+    if problem is not None:
+        return problem
+    assert isinstance(value, list)
+    if len(value) > 5:
+        return "must contain at most 5 entries"
+    if any(not item.strip() for item in value):
+        return "must be a list of non-empty strings"
     return None
 
 
@@ -154,6 +173,10 @@ _ESCALATION_BLOCKER_KINDS: tuple[str, ...] = (
     "override_required",
     "ai_self_declared",
 )
+_RETRIEVAL_PRIORITIES: tuple[str, ...] = ("high", "normal", "low")
+_OPERATOR_BRIEF_STATUSES: tuple[str, ...] = ("current", "superseded")
+_WORK_PLAN_SCOPE_KINDS: tuple[str, ...] = ("rfc", "phase", "initiative", "bugfix")
+_WORK_PLAN_STATES: tuple[str, ...] = ("open", "in_progress", "closed")
 
 
 FRONT_MATTER_SCHEMAS: dict[str, FrontMatterSchema] = {
@@ -270,6 +293,64 @@ FRONT_MATTER_SCHEMAS: dict[str, FrontMatterSchema] = {
             FrontMatterField("requested_action", True, _is_non_empty_str),
             FrontMatterField("related_artifacts", False, _is_str_list),
             FrontMatterField("created_at", True, _is_non_empty_str),
+        ),
+    ),
+    "operator_brief": FrontMatterSchema(
+        schema_version="striatum.operator_brief.v1",
+        artifact_kind="operator_brief",
+        fields=(
+            FrontMatterField("schema_version", True, _equals("striatum.operator_brief.v1")),
+            FrontMatterField("artifact_kind", True, _equals("operator_brief")),
+            FrontMatterField("brief_id", True, _is_non_empty_str),
+            FrontMatterField("supersedes", True, _is_nullable_non_empty_str),
+            FrontMatterField("scope_links", True, _is_scope_links),
+            FrontMatterField("context_budget_lines", True, _is_non_negative_int),
+            FrontMatterField("retrieval_priority", True, _one_of("retrieval_priority", _RETRIEVAL_PRIORITIES)),
+            FrontMatterField("status", True, _one_of("status", _OPERATOR_BRIEF_STATUSES)),
+            FrontMatterField("author", False, _is_non_empty_str),
+        ),
+    ),
+    "work_plan": FrontMatterSchema(
+        schema_version="striatum.work_plan.v1",
+        artifact_kind="work_plan",
+        fields=(
+            FrontMatterField("schema_version", True, _equals("striatum.work_plan.v1")),
+            FrontMatterField("artifact_kind", True, _equals("work_plan")),
+            FrontMatterField("plan_id", True, _is_non_empty_str),
+            FrontMatterField("scope_kind", True, _one_of("scope_kind", _WORK_PLAN_SCOPE_KINDS)),
+            FrontMatterField("scope_ref", True, _is_non_empty_str),
+            FrontMatterField("state", True, _one_of("state", _WORK_PLAN_STATES)),
+            FrontMatterField("opened_at", True, _is_non_empty_str),
+            FrontMatterField("closed_at", True, _is_nullable_non_empty_str),
+            FrontMatterField("closure_summary", True, _is_nullable_non_empty_str),
+            FrontMatterField("supersedes", True, _is_nullable_non_empty_str),
+            FrontMatterField("retrieval_priority", True, _one_of("retrieval_priority", _RETRIEVAL_PRIORITIES)),
+            FrontMatterField("author", False, _is_non_empty_str),
+        ),
+    ),
+    "progress_note": FrontMatterSchema(
+        schema_version="striatum.progress_note.v1",
+        artifact_kind="progress_note",
+        fields=(
+            FrontMatterField("schema_version", True, _equals("striatum.progress_note.v1")),
+            FrontMatterField("artifact_kind", True, _equals("progress_note")),
+            FrontMatterField("note_date", True, _is_non_empty_str),
+            FrontMatterField("session_slug", True, _is_non_empty_str),
+            FrontMatterField("related_plan", True, _is_nullable_non_empty_str),
+            FrontMatterField("related_brief", True, _is_nullable_non_empty_str),
+            FrontMatterField("retrieval_priority", True, _one_of("retrieval_priority", _RETRIEVAL_PRIORITIES)),
+            FrontMatterField("author", False, _is_non_empty_str),
+        ),
+    ),
+    "operator_report": FrontMatterSchema(
+        schema_version="striatum.operator_report.v1",
+        artifact_kind="operator_report",
+        fields=(
+            FrontMatterField("schema_version", True, _equals("striatum.operator_report.v1")),
+            FrontMatterField("artifact_kind", True, _equals("operator_report")),
+            FrontMatterField("author", False, _is_non_empty_str),
+            FrontMatterField("retrieval_priority", False, _one_of("retrieval_priority", _RETRIEVAL_PRIORITIES)),
+            FrontMatterField("supersedes", False, _is_nullable_non_empty_str),
         ),
     ),
 }

@@ -364,6 +364,10 @@ Recent checkpoints:
 - `workflow upgrade` now fails closed instead of falling back to repo-local
   SQLite running-run checks unless the paired test-harness compatibility escape
   is active.
+- RFC 0058 V1 now has publisher-visible operator artifact kinds
+  (`operator_brief`, `work_plan`, `progress_note`, `operator_report`),
+  corpus metadata columns for operator docs, and a seeded
+  `docs/operator/` current-state surface that supersedes ad-hoc handoffs.
 - `daemon migrate-repo-local --verify-cutover --json` now emits
   `striatum.repo_cutover_report.v1` using PostgreSQL queries plus raw
   source/tombstone/sentinel file checks, without opening SQLite as a database.

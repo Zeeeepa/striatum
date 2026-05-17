@@ -167,10 +167,7 @@ CREATE TABLE IF NOT EXISTS artifacts (
   job_id TEXT REFERENCES jobs(job_id),
   session_id TEXT REFERENCES sessions(session_id),
   logical_name TEXT NOT NULL,
-  artifact_kind TEXT NOT NULL CHECK (artifact_kind IN (
-    'prompt','finding','findings_ledger','synthesis','marker',
-    'handoff','decision','patch_summary','test_report','other'
-  )),
+  artifact_kind TEXT NOT NULL,
   repo_path TEXT NOT NULL,
   content_sha256 TEXT NOT NULL,
   size_bytes INTEGER NOT NULL,

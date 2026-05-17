@@ -1,6 +1,6 @@
 # RFC 0058: Operator Progress Surface — brief, plans, progress notes
 
-Status: proposed
+Status: partially implemented
 Date: 2026-05-15
 Context:
 [`docs/DECISION_LOG.md`](../DECISION_LOG.md),

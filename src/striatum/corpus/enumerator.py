@@ -23,6 +23,7 @@ ATX_RE = re.compile(r"^(#{1,6})\s+(.+?)\s*$", re.MULTILINE)
 RFC_PATH_RE = re.compile(r"^docs/rfcs/([0-9]{4})-.*\.md$")
 DOGFOOD_RUN_RE = re.compile(r"^docs/dogfood/([0-9]{3})/RUN_SUMMARY\.md$")
 DOGFOOD_OP_RE = re.compile(r"^docs/dogfood/([0-9]{3})/OPERATOR_REPORT\.md$")
+OPERATOR_DOC_KINDS = {"operator_brief", "work_plan", "progress_note"}
 
 
 def enumerate_rows(
@@ -36,6 +37,7 @@ def enumerate_rows(
     rows: list[CorpusRow] = []
     rows.extend(enumerate_rfcs(repo, changed))
     rows.extend(enumerate_decisions(repo, changed))
+    rows.extend(enumerate_operator_docs(repo, changed))
     rows.extend(enumerate_operator_reports(repo, changed))
     rows.extend(enumerate_run_summaries(conn, repo=repo, changed=changed))
     rows.extend(enumerate_audit_chain(conn, repo=repo))
@@ -98,9 +100,40 @@ def enumerate_operator_reports(repo: Path, changed: set[str]) -> list[CorpusRow]
         if match is None:
             continue
         dogfood_id = match.group(1)
-        blocks = split_operator_report(path.read_text(encoding="utf-8"))
+        text = path.read_text(encoding="utf-8")
+        metadata = markdown_front_matter(text)
+        blocks = split_operator_report(text)
         for index, block in enumerate(blocks, start=1):
-            rows.append(_file_row(repo, rel, "operator_report", f"dogfood:{dogfood_id}#intervention-{index}", block))
+            rows.append(
+                _file_row(
+                    repo,
+                    rel,
+                    "operator_report",
+                    f"dogfood:{dogfood_id}#intervention-{index}",
+                    block,
+                    metadata=metadata,
+                )
+            )
+    return rows
+
+
+def enumerate_operator_docs(repo: Path, changed: set[str]) -> list[CorpusRow]:
+    root = repo / "docs/operator"
+    if not root.exists():
+        return []
+    rows: list[CorpusRow] = []
+    for path in sorted(root.rglob("*.md")):
+        rel = path.relative_to(repo).as_posix()
+        if rel not in changed:
+            continue
+        text = path.read_text(encoding="utf-8")
+        metadata = markdown_front_matter(text)
+        kind = metadata.get("artifact_kind")
+        if not isinstance(kind, str) or kind not in OPERATOR_DOC_KINDS:
+            continue
+        identifier = _operator_doc_external_id(kind, metadata, rel)
+        content = strip_front_matter(text).strip()
+        rows.append(_file_row(repo, rel, kind, identifier, content, metadata=metadata))
     return rows
 
 
@@ -252,6 +285,7 @@ def split_atx_sections(text: str) -> list[tuple[str, str]]:
 
 
 def split_operator_report(text: str) -> list[str]:
+    text = strip_front_matter(text)
     titled = [
         f"{heading}\n\n{body}".strip()
         for heading, body in split_atx_sections(text)
@@ -262,21 +296,89 @@ def split_operator_report(text: str) -> list[str]:
     return [block.strip() for block in re.split(r"\n\s*\n", text) if block.strip() and not block.startswith("---")]
 
 
+def markdown_front_matter(text: str) -> dict[str, object]:
+    block, _body = _split_front_matter(text)
+    if block is None:
+        return {}
+    parsed: dict[str, object] = {}
+    for raw_line in block.splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        key, sep, raw_value = line.partition(":")
+        if not sep:
+            continue
+        key = key.strip()
+        if not key:
+            continue
+        try:
+            parsed[key] = json.loads(raw_value.strip())
+        except json.JSONDecodeError:
+            continue
+    return parsed
+
+
+def strip_front_matter(text: str) -> str:
+    _block, body = _split_front_matter(text)
+    return body
+
+
+def _split_front_matter(text: str) -> tuple[str | None, str]:
+    if not text.startswith("---\n"):
+        return None, text
+    end = text.find("\n---", 4)
+    if end == -1:
+        return None, text
+    body_start = end + 4
+    if body_start < len(text) and text[body_start] == "\n":
+        body_start += 1
+    return text[4:end], text[body_start:]
+
+
 def slugify(value: str) -> str:
     slug = re.sub(r"[^a-z0-9]+", "-", value.lower()).strip("-")
     return slug or "section"
 
 
-def _file_row(repo: Path, rel: str, sub_kind: str, external_id: str, content: str) -> CorpusRow:
+def _operator_doc_external_id(kind: str, metadata: dict[str, object], rel: str) -> str:
+    key_by_kind = {
+        "operator_brief": "brief_id",
+        "work_plan": "plan_id",
+        "progress_note": "session_slug",
+    }
+    raw = metadata.get(key_by_kind[kind])
+    if isinstance(raw, str) and raw.strip():
+        return f"{kind}:{raw}"
+    return f"{kind}:{rel}"
+
+
+def _file_row(
+    repo: Path,
+    rel: str,
+    sub_kind: str,
+    external_id: str,
+    content: str,
+    *,
+    metadata: dict[str, object] | None = None,
+) -> CorpusRow:
     validate_source_path(rel)
     commit, observed_at = git_helpers.last_touch(repo, rel)
+    metadata = metadata or {}
     return CorpusRow(
         external_id=external_id,
         sub_kind=sub_kind,
         content=content.strip(),
         provenance=CorpusProvenance(path=rel, sha256=git_helpers.file_sha256(repo, rel), commit=commit),
         observed_at=observed_at,
+        artifact_kind=_metadata_str(metadata, "artifact_kind"),
+        retrieval_priority=_metadata_str(metadata, "retrieval_priority"),
+        supersedes=_metadata_str(metadata, "supersedes"),
     )
+
+
+def _metadata_str(metadata: dict[str, object], key: str) -> str | None:
+    value = metadata.get(key)
+    return value if isinstance(value, str) and value else None
 
 
 def _section(text: str, heading: str) -> str:

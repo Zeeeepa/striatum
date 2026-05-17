@@ -978,6 +978,9 @@ Release order after Phase 0:
     remove direct client DB access.
 16. **TODO 64 / RFC 0071:** add post-cutover diagnostics once authority cleanup
     lands.
+17. **TODO 65 / RFC 0058:** use `docs/operator/BRIEF.md` as the current-state
+    authority and keep plans/progress notes schema-valid; defer operator-tree
+    init/rotation commands to V1.5.
 
 **Blocked on:** current blockers are Phase 7 accepted-risk persistence,
 Phase 8 default auto-finalize policy, Phase 11 Corpus V2 decisions, Phase 12

@@ -16,6 +16,8 @@ Read these first, in order:
 4. `docs/DECISION_LOG.md`
 5. `docs/UBIQUITOUS_LANGUAGE.md`
 6. `docs/TODO.md`
+7. `docs/operator/BRIEF.md` for current operator state and the bounded
+   plan links that supersede older handoffs.
 
 Treat `docs/ENGRAM_INCUBATION_CONTEXT.md`,
 `examples/rfc-0014-operational-artifact-home/`, and the older P00x prompts as
@@ -59,7 +61,9 @@ short version:
   block includes `author:`.
 - Front-matter–carrying artifacts (`decision`, `finding`, `findings_ledger`,
   `synthesis`, `support_ledger`, `action_item_ledger`,
-  `harness_improvement_proposal`) must validate against their V1 schema —
+  `harness_improvement_proposal`, `escalation`, `operator_brief`,
+  `work_plan`, `progress_note`, `operator_report`) must validate
+  against their V1 schema —
   the publisher refuses invalid front matter with exit code 6.
 - Lease expiry is lazy. If a normal CLI command refuses with exit code 5,
   ask the operator to recover stale work via

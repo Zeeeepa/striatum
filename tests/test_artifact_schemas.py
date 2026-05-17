@@ -9,6 +9,7 @@ import sys
 from pathlib import Path
 
 from striatum.artifacts import parse_artifact_front_matter
+from striatum.schema import SCHEMA_SQL
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -104,6 +105,95 @@ def write_artifact(repo: Path, path: str, content: str) -> None:
     target = repo / path
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(content, encoding="utf-8")
+
+
+def test_operator_progress_artifact_front_matter_schemas_parse(tmp_path: Path) -> None:
+    samples = {
+        "operator_brief": (
+            "---\n"
+            'schema_version: "striatum.operator_brief.v1"\n'
+            'artifact_kind: "operator_brief"\n'
+            'brief_id: "brief_2026-05-17_daemon-port"\n'
+            "supersedes: null\n"
+            'scope_links: ["docs/operator/plans/rfc-0068-go-daemon-port.md"]\n'
+            "context_budget_lines: 300\n"
+            'retrieval_priority: "high"\n'
+            'status: "current"\n'
+            "---\n\n"
+            "# Brief\n"
+        ),
+        "work_plan": (
+            "---\n"
+            'schema_version: "striatum.work_plan.v1"\n'
+            'artifact_kind: "work_plan"\n'
+            'plan_id: "plan_rfc-0068-go-daemon-port"\n'
+            'scope_kind: "rfc"\n'
+            'scope_ref: "docs/rfcs/0068-go-production-daemon-port.md"\n'
+            'state: "in_progress"\n'
+            'opened_at: "2026-05-17"\n'
+            "closed_at: null\n"
+            "closure_summary: null\n"
+            "supersedes: null\n"
+            'retrieval_priority: "normal"\n'
+            "---\n\n"
+            "# Plan\n"
+        ),
+        "progress_note": (
+            "---\n"
+            'schema_version: "striatum.progress_note.v1"\n'
+            'artifact_kind: "progress_note"\n'
+            'note_date: "2026-05-17"\n'
+            'session_slug: "daemon-port"\n'
+            'related_plan: "plan_rfc-0068-go-daemon-port"\n'
+            'related_brief: "brief_2026-05-17_daemon-port"\n'
+            'retrieval_priority: "low"\n'
+            "---\n\n"
+            "# Progress\n"
+        ),
+        "operator_report": (
+            "---\n"
+            'schema_version: "striatum.operator_report.v1"\n'
+            'artifact_kind: "operator_report"\n'
+            'author: "operator"\n'
+            "---\n\n"
+            "# Report\n"
+        ),
+    }
+
+    for kind, text in samples.items():
+        path = tmp_path / f"{kind}.md"
+        payload = text.encode("utf-8")
+        parsed = parse_artifact_front_matter(kind=kind, path=path, payload=payload)
+        assert parsed is not None
+        assert parsed["artifact_kind"] == kind
+
+
+def test_operator_brief_scope_links_are_bounded(tmp_path: Path) -> None:
+    text = (
+        "---\n"
+        'schema_version: "striatum.operator_brief.v1"\n'
+        'artifact_kind: "operator_brief"\n'
+        'brief_id: "brief_over_budget"\n'
+        "supersedes: null\n"
+        'scope_links: ["a", "b", "c", "d", "e", "f"]\n'
+        "context_budget_lines: 300\n"
+        'retrieval_priority: "high"\n'
+        'status: "current"\n'
+        "---\n\n"
+        "# Brief\n"
+    )
+    path = tmp_path / "brief.md"
+
+    try:
+        parse_artifact_front_matter(kind="operator_brief", path=path, payload=text.encode("utf-8"))
+    except Exception as exc:  # noqa: BLE001 - assert message without depending on subclass import here.
+        assert "at most 5 entries" in str(exc)
+    else:
+        raise AssertionError("operator_brief with six scope links should fail")
+
+
+def test_legacy_sqlite_bootstrap_does_not_constrain_artifact_kind() -> None:
+    assert "artifact_kind TEXT NOT NULL CHECK" not in SCHEMA_SQL
 
 
 def publish(

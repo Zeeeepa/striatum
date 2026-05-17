@@ -6,6 +6,7 @@ from pathlib import Path
 from striatum.corpus.enumerator import (
     enumerate_changelog,
     enumerate_decisions,
+    enumerate_operator_docs,
     enumerate_operator_reports,
     enumerate_rfcs,
     enumerate_ubiquitous_language,
@@ -69,6 +70,36 @@ def test_operator_report_rows_use_dogfood_ids(tmp_path: Path) -> None:
     rows = enumerate_operator_reports(tmp_path, {"docs/dogfood/046/OPERATOR_REPORT.md"})
 
     assert rows[0].external_id == "dogfood:046#intervention-1"
+
+
+def test_operator_docs_emit_front_matter_metadata_columns(tmp_path: Path) -> None:
+    _git_repo(tmp_path)
+    path = tmp_path / "docs/operator/BRIEF.md"
+    path.parent.mkdir(parents=True)
+    path.write_text(
+        "---\n"
+        'schema_version: "striatum.operator_brief.v1"\n'
+        'artifact_kind: "operator_brief"\n'
+        'brief_id: "brief_2026-05-17_daemon-port"\n'
+        'supersedes: "brief_2026-05-16_architecture-review"\n'
+        'scope_links: ["docs/operator/plans/rfc-0068-go-daemon-port.md"]\n'
+        "context_budget_lines: 300\n"
+        'retrieval_priority: "high"\n'
+        'status: "current"\n'
+        "---\n\n"
+        "# Operator Brief\n\nCurrent state.\n",
+        encoding="utf-8",
+    )
+
+    rows = enumerate_operator_docs(tmp_path, {"docs/operator/BRIEF.md"})
+
+    assert len(rows) == 1
+    row_json = rows[0].to_json()
+    assert rows[0].external_id == "operator_brief:brief_2026-05-17_daemon-port"
+    assert row_json["artifact_kind"] == "operator_brief"
+    assert row_json["retrieval_priority"] == "high"
+    assert row_json["supersedes"] == "brief_2026-05-16_architecture-review"
+    assert rows[0].content == "# Operator Brief\n\nCurrent state."
 
 
 def test_changelog_and_ubiquitous_language_parsers(tmp_path: Path) -> None:

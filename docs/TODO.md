@@ -116,6 +116,7 @@ so external references keep resolving even as items move between sections.
 | 62 | RFC 0069 PostgreSQL-only daemon-global surfaces | 🟡 most done |
 | 63 | RFC 0070 daemon client/service boundary completion | 🟡 most done |
 | 64 | RFC 0071 operator diagnostics and cutover evidence | 🟡 first slice landed |
+| 65 | RFC 0058 operator progress surface | 🟡 V1 schemas + docs/operator seed landed |
 
 Legend: ✅ done · 🟡 most done (sub-tasks remain) · ⏳ open/blocked · 💤 shelved
 
@@ -1282,6 +1283,14 @@ review and plan are root-level operator artifacts:
     --verify-cutover --json` reports `striatum.repo_cutover_report.v1` without
     opening SQLite as a database. Remaining: decide how much of the command
     authority matrix should be generated versus curated.
+
+65. **RFC 0058: operator progress surface.** V1 foundation landed:
+    `operator_brief`, `work_plan`, `progress_note`, and `operator_report`
+    are publisher-known artifact kinds with V1 front-matter schemas;
+    corpus export emits operator-doc metadata columns; and `docs/operator/`
+    now carries the current brief, open plans, progress notes, and a handoff
+    deprecation pointer. Remaining: optional V1.5 operator-tree init/rotation
+    commands and stricter context-budget linting.
 
 ## GH issue follow-ups
 

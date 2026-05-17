@@ -13,6 +13,7 @@ from striatum.corpus.enumerator import (
     enumerate_commits,
     enumerate_decisions,
     enumerate_friction_patterns,
+    enumerate_operator_docs,
     enumerate_operator_reports,
     enumerate_rfcs,
 )
@@ -46,6 +47,7 @@ def handle(ctx: RepoHandlerContext, params: Mapping[str, Any]) -> dict[str, Any]
     rows: list[CorpusRow] = []
     rows.extend(enumerate_rfcs(ctx.repo_root, changed))
     rows.extend(enumerate_decisions(ctx.repo_root, changed))
+    rows.extend(enumerate_operator_docs(ctx.repo_root, changed))
     rows.extend(enumerate_operator_reports(ctx.repo_root, changed))
     rows.extend(_enumerate_run_summaries(ctx))
     rows.extend(_enumerate_audit_chain(ctx))

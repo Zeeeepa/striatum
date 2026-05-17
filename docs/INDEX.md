@@ -18,6 +18,7 @@ collectively, not individually.
 | [WRITING_WORKFLOWS.md](WRITING_WORKFLOWS.md) | Workflow author | How to author `workflow.json` from scratch: required fields, scaffold layout, common graph shapes, validation. |
 | [CLI_REFERENCE.md](CLI_REFERENCE.md) | Anyone | Flat list of every CLI verb plus stable exit codes; `--help` is authoritative. |
 | [POSTGRES_TRANSITION.md](POSTGRES_TRANSITION.md) | Operator | The D094 / RFC 0043 PostgreSQL cutover runbook: prerequisites, daemon doctor role/grant repair, daemon service startup, `striatum adopt`, `striatum daemon migrate-repo-local`, tombstone vs delete, verification, and exit codes 11 / 12. |
+| [operator/INDEX.md](operator/INDEX.md) | Operator | RFC 0058 current-state surface: read `operator/BRIEF.md`, then only its bounded plan links unless a task asks for deeper history. |
 
 ## Specifications and decisions
 
