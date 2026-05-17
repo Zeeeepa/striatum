@@ -42,8 +42,8 @@ from striatum.service_request_security import (
 )
 from striatum import service_request_io as _request_io
 from striatum.service_sse import (
-    encode_sse_event as _encode_sse_event,
     sse_since as _sse_since,
+    stream_daemon_events as _stream_daemon_events,
 )
 from striatum.service_runtime import (
     ServiceAlreadyRunningError as ServiceAlreadyRunningError,
@@ -1858,73 +1858,18 @@ class StriatumServiceHandler(BaseHTTPRequestHandler):
             self.state.release_sse_slot(run_id)
 
     def _stream_events_daemon_body(self, run_id: str, *, since: int) -> None:
-        from striatum.service_daemon import ServiceDaemonRpcError, call_repo_method
+        from striatum import service_daemon
 
-        last_id = since
-        try:
-            payload = call_repo_method(
-                self.state.repo,
-                "run.events",
-                {"run_id": run_id, "since_event_id": last_id, "limit": 100},
-            )
-        except ServiceDaemonRpcError as exc:
-            self._send_json(
-                exc.status,
-                {"ok": False, "error": {"code": exc.code, "message": exc.message}},
-            )
-            return
-        try:
-            self.send_response(200)
-            self.send_header("Content-Type", "text/event-stream")
-            self.send_header("Cache-Control", "no-cache")
-            self.send_header("Connection", "close")
-            self.send_header("X-Accel-Buffering", "no")
-            self.end_headers()
-            while not self.state.shutting_down:
-                rows = payload.get("events")
-                events = rows if isinstance(rows, list) else []
-                for row in events:
-                    if not isinstance(row, Mapping):
-                        continue
-                    event_id = int(row.get("event_id") or last_id)
-                    self._write_sse_event("striatum.event", event_id, dict(row))
-                    last_id = event_id
-                run_raw = payload.get("run")
-                run: Mapping[str, Any] = run_raw if isinstance(run_raw, Mapping) else {}
-                run_state = str(run.get("state") or "")
-                if run_state in {"completed", "failed", "canceled"} and not events:
-                    self._write_sse_event(
-                        "striatum.run_terminal",
-                        last_id,
-                        {"run_id": run_id, "state": run_state},
-                    )
-                    break
-                time.sleep(SSE_POLL_INTERVAL_SECONDS)
-                try:
-                    payload = call_repo_method(
-                        self.state.repo,
-                        "run.events",
-                        {"run_id": run_id, "since_event_id": last_id, "limit": 100},
-                    )
-                except ServiceDaemonRpcError as exc:
-                    self._write_sse_event(
-                        "striatum.error",
-                        last_id,
-                        {"run_id": run_id, "code": exc.code, "message": exc.message},
-                    )
-                    break
-            if self.state.shutting_down:
-                self._write_sse_event(
-                    "striatum.shutdown",
-                    last_id,
-                    {"run_id": run_id, "reason": "service_shutting_down"},
-                )
-        except (BrokenPipeError, ConnectionResetError):
-            return
-
-    def _write_sse_event(self, event: str, event_id: int, payload: JsonObject) -> None:
-        self.wfile.write(_encode_sse_event(event, event_id, payload))
-        self.wfile.flush()
+        _stream_daemon_events(
+            self,
+            repo=self.state.repo,
+            run_id=run_id,
+            since=since,
+            shutting_down=lambda: self.state.shutting_down,
+            send_json=self._send_json,
+            poll_interval_seconds=SSE_POLL_INTERVAL_SECONDS,
+            call_method=service_daemon.call_repo_method,
+        )
 
     # --- request helpers ----------------------------------------------
 

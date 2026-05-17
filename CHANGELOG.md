@@ -87,6 +87,9 @@ Recent checkpoints:
   shaping moved from `service.py` into `striatum.web.workflow_generation`.
 - Request-body parsing and JSON/HTML response helpers moved from `service.py`
   into `striatum.service_request_io`, keeping the handler wrappers stable.
+- Daemon-backed run-event SSE streaming moved from `service.py` into
+  `striatum.service_sse`, keeping the handler responsible for slot accounting
+  and legacy fixture fallback selection.
 - Doctor page DTO loading, legacy fallback selection, record recipe shaping,
   and problem grouping moved from `service.py` into `striatum.web.doctor`.
 - Workflow browser index/detail page DTO shaping moved from `service.py` into

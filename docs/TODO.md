@@ -968,7 +968,9 @@ review and plan are root-level operator artifacts:
     RPC/fallback and HTTP response mapping. Follow-up split landed:
     `web/artifacts.py` now also owns artifact-view template-context shaping,
     byline display, recorded attestation chips, lane-evidence chips, and
-    expected-artifact row shaping.
+    expected-artifact row shaping. Follow-up split landed:
+    `service_sse.py` owns daemon-backed run-event streaming while
+    `service.py` keeps slot accounting and legacy fixture fallback selection.
     Remaining: continue splitting `service.py` along stable non-SQLite
     request-handling and rendering boundaries.
 

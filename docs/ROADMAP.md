@@ -427,8 +427,9 @@ daemon-first without needing to support two domain daemons.
   validation, binary detection, text/Markdown payload shaping, and inline
   Markdown rendering. `service.py` keeps route-level rendering and legacy
   run-breadcrumb fallback injection.
-- `src/striatum/service_sse.py` now owns SSE replay offset parsing and event
-  framing. `service.py` keeps daemon polling and stream-loop control.
+- `src/striatum/service_sse.py` now owns SSE replay offset parsing, event
+  framing, and daemon-backed run-event stream-loop control. `service.py`
+  keeps per-run slot accounting and legacy fixture fallback selection.
 - `src/striatum/service_state.py` now owns process-local service state,
   GitHub remote/default-branch caching, shutdown signaling, web-context secret
   generation, and per-run SSE slot accounting.
