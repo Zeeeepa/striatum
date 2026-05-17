@@ -299,6 +299,8 @@ def _apply_evidence_policy(value: object, policy: object) -> object:
         element of a list; "_dict" applies to all values of a dict.
     """
     if policy == "safe":
+        if isinstance(value, dict | list):
+            return EVIDENCE_FREE_TEXT_PLACEHOLDER
         return value
     if policy == "redacted":
         if value is None:

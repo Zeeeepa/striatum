@@ -48,16 +48,17 @@ SAFE_EVENT_FIELDS = {
 def validate_source_path(path: str) -> None:
     """Refuse source paths that are not allowed in the corpus."""
     p = Path(path)
-    parts = set(p.parts)
+    parts = {part.lower() for part in p.parts}
     name = p.name
+    lower_name = name.lower()
     lower = path.lower()
-    if name in DENIED_NAMES or name.startswith(".env."):
+    if lower_name in DENIED_NAMES or lower_name.startswith(".env."):
         raise StriatumError(f"corpus source path is denied: {path}", exit_code=8)
     if lower.endswith(DENIED_SUFFIXES):
         raise StriatumError(f"corpus source path is denied: {path}", exit_code=8)
     if parts & DENIED_PARTS:
         raise StriatumError(f"corpus source path is denied: {path}", exit_code=8)
-    if name.startswith("transcript") and lower.endswith((".txt", ".md", ".log")):
+    if lower_name.startswith("transcript") and lower.endswith((".txt", ".md", ".log")):
         raise StriatumError(f"corpus source path is denied: {path}", exit_code=8)
 
 

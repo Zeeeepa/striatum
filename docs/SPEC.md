@@ -588,6 +588,9 @@ explicit per-field policy registry that classifies every emitted field as
 `status()`, or `doctor()` that is not registered as `safe` is replaced with
 the redaction placeholder. New fields cannot leak agent or user prose into a
 committed export without an explicit, reviewable change to the registry.
+`safe` is scalar-only: if an emitted safe field unexpectedly contains an
+object or list, the exporter replaces it with the same placeholder instead
+of recursively trusting nested content.
 
 Work packets expose an exact lowercase `author:` line for agents to place in
 durable Markdown artifacts. This byline is distinct from evidence-export
@@ -685,7 +688,8 @@ allowed timestamp variation).
 Corpus exports are produced on operator demand. Striatum does not stream
 runtime events to any external consumer and does not call any external
 service during a run. Bundles live wherever the operator points `--out`;
-nothing under `.striatum/` is written by the verb.
+nothing under `.striatum/` is written by the verb. Corpus source-path checks
+deny transcript/output/private path shapes case-insensitively.
 
 The export is an **augmentation boundary**, not a runtime dependency. An
 external memory or retrieval system (Engram is the first reference consumer

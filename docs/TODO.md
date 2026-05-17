@@ -23,7 +23,7 @@ so external references keep resolving even as items move between sections.
 | 4 | Human-checkpoint UX | ✅ done |
 | 5 | Decision-artifact support | ✅ done |
 | 6 | Artifact schema (front matter) | ✅ 8 kinds + open registry |
-| 7 | Redaction tests | 🟡 coverage continues |
+| 7 | Redaction tests | ✅ synthetic injection coverage landed |
 | 8 | Recovery commands | ✅ done |
 | 9 | TUI / local dashboard | ✅ done |
 | 10 | Local API and MCP | ✅ done |
@@ -277,9 +277,11 @@ Legend: ✅ done · 🟡 most done (sub-tasks remain) · ⏳ open/blocked · �
 
 7. **Redaction tests.** Default-deny evidence-export policy registry is in
    place; new evidence fields default to redacted unless explicitly marked
-   safe. **Remaining:** continue extending coverage for workflow titles, job
-   prompts, model rationales, blocker text, transcript-like fields, and path
-   hygiene with synthetic injection tests.
+   safe. Synthetic injection coverage now exercises workflow/job prompt
+   fields, model rationales, blocker text, transcript-like fields, nested
+   payloads under safe scalar fields, and case-insensitive path hygiene for
+   transcript/output/private paths. Future evidence fields must extend this
+   coverage with their policy entry.
 
 13. **Replace bootstrap scripts with runner-owned workflows.** The minimal
     process adapter and supervised sessions cover claimed-work launch.

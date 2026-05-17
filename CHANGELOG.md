@@ -74,6 +74,13 @@ in the roadmap/TODO and has several production slices landed:
   auto-from-artifact provenance. Run archive and corpus verification
   foundations, frontend bundle integrity checks, and day-zero setup docs were
   advanced as part of the same remediation sequence.
+- **Redaction hardening.**
+  Evidence redaction now treats `safe` policy entries as scalar-only, so
+  injected objects/lists in otherwise safe fields are replaced with the
+  redaction placeholder. Corpus source-path deny checks are
+  case-insensitive for transcript/output/private path shapes, with synthetic
+  injection coverage for workflow/job prompts, verdict rationales, blocker
+  text, transcript-like fields, nested payloads, and path hygiene.
 
 ## v1.55.0 — 2026-05-15
 
