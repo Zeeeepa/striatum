@@ -309,15 +309,15 @@ implementation time. The point here is the principle: every CLI
 mutation has a registry entry; the daemon refuses unrecognized methods
 with exit code 10 (per RFC 0030).
 
-### 6. RFC 0039 scope delta
+### 6. Go daemon scope delta
 
-RFC 0039 (Go daemon, currently `proposed`) plans to inherit the
-daemon's storage surface as RFC 0033 left it: Postgres for daemon-owned
-state, SQLite handling for repo-local state. That plan is obsolete
-under D094.
+RFC 0039 originally planned to inherit the daemon's storage surface as
+RFC 0033 left it: Postgres for daemon-owned state, SQLite handling for
+repo-local state. That plan is obsolete under D094. D107 and RFC 0068
+supersede the old Python-primary constraint and make the Go production
+daemon port an accepted target on the same Postgres-only substrate.
 
-This RFC requires RFC 0039 to be revised — *before* it is accepted —
-to:
+The Go daemon scope must:
 
 - Drop SQLite from the Go core's scope entirely. The Go daemon owns
   one substrate (Postgres) and one wire protocol (RFC 0030 envelope).
@@ -519,9 +519,8 @@ substrate flip enables.
   bootstrap sections. `docs/UBIQUITOUS_LANGUAGE.md` gains the terms
   in § Domain Modeling below. `docs/MCP.md` documents the expanded
   method registry from §5.
-- RFC 0039 is revised to drop SQLite from its scope before it leaves
-  `proposed` status. The revision is verified against the acceptance
-  criteria of this RFC.
+- The superseding Go daemon decision/RFC records the Postgres-only scope
+  and is verified against the acceptance criteria of this RFC.
 
 ## Open Questions
 

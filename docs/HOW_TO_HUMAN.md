@@ -878,9 +878,12 @@ make -C go build
 ls go/bin/striatumd
 ```
 
-The build requires Go 1.23+ and the system `make`. The binary is not
-shipped with `pip install striatum-orchestrator` and is not packaged by
-release tooling.
+The build requires Go 1.23+ and the system `make`. Release tooling can
+stage per-platform binaries into `striatum._daemongo` via
+`make daemon-go-release`, and local wheel/editable testing can stage the
+host binary with `make daemon-go-install`. Installs that do not include a
+matching package-data binary still fall through to `STRIATUMD_GO_BIN` and
+then `go/bin/striatumd`.
 
 Run it directly for developer inspection:
 
@@ -891,10 +894,9 @@ Run it directly for developer inspection:
   --migrations-dir src/striatum/daemon_pg/sql
 ```
 
-The current Go method registry is incomplete. `daemon.describe` exposes
-the supported schema, migration count, method etag, and implemented
-method table; methods still backed by placeholders are RFC 0068 blockers,
-not accepted product behavior.
+`daemon.describe` exposes the supported schema, migration count, method
+etag, and implemented method table. Any handler gap shown there is an
+RFC 0068 parity blocker, not accepted product behavior.
 
 Coexistence rule: only one daemon may own the PostgreSQL substrate at a
 time. **Stop the Python daemon before starting the Go daemon** (and vice

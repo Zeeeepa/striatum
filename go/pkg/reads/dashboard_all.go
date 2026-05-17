@@ -3,6 +3,7 @@ package reads
 import (
 	"context"
 	"encoding/json"
+	"time"
 
 	"github.com/halbritt/striatum/go/pkg/db"
 	"github.com/halbritt/striatum/go/pkg/rpc"
@@ -51,8 +52,16 @@ func HandleDashboardAll(ctx context.Context, runner db.Runner, envelope rpc.Enve
 			result = append(result, entry)
 			continue
 		}
+		runProgress, err := dashboardAllRunProgress(ctx, runner, repositoryID)
+		if err != nil {
+			entry["state"] = "degraded"
+			entry["error"] = err.Error()
+			result = append(result, entry)
+			continue
+		}
 		entry["status"] = status
 		entry["stale_leases"] = staleLeases
+		entry["run_progress"] = runProgress
 		result = append(result, entry)
 	}
 	return map[string]any{
@@ -339,6 +348,374 @@ func dashboardAllStaleLeasesForRun(ctx context.Context, runner db.Runner, reposi
 		"stale_count":  len(entries),
 		"stale_leases": entries,
 		"next_actions": nextActions,
+	}, nil
+}
+
+func dashboardAllRunProgress(ctx context.Context, runner db.Runner, repositoryID string) ([]map[string]any, error) {
+	rows, err := collectRows(ctx, runner,
+		`SELECT r.run_id, r.state, r.paused_at, r.workflow_snapshot_id,
+		        r.repo_root, w.workflow_json
+		   FROM striatumd.runs r
+		   JOIN striatumd.workflow_snapshots w
+		     ON w.repository_id = r.repository_id
+		    AND w.workflow_snapshot_id = r.workflow_snapshot_id
+		  WHERE r.repository_id = $1
+		    AND (r.state IN ('needs_branch_confirmation','ready','running','blocked')
+		         OR r.paused_at IS NOT NULL)
+		  ORDER BY r.created_at, r.run_id`,
+		repositoryID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]map[string]any, 0, len(rows))
+	for _, row := range rows {
+		runID := stringFrom(row, "run_id")
+		workflow := objectFromJSONish(row["workflow_json"])
+		phase, err := dashboardAllPhaseProgress(ctx, runner, repositoryID, runID, workflow)
+		if err != nil {
+			return nil, err
+		}
+		autoFinalize, err := dashboardAllAutoFinalizeSummary(ctx, runner, repositoryID, runID, workflow)
+		if err != nil {
+			return nil, err
+		}
+		supervisorStalls, err := dashboardAllSupervisorStalls(ctx, runner, repositoryID, runID)
+		if err != nil {
+			return nil, err
+		}
+		item := map[string]any{
+			"run_id":                runID,
+			"state":                 row["state"],
+			"current_phase_id":      phase["current_phase_id"],
+			"phases":                phase["phases"],
+			"auto_finalize_dry_run": autoFinalize,
+			"supervisor_stalls":     supervisorStalls,
+		}
+		out = append(out, item)
+	}
+	return out, nil
+}
+
+func dashboardAllPhaseProgress(ctx context.Context, runner db.Runner, repositoryID, runID string, workflow map[string]any) (map[string]any, error) {
+	rawPhases := anySlice(workflow["phases"])
+	if len(rawPhases) == 0 {
+		return map[string]any{"phases": []map[string]any{}, "current_phase_id": nil}, nil
+	}
+	jobs, err := collectRows(ctx, runner,
+		`SELECT j.job_id, j.workflow_job_id, j.state, j.attempt
+		   FROM striatumd.jobs j
+		  WHERE j.repository_id = $1 AND j.run_id = $2
+		  ORDER BY j.workflow_job_id, j.attempt`,
+		repositoryID, runID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	latestJobs := map[string]map[string]any{}
+	for _, job := range jobs {
+		workflowJobID := stringFrom(job, "workflow_job_id")
+		if workflowJobID == "" {
+			continue
+		}
+		current, ok := latestJobs[workflowJobID]
+		if !ok || intFrom(job, "attempt") >= intFrom(current, "attempt") {
+			latestJobs[workflowJobID] = job
+		}
+	}
+	latestVerdicts, err := dashboardAllLatestVerdicts(ctx, runner, repositoryID, runID)
+	if err != nil {
+		return nil, err
+	}
+	phaseOrder := []string{}
+	phaseByID := map[string]map[string]any{}
+	synthesisByPhase := map[string]string{}
+	jobsByPhase := map[string][]string{}
+	for _, raw := range rawPhases {
+		phase := objectFromJSONish(raw)
+		phaseID := stringValue(phase["id"])
+		if phaseID == "" {
+			continue
+		}
+		phaseOrder = append(phaseOrder, phaseID)
+		phaseByID[phaseID] = phase
+		if synthesis := stringValue(phase["synthesis_job_id"]); synthesis != "" {
+			synthesisByPhase[phaseID] = synthesis
+		}
+		jobsByPhase[phaseID] = []string{}
+	}
+	for _, rawJob := range anySlice(workflow["jobs"]) {
+		job := objectFromJSONish(rawJob)
+		workflowJobID := stringValue(job["id"])
+		if workflowJobID == "" {
+			continue
+		}
+		phaseID := stringValue(job["phase_id"])
+		if phaseID == "" {
+			phaseID = stringValue(job["phase"])
+		}
+		if phaseID == "" {
+			continue
+		}
+		jobsByPhase[phaseID] = append(jobsByPhase[phaseID], workflowJobID)
+	}
+	phases := make([]map[string]any, 0, len(phaseOrder))
+	for index, phaseID := range phaseOrder {
+		phase := phaseByID[phaseID]
+		workflowJobIDs := jobsByPhase[phaseID]
+		jobsByState := map[string]int{}
+		jobStates := []string{}
+		for _, workflowJobID := range workflowJobIDs {
+			state := "pending"
+			if row, ok := latestJobs[workflowJobID]; ok {
+				state = stringFrom(row, "state")
+				if state == "" {
+					state = "pending"
+				}
+			}
+			jobStates = append(jobStates, state)
+			jobsByState[state]++
+		}
+		synthesisJobID := synthesisByPhase[phaseID]
+		var synthesisState any
+		var synthesisVerdict any
+		if synthesisRow, ok := latestJobs[synthesisJobID]; ok {
+			synthesisState = synthesisRow["state"]
+			synthesisVerdict = latestVerdicts[stringFrom(synthesisRow, "job_id")]
+		}
+		payload := map[string]any{
+			"id":                phaseID,
+			"name":              defaultString(phase["name"], phaseID),
+			"index":             index,
+			"state":             dashboardAllPhaseState(jobStates),
+			"jobs_total":        len(workflowJobIDs),
+			"jobs_completed":    jobsByState["completed"],
+			"jobs_by_state":     jobsByState,
+			"synthesis_job_id":  nullableStringValue(synthesisJobID),
+			"synthesis_state":   synthesisState,
+			"synthesis_verdict": synthesisVerdict,
+		}
+		for _, key := range []string{"description", "color"} {
+			if value := stringValue(phase[key]); value != "" {
+				payload[key] = value
+			}
+		}
+		phases = append(phases, payload)
+	}
+	if len(phases) == 0 {
+		return map[string]any{"phases": []map[string]any{}, "current_phase_id": nil}, nil
+	}
+	currentPhaseID := phases[len(phases)-1]["id"]
+	for _, phase := range phases {
+		if phase["state"] != "completed" {
+			currentPhaseID = phase["id"]
+			break
+		}
+	}
+	return map[string]any{"phases": phases, "current_phase_id": currentPhaseID}, nil
+}
+
+func dashboardAllLatestVerdicts(ctx context.Context, runner db.Runner, repositoryID, runID string) (map[string]map[string]any, error) {
+	rows, err := collectRows(ctx, runner,
+		`SELECT DISTINCT ON (v.job_id)
+		        v.job_id, v.verdict_id, v.verdict, v.posture, v.created_at
+		   FROM striatumd.verdicts v
+		  WHERE v.repository_id = $1 AND v.run_id = $2
+		  ORDER BY v.job_id, v.created_at DESC, v.verdict_id DESC`,
+		repositoryID, runID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	out := map[string]map[string]any{}
+	for _, row := range rows {
+		out[stringFrom(row, "job_id")] = row
+	}
+	return out, nil
+}
+
+func dashboardAllPhaseState(states []string) string {
+	if len(states) > 0 {
+		allCompleted := true
+		for _, state := range states {
+			if state != "completed" {
+				allCompleted = false
+				break
+			}
+		}
+		if allCompleted {
+			return "completed"
+		}
+	}
+	for _, state := range states {
+		if state == "queued" || state == "claimed" || state == "running" || state == "stale_lease" || state == "waiting_human" || state == "blocked" {
+			return "active"
+		}
+	}
+	for _, state := range states {
+		if state == "failed" {
+			return "failed"
+		}
+	}
+	incomplete := []string{}
+	for _, state := range states {
+		if state != "completed" {
+			incomplete = append(incomplete, state)
+		}
+	}
+	if len(incomplete) > 0 {
+		allCanceled := true
+		for _, state := range incomplete {
+			if state != "canceled" && state != "skipped" {
+				allCanceled = false
+				break
+			}
+		}
+		if allCanceled {
+			return "canceled"
+		}
+	}
+	return "pending"
+}
+
+func dashboardAllAutoFinalizeSummary(ctx context.Context, runner db.Runner, repositoryID, runID string, workflow map[string]any) (map[string]any, error) {
+	rows, err := collectRows(ctx, runner,
+		`SELECT COUNT(*) AS candidate_count
+		   FROM striatumd.jobs j
+		   JOIN striatumd.leases l
+		     ON l.repository_id = j.repository_id
+		    AND l.lease_id = j.current_lease_id
+		   JOIN striatumd.sessions s
+		     ON s.repository_id = j.repository_id
+		    AND s.session_id = l.owner_session_id
+		   LEFT JOIN striatumd.queue_messages qm
+		     ON qm.repository_id = j.repository_id
+		    AND qm.message_id = j.current_message_id
+		  WHERE j.repository_id = $1
+		    AND j.run_id = $2
+		    AND j.state IN ('claimed', 'running')
+		    AND l.state = 'active'
+		    AND l.expires_at >= now()
+		    AND s.state = 'active'
+		    AND (qm.message_id IS NULL OR qm.state IN ('claimed', 'acked'))`,
+		repositoryID, runID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	candidateCount := 0
+	if len(rows) > 0 {
+		candidateCount = intFrom(rows[0], "candidate_count")
+	}
+	return map[string]any{
+		"run_id":          runID,
+		"dry_run":         true,
+		"projection":      "dashboard_all_sql_summary",
+		"policy":          dashboardAllAutoFinalizePolicy(workflow),
+		"candidate_count": candidateCount,
+	}, nil
+}
+
+func dashboardAllAutoFinalizePolicy(workflow map[string]any) map[string]any {
+	enabled := false
+	policy := workflow["auto_finalize"]
+	if recovery := objectFromJSONish(workflow["recovery"]); len(recovery) > 0 {
+		if value, ok := recovery["auto_finalize"]; ok {
+			policy = value
+		}
+	}
+	switch typed := policy.(type) {
+	case bool:
+		enabled = typed
+	case map[string]any:
+		enabled = typed["enabled"] == true
+	}
+	return map[string]any{
+		"workflow_enabled":           enabled,
+		"force":                      false,
+		"live_allowed":               enabled,
+		"mtime_grace_seconds":        30,
+		"allow_no_process_execution": false,
+	}
+}
+
+func dashboardAllSupervisorStalls(ctx context.Context, runner db.Runner, repositoryID, runID string) (map[string]any, error) {
+	rows, err := collectRows(ctx, runner,
+		`SELECT ps.supervisor_id, ps.run_id, ps.session_id, ps.pid,
+		        ps.state AS supervisor_state,
+		        ps.heartbeat_at AS supervisor_heartbeat_at,
+		        s.last_heartbeat_at AS session_last_heartbeat_at,
+		        l.lease_id, l.resource_id AS job_id, l.acquired_at,
+		        l.expires_at, l.last_heartbeat_at AS lease_last_heartbeat_at,
+		        j.workflow_job_id, j.state AS job_state,
+		        j.current_message_id AS message_id,
+		        qm.state AS message_state
+		   FROM striatumd.process_supervisors ps
+		   JOIN striatumd.sessions s
+		     ON s.repository_id = ps.repository_id
+		    AND s.session_id = ps.session_id
+		   JOIN striatumd.leases l
+		     ON l.repository_id = ps.repository_id
+		    AND l.run_id = ps.run_id
+		    AND l.owner_session_id = ps.session_id
+		   JOIN striatumd.jobs j
+		     ON j.repository_id = l.repository_id
+		    AND j.job_id = l.resource_id
+		    AND j.current_lease_id = l.lease_id
+		   LEFT JOIN striatumd.queue_messages qm
+		     ON qm.repository_id = j.repository_id
+		    AND qm.message_id = j.current_message_id
+		  WHERE ps.repository_id = $1
+		    AND ps.run_id = $2
+		    AND ps.state = 'attached'
+		    AND l.state = 'active'
+		    AND l.resource_type = 'job'
+		    AND j.state IN ('claimed', 'running')
+		  ORDER BY ps.started_at DESC, ps.supervisor_id DESC`,
+		repositoryID, runID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	now := time.Now().UTC().Truncate(time.Second)
+	supervisors := []map[string]any{}
+	expiredCount := 0
+	warningCount := 0
+	for _, row := range rows {
+		progress := enrichSupervisorProgress(row, now, defaultSupervisorStallAfterSeconds)
+		if progress["stalled"] != true {
+			continue
+		}
+		if progress["lease_expired"] == true {
+			expiredCount++
+		} else {
+			warningCount++
+		}
+		supervisors = append(supervisors, map[string]any{
+			"supervisor_id":             progress["supervisor_id"],
+			"run_id":                    progress["run_id"],
+			"session_id":                progress["session_id"],
+			"job_id":                    progress["job_id"],
+			"workflow_job_id":           progress["workflow_job_id"],
+			"lease_id":                  progress["lease_id"],
+			"message_id":                progress["message_id"],
+			"last_progress_at":          progress["last_progress_at"],
+			"last_progress_age_seconds": progress["last_progress_age_seconds"],
+			"lease_expires_at":          progress["lease_expires_at"],
+			"lease_expired":             progress["lease_expired"],
+		})
+	}
+	nextActions := []string{}
+	if len(supervisors) > 0 {
+		nextActions = []string{"supervisor_stall_investigate"}
+	}
+	return map[string]any{
+		"stalled_count":       len(supervisors),
+		"warning_count":       warningCount,
+		"expired_count":       expiredCount,
+		"stall_after_seconds": defaultSupervisorStallAfterSeconds,
+		"supervisors":         supervisors,
+		"next_actions":        nextActions,
 	}, nil
 }
 

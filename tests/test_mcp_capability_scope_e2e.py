@@ -250,6 +250,7 @@ def test_dashboard_all_daemon_route_uses_postgres_without_sqlite(
         row["repository_id"]
         for row in response.data["repositories"]
     } == {str(repo.repository_id) for repo in harness.repos}
+    assert all("run_progress" in row for row in response.data["repositories"])
 
 
 def test_read_only_token_cannot_call_write_tool(

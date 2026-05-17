@@ -18,4 +18,5 @@ task explicitly asks for deeper archaeology.
 
 ## Recent Progress
 
+- [`2026-05-17-dashboard-run-progress.md`](progress/2026-05-17-dashboard-run-progress.md)
 - [`2026-05-17-remediation-to-operator-surface.md`](progress/2026-05-17-remediation-to-operator-surface.md)

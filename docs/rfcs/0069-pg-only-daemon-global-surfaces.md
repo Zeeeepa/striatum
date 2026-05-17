@@ -75,8 +75,10 @@ Add a production registry tripwire and port daemon-global surfaces in order:
   PostgreSQL connection through daemon sweep execution instead of opening the
   legacy SQLite registry.
 - Go owns `repo.add`, `repo.list`, `repo.remove`, `repo.resolve`, and a
-  read-only `dashboard.all` subset over daemon PostgreSQL. Residual aggregate
-  parity gaps remain in the roadmap.
+  read-only `dashboard.all` projection over daemon PostgreSQL. The
+  dashboard-all projection now includes per-active-run `run_progress` with
+  phase progress, auto-finalize dry-run visibility, and supervisor-stall
+  detail in both Go and Python/PostgreSQL paths.
 - Daemon MCP `resources/list` and `resources/read` are PostgreSQL-backed when
   the MCP server has a daemon PostgreSQL connection. Resource visibility honors
   global and repo-scoped read tokens, uses PostgreSQL read projections for
@@ -111,8 +113,11 @@ Add a production registry tripwire and port daemon-global surfaces in order:
 
 ## Open Questions
 
-- Should `dashboard.all` use one aggregate query or N repository-scoped handler
-  calls for simpler authority reuse?
+- Should the terminal dashboard render directly from daemon DTOs or keep a
+  compatibility adapter until the Python daemon retirement gate?
+- Should Go `status` carry the full Python/PostgreSQL status read-model detail
+  before the default daemon core flips, or should only dashboard/web DTOs be
+  parity-gated?
 
 ## Domain Modeling
 

@@ -25,10 +25,12 @@ reports, and friction logs.
 
 | Workstream | State |
 |---|---|
-| Artifact kinds and V1 front matter schemas | in_progress |
-| Corpus metadata columns | in_progress |
-| Seeded current brief, plans, progress note | in_progress |
-| Docs cold-start references | in_progress |
+| Artifact kinds and V1 front matter schemas | landed |
+| Corpus metadata columns | landed |
+| Seeded current brief, plans, progress note | landed |
+| Docs cold-start references | landed |
+| V1.5 current-brief CLI and context-budget lint | open |
+| Optional operator-tree init/rotation CLI | open |
 
 ## Decisions Made
 
@@ -37,5 +39,7 @@ reports, and friction logs.
 
 ## Open Questions
 
-- Whether V1.5 should add an operator CLI to initialize or rotate the
-  tree.
+- Whether operator-tree init/rotation belongs in V1.5 or waits for a
+  broader operator-workspace command group.
+- Whether configurable `operator_docs_root` should be implemented before
+  the RFC is marked fully complete or explicitly deferred as V2.

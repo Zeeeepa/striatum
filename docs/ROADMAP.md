@@ -972,15 +972,19 @@ Release order after Phase 0:
     retire the Python daemon after parity.
 14. **TODO 62 / RFC 0069:** move daemon-global surfaces to PostgreSQL/Go,
     including scheduler cursors, PostgreSQL-backed daemon MCP resources, and
-    PostgreSQL-backed daemon lifecycle/health/audit/doctor reads, with
-    residual dashboard/global diagnostics parity still tracked.
+    PostgreSQL-backed daemon lifecycle/health/audit/doctor reads. The
+    dashboard-all run-progress slice now exposes phase progress,
+    auto-finalize dry-run visibility, and supervisor-stall detail; terminal
+    dashboard DTO routing and Go status detail remain.
 15. **TODO 63 / RFC 0070:** complete daemon client/service boundaries and
     remove direct client DB access.
-16. **TODO 64 / RFC 0071:** add post-cutover diagnostics once authority cleanup
-    lands.
-17. **TODO 65 / RFC 0058:** use `docs/operator/BRIEF.md` as the current-state
-    authority and keep plans/progress notes schema-valid; defer operator-tree
-    init/rotation commands to V1.5.
+16. **TODO 64 / RFC 0071:** authority doctor and repository cutover report
+    diagnostics landed; remaining work is deciding which matrix rows should be
+    generated rather than curated.
+17. **TODO 65 / RFC 0058:** V1 landed. Use `docs/operator/BRIEF.md` as the
+    current-state authority and keep plans/progress notes schema-valid; defer
+    current-brief CLI, context-budget linting, and operator-tree init/rotation
+    commands to V1.5.
 
 **Blocked on:** current blockers are Phase 7 accepted-risk persistence,
 Phase 8 default auto-finalize policy, Phase 11 Corpus V2 decisions, Phase 12

@@ -242,32 +242,33 @@ runs:
 - `STRIATUM_DAEMON_CORE=go` env var sets the default.
 - A future RFC retires the Python daemon and flips the default to Go.
 
-The Python CLI launches the Go daemon as a subprocess via the
-installed binary path (looked up via `which striatumd-go` or a
-configured `STRIATUM_DAEMONGO_PATH`). The Python CLI client speaks
-envelope-v1 over the Unix socket regardless of daemon language.
+The Python CLI launches the Go daemon as a subprocess via the packaged
+`striatum._daemongo` binary when present, then falls back to
+`STRIATUMD_GO_BIN`, then `go/bin/striatumd` for contributor checkouts.
+The Python CLI client speaks envelope-v1 over the Unix socket
+regardless of daemon language.
 
 ### 5. Distribution
 
 **Per-platform binaries:**
 
-- `go install` from the source tree produces `striatumd-go` on the
-  contributor's machine.
-- CI cross-compiles for linux-amd64, linux-arm64, darwin-amd64,
-  darwin-arm64 and uploads the binaries as release artifacts.
-- Future RFC may explore a `pip install striatum-daemon-go` PyPI
-  package that ships the per-platform binary as a Python wheel
-  (similar to `psycopg[binary]`).
+- `make -C go build` from the source tree produces `go/bin/striatumd`.
+- Release tooling cross-compiles linux-amd64, linux-arm64,
+  darwin-amd64, and darwin-arm64 binaries, then stages them into the
+  `striatum._daemongo` package-data tree with `make daemon-go-release`.
+- Contributor checkouts can stage the host binary for local wheel or
+  editable testing with `make daemon-go-install`; custom binaries use
+  `STRIATUMD_GO_BIN=/path/to/striatumd`.
 
 **Operator install during transition:**
 
 ```bash
-pip install striatum-orchestrator    # CLI + Python daemon + web UI (unchanged)
-# Optional: install Go daemon binary
-curl -L https://github.com/halbritt/striatum/releases/download/v<ver>/striatumd-go-linux-amd64 -o ~/.local/bin/striatumd-go
-chmod +x ~/.local/bin/striatumd-go
+pip install striatum-orchestrator
 striatum daemon start --core go
 ```
+
+Contributor checkouts can use `make -C go build`; custom binaries use
+`STRIATUMD_GO_BIN=/path/to/striatumd`.
 
 After the Go daemon is the default, the Python daemon becomes optional
 and a future RFC may retire it entirely.
@@ -295,8 +296,9 @@ The RFC 0035 multi-repo test harness boots a daemon subprocess via
 
 - New `daemon_core` parameter (`"python"` or `"go"`) on the
   `MultiRepoHarness` constructor.
-- When `daemon_core="go"`, the harness invokes `striatumd-go` instead
-  of the Python `striatum daemon start`.
+- When `daemon_core="go"`, the harness uses the packaged Go daemon if
+  available, then `STRIATUMD_GO_BIN`, then builds or uses
+  `go/bin/striatumd`.
 - All five e2e test files (prepare, lifecycle, crash-recovery,
   MCP capability scope, per-repo write-scope) run against both daemon
   cores in CI.
@@ -349,8 +351,9 @@ Existing CI matrix gains:
   daemon.
 - Cross-compilation for linux-arm64, darwin-amd64, darwin-arm64
   artifacts (release-time only; not every PR).
-- Bundle hash check for the Python wheel does NOT include the Go
-  binary (different artifact, different release pipeline).
+- Wheel/package smoke covers the packaged Go daemon binary when present;
+  source and sdist installs may still rely on `STRIATUMD_GO_BIN` or
+  `go/bin/striatumd`.
 
 ## Acceptance Criteria
 
@@ -384,7 +387,7 @@ Existing CI matrix gains:
 This is a large rewrite. Six phases land independently with green
 test parity at each step.
 
-> Status (dogfood-042): Steps 1+2 are landed per the
+> Historical status (dogfood-042): Steps 1+2 landed per the
 > [Track A synthesis](../dogfood/042/track_a/DESIGN_SYNTHESIS.md). The
 > Go daemon now exposes the read-only RPC envelope-v1 method registry
 > (`daemon.hello`, `daemon.welcome`, `daemon.describe`, `daemon.status`,
@@ -392,10 +395,12 @@ test parity at each step.
 > PostgreSQL substrate, with a cross-language v2 audit-row hash that
 > the Python verifier accepts. The RFC 0035 multi-repo test harness
 > gained a `daemon_core` parameter (`"python"` default; `"go"` opts in)
-> so e2e fixtures can target either core. Steps 3-6 — the Python CLI
-> `striatum daemon start --core go` flag, mutating verbs / apply,
-> supervised processes, and distribution / CI matrix — are deferred to
-> a Phase 2 dogfood.
+> so e2e fixtures can target either core. Later slices added
+> `striatum daemon start --core go`, packaged binary lookup,
+> conformance gates, generated registry metadata, and broad Go handler
+> coverage. Current remaining work is explicit fail-closed and parity
+> debt tracked by RFC 0068 / TODO 61 before the default daemon core
+> flips.
 
 ### Step 1. Skeleton + envelope-v1
 
@@ -440,27 +445,28 @@ lane.
 
 ### Step 6. Distribution + docs
 
-Cross-compile the four platform binaries in CI. Land
-`docs/SPEC.md` daemon section update, `docs/HOW_TO_HUMAN.md` flag
-documentation, `CHANGELOG.md` entry. Tag a release with both wheel +
-Go binaries.
+Cross-compile the four platform binaries in release tooling and stage
+them into `striatum._daemongo` package data. Land `docs/SPEC.md`
+daemon section update, `docs/HOW_TO_HUMAN.md` flag documentation, and
+`CHANGELOG.md` entry. Tag a release whose wheel can carry the matching
+Go daemon binary while source and sdist installs keep the
+`STRIATUMD_GO_BIN` / `go/bin/striatumd` fallbacks.
 
 ## Open Questions
 
 - Should the Go daemon's source live in this repo or a separate
-  `striatum-daemon-go` repo? Recommendation: same repo for V1 to
-  keep the wire protocol contract changes co-located; consider
-  splitting only if the Python and Go release cadences diverge.
+  repository? Decision: same repo for V1 so wire protocol, migration,
+  and conformance changes stay co-located; reconsider only if release
+  cadences diverge after the Python daemon retires.
 - Should the Go daemon use a Go gRPC + protobuf stack instead of the
   RFC 0030 envelope-v1 JSON-over-Unix-socket protocol? Recommendation:
   no — RFC 0030 is the contract; switching to protobuf would force
   the Python CLI client to also switch and break compatibility. JSON
   envelope is intentionally simple.
-- Should the Go daemon ship as a Python wheel (`pip install
-  striatum-daemon-go`) using a `cibuildwheel`-style binary-payload
-  approach? Recommendation: V1 ships as separate downloadable
-  binaries; PyPI wheel-with-binary follow-up RFC if operators
-  prefer pip-only install.
+- Should the Go daemon ship through Python package data? Decision:
+  yes for the main package when a matching platform binary is staged
+  by release tooling. Source and sdist installs remain supported by
+  `STRIATUMD_GO_BIN` and contributor-checkout `go/bin/striatumd`.
 - Should the Go daemon take over the apply-receipt signing path
   from RFC 0031? Recommendation: yes — apply-receipts are daemon-
   owned per D088; the Go daemon implements the same fail-closed

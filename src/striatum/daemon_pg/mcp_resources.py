@@ -163,6 +163,7 @@ def dashboard_all_payload_pg(
         try:
             entry["status"] = status_payload(ctx, run_id=None)
             entry["stale_leases"] = stale_leases_for_active_runs(ctx)
+            entry["run_progress"] = run_progress_for_active_runs(ctx)
         except Exception as exc:  # noqa: BLE001 - keep one bad repo from hiding others.
             entry["state"] = "degraded"
             entry["error"] = str(exc)
@@ -238,6 +239,39 @@ def stale_leases_for_active_runs(ctx: RepoHandlerContext) -> list[dict[str, Any]
         )
         run_ids = [str(row["run_id"]) for row in cur.fetchall()]
     return [_stale_leases_for_run(ctx, run_id=run_id) for run_id in run_ids]
+
+
+def run_progress_for_active_runs(ctx: RepoHandlerContext) -> list[dict[str, Any]]:
+    with ctx.cursor() as cur:
+        cur.execute(
+            """
+            SELECT run_id, state
+            FROM striatumd.runs
+            WHERE repository_id = %s
+              AND (
+                state IN ('needs_branch_confirmation', 'ready', 'running', 'blocked')
+                OR paused_at IS NOT NULL
+              )
+            ORDER BY created_at, run_id
+            """,
+            (ctx.repository_id,),
+        )
+        rows = [row_to_json(row) for row in cur.fetchall()]
+    progress: list[dict[str, Any]] = []
+    for row in rows:
+        run_id = str(row["run_id"])
+        status = status_payload(ctx, run_id=run_id)
+        progress.append(
+            {
+                "run_id": run_id,
+                "state": row["state"],
+                "current_phase_id": status.get("current_phase_id"),
+                "phases": status.get("phases") or [],
+                "auto_finalize_dry_run": status.get("auto_finalize_dry_run"),
+                "supervisor_stalls": status.get("supervisor_stalls"),
+            }
+        )
+    return progress
 
 
 def _stale_leases_for_run(ctx: RepoHandlerContext, *, run_id: str) -> dict[str, Any]:

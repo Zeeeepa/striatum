@@ -29,7 +29,8 @@ compatibility.
 | Daemon MCP resources over PostgreSQL | landed |
 | Daemon audit, health, doctor, status, stop over PostgreSQL | landed |
 | Workflow upgrade fail-closed on SQLite fallback | landed |
-| Dashboard/global diagnostics parity | in_progress |
+| Dashboard run-progress parity | landed |
+| Remaining dashboard/global diagnostics parity | in_progress |
 
 ## Decisions Made
 
@@ -38,5 +39,5 @@ compatibility.
 
 ## Open Questions
 
-- Whether `dashboard.all` should keep reusing repository-scoped read
-  handlers or move to a dedicated aggregate query for full parity.
+- Whether the terminal dashboard should render directly from daemon DTOs
+  or keep a compatibility adapter until the Python daemon retirement gate.

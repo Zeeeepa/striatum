@@ -71,7 +71,7 @@ Legend:
 | `artifact.show` | web artifact raw/detail DTO | read | single_repo | pg | real | no | no | stable |
 | `list.workflows` | `list workflows` | read | single_repo | pg | real | no | no | stable |
 | `worktree.list` | `worktree list` | read | single_repo | pg | real | no | no | stable |
-| `dashboard.all` | `dashboard --all` | read | daemon_global | direct | real | no | no | Go read-only subset; residual parity gaps documented in TODO 62 |
+| `dashboard.all` | `dashboard --all` | read | daemon_global | direct | real | no | no | Go/PostgreSQL read-only projection with per-active-run `run_progress` parity; remaining TODO 62 gaps are outside the dashboard-all run-progress slice |
 | `repo.list` | `repo list` | read | daemon_global | pg repo registrar | real | no | no | bootstrap/admin |
 | `repo.resolve` | client repository resolution | read | daemon_global | pg repo resolver | real | no | no | daemon-global bootstrap read for path -> repository_id resolution |
 | `session.register` | `register-session` | claim | single_repo | pg | real | no | no | stable |

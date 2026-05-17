@@ -149,8 +149,10 @@ Recent checkpoints:
   file read with no production SQLite touchpoint.
 - Go now owns a read-only `dashboard.all` handler over daemon-owned
   PostgreSQL repositories. It reports per-repository status and stale-lease
-  projections without opening SQLite; full web-context parity remains tracked
-  as an RFC 0069 residual gap.
+  projections without opening SQLite; follow-up parity now also exposes
+  per-active-run `run_progress` with phase progress, auto-finalize dry-run
+  summary, and stalled-supervisor detail in both Go and Python/PostgreSQL
+  dashboard-all projections.
 - Daemon MCP `resources/list` and `resources/read` now use PostgreSQL-backed
   repository visibility, status, doctor, blocker, run, why, dashboard, and
   stale-lease projections whenever a daemon PostgreSQL connection is present;

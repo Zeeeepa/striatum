@@ -116,7 +116,7 @@ so external references keep resolving even as items move between sections.
 | 62 | RFC 0069 PostgreSQL-only daemon-global surfaces | 🟡 most done |
 | 63 | RFC 0070 daemon client/service boundary completion | 🟡 most done |
 | 64 | RFC 0071 operator diagnostics and cutover evidence | 🟡 first slice landed |
-| 65 | RFC 0058 operator progress surface | 🟡 V1 schemas + docs/operator seed landed |
+| 65 | RFC 0058 operator progress surface | 🟡 V1 landed; V1.5 remains |
 
 Legend: ✅ done · 🟡 most done (sub-tasks remain) · ⏳ open/blocked · 💤 shelved
 
@@ -1206,10 +1206,11 @@ review and plan are root-level operator artifacts:
     `repo.list`, and `repo.remove` handlers over daemon-owned PostgreSQL,
     including SQLite-source refusal and repo-scoped capability revocation on
     removal. Go now owns `recovery.auto_finalize` as a dry-run-by-default,
-    workflow-opt-in live RPC handler over stable expected artifact files;
-    sweep/read auto-finalize projection parity remains a separate slice. Go
-    also owns a read-only `dashboard.all` subset over the
-    PostgreSQL repository registry and per-repo read projections. Go now owns
+    workflow-opt-in live RPC handler over stable expected artifact files, and
+    `dashboard.all` run-progress projections expose auto-finalize dry-run
+    visibility in both Go and Python/PostgreSQL paths. Go also owns a
+    read-only `dashboard.all` projection over the PostgreSQL repository
+    registry and per-repo read projections. Go now owns
     `supervise.report` for direct wrapper control events and helper JSONL
     batches. Go now also owns `work.send_message`, `worktree.create`,
     `worktree.release`, `workflow.templates.list`, `workflow.templates.show`,
@@ -1244,8 +1245,10 @@ review and plan are root-level operator artifacts:
     daemon handlers. Go now owns first-start PostgreSQL admin/runtime-token
     bootstrap. Production `connect_registry()` reachability is a bug unless
     the call is in a named one-way migration or fixture path. `dashboard.all`
-    now has a Go/PostgreSQL read-only subset; production Python daemon startup
-    now uses PostgreSQL metadata/sweep plumbing when PostgreSQL is configured,
+    is now a Go/PostgreSQL read-only projection with per-active-run
+    `run_progress` parity for phase progress, auto-finalize dry-run visibility,
+    and supervisor stalls. Production Python daemon startup now uses
+    PostgreSQL metadata/sweep plumbing when PostgreSQL is configured,
     and the Go daemon has a resident recovery scheduler over active PostgreSQL
     runs. Daemon MCP resource list/read now use PostgreSQL-backed repository
     visibility plus status/doctor/run/why/blocker/dashboard/stale-lease
@@ -1256,12 +1259,12 @@ review and plan are root-level operator artifacts:
     PostgreSQL when a daemon DB is configured, with legacy audit field names
     retained for CLI compatibility. `connect_registry()` requires the paired
     test-harness compatibility escape; the old single-variable legacy-registry
-    opt-in is diagnostic-only. Residual daemon-global gaps are full
-    `dashboard.all` parity for phase progress, auto-finalize detail,
-    supervisor-stall detail, and any remaining registry probes found by
-    guardrail scans. The workflow-upgrade running-run guard also now fails
-    closed instead of opening repo-local SQLite outside the paired test-harness
-    compatibility escape.
+    opt-in is diagnostic-only. Residual daemon-global gaps are terminal
+    dashboard DTO routing, Go `status` read-model detail, and any remaining
+    registry probes found by guardrail scans. The workflow-upgrade running-run
+    guard also now fails closed instead of opening repo-local SQLite outside
+    the paired test-harness compatibility escape, but unknown PostgreSQL state
+    must still fail closed when no legacy marker is present.
 
 63. **RFC 0070: daemon client/service boundary completion.** Most done.
     Daemon-side `repo.resolve` is registered as a daemon-global read bootstrap
