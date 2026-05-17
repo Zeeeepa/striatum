@@ -349,11 +349,15 @@ daemon-first without needing to support two domain daemons.
 - The posture-verdict drill-down page now calls daemon
   `run.posture_verdicts` in production and retains the legacy SQLite path
   only for the test-harness escape.
+- The `/v1` JSON read endpoints for status, doctor, why, dashboard, and
+  run artifact rollups now call daemon read DTOs directly instead of routing
+  through the legacy CLI invoke wrapper. Test-harness fallbacks preserve the
+  old subprocess fixture path only.
 
 **Remaining Phase 4 debt:** run-now still has multi-step SQLite transaction
-semantics; run detail, job detail, artifact reads, doctor/status/why, SSE,
-and startup health checks still need daemon DTOs; the service mutation gate
-still needs to derive from daemon method capabilities.
+semantics; run detail, job detail, artifact detail reads, SSE, and startup
+health checks still need daemon DTOs; the service mutation gate still needs
+to derive from daemon method capabilities.
 
 ---
 

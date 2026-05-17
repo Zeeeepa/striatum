@@ -1137,15 +1137,20 @@ Endpoints (all return the same `{ok, data | error}` envelope as
 - `POST /v1/invoke` — body `{argv: [...]}`; routes through
   `api.invoke`. Returns 405 when the argv falls outside the read-verb
   whitelist and `--allow-mutations` is off.
-- `GET /v1/runs` — equivalent to `striatum status`.
-- `GET /v1/runs/<id>` — `striatum status --run-id <id>`.
-- `GET /v1/runs/<id>/why?id=<entity>` — `striatum why`.
-- `GET /v1/runs/<id>/dashboard` — JSON the TUI dashboard renders.
+- `GET /v1/runs` — daemon `status`.
+- `GET /v1/runs/<id>` — daemon `status` scoped to the run.
+- `GET /v1/runs/<id>/why?id=<entity>` — daemon `why`.
+- `GET /v1/runs/<id>/dashboard` — daemon `dashboard` DTO.
 - `GET /v1/runs/<id>/events` — Server-Sent Events stream. Honors
   `?since=<event_id>` and `Last-Event-ID` for replay. Emits a
   `striatum.run_terminal` event and closes when the run reaches a
   terminal state.
-- `GET /v1/doctor` — `striatum doctor --verbose`.
+- `GET /v1/doctor` — daemon `doctor` with verbose problem records.
+
+The daemon-backed read endpoints above retain legacy CLI invoke fallback only
+for subprocess compatibility tests (`STRIATUM_TEST_HARNESS=1` and
+`STRIATUM_DAEMON_REQUIRED=0`); production service reads fail closed when the
+daemon or repository registration is unavailable.
 
 Auth: Unix sockets bind `0o600` (filesystem permissions are the
 boundary); HTTP loopback supports an optional `--token` validated by
@@ -1423,7 +1428,7 @@ Routes:
   (RFC 0013 step 7); the page reads this on load to decide
   whether to render mutation buttons.
 - `GET /v1/runs/<id>/artifacts` returns the run's full artifact
-  rollup (wraps `striatum list artifacts --run-id <id>`).
+  rollup from daemon `list.artifacts`.
 
 A small JS island (`/static/legacy_hash_redirect.js`) loaded by
 `base.html` reads `window.location.hash` on page load and

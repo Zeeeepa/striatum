@@ -869,6 +869,75 @@ def test_artifact_raw_reads_daemon_dto_without_sqlite(tmp_path: Path, monkeypatc
     assert handler.wfile.getvalue() == b"hello from daemon\n"
 
 
+def test_json_read_endpoints_route_daemon_without_invoke_or_sqlite(
+    tmp_path: Path, monkeypatch: Any
+) -> None:
+    sys.path.insert(0, str(ROOT / "src"))
+    try:
+        import striatum.service as service
+        import striatum.service_daemon as service_daemon
+    finally:
+        sys.path.pop(0)
+
+    calls: list[tuple[Path, str, dict[str, Any]]] = []
+
+    def sqlite_tripwire(*args: Any, **kwargs: Any) -> None:
+        raise AssertionError("JSON read endpoint opened repo-local SQLite")
+
+    def invoke_tripwire(*args: Any, **kwargs: Any) -> None:
+        raise AssertionError("JSON read endpoint routed through legacy invoke")
+
+    def fake_call_repo_method(
+        repo: Path, method: str, params: dict[str, Any]
+    ) -> dict[str, Any]:
+        calls.append((repo, method, dict(params)))
+        return {"method": method, "params": dict(params)}
+
+    monkeypatch.setattr("striatum.service.sqlite3.connect", sqlite_tripwire)
+    monkeypatch.setattr(service, "invoke", invoke_tripwire)
+    monkeypatch.setattr(service_daemon, "call_repo_method", fake_call_repo_method)
+
+    cases = [
+        ("/v1/runs", "status", {}),
+        ("/v1/doctor?run_id=run_1", "doctor", {"verbose": True, "run_id": "run_1"}),
+        ("/v1/runs/run_1", "status", {"run_id": "run_1"}),
+        ("/v1/runs/run_1/why?id=job_1", "why", {"target_id": "job_1"}),
+        ("/v1/runs/run_1/dashboard", "dashboard", {"run_id": "run_1"}),
+        ("/v1/runs/run_1/artifacts", "list.artifacts", {"run_id": "run_1"}),
+    ]
+    for path, expected_method, expected_params in cases:
+        sent: dict[str, Any] = {}
+        handler = object.__new__(service.StriatumServiceHandler)
+        handler.state = service.ServiceState(
+            repo=tmp_path,
+            allow_mutations=False,
+            token=None,
+            web_enabled=True,
+        )
+        handler.path = path
+        monkeypatch.setattr(handler, "_authenticate", lambda: True)
+        monkeypatch.setattr(
+            handler,
+            "_send_json",
+            lambda status, body: sent.update({"status": status, "body": body}),
+        )
+
+        handler._dispatch_get()
+
+        assert sent == {
+            "status": 200,
+            "body": {
+                "ok": True,
+                "data": {"method": expected_method, "params": expected_params},
+            },
+        }
+
+    assert calls == [
+        (tmp_path, expected_method, expected_params)
+        for _, expected_method, expected_params in cases
+    ]
+
+
 def test_web_run_cancel_posts_daemon_rpc_without_sqlite(tmp_path: Path, monkeypatch: Any) -> None:
     calls: list[tuple[str, dict[str, Any]]] = []
     handler, sent = _web_mutation_handler(

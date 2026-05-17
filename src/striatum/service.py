@@ -1549,9 +1549,10 @@ class ServiceState:
 class StriatumServiceHandler(BaseHTTPRequestHandler):
     """HTTP request handler for the local service.
 
-    Endpoints route through ``striatum.api.invoke`` for everything except
-    SSE event streaming, which reads the events table directly via a
-    dedicated read connection.
+    The production web/API read paths call daemon RPC directly where a
+    daemon DTO exists. Legacy CLI invoke fallbacks are retained only for the
+    subprocess test harness while repo-local SQLite compatibility fixtures
+    still exist.
     """
 
     server_version = "Striatum-Service/1"
@@ -1590,7 +1591,7 @@ class StriatumServiceHandler(BaseHTTPRequestHandler):
             self._handle_health()
             return
         if path == "/v1/runs":
-            self._handle_invoke(["status"])
+            self._handle_daemon_read("status", {}, legacy_argv=["status"])
             return
         if path == "/v1/doctor":
             self._handle_doctor(query)
@@ -1836,11 +1837,13 @@ class StriatumServiceHandler(BaseHTTPRequestHandler):
         self._send_json(status, {"ok": False, "error": error})
 
     def _handle_doctor(self, query: dict[str, list[str]]) -> None:
-        argv = ["doctor", "--verbose"]
         run_id = query.get("run_id", [None])[0]
+        params: dict[str, Any] = {"verbose": True}
+        argv = ["doctor", "--verbose"]
         if run_id:
+            params["run_id"] = run_id
             argv.extend(["--run-id", run_id])
-        self._handle_invoke(argv)
+        self._handle_daemon_read("doctor", params, legacy_argv=argv)
 
     def _handle_repo_tree(self, query: dict[str, list[str]]) -> None:
         from striatum.web.workflows import list_repo_tree
@@ -1862,7 +1865,11 @@ class StriatumServiceHandler(BaseHTTPRequestHandler):
             self._send_json(400, {"ok": False, "error": {"code": 400, "message": "missing run_id"}})
             return
         if len(parts) == 1:
-            self._handle_invoke(["status", "--run-id", run_id])
+            self._handle_daemon_read(
+                "status",
+                {"run_id": run_id},
+                legacy_argv=["status", "--run-id", run_id],
+            )
             return
         sub = parts[1]
         if sub == "why":
@@ -1870,23 +1877,53 @@ class StriatumServiceHandler(BaseHTTPRequestHandler):
             if not target:
                 self._send_json(400, {"ok": False, "error": {"code": 400, "message": "missing ?id=<entity>"}})
                 return
-            self._handle_invoke(["why", target])
+            self._handle_daemon_read(
+                "why",
+                {"target_id": target},
+                legacy_argv=["why", target],
+            )
             return
         if sub == "dashboard":
-            self._handle_invoke(["dashboard", "--run-id", run_id, "--once"])
+            self._handle_daemon_read(
+                "dashboard",
+                {"run_id": run_id},
+                legacy_argv=["dashboard", "--run-id", run_id, "--once"],
+            )
             return
         if sub == "events":
             since = self._sse_since(query)
             self._stream_events(run_id, since=since)
             return
         if sub == "artifacts":
-            # RFC 0013 step 7 follow-up: run-level artifact rollup so the
-            # SPA can show every published artifact for a run without
-            # navigating per-job. Wraps the existing read-only `list
-            # artifacts` verb.
-            self._handle_invoke(["list", "artifacts", "--run-id", run_id])
+            self._handle_daemon_read(
+                "list.artifacts",
+                {"run_id": run_id},
+                legacy_argv=["list", "artifacts", "--run-id", run_id],
+            )
             return
         self._send_json(404, {"ok": False, "error": {"code": 404, "message": "not found"}})
+
+    def _handle_daemon_read(
+        self,
+        method: str,
+        params: Mapping[str, Any],
+        *,
+        legacy_argv: list[str] | None = None,
+    ) -> None:
+        from striatum.service_daemon import ServiceDaemonRpcError, call_repo_method
+
+        try:
+            payload = call_repo_method(self.state.repo, method, dict(params))
+        except ServiceDaemonRpcError as exc:
+            if legacy_argv is not None and _legacy_web_read_fallback_enabled(exc.code):
+                self._handle_invoke(legacy_argv)
+                return
+            self._send_json(
+                exc.status,
+                {"ok": False, "error": {"code": exc.code, "message": exc.message}},
+            )
+            return
+        self._send_json(200, {"ok": True, "data": payload})
 
     def _handle_artifact_raw(self, artifact_id: str) -> None:
         """RFC 0013 V1: serve the raw bytes of an artifact for the web UI viewer.
