@@ -59,16 +59,16 @@ The result is a sealed terminal state for repo-write process-adapter
 blockers: the operator can publish the missing artifact, can record the
 missing verdict, can verify with `doctor` that everything else is fine —
 and still has no advertised CLI verb to mark the blocker resolved and let
-the workflow continue. The only working paths are manual SQLite mutation
-or `recovery cancel-job --cascade`, which kills every downstream job and
-loses the work that was successfully completed.
+the workflow continue. The only working paths were unsupported manual
+database mutation or `recovery cancel-job --cascade`, which kills every
+downstream job and loses the work that was successfully completed.
 
 A concrete observation from a recent dogfood run on a three-lane fresh
 design step (Codex / Claude Code / Gemini designers, all repo-write):
 
 | Job | Process outcome | Blocker kind | What the operator can do today |
 |---|---|---|---|
-| `design_codex` | exit 2, no artifact | `process_exit_nonzero` | nothing terminating cleanly; cancel + cascade or hand-edit SQLite |
+| `design_codex` | exit 2, no artifact | `process_exit_nonzero` | nothing terminating cleanly; cancel + cascade or unsupported manual DB mutation |
 | `design_claude_code` | exit 0, no artifact | `process_outputs_missing` | publish artifact, then nothing terminating cleanly |
 | `design_gemini` | exit 0, artifact published *after* the inline validator ran | `process_outputs_missing` | artifact is on disk and in the `artifacts` table; lease is still active; `complete` refuses because state is `blocked`; nothing terminating cleanly |
 
@@ -426,4 +426,4 @@ Per `docs/DDD.md § "Adding to the model"`, the new vocabulary
 introduced here is `recovery resume`, `process-adapter blocker
 family`, `evidence-grounded blocker`, `exit-grounded blocker`,
 `resumable blocker`. All are CLI- or domain-event-derivable; none
-become new SQLite tables or columns.
+become new daemon Postgres tables or columns.

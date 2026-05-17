@@ -121,7 +121,8 @@ What it does **not** do:
 
 The result is a class of failure where the workflow runner state
 machine *itself* is healthy, but the bridge to the agent CLI is
-broken in a way operators have to debug by reading SQLite tables.
+broken in a way operators have to debug through daemon-backed status,
+why, doctor, and dashboard surfaces.
 
 This is not a transcript-capture problem. The current `transcripts =
 "off"` constraint (D028) is correct. The missing piece is determinism
@@ -159,7 +160,8 @@ around required outputs and process liveness.
   and verdicts arrived.
 - Auto-retry on missing outputs. Operators decide whether to
   recover; the runner only surfaces deterministic blocked states.
-- Cross-process synchronization beyond a single repo's SQLite.
+- Cross-process synchronization beyond the daemon-owned per-repository
+  Postgres state.
 
 ## Proposal
 
@@ -279,9 +281,9 @@ The envelope from (1) and (2) is recorded as the blocker row's
 - Evidence export under `striatum evidence export` includes it in
   the durable JSON dump.
 
-The envelope is the **only** new state this RFC adds. No new SQLite
-tables; the `events` table and the `blockers` table absorb the
-diagnostic shape.
+The envelope is the **only** new state this RFC adds. No new Postgres
+tables; the existing `events` and `blockers` tables absorb the diagnostic
+shape.
 
 ## Acceptance Criteria
 

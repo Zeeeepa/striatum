@@ -62,12 +62,14 @@ during state transitions; see § Corpus Export And Augmentation Boundary.
 
 ## State Store
 
-`striatum init` creates `.striatum/` next to the target repository as
-operational scratch (supervised wrapper FIFOs, pidfiles, and transient
-supervisor scratch) and ensures `.striatum/` is ignored by git.
+`striatum init` creates or refreshes local operational setup next to the
+target repository. Repository registration is performed by
+`striatum adopt`, `striatum repo add <path> --init`, or
+`striatum daemon migrate-repo-local --from sqlite --to pg --repo <path>`.
 The authoritative workflow state lives in the daemon-owned PostgreSQL
-instance under a `repository_id` scope; `striatum init` registers the
-repository with the daemon when one is reachable.
+instance under a `repository_id` scope; `.striatum/` is operational
+scratch for supervised wrapper FIFOs, pidfiles, and transient supervisor
+scratch.
 
 The per-repository schema in the daemon DB holds:
 
@@ -1262,11 +1264,11 @@ re-adding allocates a fresh id.
 
 Every non-health registry-backed request requires a token. `striatum daemon
 start` bootstraps one admin token when daemon-owned Postgres has no clients
-and writes the local runtime fallback file with `0600` permissions. Operators
-should treat runtime-file token storage as degraded compared with an OS
-keyring. Plaintext token secrets are not read from environment variables and
-are never stored in the registry or audit log. Authorization uses the closed
-daemon method capability vocabulary:
+and writes the local runtime `client-token` file with `0600` permissions.
+Operators should treat runtime-file token storage as degraded compared with
+an OS keyring. Plaintext token secrets are not read from environment
+variables and are never stored in the registry or audit log. Authorization
+uses the closed daemon method capability vocabulary:
 `read`, `write`, `review`, `claim`, `apply`, `admin`, `recovery`, and
 `surgical_recovery`.
 

@@ -24,13 +24,14 @@ coverage; **multi-repo / cross-repo end-to-end integration tests against a
 real two-repo daemon harness were explicitly deferred** to a follow-up
 RFC. That follow-up is this RFC.
 
-The current test fixtures are single-repo: each test gets a temporary
-target repository with its own `.striatum/state.sqlite3`. Cross-repo
-behavior — the `repositories` workflow block, two repos sharing a
-daemon, cross-repo run lifecycle with daemon-side coordination, per-repo
-failure isolation, daemon-crash reconciliation across repos, MCP token
-scope enforcement against a non-primary registered repo, cross-repo
-cycle iteration accounting — has no harness to exercise end-to-end. The
+The earlier test fixtures were single-repo. Current harnesses boot a daemon
+with ephemeral Postgres and registered target repositories; `.striatum/` is
+scratch only and no SQLite file is created or inspected except migration
+fixtures. Cross-repo behavior — the `repositories` workflow block, two repos
+sharing a daemon, cross-repo run lifecycle with daemon-side coordination,
+per-repo failure isolation, daemon-crash reconciliation across repos, MCP
+token scope enforcement against a non-primary registered repo, cross-repo
+cycle iteration accounting — needs harness coverage end-to-end. The
 mock-based coverage in `tests/test_cross_repo_lifecycle.py` and the
 validator coverage in `tests/test_workflow_cross_repo.py` together
 verify shape and contracts, but they do not exercise the daemon RPC
@@ -47,9 +48,8 @@ Without that harness:
   against repo B) is verified only at the capability check layer, not
   end-to-end through the MCP server, daemon RPC, and per-repo write-
   scope refusal;
-- the daemon-DB ↔ repo-local-DB transaction ordering (daemon DB write
-  first, then per-repo SQLite writes, rollback on partial failure)
-  cannot be exercised end-to-end;
+- the daemon/Postgres transaction ordering for participating repository
+  scopes cannot be exercised end-to-end;
 - regressions that show up only when two repos share a daemon will
   surface in production rather than in CI.
 
@@ -60,8 +60,8 @@ Nothing in the harness ships as a public API or operator-facing surface.
 ## Goals
 
 - Provide a reusable test fixture that boots a daemon instance with N
-  registered target repositories, each with its own
-  `.striatum/state.sqlite3` and worktree.
+  registered target repositories, each with daemon/Postgres state under a
+  `repository_id` scope plus a worktree.
 - Cover the cross-repo workflow execution paths end-to-end: prepare,
   start, run summary, cancel, dashboard across participating repos,
   daemon-crash reconciliation, per-repo unregistration mid-run, per-
@@ -72,10 +72,9 @@ Nothing in the harness ships as a public API or operator-facing surface.
   issuance against repo A, attempted use against repo B, refusal with
   the documented `capability_missing` denial vocabulary, audit row
   appended with the documented denial reason.
-- Cover the daemon-DB ↔ repo-local-DB transaction ordering on the
-  cross-repo prepare path: daemon-DB write first, per-repo SQLite
-  writes inside the same daemon transaction, rollback on partial
-  failure.
+- Cover daemon/Postgres transaction ordering on the cross-repo prepare path:
+  cross-repo metadata plus per-repository rows write inside the same daemon
+  transaction, with rollback on partial failure.
 - Surface daemon RPC client testing patterns so future RFCs (Go core,
   cross-platform daemon, hosted mode) can adopt the same shape.
 - Keep tests fast enough to run in CI on the existing matrix.
@@ -179,8 +178,7 @@ def multi_repo_harness(tmp_path_factory, postgres_url):
 - boots a daemon instance with an ephemeral Unix socket under
   `scratch_dir/daemon.sock`;
 - initializes N target repositories under `scratch_dir/repo-{0..N-1}/`,
-  each with its own `.striatum/state.sqlite3` (repo-local migrations
-  applied);
+  each with `.striatum/` scratch only;
 - registers each repository with the daemon (`striatum repo add
   --init`);
 - exposes helpers to issue capability tokens, prepare cross-repo runs,
@@ -214,15 +212,14 @@ The per-class daemon survives reset; subprocess teardown is per class.
 
 `tests/test_cross_repo_prepare_e2e.py` covers:
 
-- well-formed cross-repo workflow → daemon DB row in `preparing`, then
-  `prepared`; per-repo SQLite rows created with matching
-  `cross_repo_run_id`;
+- well-formed cross-repo workflow → daemon Postgres row in `preparing`, then
+  `prepared`; per-repository rows created under participating
+  `repository_id` scopes with matching `cross_repo_run_id`;
 - malformed cross-repo workflow (unknown repo_id in `repositories`
   block) → daemon refuses, no DB writes anywhere;
-- daemon-DB write succeeds but per-repo SQLite write fails (simulated
-  via a permission denial on one repo's `.striatum/`) → full rollback
-  in the daemon transaction, no orphan daemon DB row, no partial per-
-  repo state;
+- one participating repository fails during prepare (simulated via a scoped
+  repository-state failure) → full rollback in the daemon transaction, no
+  orphan daemon DB row, no partial per-repo state;
 - workflow validator caught it at submit time, not run time
   (regression test for the validator).
 
@@ -239,24 +236,22 @@ The per-class daemon survives reset; subprocess teardown is per class.
   participating repos;
 - cross-repo cycle iteration accounting (max_iterations global to the
   cycle): force a needs_revision verdict; verify the cycle counter
-  increments at the daemon DB layer, not at each repo's SQLite layer.
+  increments at the daemon Postgres layer.
 
 ### 6. Crash recovery end-to-end test
 
 `tests/test_cross_repo_crash_recovery_e2e.py` covers:
 
-- daemon killed mid-prepare (between daemon DB insert and per-repo
-  SQLite inserts) → daemon restart's startup reconciliation observes
-  `preparing` row + missing per-repo rows → rolls back the daemon row
-  to `aborted`;
+- daemon killed mid-prepare → daemon restart's startup reconciliation
+  observes incomplete daemon Postgres rows → rolls back the transition to
+  `aborted`;
 - daemon killed mid-start (after prepare, before all per-repo runs
   transitioned to running) → daemon restart reconciliation completes
   the transition or fails with a structured error;
 - daemon killed mid-cancel → daemon restart finishes the cascade;
-- one participating repo's filesystem becomes unreachable mid-run
-  (simulate by chmod'ing `.striatum/` to 000) → daemon pauses the run
-  with a human checkpoint; verify the checkpoint is recorded in both
-  the daemon DB and the still-reachable repos.
+- one participating repo's filesystem becomes unreachable mid-run → daemon
+  pauses the run with a human checkpoint; verify the checkpoint is recorded
+  in daemon Postgres under the affected repository scopes.
 
 ### 7. MCP capability scope end-to-end test
 

@@ -238,7 +238,7 @@ Every daemon MCP `resources/list` and `resources/read` request requires
 an explicit `token` parameter. The token must have `read` capability:
 global read tokens see every active repository, while repo-scoped read
 tokens see only resources for their repository ids and are denied when
-reading another repository. The daemon runtime fallback token is not
+reading another repository. The daemon runtime `client-token` file is not
 implicitly applied to MCP clients. `striatum://daemon/audit` is
 intentionally absent in V1; audit is available only through daemon admin
 CLI registry surfaces.

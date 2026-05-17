@@ -143,6 +143,16 @@ Recent checkpoints:
   moved into `striatum.web.artifacts`; the daemon-backed artifact page no
   longer reaches into the legacy SQLite fallback module for pure
   presentation shaping.
+- Run posture-verdict template-context shaping moved into
+  `striatum.web.run_posture_verdicts`; the service route keeps daemon
+  RPC/fallback and HTTP error mapping while posture DTO validation and
+  verdict-row filtering live in web presentation code.
+- Current docs were swept again for stale routing/runtime language after
+  PG-native repo registration: quick-start docs now favor `adopt` or
+  `repo add --init`, `dashboard --all` is described as daemon/Postgres-backed,
+  Pattern 5 in the harness friction notes is marked historical/resolved for
+  daemon-routed command and post-tombstone init slices, and evidence exports
+  no longer imply `.striatum/` SQLite is live state.
 
 - **Command authority and fallback guardrails.**
   `docs/architecture/COMMAND_AUTHORITY_MATRIX.md` now names the authority

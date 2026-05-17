@@ -13,7 +13,7 @@ Context:
 [`RFC 0012`](0012-local-service-api.md),
 [`RFC 0013`](0013-local-web-ui.md),
 [`docs/DECISION_LOG.md`](../DECISION_LOG.md) (D082, D083, D084, D086, D006, D009),
-[`docs/SPEC.md`](../SPEC.md) § "Registry-Backed Multi-Repo Coordination",
+[`docs/SPEC.md`](../SPEC.md) § "Product Boundary" and § "State Store",
 `src/striatum/daemon.py`,
 `src/striatum/api.py`,
 `src/striatum/service.py`
@@ -297,9 +297,9 @@ turns each CLI invocation into one or more RPC calls.
   workflow-state compromise; the V1 trust boundary tightens around the
   daemon process and its substrate.
 - Capability tokens are the only access path for non-health requests.
-  No env-var token fallback (per V1 dogfood-031 round-3 finding); tokens
-  live in OS keyring when available, otherwise in a `0600` runtime
-  fallback with degraded-trust warning.
+  No env-var token fallback (per V1 dogfood-031 round-3 finding); the
+  daemon runtime token lives under the daemon runtime directory as
+  `client-token` with `0600` permissions and degraded-trust warning.
 - The daemon never parses agent stdout/stderr; structured RPC calls are
   the only mutation surface. Agent processes call the daemon via the
   same RPC, not via direct SQLite writes.
@@ -319,8 +319,8 @@ turns each CLI invocation into one or more RPC calls.
 ## Downsides and risks
 
 - Daemon process is now a single point of failure for the orchestration
-  surface. RFC 0028's mitigation (direct CLI mode) is preserved as a
-  read-only fallback, but mutations now require the daemon.
+  surface. D094/RFC 0043 removed direct production CLI fallback; an
+  unreachable daemon is exit 11 and an unmigrated repository is exit 12.
 - Wire-protocol versioning errors are now production incidents.
 - The Python daemon is a longer-running process than the V1 sweep loop;
   GIL/asyncio behavior matters more.

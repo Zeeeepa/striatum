@@ -40,8 +40,10 @@ door on later local memory systems for other applications.
 The Phase 1 problem is therefore narrow: add a local, optional, read-only
 Engram memory layer for Striatum operators, while preserving Striatum's
 authoritative state, Engram's existing architecture, and the operator's root
-authority over the machine. Striatum's `.striatum/state.sqlite3` and daemon DB
-remain live workflow state. Repository artifacts remain durable provenance.
+authority over the machine. Striatum's daemon-owned PostgreSQL remains live
+workflow state; `.striatum/state.sqlite3` is pre-D094 migration
+input/tombstone or fixture material only. Repository artifacts remain durable
+provenance.
 Engram derives retrievable references from those sources; it does not become
 the message bus, source of truth, hosted service, or critical path.
 
@@ -83,8 +85,9 @@ the message bus, source of truth, hosted service, or critical path.
   authority, not hosted or cloud multi-tenancy.
 - Transcript capture, model-output ingestion, terminal scraping, or broad log
   ingestion. The Striatum corpus is structural and curated.
-- Replacing `.striatum/state.sqlite3`, the daemon DB, the decision log, RFCs,
-  operator reports, run summaries, audit chain, or git history as authority.
+- Replacing daemon-owned PostgreSQL, migration-only `.striatum/state.sqlite3`
+  sources, the decision log, RFCs, operator reports, run summaries, audit
+  chain, or git history as authority.
 - Adding a Striatum `workflow.json` memory field, daemon RPC method, chat tool,
   Striatum-side `memory.*` capability, or Engram client import.
 - Write-side dogfood ingestion. V1 does not emit `run.completed` to Engram and
@@ -427,7 +430,7 @@ Phase 1 is accepted only if all of the following are true:
   content and stable hashes; `generated_at` is the only allowed timestamp
   variation.
 - Run-summary rows are produced through `striatum run summary --json`, not a
-  new free-text SQLite read path.
+  new ad hoc database read path.
 - Striatum-side export remains augmentation-only: Striatum does not import
   Engram, call Engram, or acquire `memory.*` capabilities.
 - Any future Striatum-side operator wiring, such as an informational health

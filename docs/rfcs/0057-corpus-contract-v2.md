@@ -48,7 +48,7 @@ work-packet shape — a SPEC-level surface.
   `import engram`, no new `memory.*` capability, no daemon RPC method that
   reaches outside the Striatum daemon vocabulary.
 - Specify an optional context-injection *policy* surface so workflow authors
-  can opt a job into Engram-backed augmentation under a per-packet budget,
+  can opt a job into retrieval-backed augmentation under a per-packet budget,
   without making augmentation a packet prerequisite.
 - Keep the V1 export consumable. V1 bundles must remain parseable by V2-aware
   consumers; V2 manifests must declare the contract version they advertise so
@@ -64,10 +64,10 @@ work-packet shape — a SPEC-level surface.
   capture, or background ingestion. Bundles remain operator-triggered and
   local. Striatum must not stream events to Engram or any other consumer at
   run time.
-- Replacing `.striatum/state.sqlite3`, the daemon DB, the decision log, RFCs,
-  operator reports, run summaries, or git history as live state or
-  authoritative history. The corpus is durable provenance reshaped for
-  retrieval, not live workflow state.
+- Replacing daemon-owned PostgreSQL, migration-only `.striatum/state.sqlite3`
+  sources, the decision log, RFCs, operator reports, run summaries, or git
+  history as live state or authoritative history. The corpus is durable
+  provenance reshaped for retrieval, not live workflow state.
 - Adding personal-memory functionality to Striatum. Personal-memory data
   lives entirely in Engram under `tenant_id='personal'`; Striatum has no
   per-user memory concept and does not export to one.
@@ -296,10 +296,10 @@ above are made. At minimum, the final RFC must require:
 3. Should Striatum expose a corpus *describe* verb (`striatum corpus
    describe --since <ref>`) that emits the manifest without writing the
    JSONL files, so Engram can negotiate before paying the export cost?
-4. How does the Postgres-as-sole-substrate transition (RFC 0043, RFC 0048)
-   affect corpus export's `since <ref>` semantics? Today the export reads
-   git + repo-local SQLite; once `runs`/`events`/`artifacts` move into the
-   daemon DB, the export must read from there.
+4. How should corpus export's `since <ref>` semantics evolve now that
+   RFC 0043/RFC 0048 moved `runs`/`events`/`artifacts` into daemon-owned
+   PostgreSQL? Current export reads from daemon state plus repository
+   provenance; V2 should make that contract explicit.
 5. What is the long-term home for the augmentation-boundary regression
    test? `tests/test_cli_corpus_export.py` is the right place for V1; a
    broader `tests/test_augmentation_boundary.py` may be warranted for V2.

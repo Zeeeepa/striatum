@@ -7,7 +7,7 @@ twelve dogfood-lifecycle chat-tool entries, the per-model harness-profile
 fragments in the bundled template catalog, generator enrichment by default,
 and `striatum workflow upgrade`. The composite tools
 (`dogfood.publish_on_behalf`, `dogfood.surgical_recovery`) and the daemon-
-side supervised-progress heartbeat are scoped to the systems half and land
+side supervised-progress heartbeat were scoped to the systems half and landed
 under the same RFC. See [`docs/HARNESS_FRICTION_PATTERNS.md`](../HARNESS_FRICTION_PATTERNS.md)
 for the long-form record of the four observed friction patterns and the
 fixes that landed.
@@ -49,16 +49,17 @@ Three specific friction concentrations stand out:
 
 1. **Publish-on-behalf for permission-gate-denied lanes.** Claude_code's
    supervised `--print` denies `striatum ack` on every artifact in every
-   dogfood since 031. The operator looks up the active lease + claimed
-   message IDs via direct SQLite query, then runs ack + publish-artifact
-   + (for review jobs) verdict + complete. This has happened >20 times.
+   dogfood since 031. At the time, the operator looked up active lease and
+   claimed message IDs through direct state inspection, then ran ack +
+   publish-artifact + (for review jobs) verdict + complete. This has
+   happened >20 times.
    Same shape for gemini when it writes artifacts but doesn't call ack.
 2. **Surgical recovery under active load.** Per dogfood-038 OPERATOR_REPORT
    intervention #5, when codex's lease expires while `make test` is still
    running, `recovery requeue-stale` refuses repo-write jobs as policy.
-   The operator hand-edits the daemon SQLite to reactivate the lease +
-   supervisor + job state, then runs publish-artifact + complete. This
-   has now happened twice with the same shape.
+   The operator used unsupported direct state mutation to reactivate the
+   lease + supervisor + job state, then ran publish-artifact + complete.
+   This has now happened twice with the same shape.
 3. **Front-matter shape correction.** Per dogfood-038 intervention #3 +
    dogfood-039 intervention #2: gemini writes finding artifacts with
    front-matter shape errors (missing `artifact_kind`, wrong tag values,
@@ -195,7 +196,7 @@ by token capability.
 When a supervised lane writes an artifact but denies `striatum ack`
 from inside its supervised wrapper, the operator currently:
 
-1. Looks up the active lease for the session via direct SQLite query.
+1. Looks up the active lease for the session through daemon/run state.
 2. Looks up the claimed-but-unacked queue message for the job.
 3. Runs `ack` + `publish-artifact` + (if review) `verdict` + `complete`.
 
@@ -225,8 +226,9 @@ metadata. Capability required: same as the underlying `publish-artifact` +
 
 Per dogfood-038 intervention #5: when a repo-write job's lease expires
 while the model is still making forward progress (codex mid-`make
-test`), `recovery requeue-stale` refuses. The operator hand-edits the
-daemon SQLite to reactivate the lease + supervisor + job state.
+test`), `recovery requeue-stale` refuses. The operator previously used
+unsupported direct state mutation to reactivate the lease + supervisor +
+job state.
 
 Replace with a single composite tool:
 

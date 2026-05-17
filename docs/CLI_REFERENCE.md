@@ -48,18 +48,19 @@ without writing files. Real lane sets require lane commands such as
 the placeholder fixture command. V1 refuses overwrites and does not
 run the workflow automatically.
 
-`workflow upgrade <path> [--dry-run] [--force]` (RFC 0040 V1)
-backports the per-model harness-profile fragments from the bundled
-template catalog into an existing `workflow.json`. Default behaviour
-fills `harness_profiles[*].native_delegation.instruction` when the
-field is empty or already matches the catalog default; a non-default
+`workflow upgrade <path> [--dry-run] [--force] [--add-phases --apply]`
+(RFC 0040 V1 / RFC 0045 V1.5) backports the per-model harness-profile
+fragments from the bundled template catalog into an existing
+`workflow.json` and can rewrite V1 workflows to V1.1 phase metadata when
+`--add-phases --apply` is supplied. Default behaviour fills
+`harness_profiles[*].native_delegation.instruction` when the field is
+empty or already matches the catalog default; a non-default
 custom instruction is reported as a `refused_conflict` unless
 `--force` is supplied. `--dry-run` emits the change set without
 writing. The verb refuses to mutate a workflow that has any
 non-terminal daemon-registered run referencing it; cancel or complete
-the run first. V1 is
-scoped to harness-profile fragments only; other corrections will
-land as separate verbs.
+the run first. Harness-profile backports and phase metadata rewrites are
+the only in-place rewrites this verb performs.
 
 `workflow lint <path> [--strict] [--override-rationale <text>] [--accepted-risk-decision-id <id>]`
 returns structured advisory warnings for operational workflow risks
@@ -153,10 +154,10 @@ striatum dashboard --all
 ```
 
 `dashboard --all` (RFC 0028 V1) groups registered repositories and
-reports repo-local runs, blockers, claimable jobs, stale leases,
-and degraded repositories. It is registry-backed and requires a
-daemon `read` capability token (bootstrapped by `daemon start`) even
-when `--daemon` is not passed.
+reports daemon/Postgres-backed per-repository runs, blockers, claimable jobs,
+stale leases, and degraded repositories. It uses daemon-owned repository
+registration state and requires a daemon `read` capability token
+(bootstrapped by `daemon start`) even when `--daemon` is not passed.
 
 ## Daemon and multi-repo registry (RFC 0028 V1)
 
@@ -197,7 +198,7 @@ fall back to direct mode.
 
 The first `daemon start` bootstraps a single admin token when
 daemon-owned Postgres has no clients and writes a `0600`
-runtime-fallback file. Token secrets are never read from environment
+runtime `client-token` file. Token secrets are never read from environment
 variables, never logged to audit, and never stored in the registry.
 Authorization uses the closed daemon method capability vocabulary:
 `read`, `write`, `review`, `claim`, `apply`, `admin`, `recovery`, and
@@ -306,7 +307,8 @@ Postgres doctor status, runtime token presence, repository registration,
 MCP tool visibility, and one sample daemon read route.
 
 Daemon RPC method capabilities use the closed vocabulary `read`,
-`write`, `review`, `claim`, `apply`, `admin`, and `recovery`.
+`write`, `review`, `claim`, `apply`, `admin`, `recovery`, and
+`surgical_recovery`.
 `supervise.*` and `apply.*` are daemon RPC routes; sealed apply fails
 closed unless a daemon signing key and `apply` capability are present.
 
@@ -314,13 +316,11 @@ RFC 0032 adds cross-repo workflow schema and daemon MCP mutation
 capability gating on the PostgreSQL daemon substrate. Cross-repo
 workflow files declare `repositories`, `primary_repository`, and
 per-job `repository` aliases. The daemon DB records canonical
-`cross_repo_run_id` rows and each participant repo keeps a local
-`runs.cross_repo_run_id` pointer. `cross-repo list|describe|why`
-read those daemon records; the full live two-repo daemon harness and
-real cross-repo end-to-end progression are deferred to TODO Open item
-19. Daemon MCP `tools/list` is filtered by each token's effective
-capabilities and scope, and `tools/call` re-checks authorization and
-audits denials.
+`cross_repo_run_id` rows under participating repository scopes.
+`cross-repo list|describe|why|cancel`
+read or mutate those daemon records according to capability scope. Daemon
+MCP `tools/list` is filtered by each token's effective capabilities and
+scope, and `tools/call` re-checks authorization and audits denials.
 
 RFC 0036 adds no new CLI verb. Regenerate agent-facing MCP guidance with
 `striatum skills install` or `striatum plugin install`; chat workflow
@@ -411,7 +411,7 @@ recovery pieces where policy allows. `recovery auto-publish` emits the
 explicit `recovery.auto_publish_stale_artifacts` method; the deprecated
 `recovery.auto` alias is not emitted by the current CLI.
 
-## Corpus export (RFC 0044 V1 / RFC 0052 contract)
+## Corpus export (RFC 0044 V1 / RFC 0057 contract)
 
 ```text
 striatum corpus export --since <ref> --out <dir>

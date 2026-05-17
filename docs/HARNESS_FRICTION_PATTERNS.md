@@ -56,8 +56,8 @@ operator publishes on its behalf if the supervised wrapper denies
 **Symptom.** A repo-write job's lease expires while the agent is
 still doing forward-progress work (codex mid-`make test`).
 `recovery requeue-stale` refuses repo-write jobs as a policy guard,
-so the operator hand-edits the daemon SQLite to reactivate the
-lease + supervisor + job state.
+so the operator used unsupported direct state mutation to reactivate
+the lease + supervisor + job state.
 
 **Root cause.** The supervised wrapper heartbeats the lease at the
 wrapper level, but when the agent takes over the stdin loop and goes
@@ -67,15 +67,15 @@ cannot fire because the wrapper is also blocked.
 **Fix landed in RFC 0040 V1 (v1.29.0).** Two-part:
 
 1. **Operator-side composite tool.** `dogfood.surgical_recovery`
-   (when the systems half lands) composes the lease + supervisor +
-   job-state reactivation in a single audit-chain entry. Until then
-   the operator chains the existing recovery verbs through the MCP
-   chat surface instead of hand-editing SQLite.
+   composes the lease + supervisor + job-state reactivation in a
+   compatibility helper for dogfood recovery. Outside that compatibility
+   path, the operator chains supported recovery verbs through the MCP/chat
+   surface instead of mutating the database directly.
 2. **Daemon-side supervised-progress heartbeat.** The daemon owns a
    `supervised_progress_watcher` that watches the supervised log
    file's mtime; growth within `idle_threshold_seconds` triggers an
    internal `heartbeat` call on the active lease. This is the systems
-   half of the RFC and lands in the codex implementer's scope.
+   half of the RFC.
 
 ## Pattern 4 — front-matter shape errors (dogfood-038/039)
 
@@ -108,10 +108,12 @@ noted as front-matter-free.
 | 3       | Operator MCP chat tools (V1 primitives) | `src/striatum/web/chat_tools.py` dogfood-lifecycle entries |
 | 3       | Daemon-side supervised-progress heartbeat | Systems half (RFC 0040 §4) |
 | 4       | Gemini fragment front-matter callout | `src/striatum/workflow_templates/catalog.json` `gemini_default` |
+| 5       | Daemon-routed command contract for run/branch/workflow verbs | `contracts/daemon_methods.json` and `src/striatum/cli/daemon_rpc_route.py` |
+| 5       | Post-tombstone `init` no-op for migrated repos | `src/striatum/db.py` |
 
 ## Pattern 5 — post-migration operator workspace refuses dogfood launch (2026-05-16, pre-dogfood-061)
 
-**Symptom.** After v1.55.0 burn-down, scaffolded dogfoods 061/062/063
+**Historical symptom.** After v1.55.0 burn-down, scaffolded dogfoods 061/062/063
 all validate (`striatum workflow validate <path>` returns
 `{"ok":true,"data":{"valid":true}}` after manual tombstone) but
 `striatum run prepare` immediately fails with exit code 1
@@ -132,54 +134,51 @@ split-brain`.
    ("changed since the Postgres checkpoint") — the V1.5 F-crash
    safety guard correctly refuses to tombstone an unverified source.
 3. Manual tombstone (`mv state.sqlite3 → state.sqlite3.tombstone`)
-   bypasses the migration-required check in
-   `src/striatum/cli/daemon_required.py::repo_is_migrated`, BUT
-   the `run prepare` path still routes through the legacy
-   SQLite-backed CLI dispatch (not the daemon RPC route flipped
-   in v1.51.0 for the mapped verbs).
+   bypassed the migration-required check in
+   `src/striatum/cli/daemon_required.py::repo_is_migrated`. At the
+   time, `run prepare` still routed through legacy SQLite-backed CLI
+   dispatch rather than the daemon RPC route used by already-mapped verbs.
 4. That legacy path tries to open `.striatum/state.sqlite3`, finds
    it absent (it's now `.tombstone`), and offers `striatum init`
    — which itself refuses because the tombstone is present
    ("split-brain detection").
 
-**Fix surfaces (V1.6 / V1.7).**
+**Fix surfaces and current status.**
 
 - **F1** — `striatum daemon migrate-repo-local
   --force-refresh-checkpoint`: recompute the checkpoint sha
   against the current source bytes. Operator path for the "wrote
-  to local sqlite after migration" case. Currently the only
-  recovery is manual tombstone + script.
-- **F2** — `run prepare` daemon-RPC route: the `run prepare` /
-  `run start` / `branch confirm` / `workflow validate` verbs route
-  through `daemon_rpc_route` like the V1.5 mapped verbs. Currently
-  they fall through to the SQLite-backed path that refuses
-  post-tombstone.
-- **F3** — `init` post-tombstone semantics: `striatum init` on a
-  repo with a `.striatum/state.sqlite3.tombstone` (PG-migrated)
-  should be a no-op or, at worst, refresh the runtime artifacts
-  without trying to open the absent sqlite.
+  to local sqlite after migration" case. This remains the manual
+  recovery slice for mutated post-checkpoint sources.
+- **F2** — completed: `run prepare`, `run start`, `branch confirm`,
+  and `workflow validate` are daemon-routed through the shared method
+  contract instead of falling through to SQLite-backed dispatch.
+- **F3** — completed: `striatum init` on a repo with a
+  `.striatum/state.sqlite3.tombstone` or `.striatum/state.sqlite3.migrated`
+  marker is a no-op because daemon-owned PostgreSQL is the live-state
+  authority and `.striatum/` is operational scratch.
 
-Current status: the friction taxonomy remains useful, but substrate and
-routing details in older notes may describe transition-era SQLite/direct
-mode behavior. Current production behavior is daemon-required with
-daemon-owned PostgreSQL as the authoritative workflow state.
+Current status: the friction taxonomy remains useful as historical
+provenance. Current production behavior is daemon-required with daemon-owned
+PostgreSQL as the authoritative workflow state. The remaining unresolved part
+of Pattern 5 is F1, not command routing or post-tombstone `init`.
 
-**Where the fixes live (proposed).**
+**Where the fixes live.**
 
 - F1: `src/striatum/daemon_pg/repo_local_migration.py::_resume_sqlite_finalization_after_checkpoint`
   — accept a force-refresh option that bypasses the sha-mismatch
-  refusal and rewrites the checkpoint.
-- F2: `src/striatum/cli/daemon_rpc_route.py::CLI_ROUTES` — extend
-  the route table to include `run.prepare`, `run.start`,
-  `branch.confirm`, `workflow.validate`.
+  refusal and rewrites the checkpoint. Deferred.
+- F2: `contracts/daemon_methods.json` declares the daemon route
+  translations; `src/striatum/cli/daemon_rpc_route.py` owns CLI-local
+  parameter extraction.
 - F3: `src/striatum/cli/dispatch.py::_dispatch_init` — short-circuit
   to "already initialized" when `.striatum/state.sqlite3.tombstone`
-  exists.
+  exists; current initialization also short-circuits in
+  `src/striatum/db.py` before opening SQLite.
 
-dogfood-061 / 062 / 063 launches are blocked on F1+F2+F3, or on a
-fresh-checkout operator workspace where the migration cleanly
-happens once and the operator never writes to `state.sqlite3`
-afterward.
+dogfood launches are no longer blocked on F2/F3. F1 remains relevant only for
+operator workspaces whose repo-local SQLite source changed after the recorded
+Postgres migration checkpoint.
 
 ## How to extend this doc
 

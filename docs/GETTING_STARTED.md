@@ -80,10 +80,14 @@ multiple model-family review lanes, supervised lanes, or constrained
 lanes.
 
 ```bash
+# First terminal: keep the daemon running.
+striatum daemon start
+
+# Second terminal: register and drive the target repo.
 TARGET_REPO=/path/to/your/repo
 WORKFLOW=examples/code-change-flow/workflow.json   # or choose a type in WORKFLOW_TYPES.md
 
-striatum --repo "$TARGET_REPO" init --json
+striatum repo add "$TARGET_REPO" --init --json
 striatum --repo "$TARGET_REPO" workflow validate "$WORKFLOW" --json
 striatum --repo "$TARGET_REPO" run prepare --workflow "$WORKFLOW" --json
 # copy the run_id from the response
@@ -208,7 +212,7 @@ For the long-form companion to the bundle, see
 
 ## What's in `.striatum/`?
 
-After `init`, the target repo contains:
+After `adopt` or `repo add --init`, the target repo contains:
 
 ```text
 .striatum/
@@ -216,12 +220,13 @@ After `init`, the target repo contains:
   bin/                # optional; e.g., claude-supervised-wrapper.sh
 ```
 
-`.striatum/` is operational scratch only. Authoritative workflow
-state lives in the daemon-owned PostgreSQL instance under a
-`repository_id` scope (D094 / RFC 0043); no `state.sqlite3` file is
-created on a fresh init. If the directory already carried a V1
-`state.sqlite3` from a pre-D094 install, run the per-repo migration
-described above before driving workflow verbs.
+`.striatum/` should be treated as operational scratch only.
+Authoritative workflow state lives in the daemon-owned PostgreSQL
+instance under a `repository_id` scope (D094 / RFC 0043). `adopt` and
+`repo add --init` register the repository without creating
+`state.sqlite3`; if the directory already carried a V1 `state.sqlite3`
+from a pre-D094 install, run the per-repo migration described above
+before driving workflow verbs.
 
 `.striatum/` is added to `.gitignore`. Repository files outside
 `.striatum/` (artifacts, decisions, evidence exports) are durable

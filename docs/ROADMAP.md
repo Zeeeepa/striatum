@@ -48,8 +48,8 @@ dependency edges, and "what would I do next" framing. Update on every
 
 ## 3. Operator decision rules — read this before doing any work
 
-These are the patterns you will hit in the first dogfood. They are NOT in
-the SPEC; they are operational lore.
+These are historical operator patterns from recent dogfoods. Treat them as
+recovery lore, not the default happy path.
 
 ### 3.1 Operator-on-behalf publish path (RFC 0046 V1, mandatory)
 
@@ -184,8 +184,7 @@ legacy `CLI_ROUTES` fallback.
   prevents the daemon-required CLI from working end-to-end. State-store
   corruption surfaced; SQLite was quarantined and reset.
 
-**Next:** dogfood-058 (RFC 0048 V1.5) scopes the codex F1-F4 + claude
-HIGH#1/#2 + chain-migration items as a fix-up dogfood. Historical RFC 0048
+**Follow-up:** completed through RFC 0048 V1.5 / v1.55.0. Historical RFC 0048
 Phase B parity work was transition scaffolding; D105 now makes Python the
 primary production daemon core and redirects Go work to a narrow helper role.
 
@@ -232,16 +231,16 @@ avoid codex (D101 precedent).
 
 **Why now:** the 2026-05-16 architecture review found the main product
 risk is not a missing feature; it is authority ambiguity across daemon
-RPC, native Python PG handlers, Go handlers, `CLI_ROUTES`, and legacy
-SQLite. The next work has to make that ambiguity measurable before
-deleting fallbacks.
+RPC, native Python PG handlers, Go handlers, contract route translations,
+and legacy SQLite. The next work had to make that ambiguity measurable
+before deleting fallbacks.
 
 **Landed in this slice:**
 - `docs/architecture/COMMAND_AUTHORITY_MATRIX.md` inventories the current
   parser, route translator, daemon registry, Python PG handlers, and Go
   handler registrations.
 - Guardrail tests fail when a daemon registry method lacks an explicit
-  authority classification or when a new `CLI_ROUTES` fallback appears
+  authority classification or when a handwritten fallback route appears
   without being named as transition debt.
 - A SQLite-connect tripwire test covers representative production-mode
   commands under daemon-required enforcement.
@@ -263,8 +262,10 @@ authority matrix and contract tests current while deleting fallback paths.
   earlier read, workflow-loop, recovery, run lifecycle, branch, checkpoint,
   and decision handlers.
 - `src/striatum/daemon_rpc/server.py` no longer imports or calls
-  `striatum.api.invoke`; `CLI_ROUTES` is empty and guarded by tests.
-- CLI translations now route `run graph`, `worktree create/release/list`,
+  `striatum.api.invoke`; handwritten server fallback routes are gone and
+  guarded by tests.
+- Contract-backed CLI translations now route `run graph`,
+  `worktree create/release/list`,
   and `supervise start/send/stop/status/list` through daemon RPC.
 - Mapped CLI commands now fail closed when the route layer raises an
   unexpected exception, with an architecture guardrail proving the path does
@@ -458,6 +459,9 @@ daemon-first without needing to support two domain daemons.
   chips, and expected-artifact row shaping. The daemon-backed artifact page
   no longer reaches into `legacy_sqlite.service` for pure presentation
   shaping.
+- `src/striatum/web/run_posture_verdicts.py` now owns posture-verdict
+  template-context shaping and verdict-row filtering. `service.py` keeps the
+  daemon RPC/fallback and HTTP error mapping for the route.
 
 **Remaining Phase 4 debt:** continue splitting `service.py` along stable
 non-SQLite request-handling and rendering boundaries after the daemon-routed
@@ -667,22 +671,16 @@ The copy-on-click allowlist and workflow-editor purge are already covered by
 targeted tests. The dogfood-056 ergonomic review items are not tracked as
 active GitHub backlog unless they get promoted into explicit issues.
 
-### 5.2 D105 follow-up — Go supervisor helper protocol
+### 5.2 ✅ completed — D105 follow-up / Go supervisor helper protocol
 
 **Supersedes:** TODO item 25's Go replacement-daemon phase.
 
-Scope:
-- Keep daemon RPC, authorization, audit, and domain transitions in Python.
-- Design a small daemon-to-helper protocol for PTY/process start, send,
-  stop, status, reattach, and lost-state reporting.
-- Remove or demote broad Go `not_implemented` domain method registrations.
-- Add helper-only CI and tests; do not require full `daemon_core={python,go}`
-  parity as release criteria.
-- Preserve generated contract/audit compatibility only where it supports
-  transition or helper boundaries.
-
-This remains a multi-week phase, but the unit of work is now supervision
-hardening rather than a second full daemon product.
+Shipped scope:
+- Daemon RPC, authorization, audit, and domain transitions remain in Python.
+- The Go helper handles the narrow PTY/process supervision protocol for start,
+  send, stop/status, wrapper control events, reattach, and lost-state reporting.
+- Broad Go replacement-daemon parity is no longer release criteria.
+- Helper-only CI and integration coverage validate the Python/Go boundary.
 
 ### 5.3 ✅ shipped — RFC 0048 daemon-side substrate migration (v1.49.0–v1.55.0)
 
@@ -879,9 +877,8 @@ The other doc phases are unblocked.
 ### 5.9 Architecture remediation sequence (TODO 49-60)
 
 This sequence comes from `STRIATUM_ARCHITECTURE_REMEDIATION_PLAN_2026-05-16.md`.
-It supersedes ad hoc expansion while the authority boundary is split
-between native PG handlers, daemon fallback, Go placeholders, and local
-service reads.
+Production daemon fallback is now closed; remaining work is legacy SQLite
+quarantine, policy decisions, and optional integration surfaces.
 
 Release order after Phase 0:
 
@@ -916,9 +913,9 @@ Release order after Phase 0:
 12. **TODO 60 / Phase 12:** optional Git/PR integration waits on a product
     decision for commit authority and hosted-provider boundaries.
 
-**Blocked on:** Phase 1 depends on the Phase 0 matrix staying current.
-Phases 4-12 should not displace Phase 1/2 unless a security bug forces an
-exception.
+**Blocked on:** current blockers are Phase 7 accepted-risk persistence,
+Phase 8 default auto-finalize policy, Phase 11 Corpus V2 decisions, and
+Phase 12 Git/PR authority.
 
 ---
 

@@ -31,7 +31,7 @@ collectively, not individually.
 | [UBIQUITOUS_LANGUAGE.md](UBIQUITOUS_LANGUAGE.md) | Anyone | Glossary of striatum-specific terms (run, session, lease, work packet, lane, etc.). |
 | [TODO.md](TODO.md) | Maintainer | Active product-improvement tracker. |
 | [ROADMAP.md](ROADMAP.md) | Operator kicking off / resuming work | Forward-looking sequencing of TODO items, RFC follow-ups, open GH issues, and active runway — read first when picking up cold. Stays in sync with version bumps. |
-| [architecture/COMMAND_AUTHORITY_MATRIX.md](architecture/COMMAND_AUTHORITY_MATRIX.md) | Maintainer | Phase 0 inventory of CLI/RPC authority paths across Python PG handlers, daemon fallback, Go handlers, and legacy SQLite dependencies. |
+| [architecture/COMMAND_AUTHORITY_MATRIX.md](architecture/COMMAND_AUTHORITY_MATRIX.md) | Maintainer | Phase 0 inventory of CLI/RPC authority paths across Python PG handlers, daemon RPC route translations, closed fallback guardrails, Go handlers, and legacy SQLite dependencies. |
 | [architecture/DAEMON_METHOD_TABLES.md](architecture/DAEMON_METHOD_TABLES.md) | Maintainer | Generated daemon method registry and CLI route translation reference, sourced from `contracts/daemon_methods.json` and guarded by `scripts/generate_daemon_method_tables.py --check`. |
 
 ## Background and reference

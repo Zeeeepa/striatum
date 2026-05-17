@@ -189,10 +189,9 @@ remediation phases should either daemon-route, quarantine, or delete.
 
 ## Immediate Findings
 
-1. `CLI_ROUTES` is empty. Phase 1 removed daemon fallback routes for
-   PG-backed reads, workflow-loop mutations, recovery handlers, run/admin
-   lifecycle mutations, worktree/supervision handlers, and CLI-local workflow
-   authoring helpers.
+1. Handwritten daemon fallback route tables are gone. Runtime CLI route
+   translation now comes from the contract `cli_routes` map plus CLI-local
+   parameter extraction, and production route-layer failures fail closed.
 2. `recovery.sweep` is now the canonical RFC 0020 one-shot recovery
    sweep emitted by `striatum recovery auto`. `recovery auto-publish`
    emits the explicit `recovery.auto_publish_stale_artifacts` method.

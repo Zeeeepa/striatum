@@ -215,10 +215,11 @@ Legend: ✅ done · 🟡 most done (sub-tasks remain) · ⏳ open/blocked · �
   differ, and prints a Timing block (`created_at`, `started_at`,
   `completed_at`, wall-clock `duration`).~~
 
-- ~~**17. SQLite migration system (RFC 0006, accepted).** Schema version
-  tracked through `PRAGMA user_version`; `striatum init` and every connect
-  apply pending migrations inside a single `BEGIN IMMEDIATE` transaction;
-  databases newer than the runner exit with code 9.~~
+- ~~**17. SQLite migration system (RFC 0006, accepted).** Historical pre-D094
+  repo-local SQLite schema versioning shipped with `PRAGMA user_version`,
+  transactional migrations, and newer-database refusals. Current production
+  state is daemon-owned Postgres; this SQLite code remains migration and
+  fixture context.~~
 
 - ~~**18. Workflow type catalog and chooser.**
   `src/striatum/workflow_generator/{catalog.py,core.py,write.py}` plus
@@ -827,8 +828,8 @@ review and plan are root-level operator artifacts:
     parser, daemon route translator, daemon registry, Python PG handler
     registry, Go handler coverage, and SQLite dependencies. Guardrail
     tests classify every daemon registry method by authority path,
-    require new `CLI_ROUTES` fallback routes to be named as transition
-    debt, and use a SQLite-connect tripwire for representative
+    keep handwritten fallback routes from reappearing silently, and use a
+    SQLite-connect tripwire for representative
     daemon-required production commands. `AGENTS.md` now requires matrix
     and guardrail updates for new RPC methods or handwritten route maps.
 
@@ -931,6 +932,9 @@ review and plan are root-level operator artifacts:
     Follow-up split landed: `web/artifacts.py` owns safe repo-relative artifact
     path resolution, raw download content-type selection, and inline Markdown
     rendering helpers for artifact views. Follow-up split landed:
+    `web/run_posture_verdicts.py` owns posture-verdict template-context
+    shaping and verdict-row filtering while `service.py` keeps daemon
+    RPC/fallback and HTTP response mapping. Follow-up split landed:
     `service_command_policy.py` owns `/v1/invoke` read/mutation classification
     while `service.py` preserves the `is_read_command` compatibility import.
     Follow-up split landed: `web/view_file.py` owns repository file-view path

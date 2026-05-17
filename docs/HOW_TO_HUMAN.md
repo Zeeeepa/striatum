@@ -88,24 +88,26 @@ captures it:
 ```bash
 striatum --repo "$TARGET_REPO" decision record \
   --run-id <run_id> \
+  --path docs/decisions/principal-resolution.md \
   --outcome accepted | rejected | accepted_with_follow_up \
   --title "<short>" \
   --rationale "<why>" \
   --json
 ```
 
-If the decision resolves a blocker, also clear the blocker so the
-AI operator can proceed:
+If the decision resolves an escalation-class blocker, clear it through the
+principal path so the AI operator can proceed:
 
 ```bash
-striatum --repo "$TARGET_REPO" recovery resume \
-  --blocker-id <blocker_id> \
+striatum --repo "$TARGET_REPO" escalation resolve \
+  --escalation-id <escalation_id> \
+  --decision-id <decision_id> \
   --json
 ```
 
-The dedicated `striatum escalation resolve --escalation-id <id>` verb is
-also available for escalation-class blockers and records an
-`escalation.resolved` event with the decision id or resolution note.
+Use `striatum recovery resume` only for process-adapter blockers.
+`escalation resolve` records an `escalation.resolved` event with the
+decision id or resolution note.
 
 The AI operator picks up the next packet automatically.
 
@@ -423,25 +425,25 @@ suggested `striatum worktree create` command before publishing.
 After reading the packet:
 
 ```bash
-"$RUNNER" ack \
+"$RUNNER" --repo "$TARGET_REPO" ack \
   --session-id <session_id> --message-id <message_id> --lease-id <lease_id> \
   --json
 
-"$RUNNER" heartbeat \
+"$RUNNER" --repo "$TARGET_REPO" heartbeat \
   --session-id <session_id> --lease-id <lease_id> --extend-seconds 1800 --json
 ```
 
 ## Publish artifacts and complete non-review work
 
 ```bash
-"$RUNNER" publish-artifact \
+"$RUNNER" --repo "$TARGET_REPO" publish-artifact \
   --session-id <session_id> --job-id <job_id> --lease-id <lease_id> \
   --kind handoff \
   --logical-name draft \
   --path "$OUTPUT_DIR/RFC_LEDGER_DRAFT.md" \
   --json
 
-"$RUNNER" complete \
+"$RUNNER" --repo "$TARGET_REPO" complete \
   --session-id <session_id> --job-id <job_id> --lease-id <lease_id> \
   --summary "Draft artifact published." --json
 ```
@@ -457,7 +459,7 @@ satisfied.
 ## Submit review work
 
 ```bash
-"$RUNNER" submit-review \
+"$RUNNER" --repo "$TARGET_REPO" submit-review \
   --session-id <review_session_id> \
   --job-id <review_job_id> \
   --lease-id <review_lease_id> \
@@ -472,7 +474,7 @@ satisfied.
 ## Record owner decisions
 
 ```bash
-"$RUNNER" decision record \
+"$RUNNER" --repo "$TARGET_REPO" decision record \
   --run-id <run_id> \
   --path docs/decisions/owner-choice.md \
   --outcome accepted_with_follow_up \
@@ -488,7 +490,7 @@ not require an active lease.
 ## Report a blocker
 
 ```bash
-"$RUNNER" block \
+"$RUNNER" --repo "$TARGET_REPO" block \
   --session-id <session_id> --job-id <job_id> --lease-id <lease_id> \
   --kind missing_input \
   --severity human_checkpoint \
@@ -525,12 +527,12 @@ back to that artifact for audit.
 ## Inspect, watch, and export evidence
 
 ```bash
-"$RUNNER" status --run-id <run_id> --json
-"$RUNNER" why <blocker_or_job_or_artifact_id> --json
-"$RUNNER" doctor --run-id <run_id> --verbose --json
-"$RUNNER" dashboard --run-id <run_id>           # live; --once for one frame
-"$RUNNER" run summary --run-id <run_id> --path "$OUTPUT_DIR/RUN_SUMMARY.md"
-"$RUNNER" evidence export \
+"$RUNNER" --repo "$TARGET_REPO" status --run-id <run_id> --json
+"$RUNNER" --repo "$TARGET_REPO" why <blocker_or_job_or_artifact_id> --json
+"$RUNNER" --repo "$TARGET_REPO" doctor --run-id <run_id> --verbose --json
+"$RUNNER" --repo "$TARGET_REPO" dashboard --run-id <run_id>           # live; --once for one frame
+"$RUNNER" --repo "$TARGET_REPO" run summary --run-id <run_id> --path "$OUTPUT_DIR/RUN_SUMMARY.md"
+"$RUNNER" --repo "$TARGET_REPO" evidence export \
   --run-id <run_id> --path "$OUTPUT_DIR/RUN_EVIDENCE.md" --json
 ```
 
@@ -637,7 +639,7 @@ Start the daemon and register two target repos:
 "$RUNNER" daemon start --json &
 
 # Register repos. `daemon start` bootstraps one admin token
-# and writes a 0600 fallback file under the runtime directory;
+# and writes an owner-only client-token file under the runtime directory;
 # treat that file as degraded storage compared with an OS keyring.
 "$RUNNER" repo add /path/to/repo-a --init --json
 "$RUNNER" repo add /path/to/repo-b --init --json   # repeat per repo
@@ -1082,7 +1084,8 @@ striatum has no built-in concept of a "default output
 directory." Every output path is named in the workflow file:
 
 - Each job's `expected_artifacts[].path` is the *exact*
-  repo-relative path the publisher writes to.
+  repo-relative path the agent must write and the publisher later
+  validates and records.
 - Each job's `write_scope.allowed_paths` is the *set of
   prefixes* the agent may write inside.
 - `evidence export` and `run summary` use the path you pass on
@@ -1098,7 +1101,7 @@ If you are trying striatum on a real repo and want to keep its
 output corralled (so you can `rm -rf` it cleanly without
 disturbing the rest of the tree), put everything under a
 top-level `striatum/` directory — sibling to the runner's
-`.striatum/` state directory but checked in:
+`.striatum/` operational scratch directory but checked in:
 
 ```text
 <your-repo>/

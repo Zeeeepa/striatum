@@ -54,9 +54,11 @@ Two related changes shape the current product:
 - Python 3.11+ and a Striatum install (`pip install
   striatum-orchestrator` or a contributor checkout with
   `make install`).
-- For an existing repo: a `.striatum/state.sqlite3` at the highest
-  V1 schema version the runner supports. Run `striatum migrate` (if
-  needed) before invoking the per-repo migration command.
+- For an existing pre-D094 repo: the source `.striatum/state.sqlite3`
+  must already be at the latest legacy schema supported by this runner.
+  If it is older, upgrade it with an older Striatum release that still
+  supports repo-local SQLite migrations before running
+  `daemon migrate-repo-local`.
 
 ## Provision the daemon-required role
 
@@ -180,8 +182,8 @@ PostgreSQL cluster.
 `striatum daemon start` (also exposed as the `striatumd` console
 script) is the supported foreground entry point. The startup
 envelope prints the bound socket path and the resolved Postgres
-URL. CLI verbs route through this daemon for every mutation; there
-is no SQLite fallback.
+URL. CLI workflow-state verbs route through this daemon; there is no
+production SQLite fallback.
 
 If the daemon is unreachable when a CLI verb runs, the verb refuses
 with **exit code 11 (`daemon_unreachable`)** and stderr names the
@@ -205,9 +207,9 @@ daemon PostgreSQL, and reports a suggested workflow path. The lower
 level `daemon migrate-repo-local --from sqlite --to pg --repo <path>`
 remains available for scripted cutovers.
 
-The first `daemon start` bootstraps a single admin token and writes a
-`0600` runtime fallback file under the daemon's runtime directory. Treat
-that file as degraded compared to an OS keyring.
+The first `daemon start` bootstraps a single admin token and writes an
+owner-only runtime `client-token` file under the daemon's runtime
+directory. Treat that file as degraded compared to an OS keyring.
 
 ## Migrate the repo-local workflow state
 
@@ -254,7 +256,8 @@ resumes the recorded action — same tombstone behavior, same flags
 If the daemon is unreachable, the command refuses with exit code
 11. If the on-disk SQLite schema is older than the runner
 supports, the command refuses with exit code 8 and points you at
-`striatum migrate`.
+an older Striatum release that can bring the legacy SQLite source to the
+highest supported pre-D094 schema before retrying the per-repo migration.
 
 ## Tombstone vs delete
 
@@ -351,7 +354,10 @@ remaining substrate-port work on the daemon side:
 - **Phase C (v1.51.0–v1.52.0)** — CLI dispatch routes ~30 verbs
   through the Unix-socket daemon RPC; the daemon bootstraps an
   admin client into `striatumd.clients` (Postgres) and writes its
-  runtime token to `/run/user/<uid>/striatum/client-token`.
+  runtime token to the platform runtime token path, normally
+  `$XDG_RUNTIME_DIR/striatum/client-token` on Linux when set,
+  `~/.cache/striatum/runtime/client-token` as the Linux fallback, or
+  `~/Library/Caches/striatum/runtime/client-token` on macOS.
 - **V1.5 hardening (v1.55.0)** — capability-denial test matrix
   across the ported handlers (F2), audit-chain row-lock on
   `audit_chain_head` (F3), append-only role-grant tests for
@@ -408,4 +414,4 @@ A ported single-repo RPC verb now flows through:
   — the full RFC including acceptance criteria and the migration
   body.
 - [rfcs/0048-daemon-side-substrate-migration.md](rfcs/0048-daemon-side-substrate-migration.md)
-  — the V2.0 RFC describing the remaining handler-port work.
+  — the RFC that tracked and completed the daemon-side handler port.

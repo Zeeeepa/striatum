@@ -1512,8 +1512,9 @@ include:
   session line — needs a sessions panel addition to
   `dashboard.py`).
 
-**Backend / model support required.** None; the dashboard reads
-the same SQLite views the CLI does.
+**Backend / model support required.** None; the dashboard reads the same
+daemon RPC/introspection payloads as the CLI, backed by daemon-owned
+PostgreSQL.
 
 ### 8.10 Backlog items requiring an RFC
 

@@ -444,7 +444,9 @@ plugin bundles:
   `commands/claim-next.md` is preserved across a re-run; `--force`
   overwrites it; `--dry-run` prints a plan that names the conflict.
 - `striatum init --with-plugins` produces a target tree containing
-  both `.striatum/state.sqlite3` and the requested plugin bundle.
+  `.striatum/` operational scratch plus the requested plugin bundle; it
+  does not create live workflow state in `state.sqlite3` for current
+  production runs.
 - `striatum doctor` reports `plugin_missing` for a target whose
   manifest references a bundle that has been deleted, and
   `plugin_outdated` after the package is upgraded but

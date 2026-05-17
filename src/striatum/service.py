@@ -93,6 +93,7 @@ from striatum.web.job_detail import (
     JobDetailPayloadError as _JobDetailPayloadError,
     job_detail_template_context as _job_detail_template_context,
 )
+from striatum.web import run_posture_verdicts as _run_posture_verdicts
 from striatum.web.run_list import run_list_view_item as _run_list_view_item
 from striatum.web.workflow_generation import (
     generator_error_response as _generator_error_response,
@@ -713,26 +714,23 @@ class StriatumServiceHandler(BaseHTTPRequestHandler):
                         {"ok": False, "error": {"code": exc.code, "message": exc.message}},
                     )
                     return
-            run = payload.get("run")
-            verdicts = payload.get("verdicts")
-            if not isinstance(run, Mapping) or not isinstance(verdicts, list):
+            try:
+                context = (
+                    _run_posture_verdicts.run_posture_verdicts_template_context(
+                        payload,
+                        requested_posture=posture,
+                    )
+                )
+            except _run_posture_verdicts.RunPostureVerdictsPayloadError as exc:
                 self._send_json(
                     500,
                     {
                         "ok": False,
-                        "error": {"code": 500, "message": "daemon posture verdict DTO missing fields"},
+                        "error": {"code": 500, "message": str(exc)},
                     },
                 )
                 return
-            html = _jinja_env().get_template("run_posture_verdicts.html").render(
-                run=dict(run),
-                posture=str(payload.get("posture") or posture),
-                verdicts=[
-                    dict(verdict)
-                    for verdict in verdicts
-                    if isinstance(verdict, Mapping)
-                ],
-            )
+            html = _jinja_env().get_template("run_posture_verdicts.html").render(**context)
             self._send_html(200, html)
         except Exception as exc:  # noqa: BLE001
             self._send_json(500, {"ok": False, "error": {"code": 500, "message": str(exc)}})

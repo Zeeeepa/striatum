@@ -9,22 +9,24 @@ Context:
 [`RFC 0033`](0033-storage-substrate-rewrite-for-daemon-v2.md) (accepted),
 [`docs/DECISION_LOG.md`](../DECISION_LOG.md) (D082, D083, D086),
 [`docs/MCP.md`](../MCP.md),
-[`docs/SPEC.md`](../SPEC.md) § "Registry-Backed Multi-Repo Coordination",
+[`docs/SPEC.md`](../SPEC.md) § "Product Boundary", § "State Store", and
+§ "Workflow Config",
 `src/striatum/mcp.py`
 
 RFC 0032 is the last RFC in the daemon V2 follow-up sequence. It depends on
 RFC 0030 (daemon RPC server) being in place because both cross-repo
 operations and MCP mutation flow over that boundary.
 
-Implementation status: dogfood-035 lands the accepted V2 slice: workflow
+Implementation status: dogfood-035 landed the accepted V2 slice: workflow
 schema validation for `repositories` / per-job `repository`, daemon DB
-migration v3 for cross-repo run metadata, repo-local migration v14 for
-`runs.cross_repo_run_id`, method-registry scope modes, the `recovery`
-capability, daemon MCP `tools/list` filtering and `tools/call`
-re-authorization/audit scaffolding, and mocked lifecycle helpers for
-prepare/start/cancel/reconcile. The real two-repo daemon end-to-end test
-harness and live scheduler progression are explicitly deferred to
-`docs/TODO.md` Open item 19.
+migration v3 for cross-repo run metadata, method-registry scope modes,
+the `recovery` capability, daemon MCP `tools/list` filtering and
+`tools/call` re-authorization/audit scaffolding, and mocked lifecycle
+helpers for prepare/start/cancel/reconcile. Current production run state is
+daemon-owned PostgreSQL under participating repositories' `repository_id`
+scopes; no per-repo SQLite rows are written outside migration fixtures.
+The real two-repo daemon end-to-end test harness and live scheduler
+progression landed in follow-up work after this RFC.
 
 ## Problem
 
@@ -129,10 +131,11 @@ Rules:
   `repository` target the workflow's primary repo (the first entry by
   registration order, or an explicit `primary_repository_id`).
 - Each repo must be registered with the daemon before `run prepare`.
-  `repo add` is unchanged.
-- Each repo's `.striatum/state.sqlite3` records the cross-repo run with
-  a `cross_repo_run_id` and a per-repo `local_run_id`. The daemon DB
-  records the `cross_repo_run_id` as the canonical reference.
+  Day-zero registration is handled by `striatum adopt`, `striatum repo add
+  <path> --init`, or the per-repo migration command.
+- Cross-repo run state is stored in daemon-owned PostgreSQL under the
+  participating repositories' `repository_id` scopes. No per-repo SQLite
+  rows are written; crash recovery reconciles daemon Postgres rows.
 - Write scopes are evaluated per repo: a job's `write_scope.allowed_paths`
   is interpreted relative to that job's target repo.
 - Artifacts are per-repo: a job's `expected_artifacts[].path` is
@@ -146,16 +149,12 @@ Rules:
 Cross-repo runs do not promise distributed transactions. They promise:
 
 - **Daemon-mediated coordination**: all state transitions for the
-  cross-repo run pass through the daemon. The daemon writes one
-  `cross_repo_runs` row in its DB and N local `runs` rows in
-  participating repos' SQLite, all in one daemon transaction that
-  uses two-phase commit semantics within the daemon process (write
-  daemon DB row, then write local SQLite rows, then mark daemon row
-  `started`; rollback on failure).
-- **Best-effort consistency on crash**: if the daemon crashes between
-  daemon-DB write and local-SQLite write, the daemon-DB row is in
-  `preparing` state. Daemon startup reconciles by completing or
-  rolling back; tests assert both branches.
+  cross-repo run pass through the daemon. The daemon writes cross-repo
+  metadata and per-repository run rows into daemon-owned PostgreSQL under
+  the participating `repository_id` scopes in one daemon transaction.
+- **Best-effort consistency on crash**: if the daemon crashes mid-transition,
+  startup reconciliation observes daemon Postgres rows and completes or
+  rolls back the transition; tests assert both branches.
 - **No cross-repo atomic file mutations**: workflows that need
   "two repos must end up consistent" remain the workflow author's
   responsibility. The daemon coordinates ordering and verdicts, not
@@ -204,7 +203,8 @@ recovery     run recovery sweeps and resume blockers
 
 V2 token defaults:
 
-- A new admin token (bootstrapped by `daemon start` or `repo add`)
+- A new admin token (bootstrapped by `daemon start`; repo registration reads
+  the runtime `client-token` file when needed)
   carries `admin` only.
 - A token granted to an MCP client by default carries `read` only. The
   operator must explicitly add `write`, `review`, `claim`, `apply`,
@@ -278,8 +278,8 @@ resolves the run id to either a single-repo or cross-repo run.
   initialized as Striatum repos, both registered with the daemon, one
   cross-repo workflow exercising at least one edge across the
   boundary.
-- Cross-repo restart tests: daemon crashes between daemon-DB and
-  local-SQLite writes; daemon startup reconciles.
+- Cross-repo restart tests: daemon crashes mid-transition; daemon startup
+  reconciles daemon Postgres rows.
 - MCP capability tests: a token with only `read` cannot call a tool
   requiring `write`; the audit row records `denied`.
 - MCP audit tests: every tool call produces an audit row matching the
@@ -342,9 +342,8 @@ resolves the run id to either a single-repo or cross-repo run.
 - A two-repo cross-repo workflow validates, prepares, and runs to
   completion against the daemon RPC. Test asserts artifacts land in
   the correct per-repo paths.
-- The daemon's cross-repo coordination survives a daemon crash
-  between the daemon-DB and local-SQLite writes; restart reconciles
-  to either `started` or `aborted`.
+- The daemon's cross-repo coordination survives a daemon crash during
+  transition; restart reconciles to either `started` or `aborted`.
 - Per-repo write-scope enforcement is preserved: a job targeting
   repo A cannot write into repo B.
 - MCP `tools/list` filters by capability; `tools/call` refuses

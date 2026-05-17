@@ -62,12 +62,9 @@ striatum daemon doctor --apply-migrations
 # Start the daemon in a separate terminal and keep it running.
 striatum daemon start
 
-# Register a target repo and install the operator skill bundle.
+# Adopt/register a target repo and install the operator skill bundle.
 TARGET_REPO=/path/to/your/repo
-striatum --repo "$TARGET_REPO" init \
-  --with-skills claude_code \
-  --with-ddd-layout \
-  --json
+striatum --repo "$TARGET_REPO" adopt --profile claude_code --json
 
 # Drive a workflow. The operator AI does the rest.
 WORKFLOW=examples/code-change-flow/workflow.json

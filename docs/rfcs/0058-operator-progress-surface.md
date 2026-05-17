@@ -51,10 +51,10 @@ The pains:
 3. **No schema.** Of the five surfaces, only `OPERATOR_REPORT.md` carries
    front matter, and that kind isn't in the publisher's allowed-kinds set
    so corpus export (RFC 0044 V1) treats it as untyped.
-4. **No Engram-readiness.** RFC 0041/0044 export the operator corpus, but
-   without per-document `engram_retrieval_priority`, supersedes chains, or
-   stable scope identity, retrieval will rank a 2026-03 handoff equal to
-   the 2026-05 brief that supersedes it.
+4. **No retrieval-readiness.** RFC 0041/0044 export the operator corpus, but
+   without per-document `retrieval_priority`, supersedes chains, or stable
+   scope identity, optional memory/retrieval consumers will rank a 2026-03
+   handoff equal to the 2026-05 brief that supersedes it.
 5. **No closure.** Plans accrete ("V1.5 followup", "deferred to V2") but
    the moment a plan closes there's no canonical "this plan is done, here
    is the final shape" artifact — readers re-derive completion from
@@ -76,10 +76,10 @@ schema, a canonical location, a supersession rule, or a context budget.
   (line cap + bounded link count) so "look here and here and here" is
   structurally impossible.
 - Make every kind **corpus-export-ready** (RFC 0044 V1 already enumerates
-  markdown under `docs/`; we add per-kind metadata so RFC 0041/0044
-  retrieval ranks correctly without a code change).
+  markdown under `docs/`; we add per-kind metadata so optional
+  memory/retrieval consumers can rank correctly without a code change).
 - Specify **supersession semantics** so two briefs cannot both claim to
-  be "current" and an Engram retrieval query can chase the chain.
+  be "current" and a retrieval query can chase the chain.
 - Specify **closure semantics** for plans so a closed plan stays as
   provenance without polluting the active reading set.
 - Preserve `docs/ROADMAP.md` and `docs/TODO.md` as **derived indexes**
@@ -92,8 +92,9 @@ schema, a canonical location, a supersession rule, or a context budget.
 - A daemon-side operator-state store. Markdown files in the target
   repository remain the source of truth (per RFC 0043's product
   boundary — repo files are durable provenance).
-- An Engram dependency. RFC 0041's augmentation-not-dependency rule holds:
-  the operator surface must work with Engram unavailable.
+- A memory/retrieval dependency. RFC 0041's augmentation-not-dependency rule
+  holds: the operator surface must work with every optional retrieval consumer
+  unavailable.
 - Replacing `docs/DECISION_LOG.md`. Decisions stay there; operator state
   references decisions but does not duplicate them.
 - Replacing `docs/dogfood/<NNN>/OPERATOR_REPORT.md`. Those stay as
@@ -143,7 +144,7 @@ scope_links:                                          # ≤ 5 entries; each MUST
   - "docs/operator/plans/rfc-0048-postgres-transition.md"
   - "docs/rfcs/0048-daemon-side-substrate-migration.md"
 context_budget_lines: 300                             # see §3
-engram_retrieval_priority: "high"                    # high | normal | low
+retrieval_priority: "high"                           # high | normal | low
 status: "current"                                     # current | superseded
 ---
 author: operator
@@ -168,7 +169,7 @@ opened_at: "2026-05-13"
 closed_at: null                                       # ISO date when state=closed
 closure_summary: null                                 # required when state=closed; short prose
 supersedes: null                                      # plan_id, when a plan replaces an earlier shape
-engram_retrieval_priority: "normal"                  # high | normal | low
+retrieval_priority: "normal"                         # high | normal | low
 ---
 author: operator
 ```
@@ -187,7 +188,7 @@ note_date: "2026-05-15"
 session_slug: "rfc-0048-go-mutations"
 related_plan: "plan_rfc-0048-postgres-transition"     # plan_id, or null
 related_brief: "brief_2026-05-15_rfc-0048-postgres"   # brief_id, or null
-engram_retrieval_priority: "low"                     # progress notes default low
+retrieval_priority: "low"                            # progress notes default low
 ---
 author: operator
 ```
@@ -252,9 +253,9 @@ markdown to JSONL with redaction. This RFC adds two enumerator changes
 (both small, non-breaking):
 
 - Tag corpus rows from `docs/operator/**` with their `artifact_kind`
-  field from front matter, so an Engram ingester can rank
+  field from front matter, so a retrieval ingester can rank
   `operator_brief` ahead of `progress_note`.
-- Emit `engram_retrieval_priority` and `supersedes` as first-class JSONL
+- Emit `retrieval_priority` and `supersedes` as first-class JSONL
   columns when present, so retrieval ranking has stable keys without
   parsing markdown.
 
@@ -264,7 +265,7 @@ declared fields when V2 lands.
 
 The augmentation-not-dependency rule (RFC 0041) is preserved: nothing
 in `docs/operator/` is read by the daemon at runtime. Briefs and plans
-are read by humans and (future) Engram-backed operators only.
+are read by humans and future retrieval-backed operators only.
 
 ### 6. Supersession + closure semantics
 
@@ -418,8 +419,8 @@ V1 lands when:
 3. `docs/operator/BRIEF.md` is the latest-state authority; its
    `scope_links` ≤ 5 entries; its body ≤ `context_budget_lines`.
 4. `src/striatum/corpus/enumerator.py` emits `artifact_kind`,
-   `engram_retrieval_priority`, and `supersedes` as JSONL columns when
-   the source markdown has them.
+   `retrieval_priority`, and `supersedes` as JSONL columns when the source
+   markdown has them.
 5. `docs/handoffs/README.md` exists and redirects to
    `docs/operator/BRIEF.md`.
 6. `docs/INDEX.md` references `docs/operator/INDEX.md`.
@@ -446,17 +447,18 @@ V1 lands when:
    shape produces information loss.
 2. **Should `work_plan` be promoted to a daemon-tracked aggregate?** A
    plan with `state` and `closed_at` looks aggregate-shaped (RFC 0019
-   DDD framing). V1 keeps it as markdown; if Engram-backed retrieval
-   needs structured queries, a future RFC can mirror plan state into
+   DDD framing). V1 keeps it as markdown; if retrieval-backed operators
+   need structured queries, a future RFC can mirror plan state into
    `striatumd.work_plans` without changing the markdown contract.
 3. **`progress_note` cardinality.** One per session-day is the V1 rule.
    Long sessions that span midnight UTC will fragment notes; long
    sessions inside a single calendar day will accrete. Either is a
    minor irritation; revisit after one dogfood's lived experience.
 4. **Retention.** Should `docs/operator/progress/` be pruned (e.g. keep
-   only the last 30 days in-tree, archive the rest)? V1 keeps everything
-   — the corpus is small and provenance is cheap. Defer pruning until
-   the directory exceeds 1000 files.
+   only the last 30 days in-tree, export the rest)? V1 keeps these
+   provenance files in-tree; pruning/export policy is deferred until an
+   explicit corpus/archive decision or until the directory exceeds 1000
+   files.
 5. **`scope_links` to plans only vs. plans + RFCs + decision rows?** V1
    allows plans + RFC paths. Adding decision-log anchor links (`#D094`)
    is tempting but creates anchor-rot risk; defer.
@@ -496,7 +498,7 @@ Per [`docs/DDD.md § "Adding to the model"`](../DDD.md#adding-to-the-model):
 - `supersedes` introduces a **directed-acyclic link** between briefs
   (and optionally between plans); this is a relation between artifacts,
   not a new aggregate. The chain is walked by readers (humans, future
-  Engram retrieval), not by the daemon.
+  retrieval consumers), not by the daemon.
 - No new boundary, no new aggregate, no new event type. Domain events
   (`artifact.published`) already cover the publication path; nothing
   about brief supersession needs runtime modeling.

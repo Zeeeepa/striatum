@@ -230,7 +230,8 @@ The command's behavior:
    what it did.
 3. Verifies the on-disk `.striatum/state.sqlite3` schema version is
    the highest the runner supports. If not, refuses and points the
-   operator at `striatum migrate` to bring the SQLite forward first.
+   operator at an older Striatum release that can bring the legacy SQLite
+   source forward first.
    Migration across both substrates simultaneously is not supported
    in this command.
 4. With `--dry-run`: enumerates row counts per table, hash anchors

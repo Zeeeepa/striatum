@@ -37,16 +37,18 @@ Accepted foundation:
   deterministic commands and does not synthesize major artifacts, write source
   patches, bypass gates, or replace reviewer judgment unless assigned an
   explicit workflow job.
-- D006: Use SQLite as the v1 live coordination layer and state store, with CLI
-  as the first interface. Repo files remain durable artifacts, not the live
-  message bus.
-- D007: Store v1 run state inside the target repo under `.striatum/`,
-  ignored by default.
-- D008: Model SQLite as both append-only event log and lightweight local
-  message queue.
-- D009: Agents update orchestration state through the `striatum` binary/CLI.
-  The binary owns SQLite writes and invariants. MCP is optional adapter surface,
-  not the core contract.
+- D006: Superseded by D094/D104 for production runtime. V1 used SQLite as
+  the live coordination layer; current live coordination is daemon-owned
+  PostgreSQL. Repo files remain durable artifacts, not the live message bus.
+- D007: Superseded by D094/D104 for production runtime. V1 stored run state
+  inside the target repo under `.striatum/`; current `.striatum/` usage is
+  operational scratch and migration context only.
+- D008: Superseded by D094/D104 for production runtime. V1 modelled SQLite
+  as event log and local queue; current live events and queues are daemon
+  Postgres rows.
+- D009: Superseded by D094/D104 for production runtime where it names SQLite.
+  Agents still update orchestration state through the `striatum` CLI/MCP/web
+  surfaces, which are daemon clients over the same invariants.
 - D010: Agents identify themselves through registered sessions before claiming
   work. Work packets are selected by role, lane, capabilities, run, and
   workflow state.
