@@ -4161,17 +4161,11 @@ def _ensure_loopback(host: str) -> None:
 
 
 def _verify_state_health(repo: Path) -> None:
-    """GH #21: refuse to start serve over a corrupted state.sqlite3.
+    """Legacy-harness SQLite startup check.
 
-    Previously a hard SIGKILL on the previous serve could leave WAL in a
-    state that SQLite recovers by truncating to the last checkpoint —
-    observed 3 times in one session as a state.sqlite3 shrinking from
-    MB-scale to KB-scale, losing the active dogfood's run rows.
-
-    This check runs PRAGMA integrity_check + PRAGMA wal_checkpoint(TRUNCATE)
-    BEFORE the service binds. Failures raise ServiceConfigError so the
-    operator sees the corruption immediately and can quarantine the file
-    before the new serve writes over it.
+    GH #21's corrupted-state guard is still useful for subprocess fixtures
+    that intentionally exercise the old repo-local SQLite path. Production
+    service startup checks daemon/repository health instead.
     """
     import sqlite3 as _sqlite3
     from striatum.db import db_path
@@ -4203,6 +4197,20 @@ def _verify_state_health(repo: Path) -> None:
         conn.close()
 
 
+def _verify_service_startup(repo: Path) -> None:
+    if _legacy_web_read_fallback_enabled("daemon_unreachable"):
+        _verify_state_health(repo)
+        return
+    from striatum.service_daemon import ServiceDaemonRpcError, call_repo_method
+
+    try:
+        call_repo_method(repo, "doctor", {"verbose": False})
+    except ServiceDaemonRpcError as exc:
+        raise ServiceConfigError(
+            f"refusing to start serve: daemon doctor failed with {exc.code}: {exc.message}"
+        ) from exc
+
+
 def _run_tcp(
     *,
     repo: Path,
@@ -4216,7 +4224,7 @@ def _run_tcp(
     _ensure_loopback(host)
     pid_path = repo / ".striatum" / "service.pid"
     _check_single_instance(pid_path)
-    _verify_state_health(repo)
+    _verify_service_startup(repo)
     state = ServiceState(
         repo=repo,
         allow_mutations=allow_mutations,
@@ -4250,7 +4258,7 @@ def _run_unix(
     idle_timeout_seconds: int | None,
     web_enabled: bool,
 ) -> JsonObject:
-    _verify_state_health(repo)
+    _verify_service_startup(repo)
     socket_path = Path(unix_path)
     if socket_path.exists():
         try:

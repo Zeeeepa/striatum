@@ -360,10 +360,12 @@ daemon-first without needing to support two domain daemons.
 - `/v1/invoke` now derives daemon-routed read classification from
   `METHOD_REGISTRY.required_capability`; only CLI-local workflow authoring
   reads remain in an explicit service-side allowlist.
+- Production service startup now verifies daemon/repository health through
+  daemon `doctor` before binding. The old SQLite integrity check remains
+  only for subprocess fixtures running under the legacy test-harness escape.
 
 **Remaining Phase 4 debt:** run-now still has multi-step SQLite transaction
-semantics; run detail, job detail, SSE, and startup health checks still need
-daemon DTOs.
+semantics; run detail, job detail, and SSE still need daemon DTOs.
 
 ---
 

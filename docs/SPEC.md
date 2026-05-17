@@ -1151,6 +1151,10 @@ The daemon-backed read endpoints above retain legacy CLI invoke fallback only
 for subprocess compatibility tests (`STRIATUM_TEST_HARNESS=1` and
 `STRIATUM_DAEMON_REQUIRED=0`); production service reads fail closed when the
 daemon or repository registration is unavailable.
+Production service startup also calls daemon `doctor` before binding, so a
+missing daemon or unregistered repository is reported before the HTTP/Unix
+socket listener starts. The historical SQLite integrity check is retained
+only for subprocess compatibility tests using the legacy fallback mode.
 
 Auth: Unix sockets bind `0o600` (filesystem permissions are the
 boundary); HTTP loopback supports an optional `--token` validated by

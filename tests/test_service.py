@@ -1182,6 +1182,68 @@ def test_serve_refuses_non_loopback_host(tmp_path: Path) -> None:
     assert "non-loopback" in (proc.stderr + proc.stdout)
 
 
+def test_service_startup_checks_daemon_doctor_without_sqlite(
+    tmp_path: Path, monkeypatch: Any
+) -> None:
+    sys.path.insert(0, str(ROOT / "src"))
+    try:
+        import striatum.service as service
+        import striatum.service_daemon as service_daemon
+    finally:
+        sys.path.pop(0)
+
+    calls: list[tuple[Path, str, dict[str, Any]]] = []
+
+    def sqlite_tripwire(*args: Any, **kwargs: Any) -> None:
+        raise AssertionError("production service startup opened repo-local SQLite")
+
+    def fake_call_repo_method(
+        repo: Path, method: str, params: dict[str, Any]
+    ) -> dict[str, Any]:
+        calls.append((repo, method, dict(params)))
+        return {"ok": True}
+
+    monkeypatch.delenv("STRIATUM_TEST_HARNESS", raising=False)
+    monkeypatch.delenv("STRIATUM_DAEMON_REQUIRED", raising=False)
+    monkeypatch.setattr("striatum.service.sqlite3.connect", sqlite_tripwire)
+    monkeypatch.setattr(service_daemon, "call_repo_method", fake_call_repo_method)
+
+    service._verify_service_startup(tmp_path)
+
+    assert calls == [(tmp_path, "doctor", {"verbose": False})]
+
+
+def test_service_startup_refuses_when_daemon_doctor_fails(
+    tmp_path: Path, monkeypatch: Any
+) -> None:
+    sys.path.insert(0, str(ROOT / "src"))
+    try:
+        import striatum.service as service
+        import striatum.service_daemon as service_daemon
+    finally:
+        sys.path.pop(0)
+
+    def fake_call_repo_method(
+        repo: Path, method: str, params: dict[str, Any]
+    ) -> dict[str, Any]:
+        raise service_daemon.ServiceDaemonRpcError(
+            503,
+            "daemon_unreachable",
+            "daemon_unreachable: doctor requires the Striatum daemon",
+        )
+
+    monkeypatch.delenv("STRIATUM_TEST_HARNESS", raising=False)
+    monkeypatch.delenv("STRIATUM_DAEMON_REQUIRED", raising=False)
+    monkeypatch.setattr(service_daemon, "call_repo_method", fake_call_repo_method)
+
+    try:
+        service._verify_service_startup(tmp_path)
+    except service.ServiceConfigError as exc:
+        assert "daemon doctor failed with daemon_unreachable" in str(exc)
+    else:
+        raise AssertionError("startup should refuse when daemon doctor fails")
+
+
 # ----- 8. Token auth -------------------------------------------------------
 
 

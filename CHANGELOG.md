@@ -33,7 +33,10 @@ in the roadmap/TODO and has several production slices landed:
   only for the subprocess test-harness escape. The `/v1/invoke`
   mutation gate now classifies daemon-routed commands from
   `METHOD_REGISTRY.required_capability`, with only CLI-local workflow
-  authoring reads kept in an explicit service list.
+  authoring reads kept in an explicit service list. Production service
+  startup now checks daemon/repository health through daemon `doctor` before
+  binding; the old SQLite integrity check is limited to the subprocess
+  compatibility harness.
 - **Escalation inbox foundation.**
   `escalation.list`, `escalation.show`, and `escalation.resolve` project
   human-principal escalations from blocker state. The `escalation` artifact
