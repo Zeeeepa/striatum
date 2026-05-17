@@ -155,6 +155,10 @@ Recent checkpoints:
   repository visibility, status, doctor, blocker, run, why, dashboard, and
   stale-lease projections whenever a daemon PostgreSQL connection is present;
   regression coverage runs those paths with the SQLite registry tripwire on.
+- `striatum daemon audit` now reads and authorizes against PostgreSQL when a
+  daemon DB is configured, keeps the legacy audit output field names for CLI
+  compatibility, and has SQLite-registry tripwire coverage for direct and
+  dispatcher paths.
 - `supervise.status`, `doctor`, and `status` now surface stalled attached
   supervisors, and recovery sweep opens
   `heartbeat_stall_lease_expired` blockers when stalled leases expire.

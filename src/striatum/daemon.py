@@ -2028,6 +2028,20 @@ def _upsert_pg_scheduler_cursor(
 
 
 def daemon_audit(limit: int = 100) -> dict[str, Any]:
+    if _pg_connection_configured():
+        from striatum.daemon_pg.connection import connect_and_migrate
+
+        pg_conn = connect_and_migrate()
+        try:
+            _bootstrap_pg_admin_if_needed(pg_conn)
+            try:
+                pg_conn.commit()
+            except Exception:  # noqa: BLE001 - autocommit connections do not need an explicit commit.
+                pass
+            return daemon_audit_pg(pg_conn, limit=limit, token=read_runtime_token())
+        finally:
+            pg_conn.close()
+
     conn = connect_registry()
     token = read_runtime_token()
     with registry_transaction(conn):
@@ -2045,6 +2059,45 @@ def daemon_audit(limit: int = 100) -> dict[str, Any]:
             (limit,),
         ).fetchall()
         return {"mode": "daemon", "audit": [dict(row) for row in rows]}
+
+
+def daemon_audit_pg(pg_conn: Any, *, limit: int = 100, token: str | None = None) -> dict[str, Any]:
+    token = read_runtime_token() if token is None else token
+    _require_pg_auth(
+        pg_conn,
+        command="daemon.audit",
+        required=ADMIN_CAPABILITY,
+        token=token,
+        payload={"limit": limit},
+    )
+    with _pg_dict_cursor(pg_conn) as cur:
+        cur.execute(
+            """
+            SELECT audit_id,
+                   ts AS timestamp,
+                   client_id,
+                   repository_id,
+                   method AS command,
+                   decision AS authorization_result,
+                   denial_reason,
+                   transport,
+                   request_id,
+                   exit_code,
+                   params_sha256 AS payload_sha256,
+                   previous_hash,
+                   row_hash,
+                   segment_id,
+                   schema_version,
+                   hash_format_version,
+                   daemon_version
+            FROM striatumd.audit_log
+            ORDER BY audit_id DESC
+            LIMIT %s
+            """,
+            (limit,),
+        )
+        rows = cur.fetchall()
+    return {"mode": "daemon", "audit": [_pg_json_ready(_pg_row_dict(row)) for row in rows]}
 
 
 def health() -> dict[str, Any]:
