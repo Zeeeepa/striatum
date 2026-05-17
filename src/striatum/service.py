@@ -19,7 +19,6 @@ import socketserver
 import threading
 import time
 import uuid
-from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from typing import Any, Mapping
@@ -42,6 +41,11 @@ from striatum.service_http import (
 from striatum.service_sse import (
     encode_sse_event as _encode_sse_event,
     sse_since as _sse_since,
+)
+from striatum.service_state import (
+    SSE_MAX_CONCURRENT_PER_RUN as SSE_MAX_CONCURRENT_PER_RUN,
+    ServiceState as ServiceState,
+    utcnow_iso as utcnow_iso,
 )
 from striatum.web.doctor import shape_doctor_records as _shape_doctor_records
 from striatum.web import chat_session as _chat_session
@@ -67,12 +71,7 @@ from striatum.web.artifacts import (
     inline_artifact_body as _inline_artifact_body,
     resolve_artifact_file as _resolve_artifact_file,
 )
-from striatum.web.run_list import (
-    git_config_get as _git_config_get,
-    git_symbolic_ref as _git_symbolic_ref,
-    parse_github_remote as _parse_github_remote,
-    run_list_view_item as _run_list_view_item,
-)
+from striatum.web.run_list import run_list_view_item as _run_list_view_item
 
 JsonObject = dict[str, Any]
 _project_history_anthropic = _chat_session.project_history_anthropic
@@ -127,7 +126,6 @@ _send_legacy_run_now_error = _LazyLegacyCallable("send_legacy_run_now_error")
 _short_git_status = _LazyLegacyCallable("short_git_status")
 
 SSE_POLL_INTERVAL_SECONDS = 0.25
-SSE_MAX_CONCURRENT_PER_RUN = 32
 
 
 def _handler_send_json(handler: BaseHTTPRequestHandler, status: int, body: Mapping[str, Any]) -> None:
@@ -188,78 +186,6 @@ def _jinja_env_factory() -> Any:
         )
 
     return _build()
-
-def utcnow_iso() -> str:
-    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
-
-
-class ServiceState:
-    """Shared service state.
-
-    Owns the repo path, mutation flag, optional token, the started_at
-    timestamp, and the per-run SSE counter (for the cap of 32 concurrent
-    streams per run).
-    """
-
-    def __init__(
-        self,
-        *,
-        repo: Path,
-        allow_mutations: bool,
-        token: str | None,
-        web_enabled: bool,
-    ) -> None:
-        self.repo = repo
-        self.allow_mutations = allow_mutations
-        self.token = token
-        self.web_enabled = web_enabled
-        self.origin_check_enabled = False
-        self.allowed_origins: set[OriginTuple] = set()
-        self.started_at = utcnow_iso()
-        self._sse_counts: dict[str, int] = {}
-        self._sse_lock = threading.Lock()
-        self._shutdown = threading.Event()
-        self._github_base_url: str | None | bool = False
-        self._default_branch: str | None = None
-        # GH #10: process-local HMAC secret for binding rendered job
-        # pages to override-verdict POSTs. Rotated on every service
-        # restart; tokens become invalid after restart, which is
-        # acceptable because the page must be reloaded after restart.
-        self.web_context_secret = secrets.token_bytes(32)
-
-    def github_base_url(self) -> str | None:
-        if self._github_base_url is False:
-            self._github_base_url = _parse_github_remote(_git_config_get(self.repo, "remote.origin.url"))
-        return self._github_base_url if isinstance(self._github_base_url, str) else None
-
-    def default_branch(self) -> str:
-        if self._default_branch is None:
-            remote_head = _git_symbolic_ref(self.repo, "refs/remotes/origin/HEAD")
-            if remote_head and "/" in remote_head:
-                self._default_branch = remote_head.rsplit("/", 1)[1]
-            else:
-                local_head = _git_symbolic_ref(self.repo, "HEAD")
-                self._default_branch = local_head or "main"
-        return self._default_branch
-
-    def acquire_sse_slot(self, run_id: str) -> bool:
-        with self._sse_lock:
-            current = self._sse_counts.get(run_id, 0)
-            if current >= SSE_MAX_CONCURRENT_PER_RUN:
-                return False
-            self._sse_counts[run_id] = current + 1
-        return True
-
-    def release_sse_slot(self, run_id: str) -> None:
-        with self._sse_lock:
-            self._sse_counts[run_id] = max(0, self._sse_counts.get(run_id, 1) - 1)
-
-    @property
-    def shutting_down(self) -> bool:
-        return self._shutdown.is_set()
-
-    def signal_shutdown(self) -> None:
-        self._shutdown.set()
 
 
 class StriatumServiceHandler(BaseHTTPRequestHandler):

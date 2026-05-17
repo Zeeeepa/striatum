@@ -13,27 +13,38 @@ dependency edges, and "what would I do next" framing. Update on every
 
 ---
 
-## 1. State as of 2026-05-14 (v1.48.2)
+## 1. State as of 2026-05-17 (v1.55.0 + Unreleased remediation)
 
-- **Latest commit:** `f8afacd` on `main`. Tag `v1.48.2` pushed.
-- **Latest substantive release:** v1.48.0 (RFC 0050 V2 + RFC 0051 draft).
-- **CI:** in flight on `f8afacd` after 298 consecutive red runs since
-  2026-05-08. Two root causes fixed in v1.48.2: Python typecheck
-  (16 mypy errors across 7 files) and Go matrix version pin (1.22 →
-  1.23 to match `go/go.mod`). Verify with `gh run list --workflow CI --limit 1`.
-- **Last successful CI:** commit `2c7237d` (6 days ago).
-- **Active dogfoods:** none (056 completed; v1.48.0/1/2 are mop-up commits).
-- **Branches:** only `main` survives; orphan branches cleaned in this session.
+- **Latest tag:** `v1.55.0` is the latest released tag and
+  `pyproject.toml` version. Current `main` also contains Unreleased
+  architecture-remediation follow-through from 2026-05-17.
+- **Latest substantive release:** v1.55.0 completed RFC 0048 V1.5 hardening,
+  Schema v6 event-chain columns, capability-denial coverage, audit-chain row
+  locking, append-only role-grant checks, and the inline helper wiring needed
+  by recovery paths.
+- **Current workstream:** TODO 49-60 / RFC 0059-0067 architecture remediation.
+  Phase 4 daemon-first web-service cleanup remains the active implementation
+  runway; Phases 7, 8, and 12 have explicit product-decision blockers.
+- **CI:** GitHub Actions has been backlogged during the 2026-05-17
+  remediation commits. Treat latest-head CI failures as stop-the-line; queued
+  and in-progress older runs are not by themselves blockers.
+- **Active dogfoods:** none tracked as live in this roadmap. The current
+  operator work is direct remediation/backlog execution, with dogfood-shaped
+  coverage added where behavior changes.
+- **Branches:** `main` is the active integration branch.
 
 ## 2. Just shipped (this week)
 
 | Version | Scope | Notes |
 |---:|---|---|
-| v1.46.0 | RFC 0050 V1 (dogfood-054 + 054b) | UI primitives + dashboard parity + 4-finding provenance fix-up. |
-| v1.47.0 | RFC 0050 V1.5 (dogfood-055 + 055b) | Template extensions + 3-finding provenance fix-up. |
-| v1.48.0 | RFC 0050 V2 (dogfood-056) + RFC 0051 (draft) | Recovery panel island + override modal + copy-on-click + graph-editor data binding. |
-| v1.48.1 | claude/gemini wrapper auth fix | `claude --print --permission-mode acceptEdits --allowedTools "Bash"`; gemini `--approval-mode yolo`. Closes the 10+ instance permission-prompt no-publish pattern at its root. |
-| v1.48.2 | CI green | Python typecheck + Go version pin. |
+| v1.49.0 | RFC 0048 Phase A | Python PG-backed mutation handlers and router groundwork. |
+| v1.50.0 | RFC 0048 V1.5 daemon accept loop | Unix-socket daemon RPC serving, role-provisioning runbook, and shutdown hygiene. |
+| v1.51.0 | RFC 0048 Phase C dispatch | CLI verbs route through daemon RPC with fail-closed substrate plumbing. |
+| v1.52.0 | RFC 0048 Phase C reads | Read-surface PG handlers for status/dashboard/list/run-summary/evidence/corpus paths. |
+| v1.53.0 | Recovery and serve hardening | `requeue-stale --force --justification`, corrupted-state serve refusal, and `daemon doctor --explain`. |
+| v1.54.0 | RFC 0048 Phase B read parity | Go read handlers plus Python PG-side stale-requeue message parity. |
+| v1.55.0 | RFC 0048 V1.5 hardening + Schema v6 | Capability-denial matrix, audit-chain row lock, append-only grants, event-chain columns, and recovery inline-helper wiring. |
+| Unreleased 2026-05-17 | Architecture remediation follow-through | Command authority guardrails, daemon-first web-service slices, escalation inbox foundation, PTY supervision hardening, and explicit product-decision blockers. |
 
 ## 3. Operator decision rules — read this before doing any work
 
@@ -113,8 +124,9 @@ known to sometimes regenerate the wrappers.
 - **codex/codex co-blindness** (5+ instances, D095-D098, D100):
   implementer and a reviewer are both codex; reviewer findings cluster
   around the implementer's blind spots, producing `needs_revision`
-  verdicts that 2-of-3 cross-lane majority overrides. TODO item 26
-  proposes a validator rule.
+  verdicts that 2-of-3 cross-lane majority overrides. `workflow validate`
+  now refuses same-model review-pair and revision-cycle lint findings by
+  default; `--allow-same-model-pairing` is the explicit operator override.
 - **packet-design gap** (observed dogfood-055b/056): fix-up review packets
   inherit the parent's `context.docs` and don't include the fix-up's
   HANDOFF + source diff. The reviewer correctly refuses on missing
@@ -177,36 +189,20 @@ HIGH#1/#2 + chain-migration items as a fix-up dogfood. Historical RFC 0048
 Phase B parity work was transition scaffolding; D105 now makes Python the
 primary production daemon core and redirects Go work to a narrow helper role.
 
-### 4.2 Dogfood-058: RFC 0051 V1 implementation (auto-finalize from frontmatter)
+### 4.2 🟡 landed bounded slice — RFC 0051 V1 auto-finalize from front matter
 
-**Closes:** RFC 0051 (this is its V1 landing).
+**Updates:** [TODO item 56](TODO.md).
 
-**Why next:** RFC 0051 is the operational complement to v1.48.1. The wrapper
-fix prevents permission-prompt no-publish stalls at that cause;
-auto-finalize is the safety net for genuinely-crashed agents that still
-wrote a valid artifact. Both
-mechanisms together collapse the operator-on-behalf burden by ~80%.
+The bounded daemon slice has landed: `recovery.auto_finalize` supports dry-run
+and workflow-opt-in live mode, records explicit `artifact.auto_finalized` and
+`job.auto_finalized` events, projects eligibility/refusal state through status,
+dashboard, and web surfaces, and leaves malformed/missing/byline-mismatched
+artifacts on the existing operator recovery path.
 
-**Scope:**
-- New event types `artifact.auto_finalized` and `job.auto_finalized`.
-- Daemon-owned recovery reconciliation: check declared `expected_artifacts[].path`
-  exists, parse, validate frontmatter, byline matches `expected_author_line`,
-  file mtime older than 10 seconds (anti-race).
-- Auto-finalize sequence: publish-artifact → record verdict (from
-  `verdict_intent` for findings) → complete job. Atomic per session.
-- Refusal cases preserved: malformed frontmatter, byline mismatch,
-  missing required artifact — all fall through to existing lane-stall
-  behavior with operator-override available.
-- V1 live mode is gated by workflow `recovery.auto_finalize.enabled=true`
-  or an explicit operator `--force`; default-on policy waits for dogfood
-  confidence.
-
-**Deliverables:**
-- `recovery.auto_finalize` dry-run/live daemon method.
-- Follow-up daemon sweep/dashboard/web visibility.
-- 4 regression tests (see RFC 0051 §Acceptance).
-- One end-to-end dogfood with **zero** operator-on-behalf publishes on
-  jobs whose agents wrote valid artifacts (the success criterion).
+**Current boundary:** global/default auto-finalize is intentionally not
+enabled. That policy waits on live dogfood confidence plus an explicit product
+decision about when Striatum may complete work from durable artifacts without
+per-workflow opt-in.
 
 ### 4.3 ✅ completed — TODO #30 / RFC 0039 V1.6 Go helper/runtime hardening
 
@@ -426,6 +422,9 @@ daemon-first without needing to support two domain daemons.
   run-breadcrumb fallback injection.
 - `src/striatum/service_sse.py` now owns SSE replay offset parsing and event
   framing. `service.py` keeps daemon polling and stream-loop control.
+- `src/striatum/service_state.py` now owns process-local service state,
+  GitHub remote/default-branch caching, shutdown signaling, web-context secret
+  generation, and per-run SSE slot accounting.
 
 **Remaining Phase 4 debt:** continue splitting `service.py` along stable
 non-SQLite request-handling and rendering boundaries after the daemon-routed
@@ -854,8 +853,8 @@ Release order after Phase 0:
 1. **TODO 49 / Phase 1:** production daemon fallback is closed; remaining
    legacy SQLite quarantine belongs with service/adapter cleanup.
 2. **TODO 50 / Phase 2:** contract source plus Python/Go registry
-   generation, generated MCP descriptors, and generated docs tables landed;
-   remaining work is generated/declarative runtime CLI route translation.
+   generation, generated MCP descriptors, generated docs tables, and
+   declarative runtime CLI route translation landed.
 3. **TODO 51 / Phase 3:** decide the daemon core strategy and record it
    in `docs/DECISION_LOG.md`.
 4. **TODO 52 / Phase 4:** make the web service a daemon client rather

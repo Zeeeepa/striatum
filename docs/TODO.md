@@ -249,8 +249,12 @@ Legend: ✅ done · 🟡 most done (sub-tasks remain) · ⏳ open/blocked · �
    heartbeat/progress is stale, including `liveness: "stalled"` status,
    `doctor`/`status` read-model warnings, and
    `heartbeat_stall_lease_expired` blockers when the lease expires without
-   auto-killing the OS process. **Remaining:** broader helper integration
-   coverage.
+   auto-killing the OS process. Follow-up PG/helper integration coverage now
+   launches the real Go helper and verifies start, send, acknowledgement,
+   status drain, and agent-exit event ingestion across the Python/Go boundary;
+   wrapper fixtures cover Claude, Codex, and Gemini. **Remaining:** no known
+   Phase 6 supervision coverage debt; future adapter work belongs to new
+   transport or sandbox/worktree adapter decisions.
 
 2. **Adapter constraint enforcement.** Workflow validation supports lane
    `required_enforcement` and rejects lanes whose adapters cannot satisfy it
@@ -919,7 +923,10 @@ review and plan are root-level operator artifacts:
     Markdown rendering, while `service.py` keeps route/template handling and
     legacy run-breadcrumb injection. Follow-up split landed:
     `service_sse.py` owns SSE replay offset parsing and event framing while
-    `service.py` keeps daemon polling and stream-loop control.
+    `service.py` keeps daemon polling and stream-loop control. Follow-up split
+    landed: `service_state.py` owns process-local service state, GitHub
+    remote/default-branch caching, shutdown signaling, web-context secret
+    generation, and per-run SSE slot accounting.
     Remaining: continue splitting `service.py` along stable non-SQLite
     request-handling and rendering boundaries.
 

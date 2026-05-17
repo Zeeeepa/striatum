@@ -70,6 +70,12 @@ Recent checkpoints:
 - SSE replay offset parsing and event framing moved from `service.py` into
   `striatum.service_sse`, keeping the stream loop and daemon polling in the
   service handler.
+- Local service process state, GitHub remote/default-branch caching,
+  shutdown signaling, web-context secret generation, and per-run SSE slot
+  accounting moved from `service.py` into `striatum.service_state`.
+- Roadmap kickoff status and remediation sequencing notes were refreshed to
+  match the post-v1.55.0 daemon-first architecture work and the current
+  blocked-policy boundaries.
 
 - **Command authority and fallback guardrails.**
   `docs/architecture/COMMAND_AUTHORITY_MATRIX.md` now names the authority
@@ -144,7 +150,8 @@ Recent checkpoints:
   Repository file-view path validation and content payload shaping now live in
   `striatum.web.view_file`; `service.py` keeps route-level rendering and the
   legacy run-breadcrumb fallback injection. SSE replay offset parsing and event
-  framing now live in `striatum.service_sse`.
+  framing now live in `striatum.service_sse`. Local service process state and
+  per-run SSE slot accounting now live in `striatum.service_state`.
 - **Escalation inbox foundation.**
   `escalation.list`, `escalation.show`, and `escalation.resolve` project
   human-principal escalations from blocker state. The `escalation` artifact
