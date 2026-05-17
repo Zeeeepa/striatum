@@ -39,6 +39,10 @@ from striatum.service_http import (
     tokens_match as tokens_match,
     verify_web_context_token as verify_web_context_token,
 )
+from striatum.service_sse import (
+    encode_sse_event as _encode_sse_event,
+    sse_since as _sse_since,
+)
 from striatum.web.doctor import shape_doctor_records as _shape_doctor_records
 from striatum.web import chat_session as _chat_session
 from striatum.web.chat_session import (
@@ -2068,20 +2072,7 @@ class StriatumServiceHandler(BaseHTTPRequestHandler):
     # --- SSE -----------------------------------------------------------
 
     def _sse_since(self, query: dict[str, list[str]]) -> int:
-        # ``Last-Event-ID`` header takes precedence per the synthesis.
-        header = self.headers.get("Last-Event-ID")
-        if header:
-            try:
-                return max(0, int(header))
-            except ValueError:
-                pass
-        raw = query.get("since", [None])[0]
-        if raw:
-            try:
-                return max(0, int(raw))
-            except ValueError:
-                return 0
-        return 0
+        return _sse_since(dict(self.headers.items()), query)
 
     def _stream_events(self, run_id: str, *, since: int) -> None:
         if not self.state.acquire_sse_slot(run_id):
@@ -2167,12 +2158,7 @@ class StriatumServiceHandler(BaseHTTPRequestHandler):
             return
 
     def _write_sse_event(self, event: str, event_id: int, payload: JsonObject) -> None:
-        body = (
-            f"event: {event}\n"
-            f"id: {event_id}\n"
-            f"data: {json.dumps(payload)}\n\n"
-        )
-        self.wfile.write(body.encode("utf-8"))
+        self.wfile.write(_encode_sse_event(event, event_id, payload))
         self.wfile.flush()
 
     # --- request helpers ----------------------------------------------

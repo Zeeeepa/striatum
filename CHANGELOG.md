@@ -67,6 +67,9 @@ Recent checkpoints:
   text/Markdown payload shaping, and inline Markdown rendering moved from
   `service.py` into `striatum.web.view_file`; the service keeps the route,
   template rendering, and legacy breadcrumb injection.
+- SSE replay offset parsing and event framing moved from `service.py` into
+  `striatum.service_sse`, keeping the stream loop and daemon polling in the
+  service handler.
 
 - **Command authority and fallback guardrails.**
   `docs/architecture/COMMAND_AUTHORITY_MATRIX.md` now names the authority
@@ -140,7 +143,8 @@ Recent checkpoints:
   keeping the service route focused on request validation and dispatch.
   Repository file-view path validation and content payload shaping now live in
   `striatum.web.view_file`; `service.py` keeps route-level rendering and the
-  legacy run-breadcrumb fallback injection.
+  legacy run-breadcrumb fallback injection. SSE replay offset parsing and event
+  framing now live in `striatum.service_sse`.
 - **Escalation inbox foundation.**
   `escalation.list`, `escalation.show`, and `escalation.resolve` project
   human-principal escalations from blocker state. The `escalation` artifact

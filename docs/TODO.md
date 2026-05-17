@@ -917,7 +917,9 @@ review and plan are root-level operator artifacts:
     Follow-up split landed: `web/view_file.py` owns repository file-view path
     validation, binary detection, text/Markdown payload shaping, and inline
     Markdown rendering, while `service.py` keeps route/template handling and
-    legacy run-breadcrumb injection.
+    legacy run-breadcrumb injection. Follow-up split landed:
+    `service_sse.py` owns SSE replay offset parsing and event framing while
+    `service.py` keeps daemon polling and stream-loop control.
     Remaining: continue splitting `service.py` along stable non-SQLite
     request-handling and rendering boundaries.
 

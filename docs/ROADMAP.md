@@ -424,6 +424,8 @@ daemon-first without needing to support two domain daemons.
   validation, binary detection, text/Markdown payload shaping, and inline
   Markdown rendering. `service.py` keeps route-level rendering and legacy
   run-breadcrumb fallback injection.
+- `src/striatum/service_sse.py` now owns SSE replay offset parsing and event
+  framing. `service.py` keeps daemon polling and stream-loop control.
 
 **Remaining Phase 4 debt:** continue splitting `service.py` along stable
 non-SQLite request-handling and rendering boundaries after the daemon-routed
