@@ -1249,7 +1249,8 @@ review and plan are root-level operator artifacts:
     runs. Daemon MCP resource list/read now use PostgreSQL-backed repository
     visibility plus status/doctor/run/why/blocker/dashboard/stale-lease
     projections when `pg_conn` is present, with SQLite-registry tripwire
-    coverage. `striatum daemon health`, `striatum daemon audit`, and
+    coverage. `striatum daemon status`, `striatum daemon stop`,
+    `striatum daemon health`, `striatum daemon audit`, and
     daemon-global/repo-scoped `read_doctor` now read from and audit to
     PostgreSQL when a daemon DB is configured, with legacy audit field names
     retained for CLI compatibility. `connect_registry()` requires the paired

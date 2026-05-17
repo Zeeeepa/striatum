@@ -972,8 +972,8 @@ Release order after Phase 0:
     retire the Python daemon after parity.
 14. **TODO 62 / RFC 0069:** move daemon-global surfaces to PostgreSQL/Go,
     including scheduler cursors, PostgreSQL-backed daemon MCP resources, and
-    PostgreSQL-backed daemon health/audit/doctor reads, with residual
-    dashboard/global diagnostics parity still tracked.
+    PostgreSQL-backed daemon lifecycle/health/audit/doctor reads, with
+    residual dashboard/global diagnostics parity still tracked.
 15. **TODO 63 / RFC 0070:** complete daemon client/service boundaries and
     remove direct client DB access.
 16. **TODO 64 / RFC 0071:** add post-cutover diagnostics once authority cleanup

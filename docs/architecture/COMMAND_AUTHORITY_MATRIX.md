@@ -177,7 +177,7 @@ remediation phases should either daemon-route, quarantine, or delete.
 | `doctor --first-run` | day-zero smoke over daemon socket, PG doctor, token, MCP, and sample read route | no workflow state | bootstrap_admin |
 | `daemon migrate` | daemon registry migration helper | source registry migration only | legacy_migration |
 | `daemon migrate-repo-local` | per-repo SQLite -> Postgres migration | intentional source SQLite import | legacy_migration |
-| `daemon status` / `stop` / `health` / `audit` / `sweep` | daemon lifecycle helpers | daemon registry/audit paths | bootstrap_admin |
+| `daemon status` / `stop` / `health` / `audit` / `sweep` | daemon lifecycle helpers | PostgreSQL daemon audit/metadata paths; sweep owns PostgreSQL scheduler cursors | bootstrap_admin |
 | `cross-repo list` / `describe` / `why` | daemon RPC cross-repo helpers | no | daemon_read_out_of_band |
 | `cross-repo cancel` | daemon RPC + PG participant cancel | no | daemon_recovery |
 | `workflow validate` / `lint` / `plan` / `graph` | local authoring helpers; daemon RPC fails closed | no live state | local_file_authoring |

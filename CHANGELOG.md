@@ -167,6 +167,9 @@ Recent checkpoints:
   post-cutover/unused, carries PostgreSQL-backed daemon diagnostics separately,
   and `read_doctor` uses PostgreSQL for global and repo-scoped diagnostics when
   a daemon DB is configured.
+- `striatum daemon status` and `striatum daemon stop` now authorize and audit
+  through PostgreSQL when a daemon DB is configured, preserving pidfile/runtime
+  lifecycle behavior without opening the legacy registry.
 - `supervise.status`, `doctor`, and `status` now surface stalled attached
   supervisors, and recovery sweep opens
   `heartbeat_stall_lease_expired` blockers when stalled leases expire.

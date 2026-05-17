@@ -1319,6 +1319,15 @@ def _registered_repo_for_path(conn: sqlite3.Connection, repo: Path) -> sqlite3.R
 
 
 def daemon_status() -> dict[str, Any]:
+    if _pg_connection_configured():
+        from striatum.daemon_pg.connection import connect_and_migrate
+
+        pg_conn = connect_and_migrate()
+        try:
+            return daemon_status_pg(pg_conn, token=read_runtime_token())
+        finally:
+            pg_conn.close()
+
     conn = connect_registry()
     token = read_runtime_token()
     with registry_transaction(conn):
@@ -1333,6 +1342,25 @@ def daemon_status() -> dict[str, Any]:
             "running": _pid_alive(pid) if pid is not None else False,
             "instance_id": _instance_id(conn),
         }
+
+
+def daemon_status_pg(pg_conn: Any, *, token: str | None = None) -> dict[str, Any]:
+    _require_pg_auth(
+        pg_conn,
+        command="daemon.status",
+        required=READ_CAPABILITY,
+        token=token,
+    )
+    pid = _read_pid()
+    return {
+        "mode": "daemon",
+        "protocol_version": PROTOCOL_VERSION,
+        "substrate": "postgres",
+        "runtime_dir": str(runtime_dir()),
+        "pid": pid,
+        "running": _pid_alive(pid) if pid is not None else False,
+        "instance_id": _pg_instance_id(pg_conn),
+    }
 
 
 def _instance_id(conn: sqlite3.Connection) -> str:
@@ -1365,6 +1393,25 @@ def _pid_alive(pid: int | None) -> bool:
 
 
 def daemon_stop() -> dict[str, Any]:
+    if _pg_connection_configured():
+        from striatum.daemon_pg.connection import connect_and_migrate
+
+        pg_conn = connect_and_migrate()
+        try:
+            _require_pg_auth(
+                pg_conn,
+                command="daemon.stop",
+                required=ADMIN_CAPABILITY,
+                token=read_runtime_token(),
+            )
+        finally:
+            pg_conn.close()
+        pid = _read_pid()
+        if pid is None or not _pid_alive(pid):
+            return {"stopped": False, "reason": "not_running"}
+        os.kill(pid, signal.SIGTERM)
+        return {"stopped": True, "pid": pid}
+
     conn = connect_registry()
     token = read_runtime_token()
     with registry_transaction(conn):
