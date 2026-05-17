@@ -5,7 +5,10 @@ Implemented
 
 ## Summary
 Architecture remediation Phase 6 hardened supervised process execution while
-keeping Python as the daemon/domain authority and Go as a narrow PTY helper.
+the Python daemon was still the incumbent authority and Go was a narrow PTY
+helper. D107 / RFC 0068 later reopened the full Go production daemon port, so
+the helper protocol remains useful transition infrastructure rather than a
+permanent Python-daemon boundary.
 
 ## Motivation
 Derived from the STRIATUM Architecture Review and Remediation Plan (2026-05-16).

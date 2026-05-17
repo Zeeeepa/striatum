@@ -20,7 +20,7 @@ const (
 )
 
 // HelperLaunchSpec is the single JSON object accepted by the standalone
-// supervisor helper. It is deliberately process-only: the Python daemon owns
+// supervisor helper. It is deliberately process-only: the daemon core owns
 // supervise.* RPC, Postgres rows, packet construction, and domain validation.
 type HelperLaunchSpec struct {
 	SchemaVersion   string   `json:"schema_version,omitempty"`

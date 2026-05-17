@@ -18,8 +18,8 @@ import striatum.daemon as daemon
 ROOT = Path(__file__).resolve().parents[2]
 
 DaemonCore = Literal["python", "go"]
-# Python is the production daemon core. The Go value is retained for
-# transition/developer fixture coverage and future helper-runtime tests.
+# D107 makes Go the production-daemon target; Python remains the default
+# harness core until the Go daemon reaches parity and the default flips.
 
 _GO_BIN_ENV = "STRIATUMD_GO_BIN"
 _DEFAULT_GO_BIN = ROOT / "go" / "bin" / "striatumd"

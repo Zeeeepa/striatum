@@ -11,6 +11,8 @@ import (
 type Service struct {
 	Runner        db.Runner
 	DaemonVersion string
+	ShutdownHook  ShutdownFunc
+	KeyRotateHook KeyRotateFunc
 }
 
 func (s Service) Register(server *rpc.Server) {
@@ -18,6 +20,13 @@ func (s Service) Register(server *rpc.Server) {
 		return
 	}
 	server.Register("daemon.migrate", s.Migrate)
+	server.Register("daemon.migrate_repo_local", s.MigrateRepoLocal)
+	server.Register("daemon.token.create", s.CreateToken)
+	server.Register("daemon.token.revoke", s.RevokeToken)
+	server.Register("daemon.token.rotate", s.RotateToken)
+	server.Register("daemon.key.rotate", s.KeyRotate)
+	server.Register("daemon.shutdown", s.Shutdown)
+	server.Register("repo.init", s.RepoInit)
 }
 
 func (s Service) Migrate(ctx context.Context, envelope rpc.Envelope) (map[string]any, error) {

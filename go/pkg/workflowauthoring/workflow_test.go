@@ -1,0 +1,169 @@
+package workflowauthoring
+
+import (
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+func TestLoadFileValidatePlanAndGraph(t *testing.T) {
+	repo := t.TempDir()
+	writeWorkflow(t, filepath.Join(repo, "workflow.json"), validWorkflow())
+
+	workflow, sourcePath, err := LoadFile(repo, "workflow.json")
+	if err != nil {
+		t.Fatalf("LoadFile: %v", err)
+	}
+	if sourcePath != "workflow.json" {
+		t.Fatalf("sourcePath = %q", sourcePath)
+	}
+
+	plan, err := Plan(workflow)
+	if err != nil {
+		t.Fatalf("Plan: %v", err)
+	}
+	summary := plan["summary"].(map[string]any)
+	if summary["jobs"] != 2 || summary["edges"] != 1 || summary["claim_steps"] != 2 {
+		t.Fatalf("summary = %#v", summary)
+	}
+	claimOrder := plan["claim_order"].([]map[string]any)
+	firstWave := claimOrder[0]["claimable"].([]map[string]any)
+	if firstWave[0]["job_id"] != "draft" {
+		t.Fatalf("claim_order = %#v", claimOrder)
+	}
+
+	graph, err := Graph(workflow, "json")
+	if err != nil {
+		t.Fatalf("Graph json: %v", err)
+	}
+	if graph["workflow_id"] != "go-authoring" {
+		t.Fatalf("graph header = %#v", graph)
+	}
+	mermaid, err := Graph(workflow, "mermaid")
+	if err != nil {
+		t.Fatalf("Graph mermaid: %v", err)
+	}
+	source := mermaid["source"].(string)
+	for _, needle := range []string{"flowchart TD", "draft<br/>draft author/codex", "-->|completed|"} {
+		if !strings.Contains(source, needle) {
+			t.Fatalf("mermaid source missing %q:\n%s", needle, source)
+		}
+	}
+	dot, err := Graph(workflow, "dot")
+	if err != nil {
+		t.Fatalf("Graph dot: %v", err)
+	}
+	if !strings.Contains(dot["source"].(string), "digraph striatum_workflow") {
+		t.Fatalf("dot source = %s", dot["source"])
+	}
+}
+
+func TestLoadFileRejectsTraversalAndYaml(t *testing.T) {
+	repo := t.TempDir()
+	parent := filepath.Dir(repo)
+	outside := filepath.Join(parent, "workflow.yaml")
+	if err := os.WriteFile(outside, []byte("{}"), 0o600); err != nil {
+		t.Fatalf("write outside workflow: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Remove(outside) })
+
+	if _, _, err := LoadFile(repo, "../workflow.yaml"); err == nil || !strings.Contains(err.Error(), "inside the repository") {
+		t.Fatalf("LoadFile traversal error = %v", err)
+	}
+	writeWorkflow(t, filepath.Join(repo, "workflow.yaml"), validWorkflow())
+	if _, _, err := LoadFile(repo, "workflow.yaml"); err == nil || !strings.Contains(err.Error(), "must be JSON") {
+		t.Fatalf("LoadFile yaml error = %v", err)
+	}
+}
+
+func TestValidateReturnsAuthoringErrors(t *testing.T) {
+	workflow := validWorkflow()
+	jobs := workflow["jobs"].([]any)
+	review := jobs[1].(map[string]any)
+	review["role_id"] = "missing"
+	err := Validate(workflow)
+	if err == nil || !strings.Contains(err.Error(), "unknown role") {
+		t.Fatalf("Validate unknown role error = %v", err)
+	}
+
+	workflow = validWorkflow()
+	jobs = workflow["jobs"].([]any)
+	review = jobs[1].(map[string]any)
+	review["expected_artifacts"] = []any{map[string]any{
+		"logical_name": "review",
+		"kind":         "finding",
+		"path":         "../REVIEW.md",
+		"required":     true,
+	}}
+	err = Validate(workflow)
+	if err == nil || !strings.Contains(err.Error(), "invalid artifact path") {
+		t.Fatalf("Validate artifact path error = %v", err)
+	}
+}
+
+func writeWorkflow(t *testing.T, path string, workflow map[string]any) {
+	t.Helper()
+	raw, err := json.Marshal(workflow)
+	if err != nil {
+		t.Fatalf("marshal workflow: %v", err)
+	}
+	if err := os.WriteFile(path, raw, 0o600); err != nil {
+		t.Fatalf("write workflow: %v", err)
+	}
+}
+
+func validWorkflow() map[string]any {
+	return map[string]any{
+		"schema_version":   SchemaV1,
+		"workflow_id":      "go-authoring",
+		"workflow_version": "1",
+		"name":             "Go Authoring",
+		"branch":           map[string]any{"mode": "confirm", "suggested_name": "striatum/go-authoring"},
+		"coordinator":      map[string]any{"role_id": "author", "lane_id": "codex"},
+		"lanes":            map[string]any{"codex": map[string]any{"adapter": "process"}},
+		"roles":            map[string]any{"author": map[string]any{}, "reviewer": map[string]any{}},
+		"context_docs":     []any{},
+		"parallelism":      map[string]any{"mode": "declared", "max_active_jobs": 1},
+		"edges":            []any{map[string]any{"from": "draft", "to": "review", "on": "completed"}},
+		"cycles":           []any{map[string]any{"from": "review", "to": "draft", "on_verdict": "needs_revision", "max_iterations": 1}},
+		"jobs": []any{
+			map[string]any{
+				"id":      "draft",
+				"type":    "draft",
+				"role_id": "author",
+				"lane_id": "codex",
+				"write_scope": map[string]any{
+					"mode":            "repo_write",
+					"allowed_paths":   []any{"src/"},
+					"forbidden_paths": []any{".striatum/"},
+				},
+				"expected_artifacts": []any{map[string]any{
+					"logical_name": "draft",
+					"kind":         "handoff",
+					"path":         "src/draft.md",
+					"required":     true,
+				}},
+			},
+			map[string]any{
+				"id":                     "review",
+				"type":                   "review",
+				"role_id":                "reviewer",
+				"lane_id":                "codex",
+				"fresh_session_required": true,
+				"write_scope": map[string]any{
+					"mode":            "review_only_artifact",
+					"allowed_paths":   []any{"reviews/"},
+					"forbidden_paths": []any{".striatum/"},
+				},
+				"expected_artifacts": []any{map[string]any{
+					"logical_name": "review",
+					"kind":         "finding",
+					"path":         "reviews/REVIEW.md",
+					"required":     true,
+				}},
+			},
+		},
+	}
+}

@@ -54,12 +54,38 @@ Recent checkpoints:
 - Go now owns `workflow.templates.list` and `workflow.templates.show` from an
   embedded copy of the workflow template catalog, with a drift test against
   the Python package-data catalog.
+- Go now owns workflow file-authoring handlers: `workflow.validate`,
+  `workflow.plan`, and `workflow.graph` validate repo-local workflow JSON and
+  return plan/graph projections without mutating daemon state or opening
+  SQLite.
+- Go now owns workflow generation handlers: `workflow.generate.preview`
+  produces read-only planned writes; `workflow.generate` and `workflow.init`
+  write safe repo-relative scaffold files; `workflow.upgrade` uses
+  PostgreSQL running-run checks and fails closed for unported `--add-phases`
+  rewrites.
 - Go now owns `supervise.status`, `supervise.list`, and
   `supervise.reattach_status` as read-only PostgreSQL projections. The status
   handler reports liveness, lane attestation, and stalled-supervisor fields
   without mutating pointer rows or draining helper events.
+- Go now owns `supervise.start`, `supervise.send`, and `supervise.stop` over
+  PostgreSQL supervisor rows and FIFO/helper transport. Sends preserve the
+  delivered-unacknowledged contract, and stops update terminal supervisor state
+  before signaling/removing control paths.
 - Go now owns `daemon.migrate`, applying the embedded daemon PostgreSQL
   migrations without Python or SQLite.
+- Go now owns daemon token lifecycle handlers:
+  `daemon.token.create/revoke/rotate` write only daemon PostgreSQL client and
+  capability rows, store HMAC-SHA256 token hashes, and return cleartext bearer
+  tokens only at creation/rotation time.
+- Go now registers explicit fail-closed handlers for `daemon.key.rotate`,
+  `daemon.shutdown`, `daemon.migrate_repo_local`,
+  `dogfood.publish_on_behalf`, and `dogfood.surgical_recovery` instead of
+  generic `not_implemented` stubs or Python/SQLite fallbacks.
+- Go now owns `repo.init` as PostgreSQL-backed repository initialization that
+  creates only operational scratch and refuses repo-local SQLite state.
+- The Go daemon handler-coverage ledger now reports zero generic
+  `not_implemented` handlers for active contract methods; remaining Go debt is
+  explicit fail-closed or parity work.
 - Go now owns `run.graph` for JSON, Mermaid, DOT, and ASCII run graph
   projections from PostgreSQL workflow snapshots, materialized dependencies,
   latest job attempts, and review verdicts.

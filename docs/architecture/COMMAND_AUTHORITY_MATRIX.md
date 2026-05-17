@@ -58,12 +58,12 @@ Legend:
 | `run.graph` | `run graph` | read | single_repo | pg | real | no | no | stable |
 | `run.events` | web SSE event stream DTO | read | single_repo | pg | real | no | no | stable |
 | `run.posture_verdicts` | web posture verdict drill-down | read | single_repo | pg | real | no | no | stable |
-| `workflow.validate` | `workflow validate` | read | single_repo | local_file_authoring | placeholder | no | no live state | CLI-local |
-| `workflow.plan` | `workflow plan` | read | single_repo | local_file_authoring | placeholder | no | no live state | CLI-local |
-| `workflow.graph` | `workflow graph` | read | single_repo | local_file_authoring | placeholder | no | no live state | CLI-local |
+| `workflow.validate` | `workflow validate` | read | single_repo | local_file_authoring | real | no | no live state | Go file-authoring validator; no PG state mutation |
+| `workflow.plan` | `workflow plan` | read | single_repo | local_file_authoring | real | no | no live state | Go file-authoring plan projection |
+| `workflow.graph` | `workflow graph` | read | single_repo | local_file_authoring | real | no | no live state | Go file-authoring JSON/Mermaid/DOT projection |
 | `workflow.templates.list` | `workflow templates list` | read | single_repo | local_file_authoring | real | no | no live state | Go embedded catalog read; CLI remains local authoring surface |
 | `workflow.templates.show` | `workflow templates show` | read | single_repo | local_file_authoring | real | no | no live state | Go embedded catalog read; CLI remains local authoring surface |
-| `workflow.generate.preview` | web/chat preview | read | single_repo | not implemented in Python RPC | placeholder | no | no | not implemented |
+| `workflow.generate.preview` | web/chat preview | read | single_repo | not implemented in Python RPC | real | no | no live state | Go read-only planned-write preview |
 | `list.runs` | `list runs` | read | single_repo | pg | real | no | no | stable |
 | `list.sessions` | `list sessions` | read | single_repo | pg | real | no | no | stable |
 | `list.jobs` | `list jobs` | read | single_repo | pg | real | no | no | stable |
@@ -74,15 +74,15 @@ Legend:
 | `dashboard.all` | `dashboard --all` | read | daemon_global | direct | real | no | no | Go read-only subset; residual parity gaps documented in TODO 62 |
 | `repo.list` | `repo list` | read | daemon_global | pg repo registrar | real | no | no | bootstrap/admin |
 | `session.register` | `register-session` | claim | single_repo | pg | real | no | no | stable |
-| `session.close` | `session close` | claim | single_repo | pg | placeholder | no | no | stable |
+| `session.close` | `session close` | claim | single_repo | pg | real | no | no | stable |
 | `work.claim_next` | `claim-next` | claim | single_repo | pg | real | no | no | stable |
 | `work.ack` | `ack` | claim | single_repo | pg | real | no | no | stable |
 | `work.heartbeat` | `heartbeat` | claim | single_repo | pg | real | no | no | stable |
 | `work.release` | `release` | claim | single_repo | pg | real | no | no | stable |
-| `supervise.start` | `supervise start` | claim | single_repo | pg | placeholder | no | no | stable |
-| `supervise.send` | `supervise send` | claim | single_repo | pg | placeholder | no | no | stable |
-| `supervise.report` | wrapper control report | claim | single_repo | pg | real | no | no | Go records direct control events and helper JSONL batches; remaining supervise verbs are separate port slices |
-| `supervise.stop` | `supervise stop` | claim | single_repo | pg | placeholder | no | no | stable |
+| `supervise.start` | `supervise start` | claim | single_repo | pg | real | no | no | Go process-control launch over PG supervisor rows and FIFO/helper transport |
+| `supervise.send` | `supervise send` | claim | single_repo | pg | real | no | no | Go packet delivery with delivered-unacknowledged semantics |
+| `supervise.report` | wrapper control report | claim | single_repo | pg | real | no | no | Go records direct control events and helper JSONL batches |
+| `supervise.stop` | `supervise stop` | claim | single_repo | pg | real | no | no | Go terminal supervisor state update and process signaling |
 | `supervise.status` | `supervise status` | read | single_repo | pg | real | no | no | read-only liveness/stall projection; no pointer repair or lost-state mutation |
 | `supervise.list` | `supervise list` | read | single_repo | pg | real | no | no | stable |
 | `supervise.reattach_status` | supervisor reattach-status DTO | read | single_repo | pg | real | no | no | read-only reattach DTO |
@@ -92,17 +92,17 @@ Legend:
 | `artifact.publish` | `publish-artifact` | write | single_repo | pg | real | no | no | stable |
 | `worktree.create` | `worktree create` | write | single_repo | pg | real | no | no | Go shells out to `git worktree add --detach` after PG lease/workflow validation |
 | `worktree.release` | `worktree release` | write | single_repo | pg | real | no | no | Go shells out to `git worktree remove --force` and records release state |
-| `workflow.init` | `workflow init` | write | single_repo | local_file_authoring | placeholder | no | no live state | CLI-local |
-| `workflow.generate` | `workflow generate` | write | single_repo | local_file_authoring | placeholder | no | no live state | CLI-local |
-| `workflow.upgrade` | `workflow upgrade` | write | single_repo | local_file_authoring | placeholder | no | PG running-run guard; legacy SQLite only before cutover | CLI-local with fail-closed cutover guard |
-| `dogfood.publish_on_behalf` | MCP/chat dogfood tool | write | single_repo | direct dogfood helper | placeholder | no | yes, direct `striatum.db.connect` | dogfood compatibility |
+| `workflow.init` | `workflow init` | write | single_repo | local_file_authoring | real | no | no live state | Go scaffold writer; refuses unsafe paths/overwrites |
+| `workflow.generate` | `workflow generate` | write | single_repo | local_file_authoring | real | no | no live state | Go generator writer; refuses unsafe paths/overwrites |
+| `workflow.upgrade` | `workflow upgrade` | write | single_repo | local_file_authoring | real | no | PG running-run guard only; no Go SQLite import | Go upgrade supports harness-profile updates and fails closed for `--add-phases` |
+| `dogfood.publish_on_behalf` | MCP/chat dogfood tool | write | single_repo | direct dogfood helper | fail_closed | no | Python compatibility path still opens SQLite | Go production daemon retires SQLite-bound composite with explicit RPC error |
 | `review.submit` | `submit-review` | review | single_repo | pg | real | no | no | stable |
 | `review.verdict` | `verdict` | review | single_repo | pg | real | no | no | stable |
 | `review.override` | `override-verdict` | admin | single_repo | pg | real | no | no | stable |
 | `decision.record` | `decision record` | admin | single_repo | pg | real | no | no | stable |
 | `checkpoint.resolve` | `checkpoint resolve` | admin | single_repo | pg | real | no | no | stable |
-| `escalation.list` | `escalation list`; `inbox` without `--session-id` | read | single_repo | pg | placeholder | no | no | stable |
-| `escalation.show` | `escalation show` | read | single_repo | pg | placeholder | no | no | stable |
+| `escalation.list` | `escalation list`; `inbox` without `--session-id` | read | single_repo | pg | real | no | no | stable |
+| `escalation.show` | `escalation show` | read | single_repo | pg | real | no | no | stable |
 | `escalation.resolve` | `escalation resolve` | admin | single_repo | pg | real | no | no | stable |
 | `branch.confirm` | `branch confirm` | admin | single_repo | pg | real | no | no | stable |
 | `run.prepare` | `run prepare` | admin | single_repo | pg | real | no | no | stable |
@@ -111,7 +111,7 @@ Legend:
 | `run.resume` | `run resume` | admin | single_repo | pg | real | no | no | stable |
 | `run.cancel` | `run cancel` | admin | single_repo | pg | real | no | no | stable |
 | `run.retry_job` | `run retry-job` | admin | single_repo | pg | real | no | no | stable |
-| `repo.init` | `init` | admin | single_repo | bootstrap CLI helper | placeholder | no | yes, bootstrap SQLite compatibility | bootstrap/admin |
+| `repo.init` | `init` | admin | single_repo | bootstrap CLI helper | real | no | no Go SQLite import; Python bootstrap compatibility remains | Go registers PG-backed repo state and operational scratch only |
 | `recovery.stale_leases` | `recovery stale-leases` | recovery | single_repo | pg | real | no | no | stable |
 | `recovery.requeue_stale` | `recovery requeue-stale` | recovery | single_repo | pg | real | no | no | stable |
 | `recovery.cancel_job` | `recovery cancel-job` | recovery | single_repo | pg | real | no | no | stable |
@@ -124,20 +124,20 @@ Legend:
 | `apply.reviewed_patch` | n/a | apply | single_repo | direct apply service | fail_closed | no | no | fail closed until apply authority |
 | `apply.receipt.show` | n/a | read | single_repo | direct apply service | real | no | no | stable |
 | `apply.receipt.verify` | n/a | read | single_repo | direct apply service | real | no | no | stable |
-| `dogfood.surgical_recovery` | MCP/chat dogfood tool | surgical_recovery | single_repo | direct dogfood helper | placeholder | no | yes, direct `striatum.db.connect` | dogfood compatibility |
+| `dogfood.surgical_recovery` | MCP/chat dogfood tool | surgical_recovery | single_repo | direct dogfood helper | fail_closed | no | Python compatibility path still opens SQLite | Go production daemon retires SQLite-bound composite with explicit RPC error |
 | `repo.add` | `repo add` | admin | daemon_global | pg repo registrar | real | no | no ordinary repo-local SQLite | bootstrap/admin |
 | `repo.remove` | `repo remove` | admin | daemon_global | pg repo registrar | real | no | no | bootstrap/admin |
-| `daemon.token.create` | n/a | admin | daemon_global | not implemented in Python RPC | placeholder | no | no | bootstrap/admin placeholder |
-| `daemon.token.revoke` | n/a | admin | daemon_global | not implemented in Python RPC | placeholder | no | no | bootstrap/admin placeholder |
-| `daemon.token.rotate` | n/a | admin | daemon_global | not implemented in Python RPC | placeholder | no | no | bootstrap/admin placeholder |
-| `daemon.key.rotate` | n/a | admin | daemon_global | not implemented in Python RPC | placeholder | no | no | bootstrap/admin placeholder |
-| `daemon.shutdown` | `daemon stop` out of band | admin | daemon_global | daemon lifecycle helper | placeholder | no | no | bootstrap/admin |
+| `daemon.token.create` | n/a | admin | daemon_global | not implemented in Python RPC | real | no | no | Go PostgreSQL token issuance; cleartext token returned once |
+| `daemon.token.revoke` | n/a | admin | daemon_global | not implemented in Python RPC | real | no | no | Go PostgreSQL token revocation by token id or full token |
+| `daemon.token.rotate` | n/a | admin | daemon_global | not implemented in Python RPC | real | no | no | Go PostgreSQL token rotation with ambiguous-scope refusal |
+| `daemon.key.rotate` | n/a | admin | daemon_global | not implemented in Python RPC | fail_closed | no | no | explicit `key_rotation_unavailable` until key-management hook exists |
+| `daemon.shutdown` | `daemon stop` out of band | admin | daemon_global | daemon lifecycle helper | fail_closed | no | no | explicit `shutdown_unavailable` until process-cancel hook exists |
 | `daemon.migrate` | `daemon migrate` | admin | daemon_global | migration CLI helper | real | no | no | Go applies embedded PostgreSQL migrations; no SQLite/Python dependency |
-| `daemon.migrate_repo_local` | `daemon migrate-repo-local` | admin | daemon_global | migration CLI helper | placeholder | no | yes, intentional source import | migration |
+| `daemon.migrate_repo_local` | `daemon migrate-repo-local` | admin | daemon_global | migration CLI helper | fail_closed | no | Go refuses SQLite import | explicit `legacy_migration_retired`; Python migration helper remains one-way legacy source path |
 | `cross_repo.list` | `cross-repo list` | read | cross_repo | direct cross-repo service | real | no | no | stable |
 | `cross_repo.describe` | `cross-repo describe` | read | cross_repo | direct cross-repo service | real | no | no | stable |
 | `cross_repo.why` | `cross-repo why` | read | cross_repo | direct cross-repo service | real | no | no | stable |
-| `cross_repo.cancel` | `cross-repo cancel` | recovery | cross_repo | daemon RPC + PG participant cancel | placeholder | no | no | stable |
+| `cross_repo.cancel` | `cross-repo cancel` | recovery | cross_repo | daemon RPC + PG participant cancel | real | no | no | stable |
 
 ## Deprecated Alias Methods
 
@@ -205,17 +205,15 @@ remediation phases should either daemon-route, quarantine, or delete.
 3. `repo.add`, `repo.list`, and `repo.remove` now route through daemon RPC
    and register against `striatumd.repositories` without opening or creating
    `.striatum/state.sqlite3`; `--init` creates only operational scratch.
-4. Dogfood composite tools still open repo-local SQLite directly from
-   `DaemonRpcRouter._route_dogfood`. They are compatibility helpers, not a
-   production authority path.
+4. The Go production daemon now fails closed for SQLite-bound dogfood
+   composites. The incumbent Python compatibility route still opens repo-local
+   SQLite from `DaemonRpcRouter._route_dogfood`; that is remaining retirement
+   debt under RFC 0070.
 5. `striatum.db` remains the legacy SQLite engine, but substrate-neutral
    helpers now live in `primitives.py` and `repo_policy.py`; guardrails keep
    daemon PG/RPC production modules from importing SQLite helpers.
-6. Go has real handlers for the core reads, workflow loop, recovery, apply
-   receipts, read-detail projections, repository registration, cross-repo
-   reads, worktree lifecycle, workflow template reads, and supervisor read
-   projections. The remaining placeholder set is concentrated around
-   supervisor process control, workflow authoring/generation/validation,
-   daemon token/key/shutdown/bootstrap migration, and dogfood tools.
-   Under D107 these placeholders are production-port blockers, not accepted
-   D105-era gaps.
+6. Go no longer has generic `not_implemented` handlers for active contract
+   methods. Remaining Go-port debt is explicit fail-closed or parity work:
+   `apply.reviewed_patch`, dogfood composites, daemon key/shutdown hooks,
+   the retired repo-local migration import, and web/service DTO parity gaps
+   tracked under RFC 0069-0071.

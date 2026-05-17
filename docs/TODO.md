@@ -1202,10 +1202,17 @@ review and plan are root-level operator artifacts:
     `supervise.report` for direct wrapper control events and helper JSONL
     batches. Go now also owns `work.send_message`, `worktree.create`,
     `worktree.release`, `workflow.templates.list`, `workflow.templates.show`,
-    `supervise.status`, `supervise.list`, `supervise.reattach_status`, and
-    `daemon.migrate`. The supervisor read handlers are intentionally
-    projection-only; `supervise.start`, `supervise.send`, and `supervise.stop`
-    remain the next process-control port slices.
+    `supervise.status`, `supervise.list`, `supervise.reattach_status`,
+    `supervise.start`, `supervise.send`, `supervise.stop`, `daemon.migrate`,
+    `daemon.token.create`, `daemon.token.revoke`, `daemon.token.rotate`,
+    `repo.init`, `workflow.validate`, `workflow.plan`, `workflow.graph`,
+    `workflow.generate.preview`, `workflow.generate`, `workflow.init`, and
+    `workflow.upgrade`. Go now registers explicit fail-closed handlers for
+    `daemon.key.rotate`, `daemon.shutdown`, `daemon.migrate_repo_local`,
+    `dogfood.publish_on_behalf`, and `dogfood.surgical_recovery`; the Go
+    handler-coverage ledger reports zero generic `not_implemented` handlers
+    for active contract methods. Remaining Go-port debt is explicit
+    fail-closed/parity work rather than placeholder routing.
 
 62. **RFC 0069: PostgreSQL-only daemon-global surfaces.** Active. Port daemon
     startup bootstrap, health, audit, sweep, dashboard-all, daemon MCP

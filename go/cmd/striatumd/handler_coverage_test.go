@@ -65,27 +65,7 @@ func TestGoDaemonMethodCoverageIsExplicit(t *testing.T) {
 	}
 
 	assertSameStrings(t, "missing Go daemon handlers", missingHandlers, nil)
-	assertSameStrings(t, "Go daemon not_implemented handlers", notImplementedHandlers, []string{
-		"daemon.key.rotate",
-		"daemon.migrate_repo_local",
-		"daemon.shutdown",
-		"daemon.token.create",
-		"daemon.token.revoke",
-		"daemon.token.rotate",
-		"dogfood.publish_on_behalf",
-		"dogfood.surgical_recovery",
-		"repo.init",
-		"supervise.send",
-		"supervise.start",
-		"supervise.stop",
-		"workflow.generate",
-		"workflow.generate.preview",
-		"workflow.graph",
-		"workflow.init",
-		"workflow.plan",
-		"workflow.upgrade",
-		"workflow.validate",
-	})
+	assertSameStrings(t, "Go daemon not_implemented handlers", notImplementedHandlers, nil)
 }
 
 func coverageParams() map[string]any {
