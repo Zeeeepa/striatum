@@ -65,6 +65,14 @@ def test_escalation_list_projects_human_checkpoints_and_rfc0053_kinds(
     assert by_id["blk_human"]["class"] == "revision_routing"
     assert by_id["blk_authority"]["source"] == "blocker"
     assert by_id["blk_authority"]["class"] == "missing_authority"
+    assert by_id["blk_authority"]["escalation_artifact"] == {
+        "artifact_id": "art_escalation",
+        "repo_path": "docs/escalations/ESCALATION.md",
+        "content_sha256": "sha-escalation",
+        "linked_at": "2026-05-16T00:00:01Z",
+        "link_source": "artifact.publish",
+    }
+    assert by_id["blk_human"]["escalation_artifact"] is None
 
 
 def test_escalation_show_and_resolve_update_blocker_and_append_event(
@@ -77,6 +85,7 @@ def test_escalation_show_and_resolve_update_blocker_and_append_event(
 
     shown = module.show_escalation(ctx, {"escalation_id": "blk_authority"})
     assert shown["escalation"]["state"] == "open"
+    assert shown["escalation"]["escalation_artifact"]["artifact_id"] == "art_escalation"
 
     resolved = module.resolve_escalation(
         ctx,
@@ -208,6 +217,15 @@ def _seed(conn: Any, tmp_path: Path) -> None:
             ("blk_resolved", "blocked", "override_required", "resolved"),
         ]
         for blocker_id, severity, kind, state in blockers:
+            payload: dict[str, Any] = {"seed": blocker_id}
+            if blocker_id == "blk_authority":
+                payload["escalation_artifact"] = {
+                    "artifact_id": "art_escalation",
+                    "repo_path": "docs/escalations/ESCALATION.md",
+                    "content_sha256": "sha-escalation",
+                    "linked_at": "2026-05-16T00:00:01Z",
+                    "link_source": "artifact.publish",
+                }
             cur.execute(
                 """
                 INSERT INTO striatumd.blockers (
@@ -226,7 +244,7 @@ def _seed(conn: Any, tmp_path: Path) -> None:
                     state,
                     now,
                     now if state != "open" else None,
-                    Jsonb({"seed": blocker_id}),
+                    Jsonb(payload),
                 ),
             )
 

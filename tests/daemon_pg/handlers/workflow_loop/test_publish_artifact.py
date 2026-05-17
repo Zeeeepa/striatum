@@ -301,6 +301,168 @@ def test_attested_model_publish_uses_path_specific_supervisor_evidence(
         conn.close()
 
 
+def test_publish_escalation_artifact_links_existing_escalation_blocker(
+    tmp_path: Path, pg_url: str
+) -> None:
+    conn = connect(pg_url)
+    try:
+        repo_root = tmp_path / "repo_a"
+        artifact_path = repo_root / "docs" / "ESCALATION.md"
+        artifact_path.parent.mkdir(parents=True)
+        artifact_path.write_text(
+            _escalation_markdown(escalation_id="blk_authority"),
+            encoding="utf-8",
+        )
+        _seed_running_job(conn, repo_root, repository_id="repo_a")
+        _insert_blocker(
+            conn,
+            repository_id="repo_a",
+            blocker_id="blk_authority",
+            blocker_kind="missing_authority",
+        )
+        conn.commit()
+
+        result = handle(
+            _ctx(conn, repo_root, repository_id="repo_a"),
+            {
+                "session_id": "sess_1",
+                "job_id": "job_1",
+                "lease_id": "lease_1",
+                "path": "docs/ESCALATION.md",
+                "kind": "escalation",
+                "logical_name": "principal_escalation",
+            },
+        )
+
+        assert result["status"] == "published"
+        blocker = _one(
+            conn,
+            """
+            SELECT payload_json
+            FROM striatumd.blockers
+            WHERE repository_id = %s AND blocker_id = %s
+            """,
+            ("repo_a", "blk_authority"),
+        )
+        assert blocker["payload_json"]["seed"] == "blk_authority"
+        linked = blocker["payload_json"]["escalation_artifact"]
+        assert linked == {
+            "artifact_id": result["artifact_id"],
+            "repo_path": "docs/ESCALATION.md",
+            "content_sha256": result["sha256"],
+            "linked_at": linked["linked_at"],
+            "link_source": "artifact.publish",
+        }
+    finally:
+        conn.close()
+
+
+@pytest.mark.parametrize(
+    ("blocker_id", "blocker_kind", "message"),
+    [
+        ("blk_missing", "missing_authority", "does not match an existing blocker"),
+        ("blk_process", "process_exit_nonzero", "not escalation-class"),
+    ],
+)
+def test_publish_escalation_artifact_rejects_bad_link_and_rolls_back_artifact(
+    tmp_path: Path,
+    pg_url: str,
+    blocker_id: str,
+    blocker_kind: str,
+    message: str,
+) -> None:
+    conn = connect(pg_url)
+    try:
+        repo_root = tmp_path / "repo_a"
+        artifact_path = repo_root / "docs" / "ESCALATION.md"
+        artifact_path.parent.mkdir(parents=True)
+        artifact_path.write_text(
+            _escalation_markdown(escalation_id=blocker_id),
+            encoding="utf-8",
+        )
+        _seed_running_job(conn, repo_root, repository_id="repo_a")
+        if blocker_id != "blk_missing":
+            _insert_blocker(
+                conn,
+                repository_id="repo_a",
+                blocker_id=blocker_id,
+                blocker_kind=blocker_kind,
+            )
+        conn.commit()
+
+        with pytest.raises(ArtifactError, match=message):
+            handle(
+                _ctx(conn, repo_root, repository_id="repo_a"),
+                {
+                    "session_id": "sess_1",
+                    "job_id": "job_1",
+                    "lease_id": "lease_1",
+                    "path": "docs/ESCALATION.md",
+                    "kind": "escalation",
+                    "logical_name": "principal_escalation",
+                },
+            )
+
+        assert _one(
+            conn,
+            """
+            SELECT count(*) AS count
+            FROM striatumd.artifacts
+            WHERE repository_id = %s AND logical_name = %s
+            """,
+            ("repo_a", "principal_escalation"),
+        ) == {"count": 0}
+    finally:
+        conn.close()
+
+
+def test_publish_escalation_artifact_rejects_context_mismatch(
+    tmp_path: Path, pg_url: str
+) -> None:
+    conn = connect(pg_url)
+    try:
+        repo_root = tmp_path / "repo_a"
+        artifact_path = repo_root / "docs" / "ESCALATION.md"
+        artifact_path.parent.mkdir(parents=True)
+        artifact_path.write_text(
+            _escalation_markdown(escalation_id="blk_authority", job_id="other_job"),
+            encoding="utf-8",
+        )
+        _seed_running_job(conn, repo_root, repository_id="repo_a")
+        _insert_blocker(
+            conn,
+            repository_id="repo_a",
+            blocker_id="blk_authority",
+            blocker_kind="missing_authority",
+        )
+        conn.commit()
+
+        with pytest.raises(ArtifactError, match="job_id must match publish context"):
+            handle(
+                _ctx(conn, repo_root, repository_id="repo_a"),
+                {
+                    "session_id": "sess_1",
+                    "job_id": "job_1",
+                    "lease_id": "lease_1",
+                    "path": "docs/ESCALATION.md",
+                    "kind": "escalation",
+                    "logical_name": "principal_escalation",
+                },
+            )
+
+        assert _one(
+            conn,
+            """
+            SELECT count(*) AS count
+            FROM striatumd.artifacts
+            WHERE repository_id = %s AND logical_name = %s
+            """,
+            ("repo_a", "principal_escalation"),
+        ) == {"count": 0}
+    finally:
+        conn.close()
+
+
 def test_artifact_publish_handler_registered() -> None:
     assert resolve_pg_handler("artifact.publish") is handle
     assert resolve_pg_handler("publish_artifact") is handle
@@ -496,6 +658,61 @@ def _insert_artifact_observed_event(
             "control_event_type": "artifact_observed",
             "payload": {"path": path_text},
         },
+    )
+
+
+def _insert_blocker(
+    conn: Any,
+    *,
+    repository_id: str,
+    blocker_id: str,
+    blocker_kind: str,
+) -> None:
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO striatumd.blockers (
+              repository_id, blocker_id, run_id, job_id, session_id, severity,
+              blocker_kind, description, state, created_at, payload_json
+            )
+            VALUES (%s, %s, 'run_1', 'job_1', 'sess_1', 'blocked',
+                    %s, 'needs principal input', 'open',
+                    '2026-05-14T00:00:00Z', %s)
+            """,
+            (
+                repository_id,
+                blocker_id,
+                blocker_kind,
+                Jsonb({"seed": blocker_id}),
+            ),
+        )
+
+
+def _escalation_markdown(
+    *,
+    escalation_id: str,
+    run_id: str = "run_1",
+    job_id: str = "job_1",
+    session_id: str = "sess_1",
+) -> str:
+    return (
+        "---\n"
+        'schema_version: "striatum.escalation.v1"\n'
+        'artifact_kind: "escalation"\n'
+        f'escalation_id: "{escalation_id}"\n'
+        f'run_id: "{run_id}"\n'
+        f'job_id: "{job_id}"\n'
+        f'session_id: "{session_id}"\n'
+        'severity: "blocked"\n'
+        'blocker_kind: "missing_authority"\n'
+        'description: "Need principal authority."\n'
+        'reasoning: "The operator lacks authority to choose."\n'
+        'requested_action: "Choose the authority boundary."\n'
+        'created_at: "2026-05-14T00:00:00Z"\n'
+        "---\n"
+        "# Escalation\n"
+        "author: operator\n\n"
+        "Need principal input.\n"
     )
 
 

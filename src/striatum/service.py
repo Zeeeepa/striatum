@@ -1091,19 +1091,21 @@ def _build_chat_briefing(repo: Path, *, allow_mutations: bool = False) -> str:
     except OSError:
         pass
     try:
-        with sqlite3.connect(str(db_path(repo))) as conn:
-            conn.row_factory = sqlite3.Row
-            run_rows = conn.execute(
-                "SELECT run_id, state FROM runs "
-                "WHERE state IN ('running', 'ready') "
-                "ORDER BY created_at DESC LIMIT 10"
-            ).fetchall()
+        from striatum import service_daemon
+
+        payload = service_daemon.call_repo_method(repo, "list.runs", {"limit": 10})
+        raw_items = payload.get("items")
+        run_rows = [
+            item
+            for item in raw_items
+            if isinstance(item, Mapping) and item.get("state") in {"running", "ready"}
+        ] if isinstance(raw_items, list) else []
         if run_rows:
             lines.append("")
             lines.append("Active runs:")
             for row in run_rows:
-                lines.append(f"  {row['run_id']} ({row['state']})")
-    except (sqlite3.DatabaseError, OSError):
+                lines.append(f"  {row.get('run_id')} ({row.get('state')})")
+    except Exception:  # noqa: BLE001 - briefing context is best-effort.
         pass
     agents_path = repo / "AGENTS.md"
     if agents_path.is_file():

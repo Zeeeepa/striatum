@@ -455,11 +455,23 @@ def validate_artifact_front_matter(
     synthesis and to refuse missing front matter for other schema-bearing
     kinds with a template error.
     """
+    parse_artifact_front_matter(kind=kind, path=path, payload=payload)
+
+
+def parse_artifact_front_matter(
+    *, kind: str, path: Path, payload: bytes
+) -> dict[str, object] | None:
+    """Parse and validate Markdown front matter for a schema-bearing artifact.
+
+    Returns the parsed mapping when front matter exists, otherwise ``None``.
+    This is the public helper for callers that need validated metadata after
+    publish-time schema checks; callers should not import the private parser.
+    """
     schema = FRONT_MATTER_SCHEMAS.get(kind)
     if schema is None:
-        return
+        return None
     if path.suffix.lower() not in _MARKDOWN_SUFFIXES:
-        return
+        return None
     try:
         text = payload.decode("utf-8")
     except UnicodeDecodeError as exc:
@@ -468,9 +480,10 @@ def validate_artifact_front_matter(
         ) from exc
     block = _front_matter_block(text)
     if block is None:
-        return
+        return None
     parsed = _parse_front_matter(block, kind=kind)
     _validate_front_matter(parsed, schema)
+    return parsed
 
 
 def publish_artifact(

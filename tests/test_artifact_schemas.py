@@ -8,6 +8,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+from striatum.artifacts import parse_artifact_front_matter
+
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / "examples" / "rfc-ledger-cleanup" / "workflow.json"
@@ -751,6 +753,39 @@ def test_escalation_front_matter_validates_human_principal_request(
     )
     assert accepted["returncode"] == 0
     assert data(accepted)["status"] == "published"
+
+
+def test_public_front_matter_parser_returns_validated_escalation_metadata(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "ESCALATION.md"
+    body = (
+        "---\n"
+        'schema_version: "striatum.escalation.v1"\n'
+        'artifact_kind: "escalation"\n'
+        'escalation_id: "esc_0001"\n'
+        'run_id: "run_1"\n'
+        'severity: "blocked"\n'
+        'blocker_kind: "missing_authority"\n'
+        'description: "Authority is missing."\n'
+        'reasoning: "The AI operator cannot choose this alone."\n'
+        'requested_action: "Decide whether to proceed."\n'
+        'created_at: "2026-05-17T00:00:00Z"\n'
+        "---\n"
+        "\n"
+        "Escalation body.\n"
+    )
+    path.write_text(body, encoding="utf-8")
+
+    parsed = parse_artifact_front_matter(
+        kind="escalation",
+        path=path,
+        payload=path.read_bytes(),
+    )
+
+    assert parsed is not None
+    assert parsed["escalation_id"] == "esc_0001"
+    assert parsed["blocker_kind"] == "missing_authority"
 
 
 def test_escalation_front_matter_rejects_unbounded_blocker_kind(

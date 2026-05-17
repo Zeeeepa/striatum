@@ -19,6 +19,7 @@ ESCALATION_BLOCKER_KINDS: frozenset[str] = frozenset(
         "no_available_reviewer_lane",
         "committee_stalemate",
         "override_required",
+        "ai_self_declared",
     }
 )
 
@@ -224,8 +225,21 @@ def _project_row(row: Mapping[str, Any]) -> dict[str, Any]:
         "state": str(row["state"]),
         "created_at": json_value(row.get("created_at")),
         "resolved_at": json_value(row.get("resolved_at")),
+        "escalation_artifact": _escalation_artifact_summary(payload),
         "payload": payload if isinstance(payload, dict) else {},
     }
+
+
+def _escalation_artifact_summary(payload: object) -> dict[str, Any] | None:
+    if not isinstance(payload, Mapping):
+        return None
+    value = payload.get("escalation_artifact")
+    if not isinstance(value, Mapping):
+        return None
+    required = ("artifact_id", "repo_path", "content_sha256", "linked_at", "link_source")
+    if not all(isinstance(value.get(key), str) and value.get(key) for key in required):
+        return None
+    return {key: str(value[key]) for key in required}
 
 
 def _optional_str(value: object) -> str | None:

@@ -678,6 +678,45 @@ def test_service_run_list_reads_daemon_dto_without_sqlite(
     }
 
 
+def test_chat_briefing_active_runs_reads_daemon_dto_without_sqlite(
+    tmp_path: Path, monkeypatch: Any
+) -> None:
+    sys.path.insert(0, str(ROOT / "src"))
+    try:
+        import striatum.service as service
+        import striatum.service_daemon as service_daemon
+    finally:
+        sys.path.pop(0)
+
+    calls: list[tuple[Path, str, dict[str, Any]]] = []
+
+    def sqlite_tripwire(*args: Any, **kwargs: Any) -> None:
+        raise AssertionError("chat briefing opened repo-local SQLite")
+
+    def fake_call_repo_method(
+        repo: Path, method: str, params: dict[str, Any]
+    ) -> dict[str, Any]:
+        calls.append((repo, method, dict(params)))
+        return {
+            "items": [
+                {"run_id": "run_running", "state": "running"},
+                {"run_id": "run_ready", "state": "ready"},
+                {"run_id": "run_completed", "state": "completed"},
+            ],
+            "count": 3,
+        }
+
+    monkeypatch.setattr(service, "_safe_git", lambda repo, argv: "")
+    monkeypatch.setattr("striatum.service.sqlite3.connect", sqlite_tripwire)
+    monkeypatch.setattr(service_daemon, "call_repo_method", fake_call_repo_method)
+
+    briefing = service._build_chat_briefing(tmp_path)
+
+    assert calls == [(tmp_path, "list.runs", {"limit": 10})]
+    assert "Active runs:\n  run_running (running)\n  run_ready (ready)" in briefing
+    assert "run_completed" not in briefing
+
+
 def test_artifact_raw_reads_daemon_dto_without_sqlite(tmp_path: Path, monkeypatch: Any) -> None:
     from io import BytesIO
 

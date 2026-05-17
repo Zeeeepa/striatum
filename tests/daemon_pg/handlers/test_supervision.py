@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import signal
 import sys
@@ -73,8 +74,7 @@ def test_start_status_list_stop_preserve_repo_scope(tmp_path: Path, pg_url: str)
         ) == {"state": "attached", "session_id": "sess_1", "run_id": "run_1"}
         assert _one(
             conn,
-            "SELECT COUNT(*) AS count FROM striatumd.process_supervisors "
-            "WHERE repository_id = %s",
+            "SELECT COUNT(*) AS count FROM striatumd.process_supervisors WHERE repository_id = %s",
             ("repo_b",),
         ) == {"count": 0}
         assert _one(
@@ -92,9 +92,7 @@ def test_start_status_list_stop_preserve_repo_scope(tmp_path: Path, pg_url: str)
         assert status["liveness"] == "alive"
 
         listed = handle_list(_ctx(conn, repo_a, "repo_a"), {"run_id": "run_1"})
-        assert [row["supervisor_id"] for row in listed["supervisors"]] == [
-            started["supervisor_id"]
-        ]
+        assert [row["supervisor_id"] for row in listed["supervisors"]] == [started["supervisor_id"]]
 
         stopped = handle_stop(
             _ctx(conn, repo_a, "repo_a"),
@@ -221,6 +219,150 @@ def test_report_records_wrapper_control_events_without_reading_output(
         conn.close()
 
 
+def test_report_consumes_helper_jsonl_events_through_report_path(
+    tmp_path: Path, pg_url: str
+) -> None:
+    conn = connect(pg_url)
+    started: dict[str, Any] | None = None
+    try:
+        repo = tmp_path / "repo"
+        _seed_supervisable_session(conn, repo, repository_id="repo_a")
+        conn.commit()
+        started = handle_start(_ctx(conn, repo, "repo_a"), {"session_id": "sess_1"})
+        helper_events = "\n".join(
+            json.dumps(event)
+            for event in [
+                {
+                    "schema_version": "striatum.supervisor_helper.event.v1",
+                    "event_type": "agent_started",
+                    "supervisor_id": started["supervisor_id"],
+                    "timestamp": "2026-05-16T00:00:01Z",
+                    "payload": {"pid": 1234},
+                },
+                {
+                    "schema_version": "striatum.supervisor_helper.event.v1",
+                    "event_type": "packet_accepted",
+                    "supervisor_id": started["supervisor_id"],
+                    "timestamp": "2026-05-16T00:00:02Z",
+                    "payload": {"bytes": 42, "sequence": 1},
+                },
+                {
+                    "schema_version": "striatum.supervisor_helper.event.v1",
+                    "event_type": "helper_error",
+                    "supervisor_id": started["supervisor_id"],
+                    "timestamp": "2026-05-16T00:00:03Z",
+                    "payload": {"phase": "packet_forward", "error": "broken pipe"},
+                },
+                {
+                    "schema_version": "striatum.supervisor_helper.event.v1",
+                    "event_type": "agent_exited",
+                    "supervisor_id": started["supervisor_id"],
+                    "timestamp": "2026-05-16T00:00:04Z",
+                    "payload": {"exit_code": 7},
+                },
+            ]
+        )
+
+        result = handle_report(
+            _ctx(conn, repo, "repo_a"),
+            {"session_id": "sess_1", "events_jsonl": helper_events},
+        )
+
+        assert result["events_recorded"] == 4
+        assert result["state"] == "stopped"
+        assert _one(
+            conn,
+            "SELECT state, stop_reason FROM striatumd.process_supervisors "
+            "WHERE repository_id = %s AND supervisor_id = %s",
+            ("repo_a", started["supervisor_id"]),
+        ) == {"state": "stopped", "stop_reason": "agent exited with code 7"}
+        events = _events(conn, "repo_a")
+        assert [row["event_type"] for row in events] == [
+            "supervisor.starting",
+            "supervisor.started",
+            "supervisor.agent_started",
+            "supervisor.packet_accepted",
+            "supervisor.helper_error",
+            "supervisor.agent_exited",
+        ]
+        assert events[2]["payload_json"]["reported_at"] == "2026-05-16T00:00:01Z"
+        assert events[4]["payload_json"]["payload"] == {
+            "phase": "packet_forward",
+            "error": "broken pipe",
+        }
+    finally:
+        if started is not None:
+            _kill_pid(started.get("pid"))
+        conn.close()
+
+
+def test_report_accepts_helper_events_from_list_and_path_shapes(
+    tmp_path: Path, pg_url: str
+) -> None:
+    conn = connect(pg_url)
+    first: dict[str, Any] | None = None
+    second: dict[str, Any] | None = None
+    try:
+        repo = tmp_path / "repo"
+        _seed_supervisable_session(conn, repo, repository_id="repo_a")
+        conn.commit()
+        first = handle_start(_ctx(conn, repo, "repo_a"), {"session_id": "sess_1"})
+
+        list_result = handle_report(
+            _ctx(conn, repo, "repo_a"),
+            {
+                "supervisor_id": first["supervisor_id"],
+                "events": [
+                    {
+                        "schema_version": "striatum.supervisor_helper.event.v1",
+                        "event_type": "progress",
+                        "payload": {"bytes": 12, "total_bytes": 12},
+                    }
+                ],
+            },
+        )
+        assert list_result["events_recorded"] == 1
+        handle_report(
+            _ctx(conn, repo, "repo_a"),
+            {
+                "supervisor_id": first["supervisor_id"],
+                "event_type": "agent_exited",
+                "payload": {"exit_code": 0},
+            },
+        )
+
+        second = handle_start(_ctx(conn, repo, "repo_a"), {"session_id": "sess_1"})
+        events_path = tmp_path / "helper-events.jsonl"
+        events_path.write_text(
+            json.dumps(
+                {
+                    "schema_version": "striatum.supervisor_helper.event.v1",
+                    "event_type": "artifact_observed",
+                    "supervisor_id": second["supervisor_id"],
+                    "payload": {"path": "artifacts/result.md"},
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+        path_result = handle_report(
+            _ctx(conn, repo, "repo_a"),
+            {"session_id": "sess_1", "events_path": str(events_path)},
+        )
+
+        assert path_result["events_recorded"] == 1
+        events = _events(conn, "repo_a")
+        assert "supervisor.progress" in [row["event_type"] for row in events]
+        assert events[-1]["event_type"] == "supervisor.artifact_observed"
+        assert events[-1]["payload_json"]["payload"] == {"path": "artifacts/result.md"}
+    finally:
+        for started in (first, second):
+            if started is not None:
+                _kill_pid(started.get("pid"))
+        conn.close()
+
+
 def test_send_fails_closed_for_foreign_packet(tmp_path: Path, pg_url: str) -> None:
     conn = connect(pg_url)
     started: dict[str, Any] | None = None
@@ -277,8 +419,7 @@ def test_start_rejects_non_process_lane(tmp_path: Path, pg_url: str) -> None:
 
         assert _one(
             conn,
-            "SELECT COUNT(*) AS count FROM striatumd.process_supervisors "
-            "WHERE repository_id = %s",
+            "SELECT COUNT(*) AS count FROM striatumd.process_supervisors WHERE repository_id = %s",
             ("repo_a",),
         ) == {"count": 0}
     finally:

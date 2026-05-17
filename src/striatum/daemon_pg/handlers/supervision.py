@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import fcntl
+import json
 import os
 import signal
 import subprocess
@@ -33,8 +34,10 @@ CONTROL_EVENT_TYPES = frozenset(
         "artifact_observed",
         "progress",
         "agent_exited",
+        "helper_error",
     }
 )
+HELPER_EVENT_SCHEMA_VERSION = "striatum.supervisor_helper.event.v1"
 
 
 @register_pg_handler("supervise.start")
@@ -99,9 +102,7 @@ def handle_start(ctx: RepoHandlerContext, params: Mapping[str, Any]) -> dict[str
             payload={"phase": "start", "error": str(exc)},
         )
         _unlink_quietly(pipe_path)
-        raise InvalidTransitionError(
-            f"supervisor could not launch lane command: {exc}"
-        ) from exc
+        raise InvalidTransitionError(f"supervisor could not launch lane command: {exc}") from exc
 
     pid = child.pid
     pid_start_time = process_start_time(pid)
@@ -116,9 +117,7 @@ def handle_start(ctx: RepoHandlerContext, params: Mapping[str, Any]) -> dict[str
             payload={"phase": "start"},
         )
         _unlink_quietly(pipe_path)
-        raise InvalidTransitionError(
-            "supervisor child exited before it could be attached"
-        )
+        raise InvalidTransitionError("supervisor child exited before it could be attached")
 
     attached_at = ctx.now()
     with transaction(ctx):
@@ -196,9 +195,7 @@ def handle_send(ctx: RepoHandlerContext, params: Mapping[str, Any]) -> dict[str,
                 reason="pid is gone before send",
                 pid=pid,
             )
-            raise InvalidTransitionError(
-                f"supervisor pid is gone: {supervisor['supervisor_id']}"
-            )
+            raise InvalidTransitionError(f"supervisor pid is gone: {supervisor['supervisor_id']}")
 
         payload = json_dumps(packet["packet_json"])
         if not payload.endswith("\n"):
@@ -208,7 +205,9 @@ def handle_send(ctx: RepoHandlerContext, params: Mapping[str, Any]) -> dict[str,
         _refresh_heartbeat(
             ctx,
             supervisor_id=str(supervisor["supervisor_id"]),
-            daemon_supervisor_id=_daemon_supervisor_id(ctx, supervisor_id=str(supervisor["supervisor_id"])),
+            daemon_supervisor_id=_daemon_supervisor_id(
+                ctx, supervisor_id=str(supervisor["supervisor_id"])
+            ),
             updated_at=delivered_at,
         )
         ctx.append_event(
@@ -239,6 +238,10 @@ def handle_report(ctx: RepoHandlerContext, params: Mapping[str, Any]) -> dict[st
     receipt and report lifecycle/progress without Striatum parsing model output.
     """
 
+    helper_source = _helper_event_source(params)
+    if helper_source is not None:
+        return _handle_helper_event_batch(ctx, params=params, source=helper_source)
+
     event_type = _required_text(params, "event_type")
     if event_type not in CONTROL_EVENT_TYPES:
         allowed = ", ".join(sorted(CONTROL_EVENT_TYPES))
@@ -255,6 +258,7 @@ def handle_report(ctx: RepoHandlerContext, params: Mapping[str, Any]) -> dict[st
         payload_map = dict(payload)
     else:
         raise RpcError("schema_invalid", "payload must be an object when provided")
+    reported_at = _optional_text(params.get("reported_at"))
 
     with transaction(ctx):
         if supervisor_id is not None:
@@ -276,7 +280,9 @@ def handle_report(ctx: RepoHandlerContext, params: Mapping[str, Any]) -> dict[st
         daemon_supervisor_id = _daemon_supervisor_id(ctx, supervisor_id=supervisor_id)
         if event_type == "agent_exited":
             exit_code = payload_map.get("exit_code")
-            stop_reason = f"agent exited with code {exit_code}" if exit_code is not None else "agent exited"
+            stop_reason = (
+                f"agent exited with code {exit_code}" if exit_code is not None else "agent exited"
+            )
             _update_supervisor_state(
                 ctx,
                 supervisor_id=supervisor_id,
@@ -302,6 +308,8 @@ def handle_report(ctx: RepoHandlerContext, params: Mapping[str, Any]) -> dict[st
         }
         if packet_id is not None:
             event_payload["packet_id"] = packet_id
+        if reported_at is not None:
+            event_payload["reported_at"] = reported_at
         if payload_map:
             event_payload["payload"] = payload_map
         ctx.append_event(
@@ -391,9 +399,7 @@ def handle_status(ctx: RepoHandlerContext, params: Mapping[str, Any]) -> dict[st
     with transaction(ctx):
         supervisor = _latest_supervisor(ctx, session_id=session_id, for_update=True)
         if supervisor is None:
-            raise NotFoundError(
-                f"no supervisor recorded for session_id={session_id!r}"
-            )
+            raise NotFoundError(f"no supervisor recorded for session_id={session_id!r}")
         state = str(supervisor["state"])
         pid_value = supervisor.get("pid")
         pid = int(pid_value) if pid_value is not None else None
@@ -465,6 +471,148 @@ def handle_list(ctx: RepoHandlerContext, params: Mapping[str, Any]) -> dict[str,
     }
 
 
+def _helper_event_source(params: Mapping[str, Any]) -> object | None:
+    if params.get("event_type") is not None:
+        return None
+    if "events_path" in params:
+        path = params["events_path"]
+        if not isinstance(path, (str, Path)):
+            raise RpcError("schema_invalid", "events_path must be a string path")
+        return Path(path)
+    for key in ("events", "events_jsonl"):
+        if key in params:
+            value: object = params[key]
+            return value
+    return None
+
+
+def _handle_helper_event_batch(
+    ctx: RepoHandlerContext,
+    *,
+    params: Mapping[str, Any],
+    source: object,
+) -> dict[str, Any]:
+    session_id = _optional_text(params.get("session_id"))
+    supervisor_id = _optional_text(params.get("supervisor_id"))
+    if session_id is None and supervisor_id is None:
+        raise RpcError("schema_invalid", "session_id or supervisor_id is required")
+
+    events = _parse_helper_events(source)
+    results: list[dict[str, Any]] = []
+    for index, event in enumerate(events, start=1):
+        report_params = _normalize_helper_event(
+            event,
+            default_session_id=session_id,
+            default_supervisor_id=supervisor_id,
+            index=index,
+        )
+        results.append(handle_report(ctx, report_params))
+    return {
+        "events_recorded": len(results),
+        "results": results,
+        "state": results[-1]["state"] if results else None,
+    }
+
+
+def _parse_helper_events(source: object) -> list[Mapping[str, Any]]:
+    if isinstance(source, list):
+        return [
+            _require_helper_event_object(value, index=index)
+            for index, value in enumerate(source, start=1)
+        ]
+    if isinstance(source, tuple):
+        return [
+            _require_helper_event_object(value, index=index)
+            for index, value in enumerate(source, start=1)
+        ]
+    if isinstance(source, Path):
+        return _parse_helper_jsonl(source.read_text(encoding="utf-8"))
+    if isinstance(source, str):
+        return _parse_helper_jsonl(source)
+    raise RpcError(
+        "schema_invalid",
+        "helper events must be provided as JSONL text, a path, or a list of objects",
+    )
+
+
+def _parse_helper_jsonl(text: str) -> list[Mapping[str, Any]]:
+    events: list[Mapping[str, Any]] = []
+    for line_number, line in enumerate(text.splitlines(), start=1):
+        stripped = line.strip()
+        if not stripped:
+            continue
+        try:
+            decoded = json.loads(stripped)
+        except json.JSONDecodeError as exc:
+            raise RpcError(
+                "schema_invalid",
+                f"invalid helper event JSON on line {line_number}: {exc.msg}",
+            ) from exc
+        events.append(_require_helper_event_object(decoded, index=line_number))
+    return events
+
+
+def _require_helper_event_object(value: object, *, index: int) -> Mapping[str, Any]:
+    if not isinstance(value, Mapping):
+        raise RpcError("schema_invalid", f"helper event {index} must be an object")
+    return value
+
+
+def _normalize_helper_event(
+    event: Mapping[str, Any],
+    *,
+    default_session_id: str | None,
+    default_supervisor_id: str | None,
+    index: int,
+) -> dict[str, Any]:
+    schema_version = event.get("schema_version")
+    if schema_version not in (None, "", HELPER_EVENT_SCHEMA_VERSION):
+        raise RpcError(
+            "schema_invalid",
+            f"helper event {index} has unsupported schema_version {schema_version!r}",
+        )
+    event_type = event.get("event_type")
+    if not isinstance(event_type, str) or not event_type:
+        raise RpcError("schema_invalid", f"helper event {index} requires event_type")
+    if event_type not in CONTROL_EVENT_TYPES:
+        allowed = ", ".join(sorted(CONTROL_EVENT_TYPES))
+        raise RpcError(
+            "schema_invalid",
+            f"helper event {index} event_type must be one of: {allowed}",
+        )
+
+    supervisor_id = _optional_text(event.get("supervisor_id")) or default_supervisor_id
+    session_id = _optional_text(event.get("session_id")) or default_session_id
+    if supervisor_id is None and session_id is None:
+        raise RpcError(
+            "schema_invalid",
+            f"helper event {index} requires supervisor_id or session_id",
+        )
+    packet_id = _optional_text(event.get("packet_id"))
+    timestamp = _optional_text(event.get("timestamp"))
+    payload = event.get("payload")
+    if payload is None:
+        payload_map: dict[str, Any] = {}
+    elif isinstance(payload, Mapping):
+        payload_map = dict(payload)
+    else:
+        raise RpcError("schema_invalid", f"helper event {index} payload must be an object")
+
+    normalized: dict[str, Any] = {
+        "event_type": event_type,
+        "payload": payload_map,
+    }
+    if supervisor_id is not None:
+        normalized["supervisor_id"] = supervisor_id
+    if session_id is not None:
+        normalized["session_id"] = session_id
+    if packet_id is not None:
+        normalized["packet_id"] = packet_id
+    if timestamp is not None:
+        normalized["reported_at"] = timestamp
+    return normalized
+
+
 def _validate_start(
     ctx: RepoHandlerContext, *, session_id: str
 ) -> tuple[dict[str, Any], str, list[str]]:
@@ -477,9 +625,7 @@ def _validate_start(
         workflow = workflow_for_run(ctx, run_id=run_id)
         lane = _lane_config(workflow, lane_id=str(session["lane_id"]))
         if lane.get("adapter") != "process":
-            raise InvalidTransitionError(
-                "supervise start requires a process-adapter lane"
-            )
+            raise InvalidTransitionError("supervise start requires a process-adapter lane")
         command = _command_array(lane)
         existing = _active_supervisor(ctx, session_id=session_id, for_update=True)
         if existing is not None:
@@ -784,9 +930,7 @@ def _require_active_supervisor(
 ) -> dict[str, Any]:
     supervisor = _active_supervisor(ctx, session_id=session_id, for_update=for_update)
     if supervisor is None:
-        raise InvalidTransitionError(
-            f"no active supervisor for session_id={session_id!r}"
-        )
+        raise InvalidTransitionError(f"no active supervisor for session_id={session_id!r}")
     return supervisor
 
 
@@ -990,9 +1134,7 @@ def _write_to_pipe(pipe_path: Path, payload: bytes) -> int:
                     "supervisor pipe is broken; child has closed stdin"
                 ) from exc
             if written <= 0:
-                raise InvalidTransitionError(
-                    "supervisor pipe write returned zero bytes"
-                )
+                raise InvalidTransitionError("supervisor pipe write returned zero bytes")
             total += written
         return total
     finally:

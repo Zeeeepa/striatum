@@ -103,9 +103,9 @@ so external references keep resolving even as items move between sections.
 | 49 | RFC 0059 Architecture remediation Phase 1 — close production SQLite fallback | 🟡 production fallback closed; legacy SQLite quarantine remains |
 | 50 | RFC 0060 Architecture remediation Phase 2 — single daemon method contract source | 🟡 contract source + Python/Go registry + MCP descriptors landed |
 | 51 | Architecture remediation Phase 3 — daemon core strategy decision | ✅ done |
-| 52 | RFC 0061 Architecture remediation Phase 4 — daemon-first web service | 🟡 mutation POST + run-list read slices landed |
-| 53 | RFC 0062 Architecture remediation Phase 5 — real escalation inbox | 🟡 projection + escalation artifact schema landed |
-| 54 | RFC 0063 Architecture remediation Phase 6 — hardened PTY supervision | 🟡 control-event + helper protocol slices landed |
+| 52 | RFC 0061 Architecture remediation Phase 4 — daemon-first web service | 🟡 mutation POST, run-list read, and chat-briefing read slices landed |
+| 53 | RFC 0062 Architecture remediation Phase 5 — real escalation inbox | 🟡 projection + escalation artifact schema/linkage landed |
+| 54 | RFC 0063 Architecture remediation Phase 6 — hardened PTY supervision | 🟡 control-event, helper protocol, and JSONL ingestion slices landed |
 | 55 | RFC 0064 Architecture remediation Phase 7 — workflow risk lint and review diversity enforcement | 🟡 strict lint + web surfacing landed |
 | 56 | Architecture remediation Phase 8 — auto-finalize from front matter | 🟡 daemon recovery + visibility slices landed |
 | 57 | RFC 0065 Architecture remediation Phase 9 — UI packaging and bundle cleanup | ✅ done; chunking monitor only |
@@ -767,11 +767,10 @@ section is the canonical status snapshot.
     HOW_TO_HUMAN.md prose realigned in commit 7e21399. D103 recorded
     in DECISION_LOG. **Deferred follow-ups**: workflow.json
     schema-field rename (`human_checkpoint` → `escalation_checkpoint`),
-    `waiting_human` run state rename, CLI prompt-string sweep, and
-    escalation artifact linkage. The `escalation` artifact kind and
-    `striatum.escalation.v1` front matter schema landed with focused
-    publish/workflow validation; the first daemon RPC projection
-    methods landed under remediation item 53.
+    `waiting_human` run state rename, and CLI prompt-string sweep. The
+    `escalation` artifact kind, `striatum.escalation.v1` front matter schema,
+    publish-time blocker linkage, and daemon RPC projection methods landed
+    under remediation item 53.
     ROADMAP §5.8.
 
 45. ~~**RFC 0054 V0 (day-zero usage guide).**~~ Phase A shipped
@@ -848,11 +847,12 @@ review and plan are root-level operator artifacts:
     `branch.confirm`, `run.start`) through `service_daemon.py`, with
     SQLite tripwire tests. The web run list now renders from daemon
     `list.runs` DTOs in production; a `STRIATUM_TEST_HARNESS` fallback
-    preserves legacy subprocess web fixtures only. Remaining: split
-    `service.py`, replace the rest of the direct SQLite-shaped reads with
-    daemon RPC DTOs, replace run-now's multi-step SQLite transaction
-    carefully, move SSE/doctor/status reads, and derive mutation
-    authorization from daemon method capabilities.
+    preserves legacy subprocess web fixtures only. Chat-session briefing now
+    uses daemon `list.runs` DTOs for its active-run summary without opening
+    repo-local SQLite. Remaining: split `service.py`, replace the rest of the
+    direct SQLite-shaped reads with daemon RPC DTOs, replace run-now's
+    multi-step SQLite transaction carefully, move SSE/doctor/status reads,
+    and derive mutation authorization from daemon method capabilities.
 
 53. **Phase 5: real escalation inbox.** First slice landed:
     `escalation.list`, `escalation.show`, and `escalation.resolve`
@@ -861,9 +861,12 @@ review and plan are root-level operator artifacts:
     `striatum escalation ...`; and `striatum inbox --json` now shows the
     principal escalation inbox without requiring a session id. Follow-up
     slice landed the `escalation` artifact kind and
-    `striatum.escalation.v1` front matter schema. Remaining: artifact
-    linkage to escalation records, typed escalation table or stricter
-    blocker payload schema, and eventual packet-helper rename
+    `striatum.escalation.v1` front matter schema. Follow-up linkage now
+    records successful `escalation` artifact publishes under
+    `blockers.payload_json.escalation_artifact` and projects the linked
+    artifact through `escalation.list` / `escalation.show`. Remaining:
+    decide artifact-only escalation creation policy, typed escalation table
+    or stricter blocker payload schema, and eventual packet-helper rename
     (`packet inbox`) if needed.
 
 54. **Phase 6: hardened PTY supervision / Go helper.** Add daemon-owned
@@ -877,11 +880,13 @@ review and plan are root-level operator artifacts:
     `striatum-supervisor-helper` binary and protocol: it launches the agent
     under PTY, forwards packet bytes from stdin or a FIFO, and emits JSONL
     control events while an architecture guardrail keeps it out of DB/RPC,
-    mutation, read, apply, and cross-repo packages. Remaining: durable
-    Python consumption of helper control events, reattach/lost-state
-    semantics, doctor surfacing for stale supervisors, stronger lane-liveness
-    attestation, wrapper fixtures, and promotion of helper-only CI beyond
-    focused tests.
+    mutation, read, apply, and cross-repo packages. Follow-up slice landed
+    Python-side consumption of helper JSONL event batches through
+    `supervise.report`, including durable `helper_error` events and
+    `agent_exited` stop-state transitions. Remaining: daemon-owned helper
+    launch wiring, reattach/lost-state semantics, doctor surfacing for stale
+    supervisors, stronger lane-liveness attestation, wrapper fixtures, and
+    promotion of helper-only CI beyond focused tests.
 
 55. **Phase 7: workflow risk lint and review diversity enforcement.**
     `workflow lint <workflow.json> --json` returns structured advisory

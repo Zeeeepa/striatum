@@ -647,7 +647,13 @@ V1 schemas:
   `ai_self_declared`), `description`, `reasoning`, `requested_action`, and
   `created_at`; optional `job_id`, `session_id`, and `related_artifacts`
   (list of strings). These artifacts are AI-authored escalation requests for
-  the human principal; they do not create a dedicated live-state table.
+  the human principal; they do not create a dedicated live-state table. When
+  published through daemon `artifact.publish`, `escalation_id` is treated as
+  the target blocker id for an existing escalation-class blocker in the same
+  repository/run. Successful linkage stores compact metadata under
+  `blockers.payload_json.escalation_artifact` and the escalation inbox
+  projections surface it; publishing an escalation artifact does not create a
+  new live blocker by itself.
 
 Other artifact kinds (`prompt`, `marker`, `handoff`, `patch_summary`,
 `test_report`, `other`) remain unschemaed in V1 and pass through without a
@@ -1575,6 +1581,17 @@ Recovery: when a session's lease expires, `expire_leases` marks any
 `supervisor.lease_expired_with_supervisor`. The OS process is not
 auto-killed; operator inspection is required, mirroring D036's stale-lease
 policy for repo-write work.
+
+The Go `striatum-supervisor-helper` is a narrow process/PTY helper. It emits
+newline-delimited control events with schema
+`striatum.supervisor_helper.event.v1`: `agent_started`, `packet_accepted`,
+`progress`, `artifact_observed`, `helper_error`, and `agent_exited`.
+Daemon `supervise.report` can consume those helper events as JSONL text, a
+path, or an object list and records them through the same durable
+`supervisor.<event>` event path used by wrapper reports. Helper timestamps are
+preserved as `reported_at`; `agent_exited` applies the normal stopped-state
+transition. The control channel carries lifecycle metadata and byte counts,
+not model transcript output.
 
 Doctor: `striatum doctor` flags supervisors in `('starting','attached',
 'detached')` whose pid is gone, and `attached` supervisors whose

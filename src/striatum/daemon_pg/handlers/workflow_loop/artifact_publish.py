@@ -9,11 +9,13 @@ from typing import Any, cast
 from striatum.artifacts import (
     ALLOWED_ARTIFACT_KINDS,
     ensure_required_front_matter,
+    parse_artifact_front_matter,
     validate_artifact_front_matter,
 )
 from striatum.daemon_pg.handlers.context import (
     RepoHandlerContext,
     _first_author_line,
+    _jsonb,
     _json_loads,
     active_lease_for,
     expected_author_line_pg,
@@ -129,6 +131,23 @@ def publish_artifact_inline(
                 stored_rationale,
             ),
         )
+    if kind == "escalation":
+        front_matter = parse_artifact_front_matter(kind=kind, path=path, payload=payload)
+        if front_matter is None:
+            raise ArtifactError(
+                "escalation artifact front matter is required to link an escalation blocker"
+            )
+        _link_escalation_artifact(
+            ctx,
+            front_matter=front_matter,
+            artifact_id=artifact_id,
+            run_id=str(job["run_id"]),
+            job_id=job_id,
+            session_id=session_id,
+            repo_path=path_text,
+            content_sha256=digest,
+            linked_at=str(now),
+        )
     ctx.append_event(
         run_id=str(job["run_id"]),
         event_type="artifact.published",
@@ -195,6 +214,95 @@ def _existing_artifact(
             (ctx.repository_id, run_id, job_id, logical_name),
         )
         return cast(Mapping[str, Any] | None, cur.fetchone())
+
+
+_ESCALATION_BLOCKER_KINDS: frozenset[str] = frozenset(
+    {
+        "ambiguous_goal",
+        "missing_authority",
+        "contradicting_decisions",
+        "no_available_reviewer_lane",
+        "committee_stalemate",
+        "override_required",
+        "ai_self_declared",
+    }
+)
+
+
+def _link_escalation_artifact(
+    ctx: RepoHandlerContext,
+    *,
+    front_matter: Mapping[str, object],
+    artifact_id: str,
+    run_id: str,
+    job_id: str,
+    session_id: str,
+    repo_path: str,
+    content_sha256: str,
+    linked_at: str,
+) -> None:
+    escalation_id = front_matter.get("escalation_id")
+    if not isinstance(escalation_id, str) or not escalation_id.strip():
+        raise ArtifactError("escalation artifact front matter missing escalation_id")
+    if front_matter.get("run_id") != run_id:
+        raise ArtifactError("escalation artifact run_id must match publish context")
+    front_job_id = front_matter.get("job_id")
+    if front_job_id is not None and front_job_id != job_id:
+        raise ArtifactError("escalation artifact job_id must match publish context")
+    front_session_id = front_matter.get("session_id")
+    if front_session_id is not None and front_session_id != session_id:
+        raise ArtifactError("escalation artifact session_id must match publish context")
+
+    with ctx.cursor() as cur:
+        cur.execute(
+            """
+            SELECT blocker_id, run_id, severity, blocker_kind
+              FROM striatumd.blockers
+             WHERE repository_id = %s
+               AND blocker_id = %s
+             FOR UPDATE
+            """,
+            (ctx.repository_id, escalation_id),
+        )
+        blocker = cur.fetchone()
+    if blocker is None:
+        raise ArtifactError(
+            "escalation artifact escalation_id does not match an existing blocker"
+        )
+    if str(blocker["run_id"]) != run_id:
+        raise ArtifactError("escalation artifact blocker must belong to the same run")
+    if not _is_escalation_class_blocker(blocker):
+        raise ArtifactError("escalation artifact blocker is not escalation-class")
+
+    metadata = {
+        "artifact_id": artifact_id,
+        "repo_path": repo_path,
+        "content_sha256": content_sha256,
+        "linked_at": linked_at,
+        "link_source": "artifact.publish",
+    }
+    with ctx.cursor() as cur:
+        cur.execute(
+            """
+            UPDATE striatumd.blockers
+               SET payload_json = jsonb_set(
+                       COALESCE(payload_json, '{}'::jsonb),
+                       '{escalation_artifact}',
+                       %s,
+                       true
+                   )
+             WHERE repository_id = %s
+               AND blocker_id = %s
+            """,
+            (_jsonb(metadata), ctx.repository_id, escalation_id),
+        )
+
+
+def _is_escalation_class_blocker(blocker: Mapping[str, Any]) -> bool:
+    return (
+        blocker.get("severity") == "human_checkpoint"
+        or str(blocker.get("blocker_kind")) in _ESCALATION_BLOCKER_KINDS
+    )
 
 
 def _expected_byline_or_none(

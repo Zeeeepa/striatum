@@ -344,6 +344,8 @@ daemon-first without needing to support two domain daemons.
   the workflow identity/source DTO returned by the daemon handler. The legacy
   SQLite path is gated behind `STRIATUM_TEST_HARNESS=1
   STRIATUM_DAEMON_REQUIRED=0` for subprocess web fixtures only.
+- Chat-session briefing now calls daemon `list.runs` for its active-run
+  summary and has a SQLite tripwire regression for the daemon DTO path.
 
 **Remaining Phase 4 debt:** run-now still has multi-step SQLite transaction
 semantics; run detail, job detail, artifact reads, doctor/status/why, SSE, and
@@ -366,10 +368,14 @@ needs to derive from daemon method capabilities.
   while `inbox --session-id` remains the session-packet helper.
 - The `escalation` artifact kind and `striatum.escalation.v1` front matter
   schema landed, with workflow validation and publish-artifact coverage.
+- Publishing an `escalation` artifact can now link to an existing
+  escalation-class blocker via front matter; the linked artifact metadata is
+  stored under `blockers.payload_json.escalation_artifact` and projected by
+  `escalation.list` / `escalation.show`.
 
-**Remaining Phase 5 debt:** link escalation artifacts to records, consider a
-dedicated escalation table or stricter blocker payload schema, and decide
-whether to rename the packet helper to `packet inbox`.
+**Remaining Phase 5 debt:** decide artifact-only escalation creation policy,
+consider a dedicated escalation table or stricter blocker payload schema, and
+decide whether to rename the packet helper to `packet inbox`.
 
 ---
 
@@ -389,11 +395,15 @@ whether to rename the packet helper to `packet inbox`.
   control events (`agent_started`, `packet_accepted`, `progress`,
   `agent_exited`, `helper_error`) without importing daemon DB/RPC,
   mutation, read, apply, or cross-repo authority packages.
+- `supervise.report` now consumes helper event batches from JSONL text, a
+  path, or object lists; it records helper events through the existing durable
+  event path, preserves helper timestamps as `reported_at`, records
+  `helper_error`, and uses the existing `agent_exited` stopped-state
+  transition.
 
-**Remaining Phase 6 debt:** implement Python-side durable consumption of
-helper control events through existing `supervise.report`, reattach/lost-state
-recovery, doctor surfacing for stale supervisors, stronger lane-liveness
-attestation, wrapper fixtures, and broader helper-only CI.
+**Remaining Phase 6 debt:** daemon-owned helper launch wiring,
+reattach/lost-state recovery, doctor surfacing for stale supervisors, stronger
+lane-liveness attestation, wrapper fixtures, and broader helper-only CI.
 
 ---
 
@@ -658,9 +668,9 @@ its implementation depends on RFC 0048 Phase A.
   business-logic flip.
 - **RFC 0053** (human principal as escalation-only) — TODO #44.
   RFC body + D103 + doc-side prose realignment shipped on main.
-  Deferred Phase A: `escalation` artifact-kind schema + artifact linkage
-  remains; the first daemon RPC projection methods landed under
-  remediation Phase 5.
+  Deferred Phase A landed under remediation Phase 5: `escalation`
+  artifact-kind schema, publish-time blocker linkage, and daemon RPC
+  projection methods.
   Deferred Phase B: workflow.json schema-field rename
   (`human_checkpoint` → `escalation_checkpoint`), `waiting_human`
   run-state rename, CLI prompt-string sweep.
