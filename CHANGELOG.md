@@ -60,7 +60,10 @@ in the roadmap/TODO and has several production slices landed:
   `escalation.list`, `escalation.show`, and `escalation.resolve` project
   human-principal escalations from blocker state. The `escalation` artifact
   kind, `striatum.escalation.v1` front matter schema, CLI routes, daemon
-  contract entries, and artifact-to-blocker linkage are in place.
+  contract entries, and artifact-to-blocker linkage are in place. Escalation
+  projections now suppress stale artifact links unless they match a real
+  artifact row by id, path, and content hash; idempotent artifact publish
+  retries repair missing links and reject conflicting blocker metadata.
 - **Supervisor control channel.**
   Supervision now records structured control events through
   `supervise.report`, reports delivered-unacknowledged sends explicitly, and

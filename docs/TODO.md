@@ -899,9 +899,12 @@ review and plan are root-level operator artifacts:
     `striatum.escalation.v1` front matter schema. Follow-up linkage now
     records successful `escalation` artifact publishes under
     `blockers.payload_json.escalation_artifact` and projects the linked
-    artifact through `escalation.list` / `escalation.show`. Remaining:
-    decide artifact-only escalation creation policy, typed escalation table
-    or stricter blocker payload schema, and eventual packet-helper rename
+    artifact through `escalation.list` / `escalation.show`. Hardening now
+    suppresses stale artifact-link projections unless id/path/hash metadata
+    matches a real artifact row, repairs missing links on idempotent publish
+    retries, and rejects conflicting blocker metadata. Remaining: decide
+    artifact-only escalation creation policy, typed escalation table or
+    stricter blocker payload schema, and eventual packet-helper rename
     (`packet inbox`) if needed.
 
 54. **Phase 6: hardened PTY supervision / Go helper.** Add daemon-owned

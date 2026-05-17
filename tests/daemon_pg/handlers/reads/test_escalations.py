@@ -136,6 +136,33 @@ def test_escalation_resolve_rejects_non_escalation_and_closed_blockers(
         module.resolve_escalation(ctx, {"escalation_id": "blk_resolved"})
 
 
+def test_escalation_projection_ignores_stale_artifact_payload_links(
+    pg_conn: Any,
+    tmp_path: Path,
+) -> None:
+    _seed(pg_conn, tmp_path)
+    module = importlib.import_module("striatum.daemon_pg.handlers.reads.escalations")
+    with pg_conn.cursor() as cur:
+        cur.execute(
+            """
+            UPDATE striatumd.blockers
+               SET payload_json = jsonb_set(
+                   payload_json,
+                   '{escalation_artifact,content_sha256}',
+                   '"sha-stale"'::jsonb
+               )
+             WHERE repository_id = 'repo_1'
+               AND blocker_id = 'blk_authority'
+            """
+        )
+    pg_conn.commit()
+
+    shown = module.show_escalation(_ctx(pg_conn, tmp_path), {"escalation_id": "blk_authority"})
+
+    assert shown["escalation"]["escalation_artifact"] is None
+    assert shown["escalation"]["payload"]["escalation_artifact"]["artifact_id"] == "art_escalation"
+
+
 def _ctx(conn: Any, tmp_path: Path) -> RepoHandlerContext:
     return RepoHandlerContext(
         pg_conn=conn,
@@ -209,6 +236,20 @@ def _seed(conn: Any, tmp_path: Path) -> None:
                 Jsonb([]),
                 now,
             ),
+        )
+        cur.execute(
+            """
+            INSERT INTO striatumd.artifacts (
+              repository_id, artifact_id, run_id, job_id, session_id, logical_name,
+              artifact_kind, repo_path, content_sha256, size_bytes, publish_mode,
+              created_at
+            )
+            VALUES ('repo_1', 'art_escalation', 'run_1', 'job_1', 'sess_1',
+                    'principal_escalation', 'escalation',
+                    'docs/escalations/ESCALATION.md', 'sha-escalation', 12,
+                    'create', %s)
+            """,
+            (now,),
         )
         blockers = [
             ("blk_human", "human_checkpoint", "revision_routing", "open"),

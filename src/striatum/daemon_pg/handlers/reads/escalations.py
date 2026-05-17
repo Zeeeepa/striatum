@@ -10,18 +10,7 @@ from striatum.daemon_pg.handlers.reads._registry import register_pg_handler
 from striatum.daemon_pg.handlers.reads._sql import json_value, optional_text, positive_limit
 from striatum.daemon_rpc.envelope import RpcError
 from striatum.errors import InvalidTransitionError
-
-ESCALATION_BLOCKER_KINDS: frozenset[str] = frozenset(
-    {
-        "ambiguous_goal",
-        "missing_authority",
-        "contradicting_decisions",
-        "no_available_reviewer_lane",
-        "committee_stalemate",
-        "override_required",
-        "ai_self_declared",
-    }
-)
+from striatum.escalations import ESCALATION_BLOCKER_KINDS
 
 
 @register_pg_handler("escalation.list", read_only=True)
@@ -59,7 +48,10 @@ def list_escalations(ctx: RepoHandlerContext, params: Mapping[str, Any]) -> dict
                    b.state,
                    b.created_at,
                    b.resolved_at,
-                   b.payload_json
+                   b.payload_json,
+                   a.artifact_id AS linked_artifact_id,
+                   a.repo_path AS linked_repo_path,
+                   a.content_sha256 AS linked_content_sha256
               FROM striatumd.blockers b
               LEFT JOIN striatumd.jobs j
                 ON j.repository_id = b.repository_id
@@ -67,6 +59,9 @@ def list_escalations(ctx: RepoHandlerContext, params: Mapping[str, Any]) -> dict
               LEFT JOIN striatumd.sessions s
                 ON s.repository_id = b.repository_id
                AND s.session_id = b.session_id
+              LEFT JOIN striatumd.artifacts a
+                ON a.repository_id = b.repository_id
+               AND a.artifact_id = b.payload_json #>> '{{escalation_artifact,artifact_id}}'
              WHERE {" AND ".join(filters)}
              ORDER BY b.created_at ASC, b.blocker_id ASC
              LIMIT %s
@@ -160,7 +155,10 @@ def _load_escalation(ctx: RepoHandlerContext, *, escalation_id: str) -> dict[str
                    b.state,
                    b.created_at,
                    b.resolved_at,
-                   b.payload_json
+                   b.payload_json,
+                   a.artifact_id AS linked_artifact_id,
+                   a.repo_path AS linked_repo_path,
+                   a.content_sha256 AS linked_content_sha256
               FROM striatumd.blockers b
               LEFT JOIN striatumd.jobs j
                 ON j.repository_id = b.repository_id
@@ -168,6 +166,9 @@ def _load_escalation(ctx: RepoHandlerContext, *, escalation_id: str) -> dict[str
               LEFT JOIN striatumd.sessions s
                 ON s.repository_id = b.repository_id
                AND s.session_id = b.session_id
+              LEFT JOIN striatumd.artifacts a
+                ON a.repository_id = b.repository_id
+               AND a.artifact_id = b.payload_json #>> '{{escalation_artifact,artifact_id}}'
              WHERE b.repository_id = %s
                AND b.blocker_id = %s
                AND {_escalation_predicate()}
@@ -225,12 +226,15 @@ def _project_row(row: Mapping[str, Any]) -> dict[str, Any]:
         "state": str(row["state"]),
         "created_at": json_value(row.get("created_at")),
         "resolved_at": json_value(row.get("resolved_at")),
-        "escalation_artifact": _escalation_artifact_summary(payload),
+        "escalation_artifact": _escalation_artifact_summary(payload, row),
         "payload": payload if isinstance(payload, dict) else {},
     }
 
 
-def _escalation_artifact_summary(payload: object) -> dict[str, Any] | None:
+def _escalation_artifact_summary(
+    payload: object,
+    row: Mapping[str, Any],
+) -> dict[str, Any] | None:
     if not isinstance(payload, Mapping):
         return None
     value = payload.get("escalation_artifact")
@@ -238,6 +242,12 @@ def _escalation_artifact_summary(payload: object) -> dict[str, Any] | None:
         return None
     required = ("artifact_id", "repo_path", "content_sha256", "linked_at", "link_source")
     if not all(isinstance(value.get(key), str) and value.get(key) for key in required):
+        return None
+    if (
+        row.get("linked_artifact_id") != value["artifact_id"]
+        or row.get("linked_repo_path") != value["repo_path"]
+        or row.get("linked_content_sha256") != value["content_sha256"]
+    ):
         return None
     return {key: str(value[key]) for key in required}
 

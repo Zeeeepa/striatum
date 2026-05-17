@@ -463,6 +463,155 @@ def test_publish_escalation_artifact_rejects_context_mismatch(
         conn.close()
 
 
+def test_publish_escalation_artifact_repairs_missing_link_on_idempotent_retry(
+    tmp_path: Path, pg_url: str
+) -> None:
+    conn = connect(pg_url)
+    try:
+        repo_root = tmp_path / "repo_a"
+        artifact_path = repo_root / "docs" / "ESCALATION.md"
+        artifact_path.parent.mkdir(parents=True)
+        artifact_path.write_text(
+            _escalation_markdown(escalation_id="blk_authority"),
+            encoding="utf-8",
+        )
+        _seed_running_job(conn, repo_root, repository_id="repo_a")
+        _insert_blocker(
+            conn,
+            repository_id="repo_a",
+            blocker_id="blk_authority",
+            blocker_kind="missing_authority",
+        )
+        conn.commit()
+
+        first = handle(
+            _ctx(conn, repo_root, repository_id="repo_a"),
+            {
+                "session_id": "sess_1",
+                "job_id": "job_1",
+                "lease_id": "lease_1",
+                "path": "docs/ESCALATION.md",
+                "kind": "escalation",
+                "logical_name": "principal_escalation",
+            },
+        )
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE striatumd.blockers
+                   SET payload_json = payload_json - 'escalation_artifact'
+                 WHERE repository_id = %s
+                   AND blocker_id = %s
+                """,
+                ("repo_a", "blk_authority"),
+            )
+        conn.commit()
+
+        again = handle(
+            _ctx(conn, repo_root, repository_id="repo_a"),
+            {
+                "session_id": "sess_1",
+                "job_id": "job_1",
+                "lease_id": "lease_1",
+                "path": "docs/ESCALATION.md",
+                "kind": "escalation",
+                "logical_name": "principal_escalation",
+            },
+        )
+
+        assert again == {
+            "status": "already_published",
+            "artifact_id": first["artifact_id"],
+        }
+        blocker = _one(
+            conn,
+            """
+            SELECT payload_json
+            FROM striatumd.blockers
+            WHERE repository_id = %s AND blocker_id = %s
+            """,
+            ("repo_a", "blk_authority"),
+        )
+        assert blocker["payload_json"]["escalation_artifact"]["artifact_id"] == first["artifact_id"]
+        assert blocker["payload_json"]["escalation_artifact"]["content_sha256"] == first["sha256"]
+    finally:
+        conn.close()
+
+
+def test_publish_escalation_artifact_rejects_conflicting_existing_link(
+    tmp_path: Path, pg_url: str
+) -> None:
+    conn = connect(pg_url)
+    try:
+        repo_root = tmp_path / "repo_a"
+        artifact_path = repo_root / "docs" / "ESCALATION.md"
+        artifact_path.parent.mkdir(parents=True)
+        artifact_path.write_text(
+            _escalation_markdown(escalation_id="blk_authority"),
+            encoding="utf-8",
+        )
+        _seed_running_job(conn, repo_root, repository_id="repo_a")
+        _insert_blocker(
+            conn,
+            repository_id="repo_a",
+            blocker_id="blk_authority",
+            blocker_kind="missing_authority",
+        )
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE striatumd.blockers
+                   SET payload_json = jsonb_set(
+                       payload_json,
+                       '{escalation_artifact}',
+                       %s,
+                       true
+                   )
+                 WHERE repository_id = %s
+                   AND blocker_id = %s
+                """,
+                (
+                    Jsonb(
+                        {
+                            "artifact_id": "art_other",
+                            "repo_path": "docs/OTHER.md",
+                            "content_sha256": "sha-other",
+                            "linked_at": "2026-05-14T00:00:00Z",
+                            "link_source": "artifact.publish",
+                        }
+                    ),
+                    "repo_a",
+                    "blk_authority",
+                ),
+            )
+        conn.commit()
+
+        with pytest.raises(ArtifactError, match="already linked to a different artifact"):
+            handle(
+                _ctx(conn, repo_root, repository_id="repo_a"),
+                {
+                    "session_id": "sess_1",
+                    "job_id": "job_1",
+                    "lease_id": "lease_1",
+                    "path": "docs/ESCALATION.md",
+                    "kind": "escalation",
+                    "logical_name": "principal_escalation",
+                },
+            )
+
+        assert _one(
+            conn,
+            """
+            SELECT count(*) AS count
+            FROM striatumd.artifacts
+            WHERE repository_id = %s AND logical_name = %s
+            """,
+            ("repo_a", "principal_escalation"),
+        ) == {"count": 0}
+    finally:
+        conn.close()
+
+
 def test_artifact_publish_handler_registered() -> None:
     assert resolve_pg_handler("artifact.publish") is handle
     assert resolve_pg_handler("publish_artifact") is handle

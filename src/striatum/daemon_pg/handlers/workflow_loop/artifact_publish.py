@@ -26,6 +26,7 @@ from striatum.daemon_pg.handlers.context import (
 )
 from striatum.daemon_pg.handlers.registry import register_pg_handler
 from striatum.errors import ArtifactError
+from striatum.escalations import ESCALATION_BLOCKER_KINDS
 from striatum.primitives import sha256_bytes
 from striatum.repo_policy import path_allowed, repo_relative_path
 
@@ -94,16 +95,35 @@ def publish_artifact_inline(
         override_rationale=override_rationale,
     )
     digest = sha256_bytes(payload)
+    now = ctx.now()
     existing = _existing_artifact(
         ctx, run_id=str(job["run_id"]), job_id=job_id, logical_name=logical_name
     )
     if existing is not None:
         if existing["content_sha256"] == digest and existing["repo_path"] == path_text:
+            if kind == "escalation":
+                front_matter = parse_artifact_front_matter(
+                    kind=kind, path=path, payload=payload
+                )
+                if front_matter is None:
+                    raise ArtifactError(
+                        "escalation artifact front matter is required to link an escalation blocker"
+                    )
+                _link_escalation_artifact(
+                    ctx,
+                    front_matter=front_matter,
+                    artifact_id=str(existing["artifact_id"]),
+                    run_id=str(job["run_id"]),
+                    job_id=job_id,
+                    session_id=session_id,
+                    repo_path=path_text,
+                    content_sha256=digest,
+                    linked_at=str(now),
+                )
             return {"status": "already_published", "artifact_id": existing["artifact_id"]}
         raise ArtifactError("artifact logical name already exists with different content")
 
     artifact_id = ctx.new_id("art")
-    now = ctx.now()
     actual_author_line = _first_author_line(payload)
     with ctx.cursor() as cur:
         cur.execute(
@@ -216,19 +236,6 @@ def _existing_artifact(
         return cast(Mapping[str, Any] | None, cur.fetchone())
 
 
-_ESCALATION_BLOCKER_KINDS: frozenset[str] = frozenset(
-    {
-        "ambiguous_goal",
-        "missing_authority",
-        "contradicting_decisions",
-        "no_available_reviewer_lane",
-        "committee_stalemate",
-        "override_required",
-        "ai_self_declared",
-    }
-)
-
-
 def _link_escalation_artifact(
     ctx: RepoHandlerContext,
     *,
@@ -256,7 +263,7 @@ def _link_escalation_artifact(
     with ctx.cursor() as cur:
         cur.execute(
             """
-            SELECT blocker_id, run_id, severity, blocker_kind
+            SELECT blocker_id, run_id, severity, blocker_kind, payload_json
               FROM striatumd.blockers
              WHERE repository_id = %s
                AND blocker_id = %s
@@ -281,6 +288,11 @@ def _link_escalation_artifact(
         "linked_at": linked_at,
         "link_source": "artifact.publish",
     }
+    already_linked = _compatible_existing_escalation_link(
+        blocker.get("payload_json"), metadata
+    )
+    if already_linked:
+        return
     with ctx.cursor() as cur:
         cur.execute(
             """
@@ -301,8 +313,28 @@ def _link_escalation_artifact(
 def _is_escalation_class_blocker(blocker: Mapping[str, Any]) -> bool:
     return (
         blocker.get("severity") == "human_checkpoint"
-        or str(blocker.get("blocker_kind")) in _ESCALATION_BLOCKER_KINDS
+        or str(blocker.get("blocker_kind")) in ESCALATION_BLOCKER_KINDS
     )
+
+
+def _compatible_existing_escalation_link(
+    payload_json: object,
+    metadata: Mapping[str, str],
+) -> bool:
+    if not isinstance(payload_json, Mapping):
+        return False
+    existing = payload_json.get("escalation_artifact")
+    if not isinstance(existing, Mapping):
+        return False
+    for key in ("artifact_id", "repo_path", "content_sha256", "link_source"):
+        value = existing.get(key)
+        if isinstance(value, str) and value == metadata[key]:
+            continue
+        raise ArtifactError("escalation blocker is already linked to a different artifact")
+    linked_at = existing.get("linked_at")
+    if not isinstance(linked_at, str) or not linked_at:
+        return False
+    return True
 
 
 def _expected_byline_or_none(

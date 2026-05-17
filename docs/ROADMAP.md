@@ -420,6 +420,9 @@ low-risk quarantine target after the daemon-routed paths are stable.
   escalation-class blocker via front matter; the linked artifact metadata is
   stored under `blockers.payload_json.escalation_artifact` and projected by
   `escalation.list` / `escalation.show`.
+- Escalation projections verify the linked artifact still exists and matches
+  id/path/hash metadata before surfacing it; idempotent escalation artifact
+  publishes repair missing blocker links and reject conflicting existing links.
 
 **Remaining Phase 5 debt:** decide artifact-only escalation creation policy,
 consider a dedicated escalation table or stricter blocker payload schema, and
