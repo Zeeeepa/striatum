@@ -763,6 +763,9 @@ section is the canonical status snapshot.
     canonical `recovery.sweep`, runs auto-finalize before lazy lease
     expiry only when the workflow opted in, and routes stale-artifact
     auto-publish through explicit `recovery.auto_publish_stale_artifacts`.
+    PostgreSQL sweep now also executes configured checkpoint-timeout
+    escalation hooks in live mode, keeps dry-runs side-effect-free, and
+    folds hook failures into `escalations[]`.
     Automated PG recovery coverage now pins a dogfood-shaped run where
     three valid written artifacts auto-finalize with zero
     `dogfood.publish_on_behalf` or operator-override provenance events.
@@ -1100,9 +1103,12 @@ review and plan are root-level operator artifacts:
     auto-publish is explicit as `recovery.auto_publish_stale_artifacts`,
     and deprecated `recovery.auto` is no longer emitted by the CLI.
     The sweep invokes live auto-finalize only under workflow opt-in and
-    never supplies the standalone force override. Automated dogfood-shaped
-    acceptance coverage now proves valid written artifacts can auto-finalize
-    with zero operator-on-behalf publishes. Blocked policy: global/default-on
+    never supplies the standalone force override. It also executes
+    configured checkpoint-timeout escalation hooks in live mode while
+    preserving dry-run no-side-effect behavior and folding hook failures
+    into `escalations[]`. Automated dogfood-shaped acceptance coverage now
+    proves valid written artifacts can auto-finalize with zero
+    operator-on-behalf publishes. Blocked policy: global/default-on
     auto-finalize requires live dogfood confidence plus an explicit product
     decision; until then live auto-finalize remains workflow opt-in and dry-run
     visibility remains the default posture.

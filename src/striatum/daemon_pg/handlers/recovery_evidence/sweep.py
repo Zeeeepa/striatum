@@ -16,6 +16,7 @@ from typing import Any
 from striatum.daemon_pg.handlers.context import RepoHandlerContext, workflow_for_run
 from striatum.daemon_pg.handlers.registry import register_pg_handler
 from striatum.errors import NotFoundError
+from striatum.recovery.hooks import run_escalation_hook
 from striatum.recovery.policy import resolve_policy
 
 from . import (
@@ -354,6 +355,7 @@ def _checkpoint_escalations(
         hook = policy.get("escalation_hook")
         envelope: dict[str, Any] = {
             "kind": "checkpoint_timeout",
+            "run_id": run_id,
             "blocker_id": row["blocker_id"],
             "job_id": row["job_id"],
             "severity": row["severity"],
@@ -366,11 +368,11 @@ def _checkpoint_escalations(
         elif dry_run and isinstance(hook, dict):
             envelope["hook"] = {"kind": hook.get("kind"), "dry_run": True}
         elif isinstance(hook, dict):
-            envelope["hook"] = {
-                "kind": hook.get("kind"),
-                "wrote": False,
-                "error": "daemon_pg_sweep_hook_execution_deferred",
-            }
+            envelope["hook"] = run_escalation_hook(
+                hook=hook,
+                repo=ctx.repo_root,
+                envelope=envelope,
+            )
         escalations.append(envelope)
     return escalations
 

@@ -409,11 +409,14 @@ dashboard's graph panel renderer (RFC 0016).
 `recovery auto` emits the daemon `recovery.sweep` method. The sweep
 runs workflow-opt-in `recovery.auto_finalize` before lazy lease expiry,
 then the existing stale-lease, process-reconcile, and review-only requeue
-recovery pieces where policy allows. `recovery auto-publish` emits the
-explicit `recovery.auto_publish_stale_artifacts` method; the deprecated
-`recovery.auto` alias is not emitted by the current CLI. `recovery watch`
-is a CLI-local foreground scheduler that repeatedly calls daemon
-`recovery.sweep`; it is not a registered daemon RPC method.
+recovery pieces where policy allows. Timed-out human checkpoints execute
+the configured `recovery_policy.escalation_hook` in live sweeps; dry-runs
+report the hook kind without side effects, and hook failures are reported
+inside `escalations[]`. `recovery auto-publish` emits the explicit
+`recovery.auto_publish_stale_artifacts` method; the deprecated `recovery.auto`
+alias is not emitted by the current CLI. `recovery watch` is a CLI-local
+foreground scheduler that repeatedly calls daemon `recovery.sweep`; it is not
+a registered daemon RPC method.
 
 ## Corpus export (RFC 0044 V1 / RFC 0057 contract)
 

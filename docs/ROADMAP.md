@@ -661,6 +661,9 @@ evidence is the operator-recorded decision referenced by
   remains only as a compatibility alias for stale-artifact auto-publish.
 - The sweep invokes live auto-finalize before lazy lease expiry only when the
   workflow opted in and never supplies the standalone force override.
+- PostgreSQL sweep executes configured checkpoint-timeout escalation hooks in
+  live mode, reports hook eligibility without side effects in dry-runs, and
+  folds hook failures into `escalations[]`.
 - Recovery sweep acceptance coverage now pins a dogfood-shaped run where
   three valid written review findings auto-finalize without
   operator-on-behalf or override provenance.

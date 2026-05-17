@@ -11,10 +11,57 @@ import json
 import subprocess
 import urllib.error
 import urllib.request
+from collections.abc import Mapping
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any
 
 from striatum.errors import WorkflowError
+
+
+def checkpoint_escalation_body(envelope: Mapping[str, Any]) -> str:
+    """Render the Markdown body used by marker-file escalation hooks."""
+    return (
+        "# Striatum stall escalation\n\n"
+        f"- run_id: `{envelope.get('run_id') or envelope.get('blocker_id', '')}`\n"
+        f"- blocker_id: `{envelope.get('blocker_id', '')}`\n"
+        f"- job_id: `{envelope.get('job_id', '')}`\n"
+        f"- severity: `{envelope.get('severity', '')}`\n"
+        f"- opened_at: `{envelope.get('opened_at', '')}`\n"
+        f"- age_seconds: `{envelope.get('age_seconds', 0)}`\n"
+    )
+
+
+def run_escalation_hook(
+    *,
+    hook: Mapping[str, Any],
+    repo: Path,
+    envelope: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Dispatch one escalation hook invocation; never raise to the sweep."""
+    kind = hook.get("kind")
+    try:
+        if kind == "marker_file":
+            return run_marker_file_hook(
+                target=repo,
+                path=str(hook.get("path", "")),
+                body=checkpoint_escalation_body(envelope),
+            )
+        if kind == "webhook":
+            return run_webhook_hook(
+                url=str(hook.get("url", "")),
+                payload=envelope,
+                timeout=_float_or_default(hook.get("timeout"), 10.0),
+            )
+        if kind == "shell":
+            return run_shell_hook(
+                command=_string_list(hook.get("command")),
+                env=_string_mapping_or_none(hook.get("env")),
+                cwd=repo,
+                timeout=_float_or_default(hook.get("timeout"), 30.0),
+            )
+    except WorkflowError as exc:
+        return {"kind": str(kind), "wrote": False, "error": str(exc)}
+    return {"kind": str(kind), "wrote": False, "error": "unknown_kind"}
 
 
 def run_marker_file_hook(
@@ -95,3 +142,26 @@ def run_shell_hook(
     except (subprocess.TimeoutExpired, OSError) as exc:
         return {"kind": "shell", "wrote": False, "error": str(exc)}
     return {"kind": "shell", "wrote": True, "exit_code": int(proc.returncode)}
+
+
+def _float_or_default(value: object, default: float) -> float:
+    if value is None or isinstance(value, bool):
+        return default
+    if not isinstance(value, int | float | str):
+        return default
+    try:
+        return float(value)
+    except ValueError:
+        return default
+
+
+def _string_list(value: object) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [str(part) for part in value]
+
+
+def _string_mapping_or_none(value: object) -> dict[str, str] | None:
+    if not isinstance(value, Mapping):
+        return None
+    return {str(key): str(item) for key, item in value.items()}

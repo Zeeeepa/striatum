@@ -30,12 +30,7 @@ from striatum.db import (
     transaction,
     utc_now,
 )
-from striatum.errors import WorkflowError
-from striatum.recovery.hooks import (
-    run_marker_file_hook,
-    run_shell_hook,
-    run_webhook_hook,
-)
+from striatum.recovery.hooks import run_escalation_hook
 from striatum.recovery.policy import resolve_policy
 
 
@@ -169,6 +164,7 @@ def run_auto_sweep(
         hook = policy.get("escalation_hook")
         envelope = {
             "kind": "checkpoint_timeout",
+            "run_id": run_id,
             "blocker_id": row["blocker_id"],
             "job_id": row["job_id"],
             "severity": row["severity"],
@@ -319,39 +315,7 @@ def _run_hook(
     """Dispatch one hook invocation; never raises."""
     if hook_runner is not None:
         return hook_runner(hook=hook, repo=repo, envelope=envelope)
-    kind = hook.get("kind")
-    try:
-        if kind == "marker_file":
-            body = (
-                f"# Striatum stall escalation\n\n"
-                f"- run_id: `{envelope.get('blocker_id', '')}`\n"
-                f"- blocker_id: `{envelope.get('blocker_id', '')}`\n"
-                f"- job_id: `{envelope.get('job_id', '')}`\n"
-                f"- severity: `{envelope.get('severity', '')}`\n"
-                f"- opened_at: `{envelope.get('opened_at', '')}`\n"
-                f"- age_seconds: `{envelope.get('age_seconds', 0)}`\n"
-            )
-            return run_marker_file_hook(
-                target=repo,
-                path=str(hook.get("path", "")),
-                body=body,
-            )
-        if kind == "webhook":
-            return run_webhook_hook(
-                url=str(hook.get("url", "")),
-                payload=envelope,
-                timeout=float(hook.get("timeout", 10.0)),
-            )
-        if kind == "shell":
-            command = list(hook.get("command", []))
-            return run_shell_hook(
-                command=command,
-                env=hook.get("env"),
-                cwd=repo,
-            )
-    except WorkflowError as exc:
-        return {"kind": str(kind), "wrote": False, "error": str(exc)}
-    return {"kind": str(kind), "wrote": False, "error": "unknown_kind"}
+    return run_escalation_hook(hook=hook, repo=repo, envelope=envelope)
 
 
 def _seconds_between(start: str, end: str) -> float:

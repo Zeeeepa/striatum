@@ -968,9 +968,12 @@ process reconciliation, optional autonomous review-only requeue
 doctor flagging — and returns a structured envelope `{run_id, swept_at,
 run_state, policy_source, dry_run, actions, escalations, still_stuck}`. Workflows
 declare a `recovery_policy` block to opt into autonomous behavior.
-Escalation is represented by daemon state plus blocker/escalation
-artifact projections; any local notification hook is non-authoritative
-and must never be treated as workflow state. CLI flags
+Timed-out human checkpoints run the configured escalation hook only in live
+sweeps; dry-runs report hook eligibility without side effects, and hook
+failures are folded into `escalations[]`. Escalation is represented by
+daemon state plus blocker/escalation artifact projections; any local
+notification hook is non-authoritative and must never be treated as workflow
+state. CLI flags
 (`--autonomous-review-requeue`, `--autonomous-process-reconcile`,
 `--max-requeue`, `--checkpoint-timeout`, `--eligible-after`,
 `--dry-run`) override workflow defaults. Workflows that omit

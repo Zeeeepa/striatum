@@ -591,7 +591,12 @@ is a foreground scheduler that calls daemon `recovery.sweep` in a sleep
 loop. It keeps one pidfile per run
 (`.striatum/scratch/recovery-watch-<run_id>.pid`); `SIGTERM` /
 `SIGINT` shuts it down cleanly. Exits when the run reaches a
-terminal state by default.
+terminal state by default. Because each iteration is a normal
+`recovery.sweep`, live checkpoint-timeout escalation hooks may write their
+configured marker file, call their configured webhook, or run their
+configured shell command; dry-run sweeps report hook eligibility without
+side effects, and hook failures remain in the sweep envelope's
+`escalations[]` list for operator inspection.
 
 ```bash
 "$RUNNER" --repo "$TARGET_REPO" recovery watch \

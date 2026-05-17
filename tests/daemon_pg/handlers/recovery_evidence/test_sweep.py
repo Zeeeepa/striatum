@@ -7,6 +7,7 @@ from typing import Any
 
 import pytest
 from psycopg.rows import dict_row
+from psycopg.types.json import Jsonb
 
 from _harness.pg import create_ephemeral_database, drop_ephemeral_database
 from striatum.daemon_pg.connection import connect
@@ -370,6 +371,106 @@ def test_recovery_sweep_dry_run_reports_expired_supervisor_stall_without_mutatio
         conn.close()
 
 
+def test_recovery_sweep_marker_file_hook_writes_for_checkpoint_timeout(
+    tmp_path: Path,
+    pg_url: str,
+) -> None:
+    conn = connect(pg_url)
+    try:
+        repo_root = tmp_path / "repo_a"
+        marker_path = repo_root / "ops" / "STALLS.md"
+        _seed_checkpoint_timeout(
+            conn,
+            repo_root,
+            repository_id="repo_a",
+            escalation_hook={"kind": "marker_file", "path": "ops/STALLS.md"},
+        )
+        conn.commit()
+
+        result = handle(
+            _ctx(conn, repo_root, repository_id="repo_a"),
+            {"run_id": "run_1", "dry_run": False},
+        )
+
+        assert len(result["escalations"]) == 1
+        escalation = result["escalations"][0]
+        assert escalation["kind"] == "checkpoint_timeout"
+        assert escalation["run_id"] == "run_1"
+        assert escalation["blocker_id"] == "blk_checkpoint"
+        assert escalation["job_id"] == "job_1"
+        assert escalation["hook"]["kind"] == "marker_file"
+        assert escalation["hook"]["wrote"] is True
+        assert Path(escalation["hook"]["path"]) == marker_path.resolve()
+
+        body = marker_path.read_text(encoding="utf-8")
+        assert "- run_id: `run_1`" in body
+        assert "- blocker_id: `blk_checkpoint`" in body
+        assert "- job_id: `job_1`" in body
+    finally:
+        conn.close()
+
+
+def test_recovery_sweep_marker_file_hook_dry_run_writes_nothing(
+    tmp_path: Path,
+    pg_url: str,
+) -> None:
+    conn = connect(pg_url)
+    try:
+        repo_root = tmp_path / "repo_a"
+        marker_path = repo_root / "ops" / "STALLS.md"
+        _seed_checkpoint_timeout(
+            conn,
+            repo_root,
+            repository_id="repo_a",
+            escalation_hook={"kind": "marker_file", "path": "ops/STALLS.md"},
+        )
+        conn.commit()
+
+        result = handle(
+            _ctx(conn, repo_root, repository_id="repo_a"),
+            {"run_id": "run_1", "dry_run": True},
+        )
+
+        assert len(result["escalations"]) == 1
+        assert result["escalations"][0]["hook"] == {
+            "kind": "marker_file",
+            "dry_run": True,
+        }
+        assert not marker_path.exists()
+    finally:
+        conn.close()
+
+
+def test_recovery_sweep_hook_failure_is_folded_into_escalation(
+    tmp_path: Path,
+    pg_url: str,
+) -> None:
+    conn = connect(pg_url)
+    try:
+        repo_root = tmp_path / "repo_a"
+        _seed_checkpoint_timeout(
+            conn,
+            repo_root,
+            repository_id="repo_a",
+            escalation_hook={"kind": "marker_file", "path": ".striatum/STALL.md"},
+        )
+        conn.commit()
+
+        result = handle(
+            _ctx(conn, repo_root, repository_id="repo_a"),
+            {"run_id": "run_1", "dry_run": False},
+        )
+
+        assert len(result["escalations"]) == 1
+        hook = result["escalations"][0]["hook"]
+        assert hook["kind"] == "marker_file"
+        assert hook["wrote"] is False
+        assert "outside .striatum" in hook["error"]
+        assert not (repo_root / ".striatum" / "STALL.md").exists()
+    finally:
+        conn.close()
+
+
 def test_recovery_auto_deprecated_alias_stays_auto_publish_not_sweep() -> None:
     from striatum.daemon_pg.handlers.registry import resolve_pg_handler
 
@@ -435,6 +536,57 @@ def _expire_seeded_lease(conn: Any, *, repository_id: str) -> None:
             UPDATE striatumd.process_supervisors
             SET heartbeat_at = '2026-05-14T00:00:00Z'
             WHERE repository_id = %s AND supervisor_id = 'sup_1'
+            """,
+            (repository_id,),
+        )
+
+
+def _seed_checkpoint_timeout(
+    conn: Any,
+    repo_root: Path,
+    *,
+    repository_id: str,
+    escalation_hook: dict[str, Any],
+) -> None:
+    _seed_review_job(
+        conn,
+        repo_root,
+        repository_id=repository_id,
+        auto_finalize_enabled=False,
+    )
+    with conn.cursor(row_factory=dict_row) as cur:
+        cur.execute(
+            """
+            SELECT workflow_json
+            FROM striatumd.workflow_snapshots
+            WHERE repository_id = %s AND workflow_snapshot_id = 'snap_1'
+            """,
+            (repository_id,),
+        )
+        row = cur.fetchone()
+        assert row is not None
+        workflow = dict(row["workflow_json"])
+        workflow["recovery_policy"] = {
+            "checkpoint_timeout_seconds": 0,
+            "escalation_hook": escalation_hook,
+        }
+        cur.execute(
+            """
+            UPDATE striatumd.workflow_snapshots
+            SET workflow_json = %s
+            WHERE repository_id = %s AND workflow_snapshot_id = 'snap_1'
+            """,
+            (Jsonb(workflow), repository_id),
+        )
+        cur.execute(
+            """
+            INSERT INTO striatumd.blockers (
+              repository_id, blocker_id, run_id, job_id, severity, blocker_kind,
+              description, state, created_at
+            )
+            VALUES (%s, 'blk_checkpoint', 'run_1', 'job_1',
+                    'human_checkpoint', 'revision_routing',
+                    'needs operator decision', 'open', '2026-05-14T00:00:00Z')
             """,
             (repository_id,),
         )
