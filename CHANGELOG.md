@@ -52,6 +52,9 @@ Recent checkpoints:
 - Run-list presentation helpers for GitHub remote parsing, source-path
   normalization, workflow tree links, and state chips moved from `service.py`
   into `striatum.web.run_list`.
+- Artifact web helpers for safe repo-relative path resolution, raw download
+  content-type selection, and inline Markdown rendering moved from
+  `service.py` into `striatum.web.artifacts`.
 
 - **Command authority and fallback guardrails.**
   `docs/architecture/COMMAND_AUTHORITY_MATRIX.md` now names the authority
@@ -118,7 +121,9 @@ Recent checkpoints:
   now live in `striatum.web.workflows`, while service-level route methods keep
   the HTTP request/response boundary. Run-list presentation helpers for
   GitHub remote parsing, workflow source-path normalization, tree-link
-  construction, and state chips now live in `striatum.web.run_list`.
+  construction, and state chips now live in `striatum.web.run_list`. Artifact
+  path validation, raw download content-type selection, and inline Markdown
+  rendering now live in `striatum.web.artifacts`.
 - **Escalation inbox foundation.**
   `escalation.list`, `escalation.show`, and `escalation.resolve` project
   human-principal escalations from blocker state. The `escalation` artifact

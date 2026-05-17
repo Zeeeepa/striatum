@@ -414,6 +414,9 @@ daemon-first without needing to support two domain daemons.
 - `src/striatum/web/run_list.py` now owns run-list presentation helpers for
   GitHub remote parsing, workflow source-path normalization, workflow tree-link
   construction, and run state-chip shaping.
+- `src/striatum/web/artifacts.py` now owns safe artifact file resolution, raw
+  download content-type selection, and inline Markdown rendering helpers for
+  artifact views.
 
 **Remaining Phase 4 debt:** continue splitting `service.py` along stable
 non-SQLite request-handling and rendering boundaries after the daemon-routed

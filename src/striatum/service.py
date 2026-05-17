@@ -57,6 +57,11 @@ from striatum.web.static_assets import (
     StaticAssetError as StaticAssetError,
     load_static_asset as _load_static_asset,
 )
+from striatum.web.artifacts import (
+    artifact_content_type as _artifact_content_type,
+    inline_artifact_body as _inline_artifact_body,
+    resolve_artifact_file as _resolve_artifact_file,
+)
 from striatum.web.run_list import (
     git_config_get as _git_config_get,
     git_symbolic_ref as _git_symbolic_ref,
@@ -118,17 +123,6 @@ _short_git_status = _LazyLegacyCallable("short_git_status")
 
 SSE_POLL_INTERVAL_SECONDS = 0.25
 SSE_MAX_CONCURRENT_PER_RUN = 32
-
-
-def _artifact_file_path(repo: Path, repo_path: object) -> Path:
-    if not isinstance(repo_path, str) or not repo_path:
-        raise ValueError("artifact repo_path must be a non-empty string")
-    relative = Path(repo_path)
-    if relative.is_absolute():
-        raise ValueError("artifact repo_path must be repository-relative")
-    full = (repo / relative).resolve()
-    full.relative_to(repo.resolve())
-    return full
 
 
 def _handler_send_json(handler: BaseHTTPRequestHandler, status: int, body: Mapping[str, Any]) -> None:
@@ -744,7 +738,7 @@ class StriatumServiceHandler(BaseHTTPRequestHandler):
             return
 
         try:
-            repo_path = _artifact_file_path(self.state.repo, artifact.get("repo_path"))
+            repo_path = _resolve_artifact_file(self.state.repo, artifact.get("repo_path"))
         except ValueError:
             self._send_json(404, {"ok": False, "error": {"code": 404, "message": "artifact file missing on disk"}})
             return
@@ -756,17 +750,8 @@ class StriatumServiceHandler(BaseHTTPRequestHandler):
         except OSError as exc:
             self._send_json(500, {"ok": False, "error": {"code": 500, "message": str(exc)}})
             return
-        # Choose a safe content-type. The web UI handles rendering; the
-        # service just streams bytes.
-        suffix = repo_path.suffix.lower()
-        content_type = {
-            ".md": "text/markdown; charset=utf-8",
-            ".markdown": "text/markdown; charset=utf-8",
-            ".json": "application/json",
-            ".txt": "text/plain; charset=utf-8",
-        }.get(suffix, "application/octet-stream")
         self.send_response(200)
-        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Type", _artifact_content_type(repo_path))
         self.send_header("Content-Length", str(len(data)))
         self.send_header("Content-Security-Policy", "default-src 'none'")
         self.send_header("Connection", "close")
@@ -1108,24 +1093,10 @@ class StriatumServiceHandler(BaseHTTPRequestHandler):
             if "provenance_trail" not in artifact:
                 trail = payload.get("provenance_trail")
                 artifact["provenance_trail"] = trail if isinstance(trail, list) else []
-            # RFC 0023 V1: inline-render Markdown artifacts.
-            rendered_md: str | None = None
-            body_text: str | None = None
-            try:
-                repo_path = artifact.get("repo_path") or ""
-                if isinstance(repo_path, str) and repo_path.endswith(".md"):
-                    full = (self.state.repo / repo_path).resolve()
-                    repo_root = self.state.repo.resolve()
-                    full.relative_to(repo_root)  # raises if escapes
-                    if full.is_file():
-                        from striatum.web.markdown import render as md_render
-                        body = full.read_text(encoding="utf-8", errors="replace")
-                        rendered_md = md_render(body)
-            except (ValueError, OSError):
-                rendered_md = None
+            body = _inline_artifact_body(self.state.repo, artifact)
             html = _jinja_env().get_template("artifact_view.html").render(
                 run=run, artifact=artifact,
-                rendered_md=rendered_md, body_text=body_text,
+                rendered_md=body.rendered_md, body_text=body.body_text,
             )
             self._send_html(200, html)
         except Exception as exc:  # noqa: BLE001
