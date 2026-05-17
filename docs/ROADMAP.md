@@ -339,11 +339,15 @@ daemon-first without needing to support two domain daemons.
 - Web POST handlers for run cancel/pause/resume, job cancel/retry, and branch
   confirm now call daemon RPC instead of opening repo-local SQLite.
 - Focused service tests tripwire `striatum.db.connect` for those POST paths.
+- The web run-list page now calls daemon `list.runs` in production and renders
+  the workflow identity/source DTO returned by the daemon handler. The legacy
+  SQLite path is gated behind `STRIATUM_TEST_HARNESS=1
+  STRIATUM_DAEMON_REQUIRED=0` for subprocess web fixtures only.
 
 **Remaining Phase 4 debt:** run-now still has multi-step SQLite transaction
-semantics; page reads, artifact reads, doctor/status/why, SSE, and startup
-health checks still need daemon DTOs; the service mutation gate still needs to
-derive from daemon method capabilities.
+semantics; run detail, job detail, artifact reads, doctor/status/why, SSE, and
+startup health checks still need daemon DTOs; the service mutation gate still
+needs to derive from daemon method capabilities.
 
 ---
 

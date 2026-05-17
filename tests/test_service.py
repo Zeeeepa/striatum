@@ -143,6 +143,8 @@ def _spawn_service(
     """
     env = os.environ.copy()
     env["PYTHONPATH"] = str(ROOT / "src")
+    env["STRIATUM_TEST_HARNESS"] = "1"
+    env["STRIATUM_DAEMON_REQUIRED"] = "0"
     if "--port" not in args and "--unix" not in args:
         port = _free_port()
         full_args = [*args, "--host", "127.0.0.1", "--port", str(port)]
@@ -583,6 +585,97 @@ def test_service_run_detail_passes_phase_progress_context(tmp_path: Path, monkey
     assert captured["current_phase_id"] == "phase_design"
     assert captured["phase_progress"][0]["name"] == "Design"
     assert captured["phase_progress"][0]["jobs_completed"] == 1
+
+
+def test_service_run_list_reads_daemon_dto_without_sqlite(
+    tmp_path: Path, monkeypatch: Any
+) -> None:
+    sys.path.insert(0, str(ROOT / "src"))
+    try:
+        import striatum.service as service
+        import striatum.service_daemon as service_daemon
+    finally:
+        sys.path.pop(0)
+
+    captured: dict[str, Any] = {}
+    calls: list[tuple[Path, str, dict[str, Any]]] = []
+
+    class FakeTemplate:
+        def render(self, **kwargs: Any) -> str:
+            captured.update(kwargs)
+            return "ok"
+
+    class FakeEnvironment:
+        def get_template(self, name: str) -> FakeTemplate:
+            assert name == "run_list.html"
+            return FakeTemplate()
+
+    def sqlite_tripwire(*args: Any, **kwargs: Any) -> None:
+        raise AssertionError("run-list page opened repo-local SQLite")
+
+    def fake_call_repo_method(
+        repo: Path, method: str, params: dict[str, Any]
+    ) -> dict[str, Any]:
+        calls.append((repo, method, dict(params)))
+        return {
+            "items": [
+                {
+                    "run_id": "run_daemon",
+                    "state": "running",
+                    "branch_name": "main",
+                    "created_at": "2026-05-17T00:00:00Z",
+                    "started_at": "2026-05-17T00:00:01Z",
+                    "completed_at": None,
+                    "workflow_id": "wf-daemon",
+                    "workflow_name": "Daemon workflow",
+                    "workflow_version": "1",
+                    "workflow_snapshot_id": "snap_daemon",
+                    "source_path": "workflows/daemon/workflow.json",
+                    "workflow_identity": {
+                        "workflow_id": "wf-daemon",
+                        "workflow_version": "1",
+                        "workflow_snapshot_id": "snap_daemon",
+                    },
+                }
+            ],
+            "count": 1,
+        }
+
+    handler = object.__new__(service.StriatumServiceHandler)
+    handler.state = service.ServiceState(
+        repo=tmp_path,
+        allow_mutations=False,
+        token=None,
+        web_enabled=True,
+    )
+    sent: dict[str, Any] = {}
+    monkeypatch.setattr(
+        handler,
+        "_send_html",
+        lambda status, body: sent.update({"status": status, "body": body}),
+    )
+    monkeypatch.setattr(
+        handler,
+        "_send_json",
+        lambda status, body: sent.update({"status": status, "body": body}),
+    )
+    monkeypatch.setattr(service, "_jinja_env", lambda: FakeEnvironment())
+    monkeypatch.setattr("striatum.service.sqlite3.connect", sqlite_tripwire)
+    monkeypatch.setattr(service_daemon, "call_repo_method", fake_call_repo_method)
+
+    handler._render_run_list_page()
+
+    assert sent == {"status": 200, "body": "ok"}
+    assert calls == [(tmp_path, "list.runs", {"limit": 500})]
+    runs = captured["runs"]
+    assert len(runs) == 1
+    assert runs[0]["workflow_name"] == "Daemon workflow"
+    assert runs[0]["workflow_local_url"] == "/workflows/workflows/daemon/workflow.json"
+    assert runs[0]["workflow_identity"] == {
+        "workflow_id": "wf-daemon",
+        "workflow_version": "1",
+        "workflow_snapshot_id": "snap_daemon",
+    }
 
 
 def test_web_run_cancel_posts_daemon_rpc_without_sqlite(tmp_path: Path, monkeypatch: Any) -> None:

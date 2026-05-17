@@ -1,11 +1,11 @@
 """RFC 0012 V1: local HTTP + Unix-socket service.
 
 Operationalizes D006's promise of an "optional Unix-socket / local HTTP
-API later for Slack, TUI, and web adapters." Every endpoint that mutates
-state delegates to ``striatum.api.invoke``; the events table is read
-directly only for the SSE stream. Localhost-only by default; non-loopback
-hosts are refused at startup. Mutations are gated behind
-``--allow-mutations``.
+API later for Slack, TUI, and web adapters." Production state-changing
+endpoints and migrated read pages delegate to daemon RPC; legacy SQLite reads
+remain transition debt for pages that have not yet moved to daemon DTOs.
+Localhost-only by default; non-loopback hosts are refused at startup.
+Mutations are gated behind ``--allow-mutations``.
 """
 
 from __future__ import annotations
@@ -238,6 +238,72 @@ def _workflow_tree_url(base_url: str | None, branch: str | None, source_path: st
     if not directory:
         return f"{base_url}/tree/{branch_part}"
     return f"{base_url}/tree/{branch_part}/{quote(directory, safe='/-._~')}"
+
+
+def _run_list_view_item(state: "ServiceState", raw: Mapping[str, Any]) -> dict[str, Any]:
+    run = dict(raw)
+    identity_raw = run.get("workflow_identity")
+    identity = identity_raw if isinstance(identity_raw, Mapping) else {}
+    workflow_id = str(run.get("workflow_id") or identity.get("workflow_id") or "")
+    workflow_name = str(run.get("workflow_name") or workflow_id)
+    workflow_version = run.get("workflow_version") or identity.get("workflow_version")
+    workflow_snapshot_id = run.get("workflow_snapshot_id") or identity.get("workflow_snapshot_id")
+    run["workflow_id"] = workflow_id
+    run["workflow_name"] = workflow_name
+    run["workflow_identity"] = {
+        "workflow_id": workflow_id or None,
+        "workflow_version": workflow_version,
+        "workflow_snapshot_id": workflow_snapshot_id,
+    }
+    source_path = _repo_relative_source_path(
+        state.repo,
+        str(run.get("source_path") or run.get("workflow_source_path") or ""),
+    )
+    run["workflow_source_path"] = source_path
+    run["workflow_local_url"] = (
+        f"/workflows/{quote(source_path, safe='/-._~')}" if source_path else None
+    )
+    run["workflow_github_url"] = _workflow_tree_url(
+        state.github_base_url(),
+        state.default_branch(),
+        source_path,
+    )
+    run["state_chip"] = _state_chip("run", run.get("state"))
+    return run
+
+
+def _legacy_run_list_items_for_test_harness(state: "ServiceState") -> list[dict[str, Any]]:
+    with sqlite3.connect(str(db_path(state.repo))) as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            """
+            SELECT r.run_id, r.state, r.branch_name, r.created_at,
+                   r.started_at, r.completed_at,
+                   ws.workflow_snapshot_id, ws.workflow_id,
+                   ws.workflow_version, ws.source_path,
+                   ws.workflow_json
+            FROM runs r
+            LEFT JOIN workflow_snapshots ws
+              ON ws.workflow_snapshot_id = r.workflow_snapshot_id
+            ORDER BY r.created_at DESC
+            """
+        ).fetchall()
+    runs = []
+    for row in rows:
+        run = dict(row)
+        workflow_id = str(run.get("workflow_id") or "")
+        workflow_name = workflow_id
+        try:
+            workflow = json.loads(str(run.pop("workflow_json") or "{}"))
+            if isinstance(workflow, dict):
+                workflow_id = workflow_id or str(workflow.get("workflow_id") or "")
+                workflow_name = str(workflow.get("name") or workflow_name or workflow_id)
+        except json.JSONDecodeError:
+            run.pop("workflow_json", None)
+        run["workflow_id"] = workflow_id
+        run["workflow_name"] = workflow_name
+        runs.append(_run_list_view_item(state, run))
+    return runs
 
 
 def _read_chat_history(path: Path, *, flavor: str = "openai_chat") -> list[dict[str, Any]]:
@@ -1792,50 +1858,33 @@ class StriatumServiceHandler(BaseHTTPRequestHandler):
     def _render_run_list_page(self) -> None:
         """Server-side render the run-list page."""
         try:
-            with sqlite3.connect(str(db_path(self.state.repo))) as conn:
-                conn.row_factory = sqlite3.Row
-                rows = conn.execute(
-                    """
-                    SELECT r.run_id, r.state, r.branch_name, r.created_at,
-                           r.started_at, r.completed_at,
-                           ws.workflow_snapshot_id, ws.workflow_id,
-                           ws.workflow_version, ws.source_path,
-                           ws.workflow_json
-                    FROM runs r
-                    LEFT JOIN workflow_snapshots ws
-                      ON ws.workflow_snapshot_id = r.workflow_snapshot_id
-                    ORDER BY r.created_at DESC
-                    """
-                ).fetchall()
-                runs = []
-                for row in rows:
-                    run = dict(row)
-                    workflow_id = str(run.get("workflow_id") or "")
-                    workflow_name = workflow_id
-                    try:
-                        workflow = json.loads(str(run.pop("workflow_json") or "{}"))
-                        if isinstance(workflow, dict):
-                            workflow_id = workflow_id or str(workflow.get("workflow_id") or "")
-                            workflow_name = str(workflow.get("name") or workflow_name or workflow_id)
-                    except json.JSONDecodeError:
-                        run.pop("workflow_json", None)
-                    run["workflow_id"] = workflow_id
-                    run["workflow_name"] = workflow_name
-                    run["workflow_identity"] = {
-                        "workflow_id": workflow_id or None,
-                        "workflow_version": run.get("workflow_version"),
-                        "workflow_snapshot_id": run.get("workflow_snapshot_id"),
-                    }
-                    source_path = _repo_relative_source_path(self.state.repo, str(run.get("source_path") or ""))
-                    run["workflow_source_path"] = source_path
-                    run["workflow_local_url"] = f"/workflows/{quote(source_path, safe='/-._~')}" if source_path else None
-                    run["workflow_github_url"] = _workflow_tree_url(
-                        self.state.github_base_url(),
-                        self.state.default_branch(),
-                        source_path,
+            from striatum.service_daemon import ServiceDaemonRpcError, call_repo_method
+
+            try:
+                payload = call_repo_method(self.state.repo, "list.runs", {"limit": 500})
+                items = payload.get("items")
+                raw_runs = items if isinstance(items, list) else []
+                runs = [
+                    _run_list_view_item(self.state, item)
+                    for item in raw_runs
+                    if isinstance(item, Mapping)
+                ]
+                runs.sort(key=lambda item: str(item.get("created_at") or ""), reverse=True)
+            except ServiceDaemonRpcError as exc:
+                if (
+                    os.environ.get("STRIATUM_TEST_HARNESS") == "1"
+                    and os.environ.get("STRIATUM_DAEMON_REQUIRED") == "0"
+                ):
+                    runs = _legacy_run_list_items_for_test_harness(self.state)
+                else:
+                    self._send_json(
+                        exc.status,
+                        {
+                            "ok": False,
+                            "error": {"code": exc.code, "message": exc.message},
+                        },
                     )
-                    run["state_chip"] = _state_chip("run", run.get("state"))
-                    runs.append(run)
+                    return
             html = _jinja_env().get_template("run_list.html").render(runs=runs)
             self._send_html(200, html)
         except Exception as exc:  # noqa: BLE001

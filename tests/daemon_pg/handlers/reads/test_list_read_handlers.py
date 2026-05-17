@@ -193,8 +193,10 @@ def test_list_runs_filters_and_scopes_repository(pg_conn: Any, tmp_path: Path) -
     assert result["count"] == 1
     assert result["items"][0]["run_id"] == "run_1"
     assert result["items"][0]["workflow_id"] == "workflow-a"
+    assert result["items"][0]["workflow_name"] == "Workflow A"
     assert result["items"][0]["workflow_version"] == "1"
     assert result["items"][0]["workflow_snapshot_id"] == "snap_1"
+    assert result["items"][0]["source_path"] == "workflow.json"
     assert result["items"][0]["workflow_identity"] == {
         "workflow_id": "workflow-a",
         "workflow_version": "1",

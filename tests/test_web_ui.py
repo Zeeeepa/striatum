@@ -99,6 +99,8 @@ def _spawn_service(repo: Path, *args: str) -> tuple[subprocess.Popen[bytes], int
 
     env = os.environ.copy()
     env["PYTHONPATH"] = str(ROOT / "src")
+    env["STRIATUM_TEST_HARNESS"] = "1"
+    env["STRIATUM_DAEMON_REQUIRED"] = "0"
     port = _free_port()
     proc = subprocess.Popen(
         [

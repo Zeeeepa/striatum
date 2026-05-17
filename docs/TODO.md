@@ -102,7 +102,7 @@ so external references keep resolving even as items move between sections.
 | 49 | RFC 0059 Architecture remediation Phase 1 — close production SQLite fallback | 🟡 production fallback closed; legacy SQLite quarantine remains |
 | 50 | RFC 0060 Architecture remediation Phase 2 — single daemon method contract source | 🟡 contract source + Python/Go registry generation landed |
 | 51 | Architecture remediation Phase 3 — daemon core strategy decision | ✅ done |
-| 52 | RFC 0061 Architecture remediation Phase 4 — daemon-first web service | 🟡 mutation POST slice landed |
+| 52 | RFC 0061 Architecture remediation Phase 4 — daemon-first web service | 🟡 mutation POST + run-list read slices landed |
 | 53 | RFC 0062 Architecture remediation Phase 5 — real escalation inbox | 🟡 projection + escalation artifact schema landed |
 | 54 | RFC 0063 Architecture remediation Phase 6 — hardened PTY supervision | 🟡 control-event ack slice landed |
 | 55 | RFC 0064 Architecture remediation Phase 7 — workflow risk lint and review diversity enforcement | 🟡 strict lint override slice landed |
@@ -855,15 +855,18 @@ review and plan are root-level operator artifacts:
     supervisor/helper runtime role. Roadmap and backlog now stop treating
     full Go daemon parity as release-blocking product strategy.
 
-52. **Phase 4: daemon-first web service.** First slice landed:
+52. **Phase 4: daemon-first web service.** Initial slices landed:
     web POST mutations for run cancel/pause/resume, job cancel/retry, and
     branch confirm now call daemon RPC (`run.cancel`, `run.pause`,
     `run.resume`, `recovery.cancel_job`, `run.retry_job`,
     `branch.confirm`, `run.start`) through `service_daemon.py`, with
-    SQLite tripwire tests. Remaining: split `service.py`, replace
-    direct SQLite-shaped reads with daemon RPC DTOs, replace run-now's
-    multi-step SQLite transaction carefully, move SSE/doctor/status reads,
-    and derive mutation authorization from daemon method capabilities.
+    SQLite tripwire tests. The web run list now renders from daemon
+    `list.runs` DTOs in production; a `STRIATUM_TEST_HARNESS` fallback
+    preserves legacy subprocess web fixtures only. Remaining: split
+    `service.py`, replace the rest of the direct SQLite-shaped reads with
+    daemon RPC DTOs, replace run-now's multi-step SQLite transaction
+    carefully, move SSE/doctor/status reads, and derive mutation
+    authorization from daemon method capabilities.
 
 53. **Phase 5: real escalation inbox.** First slice landed:
     `escalation.list`, `escalation.show`, and `escalation.resolve`

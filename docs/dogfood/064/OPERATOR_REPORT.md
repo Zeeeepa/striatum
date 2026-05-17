@@ -68,6 +68,9 @@ checkpoint commits and pushes.
   refusal details.
 - 2026-05-17: Recorded D106 and shelved RFC 0049 as a capability spike,
   not active backlog.
+- 2026-05-17: Landed the next Phase 4 daemon-first web slice: the run-list
+  page now reads daemon `list.runs` DTOs in production, with a test-harness
+  fallback only for legacy subprocess web fixtures.
 
 ## Blockers / Human Decisions Recorded
 

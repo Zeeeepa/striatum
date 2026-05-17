@@ -21,7 +21,8 @@ def handle(ctx: RepoHandlerContext, params: Mapping[str, Any]) -> dict[str, Any]
             """
             SELECT r.run_id, r.state, r.branch_name, r.created_at, r.started_at,
                    r.completed_at, w.workflow_id, w.workflow_version,
-                   w.workflow_snapshot_id
+                   w.workflow_snapshot_id, w.source_path,
+                   COALESCE(NULLIF(w.workflow_json->>'name', ''), w.workflow_id) AS workflow_name
             FROM striatumd.runs r
             LEFT JOIN striatumd.workflow_snapshots w
               ON w.repository_id = r.repository_id
