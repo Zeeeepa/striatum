@@ -19,6 +19,7 @@ the workflow being upgraded (a "running workflow" guard).
 from __future__ import annotations
 
 import json
+import os
 import re
 import sqlite3
 from pathlib import Path
@@ -559,6 +560,13 @@ def _running_runs_for_workflow(*, repo: Path, workflow_path: Path) -> list[str]:
         )
     if not state_db.exists():
         return []
+    if not _legacy_sqlite_workflow_upgrade_allowed():
+        raise WorkflowError(
+            "workflow upgrade cannot verify non-terminal runs from repo-local "
+            "SQLite outside the paired test-harness compatibility escape; "
+            "configure daemon PostgreSQL and rerun the upgrade",
+            field_path="path",
+        )
     return _running_runs_for_workflow_sqlite(state_db=state_db, candidates=candidates)
 
 
@@ -632,6 +640,10 @@ def _repo_sqlite_cutover_marker_exists(state_db: Path) -> bool:
     return state_db.with_name(state_db.name + ".tombstone").exists() or state_db.with_name(
         state_db.name + ".migrated"
     ).exists()
+
+
+def _legacy_sqlite_workflow_upgrade_allowed() -> bool:
+    return os.environ.get("STRIATUM_TEST_HARNESS") == "1" and os.environ.get("STRIATUM_DAEMON_REQUIRED") == "0"
 
 
 def _running_runs_for_workflow_sqlite(*, state_db: Path, candidates: set[str]) -> list[str]:

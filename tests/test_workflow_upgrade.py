@@ -269,6 +269,32 @@ def test_upgrade_fails_closed_after_sqlite_cutover_when_pg_unavailable(
         workflow_upgrade(path, repo=tmp_path)
 
 
+def test_upgrade_refuses_repo_local_sqlite_fallback_outside_test_harness(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _git_init_repo(tmp_path)
+    path = _write_workflow(tmp_path, _baseline_workflow())
+    state_db = tmp_path / ".striatum" / "state.sqlite3"
+    state_db.parent.mkdir()
+    state_db.write_bytes(b"not a database")
+    monkeypatch.setattr(
+        workflow_mod,
+        "_running_runs_for_workflow_pg",
+        lambda **_kwargs: None,
+    )
+    monkeypatch.delenv("STRIATUM_TEST_HARNESS", raising=False)
+    monkeypatch.setenv("STRIATUM_DAEMON_REQUIRED", "1")
+    monkeypatch.setattr(
+        workflow_mod.sqlite3,
+        "connect",
+        lambda *_args, **_kwargs: pytest.fail("workflow upgrade opened repo-local SQLite"),
+    )
+
+    with pytest.raises(WorkflowError, match="paired test-harness compatibility escape"):
+        workflow_upgrade(path, repo=tmp_path)
+
+
 # --- target validation ------------------------------------------------
 
 

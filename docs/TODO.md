@@ -1258,7 +1258,9 @@ review and plan are root-level operator artifacts:
     opt-in is diagnostic-only. Residual daemon-global gaps are full
     `dashboard.all` parity for phase progress, auto-finalize detail,
     supervisor-stall detail, and any remaining registry probes found by
-    guardrail scans.
+    guardrail scans. The workflow-upgrade running-run guard also now fails
+    closed instead of opening repo-local SQLite outside the paired test-harness
+    compatibility escape.
 
 63. **RFC 0070: daemon client/service boundary completion.** Most done.
     Daemon-side `repo.resolve` is registered as a daemon-global read bootstrap
