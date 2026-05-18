@@ -24,7 +24,6 @@ from striatum.bootstrap import (
 )
 from striatum.cli.introspect import doctor as repo_doctor
 from striatum.cli.introspect import status as repo_status
-from striatum.cli.introspect import why as repo_why
 from striatum.cli.recovery import stale_leases
 from striatum.db import (
     connect as connect_repo,
@@ -1628,30 +1627,6 @@ def run_daemon_foreground(
         "postgres": pg_doctor,
         "rpc_accept_loop": "running",
     }
-
-
-def read_status(repo: Path, *, run_id: str | None, token: str | None = None) -> dict[str, Any]:
-    conn = connect_registry()
-    token = read_runtime_token() if token is None else token
-    with registry_transaction(conn):
-        repo_row = _registered_repo_for_path(conn, repo)
-        repository_id = int(repo_row["repository_id"])
-        _require_auth(conn, command="status", required=READ_CAPABILITY, repository_id=repository_id, token=token, payload={"run_id": run_id})
-    with connect_repo(repo) as repo_conn:
-        data = repo_status(repo_conn, run_id=run_id)
-    return {"mode": "daemon", "repository_id": repository_id, "protocol_version": PROTOCOL_VERSION, **data}
-
-
-def read_why(repo: Path, *, target_id: str, token: str | None = None) -> dict[str, Any]:
-    conn = connect_registry()
-    token = read_runtime_token() if token is None else token
-    with registry_transaction(conn):
-        repo_row = _registered_repo_for_path(conn, repo)
-        repository_id = int(repo_row["repository_id"])
-        _require_auth(conn, command="why", required=READ_CAPABILITY, repository_id=repository_id, token=token, payload={"id": target_id})
-    with connect_repo(repo) as repo_conn:
-        data = repo_why(repo_conn, target_id=target_id)
-    return {"mode": "daemon", "repository_id": repository_id, "protocol_version": PROTOCOL_VERSION, **data}
 
 
 def read_doctor(

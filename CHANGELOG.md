@@ -147,6 +147,8 @@ Recent checkpoints:
 - The dead legacy SQLite view-file breadcrumb reader was removed from the
   service fallback quarantine; `/view/...` no longer has a repo-local
   SQLite breadcrumb escape.
+- Unused legacy Python-daemon `read_status` and `read_why` registry readers
+  were deleted; status/why reads are owned by daemon RPC and PostgreSQL paths.
 - The standalone `striatum.daemon_pg.sqlite_compat` helper was removed. Its
   last repository-identity calculation now lives beside the one-way
   repo-local migration fixture, and the unused daemon audit-chain validators
