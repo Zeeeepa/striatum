@@ -86,6 +86,10 @@ Recent checkpoints:
   the direct path is limited to the explicit legacy test-harness escape.
 - Go cross-repo lifecycle reads now return typed `not_found` RPC errors for
   missing cross-repo run ids instead of leaking plain internal errors.
+- Go daemon socket-level conformance now covers `cross_repo.cancel` against
+  a live CORE=go Unix RPC daemon and PostgreSQL state, including mixed
+  canceled/blocked participants, audit evidence, and JSONB-safe event payload
+  insertion for pgx-backed mutation handlers.
 - `striatum init --with-striatum-layout` now scaffolds the RFC 0056
   consumer-repo directories `striatum/workflows/` and
   `striatum/<workflow-slug>/` without writing workflow files or `.gitignore`
@@ -252,6 +256,13 @@ Recent checkpoints:
   `striatum.legacy_sqlite.service`; the root `service_legacy.py` module is
   gone, and quarantine tests now assert that the primary service only loads
   the explicit legacy package through a lazy fallback boundary.
+- The local service no longer eagerly imports the legacy `striatum.api`
+  wrapper at module load; `/v1/invoke` keeps the compatibility wrapper but
+  lazy-loads the legacy API only when that test-harness path is called.
+- D108 resolves RFC 0071's authority-matrix generation question: the command
+  authority matrix stays curated for authority/status classification, while
+  architecture tests enforce generated CLI route labels and runtime CLI
+  fallback cells.
 - Static asset lookup and content-type mapping moved from `service.py` into
   `striatum.web.static_assets`, keeping HTTP response writing in the service
   handler while making the non-SQLite web split independently testable.

@@ -278,6 +278,25 @@ def test_legacy_service_owns_page_read_payload_fallbacks() -> None:
         assert f"def {name}(" not in service_source
 
 
+def test_primary_service_lazy_loads_legacy_api_wrapper() -> None:
+    service_source = (ROOT / "src" / "striatum" / "service.py").read_text(encoding="utf-8")
+    service_tree = ast.parse(service_source)
+    top_level_api_imports = [
+        node
+        for node in service_tree.body
+        if _imports_module(node, "striatum.api") or _imports_from_striatum(node, "api")
+    ]
+
+    assert top_level_api_imports == []
+
+    invoke = next(
+        node
+        for node in service_tree.body
+        if isinstance(node, ast.FunctionDef) and node.name == "invoke"
+    )
+    assert any(_imports_from_striatum(node, "api") for node in ast.walk(invoke))
+
+
 @pytest.mark.parametrize(
     "call",
     [
@@ -409,6 +428,14 @@ def _imports_module(node: ast.AST, module: str) -> bool:
     if isinstance(node, ast.ImportFrom):
         return node.module == module or bool(node.module and node.module.startswith(f"{module}."))
     return False
+
+
+def _imports_from_striatum(node: ast.AST, name: str) -> bool:
+    return (
+        isinstance(node, ast.ImportFrom)
+        and node.module == "striatum"
+        and any(alias.name == name for alias in node.names)
+    )
 
 
 def _dotted_name(node: ast.AST) -> str | None:

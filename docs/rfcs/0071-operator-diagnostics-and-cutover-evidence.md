@@ -49,6 +49,10 @@ After RFC 0069 and RFC 0070 land:
 
 ## Implementation Notes
 
+- D108 resolves the generated-versus-curated authority-matrix question:
+  `docs/architecture/COMMAND_AUTHORITY_MATRIX.md` remains curated for
+  authority/status classification, while generated contract tables and
+  executable architecture tests own drift-prone facts.
 - `striatum daemon doctor --authority --json` now emits
   `striatum.authority_report.v1` with PostgreSQL status, legacy SQLite
   registry status, daemon method fallback counts, allowed migration/test-only
@@ -60,13 +64,15 @@ After RFC 0069 and RFC 0070 land:
   repository registration, migration checkpoint, destination counts, raw
   source/tombstone/sentinel state, event-chain anchor health, and bounded
   SQLite exception notes. The verifier does not open SQLite as a database.
+- `tests/architecture/test_authority_guardrails.py` now verifies that every
+  CLI route label from `contracts/daemon_methods.json` appears in the curated
+  command matrix and that CLI fallback cells match the runtime daemon RPC
+  route map.
 
 ## Open Questions
 
 - Should repository-specific cutover verification also be mirrored in daemon
   doctor, or is the migration command diagnostic sufficient?
-- How much of `docs/architecture/COMMAND_AUTHORITY_MATRIX.md` should be
-  generated versus curated?
 
 ## Domain Modeling
 

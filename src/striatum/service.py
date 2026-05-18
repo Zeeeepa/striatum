@@ -2,8 +2,9 @@
 
 Operationalizes D006's promise of an "optional Unix-socket / local HTTP
 API later for Slack, TUI, and web adapters." Production state-changing
-endpoints and migrated read pages delegate to daemon RPC; legacy SQLite reads
-remain transition debt for pages that have not yet moved to daemon DTOs.
+endpoints and migrated read pages delegate to daemon RPC; repo-local SQLite
+compatibility is isolated under ``striatum.legacy_sqlite`` for explicit
+subprocess test-harness paths.
 Localhost-only by default; non-loopback hosts are refused at startup.
 Mutations are gated behind ``--allow-mutations``.
 """
@@ -17,7 +18,6 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from typing import Any, Mapping
 
-from striatum import api as _api
 from striatum.service_command_policy import is_read_command as is_read_command
 from striatum.service_http import (
     allowed_origins_for_bind as allowed_origins_for_bind,
@@ -94,6 +94,8 @@ _safe_git = _chat_session.safe_git
 
 def invoke(argv: list[str], *, repo: Path) -> JsonObject:
     """Compatibility wrapper for tests that monkeypatch ``service.invoke``."""
+
+    from striatum import api as _api
 
     return _api.invoke(argv, repo=repo)
 

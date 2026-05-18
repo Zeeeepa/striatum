@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib
+import json
 from pathlib import Path
 from typing import Any
 
@@ -16,6 +17,7 @@ from striatum.errors import DaemonUnreachableError, StriatumError
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 AUTHORITY_MATRIX_PATH = REPO_ROOT / "docs" / "architecture" / "COMMAND_AUTHORITY_MATRIX.md"
+DAEMON_METHOD_CONTRACT_PATH = REPO_ROOT / "contracts" / "daemon_methods.json"
 
 
 DIRECT_DAEMON_METHODS: frozenset[str] = frozenset(
@@ -109,6 +111,26 @@ def _deprecated_alias_matrix_rows() -> dict[str, list[str]]:
     )
 
 
+def _contract_cli_routes_by_method() -> dict[str, list[str]]:
+    contract = json.loads(DAEMON_METHOD_CONTRACT_PATH.read_text(encoding="utf-8"))
+    raw_routes = contract.get("cli_routes")
+    assert isinstance(raw_routes, list)
+    routes_by_method: dict[str, list[str]] = {}
+    for index, raw_route in enumerate(raw_routes):
+        assert isinstance(raw_route, dict), f"cli_routes[{index}] must be an object"
+        command = raw_route.get("command")
+        subcommand = raw_route.get("subcommand")
+        method = raw_route.get("method")
+        assert isinstance(command, str), f"cli_routes[{index}].command must be a string"
+        assert subcommand is None or isinstance(subcommand, str), (
+            f"cli_routes[{index}].subcommand must be a string or null"
+        )
+        assert isinstance(method, str), f"cli_routes[{index}].method must be a string"
+        label = command if subcommand is None else f"{command} {subcommand}"
+        routes_by_method.setdefault(method, []).append(label)
+    return {method: sorted(labels) for method, labels in routes_by_method.items()}
+
+
 def _pg_handlers() -> set[str]:
     import striatum.daemon_pg.handlers  # noqa: F401 - registers decorators.
     from striatum.daemon_pg.handlers.registry import resolve_pg_handler
@@ -183,6 +205,50 @@ def test_authority_matrix_capabilities_and_scopes_match_registry() -> None:
 
     assert not mismatches, (
         "COMMAND_AUTHORITY_MATRIX.md capability/scope drift: " + "; ".join(mismatches)
+    )
+
+
+def test_authority_matrix_cli_command_cells_include_contract_route_labels() -> None:
+    rows = _registered_matrix_rows()
+    missing: list[str] = []
+    for method, labels in sorted(_contract_cli_routes_by_method().items()):
+        row = rows.get(method)
+        if row is None:
+            missing.append(f"{method} is routed by cli_routes but absent from registered matrix")
+            continue
+        cli_cell = row[1]
+        missing.extend(
+            f"{method} CLI command cell missing route label {label!r}"
+            for label in labels
+            if label not in cli_cell
+        )
+
+    assert not missing, (
+        "COMMAND_AUTHORITY_MATRIX.md CLI command route-label drift: "
+        + "; ".join(missing)
+    )
+
+
+def test_authority_matrix_cli_fallback_cells_match_runtime_cli_routes() -> None:
+    mismatches: list[str] = []
+    for method, row in sorted(_registered_matrix_rows().items()):
+        expected = "yes" if method in CLI_ROUTES else "no"
+        actual = row[6]
+        if actual != expected:
+            mismatches.append(
+                f"{method} CLI fallback: matrix={actual!r}, runtime={expected!r}"
+            )
+    for method, row in sorted(_deprecated_alias_matrix_rows().items()):
+        expected = "yes" if method in CLI_ROUTES else "no"
+        actual = row[4]
+        if actual != expected:
+            mismatches.append(
+                f"{method} deprecated CLI fallback: matrix={actual!r}, runtime={expected!r}"
+            )
+
+    assert not mismatches, (
+        "COMMAND_AUTHORITY_MATRIX.md CLI fallback drift from runtime CLI_ROUTES: "
+        + "; ".join(mismatches)
     )
 
 

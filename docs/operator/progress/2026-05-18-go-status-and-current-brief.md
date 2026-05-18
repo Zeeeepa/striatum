@@ -49,4 +49,15 @@ Go `cross_repo.cancel` parity now matches the Python participant-cancel
 semantics for terminal participants, preparing participants without local run
 ids, inactive participant repositories, and blocked-error details persisted to
 `last_reconcile_error`. Missing cross-repo run ids now return the typed
-daemon RPC `not_found` error instead of a plain internal error.
+daemon RPC `not_found` error instead of a plain internal error. The CORE=go
+Unix-socket conformance suite now seeds live PostgreSQL cross-repo state,
+calls `cross_repo.cancel`, and verifies the mixed canceled/blocked response,
+stored participant/run state, and audit row.
+
+RFC 0071's authority-matrix path is now settled by D108: keep the matrix
+curated for authority/status classification, and enforce generated CLI route
+labels plus runtime CLI fallback cells through architecture tests.
+
+Phase 4 service cleanup removed the eager primary-service import of the
+legacy `striatum.api` wrapper. The compatibility `invoke()` seam lazy-loads
+that legacy wrapper only when explicitly called.

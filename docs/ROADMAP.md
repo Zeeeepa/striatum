@@ -325,7 +325,9 @@ fallback path or repo-administration path.
   explicit placeholder. Go participant-cancel parity now covers terminal
   skips, preparing participants without local runs, inactive participant
   repositories, blocked-error persistence, and typed `not_found` errors for
-  missing cross-repo run ids.
+  missing cross-repo run ids. Socket-level CORE=go conformance now exercises
+  `cross_repo.cancel` through the Unix RPC daemon against live PostgreSQL
+  state and audit evidence.
 
 ---
 
@@ -424,6 +426,9 @@ daemon-first without needing to support two domain daemons.
   SSE event tail, and legacy startup integrity check. `service.py` no longer
   imports or opens repo-local SQLite directly, and its compatibility aliases
   load the quarantined module lazily only when a legacy fallback is invoked.
+- `service.py` no longer eagerly imports the legacy `striatum.api` wrapper at
+  module load. The compatibility `invoke()` seam lazy-loads it only when that
+  explicit legacy wrapper path is called.
 - `src/striatum/web/static_assets.py` now owns bundled static asset lookup,
   path validation, and content-type mapping. `service.py` keeps HTTP response
   writing and CSP/header behavior for the `/static/*` route.
@@ -992,8 +997,10 @@ Release order after Phase 0:
 15. **TODO 63 / RFC 0070:** complete daemon client/service boundaries and
     remove direct client DB access.
 16. **TODO 64 / RFC 0071:** authority doctor and repository cutover report
-    diagnostics landed; remaining work is deciding which matrix rows should be
-    generated rather than curated.
+    diagnostics landed. D108 keeps the command authority matrix curated while
+    drift tests enforce generated route labels and runtime CLI fallback cells;
+    remaining work is deciding whether repository-specific cutover
+    verification belongs in daemon doctor as well as the migration command.
 17. **TODO 65 / RFC 0058:** V1 and V1.5 landed. Use
     `docs/operator/BRIEF.md` as the current-state authority; `striatum
     operator current-brief` is the local read helper, and

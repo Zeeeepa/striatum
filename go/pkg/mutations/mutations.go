@@ -671,6 +671,10 @@ func appendEvent(
 	if err != nil {
 		return 0, err
 	}
+	payloadArg, err := eventPayloadInsertArg(runner, payload)
+	if err != nil {
+		return 0, err
+	}
 	exec, ok := runner.(interface {
 		Exec(context.Context, string, ...any) error
 	})
@@ -683,7 +687,7 @@ func appendEvent(
 		  message_id, artifact_id, lease_id, payload_json, created_at,
 		  previous_hash, row_hash
 		)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,$11,$12,$13)`,
 		repositoryID,
 		eventID,
 		nullable(runID),
@@ -693,7 +697,7 @@ func appendEvent(
 		nullable(messageID),
 		nullable(artifactID),
 		nullable(leaseID),
-		payload,
+		payloadArg,
 		createdAt,
 		nullable(previousHash),
 		rowHash,
@@ -715,6 +719,19 @@ func appendEvent(
 		return 0, err
 	}
 	return eventID, nil
+}
+
+func eventPayloadInsertArg(runner any, payload map[string]any) (any, error) {
+	switch runner.(type) {
+	case db.PgxRunner, *db.PgxTxRunner:
+		body, err := json.Marshal(payload)
+		if err != nil {
+			return nil, err
+		}
+		return string(body), nil
+	default:
+		return payload, nil
+	}
 }
 
 func previousChainHead(ctx context.Context, runner any, repositoryID string) (any, error) {

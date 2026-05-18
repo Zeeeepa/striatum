@@ -946,7 +946,10 @@ review and plan are root-level operator artifacts:
     fixture payload, SSE event tail, and legacy startup integrity check.
     `service.py` no longer imports or opens repo-local SQLite directly, and
     the quarantined module is loaded lazily only when a legacy fallback is
-    invoked. Follow-up split landed: `web/static_assets.py` owns static
+    invoked. Follow-up cleanup landed: `service.py` no longer eagerly imports
+    the legacy `striatum.api` wrapper at module load; the compatibility
+    `invoke()` seam lazy-loads it only when explicitly called. Follow-up split
+    landed: `web/static_assets.py` owns static
     asset lookup, path validation, and content-type mapping while
     `service.py` keeps HTTP response writing and CSP/header behavior.
     Follow-up split landed: `web/workflows.py` owns workflow editor file
@@ -1208,7 +1211,11 @@ review and plan are root-level operator artifacts:
     instead of returning `not_implemented`, with participant-cancel parity for
     terminal skips, preparing participants without local runs, inactive
     participant repositories, persisted `blocked_errors`, and typed
-    `not_found` errors for missing cross-repo run ids. Go now owns `repo.add`,
+    `not_found` errors for missing cross-repo run ids. Socket-level CORE=go
+    conformance now exercises `cross_repo.cancel` through the Unix RPC daemon
+    against live PostgreSQL state and audit rows, and the exposed Go mutation
+    event append path now inserts JSONB payloads safely for pgx-backed
+    runners. Go now owns `repo.add`,
     `repo.list`, and `repo.remove` handlers over daemon-owned PostgreSQL,
     including SQLite-source refusal and repo-scoped capability revocation on
     removal. Go now owns `recovery.auto_finalize` as a dry-run-by-default,
@@ -1301,8 +1308,11 @@ review and plan are root-level operator artifacts:
     migration/test-only SQLite exceptions, and remediation recommendations;
     `striatum daemon migrate-repo-local --from sqlite --to pg --repo <path>
     --verify-cutover --json` reports `striatum.repo_cutover_report.v1` without
-    opening SQLite as a database. Remaining: decide how much of the command
-    authority matrix should be generated versus curated.
+    opening SQLite as a database. D108 keeps the command authority matrix
+    curated for authority/status classification while architecture tests now
+    enforce generated CLI route labels and runtime CLI fallback cells.
+    Remaining: decide whether repository-specific cutover verification should
+    also be mirrored in daemon doctor.
 
 65. **RFC 0058: operator progress surface.** Done:
     `operator_brief`, `work_plan`, `progress_note`, and `operator_report`
