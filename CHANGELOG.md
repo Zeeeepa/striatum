@@ -25,6 +25,10 @@ Recent checkpoints:
 - `doctor --first-run` now returns a single V1 diagnostic report that combines
   day-zero smoke checks, Go daemon binary provenance, and the daemon authority
   report so operators can validate the local stack with one command.
+- The local stdio MCP compatibility wrapper no longer advertises or executes
+  CLI-shaped aliases through `tools/list` / `tools/call`. Production MCP tool
+  discovery stays on the daemon registry surface, while `striatum/invoke` and
+  read resources remain available only as compatibility/manual paths.
 - The command authority matrix now names the bounded direct-PostgreSQL
   bootstrap/admin plane, and an architecture guardrail scans Python client/CLI
   sources so new direct daemon-PG helper imports must be explicitly listed.

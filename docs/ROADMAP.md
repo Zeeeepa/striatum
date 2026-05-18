@@ -318,8 +318,9 @@ guardrail failures.
   reproducible and Go contract parity tests catch drift.
 - CLI/MCP contract tests now assert routed CLI methods are registered,
   workflow authoring stays CLI-local, daemon fallback routes are unused,
-  and daemon MCP tools hide CLI-local, deprecated, and production-unsupported
-  retired composite methods.
+  local MCP does not advertise CLI-shaped alias tools, and daemon MCP tools
+  hide CLI-local, deprecated, and production-unsupported retired composite
+  methods.
 - Daemon MCP tool descriptors are now generated from `METHOD_REGISTRY`, so
   method name, required capability, and repository-scope mode are no longer
   hand-written in `mcp.py`.
@@ -404,9 +405,11 @@ point once legacy SQLite fixtures and remaining production imports are closed.
   reads remain in an explicit service-side allowlist, and daemon-mapped
   production reads/mutations dispatch through daemon RPC instead of
   `striatum.api.invoke`.
-- Local MCP and web chat tools now share that routing policy for mapped
-  status, why, lifecycle, artifact, review, and recovery commands; local
-  `api.invoke` remains for unmapped authoring and explicit test fixtures.
+- Local MCP `striatum/invoke` and web chat tools now share that routing policy
+  for mapped status, why, lifecycle, artifact, review, and recovery commands;
+  local MCP `tools/list` / `tools/call` no longer advertise or execute
+  CLI-shaped aliases. Local `api.invoke` remains for unmapped authoring and
+  explicit test fixtures.
 - Production service startup now verifies daemon/repository health through
   daemon `doctor` before binding. The old SQLite integrity check remains
   only for subprocess fixtures running under the legacy test-harness escape.

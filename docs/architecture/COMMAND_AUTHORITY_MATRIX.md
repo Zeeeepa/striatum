@@ -241,9 +241,11 @@ remediation phases should either daemon-route, quarantine, or delete.
 6. Go daemon startup now owns the resident active-run recovery scheduler:
    it calls Go `recovery.sweep`, records `daemon.recovery_sweep`, and upserts
    `striatumd.scheduler_cursors` without production SQLite.
-7. `/v1/invoke`, local MCP, and web chat tools route daemon-mapped production
-   reads and mutations through daemon RPC; `striatum.api.invoke` remains only
-   for local authoring and explicit test/fixture compatibility paths.
+7. `/v1/invoke`, local MCP `striatum/invoke`, and web chat tools route
+   daemon-mapped production reads and mutations through daemon RPC; local MCP
+   `tools/list` / `tools/call` do not advertise or execute CLI-shaped aliases.
+   `striatum.api.invoke` remains only for local authoring and explicit
+   test/fixture compatibility paths.
 8. `striatum.db` remains the legacy SQLite engine, but substrate-neutral
    helpers now live in `primitives.py` and `repo_policy.py`; guardrails keep
    daemon PG/RPC production modules from importing SQLite helpers.

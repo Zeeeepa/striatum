@@ -40,8 +40,8 @@ Start here:
   artifacts with machine-checkable local metadata.
 - `striatum submit-review` combines review artifact publication and verdict
   recording for the common review-gate path.
-- [MCP.md](MCP.md) documents the optional local MCP-like stdio wrapper over the
-  same CLI/API command vocabulary.
+- [MCP.md](MCP.md) documents daemon MCP and the compatibility-only local stdio
+  wrapper.
 
 ## Design
 

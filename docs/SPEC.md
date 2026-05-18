@@ -1134,14 +1134,16 @@ This API is an adapter convenience only. It must not write SQLite directly,
 reimplement workflow transitions, bypass artifact validation, or define a
 separate command vocabulary.
 
-The legacy local MCP-like wrapper exposes tools over stdio JSON-RPC with
-LSP-style `Content-Length` framing by default and automatic line-delimited
-fallback. `python -m striatum.mcp --framing {auto,line,framed}` lets tests and
-compatibility harnesses pin the wire shape. Each tool maps to an existing CLI
-command shape. Daemon-mapped commands route through daemon RPC in production;
-only unmapped local authoring and explicit fixture/test compatibility paths
-fall back to `striatum.api.invoke`. MCP resources may expose read-only views
-such as status, `why`, doctor output, or stored work packets.
+The legacy local MCP-like wrapper speaks stdio JSON-RPC with LSP-style
+`Content-Length` framing by default and automatic line-delimited fallback.
+`python -m striatum.mcp --framing {auto,line,framed}` lets tests and
+compatibility harnesses pin the wire shape. Its local `tools/list` is empty
+and `tools/call` returns `local_tools_unavailable`; production tool discovery
+and invocation belong to daemon MCP. The wrapper keeps read resources and
+explicit raw `striatum/invoke` for compatibility/manual use. Daemon-mapped
+`striatum/invoke` requests route through daemon RPC in production; only
+unmapped local authoring and explicit fixture/test compatibility paths fall
+back to `striatum.api.invoke`.
 
 Post-D103, operator-driven production runs use daemon MCP as the mandatory
 tool surface. The legacy local wrapper is not an authority boundary and is not

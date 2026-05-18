@@ -54,8 +54,9 @@ authoring/MCP surfaces ambiguous.
   CLI/web calls.
 - `/v1/invoke` succeeds for daemon-routed reads and mutations when
   `striatum.api.invoke` is monkeypatched to fail.
-- Local MCP and web chat mapped reads/mutations succeed when
-  `striatum.api.invoke` is monkeypatched to fail.
+- Local MCP `striatum/invoke` and web chat mapped reads/mutations succeed
+  when `striatum.api.invoke` is monkeypatched to fail; local MCP
+  `tools/list` / `tools/call` do not expose CLI-shaped aliases.
 - Daemon MCP lists only supported production methods for production tokens.
 - Dogfood composites are either PG-native with tests or absent from production
   MCP tools.
@@ -71,9 +72,11 @@ authoring/MCP surfaces ambiguous.
 - `/v1/invoke` routes daemon-mapped production reads and mutations through
   `service_daemon.call_repo_method()` and no longer re-enters
   `striatum.api.invoke` for those methods.
-- Local MCP and web chat tools use the same command-routing helper, so mapped
-  status, why, lifecycle, artifact, review, and recovery commands also cross
-  the daemon RPC boundary instead of entering local CLI dispatch.
+- Local MCP `striatum/invoke` and web chat tools use the same command-routing
+  helper, so mapped status, why, lifecycle, artifact, review, and recovery
+  commands also cross the daemon RPC boundary instead of entering local CLI
+  dispatch. Local MCP `tools/list` returns no CLI-shaped aliases and local
+  `tools/call` returns `local_tools_unavailable`.
 - `dogfood.publish_on_behalf` and `dogfood.surgical_recovery` are absent from
   both Python and Go production daemon contracts because the historical
   composites were SQLite-bound. Operators should use primitive daemon methods

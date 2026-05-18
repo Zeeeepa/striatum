@@ -187,9 +187,11 @@ Legend: ✅ done · 🟡 most done (sub-tasks remain) · ⏳ open/blocked · �
 
 - ~~**10. Local API and MCP.** `striatum.api.invoke` wraps the same
   parser/dispatcher without direct SQLite writes; the local stdio JSON-RPC
-  wrapper speaks `Content-Length` framing with line-delimited fallback.
-  Daemon-mapped local MCP and chat tools route through daemon RPC in
-  production and retain `api.invoke` only for unmapped local authoring or
+  wrapper speaks `Content-Length` framing with line-delimited fallback, keeps
+  resource reads plus explicit `striatum/invoke`, and no longer advertises or
+  executes CLI-shaped aliases through `tools/list` / `tools/call`.
+  Daemon-mapped local service/chat/manual invocations route through daemon RPC
+  in production and retain `api.invoke` only for unmapped local authoring or
   explicit test-fixture compatibility.~~
 
 - ~~**11. Per-job git worktree isolation (RFC 0008, accepted).** Lanes opt
@@ -847,11 +849,12 @@ review and plan are root-level operator artifacts:
 
 49. **Phase 1: close production SQLite fallback.** Production daemon RPC
     fallback is closed: `CLI_ROUTES` is empty, `DaemonRpcRouter` no longer
-    imports or calls `striatum.api.invoke`, local MCP/chat mapped commands
-    route through daemon RPC, Python daemon RPC refuses workflow authoring
-    as CLI-local, and Go implements workflow authoring/generation handlers
-    without live-state mutation while hiding them from production MCP
-    discovery. `run.graph`,
+    imports or calls `striatum.api.invoke`, local MCP `tools/list` /
+    `tools/call` no longer advertise or execute CLI-shaped command aliases,
+    local service/chat/manual mapped invocations route through daemon RPC,
+    Python daemon RPC refuses workflow authoring as CLI-local, and Go
+    implements workflow authoring/generation handlers without live-state
+    mutation while hiding them from production MCP discovery. `run.graph`,
     `worktree.*`, and `supervise.*` now have native PG handlers, and
     `recovery watch` now runs as a CLI-local daemon scheduler over
     `recovery.sweep` instead of a broken `recovery.watch` RPC. The
@@ -1337,10 +1340,12 @@ review and plan are root-level operator artifacts:
     Daemon-side `repo.resolve` is registered as a daemon-global read bootstrap
     method; CLI and service clients no longer open daemon PostgreSQL to map a
     repo path to `repository_id`; daemon-mapped `/v1/invoke` production reads
-    and mutations route through daemon RPC; local MCP/chat mapped commands
-    share that daemon-routing policy; D110 removed the SQLite-bound dogfood
-    composites from the production daemon contract, and D112 removed
-    `apply.reviewed_patch`. Production daemon MCP `tools/list` now hides local
+    and mutations route through daemon RPC; local MCP `striatum/invoke` and
+    chat mapped commands share that daemon-routing policy, while local MCP
+    `tools/list` / `tools/call` no longer expose CLI-shaped aliases; D110
+    removed the SQLite-bound dogfood composites from the production daemon
+    contract, and D112 removed `apply.reviewed_patch`. Production daemon MCP
+    `tools/list` now hides local
     workflow-file authoring methods in both Python and Go, while direct calls
     to removed method names audit as `method_unknown`. Remaining work is to
     decide whether to reintroduce

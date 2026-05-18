@@ -47,6 +47,10 @@ author: planner-gemini-cli-001
 - **acceptance:** A new architecture test fails if any live-state workflow command imports or calls the direct-PG admin helpers.
 
 ### P1-MCP-DAEMON-SURFACE
+- **status:** completed 2026-05-18 for the Python stdio bypass: local
+  `tools/list` is empty, local `tools/call` returns
+  `local_tools_unavailable`, and production MCP discovery remains the daemon
+  registry/capability-filtered surface.
 - **source:** R3 & F1 (make daemon MCP the normal live-operation MCP surface)
 - **what:** Replace the `LocalRpcServer` fallback in `src/striatum/mcp.py` with a generated, capability-filtered MCP manifest backed strictly by daemon RPC.
 - **why:** Agents must only discover and use daemon-backed live-state verbs. Exposing CLI-shaped compatibility tools allows agents to bypass the strict orchestration rules enforced by the Go daemon.

@@ -329,27 +329,22 @@ def test_local_api_wraps_cli_semantics_without_printing_or_exiting(tmp_path: Pat
     assert error["code"] == 3
 
 
-def test_local_mcp_wrapper_exposes_tools_and_delegates_to_api(tmp_path: Path) -> None:
+def test_local_mcp_wrapper_does_not_expose_cli_alias_tools(tmp_path: Path) -> None:
     server = LocalRpcServer(repo=tmp_path)
     initialized = rpc_result(server, "initialize")
     assert initialized["serverInfo"] == {"name": "striatum-local", "version": "0.1.0"}
 
     tools = rpc_result(server, "tools/list")["tools"]
-    assert isinstance(tools, list)
-    assert any(tool["name"] == "status" for tool in tools)
+    assert tools == []
 
-    init_call = rpc_result(server, "tools/call", {"name": "init", "arguments": {}})
-    init_result = init_call["structuredContent"]
-    assert isinstance(init_result, dict)
-    assert init_result["ok"] is True
-
-    status_call = rpc_result(server, "tools/call", {"name": "status", "arguments": {}})
-    status_result = status_call["structuredContent"]
-    assert isinstance(status_result, dict)
-    assert api_data(cast(JsonDict, status_result))["runs"] == []
+    blocked = rpc_result(server, "tools/call", {"name": "status", "arguments": {}})
+    assert blocked["isError"] is True
+    structured = blocked["structuredContent"]
+    assert isinstance(structured, dict)
+    assert structured["error"] == "local_tools_unavailable"
 
 
-def test_local_mcp_wrapper_routes_mapped_reads_through_daemon_rpc(
+def test_local_mcp_raw_invoke_routes_mapped_reads_through_daemon_rpc(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     import striatum.api as api
@@ -371,9 +366,9 @@ def test_local_mcp_wrapper_routes_mapped_reads_through_daemon_rpc(
     monkeypatch.setattr(service_daemon, "call_repo_method", fake_call_repo_method)
 
     server = LocalRpcServer(repo=tmp_path)
-    status_call = rpc_result(server, "tools/call", {"name": "status", "arguments": {}})
+    status_call = rpc_result(server, "striatum/invoke", {"args": ["status"]})
 
-    assert status_call["structuredContent"] == {
+    assert status_call == {
         "ok": True,
         "data": {"method": "status", "items": []},
     }
@@ -471,8 +466,7 @@ def test_mcp_handles_two_framed_requests_in_sequence(tmp_path: Path) -> None:
     assert [item["id"] for item in parsed] == ["a", "b"]
     assert "serverInfo" in parsed[0]["result"]
     tools = parsed[1]["result"]["tools"]
-    assert isinstance(tools, list)
-    assert any(tool["name"] == "status" for tool in tools)
+    assert tools == []
 
 
 def test_mcp_handles_framed_body_with_embedded_newlines(tmp_path: Path) -> None:
@@ -481,8 +475,8 @@ def test_mcp_handles_framed_body_with_embedded_newlines(tmp_path: Path) -> None:
     payload: dict[str, Any] = {
         "jsonrpc": "2.0",
         "id": 11,
-        "method": "tools/call",
-        "params": {"name": "status", "arguments": {}},
+        "method": "striatum/invoke",
+        "params": {"args": ["status"]},
     }
     request = json.dumps(payload, indent=2)
     assert "\n" in request
@@ -496,9 +490,9 @@ def test_mcp_handles_framed_body_with_embedded_newlines(tmp_path: Path) -> None:
     assert len(bodies) == 1
     response = json.loads(bodies[0])
     assert response["id"] == 11
-    structured = response["result"]["structuredContent"]
-    assert structured["ok"] is True
-    assert structured["data"]["runs"] == []
+    result = response["result"]
+    assert result["ok"] is True
+    assert result["data"]["runs"] == []
 
 
 def test_workflow_validate_accepts_json_and_rejects_yaml(tmp_path: Path) -> None:

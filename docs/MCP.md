@@ -1,16 +1,18 @@
-# Striatum Local MCP-Like Wrapper
+# Striatum MCP
 
-Status: implemented local wrapper
-Date: 2026-05-07
+Status: daemon MCP is the production tool surface; local stdio wrapper is compatibility-only
+Updated: 2026-05-18
 
 ## Overview
 
-Striatum is a local-first orchestration tool. The MCP-like wrapper is a small
-stdio JSON-RPC adapter over the same daemon-mediated command surface as the
-CLI; it is not a second control plane and does not write live state directly.
+Striatum is a local-first orchestration tool. Production MCP tool discovery
+and invocation are daemon surfaces: `tools/list` is generated from the daemon
+method registry and capability-filtered per token, and `tools/call`
+re-authorizes through daemon RPC.
 
-The daemon method contract remains the product boundary. The CLI and
-the wrapper are local clients over that same audited command surface.
+The Python stdio wrapper exists for local JSON-RPC framing compatibility and
+manual scripts. It is not a production tool-discovery surface and does not
+advertise CLI-shaped aliases.
 
 ## Architecture
 
@@ -72,11 +74,11 @@ Content-Length: 64\r\n
 {"jsonrpc":"2.0","id":1,"result":{"serverInfo":{"name":"..."}}}
 ```
 
-The server supports these JSON-RPC methods:
+The local stdio compatibility server supports these JSON-RPC methods:
 
 - `initialize`
-- `tools/list`
-- `tools/call`
+- `tools/list` (returns an empty list)
+- `tools/call` (returns `local_tools_unavailable`)
 - `resources/list`
 - `resources/read`
 - `striatum/invoke`
@@ -89,34 +91,20 @@ The server supports these JSON-RPC methods:
 
 ## Tools
 
-`tools/list` returns the available tool names. Each tool maps to an existing
-Striatum command. Examples:
+Local stdio `tools/list` returns an empty list and `tools/call` returns a
+structured `local_tools_unavailable` result. This prevents old CLI-shaped
+aliases such as `status`, `run_prepare`, and `publish_artifact` from looking
+like the production MCP surface.
 
-| Tool | Command |
-|------|---------|
-| `register_session` | `register-session` |
-| `claim_next` | `claim-next` |
-| `ack` | `ack` |
-| `heartbeat` | `heartbeat` |
-| `release` | `release` |
-| `send` | `send` |
-| `block` | `block` |
-| `publish_artifact` | `publish-artifact` |
-| `submit_review` | `submit-review` |
-| `complete_job` | `complete` |
-| `verdict` | `verdict` |
-| `status` | `status` |
-| `why` | `why` |
-| `doctor` | `doctor` |
-
-Example tool call:
+Compatibility/manual clients can still use `striatum/invoke` for raw
+CLI-style arguments. Daemon-mapped commands route through daemon RPC in
+production; explicit test-harness fallbacks remain test-only.
 
 ```json
-{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"status","arguments":{}}}
+{"jsonrpc":"2.0","id":2,"method":"striatum/invoke","params":{"args":["status"]}}
 ```
 
-The JSON-RPC result includes `structuredContent`, which uses Striatum's
-standard `{ok, data | error}` envelope:
+The JSON-RPC result uses Striatum's standard `{ok, data | error}` envelope:
 
 ```json
 {"ok":true,"data":{"runs":[]}}
@@ -210,7 +198,8 @@ Example:
 
 The wrapper deliberately avoids hosted services, network listening sockets,
 telemetry, transcript capture, external persistence, and direct database
-writes. It is a local adapter over the existing CLI/API semantics.
+writes. It is a local compatibility adapter over resource reads and explicit
+manual `striatum/invoke` requests.
 
 ## Daemon MCP Surface
 

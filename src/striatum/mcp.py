@@ -1,4 +1,4 @@
-"""Minimal local stdio JSON-RPC wrapper for Striatum commands.
+"""Minimal stdio JSON-RPC wrapper for Striatum compatibility commands.
 
 Wire framing
 ------------
@@ -45,110 +45,6 @@ ERROR_INTERNAL = -32603
 
 CONTENT_LENGTH_HEADER = "content-length"
 
-
-TOOL_ARGV: dict[str, list[str]] = {
-    "init": ["init"],
-    "workflow_validate": ["workflow", "validate", "$path"],
-    "workflow_plan": ["workflow", "plan", "$path"],
-    "run_prepare": ["run", "prepare", "--workflow", "$workflow"],
-    "run_start": ["run", "start", "--run-id", "$run_id"],
-    "run_summary": ["run", "summary", "--run-id", "$run_id", "--path", "$path"],
-    "branch_confirm": ["branch", "confirm", "--run-id", "$run_id", "--branch", "$branch"],
-    "register_session": ["register-session", "--run-id", "$run_id", "--role", "$role", "--lane", "$lane"],
-    "claim_next": ["claim-next", "--session-id", "$session_id"],
-    "ack": ["ack", "--session-id", "$session_id", "--message-id", "$message_id", "--lease-id", "$lease_id"],
-    "heartbeat": ["heartbeat", "--session-id", "$session_id", "--lease-id", "$lease_id"],
-    "release": [
-        "release",
-        "--session-id",
-        "$session_id",
-        "--message-id",
-        "$message_id",
-        "--lease-id",
-        "$lease_id",
-        "--reason",
-        "$reason",
-    ],
-    "send": ["send", "--session-id", "$session_id", "--kind", "$kind"],
-    "block": [
-        "block",
-        "--session-id",
-        "$session_id",
-        "--job-id",
-        "$job_id",
-        "--lease-id",
-        "$lease_id",
-        "--kind",
-        "$kind",
-        "--severity",
-        "$severity",
-        "--description",
-        "$description",
-    ],
-    "publish_artifact": [
-        "publish-artifact",
-        "--session-id",
-        "$session_id",
-        "--job-id",
-        "$job_id",
-        "--lease-id",
-        "$lease_id",
-        "--kind",
-        "$kind",
-        "--logical-name",
-        "$logical_name",
-        "--path",
-        "$path",
-    ],
-    "submit_review": [
-        "submit-review",
-        "--session-id",
-        "$session_id",
-        "--job-id",
-        "$job_id",
-        "--lease-id",
-        "$lease_id",
-        "--path",
-        "$path",
-        "--verdict",
-        "$verdict",
-    ],
-    "complete_job": ["complete", "--session-id", "$session_id", "--job-id", "$job_id", "--lease-id", "$lease_id"],
-    "verdict": [
-        "verdict",
-        "--session-id",
-        "$session_id",
-        "--job-id",
-        "$job_id",
-        "--lease-id",
-        "$lease_id",
-        "--verdict",
-        "$verdict",
-    ],
-    "evidence_export": ["evidence", "export", "--run-id", "$run_id", "--path", "$path"],
-    "status": ["status"],
-    "why": ["why", "$id"],
-    "doctor": ["doctor"],
-    "recovery_stale_leases": ["recovery", "stale-leases", "--run-id", "$run_id"],
-}
-
-OPTIONAL_ARGS: dict[str, list[tuple[str, str]]] = {
-    "register_session": [("capability", "--capability"), ("parent_session_id", "--parent-session-id")],
-    "claim_next": [("lease_seconds", "--lease-seconds")],
-    "heartbeat": [("extend_seconds", "--extend-seconds")],
-    "send": [("body_json", "--body-json")],
-    "submit_review": [("logical_name", "--logical-name"), ("kind", "--kind"), ("rationale", "--rationale")],
-    "complete_job": [("summary", "--summary")],
-    "verdict": [("findings_artifact_id", "--findings-artifact-id"), ("rationale", "--rationale")],
-    "status": [("run_id", "--run-id")],
-    "doctor": [("run_id", "--run-id")],
-}
-
-BOOLEAN_FLAGS: dict[str, list[tuple[str, str]]] = {
-    "branch_confirm": [("create", "--create"), ("use_current", "--use-current")],
-    "register_session": [("fresh", "--fresh")],
-    "release": [("requeue", "--requeue")],
-}
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -375,7 +271,7 @@ def _read_exact(stream: BinaryIO, length: int) -> bytes:
 
 
 class LocalRpcServer:
-    """Small JSON-RPC request handler for local MCP clients."""
+    """Small JSON-RPC request handler for local compatibility MCP clients."""
 
     def __init__(self, *, repo: Path) -> None:
         self.repo = repo
@@ -421,7 +317,7 @@ class LocalRpcServer:
         if method == "tools/list":
             return {"tools": tool_specs()}
         if method == "tools/call":
-            return self.call_tool(params)
+            return local_tools_call_unavailable()
         if method == "resources/list":
             return {"resources": resource_specs()}
         if method == "resources/read":
@@ -429,19 +325,6 @@ class LocalRpcServer:
         if method == "striatum/invoke":
             return self.invoke_args(params)
         raise ValueError(f"unknown method {method!r}")
-
-    def call_tool(self, params: JsonObject) -> JsonObject:
-        """Call a named tool by mapping arguments to a Striatum command."""
-        name = required_string(params, "name")
-        arguments = params.get("arguments", {})
-        if not isinstance(arguments, dict):
-            raise ValueError("arguments must be an object")
-        result = call_tool(name=name, arguments=cast(JsonObject, arguments), repo=self.repo)
-        return {
-            "content": [{"type": "text", "text": json_dumps(result)}],
-            "structuredContent": result,
-            "isError": not bool(result.get("ok")),
-        }
 
     def read_resource(self, params: JsonObject) -> JsonObject:
         """Read a local Striatum resource through the command API."""
@@ -605,8 +488,31 @@ def initialize_result() -> JsonObject:
 
 
 def tool_specs() -> list[JsonObject]:
-    """Return simple tool descriptors."""
-    return [{"name": name, "description": f"Invoke `striatum {' '.join(argv)}`."} for name, argv in sorted(TOOL_ARGV.items())]
+    """Return local compatibility tool descriptors.
+
+    Production MCP tools are generated from the daemon RPC method registry and
+    capability-filtered by :class:`DaemonRpcServer`. The local stdio wrapper no
+    longer advertises CLI-shaped aliases because those aliases can obscure the
+    daemon authority boundary.
+    """
+    return []
+
+
+def local_tools_call_unavailable() -> JsonObject:
+    return {
+        "content": [
+            {
+                "type": "text",
+                "text": "local MCP tools/call is disabled; use daemon MCP tools/list or striatum/invoke",
+            }
+        ],
+        "structuredContent": {
+            "ok": False,
+            "error": "local_tools_unavailable",
+            "message": "Local MCP tools/call is disabled; use daemon MCP tools/list with a capability token.",
+        },
+        "isError": True,
+    }
 
 
 def resource_specs() -> list[JsonObject]:
@@ -615,44 +521,6 @@ def resource_specs() -> list[JsonObject]:
         {"uri": "striatum://status", "name": "status", "mimeType": "application/json"},
         {"uri": "striatum://doctor", "name": "doctor", "mimeType": "application/json"},
     ]
-
-
-def call_tool(*, name: str, arguments: JsonObject, repo: Path) -> JsonObject:
-    """Map a tool call to existing Striatum command arguments."""
-    if name not in TOOL_ARGV:
-        raise ValueError(f"unknown tool {name!r}")
-    return invoke_argv_through_daemon_or_api(build_args(name=name, arguments=arguments), repo=repo)
-
-
-def build_args(*, name: str, arguments: JsonObject) -> list[str]:
-    """Build CLI-style arguments for a named tool."""
-    argv: list[str] = []
-    for token in TOOL_ARGV[name]:
-        if token.startswith("$"):
-            argv.append(required_string(arguments, token[1:]))
-        else:
-            argv.append(token)
-    for key, flag in OPTIONAL_ARGS.get(name, []):
-        value = arguments.get(key)
-        if value is None:
-            continue
-        if key == "capability":
-            if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
-                raise ValueError("capability must be a list of strings")
-            for item in value:
-                argv.extend([flag, item])
-        elif key == "body_json" and isinstance(value, dict):
-            argv.extend([flag, json_dumps(value)])
-        else:
-            argv.extend([flag, str(value)])
-    if name == "send":
-        body = arguments.get("body")
-        if "body_json" not in arguments and isinstance(body, dict):
-            argv.extend(["--body-json", json_dumps(body)])
-    for key, flag in BOOLEAN_FLAGS.get(name, []):
-        if bool(arguments.get(key)):
-            argv.append(flag)
-    return argv
 
 
 def read_resource(*, uri: str, repo: Path) -> JsonObject:
