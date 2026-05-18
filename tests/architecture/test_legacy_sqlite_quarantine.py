@@ -55,10 +55,6 @@ PRODUCTION_SQLITE_QUARANTINE = {
     ),
     # CLI/API/read DTO surfaces that still carry SQLite compatibility while
     # the local service and corpus/export paths finish their daemon DTO move.
-    Path("src/striatum/cli/daemon_rpc_route.py"): SQLiteClassification(
-        "service transition",
-        "daemon-route argument decoding still imports legacy JSON helper",
-    ),
     Path("src/striatum/cli/dispatch.py"): SQLiteClassification(
         "service transition",
         "daemon-first CLI with test-harness legacy fallback dispatch",
@@ -78,10 +74,6 @@ PRODUCTION_SQLITE_QUARANTINE = {
     Path("src/striatum/cli/run_summary.py"): SQLiteClassification(
         "service transition",
         "legacy run-summary reader pending daemon DTO replacement",
-    ),
-    Path("src/striatum/cli/workflow_init.py"): SQLiteClassification(
-        "service transition",
-        "workflow scaffold envelope still imports legacy JsonObject alias",
     ),
     Path("src/striatum/corpus/enumerator.py"): SQLiteClassification(
         "service transition",
@@ -167,14 +159,6 @@ PRODUCTION_SQLITE_QUARANTINE = {
     Path("src/striatum/daemon.py"): SQLiteClassification(
         "bootstrap/admin",
         "legacy RFC 0028 daemon registry and bootstrap helpers",
-    ),
-    Path("src/striatum/plugins/install.py"): SQLiteClassification(
-        "bootstrap/admin",
-        "plugin installer imports legacy timestamp helper only",
-    ),
-    Path("src/striatum/skills/install.py"): SQLiteClassification(
-        "bootstrap/admin",
-        "skill installer imports legacy timestamp helper only",
     ),
 }
 

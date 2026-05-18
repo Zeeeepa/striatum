@@ -7,7 +7,7 @@ from typing import Any, cast
 
 from striatum.daemon_rpc import registry
 from striatum.daemon_rpc.registry import METHOD_REGISTRY, METHODS_ETAG, mcp_tool_descriptor
-from striatum.db import json_dumps
+from striatum.primitives import json_dumps
 
 EXPECTED_METHOD_FIELDS = {
     "method",

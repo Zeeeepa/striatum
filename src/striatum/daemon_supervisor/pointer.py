@@ -5,7 +5,7 @@ from __future__ import annotations
 import sqlite3
 from typing import Any
 
-from striatum.db import JsonObject, json_dumps, utc_now
+from striatum.primitives import JsonObject, json_dumps, utc_now
 
 
 def record_pointer(

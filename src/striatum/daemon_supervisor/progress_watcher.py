@@ -17,7 +17,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Iterator
 
-from striatum.db import state_dir
+from striatum.repo_policy import state_dir
 
 
 HeartbeatCallback = Callable[..., object]

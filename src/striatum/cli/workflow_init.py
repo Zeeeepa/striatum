@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from striatum.db import JsonObject
 from striatum.errors import WorkflowError
+from striatum.primitives import JsonObject
 from striatum.workflow_generator import generate_workflow
 from striatum.workflow_generator.core import default_spec
 from striatum.workflow_generator.write import write_generated_workflow

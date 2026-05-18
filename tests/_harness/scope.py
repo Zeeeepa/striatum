@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from striatum.db import path_allowed
+from striatum.repo_policy import path_allowed
 
 
 def resolve_artifact_path(repo: Path, path_text: str) -> Path:

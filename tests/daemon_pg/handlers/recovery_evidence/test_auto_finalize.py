@@ -24,9 +24,9 @@ from striatum.daemon_pg.handlers.recovery_evidence.evidence_export import (
 )
 from striatum.daemon_pg.handlers.registry import resolve_pg_handler
 from striatum.daemon_rpc.capability import RpcAuthContext
-from striatum.db import json_dumps, sha256_bytes
 from striatum.errors import InvalidTransitionError
 from striatum.identity import process_start_time
+from striatum.primitives import json_dumps, sha256_bytes
 
 
 @pytest.fixture

@@ -86,6 +86,10 @@ Recent checkpoints:
 - The multi-repo Go daemon test harness no longer imports the legacy Python
   daemon module for runtime environment constant names; it uses
   `daemon_runtime` and the PostgreSQL admin client surface directly.
+- CLI daemon-route parsing, workflow scaffolding, skill/plugin installers,
+  daemon supervisor helper imports, and several tests now import neutral
+  primitives/path-policy helpers directly instead of loading them through
+  `striatum.db`; the SQLite quarantine allowlist shrank accordingly.
 - Runtime path and token-file helpers now live in `striatum.daemon_runtime`,
   and PostgreSQL repository registration helpers used by day-zero setup and
   daemon RPC routing now live in `striatum.daemon_pg.repositories`, reducing

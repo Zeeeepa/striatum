@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import pytest
 
-from striatum.db import path_allowed
 from striatum.errors import WorkflowError
+from striatum.repo_policy import path_allowed
 from striatum.workflow import validate_workflow
 from _harness.multi_repo import MultiRepoHarness, two_repo_workflow
 

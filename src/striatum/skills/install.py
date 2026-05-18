@@ -24,8 +24,8 @@ from importlib import resources
 from pathlib import Path
 from typing import Any, Mapping
 
-from striatum.db import utc_now
 from striatum.errors import InvalidTransitionError, NotFoundError
+from striatum.primitives import utc_now
 from striatum.skills.context import gather_template_context
 
 MANIFEST_SCHEMA_VERSION = "striatum.skills.manifest.v1"

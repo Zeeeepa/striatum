@@ -29,8 +29,8 @@ from striatum.daemon_rpc.client import hello_envelope
 from striatum.daemon_rpc.envelope import RpcEnvelope, RpcError
 from striatum.daemon_rpc.registry import CONTRACT_PATH, METHOD_REGISTRY
 from striatum.daemon_runtime import read_runtime_token
-from striatum.db import json_loads
 from striatum.errors import StriatumError
+from striatum.primitives import json_loads
 
 ParamBuilder = Callable[[argparse.Namespace, Path], dict[str, Any]]
 RouteTranslator = Callable[[argparse.Namespace, Path], tuple[str, dict[str, Any]]]
