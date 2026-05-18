@@ -334,7 +334,7 @@ func registerHandlers(server *rpc.Server, runner db.Runner, opts ...handlerOptio
 	// skips them. Mirrors src/striatum/daemon_pg/handlers/reads/ in
 	// Python; same response shapes.
 	reads.Register(server, runner)
-	mutations.Register(server, runner)
+	mutations.Register(server, runner, mutations.Options{BlobClient: options.BlobClient})
 	repositories.Service{Runner: runner}.Register(server)
 	for _, method := range []string{
 		"status", "why", "doctor", "dashboard", "dashboard.all",

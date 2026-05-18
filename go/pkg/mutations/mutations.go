@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/halbritt/striatum/go/pkg/blob"
 	"github.com/halbritt/striatum/go/pkg/db"
 	"github.com/halbritt/striatum/go/pkg/rpc"
 	"github.com/jackc/pgx/v5"
@@ -25,10 +26,35 @@ type queryer interface {
 
 type handlerFn func(context.Context, db.Runner, rpc.Envelope) (map[string]any, error)
 
-func Register(server *rpc.Server, runner db.Runner) {
+// Options carries handler-construction dependencies that not all
+// mutation handlers share. Today only the artifact.publish handler
+// reads BlobClient; future handlers (e.g. corpus.migrate) may consume
+// it too. BlobClient may be nil when the daemon is started without
+// STRIATUM_BLOB_ENDPOINT.
+type Options struct {
+	BlobClient *blob.Client
+}
+
+// packageBlobClient is the daemon's blob client, set by Register and
+// read by publishArtifact. Package-level so that publishArtifact's
+// transitive callers (review.submit, recovery.auto_finalize) do not
+// need their own threading. nil = blob storage disabled / not
+// configured; publishArtifact then skips the S3 upload step and the
+// artifact body stays in the working tree.
+var packageBlobClient *blob.Client
+
+// Register wires the mutation RPC handlers onto server. Optional opts
+// inject extra dependencies; today only Options.BlobClient is
+// consumed, via packageBlobClient at handler invocation time.
+func Register(server *rpc.Server, runner db.Runner, opts ...Options) {
 	if runner == nil {
 		return
 	}
+	var o Options
+	if len(opts) > 0 {
+		o = opts[0]
+	}
+	packageBlobClient = o.BlobClient
 	server.Register("session.register", makeHandler(runner, HandleRegisterSession))
 	server.Register("session.close", makeHandler(runner, HandleCloseSession))
 	server.Register("work.claim_next", makeHandler(runner, HandleClaimNext))

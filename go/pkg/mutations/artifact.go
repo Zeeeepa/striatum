@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/halbritt/striatum/go/pkg/blob"
 	"github.com/halbritt/striatum/go/pkg/db"
 	"github.com/halbritt/striatum/go/pkg/rpc"
 	"github.com/jackc/pgx/v5"
@@ -127,6 +128,42 @@ func publishArtifact(
 	}
 	now := nowString()
 	authorLine := firstAuthorLine(payload)
+
+	// RFC 0072: blob-routed artifact kinds upload to the per-repo S3
+	// bucket before the INSERT. The bucket is recorded on
+	// striatumd.repositories.blob_bucket at adopt time. The upload
+	// happens inside the publish transaction; the orphan-blob risk on
+	// rollback (successful PUT, failed INSERT) is documented and
+	// reconciled by a follow-on bucket-vs-PG cleanup job.
+	var blobKey, blobSha256, blobContentType string
+	if packageBlobClient != nil && isBlobRoutedKind(kind) {
+		bucket, err := lookupRepoBlobBucket(ctx, runner, repositoryID)
+		if err != nil {
+			return nil, err
+		}
+		if bucket != "" {
+			runID := fmt.Sprint(job["run_id"])
+			blobKey = blob.ArtifactKey(runID, jobID, logicalName)
+			blobContentType = artifactContentType(pathText)
+			uploadedSha, err := packageBlobClient.PutBytes(ctx, bucket, blobKey, payload, blobContentType)
+			if err != nil {
+				return nil, rpc.NewError("blob_publish_failed", err.Error(), map[string]any{
+					"bucket": bucket,
+					"key":    blobKey,
+				})
+			}
+			if uploadedSha != digest {
+				return nil, rpc.NewError("blob_publish_failed", "sha256 mismatch after upload", map[string]any{
+					"bucket":   bucket,
+					"key":      blobKey,
+					"expected": digest,
+					"got":      uploadedSha,
+				})
+			}
+			blobSha256 = digest
+		}
+	}
+
 	exec, ok := runner.(interface {
 		Exec(context.Context, string, ...any) error
 	})
@@ -137,9 +174,9 @@ func publishArtifact(
 		INSERT INTO striatumd.artifacts (
 		  repository_id, artifact_id, run_id, job_id, session_id, logical_name,
 		  artifact_kind, repo_path, content_sha256, size_bytes, publish_mode,
-		  created_at, author_line
+		  created_at, author_line, blob_key, blob_sha256, blob_content_type
 		)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'create',$11,$12)`,
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'create',$11,$12,$13,$14,$15)`,
 		repositoryID,
 		artifactID,
 		job["run_id"],
@@ -152,17 +189,95 @@ func publishArtifact(
 		len(payload),
 		now,
 		nullable(authorLine),
+		nullable(blobKey),
+		nullable(blobSha256),
+		nullable(blobContentType),
 	); err != nil {
 		return nil, err
 	}
-	if _, err := appendEvent(ctx, runner, repositoryID, job["run_id"], "artifact.published", sessionID, jobID, nil, artifactID, leaseID, map[string]any{
+	eventPayload := map[string]any{
 		"logical_name": logicalName,
 		"path":         pathText,
 		"sha256":       digest,
-	}); err != nil {
+	}
+	if blobKey != "" {
+		eventPayload["blob_key"] = blobKey
+	}
+	if _, err := appendEvent(ctx, runner, repositoryID, job["run_id"], "artifact.published", sessionID, jobID, nil, artifactID, leaseID, eventPayload); err != nil {
 		return nil, err
 	}
-	return map[string]any{"status": "published", "artifact_id": artifactID, "sha256": digest}, nil
+	result := map[string]any{"status": "published", "artifact_id": artifactID, "sha256": digest}
+	if blobKey != "" {
+		result["blob_key"] = blobKey
+	}
+	return result, nil
+}
+
+// blobRoutedKinds enumerates the artifact kinds whose body lives in
+// S3-compatible blob storage per RFC 0072 § Boundary. Kinds outside
+// this set keep the existing repo-path semantics: the body is reached
+// via repo_path, not blob_key.
+//
+// The split is by review surface:
+//   - Stays git-tracked (PR review surface): decision, escalation,
+//     work_plan, operator_brief, operator_report. These are
+//     decisional artifacts a human reads in a diff.
+//   - Goes to blob (per-run data): finding, synthesis, *_ledger,
+//     harness_improvement_proposal, progress_note. These pile up per
+//     dogfood run and do not get PR review.
+//
+// Other kinds (handoff, prompt, marker, etc.) remain repo-path-only in
+// V1; the maintainer can extend this set in a follow-on RFC.
+var blobRoutedKinds = map[string]struct{}{
+	"finding":                      {},
+	"findings_ledger":              {},
+	"synthesis":                    {},
+	"support_ledger":               {},
+	"action_item_ledger":           {},
+	"harness_improvement_proposal": {},
+	"progress_note":                {},
+}
+
+func isBlobRoutedKind(kind string) bool {
+	_, ok := blobRoutedKinds[kind]
+	return ok
+}
+
+// lookupRepoBlobBucket returns the per-repo bucket recorded at adopt
+// time. Returns "" with no error when the repo's row has a NULL
+// blob_bucket (operator has not enabled blob storage for this repo);
+// callers then skip the upload and store the artifact body in the
+// repo path only.
+func lookupRepoBlobBucket(ctx context.Context, runner any, repositoryID string) (string, error) {
+	row, err := oneRow(ctx, runner, `
+		SELECT blob_bucket FROM striatumd.repositories
+		 WHERE repository_id = $1 AND state != 'removed' LIMIT 1`, repositoryID)
+	if err != nil {
+		if errorsIsNoRows(err) {
+			return "", nil
+		}
+		return "", err
+	}
+	bucket, _ := row["blob_bucket"].(string)
+	return bucket, nil
+}
+
+// artifactContentType returns a conservative content type for the
+// uploaded blob. Markdown files (the common case) get
+// "text/markdown; charset=utf-8"; anything else gets
+// "application/octet-stream" to avoid claiming a richer type than the
+// runner actually verified.
+func artifactContentType(pathText string) string {
+	if strings.HasSuffix(strings.ToLower(pathText), ".md") {
+		return "text/markdown; charset=utf-8"
+	}
+	if strings.HasSuffix(strings.ToLower(pathText), ".json") {
+		return "application/json"
+	}
+	if strings.HasSuffix(strings.ToLower(pathText), ".txt") {
+		return "text/plain; charset=utf-8"
+	}
+	return "application/octet-stream"
 }
 
 func pathAllowed(repoRoot, pathText string, writeScope map[string]any) bool {
