@@ -301,6 +301,24 @@
       "deprecated": false
     },
     {
+      "method": "artifact.get_content",
+      "required_capability": "read",
+      "repository_scope_mode": "single_repo",
+      "params_schema_version": 1,
+      "audit_class": "metadata",
+      "min_envelope": 1,
+      "deprecated": false
+    },
+    {
+      "method": "artifact.list_for_run",
+      "required_capability": "read",
+      "repository_scope_mode": "single_repo",
+      "params_schema_version": 1,
+      "audit_class": "metadata",
+      "min_envelope": 1,
+      "deprecated": false
+    },
+    {
       "method": "list.workflows",
       "required_capability": "read",
       "repository_scope_mode": "single_repo",

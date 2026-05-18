@@ -32,6 +32,8 @@
 | `list.jobs` | `read` | `single_repo` | 1 | 1 | no |
 | `list.artifacts` | `read` | `single_repo` | 1 | 1 | no |
 | `artifact.show` | `read` | `single_repo` | 1 | 1 | no |
+| `artifact.get_content` | `read` | `single_repo` | 1 | 1 | no |
+| `artifact.list_for_run` | `read` | `single_repo` | 1 | 1 | no |
 | `list.workflows` | `read` | `single_repo` | 1 | 1 | no |
 | `escalation.list` | `read` | `single_repo` | 1 | 1 | no |
 | `escalation.show` | `read` | `single_repo` | 1 | 1 | no |

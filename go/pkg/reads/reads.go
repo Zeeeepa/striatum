@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"strconv"
 
+	"github.com/halbritt/striatum/go/pkg/blob"
 	"github.com/halbritt/striatum/go/pkg/db"
 	"github.com/halbritt/striatum/go/pkg/rpc"
 	"github.com/jackc/pgx/v5"
@@ -86,12 +87,31 @@ func intFrom(m map[string]any, key string) int {
 	}
 }
 
+// Options carries handler-construction dependencies that not all read
+// handlers share. Today only artifact.get_content reads BlobClient.
+// BlobClient may be nil when the daemon is started without
+// STRIATUM_BLOB_ENDPOINT; artifact.get_content then refuses for
+// blob-routed artifacts but still serves legacy repo-path bodies.
+type Options struct {
+	BlobClient *blob.Client
+}
+
+// packageBlobClient mirrors mutations.packageBlobClient: a single
+// daemon-startup-time blob client read by the artifact.get_content
+// handler. nil means blob storage is disabled.
+var packageBlobClient *blob.Client
+
 // Register wires every read handler in this package onto the rpc.Server.
 // Call from cmd/striatumd/main.go after the registry-side handlers land.
-func Register(server *rpc.Server, runner db.Runner) {
+func Register(server *rpc.Server, runner db.Runner, opts ...Options) {
 	if runner == nil {
 		return
 	}
+	var o Options
+	if len(opts) > 0 {
+		o = opts[0]
+	}
+	packageBlobClient = o.BlobClient
 	server.Register("status", makeHandler(runner, HandleStatus))
 	server.Register("dashboard", makeHandler(runner, HandleDashboard))
 	server.Register("dashboard.all", makeHandler(runner, HandleDashboardAll))
@@ -110,6 +130,8 @@ func Register(server *rpc.Server, runner db.Runner) {
 	server.Register("run.events", makeHandler(runner, HandleRunEvents))
 	server.Register("run.posture_verdicts", makeHandler(runner, HandleRunPostureVerdicts))
 	server.Register("artifact.show", makeHandler(runner, HandleArtifactShow))
+	server.Register("artifact.get_content", makeHandler(runner, HandleArtifactGetContent))
+	server.Register("artifact.list_for_run", makeHandler(runner, HandleArtifactListForRun))
 	server.Register("archive.create", makeHandler(runner, HandleArchiveCreate))
 	server.Register("workflow.validate", makeHandler(runner, HandleWorkflowValidate))
 	server.Register("workflow.plan", makeHandler(runner, HandleWorkflowPlan))
