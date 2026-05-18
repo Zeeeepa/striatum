@@ -989,7 +989,8 @@ Release order after Phase 0:
    landed; chunking is monitor-only and tracked in §4.13.
 10. **TODO 58 / Phase 10:** day-zero Postgres/daemon setup slice
     landed: role/grant repair, service helpers, guided adoption,
-    first-run smoke, and a dev-only compose profile.
+    first-run diagnostic report with Go binary provenance and daemon
+    authority routing, and a dev-only compose profile.
 11. **TODO 59 / Phase 11:** replay/archive foundations landed, including
     offline event-chain, row-hash, and archived row-id verification for
     command requests, process supervisors, process supervisor pointers,

@@ -22,6 +22,9 @@ Recent checkpoints:
   version, git SHA, and dirty/clean state. The Python launcher also rejects
   unstamped `go-dev` binaries and binaries that omit git provenance before
   they can bind a socket.
+- `doctor --first-run` now returns a single V1 diagnostic report that combines
+  day-zero smoke checks, Go daemon binary provenance, and the daemon authority
+  report so operators can validate the local stack with one command.
 - The command authority matrix now names the bounded direct-PostgreSQL
   bootstrap/admin plane, and an architecture guardrail scans Python client/CLI
   sources so new direct daemon-PG helper imports must be explicitly listed.

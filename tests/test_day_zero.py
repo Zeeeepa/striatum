@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import importlib
 from pathlib import Path
 from typing import Any
 
@@ -221,6 +222,10 @@ def test_first_run_smoke_reports_checks_without_leaking_token(tmp_path: Path, mo
     monkeypatch.setattr("striatum.day_zero._lookup_repository_id", lambda _repo: "repo_1")
     monkeypatch.setattr("striatum.day_zero.pg_doctor", lambda: {"ok": True, "status": "ok"})
     monkeypatch.setattr(
+        "striatum.day_zero._go_binary_check",
+        lambda: {"id": "go_daemon_binary", "ok": True, "daemon_version": striatum.__version__},
+    )
+    monkeypatch.setattr(
         "striatum.day_zero._mcp_capability_check",
         lambda **_: {"id": "mcp_capability", "ok": True, "tool_count": 1},
     )
@@ -232,9 +237,11 @@ def test_first_run_smoke_reports_checks_without_leaking_token(tmp_path: Path, mo
     result = first_run_smoke(tmp_path)
 
     assert result["ok"] is True
+    assert result["schema_version"] == "striatum.first_run_diagnostic.v1"
     assert "tok.secret" not in repr(result)
     assert {check["id"] for check in result["checks"]} == {
         "daemon_socket",
+        "go_daemon_binary",
         "runtime_token",
         "postgres",
         "repo_registration",
@@ -302,6 +309,45 @@ def test_first_run_rpc_sequence_uses_striatum_version_for_hello(
     assert response == {"ok": True, "data": {"doctor": "ok"}}
     assert captured["client_name"] == "striatum-first-run"
     assert captured["client_version"] == striatum.__version__
+
+
+def test_first_run_dispatch_includes_authority_report(
+    tmp_path: Path,
+    monkeypatch: Any,
+) -> None:
+    dispatch_mod = importlib.import_module("striatum.cli.dispatch")
+    monkeypatch.setattr(
+        "striatum.day_zero.first_run_smoke",
+        lambda _repo: {
+            "schema_version": "striatum.first_run_diagnostic.v1",
+            "mode": "first_run",
+            "ok": True,
+            "checks": [],
+            "postgres": {"ok": True, "status": "ok", "schema_version": 8},
+        },
+    )
+    monkeypatch.setattr(
+        dispatch_mod,
+        "_daemon_method_authority_explain",
+        lambda: {"method_count": 1, "pg_backed_count": 1, "cli_fallback_route_count": 0},
+    )
+    args = argparse.Namespace(
+        command="doctor",
+        repo=str(tmp_path),
+        daemon=False,
+        first_run=True,
+        run_id=None,
+        verbose=False,
+    )
+
+    result = dispatch_mod.dispatch(args)
+
+    assert isinstance(result, dict)
+    assert result["schema_version"] == "striatum.first_run_diagnostic.v1"
+    authority = result["authority"]
+    assert isinstance(authority, dict)
+    assert authority["schema_version"] == "striatum.authority_report.v1"
+    assert authority["ok"] is True
 
 
 def test_day_zero_source_has_no_legacy_handshake_versions() -> None:

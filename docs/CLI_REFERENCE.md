@@ -324,9 +324,12 @@ code 2. Production mutation and read verbs do not fall back to direct
 repo-local mode.
 
 `doctor --first-run` is a bootstrap smoke check, not a normal
-repo-state doctor run. It verifies daemon socket reachability,
+repo-state doctor run. It returns a
+`striatum.first_run_diagnostic.v1` JSON report that verifies daemon socket
+reachability, Go daemon binary provenance from `striatumd --describe`,
 Postgres doctor status, runtime token presence, repository registration,
-MCP tool visibility, and one sample daemon read route.
+MCP tool visibility, one sample daemon read route, and the daemon authority
+report.
 
 Daemon RPC method capabilities use the closed vocabulary `read`,
 `write`, `review`, `claim`, `apply`, `admin`, `recovery`, and

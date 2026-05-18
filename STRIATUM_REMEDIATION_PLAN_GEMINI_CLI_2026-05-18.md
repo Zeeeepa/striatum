@@ -69,6 +69,9 @@ author: planner-gemini-cli-001
 - **acceptance:** Running `striatumd --describe` returns the actual package version and git SHA, and package smoke tests assert this data matches the Python wheel.
 
 ### P1-FIRST-RUN-DIAGNOSTIC
+- **status:** completed 2026-05-18 in `doctor --first-run`; the command now
+  returns `striatum.first_run_diagnostic.v1` with day-zero smoke checks, Go
+  daemon binary provenance, and the daemon authority report.
 - **source:** F4 (make first-run and package diagnostics a single operator command)
 - **what:** Consolidate the outputs of `adopt --first-run-smoke` and `daemon doctor --authority` into a single, unified JSON diagnostic report.
 - **why:** Reduces operator friction by providing a single, comprehensive command to verify the entire stack (binary freshness, DB connection, auth token, and MCP status).

@@ -97,7 +97,8 @@ striatum daemon service start --manager auto --json
 TARGET_REPO=/path/to/your/repo
 striatum --repo "$TARGET_REPO" adopt --profile claude_code --json
 
-# 5. Smoke-test the first-run path end to end.
+# 5. Smoke-test the first-run path end to end, including daemon
+#    binary provenance and authority routing.
 striatum --repo "$TARGET_REPO" doctor --first-run --json
 ```
 

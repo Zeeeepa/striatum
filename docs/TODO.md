@@ -1153,8 +1153,10 @@ review and plan are root-level operator artifacts:
     systemd-user or launchd daemon services; `striatum adopt` initializes
     scratch, installs skill/plugin bundles, scaffolds DDD docs, and
     migrates/registers the repo into daemon PostgreSQL; `doctor
-    --first-run` checks daemon socket, Postgres, runtime token, repo
-    registration, MCP visibility, and a sample read route; and the
+    --first-run` returns a V1 diagnostic report covering daemon socket,
+    Go daemon binary provenance, Postgres, runtime token, repo
+    registration, MCP visibility, a sample read route, and daemon
+    authority routing; and the
     dev-only compose profile in `examples/dev-postgres/` is documented
     separately from the production-local system Postgres path.
 

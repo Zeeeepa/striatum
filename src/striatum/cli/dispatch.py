@@ -265,9 +265,7 @@ def dispatch(args: argparse.Namespace) -> object:
             postgres_url=getattr(args, "postgres_url", None),
         )
     if args.command == "doctor" and bool(getattr(args, "first_run", False)):
-        from striatum.day_zero import first_run_smoke
-
-        return first_run_smoke(repo)
+        return _dispatch_first_run_doctor(repo)
     skip_daemon_route = args.command in {
         "daemon",
         "init",
@@ -1538,6 +1536,25 @@ def _dispatch_daemon(args: argparse.Namespace) -> object:
         if args.service_command == "status":
             return service_status(manager=args.manager)
     raise StriatumError("unknown daemon command", exit_code=2)
+
+
+def _dispatch_first_run_doctor(repo: Path) -> dict[str, object]:
+    from striatum.day_zero import first_run_smoke
+
+    result = first_run_smoke(repo)
+    postgres = result.get("postgres")
+    if not isinstance(postgres, dict):
+        postgres = {"ok": False, "status": "missing"}
+    explain = _daemon_method_authority_explain()
+    result["authority"] = _daemon_authority_report(
+        postgres=postgres,
+        sqlite_registry=_post_pg_cutover_sqlite_registry_result(
+            "Legacy SQLite daemon registry is disabled in production; "
+            "PostgreSQL is the authoritative daemon state."
+        ),
+        explain=explain,
+    )
+    return result
 
 
 def _post_pg_cutover_sqlite_registry_result(note: str) -> dict[str, object]:

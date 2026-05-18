@@ -155,6 +155,7 @@ def first_run_smoke(repo: Path) -> dict[str, Any]:
             "socket": str(socket),
             "hint": "run striatum daemon service install/start or striatum daemon start",
         },
+        _go_binary_check(),
         token,
         {
             "id": "postgres",
@@ -173,6 +174,7 @@ def first_run_smoke(repo: Path) -> dict[str, Any]:
     checks.append(mcp_check)
     checks.append(_sample_read_route_check(repository_id=repository_id, token=token_value, socket=socket))
     return {
+        "schema_version": "striatum.first_run_diagnostic.v1",
         "mode": "first_run",
         "repo": str(repo),
         "ok": all(bool(check.get("ok")) for check in checks),
@@ -250,6 +252,50 @@ def _runtime_token_check(token: str | None) -> dict[str, Any]:
         "path": str(token_file()),
         "hint": "start the daemon once to create the runtime token",
     }
+
+
+def _go_binary_check() -> dict[str, Any]:
+    try:
+        from striatum.cli.daemon import _parse_go_describe, resolve_go_binary
+
+        binary = resolve_go_binary()
+        proc = subprocess.run(
+            [str(binary), "--describe"],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        if proc.returncode != 0:
+            detail = (proc.stderr or proc.stdout).strip()
+            return {
+                "id": "go_daemon_binary",
+                "ok": False,
+                "path": str(binary),
+                "status": "describe_failed",
+                "error": detail,
+                "hint": "rebuild go/bin/striatumd or reinstall the package",
+            }
+        fields = _parse_go_describe(proc.stdout)
+        return {
+            "id": "go_daemon_binary",
+            "ok": True,
+            "path": str(binary),
+            "daemon_version": fields.get("daemon_version"),
+            "git_sha": fields.get("git_sha"),
+            "build_dirty": fields.get("build_dirty"),
+            "methods_etag": fields.get("methods_etag"),
+            "supported_schema": fields.get("supported_schema"),
+            "migration_count": fields.get("migration_count"),
+        }
+    except Exception as exc:  # noqa: BLE001 - diagnostics must report all failures.
+        return {
+            "id": "go_daemon_binary",
+            "ok": False,
+            "status": "failed",
+            "error": str(exc),
+            "hint": "run make daemon-go-build or reinstall the package",
+        }
 
 
 def _lookup_repository_id(repo: Path) -> str | None:
