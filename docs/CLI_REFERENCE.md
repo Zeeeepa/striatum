@@ -516,8 +516,8 @@ striatum session close
 - `7`: branch confirmation required before work can be claimed.
 - `8`: workflow config rejected (also raised by `branch confirm`
   when a requested git operation cannot be performed).
-- `9`: local SQLite schema is newer than this striatum install
-  supports.
+- `9`: state schema is newer than this striatum install supports
+  (daemon PostgreSQL in production; legacy SQLite only in fixture paths).
 - `10`: daemon RPC transport, handshake, or version-skew refusal.
 - `11`: `daemon_unreachable`. The CLI could not reach the daemon
   socket; stderr names the socket path and remediation. No SQLite

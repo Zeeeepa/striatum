@@ -287,10 +287,10 @@ matrix and contract tests as drift guards.
   scratch-only bootstrap, with repo-local SQLite init retained only for
   legacy test fixtures.
 - Workflow authoring methods are no longer production live-state authority:
-  Python daemon RPC refuses them as CLI-local, Go implements the file
-  authoring/generation handlers without mutating daemon state, production MCP
-  tool listing hides them, and route tests prevent accidental production
-  fallback.
+  legacy Python RPC compatibility code refuses them as CLI-local, Go implements
+  the file authoring/generation handlers without mutating daemon state,
+  production MCP tool listing hides them, and route tests prevent accidental
+  production fallback.
 - `workflow upgrade` checks daemon PG for non-terminal runs and fails closed
   whenever PostgreSQL state is unknown; it no longer has a repo-local SQLite
   fallback, including under legacy test-harness escapes.
@@ -603,9 +603,10 @@ decide whether to rename the packet helper to `packet inbox`.
   start-time identity, and recommended operator action. Daemon `doctor`
   now surfaces non-healthy reattach states for stale supervisors without
   changing supervisor state.
-- Lanes can opt in to `supervision.transport: "pty_helper"`. The Python
-  daemon launches `striatum-supervisor-helper`, persists helper pointer
-  metadata, and drains helper JSONL events through `supervise.report` during
+- Lanes can opt in to `supervision.transport: "pty_helper"`. The daemon
+  PostgreSQL supervision handler launches `striatum-supervisor-helper`,
+  persists helper pointer metadata, and drains helper JSONL events through
+  `supervise.report` during
   start/send/stop/status.
 - Pipe-transport lanes can opt in to
   `supervision.stdin_delivery: "one_shot_eof"` for single-prompt commands
@@ -623,8 +624,8 @@ decide whether to rename the packet helper to `packet inbox`.
 - The Postgres supervision handler suite now has a focused real-helper
   integration test that launches `go/bin/striatum-supervisor-helper`, sends
   a work packet through the PTY-helper transport, drains packet-acknowledged
-  and agent-exited JSONL events, and verifies the Python daemon state/event
-  projection.
+  and agent-exited JSONL events, and verifies the daemon/PostgreSQL
+  state/event projection.
 - `make daemon-go-helper-integration` now builds the Go helper and runs that
   focused Postgres-backed integration test, and CI runs the target on
   Linux runners with the Postgres service.
@@ -1108,11 +1109,13 @@ is the runner-owned historical bootstrap successor, and
 ### 9.1 CI health (v1.55.0)
 
 CI's multi-repo harness step now hard-fails on missing Postgres rather than
-silently skipping. CI runs the Python-core multi-repo harness on
-ubuntu-latest, `make daemon-go-helper-check` on every matrix leg, and
-`make daemon-go-conformance` on ubuntu-latest as the `CORE=go` production
-daemon gate. GitHub-hosted macOS runners don't support `services:`, so the
-PostgreSQL-backed multi-repo and Go-conformance steps remain Linux-only.
+silently skipping. CI runs the Go-only multi-repo harness on ubuntu-latest,
+`make daemon-go-helper-check` on every matrix leg, and `make
+daemon-go-conformance` on ubuntu-latest as the production daemon gate.
+GitHub-hosted macOS runners don't support `services:`, so PostgreSQL-backed
+multi-repo and Go-conformance steps remain Linux-only. Package/fresh-clone
+smoke scripts run on every matrix leg but skip their daemon workflow when
+PostgreSQL setup is unavailable instead of entering SQLite test-harness mode.
 
 ### 9.2 Test failures status (v1.55.0)
 

@@ -1794,10 +1794,13 @@ The required check is:
 make test
 ```
 
-The smoke sequence is:
+The contributor smoke sequence is script-owned:
 
 ```bash
-striatum init
-striatum status --json
-striatum doctor
+scripts/package_smoke.sh
+scripts/fresh_clone_smoke.sh
 ```
+
+Both scripts use daemon-owned PostgreSQL and the Go daemon when PostgreSQL
+setup is available; if it is unavailable they skip with a clear message
+instead of entering a SQLite fallback.

@@ -212,7 +212,9 @@ Legend: ✅ done · 🟡 most done (sub-tasks remain) · ⏳ open/blocked · �
   build, console scripts (`striatum`, `striatumd`), and `[dev]`
   ruff/mypy/pytest extras. `.github/workflows/ci.yml` runs ruff + mypy +
   pytest + UI build/test + `release_metadata_check.py` + `package_smoke.sh`
-  + `fresh_clone_smoke.sh` across ubuntu/macOS and py3.11/py3.12.
+  + `fresh_clone_smoke.sh` across ubuntu/macOS and py3.11/py3.12; the smoke
+  scripts exercise daemon/PostgreSQL state when setup is available and skip
+  instead of creating SQLite fallback state when it is not.
   `.github/workflows/release.yml` builds wheel+sdist on `v*` tags, runs
   `twine check --strict`, publishes to PyPI via OIDC trusted publishing,
   and cuts a GitHub Release. Documentation policy items (signing,
@@ -852,9 +854,10 @@ review and plan are root-level operator artifacts:
     imports or calls `striatum.api.invoke`, local MCP `tools/list` /
     `tools/call` no longer advertise or execute CLI-shaped command aliases,
     local service/chat/manual mapped invocations route through daemon RPC,
-    Python daemon RPC refuses workflow authoring as CLI-local, and Go
-    implements workflow authoring/generation handlers without live-state
-    mutation while hiding them from production MCP discovery. `run.graph`,
+    legacy Python RPC compatibility code refuses workflow authoring as
+    CLI-local, and Go implements workflow authoring/generation handlers
+    without live-state mutation while hiding them from production MCP
+    discovery. `run.graph`,
     `worktree.*`, and `supervise.*` now have native PG handlers, and
     `recovery watch` now runs as a CLI-local daemon scheduler over
     `recovery.sweep` instead of a broken `recovery.watch` RPC. The
@@ -1068,9 +1071,9 @@ review and plan are root-level operator artifacts:
     `supervise.reattach_status` as a read-only supervisor health DTO, with
     daemon `doctor` surfacing non-healthy reattach states for stale
     supervisors. Follow-up slice landed explicit `supervision.transport:
-    "pty_helper"` lane opt-in: the Python daemon launches
-    `striatum-supervisor-helper`, persists helper pointer metadata, and
-    drains helper JSONL acknowledgements through `supervise.report` during
+    "pty_helper"` lane opt-in: the daemon PostgreSQL supervision handler
+    launches `striatum-supervisor-helper`, persists helper pointer metadata,
+    and drains helper JSONL acknowledgements through `supervise.report` during
     start/send/stop/status. Follow-up slice landed explicit
     `supervision.stdin_delivery: "one_shot_eof"` for pipe-transport lanes,
     letting single-prompt commands consume one packet and then receive EOF
