@@ -71,3 +71,7 @@ new GH issues rather than amending the closed one.
 
 - [16/](16/) — Add complete operator initialization prompt
   ([gh#16](https://github.com/halbritt/striatum/issues/16))
+- [22/](22/) — daemon migration path requires owner role but has no
+  --admin-url ([gh#22](https://github.com/halbritt/striatum/issues/22))
+- [23/](23/) — daemon status reads striatumd.pid but no code path
+  writes it ([gh#23](https://github.com/halbritt/striatum/issues/23))

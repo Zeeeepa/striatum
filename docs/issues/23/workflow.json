@@ -1,0 +1,195 @@
+{
+  "schema_version": "striatum.workflow.v1",
+  "workflow_id": "gh-23-daemon-pidfile-missing",
+  "workflow_version": "1",
+  "name": "GH #23: daemon status reads striatumd.pid but no code path writes it",
+  "context_docs": [
+    "docs/issues/23/SPEC.md",
+    "docs/ROADMAP.md",
+    "docs/TODO.md",
+    "docs/DECISION_LOG.md",
+    "docs/POSTGRES_TRANSITION.md",
+    "docs/SPEC.md",
+    "docs/INDEX.md",
+    "AGENTS.md"
+  ],
+  "coordinator": {
+    "lane": "codex"
+  },
+  "parallelism": {
+    "max_active_jobs": 1
+  },
+  "branch": {
+    "mode": "auto",
+    "suggested_name": "striatum/gh-23-daemon-pidfile"
+  },
+  "lanes": {
+    "claude_code": {
+      "adapter": "process",
+      "command": [
+        "bash",
+        "-lc",
+        "PYTHONPATH=src python3 -m striatum.cli skills install --profile all --scope user --force --json >/dev/null && export PATH=\"$PWD/.venv/bin:$PATH\" && exec .striatum/bin/claude-supervised-wrapper.sh"
+      ],
+      "model": "claude_code",
+      "strategy_version": "2026-05-18",
+      "supervision": {
+        "compatible": "verify_pipe_behavior_first",
+        "stdin_format": "prompt_text",
+        "wrapper_required": true
+      }
+    },
+    "codex": {
+      "adapter": "process",
+      "command": [
+        "bash",
+        "-lc",
+        "PYTHONPATH=src python3 -m striatum.cli skills install --profile all --scope user --force --json >/dev/null && export PATH=\"$PWD/.venv/bin:$PATH\" && exec .striatum/bin/codex-supervised-wrapper.sh"
+      ],
+      "model": "codex",
+      "strategy_version": "2026-05-18",
+      "supervision": {
+        "compatible": true,
+        "stdin_format": "newline_delimited_json",
+        "wrapper_required": true
+      }
+    }
+  },
+  "roles": {
+    "coordinator": {
+      "description": "Operator/control-plane role."
+    },
+    "triager": {
+      "description": "Bounds scope from the captured GH issue and project roadmap."
+    },
+    "implementer": {
+      "description": "Applies the scoped Go (or Python launcher) changes."
+    },
+    "reviewer": {
+      "description": "Fresh-context reviewer who verifies the scoped change."
+    }
+  },
+  "jobs": [
+    {
+      "id": "triage",
+      "type": "synthesis",
+      "title": "Triage GH #23",
+      "role_id": "triager",
+      "lane_id": "claude_code",
+      "fresh_session_required": true,
+      "objective": "Bound scope for GH #23: make the running striatumd daemon write the pidfile that daemon_status_pg reads, so `daemon status` is accurate. Confirm the Go-daemon-writes-pidfile approach against the actual launcher exec shape.",
+      "task_prompt": {
+        "path": "docs/issues/23/prompts/triage.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/issues/23/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "scope",
+          "kind": "synthesis",
+          "path": "docs/issues/23/SCOPE.md",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "fix",
+      "type": "build",
+      "title": "Implement GH #23",
+      "role_id": "implementer",
+      "lane_id": "codex",
+      "required_review_postures": [
+        "compliance_license"
+      ],
+      "objective": "Implement the pidfile write/remove path on daemon startup and clean shutdown per docs/issues/23/SCOPE.md.",
+      "task_prompt": {
+        "path": "docs/issues/23/prompts/fix.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "go/cmd/striatumd/",
+          "go/pkg/",
+          "src/striatum/cli/",
+          "src/striatum/daemon_runtime.py",
+          "src/striatum/daemon_pg/client_admin.py",
+          "tests/daemon_pg/",
+          "tests/cli/",
+          "docs/issues/23/build/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "handoff",
+          "kind": "handoff",
+          "path": "docs/issues/23/build/HANDOFF.md",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "verify",
+      "type": "review",
+      "title": "Verify GH #23",
+      "role_id": "reviewer",
+      "lane_id": "claude_code",
+      "fresh_session_required": true,
+      "reviewer_context_policy": "fresh",
+      "review_posture": "compliance_license",
+      "objective": "Verify GH #23 is closed against its captured SPEC and the implementer handoff.",
+      "task_prompt": {
+        "path": "docs/issues/23/prompts/verify.md"
+      },
+      "write_scope": {
+        "mode": "review_only_artifact",
+        "repo_write": false,
+        "allowed_paths": [
+          "docs/issues/23/review/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "verify_review",
+          "kind": "finding",
+          "path": "docs/issues/23/review/REVIEW.md",
+          "required": true
+        }
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "from": "triage",
+      "to": "fix",
+      "on": "completed"
+    },
+    {
+      "from": "fix",
+      "to": "verify",
+      "on": "completed"
+    }
+  ],
+  "cycles": [
+    {
+      "from": "verify",
+      "to": "fix",
+      "on_verdict": "needs_revision",
+      "max_iterations": 1
+    }
+  ]
+}
