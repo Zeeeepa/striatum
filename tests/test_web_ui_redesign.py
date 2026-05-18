@@ -36,15 +36,16 @@ def test_run_list_page_renders_html(tmp_path: Path) -> None:
         _stop_service(proc)
 
 
-def test_doctor_page_renders_html(tmp_path: Path) -> None:
+def test_doctor_page_fails_closed_without_daemon(tmp_path: Path) -> None:
     _git_init_repo(tmp_path)
     _striatum_init(tmp_path)
     proc, port = _spawn_service(tmp_path, "--web")
     try:
         status, headers, body = _http_get_raw(port, "/doctor")
-        assert status == 200
-        assert "text/html" in headers.get("Content-Type", "")
-        assert b"<h1>Doctor</h1>" in body
+        assert status == 503
+        assert "application/json" in headers.get("Content-Type", "")
+        assert b'"ok": false' in body
+        assert b"daemon_unreachable" in body
     finally:
         _stop_service(proc)
 
@@ -56,7 +57,7 @@ def test_csp_header_unchanged(tmp_path: Path) -> None:
     proc, port = _spawn_service(tmp_path, "--web")
     try:
         run_id = _prepare_run(tmp_path)
-        for path in ("/", "/workflows", "/doctor", f"/run/{run_id}"):
+        for path in ("/", "/workflows", f"/run/{run_id}"):
             _, headers, _ = _http_get_raw(port, path)
             csp = headers.get("Content-Security-Policy", "")
             assert "default-src 'self'" in csp

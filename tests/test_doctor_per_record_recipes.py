@@ -1,41 +1,43 @@
 from __future__ import annotations
 
-import sqlite3
 from pathlib import Path
 
-from test_cli_mvp import claim, prepare_started_run, register
-from test_web_ui import _http_get_raw, _spawn_service, _stop_service
+import pytest
+
+from striatum.service import _jinja_env
+from striatum.web import doctor as web_doctor
 
 
-def test_doctor_renders_per_record_recovery_recipe(tmp_path: Path) -> None:
-    run_id = prepare_started_run(tmp_path)
-    session_id = register(tmp_path, run_id, "author", "codex")
-    packet = claim(tmp_path, session_id)
-    job_id = str(packet["job"]["job_id"])
-    lease_id = str(packet["lease"]["lease_id"])
-    with sqlite3.connect(tmp_path / ".striatum" / "state.sqlite3") as conn:
-        conn.execute("UPDATE leases SET state = 'expired' WHERE lease_id = ?", (lease_id,))
-        conn.execute(
-            """
-            INSERT INTO process_executions(
-              process_id, run_id, job_id, session_id, lease_id, packet_id, adapter,
-              command_json, cwd, scratch_path, stdin_mode, stdio_mode, state,
-              pid, started_at
-            )
-            VALUES ('proc_doctor_recipe', ?, ?, ?, ?, ?,
-                    'subprocess', '[]', ?, '.striatum/scratch/proc_doctor_recipe',
-                    'packet', 'suppressed', 'running', 999999,
-                    '2026-05-14T00:00:00Z')
-            """,
-            (run_id, job_id, session_id, lease_id, str(packet["packet_id"]), str(tmp_path)),
-        )
-        conn.commit()
+def test_doctor_renders_per_record_recovery_recipe(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fake_call_repo_method(repo: Path, method: str, params: dict[str, object]) -> dict[str, object]:
+        assert repo == tmp_path
+        assert method == "doctor"
+        assert params == {"verbose": True}
+        return {
+            "ok": False,
+            "problems": ["process is running with expired lease"],
+            "problem_records": [
+                {
+                    "check": "process_running_with_expired_lease",
+                    "id": "proc_doctor_recipe",
+                    "context": {
+                        "run_id": "run_doctor_recipe",
+                        "job_id": "job_doctor_recipe",
+                    },
+                },
+            ],
+        }
 
-    proc, port = _spawn_service(tmp_path, "--web")
-    try:
-        status, _, body = _http_get_raw(port, "/doctor")
-        assert status == 200
-        assert b"process_running_with_expired_lease" in body
-        assert b"striatum recovery process-reconcile" in body
-    finally:
-        _stop_service(proc)
+    monkeypatch.setattr("striatum.service_daemon.call_repo_method", fake_call_repo_method)
+
+    response = web_doctor.doctor_page_response(tmp_path)
+    body = _jinja_env().get_template("doctor.html").render(
+        doctor=response.doctor,
+        problem_groups=response.problem_groups,
+    )
+
+    assert "process_running_with_expired_lease" in body
+    assert "striatum recovery process-reconcile --run-id run_doctor_recipe" in body

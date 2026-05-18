@@ -56,10 +56,11 @@ def test_doctor_empty_state_and_template_grouping_hooks(tmp_path: Path) -> None:
     _striatum_init(tmp_path)
     proc, port = _spawn_service(tmp_path, "--web")
     try:
-        status, _, body = _http_get_raw(port, "/doctor")
-        assert status == 200
-        assert b"0 problems found" in body
-        assert b"/static/doctor.js" in body
+        status, headers, body = _http_get_raw(port, "/doctor")
+        assert status == 503
+        assert "application/json" in headers.get("Content-Type", "")
+        assert b'"ok": false' in body
+        assert b"daemon_unreachable" in body
     finally:
         _stop_service(proc)
     template = (ROOT / "src/striatum/web/templates/doctor.html").read_text(encoding="utf-8")
