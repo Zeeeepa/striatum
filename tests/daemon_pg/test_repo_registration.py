@@ -76,7 +76,7 @@ def test_repo_add_refuses_existing_sqlite_source_without_opening_it(
     monkeypatch.setenv(daemon.ENV_RUNTIME, str(tmp_path / "runtime"))
     monkeypatch.setenv("STRIATUM_SQLITE_CONNECT_TRIPWIRE", "1")
 
-    with pytest.raises(SchemaVersionError, match="migrate-repo-local"):
+    with pytest.raises(SchemaVersionError, match="SQLite import windows are closed"):
         daemon.repo_add(repo)
 
 

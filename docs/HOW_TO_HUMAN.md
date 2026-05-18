@@ -202,10 +202,10 @@ RFC 0043; `init` registers the repository with the daemon when one
 is reachable. The daemon is a hard prerequisite — without a
 reachable daemon, the verbs above refuse with exit code 11
 (`daemon_unreachable`); against a pre-D094 SQLite-only repo they
-refuse with exit code 12 (`repo_not_migrated`) and point you at
-`striatum daemon migrate-repo-local`. See
-[POSTGRES_TRANSITION.md](POSTGRES_TRANSITION.md) for the full
-bootstrap runbook.
+refuse with exit code 12 (`repo_not_migrated`) and tell you to
+archive/remove legacy SQLite files before registering. See
+[POSTGRES_TRANSITION.md](POSTGRES_TRANSITION.md) for the current
+PostgreSQL bootstrap runbook.
 
 To also drop a self-contained agent skill bundle that teaches a
 Striatum-aware agent how to drive the runner (RFC 0015 V1):
@@ -677,7 +677,7 @@ path re-occupation by a different identity. Pass `--init`
 when no `.striatum/` directory exists; it creates operational
 scratch only and does not create `.striatum/state.sqlite3`. If a
 pre-D094 repo-local SQLite source exists, registration refuses and
-points at `daemon migrate-repo-local`.
+points at archive/remove guidance; writable SQLite imports are retired.
 
 `repo remove <id>` is idempotent, revokes live repo-scoped
 capabilities, preserves audit rows, and never reuses
@@ -696,8 +696,9 @@ Mapped CLI verbs route through the daemon RPC envelope under the
 appropriate token/capability. The V1 `--no-daemon` flag is retired
 (D094 / RFC 0043); parsing it returns the standard argparse
 "unrecognized arguments" error. A missing daemon refuses with exit
-code 11 (`daemon_unreachable`); an unmigrated pre-D094 repository
-refuses with exit code 12 (`repo_not_migrated`).
+code 11 (`daemon_unreachable`); an unregistered repository or a
+repository with legacy SQLite state refuses with exit code 12
+(`repo_not_migrated`).
 
 `dashboard --all` fans out across daemon-registered repositories and
 requires `read` capability.
@@ -811,45 +812,19 @@ daemon/Postgres-backed and fail closed without daemon authority.
 The paired `STRIATUM_DAEMON_REQUIRED=0 STRIATUM_TEST_HARNESS=1`
 escape is for subprocess compatibility fixtures only.
 
-Cut over a V1 daemon registry (RFC 0033 §4):
+The old SQLite cutover commands are retired compatibility spellings.
+`daemon migrate` and `daemon migrate-repo-local` now refuse with exit code 12
+before importing or opening SQLite migration code. To inspect cutover evidence
+for an already-migrated repository, use:
 
 ```bash
-# Inspect what would be imported.
-"$RUNNER" daemon migrate --from sqlite --to pg --dry-run --json
-
-# Import the V1 registry into the V2 daemon DB.
-"$RUNNER" daemon migrate --from sqlite --to pg --json
+"$RUNNER" daemon doctor --repo "$TARGET_REPO" --authority --json
 ```
 
-Cut over a single target repo's workflow state (RFC 0043):
-
-```bash
-# Inspect — writes nothing.
-"$RUNNER" daemon migrate-repo-local \
-  --from sqlite --to pg --repo "$TARGET_REPO" --dry-run --json
-
-# Apply. Safe default keeps the source as state.sqlite3.tombstone (0444).
-"$RUNNER" daemon migrate-repo-local \
-  --from sqlite --to pg --repo "$TARGET_REPO" --json
-
-# Irreversible cleanup — both flags required.
-"$RUNNER" daemon migrate-repo-local \
-  --from sqlite --to pg --repo "$TARGET_REPO" \
-  --no-keep-sqlite-readonly --confirm-delete --json
-```
-
-The registry migration writes the V2 schema, imports registered
-repositories, clients, capabilities, scheduler cursors, and
-metadata-only audit rows, verifies hash continuity, and writes a
-cutover marker. `--keep-sqlite-readonly` retains the old registry
-file as an audit tombstone while blocking V1 writes.
-
-The per-repo migration runs inside a single serializable Postgres
-transaction with byte-equivalent audit-chain re-anchor, then
-finalizes the source `.striatum/state.sqlite3` per the tombstone
-flags. CLI verbs against an unmigrated repo refuse with exit code
-12 (`repo_not_migrated`); CLI verbs without a reachable daemon
-refuse with exit code 11 (`daemon_unreachable`). See
+CLI verbs against an unregistered repo refuse with exit code 12
+(`repo_not_migrated`) and tell the operator to archive/remove legacy SQLite
+files before registering; CLI verbs without a reachable daemon refuse with
+exit code 11 (`daemon_unreachable`). See
 [POSTGRES_TRANSITION.md](POSTGRES_TRANSITION.md) for the full
 runbook and rollback notes.
 
@@ -894,8 +869,8 @@ RFC 0039 produced a Go `go/cmd/striatumd` prototype that speaks the
 RFC 0030 envelope-v1 wire protocol over the RFC 0033 PostgreSQL
 substrate. The D105 Python-primary constraint was superseded by D107; active
 contract methods now have Go handlers. The remaining Python-daemon retirement
-work is SQLite import-window and legacy fixture cleanup, not a production
-reviewed-patch RPC blocker.
+work is legacy fixture and production-import cleanup, not a production
+reviewed-patch RPC blocker or operator SQLite import window.
 
 Build the binary from a contributor checkout:
 

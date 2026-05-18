@@ -31,6 +31,7 @@ from striatum.daemon_pg.repo_local_migration import (
 )
 from striatum.errors import StriatumError
 
+pytestmark = pytest.mark.usefixtures("legacy_sqlite_import_enabled")
 
 def _prepare_repo(tmp_path: Path) -> Path:
     repo = tmp_path / "repo"
@@ -218,5 +219,4 @@ def test_external_helpers_self_check(tmp_path: Path) -> None:
             os.close(second_fd)
     finally:
         _release_external_lock(fd)
-
 

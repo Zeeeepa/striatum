@@ -21,7 +21,10 @@ from striatum.daemon_pg.repo_local_migration import (
 from striatum.daemon_rpc.capability import RpcAuthContext
 
 
-pytestmark = pytest.mark.multi_repo
+pytestmark = [
+    pytest.mark.multi_repo,
+    pytest.mark.usefixtures("legacy_sqlite_import_enabled"),
+]
 
 ROOT = Path(__file__).resolve().parents[2]
 FIXTURE = ROOT / "tests" / "fixtures" / "v1_repo_local_sqlite" / "state.sqlite3"

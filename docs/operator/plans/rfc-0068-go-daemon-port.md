@@ -19,8 +19,8 @@ author: coordinator-codex-gpt-5.5-001
 
 Move production daemon ownership to Go while keeping Python CLI/web
 clients where useful. `striatum daemon start` now defaults to Go after active
-contract-method parity. Python daemon deletion waits on SQLite import-window
-and legacy fixture cleanup, not calendar time.
+contract-method parity. Python daemon deletion waits on legacy fixture cleanup
+and remaining production imports, not calendar time.
 
 ## Workstreams
 
@@ -31,7 +31,7 @@ and legacy fixture cleanup, not calendar time.
 | Go read/mutation handler parity | landed for active contract methods; no generic `not_implemented` handlers remain |
 | Default daemon-core flip | landed; Go is default, Python selector is retired |
 | Production RPC retirement ledger | landed; D110/D112 removed unsupported names and stale calls are `method_unknown` |
-| Python daemon retirement gate | in_progress; SQLite import-window and legacy fixture cleanup remain |
+| Python daemon retirement gate | in_progress; writable SQLite import window closed; legacy fixture and production-import cleanup remain |
 
 ## Decisions Made
 
@@ -39,10 +39,12 @@ and legacy fixture cleanup, not calendar time.
   the production daemon target.
 - D112 removes `apply.reviewed_patch` from the production daemon RPC contract;
   stale calls return and audit as `method_unknown`.
+- D113 closes writable SQLite import commands; old migration spellings now
+  refuse before importing SQLite migration code.
 
 ## Open Questions
 
 - Should new PostgreSQL-native operator composites replace the retired dogfood
   method names, or should operators keep using primitive daemon methods?
-- When should the one-way SQLite import window close so the Python migration
-  helper can be deleted?
+- Should guarded legacy SQLite migration fixtures be converted to PostgreSQL
+  fixtures or deleted outright?

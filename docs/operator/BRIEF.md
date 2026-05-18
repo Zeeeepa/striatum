@@ -36,15 +36,17 @@ calls to removed dogfood composite names and `apply.reviewed_patch` audit as
 `method_unknown`.
 SQLite registry-probe guardrails now classify every remaining direct
 `striatum.daemon.connect_registry()` caller and tripwire daemon MCP resource
-reads before the legacy registry can open. `striatum daemon start` now
+reads before the legacy registry can open. Writable SQLite import windows are
+closed: retired `daemon migrate` and `daemon migrate-repo-local` spellings
+refuse before importing SQLite migration code. `striatum daemon start` now
 launches the Go daemon; the Python daemon selector is retired.
 
 ## Next 1-3 Actions
 
 1. Continue RFC 0068/RFC 0069 Go and PostgreSQL read-model parity only when
    a concrete method, DTO, registry probe, or conformance gap is visible.
-2. Close the SQLite import-window debt and legacy fixture cleanup, then delete
-   the remaining Python daemon module.
+2. Convert or delete legacy SQLite fixtures and remaining production imports,
+   then delete the remaining Python daemon module.
 3. Keep `make daemon-go-conformance` green and keep removed method names
    returning/auditing as `method_unknown`.
 

@@ -38,8 +38,9 @@ def repo_add_pg(
     legacy_state = repo / ".striatum" / "state.sqlite3"
     if legacy_state.exists():
         raise SchemaVersionError(
-            "repo-local SQLite state exists; run `striatum daemon migrate-repo-local --from sqlite --to pg --repo "
-            f"{repo}` before registering"
+            "repo-local SQLite state exists and SQLite import windows are closed; "
+            "archive or remove .striatum/state.sqlite3 before registering with "
+            "`striatum adopt` or `striatum repo add --init`"
         )
     state_dir = _init_operational_scratch(repo) if init else _require_operational_scratch(repo)
     identity = _pg_repo_identity(repo)

@@ -24,6 +24,14 @@ from striatum.migrations import LATEST_VERSION, current_user_version
 from striatum.primitives import json_dumps, utc_now
 from striatum.repo_policy import db_path
 
+ENV_LEGACY_SQLITE_IMPORT = "STRIATUM_LEGACY_SQLITE_IMPORT"
+RETIRED_SQLITE_IMPORT_MESSAGE = (
+    "repo_local_sqlite_import_retired: SQLite import windows are closed; "
+    "Striatum no longer opens legacy repo-local .striatum/state.sqlite3 files "
+    "for migration. Archive or remove the legacy SQLite file and register the "
+    "repository with `striatum adopt` or `striatum repo add --init`."
+)
+
 
 class MigrationInProgressError(StriatumError):
     """Raised when migrate-repo-local cannot acquire the exclusive lock.
@@ -403,6 +411,8 @@ TABLE_BY_NAME = {spec.name: spec for spec in TABLE_SPECS}
 
 
 def migrate_repo_local(options: RepoLocalMigrationOptions) -> dict[str, Any]:
+    if os.environ.get(ENV_LEGACY_SQLITE_IMPORT) != "1":
+        raise StriatumError(RETIRED_SQLITE_IMPORT_MESSAGE, exit_code=12)
     repo = options.repo.resolve()
     with _exclusive_migrate_lock(repo):
         return _migrate_repo_local_locked(options, repo)
@@ -456,8 +466,8 @@ def verify_repo_cutover(options: RepoLocalMigrationOptions) -> dict[str, Any]:
         recommendations.append("register or migrate the target repository into daemon PostgreSQL")
     if checkpoint is None:
         recommendations.append(
-            "run striatum daemon migrate-repo-local --from sqlite --to pg --repo "
-            f"{repo}"
+            "SQLite import windows are closed; archive/remove legacy SQLite "
+            "files and register the target repository with adopt or repo add --init"
         )
     recommendations.extend(str(item) for item in count_report["recommendations"])
     recommendations.extend(str(item) for item in file_report["recommendations"])
@@ -1028,13 +1038,13 @@ def _sqlite_file_cutover_report(
         if source_sha_matches is False:
             diagnosis.append("source_state_db_sha256 differs from the checkpoint")
         recommendations.append(
-            "rerun migrate-repo-local without --verify-cutover only after "
-            "confirming the source hash matches the checkpoint"
+            "current Striatum does not resume SQLite finalization; inspect the "
+            "source hash against the checkpoint, then archive/remove the legacy file"
         )
     elif sentinel_exists:
         status = "orphan_sentinel_after_finalization"
         diagnosis.append("migration sentinel remains after source finalization")
-        recommendations.append("rerun migrate-repo-local without --verify-cutover to clear the sentinel")
+        recommendations.append("inspect the sentinel and remove it after confirming Postgres state")
     elif expected_action == "tombstone":
         if not tombstone_exists:
             status = "tombstone_missing"
@@ -1325,8 +1335,8 @@ def _sqlite_exception_notes() -> list[dict[str, str]]:
         {
             "scope": "migration_source_import",
             "note": (
-                "migrate-repo-local may open .striatum/state.sqlite3 read-only "
-                "only when importing a pre-D094 source; --verify-cutover does not"
+                "writable SQLite import windows are closed; only explicitly guarded "
+                "legacy migration fixture tests may open .striatum/state.sqlite3"
             ),
         },
         {

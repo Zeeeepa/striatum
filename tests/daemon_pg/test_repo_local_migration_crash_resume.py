@@ -25,6 +25,7 @@ from striatum.daemon_pg.repo_local_migration import (
 )
 from striatum.errors import StriatumError
 
+pytestmark = pytest.mark.usefixtures("legacy_sqlite_import_enabled")
 
 ROOT = Path(__file__).resolve().parents[2]
 FIXTURE = ROOT / "tests" / "fixtures" / "v1_repo_local_sqlite" / "state.sqlite3"
@@ -276,6 +277,7 @@ def test_rerun_with_corrupted_source_refuses_with_exit_code_8(
 
     # Drop the monkeypatch so the rerun can call into the real helper.
     monkeypatch.undo()
+    monkeypatch.setenv("STRIATUM_LEGACY_SQLITE_IMPORT", "1")
     # Tamper with the source after the checkpoint commit.
     source.write_bytes(b"corrupted-after-checkpoint")
 

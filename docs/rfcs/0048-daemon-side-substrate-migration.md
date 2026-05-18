@@ -7,7 +7,7 @@
 Completion note: RFC 0048 is no longer pending V1.5 hardening. By
 v1.55.0 production mapped verbs are PG-native/fail-closed through daemon
 RPC, `CLI_ROUTES` fallback is empty, and legacy SQLite remains only for
-migration/test-fixture compatibility paths.
+guarded legacy migration fixture tests and test-fixture compatibility paths.
 
 ## V1 Phase A landing summary (2026-05-14, v1.49.0)
 

@@ -6,7 +6,8 @@ Supersession note: D094 / RFC 0043 retired `--no-daemon` and made
 daemon-owned PostgreSQL mandatory for workflow-state verbs. Any older
 sections below that mention direct repo-local fallback or optional daemon
 mode are historical context; current behavior is exit 11 for unreachable
-daemon and exit 12 for unmigrated repositories.
+daemon and exit 12 for unregistered repositories or repositories with legacy
+SQLite state.
 Context:
 [`RFC 0028`](0028-long-running-daemon-and-multi-repository-control-plane.md),
 [`RFC 0033`](0033-storage-substrate-rewrite-for-daemon-v2.md) (accepted V2),
@@ -249,8 +250,8 @@ V2 verbs route as follows:
 
 - **Read verbs** (`status`, `why`, `doctor`, `dashboard`, `list`,
   `evidence`): route through daemon RPC in production. Unreachable
-  daemon refuses with exit code 11; unmigrated repositories refuse with
-  exit code 12.
+  daemon refuses with exit code 11; unregistered repositories and
+  repositories with legacy SQLite state refuse with exit code 12.
 - **Mutating workflow verbs** (`workflow validate`, `run prepare`,
   `run start`, `session register`, `claim-next`, `ack`,
   `publish-artifact`, `verdict`, `submit-review`, `complete`,
@@ -318,12 +319,13 @@ turns each CLI invocation into one or more RPC calls.
 
 ## Downsides and risks
 
-- Daemon process is now a single point of failure for the orchestration
+- The daemon process is now a single point of failure for the orchestration
   surface. D094/RFC 0043 removed direct production CLI fallback; an
-  unreachable daemon is exit 11 and an unmigrated repository is exit 12.
+  unreachable daemon is exit 11 and an unregistered or legacy-SQLite
+  repository is exit 12.
 - Wire-protocol versioning errors are now production incidents.
-- The Python daemon is a longer-running process than the V1 sweep loop;
-  GIL/asyncio behavior matters more.
+- The Go daemon is the production authority after D111; Python daemon text in
+  older sections is retained as historical design context.
 - MCP semantics now have a real mutation surface; prompt-injected MCP
   clients can exercise `write` capabilities if they hold a token. RFC
   0032 tightens the MCP mutation defaults.

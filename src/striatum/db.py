@@ -85,9 +85,8 @@ def connect(repo: Path) -> sqlite3.Connection:
             raise StriatumError(
                 f"repo_not_migrated: {repo} was migrated to daemon "
                 f"PostgreSQL state but the fresh SQLite path is being "
-                f"opened; this indicates a split-brain. Run: striatum "
-                f"daemon migrate-repo-local --from sqlite --to pg --repo "
-                f"{repo} (or use the daemon socket directly).",
+                f"opened; this indicates a split-brain. Use the daemon "
+                f"socket directly; SQLite import windows are closed.",
                 exit_code=12,
             )
     conn = sqlite3.connect(target)

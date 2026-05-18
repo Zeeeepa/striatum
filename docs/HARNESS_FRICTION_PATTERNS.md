@@ -145,11 +145,10 @@ split-brain`.
 
 **Fix surfaces and current status.**
 
-- **F1** — `striatum daemon migrate-repo-local
-  --force-refresh-checkpoint`: recompute the checkpoint sha
-  against the current source bytes. Operator path for the "wrote
-  to local sqlite after migration" case. This remains the manual
-  recovery slice for mutated post-checkpoint sources.
+- **F1** — superseded by D113: writable SQLite import commands are retired.
+  For a mutated post-checkpoint source, archive the legacy SQLite file and
+  register the repository through the current PostgreSQL path rather than
+  refreshing an import checkpoint.
 - **F2** — completed: `run prepare`, `run start`, `branch confirm`,
   and `workflow validate` are daemon-routed through the shared method
   contract instead of falling through to SQLite-backed dispatch.

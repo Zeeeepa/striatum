@@ -43,7 +43,7 @@ func (s Service) Add(ctx context.Context, envelope rpc.Envelope) (map[string]any
 	if exists(repoLocalSQLitePath(repo)) {
 		return nil, rpc.NewError(
 			"sqlite_source_present",
-			"repo-local SQLite state exists; run striatum daemon migrate-repo-local --from sqlite --to pg before registering",
+			"repo-local SQLite state exists and SQLite import windows are closed; archive or remove .striatum/state.sqlite3 before registering",
 			nil,
 		)
 	}

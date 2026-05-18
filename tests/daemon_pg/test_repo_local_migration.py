@@ -20,6 +20,7 @@ from striatum.daemon_pg.repo_local_migration import (
 from striatum.errors import SchemaVersionError, StriatumError
 from striatum.migrations import LATEST_VERSION
 
+pytestmark = pytest.mark.usefixtures("legacy_sqlite_import_enabled")
 
 ROOT = Path(__file__).resolve().parents[2]
 FIXTURE = ROOT / "tests" / "fixtures" / "v1_repo_local_sqlite" / "state.sqlite3"
@@ -185,7 +186,7 @@ def test_old_sqlite_user_version_is_refused(tmp_path: Path, pg_url: str) -> None
 
 
 @pytest.mark.multi_repo
-def test_cli_daemon_helper_dispatches_migrate_repo_local(tmp_path: Path, pg_url: str) -> None:
+def test_cli_daemon_helper_refuses_retired_migrate_repo_local(tmp_path: Path, pg_url: str) -> None:
     repo = _repo_with_fixture(tmp_path)
     args = argparse.Namespace(
         daemon_command="migrate-repo-local",
@@ -198,7 +199,8 @@ def test_cli_daemon_helper_dispatches_migrate_repo_local(tmp_path: Path, pg_url:
         confirm_delete=False,
     )
 
-    result = dispatch_daemon(args)
+    with pytest.raises(StriatumError) as exc:
+        dispatch_daemon(args)
 
-    assert result["mode"] == "repo_local_migration"
-    assert result["dry_run"] is True
+    assert exc.value.exit_code == 12
+    assert "SQLite import windows are closed" in str(exc.value)

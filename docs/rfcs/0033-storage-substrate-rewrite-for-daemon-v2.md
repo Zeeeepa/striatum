@@ -4,8 +4,9 @@ Status: accepted (V2)
 Date: 2026-05-11
 Supersession note: D094 / RFC 0043 extends this substrate decision to
 per-repository workflow state. Daemon-owned PostgreSQL is now the sole
-live-state substrate; repo-local SQLite is only a migration source,
-tombstone, or test fixture.
+live-state substrate; D113 retired writable SQLite import commands, so legacy
+SQLite survives only as guarded migration-fixture material, tombstones, or test
+fixtures.
 Context:
 [`RFC 0028`](0028-long-running-daemon-and-multi-repository-control-plane.md),
 [`RFC 0030`](0030-daemon-rpc-server-and-version-skew-protocol.md) (proposed),
@@ -19,10 +20,10 @@ wire protocol, schema migrations, and audit-chain format all key off the
 substrate choice.
 
 Implemented in dogfood-033 (V2 scaffold: system Postgres requirement,
-`src/striatum/daemon_pg/` package, `daemon migrate --from sqlite --to pg`
-cutover, audit-chain mapping with byte-equivalent V1 anchors). The live
-Postgres CI harness for migration apply, role privilege enforcement, and
-concurrency races is the next hardening pass.
+`src/striatum/daemon_pg/` package, original `daemon migrate --from sqlite
+--to pg` cutover, audit-chain mapping with byte-equivalent V1 anchors). The
+operator-facing cutover spelling is now a retired compatibility refusal per
+D113.
 
 ## Problem
 
@@ -242,7 +243,12 @@ Postgres, a key-value store, or a custom event log.
   every audit row so an audit log read by a future daemon can match
   schema version to row interpretation.
 
-### 4. V1 registry → V2 daemon DB cutover
+### 4. V1 registry -> V2 daemon DB cutover
+
+D113 later retired this operator-facing SQLite import surface. The command
+shapes below document the original RFC 0033 cutover behavior; current Striatum
+keeps the spellings parseable only to return a clear exit-code-12 refusal
+before importing SQLite migration code.
 
 The V1 registry SQLite is small (repositories, clients, capabilities,
 audit, scheduler cursors, daemon metadata). The cutover is:
@@ -382,11 +388,11 @@ The daemon may not assume single-writer semantics anymore:
 - `daemon doctor` refuses to start if the Postgres major version is
   unsupported, the role is missing required privileges, or the daemon
   binary is older than the on-disk schema.
-- `striatum daemon migrate --from sqlite --to pg` imports a V1 daemon
-  registry SQLite into the V2 Postgres schema with a byte-equivalent
-  audit chain (hash anchors match end-to-end).
-- After migration the daemon refuses V1 SQLite registry reads with a
-  documented error.
+- The original `striatum daemon migrate --from sqlite --to pg` cutover behavior
+  is retained only as historical RFC context; current Striatum returns a
+  retired-command refusal before opening SQLite migration code.
+- Current daemon registry reads are PostgreSQL-only; V1 SQLite registry reads
+  are not a production path.
 - Per-test Postgres harness teardown leaves no zombie connections and
   no leftover schemas after a full test run.
 - `daemon doctor` reports substrate version, schema version, audit chain

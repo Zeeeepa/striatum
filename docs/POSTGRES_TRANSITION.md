@@ -52,11 +52,9 @@ Two related changes shape the current product:
 - Python 3.11+ and a Striatum install (`pip install
   striatum-orchestrator` or a contributor checkout with
   `make install`).
-- For an existing pre-D094 repo: the source `.striatum/state.sqlite3`
-  must already be at the latest legacy schema supported by this runner.
-  If it is older, upgrade it with an older Striatum release that still
-  supports repo-local SQLite migrations before running
-  `daemon migrate-repo-local`.
+- For an existing pre-D094 repo: writable SQLite imports are retired.
+  Archive or remove `.striatum/state.sqlite3` before registering the
+  repository with `striatum adopt` or `striatum repo add --init`.
 
 ## Provision the daemon-required role
 
@@ -87,9 +85,8 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA striatumd
   GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO striatumd_rw;
 ALTER DEFAULT PRIVILEGES IN SCHEMA striatumd
   GRANT USAGE, SELECT, UPDATE ON SEQUENCES TO striatumd_rw;
--- CREATE on db + schema is needed for striatum daemon migrate-repo-local
--- (it runs CREATE TABLE IF NOT EXISTS on every invocation, even when the
--- schema is at HEAD).
+-- CREATE on db + schema is needed for forward daemon migrations and local
+-- doctor repair/provisioning flows.
 GRANT CREATE ON DATABASE striatum_daemon TO striatumd_rw;
 GRANT CREATE ON SCHEMA striatumd TO striatumd_rw;
 SQL
@@ -200,92 +197,30 @@ striatum --repo /path/to/target adopt --profile claude_code --json
 ```
 
 `adopt` initializes `.striatum/` scratch when needed, installs local
-agent assets, scaffolds DDD docs, migrates/registers the repo into
-daemon PostgreSQL, and reports a suggested workflow path. The lower
-level `daemon migrate-repo-local --from sqlite --to pg --repo <path>`
-remains available for scripted cutovers.
+agent assets, scaffolds DDD docs, registers the repo into daemon PostgreSQL,
+and reports a suggested workflow path. Writable SQLite import windows are
+closed; if a legacy `.striatum/state.sqlite3` exists, archive or remove it
+before registering.
 
 The first `daemon start` bootstraps a single admin token and writes an
 owner-only runtime `client-token` file under the daemon's runtime
 directory. Treat that file as degraded compared to an OS keyring.
 
-## Migrate the repo-local workflow state
+## Retired SQLite import commands
 
-For repos that already have a populated `.striatum/state.sqlite3`,
-the per-repo migration command moves their workflow state into the
-daemon-owned Postgres under a `repository_id` scope.
-
-```bash
-# 1) Inspect what would be migrated — writes nothing.
-striatum daemon migrate-repo-local \
-  --from sqlite --to pg \
-  --repo /path/to/target \
-  --postgres-url "$STRIATUM_DAEMON_DB_URL" \
-  --dry-run \
-  --json
-
-# 2) Apply the migration. The default keeps the SQLite file as a
-#    read-only tombstone for inspection (you can delete it later).
-striatum daemon migrate-repo-local \
-  --from sqlite --to pg \
-  --repo /path/to/target \
-  --json
-```
-
-V1.6 supports only `--from sqlite --to pg`; both flags are
-required. `--repo` defaults to the top-level `--repo` if you set
-it on the parent invocation. Without `--postgres-url`, the command
-uses the same surfaces as the daemon (`STRIATUM_DAEMON_DB_URL`,
-daemon config).
-
-The full-migration command runs inside a single Postgres
-`SERIALIZABLE` transaction. It re-anchors the audit chain in
-Postgres and verifies it is byte-equivalent to the SQLite original
-before commit. After commit it writes the migration sentinel
-(`.striatum/state.sqlite3.migrated`) and then finalizes the SQLite
-file according to the flags you passed (see next section).
-
-Idempotent re-runs against an already-migrated repo report
-`already migrated` with the checkpoint marker timestamp and exit 0.
-If a crash interrupts the SQLite finalization, the next invocation
-resumes the recorded action — same tombstone behavior, same flags
-— from the sentinel; the SQLite is not opened for live state.
-
-If the daemon is unreachable, the command refuses with exit code
-11. If the on-disk SQLite schema is older than the runner
-supports, the command refuses with exit code 8 and points you at
-an older Striatum release that can bring the legacy SQLite source to the
-highest supported pre-D094 schema before retrying the per-repo migration.
-
-## Tombstone vs delete
-
-The migration command finalizes the SQLite file with one of two
-behaviors:
-
-- **Tombstone (default, `--keep-sqlite-readonly`).** Renames
-  `.striatum/state.sqlite3` to `.striatum/state.sqlite3.tombstone`
-  and `chmod`s it to `0444`. No Striatum verb opens the tombstone;
-  it remains for operator inspection until you remove it. This is
-  the safe path.
-- **Delete (`--no-keep-sqlite-readonly --confirm-delete`).** Both
-  flags are required. The migration deletes the original file
-  after the Postgres commit. Use this when the source data is
-  redundant and inspection is not needed.
-
-There is no default destructive path. `--confirm-delete` is the
-explicit operator choice for irreversible cleanup; the migration
-refuses to delete without it.
+`striatum daemon migrate --from sqlite --to pg` and
+`striatum daemon migrate-repo-local --from sqlite --to pg --repo <path>` are
+retired compatibility spellings. They remain parseable so old automation gets
+a clear error, but they refuse with exit code 12 before importing or opening
+SQLite migration code. Current Striatum does not migrate legacy SQLite files
+as an operator workflow. Archive or remove legacy SQLite files, then register
+the target repository with `striatum adopt` or `striatum repo add --init`.
 
 ## Verify the migration
 
 ```bash
 # Repo-local workflow state now reads from Postgres. Pre-existing
 # runs and jobs remain queryable through the normal CLI surfaces.
-striatum daemon migrate-repo-local \
-  --from sqlite --to pg \
-  --repo /path/to/target \
-  --verify-cutover \
-  --json
 striatum daemon doctor \
   --repo /path/to/target \
   --authority \
@@ -295,8 +230,9 @@ striatum --repo /path/to/target doctor --verbose --json
 striatum --repo /path/to/target list runs --json
 ```
 
-`--verify-cutover` emits `striatum.repo_cutover_report.v1`. The
-report confirms repository registration, the `repo_migrations`
+`daemon doctor --repo <path> --authority --json` emits
+`striatum.repo_cutover_report.v1`. The report confirms repository
+registration, the `repo_migrations`
 checkpoint, destination row counts not below checkpoint counts,
 absence of the live source `.striatum/state.sqlite3`, tombstone or
 delete finalization, sentinel absence or incomplete-finalization
@@ -309,10 +245,9 @@ verify-only repository report inside the doctor output and summarizes
 repository cutover health in `striatum.authority_report.v1`.
 
 A repo that has not been migrated refuses CLI verbs with **exit
-code 12 (`repo_not_migrated`)**. The stderr message points at
-`striatum daemon migrate-repo-local --from sqlite --to pg --repo
-<path>` with the resolved repo path; the JSON envelope carries a
-structured `hint` with the same command shape.
+code 12 (`repo_not_migrated`)**. The stderr message and JSON hint tell the
+operator to archive/remove legacy SQLite files and register with `adopt` or
+`repo add --init`.
 
 `striatum daemon doctor --json` reports one substrate (Postgres),
 one schema version, and one audit chain after a successful
@@ -329,7 +264,7 @@ The exit codes RFC 0043 reserves for daemon-required behavior:
 |---:|---|---|
 | 10 | Daemon RPC transport, handshake, or version-skew refusal (RFC 0030). | Reconcile client and daemon versions; rerun `daemon doctor`. |
 | 11 | `daemon_unreachable`. | Start the daemon (`striatum daemon start` or the systemd / launchd unit). Check the socket path printed in stderr. |
-| 12 | `repo_not_migrated`. | Run `striatum daemon migrate-repo-local --from sqlite --to pg --repo <path>` (dry-run first if you want a preview). |
+| 12 | `repo_not_migrated`. | Archive/remove legacy SQLite files if present, then register with `striatum adopt` or `striatum repo add --init`. |
 
 See [CLI_REFERENCE.md § Stable exit codes](CLI_REFERENCE.md#stable-exit-codes)
 for the full closed list.

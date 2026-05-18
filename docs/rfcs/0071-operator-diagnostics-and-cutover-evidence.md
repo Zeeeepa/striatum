@@ -28,10 +28,10 @@ multiple files and test names.
 
 After RFC 0069 and RFC 0070 land:
 
-1. Extend `daemon migrate-repo-local` or add `repo verify-cutover` with a
+1. Add `daemon doctor --repo <path> --authority --json` detail with a
    structured report confirming PG rows, event-chain anchoring, tombstone
    state, and absence of production SQLite opens.
-2. Add `doctor --authority --json` or equivalent daemon doctor detail that
+2. Add `doctor --authority --json` daemon doctor detail that
    reports live-state authority by surface.
 3. Generate the stable daemon method authority matrix from
    `contracts/daemon_methods.json` plus checked-in override metadata, or keep
@@ -59,13 +59,12 @@ After RFC 0069 and RFC 0070 land:
   SQLite exceptions, and remediation recommendations.
 - The daemon doctor treats a production-disabled legacy SQLite registry as the
   expected post-cutover state when PostgreSQL doctor is healthy.
-- `striatum daemon migrate-repo-local --from sqlite --to pg --repo <path>
-  --verify-cutover --json` now emits `striatum.repo_cutover_report.v1` with
-  repository registration, migration checkpoint, destination counts, raw
-  source/tombstone/sentinel state, event-chain anchor health, and bounded
-  SQLite exception notes. The verifier does not open SQLite as a database.
-- `striatum daemon doctor --repo <path> --authority --json` now mirrors that
-  verify-only repository cutover report in doctor output and includes a
+- `striatum daemon doctor --repo <path> --authority --json` now emits a
+  verify-only `striatum.repo_cutover_report.v1` with repository registration,
+  migration checkpoint, destination counts, raw source/tombstone/sentinel
+  state, event-chain anchor health, and bounded SQLite exception notes. The
+  verifier does not open SQLite as a database.
+- The same command includes the report in doctor output and includes a
   repository-cutover summary in `striatum.authority_report.v1`.
 - `tests/architecture/test_authority_guardrails.py` now verifies that every
   CLI route label from `contracts/daemon_methods.json` appears in the curated

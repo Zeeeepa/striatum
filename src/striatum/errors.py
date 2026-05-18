@@ -104,11 +104,10 @@ class DaemonUnreachableError(StriatumError):
 class RepoNotMigratedError(StriatumError):
     """Raised when a CLI verb targets a repo with no daemon migration row (RFC 0043 §3).
 
-    ``hint`` carries the structured ``migrate-repo-local`` remediation
-    string used by the JSON error envelope.
+    ``hint`` carries the structured registration remediation string used by
+    the JSON error envelope.
     """
 
     def __init__(self, message: str, *, hint: str | None = None) -> None:
         super().__init__(message, exit_code=EXIT_REPO_NOT_MIGRATED)
         self.hint = hint
-

@@ -179,8 +179,8 @@ remediation phases should either daemon-route, quarantine, or delete.
 | `daemon service install` / `start` / `status` | local service-manager helper; Go start forwards resident recovery scheduler flags | no workflow state | bootstrap_admin |
 | `daemon doctor` | daemon PG doctor plus disabled legacy-registry diagnostic; registry probe only when PG diagnostics are unavailable or under explicit fixture escapes | diagnostic/test-only registry probe | bootstrap_admin |
 | `doctor --first-run` | day-zero smoke over daemon socket, PG doctor, token, MCP, and sample read route | no workflow state | bootstrap_admin |
-| `daemon migrate` | daemon registry migration helper | source registry migration only | legacy_migration |
-| `daemon migrate-repo-local` | per-repo SQLite -> Postgres migration | intentional source SQLite import | legacy_migration |
+| `daemon migrate` | retired compatibility refusal | no SQLite open | bootstrap_admin |
+| `daemon migrate-repo-local` | retired compatibility refusal; verify evidence lives under `daemon doctor --repo --authority` | no SQLite open | bootstrap_admin |
 | `daemon status` / `stop` / `health` / `audit` / `sweep` | daemon lifecycle helpers | PostgreSQL daemon audit/metadata paths; sweep owns PostgreSQL scheduler cursors | bootstrap_admin |
 | `cross-repo list` / `describe` / `why` | daemon RPC cross-repo helpers | no | daemon_read_out_of_band |
 | `cross-repo cancel` | daemon RPC + PG participant cancel | no | daemon_recovery |

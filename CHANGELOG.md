@@ -51,6 +51,14 @@ Recent checkpoints:
   instead of carrying it as a fail-closed RFC 0068 retirement blocker. Stale
   direct calls now return and audit as `method_unknown`; apply receipt reads
   and daemon signing-key rotation remain supported.
+- SQLite import windows are now closed for production/operator paths.
+  `striatum daemon migrate` and `striatum daemon migrate-repo-local` remain
+  parser-compatible compatibility spellings, but they refuse with exit code
+  12 before importing or opening SQLite migration code. Direct
+  `migrate_repo_local()` use is guarded behind the explicit
+  `STRIATUM_LEGACY_SQLITE_IMPORT=1` fixture escape; `adopt`, repo
+  registration, and repo-not-migrated hints now point operators to archive or
+  remove legacy SQLite files and register with `adopt` / `repo add --init`.
 - Runtime path and token-file helpers now live in `striatum.daemon_runtime`,
   and PostgreSQL repository registration helpers used by day-zero setup and
   daemon RPC routing now live in `striatum.daemon_pg.repositories`, reducing

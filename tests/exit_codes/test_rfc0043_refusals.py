@@ -73,21 +73,21 @@ def test_daemon_unreachable_hint_is_a_single_line(tmp_path: Path) -> None:
     assert "striatum daemon doctor" in hint
 
 
-def test_repo_not_migrated_message_names_migrate_verb(tmp_path: Path) -> None:
+def test_repo_not_migrated_message_names_retired_import_window(tmp_path: Path) -> None:
     text = render_repo_not_migrated_message(tmp_path)
     assert text.startswith(
         f"repo_not_migrated: {tmp_path} has not been migrated to daemon PostgreSQL state"
     )
-    assert (
-        f"Run: striatum daemon migrate-repo-local --from sqlite --to pg --repo {tmp_path}"
-        in text
-    )
+    assert "SQLite import windows are closed" in text
+    assert "striatum adopt" in text
+    assert "striatum repo add --init" in text
 
 
 def test_repo_not_migrated_hint_is_a_single_line(tmp_path: Path) -> None:
     hint = render_repo_not_migrated_hint(tmp_path)
     assert "\n" not in hint
-    assert "striatum daemon migrate-repo-local" in hint
+    assert "striatum adopt" in hint
+    assert "striatum repo add --init" in hint
 
 
 def test_daemon_unreachable_error_uses_exit_code_11(tmp_path: Path) -> None:
@@ -277,7 +277,7 @@ def test_dispatch_returns_exit_12_for_unmigrated_repo(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     """End-to-end: an unmigrated repo with a reachable daemon socket
-    exits with code 12 and the operator-facing migrate-repo-local hint.
+    exits with code 12 and the retired SQLite-import guidance.
 
     The default flip means we exercise this without setting
     ``STRIATUM_DAEMON_REQUIRED=1`` — the unset env reaches the
@@ -299,10 +299,8 @@ def test_dispatch_returns_exit_12_for_unmigrated_repo(
         assert rc == 12
         captured = capsys.readouterr()
         assert "repo_not_migrated" in captured.err
-        assert (
-            "striatum daemon migrate-repo-local --from sqlite --to pg --repo"
-            in captured.err
-        )
+        assert "SQLite import windows are closed" in captured.err
+        assert "striatum repo add --init" in captured.err
         # The hint names the resolved repo path so operators can copy the
         # command verbatim.
         assert str(tmp_path.resolve()) in captured.err
@@ -333,7 +331,7 @@ def test_dispatch_exit_12_json_envelope(
         assert payload["ok"] is False
         assert payload["error"]["code"] == 12
         assert payload["error"]["message"].startswith("repo_not_migrated:")
-        assert "striatum daemon migrate-repo-local" in payload["error"]["hint"]
+        assert "striatum repo add --init" in payload["error"]["hint"]
     finally:
         listener.close()
 
@@ -360,4 +358,4 @@ def test_dispatch_exit_12_json_envelope_with_foreground_daemon_socket(
     assert payload["ok"] is False
     assert payload["error"]["code"] == 12
     assert payload["error"]["message"].startswith("repo_not_migrated:")
-    assert "striatum daemon migrate-repo-local" in payload["error"]["hint"]
+    assert "striatum repo add --init" in payload["error"]["hint"]

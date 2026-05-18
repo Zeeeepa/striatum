@@ -29,7 +29,10 @@ dependency edges, and "what would I do next" framing. Update on every
   SQLite eradication continues across production and compatibility paths. D110
   removed the SQLite-bound migration and dogfood composite RPC names from the
   production contract, and D112 removed `apply.reviewed_patch`; stale direct
-  calls to all removed names audit as `method_unknown`.
+  calls to all removed names audit as `method_unknown`. D113 closes writable
+  SQLite import windows; the old migration spellings now refuse before opening
+  SQLite, with only explicit fixture tests still allowed to exercise the
+  importer.
 - **CI:** GitHub Actions has been backlogged during the 2026-05-17/18
   remediation commits. Treat latest-head CI failures as stop-the-line; queued
   and in-progress older runs are not by themselves blockers.
@@ -362,7 +365,7 @@ useful, and SQLite removal from production and compatibility paths.
 
 **Next after this ships:** RFC 0068 owns the Python-daemon retirement gate:
 keep the Go contract/conformance gate green and delete the Python daemon entry
-point once the SQLite import-window and legacy fixture cleanup is complete.
+point once legacy SQLite fixtures and remaining production imports are closed.
 
 ---
 
@@ -1001,8 +1004,9 @@ Release order after Phase 0:
     `apply.reviewed_patch` calls returning `method_unknown`, keep Go
     `workflow.generate --shape multi_phase` and
     `workflow.upgrade --add-phases` parity green, keep
-    `make daemon-go-conformance` green, and retire the Python daemon after
-    parity.
+    `make daemon-go-conformance` green, keep writable SQLite import commands
+    retired, and retire the Python daemon after remaining legacy fixtures are
+    removed or converted.
 14. **TODO 62 / RFC 0069:** move daemon-global surfaces to PostgreSQL/Go,
     including scheduler cursors, PostgreSQL-backed daemon MCP resources, and
     PostgreSQL-backed daemon lifecycle/health/audit/doctor reads. The

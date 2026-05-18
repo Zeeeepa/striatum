@@ -1,11 +1,12 @@
 # RFC 0043: PostgreSQL as the Sole Substrate and Daemon-Required Runtime
 
-Status: accepted / implemented (D094)
+Status: accepted / implemented (D094, writable import surface narrowed by D113)
 Date: 2026-05-12
 Implementation note: bare `STRIATUM_DAEMON_REQUIRED=0` is no longer a
 production opt-out. Legacy SQLite paths are reachable only through
 explicitly paired test-harness compatibility (`STRIATUM_TEST_HARNESS=1`)
-or migration fixtures.
+or guarded migration fixtures; the operator-facing writable
+`daemon migrate-repo-local` import command is retired by D113.
 Context:
 [`docs/DECISION_LOG.md`](../DECISION_LOG.md) (D094 supersedes D006/D007/D036
 and the SQLite half of D009; D082, D084, D086, D087, D088 cite the daemon-first
@@ -88,10 +89,10 @@ D094 supersedes that assumption. This RFC specifies the change.
   CLI verb routes through the daemon RPC envelope (RFC 0030). CLI without a
   reachable daemon refuses with a documented exit code and platform-specific
   remediation; there is no silent SQLite fallback.
-- Specify a per-repo migration path (`striatum daemon migrate-repo-local`)
-  that converts an existing `.striatum/state.sqlite3` into per-repo Postgres
-  rows, preserves audit-chain anchors, and keeps the SQLite file as a
-  read-only rollback tombstone until the operator deletes it.
+- Specify the original per-repo migration path for the D094 cutover. D113 later
+  retired the operator-facing writable import command; current production
+  registration paths refuse legacy SQLite and tell operators to archive/remove
+  it before registering.
 - Expand RFC 0030's method registry to cover every existing repo-local
   mutation (the verbs currently in `src/striatum/cli/mutations.py`) so the
   daemon is a complete RPC server, not a partial one.
@@ -211,6 +212,11 @@ The CLI is otherwise unchanged. Agents continue to call `claim-next`,
 mediates underneath.
 
 ### 4. Per-repo migration
+
+D113 later retired this operator-facing writable import surface. The command
+shapes below document the original D094 cutover design; current Striatum keeps
+the spellings parseable only to return a clear exit-code-12 refusal before
+importing SQLite migration code.
 
 The cutover command is the per-repo analogue of RFC 0033 §4:
 
@@ -351,11 +357,11 @@ Postgres for the daemon DB. Two changes:
 CI cost stays similar: tests already pay for one Postgres; they no
 longer pay for per-test SQLite setup. Net change is neutral-to-favorable.
 
-Tests of the migration command itself (`migrate-repo-local`) need a
+Tests of the historical migration helper itself (`migrate-repo-local`) use a
 golden SQLite fixture. That fixture lives at
 `tests/fixtures/v1_repo_local_sqlite/state.sqlite3` as the highest
-runner-supported V1 schema; the migration command is exercised against
-it for dry-run, full-run, idempotent re-run, and tombstone behavior.
+runner-supported V1 schema; after D113 those tests must opt in with
+`STRIATUM_LEGACY_SQLITE_IMPORT=1`.
 
 ### 8. Multi-tenancy and hosted mode (hooks, not implementation)
 
@@ -486,12 +492,11 @@ substrate flip enables.
 - `striatum init` against a fresh target repo creates `.striatum/`,
   registers the repo with the daemon, and produces a Postgres schema
   state ready for `run prepare`. No SQLite file is created.
-- `striatum daemon migrate-repo-local --repo <path>` converts an
-  existing `.striatum/state.sqlite3` into per-repo Postgres rows with
-  a byte-equivalent audit-chain hash anchor end-to-end. `--dry-run`,
-  `--keep-sqlite-readonly`, and `--confirm-delete` flags behave as §4.
-- Idempotent re-run of the migration command against an
-  already-migrated repo reports "already migrated" and exits 0.
+- The original `striatum daemon migrate-repo-local --repo <path>` cutover
+  behavior is retained only as historical RFC context; current Striatum returns
+  a retired-command refusal before opening SQLite migration code.
+- Current registration paths tell operators to archive/remove legacy SQLite
+  files before registering with `striatum adopt` or `striatum repo add --init`.
 - Every existing CLI verb works end-to-end against the new substrate.
   Per-verb integration tests are added to `tests/_harness/
   MultiRepoHarness` coverage.
@@ -500,8 +505,9 @@ substrate flip enables.
 - CLI verbs with no reachable daemon exit code 11
   (`daemon_unreachable`) with platform-specific remediation in stderr.
   Documented in `docs/CLI_REFERENCE.md`.
-- CLI verbs against an unmigrated repo exit code 12 (`repo_not_migrated`)
-  with `migrate-repo-local` remediation in stderr. Documented in
+- CLI verbs against an unregistered repo or a repo with legacy SQLite state
+  exit code 12 (`repo_not_migrated`) with archive/remove remediation in stderr.
+  Documented in
   `docs/CLI_REFERENCE.md`.
 - `daemon doctor` reports one substrate (Postgres), one schema version,
   one audit chain, and refuses to start if the daemon role lacks the
@@ -620,6 +626,9 @@ See `docs/dogfood/050/DESIGN_SYNTHESIS.md` for the design notes.
 
 ### F-parser — wire `daemon migrate-repo-local`
 
+D113 later narrowed this parser surface to compatibility-only refusal. The
+V1.5 details below are retained as historical gap-closure context.
+
 V1 shipped the migration body (`migrate_repo_local()`) and the
 `src/striatum/cli/daemon.py` helper but did not register the
 subparser in `src/striatum/cli/parser.py`, so the operator command
@@ -657,7 +666,7 @@ worktree slices are reached only after the dispatcher calls
 
 V1 had no end-to-end test that proved a real `striatum --repo
 <unmigrated> status` invocation exits with code 12 and the
-`striatum daemon migrate-repo-local …` remediation hint. V1.5 adds
+then-current `striatum daemon migrate-repo-local ...` remediation hint. V1.5 adds
 two cases in `tests/exit_codes/test_rfc0043_refusals.py`:
 
 * `test_dispatch_returns_exit_12_for_unmigrated_repo` — binds a

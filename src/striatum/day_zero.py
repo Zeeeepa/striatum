@@ -112,7 +112,7 @@ def adopt(
         if cfg.url is None:
             result["registration"] = {
                 "status": "postgres_url_missing",
-                "hint": "configure STRIATUM_DAEMON_DB_URL, then rerun striatum adopt or daemon migrate-repo-local",
+                "hint": "configure STRIATUM_DAEMON_DB_URL, then rerun striatum adopt or striatum repo add --init",
             }
         elif dry_run:
             result["registration"] = {

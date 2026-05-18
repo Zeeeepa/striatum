@@ -8,7 +8,8 @@ V1.5: daemon-required enforcement is the default. The two refusal paths:
   hint). The JSON error envelope carries a short ``hint``.
 - :data:`EXIT_REPO_NOT_MIGRATED` (12) — raised when the daemon is reachable
   but the target repo has no ``repo_migrations`` row yet. Stderr names
-  ``striatum daemon migrate-repo-local --from sqlite --to pg --repo <path>``.
+  retired SQLite-import guidance plus the supported `adopt` / `repo add`
+  registration paths.
 
 Opt-out: V1.6 narrows this to test-only. Setting
 :envvar:`STRIATUM_DAEMON_REQUIRED` ``= "0"`` opts out **only when paired

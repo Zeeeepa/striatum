@@ -414,7 +414,11 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="initialize .striatum/ operational scratch before registering when absent",
     )
-    repo_add.add_argument("--no-migrate", action="store_true")
+    repo_add.add_argument(
+        "--no-migrate",
+        action="store_true",
+        help="deprecated compatibility flag; writable SQLite imports are retired",
+    )
     repo_add.add_argument("--json", action="store_true")
     repo_list = repo_sub.add_parser("list")
     repo_list.add_argument("--json", action="store_true")

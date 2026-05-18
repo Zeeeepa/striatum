@@ -49,6 +49,10 @@ PRODUCTION_SQLITE_QUARANTINE = {
         "migration",
         "pre-D094 repo-local SQLite to daemon Postgres migration command",
     ),
+    Path("src/striatum/daemon_pg/sqlite_compat.py"): SQLiteClassification(
+        "migration",
+        "SQLite-era daemon helpers retained only for guarded migration fixtures",
+    ),
     # CLI/API/read DTO surfaces that still carry SQLite compatibility while
     # the local service and corpus/export paths finish their daemon DTO move.
     Path("src/striatum/api.py"): SQLiteClassification(

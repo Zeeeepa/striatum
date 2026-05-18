@@ -59,8 +59,8 @@ The Go daemon port lands through independent, testable slices:
    dogfood, adapter, byline, inbox, recovery, corpus, and local API helpers.
    Migration fixtures must be named as one-way import fixtures and isolated
    from production modules.
-6. **Retirement.** Once the Go conformance suite passes and the import-window
-   fixtures are quarantined, remove the legacy Python daemon module and any
+6. **Retirement.** Once the Go conformance suite passes and the legacy
+   fixtures are quarantined or deleted, remove the legacy Python daemon module and any
    Python-daemon-only production code.
 
 ## Acceptance Criteria
@@ -85,7 +85,7 @@ The Go daemon port lands through independent, testable slices:
   migration, fixture, or transitional compatibility exceptions guarded by
   architecture tests.
 - The Python daemon can be deleted without losing production behavior once the
-  remaining legacy harness and import-window tasks are done.
+  remaining legacy harness and fixture-conversion tasks are done.
 
 ## Implementation Notes
 
@@ -139,9 +139,11 @@ The Go daemon port lands through independent, testable slices:
 The production daemon RPC retirement ledger is empty. Removed names return and
 audit as `method_unknown`: D110 removed `daemon.migrate_repo_local`,
 `dogfood.publish_on_behalf`, and `dogfood.surgical_recovery`; D112 removed
-`apply.reviewed_patch`. The local `striatum daemon migrate-repo-local` helper
-remains an explicit one-way migration fixture until the SQLite import window
-closes.
+`apply.reviewed_patch`. D113 closes the writable SQLite import window:
+`striatum daemon migrate` and `striatum daemon migrate-repo-local` are retired
+compatibility spellings that refuse before opening SQLite. Historical migration
+fixture tests may still exercise the importer only behind
+`STRIATUM_LEGACY_SQLITE_IMPORT=1`.
 
 `make daemon-go-conformance`, `go test ./cmd/striatumd`, and
 `tests/architecture/test_authority_guardrails.py` are the executable cutover
@@ -155,11 +157,14 @@ checks for the remaining Go production contract and method-removal behavior.
 - D112 resolved reviewed-patch apply mutation handling for this checkpoint:
   `apply.reviewed_patch` is not a production daemon RPC until a future
   sealed-apply decision defines the full mutation contract.
+- D113 resolved SQLite import-window handling for this checkpoint: writable
+  SQLite imports are no longer operator/product surfaces.
 
 ## Open Questions
 
-- Should historical SQLite import fixtures be retained indefinitely for
-  migration tests, or removed after a final deprecation window?
+- Should historical SQLite import fixtures be retained indefinitely behind the
+  explicit test escape, or deleted after fixture coverage is converted to
+  PostgreSQL/Go?
 
 ## Domain Modeling
 

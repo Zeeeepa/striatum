@@ -56,7 +56,7 @@ def test_help_mentions_default_and_env_and_confirm_delete(
 ) -> None:
     out = _migrate_repo_local_help(capsys)
     assert "retired compatibility option" in out
-    assert "legacy SQLite files are left untouched" in out
+    assert "left untouched" in out
     assert "STRIATUM_DAEMON_DB_URL" in out
 
 

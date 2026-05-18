@@ -38,6 +38,12 @@ def _legacy_sqlite_fixtures_opt_out() -> Iterator[None]:
             os.environ["STRIATUM_TEST_HARNESS"] = previous_harness
 
 
+@pytest.fixture
+def legacy_sqlite_import_enabled(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Enable direct legacy SQLite import helpers for migration fixture tests."""
+    monkeypatch.setenv("STRIATUM_LEGACY_SQLITE_IMPORT", "1")
+
+
 @pytest.fixture(scope="session")
 def postgres_url() -> str:
     return pg_available_url()

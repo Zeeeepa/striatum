@@ -37,7 +37,7 @@ def test_split_brain_refuses_when_sentinel_present(tmp_path: Path) -> None:
 
     assert exc.value.exit_code == 12
     assert "repo_not_migrated" in str(exc.value)
-    assert "migrate-repo-local" in str(exc.value)
+    assert "split-brain" in str(exc.value)
     # Critical: the guard must refuse BEFORE sqlite3.connect creates a
     # zero-byte state.sqlite3 file. Otherwise the split-brain is exactly
     # the scenario this test is supposed to prevent.

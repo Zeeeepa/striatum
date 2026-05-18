@@ -1576,7 +1576,7 @@ def _daemon_doctor_repo_cutover_report(args: argparse.Namespace) -> dict[str, ob
             "repo": str(repo),
             "error": str(exc),
             "recommendations": [
-                "rerun daemon migrate-repo-local --verify-cutover for the target repo",
+                "rerun daemon doctor --repo for the target repository",
             ],
         }
 
@@ -1670,8 +1670,7 @@ def _daemon_authority_report(
             "registry_escape_enabled": legacy_registry_escape,
             "test_harness_escape_enabled": test_harness_escape,
             "remaining_allowed_uses": [
-                "daemon migrate from sqlite to pg",
-                "daemon migrate-repo-local source import",
+                "repo cutover verification without opening SQLite",
                 "legacy_sqlite service fixture fallback",
                 "test fixtures",
             ],

@@ -199,8 +199,7 @@ striatum daemon service status [--manager auto|systemd|launchd]
 striatum daemon doctor [--postgres-url <url>] [--apply-migrations]
                        [--provision-rw-role] [--repair-grants]
                        [--explain] [--authority] [--repo <path>] [--json]
-striatum daemon migrate --from sqlite --to pg [--dry-run]
-                         [--keep-sqlite-readonly]
+striatum daemon migrate --from sqlite --to pg [retired compatibility refusal]
 striatum daemon migrate-repo-local --from sqlite --to pg
                          [--repo <path>] [--postgres-url <url>]
                          [--dry-run] [--verify-cutover]
@@ -208,7 +207,7 @@ striatum daemon migrate-repo-local --from sqlite --to pg
                           --no-keep-sqlite-readonly --confirm-delete]
                          [--json]
 striatumd [daemon-start options]
-striatum repo add <path> [--init] [--no-migrate]
+striatum repo add <path> [--init] [--no-migrate compatibility flag]
 striatum repo list
 striatum repo remove <id>
 striatum cross-repo list
@@ -239,7 +238,8 @@ repository identity, and refuses active path re-occupation by a
 different identity. Pass `--init` when no `.striatum/` directory
 exists; it creates operational scratch only and does not create
 `.striatum/state.sqlite3`. If a pre-D094 repo-local SQLite source
-exists, registration refuses and points at `daemon migrate-repo-local`.
+exists, registration refuses and tells the operator to archive/remove
+the legacy SQLite file before registering.
 
 `repo remove` is idempotent, revokes live repo-scoped
 capabilities, preserves audit rows, and never reuses
@@ -282,35 +282,15 @@ remaining migration/test-only SQLite exceptions.
 output without opening SQLite; with `--authority`, the authority report also
 summarizes whether that repository cutover is healthy.
 
-`daemon migrate --from sqlite --to pg --dry-run` reports the V1
-registry rows that would be exported. Without `--dry-run`, it
-writes the V2 daemon DB schema, imports the V1 registry rows,
-replays the metadata-only audit chain, verifies hash continuity,
-and writes a cutover marker. Once the marker exists, V1 registry
-reads are refused. `--keep-sqlite-readonly` keeps the V1 SQLite
-file as an audit tombstone while blocking V1 writes.
-
-`daemon migrate-repo-local --from sqlite --to pg --repo <path>`
-converts an existing pre-D094 `.striatum/state.sqlite3` into
-per-repo Postgres rows under a `repository_id` scope (RFC 0043).
-Both `--from sqlite` and `--to pg` are required in V1.6.
-`--postgres-url` overrides `STRIATUM_DAEMON_DB_URL` for the
-migration only. `--dry-run` writes nothing. The default
-`--keep-sqlite-readonly` renames the source to
-`.striatum/state.sqlite3.tombstone` (mode 0444); use
-`--no-keep-sqlite-readonly --confirm-delete` (both flags required)
-for irreversible cleanup. Idempotent re-runs against a
-fully-migrated repo report `already migrated` and exit 0.
-`--verify-cutover --json` is a verify-only diagnostic that emits
-`striatum.repo_cutover_report.v1`: repository registration,
-checkpoint state, destination row counts compared with the checkpoint,
-raw source/tombstone/sentinel file state, event-chain anchor health,
-and the bounded SQLite exception notes. It does not open SQLite as a
-database and does not resume finalization.
-CLI verbs against an unmigrated repo refuse with exit code 12
-(`repo_not_migrated`) and point at this command. See
-[POSTGRES_TRANSITION.md](POSTGRES_TRANSITION.md) for the operator
-runbook.
+`daemon migrate --from sqlite --to pg` and
+`daemon migrate-repo-local --from sqlite --to pg --repo <path>` are retired
+compatibility spellings. They remain parseable so old automation receives a
+clear error, but they refuse with exit code 12 before importing or opening
+SQLite migration code. `daemon doctor --repo <path> --authority --json` is the
+supported cutover-evidence diagnostic and does not open SQLite as a database.
+CLI verbs against an unregistered repo refuse with exit code 12
+(`repo_not_migrated`) and point operators to archive/remove legacy SQLite
+files, then register with `adopt` or `repo add --init`.
 
 RFC 0030/0031 add the daemon V2 RPC and supervision/apply foundation on
 top of RFC 0033. The wire envelope is versioned JSON; `daemon.hello`
@@ -541,10 +521,10 @@ striatum session close
 - `11`: `daemon_unreachable`. The CLI could not reach the daemon
   socket; stderr names the socket path and remediation. No SQLite
   fallback is attempted.
-- `12`: `repo_not_migrated`. The target repository still has a
-  pre-D094 `.striatum/state.sqlite3` and has not been migrated;
-  stderr (and the `--json` `hint`) point at
-  `striatum daemon migrate-repo-local --from sqlite --to pg --repo <path>`.
+- `12`: `repo_not_migrated`. The target repository is not registered for
+  daemon/PostgreSQL state or still has a legacy `.striatum/state.sqlite3`;
+  stderr and the `--json` hint tell the operator to archive/remove legacy
+  SQLite files and register with `adopt` or `repo add --init`.
 
 ## See also
 

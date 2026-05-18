@@ -112,7 +112,7 @@ so external references keep resolving even as items move between sections.
 | 58 | RFC 0059 Architecture remediation Phase 10 — day-zero setup improvements | ✅ done |
 | 59 | RFC 0059 RFC 0066 Architecture remediation Phase 11 — replay, archive, and corpus v2 foundations | 🟡 corpus verify + run archive foundations landed |
 | 60 | RFC 0059 RFC 0067 Architecture remediation Phase 12 — optional Git/PR integration | ⏳ blocked on product decision |
-| 61 | RFC 0068 Go production daemon port and Python daemon retirement | 🟡 Go default; Python daemon deletion and SQLite import-window cleanup remain; production RPC retirement ledger empty |
+| 61 | RFC 0068 Go production daemon port and Python daemon retirement | 🟡 Go default; writable SQLite import window closed; Python daemon deletion and legacy fixture cleanup remain |
 | 62 | RFC 0069 PostgreSQL-only daemon-global surfaces | 🟡 guardrail residuals only |
 | 63 | RFC 0070 daemon client/service boundary completion | 🟡 production boundary mostly done |
 | 64 | RFC 0071 operator diagnostics and cutover evidence | ✅ accepted diagnostic slice done |
@@ -1260,19 +1260,24 @@ review and plan are root-level operator artifacts:
     the Go workflow-authoring loader before writing rows, enforcing repo-bound
     path checks and JSON-only workflow source validation in the Go daemon path.
     Production `cross-repo` CLI dispatch now refuses direct PostgreSQL fallback
-    outside the paired legacy test-harness escape. Remaining Go-port debt is
-    to close the one-way SQLite import window, decide whether PostgreSQL-native
-    operator composites should replace the removed dogfood RPC names, and
-    delete the Python daemon entry point. D112 removed the reviewed-patch apply
-    mutation from the production daemon RPC contract until a future sealed-apply
-    decision reintroduces it. The operator-facing Python daemon core selector
-    is retired and the multi-repo harness / CI lane is Go-only. Prep work has
+    outside the paired legacy test-harness escape. D113 closes the writable
+    SQLite import window: `daemon migrate` and `daemon migrate-repo-local`
+    are retired compatibility spellings that refuse before opening SQLite, and
+    direct repo-local imports require the explicit fixture escape. Remaining
+    Go-port debt is to delete or convert legacy SQLite fixtures, decide whether
+    PostgreSQL-native operator composites should replace the removed dogfood
+    RPC names, and delete the Python daemon entry point. D112 removed the
+    reviewed-patch apply mutation from the production daemon RPC contract until
+    a future sealed-apply decision reintroduces it. The operator-facing Python
+    daemon core selector is retired and the multi-repo harness / CI lane is
+    Go-only. Prep work has
     started by moving runtime path/token helpers to `daemon_runtime` and
     PostgreSQL repository registration helpers to `daemon_pg.repositories` so
     Python CLI/client code no longer imports the legacy daemon for those
     surfaces. The `striatumd` console script now targets a Go-daemon launcher
     shim instead of `striatum.daemon:main`; remaining Python-daemon work is
-    module deletion after the SQLite import window and legacy fixtures close.
+    module deletion after legacy fixtures and remaining production imports are
+    closed.
     The multi-repo harness participant runner no longer creates or queries
     repo-local SQLite; cross-repo E2E assertions now inspect daemon-owned
     PostgreSQL participant rows. SQLite-era repository identity and daemon
@@ -1338,9 +1343,9 @@ review and plan are root-level operator artifacts:
     `striatum.authority_report.v1`, including PostgreSQL live-state authority,
     legacy SQLite registry status, method fallback counts, remaining
     migration/test-only SQLite exceptions, and remediation recommendations;
-    `striatum daemon migrate-repo-local --from sqlite --to pg --repo <path>
-    --verify-cutover --json` reports `striatum.repo_cutover_report.v1` without
-    opening SQLite as a database. D108 keeps the command authority matrix
+    `striatum daemon doctor --repo <path> --authority --json` reports
+    `striatum.repo_cutover_report.v1` without opening SQLite as a database.
+    D108 keeps the command authority matrix
     curated for authority/status classification while architecture tests now
     enforce generated CLI route labels and runtime CLI fallback cells.
     `striatum daemon doctor --repo <path> --authority --json` now mirrors the
