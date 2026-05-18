@@ -134,6 +134,9 @@ Recent checkpoints:
 - Legacy corpus export helpers no longer import `sqlite3` or `striatum.db`;
   their caller supplies the connection while corpus-specific row lookup stays
   local to the compatibility exporter.
+- Shared identity helpers no longer import `sqlite3`; the legacy
+  session-lane attestation path accepts a generic row-capable connection while
+  PostgreSQL code keeps using the substrate-neutral author/process helpers.
 - The standalone `striatum.daemon_pg.sqlite_compat` helper was removed. Its
   last repository-identity calculation now lives beside the one-way
   repo-local migration fixture, and the unused daemon audit-chain validators

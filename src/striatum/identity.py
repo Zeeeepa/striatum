@@ -5,9 +5,8 @@ from __future__ import annotations
 import json
 import os
 import re
-import sqlite3
 from dataclasses import dataclass
-from typing import Mapping, TypedDict
+from typing import Any, Mapping, TypedDict
 
 
 OPERATOR_LABEL_RE = re.compile(r"^[a-z0-9._-]{1,64}$")
@@ -131,7 +130,7 @@ def validate_operator_label(label: str, *, workflow: Mapping[str, object]) -> st
 
 
 def session_lane_attestation(
-    conn: sqlite3.Connection,
+    conn: Any,
     *,
     session_id: str,
     mark_lost: bool = False,
@@ -183,10 +182,10 @@ def session_lane_attestation(
 
 
 def _inactive_reason(
-    conn: sqlite3.Connection,
+    conn: Any,
     *,
-    session: sqlite3.Row,
-    supervisor: sqlite3.Row,
+    session: Any,
+    supervisor: Any,
     pid: int | None,
 ) -> str | None:
     if str(supervisor["run_id"]) != str(session["run_id"]):
@@ -214,7 +213,7 @@ def _inactive_reason(
 
 
 def _session_lane_command(
-    conn: sqlite3.Connection, *, session: sqlite3.Row
+    conn: Any, *, session: Any
 ) -> list[str] | None:
     run = conn.execute(
         "SELECT * FROM runs WHERE run_id = ?",
@@ -278,7 +277,7 @@ def _pid_alive(pid: int) -> bool:
 
 
 def _mark_supervisor_lost(
-    conn: sqlite3.Connection, *, supervisor_id: str, reason: str
+    conn: Any, *, supervisor_id: str, reason: str
 ) -> None:
     conn.execute(
         """

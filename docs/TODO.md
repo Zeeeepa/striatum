@@ -1301,7 +1301,10 @@ review and plan are root-level operator artifacts:
     imports `sqlite3`; its optional connection is caller-owned. Legacy corpus
     export helpers also no longer import `sqlite3` or `striatum.db`; their
     caller supplies the connection while corpus-specific row lookup stays
-    local to the compatibility exporter. Mixed legacy modules now import
+    local to the compatibility exporter. Shared identity helpers no longer
+    import `sqlite3`; the legacy session-lane attestation path accepts a
+    generic row-capable connection while PostgreSQL code keeps using the
+    substrate-neutral author/process helpers. Mixed legacy modules now import
     neutral JSON/id/time/path helpers directly from `striatum.primitives` and
     `striatum.repo_policy`, with a guardrail blocking new neutral imports
     through `striatum.db`. Legacy daemon
