@@ -102,7 +102,7 @@ PRODUCTION_SQLITE_QUARANTINE = {
         "adapter transition",
         "legacy process-completion reconciliation retained during supervisor transition",
     ),
-    Path("src/striatum/supervisor.py"): SQLiteClassification(
+    Path("src/striatum/legacy_sqlite/supervisor.py"): SQLiteClassification(
         "adapter transition",
         "legacy supervised wrapper helper retained during supervisor transition",
     ),
@@ -338,6 +338,28 @@ def test_process_adapter_import_does_not_eager_load_legacy_sqlite_modules() -> N
     ]
     code = (
         "import sys; import striatum.process_adapter; "
+        f"legacy={legacy_modules!r}; "
+        "print('\\n'.join(name for name in legacy if name in sys.modules))"
+    )
+
+    proc = subprocess.run(
+        [sys.executable, "-c", code],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    assert proc.stdout.strip() == ""
+
+
+def test_supervisor_import_does_not_eager_load_legacy_sqlite_modules() -> None:
+    legacy_modules = [
+        "sqlite3",
+        "striatum.db",
+        "striatum.legacy_sqlite.supervisor",
+    ]
+    code = (
+        "import sys; import striatum.supervisor; "
         f"legacy={legacy_modules!r}; "
         "print('\\n'.join(name for name in legacy if name in sys.modules))"
     )

@@ -74,6 +74,9 @@ Recent checkpoints:
   `striatum.legacy_sqlite.process_adapter`; `striatum.process_adapter` now
   keeps neutral env expansion/schema constants and lazy wrappers for legacy
   adapter calls.
+- The legacy repo-local SQLite supervisor helper moved to
+  `striatum.legacy_sqlite.supervisor`; `striatum.supervisor` now exposes only
+  the active-state constant and lazy wrappers for legacy supervise calls.
 - The retired `src/striatum/daemon.py` Python daemon / daemon-global SQLite
   registry module was deleted. Architecture guardrails now assert the module
   remains absent and keep daemon-global refusal coverage on the PostgreSQL
