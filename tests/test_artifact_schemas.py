@@ -9,6 +9,7 @@ import sys
 from pathlib import Path
 
 from striatum.artifacts import parse_artifact_front_matter
+from striatum.legacy_sqlite.db import connect
 from striatum.schema import SCHEMA_SQL
 
 
@@ -1191,18 +1192,13 @@ def test_support_ledger_flow_publishes_three_kinds(tmp_path: Path) -> None:
     assert pub2["returncode"] == 0
     assert data(pub2)["status"] == "published"
 
-    import sqlite3
-
-    conn = sqlite3.connect(tmp_path / ".striatum" / "state.sqlite3")
-    try:
+    with connect(tmp_path) as conn:
         kinds = sorted(
             row[0]
             for row in conn.execute(
                 "SELECT artifact_kind FROM artifacts WHERE run_id = ?", (run_id,)
             )
         )
-    finally:
-        conn.close()
     assert "synthesis" in kinds
     assert "support_ledger" in kinds
 
@@ -1248,17 +1244,13 @@ def test_synthesis_without_front_matter_auto_attaches_defaults(tmp_path: Path) -
     assert "# Synthesis Without Front Matter" in final
     assert "author: operator" in final
     # Stored author_line reflects the original byline.
-    import sqlite3
-    conn = sqlite3.connect(tmp_path / ".striatum" / "state.sqlite3")
-    try:
+    with connect(tmp_path) as conn:
         row = conn.execute(
             "SELECT author_line FROM artifacts WHERE logical_name = ?",
             ("auto_attached_synthesis",),
         ).fetchone()
         assert row is not None
         assert row[0] == "author: operator"
-    finally:
-        conn.close()
 
 
 def test_bolded_author_line_matches_expected_byline(tmp_path: Path) -> None:
@@ -1295,9 +1287,7 @@ def test_bolded_author_line_matches_expected_byline(tmp_path: Path) -> None:
         path=path,
     )
     assert result["returncode"] == 0
-    import sqlite3
-    conn = sqlite3.connect(tmp_path / ".striatum" / "state.sqlite3")
-    try:
+    with connect(tmp_path) as conn:
         row = conn.execute(
             "SELECT author_line FROM artifacts WHERE logical_name = ?",
             ("bolded_byline_handoff",),
@@ -1305,8 +1295,6 @@ def test_bolded_author_line_matches_expected_byline(tmp_path: Path) -> None:
         assert row is not None
         # Stored canonical form is lowercased ``author: <value>``.
         assert row[0] == expected_canonical
-    finally:
-        conn.close()
     # And the canonicaliser used internally agrees.
     assert _canonical_byline_form(f"**Author:** {suffix}") == expected_canonical
 

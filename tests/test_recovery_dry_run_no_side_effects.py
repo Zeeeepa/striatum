@@ -13,9 +13,10 @@ telemetry; the invariant here is no domain-side effects.
 from __future__ import annotations
 
 import json
-import sqlite3
 from pathlib import Path
+from typing import Any
 
+from striatum.legacy_sqlite.db import connect
 from test_cli_mvp import claim, prepare_started_run, register, write_artifact
 from test_web_ui import _http_post_json, _spawn_service, _stop_service
 
@@ -31,14 +32,14 @@ DOMAIN_SIDE_EFFECT_TABLES = (
 )
 
 
-def _snapshot_table(conn: sqlite3.Connection, table: str) -> list[tuple[object, ...]]:
+def _snapshot_table(conn: Any, table: str) -> list[tuple[object, ...]]:
     rows = conn.execute(f"SELECT * FROM {table} ORDER BY 1").fetchall()
     return [tuple(row) for row in rows]
 
 
 def _snapshot(repo: Path) -> dict[str, list[tuple[object, ...]]]:
     out: dict[str, list[tuple[object, ...]]] = {}
-    with sqlite3.connect(repo / ".striatum" / "state.sqlite3") as conn:
+    with connect(repo) as conn:
         for table in DOMAIN_SIDE_EFFECT_TABLES:
             out[table] = _snapshot_table(conn, table)
     return out
@@ -57,7 +58,7 @@ def _seed_stale_publishable_artifact(repo: Path) -> tuple[str, str]:
         artifact_path,
         text=f"{expected['author_line']}\n\npublishable stale artifact\n",
     )
-    with sqlite3.connect(repo / ".striatum" / "state.sqlite3") as conn:
+    with connect(repo) as conn:
         conn.execute(
             "UPDATE leases SET state = 'expired' WHERE lease_id = ?",
             (lease_id,),
@@ -130,7 +131,7 @@ def test_dry_run_via_direct_call_writes_nothing_when_lease_wall_clock_stale(
         text=f"{expected['author_line']}\n\npublishable stale artifact\n",
     )
     # Move the lease into the past WITHOUT marking it expired.
-    with sqlite3.connect(tmp_path / ".striatum" / "state.sqlite3") as conn:
+    with connect(tmp_path) as conn:
         conn.execute(
             "UPDATE leases SET expires_at = '2000-01-01T00:00:00Z' "
             "WHERE lease_id = ?",
@@ -139,8 +140,7 @@ def test_dry_run_via_direct_call_writes_nothing_when_lease_wall_clock_stale(
         conn.commit()
 
     before = _snapshot(tmp_path)
-    with sqlite3.connect(tmp_path / ".striatum" / "state.sqlite3") as conn:
-        conn.row_factory = sqlite3.Row
+    with connect(tmp_path) as conn:
         result = auto_publish_stale_artifacts(
             conn,
             repo=tmp_path,
@@ -172,8 +172,7 @@ def test_live_run_still_publishes_and_writes(tmp_path: Path) -> None:
     from striatum.cli.recovery import auto_publish_stale_artifacts
 
     run_id, _artifact_path = _seed_stale_publishable_artifact(tmp_path)
-    with sqlite3.connect(tmp_path / ".striatum" / "state.sqlite3") as conn:
-        conn.row_factory = sqlite3.Row
+    with connect(tmp_path) as conn:
         result = auto_publish_stale_artifacts(
             conn,
             repo=tmp_path,

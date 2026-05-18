@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 import json
-import sqlite3
 from pathlib import Path
 from typing import cast
 
 import pytest
 
 from striatum.errors import WorkflowError
+from striatum.legacy_sqlite.db import connect
 from striatum.workflow import validate_workflow
 
 from test_cli_mvp import (
@@ -170,15 +170,12 @@ def test_workflow_fresh_context_implies_fresh_session_required(tmp_path: Path) -
     prepared = data(run_cli(tmp_path, "run", "prepare", "--workflow", str(workflow_path)))
     run_id = str(prepared["run_id"])
 
-    conn = sqlite3.connect(tmp_path / ".striatum" / "state.sqlite3")
-    try:
+    with connect(tmp_path) as conn:
         row = conn.execute(
             "SELECT fresh_session_required FROM jobs "
             "WHERE run_id = ? AND workflow_job_id = ?",
             (run_id, "review_only"),
         ).fetchone()
-    finally:
-        conn.close()
     assert row is not None
     assert row[0] == 1
 

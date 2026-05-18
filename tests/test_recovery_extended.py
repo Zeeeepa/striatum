@@ -14,10 +14,10 @@ These cover the operator-facing resolution flows added on top of the existing
 from __future__ import annotations
 
 import json
-import sqlite3
 from pathlib import Path
 from typing import Any, cast
 
+from striatum.legacy_sqlite.db import connect
 from test_cli_mvp import (
     HUMAN_CHECKPOINT_WORKFLOW,
     WORKFLOW,
@@ -111,7 +111,7 @@ def _drive_to_human_checkpoint(tmp_path: Path) -> tuple[str, str, str, str, str]
 
 
 def _job_state(repo: Path, job_id: str) -> str:
-    conn = sqlite3.connect(repo / ".striatum" / "state.sqlite3")
+    conn = connect(repo)
     try:
         row = conn.execute(
             "SELECT state FROM jobs WHERE job_id = ?", (job_id,)
@@ -123,7 +123,7 @@ def _job_state(repo: Path, job_id: str) -> str:
 
 
 def _blocker_state(repo: Path, blocker_id: str) -> str:
-    conn = sqlite3.connect(repo / ".striatum" / "state.sqlite3")
+    conn = connect(repo)
     try:
         row = conn.execute(
             "SELECT state FROM blockers WHERE blocker_id = ?", (blocker_id,)
@@ -135,7 +135,7 @@ def _blocker_state(repo: Path, blocker_id: str) -> str:
 
 
 def _events_for_job(repo: Path, job_id: str) -> list[tuple[str, str]]:
-    conn = sqlite3.connect(repo / ".striatum" / "state.sqlite3")
+    conn = connect(repo)
     try:
         rows = conn.execute(
             "SELECT event_type, payload_json FROM events WHERE job_id = ? ORDER BY event_id",
@@ -299,7 +299,7 @@ def test_checkpoint_resolve_links_decision_artifact(tmp_path: Path) -> None:
 
 
 def _job_id_for(repo: Path, run_id: str, workflow_job_id: str) -> str:
-    conn = sqlite3.connect(repo / ".striatum" / "state.sqlite3")
+    conn = connect(repo)
     try:
         row = conn.execute(
             """

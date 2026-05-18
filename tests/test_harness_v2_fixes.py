@@ -5,11 +5,12 @@ from __future__ import annotations
 import json
 import os
 import re
-import sqlite3
 import subprocess
 import sys
 from pathlib import Path
 from typing import Any, cast
+
+from striatum.legacy_sqlite.db import connect
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -89,8 +90,7 @@ def fabricate_lost_supervisor_with_active_lease(
     and status-next-action tests; avoids the cost of spawning a real
     process and killing it.
     """
-    conn = sqlite3.connect(repo / ".striatum" / "state.sqlite3")
-    try:
+    with connect(repo) as conn:
         supervisor_id = "sup_test_lost"
         lease_id = "lease_test_active"
         # Pick the first job for this run to satisfy lease.resource_id.
@@ -125,8 +125,6 @@ def fabricate_lost_supervisor_with_active_lease(
             (lease_id, run_id, job_id, session_id),
         )
         conn.commit()
-    finally:
-        conn.close()
     return supervisor_id, lease_id
 
 
@@ -297,14 +295,11 @@ def test_register_session_refuses_fresh_reviewer_without_force(tmp_path: Path) -
     )
     session_id = str(payload["session_id"])
 
-    conn = sqlite3.connect(tmp_path / ".striatum" / "state.sqlite3")
-    try:
+    with connect(tmp_path) as conn:
         row = conn.execute(
             "SELECT non_fresh_reason FROM sessions WHERE session_id = ?",
             (session_id,),
         ).fetchone()
-    finally:
-        conn.close()
     assert row is not None
     assert row[0] is not None
     assert "HARNESS-001" in str(row[0])
@@ -361,15 +356,12 @@ def test_publish_artifact_records_missing_author_line(tmp_path: Path) -> None:
         artifact_path,
     )
 
-    # SQLite column is NULL.
-    conn = sqlite3.connect(tmp_path / ".striatum" / "state.sqlite3")
-    try:
+    # Legacy fixture column is NULL.
+    with connect(tmp_path) as conn:
         row = conn.execute(
             "SELECT author_line FROM artifacts WHERE job_id = ? AND logical_name = 'draft'",
             (job_id,),
         ).fetchone()
-    finally:
-        conn.close()
     assert row is not None
     assert row[0] is None
 

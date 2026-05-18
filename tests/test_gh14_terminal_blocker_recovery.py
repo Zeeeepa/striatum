@@ -29,9 +29,9 @@ still carry the v1.48.1 leak.
 from __future__ import annotations
 
 import json
-import sqlite3
 from pathlib import Path
 
+from striatum.legacy_sqlite.db import connect
 from test_process_adapter import (
     _build_workflow,
     _data,
@@ -44,7 +44,7 @@ from test_process_adapter import (
 
 
 def _set_job_state(repo: Path, job_id: str, state: str) -> None:
-    conn = sqlite3.connect(repo / ".striatum" / "state.sqlite3")
+    conn = connect(repo)
     try:
         conn.execute(
             "UPDATE jobs SET state = ?, current_lease_id = NULL WHERE job_id = ?",
@@ -79,7 +79,7 @@ def _insert_legacy_process_exit_blocker(
         ],
     }
     blocker_id = "blk_gh14_legacy_test_000000000000"
-    conn = sqlite3.connect(repo / ".striatum" / "state.sqlite3")
+    conn = connect(repo)
     try:
         conn.execute(
             """
@@ -134,7 +134,7 @@ def _drive_to_completed(
     # Confirm lease was released to NULL — this is the precondition
     # the bug report calls out as the reason `recovery resume` failed
     # in v1.48.1.
-    conn = sqlite3.connect(repo / ".striatum" / "state.sqlite3")
+    conn = connect(repo)
     try:
         row = conn.execute(
             "SELECT current_lease_id FROM jobs WHERE job_id = ?",
@@ -388,7 +388,7 @@ def test_resume_force_records_terminal_dismiss_event(tmp_path: Path) -> None:
         )
     )
 
-    conn = sqlite3.connect(tmp_path / ".striatum" / "state.sqlite3")
+    conn = connect(tmp_path)
     try:
         row = conn.execute(
             """

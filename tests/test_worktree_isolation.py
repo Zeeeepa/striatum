@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import json
 import os
-import sqlite3
 import subprocess
 import sys
 from copy import deepcopy
 from pathlib import Path
 from typing import Any, cast
+
+from striatum.legacy_sqlite.db import connect
 
 ROOT = Path(__file__).resolve().parents[1]
 DOCS_REVIEW_WORKFLOW = ROOT / "examples" / "docs-review-flow" / "workflow.json"
@@ -218,7 +219,7 @@ def test_worktree_create_records_row_and_creates_directory(tmp_path: Path) -> No
     assert (target / ".gitseed").exists()
 
     # Row should be in active state with the lease and run id from the claim.
-    conn = sqlite3.connect(tmp_path / ".striatum" / "state.sqlite3")
+    conn = connect(tmp_path)
     try:
         row = conn.execute(
             "SELECT run_id, job_id, lease_id, base_branch, worktree_path, state FROM job_worktrees WHERE worktree_id = ?",
@@ -287,7 +288,7 @@ def test_publish_artifact_uses_worktree_path_and_records_logical(tmp_path: Path)
         )
     )
 
-    conn = sqlite3.connect(tmp_path / ".striatum" / "state.sqlite3")
+    conn = connect(tmp_path)
     try:
         row = conn.execute(
             "SELECT repo_path, content_sha256 FROM artifacts WHERE artifact_id = ?",
@@ -337,7 +338,7 @@ def test_worktree_release_removes_directory_and_marks_state(tmp_path: Path) -> N
     assert again["status"] == "already_released"
     assert again["state"] == "removed"
 
-    conn = sqlite3.connect(tmp_path / ".striatum" / "state.sqlite3")
+    conn = connect(tmp_path)
     try:
         row = conn.execute(
             "SELECT state, removed_at FROM job_worktrees WHERE worktree_id = ?",
@@ -412,7 +413,7 @@ def test_lease_expiry_marks_worktree_abandoned(tmp_path: Path) -> None:
     # Force the lease to look expired and trigger lazy expiry through any
     # mutation that calls expire_leases (recovery stale-leases is the most
     # explicit one).
-    conn = sqlite3.connect(tmp_path / ".striatum" / "state.sqlite3")
+    conn = connect(tmp_path)
     try:
         conn.execute(
             "UPDATE leases SET expires_at = ? WHERE lease_id = ?",
@@ -423,7 +424,7 @@ def test_lease_expiry_marks_worktree_abandoned(tmp_path: Path) -> None:
         conn.close()
     run_cli(tmp_path, "recovery", "stale-leases", "--run-id", run_id)
 
-    conn = sqlite3.connect(tmp_path / ".striatum" / "state.sqlite3")
+    conn = connect(tmp_path)
     try:
         row = conn.execute(
             "SELECT state FROM job_worktrees WHERE worktree_id = ?", (worktree_id,)
@@ -629,7 +630,7 @@ def test_doctor_flags_orphaned_and_missing_worktrees(tmp_path: Path) -> None:
 
     # Force the lease to look released without touching the worktree row,
     # so doctor sees an active worktree whose lease is no longer active.
-    conn = sqlite3.connect(tmp_path / ".striatum" / "state.sqlite3")
+    conn = connect(tmp_path)
     try:
         conn.execute(
             "UPDATE leases SET state = 'released', released_at = ?, release_reason = 'test' WHERE lease_id = ?",
@@ -648,7 +649,7 @@ def test_doctor_flags_orphaned_and_missing_worktrees(tmp_path: Path) -> None:
 
     # Now simulate filesystem drift: remove the directory but keep the row
     # active. This is a separate doctor check.
-    conn = sqlite3.connect(tmp_path / ".striatum" / "state.sqlite3")
+    conn = connect(tmp_path)
     try:
         conn.execute(
             "UPDATE leases SET state = 'active', released_at = NULL, release_reason = NULL WHERE lease_id = ?",
