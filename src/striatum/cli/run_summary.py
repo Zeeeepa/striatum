@@ -7,14 +7,11 @@ from datetime import datetime
 from pathlib import Path
 
 from striatum.db import (
-    JsonObject,
     insert_event,
-    json_loads,
-    repo_relative_path,
     row_by_id,
-    sha256_bytes,
-    utc_now,
 )
+from striatum.primitives import JsonObject, json_loads, sha256_bytes, utc_now
+from striatum.repo_policy import repo_relative_path
 
 from striatum.cli.evidence import evidence_artifact_summaries, evidence_session_summaries
 from striatum.cli.mutations import current_git_branch

@@ -7,17 +7,13 @@ import sqlite3
 from pathlib import Path
 
 from striatum.db import (
-    JsonObject,
     insert_event,
-    json_dumps,
-    json_loads,
     latest_verdict,
-    repo_relative_path,
     row_by_id,
-    sha256_bytes,
-    utc_now,
 )
 from striatum.identity import artifact_author_identity, session_lane_attestation
+from striatum.primitives import JsonObject, json_dumps, json_loads, sha256_bytes, utc_now
+from striatum.repo_policy import repo_relative_path
 
 from striatum.cli.introspect import (
     blocked_downstream_jobs,

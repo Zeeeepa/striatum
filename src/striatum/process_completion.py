@@ -18,11 +18,9 @@ import json
 import sqlite3
 
 from striatum.db import (
-    JsonObject,
     insert_event,
-    new_id,
-    utc_now,
 )
+from striatum.primitives import JsonObject, new_id, utc_now
 
 
 ENVELOPE_VERSION = "striatum.process_adapter.envelope.v1"

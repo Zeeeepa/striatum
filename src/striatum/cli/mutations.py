@@ -10,19 +10,13 @@ from pathlib import Path
 
 from striatum.artifacts import publish_artifact
 from striatum.db import (
-    JsonObject,
     active_lease_for,
     enqueue_job,
     insert_event,
-    json_loads,
     maybe_complete_run,
-    new_id,
     record_review_verdict,
-    repo_relative_path,
     row_by_id,
-    sha256_bytes,
     transaction,
-    utc_now,
     workflow_for_run,
 )
 from striatum.errors import (
@@ -33,6 +27,8 @@ from striatum.errors import (
     WorkflowError,
 )
 from striatum.identity import session_lane_attestation, validate_operator_label
+from striatum.primitives import JsonObject, json_loads, new_id, sha256_bytes, utc_now
+from striatum.repo_policy import repo_relative_path
 
 from striatum.cli.introspect import downstream_jobs
 

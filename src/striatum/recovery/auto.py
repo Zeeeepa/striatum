@@ -23,13 +23,11 @@ from pathlib import Path
 from typing import Any, Callable, Mapping
 
 from striatum.db import (
-    JsonObject,
     expire_leases,
-    json_loads,
     row_by_id,
     transaction,
-    utc_now,
 )
+from striatum.primitives import JsonObject, json_loads, utc_now
 from striatum.recovery.hooks import run_escalation_hook
 from striatum.recovery.policy import resolve_policy
 

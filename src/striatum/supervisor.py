@@ -27,18 +27,15 @@ from pathlib import Path
 from typing import cast
 
 from striatum.db import (
-    JsonObject,
     insert_event,
-    json_dumps,
-    new_id,
     row_by_id,
-    state_dir,
     transaction,
-    utc_now,
     workflow_for_run,
 )
 from striatum.errors import InvalidTransitionError, NotFoundError
 from striatum.identity import process_start_time, session_lane_attestation
+from striatum.primitives import JsonObject, json_dumps, new_id, utc_now
+from striatum.repo_policy import state_dir
 
 
 SUPERVISOR_ACTIVE_STATES = ("starting", "attached", "detached")

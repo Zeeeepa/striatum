@@ -18,8 +18,6 @@ from striatum.db import (
     connect,
     ensure_initialized,
     init_repo,
-    json_dumps,
-    json_loads,
     transaction,
 )
 from striatum.cli.daemon_required import enforce_daemon_required
@@ -30,6 +28,7 @@ from striatum.errors import (
     StriatumError,
 )
 from striatum.process_adapter import run_process_adapter
+from striatum.primitives import json_dumps, json_loads
 from striatum.workflow import (
     create_run,
     lint_workflow,

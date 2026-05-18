@@ -28,13 +28,10 @@ from striatum.cli.introspect import why as repo_why
 from striatum.cli.recovery import stale_leases
 from striatum.db import (
     connect as connect_repo,
-    db_path,
     ensure_initialized,
     init_repo,
     insert_event,
-    json_dumps,
     transaction,
-    utc_now,
 )
 from striatum.daemon_rpc.token_hash import hash_token
 from striatum.daemon_runtime import (
@@ -58,7 +55,9 @@ from striatum.errors import (
     StriatumError,
 )
 from striatum.process_progress import progress_loop_once
+from striatum.primitives import json_dumps, utc_now
 from striatum.recovery.auto import run_auto_sweep
+from striatum.repo_policy import db_path
 
 REGISTRY_VERSION = 1
 PROTOCOL_VERSION = 1

@@ -9,17 +9,16 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from striatum.db import (
-    JsonObject,
     complete_job,
     expire_leases,
     insert_event,
     maybe_complete_run,
     row_by_id,
     transaction,
-    utc_now,
 )
 from striatum.errors import InvalidTransitionError
 from striatum.process_completion import validate_outputs
+from striatum.primitives import JsonObject, utc_now
 
 
 def stale_leases(conn: sqlite3.Connection, *, run_id: str) -> JsonObject:

@@ -16,7 +16,7 @@ from http.server import BaseHTTPRequestHandler
 from pathlib import Path
 from typing import Any, Callable, Mapping
 
-from striatum.db import db_path
+from striatum.repo_policy import db_path
 from striatum.web.artifacts import byline_line as _byline_line
 from striatum.web.artifacts import lane_evidence_chip as _lane_evidence_chip
 from striatum.web.artifacts import shape_artifact_rows

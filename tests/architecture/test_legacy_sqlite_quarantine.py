@@ -163,6 +163,29 @@ TEST_SQLITE_QUARANTINE_PREFIXES = {
 DAEMON_RPC_DB_IMPORT_ALLOWLIST: dict[Path, set[str]] = {}
 
 
+NEUTRAL_DB_REEXPORTS = frozenset(
+    {
+        "ADAPTER_ENFORCEMENT_LEVELS",
+        "DB_NAME",
+        "JsonObject",
+        "STATE_DIR",
+        "WORKTREES_SUBDIR",
+        "adapter_constraint_enforcement",
+        "adapter_enforcement_satisfies",
+        "db_path",
+        "json_dumps",
+        "json_loads",
+        "lane_worktree_isolation",
+        "new_id",
+        "path_allowed",
+        "repo_relative_path",
+        "sha256_bytes",
+        "state_dir",
+        "utc_now",
+    }
+)
+
+
 DAEMON_CONNECT_REGISTRY_CALLERS: dict[str, str] = {
     "_repo_add_legacy_sqlite": "explicit legacy repository registry fallback",
     "_repo_list_legacy_sqlite": "explicit legacy repository registry fallback",
@@ -197,6 +220,16 @@ def test_daemon_rpc_db_imports_are_explicitly_quarantined() -> None:
     }
 
     assert offenders == allowed
+
+
+def test_neutral_helpers_are_not_imported_through_legacy_db_module() -> None:
+    offenders = {
+        path: names & NEUTRAL_DB_REEXPORTS
+        for path, names in _db_imports_under(ROOT / "src" / "striatum").items()
+        if names & NEUTRAL_DB_REEXPORTS
+    }
+
+    assert offenders == {}
 
 
 def test_production_sqlite_references_are_quarantined_by_category() -> None:

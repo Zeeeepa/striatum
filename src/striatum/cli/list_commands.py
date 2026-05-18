@@ -19,12 +19,11 @@ import json
 import sqlite3
 
 from striatum.db import (
-    JsonObject,
     expire_leases,
-    json_loads,
 )
 from striatum.errors import NotFoundError, StriatumError
 from striatum.identity import session_lane_attestation
+from striatum.primitives import JsonObject, json_loads
 
 
 # Stable state vocabularies, kept in lockstep with the CHECK constraints in

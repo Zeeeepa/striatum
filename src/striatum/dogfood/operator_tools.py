@@ -23,21 +23,14 @@ from striatum.artifacts import (
     validate_optional_markdown_author_line,
 )
 from striatum.db import (
-    JsonObject,
     active_lease_for,
     active_worktree_for_job,
     insert_event,
-    json_loads,
     maybe_complete_run,
     maybe_enqueue_downstream,
-    new_id,
-    path_allowed,
-    repo_relative_path,
     request_revision_for_cycle,
     row_by_id,
-    sha256_bytes,
     transaction,
-    utc_now,
     verify_required_artifacts,
     _complete_review_job,
     _enforce_required_attestation_for_verdict,
@@ -47,6 +40,8 @@ from striatum.db import (
 from striatum.daemon_supervisor.progress_watcher import progress_advisory_lock
 from striatum.errors import ArtifactError, InvalidTransitionError
 from striatum.identity import process_start_time, session_lane_attestation
+from striatum.primitives import JsonObject, json_loads, new_id, sha256_bytes, utc_now
+from striatum.repo_policy import path_allowed, repo_relative_path
 
 _ACTIVE_SUPERVISOR_STATES = ("starting", "attached", "detached")
 _TERMINAL_JOB_STATES = {"completed", "failed", "canceled", "skipped"}

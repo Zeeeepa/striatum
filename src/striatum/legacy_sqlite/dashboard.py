@@ -6,8 +6,9 @@ import json
 from pathlib import Path
 from typing import Any
 
-from striatum.db import connect, ensure_initialized, json_loads, utc_now
+from striatum.db import connect, ensure_initialized
 from striatum.errors import NotFoundError
+from striatum.primitives import json_loads, utc_now
 
 
 def gather_payload(repo: Path, *, run_id: str) -> dict[str, Any]:

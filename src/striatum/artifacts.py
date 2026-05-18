@@ -12,17 +12,13 @@ from striatum.db import (
     active_lease_for,
     active_worktree_for_job,
     insert_event,
-    json_loads,
-    new_id,
-    path_allowed,
-    repo_relative_path,
     row_by_id,
-    sha256_bytes,
     transaction,
-    utc_now,
 )
 from striatum.errors import ArtifactError
 from striatum.identity import artifact_author_identity, session_lane_attestation
+from striatum.primitives import json_loads, new_id, sha256_bytes, utc_now
+from striatum.repo_policy import path_allowed, repo_relative_path
 
 
 MARKDOWN_SUFFIXES = {".md", ".markdown"}
