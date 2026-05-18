@@ -292,8 +292,8 @@ matrix and contract tests as drift guards.
   tool listing hides them, and route tests prevent accidental production
   fallback.
 - `workflow upgrade` checks daemon PG for non-terminal runs and fails closed
-  whenever PostgreSQL state is unknown; repo-local SQLite is retained only
-  under the paired legacy test-harness escape.
+  whenever PostgreSQL state is unknown; it no longer has a repo-local SQLite
+  fallback, including under legacy test-harness escapes.
 
 **Remaining Phase 1 debt:** legacy SQLite code is now a named
 migration/test-fixture and quarantined compatibility concern, not a daemon

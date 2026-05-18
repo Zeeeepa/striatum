@@ -107,9 +107,8 @@ Add a production registry tripwire and port daemon-global surfaces in order:
   configured. Runtime pidfile behavior remains local to the daemon runtime
   directory.
 - `workflow upgrade` no longer falls back to repo-local SQLite running-run
-  checks in production. That compatibility path requires the paired
-  test-harness escape, so PostgreSQL verification failures fail closed even
-  when no legacy SQLite marker exists.
+  checks in production or under the legacy test-harness escape. PostgreSQL
+  verification failures fail closed even when legacy SQLite files exist.
 - The compact terminal dashboard renders production single-run text frames
   from the daemon/PostgreSQL `dashboard` DTO. The repo-local SQLite payload
   gatherer is isolated under `striatum.legacy_sqlite.dashboard` for paired

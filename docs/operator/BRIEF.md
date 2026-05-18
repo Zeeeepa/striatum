@@ -21,9 +21,10 @@ production SQLite fallbacks. Recent checkpoints routed daemon MCP
 resources, daemon audit, daemon health, daemon doctor diagnostics,
 daemon lifecycle helpers, and workflow-upgrade running-run checks away
 from production SQLite paths; workflow upgrade now also fails closed when
-PostgreSQL state is unknown. The RFC 0058 V1 operator surface is now landed,
-and `dashboard.all` now carries per-active-run progress fields for phase
-state, auto-finalize dry-run visibility, and supervisor stalls. The compact
+PostgreSQL state is unknown, with no repo-local SQLite fallback. The RFC 0058
+V1 operator surface is now landed, and `dashboard.all` now carries
+per-active-run progress fields for phase state, auto-finalize dry-run
+visibility, and supervisor stalls. The compact
 terminal dashboard now renders production text frames from daemon/PostgreSQL
 DTOs, with legacy SQLite access isolated under paired test-harness fixtures.
 Go `status` now matches the PostgreSQL/Python read-model shape, and RFC 0058

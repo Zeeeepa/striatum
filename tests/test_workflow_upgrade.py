@@ -14,7 +14,6 @@ from __future__ import annotations
 
 import json
 import subprocess
-import sys
 from pathlib import Path
 from typing import Any
 
@@ -118,18 +117,6 @@ def _git_init_repo(repo: Path) -> None:
     subprocess.run(["git", "config", "user.name", "t"], cwd=repo, check=True)
 
 
-def _striatum_init(repo: Path) -> None:
-    """Initialize .striatum/state.sqlite3 so the running-workflow guard
-    has somewhere to look.
-    """
-    subprocess.run(
-        [sys.executable, "-m", "striatum.cli", "--repo", str(repo), "init"],
-        cwd=repo,
-        check=True,
-        capture_output=True,
-    )
-
-
 @pytest.fixture(autouse=True)
 def _pg_known_no_running_runs(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
@@ -144,7 +131,6 @@ def _pg_known_no_running_runs(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_upgrade_fills_missing_instruction(tmp_path: Path) -> None:
     _git_init_repo(tmp_path)
-    _striatum_init(tmp_path)
     path = _write_workflow(tmp_path, _baseline_workflow())
     result = workflow_upgrade(path, repo=tmp_path)
     catalog_instruction = get_harness_fragment("claude_code_default")["native_delegation_instruction"]
@@ -160,7 +146,6 @@ def test_upgrade_fills_missing_instruction(tmp_path: Path) -> None:
 
 def test_upgrade_dry_run_writes_nothing(tmp_path: Path) -> None:
     _git_init_repo(tmp_path)
-    _striatum_init(tmp_path)
     path = _write_workflow(tmp_path, _baseline_workflow())
     snapshot = path.read_text(encoding="utf-8")
     result = workflow_upgrade(path, repo=tmp_path, dry_run=True)
@@ -171,7 +156,6 @@ def test_upgrade_dry_run_writes_nothing(tmp_path: Path) -> None:
 
 def test_upgrade_already_default_is_no_op(tmp_path: Path) -> None:
     _git_init_repo(tmp_path)
-    _striatum_init(tmp_path)
     fragment = get_harness_fragment("claude_code_default")
     workflow = _baseline_workflow(profile_instruction=fragment["native_delegation_instruction"])
     workflow["harness_profiles"]["claude_code_default"]["native_delegation"]["mode"] = fragment["native_delegation_mode"]
@@ -186,7 +170,6 @@ def test_upgrade_already_default_is_no_op(tmp_path: Path) -> None:
 
 def test_upgrade_refuses_on_conflict_without_force(tmp_path: Path) -> None:
     _git_init_repo(tmp_path)
-    _striatum_init(tmp_path)
     path = _write_workflow(
         tmp_path,
         _baseline_workflow(profile_instruction="A hand-tuned instruction the operator authored."),
@@ -200,7 +183,6 @@ def test_upgrade_refuses_on_conflict_without_force(tmp_path: Path) -> None:
 
 def test_upgrade_force_overwrites_conflict(tmp_path: Path) -> None:
     _git_init_repo(tmp_path)
-    _striatum_init(tmp_path)
     catalog_instruction = get_harness_fragment("claude_code_default")["native_delegation_instruction"]
     path = _write_workflow(
         tmp_path,
@@ -269,7 +251,7 @@ def test_upgrade_refuses_running_runs_from_pg_when_sqlite_absent(
     assert "run_pg_active" in str(exc_info.value)
 
 
-def test_upgrade_fails_closed_when_pg_state_unknown_without_sqlite_marker(
+def test_upgrade_fails_closed_when_pg_state_unknown(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -309,7 +291,7 @@ def test_upgrade_add_phases_fails_closed_when_pg_state_unknown(
     assert path.read_text(encoding="utf-8") == snapshot
 
 
-def test_upgrade_refuses_repo_local_sqlite_fallback_outside_test_harness(
+def test_upgrade_does_not_fallback_to_repo_local_sqlite(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -323,17 +305,12 @@ def test_upgrade_refuses_repo_local_sqlite_fallback_outside_test_harness(
         "_running_runs_for_workflow_pg",
         lambda **_kwargs: None,
     )
-    monkeypatch.delenv("STRIATUM_TEST_HARNESS", raising=False)
-    monkeypatch.setenv("STRIATUM_DAEMON_REQUIRED", "1")
-    sqlite_module = getattr(workflow_mod, "sqlite3")
-    monkeypatch.setattr(
-        sqlite_module,
-        "connect",
-        lambda *_args, **_kwargs: pytest.fail("workflow upgrade opened repo-local SQLite"),
-    )
+    monkeypatch.setenv("STRIATUM_TEST_HARNESS", "1")
+    monkeypatch.setenv("STRIATUM_DAEMON_REQUIRED", "0")
 
     with pytest.raises(WorkflowError, match="daemon PostgreSQL state is unknown"):
         workflow_upgrade(path, repo=tmp_path)
+    assert not hasattr(workflow_mod, "sqlite3")
 
 
 # --- target validation ------------------------------------------------
@@ -358,7 +335,6 @@ def test_upgrade_handles_workflow_with_no_harness_profiles(tmp_path: Path) -> No
 
 def test_upgrade_via_cli_dispatch(tmp_path: Path) -> None:
     _git_init_repo(tmp_path)
-    _striatum_init(tmp_path)
     path = _write_workflow(tmp_path, _baseline_workflow())
     result = invoke(["workflow", "upgrade", str(path), "--dry-run"], repo=tmp_path)
     assert result["ok"] is True
@@ -370,7 +346,6 @@ def test_upgrade_via_cli_dispatch(tmp_path: Path) -> None:
 
 def test_upgrade_add_phases_preview_writes_nothing_without_apply(tmp_path: Path) -> None:
     _git_init_repo(tmp_path)
-    _striatum_init(tmp_path)
     path = _write_workflow(tmp_path, _parallel_group_workflow())
     snapshot = path.read_text(encoding="utf-8")
     result = workflow_upgrade(path, repo=tmp_path, add_phases=True)
@@ -394,7 +369,6 @@ def test_upgrade_add_phases_preview_writes_nothing_without_apply(tmp_path: Path)
 
 def test_upgrade_add_phases_apply_rewrites_to_v1_1(tmp_path: Path) -> None:
     _git_init_repo(tmp_path)
-    _striatum_init(tmp_path)
     path = _write_workflow(tmp_path, _parallel_group_workflow())
     result = workflow_upgrade(path, repo=tmp_path, add_phases=True, apply=True)
     assert result["status"] == "updated"
@@ -425,7 +399,6 @@ def test_upgrade_add_phases_apply_rewrites_to_v1_1(tmp_path: Path) -> None:
 
 def test_upgrade_add_phases_via_cli_dispatch_requires_apply_to_write(tmp_path: Path) -> None:
     _git_init_repo(tmp_path)
-    _striatum_init(tmp_path)
     path = _write_workflow(tmp_path, _parallel_group_workflow())
     preview = invoke(["workflow", "upgrade", str(path), "--add-phases"], repo=tmp_path)
     assert preview["ok"] is True

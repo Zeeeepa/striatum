@@ -19,13 +19,11 @@ the workflow being upgraded (a "running workflow" guard).
 from __future__ import annotations
 
 import json
-import os
 import re
-import sqlite3
 from pathlib import Path
 
-from striatum.db import JsonObject, db_path
 from striatum.errors import RepoNotMigratedError, WorkflowError
+from striatum.primitives import JsonObject
 from striatum.workflow import load_workflow
 from striatum.workflow_generator.catalog import get_harness_fragment_by_tool_family
 
@@ -550,13 +548,6 @@ def _running_runs_for_workflow(*, repo: Path, workflow_path: Path) -> list[str]:
     pg_running = _running_runs_for_workflow_pg(repo=repo, candidates=candidates)
     if pg_running is not None:
         return pg_running
-    state_db = db_path(repo)
-    if (
-        _legacy_sqlite_workflow_upgrade_allowed()
-        and state_db.exists()
-        and not _repo_sqlite_cutover_marker_exists(state_db)
-    ):
-        return _running_runs_for_workflow_sqlite(state_db=state_db, candidates=candidates)
     raise WorkflowError(
         "workflow upgrade cannot verify non-terminal runs because daemon "
         "PostgreSQL state is unknown or unavailable; configure daemon "
@@ -632,44 +623,6 @@ def _running_runs_for_workflow_pg(*, repo: Path, candidates: set[str]) -> list[s
     finally:
         if conn is not None:
             conn.close()
-
-
-def _repo_sqlite_cutover_marker_exists(state_db: Path) -> bool:
-    return state_db.with_name(state_db.name + ".tombstone").exists() or state_db.with_name(
-        state_db.name + ".migrated"
-    ).exists()
-
-
-def _legacy_sqlite_workflow_upgrade_allowed() -> bool:
-    return os.environ.get("STRIATUM_TEST_HARNESS") == "1" and os.environ.get("STRIATUM_DAEMON_REQUIRED") == "0"
-
-
-def _running_runs_for_workflow_sqlite(*, state_db: Path, candidates: set[str]) -> list[str]:
-    try:
-        conn = sqlite3.connect(state_db)
-    except sqlite3.Error:
-        return []
-    try:
-        conn.row_factory = sqlite3.Row
-        cur = conn.execute(
-            """
-            SELECT runs.run_id, runs.state, workflow_snapshots.source_path
-            FROM runs
-            JOIN workflow_snapshots
-              ON runs.workflow_snapshot_id = workflow_snapshots.workflow_snapshot_id
-            WHERE runs.state NOT IN ('completed', 'failed', 'canceled')
-            """
-        )
-        running: list[str] = []
-        for row in cur.fetchall():
-            source = str(row["source_path"] or "")
-            if source in candidates:
-                running.append(str(row["run_id"]))
-        return running
-    except sqlite3.Error:
-        return []
-    finally:
-        conn.close()
 
 
 __all__ = ["workflow_upgrade"]

@@ -79,10 +79,6 @@ PRODUCTION_SQLITE_QUARANTINE = {
         "service transition",
         "legacy run-summary reader pending daemon DTO replacement",
     ),
-    Path("src/striatum/cli/workflow.py"): SQLiteClassification(
-        "service transition",
-        "workflow-upgrade transition check still inspects legacy state",
-    ),
     Path("src/striatum/cli/workflow_init.py"): SQLiteClassification(
         "service transition",
         "workflow scaffold envelope still imports legacy JsonObject alias",

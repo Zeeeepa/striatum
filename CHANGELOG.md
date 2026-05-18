@@ -66,6 +66,9 @@ Recent checkpoints:
 - `striatum.api` no longer imports `sqlite3` or `striatum.db`; it uses the
   shared primitives types and leaves SQLite-era failures outside the local API
   compatibility wrapper.
+- `workflow upgrade` and `workflow upgrade --add-phases` now use only the
+  daemon PostgreSQL running-run guard. The repo-local SQLite fallback and its
+  paired test-harness escape were removed from the workflow-upgrade path.
 - Runtime path and token-file helpers now live in `striatum.daemon_runtime`,
   and PostgreSQL repository registration helpers used by day-zero setup and
   daemon RPC routing now live in `striatum.daemon_pg.repositories`, reducing
@@ -490,9 +493,8 @@ Recent checkpoints:
   `STRIATUM_ALLOW_LEGACY_SQLITE_REGISTRY=1` no longer reopens production
   registry access.
 - `workflow upgrade` now fails closed instead of falling back to repo-local
-  SQLite running-run checks unless the paired test-harness compatibility escape
-  is active; unknown PostgreSQL state is a refusal even when no legacy SQLite
-  marker exists.
+  SQLite running-run checks; unknown PostgreSQL state is a refusal even when
+  legacy SQLite files are present.
 - RFC 0058 V1 now has publisher-visible operator artifact kinds
   (`operator_brief`, `work_plan`, `progress_note`, `operator_report`),
   corpus metadata columns for operator docs, and a seeded

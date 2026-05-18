@@ -1317,10 +1317,9 @@ review and plan are root-level operator artifacts:
     remaining direct `striatum.daemon.connect_registry()` caller before the
     legacy SQLite registry can open.
     Residual daemon-global gaps are any future registry probes found by those
-    guardrail scans. The
-    workflow-upgrade running-run guard now fails closed when PostgreSQL state
-    is unknown and only opens repo-local SQLite under the paired test-harness
-    compatibility escape.
+    guardrail scans. The workflow-upgrade running-run guard is now
+    PostgreSQL-only and fails closed when PostgreSQL state is unknown, even
+    when legacy repo-local SQLite files are present.
 
 63. **RFC 0070: daemon client/service boundary completion.** Most done.
     Daemon-side `repo.resolve` is registered as a daemon-global read bootstrap
