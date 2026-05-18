@@ -544,7 +544,7 @@ def test_v1_invoke_daemon_mapped_read_uses_daemon_rpc_not_api_invoke(
     assert calls == [(tmp_path, "status", {})]
 
 
-def test_service_workflow_template_and_generate_endpoints(tmp_path: Path) -> None:
+def test_service_workflow_template_and_generate_endpoints_without_daemon(tmp_path: Path) -> None:
     proc, port = _spawn_service(tmp_path)
     spec: dict[str, Any] = {
         "schema_version": "striatum.workflow_generator.v1",
@@ -565,10 +565,8 @@ def test_service_workflow_template_and_generate_endpoints(tmp_path: Path) -> Non
         assert any(item["template_id"] == "review" for item in body["data"]["templates"])
 
         status, body = _http_post_json(port, "/workflows/generate/preview", {"spec": spec})
-        assert status == 200
-        assert body["data"]["workflow"]["workflow_id"] == "demo"
-        assert body["data"]["lint"]["valid"] is True
-        assert "coverage" in body["data"]["lint"]
+        assert status == 503
+        assert body["error"]["code"] == "daemon_unreachable"
         assert not (tmp_path / "workflows" / "demo").exists()
 
         status, body = _http_post_json(
