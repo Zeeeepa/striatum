@@ -45,8 +45,8 @@ must stay clearly outside live workflow authority.
 5. Keep `dogfood.publish_on_behalf` and `dogfood.surgical_recovery` absent
    from the production daemon contract unless a PostgreSQL-native composite
    is accepted.
-6. Remove Python-daemon-specific production fallback paths after Go parity
-   lands.
+6. Remove remaining Python-daemon-specific production fallback paths as legacy
+   fixture/quarantine cleanup.
 
 ## Acceptance Criteria
 

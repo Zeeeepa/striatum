@@ -9,11 +9,12 @@ in the roadmap/TODO and has several production slices landed:
 
 Recent checkpoints:
 
-- D107 supersedes D105: the active target is a Go production daemon port,
-  Python daemon retirement after parity, Python CLI/web clients where useful,
-  and SQLite eradication from production and compatibility paths. RFC 0068
-  records the port; RFC 0069-0071 scaffold the daemon-global PG, client
-  boundary, and diagnostic follow-ups.
+- D107 supersedes D105: Go is now the production/default daemon, active
+  contract-method parity is landed, Python daemon deletion waits on legacy
+  SQLite fixture/import/module cleanup, Python CLI/web clients remain useful,
+  and SQLite eradication continues across production and compatibility paths.
+  RFC 0068 records the port; RFC 0069-0071 scaffold the daemon-global PG,
+  client boundary, and diagnostic follow-ups.
 - The Go daemon launch contract now reports supported daemon PostgreSQL schema
   and migration count from `--describe`; the Python launcher refuses stale Go
   daemon binaries before socket bind when their schema, migration count, or

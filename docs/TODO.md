@@ -898,10 +898,10 @@ review and plan are root-level operator artifacts:
 
 51. ~~**Phase 3: daemon core strategy decision.**~~ Done, superseded:
     D105 briefly recorded Python as the primary production daemon core, but
-    D107 / RFC 0068 supersedes it. The active strategy is a full Go production
-    daemon port, Python daemon retirement after parity, Python CLI/web clients
-    where useful, and SQLite eradication from production and compatibility
-    paths.
+    D107 / RFC 0068 supersedes it. Go is now the production/default daemon;
+    Python daemon retirement is legacy SQLite fixture/import/module cleanup,
+    Python CLI/web clients remain useful, and SQLite eradication continues
+    across production and compatibility paths.
 
 52. **Phase 4: daemon-first web service.** Initial slices landed:
     web POST mutations for run cancel/pause/resume, job cancel/retry, and
@@ -1191,9 +1191,11 @@ review and plan are root-level operator artifacts:
     or RFC first.
 
 61. **RFC 0068: Go production daemon port.** Active. D107 supersedes D105:
-    port production daemon ownership to Go, retire the Python daemon after
-    parity, keep Python CLI/web clients where useful, and remove SQLite from
-    production and compatibility paths. First slice landed in dogfood 065:
+    Go is the production/default daemon and active contract-method parity is
+    landed; remaining work is legacy SQLite fixture/import/module cleanup,
+    operator-composite product decisions, and Python daemon module deletion.
+    Keep Python CLI/web clients where useful and remove SQLite from production
+    and compatibility paths. First slice landed in dogfood 065:
     Go `--describe` reports supported schema, migration count, method etag,
     stamped package version, git SHA, and dirty/clean state; the Python
     launcher rejects stale or unstamped Go daemon binaries before socket bind.

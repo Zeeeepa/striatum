@@ -10,10 +10,12 @@ D105 encoded a Python-primary production daemon constraint during the
 remediation sprint. That kept the product focused while the Python/PostgreSQL
 path stabilized, but it is not the desired product direction.
 
-The operator decision is now explicit: port the production daemon and daemon
-runtime responsibilities to Go, retire the Python daemon once parity is
-reached, keep the Python CLI/web layers where they remain useful, and eliminate
-SQLite from production and compatibility paths.
+The operator decision was explicit: move production daemon and daemon runtime
+responsibilities to Go, retire the Python daemon after active contract-method
+parity, keep the Python CLI/web layers where they remain useful, and eliminate
+SQLite from production and compatibility paths. As of 2026-05-18, Go is the
+production/default daemon and active contract-method parity is landed; the
+remaining retirement gate is legacy SQLite fixture/import/module cleanup.
 
 ## Goals
 
@@ -59,9 +61,9 @@ The Go daemon port lands through independent, testable slices:
    dogfood, adapter, byline, inbox, recovery, corpus, and local API helpers.
    Migration fixtures must be named as one-way import fixtures and isolated
    from production modules.
-6. **Retirement.** Once the Go conformance suite passes and the legacy
-   fixtures are quarantined or deleted, remove the legacy Python daemon module and any
-   Python-daemon-only production code.
+6. **Retirement.** Keep the Go conformance suite passing, delete or convert
+   the remaining legacy fixtures/import paths, then remove the legacy Python
+   daemon module and any Python-daemon-only production code.
 
 ## Acceptance Criteria
 

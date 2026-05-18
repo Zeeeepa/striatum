@@ -24,8 +24,9 @@ dependency edges, and "what would I do next" framing. Update on every
   locking, append-only role-grant checks, and the inline helper wiring needed
   by recovery paths.
 - **Current workstream:** TODO 61-64 / RFC 0068-0071 architecture remediation.
-  D107 supersedes D105: Go is now the default production daemon core, Python
-  daemon deletion remains after parity, Python CLI/web clients stay useful, and
+  D107 supersedes D105: Go is now the default production daemon core, active
+  contract-method parity is landed, Python CLI/web clients stay useful, and
+  Python daemon deletion waits on legacy SQLite fixture/import/module cleanup.
   SQLite eradication continues across production and compatibility paths. D110
   removed the SQLite-bound migration and dogfood composite RPC names from the
   production contract, and D112 removed `apply.reviewed_patch`; stale direct
@@ -194,7 +195,8 @@ legacy `CLI_ROUTES` fallback.
 
 **Follow-up:** completed through RFC 0048 V1.5 / v1.55.0. D105 briefly made
 Python the primary production daemon core, but D107 / RFC 0068 supersedes that
-constraint and restores the Go production daemon port as the target.
+constraint; Go is now the production/default daemon and the remaining daemon
+cleanup is legacy fixture/import/module deletion.
 
 ### 4.2 🟡 landed bounded slice — RFC 0051 V1 auto-finalize from front matter
 
@@ -354,9 +356,9 @@ guardrail failures.
 **Closes:** [TODO item 51](TODO.md).
 
 **Decision:** D105 named Python as the primary production daemon core, but
-D107 supersedes it. The active target is now RFC 0068: Go production daemon
-port, Python daemon retirement after parity, Python CLI/web clients where
-useful, and SQLite removal from production and compatibility paths.
+D107 supersedes it. RFC 0068 has moved the production/default daemon to Go;
+Python daemon retirement is now legacy SQLite fixture/import/module cleanup,
+while Python CLI/web clients remain useful.
 
 **Landed in this slice:**
 - `docs/DECISION_LOG.md` records D107 and marks D105 superseded.
@@ -964,8 +966,8 @@ The other doc phases are unblocked.
 
 This sequence comes from `STRIATUM_ARCHITECTURE_REMEDIATION_PLAN_2026-05-16.md`.
 Production daemon fallback is now closed for mapped Python paths, but D107
-changes the active runway: port the production daemon to Go and eliminate
-SQLite from production and compatibility paths.
+changed the runway: Go is now the production/default daemon, and the remaining
+work is eliminating SQLite from production and compatibility paths.
 
 Release order after Phase 0:
 
@@ -1002,8 +1004,9 @@ Release order after Phase 0:
     Contract V2 fields wait on RFC 0057 decisions.
 12. **TODO 60 / Phase 12:** optional Git/PR integration waits on a product
     decision for commit authority and hosted-provider boundaries.
-13. **TODO 61 / RFC 0068:** port the production daemon to Go, keep the
-    Go binary release provenance stamped and verified by `--describe`,
+13. **TODO 61 / RFC 0068:** keep the Go production daemon conformance suite
+    green, keep the Go binary release provenance stamped and verified by
+    `--describe`,
     resident recovery scheduler in Go, enforce workflow-loader path/source
     checks in Go `run.prepare`, rotate the local Ed25519 sealed-apply
     fallback key through Go `daemon.key.rotate`, keep removed
@@ -1013,8 +1016,8 @@ Release order after Phase 0:
     `make daemon-go-conformance` green, keep writable SQLite import commands
     retired, keep the deleted daemon-global SQLite registry cutover helper out
     of production code, keep speculative cross-repo runner hooks trimmed until
-    a handler needs them, and retire the Python daemon after remaining legacy
-    fixtures are removed or converted.
+    a handler needs them, and delete or convert legacy SQLite fixtures/import
+    paths before removing the Python daemon module.
 14. **TODO 62 / RFC 0069:** move daemon-global surfaces to PostgreSQL/Go,
     including scheduler cursors, PostgreSQL-backed daemon MCP resources, and
     PostgreSQL-backed daemon lifecycle/health/audit/doctor reads. The
