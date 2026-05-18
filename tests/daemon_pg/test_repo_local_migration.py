@@ -14,6 +14,7 @@ from striatum.daemon_pg.connection import connect
 from striatum.daemon_pg.migrations import LATEST_DAEMON_DB_VERSION, MIGRATIONS
 from striatum.daemon_pg.repo_local_migration import (
     RepoLocalMigrationOptions,
+    _legacy_repo_identity,
     compute_repo_local_reanchor,
     migrate_repo_local,
 )
@@ -74,6 +75,21 @@ def test_repo_local_migration_registered_as_daemon_pg_v5() -> None:
         assert f"striatumd.{table}" in sql_0005
     assert "repository_id text NOT NULL" in sql_0005
     assert "refuse_repo_append_only_change" in sql_0005
+
+
+def test_legacy_repo_identity_matches_pre_postgres_shape(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    state_dir = repo / ".striatum"
+    state_dir.mkdir(parents=True)
+    (state_dir / "state.sqlite3").write_bytes(b"sqlite")
+
+    repo_stat = repo.stat()
+    state_stat = (state_dir / "state.sqlite3").stat()
+
+    assert _legacy_repo_identity(repo) == (
+        f"inode:{repo_stat.st_dev}:{repo_stat.st_ino}:"
+        f"state:{state_stat.st_dev}:{state_stat.st_ino}"
+    )
 
 
 @pytest.mark.multi_repo

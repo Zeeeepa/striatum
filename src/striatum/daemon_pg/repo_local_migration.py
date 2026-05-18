@@ -18,7 +18,6 @@ from typing import Any, Iterator
 from striatum.daemon_pg.connection import connect
 from striatum.daemon_pg.handlers.context import canonical_event_hash
 from striatum.daemon_pg.migrations import apply_migrations
-from striatum.daemon_pg.sqlite_compat import repo_identity
 from striatum.errors import SchemaVersionError, StriatumError
 from striatum.migrations import LATEST_VERSION, current_user_version
 from striatum.primitives import json_dumps, utc_now
@@ -839,7 +838,7 @@ def _lookup_registered(conn: Any, repo: Path) -> str | None:
         state_db = db_path(repo)
         if not state_db.exists():
             return None
-        identity = repo_identity(repo)
+        identity = _legacy_repo_identity(repo)
         cur.execute(
             """
             SELECT repository_id
@@ -870,7 +869,7 @@ def _ensure_registered(conn: Any, repo: Path) -> str:
             """,
             (
                 repository_id,
-                repo_identity(repo),
+                _legacy_repo_identity(repo),
                 str(repo),
                 str(db_path(repo)),
                 repo.name,
@@ -880,6 +879,15 @@ def _ensure_registered(conn: Any, repo: Path) -> str:
             ),
         )
     return repository_id
+
+
+def _legacy_repo_identity(repo: Path) -> str:
+    repo_stat = repo.stat()
+    state_stat = db_path(repo).stat()
+    return (
+        f"inode:{repo_stat.st_dev}:{repo_stat.st_ino}:"
+        f"state:{state_stat.st_dev}:{state_stat.st_ino}"
+    )
 
 
 def _existing_checkpoint(conn: Any, repository_id: str | None) -> dict[str, Any] | None:

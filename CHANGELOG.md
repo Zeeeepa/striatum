@@ -126,9 +126,10 @@ Recent checkpoints:
   and PostgreSQL repository registration helpers used by day-zero setup and
   daemon RPC routing now live in `striatum.daemon_pg.repositories`, reducing
   Python CLI/client imports of the legacy Python daemon module.
-- SQLite-era repository identity used by one-way migration fixtures now lives
-  in `striatum.daemon_pg.sqlite_compat`; its unused daemon audit-chain
-  validators were removed, so the helper no longer imports `sqlite3`.
+- The standalone `striatum.daemon_pg.sqlite_compat` helper was removed. Its
+  last repository-identity calculation now lives beside the one-way
+  repo-local migration fixture, and the unused daemon audit-chain validators
+  are gone.
 - D111 retires the operator-facing Python daemon selector. `striatum daemon
   start` always launches the Go daemon; `--core go` remains a deprecated
   no-op compatibility flag, while `--core python` and
