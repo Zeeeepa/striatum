@@ -114,8 +114,8 @@ Add a production registry tripwire and port daemon-global surfaces in order:
   verification failures fail closed even when legacy SQLite files exist.
 - The compact terminal dashboard renders production single-run text frames
   from the daemon/PostgreSQL `dashboard` DTO. The repo-local SQLite payload
-  gatherer is isolated under `striatum.legacy_sqlite.dashboard` for paired
-  test-harness fixtures.
+  gatherer has been deleted; paired test-harness dashboard assertions now use
+  renderer fixtures instead of a second live reader.
 - Go `status` now returns the PostgreSQL/Python read-model shape, including
   job counts, nested verdict posture counts, queue-based claimable jobs,
   blockers and human checkpoints, process health, supervisor stalls, phase

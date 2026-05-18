@@ -4,6 +4,8 @@ import json
 import sqlite3
 from pathlib import Path
 
+from striatum.dashboard import render_frame
+
 from test_cli_mvp import (
     claim,
     complete_claimed_job,
@@ -11,7 +13,6 @@ from test_cli_mvp import (
     prepare_started_run,
     register,
     run_cli,
-    run_cli_text,
     verdict_claimed_review,
     write_artifact,
 )
@@ -115,7 +116,15 @@ def test_dashboard_and_run_page_surface_same_v1_chip_labels(tmp_path: Path) -> N
     assert {"unattested", "no_attached_supervisor", "needs_revision"} <= expected_labels
     assert required_next_actions <= expected_labels
 
-    dashboard_text = run_cli_text(tmp_path, "dashboard", "--run-id", run_id, "--once")
+    dashboard_text = render_frame(
+        {
+            "run": {"run_id": run_id, "branch_name": "striatum/v1-test", "state": "running"},
+            "status": status_payload,
+            "events": [],
+            "updated_at": "2026-05-18T00:00:00Z",
+        },
+        terminal_width=120,
+    )
     payload_text = json.dumps(status_payload, sort_keys=True)
 
     proc, port = _spawn_service(tmp_path, "--web")

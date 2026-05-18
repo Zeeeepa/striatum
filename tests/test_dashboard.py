@@ -10,7 +10,7 @@ from typing import Any
 
 import pytest
 
-from test_cli_mvp import prepare_started_run, run_cli, run_cli_text
+from test_cli_mvp import prepare_started_run, run_cli_text
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -193,8 +193,13 @@ def _binary_env() -> dict[str, str]:
     return env
 
 
-def test_dashboard_once_renders_one_frame_and_exits(tmp_path: Path) -> None:
-    run_id = prepare_started_run(tmp_path)
+def test_dashboard_once_requires_daemon_without_sqlite_fallback(tmp_path: Path) -> None:
+    env = _binary_env()
+    env["STRIATUM_DAEMON_REQUIRED"] = "1"
+    env["STRIATUM_SQLITE_CONNECT_TRIPWIRE"] = "1"
+    env["STRIATUM_DAEMON_SOCKET"] = str(tmp_path / "missing.sock")
+    env.pop("STRIATUM_TEST_HARNESS", None)
+
     result = subprocess.run(
         [
             sys.executable,
@@ -204,33 +209,18 @@ def test_dashboard_once_renders_one_frame_and_exits(tmp_path: Path) -> None:
             str(tmp_path),
             "dashboard",
             "--run-id",
-            run_id,
+            "run_missing",
             "--once",
         ],
         cwd=tmp_path,
-        env=_binary_env(),
+        env=env,
         text=True,
         capture_output=True,
         check=False,
     )
-    assert result.returncode == 0, (
-        f"dashboard --once failed: stdout={result.stdout!r} stderr={result.stderr!r}"
-    )
-    assert run_id in result.stdout
-    assert "Jobs:" in result.stdout
-    # At least one canonical job state row should appear.
-    assert any(
-        token in result.stdout
-        for token in (
-            "queued ",
-            "claimed ",
-            "running ",
-            "completed ",
-            "blocked ",
-            "waiting_human ",
-            "failed ",
-        )
-    )
+    assert result.returncode != 0
+    assert "daemon_unreachable" in result.stdout + result.stderr
+    assert not (tmp_path / ".striatum" / "state.sqlite3").exists()
 
 
 def test_dashboard_once_renders_daemon_payload_text(
@@ -722,27 +712,22 @@ def test_run_graph_format_ascii_orient_lr(tmp_path: Path) -> None:
     assert "Graph (lr," in out, out
 
 
-def test_dashboard_handles_unknown_run_cleanly(tmp_path: Path) -> None:
-    # Initialize so the state DB exists; the run id is bogus.
-    run_cli(tmp_path, "init")
-    result = subprocess.run(
-        [
-            sys.executable,
-            "-m",
-            "striatum.cli",
-            "--repo",
-            str(tmp_path),
-            "dashboard",
-            "--run-id",
-            "run_does_not_exist",
-            "--once",
-        ],
-        cwd=tmp_path,
-        env=_binary_env(),
-        text=True,
-        capture_output=True,
-        check=False,
-    )
-    assert result.returncode != 0
-    combined = result.stdout + result.stderr
-    assert "run_does_not_exist" in combined or "unknown" in combined.lower()
+def test_dashboard_handles_unknown_run_cleanly(
+    tmp_path: Path,
+    monkeypatch: Any,
+) -> None:
+    dashboard = _import_dashboard()
+    from striatum import service_daemon
+    from striatum.errors import StriatumError
+
+    def fake_call_repo_method(_repo: Path, _method: str, _params: dict[str, Any]) -> dict[str, Any]:
+        raise service_daemon.ServiceDaemonRpcError(
+            404,
+            "not_found",
+            "unknown run_id 'run_does_not_exist'",
+        )
+
+    monkeypatch.setattr(service_daemon, "call_repo_method", fake_call_repo_method)
+
+    with pytest.raises(StriatumError, match="run_does_not_exist"):
+        dashboard.gather_payload(tmp_path, run_id="run_does_not_exist")

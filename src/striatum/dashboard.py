@@ -10,7 +10,6 @@ run in.
 from __future__ import annotations
 
 import json
-import os
 import shutil
 import sys
 import time
@@ -83,10 +82,6 @@ def gather_payload(repo: Path, *, run_id: str) -> dict[str, Any]:
     Returns a dict shaped for ``render_frame``. Raises ``StriatumError``
     (subclass) if the run is unknown or the daemon read path is unavailable.
     """
-    if _legacy_sqlite_dashboard_allowed():
-        from striatum.legacy_sqlite.dashboard import gather_payload as legacy_gather_payload
-
-        return legacy_gather_payload(repo, run_id=run_id)
     return gather_payload_daemon(repo, run_id=run_id)
 
 
@@ -102,10 +97,6 @@ def gather_payload_daemon(repo: Path, *, run_id: str) -> dict[str, Any]:
     if not isinstance(data, Mapping):
         raise StriatumError("dashboard RPC response must be a JSON object", exit_code=1)
     return dict(data)
-
-
-def _legacy_sqlite_dashboard_allowed() -> bool:
-    return os.environ.get("STRIATUM_TEST_HARNESS") == "1" and os.environ.get("STRIATUM_DAEMON_REQUIRED") == "0"
 
 
 def render_frame(

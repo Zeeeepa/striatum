@@ -322,10 +322,9 @@ Recent checkpoints:
   dashboard-all projections.
 - The compact terminal dashboard now renders single-run text frames from the
   daemon/PostgreSQL `dashboard` DTO in production. The old repo-local SQLite
-  payload reader is isolated under `striatum.legacy_sqlite.dashboard` and
-  only reachable through the paired test-harness compatibility escape; JSON
-  `dashboard --run-id` and daemon-global `dashboard --all` remain RPC DTO
-  surfaces.
+  payload reader has been deleted, and paired test-harness assertions now use
+  renderer fixtures; JSON `dashboard --run-id` and daemon-global
+  `dashboard --all` remain RPC DTO surfaces.
 - Go `status` now uses the PostgreSQL/Python read-model shape instead of raw
   row dumps: job counts by state, nested verdict counts by posture/verdict,
   queue-based claimable jobs, blocker/checkpoint payloads, run-scoped process

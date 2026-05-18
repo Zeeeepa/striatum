@@ -15,6 +15,6 @@ author: coordinator-codex-gpt-5.5-001
 daemon/PostgreSQL `dashboard` DTO in production. JSON single-run dashboard
 calls and daemon-global `dashboard --all` remain RPC DTO surfaces.
 
-The former repo-local SQLite payload gatherer now lives under
-`striatum.legacy_sqlite.dashboard` and is reachable only through the paired
-test-harness compatibility escape.
+The former repo-local SQLite payload gatherer was later deleted; paired
+test-harness dashboard assertions now exercise renderer fixtures instead of a
+second live reader.

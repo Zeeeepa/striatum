@@ -76,10 +76,6 @@ PRODUCTION_SQLITE_QUARANTINE = {
         "service transition",
         "gated subprocess-fixture web fallbacks and legacy page reads isolated from primary service code",
     ),
-    Path("src/striatum/legacy_sqlite/dashboard.py"): SQLiteClassification(
-        "service transition",
-        "paired test-harness terminal dashboard fallback isolated from primary dashboard code",
-    ),
     # Adapter, supervisor, artifact, byline, and workflow helpers whose
     # production authority has moved to daemon/Postgres but whose legacy
     # functions still support adapters and test harnesses.

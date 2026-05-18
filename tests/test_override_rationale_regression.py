@@ -3,7 +3,7 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
-from striatum.dashboard import _verdict_chip
+from striatum.dashboard import _verdict_chip, render_frame
 from striatum.service import _shape_verdict_rows
 
 from test_cli_mvp import (
@@ -14,7 +14,6 @@ from test_cli_mvp import (
     prepare_started_run,
     register,
     run_cli,
-    run_cli_text,
     verdict_claimed_review,
 )
 from test_web_ui import _http_get_raw, _spawn_service, _stop_service
@@ -63,7 +62,25 @@ def test_override_rationale_renders_on_dashboard_and_web(tmp_path: Path) -> None
     )
     assert override["status"] == "overridden"
 
-    dashboard = run_cli_text(tmp_path, "dashboard", "--run-id", run_id, "--once")
+    status_payload = data(run_cli(tmp_path, "status", "--run-id", run_id))
+    dashboard = render_frame(
+        {
+            "run": {"run_id": run_id, "branch_name": "striatum/v1-test", "state": "running"},
+            "status": status_payload,
+            "events": [],
+            "verdict_counts": {"needs_revision": 1, "accept_with_findings": 1},
+            "override_verdict_counts": {"accept_with_findings": 1},
+            "override_verdicts": [
+                {
+                    "previous_verdict": "needs_revision",
+                    "verdict": "accept_with_findings",
+                    "rationale": OVERRIDE_RATIONALE,
+                }
+            ],
+            "updated_at": "2026-05-18T00:00:00Z",
+        },
+        terminal_width=120,
+    )
     assert "accept_with_findings (override)" in dashboard
     assert OVERRIDE_RATIONALE in dashboard
 

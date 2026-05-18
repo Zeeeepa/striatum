@@ -13,12 +13,13 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
+from striatum.dashboard import render_frame
+
 from test_cli_mvp import (
     JsonDict,
     data,
     init_repo,
     run_cli,
-    run_cli_text,
     temporary_workflow,
 )
 
@@ -294,12 +295,30 @@ def test_run_graph_json_includes_posture_on_review_verdict(tmp_path: Path) -> No
 
 
 def test_dashboard_renders_posture_summary_when_non_neutral(tmp_path: Path) -> None:
-    run_id, _ = _drive_to_verdict(tmp_path, posture="security")
-    text = run_cli_text(tmp_path, "dashboard", "--run-id", run_id, "--once")
+    text = _render_dashboard_with_postures({"security": 1})
     assert "Postures: security=1" in text
 
 
 def test_dashboard_omits_posture_summary_when_only_neutral(tmp_path: Path) -> None:
-    run_id, _ = _drive_to_verdict(tmp_path, posture=None)
-    text = run_cli_text(tmp_path, "dashboard", "--run-id", run_id, "--once")
+    text = _render_dashboard_with_postures({"neutral": 1})
     assert "Postures:" not in text
+
+
+def _render_dashboard_with_postures(posture_counts: dict[str, int]) -> str:
+    return render_frame(
+        {
+            "run": {"run_id": "run_posture", "branch_name": "striatum/v1-test", "state": "running"},
+            "status": {
+                "jobs": {},
+                "open_blockers": [],
+                "human_checkpoints": [],
+                "latest_non_accepting_review_verdicts": [],
+                "claimable_jobs": [],
+                "next_actions": [],
+            },
+            "events": [],
+            "posture_counts": posture_counts,
+            "updated_at": "2026-05-18T00:00:00Z",
+        },
+        terminal_width=100,
+    )

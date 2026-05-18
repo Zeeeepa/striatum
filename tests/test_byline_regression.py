@@ -8,9 +8,10 @@ from pathlib import Path
 
 import sqlite3
 
+from striatum.dashboard import render_frame
 from striatum.service import _byline_line, _jinja_env, _shape_artifact_rows
 
-from test_cli_mvp import claim, data, prepare_started_run, register, run_cli, run_cli_text
+from test_cli_mvp import claim, data, prepare_started_run, register, run_cli
 from test_web_ui import _http_get_raw, _spawn_service, _stop_service
 
 
@@ -83,7 +84,16 @@ def test_unattested_session_renders_operator_byline_on_dashboard_and_web(
 ) -> None:
     run_id, _session_id, job_id = _unattested_author_fixture(tmp_path)
 
-    dashboard = run_cli_text(tmp_path, "dashboard", "--run-id", run_id, "--once")
+    status_payload = data(run_cli(tmp_path, "status", "--run-id", run_id))
+    dashboard = render_frame(
+        {
+            "run": {"run_id": run_id, "branch_name": "striatum/v1-test", "state": "running"},
+            "status": status_payload,
+            "events": [],
+            "updated_at": "2026-05-18T00:00:00Z",
+        },
+        terminal_width=120,
+    )
     assert OPERATOR_BYLINE in dashboard
     assert MODEL_BYLINE not in dashboard
 
