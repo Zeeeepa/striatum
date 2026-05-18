@@ -178,8 +178,8 @@ treats files outside this allowlist as warnings, and the `.gitignore`
 written by `striatum init` covers the whole directory unchanged.
 
 The `state.sqlite3` file is not created on new init. If present from a
-prior version it is left alone (the migration command moves it through
-the read-only-tombstone state in §4) until the operator removes it.
+prior version it is left alone until the operator archives or removes it.
+D113 later retired the operator-facing SQLite import command.
 
 ### 3. Daemon-required CLI behavior
 
@@ -218,7 +218,7 @@ shapes below document the original D094 cutover design; current Striatum keeps
 the spellings parseable only to return a clear exit-code-12 refusal before
 importing SQLite migration code.
 
-The cutover command is the per-repo analogue of RFC 0033 §4:
+The original cutover command was the per-repo analogue of RFC 0033 §4:
 
 ```text
 striatum daemon migrate-repo-local --repo <path> --dry-run
@@ -387,10 +387,9 @@ substrate flip enables.
 ## Compatibility and Migration
 
 - **Existing target repositories** with `.striatum/state.sqlite3` continue
-  to work *only* through the migration command. CLI verbs against an
-  unmigrated repo refuse with a documented "repo not migrated" error
-  (exit code 12, new; reserved here) and point at
-  `striatum daemon migrate-repo-local`.
+  to require operator cleanup before registration. D113 retired the writable
+  SQLite import path; current CLI verbs refuse with exit code 12 and point at
+  archive/remove plus `striatum adopt` or `striatum repo add --init`.
 - **Existing dogfood scaffolds** under `docs/dogfood/<NNN>/` are frozen
   historical artifacts. Their workflow JSON references and any
   embedded SQLite path strings document the V1 substrate. They are not
@@ -595,14 +594,13 @@ Terms to add to `docs/UBIQUITOUS_LANGUAGE.md` after acceptance:
   Every verb routes through the daemon RPC envelope; the daemon is the
   single writer. There is no SQLite fallback.
 - **Tombstone SQLite** — the read-only `.striatum/state.sqlite3.tombstone`
-  file created by `migrate-repo-local --keep-sqlite-readonly`. It is
-  not opened by any Striatum verb; it is preserved for operator
-  inspection until the operator removes it.
+  file created by historical migration fixtures or pre-D113 cutovers. It is
+  not opened by any Striatum verb; it is preserved for operator inspection
+  until the operator removes it.
 - **Repo-local migration checkpoint** — the marker row in
-  `repo_migrations` (daemon-DB table) that records a successful
-  per-repo migration. Used by `migrate-repo-local`'s idempotent
-  re-run check and by `daemon doctor`'s "is this repo migrated"
-  query.
+  `repo_migrations` (daemon-DB table) that recorded historical successful
+  per-repo migrations. It remains for bounded verification/fixture paths, not
+  as a current operator import workflow.
 - **Repo-local schema version** — retired. The daemon-DB schema
   version (RFC 0033 substrate version) now covers all schemas.
 

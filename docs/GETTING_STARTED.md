@@ -42,8 +42,9 @@ covers that path.
   the connection through `STRIATUM_DAEMON_DB_URL`,
   `~/.config/striatum/daemon.toml`, or `--postgres-url`. See
   [POSTGRES_TRANSITION.md](POSTGRES_TRANSITION.md) for the full
-  runbook (daemon doctor, daemon startup, per-repo migration,
-  verification, and the documented refusal exit codes 11
+  runbook (daemon doctor, daemon startup, retired SQLite import
+  handling, repository registration, verification, and the documented
+  refusal exit codes 11
   `daemon_unreachable` and 12 `repo_not_migrated`).
 
 ## Install striatum
@@ -134,9 +135,9 @@ striatum --repo "$TARGET_REPO" adopt --profile claude_code --json
 
 That guided command initializes `.striatum/`, writes the RFC 0015
 skill bundle to `.claude/skills/striatum-*/`, scaffolds the DDD docs,
-and migrates/registers the repo with daemon PostgreSQL when the daemon
-DB URL is configured. The bundle teaches a Claude Code session how to
-drive the runner without reading the striatum source.
+and registers the repo with daemon PostgreSQL when the daemon DB URL is
+configured. The bundle teaches a Claude Code session how to drive the runner
+without reading the striatum source.
 
 ### If your agent is Codex CLI
 
@@ -239,8 +240,8 @@ Authoritative workflow state lives in the daemon-owned PostgreSQL
 instance under a `repository_id` scope (D094 / RFC 0043). `adopt` and
 `repo add --init` register the repository without creating
 `state.sqlite3`; if the directory already carried a V1 `state.sqlite3`
-from a pre-D094 install, run the per-repo migration described above
-before driving workflow verbs.
+from a pre-D094 install, archive or remove that legacy SQLite file before
+driving workflow verbs.
 
 `.striatum/` is added to `.gitignore`. Repository files outside
 `.striatum/` (artifacts, decisions, evidence exports) are durable
@@ -294,8 +295,8 @@ an existing example fixture.
 - **[CLI_REFERENCE.md](CLI_REFERENCE.md)** — every CLI verb,
   flat list, with stable exit codes.
 - **[POSTGRES_TRANSITION.md](POSTGRES_TRANSITION.md)** — operator
-  runbook for the D094 / RFC 0043 PostgreSQL cutover and per-repo
-  migration.
+  runbook for the D094 / RFC 0043 PostgreSQL cutover, retired SQLite
+  import handling, and repository registration.
 - **[SPEC.md](SPEC.md)** — the implementation contract for the
   current V1 surface.
 - **[INDEX.md](INDEX.md)** — every doc in `docs/` with a one-line

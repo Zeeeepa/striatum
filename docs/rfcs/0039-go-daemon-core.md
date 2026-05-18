@@ -235,16 +235,16 @@ run: only one daemon owns the Postgres database at a time. The pidfile
 
 ### 4. Selection mechanism
 
-A new operator-side config flag chooses which daemon implementation
-runs:
+Superseded by D111 / RFC 0068 follow-through: the selection mechanism below
+was transitional and no longer selects a production daemon. Current production
+startup uses the Go daemon; `--core python` and `STRIATUM_DAEMON_CORE=python`
+are compatibility spellings that refuse rather than booting a Python daemon.
 
 - `striatum daemon start` (Python CLI) defaults to the Go daemon after D109.
-- `striatum daemon start --core python` boots the transitional Python daemon
-  while deletion work drains.
-- `STRIATUM_DAEMON_CORE=python` selects that transitional escape by default
-  for a process environment.
-- RFC 0068 retires the Python daemon after the fail-closed ledger is removed
-  or those methods leave the production contract.
+- `striatum daemon start --core python` is retired by D111.
+- `STRIATUM_DAEMON_CORE=python` is retired by D111.
+- RFC 0068 tracks deletion of the legacy Python daemon module after fixture
+  cleanup.
 
 The Python CLI launches the Go daemon as a subprocess via the packaged
 `striatum._daemongo` binary when present, then falls back to

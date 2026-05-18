@@ -93,7 +93,7 @@ striatum daemon service start --manager auto --json
 # OR: striatum daemon start --json &
 
 # 4. Adopt a target repo: init scratch, install skills/plugins,
-#    scaffold DDD docs, and migrate/register the repo in Postgres.
+#    scaffold DDD docs, and register the repo in Postgres.
 TARGET_REPO=/path/to/your/repo
 striatum --repo "$TARGET_REPO" adopt --profile claude_code --json
 
@@ -210,7 +210,7 @@ harness friction worth filing in `HARNESS_FRICTION_PATTERNS.md`.
   [`WRITING_WORKFLOWS.md`](WRITING_WORKFLOWS.md).
 - **System architecture (Mermaid)** —
   [`README.md`](../README.md) §"At a glance".
-- **Postgres prerequisites + per-repo migration** —
+- **Postgres prerequisites + repository registration** —
   [`POSTGRES_TRANSITION.md`](POSTGRES_TRANSITION.md).
 - **Target-repo layout recommendations** —
   [`CONSUMER_REPO_LAYOUT.md`](CONSUMER_REPO_LAYOUT.md).

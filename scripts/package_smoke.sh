@@ -138,7 +138,6 @@ if smoke_create_pg_db "$PACKAGE_VENV/bin/python" "$PG_ENV"; then
   # shellcheck disable=SC1090
   source "$PG_ENV"
   export STRIATUM_DAEMON_DB_URL="$PG_DATABASE_URL"
-  export STRIATUM_DAEMON_REGISTRY="$TMP/daemon/striatumd.sqlite3"
   export STRIATUM_DAEMON_RUNTIME_DIR="$TMP/runtime"
   export STRIATUM_DAEMON_SOCKET="$TMP/runtime/striatumd.sock"
   export STRIATUM_PG_DOCTOR_TEST_HARNESS_OWNER_OK=1

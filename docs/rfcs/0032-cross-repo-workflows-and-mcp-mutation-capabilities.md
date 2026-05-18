@@ -132,7 +132,7 @@ Rules:
   registration order, or an explicit `primary_repository_id`).
 - Each repo must be registered with the daemon before `run prepare`.
   Day-zero registration is handled by `striatum adopt`, `striatum repo add
-  <path> --init`, or the per-repo migration command.
+  <path> --init`, or by retiring legacy SQLite state before registration.
 - Cross-repo run state is stored in daemon-owned PostgreSQL under the
   participating repositories' `repository_id` scopes. No per-repo SQLite
   rows are written; crash recovery reconciles daemon Postgres rows.

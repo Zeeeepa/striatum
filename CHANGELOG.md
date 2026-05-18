@@ -29,6 +29,9 @@ Recent checkpoints:
   CLI-shaped aliases through `tools/list` / `tools/call`. Production MCP tool
   discovery stays on the daemon registry surface, while `striatum/invoke` and
   read resources remain available only as compatibility/manual paths.
+- Active operator docs now frame legacy SQLite handling as archive/remove plus
+  repository registration, not a current per-repo migration workflow; smoke
+  scripts also stopped exporting the legacy daemon SQLite registry path.
 - The command authority matrix now names the bounded direct-PostgreSQL
   bootstrap/admin plane, and an architecture guardrail scans Python client/CLI
   sources so new direct daemon-PG helper imports must be explicitly listed.

@@ -866,7 +866,7 @@ review and plan are root-level operator artifacts:
     preventing a route-layer crash from falling through to repo-local
     SQLite. The legacy SQLite service quarantine has landed; remaining
     follow-up is to shrink the named migration/test-fixture exceptions and
-    close the one-way import window. The repo administration
+    convert/delete guarded one-way migration fixtures. The repo administration
     verbs are no longer part of that debt: `repo.add`, `repo.list`, and
     `repo.remove` now route through daemon RPC, register directly in
     `striatumd.repositories`, and `repo add --init` creates only operational
@@ -1155,7 +1155,7 @@ review and plan are root-level operator artifacts:
     admin SQL; `daemon service install/start/status` renders and controls
     systemd-user or launchd daemon services; `striatum adopt` initializes
     scratch, installs skill/plugin bundles, scaffolds DDD docs, and
-    migrates/registers the repo into daemon PostgreSQL; `doctor
+    registers the repo into daemon PostgreSQL; `doctor
     --first-run` returns a V1 diagnostic report covering daemon socket,
     Go daemon binary provenance, Postgres, runtime token, repo
     registration, MCP visibility, a sample read route, and daemon
@@ -1306,9 +1306,9 @@ review and plan are root-level operator artifacts:
     the call is in a named one-way migration or fixture path. `dashboard.all`
     is now a Go/PostgreSQL read-only projection with per-active-run
     `run_progress` parity for phase progress, auto-finalize dry-run visibility,
-    and supervisor stalls. Production Python daemon startup now uses
-    PostgreSQL metadata/sweep plumbing when PostgreSQL is configured,
-    and the Go daemon has a resident recovery scheduler over active PostgreSQL
+    and supervisor stalls. The legacy Python daemon module path now uses
+    PostgreSQL metadata/sweep plumbing when explicitly exercised by fixtures;
+    the Go daemon has a resident recovery scheduler over active PostgreSQL
     runs. Daemon MCP resource list/read now use PostgreSQL-backed repository
     visibility plus status/doctor/run/why/blocker/dashboard/stale-lease
     projections when `pg_conn` is present; the no-`pg_conn` SQLite registry

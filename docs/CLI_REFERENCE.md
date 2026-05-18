@@ -112,8 +112,8 @@ optional flags scaffold extra material:
 
 `striatum adopt` is the day-zero guided flow. It initializes
 `.striatum/`, installs the selected skill/plugin profile, scaffolds the
-DDD docs, migrates/registers the repo into daemon PostgreSQL when a
-Postgres URL is configured, and returns a suggested starter workflow
+DDD docs, registers the repo into daemon PostgreSQL when a Postgres URL is
+configured, and returns a suggested starter workflow
 path. Use `--dry-run` to preview, or `--no-register` when you only want
 the filesystem setup.
 
@@ -201,11 +201,7 @@ striatum daemon doctor [--postgres-url <url>] [--apply-migrations]
                        [--explain] [--authority] [--repo <path>] [--json]
 striatum daemon migrate --from sqlite --to pg [retired compatibility refusal]
 striatum daemon migrate-repo-local --from sqlite --to pg
-                         [--repo <path>] [--postgres-url <url>]
-                         [--dry-run] [--verify-cutover]
-                         [--keep-sqlite-readonly |
-                          --no-keep-sqlite-readonly --confirm-delete]
-                         [--json]
+                         [--repo <path>] [retired compatibility refusal]
 striatumd [daemon-start options]
 striatum repo add <path> [--init] [--no-migrate compatibility flag]
 striatum repo list
@@ -264,9 +260,9 @@ distributions are deferred.
 
 `daemon doctor` reports daemon DB connectivity, substrate version,
 schema version, audit-chain status, segment-manifest verification,
-and per-repo migration status. It runs even when the daemon
-process is down (it reads configuration directly) and emits the
-remediation list operators need to bring the daemon online.
+repository registration status, and retired SQLite evidence. It runs
+even when the daemon process is down (it reads configuration directly)
+and emits the remediation list operators need to bring the daemon online.
 `--apply-migrations` brings the daemon-owned schema forward
 in-place; without it, doctor reports the required version and
 exits so operators can review before applying.

@@ -1250,11 +1250,11 @@ verbs are daemon/Postgres-backed and fail closed without the daemon or
 repository registration. Legacy SQLite paths are quarantined for golden
 fixtures and explicitly gated compatibility tests only.
 
-Registry location is platform-local and overrideable for tests with
-`STRIATUM_DAEMON_REGISTRY`; runtime files are overrideable with
-`STRIATUM_DAEMON_RUNTIME_DIR`. Linux uses XDG state/runtime locations;
-macOS uses Application Support for registry state and Caches for
-runtime files. Windows daemon support is not claimed in V1.
+The legacy Python daemon registry location remains overrideable for paired
+fixture tests with `STRIATUM_DAEMON_REGISTRY`; production daemon state is
+Postgres. Runtime files are overrideable with `STRIATUM_DAEMON_RUNTIME_DIR`.
+Linux uses XDG runtime locations; macOS uses Caches for runtime files. Windows
+daemon support is not claimed in V1.
 
 `striatum repo add <path>` registers an initialized target repository.
 It authorizes the daemon admin token before recording the repository in

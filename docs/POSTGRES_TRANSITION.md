@@ -2,8 +2,9 @@
 
 This runbook walks an operator from a pre-D094 install through the
 post-D094 PostgreSQL-first state model: prerequisites, daemon
-configuration, daemon doctor, per-repo migration, verification, and
-the documented refusal codes you will hit if a step is skipped.
+configuration, daemon doctor, retired SQLite import handling, repository
+registration, verification, and the documented refusal codes you will hit if
+a step is skipped.
 
 Read [HOW_TO_HUMAN.md](HOW_TO_HUMAN.md) for the broader operator
 playbook; read [SPEC.md § State Store](SPEC.md#state-store) and
@@ -31,10 +32,11 @@ Two related changes shape the current product:
    the daemon side: every mutation, recovery, and read handler gained
    a native PG handler in `src/striatum/daemon_pg/handlers/`.
    D107 / RFC 0068 and D109 then moved the production default to the
-   Go daemon while the Python daemon remains only as an explicit
-   transitional escape. The CLI dispatch routes mapped verbs through
-   the daemon's Unix socket; mapped methods fail closed instead of
-   falling back to SQLite when the daemon is unreachable. **Schema v6**
+   Go daemon; D111 retired the Python daemon selector, so `--core python`
+   and `STRIATUM_DAEMON_CORE=python` no longer select a production daemon.
+   The CLI dispatch routes mapped verbs through the daemon's Unix socket;
+   mapped methods fail closed instead of falling back to SQLite when the
+   daemon is unreachable. **Schema v6**
    (migration 0006) promotes the per-event chain hash anchors out
    of `payload_json._event_chain` into dedicated `previous_hash` /
    `row_hash` columns and adds a `striatumd.repo_event_chain_heads`
@@ -216,11 +218,12 @@ SQLite migration code. Current Striatum does not migrate legacy SQLite files
 as an operator workflow. Archive or remove legacy SQLite files, then register
 the target repository with `striatum adopt` or `striatum repo add --init`.
 
-## Verify the migration
+## Verify registration and retired SQLite state
 
 ```bash
-# Repo-local workflow state now reads from Postgres. Pre-existing
-# runs and jobs remain queryable through the normal CLI surfaces.
+# Repo-local workflow state now reads from Postgres under the registered
+# repository id. New runs and jobs are queryable through the normal CLI
+# surfaces.
 striatum daemon doctor \
   --repo /path/to/target \
   --authority \
@@ -232,14 +235,11 @@ striatum --repo /path/to/target list runs --json
 
 `daemon doctor --repo <path> --authority --json` emits
 `striatum.repo_cutover_report.v1`. The report confirms repository
-registration, the `repo_migrations`
-checkpoint, destination row counts not below checkpoint counts,
-absence of the live source `.striatum/state.sqlite3`, tombstone or
-delete finalization, sentinel absence or incomplete-finalization
-diagnosis, event-chain anchor health, and the bounded migration/test
-SQLite exception notes. It is verify-only: it uses Postgres queries
-and raw file/tombstone/sentinel stat/hash checks, and it does not open
-SQLite as a database or resume finalization.
+registration, absence or archival of the live source
+`.striatum/state.sqlite3`, event-chain anchor health for PostgreSQL state,
+and the bounded migration/test SQLite exception notes. It is verify-only: it
+uses Postgres queries and raw file/tombstone/sentinel stat/hash checks, and it
+does not open SQLite as a database or resume finalization.
 `daemon doctor --repo <path> --authority --json` mirrors the same
 verify-only repository report inside the doctor output and summarizes
 repository cutover health in `striatum.authority_report.v1`.
@@ -250,8 +250,8 @@ operator to archive/remove legacy SQLite files and register with `adopt` or
 `repo add --init`.
 
 `striatum daemon doctor --json` reports one substrate (Postgres),
-one schema version, and one audit chain after a successful
-migration. Existing dogfood scaffolds under `docs/dogfood/<NNN>/`
+one schema version, and one audit chain after successful registration.
+Existing dogfood scaffolds under `docs/dogfood/<NNN>/`
 are frozen historical artifacts; their `.striatum/state.sqlite3`
 references describe V1 behavior and are not migrated by this
 command.
@@ -271,26 +271,26 @@ for the full closed list.
 
 ## Rollback and inspection limits
 
-- **Pre-commit dry-run is the safe rollback.** Use `--dry-run` to
-  inspect counts and audit-chain anchors before committing to a
-  full migration.
+- **Archive before registration is the safe rollback.** Current Striatum does
+  not perform operator SQLite imports. If a target repo still has legacy
+  `.striatum/state.sqlite3`, archive it before registration so the old local
+  mirror remains available for manual inspection.
 - **Tombstone is read-only.** No Striatum verb opens
   `.striatum/state.sqlite3.tombstone`. SQLite tooling can still
   inspect it directly; it remains owner-readable for as long as
   you keep it. You can delete it manually when you no longer want
   the local mirror.
-- **There is no "un-migrate" command.** Once the Postgres-side
-  transaction commits and the SQLite is tombstoned or deleted, the
-  authoritative state is in Postgres. Recovery from a corrupted
-  migration uses standard Postgres point-in-time recovery
-  (operator-owned), or restoring the tombstone if you kept it.
+- **There is no "un-migrate" command.** Once Postgres-side registration
+  exists, deleting it should be treated as data deletion. Normal recovery is
+  restoring the Postgres database from backup or PITR and restoring the target
+  repo from the matching Git snapshot.
 - **The tombstone is not a live mirror.** It is the pre-cutover
-  snapshot. Workflow state mutated after the migration lives in
+  snapshot. Workflow state mutated after registration lives in
   Postgres only.
 
 ## RFC 0048 status (substrate port)
 
-RFC 0043 V1.6 shipped the schema flip, the migration command, and
+RFC 0043 V1.6 shipped the schema flip, the historical migration command, and
 the `STRIATUM_DAEMON_REQUIRED` enforcement. RFC 0048 closes the
 remaining substrate-port work on the daemon side:
 
@@ -304,8 +304,8 @@ remaining substrate-port work on the daemon side:
   fixtures: 12 read handlers (`go/pkg/reads/`) and selected mutation
   plumbing (`go/pkg/mutations/`) were implemented as developer-harness
   counterparts. D107 / RFC 0068 later promoted this to production daemon
-  port work; D109 makes Go the default daemon core after active
-  contract-method parity.
+  port work; D109 made Go the default daemon core after active
+  contract-method parity, and D111 retired the Python daemon selector.
 - **Phase C (v1.51.0–v1.52.0)** — CLI dispatch routes ~30 verbs
   through the Unix-socket daemon RPC; the daemon bootstraps an
   admin client into `striatumd.clients` (Postgres) and writes its
@@ -366,7 +366,7 @@ A ported single-repo RPC verb now flows through:
 - [DECISION_LOG.md § D094](DECISION_LOG.md) — the decision that
   superseded the V1 carve-out.
 - [rfcs/0043-postgres-as-sole-substrate-and-daemon-required-runtime.md](rfcs/0043-postgres-as-sole-substrate-and-daemon-required-runtime.md)
-  — the full RFC including acceptance criteria and the migration
+  — the full RFC including acceptance criteria and the historical migration
   body.
 - [rfcs/0048-daemon-side-substrate-migration.md](rfcs/0048-daemon-side-substrate-migration.md)
   — the RFC that tracked and completed the daemon-side handler port.

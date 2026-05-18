@@ -32,7 +32,7 @@ work on Engram dogfood history.
   scratch (supervised wrapper FIFOs, pidfiles, the capability-token
   cache); the daemon is a hard prerequisite for every Striatum verb,
   and `--no-daemon` is retired. See `docs/POSTGRES_TRANSITION.md` for
-  the operator runbook and the per-repo migration command.
+  the operator runbook, retired SQLite handling, and repository registration.
 - Repository files are durable provenance, not the live message bus.
 - Marker files, tmux panes, terminal output, and provider hooks are not
   authoritative workflow state.
