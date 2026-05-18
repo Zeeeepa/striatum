@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import json
-import sqlite3
 from pathlib import Path
 
+from striatum.legacy_sqlite.db import connect
 from test_web_ui import (
     _git_init_repo,
     _http_get_raw,
@@ -89,7 +89,7 @@ def test_cancel_completed_returns_409(tmp_path: Path) -> None:
     _striatum_init(tmp_path)
     run_id = _prepare_run(tmp_path)
     # Force-mark completed.
-    with sqlite3.connect(tmp_path / ".striatum" / "state.sqlite3") as conn:
+    with connect(tmp_path) as conn:
         conn.execute("UPDATE runs SET state = 'completed' WHERE run_id = ?", (run_id,))
         conn.commit()
     proc, port = _spawn_service(tmp_path, "--web", "--allow-mutations")

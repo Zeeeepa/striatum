@@ -133,6 +133,8 @@ Recent checkpoints:
   facades.
 - The GH #7 terminal-blocker regression test no longer imports `sqlite3` just
   to mock the early-return connection path.
+- The web cancel-route test now uses the explicit legacy SQLite fixture helper
+  instead of importing `sqlite3` directly for its completed-run setup.
 - Operator docs now describe legacy SQLite migration/tombstone paths as
   historical remnants or fixture-only compatibility, while current setup
   guidance uses daemon PostgreSQL registration.
