@@ -15,10 +15,10 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Iterator
 
-from striatum import daemon as daemon_registry
 from striatum.daemon_pg.connection import connect
 from striatum.daemon_pg.handlers.context import canonical_event_hash
 from striatum.daemon_pg.migrations import apply_migrations
+from striatum.daemon_pg.sqlite_compat import repo_identity
 from striatum.errors import SchemaVersionError, StriatumError
 from striatum.migrations import LATEST_VERSION, current_user_version
 from striatum.primitives import json_dumps, utc_now
@@ -829,7 +829,7 @@ def _lookup_registered(conn: Any, repo: Path) -> str | None:
         state_db = db_path(repo)
         if not state_db.exists():
             return None
-        identity = daemon_registry._repo_identity(repo)
+        identity = repo_identity(repo)
         cur.execute(
             """
             SELECT repository_id
@@ -860,7 +860,7 @@ def _ensure_registered(conn: Any, repo: Path) -> str:
             """,
             (
                 repository_id,
-                daemon_registry._repo_identity(repo),
+                repo_identity(repo),
                 str(repo),
                 str(db_path(repo)),
                 repo.name,

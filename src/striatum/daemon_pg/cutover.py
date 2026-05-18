@@ -7,11 +7,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from striatum import daemon as sqlite_daemon
-from striatum.primitives import utc_now
 from striatum.daemon_pg.connection import connect
 from striatum.daemon_pg.migrations import apply_migrations, read_schema_version
+from striatum.daemon_pg.sqlite_compat import audit_chain_records
 from striatum.errors import StriatumError
+from striatum.primitives import utc_now
 
 CUTOVER_COMPLETED_KEY = "pg_cutover_completed_at"
 CUTOVER_FINAL_HASH_KEY = "pg_cutover_final_hash"
@@ -32,7 +32,7 @@ def migrate(options: CutoverOptions) -> dict[str, Any]:
         _ensure_not_already_cut_over(source)
         source_counts = _source_counts(source)
         source_final_hash = _source_final_hash(source)
-        source_problems = sqlite_daemon._audit_chain_records(source)
+        source_problems = audit_chain_records(source)
         if source_problems:
             raise StriatumError("V1 daemon registry audit chain is not clean; refusing cutover", exit_code=13)
         pg = connect(options.postgres_url)

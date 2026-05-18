@@ -132,6 +132,9 @@ The Go daemon port lands through independent, testable slices:
   PostgreSQL repository-registration helpers used by day-zero and daemon RPC
   live in `striatum.daemon_pg.repositories`; remaining imports from
   `striatum.daemon` are legacy daemon, migration, or compatibility debt.
+- SQLite-era repository identity and daemon audit-chain validation used by
+  one-way migration fixtures now live in `striatum.daemon_pg.sqlite_compat`
+  instead of importing `striatum.daemon`.
 
 ## Retirement Gate
 

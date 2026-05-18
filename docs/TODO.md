@@ -1274,7 +1274,10 @@ review and plan are root-level operator artifacts:
     module deletion after the retirement ledger and SQLite import window close.
     The multi-repo harness participant runner no longer creates or queries
     repo-local SQLite; cross-repo E2E assertions now inspect daemon-owned
-    PostgreSQL participant rows.
+    PostgreSQL participant rows. SQLite-era repository identity and daemon
+    audit-chain verification used by one-way migration fixtures now live in
+    `striatum.daemon_pg.sqlite_compat`, further shrinking imports from the
+    legacy Python daemon module.
 
 62. **RFC 0069: PostgreSQL-only daemon-global surfaces.** Most done. Port daemon
     sweep, dashboard-all, daemon MCP resource list/read, and
