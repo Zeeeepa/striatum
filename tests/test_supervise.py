@@ -3,13 +3,14 @@ from __future__ import annotations
 import json
 import os
 import signal
-import sqlite3
 import subprocess
 import sys
 import time
 from copy import deepcopy
 from pathlib import Path
-from typing import Any, Callable, cast
+from typing import Any, Callable, Mapping, cast
+
+from striatum.legacy_sqlite.db import connect
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -203,24 +204,23 @@ def pid_alive(pid: int) -> bool:
     return True
 
 
-def supervisor_row(repo: Path, supervisor_id: str) -> sqlite3.Row | None:
-    conn = sqlite3.connect(repo / ".striatum" / "state.sqlite3")
+def supervisor_row(repo: Path, supervisor_id: str) -> Mapping[str, Any] | None:
+    conn = connect(repo)
     try:
-        conn.row_factory = sqlite3.Row
         row = conn.execute(
             "SELECT * FROM process_supervisors WHERE supervisor_id = ?",
             (supervisor_id,),
         ).fetchone()
     finally:
         conn.close()
-    return cast(sqlite3.Row | None, row)
+    return cast(Mapping[str, Any] | None, row)
 
 
 def set_supervisor_fields(repo: Path, supervisor_id: str, **fields: object) -> None:
     assert fields
     assignments = ", ".join(f"{name} = ?" for name in fields)
     values = [*fields.values(), supervisor_id]
-    conn = sqlite3.connect(repo / ".striatum" / "state.sqlite3")
+    conn = connect(repo)
     try:
         conn.execute(
             f"UPDATE process_supervisors SET {assignments} WHERE supervisor_id = ?",
@@ -232,7 +232,7 @@ def set_supervisor_fields(repo: Path, supervisor_id: str, **fields: object) -> N
 
 
 def supervisor_events(repo: Path, supervisor_id: str) -> list[tuple[str, JsonDict]]:
-    conn = sqlite3.connect(repo / ".striatum" / "state.sqlite3")
+    conn = connect(repo)
     try:
         rows = conn.execute(
             "SELECT event_type, payload_json FROM events WHERE event_type LIKE 'supervisor.%' ORDER BY event_id"
@@ -460,7 +460,7 @@ def test_supervise_send_two_packets_in_a_row(tmp_path: Path) -> None:
     second_payload = json.dumps({"packet_id": second_id, "synthetic": True})
     second_message_id = "msg_supervise_test_second"
     second_lease_id = "lease_supervise_test_second"
-    conn = sqlite3.connect(tmp_path / ".striatum" / "state.sqlite3")
+    conn = connect(tmp_path)
     try:
         # Use a kind other than 'work' so the partial unique index on
         # work-state messages by job is not tripped — supervise send only

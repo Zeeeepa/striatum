@@ -143,6 +143,9 @@ Recent checkpoints:
 - Pause/resume, cancel, retry-job, and recovery-resume tests now use the
   explicit legacy SQLite fixture helper instead of opening repo-local SQLite
   directly.
+- Process-adapter, dogfood recovery/publish, session-close, and supervise
+  tests now use the explicit legacy SQLite fixture helper instead of opening
+  repo-local SQLite directly.
 - Stale remediation/review artifacts now call out deleted Python-daemon
   references as historical evidence instead of current source state.
 - Operator docs now describe legacy SQLite migration/tombstone paths as

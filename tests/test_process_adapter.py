@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import json
 import os
-import sqlite3
 import subprocess
 import sys
 import time
@@ -21,6 +20,8 @@ from pathlib import Path
 from typing import Any, cast
 
 import pytest
+
+from striatum.legacy_sqlite.db import connect
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -210,15 +211,12 @@ def _publish_artifact(repo: Path, session_id: str, job_id: str, lease_id: str,
 
 
 def _open_blocker(repo: Path, job_id: str) -> JsonDict | None:
-    conn = sqlite3.connect(repo / ".striatum" / "state.sqlite3")
-    try:
+    with connect(repo) as conn:
         row = conn.execute(
             "SELECT blocker_id, blocker_kind, severity, state, payload_json "
             "FROM blockers WHERE job_id = ? AND state = 'open' LIMIT 1",
             (job_id,),
         ).fetchone()
-    finally:
-        conn.close()
     if row is None:
         return None
     return {
@@ -231,24 +229,18 @@ def _open_blocker(repo: Path, job_id: str) -> JsonDict | None:
 
 
 def _job_state(repo: Path, job_id: str) -> str:
-    conn = sqlite3.connect(repo / ".striatum" / "state.sqlite3")
-    try:
+    with connect(repo) as conn:
         row = conn.execute("SELECT state FROM jobs WHERE job_id = ?", (job_id,)).fetchone()
-    finally:
-        conn.close()
     assert row is not None
     return str(row[0])
 
 
 def _process_executions(repo: Path, run_id: str) -> list[JsonDict]:
-    conn = sqlite3.connect(repo / ".striatum" / "state.sqlite3")
-    try:
+    with connect(repo) as conn:
         rows = conn.execute(
             "SELECT process_id, pid, state, exit_code FROM process_executions WHERE run_id = ?",
             (run_id,),
         ).fetchall()
-    finally:
-        conn.close()
     return [
         {"process_id": r[0], "pid": r[1], "state": r[2], "exit_code": r[3]}
         for r in rows
@@ -411,15 +403,12 @@ def test_reconcile_keeps_alive_pid_running(tmp_path: Path) -> None:
     ))
     # Manually flip the row state back to 'running' with the current
     # python pid (which is alive) to simulate a still-running process.
-    conn = sqlite3.connect(tmp_path / ".striatum" / "state.sqlite3")
-    try:
+    with connect(tmp_path) as conn:
         conn.execute(
             "UPDATE process_executions SET state = 'running', pid = ? WHERE run_id = ?",
             (os.getpid(), run_id),
         )
         conn.commit()
-    finally:
-        conn.close()
     result = _data(_run_cli(
         tmp_path, "recovery", "process-reconcile", "--run-id", run_id,
     ))
@@ -459,8 +448,7 @@ def test_reconcile_transitions_dead_pid_to_lost(tmp_path: Path) -> None:
     # resolve the inline blocker so the reconciler's blocker can land,
     # and reset the job state so the reconciler observes a fresh
     # post-loss validation pass.
-    conn = sqlite3.connect(tmp_path / ".striatum" / "state.sqlite3")
-    try:
+    with connect(tmp_path) as conn:
         conn.execute(
             "UPDATE process_executions SET state = 'running', pid = ? WHERE run_id = ?",
             (dead_pid, run_id),
@@ -471,8 +459,6 @@ def test_reconcile_transitions_dead_pid_to_lost(tmp_path: Path) -> None:
         )
         conn.execute("UPDATE jobs SET state = 'running' WHERE job_id = ?", (job_id,))
         conn.commit()
-    finally:
-        conn.close()
     result = _data(_run_cli(
         tmp_path, "recovery", "process-reconcile", "--run-id", run_id,
     ))
@@ -498,15 +484,12 @@ def test_doctor_flags_pid_gone(tmp_path: Path) -> None:
         "--session-id", session_id, "--lease-id", lease_id, "--stdin", "none",
     ))
     # Plant the bookkeeping mismatch.
-    conn = sqlite3.connect(tmp_path / ".striatum" / "state.sqlite3")
-    try:
+    with connect(tmp_path) as conn:
         conn.execute(
             "UPDATE process_executions SET state = 'running', pid = 999999 WHERE run_id = ?",
             (run_id,),
         )
         conn.commit()
-    finally:
-        conn.close()
     result = _data(_run_cli(
         tmp_path, "doctor", "--run-id", run_id, "--verbose",
     ))
@@ -632,15 +615,11 @@ def test_migrations_v8_v9_idempotent(tmp_path: Path) -> None:
     # Re-init touches the DB; running migrations a second time must be
     # safe (apply_migrations short-circuits when user_version matches).
     legacy_init_repo(tmp_path)
-    conn = sqlite3.connect(db_path)
-    try:
+    with connect(tmp_path) as conn:
         version = conn.execute("PRAGMA user_version").fetchone()[0]
-    finally:
-        conn.close()
     assert version >= 9
     # Verify the columns landed correctly.
-    conn = sqlite3.connect(db_path)
-    try:
+    with connect(tmp_path) as conn:
         cols = [r[1] for r in conn.execute("PRAGMA table_info(blockers)").fetchall()]
         assert "payload_json" in cols
         states_check = conn.execute(
@@ -648,5 +627,3 @@ def test_migrations_v8_v9_idempotent(tmp_path: Path) -> None:
         ).fetchone()
         assert "timed_out" in states_check[0]
         assert "lost" in states_check[0]
-    finally:
-        conn.close()

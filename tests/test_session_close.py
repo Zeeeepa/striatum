@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import json
 import os
-import sqlite3
 import subprocess
 import sys
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, Mapping, cast
+
+from striatum.legacy_sqlite.db import connect
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -101,20 +102,19 @@ def register_reviewer(repo: Path, run_id: str, *, lane: str = "local") -> str:
     return str(payload["session_id"])
 
 
-def session_row(repo: Path, session_id: str) -> sqlite3.Row | None:
-    conn = sqlite3.connect(repo / ".striatum" / "state.sqlite3")
+def session_row(repo: Path, session_id: str) -> Mapping[str, Any] | None:
+    conn = connect(repo)
     try:
-        conn.row_factory = sqlite3.Row
         row = conn.execute(
             "SELECT * FROM sessions WHERE session_id = ?", (session_id,)
         ).fetchone()
     finally:
         conn.close()
-    return cast(sqlite3.Row | None, row)
+    return cast(Mapping[str, Any] | None, row)
 
 
 def session_closed_events(repo: Path, *, session_id: str | None = None) -> list[JsonDict]:
-    conn = sqlite3.connect(repo / ".striatum" / "state.sqlite3")
+    conn = connect(repo)
     try:
         rows = conn.execute(
             "SELECT payload_json FROM events WHERE event_type = 'session.closed' ORDER BY event_id"
@@ -511,7 +511,7 @@ def test_run_canceled_auto_closes_active_sessions(tmp_path: Path) -> None:
 
     # Find the queued draft job and cancel it with --cascade so all
     # downstream jobs get canceled too.
-    conn = sqlite3.connect(tmp_path / ".striatum" / "state.sqlite3")
+    conn = connect(tmp_path)
     try:
         row = conn.execute(
             "SELECT job_id FROM jobs WHERE run_id = ? AND state = 'queued' ORDER BY workflow_job_id LIMIT 1",
@@ -561,7 +561,7 @@ def test_doctor_no_longer_flags_terminal_run_after_auto_close(tmp_path: Path) ->
     register_reviewer(tmp_path, run_id)
 
     # Cancel everything (cheaper than driving the full lifecycle).
-    conn = sqlite3.connect(tmp_path / ".striatum" / "state.sqlite3")
+    conn = connect(tmp_path)
     try:
         row = conn.execute(
             "SELECT job_id FROM jobs WHERE run_id = ? AND state = 'queued' ORDER BY workflow_job_id LIMIT 1",

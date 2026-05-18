@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import os
-import sqlite3
 import subprocess
 import sys
 from datetime import UTC, datetime, timedelta
@@ -122,8 +121,7 @@ def test_surgical_recovery_reactivates_expired_repo_write_job(tmp_path: Path) ->
         )
 
     assert result["status"] == "recovered"
-    conn = sqlite3.connect(tmp_path / ".striatum" / "state.sqlite3")
-    try:
+    with connect(tmp_path) as conn:
         lease = conn.execute(
             "SELECT state FROM leases WHERE lease_id = ?", (str(packet["lease_id"]),)
         ).fetchone()
@@ -134,11 +132,12 @@ def test_surgical_recovery_reactivates_expired_repo_write_job(tmp_path: Path) ->
         supervisor = conn.execute(
             "SELECT state FROM process_supervisors WHERE supervisor_id = 'sup_test'"
         ).fetchone()
-        assert lease == ("active",)
-        assert job == ("running", str(packet["lease_id"]))
-        assert supervisor == ("attached",)
-    finally:
-        conn.close()
+    assert lease is not None
+    assert job is not None
+    assert supervisor is not None
+    assert tuple(lease) == ("active",)
+    assert tuple(job) == ("running", str(packet["lease_id"]))
+    assert tuple(supervisor) == ("attached",)
 
 
 def test_surgical_recovery_refuses_missing_expected_artifact(tmp_path: Path) -> None:

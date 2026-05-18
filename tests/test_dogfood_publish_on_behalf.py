@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import os
-import sqlite3
 import subprocess
 import sys
 from pathlib import Path
@@ -147,33 +146,24 @@ def _write_artifact(repo: Path, text: str = "artifact\n") -> None:
 
 
 def _job_state(repo: Path, job_id: str) -> str:
-    db = sqlite3.connect(repo / ".striatum" / "state.sqlite3")
-    try:
+    with connect(repo) as db:
         row = db.execute("SELECT state FROM jobs WHERE job_id = ?", (job_id,)).fetchone()
         assert row is not None
         return str(row[0])
-    finally:
-        db.close()
 
 
 def _row_state(repo: Path, table: str, id_column: str, row_id: str) -> str:
-    db = sqlite3.connect(repo / ".striatum" / "state.sqlite3")
-    try:
+    with connect(repo) as db:
         row = db.execute(f"SELECT state FROM {table} WHERE {id_column} = ?", (row_id,)).fetchone()
         assert row is not None
         return str(row[0])
-    finally:
-        db.close()
 
 
 def _count(repo: Path, table: str, where: str, args: tuple[str, ...]) -> int:
-    db = sqlite3.connect(repo / ".striatum" / "state.sqlite3")
-    try:
+    with connect(repo) as db:
         row = db.execute(f"SELECT COUNT(*) FROM {table} WHERE {where}", args).fetchone()
         assert row is not None
         return int(row[0])
-    finally:
-        db.close()
 
 
 def test_publish_on_behalf_acks_publishes_and_completes_claimed_work(tmp_path: Path) -> None:
