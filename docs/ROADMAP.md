@@ -26,8 +26,10 @@ dependency edges, and "what would I do next" framing. Update on every
 - **Current workstream:** TODO 61-64 / RFC 0068-0071 architecture remediation.
   D107 supersedes D105: Go is now the default production daemon core, active
   contract-method parity is landed, Python CLI/web clients stay useful, and
-  the retired Python daemon module is deleted. SQLite eradication continues
-  across production and compatibility paths. D110
+  the retired Python daemon module is deleted. Broad direct repo-local SQLite
+  opens in the regression suites now use the explicit legacy fixture helper;
+  remaining SQLite eradication is legacy compatibility module,
+  migration/import fixture, and in-memory unit-fixture cleanup. D110
   removed the SQLite-bound migration and dogfood composite RPC names from the
   production contract, and D112 removed `apply.reviewed_patch`; stale direct
   calls to all removed names audit as `method_unknown`. D113 closes writable
@@ -1024,9 +1026,10 @@ Release order after Phase 0:
     `make daemon-go-conformance` green, keep writable SQLite import commands
     retired, keep the deleted daemon-global SQLite registry cutover helper out
     of production code, keep speculative cross-repo runner hooks trimmed until
-    a handler needs them, and delete or convert remaining legacy SQLite
-    fixtures/import paths; the retired Python daemon module is already
-    removed.
+    a handler needs them, and delete or replace remaining legacy SQLite
+    compatibility modules plus migration/in-memory fixtures; the retired
+    Python daemon module is already removed and broad direct repo-local test
+    opens are already converted.
 14. **TODO 62 / RFC 0069:** move daemon-global surfaces to PostgreSQL/Go,
     including scheduler cursors, PostgreSQL-backed daemon MCP resources, and
     PostgreSQL-backed daemon lifecycle/health/audit/doctor reads. The
