@@ -325,8 +325,9 @@ def test_upgrade_refuses_repo_local_sqlite_fallback_outside_test_harness(
     )
     monkeypatch.delenv("STRIATUM_TEST_HARNESS", raising=False)
     monkeypatch.setenv("STRIATUM_DAEMON_REQUIRED", "1")
+    sqlite_module = getattr(workflow_mod, "sqlite3")
     monkeypatch.setattr(
-        workflow_mod.sqlite3,
+        sqlite_module,
         "connect",
         lambda *_args, **_kwargs: pytest.fail("workflow upgrade opened repo-local SQLite"),
     )

@@ -10,6 +10,7 @@ from pathlib import Path
 import pytest
 
 from _harness import pg
+from striatum.daemon_pg.connection import connect
 from striatum.daemon_rpc.client import call_unix, hello_envelope
 from striatum.daemon_rpc.envelope import RpcEnvelope
 
@@ -128,7 +129,7 @@ def test_go_striatumd_bootstraps_fresh_admin_runtime_token(tmp_path: Path) -> No
         )
         assert response["ok"] is True, response
 
-        conn = pg.connect(ephemeral.database_url)
+        conn = connect(ephemeral.database_url)
         try:
             with conn.cursor() as cur:
                 cur.execute(

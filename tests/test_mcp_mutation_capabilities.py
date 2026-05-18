@@ -205,9 +205,9 @@ def test_daemon_mcp_unknown_tool_is_default_denied_and_audited(monkeypatch) -> N
 
 
 def test_daemon_rpc_dogfood_publish_on_behalf_fails_closed_without_sqlite(
-    monkeypatch,
+    monkeypatch: Any,
     tmp_path: Path,
-) -> None:  # type: ignore[no-untyped-def]
+) -> None:
     request_logs: list[dict[str, Any]] = []
 
     monkeypatch.setattr("striatum.daemon_rpc.server.request_id_seen", lambda *args, **kwargs: False)

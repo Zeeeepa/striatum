@@ -7,7 +7,10 @@ from collections.abc import Mapping
 from typing import Any
 
 from striatum.cli.introspect import next_actions as legacy_next_actions
-from striatum.daemon_pg.handlers.context import RepoHandlerContext
+from striatum.daemon_pg.handlers.context import (
+    RepoHandlerContext,
+    session_lane_attestation,
+)
 from striatum.daemon_pg.handlers.recovery_evidence.auto_finalize import (
     dry_run_projection as auto_finalize_dry_run_projection,
 )
@@ -162,7 +165,14 @@ def session_summaries(ctx: RepoHandlerContext, *, run_id: str | None) -> list[di
             """,
             tuple(args),
         )
-        return [row_to_json(row) for row in cur.fetchall()]
+        rows = [row_to_json(row) for row in cur.fetchall()]
+    for row in rows:
+        attestation = session_lane_attestation(ctx, session_id=str(row["session_id"]))
+        row["lane_attestation"] = attestation.get("state")
+        row["lane_attestation_reason"] = attestation.get("reason")
+        row["pid"] = attestation.get("pid")
+        row["supervisor_id"] = attestation.get("supervisor_id")
+    return rows
 
 
 def blocker_summaries(ctx: RepoHandlerContext, *, run_id: str | None, severity: str | None) -> list[dict[str, Any]]:
@@ -178,7 +188,8 @@ def blocker_summaries(ctx: RepoHandlerContext, *, run_id: str | None, severity: 
         cur.execute(
             f"""
             SELECT b.blocker_id, b.run_id, b.job_id, b.session_id, b.severity,
-                   b.blocker_kind, b.description, b.state,
+                   b.blocker_kind, b.description, b.state, b.created_at,
+                   b.payload_json,
                    j.workflow_job_id, j.state AS job_state
             FROM striatumd.blockers b
             LEFT JOIN striatumd.jobs j
@@ -638,6 +649,50 @@ def latest_verdict_for_job(ctx: RepoHandlerContext, *, job_id: str) -> dict[str,
     return row_to_json(row) if row is not None else None
 
 
+def _override_verdict_payloads(ctx: RepoHandlerContext, *, run_id: str) -> list[dict[str, Any]]:
+    with ctx.cursor() as cur:
+        cur.execute(
+            """
+            SELECT e.event_id, e.payload_json, e.created_at
+            FROM striatumd.events e
+            WHERE e.repository_id = %s
+              AND e.run_id = %s
+              AND e.event_type = 'verdict.overridden'
+            ORDER BY e.event_id
+            """,
+            (ctx.repository_id, run_id),
+        )
+        rows = [row_to_json(row) for row in cur.fetchall()]
+    payloads: list[dict[str, Any]] = []
+    for row in rows:
+        payload = parse_json_object(row.get("payload_json"))
+        verdict_id = payload.get("verdict_id")
+        if isinstance(verdict_id, str) and verdict_id and not payload.get("rationale"):
+            rationale = _verdict_rationale(ctx, verdict_id=verdict_id)
+            if rationale:
+                payload["rationale"] = rationale
+        payload["event_id"] = row.get("event_id")
+        payload["created_at"] = row.get("created_at")
+        payloads.append(payload)
+    return payloads
+
+
+def _verdict_rationale(ctx: RepoHandlerContext, *, verdict_id: str) -> str | None:
+    with ctx.cursor() as cur:
+        cur.execute(
+            """
+            SELECT v.rationale
+            FROM striatumd.verdicts v
+            WHERE v.repository_id = %s AND v.verdict_id = %s
+            """,
+            (ctx.repository_id, verdict_id),
+        )
+        row = cur.fetchone()
+    if row is None or not row.get("rationale"):
+        return None
+    return str(row["rationale"])
+
+
 def dashboard_payload(ctx: RepoHandlerContext, *, run_id: str) -> dict[str, Any]:
     if not run_exists(ctx, run_id):
         raise RpcError("not_found", f"unknown run_id {run_id}")
@@ -654,7 +709,12 @@ def dashboard_payload(ctx: RepoHandlerContext, *, run_id: str) -> dict[str, Any]
     events = events_for(ctx, run_id=run_id, limit=30)
     verdict_counts = Counter(row["verdict"] for row in verdict_rows(ctx, run_id=run_id))
     posture_counts = Counter(row["posture"] for row in verdict_rows(ctx, run_id=run_id))
-    override_verdicts = [event for event in events if event["event_type"] == "verdict.overridden"]
+    override_verdicts = _override_verdict_payloads(ctx, run_id=run_id)
+    override_verdict_counts = Counter(
+        str(row["verdict"])
+        for row in override_verdicts
+        if row.get("verdict")
+    )
     return {
         "run": run,
         "status": status_payload(ctx, run_id=run_id),
@@ -664,6 +724,6 @@ def dashboard_payload(ctx: RepoHandlerContext, *, run_id: str) -> dict[str, Any]
         "updated_at": ctx.now(),
         "workflow": workflow_for_run(ctx, run_id),
         "node_states": {job["workflow_job_id"]: job["state"] for job in jobs_for_run(ctx, run_id=run_id)},
-        "override_verdict_counts": {"total": len(override_verdicts)},
+        "override_verdict_counts": dict(override_verdict_counts),
         "override_verdicts": override_verdicts,
     }

@@ -975,8 +975,9 @@ Release order after Phase 0:
     including scheduler cursors, PostgreSQL-backed daemon MCP resources, and
     PostgreSQL-backed daemon lifecycle/health/audit/doctor reads. The
     dashboard-all run-progress slice now exposes phase progress,
-    auto-finalize dry-run visibility, and supervisor-stall detail; terminal
-    dashboard DTO routing and Go status detail remain.
+    auto-finalize dry-run visibility, and supervisor-stall detail; the
+    terminal dashboard now renders production text frames from daemon DTOs.
+    Go status detail remains.
 15. **TODO 63 / RFC 0070:** complete daemon client/service boundaries and
     remove direct client DB access.
 16. **TODO 64 / RFC 0071:** authority doctor and repository cutover report

@@ -55,7 +55,8 @@ def test_verify_cutover_reports_tombstoned_migration_without_opening_sqlite(
 ) -> None:
     repo = _repo_with_fixture(tmp_path)
     migrate_repo_local(RepoLocalMigrationOptions(repo=repo, postgres_url=pg_url))
-    monkeypatch.setattr(migration_mod.sqlite3, "connect", _fail_sqlite_connect)
+    sqlite_module = getattr(migration_mod, "sqlite3")
+    monkeypatch.setattr(sqlite_module, "connect", _fail_sqlite_connect)
 
     report = verify_repo_cutover(RepoLocalMigrationOptions(repo=repo, postgres_url=pg_url))
 
@@ -95,7 +96,8 @@ def test_verify_cutover_diagnoses_incomplete_finalization_without_opening_sqlite
     )
     with pytest.raises(RuntimeError):
         migrate_repo_local(RepoLocalMigrationOptions(repo=repo, postgres_url=pg_url))
-    monkeypatch.setattr(migration_mod.sqlite3, "connect", _fail_sqlite_connect)
+    sqlite_module = getattr(migration_mod, "sqlite3")
+    monkeypatch.setattr(sqlite_module, "connect", _fail_sqlite_connect)
 
     report = verify_repo_cutover(RepoLocalMigrationOptions(repo=repo, postgres_url=pg_url))
 

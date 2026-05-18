@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import json
+import io
 import os
 import subprocess
 import sys
 from pathlib import Path
 from typing import Any
+
+import pytest
 
 from test_cli_mvp import prepare_started_run, run_cli, run_cli_text
 
@@ -228,6 +231,106 @@ def test_dashboard_once_renders_one_frame_and_exits(tmp_path: Path) -> None:
             "failed ",
         )
     )
+
+
+def test_dashboard_once_renders_daemon_payload_text(
+    tmp_path: Path,
+    monkeypatch: Any,
+) -> None:
+    dashboard = _import_dashboard()
+    from striatum import service_daemon
+
+    monkeypatch.delenv("STRIATUM_TEST_HARNESS", raising=False)
+    monkeypatch.setenv("STRIATUM_DAEMON_REQUIRED", "1")
+
+    def fake_call_repo_method(repo: Path, method: str, params: dict[str, Any]) -> dict[str, Any]:
+        assert repo == tmp_path
+        assert method == "dashboard"
+        assert params == {"run_id": "run_daemon"}
+        return {
+            "run": {"run_id": "run_daemon", "branch_name": "main", "state": "running"},
+            "status": {
+                "jobs": {"running": 1},
+                "open_blockers": [],
+                "human_checkpoints": [],
+                "latest_non_accepting_review_verdicts": [],
+                "claimable_jobs": [],
+                "next_actions": [],
+            },
+            "events": [],
+            "verdict_counts": {},
+            "posture_counts": {},
+            "updated_at": "2026-05-17T00:00:00Z",
+        }
+
+    monkeypatch.setattr(service_daemon, "call_repo_method", fake_call_repo_method)
+    out = io.StringIO()
+
+    dashboard.run(tmp_path, run_id="run_daemon", once=True, stdout=out)
+
+    rendered = out.getvalue()
+    assert rendered.startswith("striatum dashboard - run run_daemon")
+    assert "Jobs:" in rendered
+    assert '"ok":' not in rendered
+
+
+def test_dashboard_dispatch_renders_human_dashboard_without_json_route(
+    tmp_path: Path,
+    monkeypatch: Any,
+) -> None:
+    from striatum import dashboard as dashboard_mod
+    from striatum.cli import build_parser, dispatch
+    from striatum.cli import daemon_rpc_route
+
+    monkeypatch.delenv("STRIATUM_TEST_HARNESS", raising=False)
+    monkeypatch.setenv("STRIATUM_DAEMON_REQUIRED", "1")
+    monkeypatch.setattr(
+        daemon_rpc_route,
+        "try_route",
+        lambda *_args, **_kwargs: pytest.fail("human dashboard should render instead of JSON routing"),
+    )
+    called: dict[str, Any] = {}
+
+    def fake_run_dashboard(repo: Path, **kwargs: Any) -> None:
+        called["repo"] = repo
+        called.update(kwargs)
+
+    monkeypatch.setattr(dashboard_mod, "run", fake_run_dashboard)
+    args = build_parser().parse_args([
+        "--repo",
+        str(tmp_path),
+        "dashboard",
+        "--run-id",
+        "run_text",
+        "--once",
+    ])
+
+    assert dispatch(args) is None
+    assert called["repo"] == tmp_path
+    assert called["run_id"] == "run_text"
+    assert called["once"] is True
+
+
+def test_dashboard_json_preserves_daemon_dto_route(
+    tmp_path: Path,
+    monkeypatch: Any,
+) -> None:
+    from striatum.cli import build_parser, dispatch
+    from striatum.cli import daemon_rpc_route
+
+    payload = {"run": {"run_id": "run_json"}}
+    monkeypatch.setattr(daemon_rpc_route, "try_route", lambda _args, _repo: (True, payload))
+    args = build_parser().parse_args([
+        "--repo",
+        str(tmp_path),
+        "dashboard",
+        "--run-id",
+        "run_json",
+        "--once",
+        "--json",
+    ])
+
+    assert dispatch(args) == payload
 
 
 def _payload_with_workflow(

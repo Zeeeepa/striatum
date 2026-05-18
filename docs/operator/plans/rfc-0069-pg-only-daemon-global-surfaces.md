@@ -30,6 +30,7 @@ compatibility.
 | Daemon audit, health, doctor, status, stop over PostgreSQL | landed |
 | Workflow upgrade fail-closed on unknown PostgreSQL state | landed |
 | Dashboard run-progress parity | landed |
+| Terminal dashboard production DTO routing | landed |
 | Remaining dashboard/global diagnostics parity | in_progress |
 
 ## Decisions Made
@@ -39,5 +40,5 @@ compatibility.
 
 ## Open Questions
 
-- Whether the terminal dashboard should render directly from daemon DTOs
-  or keep a compatibility adapter until the Python daemon retirement gate.
+- Whether Go `status` should be expanded to full Python/PostgreSQL read-model
+  detail before the default daemon core flips.

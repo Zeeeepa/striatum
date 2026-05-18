@@ -62,14 +62,16 @@ def test_go_daemon_launcher_execs_with_migrations_sha_source(
     captured: dict[str, object] = {}
 
     monkeypatch.setattr(daemon_cli, "resolve_go_binary", lambda: binary)
-    monkeypatch.setattr(daemon_cli.daemon_mod, "socket_path", lambda: socket)
+    daemon_mod = getattr(daemon_cli, "daemon_mod")
+    monkeypatch.setattr(daemon_mod, "socket_path", lambda: socket)
 
     def fake_execv(path: str, argv: list[str]) -> None:
         captured["path"] = path
         captured["argv"] = argv
         raise SystemExit(0)
 
-    monkeypatch.setattr(daemon_cli.os, "execv", fake_execv)
+    os_module = getattr(daemon_cli, "os")
+    monkeypatch.setattr(os_module, "execv", fake_execv)
 
     with pytest.raises(SystemExit):
         daemon_cli.run_go_daemon_foreground(
@@ -165,7 +167,8 @@ def test_go_daemon_launcher_rejects_stale_binary_before_exec(
         raise AssertionError(f"stale Go daemon should not exec: {path} {argv}")
 
     monkeypatch.setattr(daemon_cli, "_resolve_packaged_go_binary", lambda: None)
-    monkeypatch.setattr(daemon_cli.os, "execv", fake_execv)
+    os_module = getattr(daemon_cli, "os")
+    monkeypatch.setattr(os_module, "execv", fake_execv)
     monkeypatch.setenv(ENV_GO_BIN, str(binary))
 
     with pytest.raises(StriatumError, match="supports schema"):

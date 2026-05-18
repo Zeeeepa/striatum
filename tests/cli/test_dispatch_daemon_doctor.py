@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import argparse
-from typing import Any
+from typing import Any, cast
 
 import pytest
 
@@ -175,7 +175,8 @@ def test_daemon_doctor_authority_report_names_cutover_state(
     result = _dispatch_daemon(args)
 
     assert isinstance(result, dict)
-    authority = result["authority"]
+    payload = cast(dict[str, Any], result)
+    authority = payload["authority"]
     assert isinstance(authority, dict)
     assert authority["schema_version"] == "striatum.authority_report.v1"
     assert authority["ok"] is True
@@ -204,7 +205,8 @@ def test_daemon_doctor_authority_report_flags_legacy_registry_escape(
 
     result = _dispatch_daemon(args)
 
-    authority = result["authority"]
+    payload = cast(dict[str, Any], result)
+    authority = payload["authority"]
     assert isinstance(authority, dict)
     assert authority["ok"] is False
     assert authority["legacy_sqlite"]["registry_status"] == "disabled"

@@ -153,6 +153,12 @@ Recent checkpoints:
   per-active-run `run_progress` with phase progress, auto-finalize dry-run
   summary, and stalled-supervisor detail in both Go and Python/PostgreSQL
   dashboard-all projections.
+- The compact terminal dashboard now renders single-run text frames from the
+  daemon/PostgreSQL `dashboard` DTO in production. The old repo-local SQLite
+  payload reader is isolated under `striatum.legacy_sqlite.dashboard` and
+  only reachable through the paired test-harness compatibility escape; JSON
+  `dashboard --run-id` and daemon-global `dashboard --all` remain RPC DTO
+  surfaces.
 - Daemon MCP `resources/list` and `resources/read` now use PostgreSQL-backed
   repository visibility, status, doctor, blocker, run, why, dashboard, and
   stale-lease projections whenever a daemon PostgreSQL connection is present;

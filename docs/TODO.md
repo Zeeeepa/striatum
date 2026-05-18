@@ -1259,11 +1259,14 @@ review and plan are root-level operator artifacts:
     PostgreSQL when a daemon DB is configured, with legacy audit field names
     retained for CLI compatibility. `connect_registry()` requires the paired
     test-harness compatibility escape; the old single-variable legacy-registry
-    opt-in is diagnostic-only. Residual daemon-global gaps are terminal
-    dashboard DTO routing, Go `status` read-model detail, and any remaining
-    registry probes found by guardrail scans. The workflow-upgrade running-run
-    guard now fails closed when PostgreSQL state is unknown and only opens
-    repo-local SQLite under the paired test-harness compatibility escape.
+    opt-in is diagnostic-only. The terminal dashboard now renders production
+    text frames from the daemon/PostgreSQL `dashboard` DTO, with the old
+    repo-local SQLite gatherer isolated under `legacy_sqlite` for paired test
+    fixtures. Residual daemon-global gaps are Go `status` read-model detail
+    and any remaining registry probes found by guardrail scans. The
+    workflow-upgrade running-run guard now fails closed when PostgreSQL state
+    is unknown and only opens repo-local SQLite under the paired test-harness
+    compatibility escape.
 
 63. **RFC 0070: daemon client/service boundary completion.** Most done.
     Daemon-side `repo.resolve` is registered as a daemon-global read bootstrap

@@ -99,10 +99,6 @@ PRODUCTION_SQLITE_QUARANTINE = {
         "service transition",
         "corpus manifest reports legacy schema metadata for fixtures",
     ),
-    Path("src/striatum/dashboard.py"): SQLiteClassification(
-        "service transition",
-        "terminal dashboard legacy reader pending daemon DTO replacement",
-    ),
     Path("src/striatum/recovery/auto.py"): SQLiteClassification(
         "service transition",
         "legacy recovery sweep retained for fixture and service transition",
@@ -114,6 +110,10 @@ PRODUCTION_SQLITE_QUARANTINE = {
     Path("src/striatum/legacy_sqlite/service.py"): SQLiteClassification(
         "service transition",
         "gated subprocess-fixture web fallbacks and legacy page reads isolated from primary service code",
+    ),
+    Path("src/striatum/legacy_sqlite/dashboard.py"): SQLiteClassification(
+        "service transition",
+        "paired test-harness terminal dashboard fallback isolated from primary dashboard code",
     ),
     # Adapter, supervisor, artifact, byline, and workflow helpers whose
     # production authority has moved to daemon/Postgres but whose legacy

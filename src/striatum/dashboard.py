@@ -1,8 +1,8 @@
-"""Compact terminal dashboard over the existing SQLite state.
+"""Compact terminal dashboard over daemon PostgreSQL read DTOs.
 
 The dashboard is a thin, dependency-free renderer over the same data exposed
-by ``striatum status`` and the events table. It uses raw ANSI escape codes
-to clear the screen and redraw on a fixed cadence; it deliberately avoids
+by the daemon ``dashboard`` read method. It uses raw ANSI escape codes to
+clear the screen and redraw on a fixed cadence; it deliberately avoids
 ``curses`` so that it works the same on every terminal a coding agent might
 run in.
 """
@@ -10,19 +10,15 @@ run in.
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import sys
 import time
 from pathlib import Path
 from typing import Any, Iterable, Mapping, Sequence, TextIO
 
-from striatum.db import (
-    connect,
-    ensure_initialized,
-    json_loads,
-    utc_now,
-)
-from striatum.errors import NotFoundError
+from striatum.errors import StriatumError
+from striatum.primitives import json_loads
 
 # Canonical ordering for compact summary panels.
 RUN_STATE_ORDER: tuple[str, ...] = (
@@ -82,133 +78,34 @@ ANSI_SHOW_CURSOR = "\x1b[?25h"
 
 
 def gather_payload(repo: Path, *, run_id: str) -> dict[str, Any]:
-    """Collect status + recent events for the dashboard.
+    """Collect daemon status + recent events for the dashboard.
 
     Returns a dict shaped for ``render_frame``. Raises ``StriatumError``
-    (subclass) if the run is unknown or the state is unreadable.
+    (subclass) if the run is unknown or the daemon read path is unavailable.
     """
-    from striatum.cli import recent_events_for_run, status as status_command
-    from striatum.workflow import compute_node_states
+    if _legacy_sqlite_dashboard_allowed():
+        from striatum.legacy_sqlite.dashboard import gather_payload as legacy_gather_payload
 
-    ensure_initialized(repo)
-    with connect(repo) as conn:
-        # Resolve the run early so an unknown id fails with the standard exit code.
-        run_row = conn.execute(
-            "SELECT run_id, state, branch_name, workflow_snapshot_id FROM runs WHERE run_id = ?",
-            (run_id,),
-        ).fetchone()
-        if run_row is None:
-            raise NotFoundError(f"unknown run_id {run_id!r}")
-        status_payload = status_command(conn, run_id=run_id)
-        blocker_payload_rows = conn.execute(
-            """
-            SELECT blocker_id, created_at, payload_json
-            FROM blockers
-            WHERE run_id = ? AND state = 'open'
-            """,
-            (run_id,),
-        ).fetchall()
-        blocker_payloads = {
-            str(row["blocker_id"]): {
-                "created_at": row["created_at"],
-                "payload_json": row["payload_json"],
-            }
-            for row in blocker_payload_rows
-        }
-        for key in ("open_blockers", "human_checkpoints"):
-            for blocker in status_payload.get(key, []):
-                if isinstance(blocker, dict):
-                    blocker.update(blocker_payloads.get(str(blocker.get("blocker_id")), {}))
-        events = recent_events_for_run(conn, run_id=run_id, limit=10)
-        for event in events:
-            if not isinstance(event, dict) or event.get("event_type") != "verdict.overridden":
-                continue
-            payload = _json_object(event.get("payload_json"))
-            verdict_id = payload.get("verdict_id")
-            if verdict_id and not payload.get("rationale"):
-                rationale_row = conn.execute(
-                    "SELECT rationale FROM verdicts WHERE verdict_id = ?",
-                    (str(verdict_id),),
-                ).fetchone()
-                if rationale_row is not None and rationale_row["rationale"]:
-                    payload["rationale"] = rationale_row["rationale"]
-                    event["payload_json"] = json.dumps(payload)
-        verdict_rows = conn.execute(
-            """
-            SELECT verdict, COUNT(*) AS count
-            FROM verdicts
-            WHERE run_id = ?
-            GROUP BY verdict
-            """,
-            (run_id,),
-        ).fetchall()
-        verdict_counts = {str(row["verdict"]): int(row["count"]) for row in verdict_rows}
-        override_rows = conn.execute(
-            """
-            SELECT payload_json
-            FROM events
-            WHERE run_id = ? AND event_type = 'verdict.overridden'
-            ORDER BY event_id
-            """,
-            (run_id,),
-        ).fetchall()
-        override_verdict_counts: dict[str, int] = {}
-        override_verdicts: list[dict[str, Any]] = []
-        for row in override_rows:
-            payload = _json_object(row["payload_json"])
-            verdict = str(payload.get("verdict") or "")
-            if verdict:
-                override_verdict_counts[verdict] = override_verdict_counts.get(verdict, 0) + 1
-            verdict_id = payload.get("verdict_id")
-            if verdict_id and not payload.get("rationale"):
-                rationale_row = conn.execute(
-                    "SELECT rationale FROM verdicts WHERE verdict_id = ?",
-                    (str(verdict_id),),
-                ).fetchone()
-                if rationale_row is not None and rationale_row["rationale"]:
-                    payload["rationale"] = rationale_row["rationale"]
-            override_verdicts.append(payload)
-        # RFC 0018 step 3 (V1.5): per-posture counts for the dashboard
-        # verdicts panel. Rendered only when at least one non-neutral
-        # posture exists in the run.
-        posture_rows = conn.execute(
-            """
-            SELECT posture, COUNT(*) AS count
-            FROM verdicts
-            WHERE run_id = ?
-            GROUP BY posture
-            """,
-            (run_id,),
-        ).fetchall()
-        posture_counts = {str(row["posture"]): int(row["count"]) for row in posture_rows}
-        # RFC 0016 V1: workflow snapshot + node_states for the optional
-        # graph panel.
-        snapshot_row = conn.execute(
-            "SELECT workflow_json FROM workflow_snapshots WHERE workflow_snapshot_id = ?",
-            (str(run_row["workflow_snapshot_id"]),),
-        ).fetchone()
-        workflow_payload: dict[str, Any] = {}
-        if snapshot_row is not None:
-            workflow_payload = json_loads(str(snapshot_row["workflow_json"]))
-        node_states = compute_node_states(conn, run_id=run_id)
+        return legacy_gather_payload(repo, run_id=run_id)
+    return gather_payload_daemon(repo, run_id=run_id)
 
-    run = {
-        "run_id": run_row["run_id"],
-        "state": run_row["state"],
-        "branch_name": run_row["branch_name"],
-    }
-    return {
-        "run": run,
-        "status": status_payload,
-        "events": events,
-        "verdict_counts": verdict_counts,
-        "posture_counts": posture_counts,
-        "updated_at": utc_now(),
-        "workflow": workflow_payload,
-        "node_states": node_states,
-        "override_verdict_counts": override_verdict_counts,
-        "override_verdicts": override_verdicts,
-    }
+
+def gather_payload_daemon(repo: Path, *, run_id: str) -> dict[str, Any]:
+    """Collect a dashboard payload through the daemon RPC boundary."""
+    from striatum.service_daemon import ServiceDaemonRpcError, call_repo_method
+
+    try:
+        data = call_repo_method(repo, "dashboard", {"run_id": run_id})
+    except ServiceDaemonRpcError as exc:
+        exit_code = 12 if exc.code in {"daemon_unreachable", "repo_not_registered"} else 1
+        raise StriatumError(exc.message, exit_code=exit_code) from exc
+    if not isinstance(data, Mapping):
+        raise StriatumError("dashboard RPC response must be a JSON object", exit_code=1)
+    return dict(data)
+
+
+def _legacy_sqlite_dashboard_allowed() -> bool:
+    return os.environ.get("STRIATUM_TEST_HARNESS") == "1" and os.environ.get("STRIATUM_DAEMON_REQUIRED") == "0"
 
 
 def render_frame(

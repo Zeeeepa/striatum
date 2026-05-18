@@ -106,6 +106,10 @@ Add a production registry tripwire and port daemon-global surfaces in order:
   checks in production. That compatibility path requires the paired
   test-harness escape, so PostgreSQL verification failures fail closed even
   when no legacy SQLite marker exists.
+- The compact terminal dashboard renders production single-run text frames
+  from the daemon/PostgreSQL `dashboard` DTO. The repo-local SQLite payload
+  gatherer is isolated under `striatum.legacy_sqlite.dashboard` for paired
+  test-harness fixtures.
 - The Go daemon now starts a resident recovery scheduler loop after socket
   bind. The loop runs an immediate PostgreSQL active-run sweep, calls the Go
   `recovery.sweep` path per active run, records `daemon.recovery_sweep`
@@ -114,8 +118,6 @@ Add a production registry tripwire and port daemon-global surfaces in order:
 
 ## Open Questions
 
-- Should the terminal dashboard render directly from daemon DTOs or keep a
-  compatibility adapter until the Python daemon retirement gate?
 - Should Go `status` carry the full Python/PostgreSQL status read-model detail
   before the default daemon core flips, or should only dashboard/web DTOs be
   parity-gated?

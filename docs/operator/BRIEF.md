@@ -23,15 +23,16 @@ daemon lifecycle helpers, and workflow-upgrade running-run checks away
 from production SQLite paths; workflow upgrade now also fails closed when
 PostgreSQL state is unknown. The RFC 0058 V1 operator surface is now landed,
 and `dashboard.all` now carries per-active-run progress fields for phase
-state, auto-finalize dry-run visibility, and supervisor stalls.
+state, auto-finalize dry-run visibility, and supervisor stalls. The compact
+terminal dashboard now renders production text frames from daemon/PostgreSQL
+DTOs, with legacy SQLite access isolated under paired test-harness fixtures.
 
 ## Next 1-3 Actions
 
-1. Route the terminal dashboard's legacy repo-local read path through
-   daemon/PostgreSQL DTOs.
-2. Continue RFC 0068/RFC 0069 Go and PostgreSQL read-model parity only when
-   a concrete method, DTO, or conformance gap is visible.
-3. Defer RFC 0058 V1.5 to a focused slice: current-brief CLI, context-budget
+1. Continue RFC 0068/RFC 0069 Go and PostgreSQL read-model parity only when
+   a concrete method, DTO, or conformance gap is visible; Go `status` detail
+   is the current known read-model follow-up.
+2. Defer RFC 0058 V1.5 to a focused slice: current-brief CLI, context-budget
    linting, and optional operator-tree init/rotation.
 
 ## Blockers

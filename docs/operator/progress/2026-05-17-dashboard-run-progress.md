@@ -16,6 +16,5 @@ both Go and Python/PostgreSQL projections. Each entry carries phase progress,
 auto-finalize dry-run visibility, and supervisor-stall detail without opening
 repo-local SQLite.
 
-Remaining related work is outside this slice: move the terminal dashboard off
-the legacy repo-local read path and continue Go status/dashboard DTO parity
-where concrete gaps remain.
+Remaining related work is outside this slice: continue Go status/dashboard DTO
+parity where concrete gaps remain.

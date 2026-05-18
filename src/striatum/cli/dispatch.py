@@ -270,6 +270,12 @@ def dispatch(args: argparse.Namespace) -> object:
         skip_daemon_route = True
     if args.command == "inbox" and getattr(args, "session_id", None):
         skip_daemon_route = True
+    if (
+        args.command == "dashboard"
+        and not bool(getattr(args, "json", False))
+        and not bool(getattr(args, "all", False))
+    ):
+        skip_daemon_route = True
     recovery_watch = (
         args.command == "recovery"
         and getattr(args, "recovery_command", None) == "watch"
@@ -1555,7 +1561,8 @@ def _daemon_authority_report(
         "error" not in sqlite_registry and sqlite_registry.get("ok") is not False
     ):
         sqlite_status = "legacy_registry_reachable"
-    method_fallback_count = int(explain.get("cli_fallback_route_count") or 0)
+    raw_fallback_count = explain.get("cli_fallback_route_count")
+    method_fallback_count = int(raw_fallback_count) if isinstance(raw_fallback_count, int | str) else 0
     legacy_registry_escape = os.environ.get(daemon_mod.ENV_ALLOW_LEGACY_SQLITE_REGISTRY) == "1"
     test_harness_escape = (
         os.environ.get("STRIATUM_TEST_HARNESS") == "1"

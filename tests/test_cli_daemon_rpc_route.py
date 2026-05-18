@@ -227,6 +227,13 @@ def test_dashboard_all_routes_to_daemon_global_method() -> None:
     assert params == {}
 
 
+def test_dashboard_run_id_routes_to_single_repo_method() -> None:
+    method, params = _route("dashboard", None, all=False, run_id="run_1")
+
+    assert method == "dashboard"
+    assert params == {"run_id": "run_1"}
+
+
 def test_list_sessions_preserves_run_role_lane_and_state_filters() -> None:
     method, params = _route(
         "list",
