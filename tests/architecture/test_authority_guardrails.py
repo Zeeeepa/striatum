@@ -14,6 +14,9 @@ from striatum.daemon_rpc.registry import METHOD_REGISTRY
 from striatum.daemon_rpc.server import CLI_ROUTES, LOCAL_FILE_AUTHORING_METHODS, DaemonRpcRouter
 from striatum.errors import DaemonUnreachableError, StriatumError
 
+REPO_ROOT = Path(__file__).resolve().parents[2]
+AUTHORITY_MATRIX_PATH = REPO_ROOT / "docs" / "architecture" / "COMMAND_AUTHORITY_MATRIX.md"
+
 
 DIRECT_DAEMON_METHODS: frozenset[str] = frozenset(
     {
@@ -74,6 +77,38 @@ DOGFOOD_SQLITE_METHODS: frozenset[str] = frozenset(
 )
 
 
+def _authority_matrix_section(start: str, end: str | None = None) -> str:
+    text = AUTHORITY_MATRIX_PATH.read_text(encoding="utf-8")
+    section = text.split(start, 1)[1]
+    if end is not None:
+        section = section.split(end, 1)[0]
+    return section
+
+
+def _authority_matrix_rows(section: str) -> dict[str, list[str]]:
+    rows: dict[str, list[str]] = {}
+    for line in section.splitlines():
+        if not line.startswith("| `"):
+            continue
+        cells = [cell.strip() for cell in line.strip().strip("|").split("|")]
+        if not cells or not (cells[0].startswith("`") and cells[0].endswith("`")):
+            continue
+        rows[cells[0].strip("`")] = cells
+    return rows
+
+
+def _registered_matrix_rows() -> dict[str, list[str]]:
+    return _authority_matrix_rows(
+        _authority_matrix_section("## Registered Daemon Methods", "## Deprecated Alias Methods")
+    )
+
+
+def _deprecated_alias_matrix_rows() -> dict[str, list[str]]:
+    return _authority_matrix_rows(
+        _authority_matrix_section("## Deprecated Alias Methods", "## CLI-Only Or Out-Of-Band Commands")
+    )
+
+
 def _pg_handlers() -> set[str]:
     import striatum.daemon_pg.handlers  # noqa: F401 - registers decorators.
     from striatum.daemon_pg.handlers.registry import resolve_pg_handler
@@ -108,6 +143,76 @@ def test_registry_methods_have_explicit_authority_path() -> None:
     assert not unclassified, (
         "daemon RPC methods lack an explicit authority classification: "
         + ", ".join(unclassified)
+    )
+
+
+def test_authority_matrix_covers_active_registry_methods() -> None:
+    rows = _registered_matrix_rows()
+    active_methods = {
+        method
+        for method, entry in METHOD_REGISTRY.items()
+        if not entry.deprecated
+    }
+    assert not sorted(active_methods - set(rows)), (
+        "active daemon RPC methods missing from COMMAND_AUTHORITY_MATRIX.md: "
+        + ", ".join(sorted(active_methods - set(rows)))
+    )
+    unknown_rows = sorted(method for method in rows if method not in METHOD_REGISTRY)
+    assert not unknown_rows, (
+        "COMMAND_AUTHORITY_MATRIX.md registered rows are not in METHOD_REGISTRY: "
+        + ", ".join(unknown_rows)
+    )
+
+
+def test_authority_matrix_capabilities_and_scopes_match_registry() -> None:
+    mismatches: list[str] = []
+    for method, row in sorted(_registered_matrix_rows().items()):
+        entry = METHOD_REGISTRY[method]
+        expected_capability = entry.required_capability or "none"
+        expected_scope = entry.effective_repository_scope_mode
+        actual_capability = row[2]
+        actual_scope = row[3]
+        if actual_capability != expected_capability:
+            mismatches.append(
+                f"{method} capability: matrix={actual_capability!r}, registry={expected_capability!r}"
+            )
+        if actual_scope != expected_scope:
+            mismatches.append(
+                f"{method} scope: matrix={actual_scope!r}, registry={expected_scope!r}"
+            )
+
+    assert not mismatches, (
+        "COMMAND_AUTHORITY_MATRIX.md capability/scope drift: " + "; ".join(mismatches)
+    )
+
+
+def test_authority_matrix_deprecated_alias_placement_matches_registry() -> None:
+    deprecated_registry = {
+        method for method, entry in METHOD_REGISTRY.items() if entry.deprecated
+    }
+    deprecated_alias_rows = set(_deprecated_alias_matrix_rows())
+    # `recovery.auto` is the one deprecated method still documented in the
+    # registered-method table because it names the canonical CLI replacement
+    # and currently shares the recovery.auto-publish handler.
+    expected_alias_rows = deprecated_registry - {"recovery.auto"}
+
+    assert deprecated_alias_rows == expected_alias_rows
+    registered_rows = _registered_matrix_rows()
+    assert "recovery.auto" in registered_rows
+    assert all(
+        method not in registered_rows for method in expected_alias_rows
+    ), "legacy aliases belong in the deprecated-alias table, not registered methods"
+
+
+def test_authority_matrix_has_no_go_placeholders() -> None:
+    placeholders = [
+        method
+        for method, row in sorted(_registered_matrix_rows().items())
+        if row[5] == "placeholder"
+    ]
+    assert not placeholders, (
+        "COMMAND_AUTHORITY_MATRIX.md still marks Go authority as placeholder: "
+        + ", ".join(placeholders)
     )
 
 
