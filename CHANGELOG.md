@@ -93,6 +93,9 @@ Recent checkpoints:
   `striatum.legacy_sqlite.cli_list_commands`; `striatum.cli.list_commands`
   now keeps neutral filter constants and lazy wrappers for compatibility
   callers.
+- Product docs now describe the Python daemon module/selector as deleted,
+  with remaining cleanup limited to legacy SQLite fixture/import conversion
+  or deletion.
 - The retired `src/striatum/daemon.py` Python daemon / daemon-global SQLite
   registry module was deleted. Architecture guardrails now assert the module
   remains absent and keep daemon-global refusal coverage on the PostgreSQL

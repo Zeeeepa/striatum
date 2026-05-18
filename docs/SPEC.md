@@ -41,10 +41,10 @@ for the operator runbook.
 RFC 0048 (v1.49.0 → v1.55.0) completed the PostgreSQL substrate port:
 every single-repo mutation, recovery, and read handler had a native
 PostgreSQL implementation before the Go cutover. D107 / RFC 0068 and D111
-set the current target architecture: the production daemon is Go, the Python
-daemon is retired from operator selection, remaining Python-daemon code is
-legacy fixture/module deletion work, and the Python CLI/web layers may remain
-daemon clients. The
+set the current target architecture: the production daemon is Go; the Python
+daemon module and selector are retired; remaining cleanup is legacy SQLite
+fixture/import conversion or deletion; and the Python CLI/web layers may
+remain daemon clients. The
 `STRIATUM_DAEMON_REQUIRED=0 STRIATUM_TEST_HARNESS=1` escape no
 longer takes effect for ported methods — mapped CLI verbs fail
 closed instead of falling back to SQLite when the daemon is
@@ -1251,9 +1251,9 @@ verbs are daemon/Postgres-backed and fail closed without the daemon or
 repository registration. Legacy SQLite paths are quarantined for golden
 fixtures and explicitly gated compatibility tests only.
 
-The legacy Python daemon registry location remains overrideable only for
-paired fixture tests that explicitly exercise the retired daemon module;
-production daemon state is Postgres. Runtime files are overrideable with
+The legacy SQLite daemon-registry path may still appear in fixture isolation,
+but production daemon registry state is PostgreSQL-only and production
+dispatch refuses SQLite registry fallback. Runtime files are overrideable with
 `STRIATUM_DAEMON_RUNTIME_DIR`.
 Linux uses XDG runtime locations; macOS uses Caches for runtime files. Windows
 daemon support is not claimed in V1.
@@ -1414,9 +1414,10 @@ SQLite-bound
 `dogfood.surgical_recovery` RPC names from production discovery and the daemon
 method contract. D112 likewise removed `apply.reviewed_patch` from the
 production daemon RPC contract; stale direct calls audit as `method_unknown`.
-D113 closes the writable SQLite import window. The remaining Python-daemon
-module work is deletion/quarantine of legacy fixture paths; the Python CLI/web
-service may remain as clients of the Go daemon.
+D113 closes the writable SQLite import window. The Python daemon module has
+been deleted; remaining retirement work is legacy SQLite fixture/import
+conversion or deletion. The Python CLI/web service may remain as clients of
+the Go daemon.
 
 ### Local Web UI
 

@@ -929,9 +929,9 @@ review and plan are root-level operator artifacts:
 51. ~~**Phase 3: daemon core strategy decision.**~~ Done, superseded:
     D105 briefly recorded Python as the primary production daemon core, but
     D107 / RFC 0068 supersedes it. Go is now the production/default daemon;
-    Python daemon retirement is legacy SQLite fixture/import/module cleanup,
-    Python CLI/web clients remain useful, and SQLite eradication continues
-    across production and compatibility paths.
+    the Python daemon selector and module are deleted, Python CLI/web clients
+    remain useful, and remaining cleanup is legacy SQLite fixture/import
+    conversion or deletion.
 
 52. **Phase 4: daemon-first web service.** Initial slices landed:
     web POST mutations for run cancel/pause/resume, job cancel/retry, and
@@ -1222,7 +1222,7 @@ review and plan are root-level operator artifacts:
 
 61. **RFC 0068: Go production daemon port.** Active. D107 supersedes D105:
     Go is the production/default daemon and active contract-method parity is
-    landed; remaining work is legacy SQLite fixture/import/module cleanup and
+    landed; remaining work is legacy SQLite fixture/import cleanup and
     operator-composite product decisions. The retired Python daemon module has
     been deleted.
     Keep Python CLI/web clients where useful and remove SQLite from production
@@ -1397,10 +1397,10 @@ review and plan are root-level operator artifacts:
     `tools/list` now hides local
     workflow-file authoring methods in both Python and Go, while direct calls
     to removed method names audit as `method_unknown`. Remaining work is to
-    decide whether to reintroduce
-    PostgreSQL-native operator composites or keep the primitive daemon-method
-    workflow as the supported path, plus the broader Python-daemon retirement
-    under RFC 0068.
+    decide whether to reintroduce PostgreSQL-native operator composites or
+    keep the primitive daemon-method workflow as the supported path; broader
+    Python-daemon retirement is no longer a blocker because the selector and
+    module are deleted.
 
 64. **RFC 0071: operator diagnostics and cutover evidence.** Diagnostic slices
     landed: `striatum daemon doctor --authority --json` reports

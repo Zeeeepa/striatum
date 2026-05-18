@@ -256,10 +256,10 @@ before deleting fallbacks.
 - `recovery auto-publish` no longer emits the unregistered
   `recovery.auto_publish` method.
 
-**Next after this ships:** TODO item 61 is the active cutover path. Keep the
-Go conformance gate green while deleting the Python daemon selector,
-shrinking migration/test-only SQLite exceptions, and preserving the authority
-matrix and contract tests as drift guards.
+**Current follow-up:** TODO item 61 / RFC 0068 is the active cutover path.
+Keep the Go conformance gate green, keep the Python daemon selector/module
+deleted, shrink migration/test-only SQLite exceptions, and preserve the
+authority matrix and contract tests as drift guards.
 
 ---
 
