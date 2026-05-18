@@ -270,7 +270,6 @@ def test_legacy_service_owns_page_read_payload_fallbacks() -> None:
         "legacy_run_posture_verdicts_payload",
         "legacy_artifact_view_payload",
         "legacy_doctor_page_payload",
-        "legacy_view_file_run_breadcrumb",
     }
 
     for name in page_payload_builders:

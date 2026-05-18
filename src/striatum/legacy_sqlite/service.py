@@ -469,15 +469,6 @@ def legacy_doctor_page_payload(repo: Path) -> JsonObject:
     return doctor_payload
 
 
-def legacy_view_file_run_breadcrumb(repo: Path, *, rel_path: str) -> JsonObject | None:
-    try:
-        with sqlite3.connect(str(db_path(repo))) as conn:
-            conn.row_factory = sqlite3.Row
-            return _view_file_run_breadcrumb(conn, rel_path=rel_path)
-    except sqlite3.Error:
-        return None
-
-
 def legacy_stream_events_body(
     handler: BaseHTTPRequestHandler,
     *,
@@ -896,29 +887,6 @@ def _artifact_provenance_trail(
     return trail
 
 
-def _view_file_run_breadcrumb(conn: sqlite3.Connection, *, rel_path: str) -> JsonObject | None:
-    parts = Path(rel_path).parts
-    if len(parts) < 4 or parts[0] != "docs" or parts[1] != "dogfood":
-        return None
-    dogfood_id = parts[2]
-    if not dogfood_id.isdigit():
-        return None
-    branch_fragment = f"striatum/dogfood-{dogfood_id}-"
-    rows = conn.execute(
-        """
-        SELECT run_id, branch_name
-        FROM runs
-        WHERE branch_name LIKE ?
-        ORDER BY created_at DESC, run_id DESC
-        """,
-        (branch_fragment + "%",),
-    ).fetchall()
-    if len(rows) != 1:
-        return None
-    row = rows[0]
-    return {"run_id": row["run_id"], "branch_name": row["branch_name"]}
-
-
 def _shape_verdict_rows(
     conn: sqlite3.Connection,
     *,
@@ -1094,7 +1062,6 @@ __all__ = [
     "legacy_shape_artifact_rows",
     "legacy_stream_events_body",
     "legacy_verify_state_health",
-    "legacy_view_file_run_breadcrumb",
     "legacy_web_read_fallback_enabled",
     "legacy_workflow_run_now",
     "send_legacy_fixture_error",

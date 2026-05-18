@@ -144,6 +144,9 @@ Recent checkpoints:
 - The legacy SQLite `recovery watch` loop was deleted. The CLI-local watcher
   always runs the daemon-backed scheduler over `recovery.sweep`, including
   paired test-harness invocations.
+- The dead legacy SQLite view-file breadcrumb reader was removed from the
+  service fallback quarantine; `/view/...` no longer has a repo-local
+  SQLite breadcrumb escape.
 - The standalone `striatum.daemon_pg.sqlite_compat` helper was removed. Its
   last repository-identity calculation now lives beside the one-way
   repo-local migration fixture, and the unused daemon audit-chain validators
