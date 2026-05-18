@@ -316,10 +316,11 @@ Legend: ✅ done · 🟡 most done (sub-tasks remain) · ⏳ open/blocked · �
 16. **Keep generic language current.** New docs should say "target
     repository", "workflow fixture", "runner state", "artifact", and
     "adapter" rather than assuming Engram-specific paths or marker names.
-    Current sweep (2026-05-17): refreshed current docs, RFC status notes,
+    Current sweep (2026-05-18): refreshed current docs, RFC status notes,
     prompts, and root reference artifacts so daemon-owned PostgreSQL is the
-    authoritative live state, `.striatum/` is operational scratch, and Engram
-    remains optional external augmentation rather than a runtime dependency.
+    authoritative live state, `.striatum/` is operational scratch, RFC 0056
+    has a directory-only `--with-striatum-layout` scaffold, and Engram remains
+    optional external augmentation rather than a runtime dependency.
     Keep this item open as standing documentation hygiene.
 
 20. ~~**RFC 0040 V1.5 follow-up.** Six codex findings (F1-F6) from
@@ -824,8 +825,10 @@ section is the canonical status snapshot.
     Phase A shipped v1.55.0 (commit `a88f44d`).
     `docs/CONSUMER_REPO_LAYOUT.md` written with ASCII tree, per-section
     rationale, mid-life adoption guidance, dogfood-heavy-projects
-    extension. Phase B (`init --with-ddd-layout` extension) optional
-    follow-up.
+    extension. Phase B now has an additive `init --with-striatum-layout`
+    scaffold for `striatum/workflows/` and `striatum/<workflow-slug>/`;
+    workflow-file generation and artifact-root `.gitignore` policy remain
+    out of scope.
 
 ## Architecture Remediation Backlog
 

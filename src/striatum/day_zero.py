@@ -86,7 +86,9 @@ def adopt(
         "repo": str(repo),
         "dry_run": dry_run,
         "inspection": inspection,
-        "suggested_workflow": str(repo / "workflows" / "first-workflow" / "workflow.json"),
+        "suggested_workflow": str(
+            repo / "striatum" / "workflows" / "first-workflow" / "workflow.json"
+        ),
     }
     if dry_run:
         result["init"] = {"status": "would_init" if not inspection["state_db_exists"] else "would_skip"}

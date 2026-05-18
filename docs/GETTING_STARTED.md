@@ -202,6 +202,20 @@ agent-facing skills do. Existing files are preserved. Use
 overwrite (records `prior_sha256` for audit; non-regular-file
 targets still error and are not touched).
 
+### Also scaffold the recommended Striatum directories (RFC 0056)
+
+```bash
+striatum --repo "$TARGET_REPO" init \
+  --with-striatum-layout \
+  --striatum-layout-workflow code-change \
+  --json
+```
+
+`--with-striatum-layout` creates only `striatum/workflows/` and
+`striatum/<workflow-slug>/`. It does not write workflow files,
+artifact files, or `.gitignore` entries; the target repo keeps
+ownership of artifact commit policy.
+
 ### Now drive the run
 
 Point your agent at `$TARGET_REPO`. Tell it: *"drive the workflow

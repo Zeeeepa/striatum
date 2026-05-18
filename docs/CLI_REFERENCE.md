@@ -9,6 +9,9 @@
 ```text
 striatum init [--with-skills <profile>] [--with-ddd-layout]
               [--ddd-layout-force] [--ddd-layout-dry-run]
+              [--with-striatum-layout]
+              [--striatum-layout-workflow <slug>]
+              [--striatum-layout-dry-run]
 striatum adopt [--profile <profile>] [--postgres-url <url>]
                [--dry-run] [--no-skills] [--no-plugins]
                [--no-ddd-layout] [--no-register]
@@ -95,6 +98,15 @@ optional flags scaffold extra material:
   touched.
 - `--ddd-layout-dry-run` (RFC 0021 V1.5) — preview without
   writing. Per-file statuses use the `would_*` vocabulary.
+- `--with-striatum-layout` (RFC 0056 Phase B) — create the
+  recommended consumer-repo directories `striatum/workflows/` and
+  `striatum/<workflow-slug>/`. It writes no workflow files and no
+  `.gitignore` policy.
+- `--striatum-layout-workflow <slug>` — select the artifact-root
+  directory slug for `--with-striatum-layout`; default is
+  `code-change`.
+- `--striatum-layout-dry-run` — preview the Striatum directory
+  scaffold without creating directories.
 
 `striatum adopt` is the day-zero guided flow. It initializes
 `.striatum/`, installs the selected skill/plugin profile, scaffolds the

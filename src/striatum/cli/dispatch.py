@@ -375,6 +375,13 @@ def dispatch(args: argparse.Namespace) -> object:
                 force=bool(getattr(args, "ddd_layout_force", False)),
                 dry_run=bool(getattr(args, "ddd_layout_dry_run", False)),
             )
+        if getattr(args, "with_striatum_layout", False):
+            from striatum.scaffold import scaffold_striatum_layout
+            init_result["striatum_layout"] = scaffold_striatum_layout(
+                repo,
+                workflow_slug=str(getattr(args, "striatum_layout_workflow", "code-change")),
+                dry_run=bool(getattr(args, "striatum_layout_dry_run", False)),
+            )
         return init_result
     if args.command == "skills" and args.skills_command == "install":
         return _skills_install_dispatch(

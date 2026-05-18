@@ -84,6 +84,32 @@ def build_parser() -> argparse.ArgumentParser:
             "destructive overwrites. RFC 0021 V1.5."
         ),
     )
+    init.add_argument(
+        "--with-striatum-layout",
+        action="store_true",
+        help=(
+            "After init, also create the recommended consumer-repo Striatum "
+            "directories (striatum/workflows and striatum/<workflow-slug>). "
+            "This is separate from --with-ddd-layout and writes no workflow "
+            "files or .gitignore policy. RFC 0056 Phase B."
+        ),
+    )
+    init.add_argument(
+        "--striatum-layout-workflow",
+        default="code-change",
+        help=(
+            "Workflow slug for --with-striatum-layout artifact directory "
+            "(default: code-change)."
+        ),
+    )
+    init.add_argument(
+        "--striatum-layout-dry-run",
+        action="store_true",
+        help=(
+            "With --with-striatum-layout, report directory actions without "
+            "creating directories."
+        ),
+    )
 
     skills = sub.add_parser("skills")
     skills_sub = skills.add_subparsers(dest="skills_command", required=True)
@@ -511,7 +537,7 @@ def build_parser() -> argparse.ArgumentParser:
         description=(
             "Generate a workflow tree from the local template catalog. "
             "Start with `striatum workflow templates list`; example: "
-            "striatum workflow generate workflows/my-change --shape code_change "
+            "striatum workflow generate striatum/workflows/my-change --shape code_change "
             "--lane-set local --artifact-root striatum/my-change --dry-run --json. "
             "`workflow validate` remains authoritative."
         ),

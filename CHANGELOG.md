@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased — 2026-05-17
+## Unreleased — 2026-05-18
 
 ### Architecture remediation follow-through
 
@@ -84,6 +84,12 @@ Recent checkpoints:
 - Production `cross-repo` CLI dispatch now refuses the remaining direct
   PostgreSQL fallback path if daemon RPC routing did not handle the command;
   the direct path is limited to the explicit legacy test-harness escape.
+- `striatum init --with-striatum-layout` now scaffolds the RFC 0056
+  consumer-repo directories `striatum/workflows/` and
+  `striatum/<workflow-slug>/` without writing workflow files or `.gitignore`
+  policy. Day-zero docs, agent skill examples, and `adopt`'s suggested
+  starter path now use the generated-tree form
+  `striatum/workflows/<name>/workflow.json`.
 - Go `daemon.key.rotate` now rotates a local Ed25519 sealed-apply signing
   key into the `0600` fallback key file, returns the new key id/public key
   metadata, and `daemon.hello` advertises the current public key when the

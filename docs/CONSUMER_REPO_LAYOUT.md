@@ -28,7 +28,8 @@ target-repo/
 │       └── 001/ ...       # per-run records (optional but recommended)
 ├── striatum/
 │   ├── workflows/
-│   │   └── code-change.json     # one or more workflow files
+│   │   └── code-change/
+│   │       └── workflow.json    # generated workflow tree
 │   └── code-change/             # artifact root for that workflow
 │       └── <artifact outputs land here>
 └── .striatum/              # gitignored — runtime scratch only
@@ -53,8 +54,10 @@ destination.**
 ### Workflow files live under `striatum/workflows/`
 
 Striatum has no enforced workflow-file location, but the recommended
-home is `striatum/workflows/<name>.json` next to the target repo
-root. Reasons:
+home is under `striatum/workflows/` next to the target repo root.
+Use `striatum/workflows/<name>.json` for a single hand-authored
+workflow, or `striatum/workflows/<name>/workflow.json` for a
+generated workflow tree with role and prompt files. Reasons:
 
 - Operators reading the repo see "this project orchestrates with
   Striatum" without having to grep for the file.
@@ -64,8 +67,8 @@ root. Reasons:
   repository owns the workflow definition.
 
 Alternative if your project already has a `workflows/` directory at
-root for an unrelated system, use `striatum/workflows/<name>.json`
-to disambiguate. A `workflow.json` at the repo root also works for
+root for an unrelated system, use `striatum/workflows/` to
+disambiguate. A `workflow.json` at the repo root also works for
 single-workflow projects; the runner accepts any path you point it
 at.
 
@@ -155,6 +158,10 @@ them**. Striatum is generic. Concrete recommendations:
   `striatum init --with-ddd-layout --ddd-layout-dry-run` to see
   what it would write, then drop the conflict-free pieces into
   your repo.
+- Striatum directory scaffold is also opt-in — run
+  `striatum init --with-striatum-layout --striatum-layout-dry-run`
+  to preview `striatum/workflows/` and `striatum/<workflow-slug>/`
+  without writing workflow files or `.gitignore` entries.
 
 The only hard requirement is `.striatum/` next to the target
 repo (added by `striatum init`); everything else is convention.

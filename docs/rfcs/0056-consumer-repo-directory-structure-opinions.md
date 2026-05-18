@@ -1,9 +1,9 @@
 # RFC 0056 — Consumer-repo directory-structure opinions
 
-**Status:** proposed (Phase A shipped; optional scaffold updates in Phase B)
-**Scope:** V1.7 documentation + V1.8 `init --with-ddd-layout` extension
+**Status:** accepted (Phase A + Phase B shipped)
+**Scope:** V1.7 documentation + V1.8 `init --with-striatum-layout` extension
 **Composes with:** RFC 0021 (`init --with-ddd-layout` scaffold —
-likely host for the recommended layout), RFC 0053 (operator/principal
+the reader-facing doc companion), RFC 0053 (operator/principal
 model — affects where principal-visible artifacts live), RFC 0054
 (day-zero guide — links to the directory-structure recommendations).
 
@@ -52,9 +52,8 @@ lay out a target repository for Striatum, and here is why.*
 - Anchor the recommendations to existing primitives (RFC 0021 DDD
   scaffold, RFC 0034 workflow generator/template catalog, RFC 0043
   `.striatum/`-as-scratch).
-- Identify which recommendations should be enforced by the
-  `init --with-ddd-layout` scaffold versus left as documented
-  conventions.
+- Identify which recommendations should be documented only versus
+  scaffolded by explicit opt-in `init` flags.
 
 ## Non-goals
 
@@ -77,11 +76,12 @@ A new file at `docs/CONSUMER_REPO_LAYOUT.md` recommending:
    `.gitignore`. Never the workflow source of truth; never an
    artifact destination. Already enforced by `striatum init`; the
    doc just makes the contract explicit.
-2. **`striatum/workflows/<name>.json` — recommended workflow
-   home.** A `striatum/` top-level directory in the target repo
-   that holds one or more workflow files plus optional
-   per-workflow assets. Falls in line with RFC 0034's generator
-   catalog defaults.
+2. **`striatum/workflows/` — recommended workflow home.** A
+   `striatum/` top-level directory in the target repo that holds
+   one or more workflow files plus optional per-workflow assets.
+   Single-file workflows can use `striatum/workflows/<name>.json`;
+   generated workflow trees use
+   `striatum/workflows/<name>/workflow.json`.
 3. **`striatum/<workflow-name>/` or `docs/<workflow-name>/` —
    recommended artifact root.** Declared per workflow in
    `expected_artifacts[].path` / `write_scope.allowed_paths`.
@@ -120,39 +120,38 @@ target-repo/
 │       └── 001/ ...
 ├── striatum/
 │   ├── workflows/
-│   │   └── code-change.json
+│   │   └── code-change/
+│   │       └── workflow.json
 │   └── code-change/
 │       └── <artifact outputs land here>
 └── .striatum/  # gitignored — runtime scratch only
 ```
 
-## Open questions
+## Resolved and Open Questions
 
-1. **Prescriptive vs. descriptive.** How strongly should the doc
-   say "do this"? Calibrate against Striatum's generic-product
-   stance. Recommend: "these are defaults; deviate when you have
-   a reason."
-2. **Scaffold extension.** Should `init --with-ddd-layout` grow
-   to also create `striatum/workflows/`, `striatum/<workflow>/`,
-   and update `.gitignore` for the workflow artifact roots? Or
-   does the doc stay docs-only and scaffold extension wait?
-3. **Per-workflow generator integration.** RFC 0034's workflow
-   generator already writes `workflow.json` to a path. Should the
-   generator's default path be updated to
-   `striatum/workflows/<style>.json`?
-4. **Artifact root naming.** `striatum/<workflow-name>/` keeps
-   workflows visually grouped; `docs/<workflow-name>/` keeps
-   reviewable outputs in `docs/` where reviewers already look.
-   The recommendation should pick one default and explain the
-   trade.
-5. **Coexistence with existing repos.** A consumer repo that
-   adopts Striatum mid-life already has its own conventions.
-   Should the doc include a "migration / adoption-after-the-fact"
-   section, or just describe the green-field shape?
-6. **Engram and similar dogfood-heavy projects.** Their
-   `docs/dogfood/<NNN>/` is dense and load-bearing. Should the
-   doc separate "general consumer" recommendations from
-   "dogfood-heavy" extensions?
+1. **Prescriptive vs. descriptive.** Resolved: the docs present
+   defaults, not runtime enforcement. Operators should deviate when
+   a target repo has a better existing convention.
+2. **Scaffold extension.** Resolved: `init --with-striatum-layout`
+   creates/reports `striatum/workflows/` and
+   `striatum/<workflow-slug>/` as a separate opt-in scaffold. It
+   does not update `.gitignore` for workflow artifact roots because
+   artifact-root commit policy remains operator-owned.
+3. **Per-workflow generator integration.** Resolved for docs and
+   examples: generator trees live under
+   `striatum/workflows/<name>/workflow.json`. A future UI/default
+   path change remains optional because generator callers already
+   provide `scaffold_root` explicitly.
+4. **Artifact root naming.** Resolved: default to
+   `striatum/<workflow-name>/`, while documenting
+   `docs/<workflow-name>/` as a valid alternative for projects that
+   want reviewable Markdown under `docs/`.
+5. **Coexistence with existing repos.** Resolved: include a
+   mid-life adoption section and keep every recommendation
+   non-mandatory.
+6. **Engram and similar dogfood-heavy projects.** Resolved: keep
+   the general consumer layout first and document `docs/dogfood/`
+   as an optional extension for run-record-heavy projects.
 
 ## Phasing
 
@@ -163,14 +162,15 @@ target-repo/
   rationale, and a brief migration paragraph. Cross-link from
   `docs/INDEX.md`, the day-zero guide (RFC 0054), and the
   rewritten README (RFC 0055).
-- **Phase B:** extend `init --with-ddd-layout` (RFC 0021) to
-  optionally scaffold `striatum/workflows/`, `striatum/<workflow>/`,
-  and `.gitignore` entries. Behind a flag (`--with-striatum-layout`?)
-  so existing scaffolded repos don't churn. Open question 2 may
-  defer this to a separate RFC if scope grows.
-- **Phase C (optional):** update RFC 0034 workflow generator
-  defaults if Open question 3 resolves toward
-  `striatum/workflows/<style>.json`.
+- **Phase B:** landed as an additive `init --with-striatum-layout`
+  scaffold. It creates/reports `striatum/workflows/` and
+  `striatum/<workflow-slug>/` behind a separate opt-in flag so existing
+  DDD-scaffolded repos do not churn. It deliberately does not write workflow
+  files or `.gitignore` entries; artifact-root commit policy remains with
+  the operator.
+- **Phase C (optional):** update UI/default workflow-generator
+  scaffold-root suggestions to `striatum/workflows/<name>` where a
+  caller does not already supply an explicit path.
 
 ## Provenance
 

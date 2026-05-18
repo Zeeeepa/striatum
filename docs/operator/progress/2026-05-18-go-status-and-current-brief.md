@@ -39,3 +39,8 @@ RFC 0070 client-boundary cleanup also fenced the remaining production
 `cross-repo` CLI direct-PostgreSQL fallback. If daemon RPC routing does not
 handle a cross-repo command, production dispatch now fails closed instead of
 opening daemon PostgreSQL directly.
+
+RFC 0056 Phase B landed as `init --with-striatum-layout`: an opt-in
+directory-only scaffold for `striatum/workflows/` and
+`striatum/<workflow-slug>/`. It intentionally leaves workflow-file generation
+and artifact-root `.gitignore` policy out of scope.

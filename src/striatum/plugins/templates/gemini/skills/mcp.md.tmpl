@@ -34,13 +34,13 @@ Effective tool set:
 Preview before write:
 
 ```json
-{{"method":"tools/call","params":{{"name":"workflow.generate.preview","arguments":{{"spec":{{"schema_version":"striatum.workflow_generator.v1","shape":"code_change","lane_set":"author_reviewer","workflow_id":"my-change","name":"My change","workflow_version":"2026-05-12","branch":{{"mode":"confirm","suggested_name":"striatum/my-change","allow_dirty":false}},"scaffold_root":"workflows/my-change","artifact_root":"striatum/my-change","lanes":{{"author":{{"display_model":"Codex GPT-5.5","command":["codex","exec"]}},"reviewer":{{"display_model":"Claude Opus","command":["claude","--print"]}}}},"options":{{"max_revision_cycles":1}}}}}}}}}}
+{{"method":"tools/call","params":{{"name":"workflow.generate.preview","arguments":{{"spec":{{"schema_version":"striatum.workflow_generator.v1","shape":"code_change","lane_set":"author_reviewer","workflow_id":"my-change","name":"My change","workflow_version":"2026-05-12","branch":{{"mode":"confirm","suggested_name":"striatum/my-change","allow_dirty":false}},"scaffold_root":"striatum/workflows/my-change","artifact_root":"striatum/my-change","lanes":{{"author":{{"display_model":"Codex GPT-5.5","command":["codex","exec"]}},"reviewer":{{"display_model":"Claude Opus","command":["claude","--print"]}}}},"options":{{"max_revision_cycles":1}}}}}}}}}}
 ```
 
 Write after preview and operator approval:
 
 ```json
-{{"method":"tools/call","params":{{"name":"workflow.generate","arguments":{{"spec":{{"schema_version":"striatum.workflow_generator.v1","shape":"code_change","lane_set":"author_reviewer","workflow_id":"my-change","name":"My change","workflow_version":"2026-05-12","branch":{{"mode":"confirm","suggested_name":"striatum/my-change","allow_dirty":false}},"scaffold_root":"workflows/my-change","artifact_root":"striatum/my-change","lanes":{{"author":{{"display_model":"Codex GPT-5.5","command":["codex","exec"]}},"reviewer":{{"display_model":"Claude Opus","command":["claude","--print"]}}}},"options":{{"max_revision_cycles":1}}}},"confirm_write":true}}}}}}
+{{"method":"tools/call","params":{{"name":"workflow.generate","arguments":{{"spec":{{"schema_version":"striatum.workflow_generator.v1","shape":"code_change","lane_set":"author_reviewer","workflow_id":"my-change","name":"My change","workflow_version":"2026-05-12","branch":{{"mode":"confirm","suggested_name":"striatum/my-change","allow_dirty":false}},"scaffold_root":"striatum/workflows/my-change","artifact_root":"striatum/my-change","lanes":{{"author":{{"display_model":"Codex GPT-5.5","command":["codex","exec"]}},"reviewer":{{"display_model":"Claude Opus","command":["claude","--print"]}}}},"options":{{"max_revision_cycles":1}}}},"confirm_write":true}}}}}}
 ```
 
 `confirm_write: true` is still not enough in web chat. The chat UI must also record a separate operator confirmation gesture before Striatum writes files.

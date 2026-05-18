@@ -16,12 +16,17 @@ shape),
 `docs/DECISION_LOG.md` / `docs/DDD.md` / `docs/rfcs/` (the doc
 shape striatum's own repo uses to keep its DDD model coherent)
 
+Current status note (2026-05-18): RFC 0043/D094 replaced repo-local
+SQLite with daemon-owned PostgreSQL and `.striatum/` is operational
+scratch only. RFC 0021 remains the DDD document scaffold; RFC 0056
+adds the separate directory-only `striatum` layout scaffold.
+
 ## Problem
 
 A reader who lands on a fresh striatum-managed repo and types
-`striatum init` ends up with `.striatum/state.sqlite3` and
-nothing else. The runner is now wired up; the *model* the runner
-expects to coordinate against is not.
+`striatum init` ends up with operational `.striatum/` scratch and
+nothing else. The runner is now wired up to the daemon boundary; the
+*model* the runner expects to coordinate against is not.
 
 This is the failure mode RFC 0019 is meant to head off.
 Striatum's whole bet is that the vocabulary in
@@ -296,12 +301,12 @@ auxiliary. Ordering matches the `--with-skills` precedent.
   `{{audience}}`, etc. V1 performs literal copy. V1.5 could
   add a `--with-ddd-layout=interactive` mode that prompts
   for the placeholders.
-- **Multiple layouts.** ADR-only repos, mono-doc repos, and
-  large-team-with-OWASP-mappings repos have different ideal
-  shapes. V1 ships one layout (the seven-file DDD shape).
-  V1.5 could add `--ddd-layout-profile {full,adr_only}` or
-  similar. For V1, "if you don't want this layout, don't
-  pass the flag" is sufficient.
+- **Multiple DDD layouts.** ADR-only repos, mono-doc repos, and
+  large-team-with-OWASP-mappings repos have different ideal DDD
+  document shapes. RFC 0021 still ships one DDD profile (the
+  seven-file shape). RFC 0056 adds a separate `striatum` directory
+  scaffold rather than a second DDD profile. For V1, "if you don't
+  want this layout, don't pass the flag" is sufficient.
 - **Update mechanism.** What happens when a future striatum
   release adds an eighth canonical document? V1 says "no
   upgrade path; the operator owns the files from generation
@@ -354,15 +359,17 @@ layout instead of the agent-facing skill bundle.
 
 This RFC adds two value objects to the model:
 
-- **scaffold layout** (V1: `ddd_layout`) — a named bundle of
-  on-disk templates the runner can write into a target repo.
-  Identity is the layout name; equality is by-name. Like
-  `harness_profile` (RFC 0010) and `skill bundle` (RFC 0015),
-  the scaffold layout is constructed at install time and
+- **scaffold layout** (RFC 0021: `ddd`, RFC 0056: `striatum`) —
+  a named filesystem layout the runner can write or report for a
+  target repo. Like `harness_profile` (RFC 0010) and `skill bundle`
+  (RFC 0015), the scaffold layout is constructed at install time and
   never mutated in flight.
-- **scaffold file status** (`created | skipped | error`) — the
-  per-file outcome reported in the install envelope. Closed
-  set; same shape as RFC 0015's skill-install statuses.
+- **scaffold status** (`created | skipped | overwritten | error`
+  plus dry-run `would_*` forms) — the per-target outcome reported
+  in scaffold envelopes. RFC 0021 V1 originally used the same
+  `created | skipped | error` shape as RFC 0015 skill-install
+  statuses; V1.5 and RFC 0056 extend the vocabulary for force,
+  dry-run, and directory-only scaffolds.
 
 The runner's bounded context is *unchanged*: the scaffold
 templates are written *into* the target repo's documentation

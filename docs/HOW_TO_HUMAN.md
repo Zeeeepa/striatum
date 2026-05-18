@@ -268,6 +268,24 @@ To also scaffold the seven canonical reader-facing DDD documents
 broken symlinks) are reported as `error` and are not touched
 even with `--ddd-layout-force`.
 
+To also create the recommended Striatum-owned consumer-repo directories
+from RFC 0056:
+
+```bash
+"$RUNNER" --repo "$TARGET_REPO" init \
+  --with-striatum-layout \
+  --striatum-layout-workflow code-change \
+  --json
+
+"$RUNNER" --repo "$TARGET_REPO" init \
+  --with-striatum-layout --striatum-layout-dry-run --json
+```
+
+This creates only `striatum/workflows/` and
+`striatum/<workflow-slug>/`. It does not write workflow files, artifact
+files, or `.gitignore` entries; commit/ignore policy for artifact roots
+stays with the operator.
+
 ## Author or validate a workflow
 
 ```bash
@@ -357,7 +375,7 @@ To choose from the bundled generator catalog instead of a fixed starter:
 
 ```bash
 "$RUNNER" workflow templates list --kind shape --json
-"$RUNNER" workflow generate workflows/my-change \
+"$RUNNER" workflow generate striatum/workflows/my-change \
   --shape code_change \
   --lane-set local \
   --artifact-root striatum/my-change \
@@ -365,8 +383,8 @@ To choose from the bundled generator catalog instead of a fixed starter:
 ```
 
 The preview writes nothing. Remove `--dry-run` to create the workflow
-tree, then validate or edit `workflows/my-change/workflow.json` before
-`run prepare`.
+tree, then validate or edit
+`striatum/workflows/my-change/workflow.json` before `run prepare`.
 
 ## Prepare a run
 

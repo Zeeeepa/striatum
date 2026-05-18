@@ -39,7 +39,7 @@ For more control, generate from the template catalog:
 
 ```bash
 striatum workflow templates list
-striatum workflow generate workflows/my-change \
+striatum workflow generate striatum/workflows/my-change \
   --shape code_change \
   --lane-set author_reviewer \
   --artifact-root striatum/my-change \
@@ -50,9 +50,10 @@ striatum workflow generate workflows/my-change \
 
 The dry-run envelope contains the compiled workflow, generated files,
 graph metadata, warnings, and validation result. Removing `--dry-run`
-writes `workflow.json`, role stubs, and prompt stubs, then revalidates
-the written file. V1 refuses overwrites; edit the generated workflow
-afterward when you need fields the generator does not expose.
+writes `workflow.json`, role stubs, and prompt stubs under that
+workflow tree, then revalidates the written file. V1 refuses
+overwrites; edit the generated workflow afterward when you need fields
+the generator does not expose.
 
 ## Required top-level fields
 

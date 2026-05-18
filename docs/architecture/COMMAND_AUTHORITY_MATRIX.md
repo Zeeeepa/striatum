@@ -1,7 +1,7 @@
 # Command Authority Matrix
 
 Status: Phase 1 Go-port tracking
-Date: 2026-05-17
+Date: 2026-05-18
 Source inputs: `src/striatum/cli/parser.py`,
 `src/striatum/cli/daemon_rpc_route.py`,
 `src/striatum/daemon_rpc/registry.py`,

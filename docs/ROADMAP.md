@@ -13,11 +13,12 @@ dependency edges, and "what would I do next" framing. Update on every
 
 ---
 
-## 1. State as of 2026-05-17 (v1.55.0 + Unreleased remediation)
+## 1. State as of 2026-05-18 (v1.55.0 + Unreleased remediation)
 
 - **Latest tag:** `v1.55.0` is the latest released tag and
   `pyproject.toml` version. Current `main` also contains Unreleased
-  architecture-remediation follow-through from 2026-05-17.
+  architecture-remediation follow-through from 2026-05-17 through
+  2026-05-18.
 - **Latest substantive release:** v1.55.0 completed RFC 0048 V1.5 hardening,
   Schema v6 event-chain columns, capability-denial coverage, audit-chain row
   locking, append-only role-grant checks, and the inline helper wiring needed
@@ -26,7 +27,7 @@ dependency edges, and "what would I do next" framing. Update on every
   D107 supersedes D105: the target is now a Go production daemon port, Python
   daemon retirement after parity, Python CLI/web clients where useful, and
   SQLite eradication from production and compatibility paths.
-- **CI:** GitHub Actions has been backlogged during the 2026-05-17
+- **CI:** GitHub Actions has been backlogged during the 2026-05-17/18
   remediation commits. Treat latest-head CI failures as stop-the-line; queued
   and in-progress older runs are not by themselves blockers.
 - **Active dogfoods:** none tracked as live in this roadmap. The current
@@ -45,7 +46,7 @@ dependency edges, and "what would I do next" framing. Update on every
 | v1.53.0 | Recovery and serve hardening | `requeue-stale --force --justification`, corrupted-state serve refusal, and `daemon doctor --explain`. |
 | v1.54.0 | RFC 0048 Phase B read parity | Go read handlers plus Python PG-side stale-requeue message parity. |
 | v1.55.0 | RFC 0048 V1.5 hardening + Schema v6 | Capability-denial matrix, audit-chain row lock, append-only grants, event-chain columns, and recovery inline-helper wiring. |
-| Unreleased 2026-05-17 | Architecture remediation follow-through | Command authority guardrails, daemon-first web-service slices, escalation inbox foundation, PTY supervision hardening, and explicit product-decision blockers. |
+| Unreleased 2026-05-18 | Architecture remediation follow-through | Command authority guardrails, daemon-first web-service slices, Go daemon parity slices, RFC 0056 layout scaffold, and explicit product-decision blockers. |
 
 ## 3. Operator decision rules — read this before doing any work
 
@@ -912,8 +913,10 @@ priority than the active remediation runway unless scheduled explicitly.
   TODO #47. Phase 0 scaffold + **Phase A shipped in v1.55.0**
   (commit `a88f44d`): `docs/CONSUMER_REPO_LAYOUT.md` added with
   ASCII tree, per-section rationale, mid-life adoption guidance,
-  and dogfood-heavy-projects extension. Phase B (scaffold
-  extension of `init --with-ddd-layout`) deferred.
+  and dogfood-heavy-projects extension. Phase B shipped an additive
+  `init --with-striatum-layout` scaffold for `striatum/workflows/`
+  plus `striatum/<workflow-slug>/`; workflow-file generation and
+  artifact-root ignore policy remain out of scope.
 
 **Suggested implementer:** any lane. Documentation phases are
 single-track and additive — they touch docs and don't intersect

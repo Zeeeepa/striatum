@@ -19,7 +19,7 @@ from unittest import mock
 
 import pytest
 
-from striatum.scaffold import scaffold_ddd_layout
+from striatum.scaffold import scaffold_ddd_layout, scaffold_striatum_layout
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -32,6 +32,11 @@ _EXPECTED_TARGETS: list[str] = [
     "docs/DDD.md",
     "docs/rfcs/README.md",
     "docs/rfcs/0001-template.md",
+]
+
+_EXPECTED_STRIATUM_DIRS: list[str] = [
+    "striatum/workflows",
+    "striatum/code-change",
 ]
 
 
@@ -374,3 +379,124 @@ def test_init_composability_with_skills_install(tmp_path: Path) -> None:
     assert "skills" in payload["data"]
     assert "ddd_layout" in payload["data"]
     assert payload["data"]["ddd_layout"]["layout"] == "ddd"
+
+
+# --- RFC 0056 Phase B: consumer Striatum layout ----------------------
+
+
+def test_striatum_layout_creates_workflow_directories(tmp_path: Path) -> None:
+    result = scaffold_striatum_layout(tmp_path)
+
+    assert result["layout"] == "striatum"
+    assert result["workflow_slug"] == "code-change"
+    assert result["dry_run"] is False
+    statuses = {entry["path"]: entry["status"] for entry in result["directories"]}
+    for target in _EXPECTED_STRIATUM_DIRS:
+        assert statuses[target] == "created"
+        assert (tmp_path / target).is_dir()
+
+
+def test_striatum_layout_dry_run_writes_no_directories(tmp_path: Path) -> None:
+    result = scaffold_striatum_layout(tmp_path, dry_run=True)
+
+    assert result["dry_run"] is True
+    assert {
+        entry["path"]: entry["status"] for entry in result["directories"]
+    } == {
+        "striatum/workflows": "would_create",
+        "striatum/code-change": "would_create",
+    }
+    assert not (tmp_path / "striatum").exists()
+
+
+def test_striatum_layout_skips_existing_directories(tmp_path: Path) -> None:
+    (tmp_path / "striatum" / "workflows").mkdir(parents=True)
+    (tmp_path / "striatum" / "code-change").mkdir()
+
+    result = scaffold_striatum_layout(tmp_path)
+
+    assert {
+        entry["path"]: (entry["status"], entry.get("reason"))
+        for entry in result["directories"]
+    } == {
+        "striatum/workflows": ("skipped", "exists"),
+        "striatum/code-change": ("skipped", "exists"),
+    }
+
+
+def test_striatum_layout_reports_file_target_as_error(tmp_path: Path) -> None:
+    (tmp_path / "striatum").write_text("not a directory", encoding="utf-8")
+
+    result = scaffold_striatum_layout(tmp_path)
+
+    assert all(
+        entry["status"] == "error" for entry in result["directories"]
+    )
+    assert all(
+        entry["reason"] == "parent exists but is not a directory: striatum"
+        for entry in result["directories"]
+    )
+    assert (tmp_path / "striatum").read_text(encoding="utf-8") == "not a directory"
+
+
+def test_striatum_layout_rejects_unsafe_workflow_slug(tmp_path: Path) -> None:
+    result = scaffold_striatum_layout(tmp_path, workflow_slug="../bad")
+
+    assert result["directories"] == [
+        {
+            "path": "striatum/<workflow_slug>",
+            "status": "error",
+            "reason": (
+                "workflow_slug must be 1-64 chars and contain only letters, "
+                "digits, dot, underscore, or hyphen; it must start with a "
+                "letter or digit"
+            ),
+        }
+    ]
+    assert not (tmp_path / "striatum").exists()
+
+
+def test_init_with_striatum_layout_returns_envelope(tmp_path: Path) -> None:
+    proc = subprocess.run(
+        [sys.executable, "-m", "striatum.cli",
+         "--repo", str(tmp_path), "init",
+         "--with-ddd-layout", "--with-striatum-layout",
+         "--striatum-layout-workflow", "review-cycle",
+         "--json"],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        env={"PYTHONPATH": str(ROOT / "src"), "PATH": "/usr/bin:/bin"},
+    )
+
+    assert proc.returncode == 0, f"stderr: {proc.stderr}"
+    payload = json.loads(proc.stdout)
+    assert payload["data"]["ddd_layout"]["layout"] == "ddd"
+    layout = payload["data"]["striatum_layout"]
+    assert layout["layout"] == "striatum"
+    assert layout["workflow_slug"] == "review-cycle"
+    assert {entry["path"] for entry in layout["directories"]} == {
+        "striatum/workflows",
+        "striatum/review-cycle",
+    }
+    assert (tmp_path / "striatum" / "workflows").is_dir()
+    assert (tmp_path / "striatum" / "review-cycle").is_dir()
+
+
+def test_striatum_layout_flags_noop_without_with_striatum_layout(tmp_path: Path) -> None:
+    proc = subprocess.run(
+        [sys.executable, "-m", "striatum.cli",
+         "--repo", str(tmp_path), "init",
+         "--striatum-layout-dry-run",
+         "--striatum-layout-workflow", "review-cycle",
+         "--json"],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        env={"PYTHONPATH": str(ROOT / "src"), "PATH": "/usr/bin:/bin"},
+    )
+
+    assert proc.returncode == 0, f"stderr: {proc.stderr}"
+    payload = json.loads(proc.stdout)
+    assert "striatum_layout" not in payload["data"]
+    assert not (tmp_path / "striatum").exists()

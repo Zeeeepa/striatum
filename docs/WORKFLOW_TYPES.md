@@ -52,7 +52,7 @@ For a new workflow, prefer the generator before hand-editing JSON:
 
 ```bash
 striatum workflow templates list --kind shape
-striatum workflow generate workflows/my-change \
+striatum workflow generate striatum/workflows/my-change \
   --shape code_change \
   --lane-set local \
   --artifact-root striatum/my-change \
@@ -209,7 +209,7 @@ Good fits:
 Start with:
 
 ```bash
-striatum workflow init --style minimal workflows/my-task
+striatum workflow init --style minimal striatum/workflows/my-task
 ```
 
 ## Review And Synthesis
@@ -237,7 +237,7 @@ Good fits:
 Start with:
 
 ```bash
-striatum workflow init --style review workflows/my-review
+striatum workflow init --style review striatum/workflows/my-review
 ```
 
 ## Code Change With Bounded Revision
@@ -263,7 +263,7 @@ Good fits:
 Start with:
 
 ```bash
-striatum workflow init --style code-change workflows/my-change
+striatum workflow init --style code-change striatum/workflows/my-change
 ```
 
 ## Human Checkpoint

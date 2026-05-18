@@ -64,7 +64,9 @@ def test_adopt_dry_run_is_daemon_optional_and_reports_guided_steps(tmp_path: Pat
     assert isinstance(result, dict)
     assert result["dry_run"] is True
     assert result["init"]["status"] == "would_init"
-    assert result["suggested_workflow"].endswith("workflows/first-workflow/workflow.json")
+    assert result["suggested_workflow"].endswith(
+        "striatum/workflows/first-workflow/workflow.json"
+    )
     assert result["ddd_layout"]["dry_run"] is True
 
 

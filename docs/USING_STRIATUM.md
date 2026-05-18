@@ -118,13 +118,17 @@ What `adopt` does:
 
 If the target repo follows the recommended layout in
 [`CONSUMER_REPO_LAYOUT.md`](CONSUMER_REPO_LAYOUT.md), your
-workflow file lives at `striatum/workflows/<name>.json` and
-artifacts land under `striatum/<workflow-name>/`.
+workflow file lives under `striatum/workflows/` and artifacts land
+under `striatum/<workflow-name>/`. Generated workflow trees use
+`striatum/workflows/<name>/workflow.json`.
+For an empty target repo, `striatum init --with-striatum-layout`
+creates those two directories without writing workflow files or
+artifact-root `.gitignore` policy.
 
 ## Your first run
 
 ```bash
-WORKFLOW="$TARGET_REPO/striatum/workflows/code-change.json"
+WORKFLOW="$TARGET_REPO/striatum/workflows/code-change/workflow.json"
 # Or use a starter from the repo:
 WORKFLOW=examples/code-change-flow/workflow.json
 
@@ -151,7 +155,7 @@ striatum --repo "$TARGET_REPO" dashboard --run-id <run_id>
 Now hand the agent the run. With Claude Code, open a session in
 the target repo and tell it:
 
-> Drive the workflow at `striatum/workflows/code-change.json`
+> Drive the workflow at `striatum/workflows/code-change/workflow.json`
 > using striatum.
 
 The operator skill bundle teaches the agent the verbs it needs

@@ -154,7 +154,7 @@ def generate_workflow(spec: WorkflowGenerationSpec) -> GeneratedWorkflow:
     "suggested_name": "striatum/my-change",
     "allow_dirty": false
   },
-  "scaffold_root": "workflows/my-change",
+  "scaffold_root": "striatum/workflows/my-change",
   "artifact_root": "striatum/my-change",
   "lanes": {
     "author": {
@@ -180,9 +180,9 @@ def generate_workflow(spec: WorkflowGenerationSpec) -> GeneratedWorkflow:
 {
   "workflow": {"...": "workflow.json object"},
   "files": [
-    {"path": "workflows/my-change/workflow.json", "content": "..."},
-    {"path": "workflows/my-change/roles/author.md", "content": "..."},
-    {"path": "workflows/my-change/prompts/draft.md", "content": "..."}
+    {"path": "striatum/workflows/my-change/workflow.json", "content": "..."},
+    {"path": "striatum/workflows/my-change/roles/author.md", "content": "..."},
+    {"path": "striatum/workflows/my-change/prompts/draft.md", "content": "..."}
   ],
   "metadata": {
     "shape": "code_change",

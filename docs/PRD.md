@@ -13,7 +13,7 @@ The V1 surface that has shipped covers the Seed Requirements below. Engram
 is the reference customer and first validation fixture; the runner itself is
 generic. Remaining product work is tracked in `docs/TODO.md`.
 
-Current status note (2026-05-17): the seed decisions below preserve the
+Current status note (2026-05-18): the seed decisions below preserve the
 product framing that led to V1, but several substrate/interface decisions
 have been superseded by D094 and D104. Current Striatum live state is
 daemon-owned PostgreSQL scoped per registered target repository; `.striatum/`
