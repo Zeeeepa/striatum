@@ -24,7 +24,7 @@ from __future__ import annotations
 
 import sqlite3
 
-from striatum.migrations import apply_migrations
+from striatum.legacy_sqlite.migrations import apply_migrations
 
 
 def test_v16_runs_rebuild_leaves_no_temp_table() -> None:

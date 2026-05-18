@@ -19,7 +19,7 @@ from striatum.daemon_pg.repo_local_migration import (
     migrate_repo_local,
 )
 from striatum.errors import SchemaVersionError, StriatumError
-from striatum.migrations import LATEST_VERSION
+from striatum.legacy_sqlite.migrations import LATEST_VERSION
 
 pytestmark = pytest.mark.usefixtures("legacy_sqlite_import_enabled")
 

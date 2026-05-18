@@ -246,11 +246,11 @@ Legend: ✅ done · 🟡 most done (sub-tasks remain) · ⏳ open/blocked · �
 
 ## In Progress
 
-1. ~~**Process adapter.**~~ ✅ Done for current scope: single-shot `adapter run` is shipped
-   (legacy implementation now isolated at
-   `src/striatum/legacy_sqlite/process_adapter.py`). Long-lived supervision (RFC 0009,
-   accepted) is isolated in `src/striatum/legacy_sqlite/supervisor.py` plus
-   `.striatum/bin/{claude,codex,gemini}-supervised-wrapper.sh`:
+1. ~~**Process adapter.**~~ ✅ Done for current scope: single-shot `adapter run`
+   and long-lived supervision are production daemon/PostgreSQL-backed surfaces;
+   legacy SQLite adapter/supervisor code is quarantined under
+   `src/striatum/legacy_sqlite/` for fixture compatibility only. Supervised
+   wrappers remain under `.striatum/bin/{claude,codex,gemini}-supervised-wrapper.sh`:
    `process_supervisors` table (migration version 4), `striatum supervise
    start | send | stop | status | list`, lazy lease-expiry recovery that
    flags supervisors `lost` without auto-killing the OS process,
@@ -652,12 +652,10 @@ Legend: ✅ done · 🟡 most done (sub-tasks remain) · ⏳ open/blocked · �
     from dogfood-048 build review, deferred under D102 (decision
     `dec_0b953435368e40109e793378e1a75054`).~~ ✅ Done / tracker stale.
     The deferred findings landed across the later V1.5/V1.6 hardening
-    slices: `migrate_repo_local()` writes the post-commit
-    `.striatum/state.sqlite3.migrated` sentinel and resumes tombstone/delete
-    finalization idempotently; daemon-required enforcement is the default
-    with only the paired `STRIATUM_DAEMON_REQUIRED=0`
-    `STRIATUM_TEST_HARNESS=1` test escape; `daemon migrate-repo-local`
-    is wired in the parser with the RFC 0043 flags and help text; and
+    slices: the former repo-local migration path is now retired from operator
+    use; daemon-required enforcement is the default, and the old
+    `daemon migrate-repo-local` spelling is parser-compatible only so it can
+    refuse with exit code 12 before opening SQLite; and
     focused regression coverage now includes crash-resume, split-brain,
     lock contention, parser/help, registry coverage, exit-code 11/12
     dispatch paths, and a foreground-daemon socket refusal smoke. The

@@ -109,7 +109,7 @@ def rpc_result(server: LocalRpcServer, method: str, params: JsonDict | None = No
 
 
 def init_repo(repo: Path) -> None:
-    from striatum.db import init_repo as legacy_init_repo
+    from striatum.legacy_sqlite.db import init_repo as legacy_init_repo
 
     legacy_init_repo(repo)
 
@@ -2233,7 +2233,7 @@ def test_evidence_redaction_drops_unknown_fields_by_default(
     tmp_path: Path, monkeypatch: Any
 ) -> None:
     from striatum import cli as cli_module
-    from striatum.db import connect, db_path
+    from striatum.legacy_sqlite.db import connect, db_path
 
     private_marker = "agent prose here that must never escape"
     workflow_path = WORKFLOW

@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any, cast
 
 from striatum.cli.mutations import heartbeat
-from striatum.db import connect
+from striatum.legacy_sqlite.db import connect
 from striatum.daemon_supervisor.progress_watcher import (
     ProgressWatcherConfig,
     SupervisedProgressWatcher,
@@ -49,7 +49,7 @@ def _run_cli(repo: Path, *args: str) -> dict[str, Any]:
 
 
 def _claimed_packet(repo: Path) -> tuple[str, dict[str, Any]]:
-    from striatum.db import init_repo as legacy_init_repo
+    from striatum.legacy_sqlite.db import init_repo as legacy_init_repo
 
     legacy_init_repo(repo)
     prepared = _run_cli(repo, "run", "prepare", "--workflow", str(WORKFLOW))

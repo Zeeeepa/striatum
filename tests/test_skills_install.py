@@ -155,7 +155,7 @@ def test_init_with_skills_installs_after_init(tmp_path: Path) -> None:
 
 def test_doctor_reports_skills_missing(tmp_path: Path) -> None:
     from striatum.cli.introspect import doctor
-    from striatum.db import connect, init_repo
+    from striatum.legacy_sqlite.db import connect, init_repo
 
     init_repo(tmp_path)
     install_skills(target=tmp_path, profile="claude_code")
@@ -170,7 +170,7 @@ def test_doctor_reports_skills_missing(tmp_path: Path) -> None:
 
 def test_doctor_reports_skills_outdated_on_version(tmp_path: Path) -> None:
     from striatum.cli.introspect import doctor
-    from striatum.db import connect, init_repo
+    from striatum.legacy_sqlite.db import connect, init_repo
 
     init_repo(tmp_path)
     install_skills(target=tmp_path, profile="claude_code")
@@ -190,7 +190,7 @@ def test_doctor_reports_skills_outdated_on_version(tmp_path: Path) -> None:
 
 def test_doctor_reports_skills_outdated_on_template_sha(tmp_path: Path) -> None:
     from striatum.cli.introspect import doctor
-    from striatum.db import connect, init_repo
+    from striatum.legacy_sqlite.db import connect, init_repo
 
     init_repo(tmp_path)
     install_skills(target=tmp_path, profile="claude_code")
@@ -417,7 +417,7 @@ def test_init_with_skills_all_writes_every_profile(tmp_path: Path) -> None:
 
 def test_doctor_reports_skills_missing_for_codex_profile(tmp_path: Path) -> None:
     from striatum.cli.introspect import doctor
-    from striatum.db import connect, init_repo
+    from striatum.legacy_sqlite.db import connect, init_repo
 
     init_repo(tmp_path)
     install_skills(target=tmp_path, profile="codex")
@@ -437,7 +437,7 @@ def test_doctor_reports_skills_missing_for_codex_profile(tmp_path: Path) -> None
 
 def test_doctor_reports_skills_missing_for_gemini_profile(tmp_path: Path) -> None:
     from striatum.cli.introspect import doctor
-    from striatum.db import connect, init_repo
+    from striatum.legacy_sqlite.db import connect, init_repo
 
     init_repo(tmp_path)
     install_skills(target=tmp_path, profile="gemini")

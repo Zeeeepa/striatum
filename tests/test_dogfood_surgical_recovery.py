@@ -9,7 +9,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, cast
 
-from striatum.db import connect, expire_leases, transaction
+from striatum.legacy_sqlite.db import connect, expire_leases, transaction
 from striatum.primitives import utc_now
 from striatum.dogfood.operator_tools import surgical_recovery
 from striatum.identity import process_start_time
@@ -35,7 +35,7 @@ def run_cli(repo: Path, *args: str) -> dict[str, Any]:
 
 
 def _running_author_packet(repo: Path) -> tuple[str, dict[str, Any]]:
-    from striatum.db import init_repo as legacy_init_repo
+    from striatum.legacy_sqlite.db import init_repo as legacy_init_repo
 
     legacy_init_repo(repo)
     prepared = run_cli(repo, "run", "prepare", "--workflow", str(WORKFLOW))

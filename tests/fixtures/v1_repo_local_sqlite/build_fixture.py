@@ -3,7 +3,7 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
-from striatum.migrations import apply_migrations
+from striatum.legacy_sqlite.migrations import apply_migrations
 
 
 HERE = Path(__file__).resolve().parent

@@ -378,7 +378,7 @@ def test_compute_node_states_picks_highest_attempt(tmp_path: Path) -> None:
 
     sys.path.insert(0, str(ROOT / "src"))
     try:
-        from striatum.db import connect, ensure_initialized
+        from striatum.legacy_sqlite.db import connect, ensure_initialized
         from striatum.workflow import compute_node_states
     finally:
         sys.path.pop(0)

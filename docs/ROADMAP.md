@@ -305,8 +305,8 @@ guardrail failures. The repo-local SQLite engine and migrations now live under
 `striatum.legacy_sqlite`; root `striatum.db` / `striatum.migrations` remain
 lazy compatibility facades for legacy fixtures and do not import SQLite on
 plain module import. The retired repo-local import helper is also quarantined
-under `striatum.legacy_sqlite`; the old daemon-PG import path is a lazy
-compatibility facade.
+under `striatum.legacy_sqlite`; any remaining compatibility facade is
+fixture-only and not an operator path.
 
 ---
 

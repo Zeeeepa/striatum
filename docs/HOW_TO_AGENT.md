@@ -53,9 +53,9 @@ Two rules to internalize before you do anything else:
    CLI commands, daemon MCP/chat tools, and the local web service are
    clients of that boundary. When your packet supplies CLI commands,
    run those commands verbatim. Do not open Postgres directly, and do
-   not expect to find `.striatum/state.sqlite3` — on a migrated repo it
-   has been finalized as a read-only tombstone that no Striatum verb
-   opens.
+   not expect `.striatum/state.sqlite3` to exist as live state. Legacy
+   SQLite files or tombstones are historical remnants only; no current
+   Striatum verb opens them.
 2. **Do not advance state by printing phrases.** "I have completed
    the task" is not a state transition. `striatum complete --job-id
    <id> --lease-id <id>` is.
@@ -190,8 +190,7 @@ and ask the operator to recover stale work.
 - Do not bypass the daemon. The daemon is the single writer; CLI,
   MCP/chat, and web-service surfaces are clients of that boundary.
   Never open the daemon's Postgres directly, and do not open or rely on
-  `.striatum/state.sqlite3.tombstone` (a migrated repo's read-only
-  remnant) as live state.
+  legacy `.striatum/state.sqlite3*` files or tombstones as live state.
 - Do not write to `.striatum/scratch/` or `.striatum/bin/` unless
   a packet explicitly asks you to (the supervised wrapper script,
   for example).

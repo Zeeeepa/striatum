@@ -121,7 +121,7 @@ def _data(payload: JsonDict) -> JsonDict:
 def _start_run_with(repo: Path, workflow: JsonDict) -> tuple[str, str]:
     workflow_path = repo / "workflow.json"
     workflow_path.write_text(json.dumps(workflow), encoding="utf-8")
-    from striatum.db import init_repo as legacy_init_repo
+    from striatum.legacy_sqlite.db import init_repo as legacy_init_repo
 
     legacy_init_repo(repo)
     prepared = _data(_run_cli(repo, "run", "prepare", "--workflow", str(workflow_path)))

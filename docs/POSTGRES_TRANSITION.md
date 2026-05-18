@@ -244,10 +244,10 @@ does not open SQLite as a database or resume finalization.
 verify-only repository report inside the doctor output and summarizes
 repository cutover health in `striatum.authority_report.v1`.
 
-A repo that has not been migrated refuses CLI verbs with **exit
-code 12 (`repo_not_migrated`)**. The stderr message and JSON hint tell the
-operator to archive/remove legacy SQLite files and register with `adopt` or
-`repo add --init`.
+An unregistered repo, including a pre-D094 repo that still has legacy SQLite
+state, refuses CLI verbs with **exit code 12 (`repo_not_migrated`)**. The
+stderr message and JSON hint tell the operator to archive/remove legacy SQLite
+files and register with `adopt` or `repo add --init`.
 
 `striatum daemon doctor --json` reports one substrate (Postgres),
 one schema version, and one audit chain after successful registration.
@@ -275,11 +275,10 @@ for the full closed list.
   not perform operator SQLite imports. If a target repo still has legacy
   `.striatum/state.sqlite3`, archive it before registration so the old local
   mirror remains available for manual inspection.
-- **Tombstone is read-only.** No Striatum verb opens
-  `.striatum/state.sqlite3.tombstone`. SQLite tooling can still
-  inspect it directly; it remains owner-readable for as long as
-  you keep it. You can delete it manually when you no longer want
-  the local mirror.
+- **Legacy tombstones are read-only historical remnants.** If an older
+  Striatum version already created `.striatum/state.sqlite3.tombstone`, no
+  current Striatum verb opens it. SQLite tooling can inspect it directly; you
+  can delete it manually when you no longer want the local mirror.
 - **There is no "un-migrate" command.** Once Postgres-side registration
   exists, deleting it should be treated as data deletion. Normal recovery is
   restoring the Postgres database from backup or PITR and restoring the target

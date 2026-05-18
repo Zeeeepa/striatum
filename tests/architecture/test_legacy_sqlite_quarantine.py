@@ -702,6 +702,13 @@ def test_test_sqlite_references_are_classified_as_test_fixtures() -> None:
     )
 
 
+def test_test_fixtures_import_legacy_sqlite_modules_directly() -> None:
+    offenders = _legacy_sqlite_facade_imports_under(ROOT / "tests")
+    offenders.pop(Path("tests/architecture/test_legacy_sqlite_quarantine.py"), None)
+
+    assert offenders == {}
+
+
 def _db_imports_under(root: Path) -> dict[Path, set[str]]:
     offenders: dict[Path, set[str]] = {}
     for path in sorted(root.rglob("*.py")):
@@ -714,6 +721,35 @@ def _db_imports_under(root: Path) -> dict[Path, set[str]]:
                 for alias in node.names:
                     if alias.name == "striatum.db":
                         offenders.setdefault(rel, set()).add(alias.name)
+    return offenders
+
+
+def _legacy_sqlite_facade_imports_under(root: Path) -> dict[Path, set[str]]:
+    offenders: dict[Path, set[str]] = {}
+    facade_modules = {"striatum.db", "striatum.migrations"}
+    facade_names = {"db", "migrations"}
+    for path in sorted(root.rglob("*.py")):
+        rel = path.relative_to(ROOT)
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    if alias.name in facade_modules:
+                        offenders.setdefault(rel, set()).add(f"import {alias.name}")
+            elif isinstance(node, ast.ImportFrom):
+                if node.module in facade_modules:
+                    imported = ", ".join(alias.name for alias in node.names)
+                    offenders.setdefault(rel, set()).add(
+                        f"from {node.module} import {imported}"
+                    )
+                elif node.module == "striatum":
+                    imported_names = [
+                        alias.name for alias in node.names if alias.name in facade_names
+                    ]
+                    if imported_names:
+                        offenders.setdefault(rel, set()).add(
+                            "from striatum import " + ", ".join(imported_names)
+                        )
     return offenders
 
 

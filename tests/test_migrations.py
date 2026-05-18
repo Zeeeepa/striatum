@@ -10,8 +10,8 @@ from typing import Any, cast
 
 import pytest
 
-from striatum import migrations as migrations_module
-from striatum.migrations import LATEST_VERSION, MIGRATIONS, Migration, apply_migrations
+from striatum.legacy_sqlite import migrations as migrations_module
+from striatum.legacy_sqlite.migrations import LATEST_VERSION, MIGRATIONS, Migration, apply_migrations
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / "examples" / "rfc-ledger-cleanup" / "workflow.json"
@@ -53,7 +53,7 @@ def db_file(repo: Path) -> Path:
 
 
 def legacy_init_repo(repo: Path) -> None:
-    from striatum.db import init_repo
+    from striatum.legacy_sqlite.db import init_repo
 
     init_repo(repo)
 

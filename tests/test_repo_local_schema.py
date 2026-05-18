@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from striatum.migrations import LATEST_VERSION
+from striatum.legacy_sqlite.migrations import LATEST_VERSION
 from striatum.repo_local_schema import LATEST_REPO_LOCAL_SCHEMA_VERSION
 
 

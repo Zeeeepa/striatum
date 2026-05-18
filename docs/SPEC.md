@@ -48,7 +48,8 @@ remain daemon clients. The repo-local SQLite engine and migrations are
 quarantined under `striatum.legacy_sqlite`; root `striatum.db` /
 `striatum.migrations` are lazy compatibility facades for legacy fixtures. The
 retired repo-local import helper is also quarantined under
-`striatum.legacy_sqlite`, with the old daemon-PG path kept as a lazy facade.
+`striatum.legacy_sqlite`; any remaining compatibility facades are fixture-only
+and not operator surfaces.
 `STRIATUM_DAEMON_REQUIRED=0 STRIATUM_TEST_HARNESS=1` escape no
 longer takes effect for ported methods — mapped CLI verbs fail
 closed instead of falling back to SQLite when the daemon is

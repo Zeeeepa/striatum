@@ -18,7 +18,7 @@ import sqlite3
 
 
 from striatum.artifacts import _is_operator_byline, _lane_evidence_present
-from striatum.migrations import apply_migrations
+from striatum.legacy_sqlite.migrations import apply_migrations
 
 
 def test_is_operator_byline_recognises_canonical_form() -> None:

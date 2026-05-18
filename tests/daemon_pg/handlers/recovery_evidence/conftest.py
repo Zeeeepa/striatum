@@ -129,7 +129,7 @@ def sqlite_conn(tmp_path: Path) -> Iterator[sqlite3.Connection]:
     """Return a fresh SQLite connection at the latest schema version."""
     repo = tmp_path / "repo"
     (repo / ".striatum").mkdir(parents=True)
-    from striatum.db import connect
+    from striatum.legacy_sqlite.db import connect
 
     conn = connect(repo)
     try:

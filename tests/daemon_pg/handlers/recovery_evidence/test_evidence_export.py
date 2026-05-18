@@ -32,7 +32,7 @@ def test_handler_signature_is_ctx_params() -> None:
 
 def test_digest_helper_matches_sha256_text() -> None:
     """Source-level pin: the digest must be ``sha256`` of the rendered body's
-    UTF-8 bytes. The SQLite path uses :func:`striatum.db.sha256_bytes` on
+    UTF-8 bytes. The SQLite path uses :func:`striatum.legacy_sqlite.db.sha256_bytes` on
     ``body.encode("utf-8")``; the PG path's helper must do the same.
     """
     from ._helpers import import_handler

@@ -78,7 +78,7 @@ def _git_init_repo(repo: Path) -> None:
 
 
 def _striatum_init(repo: Path) -> None:
-    from striatum.db import init_repo as legacy_init_repo
+    from striatum.legacy_sqlite.db import init_repo as legacy_init_repo
 
     legacy_init_repo(repo)
 

@@ -54,7 +54,7 @@ def data(payload: JsonDict) -> JsonDict:
 
 
 def init_repo(repo: Path) -> None:
-    from striatum.db import init_repo as legacy_init_repo
+    from striatum.legacy_sqlite.db import init_repo as legacy_init_repo
 
     legacy_init_repo(repo)
 

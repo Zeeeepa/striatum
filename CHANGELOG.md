@@ -127,6 +127,13 @@ Recent checkpoints:
   `STRIATUM_LEGACY_SERVICE_FIXTURE=1` explicitly, and the authority matrix
   names the retired repo-local migration import fixture's bounded direct-PG
   exception.
+- Legacy SQLite tests now import `striatum.legacy_sqlite.*` directly instead
+  of the root `striatum.db` / `striatum.migrations` compatibility facades, and
+  architecture guardrails prevent new test fixture imports through those root
+  facades.
+- Operator docs now describe legacy SQLite migration/tombstone paths as
+  historical remnants or fixture-only compatibility, while current setup
+  guidance uses daemon PostgreSQL registration.
 - The 2026-05-18 architecture review artifacts were refreshed to reflect the
   Go/PostgreSQL daemon, capability-token, public-adoption, and
   human-principal escalation direction; the rejected embedded-storage and

@@ -164,7 +164,7 @@ def test_striatum_status_in_initialized_repo(
 ) -> None:
     _git_init(tmp_path)
     monkeypatch.setenv("STRIATUM_LEGACY_SERVICE_FIXTURE", "1")
-    from striatum.db import init_repo as legacy_init_repo
+    from striatum.legacy_sqlite.db import init_repo as legacy_init_repo
 
     legacy_init_repo(tmp_path)
     out = execute_tool("striatum_status", {}, repo=tmp_path)
@@ -448,7 +448,7 @@ def test_dogfood_lifecycle_run_summary_returns_invoke_envelope(tmp_path: Path) -
     which is what we serialize.
     """
     _git_init(tmp_path)
-    from striatum.db import init_repo as legacy_init_repo
+    from striatum.legacy_sqlite.db import init_repo as legacy_init_repo
 
     legacy_init_repo(tmp_path)
     out = execute_tool(

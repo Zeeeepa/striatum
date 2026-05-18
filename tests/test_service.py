@@ -26,7 +26,7 @@ ROOT = Path(__file__).resolve().parents[1]
 def _insert_phased_run(repo: Path) -> str:
     sys.path.insert(0, str(ROOT / "src"))
     try:
-        from striatum.db import init_repo
+        from striatum.legacy_sqlite.db import init_repo
     finally:
         sys.path.pop(0)
 
@@ -125,7 +125,7 @@ def _git_init_repo(repo: Path) -> None:
 
 
 def _striatum_init(repo: Path) -> None:
-    from striatum.db import init_repo as legacy_init_repo
+    from striatum.legacy_sqlite.db import init_repo as legacy_init_repo
 
     legacy_init_repo(repo)
 
@@ -270,7 +270,7 @@ def _web_mutation_handler(
 
     import striatum.service as service
     import striatum.service_daemon as service_daemon
-    import striatum.db as db
+    import striatum.legacy_sqlite.db as db
 
     def sqlite_tripwire(*args: Any, **kwargs: Any) -> None:
         raise AssertionError("web POST mutation handler opened repo-local SQLite")
@@ -671,7 +671,7 @@ def test_status_derives_phase_progress_from_snapshot(tmp_path: Path) -> None:
     sys.path.insert(0, str(ROOT / "src"))
     try:
         from striatum.cli.introspect import phase_progress_for_run
-        from striatum.db import connect
+        from striatum.legacy_sqlite.db import connect
     finally:
         sys.path.pop(0)
 
@@ -1539,7 +1539,7 @@ def test_workflow_run_now_maps_daemon_workflow_error_details_to_422(
     from email.message import Message
     from io import BytesIO
 
-    import striatum.db as db
+    import striatum.legacy_sqlite.db as db
     import striatum.service as service
     import striatum.service_daemon as service_daemon
 

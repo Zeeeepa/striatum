@@ -24,7 +24,7 @@ from __future__ import annotations
 import sqlite3
 
 from striatum.cli.mutations import _propagate_decision_outcome
-from striatum.migrations import apply_migrations
+from striatum.legacy_sqlite.migrations import apply_migrations
 
 
 def _scaffold(conn: sqlite3.Connection, *, run_state: str = "completed") -> str:

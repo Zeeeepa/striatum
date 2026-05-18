@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 from typing import Any, cast
 
-from striatum.db import connect
+from striatum.legacy_sqlite.db import connect
 from striatum.dogfood import publish_on_behalf
 from striatum.errors import InvalidTransitionError
 
@@ -104,7 +104,7 @@ def _start_and_claim(
     _git_init_repo(repo)
     workflow_path = repo / "workflow.json"
     workflow_path.write_text(json.dumps(_workflow(job_type=job_type, kind=kind)), encoding="utf-8")
-    from striatum.db import init_repo as legacy_init_repo
+    from striatum.legacy_sqlite.db import init_repo as legacy_init_repo
 
     legacy_init_repo(repo)
     prepared = _data(_run_cli(repo, "run", "prepare", "--workflow", str(workflow_path)))

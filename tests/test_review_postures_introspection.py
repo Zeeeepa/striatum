@@ -173,7 +173,7 @@ def test_idx_verdicts_posture_present_after_init(tmp_path: Path) -> None:
 def test_migration_v10_idempotent(tmp_path: Path) -> None:
     """Re-running the migrations doesn't error and doesn't duplicate
     the column or index."""
-    from striatum.migrations import apply_migrations
+    from striatum.legacy_sqlite.migrations import apply_migrations
     init_repo(tmp_path)
     conn = sqlite3.connect(tmp_path / ".striatum" / "state.sqlite3")
     try:

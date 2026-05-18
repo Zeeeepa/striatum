@@ -212,7 +212,7 @@ Striatum-aware agent how to drive the runner (RFC 0015 V1):
 
 ```bash
 # Guided day-zero path: init scratch, install skills/plugins,
-# scaffold DDD docs, and migrate/register into daemon Postgres.
+# scaffold DDD docs, and register with daemon Postgres.
 "$RUNNER" --repo "$TARGET_REPO" adopt --profile claude_code --json
 
 # Claude Code: writes five SKILL.md files under .claude/skills/striatum-*/
@@ -722,9 +722,9 @@ What daemon mode does **not** ship today:
 - It does not bundle PostgreSQL; operators install and own the
   Postgres service. Bundled, embedded, and Dockerized
   distributions are deferred (RFC 0033 §8, inherited by RFC 0043).
-- Legacy SQLite is not a production fallback. It remains only as a
-  migration source, tombstone, golden fixture, or explicitly gated
-  subprocess compatibility path.
+- Legacy SQLite is not a production fallback or operator migration source. It
+  remains only as historical tombstones, golden fixtures, or explicitly gated
+  subprocess compatibility paths.
 
 ## Cross-repo workflow foundation
 
@@ -814,8 +814,8 @@ escape is for subprocess compatibility fixtures only.
 
 The old SQLite cutover commands are retired compatibility spellings.
 `daemon migrate` and `daemon migrate-repo-local` now refuse with exit code 12
-before importing or opening SQLite migration code. To inspect cutover evidence
-for an already-migrated repository, use:
+before importing or opening SQLite migration code. To inspect registration and
+any historical cutover evidence for a repository, use:
 
 ```bash
 "$RUNNER" daemon doctor --repo "$TARGET_REPO" --authority --json
@@ -859,7 +859,8 @@ deferred.
 
 ### Go daemon port notes (RFC 0039 / RFC 0068)
 
-> Status: active retirement backlog. D109 made the Go daemon the default,
+> Status: current production daemon path plus legacy-cleanup backlog. D109 made
+> the Go daemon the default,
 > D111 retired the Python daemon selector, and D112 removed
 > `apply.reviewed_patch` from the production daemon RPC contract.
 > `striatum daemon start` launches the Go daemon; `--core go` is a
@@ -868,9 +869,9 @@ deferred.
 RFC 0039 produced a Go `go/cmd/striatumd` prototype that speaks the
 RFC 0030 envelope-v1 wire protocol over the RFC 0033 PostgreSQL
 substrate. The D105 Python-primary constraint was superseded by D107; active
-contract methods now have Go handlers. The remaining Python-daemon retirement
-work is legacy fixture and production-import cleanup, not a production
-reviewed-patch RPC blocker or operator SQLite import window.
+contract methods now have Go handlers. The Python daemon module is deleted;
+remaining cleanup is legacy SQLite fixture/import conversion or deletion, not
+a production reviewed-patch RPC blocker or operator SQLite import window.
 
 Build the binary from a contributor checkout:
 

@@ -175,7 +175,7 @@ def _start_with(repo: Path, workflow: JsonDict) -> tuple[str, str, str, str, str
     _git_init_repo(repo)
     workflow_path = repo / "workflow.json"
     workflow_path.write_text(json.dumps(workflow), encoding="utf-8")
-    from striatum.db import init_repo as legacy_init_repo
+    from striatum.legacy_sqlite.db import init_repo as legacy_init_repo
 
     legacy_init_repo(repo)
     prepared = _data(_run_cli(repo, "run", "prepare", "--workflow", str(workflow_path)))
@@ -624,7 +624,7 @@ def test_lane_env_unknown_variable_is_left_in_place() -> None:
 
 def test_migrations_v8_v9_idempotent(tmp_path: Path) -> None:
     """v8 + v9 migrations must be re-runnable on an already-migrated DB."""
-    from striatum.db import init_repo as legacy_init_repo
+    from striatum.legacy_sqlite.db import init_repo as legacy_init_repo
 
     legacy_init_repo(tmp_path)
     db_path = tmp_path / ".striatum" / "state.sqlite3"

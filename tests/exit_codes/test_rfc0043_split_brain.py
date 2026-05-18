@@ -23,7 +23,7 @@ from pathlib import Path
 
 import pytest
 
-from striatum.db import connect, db_path
+from striatum.legacy_sqlite.db import connect, db_path
 from striatum.errors import StriatumError
 
 

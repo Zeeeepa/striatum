@@ -454,7 +454,7 @@ def test_cross_repo_cancel_requires_recovery_capability() -> None:
 
 
 def test_repo_local_migration_adds_daemon_supervisor_pointer_table(tmp_path: Path) -> None:
-    from striatum.db import connect, init_repo
+    from striatum.legacy_sqlite.db import connect, init_repo
 
     repo = tmp_path / "repo"
     repo.mkdir()

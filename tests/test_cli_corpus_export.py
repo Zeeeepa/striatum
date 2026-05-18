@@ -39,7 +39,7 @@ def _git_repo(repo: Path) -> str:
 
 
 def _legacy_init_repo(repo: Path) -> None:
-    from striatum.db import init_repo
+    from striatum.legacy_sqlite.db import init_repo
 
     init_repo(repo)
 
