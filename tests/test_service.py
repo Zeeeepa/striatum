@@ -10,7 +10,6 @@ import json
 import os
 import signal
 import socket
-import sqlite3
 import subprocess
 import sys
 import time
@@ -26,6 +25,7 @@ ROOT = Path(__file__).resolve().parents[1]
 def _insert_phased_run(repo: Path) -> str:
     sys.path.insert(0, str(ROOT / "src"))
     try:
+        from striatum.legacy_sqlite.db import connect
         from striatum.legacy_sqlite.db import init_repo
     finally:
         sys.path.pop(0)
@@ -55,9 +55,7 @@ def _insert_phased_run(repo: Path) -> str:
         "edges": [],
         "cycles": [],
     }
-    db = repo / ".striatum" / "state.sqlite3"
-    conn = sqlite3.connect(db)
-    try:
+    with connect(repo) as conn:
         conn.execute(
             """
             INSERT INTO workflow_snapshots (
@@ -105,8 +103,6 @@ def _insert_phased_run(repo: Path) -> str:
                 ),
             )
         conn.commit()
-    finally:
-        conn.close()
     return "run_phased"
 
 
@@ -1964,9 +1960,9 @@ def test_serve_sse_replay_with_since(tmp_path: Path) -> None:
     _striatum_init(tmp_path)
     # Insert a synthetic run + events directly so we don't depend on
     # claim-loop machinery here.
-    db = tmp_path / ".striatum" / "state.sqlite3"
-    conn = sqlite3.connect(db)
-    try:
+    from striatum.legacy_sqlite.db import connect
+
+    with connect(tmp_path) as conn:
         conn.execute(
             """
             INSERT INTO workflow_snapshots (
@@ -1995,20 +1991,15 @@ def test_serve_sse_replay_with_since(tmp_path: Path) -> None:
         first_event_id = conn.execute(
             "SELECT MIN(event_id) FROM events WHERE run_id = 'run_sse'"
         ).fetchone()[0]
-    finally:
-        conn.close()
 
     proc, port = _spawn_service(tmp_path)
     try:
         # Connect to SSE with ?since=<middle event>; expect the third event,
         # then the run_terminal close.
         # Mark the run terminal so the stream closes deterministically.
-        conn = sqlite3.connect(db)
-        try:
+        with connect(tmp_path) as conn:
             conn.execute("UPDATE runs SET state = 'completed' WHERE run_id = 'run_sse'")
             conn.commit()
-        finally:
-            conn.close()
 
         url = f"http://127.0.0.1:{port}/v1/runs/run_sse/events?since={first_event_id}"
         events: list[str] = []

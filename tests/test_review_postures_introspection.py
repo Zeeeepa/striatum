@@ -10,10 +10,10 @@ run graph json, dashboard, web UI.
 
 from __future__ import annotations
 
-import sqlite3
 from pathlib import Path
 
 from striatum.dashboard import render_frame
+from striatum.legacy_sqlite.db import connect
 
 from test_cli_mvp import (
     JsonDict,
@@ -125,15 +125,11 @@ def _drive_to_verdict(
 
 
 def _read_verdict_row(tmp_path: Path, verdict_id: str) -> dict[str, object]:
-    conn = sqlite3.connect(tmp_path / ".striatum" / "state.sqlite3")
-    conn.row_factory = sqlite3.Row
-    try:
+    with connect(tmp_path) as conn:
         row = conn.execute(
             "SELECT * FROM verdicts WHERE verdict_id = ?",
             (verdict_id,),
         ).fetchone()
-    finally:
-        conn.close()
     assert row is not None
     return dict(row)
 
@@ -145,28 +141,22 @@ def test_verdicts_posture_column_present_after_init(tmp_path: Path) -> None:
     """A freshly-initialized DB has the `posture` column in `verdicts`
     via the updated baseline schema."""
     init_repo(tmp_path)
-    conn = sqlite3.connect(tmp_path / ".striatum" / "state.sqlite3")
-    try:
+    with connect(tmp_path) as conn:
         cols = [row[1] for row in conn.execute(
             "PRAGMA table_info(verdicts)"
         ).fetchall()]
-    finally:
-        conn.close()
     assert "posture" in cols
 
 
 def test_idx_verdicts_posture_present_after_init(tmp_path: Path) -> None:
     """The covering index ships in the baseline schema."""
     init_repo(tmp_path)
-    conn = sqlite3.connect(tmp_path / ".striatum" / "state.sqlite3")
-    try:
+    with connect(tmp_path) as conn:
         names = [
             row[0] for row in conn.execute(
                 "SELECT name FROM sqlite_master WHERE type='index'"
             ).fetchall()
         ]
-    finally:
-        conn.close()
     assert "idx_verdicts_posture" in names
 
 
@@ -175,8 +165,7 @@ def test_migration_v10_idempotent(tmp_path: Path) -> None:
     the column or index."""
     from striatum.legacy_sqlite.migrations import apply_migrations
     init_repo(tmp_path)
-    conn = sqlite3.connect(tmp_path / ".striatum" / "state.sqlite3")
-    try:
+    with connect(tmp_path) as conn:
         apply_migrations(conn)
         apply_migrations(conn)
         cols = [row[1] for row in conn.execute(
@@ -184,8 +173,6 @@ def test_migration_v10_idempotent(tmp_path: Path) -> None:
         ).fetchall()]
         # Only one `posture` column.
         assert cols.count("posture") == 1
-    finally:
-        conn.close()
 
 
 # --- record_review_verdict writes posture --------------------------
