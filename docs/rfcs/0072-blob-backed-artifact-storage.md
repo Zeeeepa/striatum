@@ -66,38 +66,71 @@ deliverable, not the scaffold that produced it.
 
 ### S3-compatible backend
 
-The operator provides the bucket. Striatum is configured against it,
-not coupled to it.
+The operator provides the S3-compatible service. Striatum is configured
+against it, not coupled to it. **Each registered target repository gets
+its own bucket**: per-repo bucket-level isolation matches the existing
+`repository_id`-scoped data boundary in PG and gives teams a clear
+unit for permission grants, retention policy, and bulk archive.
+
+Daemon-global config (env or daemon config file):
 
 | Variable | Purpose |
 |---|---|
 | `STRIATUM_BLOB_ENDPOINT` | Base URL, e.g. `http://localhost:9000` for local MinIO |
-| `STRIATUM_BLOB_BUCKET` | Bucket name, e.g. `striatum-artifacts` |
 | `STRIATUM_BLOB_REGION` | Region, default `us-east-1` |
-| `STRIATUM_BLOB_ACCESS_KEY` | Access key (operator credential) |
-| `STRIATUM_BLOB_SECRET_KEY` | Secret key (operator credential) |
+| `STRIATUM_BLOB_ACCESS_KEY` | Daemon's S3 access key (bucket-create + bucket-read/write) |
+| `STRIATUM_BLOB_SECRET_KEY` | Daemon's S3 secret key |
 | `STRIATUM_BLOB_PATH_STYLE` | Boolean; force path-style addressing for MinIO compatibility. Default `true`. |
+| `STRIATUM_BLOB_BUCKET_PREFIX` | Optional prefix for auto-generated bucket names. Default `striatum-`. |
 
-Daemon-side credentials. CLI/web do not need their own; they route
-through daemon RPC for content fetch (see § Daemon RPC).
+Per-repository config (stored in `striatumd.repositories`):
 
-`daemon doctor` is extended with a `blob` block: connectivity, bucket
-existence, read/write permission for the configured credentials, sample
-PUT+GET round-trip.
+| Column | Purpose |
+|---|---|
+| `blob_bucket` | Per-repo bucket name, e.g. `striatum-<repo_slug>` |
+| `blob_created_at` | Timestamp the daemon created/verified this bucket |
+
+The daemon owns the S3 credentials globally; per-repo isolation is at
+the bucket level, not the credential level. A future RFC may introduce
+per-repo credentials if the threat model requires it; V1 keeps the
+credential count to one.
+
+`daemon doctor` is extended with a `blob` block: daemon-global
+connectivity, plus per-registered-repo bucket existence, read/write
+permission, and a sample PUT+GET round-trip. Startup refuses if a
+registered repo's `blob_bucket` is unreachable.
+
+### Adopt flow
+
+`striatum adopt` (and `repo add --init`) gain a blob step:
+
+1. Determine bucket name: `--blob-bucket <name>` (explicit) or
+   `${STRIATUM_BLOB_BUCKET_PREFIX}<repository_id>` (default).
+2. `HEAD` the bucket. If it exists and is empty, claim it. If it
+   exists and contains striatum-shaped keys for a *different*
+   `repository_id`, refuse with exit code 12 (`repo_blob_conflict`).
+3. If it does not exist, create it with default ACL (private,
+   versioning disabled) — flag-gated by `--apply-blob-creation`,
+   mirroring the existing `daemon doctor --apply-migrations` pattern.
+4. Record `blob_bucket` and `blob_created_at` in the
+   `striatumd.repositories` row.
+
+`daemon doctor --first-run` verifies the adopt-time bucket setup
+end-to-end (round-trip read/write).
 
 ### Blob key naming
 
-Path-shaped, human-readable, browsable in any S3 client / the MinIO
-console:
+Path-shaped, human-readable, browsable in the bucket's MinIO console:
 
 ```
-striatum/runs/<run_id>/jobs/<job_id>/artifacts/<logical_name>
-striatum/dogfood-historical/<dogfood_id>/<original_relative_path>
+runs/<run_id>/jobs/<job_id>/artifacts/<logical_name>
+dogfood-historical/<dogfood_id>/<original_relative_path>
 ```
 
-The PG row carries the canonical `blob_sha256` for integrity; the key
-need not encode the hash. Browsers see filenames; integrity is checked
-on read.
+No `repository_id` prefix — that's baked into the bucket name. The PG
+row carries the canonical `blob_sha256` for integrity; the key need
+not encode the hash. Browsers see filenames; integrity is checked on
+read.
 
 ### Schema changes (migration 0009)
 
@@ -108,6 +141,16 @@ ALTER TABLE striatumd.artifacts
   ADD COLUMN blob_content_type TEXT;
 
 CREATE INDEX idx_artifacts_blob_key ON striatumd.artifacts(blob_key);
+
+ALTER TABLE striatumd.repositories
+  ADD COLUMN blob_bucket      TEXT,
+  ADD COLUMN blob_created_at  TIMESTAMPTZ;
+
+-- Per-repo bucket name must be unique daemon-wide; multiple repos
+-- pointing at the same bucket would defeat the isolation contract.
+CREATE UNIQUE INDEX idx_repositories_blob_bucket
+  ON striatumd.repositories(blob_bucket)
+  WHERE blob_bucket IS NOT NULL;
 ```
 
 `blob_sha256` is the authoritative integrity anchor. The existing
@@ -115,7 +158,9 @@ artifact audit-chain row already carries the content hash; `blob_sha256`
 makes the same hash explicit on the artifact row for direct read paths.
 
 A new daemon doctor check refuses to claim "production-ready" if any
-artifact row has `blob_key IS NOT NULL` but the blob is unreachable.
+artifact row has `blob_key IS NOT NULL` but the blob is unreachable,
+or if any registered repo has a non-null `blob_bucket` that does not
+exist on the configured S3 endpoint.
 
 ### Publish path
 
@@ -261,10 +306,11 @@ Both libraries are MIT-licensed and stable.
   `docs/operator/` qualify as per-run data, or do they stay git-tracked
   as the cold-start cache? Default in this RFC: stay git-tracked. If
   the maintainer changes their mind, a follow-on RFC widens the split.
-- **Bucket multi-tenancy**: a team operating multiple repositories may
-  want bucket-level separation, or namespace separation via path prefix
-  (`striatum/<repository_id>/runs/...`). Path prefix is cheaper and
-  works with a single bucket. V1 adopts path prefix.
+- **Bucket multi-tenancy**: resolved in favor of per-repo bucket-level
+  isolation (see § S3-compatible backend). Path-prefix-in-shared-bucket
+  was the cheaper alternative; bucket-per-repo wins for permission
+  grants, retention policy scoping, and bulk-archive convenience at
+  the cost of one extra `CreateBucket` call per adopt.
 - **Encryption-at-rest as a future extension**: client-side encryption
   with operator-held keys is technically tractable but operationally
   expensive (key custody). Defer to a separate RFC once a real
@@ -273,13 +319,17 @@ Both libraries are MIT-licensed and stable.
 ## Implementation Notes
 
 - The minimum-viable V1 is one Go daemon change (S3 client + two RPC
-  methods + publish hook), one PG migration, one Python migration
-  script, two Jinja templates, one `daemon doctor` check, and the
-  `.gitignore` update. No new React islands.
+  methods + publish hook + adopt-time bucket provisioning), one PG
+  migration (covers both `artifacts` and `repositories`), one Python
+  migration script, two Jinja templates, one `daemon doctor` block,
+  and the `.gitignore` update. No new React islands.
 - The historical migration is a one-shot; the script can be deleted
   after it lands successfully in `main`.
 - `STRIATUM_BLOB_*` environment variables are loaded by the daemon at
-  startup; `daemon doctor --first-run` flags missing required config.
+  startup. Per-repo `blob_bucket` is recorded at adopt time in
+  `striatumd.repositories`. `daemon doctor --first-run` flags missing
+  daemon-global config or any registered repo whose bucket is
+  unreachable.
 
 ## Reference Touchpoints
 
