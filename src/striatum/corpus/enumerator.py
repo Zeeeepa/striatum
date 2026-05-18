@@ -7,7 +7,7 @@ import re
 from pathlib import Path
 from typing import Any, Iterable
 
-from striatum.cli.run_summary import render_run_summary_markdown, run_summary_snapshot
+from striatum.cli.run_summary import run_summary_snapshot
 from striatum.corpus import git as git_helpers
 from striatum.corpus.redaction import (
     redact_commit_message,
@@ -17,6 +17,7 @@ from striatum.corpus.redaction import (
 )
 from striatum.corpus.types import CorpusProvenance, CorpusRow
 from striatum.primitives import json_loads
+from striatum.run_summary_format import render_run_summary_markdown
 
 ATX_RE = re.compile(r"^(#{1,6})\s+(.+?)\s*$", re.MULTILINE)
 RFC_PATH_RE = re.compile(r"^docs/rfcs/([0-9]{4})-.*\.md$")

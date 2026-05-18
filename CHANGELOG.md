@@ -23,6 +23,14 @@ Recent checkpoints:
   evidence/introspection/list/mutation/recovery/run-summary/worktree modules;
   historical package-level re-exports now resolve lazily when callers request
   a specific compatibility symbol.
+- Evidence redaction policy and Markdown rendering now live in a
+  substrate-neutral presenter module. PostgreSQL evidence handlers and corpus
+  redaction use that shared code directly instead of importing the legacy
+  SQLite-backed CLI evidence reader.
+- Run-summary Markdown formatting, duration formatting, and verdict grouping
+  now live in a substrate-neutral formatter used by PostgreSQL handlers and
+  corpus exports; the SQLite-backed CLI module keeps only its legacy snapshot
+  and export wrapper.
 - The Go daemon launch contract now reports supported daemon PostgreSQL schema
   and migration count from `--describe`; the Python launcher refuses stale Go
   daemon binaries before socket bind when their schema, migration count, or

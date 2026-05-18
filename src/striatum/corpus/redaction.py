@@ -8,7 +8,7 @@ from typing import Any
 
 from copy import deepcopy
 
-from striatum.cli.evidence import EVIDENCE_FREE_TEXT_PLACEHOLDER, redact_evidence_payload
+from striatum.evidence_presentation import EVIDENCE_FREE_TEXT_PLACEHOLDER, redact_evidence_payload
 from striatum.errors import StriatumError
 
 TOKEN_RE = re.compile(r"\b(?:[A-Fa-f0-9]{40,}|[A-Za-z0-9+/]{48,}={0,2})\b")

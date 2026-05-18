@@ -5,8 +5,8 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from striatum.cli.evidence import redact_evidence_payload, render_evidence_markdown
 from striatum.daemon_pg.handlers.context import RepoHandlerContext
+from striatum.evidence_presentation import redact_evidence_payload, render_evidence_markdown
 
 from .doctor import doctor_payload
 from ._read_model import evidence_snapshot, status_payload

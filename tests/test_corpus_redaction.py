@@ -4,14 +4,14 @@ import json
 
 import pytest
 
-from striatum.cli.evidence import EVIDENCE_FREE_TEXT_PLACEHOLDER, redact_evidence_payload
-from striatum.cli.run_summary import render_run_summary_markdown
 from striatum.corpus.redaction import (
     redact_commit_message,
     redact_event_payload,
     redact_run_summary_payload,
     validate_source_path,
 )
+from striatum.evidence_presentation import EVIDENCE_FREE_TEXT_PLACEHOLDER, redact_evidence_payload
+from striatum.run_summary_format import render_run_summary_markdown
 from striatum.errors import StriatumError
 
 

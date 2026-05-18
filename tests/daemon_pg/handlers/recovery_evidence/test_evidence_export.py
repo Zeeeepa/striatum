@@ -43,16 +43,17 @@ def test_digest_helper_matches_sha256_text() -> None:
     assert mod._sha256_text(sample) == expected
 
 
-def test_handler_reuses_cli_evidence_redactor() -> None:
+def test_handler_reuses_shared_evidence_presenter() -> None:
     """Synthesis-locked digest equality requires reusing the *same* redaction
-    policy code from :mod:`striatum.cli.evidence`. If the PG path forks the
-    redactor, the digest will diverge silently when the policy changes.
+    policy code from :mod:`striatum.evidence_presentation`. If the PG path
+    forks the redactor, the digest will diverge silently when the policy
+    changes.
     """
     from ._helpers import import_handler
 
     mod = import_handler("evidence_export")
     source = inspect.getsource(mod)
-    assert "from striatum.cli.evidence import redact_evidence_payload" in source
+    assert "from striatum.evidence_presentation import redact_evidence_payload" in source
     assert "render_evidence_markdown" in source
 
 

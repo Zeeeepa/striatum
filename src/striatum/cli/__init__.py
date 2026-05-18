@@ -12,8 +12,8 @@ from typing import Any
 
 
 _SYMBOL_MODULES = {
-    "EVIDENCE_FREE_TEXT_PLACEHOLDER": "striatum.cli.evidence",
-    "EVIDENCE_POLICY": "striatum.cli.evidence",
+    "EVIDENCE_FREE_TEXT_PLACEHOLDER": "striatum.evidence_presentation",
+    "EVIDENCE_POLICY": "striatum.evidence_presentation",
     "SUPERVISOR_ACTIVE_STATES": "striatum.cli.supervise",
     "ack_work": "striatum.cli.mutations",
     "add_work_identity": "striatum.cli.parser",
@@ -55,12 +55,12 @@ _SYMBOL_MODULES = {
     "next_actions": "striatum.cli.introspect",
     "prevalidate_submit_review": "striatum.cli.mutations",
     "recent_events_for_run": "striatum.cli.introspect",
-    "redact_evidence_payload": "striatum.cli.evidence",
+    "redact_evidence_payload": "striatum.evidence_presentation",
     "register_session": "striatum.cli.mutations",
     "release_work": "striatum.cli.mutations",
     "render_decision_markdown": "striatum.cli.mutations",
-    "render_evidence_markdown": "striatum.cli.evidence",
-    "render_run_summary_markdown": "striatum.cli.run_summary",
+    "render_evidence_markdown": "striatum.evidence_presentation",
+    "render_run_summary_markdown": "striatum.run_summary_format",
     "requeue_stale": "striatum.cli.recovery",
     "resume_blocker": "striatum.cli.recovery",
     "run_graph": "striatum.cli.introspect",

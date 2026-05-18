@@ -5,9 +5,13 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from striatum.cli.mutations import current_git_branch
-from striatum.cli.run_summary import _format_run_duration, _group_verdicts_by_workflow_job, render_run_summary_markdown
 from striatum.daemon_pg.handlers.context import RepoHandlerContext
+from striatum.run_summary_format import (
+    format_run_duration,
+    group_verdicts_by_workflow_job,
+    render_run_summary_markdown,
+)
+from striatum.cli.mutations import current_git_branch
 
 from .doctor import doctor_payload
 from ._read_model import (
@@ -52,14 +56,14 @@ def run_summary_payload(ctx: RepoHandlerContext, *, run_id: str, run: dict[str, 
         "artifacts": evidence_artifact_summaries(ctx, run_id=run_id, workflow=workflow),
         "sessions": evidence_session_summaries(ctx, run_id=run_id),
         "verdicts": verdicts,
-        "verdicts_by_workflow_job": _group_verdicts_by_workflow_job(verdicts),
+        "verdicts_by_workflow_job": group_verdicts_by_workflow_job(verdicts),
         "blockers": blocker_rows(ctx, run_id=run_id),
         "branch_context": branch_context,
         "timing": {
             "created_at": run_row.get("created_at"),
             "started_at": run_row.get("started_at"),
             "completed_at": run_row.get("completed_at"),
-            "duration": _format_run_duration(
+            "duration": format_run_duration(
                 started_at=str(run_row["started_at"]) if run_row.get("started_at") is not None else None,
                 completed_at=str(run_row["completed_at"]) if run_row.get("completed_at") is not None else None,
             ),

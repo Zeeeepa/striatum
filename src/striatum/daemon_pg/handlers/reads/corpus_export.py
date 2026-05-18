@@ -6,7 +6,6 @@ import json
 from collections.abc import Mapping
 from typing import Any
 
-from striatum.cli.run_summary import render_run_summary_markdown
 from striatum.corpus import git as git_helpers
 from striatum.corpus.enumerator import (
     enumerate_changelog,
@@ -23,6 +22,7 @@ from striatum.corpus.types import SUB_KINDS, CorpusBundleResult, CorpusProvenanc
 from striatum.corpus.writer import verify_jsonl_files, write_jsonl_bundle
 from striatum.daemon_pg.handlers.context import RepoHandlerContext
 from striatum.daemon_rpc.envelope import RpcError
+from striatum.run_summary_format import render_run_summary_markdown
 
 from ._read_model import events_for
 from ._registry import register_pg_handler

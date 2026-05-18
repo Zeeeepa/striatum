@@ -21,7 +21,7 @@ import hashlib
 from pathlib import Path
 from typing import Any, Mapping
 
-from striatum.cli.evidence import redact_evidence_payload, render_evidence_markdown
+from striatum.evidence_presentation import redact_evidence_payload, render_evidence_markdown
 from striatum.errors import NotFoundError
 from striatum.repo_policy import repo_relative_path
 
