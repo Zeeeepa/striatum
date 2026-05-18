@@ -35,8 +35,9 @@ hides local workflow-file authoring methods in both Python and Go; direct
 calls to removed dogfood composite names and `apply.reviewed_patch` audit as
 `method_unknown`.
 SQLite registry-probe guardrails now classify every remaining direct
-`striatum.daemon.connect_registry()` caller and tripwire daemon MCP resource
-reads before the legacy registry can open. Writable SQLite import windows are
+`striatum.daemon.connect_registry()` caller. Daemon MCP resource fallback
+without a PostgreSQL connection is retired and fails closed before the legacy
+registry can open. Writable SQLite import windows are
 closed: retired `daemon migrate` and `daemon migrate-repo-local` spellings
 refuse before importing SQLite migration code. `striatum daemon start` now
 launches the Go daemon; the Python daemon selector is retired.

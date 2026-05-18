@@ -203,14 +203,10 @@ DAEMON_RPC_DB_IMPORT_ALLOWLIST: dict[Path, set[str]] = {}
 
 
 DAEMON_CONNECT_REGISTRY_CALLERS: dict[str, str] = {
-    "_mcp_repo_list": "legacy daemon MCP resource fallback",
-    "_mcp_stale_leases": "legacy daemon MCP resource fallback",
     "_repo_add_legacy_sqlite": "explicit legacy repository registry fallback",
     "_repo_list_legacy_sqlite": "explicit legacy repository registry fallback",
-    "_repo_path_for_id": "legacy daemon MCP resource fallback",
     "_repo_remove_legacy_sqlite": "explicit legacy repository registry fallback",
     "daemon_audit": "legacy RFC 0028 daemon registry fallback",
-    "daemon_mcp_resources": "legacy daemon MCP resource fallback",
     "daemon_status": "legacy RFC 0028 daemon registry fallback",
     "daemon_stop": "legacy RFC 0028 daemon registry fallback",
     "daemon_sweep_once": "legacy RFC 0028 daemon registry fallback",
@@ -336,10 +332,6 @@ def test_primary_service_lazy_loads_legacy_api_wrapper() -> None:
         lambda: daemon.run_daemon_foreground(max_sweeps=1),
         lambda: daemon.dashboard_all(token="dtok_missing.secret"),
         lambda: daemon.daemon_sweep_once(),
-        lambda: daemon.daemon_mcp_resources(token="dtok_missing.secret"),
-        lambda: daemon.daemon_mcp_read_resource("striatum://daemon/repos", token="dtok_missing.secret"),
-        lambda: daemon.daemon_mcp_read_resource("striatum://daemon/dashboard", token="dtok_missing.secret"),
-        lambda: daemon.daemon_mcp_read_resource("striatum://repo/1/status", token="dtok_missing.secret"),
         lambda: daemon.health(),
         lambda: daemon.daemon_audit(),
         lambda: daemon.read_doctor(repo=None, verbose=True),

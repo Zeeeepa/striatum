@@ -253,83 +253,49 @@ def test_repo_add_requires_initialized_state_unless_init_flag(tmp_path: Path) ->
     assert (repo / ".striatum" / "state.sqlite3").exists()
 
 
-def test_daemon_mcp_is_resources_only_and_excludes_audit(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_daemon_mcp_resources_without_pg_conn_fail_closed(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     env = _env(tmp_path)
     for key, value in env.items():
         monkeypatch.setenv(key, value)
-    repo = tmp_path / "repo"
-    _init_repo(repo, env)
-    added = daemon.repo_add(repo)
-    token = str(added["bootstrap_admin"]["token"])
 
     server = DaemonRpcServer()
     tools = server.handle_request({"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
     assert tools is not None
     assert tools["result"]["tools"] == []
 
-    resources = server.handle_request({"jsonrpc": "2.0", "id": 2, "method": "resources/list", "params": {"token": token}})
+    resources = server.handle_request(
+        {"jsonrpc": "2.0", "id": 2, "method": "resources/list", "params": {"token": "dtok.secret"}}
+    )
     assert resources is not None
-    uris = {item["uri"] for item in resources["result"]["resources"]}
-    assert "striatum://daemon/repos" in uris
-    assert "striatum://daemon/dashboard" in uris
-    assert "striatum://daemon/audit" not in uris
+    assert resources["error"]["code"] == -32603
+    assert "legacy SQLite registry fallback is retired" in resources["error"]["message"]
 
     mutation = server.handle_request({"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "repo_add"}})
     assert mutation is not None
     assert mutation["error"]["code"] == -32601
 
 
-def test_daemon_mcp_requires_explicit_token_and_filters_repo_scope(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_daemon_mcp_resource_read_without_pg_conn_fails_closed(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     env = _env(tmp_path)
     for key, value in env.items():
         monkeypatch.setenv(key, value)
-    repo_a = tmp_path / "repo-a"
-    repo_b = tmp_path / "repo-b"
-    _init_repo(repo_a, env)
-    _init_repo(repo_b, env)
-    first = daemon.repo_add(repo_a)
-    second = daemon.repo_add(repo_b)
-    first_id = int(first["repository_id"])
-    second_id = int(second["repository_id"])
 
     server = DaemonRpcServer()
-    missing = server.handle_request({"jsonrpc": "2.0", "id": 1, "method": "resources/list"})
-    assert missing is not None
-    assert missing["error"]["code"] == -32603
-    conn = daemon.connect_registry()
-    row = conn.execute(
-        "SELECT command, authorization_result, denial_reason FROM audit_log ORDER BY audit_id DESC LIMIT 1"
-    ).fetchone()
-    assert tuple(row) == ("mcp.resources.list", "denied", "token_missing")
-
-    with daemon.registry_transaction(conn):
-        admin_client = conn.execute("SELECT client_id FROM clients WHERE display_name = 'bootstrap-admin'").fetchone()
-        token = daemon.create_client(
-            conn,
-            display_name="repo-a-reader",
-            client_kind="test",
-            capabilities=[daemon.READ_CAPABILITY],
-            repository_id=first_id,
-        )["token"]
-    resources = server.handle_request({"jsonrpc": "2.0", "id": 2, "method": "resources/list", "params": {"token": token}})
-    assert resources is not None
-    uris = {item["uri"] for item in resources["result"]["resources"]}
-    assert f"striatum://repo/{first_id}/status" in uris
-    assert f"striatum://repo/{second_id}/status" not in uris
-    row = conn.execute(
-        "SELECT client_id FROM audit_log WHERE command = 'mcp.resources.list' AND authorization_result = 'allowed' ORDER BY audit_id DESC LIMIT 1"
-    ).fetchone()
-    assert row is not None
-    assert row[0] != admin_client[0]
-
-    denied = server.handle_request({
+    read = server.handle_request({
         "jsonrpc": "2.0",
-        "id": 3,
+        "id": 1,
         "method": "resources/read",
-        "params": {"uri": f"striatum://repo/{second_id}/status", "token": token},
+        "params": {"uri": "striatum://daemon/repos", "token": "dtok.secret"},
     })
-    assert denied is not None
-    assert denied["error"]["code"] == -32603
+    assert read is not None
+    assert read["error"]["code"] == -32603
+    assert "legacy SQLite registry fallback is retired" in read["error"]["message"]
 
 
 def test_daemon_sweep_writes_repo_event_with_daemon_byline(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

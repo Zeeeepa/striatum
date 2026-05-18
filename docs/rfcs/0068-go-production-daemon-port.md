@@ -133,6 +133,10 @@ The Go daemon port lands through independent, testable slices:
 - SQLite-era repository identity and daemon audit-chain validation used by
   one-way migration fixtures now live in `striatum.daemon_pg.sqlite_compat`
   instead of importing `striatum.daemon`.
+- D114 retires the no-PostgreSQL daemon MCP resource fallback. MCP
+  `resources/list` and `resources/read` now require a daemon PostgreSQL
+  connection and no longer import the legacy Python daemon for SQLite registry
+  resources.
 
 ## Retirement Gate
 
@@ -143,7 +147,8 @@ audit as `method_unknown`: D110 removed `daemon.migrate_repo_local`,
 `striatum daemon migrate` and `striatum daemon migrate-repo-local` are retired
 compatibility spellings that refuse before opening SQLite. Historical migration
 fixture tests may still exercise the importer only behind
-`STRIATUM_LEGACY_SQLITE_IMPORT=1`.
+`STRIATUM_LEGACY_SQLITE_IMPORT=1`. D114 also removes the no-`pg_conn` daemon
+MCP resource fallback from the Python daemon cleanup ledger.
 
 `make daemon-go-conformance`, `go test ./cmd/striatumd`, and
 `tests/architecture/test_authority_guardrails.py` are the executable cutover

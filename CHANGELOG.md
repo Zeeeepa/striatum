@@ -59,6 +59,10 @@ Recent checkpoints:
   `STRIATUM_LEGACY_SQLITE_IMPORT=1` fixture escape; `adopt`, repo
   registration, and repo-not-migrated hints now point operators to archive or
   remove legacy SQLite files and register with `adopt` / `repo add --init`.
+- Daemon MCP `resources/list` and `resources/read` now require an explicit
+  daemon PostgreSQL connection. The no-`pg_conn` legacy SQLite registry
+  fallback is retired, and the corresponding Python-daemon MCP resource
+  helpers were removed.
 - Runtime path and token-file helpers now live in `striatum.daemon_runtime`,
   and PostgreSQL repository registration helpers used by day-zero setup and
   daemon RPC routing now live in `striatum.daemon_pg.repositories`, reducing

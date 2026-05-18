@@ -1298,9 +1298,8 @@ review and plan are root-level operator artifacts:
     and the Go daemon has a resident recovery scheduler over active PostgreSQL
     runs. Daemon MCP resource list/read now use PostgreSQL-backed repository
     visibility plus status/doctor/run/why/blocker/dashboard/stale-lease
-    projections when `pg_conn` is present, with SQLite-registry tripwire
-    coverage; no-`pg_conn` daemon MCP resource fallback is explicitly
-    test-harness-only and fails closed in production. `striatum daemon status`,
+    projections when `pg_conn` is present; the no-`pg_conn` SQLite registry
+    fallback is retired and fails closed everywhere. `striatum daemon status`,
     `striatum daemon stop`,
     `striatum daemon health`, `striatum daemon audit`, and
     daemon-global/repo-scoped `read_doctor` now read from and audit to
@@ -1315,8 +1314,8 @@ review and plan are root-level operator artifacts:
     blocker/checkpoint payloads, process health, supervisor stalls, phase
     progress, provenance mode, auto-finalize dry-run visibility, and
     deterministic next actions. Architecture tests now classify every
-    remaining direct `striatum.daemon.connect_registry()` caller and tripwire
-    daemon MCP resource reads before the legacy SQLite registry can open.
+    remaining direct `striatum.daemon.connect_registry()` caller before the
+    legacy SQLite registry can open.
     Residual daemon-global gaps are any future registry probes found by those
     guardrail scans. The
     workflow-upgrade running-run guard now fails closed when PostgreSQL state

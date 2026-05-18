@@ -235,6 +235,6 @@ remediation phases should either daemon-route, quarantine, or delete.
    MCP/RPC tests pin that behavior. Web/service DTO parity gaps are tracked
    separately under RFC 0069-0071.
 10. Daemon MCP resources (`resources/list` and `resources/read`) use
-    PostgreSQL-backed repository visibility and read projections when a daemon
-    PostgreSQL connection is present; the legacy registry-backed path remains
-    only for no-`pg_conn` compatibility fixtures.
+    PostgreSQL-backed repository visibility and read projections. A missing
+    daemon PostgreSQL connection fails closed; the legacy registry-backed
+    no-`pg_conn` fallback is retired.

@@ -17,7 +17,6 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, BinaryIO, Iterator, Mapping, Sequence, cast
-from urllib.parse import parse_qs, urlparse
 
 from striatum.bootstrap import (
     init_operational_scratch as _bootstrap_init_operational_scratch,
@@ -2347,117 +2346,8 @@ def rotate_audit_segment_for_test() -> dict[str, Any]:
         return {"closed_segment_id": current["segment_id"], "previous_hash": current["last_hash"]}
 
 
-def daemon_mcp_resources(*, token: str | None) -> list[dict[str, str]]:
-    conn = connect_registry()
-    with registry_transaction(conn):
-        allowed_ids, auth = _readable_repository_ids(conn, token=token)
-        audit_request(conn, command="mcp.resources.list", auth=auth, transport="mcp")
-        if auth.authorization_result != "allowed":
-            try:
-                conn.commit()
-            except sqlite3.Error:
-                pass
-            _raise_denied(auth)
-    resources = [
-        {"uri": "striatum://daemon/repos", "name": "daemon repositories", "mimeType": "application/json"},
-        {"uri": "striatum://daemon/dashboard", "name": "daemon dashboard", "mimeType": "application/json"},
-    ]
-    for repository_id in sorted(allowed_ids):
-        resources.extend([
-            {"uri": f"striatum://repo/{repository_id}/status", "name": f"repository {repository_id} status", "mimeType": "application/json"},
-            {"uri": f"striatum://repo/{repository_id}/doctor", "name": f"repository {repository_id} doctor", "mimeType": "application/json"},
-            {"uri": f"striatum://repo/{repository_id}/runs", "name": f"repository {repository_id} runs", "mimeType": "application/json"},
-            {"uri": f"striatum://repo/{repository_id}/blockers", "name": f"repository {repository_id} blockers", "mimeType": "application/json"},
-            {"uri": f"striatum://repo/{repository_id}/stale-leases", "name": f"repository {repository_id} stale leases", "mimeType": "application/json"},
-        ])
-    return resources
-
-
 def main(argv: Sequence[str] | None = None) -> int:
     """Console entry point for ``striatumd``."""
     from striatum.cli import main as cli_main
 
     return cli_main(["daemon", "start", *(list(argv) if argv is not None else sys.argv[1:])])
-
-
-def daemon_mcp_read_resource(uri: str, *, token: str | None) -> dict[str, Any]:
-    parsed = urlparse(uri)
-    if parsed.scheme != "striatum":
-        raise ValueError("resource URI must use the striatum scheme")
-    host = parsed.netloc
-    parts = [part for part in parsed.path.split("/") if part]
-    if host == "daemon" and parts == ["repos"]:
-        return _mcp_repo_list(token=token)
-    if host == "daemon" and parts == ["dashboard"]:
-        return dashboard_all(token=token)
-    if host != "repo" or not parts:
-        raise ValueError(f"unsupported daemon resource URI {uri!r}")
-    repository_id = parts[0]
-    repo = _repo_path_for_id(repository_id)
-    if len(parts) == 2 and parts[1] == "status":
-        return read_status(repo, run_id=None, token=token)
-    if len(parts) == 2 and parts[1] == "doctor":
-        return read_doctor(repo, run_id=None, verbose=True, token=token)
-    if len(parts) == 2 and parts[1] == "runs":
-        return read_status(repo, run_id=None, token=token)
-    if len(parts) == 2 and parts[1] == "blockers":
-        return {"mode": "daemon", "repository_id": int(repository_id), "blockers": read_status(repo, run_id=None, token=token).get("open_blockers", [])}
-    if len(parts) == 2 and parts[1] == "stale-leases":
-        return _mcp_stale_leases(repo, int(repository_id), token=token)
-    if len(parts) == 3 and parts[1] == "run":
-        return read_status(repo, run_id=parts[2], token=token)
-    if len(parts) == 4 and parts[1] == "run" and parts[3] == "why":
-        query = parse_qs(parsed.query)
-        ids = query.get("id", [])
-        if not ids:
-            raise ValueError("why resource requires ?id=<entity>")
-        return read_why(repo, target_id=ids[0], token=token)
-    raise ValueError(f"unsupported daemon resource URI {uri!r}")
-
-
-def _repo_path_for_id(repository_id: str) -> Path:
-    conn = connect_registry()
-    row = conn.execute(
-        "SELECT repo_root FROM repositories WHERE repository_id = ? AND state = 'active'",
-        (int(repository_id),),
-    ).fetchone()
-    if row is None:
-        raise NotFoundError(f"unknown daemon repository {repository_id!r}")
-    return Path(str(row["repo_root"]))
-
-
-def _mcp_repo_list(*, token: str | None) -> dict[str, Any]:
-    conn = connect_registry()
-    with registry_transaction(conn):
-        allowed_ids, auth = _readable_repository_ids(conn, token=token)
-        audit_request(conn, command="mcp.repo.list", auth=auth, transport="mcp")
-        if auth.authorization_result != "allowed":
-            try:
-                conn.commit()
-            except sqlite3.Error:
-                pass
-            _raise_denied(auth)
-        rows = conn.execute(
-            """
-            SELECT repository_id, repo_identity, repo_root, display_name,
-                   registered_at, removed_at, last_seen_at,
-                   last_schema_version, state
-            FROM repositories
-            ORDER BY repository_id
-            """
-        ).fetchall()
-    return {"repositories": [dict(row) for row in rows if int(row["repository_id"]) in allowed_ids]}
-
-
-def _mcp_stale_leases(repo: Path, repository_id: int, *, token: str | None) -> dict[str, Any]:
-    conn = connect_registry()
-    with registry_transaction(conn):
-        _require_auth(conn, command="mcp.stale-leases", required=READ_CAPABILITY, repository_id=repository_id, token=token)
-    entries: list[dict[str, Any]] = []
-    with connect_repo(repo) as repo_conn:
-        runs = repo_conn.execute(
-            "SELECT run_id FROM runs WHERE state IN ('running','paused') ORDER BY created_at"
-        ).fetchall()
-        for run in runs:
-            entries.append(stale_leases(repo_conn, run_id=str(run["run_id"])))
-    return {"mode": "daemon", "repository_id": repository_id, "stale_leases": entries}

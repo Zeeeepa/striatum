@@ -21,9 +21,8 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
-import uuid
 import sys
+import uuid
 from pathlib import Path
 from typing import Any, BinaryIO, TextIO, cast
 from urllib.parse import parse_qs, urlparse
@@ -510,10 +509,7 @@ class DaemonRpcServer:
                         )
                     }
                 else:
-                    _require_legacy_daemon_resource_fallback_allowed()
-                    from striatum.daemon import daemon_mcp_resources
-
-                    result = {"resources": daemon_mcp_resources(token=token_value)}
+                    _require_daemon_pg_mcp_resources()
             elif method == "resources/read":
                 result = self.read_resource(cast(JsonObject, params))
             else:
@@ -542,10 +538,7 @@ class DaemonRpcServer:
                 request_id=request_id,
             )
         else:
-            _require_legacy_daemon_resource_fallback_allowed()
-            from striatum.daemon import daemon_mcp_read_resource
-
-            result = daemon_mcp_read_resource(uri, token=token_value)
+            _require_daemon_pg_mcp_resources()
         return {"contents": [{"uri": uri, "mimeType": "application/json", "text": json_dumps(result)}]}
 
     def daemon_tool_specs(self, params: JsonObject) -> list[JsonObject]:
@@ -698,15 +691,10 @@ def _optional_string(values: JsonObject, key: str) -> str | None:
     return str(value)
 
 
-def _require_legacy_daemon_resource_fallback_allowed() -> None:
-    if (
-        os.environ.get("STRIATUM_TEST_HARNESS") == "1"
-        and os.environ.get("STRIATUM_DAEMON_REQUIRED") == "0"
-    ):
-        return
+def _require_daemon_pg_mcp_resources() -> None:
     raise RuntimeError(
         "daemon MCP resources require daemon PostgreSQL; "
-        "legacy SQLite registry fallback is test-harness only"
+        "legacy SQLite registry fallback is retired"
     )
 
 
