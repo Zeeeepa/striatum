@@ -305,7 +305,6 @@ def test_production_daemon_global_surfaces_refuse_without_postgres_url(
     monkeypatch.setenv("STRIATUM_DAEMON_DB_URL", "")
     monkeypatch.setenv("STRIATUM_DAEMON_REQUIRED", "1")
     monkeypatch.delenv("STRIATUM_TEST_HARNESS", raising=False)
-    monkeypatch.delenv(daemon.ENV_ALLOW_LEGACY_SQLITE_REGISTRY, raising=False)
     monkeypatch.setenv(daemon.ENV_SQLITE_CONNECT_TRIPWIRE, "1")
 
     with pytest.raises(daemon.DaemonRegistryError, match="daemon PostgreSQL URL is not configured"):
@@ -314,7 +313,7 @@ def test_production_daemon_global_surfaces_refuse_without_postgres_url(
     assert not registry.exists()
 
 
-def test_legacy_sqlite_registry_refuses_unpaired_compatibility_escape(
+def test_legacy_sqlite_registry_ignores_obsolete_standalone_escape(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -323,7 +322,7 @@ def test_legacy_sqlite_registry_refuses_unpaired_compatibility_escape(
     monkeypatch.setenv(daemon.ENV_RUNTIME, str(tmp_path / "runtime"))
     monkeypatch.setenv("STRIATUM_DAEMON_REQUIRED", "1")
     monkeypatch.delenv("STRIATUM_TEST_HARNESS", raising=False)
-    monkeypatch.setenv(daemon.ENV_ALLOW_LEGACY_SQLITE_REGISTRY, "1")
+    monkeypatch.setenv("STRIATUM_ALLOW_LEGACY_SQLITE_REGISTRY", "1")
 
     with pytest.raises(daemon.DaemonRegistryError, match="legacy SQLite daemon registry is disabled"):
         daemon.connect_registry()
@@ -340,8 +339,6 @@ def test_legacy_sqlite_registry_allows_test_harness_pair_only(
     monkeypatch.setenv(daemon.ENV_RUNTIME, str(tmp_path / "runtime"))
     monkeypatch.setenv("STRIATUM_DAEMON_REQUIRED", "0")
     monkeypatch.setenv("STRIATUM_TEST_HARNESS", "1")
-    monkeypatch.delenv(daemon.ENV_ALLOW_LEGACY_SQLITE_REGISTRY, raising=False)
-
     conn = daemon.connect_registry()
     conn.close()
 

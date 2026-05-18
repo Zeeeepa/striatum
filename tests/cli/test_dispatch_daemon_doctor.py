@@ -292,33 +292,6 @@ def test_daemon_doctor_authority_report_flags_repo_cutover_failure(
     assert "run migration" in authority["recommendations"]
 
 
-def test_daemon_doctor_authority_report_flags_legacy_registry_escape(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setenv(daemon_mod.ENV_ALLOW_LEGACY_SQLITE_REGISTRY, "1")
-    monkeypatch.setattr(
-        "striatum.daemon_pg.connection.doctor",
-        lambda **_: {"ok": True, "schema_version": 6, "status": "ok"},
-    )
-    monkeypatch.setattr(
-        daemon_mod,
-        "read_doctor",
-        lambda **_: {"mode": "daemon", "problems": [], "protocol_version": 1},
-    )
-    args = _doctor_args()
-    args.authority = True
-
-    result = _dispatch_daemon(args)
-
-    payload = cast(dict[str, Any], result)
-    authority = payload["authority"]
-    assert isinstance(authority, dict)
-    assert authority["ok"] is False
-    assert authority["legacy_sqlite"]["registry_status"] == "disabled"
-    assert authority["legacy_sqlite"]["registry_escape_enabled"] is True
-    assert any("STRIATUM_ALLOW_LEGACY_SQLITE_REGISTRY" in item for item in authority["recommendations"])
-
-
 def test_role_repair_flags_are_passed_to_pg_doctor(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

@@ -1607,8 +1607,6 @@ def _daemon_authority_report(
     explain: dict[str, object],
     repo_cutover: dict[str, object] | None = None,
 ) -> dict[str, object]:
-    from striatum.daemon_pg import client_admin as daemon_admin
-
     sqlite_status = "error"
     if sqlite_registry.get("status") == "post_pg_cutover_unused":
         sqlite_status = "disabled"
@@ -1618,7 +1616,6 @@ def _daemon_authority_report(
         sqlite_status = "legacy_registry_reachable"
     raw_fallback_count = explain.get("cli_fallback_route_count")
     method_fallback_count = int(raw_fallback_count) if isinstance(raw_fallback_count, int | str) else 0
-    legacy_registry_escape = os.environ.get(daemon_admin.ENV_ALLOW_LEGACY_SQLITE_REGISTRY) == "1"
     test_harness_escape = (
         os.environ.get("STRIATUM_TEST_HARNESS") == "1"
         and os.environ.get("STRIATUM_DAEMON_REQUIRED") == "0"
@@ -1627,7 +1624,6 @@ def _daemon_authority_report(
         bool(postgres.get("ok"))
         and sqlite_status == "disabled"
         and method_fallback_count == 0
-        and not legacy_registry_escape
         and (repo_cutover is None or bool(repo_cutover.get("ok")))
     )
     recommendations: list[str] = []
@@ -1637,8 +1633,6 @@ def _daemon_authority_report(
         recommendations.append("disable legacy SQLite registry access outside migration/test fixtures")
     if method_fallback_count:
         recommendations.append("remove daemon CLI fallback routes before Go cutover")
-    if legacy_registry_escape:
-        recommendations.append(f"unset {daemon_admin.ENV_ALLOW_LEGACY_SQLITE_REGISTRY} for production")
     if repo_cutover is not None and not bool(repo_cutover.get("ok")):
         recommendations.append("resolve repository cutover verification failures")
         repo_recommendations = repo_cutover.get("recommendations", [])
@@ -1655,7 +1649,6 @@ def _daemon_authority_report(
         },
         "legacy_sqlite": {
             "registry_status": sqlite_status,
-            "registry_escape_enabled": legacy_registry_escape,
             "test_harness_escape_enabled": test_harness_escape,
             "remaining_allowed_uses": [
                 "repo cutover verification without opening SQLite",

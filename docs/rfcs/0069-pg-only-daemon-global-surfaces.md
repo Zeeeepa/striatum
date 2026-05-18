@@ -68,8 +68,8 @@ Add a production registry tripwire and port daemon-global surfaces in order:
 
 - Production `connect_registry()` is now gated behind the paired test-harness
   escape (`STRIATUM_TEST_HARNESS=1` and `STRIATUM_DAEMON_REQUIRED=0`);
-  `STRIATUM_ALLOW_LEGACY_SQLITE_REGISTRY=1` is still reported by diagnostics
-  but no longer reopens the registry by itself.
+  the old standalone legacy-registry opt-in is no longer exported or reported
+  by daemon diagnostics.
 - Python daemon startup with PostgreSQL configured now uses
   `striatumd.daemon_meta` for the daemon instance id and passes the
   PostgreSQL connection through daemon sweep execution instead of opening the

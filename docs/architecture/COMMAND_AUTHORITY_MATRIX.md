@@ -197,7 +197,7 @@ remediation phases should either daemon-route, quarantine, or delete.
 | `self-update` | local pip + installer helper | no workflow state | bootstrap_admin |
 | `daemon start` | daemon lifecycle launcher | no repo-local workflow SQLite | bootstrap_admin |
 | `daemon service install` / `start` / `status` | local service-manager helper; Go start forwards resident recovery scheduler flags | no workflow state | bootstrap_admin |
-| `daemon doctor` | daemon PG doctor plus disabled legacy-registry diagnostic; registry probe only when PG diagnostics are unavailable or under explicit fixture escapes | diagnostic/test-only registry probe | bootstrap_admin |
+| `daemon doctor` | daemon PG doctor plus disabled legacy-registry status; registry probe only when PG diagnostics are unavailable or under explicit fixture escapes | diagnostic/test-only registry probe | bootstrap_admin |
 | `doctor --first-run` | day-zero smoke over daemon socket, PG doctor, token, MCP, and sample read route | no workflow state | bootstrap_admin |
 | `daemon migrate` | retired compatibility refusal | no SQLite open | bootstrap_admin |
 | `daemon migrate-repo-local` | retired compatibility refusal; verify evidence lives under `daemon doctor --repo --authority` | no SQLite open | bootstrap_admin |

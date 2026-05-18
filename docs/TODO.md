@@ -1335,7 +1335,8 @@ review and plan are root-level operator artifacts:
     PostgreSQL when a daemon DB is configured, with legacy audit field names
     retained for CLI compatibility. `connect_registry()` requires the paired
     test-harness compatibility escape; the old single-variable legacy-registry
-    opt-in is diagnostic-only. The terminal dashboard now renders production
+    opt-in has no active product or diagnostic surface. The terminal dashboard
+    now renders production
     text frames from the daemon/PostgreSQL `dashboard` DTO, with the old
     repo-local SQLite gatherer isolated under `legacy_sqlite` for paired test
     fixtures. Go `status` now matches the PostgreSQL/Python read-model shape

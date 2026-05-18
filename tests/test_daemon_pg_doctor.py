@@ -27,7 +27,6 @@ def _configure_pg_daemon_doctor(
     monkeypatch.setenv(daemon.ENV_REGISTRY, str(registry))
     monkeypatch.setenv(daemon.ENV_SQLITE_CONNECT_TRIPWIRE, "1")
     monkeypatch.setenv("STRIATUM_PG_DOCTOR_TEST_HARNESS_OWNER_OK", "1")
-    monkeypatch.delenv(daemon.ENV_ALLOW_LEGACY_SQLITE_REGISTRY, raising=False)
     daemon.write_runtime_token(token)
     return registry
 

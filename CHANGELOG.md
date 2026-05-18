@@ -168,6 +168,9 @@ Recent checkpoints:
 - The now-unreachable SQLite daemon auth/audit/doctor helper island was
   removed from the legacy Python daemon module after the global fallbacks
   moved to PostgreSQL-only behavior.
+- The obsolete standalone legacy-registry opt-in environment variable is no
+  longer exported by daemon helper modules or surfaced in authority doctor
+  diagnostics.
 - The standalone `striatum.daemon_pg.sqlite_compat` helper was removed. Its
   last repository-identity calculation now lives beside the one-way
   repo-local migration fixture, and the unused daemon audit-chain validators

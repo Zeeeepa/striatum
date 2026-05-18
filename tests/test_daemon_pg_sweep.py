@@ -24,7 +24,6 @@ def _configure_pg_daemon_sweep(
     monkeypatch.setenv(daemon.ENV_RUNTIME, str(tmp_path / "runtime"))
     monkeypatch.setenv(daemon.ENV_REGISTRY, str(tmp_path / "daemon" / "striatumd.sqlite3"))
     monkeypatch.setenv(daemon.ENV_SQLITE_CONNECT_TRIPWIRE, "1")
-    monkeypatch.delenv(daemon.ENV_ALLOW_LEGACY_SQLITE_REGISTRY, raising=False)
     if token is not None:
         daemon.write_runtime_token(token)
 

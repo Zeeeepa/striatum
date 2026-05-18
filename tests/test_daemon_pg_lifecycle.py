@@ -28,7 +28,6 @@ def _configure_pg_daemon_lifecycle(
     monkeypatch.setenv(daemon.ENV_RUNTIME, str(runtime))
     monkeypatch.setenv(daemon.ENV_REGISTRY, str(registry))
     monkeypatch.setenv(daemon.ENV_SQLITE_CONNECT_TRIPWIRE, "1")
-    monkeypatch.delenv(daemon.ENV_ALLOW_LEGACY_SQLITE_REGISTRY, raising=False)
     daemon.write_runtime_token(token)
     return registry
 
