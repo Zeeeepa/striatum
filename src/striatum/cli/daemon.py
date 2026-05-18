@@ -12,38 +12,23 @@ from typing import Any
 from striatum.daemon_pg.migrations import LATEST_DAEMON_DB_VERSION
 from striatum.daemon_rpc.registry import METHODS_ETAG
 from striatum.daemon_runtime import socket_path
-from striatum.daemon_pg.config import resolve_config
-from striatum.daemon_pg.repo_local_migration import (
-    RepoLocalMigrationOptions,
-    migrate_repo_local,
-    verify_repo_cutover,
-)
 from striatum.errors import StriatumError
 
 ENV_GO_BIN = "STRIATUMD_GO_BIN"
+RETIRED_SQLITE_IMPORT_MESSAGE = (
+    "SQLite import windows are closed; Striatum no longer opens legacy "
+    "SQLite daemon registries or repo-local .striatum/state.sqlite3 files "
+    "for migration. Archive or remove the legacy SQLite files and register "
+    "the repository with `striatum adopt` or `striatum repo add --init`. "
+    "Use an older Striatum release in an isolated environment only for "
+    "historical one-time export."
+)
 
 
 def dispatch_daemon(args: argparse.Namespace) -> Any:
     """Dispatch daemon subcommands owned by the daemon CLI slice."""
-    if getattr(args, "daemon_command", None) == "migrate-repo-local":
-        if args.from_substrate != "sqlite" or args.to_substrate != "pg":
-            raise StriatumError("migrate-repo-local supports only --from sqlite --to pg", exit_code=2)
-        config = resolve_config(postgres_url=getattr(args, "postgres_url", None))
-        if config.url is None:
-            raise StriatumError("daemon PostgreSQL URL is not configured", exit_code=13)
-        repo_arg = getattr(args, "repo_local_repo", None) or getattr(args, "repo", None)
-        if not repo_arg:
-            raise StriatumError("migrate-repo-local requires --repo", exit_code=2)
-        options = RepoLocalMigrationOptions(
-            repo=Path(repo_arg),
-            postgres_url=config.url,
-            dry_run=bool(getattr(args, "dry_run", False)),
-            keep_sqlite_readonly=bool(getattr(args, "keep_sqlite_readonly", True)),
-            confirm_delete=bool(getattr(args, "confirm_delete", False)),
-        )
-        if bool(getattr(args, "verify_cutover", False)):
-            return verify_repo_cutover(options)
-        return migrate_repo_local(options)
+    if getattr(args, "daemon_command", None) in {"migrate", "migrate-repo-local"}:
+        raise StriatumError(RETIRED_SQLITE_IMPORT_MESSAGE, exit_code=12)
     raise StriatumError("unknown daemon command", exit_code=2)
 
 

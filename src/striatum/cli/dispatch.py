@@ -1442,9 +1442,7 @@ def _dispatch_self_update(args: argparse.Namespace) -> dict[str, object]:
 
 
 def _dispatch_daemon(args: argparse.Namespace) -> object:
-    from striatum import daemon as daemon_mod
-
-    if args.daemon_command == "migrate-repo-local":
+    if args.daemon_command in {"migrate", "migrate-repo-local"}:
         from striatum.cli.daemon import dispatch_daemon
 
         return dispatch_daemon(args)
@@ -1452,6 +1450,8 @@ def _dispatch_daemon(args: argparse.Namespace) -> object:
         from striatum.cli.daemon import launch_daemon_start
 
         return launch_daemon_start(args)
+    from striatum import daemon as daemon_mod
+
     if args.daemon_command == "doctor":
         from striatum.daemon_pg.connection import doctor as pg_doctor
 
@@ -1503,22 +1503,6 @@ def _dispatch_daemon(args: argparse.Namespace) -> object:
                 repo_cutover=repo_cutover,
             )
         return result
-    if args.daemon_command == "migrate":
-        from striatum.daemon_pg.config import resolve_config
-        from striatum.daemon_pg.cutover import CutoverOptions, migrate
-
-        config = resolve_config(postgres_url=getattr(args, "postgres_url", None))
-        if config.url is None:
-            raise StriatumError("daemon PostgreSQL URL is not configured", exit_code=13)
-        source = Path(args.source_registry) if args.source_registry else daemon_mod.registry_path()
-        return migrate(
-            CutoverOptions(
-                source_registry=source,
-                postgres_url=config.url,
-                dry_run=bool(args.dry_run),
-                keep_sqlite_readonly=bool(args.keep_sqlite_readonly),
-            )
-        )
     if args.daemon_command == "status":
         return daemon_mod.daemon_status()
     if args.daemon_command == "stop":

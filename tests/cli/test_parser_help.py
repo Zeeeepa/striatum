@@ -1,15 +1,4 @@
-"""RFC 0043 V1.6 F-help — ``striatum daemon migrate-repo-local --help`` regression.
-
-Asserts the help block carries an explanatory ``description`` and a
-``help=`` for every flag, including the three operator hooks called out by
-the V1.6 design synthesis:
-
-* ``(default)`` on ``--keep-sqlite-readonly``
-* ``--confirm-delete`` mentioned on the delete-mode flag
-* ``STRIATUM_DAEMON_DB_URL`` mentioned on ``--postgres-url``
-
-Closes claude dogfood-050 F-dx-1.
-"""
+"""``striatum daemon migrate-repo-local --help`` compatibility coverage."""
 
 from __future__ import annotations
 
@@ -38,11 +27,8 @@ def _help_for(args: list[str], capsys: pytest.CaptureFixture[str]) -> str:
 
 def test_help_includes_description(capsys: pytest.CaptureFixture[str]) -> None:
     out = _migrate_repo_local_help(capsys)
-    # The description sentence framing the command's purpose. Substring
-    # only — the exact wording can drift as long as it explains the
-    # SQLite → Postgres flow.
-    assert "PostgreSQL" in out
-    assert "SQLite" in out
+    assert "Retired compatibility command" in out
+    assert "SQLite import windows are closed" in out
 
 
 def test_help_documents_every_migrate_flag(
@@ -68,17 +54,10 @@ def test_help_documents_every_migrate_flag(
 def test_help_mentions_default_and_env_and_confirm_delete(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """The V1.6 synthesis named three operator hooks explicitly.
-
-    These substrings are the easiest things to spot in a help block and
-    the most useful to operators wiring up the migrate command.
-    """
     out = _migrate_repo_local_help(capsys)
-    assert "(default)" in out, "expected explicit (default) on --keep-sqlite-readonly"
-    assert "STRIATUM_DAEMON_DB_URL" in out, (
-        "expected --postgres-url help to name the env var"
-    )
-    assert "--confirm-delete" in out
+    assert "retired compatibility option" in out
+    assert "legacy SQLite files are left untouched" in out
+    assert "STRIATUM_DAEMON_DB_URL" in out
 
 
 def test_rfc0053_help_uses_operator_and_reader_facing_terms(

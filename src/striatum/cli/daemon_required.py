@@ -125,16 +125,18 @@ def render_repo_not_migrated_message(repo_path: Path) -> str:
     return (
         f"repo_not_migrated: {repo_path} has not been migrated to daemon "
         "PostgreSQL state\n"
-        f"Run: striatum daemon migrate-repo-local --from sqlite --to pg "
-        f"--repo {repo_path}"
+        "SQLite import windows are closed. Archive or remove any legacy "
+        ".striatum/state.sqlite3 file, then register the repository with "
+        f"`striatum adopt --repo {repo_path}` or "
+        f"`striatum repo add --init {repo_path}`."
     )
 
 
 def render_repo_not_migrated_hint(repo_path: Path) -> str:
     """Compose the structured ``hint`` field for the JSON error envelope."""
     return (
-        f"striatum daemon migrate-repo-local --from sqlite --to pg "
-        f"--repo {repo_path}"
+        "archive/remove legacy .striatum/state.sqlite3, then run "
+        f"striatum adopt --repo {repo_path} or striatum repo add --init {repo_path}"
     )
 
 

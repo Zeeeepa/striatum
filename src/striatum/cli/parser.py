@@ -297,9 +297,17 @@ def build_parser() -> argparse.ArgumentParser:
         help="include a cutover authority report for PostgreSQL and legacy SQLite paths",
     )
     daemon_doctor.add_argument("--json", action="store_true")
-    daemon_migrate = daemon_sub.add_parser("migrate")
-    daemon_migrate.add_argument("--from", dest="from_substrate", choices=["sqlite"], required=True)
-    daemon_migrate.add_argument("--to", dest="to_substrate", choices=["pg"], required=True)
+    daemon_migrate = daemon_sub.add_parser(
+        "migrate",
+        help="retired legacy SQLite daemon-registry import command",
+        description=(
+            "Retired compatibility command. SQLite daemon-registry import "
+            "windows are closed; this command now refuses without opening "
+            "SQLite."
+        ),
+    )
+    daemon_migrate.add_argument("--from", dest="from_substrate", choices=["sqlite"])
+    daemon_migrate.add_argument("--to", dest="to_substrate", choices=["pg"])
     daemon_migrate.add_argument("--postgres-url")
     daemon_migrate.add_argument("--source-registry")
     daemon_migrate.add_argument("--dry-run", action="store_true")
@@ -307,32 +315,26 @@ def build_parser() -> argparse.ArgumentParser:
     daemon_migrate.add_argument("--json", action="store_true")
     daemon_migrate_repo = daemon_sub.add_parser(
         "migrate-repo-local",
-        help=(
-            "migrate one repo-local .striatum/state.sqlite3 into daemon "
-            "PostgreSQL state"
-        ),
+        help="retired legacy repo-local SQLite import command",
         description=(
-            "Migrate a repo's local SQLite workflow state into the "
-            "daemon's PostgreSQL substrate. Runs in a single serializable "
-            "Postgres transaction with byte-equivalent audit-chain "
-            "re-anchor. After commit the source is finalized as a 0444 "
-            "tombstone (default) or deleted (with --no-keep-sqlite-readonly "
-            "+ --confirm-delete)."
+            "Retired compatibility command. Repo-local SQLite import windows "
+            "are closed; this command now refuses without opening "
+            ".striatum/state.sqlite3. Archive or remove the legacy SQLite "
+            "file and register the repository with `striatum adopt` or "
+            "`striatum repo add --init`."
         ),
     )
     daemon_migrate_repo.add_argument(
         "--from",
         dest="from_substrate",
         choices=["sqlite"],
-        required=True,
-        help="source substrate; only 'sqlite' is supported in V1.6",
+        help="retired compatibility option; no migration is performed",
     )
     daemon_migrate_repo.add_argument(
         "--to",
         dest="to_substrate",
         choices=["pg"],
-        required=True,
-        help="destination substrate; only 'pg' is supported in V1.6",
+        help="retired compatibility option; no migration is performed",
     )
     daemon_migrate_repo.add_argument(
         "--repo",
@@ -342,39 +344,35 @@ def build_parser() -> argparse.ArgumentParser:
     )
     daemon_migrate_repo.add_argument(
         "--postgres-url",
-        help="override STRIATUM_DAEMON_DB_URL for this migration only",
+        help="retired compatibility option; use STRIATUM_DAEMON_DB_URL with adopt/repo add",
     )
     daemon_migrate_repo.add_argument(
         "--dry-run",
         action="store_true",
-        help="report what would be migrated without writing to Postgres or finalizing SQLite",
+        help="retired compatibility option; no migration is performed",
     )
     daemon_migrate_repo.add_argument(
         "--verify-cutover",
         action="store_true",
-        help=(
-            "emit a verify-only striatum.repo_cutover_report.v1 using "
-            "Postgres queries plus raw source/tombstone/sentinel file checks; "
-            "does not open SQLite"
-        ),
+        help="retired compatibility option; doctor reports registration state instead",
     )
     daemon_migrate_repo.add_argument(
         "--keep-sqlite-readonly",
         dest="keep_sqlite_readonly",
         action="store_true",
         default=True,
-        help="rename state.sqlite3 to state.sqlite3.tombstone and chmod it 0444 (default)",
+        help="retired compatibility option; legacy SQLite files are left untouched",
     )
     daemon_migrate_repo.add_argument(
         "--no-keep-sqlite-readonly",
         dest="keep_sqlite_readonly",
         action="store_false",
-        help="delete state.sqlite3 after migration; requires --confirm-delete",
+        help="retired compatibility option; legacy SQLite files are left untouched",
     )
     daemon_migrate_repo.add_argument(
         "--confirm-delete",
         action="store_true",
-        help="acknowledgement required when --no-keep-sqlite-readonly is used",
+        help="retired compatibility option; legacy SQLite files are left untouched",
     )
     daemon_migrate_repo.add_argument(
         "--json",

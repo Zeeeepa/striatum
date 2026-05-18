@@ -116,16 +116,20 @@ def adopt(
             }
         elif dry_run:
             result["registration"] = {
-                "status": "would_migrate_repo_local" if inspection["state_db_exists"] else "would_register_repo",
+                "status": "sqlite_import_retired" if inspection["state_db_exists"] else "would_register_repo",
                 "postgres_url_source": cfg.source,
                 "redacted_url": cfg.redacted_url,
             }
         elif inspection["state_db_exists"]:
-            from striatum.daemon_pg.repo_local_migration import RepoLocalMigrationOptions, migrate_repo_local
-
-            result["registration"] = migrate_repo_local(
-                RepoLocalMigrationOptions(repo=repo, postgres_url=cfg.url)
-            )
+            result["registration"] = {
+                "status": "sqlite_import_retired",
+                "state_db_path": str(repo / ".striatum" / "state.sqlite3"),
+                "hint": (
+                    "SQLite import windows are closed; archive or remove the "
+                    "legacy .striatum/state.sqlite3 file, then register the "
+                    "repository with striatum adopt or striatum repo add --init."
+                ),
+            }
         else:
             from striatum.daemon_pg.repositories import repo_add_pg
 
@@ -162,7 +166,7 @@ def first_run_smoke(repo: Path) -> dict[str, Any]:
             "id": "repo_registration",
             "ok": repository_id is not None,
             "repository_id": repository_id,
-            "hint": "run striatum adopt or striatum daemon migrate-repo-local --from sqlite --to pg",
+            "hint": "run striatum adopt or striatum repo add --init",
         },
     ]
     mcp_check = _mcp_capability_check(repository_id=repository_id, token=token_value)

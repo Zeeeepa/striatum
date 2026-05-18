@@ -181,6 +181,39 @@ def test_adopt_registers_new_repo_without_repo_local_migration(
     assert not (repo / ".striatum" / "state.sqlite3").exists()
 
 
+def test_adopt_refuses_legacy_sqlite_import_window_without_opening_sqlite(
+    tmp_path: Path,
+    monkeypatch: Any,
+) -> None:
+    repo = tmp_path / "repo"
+    state_dir = repo / ".striatum"
+    state_dir.mkdir(parents=True)
+    (state_dir / "state.sqlite3").write_bytes(b"legacy")
+    monkeypatch.delenv("STRIATUM_TEST_HARNESS", raising=False)
+    monkeypatch.setenv("STRIATUM_DAEMON_REQUIRED", "1")
+    monkeypatch.setenv("STRIATUM_SQLITE_CONNECT_TRIPWIRE", "1")
+
+    args = argparse.Namespace(
+        command="adopt",
+        repo=str(repo),
+        daemon=False,
+        profile="generic",
+        dry_run=False,
+        with_skills=False,
+        with_plugins=False,
+        with_ddd_layout=False,
+        register=True,
+        postgres_url="postgresql://example.invalid/striatum",
+    )
+
+    result = dispatch(args)
+
+    assert isinstance(result, dict)
+    assert result["registration"]["status"] == "sqlite_import_retired"
+    assert "migrate-repo-local" not in result["registration"]["hint"]
+    assert (state_dir / "state.sqlite3").exists()
+
+
 def test_first_run_smoke_reports_checks_without_leaking_token(tmp_path: Path, monkeypatch: Any) -> None:
     monkeypatch.setattr("striatum.day_zero.resolve_socket_path", lambda: tmp_path / "striatumd.sock")
     monkeypatch.setattr("striatum.day_zero.daemon_socket_is_reachable", lambda _socket: True)
