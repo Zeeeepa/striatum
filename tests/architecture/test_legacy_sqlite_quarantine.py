@@ -47,9 +47,9 @@ PRODUCTION_SQLITE_QUARANTINE = {
     ),
     # CLI/API/read DTO surfaces that still carry SQLite compatibility while
     # the local service and corpus/export paths finish their daemon DTO move.
-    Path("src/striatum/cli/dispatch.py"): SQLiteClassification(
+    Path("src/striatum/legacy_sqlite/cli_dispatch_db.py"): SQLiteClassification(
         "service transition",
-        "daemon-first CLI with test-harness legacy fallback dispatch",
+        "legacy CLI dispatch SQLite imports isolated behind test-harness fallback",
     ),
     Path("src/striatum/legacy_sqlite/cli_evidence.py"): SQLiteClassification(
         "service transition",
@@ -247,6 +247,7 @@ def test_cli_dispatch_import_does_not_eager_load_legacy_sqlite_modules() -> None
         "striatum.cli.run_summary",
         "striatum.cli.worktree",
         "striatum.db",
+        "striatum.legacy_sqlite.cli_dispatch_db",
         "striatum.process_adapter",
         "striatum.workflow",
     ]

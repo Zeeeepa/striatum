@@ -7,7 +7,7 @@ import json
 import os
 import sys
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Sequence, cast
+from typing import Any, Sequence, cast
 
 from striatum.bootstrap import init_operational_scratch
 from striatum.cli.daemon_required import enforce_daemon_required
@@ -20,15 +20,16 @@ from striatum.errors import (
 from striatum.primitives import json_dumps, json_loads
 from striatum.cli.parser import build_parser
 
-if TYPE_CHECKING:
-    import sqlite3
-
 
 def _legacy_sqlite_test_harness_enabled() -> bool:
     return (
         os.environ.get("STRIATUM_TEST_HARNESS") == "1"
         and os.environ.get("STRIATUM_DAEMON_REQUIRED") == "0"
     )
+
+
+def _is_sqlite_exception(exc: BaseException) -> bool:
+    return any(cls.__module__ == "sqlite3" for cls in type(exc).__mro__)
 
 
 def _is_legacy_adapter_run(args: argparse.Namespace) -> bool:
@@ -83,9 +84,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(str(exc), file=sys.stderr)
         return exc.exit_code
     except Exception as exc:
-        import sqlite3 as _sqlite3
-
-        if not isinstance(exc, _sqlite3.Error):
+        if not _is_sqlite_exception(exc):
             raise
         if getattr(args, "json", False):
             print(json_dumps({"ok": False, "error": {"message": str(exc), "code": 1}}))
@@ -684,11 +683,16 @@ def dispatch(args: argparse.Namespace) -> object:
         supervise_stop,
     )
     from striatum.cli.worktree import worktree_create, worktree_list, worktree_release
-    from striatum.db import (
+    from striatum.legacy_sqlite.cli_dispatch_db import (
+        cancel_run,
         claim_next,
         complete_job,
         connect,
         ensure_initialized,
+        override_review_verdict,
+        pause_run,
+        resume_run,
+        retry_job,
         transaction,
     )
     from striatum.process_adapter import run_process_adapter
@@ -741,21 +745,17 @@ def dispatch(args: argparse.Namespace) -> object:
         if args.command == "run" and args.run_command == "start":
             return run_start(conn, run_id=args.run_id)
         if args.command == "run" and args.run_command == "cancel":
-            from striatum.db import cancel_run as _cancel_run
             with transaction(conn):
-                return _cancel_run(conn, run_id=args.run_id, reason=args.reason)
+                return cancel_run(conn, run_id=args.run_id, reason=args.reason)
         if args.command == "run" and args.run_command == "pause":
-            from striatum.db import pause_run as _pause_run
             with transaction(conn):
-                return _pause_run(conn, run_id=args.run_id, reason=args.reason)
+                return pause_run(conn, run_id=args.run_id, reason=args.reason)
         if args.command == "run" and args.run_command == "resume":
-            from striatum.db import resume_run as _resume_run
             with transaction(conn):
-                return _resume_run(conn, run_id=args.run_id)
+                return resume_run(conn, run_id=args.run_id)
         if args.command == "run" and args.run_command == "retry-job":
-            from striatum.db import retry_job as _retry_job
             with transaction(conn):
-                return _retry_job(conn, run_id=args.run_id, job_id=args.job_id)
+                return retry_job(conn, run_id=args.run_id, job_id=args.job_id)
         if args.command == "run" and args.run_command == "summary":
             return run_summary_export(conn, repo=repo, run_id=args.run_id, path_text=args.path)
         if args.command == "run" and args.run_command == "graph":
@@ -877,8 +877,6 @@ def dispatch(args: argparse.Namespace) -> object:
                 rationale=args.rationale,
             )
         if args.command == "override-verdict":
-            from striatum.db import override_review_verdict
-
             # V1.41: --auto-fresh-session takes the operator's named
             # session and, if it already has a verdict for this job
             # (so override-verdict would refuse), registers a fresh
@@ -1756,7 +1754,7 @@ def _dispatch_cross_repo(args: argparse.Namespace) -> object:
 
 
 def _resolve_publish_defaults(
-    conn: sqlite3.Connection,
+    conn: Any,
     *,
     job_id: str,
     kind: str | None,
@@ -1818,7 +1816,7 @@ def _resolve_publish_defaults(
 
 
 def _resolve_override_session(
-    conn: sqlite3.Connection,
+    conn: Any,
     *,
     requested_session_id: str,
     job_id: str,
@@ -1860,7 +1858,7 @@ def _resolve_override_session(
     return str(result["session_id"])
 
 
-def _cli_byline(conn: sqlite3.Connection, *, session_id: str, job_id: str) -> object:
+def _cli_byline(conn: Any, *, session_id: str, job_id: str) -> object:
     """V1.41: print the expected author line for a (session, job) pair."""
     from striatum.artifacts import expected_author_line
     job = conn.execute(
@@ -1872,7 +1870,7 @@ def _cli_byline(conn: sqlite3.Connection, *, session_id: str, job_id: str) -> ob
     return {"session_id": session_id, "job_id": job_id, "byline": line}
 
 
-def _cli_inbox(conn: sqlite3.Connection, *, session_id: str) -> object:
+def _cli_inbox(conn: Any, *, session_id: str) -> object:
     """V1.41: print the current packet for a session.
 
     Returns the workflow_job_id, message_id, lease_id, expected_artifacts,

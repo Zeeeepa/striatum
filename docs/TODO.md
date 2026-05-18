@@ -918,7 +918,10 @@ review and plan are root-level operator artifacts:
     importing `striatum.cli.recovery` no longer loads SQLite. Legacy SQLite
     workflow-loop mutation helpers now live under
     `striatum.legacy_sqlite.cli_mutations`; importing
-    `striatum.cli.mutations` no longer loads SQLite.
+    `striatum.cli.mutations` no longer loads SQLite. Legacy SQLite DB imports
+    used by the paired test-harness CLI dispatch path now live behind
+    `striatum.legacy_sqlite.cli_dispatch_db`; importing
+    `striatum.cli.dispatch` no longer imports `sqlite3` or `striatum.db`.
 
 50. ~~**Phase 2: single method-contract source.**~~ ✅ Done. Contract source is now
     live at `contracts/daemon_methods.json`; Python `METHOD_REGISTRY`

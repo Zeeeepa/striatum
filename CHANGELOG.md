@@ -109,6 +109,9 @@ Recent checkpoints:
 - Legacy SQLite workflow-loop mutation helpers moved to
   `striatum.legacy_sqlite.cli_mutations`; `striatum.cli.mutations` now keeps
   the neutral verdict-job constant and lazy compatibility accessors.
+- Legacy SQLite DB imports used by the paired test-harness CLI dispatch path
+  moved behind `striatum.legacy_sqlite.cli_dispatch_db`; importing
+  `striatum.cli.dispatch` no longer imports `sqlite3` or `striatum.db`.
 - The retired `src/striatum/daemon.py` Python daemon / daemon-global SQLite
   registry module was deleted. Architecture guardrails now assert the module
   remains absent and keep daemon-global refusal coverage on the PostgreSQL
