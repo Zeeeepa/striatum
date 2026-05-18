@@ -1,15 +1,16 @@
 # RFC 0070: Daemon Client and Service Boundary Completion
 
-Status: partially implemented
+Status: mostly implemented
 Date: 2026-05-17
 Context: [RFC 0030](0030-daemon-rpc-server-and-version-skew-protocol.md), [RFC 0040](0040-mcp-driven-dogfood-harness.md), [RFC 0061](0061-daemon-first-web-service.md), [RFC 0068](0068-go-production-daemon-port.md), [RFC 0069](0069-pg-only-daemon-global-surfaces.md)
 
 ## Problem
 
-The CLI and web service are mostly daemon clients, but a few paths still
-resolve repository identity or invoke commands outside the daemon boundary.
-That keeps clients aware of PostgreSQL topology and leaves legacy local
-authoring/MCP surfaces ambiguous.
+The CLI and web service are mostly daemon clients. Repo resolution, daemon
+mapped `/v1/invoke` paths, and local stdio MCP alias disabling have landed.
+Remaining work is mostly legacy composite/tooling cleanup: clients should not
+gain new PostgreSQL topology knowledge, and old local authoring/test surfaces
+must stay clearly outside live workflow authority.
 
 ## Goals
 
@@ -18,8 +19,9 @@ authoring/MCP surfaces ambiguous.
 - Keep workflow authoring helpers local and explicit.
 - Either port dogfood composite tools to PostgreSQL or quarantine/unregister
   them as historical compatibility tools.
-- Clarify local `striatum.api.invoke` and `LocalRpcServer` as local-authoring
-  or legacy/test surfaces, not production run authority.
+- Keep local `striatum.api.invoke` and the stdio MCP `striatum/invoke`
+  compatibility path outside production live-state authority; local
+  `tools/list` and `tools/call` must not expose CLI-shaped aliases.
 
 ## Non-Goals
 
@@ -37,9 +39,9 @@ authoring/MCP surfaces ambiguous.
 3. Update `/v1/invoke` so daemon-routed reads and mutations call
    `service_daemon.call_repo_method()` and local authoring remains on an
    explicit allowlist.
-4. Route daemon-mapped `LocalRpcServer` and chat-tool commands through the
-   shared daemon RPC policy, keeping local `api.invoke` only for unmapped
-   authoring and explicit test-fixture compatibility.
+4. Keep local stdio MCP CLI aliases disabled. Daemon-backed web chat/tool-list
+   commands route through the shared daemon RPC policy, while local
+   `striatum/invoke` remains a narrow compatibility path for explicit callers.
 5. Keep `dogfood.publish_on_behalf` and `dogfood.surgical_recovery` absent
    from the production daemon contract unless a PostgreSQL-native composite
    is accepted.

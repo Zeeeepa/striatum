@@ -167,9 +167,9 @@ mine: Drop from this plan. It is good product work later, not remediation work n
 - id: `P1-MCP-SURFACE-BOUNDARY`
 - source: Review Section 5, daemon MCP versus local invoke-backed MCP.
 - review: The review said there should be one obvious production MCP story.
-- actual: `DaemonRpcServer` is capability-filtered and daemon-backed (`src/striatum/mcp.py:461-576`), but `LocalRpcServer` exposes tools and raw `striatum/invoke` over `striatum.api.invoke` (`src/striatum/mcp.py:377-458`, `src/striatum/mcp.py:601-655`). Chat dogfood lifecycle tools also call `invoke` (`src/striatum/web/chat_tools.py:840-862`).
+- actual: `DaemonRpcServer` is capability-filtered and daemon-backed. Since this historical plan was written, local stdio MCP `tools/list` is empty and `tools/call` returns `local_tools_unavailable`; `striatum/invoke` remains a narrow compatibility path, and chat dogfood lifecycle tools also call `invoke` (`src/striatum/web/chat_tools.py:840-862`).
 - mine: Do not build a new MCP product. Label or remove the old one.
-- what: Mark `LocalRpcServer` and invoke-backed chat dogfood tools as legacy/test/local-authoring only, or remove them from production-facing docs and tool listings.
+- what: Keep local stdio MCP aliases disabled and mark any remaining invoke-backed chat dogfood tools as legacy/test/local-authoring only, or remove them from production-facing docs and tool listings.
 - why: Agents should not have two mutation stories with different capability and audit semantics.
 - touches: `src/striatum/mcp.py`, `src/striatum/web/chat_tools.py`, `docs/MCP.md`, skill/plugin templates, MCP tests.
 - effort: 1-3 days.
@@ -213,7 +213,7 @@ mine: Drop from this plan. It is good product work later, not remediation work n
 - review: The review proposed a post-migration command/report that proves PG registration, tombstone state, and no production SQLite opens.
 - actual: Migration code and repo registration tests exist, but post-cutover cleanliness is spread across doctor, migration output, and tripwire tests.
 - mine: Worth doing after legacy registry paths are gated, because only then can the report be honest.
-- what: Add a verify-only migration cleanup report for a target repo, emitted by `daemon migrate-repo-local` or a small `repo verify-cutover` command.
+- what: Keep the verify-only migration cleanup report in first-run/doctor authority diagnostics or another current command surface; retired `daemon migrate-repo-local` should not return as an operator-facing spelling.
 - why: Operators need one command to know an old `.striatum/state.sqlite3` is no longer live state.
 - touches: `src/striatum/daemon_pg/repo_local_migration.py`, CLI parser/dispatch, docs, tests.
 - effort: 1-2 days.

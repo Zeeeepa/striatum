@@ -6,7 +6,7 @@ author: planner-gemini-cli-001
 - **Source:** `STRIATUM_ARCHITECTURE_REVIEW_CODEX_GPT_5_2026-05-18.md`
 - **Date:** 2026-05-18
 - **Model:** CODEX_GPT_5
-- **Staleness note:** The review is entirely fresh relative to the current repository state. Citations regarding the removal of `src/striatum/legacy_sqlite/daemon_registry.py` and the size of `src/striatum/cli/dispatch.py` match the working tree. No material code drift has occurred that would invalidate the review's architectural claims.
+- **Staleness note:** The review was fresh when written, but subsequent remediation has changed several cited surfaces: local stdio MCP aliases are disabled, smoke scripts no longer fall back to repo-local SQLite, the retired cutover helper was deleted, and the SQLite compatibility helper was inlined/deleted. Treat the review as historical input plus the status updates below.
 
 ## 1. Executive summary
 
@@ -55,8 +55,8 @@ author: planner-gemini-cli-001
   `local_tools_unavailable`, and production MCP discovery remains the daemon
   registry/capability-filtered surface.
 - **source:** R3 & F1 (make daemon MCP the normal live-operation MCP surface)
-- **what:** Replace the `LocalRpcServer` fallback in `src/striatum/mcp.py` with a generated, capability-filtered MCP manifest backed strictly by daemon RPC.
-- **why:** Agents must only discover and use daemon-backed live-state verbs. Exposing CLI-shaped compatibility tools allows agents to bypass the strict orchestration rules enforced by the Go daemon.
+- **what:** Keep local stdio MCP CLI aliases disabled and make production MCP discovery the daemon registry/capability-filtered surface.
+- **why:** Agents must only discover and use daemon-backed live-state verbs. The old CLI-shaped compatibility tools are no longer exposed through local stdio MCP.
 - **touches:** `src/striatum/mcp.py`, `src/striatum/daemon_rpc/server.py`
 - **effort:** 3 days
 - **depends on:** none
@@ -80,7 +80,7 @@ author: planner-gemini-cli-001
   returns `striatum.first_run_diagnostic.v1` with day-zero smoke checks, Go
   daemon binary provenance, and the daemon authority report.
 - **source:** F4 (make first-run and package diagnostics a single operator command)
-- **what:** Consolidate the outputs of `adopt --first-run-smoke` and `daemon doctor --authority` into a single, unified JSON diagnostic report.
+- **what:** Consolidate first-run smoke checks and authority diagnostics into `doctor --first-run`, a single unified JSON diagnostic report.
 - **why:** Reduces operator friction by providing a single, comprehensive command to verify the entire stack (binary freshness, DB connection, auth token, and MCP status).
 - **touches:** `src/striatum/day_zero.py`, `src/striatum/cli/dispatch.py`
 - **effort:** 2 days

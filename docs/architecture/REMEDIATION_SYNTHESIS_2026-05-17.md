@@ -47,9 +47,9 @@ The remaining priority is therefore:
 | RFC | Scope | Priority | Status |
 |---|---|---:|---|
 | RFC 0068 | Go production daemon port; D107 supersedes D105 and retires the Python daemon after parity. | P0 decision | accepted |
-| RFC 0069 | PostgreSQL-only daemon-global surfaces: registry gate, daemon sweep, dashboard-all, daemon MCP resources, owned by the Go port target. | P0 | partially implemented |
-| RFC 0070 | Daemon client/service boundary completion: repo.resolve, `/v1/invoke`, MCP/local API quarantine, dogfood composites. | P1 | partially implemented |
-| RFC 0071 | Operator diagnostics and cutover evidence: migration cleanup report, authority doctor, generated matrix follow-up. | P2 | partially implemented |
+| RFC 0069 | PostgreSQL-only daemon-global surfaces: registry gate, daemon sweep, dashboard-all, daemon MCP resources, owned by the Go port target. | P0 | mostly implemented; remaining work is legacy quarantine deletion |
+| RFC 0070 | Daemon client/service boundary completion: repo.resolve, `/v1/invoke`, MCP/local API quarantine, dogfood composites. | P1 | mostly implemented; local MCP aliases are disabled, with composite cleanup residual |
+| RFC 0071 | Operator diagnostics and cutover evidence: migration cleanup report, authority doctor, generated matrix follow-up. | P2 | diagnostic slice implemented; residual evidence cleanup tracks legacy fixture retirement |
 
 ## Deferred
 

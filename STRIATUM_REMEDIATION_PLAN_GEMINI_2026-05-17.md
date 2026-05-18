@@ -26,7 +26,7 @@ Go daemon parity/retirement-ledger work.
 
 - The primary goal of this remediation cycle is to finalize the transition to the PostgreSQL daemon (D094) by ruthlessly eliminating lingering SQLite fallback paths.
 - The highest priority (P0) is plugging a silent split-brain hole in the CLI dispatch and migrating the daemon's own global registry to Postgres.
-- Secondary priorities (P1) focus on reducing client-side database connections and solidifying Python as the single production core.
+- Secondary priorities (P1) focus on reducing client-side database connections while the Go/PostgreSQL daemon remains the production core; the Python CLI can remain useful, but the Python daemon is retirement debt.
 - Feature additions like new `doctor` flags or archive inspections are explicitly deferred; the focus is exclusively on enforcing the architectural boundaries we already claim to have.
 
 ## 2. Disagreements with the review
@@ -103,12 +103,12 @@ These items improve long-term codebase health but are not urgently required for 
 
 ### P2-MIGRATION-CLEANUP-REPORT
 - **source:** §8 Functionality I'd Add (Migration cleanup report)
-- **what:** Add verbose, structured success output to `migrate-repo-local` that confirms the PG rows exist, the event chain is anchored, and the old SQLite file is safely tombstoned.
+- **what:** Preserve structured cutover evidence in current diagnostics for migrated/tombstoned repositories without reopening a retired operator-facing `migrate-repo-local` command.
 - **why:** Gives the operator explicit confidence that the scary cutover to PostgreSQL worked correctly.
 - **touches:** `src/striatum/daemon_pg/repo_local_migration.py`
 - **effort:** 2 days
 - **depends on:** none
-- **acceptance:** The `migrate-repo-local` command prints a checklist of verified constraints upon completion.
+- **acceptance:** Current diagnostics report the verified constraints for any retained migration fixture or tombstoned repository without reopening SQLite in production.
 
 ## 6. Dependency map
 

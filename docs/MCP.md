@@ -173,10 +173,10 @@ dogfood through to completion:
 9. `supervise_stop(session_id, reason="…")`, then
    `run_summary` + `evidence_export` to capture the artifacts.
 
-When `tools/list` is consulted by the chat session, mutating entries
-are hidden unless `serve --allow-mutations` is in force. Local-MCP
-clients can still discover the read-shaped pair (`run_summary`,
-`evidence_export`) even with mutations disabled.
+The local stdio MCP wrapper no longer exposes CLI-shaped compatibility tools:
+`tools/list` is empty and `tools/call` returns `local_tools_unavailable`.
+Live operation discovery is the daemon MCP surface; web chat/tool-list clients
+use the daemon contract and capability filtering rather than local aliases.
 
 ## Resources
 

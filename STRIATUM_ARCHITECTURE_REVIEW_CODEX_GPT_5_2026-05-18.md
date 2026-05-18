@@ -155,7 +155,7 @@ mine: This is serious, not blocking. I would downgrade any claim that production
 
 stated: Daemon/MCP is mandatory for operator-driven runs, and marker files or provider hooks are not authoritative (`docs/operator/BRIEF.md:17-46`).
 
-actual: The daemon RPC server has a capability-filtered method/resource surface and hides local workflow file authoring (`src/striatum/daemon_rpc/server.py:26-42`, `src/striatum/daemon_rpc/server.py:167-207`). But `src/striatum/mcp.py` also defines a `LocalRpcServer` that exposes older CLI-shaped tools and maps them through `invoke_argv_through_daemon_or_api` (`src/striatum/mcp.py:49-133`, `src/striatum/mcp.py:377-459`, `src/striatum/mcp.py:620-674`). The service layer similarly keeps lazy legacy wrappers and compatibility fallback points, even though production reads now use the daemon (`src/striatum/service.py:95-145`, `src/striatum/service_api_routes.py:163-234`).
+actual: The daemon RPC server has a capability-filtered method/resource surface and hides local workflow file authoring (`src/striatum/daemon_rpc/server.py:26-42`, `src/striatum/daemon_rpc/server.py:167-207`). Since this review was written, local stdio MCP `tools/list` is empty and `tools/call` returns `local_tools_unavailable`; live MCP discovery now belongs to the daemon surface. The service layer still keeps lazy legacy wrappers and compatibility fallback points, even though production reads now use the daemon (`src/striatum/service.py:95-145`, `src/striatum/service_api_routes.py:163-234`).
 
 mine: This is a boundary clarity problem. It is acceptable during the cutover, but the normal agent-facing MCP surface should be generated from the daemon method contract and capability filtering. Local authoring tools can remain, but they should be named and isolated as local file-authoring tools, not live workflow state tools.
 
@@ -228,7 +228,7 @@ mine: Add a small architecture section and guardrail test that names the only al
 
 stated: MCP should expose daemon-backed workflow state, not terminal output or old local marker assumptions.
 
-actual: `DaemonRpcServer` is close to the intended shape, while `LocalRpcServer` still exposes CLI-shaped compatibility tools (`src/striatum/mcp.py:461-595`, `src/striatum/mcp.py:49-133`, `src/striatum/mcp.py:377-459`).
+actual: `DaemonRpcServer` is close to the intended shape, and local stdio MCP no longer exposes CLI-shaped compatibility tools. Remaining MCP cleanup is documentation/template clarity and any daemon-backed web chat/tool-list parity.
 
 mine: Generate the live MCP tool/resource list from `contracts/daemon_methods.json` and capability metadata. Leave local authoring commands available only under clearly named local-authoring tools. Do not let an agent discover old live-state verbs through a CLI compatibility facade.
 
@@ -278,7 +278,7 @@ Second, persist accepted risk decisions in PostgreSQL. The minimum viable shape 
 
 Third, add read-only archive/corpus browsing over the daemon. The project already has archive/corpus TODOs and recent manifest work; expose list/show/export reads through the daemon so a maintainer can inspect historical run artifacts without reopening SQLite or scraping files.
 
-Fourth, make first-run and package diagnostics a single operator command. `adopt --first-run-smoke` and `daemon doctor --authority` already have most pieces; consolidate their output into one JSON shape that says "binary, contract, PG, token, repo registration, MCP, dashboard read" with direct next actions.
+Fourth, keep first-run and package diagnostics consolidated in `doctor --first-run`. The command now emits a single JSON shape for binary, contract, PG, token, repo registration, MCP, dashboard read, and direct next actions.
 
 I would not add team dashboards, hosted auth, long-running cloud workers, external tracing, or a feature-flag control plane. Those would raise the operating burden and conflict with the product boundary.
 
