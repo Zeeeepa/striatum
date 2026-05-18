@@ -5,7 +5,6 @@ import json
 from contextlib import redirect_stderr
 import os
 import shutil
-import sqlite3
 import subprocess
 import sys
 from copy import deepcopy
@@ -15,6 +14,7 @@ from typing import Any, cast
 import pytest
 
 from striatum.api import invoke
+from striatum.legacy_sqlite.db import connect
 from striatum.mcp import LocalRpcServer, serve_stdio
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -193,7 +193,7 @@ def _packet_default_artifact_body(packet: JsonDict, logical_name: str) -> str:
 
 
 def artifact_count(repo: Path, job_id: str) -> int:
-    conn = sqlite3.connect(repo / ".striatum" / "state.sqlite3")
+    conn = connect(repo)
     try:
         row = conn.execute("SELECT COUNT(*) FROM artifacts WHERE job_id = ?", (job_id,)).fetchone()
     finally:
@@ -1140,7 +1140,7 @@ def test_claim_next_filters_fresh_session_required_in_sql(tmp_path: Path) -> Non
 
     # Sanity-check the SQL precondition: the released message is pending and
     # the session has a recorded work packet.
-    conn = sqlite3.connect(tmp_path / ".striatum" / "state.sqlite3")
+    conn = connect(tmp_path)
     try:
         msg_state = conn.execute(
             "SELECT state FROM queue_messages WHERE message_id = ?",
@@ -1447,7 +1447,7 @@ def test_decision_record_writes_run_level_decision_artifact_without_lease(tmp_pa
     assert "outcome: accepted_with_follow_up" in text
     assert "follow_up_required: true" in text
 
-    conn = sqlite3.connect(tmp_path / ".striatum" / "state.sqlite3")
+    conn = connect(tmp_path)
     try:
         artifact = conn.execute(
             """
@@ -1457,7 +1457,8 @@ def test_decision_record_writes_run_level_decision_artifact_without_lease(tmp_pa
             """,
             (recorded["artifact_id"],),
         ).fetchone()
-        assert artifact == (
+        assert artifact is not None
+        assert tuple(artifact) == (
             "decision",
             None,
             None,
@@ -1482,7 +1483,7 @@ def test_decision_record_writes_run_level_decision_artifact_without_lease(tmp_pa
 
 def test_events_are_append_only(tmp_path: Path) -> None:
     run_id = prepare_started_run(tmp_path)
-    conn = sqlite3.connect(tmp_path / ".striatum" / "state.sqlite3")
+    conn = connect(tmp_path)
     try:
         event_id = conn.execute(
             "SELECT event_id FROM events WHERE run_id = ? LIMIT 1", (run_id,)
@@ -1491,7 +1492,7 @@ def test_events_are_append_only(tmp_path: Path) -> None:
             conn.execute(
                 "UPDATE events SET event_type = 'tampered' WHERE event_id = ?", (event_id,)
             )
-        except sqlite3.DatabaseError as exc:
+        except Exception as exc:
             assert "append-only" in str(exc)
         else:
             raise AssertionError("events update unexpectedly succeeded")
@@ -1699,7 +1700,7 @@ def test_verdict_needs_revision_parallel_reviewers_share_cycle_target(tmp_path: 
     )
 
     # Exactly one synthesis attempt-2 row and one queue message for it.
-    conn = sqlite3.connect(tmp_path / ".striatum" / "state.sqlite3")
+    conn = connect(tmp_path)
     try:
         synth_a2 = conn.execute(
             "SELECT COUNT(*) FROM jobs WHERE run_id = ? AND workflow_job_id = 'synthesis' AND attempt = 2",
@@ -1818,7 +1819,7 @@ def test_verdict_needs_revision_without_cycle_waits_human(tmp_path: Path) -> Non
         path="docs/reviews/rfc-ledger/codex/RFC_LEDGER_REVIEW.md",
     )
     assert verdict["status"] == "waiting_human"
-    conn = sqlite3.connect(tmp_path / ".striatum" / "state.sqlite3")
+    conn = connect(tmp_path)
     try:
         blocker = conn.execute("SELECT state FROM blockers WHERE run_id = ?", (run_id,)).fetchone()
         assert blocker[0] == "open"
@@ -1981,7 +1982,7 @@ def test_verdict_requires_expected_artifact_path_and_kind(tmp_path: Path) -> Non
 
 def test_doctor_reports_bad_review_gate_state(tmp_path: Path) -> None:
     run_id = prepare_started_run(tmp_path)
-    conn = sqlite3.connect(tmp_path / ".striatum" / "state.sqlite3")
+    conn = connect(tmp_path)
     try:
         review = conn.execute(
             "SELECT job_id FROM jobs WHERE run_id = ? AND workflow_job_id = 'review_codex'",
@@ -2111,7 +2112,7 @@ def test_override_verdict_accepts_already_completed_needs_revision_review(
         verdict="needs_revision",
         path="docs/reviews/rfc-ledger/codex/RFC_LEDGER_REVIEW.md",
     )
-    conn = sqlite3.connect(tmp_path / ".striatum" / "state.sqlite3")
+    conn = connect(tmp_path)
     try:
         conn.execute(
             "UPDATE jobs SET state = 'completed' WHERE job_id = ?",
@@ -2240,7 +2241,7 @@ def test_evidence_redaction_drops_unknown_fields_by_default(
     run_id = prepare_started_run(tmp_path, workflow_path=workflow_path)
     real_snapshot = cli_module.evidence_snapshot
 
-    def patched_snapshot(conn: sqlite3.Connection, *, run_id: str) -> JsonDict:
+    def patched_snapshot(conn: Any, *, run_id: str) -> JsonDict:
         payload = cast(JsonDict, real_snapshot(conn, run_id=run_id))
         payload["future_unknown_field"] = private_marker
         # Inject a nested unknown field inside a known list element.
@@ -2827,7 +2828,7 @@ def test_process_adapter_runs_configured_command_and_records_metadata(tmp_path: 
         json.loads(scratch_packet.read_text(encoding="utf-8"))["packet_id"] == packet["packet_id"]
     )
 
-    conn = sqlite3.connect(tmp_path / ".striatum" / "state.sqlite3")
+    conn = connect(tmp_path)
     try:
         row = conn.execute(
             """
@@ -2845,7 +2846,8 @@ def test_process_adapter_runs_configured_command_and_records_metadata(tmp_path: 
         ).fetchall()
     finally:
         conn.close()
-    assert row == (
+    assert row is not None
+    assert tuple(row) == (
         process_id,
         "exited",
         0,
@@ -3101,7 +3103,7 @@ def test_branch_confirm_use_current_records_actual_branch(tmp_path: Path) -> Non
     assert isinstance(error, dict)
     assert "use-current" in str(error["message"]) or "current git branch" in str(error["message"])
     # Run state must remain needs_branch_confirmation
-    conn = sqlite3.connect(second_repo / ".striatum" / "state.sqlite3")
+    conn = connect(second_repo)
     try:
         row = conn.execute(
             "SELECT state FROM runs WHERE run_id = ?", (str(prepared2["run_id"]),)
@@ -3129,7 +3131,7 @@ def test_branch_confirm_strict_rejects_mismatch(tmp_path: Path) -> None:
     )
     assert rejected["returncode"] == 8
     # Run state must NOT have been updated.
-    conn = sqlite3.connect(tmp_path / ".striatum" / "state.sqlite3")
+    conn = connect(tmp_path)
     try:
         row = conn.execute(
             "SELECT state FROM runs WHERE run_id = ?", (str(prepared["run_id"]),)
@@ -3257,7 +3259,7 @@ def test_declared_cycle_policy_requires_root_review_cycles(tmp_path: Path) -> No
 
 def test_doctor_flags_orphaned_message_and_lease_pointers(tmp_path: Path) -> None:
     run_id = prepare_started_run(tmp_path)
-    conn = sqlite3.connect(tmp_path / ".striatum" / "state.sqlite3")
+    conn = connect(tmp_path)
     try:
         job_row = conn.execute(
             "SELECT job_id FROM jobs WHERE run_id = ? AND workflow_job_id = 'draft'",
@@ -3285,7 +3287,7 @@ def test_doctor_flags_orphaned_message_and_lease_pointers(tmp_path: Path) -> Non
 def test_doctor_flags_active_session_on_completed_run(tmp_path: Path) -> None:
     run_id = prepare_started_run(tmp_path)
     session_id = register(tmp_path, run_id, "author", "codex")
-    conn = sqlite3.connect(tmp_path / ".striatum" / "state.sqlite3")
+    conn = connect(tmp_path)
     try:
         conn.execute(
             "UPDATE runs SET state = 'completed', completed_at = ? WHERE run_id = ?",
@@ -3306,7 +3308,7 @@ def test_doctor_flags_unreaped_expired_leases(tmp_path: Path) -> None:
     author = register(tmp_path, run_id, "author", "codex")
     packet = claim(tmp_path, author)
     _, _, lease_id = packet_ids(packet)
-    conn = sqlite3.connect(tmp_path / ".striatum" / "state.sqlite3")
+    conn = connect(tmp_path)
     try:
         conn.execute(
             "UPDATE leases SET expires_at = ? WHERE lease_id = ?",
@@ -3342,7 +3344,7 @@ def test_doctor_flags_open_blocker_on_canceled_run(tmp_path: Path) -> None:
         verdict="needs_revision",
         path="docs/reviews/rfc-ledger/codex/RFC_LEDGER_REVIEW.md",
     )
-    conn = sqlite3.connect(tmp_path / ".striatum" / "state.sqlite3")
+    conn = connect(tmp_path)
     try:
         blocker = conn.execute(
             "SELECT blocker_id, state FROM blockers WHERE run_id = ?", (run_id,)
@@ -3369,7 +3371,7 @@ def test_doctor_flags_stale_queue_message_claim(tmp_path: Path) -> None:
     author = register(tmp_path, run_id, "author", "codex")
     packet = claim(tmp_path, author)
     _, message_id, lease_id = packet_ids(packet)
-    conn = sqlite3.connect(tmp_path / ".striatum" / "state.sqlite3")
+    conn = connect(tmp_path)
     try:
         conn.execute(
             "UPDATE leases SET state = 'released', released_at = ?, release_reason = 'test' WHERE lease_id = ?",
@@ -3402,8 +3404,7 @@ def test_events_for_process_does_not_leak_across_runs(tmp_path: Path) -> None:
     process_a = "process-a-doctor-test"
     process_b = "process-b-doctor-test"
 
-    conn = sqlite3.connect(tmp_path / ".striatum" / "state.sqlite3")
-    conn.row_factory = sqlite3.Row
+    conn = connect(tmp_path)
     try:
         conn.execute("PRAGMA foreign_keys = ON")
         first_snapshot = conn.execute(
@@ -4183,7 +4184,7 @@ def test_doctor_verbose_includes_problem_records(tmp_path: Path) -> None:
     # completed so the still-active session is "active session on terminal run".
     packet = claim(tmp_path, author)
     _, message_id, lease_id = packet_ids(packet)
-    conn = sqlite3.connect(tmp_path / ".striatum" / "state.sqlite3")
+    conn = connect(tmp_path)
     try:
         conn.execute(
             "UPDATE leases SET state = 'released', released_at = ?, release_reason = 'test' WHERE lease_id = ?",
@@ -4424,7 +4425,7 @@ def test_human_checkpoint_flow_records_owner_decision_and_unblocks_downstream(
     assert "artifact_kind: decision" in decision_text
     assert "outcome: accepted" in decision_text
 
-    conn = sqlite3.connect(tmp_path / ".striatum" / "state.sqlite3")
+    conn = connect(tmp_path)
     try:
         artifact_row = conn.execute(
             """

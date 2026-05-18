@@ -151,6 +151,8 @@ Recent checkpoints:
   SQLite fixture helper instead of direct `sqlite3` opens.
 - Review-posture introspection and service fixture tests now use the explicit
   legacy SQLite helper for repo-local setup instead of direct `sqlite3` opens.
+- The broad CLI MVP regression suite now uses the explicit legacy SQLite
+  helper for repo-local state setup instead of direct `sqlite3` imports.
 - Stale remediation/review artifacts now call out deleted Python-daemon
   references as historical evidence instead of current source state.
 - Operator docs now describe legacy SQLite migration/tombstone paths as
