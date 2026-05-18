@@ -48,21 +48,21 @@ def legacy_web_read_fallback_enabled(code: str) -> bool:
 
 
 def legacy_run_cancel(repo: Path, *, run_id: str, reason: str | None) -> JsonObject:
-    from striatum.db import cancel_run, connect, transaction
+    from striatum.legacy_sqlite.db import cancel_run, connect, transaction
 
     with connect(repo) as conn, transaction(conn):
         return cancel_run(conn, run_id=run_id, reason=reason)
 
 
 def legacy_run_pause(repo: Path, *, run_id: str, reason: str | None) -> JsonObject:
-    from striatum.db import connect, pause_run, transaction
+    from striatum.legacy_sqlite.db import connect, pause_run, transaction
 
     with connect(repo) as conn, transaction(conn):
         return pause_run(conn, run_id=run_id, reason=reason)
 
 
 def legacy_run_resume(repo: Path, *, run_id: str) -> JsonObject:
-    from striatum.db import connect, resume_run, transaction
+    from striatum.legacy_sqlite.db import connect, resume_run, transaction
 
     with connect(repo) as conn, transaction(conn):
         return resume_run(conn, run_id=run_id)
@@ -70,7 +70,7 @@ def legacy_run_resume(repo: Path, *, run_id: str) -> JsonObject:
 
 def legacy_workflow_run_now(repo: Path, *, workflow_path: Path) -> JsonObject:
     from striatum.cli.mutations import branch_confirm, run_start
-    from striatum.db import connect, transaction
+    from striatum.legacy_sqlite.db import connect, transaction
     from striatum.workflow import create_run
 
     with connect(repo) as conn:
@@ -110,7 +110,7 @@ def legacy_job_cancel(
     cascade: bool,
 ) -> JsonObject:
     from striatum.cli.recovery import cancel_job
-    from striatum.db import connect
+    from striatum.legacy_sqlite.db import connect
 
     with connect(repo) as conn:
         return cast(
@@ -126,7 +126,7 @@ def legacy_job_cancel(
 
 
 def legacy_job_retry(repo: Path, *, run_id: str, job_id: str) -> JsonObject:
-    from striatum.db import connect, retry_job, transaction
+    from striatum.legacy_sqlite.db import connect, retry_job, transaction
 
     with connect(repo) as conn, transaction(conn):
         return retry_job(conn, run_id=run_id, job_id=job_id)

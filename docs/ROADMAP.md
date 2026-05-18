@@ -301,7 +301,10 @@ authority matrix and contract tests as drift guards.
 migration/test-fixture and quarantined compatibility concern, not a daemon
 production fallback path or repo-administration path. Newly discovered
 production registry or repo-local SQLite probes should be treated as
-guardrail failures.
+guardrail failures. The repo-local SQLite engine and migrations now live under
+`striatum.legacy_sqlite`; root `striatum.db` / `striatum.migrations` remain
+lazy compatibility facades for legacy fixtures and do not import SQLite on
+plain module import.
 
 ---
 
@@ -359,6 +362,8 @@ guardrail failures.
 D107 supersedes it. RFC 0068 has moved the production/default daemon to Go;
 the retired Python daemon module is deleted, and remaining retirement work is
 legacy SQLite fixture/import cleanup while Python CLI/web clients remain useful.
+The repo-local SQLite engine and schema migrations are now quarantined under
+`striatum.legacy_sqlite`; root compatibility modules are lazy facades only.
 
 **Landed in this slice:**
 - `docs/DECISION_LOG.md` records D107 and marks D105 superseded.

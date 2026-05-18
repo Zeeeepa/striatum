@@ -33,11 +33,11 @@ ALLOWED_CATEGORIES = frozenset(
 PRODUCTION_SQLITE_QUARANTINE = {
     # The legacy repo-local SQLite substrate itself and the one-way
     # migration paths that still have to read historical stores.
-    Path("src/striatum/db.py"): SQLiteClassification(
+    Path("src/striatum/legacy_sqlite/db.py"): SQLiteClassification(
         "migration",
         "legacy repo-local SQLite engine retained for migration and test fixtures",
     ),
-    Path("src/striatum/migrations.py"): SQLiteClassification(
+    Path("src/striatum/legacy_sqlite/migrations.py"): SQLiteClassification(
         "migration",
         "pre-D094 repo-local schema migrations retained for migration fixtures",
     ),
@@ -47,10 +47,6 @@ PRODUCTION_SQLITE_QUARANTINE = {
     ),
     # CLI/API/read DTO surfaces that still carry SQLite compatibility while
     # the local service and corpus/export paths finish their daemon DTO move.
-    Path("src/striatum/legacy_sqlite/cli_dispatch_db.py"): SQLiteClassification(
-        "service transition",
-        "legacy CLI dispatch SQLite imports isolated behind test-harness fallback",
-    ),
     Path("src/striatum/legacy_sqlite/cli_evidence.py"): SQLiteClassification(
         "service transition",
         "legacy evidence-export reader pending daemon DTO replacement",
@@ -405,6 +401,28 @@ def test_cli_worktree_import_does_not_eager_load_legacy_sqlite_modules() -> None
     ]
     code = (
         "import sys; import striatum.cli.worktree; "
+        f"legacy={legacy_modules!r}; "
+        "print('\\n'.join(name for name in legacy if name in sys.modules))"
+    )
+
+    proc = subprocess.run(
+        [sys.executable, "-c", code],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    assert proc.stdout.strip() == ""
+
+
+def test_root_sqlite_facades_do_not_eager_load_legacy_modules() -> None:
+    legacy_modules = [
+        "sqlite3",
+        "striatum.legacy_sqlite.db",
+        "striatum.legacy_sqlite.migrations",
+    ]
+    code = (
+        "import sys; import striatum.db; import striatum.migrations; "
         f"legacy={legacy_modules!r}; "
         "print('\\n'.join(name for name in legacy if name in sys.modules))"
     )

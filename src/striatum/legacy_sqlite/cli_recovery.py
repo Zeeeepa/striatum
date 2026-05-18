@@ -8,7 +8,7 @@ import sqlite3
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-from striatum.db import (
+from striatum.legacy_sqlite.db import (
     complete_job,
     expire_leases,
     insert_event,
@@ -26,7 +26,7 @@ def stale_leases(conn: sqlite3.Connection, *, run_id: str) -> JsonObject:
     row_by_id(conn, "runs", "run_id", run_id)
     with transaction(conn):
         expire_leases(conn, run_id=run_id)
-    from striatum.db import is_repo_write
+    from striatum.legacy_sqlite.db import is_repo_write
 
     stale_jobs = conn.execute(
         """
@@ -102,7 +102,7 @@ def requeue_stale(
     if force and not justification:
         raise InvalidTransitionError("--force requeue requires --justification")
     row_by_id(conn, "runs", "run_id", run_id)
-    from striatum.db import enqueue_job, is_repo_write
+    from striatum.legacy_sqlite.db import enqueue_job, is_repo_write
 
     with transaction(conn):
         expire_leases(conn, run_id=run_id)

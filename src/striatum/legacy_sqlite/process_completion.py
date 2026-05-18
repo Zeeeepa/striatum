@@ -17,7 +17,7 @@ from __future__ import annotations
 import json
 import sqlite3
 
-from striatum.db import (
+from striatum.legacy_sqlite.db import (
     insert_event,
 )
 from striatum.primitives import JsonObject, new_id, utc_now

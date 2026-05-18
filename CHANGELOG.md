@@ -115,6 +115,10 @@ Recent checkpoints:
 - `daemon doctor --repo --authority` now uses the SQLite-free
   `striatum.daemon_pg.repo_cutover_report` module for cutover verification
   instead of importing the retired repo-local SQLite migrator.
+- The repo-local SQLite engine and schema migrations moved to
+  `striatum.legacy_sqlite.db` and `striatum.legacy_sqlite.migrations`;
+  root `striatum.db` / `striatum.migrations` are lazy compatibility facades
+  that do not import SQLite until legacy fixture callers request attributes.
 - The retired `src/striatum/daemon.py` Python daemon / daemon-global SQLite
   registry module was deleted. Architecture guardrails now assert the module
   remains absent and keep daemon-global refusal coverage on the PostgreSQL

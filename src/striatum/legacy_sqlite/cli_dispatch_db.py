@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from striatum.db import (
+from striatum.legacy_sqlite.db import (
     cancel_run,
     claim_next,
     complete_job,

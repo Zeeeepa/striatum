@@ -26,7 +26,7 @@ import time
 from pathlib import Path
 from typing import cast
 
-from striatum.db import (
+from striatum.legacy_sqlite.db import (
     insert_event,
     row_by_id,
     transaction,

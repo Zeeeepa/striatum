@@ -22,7 +22,7 @@ from striatum.artifacts import (
     validate_artifact_front_matter,
     validate_optional_markdown_author_line,
 )
-from striatum.db import (
+from striatum.legacy_sqlite.db import (
     active_lease_for,
     active_worktree_for_job,
     insert_event,

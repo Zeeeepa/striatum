@@ -18,7 +18,7 @@ from __future__ import annotations
 import json
 import sqlite3
 
-from striatum.db import (
+from striatum.legacy_sqlite.db import (
     expire_leases,
 )
 from striatum.errors import NotFoundError, StriatumError
@@ -252,7 +252,7 @@ def list_artifacts(
     # ``evidence_artifact_summaries`` at module import time would create a
     # cross-module dependency that the test suite verifies stays minimal.
     from striatum.cli.evidence import evidence_artifact_summaries
-    from striatum.db import workflow_for_run
+    from striatum.legacy_sqlite.db import workflow_for_run
 
     workflow = workflow_for_run(conn, run_id=run_id)
     summaries = evidence_artifact_summaries(conn, run_id=run_id, workflow=workflow)

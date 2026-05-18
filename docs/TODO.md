@@ -924,7 +924,11 @@ review and plan are root-level operator artifacts:
     `striatum.cli.dispatch` no longer imports `sqlite3` or `striatum.db`.
     `daemon doctor --repo --authority` now uses the SQLite-free
     `striatum.daemon_pg.repo_cutover_report` module for cutover verification
-    instead of importing the retired repo-local SQLite migrator.
+    instead of importing the retired repo-local SQLite migrator. The repo-local
+    SQLite engine and schema migrations now live under
+    `striatum.legacy_sqlite.db` and `striatum.legacy_sqlite.migrations`; root
+    `striatum.db` / `striatum.migrations` are lazy compatibility facades that
+    do not import SQLite until legacy fixture callers request attributes.
 
 50. ~~**Phase 2: single method-contract source.**~~ ✅ Done. Contract source is now
     live at `contracts/daemon_methods.json`; Python `METHOD_REGISTRY`

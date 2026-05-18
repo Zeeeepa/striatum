@@ -47,7 +47,7 @@ def compute_node_states(
 
 def create_run(conn: sqlite3.Connection, *, repo: Path, workflow_path: Path) -> JsonObject:
     """Snapshot workflow JSON and create a prepared run."""
-    from striatum.db import insert_event
+    from striatum.legacy_sqlite.db import insert_event
 
     workflow = load_workflow(workflow_path)
     now = utc_now()

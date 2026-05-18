@@ -9,7 +9,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from striatum.artifacts import publish_artifact
-from striatum.db import (
+from striatum.legacy_sqlite.db import (
     active_lease_for,
     enqueue_job,
     insert_event,
@@ -197,7 +197,7 @@ def run_start(conn: sqlite3.Connection, *, run_id: str) -> JsonObject:
                 """,
                 (run_id,),
             ).fetchall()
-            from striatum.db import enqueue_job
+            from striatum.legacy_sqlite.db import enqueue_job
 
             for root in roots:
                 enqueue_job(conn, job_id=str(root["job_id"]))
@@ -517,7 +517,7 @@ def release_work(
         message = row_by_id(conn, "queue_messages", "message_id", message_id)
         job = row_by_id(conn, "jobs", "job_id", str(message["job_id"]))
         active_lease_for(conn, lease_id=lease_id, session_id=session_id, job_id=str(job["job_id"]))
-        from striatum.db import is_repo_write
+        from striatum.legacy_sqlite.db import is_repo_write
 
         now = utc_now()
         if requeue and not is_repo_write(job):
@@ -677,7 +677,7 @@ def _record_phase_synthesis_verdict(
     rationale: str | None,
 ) -> JsonObject:
     """Record a neutral-posture verdict for a phase_synthesis job."""
-    from striatum.db import (
+    from striatum.legacy_sqlite.db import (
         _complete_review_job,
         _fail_review_job,
         maybe_enqueue_downstream,
@@ -840,7 +840,7 @@ def prevalidate_submit_review(
             "claimed verdict-capable job is missing its current message"
         )
     active_lease_for(conn, lease_id=lease_id, session_id=session_id, job_id=str(job["job_id"]))
-    from striatum.db import _enforce_required_attestation_for_verdict
+    from striatum.legacy_sqlite.db import _enforce_required_attestation_for_verdict
 
     _enforce_required_attestation_for_verdict(conn, job=job, session_id=session_id)
     expected = json.loads(str(job["expected_artifacts_json"]))

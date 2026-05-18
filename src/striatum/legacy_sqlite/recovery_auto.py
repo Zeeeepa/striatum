@@ -22,7 +22,7 @@ import sqlite3
 from pathlib import Path
 from typing import Any, Callable, Mapping
 
-from striatum.db import (
+from striatum.legacy_sqlite.db import (
     expire_leases,
     row_by_id,
     transaction,

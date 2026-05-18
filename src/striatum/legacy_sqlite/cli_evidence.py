@@ -5,7 +5,7 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
-from striatum.db import (
+from striatum.legacy_sqlite.db import (
     insert_event,
     latest_verdict,
     row_by_id,

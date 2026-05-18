@@ -10,7 +10,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, cast
 
-from striatum.db import (
+from striatum.legacy_sqlite.db import (
     active_lease_for,
     insert_event,
     row_by_id,

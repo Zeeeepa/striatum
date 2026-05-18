@@ -10,7 +10,7 @@ from pathlib import Path
 from types import ModuleType
 from typing import Callable
 
-from striatum.db import (
+from striatum.legacy_sqlite.db import (
     expire_leases,
     latest_verdict,
     row_by_id,

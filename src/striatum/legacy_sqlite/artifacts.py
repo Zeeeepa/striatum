@@ -75,7 +75,7 @@ def publish_artifact(
     override_rationale records the rationale on the artifact row and
     emits a ``provenance.publish_without_process_execution`` event.
     """
-    from striatum.db import (
+    from striatum.legacy_sqlite.db import (
         active_lease_for,
         active_worktree_for_job,
         insert_event,
@@ -325,7 +325,7 @@ def validate_optional_markdown_author_line(
 
 def expected_author_line(conn: sqlite3.Connection, *, job: sqlite3.Row, session_id: str) -> str:
     """Return the exact work-packet author line expected for this job/session."""
-    from striatum.db import row_by_id
+    from striatum.legacy_sqlite.db import row_by_id
 
     run = row_by_id(conn, "runs", "run_id", str(job["run_id"]))
     snapshot = row_by_id(
@@ -372,7 +372,7 @@ def _enforce_required_attestation_for_artifact(
 
 
 def _job_requires_attested_lane(conn: sqlite3.Connection, *, job: sqlite3.Row) -> bool:
-    from striatum.db import row_by_id
+    from striatum.legacy_sqlite.db import row_by_id
 
     run = row_by_id(conn, "runs", "run_id", str(job["run_id"]))
     snapshot = row_by_id(

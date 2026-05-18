@@ -6,7 +6,7 @@ import sqlite3
 import subprocess
 from pathlib import Path
 
-from striatum.db import (
+from striatum.legacy_sqlite.db import (
     active_lease_for,
     active_worktree_for_job,
     insert_event,
