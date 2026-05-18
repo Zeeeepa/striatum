@@ -67,5 +67,6 @@ func HandleDoctor(ctx context.Context, runner db.Runner, envelope rpc.Envelope) 
 		"stale_leases":   staleLeases,
 		"waiting_human":  waitingHuman,
 		"problems":       problems,
+		"blob":           blobDoctorBlock(ctx, runner, repositoryID),
 	}, nil
 }
