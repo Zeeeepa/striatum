@@ -85,6 +85,10 @@ Add a production registry tripwire and port daemon-global surfaces in order:
   status/doctor/run/why/blocker/dashboard data, and keeps stale-lease resources
   read-only by projecting current expired/stale rows instead of invoking lazy
   recovery mutation handlers.
+- Architecture guardrails now classify every remaining direct
+  `striatum.daemon.connect_registry()` caller and assert production daemon MCP
+  resource reads fail before reaching the legacy SQLite registry when the
+  tripwire is active.
 - `striatum daemon audit` now authorizes with the PostgreSQL capability table,
   appends the audit read to the PostgreSQL audit chain, and returns the
   compatibility field names expected by existing CLI consumers. The legacy

@@ -176,6 +176,10 @@ Recent checkpoints:
   methods and the retired dogfood composites in both Python and Go, while
   direct `tools/call` dispatch still reauthorizes and returns the explicit
   fail-closed RPC errors for those composites.
+- SQLite registry-probe guardrails now classify every remaining direct
+  `striatum.daemon.connect_registry()` caller and runtime-tripwire daemon MCP
+  resource reads, so newly introduced daemon-global SQLite probes fail the
+  architecture tests before they can become production fallback paths.
 - `striatum daemon doctor --authority --json` now emits a cutover authority
   report covering PostgreSQL live-state authority, disabled legacy SQLite
   registry status, daemon method fallback counts, allowed migration/test-only

@@ -1291,8 +1291,11 @@ review and plan are root-level operator artifacts:
     for job counts, nested verdict posture counts, queue-based claimable work,
     blocker/checkpoint payloads, process health, supervisor stalls, phase
     progress, provenance mode, auto-finalize dry-run visibility, and
-    deterministic next actions. Residual daemon-global gaps are any remaining
-    registry probes found by guardrail scans. The
+    deterministic next actions. Architecture tests now classify every
+    remaining direct `striatum.daemon.connect_registry()` caller and tripwire
+    daemon MCP resource reads before the legacy SQLite registry can open.
+    Residual daemon-global gaps are any future registry probes found by those
+    guardrail scans. The
     workflow-upgrade running-run guard now fails closed when PostgreSQL state
     is unknown and only opens repo-local SQLite under the paired test-harness
     compatibility escape.

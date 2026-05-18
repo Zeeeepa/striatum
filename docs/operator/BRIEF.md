@@ -33,13 +33,16 @@ multi_phase` now emits the same V1.1 phased workflow graph as Python, closing
 that explicit generator parity gap. Production daemon MCP `tools/list` now
 hides local workflow-file authoring methods and the retired dogfood composites
 in both Python and Go, while direct hidden composite calls still audit and fail
-closed.
+closed. SQLite registry-probe guardrails now classify every remaining direct
+`striatum.daemon.connect_registry()` caller and tripwire daemon MCP resource
+reads before the legacy registry can open.
 
 ## Next 1-3 Actions
 
 1. Continue RFC 0068/RFC 0069 Go and PostgreSQL read-model parity only when
    a concrete method, DTO, registry probe, or conformance gap is visible.
-2. Next smallest unblocked slice is residual SQLite registry-probe guardrails.
+2. Next smallest unblocked slice is the RFC 0068 Python-daemon retirement
+   prep ledger.
 3. Keep `make daemon-go-conformance` green while shrinking explicit
    fail-closed parity work before the default daemon core flips.
 

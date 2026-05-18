@@ -1000,9 +1000,11 @@ Release order after Phase 0:
     dashboard-all run-progress slice now exposes phase progress,
     auto-finalize dry-run visibility, and supervisor-stall detail; the
     terminal dashboard now renders production text frames from daemon DTOs;
-    Go `status` now matches the PostgreSQL/Python read-model shape. Remaining
-    RFC 0069 work is any registry-probe/global-surface cleanup still found by
-    guardrail scans.
+    Go `status` now matches the PostgreSQL/Python read-model shape.
+    Architecture tests now classify every remaining direct
+    `striatum.daemon.connect_registry()` caller and tripwire daemon MCP
+    resource reads; remaining RFC 0069 work is any future
+    registry-probe/global-surface cleanup found by those guardrail scans.
 15. **TODO 63 / RFC 0070:** complete daemon client/service boundaries and
     remove direct client DB access.
 16. **TODO 64 / RFC 0071:** authority doctor and repository cutover report

@@ -198,6 +198,28 @@ TEST_SQLITE_QUARANTINE_PREFIXES = {
 DAEMON_RPC_DB_IMPORT_ALLOWLIST: dict[Path, set[str]] = {}
 
 
+DAEMON_CONNECT_REGISTRY_CALLERS: dict[str, str] = {
+    "_mcp_repo_list": "legacy daemon MCP resource fallback",
+    "_mcp_stale_leases": "legacy daemon MCP resource fallback",
+    "_repo_add_legacy_sqlite": "explicit legacy repository registry fallback",
+    "_repo_list_legacy_sqlite": "explicit legacy repository registry fallback",
+    "_repo_path_for_id": "legacy daemon MCP resource fallback",
+    "_repo_remove_legacy_sqlite": "explicit legacy repository registry fallback",
+    "daemon_audit": "legacy RFC 0028 daemon registry fallback",
+    "daemon_mcp_resources": "legacy daemon MCP resource fallback",
+    "daemon_status": "legacy RFC 0028 daemon registry fallback",
+    "daemon_stop": "legacy RFC 0028 daemon registry fallback",
+    "daemon_sweep_once": "legacy RFC 0028 daemon registry fallback",
+    "dashboard_all": "legacy dashboard fallback",
+    "health": "legacy RFC 0028 daemon registry fallback",
+    "read_doctor": "legacy read fallback",
+    "read_status": "legacy read fallback",
+    "read_why": "legacy read fallback",
+    "rotate_audit_segment_for_test": "test-only legacy registry helper",
+    "run_daemon_foreground": "legacy RFC 0028 daemon registry fallback",
+}
+
+
 def test_daemon_pg_does_not_import_legacy_sqlite_db_module() -> None:
     offenders = _db_imports_under(ROOT / "src" / "striatum" / "daemon_pg")
 
@@ -239,6 +261,13 @@ def test_service_primary_module_no_longer_opens_legacy_sqlite() -> None:
     offenders = _sqlite_references_under(ROOT / "src" / "striatum")
 
     assert Path("src/striatum/service.py") not in offenders
+
+
+def test_daemon_connect_registry_callers_are_explicitly_classified() -> None:
+    callers = _direct_callers(ROOT / "src" / "striatum" / "daemon.py", "connect_registry")
+
+    assert callers == set(DAEMON_CONNECT_REGISTRY_CALLERS)
+    assert all(reason for reason in DAEMON_CONNECT_REGISTRY_CALLERS.values())
 
 
 def test_legacy_service_owns_page_read_payload_fallbacks() -> None:
@@ -304,6 +333,9 @@ def test_primary_service_lazy_loads_legacy_api_wrapper() -> None:
         lambda: daemon.dashboard_all(token="dtok_missing.secret"),
         lambda: daemon.daemon_sweep_once(),
         lambda: daemon.daemon_mcp_resources(token="dtok_missing.secret"),
+        lambda: daemon.daemon_mcp_read_resource("striatum://daemon/repos", token="dtok_missing.secret"),
+        lambda: daemon.daemon_mcp_read_resource("striatum://daemon/dashboard", token="dtok_missing.secret"),
+        lambda: daemon.daemon_mcp_read_resource("striatum://repo/1/status", token="dtok_missing.secret"),
         lambda: daemon.health(),
         lambda: daemon.daemon_audit(),
         lambda: daemon.read_doctor(repo=None, verbose=True),
@@ -445,6 +477,30 @@ def _dotted_name(node: ast.AST) -> str | None:
         parent = _dotted_name(node.value)
         return f"{parent}.{node.attr}" if parent else node.attr
     return None
+
+
+def _direct_callers(path: Path, called_name: str) -> set[str]:
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    callers: set[str] = set()
+
+    class Visitor(ast.NodeVisitor):
+        def __init__(self) -> None:
+            self.stack: list[str] = []
+
+        def visit_FunctionDef(self, node: ast.FunctionDef) -> None:  # noqa: N802 - ast visitor API
+            self.stack.append(node.name)
+            try:
+                self.generic_visit(node)
+            finally:
+                self.stack.pop()
+
+        def visit_Call(self, node: ast.Call) -> None:  # noqa: N802 - ast visitor API
+            if _dotted_name(node.func) == called_name and self.stack:
+                callers.add(self.stack[-1])
+            self.generic_visit(node)
+
+    Visitor().visit(tree)
+    return callers
 
 
 def _format_unclassified(
