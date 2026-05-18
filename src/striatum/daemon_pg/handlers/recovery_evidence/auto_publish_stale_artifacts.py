@@ -15,6 +15,10 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Mapping
 
+from striatum.artifact_contracts import (
+    _canonical_byline_form,
+    markdown_title_block_author_lines,
+)
 from striatum.errors import NotFoundError
 
 from ._shim import RepoHandlerContext, register_pg_handler
@@ -116,12 +120,6 @@ def handle(ctx: RepoHandlerContext, params: Mapping[str, Any]) -> dict[str, Any]
             params={"run_id": run_id},
         )
 
-    from striatum.artifacts import (  # local import: heavy module
-        _canonical_byline_form,
-        expected_author_line,
-        markdown_title_block_author_lines,
-    )
-
     published: list[dict[str, Any]] = []
     skipped: list[dict[str, Any]] = []
     seen: set[tuple[str, str]] = set()
@@ -166,7 +164,6 @@ def handle(ctx: RepoHandlerContext, params: Mapping[str, Any]) -> dict[str, Any]
                 ctx,
                 job=row,
                 session_id=session_id,
-                expected_author_line_fn=expected_author_line,
             )
         except Exception as exc:  # noqa: BLE001
             skipped.append({
@@ -266,20 +263,8 @@ def _expected_byline_pg(
     *,
     job: Mapping[str, Any],
     session_id: str,
-    expected_author_line_fn: Any,
 ) -> str:
-    """Call ``striatum.artifacts.expected_author_line`` with a PG-backed view.
-
-    The CLI helper expects a SQLite connection, so we cannot reuse it
-    directly under PG. Instead, the equivalent identity-resolution lives
-    in :mod:`striatum.identity`; ``expected_author_line`` reads workflow
-    + session rows, both of which we already have via the row args.
-
-    The helper is intentionally pure aside from one SELECT (session
-    lookup). Track A's PG identity helper, when it lands, will provide
-    a typed version; for now we read the run's workflow_json + session
-    row via PG and construct the same canonical byline string.
-    """
+    """Derive the expected author line from PG workflow and session rows."""
     from striatum.identity import artifact_author_identity
 
     workflow_rows = fetch_all(

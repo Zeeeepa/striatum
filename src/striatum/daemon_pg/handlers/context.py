@@ -15,11 +15,13 @@ from typing import Any, cast
 from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 
-from striatum.artifacts import (
+from striatum.artifact_contracts import (
     ALLOWED_ARTIFACT_KINDS,
+    _canonical_byline_form,
+    _first_author_line,
     ensure_required_front_matter,
-    validate_artifact_front_matter,
     markdown_title_block_author_lines,
+    validate_artifact_front_matter,
 )
 from striatum.daemon_rpc.capability import RpcAuthContext
 from striatum.errors import ArtifactError, InvalidTransitionError, LeaseError, NotFoundError
@@ -1035,7 +1037,7 @@ def validate_optional_markdown_author_line_pg(
         return
     expected = expected_author_line_pg(ctx, job=job, session_id=session_id)
     for line in author_lines:
-        if line.strip().lower() != expected:
+        if _canonical_byline_form(line) != expected:
             raise ArtifactError("markdown artifact author line must match expected work packet author line")
 
 
@@ -1063,17 +1065,6 @@ def expected_author_line_pg(
     if line is None:
         raise ArtifactError("expected artifact author line could not be derived")
     return line
-
-
-def _first_author_line(payload: bytes) -> str | None:
-    try:
-        text = payload.decode("utf-8")
-    except UnicodeDecodeError:
-        return None
-    for line in text.splitlines()[:20]:
-        if line.lower().startswith("author:"):
-            return line.strip()
-    return None
 
 
 def workflow_declares_fresh_reviewer(workflow: JsonObject) -> bool:

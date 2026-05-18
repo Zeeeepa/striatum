@@ -6,15 +6,15 @@ from collections.abc import Mapping
 from pathlib import Path, PurePosixPath
 from typing import Any, cast
 
-from striatum.artifacts import (
+from striatum.artifact_contracts import (
     ALLOWED_ARTIFACT_KINDS,
+    _first_author_line,
     ensure_required_front_matter,
     parse_artifact_front_matter,
     validate_artifact_front_matter,
 )
 from striatum.daemon_pg.handlers.context import (
     RepoHandlerContext,
-    _first_author_line,
     _jsonb,
     _json_loads,
     active_lease_for,

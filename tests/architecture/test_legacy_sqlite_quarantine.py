@@ -288,6 +288,7 @@ def test_corpus_and_archive_imports_do_not_eager_load_legacy_sqlite_modules() ->
     ]
     legacy_modules = [
         "sqlite3",
+        "striatum.artifacts",
         "striatum.cli.evidence",
         "striatum.cli.introspect",
         "striatum.cli.run_summary",
@@ -315,6 +316,7 @@ def test_corpus_and_archive_imports_do_not_eager_load_legacy_sqlite_modules() ->
 def test_daemon_pg_handler_registration_does_not_eager_load_legacy_sqlite_modules() -> None:
     legacy_modules = [
         "sqlite3",
+        "striatum.artifacts",
         "striatum.cli.evidence",
         "striatum.cli.introspect",
         "striatum.cli.run_summary",

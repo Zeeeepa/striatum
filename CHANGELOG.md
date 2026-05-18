@@ -47,6 +47,14 @@ Recent checkpoints:
 - `current_git_branch` moved into a substrate-neutral Git helper so
   PostgreSQL run-summary and branch-confirm handlers no longer import the
   SQLite-backed CLI mutation module for Git branch inspection.
+- Artifact-kind constants, front-matter validation, and Markdown byline
+  parsing moved into `striatum.artifact_contracts`; PostgreSQL artifact
+  publish/recovery handlers no longer import the SQLite-backed legacy
+  `striatum.artifacts` module for neutral contract helpers.
+- Daemon PostgreSQL handler registration no longer eagerly imports
+  `striatum.artifacts` or `striatum.workflow`; architecture guardrails now
+  cover those legacy module boundaries in addition to `sqlite3`,
+  `striatum.db`, and SQLite-backed CLI readers.
 - The Go daemon launch contract now reports supported daemon PostgreSQL schema
   and migration count from `--describe`; the Python launcher refuses stale Go
   daemon binaries before socket bind when their schema, migration count, or

@@ -13,13 +13,6 @@ from striatum.daemon_pg.handlers.registry import register_pg_handler
 from striatum.daemon_rpc.envelope import RpcError
 from striatum.errors import WorkflowError
 from striatum.primitives import JsonObject, json_dumps, sha256_bytes
-from striatum.workflow import (
-    VERDICT_JOB_TYPES,
-    _effective_fresh_session_required,
-    edge_dependency_pairs,
-    load_workflow,
-    workflow_job_map,
-)
 
 _PG_JOB_TYPES = frozenset(
     {
@@ -58,6 +51,13 @@ def _create_run(
     workflow: JsonObject,
     source_path: str,
 ) -> dict[str, Any]:
+    from striatum.workflow import (
+        VERDICT_JOB_TYPES,
+        _effective_fresh_session_required,
+        edge_dependency_pairs,
+        workflow_job_map,
+    )
+
     now = ctx.now()
     raw_json = json_dumps(workflow)
     workflow_snapshot_id = ctx.new_id("wfs")
@@ -246,6 +246,8 @@ def _resolve_workflow_path(repo_root: Path, raw_path: str) -> tuple[Path, str]:
 
 
 def _load_workflow(path: Path) -> JsonObject:
+    from striatum.workflow import load_workflow
+
     try:
         return load_workflow(path)
     except OSError as exc:

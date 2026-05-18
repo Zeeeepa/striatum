@@ -8,12 +8,6 @@ from typing import Any, cast
 from striatum.dashboard import render_graph_panel
 from striatum.daemon_pg.handlers.context import RepoHandlerContext
 from striatum.daemon_rpc.envelope import RpcError
-from striatum.workflow import (
-    mermaid_state_class,
-    workflow_graph_data,
-    workflow_graph_dot,
-    workflow_graph_mermaid,
-)
 
 from ._registry import register_pg_handler
 from ._sql import optional_text, parse_json_object, row_to_json, require_text
@@ -53,12 +47,16 @@ def handle(ctx: RepoHandlerContext, params: Mapping[str, Any]) -> dict[str, Any]
         )
 
     if output_format == "mermaid":
+        from striatum.workflow import workflow_graph_mermaid
+
         return {
             "format": "mermaid",
             "source": workflow_graph_mermaid(graph_workflow, node_states=node_states),
         }
 
     if output_format == "dot":
+        from striatum.workflow import workflow_graph_dot
+
         return {"format": "dot", "source": workflow_graph_dot(graph_workflow)}
 
     graph_orient = _choice(params, "graph_orient", default="tb", allowed=_GRAPH_ORIENTS)
@@ -189,6 +187,8 @@ def _graph_data_payload(
     latest_by_workflow_job: Mapping[str, Mapping[str, Any]],
     latest_verdicts: Mapping[str, Mapping[str, Any]],
 ) -> dict[str, Any]:
+    from striatum.workflow import mermaid_state_class, workflow_graph_data
+
     graph_payload = workflow_graph_data(cast(dict[str, Any], dict(workflow)))
     graph = cast(dict[str, Any], graph_payload["graph"])
     if dependency_edges:

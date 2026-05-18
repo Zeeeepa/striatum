@@ -13,7 +13,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, cast
 
-from striatum.artifacts import (
+from striatum.artifact_contracts import (
     ALLOWED_ARTIFACT_KINDS,
     FRONT_MATTER_SCHEMAS,
     _canonical_byline_form,

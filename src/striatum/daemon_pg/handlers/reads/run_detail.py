@@ -8,7 +8,6 @@ from typing import Any
 from striatum.daemon_pg.handlers.context import RepoHandlerContext, session_lane_attestation
 from striatum.daemon_rpc.envelope import RpcError
 from striatum.errors import WorkflowError
-from striatum.workflow import workflow_phase_index
 
 from ._read_model import status_payload, workflow_for_run
 from ._registry import register_pg_handler
@@ -323,6 +322,8 @@ def _phase_progress(
     jobs: list[dict[str, Any]],
     latest_verdicts: Mapping[str, Mapping[str, Any]],
 ) -> dict[str, Any]:
+    from striatum.workflow import workflow_phase_index
+
     try:
         phase_index = workflow_phase_index(dict(workflow))
     except WorkflowError:
