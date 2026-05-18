@@ -31,6 +31,23 @@ def test_parser_accepts_migrate_repo_local_verify_cutover() -> None:
     assert args.json is True
 
 
+def test_parser_accepts_daemon_doctor_repo_cutover() -> None:
+    args = build_parser().parse_args(
+        [
+            "daemon",
+            "doctor",
+            "--repo",
+            "target",
+            "--authority",
+            "--json",
+        ]
+    )
+
+    assert args.doctor_repo == "target"
+    assert args.authority is True
+    assert args.json is True
+
+
 def test_dispatch_routes_verify_cutover_without_migrating(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

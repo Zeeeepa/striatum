@@ -1487,6 +1487,9 @@ def _dispatch_daemon(args: argparse.Namespace) -> object:
         result: dict[str, object] = {"mode": "daemon", "postgres": pg, "sqlite_registry": v1}
         if daemon_diagnostics is not None:
             result["daemon_diagnostics"] = daemon_diagnostics
+        repo_cutover = _daemon_doctor_repo_cutover_report(args)
+        if repo_cutover is not None:
+            result["repo_cutover"] = repo_cutover
         explain: dict[str, object] | None = None
         if bool(getattr(args, "explain", False)) or bool(getattr(args, "authority", False)):
             explain = _daemon_method_authority_explain()
@@ -1497,6 +1500,7 @@ def _dispatch_daemon(args: argparse.Namespace) -> object:
                 postgres=pg,
                 sqlite_registry=v1,
                 explain=explain or _daemon_method_authority_explain(),
+                repo_cutover=repo_cutover,
             )
         return result
     if args.daemon_command == "migrate":
@@ -1551,6 +1555,48 @@ def _post_pg_cutover_sqlite_registry_result(note: str) -> dict[str, object]:
     }
 
 
+def _daemon_doctor_repo_cutover_report(args: argparse.Namespace) -> dict[str, object] | None:
+    repo_arg = getattr(args, "doctor_repo", None)
+    if repo_arg is None:
+        return None
+    from striatum.daemon_pg.config import resolve_config
+    from striatum.daemon_pg.repo_local_migration import (
+        RepoLocalMigrationOptions,
+        verify_repo_cutover,
+    )
+
+    repo = Path(repo_arg).resolve()
+    config = resolve_config(postgres_url=getattr(args, "postgres_url", None))
+    if config.url is None:
+        return {
+            "schema_version": "striatum.repo_cutover_report.v1",
+            "ok": False,
+            "mode": "repo_cutover_verification",
+            "verify_only": True,
+            "repo": str(repo),
+            "error": "daemon PostgreSQL URL is not configured",
+            "recommendations": [
+                "configure daemon PostgreSQL and rerun daemon doctor --repo",
+            ],
+        }
+    try:
+        return verify_repo_cutover(
+            RepoLocalMigrationOptions(repo=repo, postgres_url=config.url)
+        )
+    except Exception as exc:  # noqa: BLE001 - doctor should return a diagnostic report.
+        return {
+            "schema_version": "striatum.repo_cutover_report.v1",
+            "ok": False,
+            "mode": "repo_cutover_verification",
+            "verify_only": True,
+            "repo": str(repo),
+            "error": str(exc),
+            "recommendations": [
+                "rerun daemon migrate-repo-local --verify-cutover for the target repo",
+            ],
+        }
+
+
 def _daemon_method_authority_explain() -> dict[str, object]:
     # RFC 0048 V1.5 / RFC 0071: surface per-method routing. Reads the same
     # registries DaemonRpcRouter consults so the operator can see which methods
@@ -1587,6 +1633,7 @@ def _daemon_authority_report(
     postgres: dict[str, Any],
     sqlite_registry: dict[str, Any],
     explain: dict[str, object],
+    repo_cutover: dict[str, object] | None = None,
 ) -> dict[str, object]:
     from striatum import daemon as daemon_mod
 
@@ -1609,6 +1656,7 @@ def _daemon_authority_report(
         and sqlite_status == "disabled"
         and method_fallback_count == 0
         and not legacy_registry_escape
+        and (repo_cutover is None or bool(repo_cutover.get("ok")))
     )
     recommendations: list[str] = []
     if not bool(postgres.get("ok")):
@@ -1619,7 +1667,12 @@ def _daemon_authority_report(
         recommendations.append("remove daemon CLI fallback routes before Go cutover")
     if legacy_registry_escape:
         recommendations.append(f"unset {daemon_mod.ENV_ALLOW_LEGACY_SQLITE_REGISTRY} for production")
-    return {
+    if repo_cutover is not None and not bool(repo_cutover.get("ok")):
+        recommendations.append("resolve repository cutover verification failures")
+        repo_recommendations = repo_cutover.get("recommendations", [])
+        if isinstance(repo_recommendations, list):
+            recommendations.extend(str(item) for item in repo_recommendations if item)
+    result: dict[str, object] = {
         "schema_version": "striatum.authority_report.v1",
         "ok": ok,
         "live_state_authority": "daemon_postgresql" if postgres.get("ok") else "unavailable",
@@ -1646,6 +1699,14 @@ def _daemon_authority_report(
         },
         "recommendations": recommendations,
     }
+    if repo_cutover is not None:
+        result["repository_cutover"] = {
+            "schema_version": repo_cutover.get("schema_version"),
+            "ok": bool(repo_cutover.get("ok")),
+            "repo": repo_cutover.get("repo"),
+            "mode": repo_cutover.get("mode"),
+        }
+    return result
 
 
 def _dispatch_daemon_repo(args: argparse.Namespace) -> object:

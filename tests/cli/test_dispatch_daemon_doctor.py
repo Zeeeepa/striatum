@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+from pathlib import Path
 from typing import Any, cast
 
 import pytest
@@ -15,6 +16,7 @@ def _doctor_args() -> argparse.Namespace:
     return argparse.Namespace(
         daemon_command="doctor",
         postgres_url=None,
+        doctor_repo=None,
         apply_migrations=False,
         provision_rw_role=False,
         repair_grants=False,
@@ -185,6 +187,109 @@ def test_daemon_doctor_authority_report_names_cutover_state(
     assert authority["daemon_methods"]["cli_fallback_route_count"] == 0
     assert authority["recommendations"] == []
     assert "explain" not in result
+
+
+def test_daemon_doctor_repo_option_embeds_cutover_report(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    monkeypatch.setattr(
+        "striatum.daemon_pg.connection.doctor",
+        lambda **_: {"ok": True, "schema_version": 6, "status": "ok"},
+    )
+    monkeypatch.setattr(
+        daemon_mod,
+        "read_doctor",
+        lambda **_: {
+            "ok": True,
+            "status": "post_pg_cutover_unused",
+            "note": "SQLite client registry is no longer the authoritative auth surface.",
+        },
+    )
+
+    def fake_verify(options: Any) -> dict[str, Any]:
+        assert options.repo == repo.resolve()
+        assert options.postgres_url == "postgresql://localhost/striatum_test"
+        return {
+            "schema_version": "striatum.repo_cutover_report.v1",
+            "ok": True,
+            "mode": "repo_cutover_verification",
+            "verify_only": True,
+            "repo": str(repo.resolve()),
+            "recommendations": [],
+        }
+
+    monkeypatch.setattr(
+        "striatum.daemon_pg.repo_local_migration.verify_repo_cutover",
+        fake_verify,
+    )
+    args = _doctor_args()
+    args.authority = True
+    args.postgres_url = "postgresql://localhost/striatum_test"
+    args.doctor_repo = str(repo)
+
+    result = _dispatch_daemon(args)
+
+    assert isinstance(result, dict)
+    repo_cutover = result["repo_cutover"]
+    assert isinstance(repo_cutover, dict)
+    assert repo_cutover["schema_version"] == "striatum.repo_cutover_report.v1"
+    authority = result["authority"]
+    assert isinstance(authority, dict)
+    assert authority["ok"] is True
+    assert authority["repository_cutover"] == {
+        "schema_version": "striatum.repo_cutover_report.v1",
+        "ok": True,
+        "repo": str(repo.resolve()),
+        "mode": "repo_cutover_verification",
+    }
+
+
+def test_daemon_doctor_authority_report_flags_repo_cutover_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    monkeypatch.setattr(
+        "striatum.daemon_pg.connection.doctor",
+        lambda **_: {"ok": True, "schema_version": 6, "status": "ok"},
+    )
+    monkeypatch.setattr(
+        daemon_mod,
+        "read_doctor",
+        lambda **_: {
+            "ok": True,
+            "status": "post_pg_cutover_unused",
+            "note": "SQLite client registry is no longer the authoritative auth surface.",
+        },
+    )
+    monkeypatch.setattr(
+        "striatum.daemon_pg.repo_local_migration.verify_repo_cutover",
+        lambda _options: {
+            "schema_version": "striatum.repo_cutover_report.v1",
+            "ok": False,
+            "mode": "repo_cutover_verification",
+            "repo": str(repo.resolve()),
+            "recommendations": ["run migration"],
+        },
+    )
+    args = _doctor_args()
+    args.authority = True
+    args.postgres_url = "postgresql://localhost/striatum_test"
+    args.doctor_repo = str(repo)
+
+    result = _dispatch_daemon(args)
+
+    assert isinstance(result, dict)
+    authority = result["authority"]
+    assert isinstance(authority, dict)
+    assert authority["ok"] is False
+    assert authority["repository_cutover"]["ok"] is False
+    assert "resolve repository cutover verification failures" in authority["recommendations"]
+    assert "run migration" in authority["recommendations"]
 
 
 def test_daemon_doctor_authority_report_flags_legacy_registry_escape(

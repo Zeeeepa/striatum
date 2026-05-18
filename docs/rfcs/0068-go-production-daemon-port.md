@@ -89,6 +89,10 @@ The Go daemon port lands through independent, testable slices:
   resolution before inserting workflow snapshot rows, so traversal refusal and
   JSON-only workflow-source validation no longer depend on Python-daemon
   behavior.
+- Go `workflow.upgrade --add-phases` now ports the Python V1-to-V1.1
+  phase-inference path, including preview/apply behavior, synthesis-job
+  insertion, cross-phase edge rewriting, and the PostgreSQL non-terminal-run
+  guard.
 
 ## Open Questions
 

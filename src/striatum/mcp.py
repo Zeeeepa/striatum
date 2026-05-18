@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import uuid
 import sys
 from pathlib import Path
@@ -461,9 +462,9 @@ class LocalRpcServer:
 class DaemonRpcServer:
     """Daemon MCP surface.
 
-    Without a PostgreSQL connection this preserves the RFC 0028 resources-only
-    behavior. With a connection, RFC 0032 mutation tools are exposed through
-    the daemon RPC method registry and capability checks.
+    Production daemon MCP resources require a PostgreSQL connection. The
+    historical RFC 0028 resources-only SQLite registry behavior is preserved
+    only for the paired legacy test-harness escape.
     """
 
     def __init__(self, *, pg_conn: Any | None = None, repo_root: Path | None = None, substrate_schema: int = 1) -> None:
@@ -509,6 +510,7 @@ class DaemonRpcServer:
                         )
                     }
                 else:
+                    _require_legacy_daemon_resource_fallback_allowed()
                     from striatum.daemon import daemon_mcp_resources
 
                     result = {"resources": daemon_mcp_resources(token=token_value)}
@@ -540,6 +542,7 @@ class DaemonRpcServer:
                 request_id=request_id,
             )
         else:
+            _require_legacy_daemon_resource_fallback_allowed()
             from striatum.daemon import daemon_mcp_read_resource
 
             result = daemon_mcp_read_resource(uri, token=token_value)
@@ -693,6 +696,18 @@ def _optional_string(values: JsonObject, key: str) -> str | None:
     if not isinstance(value, str | int | float | bool):
         raise ValueError(f"argument {key!r} must be a scalar value")
     return str(value)
+
+
+def _require_legacy_daemon_resource_fallback_allowed() -> None:
+    if (
+        os.environ.get("STRIATUM_TEST_HARNESS") == "1"
+        and os.environ.get("STRIATUM_DAEMON_REQUIRED") == "0"
+    ):
+        return
+    raise RuntimeError(
+        "daemon MCP resources require daemon PostgreSQL; "
+        "legacy SQLite registry fallback is test-harness only"
+    )
 
 
 def _daemon_tool_result(

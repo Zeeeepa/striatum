@@ -328,6 +328,9 @@ fallback path or repo-administration path.
   missing cross-repo run ids. Socket-level CORE=go conformance now exercises
   `cross_repo.cancel` through the Unix RPC daemon against live PostgreSQL
   state and audit evidence.
+- Go `workflow.upgrade --add-phases` now matches the Python V1-to-V1.1
+  phase-inference path for preview/apply, synthesis-job insertion,
+  cross-phase edge rewriting, and non-terminal-run refusal.
 
 ---
 
@@ -998,9 +1001,11 @@ Release order after Phase 0:
     remove direct client DB access.
 16. **TODO 64 / RFC 0071:** authority doctor and repository cutover report
     diagnostics landed. D108 keeps the command authority matrix curated while
-    drift tests enforce generated route labels and runtime CLI fallback cells;
-    remaining work is deciding whether repository-specific cutover
-    verification belongs in daemon doctor as well as the migration command.
+    drift tests enforce generated route labels and runtime CLI fallback cells.
+    `daemon doctor --repo <path> --authority --json` now mirrors the
+    verify-only repository cutover report and summarizes repository cutover
+    health in the authority report; no accepted RFC 0071 diagnostic slice is
+    left unimplemented.
 17. **TODO 65 / RFC 0058:** V1 and V1.5 landed. Use
     `docs/operator/BRIEF.md` as the current-state authority; `striatum
     operator current-brief` is the local read helper, and

@@ -115,7 +115,7 @@ so external references keep resolving even as items move between sections.
 | 61 | RFC 0068 Go production daemon port and Python daemon retirement | ⏳ active |
 | 62 | RFC 0069 PostgreSQL-only daemon-global surfaces | 🟡 most done |
 | 63 | RFC 0070 daemon client/service boundary completion | 🟡 most done |
-| 64 | RFC 0071 operator diagnostics and cutover evidence | 🟡 first slice landed |
+| 64 | RFC 0071 operator diagnostics and cutover evidence | ✅ accepted diagnostic slice done |
 | 65 | RFC 0058 operator progress surface | ✅ done |
 
 Legend: ✅ done · 🟡 most done (sub-tasks remain) · ⏳ open/blocked · 💤 shelved
@@ -1232,7 +1232,10 @@ review and plan are root-level operator artifacts:
     `daemon.token.create`, `daemon.token.revoke`, `daemon.token.rotate`,
     `repo.init`, `workflow.validate`, `workflow.plan`, `workflow.graph`,
     `workflow.generate.preview`, `workflow.generate`, `workflow.init`, and
-    `workflow.upgrade`; web/chat preview callers now route
+    `workflow.upgrade`; Go `workflow.upgrade --add-phases` now matches the
+    Python V1-to-V1.1 phase-inference path for preview/apply, synthesis-job
+    insertion, cross-phase edge rewriting, and non-terminal-run refusal;
+    web/chat preview callers now route
     `workflow.generate.preview` through daemon RPC in production. Go now owns
     `daemon.key.rotate` for the local Ed25519 `0600` fallback signing-key
     file and still registers explicit fail-closed handlers for
@@ -1271,7 +1274,9 @@ review and plan are root-level operator artifacts:
     runs. Daemon MCP resource list/read now use PostgreSQL-backed repository
     visibility plus status/doctor/run/why/blocker/dashboard/stale-lease
     projections when `pg_conn` is present, with SQLite-registry tripwire
-    coverage. `striatum daemon status`, `striatum daemon stop`,
+    coverage; no-`pg_conn` daemon MCP resource fallback is explicitly
+    test-harness-only and fails closed in production. `striatum daemon status`,
+    `striatum daemon stop`,
     `striatum daemon health`, `striatum daemon audit`, and
     daemon-global/repo-scoped `read_doctor` now read from and audit to
     PostgreSQL when a daemon DB is configured, with legacy audit field names
@@ -1311,8 +1316,10 @@ review and plan are root-level operator artifacts:
     opening SQLite as a database. D108 keeps the command authority matrix
     curated for authority/status classification while architecture tests now
     enforce generated CLI route labels and runtime CLI fallback cells.
-    Remaining: decide whether repository-specific cutover verification should
-    also be mirrored in daemon doctor.
+    `striatum daemon doctor --repo <path> --authority --json` now mirrors the
+    verify-only repository cutover report in doctor output and summarizes that
+    repository cutover in the authority report. Remaining: no known
+    implementation work for the accepted RFC 0071 diagnostic slice.
 
 65. **RFC 0058: operator progress surface.** Done:
     `operator_brief`, `work_plan`, `progress_note`, and `operator_report`

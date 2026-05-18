@@ -249,6 +249,13 @@ Steps 1+2 are the Python core; Steps 3-4 are operator-side; Step 5 is
 verification. Steps may overlap across implementers (Track A: Python
 core; Track B: generator + CLI ergonomics; Track C: React Flow editor).
 
+Implementation status: the Python CLI and Go daemon both implement
+`workflow upgrade --add-phases` as a preview-by-default V1-to-V1.1 rewrite.
+The rewrite infers phases from `parallel_group`/job-id prefixes, inserts
+`phase_synthesis` jobs when needed, rewrites cross-phase edges through the
+phase synthesis job, and refuses live writes when non-terminal runs reference
+the workflow.
+
 ## Open Questions
 
 - Should phase_synthesis jobs support cycle iteration the same way review

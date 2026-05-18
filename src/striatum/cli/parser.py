@@ -270,6 +270,15 @@ def build_parser() -> argparse.ArgumentParser:
     daemon_start.add_argument("--json", action="store_true")
     daemon_doctor = daemon_sub.add_parser("doctor")
     daemon_doctor.add_argument("--postgres-url")
+    daemon_doctor.add_argument(
+        "--repo",
+        dest="doctor_repo",
+        default=None,
+        help=(
+            "also include verify-only striatum.repo_cutover_report.v1 "
+            "for this target repository without opening SQLite"
+        ),
+    )
     daemon_doctor.add_argument("--apply-migrations", action="store_true")
     daemon_doctor.add_argument(
         "--provision-rw-role",

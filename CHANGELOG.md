@@ -78,6 +78,9 @@ Recent checkpoints:
   write safe repo-relative scaffold files; `workflow.upgrade` uses
   PostgreSQL running-run checks and fails closed when PostgreSQL state is
   unknown, including `--add-phases` rewrites.
+- Go `workflow.upgrade --add-phases` now matches the Python V1-to-V1.1
+  phase-inference path for preview/apply, synthesis-job insertion,
+  cross-phase edge rewriting, and non-terminal-run refusal.
 - Web and chat workflow-generation preview now call
   `workflow.generate.preview` through daemon RPC in production, preserving
   the local in-process generator only for the explicit test-harness fallback.
@@ -205,6 +208,9 @@ Recent checkpoints:
   repository visibility, status, doctor, blocker, run, why, dashboard, and
   stale-lease projections whenever a daemon PostgreSQL connection is present;
   regression coverage runs those paths with the SQLite registry tripwire on.
+  If the daemon MCP server is constructed without a PostgreSQL connection,
+  resource list/read now fail closed before opening the legacy SQLite registry
+  unless the paired legacy test-harness escape is active.
 - `striatum daemon audit` now reads and authorizes against PostgreSQL when a
   daemon DB is configured, keeps the legacy audit output field names for CLI
   compatibility, and has SQLite-registry tripwire coverage for direct and
@@ -263,6 +269,10 @@ Recent checkpoints:
   authority matrix stays curated for authority/status classification, while
   architecture tests enforce generated CLI route labels and runtime CLI
   fallback cells.
+- `striatum daemon doctor --repo <path> --authority --json` now mirrors the
+  verify-only `striatum.repo_cutover_report.v1` inside doctor output and
+  summarizes repository cutover health in `striatum.authority_report.v1`
+  without opening SQLite.
 - Static asset lookup and content-type mapping moved from `service.py` into
   `striatum.web.static_assets`, keeping HTTP response writing in the service
   handler while making the non-SQLite web split independently testable.

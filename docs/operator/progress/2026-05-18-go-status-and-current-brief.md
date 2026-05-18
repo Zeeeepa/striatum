@@ -54,9 +54,16 @@ Unix-socket conformance suite now seeds live PostgreSQL cross-repo state,
 calls `cross_repo.cancel`, and verifies the mixed canceled/blocked response,
 stored participant/run state, and audit row.
 
+Go `workflow.upgrade --add-phases` now matches the Python V1-to-V1.1
+phase-inference path for preview/apply, synthesis-job insertion, cross-phase
+edge rewriting, and non-terminal-run refusal.
+
 RFC 0071's authority-matrix path is now settled by D108: keep the matrix
 curated for authority/status classification, and enforce generated CLI route
 labels plus runtime CLI fallback cells through architecture tests.
+`daemon doctor --repo <path> --authority --json` now also mirrors the
+verify-only repository cutover report and summarizes it in
+`striatum.authority_report.v1`.
 
 Phase 4 service cleanup removed the eager primary-service import of the
 legacy `striatum.api` wrapper. The compatibility `invoke()` seam lazy-loads

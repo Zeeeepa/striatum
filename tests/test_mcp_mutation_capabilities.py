@@ -4,12 +4,65 @@ import json
 from pathlib import Path
 from typing import Any, cast
 
+from striatum import daemon
 from striatum.daemon_rpc.capability import RpcAuthContext
 from striatum.daemon_rpc.envelope import RpcEnvelope, RpcError, RpcResponse
 from striatum.daemon_rpc.registry import CAPABILITIES, METHOD_REGISTRY, mcp_tool_descriptor
 from striatum.daemon_rpc.server import DaemonRpcRouter, LOCAL_FILE_AUTHORING_METHODS
 from striatum.daemon_pg.mcp_dispatch import dispatch_mcp_tool_call
 from striatum.mcp import DaemonRpcServer
+
+
+def test_daemon_mcp_resources_without_pg_conn_fails_closed_before_sqlite(
+    monkeypatch: Any,
+    tmp_path: Path,
+) -> None:
+    registry = tmp_path / "daemon" / "striatumd.sqlite3"
+    monkeypatch.setenv(daemon.ENV_REGISTRY, str(registry))
+    monkeypatch.setenv(daemon.ENV_RUNTIME, str(tmp_path / "runtime"))
+    monkeypatch.setenv("STRIATUM_DAEMON_REQUIRED", "1")
+    monkeypatch.delenv("STRIATUM_TEST_HARNESS", raising=False)
+    monkeypatch.setenv(daemon.ENV_SQLITE_CONNECT_TRIPWIRE, "1")
+
+    response = DaemonRpcServer().handle_request(
+        {
+            "jsonrpc": "2.0",
+            "id": "req-no-pg-list",
+            "method": "resources/list",
+            "params": {"token": "dtok.secret"},
+        }
+    )
+
+    assert response is not None
+    assert response["error"]["code"] == -32603
+    assert "daemon MCP resources require daemon PostgreSQL" in response["error"]["message"]
+    assert not registry.exists()
+
+
+def test_daemon_mcp_resource_read_without_pg_conn_fails_closed_before_sqlite(
+    monkeypatch: Any,
+    tmp_path: Path,
+) -> None:
+    registry = tmp_path / "daemon" / "striatumd.sqlite3"
+    monkeypatch.setenv(daemon.ENV_REGISTRY, str(registry))
+    monkeypatch.setenv(daemon.ENV_RUNTIME, str(tmp_path / "runtime"))
+    monkeypatch.setenv("STRIATUM_DAEMON_REQUIRED", "1")
+    monkeypatch.delenv("STRIATUM_TEST_HARNESS", raising=False)
+    monkeypatch.setenv(daemon.ENV_SQLITE_CONNECT_TRIPWIRE, "1")
+
+    response = DaemonRpcServer().handle_request(
+        {
+            "jsonrpc": "2.0",
+            "id": "req-no-pg-read",
+            "method": "resources/read",
+            "params": {"uri": "striatum://daemon/repos", "token": "dtok.secret"},
+        }
+    )
+
+    assert response is not None
+    assert response["error"]["code"] == -32603
+    assert "daemon MCP resources require daemon PostgreSQL" in response["error"]["message"]
+    assert not registry.exists()
 
 
 def _method_contract() -> dict[str, dict[str, Any]]:

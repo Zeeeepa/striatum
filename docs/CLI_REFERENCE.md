@@ -196,7 +196,7 @@ striatum daemon service start [--manager auto|systemd|launchd] [--dry-run]
 striatum daemon service status [--manager auto|systemd|launchd]
 striatum daemon doctor [--postgres-url <url>] [--apply-migrations]
                        [--provision-rw-role] [--repair-grants]
-                       [--explain] [--authority] [--json]
+                       [--explain] [--authority] [--repo <path>] [--json]
 striatum daemon migrate --from sqlite --to pg [--dry-run]
                          [--keep-sqlite-readonly]
 striatum daemon migrate-repo-local --from sqlite --to pg
@@ -273,6 +273,10 @@ insufficient, doctor returns pasteable SQL for an admin session.
 `--authority` adds a cutover report that names PostgreSQL live-state
 authority, legacy SQLite registry status, method fallback counts, and
 remaining migration/test-only SQLite exceptions.
+`--repo <path>` adds the verify-only
+`striatum.repo_cutover_report.v1` for that target repository to the doctor
+output without opening SQLite; with `--authority`, the authority report also
+summarizes whether that repository cutover is healthy.
 
 `daemon migrate --from sqlite --to pg --dry-run` reports the V1
 registry rows that would be exported. Without `--dry-run`, it

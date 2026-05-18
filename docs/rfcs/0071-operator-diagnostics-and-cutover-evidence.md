@@ -64,6 +64,9 @@ After RFC 0069 and RFC 0070 land:
   repository registration, migration checkpoint, destination counts, raw
   source/tombstone/sentinel state, event-chain anchor health, and bounded
   SQLite exception notes. The verifier does not open SQLite as a database.
+- `striatum daemon doctor --repo <path> --authority --json` now mirrors that
+  verify-only repository cutover report in doctor output and includes a
+  repository-cutover summary in `striatum.authority_report.v1`.
 - `tests/architecture/test_authority_guardrails.py` now verifies that every
   CLI route label from `contracts/daemon_methods.json` appears in the curated
   command matrix and that CLI fallback cells match the runtime daemon RPC
@@ -71,8 +74,9 @@ After RFC 0069 and RFC 0070 land:
 
 ## Open Questions
 
-- Should repository-specific cutover verification also be mirrored in daemon
-  doctor, or is the migration command diagnostic sufficient?
+None for the accepted diagnostic slice. Future diagnostics may extend the
+report, but the generated-versus-curated matrix policy and daemon-doctor
+repository mirror are settled for RFC 0071 V1.
 
 ## Domain Modeling
 

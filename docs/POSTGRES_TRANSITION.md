@@ -288,6 +288,10 @@ striatum daemon migrate-repo-local \
   --repo /path/to/target \
   --verify-cutover \
   --json
+striatum daemon doctor \
+  --repo /path/to/target \
+  --authority \
+  --json
 striatum --repo /path/to/target status --json
 striatum --repo /path/to/target doctor --verbose --json
 striatum --repo /path/to/target list runs --json
@@ -302,6 +306,9 @@ diagnosis, event-chain anchor health, and the bounded migration/test
 SQLite exception notes. It is verify-only: it uses Postgres queries
 and raw file/tombstone/sentinel stat/hash checks, and it does not open
 SQLite as a database or resume finalization.
+`daemon doctor --repo <path> --authority --json` mirrors the same
+verify-only repository report inside the doctor output and summarizes
+repository cutover health in `striatum.authority_report.v1`.
 
 A repo that has not been migrated refuses CLI verbs with **exit
 code 12 (`repo_not_migrated`)**. The stderr message points at
