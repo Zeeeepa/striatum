@@ -21,6 +21,7 @@ type Server struct {
 	DaemonVersion   string
 	SubstrateSchema int
 	SealedApply     map[string]any
+	SealedApplyFunc func() map[string]any
 	Authorizer      Authorizer
 	AuditRecorder   AuditRecorder
 	Handlers        map[string]Handler
@@ -211,8 +212,18 @@ func (s *Server) buildWelcome(params map[string]any) (map[string]any, error) {
 		"substrate":        "postgres",
 		"substrate_schema": s.SubstrateSchema,
 		"methods_etag":     MethodsETag(),
-		"sealed_apply":     s.SealedApply,
+		"sealed_apply":     s.sealedApplyStatus(),
 	}, nil
+}
+
+func (s *Server) sealedApplyStatus() map[string]any {
+	if s.SealedApplyFunc != nil {
+		status := s.SealedApplyFunc()
+		if status != nil {
+			return status
+		}
+	}
+	return s.SealedApply
 }
 
 func (s *Server) markRequest(requestID string) bool {

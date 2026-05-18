@@ -1341,7 +1341,10 @@ PostgreSQL tables under `repository_id`, so packet delivery,
 lane-attestation, and evidence paths read the same live substrate. The
 daemon `apply.reviewed_patch` route is an AI guardrail and fails closed
 without signing-key/apply authority; it is not a cryptographic
-non-repudiation claim against a malicious local operator.
+non-repudiation claim against a malicious local operator. The Go daemon
+can rotate and load the local Ed25519 `0600` fallback signing-key file
+through `daemon.key.rotate`; full reviewed-patch mutation and stronger
+key custody are still separate apply-gate work.
 
 RFC 0032 extends the daemon V2 capability vocabulary to `read`, `write`,
 `review`, `claim`, `apply`, `admin`, and `recovery`, and each registry

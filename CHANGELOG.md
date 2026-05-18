@@ -78,6 +78,13 @@ Recent checkpoints:
   write safe repo-relative scaffold files; `workflow.upgrade` uses
   PostgreSQL running-run checks and fails closed when PostgreSQL state is
   unknown, including `--add-phases` rewrites.
+- Go `daemon.key.rotate` now rotates a local Ed25519 sealed-apply signing
+  key into the `0600` fallback key file, returns the new key id/public key
+  metadata, and `daemon.hello` advertises the current public key when the
+  fallback key is loadable. Malformed private fallback files are preserved as
+  `.invalid.<timestamp>` backups during rotation; over-permissive key files
+  still fail closed. Full apply-gate mutation and OS keyring custody remain
+  deferred.
 - Go now owns `supervise.status`, `supervise.list`, and
   `supervise.reattach_status` as read-only PostgreSQL projections. The status
   handler reports liveness, lane attestation, and stalled-supervisor fields

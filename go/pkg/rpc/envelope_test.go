@@ -69,3 +69,35 @@ func TestHelloThenDescribe(t *testing.T) {
 		t.Fatalf("missing methods etag: %#v", response.Data)
 	}
 }
+
+func TestHelloUsesDynamicSealedApplyStatus(t *testing.T) {
+	server := NewServer()
+	server.SealedApplyFunc = func() map[string]any {
+		return map[string]any{
+			"supported":      true,
+			"key_loaded":     true,
+			"signing_key_id": "ed25519:test",
+			"public_key":     "pub",
+		}
+	}
+	hello := Envelope{
+		SchemaVersion: SupportedEnvelopeVersion,
+		RequestID:     "req_dynamic_hello",
+		Method:        "daemon.hello",
+		Params: map[string]any{"client": map[string]any{
+			"supported_envelope": []any{float64(1)},
+			"supported_framings": []any{"json"},
+		}},
+	}
+	response := server.Handle(context.Background(), hello, "conn")
+	if !response.OK {
+		t.Fatalf("hello failed: %#v", response.Data)
+	}
+	sealedApply, ok := response.Data["sealed_apply"].(map[string]any)
+	if !ok {
+		t.Fatalf("sealed_apply missing: %#v", response.Data)
+	}
+	if sealedApply["signing_key_id"] != "ed25519:test" || sealedApply["public_key"] != "pub" {
+		t.Fatalf("dynamic sealed_apply not used: %#v", sealedApply)
+	}
+}

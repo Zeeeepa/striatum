@@ -180,6 +180,7 @@ func main() {
 	server := rpc.NewServer()
 	server.DaemonVersion = daemonVersion
 	server.SubstrateSchema = substrateSchema
+	server.SealedApplyFunc = daemonapply.FallbackSigningKeyStatus
 	server.Authorizer = authorizer
 	if recorder != nil {
 		server.AuditRecorder = recorder
@@ -193,7 +194,10 @@ func main() {
 		}()
 		return nil
 	}
-	registerHandlers(server, runner, handlerOptions{ShutdownHook: shutdownHook})
+	registerHandlers(server, runner, handlerOptions{
+		ShutdownHook:  shutdownHook,
+		KeyRotateHook: daemonapply.RotateFallbackSigningKey,
+	})
 
 	if err := os.MkdirAll(filepath.Dir(socketPath), 0o700); err != nil {
 		log.Fatalf("create socket directory: %v", err)

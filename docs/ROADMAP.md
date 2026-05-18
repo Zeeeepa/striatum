@@ -969,8 +969,10 @@ Release order after Phase 0:
     decision for commit authority and hosted-provider boundaries.
 13. **TODO 61 / RFC 0068:** port the production daemon to Go, keep the
     resident recovery scheduler in Go, enforce workflow-loader path/source
-    checks in Go `run.prepare`, keep `make daemon-go-conformance` green, and
-    retire the Python daemon after parity.
+    checks in Go `run.prepare`, rotate the local Ed25519 sealed-apply
+    fallback key through Go `daemon.key.rotate`, keep
+    `make daemon-go-conformance` green, and retire the Python daemon after
+    parity.
 14. **TODO 62 / RFC 0069:** move daemon-global surfaces to PostgreSQL/Go,
     including scheduler cursors, PostgreSQL-backed daemon MCP resources, and
     PostgreSQL-backed daemon lifecycle/health/audit/doctor reads. The

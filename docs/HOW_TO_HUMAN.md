@@ -854,6 +854,15 @@ apply receipts in daemon-owned state. The receipt is an AI guardrail: it
 does not prove model-token authorship or resistance to a malicious local
 operator with filesystem or database access.
 
+The Go daemon's current signing-key path is the local Ed25519 fallback
+file: `STRIATUM_DAEMON_SIGNING_KEY_PATH` when set, otherwise
+`$XDG_STATE_HOME/striatum/daemon/signing_key`. `daemon.key.rotate` writes
+that file with `0600` permissions and `daemon.hello` advertises the public
+key when the file is loadable. Rotation preserves malformed private fallback
+files as `.invalid.<timestamp>` backups, but over-permissive key files still
+fail closed. OS keyring custody and the full reviewed-patch apply gate remain
+deferred.
+
 ### Go daemon port notes (RFC 0039 / RFC 0068)
 
 > Status: active architecture backlog. D107 / RFC 0068 makes the Go

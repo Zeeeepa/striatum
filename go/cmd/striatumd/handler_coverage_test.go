@@ -99,6 +99,43 @@ func TestRegisterHandlersWiresShutdownHook(t *testing.T) {
 	}
 }
 
+func TestRegisterHandlersWiresKeyRotateHook(t *testing.T) {
+	server := rpc.NewServer()
+	called := false
+	registerHandlers(server, coverageRunner{}, handlerOptions{
+		KeyRotateHook: func(context.Context) (map[string]any, error) {
+			called = true
+			return map[string]any{
+				"status":         "rotated",
+				"signing_key_id": "ed25519:test",
+			}, nil
+		},
+	})
+
+	handler := server.Handlers["daemon.key.rotate"]
+	if handler == nil {
+		t.Fatalf("daemon.key.rotate handler missing")
+	}
+	result, err := handler(context.Background(), rpc.Envelope{
+		SchemaVersion: rpc.SupportedEnvelopeVersion,
+		RequestID:     "key-rotate-test",
+		Method:        "daemon.key.rotate",
+		Params:        map[string]any{},
+	})
+	if err != nil {
+		t.Fatalf("daemon.key.rotate returned error: %v", err)
+	}
+	if !called {
+		t.Fatalf("key rotate hook was not called")
+	}
+	if result["status"] != "rotated" || result["signing_key_id"] != "ed25519:test" {
+		t.Fatalf("unexpected key rotation result: %#v", result)
+	}
+	if result["python_dependency"] != false || result["sqlite_dependency"] != false {
+		t.Fatalf("dependency flags missing: %#v", result)
+	}
+}
+
 func coverageParams() map[string]any {
 	return map[string]any{
 		"apply_receipt_id":     "receipt_1",

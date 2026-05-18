@@ -131,7 +131,7 @@ Legend:
 | `daemon.token.create` | n/a | admin | daemon_global | not implemented in Python RPC | real | no | no | Go PostgreSQL token issuance; cleartext token returned once |
 | `daemon.token.revoke` | n/a | admin | daemon_global | not implemented in Python RPC | real | no | no | Go PostgreSQL token revocation by token id or full token |
 | `daemon.token.rotate` | n/a | admin | daemon_global | not implemented in Python RPC | real | no | no | Go PostgreSQL token rotation with ambiguous-scope refusal |
-| `daemon.key.rotate` | n/a | admin | daemon_global | not implemented in Python RPC | fail_closed | no | no | explicit `key_rotation_unavailable` until key-management hook exists |
+| `daemon.key.rotate` | n/a | admin | daemon_global | not implemented in Python RPC | real | no | no | Go rotates the local Ed25519 sealed-apply fallback key file and returns key id/public-key metadata; full apply-gate mutation remains separate |
 | `daemon.shutdown` | `daemon stop` out of band | admin | daemon_global | daemon lifecycle helper | real | no | no | Go process-cancel hook returns accepted shutdown response; handler still fails closed only when embedded without a hook |
 | `daemon.migrate` | `daemon migrate` | admin | daemon_global | migration CLI helper | real | no | no | Go applies embedded PostgreSQL migrations; no SQLite/Python dependency |
 | `daemon.migrate_repo_local` | `daemon migrate-repo-local` | admin | daemon_global | migration CLI helper | fail_closed | no | Go refuses SQLite import | explicit `legacy_migration_retired`; Python migration helper remains one-way legacy source path |

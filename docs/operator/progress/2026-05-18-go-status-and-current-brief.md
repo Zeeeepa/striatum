@@ -24,3 +24,9 @@ Follow-up diagnostic cleanup: `daemon status --json` now reports PostgreSQL
 migration privilege failures as structured CLI errors with repair hints, and
 `daemon doctor --postgres-url` threads that explicit URL into secondary daemon
 diagnostics instead of probing implicit legacy registry configuration.
+
+Go `daemon.key.rotate` now owns the local Ed25519 fallback signing-key
+rotation path and `daemon.hello` advertises the fallback public key when the
+key is loadable. This removes another explicit fail-closed Go parity stub;
+full reviewed-patch apply mutation and OS keyring custody remain outside this
+slice.

@@ -333,6 +333,9 @@ Daemon RPC method capabilities use the closed vocabulary `read`,
 `surgical_recovery`.
 `supervise.*` and `apply.*` are daemon RPC routes; sealed apply fails
 closed unless a daemon signing key and `apply` capability are present.
+The Go daemon rotates the local Ed25519 fallback signing key through the
+admin RPC method `daemon.key.rotate`; there is not yet a stable
+user-facing `striatum keys` CLI.
 
 RFC 0032 adds cross-repo workflow schema and daemon MCP mutation
 capability gating on the PostgreSQL daemon substrate. Cross-repo

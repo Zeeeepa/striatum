@@ -27,7 +27,10 @@ D094/RFC 0043 later moved per-repository workflow and supervisor pointer
 state into daemon-owned PostgreSQL; the original repo-local pointer table is
 transition history. The first production apply path remains explicitly
 capability-gated and must not be described as third-party cryptographic
-non-repudiation.
+non-repudiation. The Go production daemon now rotates and loads the local
+Ed25519 `0600` fallback signing-key file through `daemon.key.rotate` and
+advertises the public key in `daemon.hello`; OS keyring custody and full
+reviewed-patch mutation remain deferred.
 
 ## Problem
 

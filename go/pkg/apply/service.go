@@ -3,8 +3,6 @@ package apply
 import (
 	"context"
 	"errors"
-	"os"
-	"path/filepath"
 
 	"github.com/halbritt/striatum/go/pkg/rpc"
 )
@@ -77,27 +75,8 @@ func (s Service) keyLoaded() bool {
 }
 
 func FallbackKeyLoaded() bool {
-	path := fallbackKeyPath()
-	info, err := os.Stat(path)
-	if err != nil || info.IsDir() {
-		return false
-	}
-	return info.Mode().Perm()&0o077 == 0
-}
-
-func fallbackKeyPath() string {
-	if override := os.Getenv(EnvSigningKeyPath); override != "" {
-		return filepath.Clean(override)
-	}
-	stateHome := os.Getenv("XDG_STATE_HOME")
-	if stateHome == "" {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return ""
-		}
-		stateHome = filepath.Join(home, ".local", "state")
-	}
-	return filepath.Join(stateHome, "striatum", "daemon", "signing_key")
+	_, err := LoadFallbackSigningKey()
+	return err == nil
 }
 
 func stringParam(params map[string]any, key string) string {
