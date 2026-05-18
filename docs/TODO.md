@@ -1288,7 +1288,8 @@ review and plan are root-level operator artifacts:
     path are removed. The `striatumd` console script now targets a Go-daemon
     launcher shim instead of `striatum.daemon:main`; remaining Python-daemon
     work is module deletion after legacy SQLite fixtures are converted or
-    deleted.
+    deleted. The retired daemon-global SQLite registry cutover helper is
+    removed.
     The multi-repo harness participant runner no longer creates or queries
     repo-local SQLite; cross-repo E2E assertions now inspect daemon-owned
     PostgreSQL participant rows. SQLite-era repository identity and daemon

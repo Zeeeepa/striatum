@@ -32,6 +32,10 @@ Recent checkpoints:
 - Active operator docs now frame legacy SQLite handling as archive/remove plus
   repository registration, not a current per-repo migration workflow; smoke
   scripts also stopped exporting the legacy daemon SQLite registry path.
+- The retired daemon-global SQLite registry cutover implementation
+  (`striatum.daemon_pg.cutover`) was deleted; compatibility tests now assert
+  the old `daemon migrate --from sqlite --to pg` spelling still refuses before
+  importing any cutover code.
 - The command authority matrix now names the bounded direct-PostgreSQL
   bootstrap/admin plane, and an architecture guardrail scans Python client/CLI
   sources so new direct daemon-PG helper imports must be explicitly listed.

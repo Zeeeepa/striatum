@@ -24,6 +24,9 @@ author: planner-gemini-cli-001
 ## 3. P0 - blocking
 
 ### P0-LEGACY-DELETE
+- **status:** in progress. The daemon-global SQLite registry cutover helper
+  has been deleted; remaining work is the larger legacy repo-local migration
+  fixtures, legacy Python daemon module, and repo-local SQLite engine cleanup.
 - **source:** R1 (delete the legacy Python daemon and SQLite substrate in stages)
 - **what:** Convert or delete the remaining legacy SQLite fixture tests, then delete `src/striatum/daemon.py`, `src/striatum/db.py`, and the bulk of `src/striatum/legacy_sqlite/`.
 - **why:** A massive, quarantined legacy backend slows every architectural change, confuses new routing, and creates the risk that a future command accidentally relies on the superseded SQLite state instead of the Go/PG daemon.

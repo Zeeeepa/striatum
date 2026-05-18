@@ -1010,9 +1010,10 @@ Release order after Phase 0:
     `workflow.generate --shape multi_phase` and
     `workflow.upgrade --add-phases` parity green, keep
     `make daemon-go-conformance` green, keep writable SQLite import commands
-    retired, keep speculative cross-repo runner hooks trimmed until a handler
-    needs them, and retire the Python daemon after remaining legacy fixtures
-    are removed or converted.
+    retired, keep the deleted daemon-global SQLite registry cutover helper out
+    of production code, keep speculative cross-repo runner hooks trimmed until
+    a handler needs them, and retire the Python daemon after remaining legacy
+    fixtures are removed or converted.
 14. **TODO 62 / RFC 0069:** move daemon-global surfaces to PostgreSQL/Go,
     including scheduler cursors, PostgreSQL-backed daemon MCP resources, and
     PostgreSQL-backed daemon lifecycle/health/audit/doctor reads. The
