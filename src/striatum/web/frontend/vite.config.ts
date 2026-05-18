@@ -25,8 +25,17 @@ export default defineConfig({
       input: islandEntries,
       output: {
         entryFileNames: "[name].js",
-        chunkFileNames: "island-shared-[hash].js",
-        assetFileNames: "style[extname]"
+        chunkFileNames: "[name]-[hash].js",
+        assetFileNames: "style[extname]",
+        manualChunks(id) {
+          const normalized = id.split("\\").join("/");
+          if (
+            normalized.includes("/node_modules/shiki/") ||
+            normalized.includes("/node_modules/@shikijs/")
+          ) {
+            return "island-shiki";
+          }
+        }
       }
     }
   },

@@ -100,6 +100,46 @@ def test_ui_bundle_size_script_accepts_override_and_refuses_drift(tmp_path: Path
     assert too_large.returncode == 1
     assert "exceeds limit" in too_large.stderr
 
+    too_many_files = subprocess.run(
+        [
+            sys.executable,
+            str(script),
+            "--root",
+            str(build),
+            "--max-bytes",
+            "1024",
+            "--max-files",
+            "0",
+        ],
+        check=False,
+        text=True,
+        capture_output=True,
+    )
+    assert too_many_files.returncode == 1
+    assert "files exceeds limit" in too_many_files.stderr
+
+    (build / "island-shared-a.js").write_bytes(b"x")
+    (build / "island-shared-b.js").write_bytes(b"x")
+    too_many_shared_chunks = subprocess.run(
+        [
+            sys.executable,
+            str(script),
+            "--root",
+            str(build),
+            "--max-bytes",
+            "1024",
+            "--max-files",
+            "16",
+            "--max-shared-chunks",
+            "1",
+        ],
+        check=False,
+        text=True,
+        capture_output=True,
+    )
+    assert too_many_shared_chunks.returncode == 1
+    assert "island-shared chunks exceeds limit" in too_many_shared_chunks.stderr
+
 
 def test_wheel_size_script_accepts_file_or_directory_and_refuses_drift(
     tmp_path: Path,

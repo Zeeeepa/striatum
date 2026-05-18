@@ -66,11 +66,11 @@ ui-bundle-hash:
 # stable island entry that is suspiciously small. Runs after `make ui-build` so
 # build drift falls out as a git diff in `ui-check-bundle`.
 ui-verify-bundle:
-	python3 -c 'import sys; from pathlib import Path; root=Path("$(MAKEFILE_DIR)")/"src/striatum/web/static/build"; entries=["island-shared.js","island-tree-browser.js","island-workflow-chooser.js","island-workflow-graph-editor.js","island-code-viewer.js"]; bad=[]; SENTINEL="Striatum frontend island placeholder loaded"; MIN_BYTES=1024; \
+	python3 -c 'import sys; from pathlib import Path; root=Path("$(MAKEFILE_DIR)")/"src/striatum/web/static/build"; entries=["island-shared.js","island-tree-browser.js","island-workflow-chooser.js","island-workflow-graph-editor.js","island-code-viewer.js"]; sized_entries=[n for n in entries if n != "island-shared.js"]; bad=[]; SENTINEL="Striatum frontend island placeholder loaded"; MIN_BYTES=1024; \
 	[bad.append(f"missing {n}") for n in entries if not (root/n).is_file()]; \
 	[bad.append(f"{n} contains placeholder sentinel") for n in entries if (root/n).is_file() and SENTINEL in (root/n).read_text(encoding="utf-8", errors="ignore")]; \
 	[bad.append(f"{p.name} contains placeholder sentinel") for p in root.glob("island-shared-*.js") if SENTINEL in p.read_text(encoding="utf-8", errors="ignore")]; \
-	[bad.append(f"{n} below {MIN_BYTES} bytes ({(root/n).stat().st_size} B)") for n in entries if (root/n).is_file() and (root/n).stat().st_size < MIN_BYTES and not any(p.stat().st_size >= MIN_BYTES for p in root.glob("island-shared-*.js"))]; \
+	[bad.append(f"{n} below {MIN_BYTES} bytes ({(root/n).stat().st_size} B)") for n in sized_entries if (root/n).is_file() and (root/n).stat().st_size < MIN_BYTES]; \
 	sys.exit("ui-verify-bundle: " + "; ".join(bad)) if bad else print("ui-verify-bundle: ok")'
 
 ui-bundle-size:

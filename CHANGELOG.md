@@ -142,6 +142,9 @@ Recent checkpoints:
   repository root into `docs/reviews/external/`; comparison and design
   research notes moved into `docs/research/`, leaving the root limited to
   canonical project files.
+- The frontend Vite build now groups Shiki's dynamic imports into one
+  `island-shiki-*` lazy chunk and the bundle guard enforces file/chunk-count
+  limits so stale generated chunk piles cannot quietly accumulate again.
 - The 2026-05-18 architecture review artifacts were refreshed to reflect the
   Go/PostgreSQL daemon, capability-token, public-adoption, and
   human-principal escalation direction; the rejected embedded-storage and
