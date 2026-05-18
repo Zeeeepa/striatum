@@ -1232,9 +1232,11 @@ review and plan are root-level operator artifacts:
     `daemon.token.create`, `daemon.token.revoke`, `daemon.token.rotate`,
     `repo.init`, `workflow.validate`, `workflow.plan`, `workflow.graph`,
     `workflow.generate.preview`, `workflow.generate`, `workflow.init`, and
-    `workflow.upgrade`; Go `workflow.upgrade --add-phases` now matches the
-    Python V1-to-V1.1 phase-inference path for preview/apply, synthesis-job
-    insertion, cross-phase edge rewriting, and non-terminal-run refusal;
+    `workflow.upgrade`; Go `workflow.generate --shape multi_phase` now emits
+    the same V1.1 phase graph as Python, and Go
+    `workflow.upgrade --add-phases` now matches the Python V1-to-V1.1
+    phase-inference path for preview/apply, synthesis-job insertion,
+    cross-phase edge rewriting, and non-terminal-run refusal;
     web/chat preview callers now route
     `workflow.generate.preview` through daemon RPC in production. Go now owns
     `daemon.key.rotate` for the local Ed25519 `0600` fallback signing-key

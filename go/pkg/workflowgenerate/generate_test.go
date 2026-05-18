@@ -91,6 +91,98 @@ func TestTraversalAndScratchPathsRejected(t *testing.T) {
 	}
 }
 
+func TestMultiPhaseShapeEmitsV11PhasedGraph(t *testing.T) {
+	spec := multiPhaseGeneratorSpec()
+	generated, err := GenerateFromMap(spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	workflow := generated.Workflow
+	if err := ValidateWorkflow(workflow); err != nil {
+		t.Fatal(err)
+	}
+	if workflow["schema_version"] != "striatum.workflow.v1.1" {
+		t.Fatalf("schema_version = %#v", workflow["schema_version"])
+	}
+	phases := listFrom(workflow["phases"])
+	if len(phases) != 2 {
+		t.Fatalf("phases = %#v", workflow["phases"])
+	}
+	phase1 := mapFrom(phases[0])
+	if phase1["id"] != "phase_1_design" || phase1["name"] != "Design" || phase1["description"] != "Parallel design tracks" || phase1["color"] != "#6b7280" || phase1["synthesis_job_id"] != "phase_1_design__synthesis" {
+		t.Fatalf("first phase = %#v", phase1)
+	}
+	phase2 := mapFrom(phases[1])
+	if phase2["id"] != "phase_2_build" || phase2["name"] != "Build" || phase2["synthesis_job_id"] != "phase_2_build__synthesis" {
+		t.Fatalf("second phase = %#v", phase2)
+	}
+
+	jobs := jobsByID(workflow["jobs"])
+	if jobs["phase_1_design__python__draft"]["phase_id"] != "phase_1_design" {
+		t.Fatalf("phase_1_design python draft = %#v", jobs["phase_1_design__python__draft"])
+	}
+	if jobs["phase_1_design__python__draft"]["parallel_group"] != "phase_1_design:python" {
+		t.Fatalf("phase_1_design python draft = %#v", jobs["phase_1_design__python__draft"])
+	}
+	if jobs["phase_1_design__synthesis"]["type"] != "phase_synthesis" || jobs["phase_1_design__synthesis"]["phase_id"] != "phase_1_design" {
+		t.Fatalf("phase_1_design synthesis = %#v", jobs["phase_1_design__synthesis"])
+	}
+	if jobs["phase_2_build__synthesis"]["type"] != "phase_synthesis" {
+		t.Fatalf("phase_2_build synthesis = %#v", jobs["phase_2_build__synthesis"])
+	}
+
+	for _, edge := range [][2]string{
+		{"phase_1_design__synthesis", "phase_2_build__python__draft"},
+		{"phase_1_design__synthesis", "phase_2_build__docs__draft"},
+		{"phase_1_design__python__draft", "phase_1_design__synthesis"},
+	} {
+		if !hasEdge(workflow["edges"], edge[0], edge[1]) {
+			t.Fatalf("missing edge %v in %#v", edge, workflow["edges"])
+		}
+	}
+}
+
+func TestMultiPhaseInvalidCasesCarryFieldPath(t *testing.T) {
+	cases := []struct {
+		name      string
+		mutate    func(map[string]any)
+		fieldPath string
+	}{
+		{
+			name: "missing phases",
+			mutate: func(spec map[string]any) {
+				spec["options"] = map[string]any{}
+			},
+			fieldPath: "spec.options.phases",
+		},
+		{
+			name: "duplicate phase id",
+			mutate: func(spec map[string]any) {
+				phases := listFrom(mapFrom(spec["options"])["phases"])
+				mapFrom(phases[1])["id"] = "phase_1_design"
+			},
+			fieldPath: "spec.options.phases[1].id",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			spec := multiPhaseGeneratorSpec()
+			tc.mutate(spec)
+			_, err := GenerateFromMap(spec)
+			if err == nil {
+				t.Fatal("expected error")
+			}
+			var genError *Error
+			if !errors.As(err, &genError) {
+				t.Fatalf("error type = %T, %v", err, err)
+			}
+			if genError.FieldPath != tc.fieldPath {
+				t.Fatalf("field path = %q, want %q; err = %v", genError.FieldPath, tc.fieldPath, err)
+			}
+		})
+	}
+}
+
 func TestUpgradeAddPhasesPreviewWritesNothing(t *testing.T) {
 	repo := t.TempDir()
 	path := filepath.Join(repo, "workflow.json")
@@ -315,6 +407,48 @@ func parallelGroupWorkflow() map[string]any {
 	return workflow
 }
 
+func multiPhaseGeneratorSpec() map[string]any {
+	return map[string]any{
+		"schema_version":   GeneratorSchemaVersion,
+		"shape":            "multi_phase",
+		"lane_set":         "author_reviewer",
+		"workflow_id":      "multi_phase-test",
+		"name":             "multi_phase test",
+		"workflow_version": "2026-05-12",
+		"branch":           map[string]any{"mode": "confirm", "suggested_name": "striatum/multi_phase", "allow_dirty": false},
+		"scaffold_root":    "workflows/multi_phase",
+		"artifact_root":    "striatum/multi_phase",
+		"lanes": map[string]any{
+			"author":   map[string]any{"command": []any{"author", "run"}, "display_model": "Author"},
+			"reviewer": map[string]any{"command": []any{"reviewer", "run"}, "display_model": "Reviewer"},
+		},
+		"options": map[string]any{
+			"phases": []any{
+				map[string]any{
+					"id":          "phase_1_design",
+					"name":        "Design",
+					"description": "Parallel design tracks",
+					"color":       "#6b7280",
+					"tracks": []any{
+						map[string]any{"id": "python", "shape": "minimal", "lane_id": "author"},
+						map[string]any{"id": "docs", "shape": "review", "lane_id": "author"},
+					},
+					"synthesis_lane_id": "reviewer",
+				},
+				map[string]any{
+					"id":   "phase_2_build",
+					"name": "Build",
+					"tracks": []any{
+						map[string]any{"id": "python", "shape": "minimal", "lane_id": "author"},
+						map[string]any{"id": "docs", "shape": "minimal", "lane_id": "author"},
+					},
+					"synthesis_lane_id": "reviewer",
+				},
+			},
+		},
+	}
+}
+
 func containsMap(value any, expected map[string]any) bool {
 	for _, item := range listFrom(value) {
 		actual := mapFrom(item)
@@ -326,6 +460,25 @@ func containsMap(value any, expected map[string]any) bool {
 			}
 		}
 		if matches {
+			return true
+		}
+	}
+	return false
+}
+
+func jobsByID(value any) map[string]map[string]any {
+	jobs := map[string]map[string]any{}
+	for _, item := range listFrom(value) {
+		job := mapFrom(item)
+		jobs[fmt.Sprint(job["id"])] = job
+	}
+	return jobs
+}
+
+func hasEdge(value any, from, to string) bool {
+	for _, item := range listFrom(value) {
+		edge := mapFrom(item)
+		if edge["from"] == from && edge["to"] == to {
 			return true
 		}
 	}

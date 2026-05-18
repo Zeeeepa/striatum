@@ -15,15 +15,16 @@ import (
 )
 
 const (
-	GeneratorSchemaVersion = "striatum.workflow_generator.v1"
-	PlanSchemaVersion      = "striatum.workflow_plan.v1"
-	WorkflowSchemaVersion  = "striatum.workflow.v1"
+	GeneratorSchemaVersion   = "striatum.workflow_generator.v1"
+	PlanSchemaVersion        = "striatum.workflow_plan.v1"
+	WorkflowSchemaVersion    = "striatum.workflow.v1"
+	WorkflowSchemaVersionV11 = "striatum.workflow.v1.1"
 )
 
 var (
 	shapes = set(
 		"minimal", "review", "code_change", "human_checkpoint",
-		"evidence_backed", "multi_review_synthesis", "custom",
+		"evidence_backed", "multi_review_synthesis", "multi_phase", "custom",
 	)
 	laneSets      = set("local", "single_agent", "author_reviewer", "multi_review", "custom")
 	laneModifiers = set("supervised", "worktree_isolated", "constrained", "harness_profiled")
@@ -31,6 +32,7 @@ var (
 		"review_postures", "max_revision_cycles", "include_support_ledger",
 		"constraints", "required_enforcement", "harness_profiles",
 		"reviewer_count", "custom_job_artifacts", "supervision_compatible",
+		"phases",
 	)
 	blockKinds = set(
 		"draft", "review", "synthesis", "implementation", "test",
@@ -145,9 +147,6 @@ func SpecFromMap(raw map[string]any) (Spec, error) {
 	if err != nil {
 		return Spec{}, err
 	}
-	if shape == "multi_phase" {
-		return Spec{}, &Error{Message: "multi_phase workflow generation is not yet ported to the Go daemon; refusing rather than producing a partial rewrite", FieldPath: "spec.shape"}
-	}
 	laneSet, err := choice(raw, "lane_set", laneSets, "spec")
 	if err != nil {
 		return Spec{}, err
@@ -251,10 +250,11 @@ func Generate(spec Spec) (Generated, error) {
 	var jobs []map[string]any
 	var edges []map[string]any
 	var cycles []map[string]any
+	var phases []map[string]any
 	if spec.Shape == "custom" {
 		jobs, edges, cycles, err = compileCustom(spec, lanes)
 	} else {
-		jobs, edges, cycles, err = compileShape(spec)
+		jobs, edges, cycles, phases, err = compileShape(spec)
 	}
 	if err != nil {
 		return Generated{}, err
@@ -268,8 +268,12 @@ func Generate(spec Spec) (Generated, error) {
 	if parallelism == nil {
 		parallelism = defaultParallelism(spec)
 	}
+	schemaVersion := WorkflowSchemaVersion
+	if spec.Shape == "multi_phase" {
+		schemaVersion = WorkflowSchemaVersionV11
+	}
 	workflow := map[string]any{
-		"schema_version":   WorkflowSchemaVersion,
+		"schema_version":   schemaVersion,
 		"workflow_id":      spec.WorkflowID,
 		"workflow_version": spec.WorkflowVer,
 		"name":             spec.Name,
@@ -282,6 +286,9 @@ func Generate(spec Spec) (Generated, error) {
 		"jobs":             jobs,
 		"edges":            edges,
 		"cycles":           cycles,
+	}
+	if spec.Shape == "multi_phase" {
+		workflow["phases"] = phases
 	}
 	if hasModifier(spec, "harness_profiled") {
 		profiles, err := harnessProfiles(spec)
@@ -402,13 +409,13 @@ func laneIDsFor(spec Spec) []string {
 	}
 }
 
-func compileShape(spec Spec) ([]map[string]any, []map[string]any, []map[string]any, error) {
+func compileShape(spec Spec) ([]map[string]any, []map[string]any, []map[string]any, []map[string]any, error) {
 	base := spec.ArtifactRoot
 	authorLane := authorLane(spec)
 	reviewerLaneID := reviewerLane(spec, 1)
 	switch spec.Shape {
 	case "minimal":
-		return []map[string]any{job("draft", "draft", "Draft starter artifact", "author", authorLane, base, "DRAFT.md", "handoff", "draft", "draft", "Produce the starter artifact for this workflow.")}, nil, nil, nil
+		return []map[string]any{job("draft", "draft", "Draft starter artifact", "author", authorLane, base, "DRAFT.md", "handoff", "draft", "draft", "Produce the starter artifact for this workflow.")}, nil, nil, nil, nil
 	case "review", "code_change":
 		jobs := []map[string]any{
 			job("draft", "draft", "Draft starter artifact", "author", authorLane, base, "DRAFT.md", "handoff", "draft", "draft", "Produce the starter artifact for this workflow."),
@@ -420,18 +427,18 @@ func compileShape(spec Spec) ([]map[string]any, []map[string]any, []map[string]a
 		if spec.Shape == "code_change" {
 			max, err := maxCycles(spec)
 			if err != nil {
-				return nil, nil, nil, err
+				return nil, nil, nil, nil, err
 			}
 			cycles = append(cycles, map[string]any{"from": "review", "to": "draft", "on_verdict": "needs_revision", "max_iterations": max})
 		}
-		return jobs, edges, cycles, nil
+		return jobs, edges, cycles, nil, nil
 	case "human_checkpoint":
 		jobs := []map[string]any{
 			job("analysis", "draft", "Analyze the requested decision", "author", authorLane, base, "ANALYSIS.md", "handoff", "analysis", "draft", ""),
 			job("checkpoint", "human_checkpoint", "Open a human checkpoint", "reviewer", reviewerLaneID, base, "CHECKPOINT.md", "handoff", "checkpoint", "review", ""),
 			job("apply", "synthesis", "Apply the owner decision", "author", authorLane, base, "SUMMARY.md", "synthesis", "summary", "apply", ""),
 		}
-		return jobs, []map[string]any{{"from": "analysis", "to": "checkpoint", "on": "completed"}, {"from": "checkpoint", "to": "apply", "on": "completed"}}, nil, nil
+		return jobs, []map[string]any{{"from": "analysis", "to": "checkpoint", "on": "completed"}, {"from": "checkpoint", "to": "apply", "on": "completed"}}, nil, nil, nil
 	case "evidence_backed":
 		jobs := []map[string]any{
 			job("draft", "draft", "Draft evidence-backed artifact", "author", authorLane, base, "DRAFT.md", "handoff", "draft", "draft", ""),
@@ -439,12 +446,12 @@ func compileShape(spec Spec) ([]map[string]any, []map[string]any, []map[string]a
 			reviewJob("evidence_audit", reviewerLaneID, base+"/audit/EVIDENCE_AUDIT.md", "devils_advocate"),
 			reviewJob("final_review", reviewerLaneID, base+"/final/FINAL_REVIEW.md", firstPosture(spec)),
 		}
-		return jobs, []map[string]any{{"from": "draft", "to": "support_ledger", "on": "completed"}, {"from": "support_ledger", "to": "evidence_audit", "on": "completed"}, {"from": "evidence_audit", "to": "final_review", "on": "completed"}}, nil, nil
+		return jobs, []map[string]any{{"from": "draft", "to": "support_ledger", "on": "completed"}, {"from": "support_ledger", "to": "evidence_audit", "on": "completed"}, {"from": "evidence_audit", "to": "final_review", "on": "completed"}}, nil, nil, nil
 	case "multi_review_synthesis":
 		count := reviewerCount(spec)
 		postures, err := postures(spec, count)
 		if err != nil {
-			return nil, nil, nil, err
+			return nil, nil, nil, nil, err
 		}
 		jobs := []map[string]any{}
 		edges := []map[string]any{}
@@ -458,10 +465,262 @@ func compileShape(spec Spec) ([]map[string]any, []map[string]any, []map[string]a
 			reviewJob("final_review", reviewerLane(spec, 1), base+"/final/FINAL_REVIEW.md", "neutral"),
 		)
 		edges = append(edges, map[string]any{"from": "synthesis", "to": "final_review", "on": "completed"})
-		return jobs, edges, nil, nil
+		return jobs, edges, nil, nil, nil
+	case "multi_phase":
+		return compileMultiPhase(spec)
 	default:
-		return nil, nil, nil, genErr("unknown workflow shape", "spec.shape")
+		return nil, nil, nil, nil, genErr("unknown workflow shape", "spec.shape")
 	}
+}
+
+func compileMultiPhase(spec Spec) ([]map[string]any, []map[string]any, []map[string]any, []map[string]any, error) {
+	rawPhases, err := objectList(defaultAny(spec.Options["phases"], []any{}), "spec.options.phases")
+	if err != nil {
+		return nil, nil, nil, nil, err
+	}
+	if len(rawPhases) == 0 {
+		return nil, nil, nil, nil, genErr("multi_phase requires at least one phase", "spec.options.phases")
+	}
+	jobs := []map[string]any{}
+	edges := []map[string]any{}
+	cycles := []map[string]any{}
+	phases := []map[string]any{}
+	var previousSynthesisID string
+	seenPhaseIDs := map[string]struct{}{}
+	for phaseIndex, rawPhase := range rawPhases {
+		phasePath := fmt.Sprintf("spec.options.phases[%d]", phaseIndex)
+		phaseID, err := requiredString(rawPhase, "id", phasePath)
+		if err != nil {
+			return nil, nil, nil, nil, err
+		}
+		if _, ok := seenPhaseIDs[phaseID]; ok {
+			return nil, nil, nil, nil, genErr("duplicate phase id", phasePath+".id")
+		}
+		seenPhaseIDs[phaseID] = struct{}{}
+		phaseName, err := requiredString(rawPhase, "name", phasePath)
+		if err != nil {
+			return nil, nil, nil, nil, err
+		}
+		phase := map[string]any{"id": phaseID, "name": phaseName}
+		if value, ok := rawPhase["description"]; ok {
+			text, ok := value.(string)
+			if !ok {
+				return nil, nil, nil, nil, genErr("phase description must be a string", phasePath+".description")
+			}
+			phase["description"] = text
+		}
+		if value, ok := rawPhase["color"]; ok {
+			text, ok := value.(string)
+			if !ok {
+				return nil, nil, nil, nil, genErr("phase color must be a string", phasePath+".color")
+			}
+			phase["color"] = text
+		}
+		tracks, err := objectList(defaultAny(rawPhase["tracks"], []any{}), phasePath+".tracks")
+		if err != nil {
+			return nil, nil, nil, nil, err
+		}
+		if len(tracks) == 0 {
+			return nil, nil, nil, nil, genErr("phase requires at least one track", phasePath+".tracks")
+		}
+		phaseJobs := []map[string]any{}
+		phaseEdges := []map[string]any{}
+		phaseCycles := []map[string]any{}
+		entryIDs := []string{}
+		terminalIDs := []string{}
+		seenTrackIDs := map[string]struct{}{}
+		trackShapes := set("minimal", "review", "code_change", "human_checkpoint", "evidence_backed", "multi_review_synthesis")
+		for trackIndex, track := range tracks {
+			trackPath := fmt.Sprintf("%s.tracks[%d]", phasePath, trackIndex)
+			trackID, err := requiredString(track, "id", trackPath)
+			if err != nil {
+				return nil, nil, nil, nil, err
+			}
+			if _, ok := seenTrackIDs[trackID]; ok {
+				return nil, nil, nil, nil, genErr("duplicate phase track id", trackPath+".id")
+			}
+			seenTrackIDs[trackID] = struct{}{}
+			trackShape, err := choice(track, "shape", trackShapes, trackPath)
+			if err != nil {
+				return nil, nil, nil, nil, err
+			}
+			trackSpec, err := trackSpec(spec, phaseID, trackID, trackShape, track)
+			if err != nil {
+				return nil, nil, nil, nil, err
+			}
+			trackJobs, trackEdges, trackCycles, _, err := compileShape(trackSpec)
+			if err != nil {
+				return nil, nil, nil, nil, err
+			}
+			prefix := phaseID + "__" + trackID + "__"
+			idMap := map[string]string{}
+			for _, trackJob := range trackJobs {
+				jobID := fmt.Sprint(trackJob["id"])
+				idMap[jobID] = prefix + jobID
+			}
+			trackEntryIDs := entryJobIDs(trackJobs, trackEdges, idMap)
+			parallelEntries := set(trackEntryIDs...)
+			trackLaneID, laneOverride := track["lane_id"].(string)
+			for _, trackJob := range trackJobs {
+				remapped := cloneMap(trackJob)
+				remappedID := idMap[fmt.Sprint(trackJob["id"])]
+				remapped["id"] = remappedID
+				remapped["phase_id"] = phaseID
+				if _, ok := parallelEntries[remappedID]; ok {
+					remapped["parallel_group"] = phaseID + ":" + trackID
+				}
+				if laneOverride && remapped["type"] != "review" {
+					remapped["lane_id"] = trackLaneID
+				}
+				phaseJobs = append(phaseJobs, remapped)
+			}
+			phaseEdges = append(phaseEdges, remapEdges(trackEdges, idMap)...)
+			phaseCycles = append(phaseCycles, remapCycles(trackCycles, idMap)...)
+			entryIDs = append(entryIDs, trackEntryIDs...)
+			terminalIDs = append(terminalIDs, terminalJobIDs(trackJobs, trackEdges, idMap)...)
+		}
+		synthesisID := phaseID + "__synthesis"
+		synthesisLane, err := phaseSynthesisLane(spec, rawPhase)
+		if err != nil {
+			return nil, nil, nil, nil, err
+		}
+		phase["synthesis_job_id"] = synthesisID
+		phaseJobs = append(phaseJobs, phaseSynthesisJob(phaseID, phaseName, synthesisID, synthesisLane, spec.ArtifactRoot))
+		for _, terminalID := range uniqueSortedStrings(terminalIDs) {
+			phaseEdges = append(phaseEdges, map[string]any{"from": terminalID, "to": synthesisID, "on": "completed"})
+		}
+		if previousSynthesisID != "" {
+			for _, entryID := range uniqueSortedStrings(entryIDs) {
+				edges = append(edges, map[string]any{"from": previousSynthesisID, "to": entryID, "on": "completed"})
+			}
+		}
+		phases = append(phases, phase)
+		jobs = append(jobs, phaseJobs...)
+		edges = append(edges, phaseEdges...)
+		cycles = append(cycles, phaseCycles...)
+		previousSynthesisID = synthesisID
+	}
+	return jobs, edges, cycles, phases, nil
+}
+
+func trackSpec(spec Spec, phaseID, trackID, trackShape string, track map[string]any) (Spec, error) {
+	lanes := map[string]map[string]any{}
+	for laneID, lane := range spec.Lanes {
+		lanes[laneID] = cloneMap(lane)
+	}
+	if laneID, ok := track["lane_id"].(string); ok {
+		if _, ok := stringSet(laneIDsFor(spec))[laneID]; !ok {
+			return Spec{}, genErr("track lane_id references missing lane", "spec.options.phases[].tracks[].lane_id")
+		}
+	}
+	options := cloneMap(spec.Options)
+	delete(options, "phases")
+	if rawOptions, ok := track["options"].(map[string]any); ok {
+		for key, value := range rawOptions {
+			options[key] = value
+		}
+	}
+	return Spec{
+		SchemaVersion: spec.SchemaVersion,
+		Shape:         trackShape,
+		LaneSet:       spec.LaneSet,
+		WorkflowID:    fmt.Sprintf("%s-%s-%s", spec.WorkflowID, phaseID, trackID),
+		Name:          fmt.Sprintf("%s %s %s", spec.Name, phaseID, trackID),
+		WorkflowVer:   spec.WorkflowVer,
+		Branch:        cloneMap(spec.Branch),
+		ScaffoldRoot:  spec.ScaffoldRoot,
+		ArtifactRoot:  fmt.Sprintf("%s/%s/%s", spec.ArtifactRoot, phaseID, trackID),
+		Lanes:         lanes,
+		Options:       options,
+		LaneModifiers: append([]string(nil), spec.LaneModifiers...),
+		ContextDocs:   append([]any(nil), spec.ContextDocs...),
+		Parallelism:   spec.Parallelism,
+	}, nil
+}
+
+func remapEdges(edges []map[string]any, idMap map[string]string) []map[string]any {
+	result := []map[string]any{}
+	for _, edge := range edges {
+		result = append(result, map[string]any{
+			"from": idMap[fmt.Sprint(edge["from"])],
+			"to":   idMap[fmt.Sprint(edge["to"])],
+			"on":   fmt.Sprint(defaultAny(edge["on"], "completed")),
+		})
+	}
+	return result
+}
+
+func remapCycles(cycles []map[string]any, idMap map[string]string) []map[string]any {
+	result := []map[string]any{}
+	for _, cycle := range cycles {
+		remapped := cloneMap(cycle)
+		remapped["from"] = idMap[fmt.Sprint(cycle["from"])]
+		remapped["to"] = idMap[fmt.Sprint(cycle["to"])]
+		result = append(result, remapped)
+	}
+	return result
+}
+
+func entryJobIDs(jobs, edges []map[string]any, idMap map[string]string) []string {
+	incoming := map[string]int{}
+	for _, job := range jobs {
+		incoming[fmt.Sprint(job["id"])] = 0
+	}
+	for _, edge := range edges {
+		incoming[fmt.Sprint(edge["to"])]++
+	}
+	result := []string{}
+	for jobID, count := range incoming {
+		if count == 0 {
+			result = append(result, idMap[jobID])
+		}
+	}
+	return result
+}
+
+func terminalJobIDs(jobs, edges []map[string]any, idMap map[string]string) []string {
+	outgoing := map[string]int{}
+	for _, job := range jobs {
+		outgoing[fmt.Sprint(job["id"])] = 0
+	}
+	for _, edge := range edges {
+		outgoing[fmt.Sprint(edge["from"])]++
+	}
+	result := []string{}
+	for jobID, count := range outgoing {
+		if count == 0 {
+			result = append(result, idMap[jobID])
+		}
+	}
+	return result
+}
+
+func phaseSynthesisLane(spec Spec, phase map[string]any) (string, error) {
+	if laneID, ok := phase["synthesis_lane_id"].(string); ok {
+		if _, ok := stringSet(laneIDsFor(spec))[laneID]; !ok {
+			return "", genErr("synthesis_lane_id references missing lane", "spec.options.phases[].synthesis_lane_id")
+		}
+		return laneID, nil
+	}
+	return reviewerLane(spec, 1), nil
+}
+
+func phaseSynthesisJob(phaseID, phaseName, synthesisID, laneID, artifactRoot string) map[string]any {
+	result := job(
+		synthesisID,
+		"phase_synthesis",
+		"Synthesize "+phaseName,
+		"reviewer",
+		laneID,
+		artifactRoot+"/"+phaseID,
+		"SYNTHESIS.md",
+		"synthesis",
+		"phase_synthesis",
+		"apply",
+		"Synthesize the completed work in "+phaseName+" and record a phase verdict.",
+	)
+	result["phase_id"] = phaseID
+	return result
 }
 
 func compileCustom(spec Spec, lanes map[string]any) ([]map[string]any, []map[string]any, []map[string]any, error) {
@@ -591,7 +850,7 @@ func renderFiles(spec Spec, workflow map[string]any, roles map[string]any) ([]ma
 }
 
 func ValidateWorkflow(workflow map[string]any) error {
-	if workflow["schema_version"] != WorkflowSchemaVersion && workflow["schema_version"] != "striatum.workflow.v1.1" {
+	if workflow["schema_version"] != WorkflowSchemaVersion && workflow["schema_version"] != WorkflowSchemaVersionV11 {
 		return genErr("workflow has unsupported schema_version", "workflow.schema_version")
 	}
 	for _, key := range []string{"workflow_id", "workflow_version", "name"} {
@@ -1333,6 +1592,22 @@ func sortedKeys(values map[string]struct{}) []string {
 	}
 	sort.Strings(keys)
 	return keys
+}
+
+func stringSet(values []string) map[string]struct{} {
+	result := map[string]struct{}{}
+	for _, value := range values {
+		result[value] = struct{}{}
+	}
+	return result
+}
+
+func uniqueSortedStrings(values []string) []string {
+	seen := map[string]struct{}{}
+	for _, value := range values {
+		seen[value] = struct{}{}
+	}
+	return sortedKeys(seen)
 }
 
 func sortedMapKeys(values map[string]any) []string {

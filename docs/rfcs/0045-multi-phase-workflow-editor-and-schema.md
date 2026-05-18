@@ -1,6 +1,6 @@
 # RFC 0045: Multi-Phase Workflow Editor and Schema Support
 
-Status: proposed
+Status: accepted / implemented
 Date: 2026-05-13
 Context:
 [`RFC 0034`](0034-workflow-generator-and-template-catalog.md),
@@ -145,32 +145,35 @@ Schema rules:
   inherits the review job's lifecycle (claim → publish → verdict).
 - Status output (`striatum status --json`) gains an optional `phases` block
   per run with current phase id, gate state, jobs-by-phase counts.
-- Audit log gains `phase.entered`, `phase.exited` events.
+- Status and dashboard projections derive current phase and phase progress from
+  persisted job state and workflow metadata.
 
 ### 4. Generator catalog entry (`multi_phase`)
 
-Add `multi_phase` to `src/striatum/workflow_generator/catalog/`:
+`multi_phase` is exposed through the workflow-generator catalog. The generator
+accepts a `phases` option array:
 
 ```python
 class MultiPhaseShape:
     """N phases, each with M parallel tracks; tracks within a phase share
-    a synthesis gate. Tracks may use different shapes (design+review,
-    implement+build_review, plain handoff) per phase."""
+    a synthesis gate. Tracks may use any non-custom built-in generator
+    shape, such as minimal, review, code_change, human_checkpoint,
+    evidence_backed, or multi_review_synthesis."""
 
     parameters = {
         "phases": [
             {
                 "id": "...",
-                "title": "...",
+                "name": "...",
                 "tracks": [
                     {
                         "id": "...",
-                        "shape": "design_implement_review" | "build_review" | "single_handoff",
-                        "lanes": {...},
-                        "review_postures": [...],
+                        "shape": "minimal" | "review" | "code_change" | "human_checkpoint" | "evidence_backed" | "multi_review_synthesis",
+                        "lane_id": "author",
+                        "options": {"review_postures": [...]},
                     }
                 ],
-                "synthesis_lane": "codex" | ...,
+                "synthesis_lane_id": "reviewer",
             }
         ]
     }
@@ -221,10 +224,11 @@ location) gets:
    accepts well-formed v1.1 and refuses ill-formed ones with named errors.
 2. Existing v1 workflows continue to validate and run unchanged.
 3. `striatum workflow validate` reports phase structure on v1.1.
-4. `striatum workflow generate --shape multi_phase --params <json>`
+4. `striatum workflow generate --shape multi_phase --option phases='<json-array>'`
    produces a valid v1.1 workflow.
 5. `striatum workflow upgrade --add-phases <path>` infers a phase
-   structure from parallel_group clusters and writes the upgraded file.
+   structure from parallel_group clusters, previews by default, and writes
+   the upgraded file when `--apply` is supplied.
 6. React Flow editor renders phase color bands and cross-phase edges
    differently from intra-phase edges.
 7. `striatum status --json` includes `phases` block for v1.1 runs.
@@ -250,11 +254,13 @@ verification. Steps may overlap across implementers (Track A: Python
 core; Track B: generator + CLI ergonomics; Track C: React Flow editor).
 
 Implementation status: the Python CLI and Go daemon both implement
-`workflow upgrade --add-phases` as a preview-by-default V1-to-V1.1 rewrite.
-The rewrite infers phases from `parallel_group`/job-id prefixes, inserts
-`phase_synthesis` jobs when needed, rewrites cross-phase edges through the
-phase synthesis job, and refuses live writes when non-terminal runs reference
-the workflow.
+`workflow generate --shape multi_phase` and `workflow upgrade --add-phases`
+for V1.1 phase workflows. Generation emits ordered `phases`, per-track
+job remapping, `phase_synthesis` gates, and cross-phase synthesis-to-entry
+edges; upgrade remains a preview-by-default V1-to-V1.1 rewrite that infers
+phases from `parallel_group`/job-id prefixes, inserts `phase_synthesis` jobs
+when needed, rewrites cross-phase edges through the phase synthesis job, and
+refuses live writes when non-terminal runs reference the workflow.
 
 ## Open Questions
 

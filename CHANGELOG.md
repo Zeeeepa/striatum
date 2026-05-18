@@ -77,7 +77,8 @@ Recent checkpoints:
   produces read-only planned writes; `workflow.generate` and `workflow.init`
   write safe repo-relative scaffold files; `workflow.upgrade` uses
   PostgreSQL running-run checks and fails closed when PostgreSQL state is
-  unknown, including `--add-phases` rewrites.
+  unknown, including `--add-phases` rewrites and
+  `workflow.generate --shape multi_phase` V1.1 phase graph generation.
 - Go `workflow.upgrade --add-phases` now matches the Python V1-to-V1.1
   phase-inference path for preview/apply, synthesis-job insertion,
   cross-phase edge rewriting, and non-terminal-run refusal.

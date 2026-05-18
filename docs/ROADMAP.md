@@ -331,6 +331,9 @@ fallback path or repo-administration path.
 - Go `workflow.upgrade --add-phases` now matches the Python V1-to-V1.1
   phase-inference path for preview/apply, synthesis-job insertion,
   cross-phase edge rewriting, and non-terminal-run refusal.
+- Go `workflow.generate --shape multi_phase` now matches the Python V1.1
+  generator path for ordered phases, per-track job remapping,
+  `phase_synthesis` gates, and cross-phase synthesis-to-entry edges.
 
 ---
 
@@ -985,7 +988,9 @@ Release order after Phase 0:
 13. **TODO 61 / RFC 0068:** port the production daemon to Go, keep the
     resident recovery scheduler in Go, enforce workflow-loader path/source
     checks in Go `run.prepare`, rotate the local Ed25519 sealed-apply
-    fallback key through Go `daemon.key.rotate`, keep
+    fallback key through Go `daemon.key.rotate`, keep Go
+    `workflow.generate --shape multi_phase` and
+    `workflow.upgrade --add-phases` parity green, keep
     `make daemon-go-conformance` green, and retire the Python daemon after
     parity.
 14. **TODO 62 / RFC 0069:** move daemon-global surfaces to PostgreSQL/Go,

@@ -28,13 +28,17 @@ terminal dashboard now renders production text frames from daemon/PostgreSQL
 DTOs, with legacy SQLite access isolated under paired test-harness fixtures.
 Go `status` now matches the PostgreSQL/Python read-model shape, and RFC 0058
 V1.5 has landed with `striatum operator current-brief` plus strict
-`operator_brief` context-budget validation.
+`operator_brief` context-budget validation. Go `workflow.generate --shape
+multi_phase` now emits the same V1.1 phased workflow graph as Python, closing
+that explicit generator parity gap.
 
 ## Next 1-3 Actions
 
 1. Continue RFC 0068/RFC 0069 Go and PostgreSQL read-model parity only when
    a concrete method, DTO, registry probe, or conformance gap is visible.
-2. Keep `make daemon-go-conformance` green while shrinking explicit
+2. Next smallest unblocked slices are production MCP discovery filtering and
+   residual SQLite registry-probe guardrails.
+3. Keep `make daemon-go-conformance` green while shrinking explicit
    fail-closed parity work before the default daemon core flips.
 
 ## Blockers

@@ -93,6 +93,9 @@ The Go daemon port lands through independent, testable slices:
   phase-inference path, including preview/apply behavior, synthesis-job
   insertion, cross-phase edge rewriting, and the PostgreSQL non-terminal-run
   guard.
+- Go `workflow.generate --shape multi_phase` now ports the Python generator's
+  V1.1 output path, including ordered phases, per-track job remapping,
+  `phase_synthesis` gates, and cross-phase synthesis-to-entry edges.
 
 ## Open Questions
 

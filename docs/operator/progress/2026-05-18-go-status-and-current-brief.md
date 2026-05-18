@@ -58,6 +58,10 @@ Go `workflow.upgrade --add-phases` now matches the Python V1-to-V1.1
 phase-inference path for preview/apply, synthesis-job insertion, cross-phase
 edge rewriting, and non-terminal-run refusal.
 
+Go `workflow.generate --shape multi_phase` now also matches the Python V1.1
+generator path for ordered phases, per-track job remapping,
+`phase_synthesis` gates, and cross-phase synthesis-to-entry edges.
+
 RFC 0071's authority-matrix path is now settled by D108: keep the matrix
 curated for authority/status classification, and enforce generated CLI route
 labels plus runtime CLI fallback cells through architecture tests.

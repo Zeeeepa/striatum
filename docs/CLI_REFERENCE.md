@@ -49,8 +49,10 @@ workflow tree from that catalog and immediately validates the generated
 `workflow.json`. Add `--dry-run --json` to preview the full envelope
 without writing files. Real lane sets require lane commands such as
 `--lane-command author='["codex","exec"]'`; the `local` lane set keeps
-the placeholder fixture command. V1 refuses overwrites and does not
-run the workflow automatically.
+the placeholder fixture command. `--shape multi_phase` requires
+`--option phases='<json-array>'` and writes a
+`striatum.workflow.v1.1` workflow with `phases` and `phase_synthesis`
+jobs. V1 refuses overwrites and does not run the workflow automatically.
 
 `workflow upgrade <path> [--dry-run] [--force] [--add-phases --apply]`
 (RFC 0040 V1 / RFC 0045 V1.5) backports the per-model harness-profile

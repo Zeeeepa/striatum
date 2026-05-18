@@ -27,7 +27,7 @@ not calendar time.
 |---|---|
 | Go startup, runtime token bootstrap, shutdown | landed |
 | Go resident recovery scheduler | landed |
-| Go read/mutation handler parity | in_progress |
+| Go read/mutation handler parity | in_progress; multi-phase workflow generation parity landed |
 | Python daemon retirement gate | open |
 
 ## Decisions Made
