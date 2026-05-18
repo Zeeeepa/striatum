@@ -282,7 +282,10 @@ def test_publish_on_behalf_rolls_back_when_completion_fails(tmp_path: Path, monk
     def fail_complete(*args: object, **kwargs: object) -> JsonDict:
         raise InvalidTransitionError("forced complete failure")
 
-    monkeypatch.setattr("striatum.dogfood.operator_tools._complete_locked", fail_complete)
+    monkeypatch.setattr(
+        "striatum.legacy_sqlite.dogfood_operator_tools._complete_locked",
+        fail_complete,
+    )
 
     with connect(tmp_path) as conn:
         result = publish_on_behalf(

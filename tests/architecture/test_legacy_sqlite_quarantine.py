@@ -110,7 +110,7 @@ PRODUCTION_SQLITE_QUARANTINE = {
         "adapter transition",
         "legacy run prepare and workflow event helpers retained for fixtures",
     ),
-    Path("src/striatum/dogfood/operator_tools.py"): SQLiteClassification(
+    Path("src/striatum/legacy_sqlite/dogfood_operator_tools.py"): SQLiteClassification(
         "dogfood fixture",
         "operator dogfood recovery tools are compatibility fixtures",
     ),
@@ -360,6 +360,28 @@ def test_supervisor_import_does_not_eager_load_legacy_sqlite_modules() -> None:
     ]
     code = (
         "import sys; import striatum.supervisor; "
+        f"legacy={legacy_modules!r}; "
+        "print('\\n'.join(name for name in legacy if name in sys.modules))"
+    )
+
+    proc = subprocess.run(
+        [sys.executable, "-c", code],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    assert proc.stdout.strip() == ""
+
+
+def test_dogfood_import_does_not_eager_load_legacy_sqlite_modules() -> None:
+    legacy_modules = [
+        "sqlite3",
+        "striatum.db",
+        "striatum.legacy_sqlite.dogfood_operator_tools",
+    ]
+    code = (
+        "import sys; import striatum.dogfood; import striatum.dogfood.operator_tools; "
         f"legacy={legacy_modules!r}; "
         "print('\\n'.join(name for name in legacy if name in sys.modules))"
     )
