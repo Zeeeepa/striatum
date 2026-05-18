@@ -831,6 +831,18 @@ def build_parser() -> argparse.ArgumentParser:
     corpus_verify = corpus_sub.add_parser("verify")
     corpus_verify.add_argument("--bundle", required=True)
     corpus_verify.add_argument("--json", action="store_true")
+    corpus_migrate = corpus_sub.add_parser(
+        "migrate-historical-dogfoods",
+        help="RFC 0072: bulk-upload docs/dogfood/ to per-repo S3 bucket.",
+    )
+    corpus_migrate.add_argument(
+        "--bucket",
+        required=True,
+        help="Per-repo blob_bucket recorded on striatumd.repositories.",
+    )
+    corpus_migrate.add_argument("--dry-run", action="store_true")
+    corpus_migrate.add_argument("--limit", type=int, default=None)
+    corpus_migrate.add_argument("--json", action="store_true")
 
     archive = sub.add_parser("archive")
     archive_sub = archive.add_subparsers(dest="archive_command", required=True)

@@ -167,6 +167,10 @@ def dispatch(args: argparse.Namespace) -> object:
     # limited to explicitly quarantined legacy fixtures.
     local_verify = (
         (args.command == "corpus" and getattr(args, "corpus_command", None) == "verify")
+        or (
+            args.command == "corpus"
+            and getattr(args, "corpus_command", None) == "migrate-historical-dogfoods"
+        )
         or (args.command == "archive" and getattr(args, "archive_command", None) == "verify")
         or (
             args.command == "operator"
@@ -216,6 +220,11 @@ def dispatch(args: argparse.Namespace) -> object:
         "byline",
     }
     if args.command == "corpus" and getattr(args, "corpus_command", None) == "verify":
+        skip_daemon_route = True
+    if (
+        args.command == "corpus"
+        and getattr(args, "corpus_command", None) == "migrate-historical-dogfoods"
+    ):
         skip_daemon_route = True
     if args.command == "archive" and getattr(args, "archive_command", None) == "verify":
         skip_daemon_route = True
@@ -574,6 +583,32 @@ def dispatch(args: argparse.Namespace) -> object:
         if not bundle.is_absolute():
             bundle = repo / bundle
         return verify_corpus_bundle(bundle)
+    if args.command == "corpus" and args.corpus_command == "migrate-historical-dogfoods":
+        from striatum.corpus.migrate_historical_dogfoods import run_migration
+
+        entries, counts = run_migration(
+            repo=repo,
+            bucket=str(args.bucket),
+            dry_run=bool(args.dry_run),
+            limit=args.limit,
+        )
+        result = {
+            "ok": counts.get("error", 0) == 0,
+            "counts": counts,
+            "entries": [
+                {
+                    "dogfood_id": e.dogfood_id,
+                    "rel_path": e.rel_path,
+                    "blob_key": e.blob_key,
+                    "sha256": e.sha256,
+                    "size_bytes": e.size_bytes,
+                    "status": e.status,
+                    "error": e.error,
+                }
+                for e in entries
+            ],
+        }
+        return result
     if args.command == "archive" and args.archive_command == "verify":
         from striatum.archive import verify_run_archive
 
