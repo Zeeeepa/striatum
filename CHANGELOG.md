@@ -100,6 +100,9 @@ Recent checkpoints:
   `STRIATUM_LEGACY_SERVICE_FIXTURE=1` marker in addition to the paired
   test-harness daemon opt-out; broad pytest daemon opt-out alone no longer
   disables daemon RPC routing for service calls.
+- Legacy SQLite status/why/doctor introspection helpers moved to
+  `striatum.legacy_sqlite.cli_introspect`; `striatum.cli.introspect` now
+  exposes neutral constants and lazy compatibility accessors.
 - The retired `src/striatum/daemon.py` Python daemon / daemon-global SQLite
   registry module was deleted. Architecture guardrails now assert the module
   remains absent and keep daemon-global refusal coverage on the PostgreSQL
