@@ -23,8 +23,6 @@ from striatum.bootstrap import (
     require_operational_scratch as _bootstrap_require_operational_scratch,
 )
 from striatum.cli.introspect import doctor as repo_doctor
-from striatum.cli.introspect import status as repo_status
-from striatum.cli.recovery import stale_leases
 from striatum.db import (
     connect as connect_repo,
     ensure_initialized,
@@ -1901,49 +1899,6 @@ def _audit_segment_records(conn: sqlite3.Connection) -> list[dict[str, Any]]:
             break
         previous_segment_last_hash = str(last["row_hash"])
     return records
-
-
-def dashboard_all(*, token: str | None = None) -> dict[str, Any]:
-    conn = connect_registry()
-    token = read_runtime_token() if token is None else token
-    with registry_transaction(conn):
-        allowed_ids, auth = _readable_repository_ids(conn, token=token)
-        audit_request(conn, command="dashboard.all", auth=auth, transport="cli")
-        if auth.authorization_result != "allowed":
-            try:
-                conn.commit()
-            except sqlite3.Error:
-                pass
-            _raise_denied(auth)
-        repos = conn.execute(
-            "SELECT * FROM repositories WHERE state != 'removed' ORDER BY repository_id"
-        ).fetchall()
-    result: list[dict[str, Any]] = []
-    for repo_row in repos:
-        if int(repo_row["repository_id"]) not in allowed_ids:
-            continue
-        repo = Path(str(repo_row["repo_root"]))
-        entry: dict[str, Any] = {
-            "repository_id": int(repo_row["repository_id"]),
-            "display_name": repo_row["display_name"],
-            "repo_root": str(repo),
-            "state": repo_row["state"],
-        }
-        try:
-            with connect_repo(repo) as repo_conn:
-                entry["status"] = repo_status(repo_conn, run_id=None)
-                stale: list[dict[str, Any]] = []
-                run_rows = repo_conn.execute(
-                    "SELECT run_id FROM runs WHERE state IN ('running','paused') ORDER BY created_at"
-                ).fetchall()
-                for run in run_rows:
-                    stale.append(stale_leases(repo_conn, run_id=str(run["run_id"])))
-                entry["stale_leases"] = stale
-        except Exception as exc:  # noqa: BLE001 - one bad repo must not abort global view
-            entry["state"] = "degraded"
-            entry["error"] = str(exc)
-        result.append(entry)
-    return {"mode": "daemon", "protocol_version": PROTOCOL_VERSION, "repositories": result}
 
 
 def daemon_sweep_once(

@@ -166,7 +166,6 @@ DAEMON_CONNECT_REGISTRY_CALLERS: dict[str, str] = {
     "daemon_status": "legacy RFC 0028 daemon registry fallback",
     "daemon_stop": "legacy RFC 0028 daemon registry fallback",
     "daemon_sweep_once": "legacy RFC 0028 daemon registry fallback",
-    "dashboard_all": "legacy dashboard fallback",
     "health": "legacy RFC 0028 daemon registry fallback",
     "read_doctor": "legacy read fallback",
     "rotate_audit_segment_for_test": "test-only legacy registry helper",
@@ -299,7 +298,6 @@ def test_primary_service_lazy_loads_legacy_api_wrapper() -> None:
     "call",
     [
         lambda: daemon.run_daemon_foreground(max_sweeps=1),
-        lambda: daemon.dashboard_all(token="dtok_missing.secret"),
         lambda: daemon.daemon_sweep_once(),
         lambda: daemon.health(),
         lambda: daemon.daemon_audit(),
