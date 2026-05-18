@@ -24,18 +24,6 @@ type CancelRunner interface {
 	Cancel(ctx context.Context, repositoryID string, localRunID string, reason string) error
 }
 
-type NoopLocalRunner struct{}
-
-func (NoopLocalRunner) Prepare(ctx context.Context, repositoryID string, alias string, crossRepoRunID string) (string, error) {
-	return "", fmt.Errorf("cross-repo local prepare is not wired in the Go daemon")
-}
-func (NoopLocalRunner) Start(ctx context.Context, repositoryID string, localRunID string) error {
-	return fmt.Errorf("cross-repo local start is not wired in the Go daemon")
-}
-func (NoopLocalRunner) Cancel(ctx context.Context, repositoryID string, localRunID string, reason string) error {
-	return fmt.Errorf("cross-repo local cancel is not wired in the Go daemon")
-}
-
 func PrepareRun(ctx context.Context, runner db.Runner, workflow map[string]any, local PrepareRunner, crossRepoRunID string) (map[string]any, error) {
 	repositories, primaryAlias, err := repositories(workflow)
 	if err != nil {
