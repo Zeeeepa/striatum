@@ -79,6 +79,10 @@ Recent checkpoints:
   `--daemon`/`dashboard --all` SQLite fallback paths are removed; remaining
   `striatum.daemon` imports are explicit legacy migration/test fixtures
   (D117).
+- Legacy daemon security fixture coverage was narrowed again: runtime token and
+  daemon MCP denial checks now exercise `daemon_runtime`, `daemon_pg.client_admin`,
+  and daemon RPC capability helpers directly, leaving the Python daemon import
+  to cutover/quarantine fixtures.
 - Runtime path and token-file helpers now live in `striatum.daemon_runtime`,
   and PostgreSQL repository registration helpers used by day-zero setup and
   daemon RPC routing now live in `striatum.daemon_pg.repositories`, reducing

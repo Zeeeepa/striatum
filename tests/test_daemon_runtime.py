@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from striatum import daemon
+from striatum.daemon_pg import client_admin
 from striatum.daemon_runtime import (
     ENV_RUNTIME,
     DaemonRuntimeTokenError,
@@ -25,8 +25,9 @@ def test_runtime_paths_resolve_from_runtime_env(
 
     assert socket_path() == runtime.resolve() / "striatumd.sock"
     assert token_file() == runtime.resolve() / "client-token"
-    assert daemon.socket_path() == socket_path()
-    assert daemon.ENV_RUNTIME == ENV_RUNTIME
+    assert client_admin.runtime_dir() == runtime.resolve()
+    assert client_admin.token_file() == token_file()
+    assert client_admin.ENV_RUNTIME == ENV_RUNTIME
 
 
 def test_runtime_token_round_trips_owner_only_file(
@@ -52,5 +53,15 @@ def test_runtime_token_rejects_group_or_world_readable_file(
 
     with pytest.raises(DaemonRuntimeTokenError, match="owner-only"):
         read_runtime_token()
-    with pytest.raises(daemon.DaemonAuthError, match="owner-only"):
-        daemon.read_runtime_token()
+    with pytest.raises(DaemonRuntimeTokenError, match="owner-only"):
+        client_admin.read_runtime_token()
+
+
+def test_runtime_token_ignores_plaintext_env_var(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv(ENV_RUNTIME, str(tmp_path / "runtime"))
+    monkeypatch.setenv("STRIATUM_DAEMON_TOKEN", "dtok_forbidden.secret")
+
+    assert read_runtime_token() is None

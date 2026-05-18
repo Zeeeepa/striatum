@@ -4,7 +4,8 @@ import json
 from pathlib import Path
 from typing import Any, cast
 
-from striatum import daemon
+from striatum.daemon_pg import client_admin as daemon
+from striatum.daemon_rpc.capability import authorize
 from striatum.daemon_rpc.capability import RpcAuthContext
 from striatum.daemon_rpc.envelope import RpcEnvelope, RpcError, RpcResponse
 from striatum.daemon_rpc.registry import CAPABILITIES, METHOD_REGISTRY, mcp_tool_descriptor
@@ -63,6 +64,27 @@ def test_daemon_mcp_resource_read_without_pg_conn_fails_closed_before_sqlite(
     assert response["error"]["code"] == -32603
     assert "daemon MCP resources require daemon PostgreSQL" in response["error"]["message"]
     assert not registry.exists()
+
+
+def test_authorize_refuses_malformed_tokens() -> None:
+    for token in ("notoken", ".", "dtok_abc."):
+        auth = authorize(object(), required="read", repository_id=None, token=token)
+        assert auth.decision == "denied"
+        assert auth.denial_reason == "token_malformed"
+
+
+def test_daemon_mcp_denies_legacy_invoke() -> None:
+    response = DaemonRpcServer().handle_request(
+        {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "striatum/invoke",
+            "params": {"args": ["status"]},
+        }
+    )
+
+    assert response is not None
+    assert response["error"]["code"] == -32601
 
 
 def _method_contract() -> dict[str, dict[str, Any]]:
