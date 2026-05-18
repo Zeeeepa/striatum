@@ -308,7 +308,8 @@ fallback path or repo-administration path.
   reproducible and Go contract parity tests catch drift.
 - CLI/MCP contract tests now assert routed CLI methods are registered,
   workflow authoring stays CLI-local, daemon fallback routes are unused,
-  and daemon MCP tools hide CLI-local and deprecated methods.
+  and daemon MCP tools hide CLI-local, deprecated, and production-unsupported
+  retired composite methods.
 - Daemon MCP tool descriptors are now generated from `METHOD_REGISTRY`, so
   method name, required capability, and repository-scope mode are no longer
   hand-written in `mcp.py`.

@@ -16,7 +16,7 @@ type Tool struct {
 func VisibleTools(ctx context.Context, authorizer rpc.Authorizer, token string, repositoryID string) []Tool {
 	tools := []Tool{}
 	for _, entry := range rpc.SortedMethods() {
-		if entry.RequiredCapability == nil || isInternal(entry.Method) || entry.Deprecated {
+		if entry.RequiredCapability == nil || isInternal(entry.Method) || isHiddenProductionTool(entry.Method) || entry.Deprecated {
 			continue
 		}
 		scopeRepo := ""
@@ -39,4 +39,22 @@ func VisibleTools(ctx context.Context, authorizer rpc.Authorizer, token string, 
 
 func isInternal(method string) bool {
 	return method == "daemon.hello" || method == "daemon.describe"
+}
+
+func isHiddenProductionTool(method string) bool {
+	switch method {
+	case "workflow.validate",
+		"workflow.plan",
+		"workflow.graph",
+		"workflow.templates.list",
+		"workflow.templates.show",
+		"workflow.init",
+		"workflow.generate",
+		"workflow.upgrade",
+		"dogfood.publish_on_behalf",
+		"dogfood.surgical_recovery":
+		return true
+	default:
+		return false
+	}
 }

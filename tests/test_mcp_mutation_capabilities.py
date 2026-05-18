@@ -8,7 +8,7 @@ from striatum import daemon
 from striatum.daemon_rpc.capability import RpcAuthContext
 from striatum.daemon_rpc.envelope import RpcEnvelope, RpcError, RpcResponse
 from striatum.daemon_rpc.registry import CAPABILITIES, METHOD_REGISTRY, mcp_tool_descriptor
-from striatum.daemon_rpc.server import DaemonRpcRouter, LOCAL_FILE_AUTHORING_METHODS
+from striatum.daemon_rpc.server import DaemonRpcRouter, LOCAL_FILE_AUTHORING_METHODS, PRODUCTION_MCP_HIDDEN_METHODS
 from striatum.daemon_pg.mcp_dispatch import dispatch_mcp_tool_call
 from striatum.mcp import DaemonRpcServer
 
@@ -110,7 +110,7 @@ def _expected_daemon_mcp_tools(allowed_capabilities: set[str]) -> set[str]:
             continue
         if method.startswith("daemon."):
             continue
-        if method in LOCAL_FILE_AUTHORING_METHODS or _contract_bool(
+        if method in PRODUCTION_MCP_HIDDEN_METHODS or _contract_bool(
             meta,
             "local_file_authoring",
             "cli_local",
@@ -167,6 +167,7 @@ def test_daemon_mcp_tools_match_registered_non_deprecated_authorized_methods(mon
     for name in names:
         assert tools_by_name[str(name)] == mcp_tool_descriptor(METHOD_REGISTRY[str(name)])
     assert not (names & LOCAL_FILE_AUTHORING_METHODS)
+    assert not (names & PRODUCTION_MCP_HIDDEN_METHODS)
     assert not {
         method
         for method in names
@@ -174,7 +175,7 @@ def test_daemon_mcp_tools_match_registered_non_deprecated_authorized_methods(mon
     }
 
 
-def test_daemon_mcp_tools_list_exposes_surgical_recovery_only_for_matching_capability(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+def test_daemon_mcp_tools_list_hides_retired_dogfood_composites(monkeypatch) -> None:  # type: ignore[no-untyped-def]
     def fake_authorize(conn: object, *, required: str | None, repository_id: str | None, token: str | None) -> RpcAuthContext:
         decision = "allowed" if required == "surgical_recovery" else "denied"
         return RpcAuthContext(
@@ -191,7 +192,7 @@ def test_daemon_mcp_tools_list_exposes_surgical_recovery_only_for_matching_capab
     tools = DaemonRpcServer(pg_conn=object()).daemon_tool_specs({"token": "dtok.secret", "repository_id": "repo_a"})
 
     names = {tool["name"] for tool in tools}
-    assert "dogfood.surgical_recovery" in names
+    assert "dogfood.surgical_recovery" not in names
     assert "dogfood.publish_on_behalf" not in names
 
 

@@ -1354,12 +1354,13 @@ RFC 0032 extends the daemon V2 capability vocabulary to `read`, `write`,
 method declares a repository scope mode: `single_repo`, `cross_repo`, or
 `daemon_global`. Daemon MCP mutation tools are derived from that method
 registry when the PostgreSQL daemon substrate is active. `tools/list`
-returns only the effective tool set allowed by the token's capability and
-scope, while `tools/call` re-authorizes every request even if the tool was
+returns only the effective supported production tool set allowed by the
+token's capability, repository scope, and production-support visibility
+filter, while `tools/call` re-authorizes every request even if the tool was
 listed earlier. Denials are metadata-audited with transport `mcp`; hidden
-tools are not treated as authorized. There is no V2 daemon MCP equivalent
-of `serve --allow-mutations`. Per D103, this daemon MCP surface is mandatory
-for operator-driven workflow mutation, not an optional convenience wrapper.
+tools are not treated as authorized. There is no V2 daemon MCP equivalent of
+`serve --allow-mutations`. Per D103, this daemon MCP surface is mandatory for
+operator-driven workflow mutation, not an optional convenience wrapper.
 
 RFC 0032 also adds daemon DB tables for `cross_repo_runs`,
 `cross_repo_run_repositories`, `cross_repo_cycle_counters`, and

@@ -216,10 +216,10 @@ writes. It is a local adapter over the existing CLI/API semantics.
 
 Daemon MCP is a daemon RPC client surface over the daemon-owned
 PostgreSQL substrate. It is not the old resources-only registry handler:
-`tools/list` returns the caller's effective method-registry tools,
-`tools/call` dispatches through daemon RPC, and every call is
-re-authorized under the provided token and repository scope. Denied calls
-append metadata-only audit/request-log rows with `transport = "mcp"`.
+`tools/list` returns the caller's effective supported production tools,
+`tools/call` dispatches through daemon RPC, and every call is re-authorized
+under the provided token and repository scope. Denied calls append
+metadata-only audit/request-log rows with `transport = "mcp"`.
 There is no MCP-specific trust shortcut and no daemon-MCP equivalent of
 `serve --allow-mutations`.
 
@@ -247,12 +247,16 @@ CLI registry surfaces.
 Daemon MCP mutation capabilities use the closed RFC 0032 vocabulary:
 `read`, `write`, `review`, `claim`, `apply`, `admin`, `recovery`, and
 `surgical_recovery`.
-`tools/list` returns the effective tool set: method registry entries
-intersected with the token's grants and repository scope. `tools/call`
-fails closed for unknown methods, missing tokens, revoked/expired tokens,
-missing capabilities, expired capabilities, and repository scope
-mismatches. Repo-scoped `apply` grants remain single-repo; a token that
-can apply in repo A cannot apply in repo B.
+`tools/list` returns the effective supported production tool set: method
+registry entries intersected with the token's grants, repository scope, and
+the production-support visibility filter. Local workflow-file authoring
+methods and retired dogfood composites are hidden from discovery, even though
+direct `tools/call` still re-authorizes and fails closed/audits when a hidden
+registered method is called. `tools/call` also fails closed for unknown
+methods, missing tokens, revoked/expired tokens, missing capabilities,
+expired capabilities, and repository scope mismatches. Repo-scoped `apply`
+grants remain single-repo; a token that can apply in repo A cannot apply in
+repo B.
 
 Striatum's MCP and chat tool surfaces do **not** include any `memory.*`
 capability. Engram (under RFC 0044) defines its own `memory.read_striatum`,
@@ -267,9 +271,9 @@ and [RFC 0057](rfcs/0057-corpus-contract-v2.md).
 
 RFC 0036 adds an agent-facing `striatum-mcp` skill and chat workflow
 generation tools over the existing surfaces. Agents should call
-`tools/list` first because it is the effective tool set for the current
-token. `tools/call` remains the authorization boundary and re-checks every
-call.
+`tools/list` first because it is the effective supported production tool set
+for the current token. `tools/call` remains the authorization boundary and
+re-checks every call.
 
 Workflow generation follows preview-then-write. `generate_workflow_preview`
 writes nothing and returns the generated workflow, files, graph metadata,

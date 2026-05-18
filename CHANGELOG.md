@@ -172,6 +172,10 @@ Recent checkpoints:
   `dogfood.publish_on_behalf` and `dogfood.surgical_recovery` composites in
   favor of primitive daemon methods until a PostgreSQL-native composite is
   designed.
+- Production daemon MCP `tools/list` now hides local workflow-file authoring
+  methods and the retired dogfood composites in both Python and Go, while
+  direct `tools/call` dispatch still reauthorizes and returns the explicit
+  fail-closed RPC errors for those composites.
 - `striatum daemon doctor --authority --json` now emits a cutover authority
   report covering PostgreSQL live-state authority, disabled legacy SQLite
   registry status, daemon method fallback counts, allowed migration/test-only

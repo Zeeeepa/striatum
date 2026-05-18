@@ -77,6 +77,11 @@ authoring/MCP surfaces ambiguous.
   both Python and Go daemon paths with explicit fail-closed RPC errors because
   the historical composites were SQLite-bound. Operators should use primitive
   daemon methods until a PostgreSQL-native composite is accepted.
+- Production daemon MCP `tools/list` now exposes only supported production
+  methods. It hides local workflow-file authoring methods and the retired
+  dogfood composites in both Python and Go; direct `tools/call` still
+  reauthorizes, audits, and returns the explicit fail-closed RPC error for a
+  hidden registered composite.
 
 ## Open Questions
 

@@ -30,14 +30,16 @@ Go `status` now matches the PostgreSQL/Python read-model shape, and RFC 0058
 V1.5 has landed with `striatum operator current-brief` plus strict
 `operator_brief` context-budget validation. Go `workflow.generate --shape
 multi_phase` now emits the same V1.1 phased workflow graph as Python, closing
-that explicit generator parity gap.
+that explicit generator parity gap. Production daemon MCP `tools/list` now
+hides local workflow-file authoring methods and the retired dogfood composites
+in both Python and Go, while direct hidden composite calls still audit and fail
+closed.
 
 ## Next 1-3 Actions
 
 1. Continue RFC 0068/RFC 0069 Go and PostgreSQL read-model parity only when
    a concrete method, DTO, registry probe, or conformance gap is visible.
-2. Next smallest unblocked slices are production MCP discovery filtering and
-   residual SQLite registry-probe guardrails.
+2. Next smallest unblocked slice is residual SQLite registry-probe guardrails.
 3. Keep `make daemon-go-conformance` green while shrinking explicit
    fail-closed parity work before the default daemon core flips.
 

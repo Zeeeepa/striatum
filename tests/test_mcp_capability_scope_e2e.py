@@ -63,8 +63,27 @@ def test_read_only_token_lists_only_read_tools(
     names = {tool["name"] for tool in harness.mcp_client(token).list_tools(repository_id=str(harness.repos[0].repository_id))}
 
     assert "status" in names
+    assert "workflow.validate" not in names
     assert "publish_artifact" not in names
     assert "apply.reviewed_patch" not in names
+
+
+def test_tools_list_hides_production_unsupported_methods_for_matching_tokens(
+    multi_repo_harness: MultiRepoHarness,
+    clean_daemon_db: None,
+) -> None:
+    harness = multi_repo_harness
+    harness.register_all()
+    token = harness.issue_token(["read", "write", "surgical_recovery"], repo_id=str(harness.repos[0].repository_id))
+
+    names = {tool["name"] for tool in harness.mcp_client(token).list_tools(repository_id=str(harness.repos[0].repository_id))}
+
+    assert "workflow.generate.preview" in names
+    assert "workflow.validate" not in names
+    assert "workflow.generate" not in names
+    assert "workflow.upgrade" not in names
+    assert "dogfood.publish_on_behalf" not in names
+    assert "dogfood.surgical_recovery" not in names
 
 
 def test_pg_daemon_mcp_resources_filter_repo_scope_without_sqlite(

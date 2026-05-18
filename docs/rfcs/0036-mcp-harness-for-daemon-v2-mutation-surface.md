@@ -153,9 +153,9 @@ Skill body covers:
 - `daemon.hello` / `daemon.welcome` for version handshake.
 - `daemon.describe` to list available methods with their required
   capabilities.
-- `tools/list` returns the token's effective tool set (method
-  registry ∩ token capabilities). The agent reads this first to know
-  what it can call.
+- `tools/list` returns the token's effective supported production tool set
+  (method registry ∩ token capabilities ∩ repository scope ∩ production
+  visibility filter). The agent reads this first to know what it should call.
 - `tools/call` invokes a method. Mutating calls must pass `confirm_
   write: true` where the method declares it (e.g., the generator
   write endpoint).

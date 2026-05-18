@@ -1,12 +1,14 @@
 ## MCP Mutation Surface
 
-Call `tools/list` first. It returns the effective tool set for the current
-token. `tools/call` re-authorizes every call; mutating calls append
-metadata-only audit rows, including denials.
+Call `tools/list` first. It returns the effective supported production tool
+set for the current token after capability, repository-scope, and production
+visibility filters. Local workflow-file authoring methods and retired dogfood
+composites are hidden from discovery. `tools/call` re-authorizes every call;
+mutating calls append metadata-only audit rows, including denials.
 
-Use `generate_workflow_preview` before any workflow write. The write path
-requires `confirm_write: true`, `--allow-mutations`, and a separate
-operator confirmation gesture in the chat UI.
+Use `workflow.generate.preview` before any workflow write when it appears in
+`tools/list`. Workflow writes use the CLI or web-chat workflow-authoring flow
+and may not be discoverable through production daemon MCP `tools/list`.
 
 Recover from `capability_missing`, `token_revoked`, `token_expired`,
 `method_unknown`, and `mutations_disabled` by stopping and asking the

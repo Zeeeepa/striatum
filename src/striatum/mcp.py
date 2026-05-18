@@ -553,7 +553,7 @@ class DaemonRpcServer:
             return []
         from striatum.daemon_rpc.capability import authorize
         from striatum.daemon_rpc.registry import METHOD_REGISTRY, mcp_tool_descriptor
-        from striatum.daemon_rpc.server import LOCAL_FILE_AUTHORING_METHODS
+        from striatum.daemon_rpc.server import PRODUCTION_MCP_HIDDEN_METHODS
 
         token_value = params.get("token")
         if token_value is not None and not isinstance(token_value, str):
@@ -565,7 +565,7 @@ class DaemonRpcServer:
                 continue
             if entry.deprecated:
                 continue
-            if entry.method in LOCAL_FILE_AUTHORING_METHODS:
+            if entry.method in PRODUCTION_MCP_HIDDEN_METHODS:
                 continue
             auth = authorize(
                 self.pg_conn,

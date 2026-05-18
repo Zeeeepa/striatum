@@ -38,6 +38,13 @@ LOCAL_FILE_AUTHORING_METHODS: frozenset[str] = frozenset(
     }
 )
 
+PRODUCTION_MCP_HIDDEN_METHODS: frozenset[str] = LOCAL_FILE_AUTHORING_METHODS | frozenset(
+    {
+        "dogfood.publish_on_behalf",
+        "dogfood.surgical_recovery",
+    }
+)
+
 
 class DaemonRpcRouter:
     def __init__(self, *, pg_conn: Any | None = None, repo_root: Path | None = None, substrate_schema: int = 1) -> None:

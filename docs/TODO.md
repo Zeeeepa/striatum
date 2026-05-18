@@ -1303,10 +1303,14 @@ review and plan are root-level operator artifacts:
     repo path to `repository_id`; daemon-mapped `/v1/invoke` production reads
     and mutations route through daemon RPC; local MCP/chat mapped commands
     share that daemon-routing policy; and Python/Go dogfood composites now
-    fail closed before any repo-local SQLite import. Remaining work is to
-    decide whether to reintroduce PostgreSQL-native operator composites or keep
-    the primitive daemon-method workflow as the supported path, plus the
-    broader Python-daemon retirement under RFC 0068.
+    fail closed before any repo-local SQLite import. Production daemon MCP
+    `tools/list` now hides local workflow-file authoring methods and the
+    retired dogfood composites in both Python and Go, while direct
+    `tools/call` still reauthorizes/audits hidden registered composites before
+    returning the explicit fail-closed RPC error. Remaining work is to decide
+    whether to reintroduce PostgreSQL-native operator composites or keep the
+    primitive daemon-method workflow as the supported path, plus the broader
+    Python-daemon retirement under RFC 0068.
 
 64. **RFC 0071: operator diagnostics and cutover evidence.** Diagnostic slices
     landed: `striatum daemon doctor --authority --json` reports
