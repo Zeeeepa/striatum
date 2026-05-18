@@ -260,11 +260,8 @@ def test_daemon_connect_registry_callers_are_explicitly_classified() -> None:
 
 def test_production_sources_do_not_import_legacy_python_daemon() -> None:
     offenders = _legacy_daemon_imports_under(ROOT / "src" / "striatum")
-    allowed = {
-        Path("src/striatum/legacy_sqlite/daemon_registry.py"),
-    }
 
-    assert offenders == allowed
+    assert offenders == set()
 
 
 def test_legacy_service_owns_page_read_payload_fallbacks() -> None:

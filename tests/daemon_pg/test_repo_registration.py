@@ -10,9 +10,10 @@ from _harness import pg
 from _harness.tokens import issue_token
 from striatum.daemon_pg import client_admin as daemon
 from striatum.daemon_pg.connection import connect
+from striatum.daemon_pg.mcp_resources import dashboard_all_resource_pg
 from striatum.daemon_rpc.envelope import RpcEnvelope
 from striatum.daemon_rpc.server import DaemonRpcRouter
-from striatum.errors import SchemaVersionError
+from striatum.errors import SchemaVersionError, StriatumError
 
 
 @pytest.fixture
@@ -120,6 +121,51 @@ def test_repo_remove_marks_pg_row_and_revokes_repo_scoped_capabilities(
 
     readded = daemon.repo_add(repo)
     assert readded["repository_id"] != repository_id
+
+
+def test_repo_remove_revoked_repo_scoped_token_cannot_read_dashboard_all(
+    tmp_path: Path,
+    pg_url: str,
+    pg_conn: Any,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    monkeypatch.setenv("STRIATUM_DAEMON_DB_URL", pg_url)
+    monkeypatch.setenv(daemon.ENV_RUNTIME, str(tmp_path / "runtime"))
+
+    added = daemon.repo_add(repo, init=True)
+    repository_id = str(added["repository_id"])
+    scoped_read_token = issue_token(pg_conn, capabilities=["read"], repo_id=repository_id)
+
+    removed = daemon.repo_remove(repository_id)
+
+    assert removed["revoked_capabilities"] == 1
+    with pytest.raises(PermissionError, match="capability"):
+        dashboard_all_resource_pg(pg_conn, token=scoped_read_token)
+
+
+def test_repo_add_refuses_symlink_paths_and_traversal(
+    tmp_path: Path,
+    pg_url: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    real_parent = tmp_path / "real"
+    repo = real_parent / "repo"
+    repo.mkdir(parents=True)
+    linked_repo = tmp_path / "repo-link"
+    linked_repo.symlink_to(repo, target_is_directory=True)
+    linked_parent = tmp_path / "linked-parent"
+    linked_parent.symlink_to(real_parent, target_is_directory=True)
+    monkeypatch.setenv("STRIATUM_DAEMON_DB_URL", pg_url)
+    monkeypatch.setenv(daemon.ENV_RUNTIME, str(tmp_path / "runtime"))
+
+    with pytest.raises(StriatumError, match="symlink paths"):
+        daemon.repo_add(linked_repo, init=True)
+    with pytest.raises(StriatumError, match="symlink paths"):
+        daemon.repo_add(linked_parent / "repo", init=True)
+    with pytest.raises(StriatumError, match="path traversal"):
+        daemon.repo_add(tmp_path / "real" / ".." / "real" / "repo", init=True)
 
 
 def test_repo_rpc_routes_are_pg_native_and_authorized(

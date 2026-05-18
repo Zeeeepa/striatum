@@ -1014,11 +1014,12 @@ Release order after Phase 0:
     auto-finalize dry-run visibility, and supervisor-stall detail; the
     terminal dashboard now renders production text frames from daemon DTOs;
     Go `status` now matches the PostgreSQL/Python read-model shape.
-    Architecture tests now classify every remaining direct
-    `striatum.daemon.connect_registry()` caller. Daemon MCP resource fallback
-    without a PostgreSQL connection is retired and fails closed before the
-    legacy registry can open; remaining RFC 0069 work is any future
-    registry-probe/global-surface cleanup found by those guardrail scans.
+    `dashboard --all` now routes through daemon RPC, and architecture tests
+    assert production sources do not import the legacy Python daemon. Daemon
+    MCP resource fallback without a PostgreSQL connection is retired and fails
+    closed before the legacy registry can open; remaining RFC 0069 work is any
+    future registry-probe/global-surface cleanup found by those guardrail
+    scans.
 15. **TODO 63 / RFC 0070:** complete daemon client/service boundaries and
     remove direct client DB access.
 16. **TODO 64 / RFC 0071:** authority doctor and repository cutover report

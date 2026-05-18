@@ -129,9 +129,9 @@ The Go daemon port lands through independent, testable slices:
 - Runtime path/token helpers have moved to `striatum.daemon_runtime`, and
   PostgreSQL repository-registration helpers used by day-zero and daemon RPC
   live in `striatum.daemon_pg.repositories`. Production daemon CLI/admin
-  dispatch uses `striatum.daemon_pg.client_admin`; the remaining direct imports
-  from `striatum.daemon` are legacy daemon, migration, or test-compatibility
-  debt.
+  dispatch uses `striatum.daemon_pg.client_admin`, and the old CLI-side
+  daemon registry wrapper is removed. The remaining direct imports from
+  `striatum.daemon` are legacy daemon, migration, or test-compatibility debt.
 - SQLite-era repository identity and daemon audit-chain validation used by
   one-way migration fixtures now live in `striatum.daemon_pg.sqlite_compat`
   instead of importing `striatum.daemon`.

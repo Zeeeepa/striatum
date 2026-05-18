@@ -1274,9 +1274,11 @@ review and plan are root-level operator artifacts:
     started by moving runtime path/token helpers to `daemon_runtime`,
     PostgreSQL repository registration helpers to `daemon_pg.repositories`,
     and production daemon CLI/admin helpers to `daemon_pg.client_admin`. The
-    `striatumd` console script now targets a Go-daemon launcher shim instead
-    of `striatum.daemon:main`; remaining Python-daemon work is module deletion
-    after legacy SQLite fixtures are converted or deleted.
+    CLI-side legacy daemon registry wrapper and its direct `--daemon` fallback
+    path are removed. The `striatumd` console script now targets a Go-daemon
+    launcher shim instead of `striatum.daemon:main`; remaining Python-daemon
+    work is module deletion after legacy SQLite fixtures are converted or
+    deleted.
     The multi-repo harness participant runner no longer creates or queries
     repo-local SQLite; cross-repo E2E assertions now inspect daemon-owned
     PostgreSQL participant rows. SQLite-era repository identity and daemon
@@ -1313,10 +1315,10 @@ review and plan are root-level operator artifacts:
     blocker/checkpoint payloads, process health, supervisor stalls, phase
     progress, provenance mode, auto-finalize dry-run visibility, and
     deterministic next actions. Production daemon CLI/admin dispatch now uses
-    PostgreSQL-only helpers and isolates the old daemon registry wrapper under
-    `legacy_sqlite` for paired test fixtures. Architecture tests now classify
-    every remaining direct `striatum.daemon` import before the legacy SQLite
-    registry can open.
+    PostgreSQL-only helpers, `dashboard --all` routes through daemon RPC, and
+    the old CLI-side daemon registry wrapper is removed. Architecture tests
+    now assert production sources do not import the legacy Python daemon before
+    the legacy SQLite registry can open.
     Residual daemon-global gaps are any future registry probes found by those
     guardrail scans. The workflow-upgrade running-run guard is now
     PostgreSQL-only and fails closed when PostgreSQL state is unknown, even

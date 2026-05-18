@@ -35,6 +35,21 @@ def test_make_targets_check_wheel_size_before_package_smoke() -> None:
     assert "metadata-check package-wheel-size package-smoke" in makefile
 
 
+def test_smoke_scripts_do_not_fall_back_to_repo_local_sqlite() -> None:
+    forbidden = [
+        "STRIATUM_DAEMON_REQUIRED=0",
+        "STRIATUM_TEST_HARNESS=1",
+        "using legacy test-harness fixture path",
+        'test -f "$TARGET/.striatum/state.sqlite3"',
+    ]
+
+    for script_name in ("fresh_clone_smoke.sh", "package_smoke.sh"):
+        script = (ROOT / "scripts" / script_name).read_text(encoding="utf-8")
+        for needle in forbidden:
+            assert needle not in script
+        assert "PostgreSQL is required for daemon-owned Striatum state" in script
+
+
 def test_packaged_daemon_rpc_contract_matches_root_contract() -> None:
     root_contract = ROOT / "contracts" / "daemon_methods.json"
     packaged_contract = ROOT / "src/striatum/daemon_rpc/daemon_methods.json"

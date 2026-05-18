@@ -108,8 +108,7 @@ Add a production registry tripwire and port daemon-global surfaces in order:
   directory.
 - Production daemon CLI/admin dispatch now imports PostgreSQL-only helpers from
   `striatum.daemon_pg.client_admin`; the legacy Python daemon registry wrapper
-  is isolated under `striatum.legacy_sqlite.daemon_registry` for paired test
-  fixtures.
+  and direct `--daemon` read fallback are removed from CLI dispatch.
 - `workflow upgrade` no longer falls back to repo-local SQLite running-run
   checks in production or under the legacy test-harness escape. PostgreSQL
   verification failures fail closed even when legacy SQLite files exist.

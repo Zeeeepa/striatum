@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import importlib
 import json
 import os
 import sqlite3
@@ -223,9 +222,9 @@ def dispatch(args: argparse.Namespace) -> object:
         )
     # RFC 0043 §3 (V1.5): daemon-required enforcement is the default. Fail
     # fast with exit code 11 (daemon socket unreachable) or 12 (repo not
-    # migrated) before the SQLite-backed fallback is touched. The
-    # ``STRIATUM_DAEMON_REQUIRED=0`` opt-out exists for SQLite-backed
-    # test fixtures and incremental legacy-fixture migration.
+    # migrated) before any legacy local fixture code is touched. The paired
+    # ``STRIATUM_DAEMON_REQUIRED=0`` / ``STRIATUM_TEST_HARNESS=1`` opt-out is
+    # limited to explicitly quarantined legacy fixtures.
     local_verify = (
         (args.command == "corpus" and getattr(args, "corpus_command", None) == "verify")
         or (args.command == "archive" and getattr(args, "archive_command", None) == "verify")
@@ -325,16 +324,9 @@ def dispatch(args: argparse.Namespace) -> object:
         return _dispatch_daemon_repo(args)
     if args.command == "cross-repo":
         return _dispatch_cross_repo(args)
-    if daemon_forced and args.command in {"status", "why", "doctor", "dashboard"}:
-        return _dispatch_daemon_read(args, repo)
     if daemon_forced:
-        # The legacy V1 --daemon flag only routes the four read verbs above.
-        # Any other command under --daemon is a routing gap, not the new
-        # RFC 0043 §3 refusal — surface it as WorkflowError (exit code 8)
-        # so the new exit-code-12 (repo_not_migrated) semantic stays clean.
         raise StriatumError(
-            f"--daemon does not yet route `{args.command}`; "
-            "set STRIATUM_DAEMON_REQUIRED=1 once the daemon-mediated path lands",
+            "--daemon direct fallback is retired; use daemon-routed CLI commands without the flag",
             exit_code=8,
         )
     if args.command == "init":
@@ -563,14 +555,23 @@ def dispatch(args: argparse.Namespace) -> object:
         return _workflow_generate(args, repo)
     if args.command == "dashboard":
         if bool(getattr(args, "all", False)):
-            if not _legacy_sqlite_test_harness_enabled():
+            try:
+                from striatum.cli.daemon_rpc_route import try_route as _try_route_via_daemon
+                routed, payload = _try_route_via_daemon(args, repo)
+                if routed:
+                    return payload
+            except StriatumError:
+                raise
+            except Exception as route_exc:  # noqa: BLE001 - fail closed across the daemon boundary.
                 raise StriatumError(
-                    "dashboard --all must route through daemon RPC in production",
-                    exit_code=8,
-                )
-            from striatum.legacy_sqlite.daemon_registry import dashboard_all
-
-            return dashboard_all()
+                    "daemon_route_failed: dashboard --all failed before RPC dispatch "
+                    f"and cannot fall back to legacy state: {route_exc}",
+                    exit_code=1,
+                ) from route_exc
+            raise StriatumError(
+                "dashboard --all requires daemon RPC routing; legacy SQLite fallback is retired",
+                exit_code=8,
+            )
         if not args.run_id:
             raise StriatumError("dashboard requires --run-id unless --all is used", exit_code=2)
         from striatum.dashboard import run as run_dashboard
@@ -1456,7 +1457,7 @@ def _dispatch_daemon(args: argparse.Namespace) -> object:
         from striatum.cli.daemon import launch_daemon_start
 
         return launch_daemon_start(args)
-    daemon_admin = _daemon_admin_module(args)
+    from striatum.daemon_pg import client_admin as daemon_admin
 
     if args.daemon_command == "doctor":
         from striatum.daemon_pg.connection import doctor as pg_doctor
@@ -1545,20 +1546,6 @@ def _post_pg_cutover_sqlite_registry_result(note: str) -> dict[str, object]:
         "status": "post_pg_cutover_unused",
         "note": note,
     }
-
-
-def _daemon_postgres_configured(*, postgres_url: str | None = None) -> bool:
-    from striatum.daemon_pg.config import resolve_config
-
-    return resolve_config(postgres_url=postgres_url).url is not None
-
-
-def _daemon_admin_module(args: argparse.Namespace) -> Any:
-    if _legacy_sqlite_test_harness_enabled() and not _daemon_postgres_configured(
-        postgres_url=getattr(args, "postgres_url", None)
-    ):
-        return importlib.import_module("striatum.legacy_sqlite.daemon_registry")
-    return importlib.import_module("striatum.daemon_pg.client_admin")
 
 
 def _daemon_doctor_repo_cutover_report(args: argparse.Namespace) -> dict[str, object] | None:
@@ -1715,21 +1702,6 @@ def _daemon_authority_report(
 
 
 def _dispatch_daemon_repo(args: argparse.Namespace) -> object:
-    if _legacy_sqlite_test_harness_enabled():
-        from striatum.legacy_sqlite import daemon_registry as daemon_repo
-        if args.repo_command == "add":
-            return daemon_repo.repo_add(
-                Path(args.path),
-                display_name=args.display_name,
-                no_migrate=bool(args.no_migrate),
-                init=bool(args.init),
-            )
-        if args.repo_command == "list":
-            return daemon_repo.repo_list()
-        if args.repo_command == "remove":
-            return daemon_repo.repo_remove(str(args.id))
-        raise StriatumError("unknown repo command", exit_code=2)
-
     from striatum.daemon_pg import client_admin
 
     if args.repo_command == "add":
@@ -1792,33 +1764,6 @@ def _dispatch_cross_repo(args: argparse.Namespace) -> object:
         if callable(close):
             close()
     raise StriatumError("unknown cross-repo command", exit_code=2)
-
-
-def _dispatch_daemon_read(args: argparse.Namespace, repo: Path) -> object:
-    if not _legacy_sqlite_test_harness_enabled():
-        raise StriatumError(
-            "legacy --daemon read fallback is retired; use daemon RPC routing",
-            exit_code=8,
-        )
-    from striatum.legacy_sqlite import daemon_registry as daemon_read
-
-    if args.command == "status":
-        return daemon_read.read_status(repo, run_id=args.run_id)
-    if args.command == "why":
-        return daemon_read.read_why(repo, target_id=args.id)
-    if args.command == "doctor":
-        return daemon_read.read_doctor(repo, run_id=args.run_id, verbose=bool(args.verbose))
-    if args.command == "dashboard":
-        if bool(getattr(args, "all", False)):
-            return daemon_read.dashboard_all()
-        if not args.run_id:
-            raise StriatumError("dashboard requires --run-id unless --all is used", exit_code=2)
-        raise StriatumError(
-            "--daemon dashboard --run-id is not a V1 daemon route; "
-            "drop --daemon for the dashboard verb or use --daemon status --run-id",
-            exit_code=8,
-        )
-    raise StriatumError("command is not daemon-routable in V1", exit_code=8)
 
 
 def _resolve_publish_defaults(

@@ -121,11 +121,6 @@ if smoke_create_pg_db "$PACKAGE_VENV/bin/python" "$PG_ENV"; then
   test -d "$TARGET/.striatum/scratch"
   test ! -e "$TARGET/.striatum/state.sqlite3"
 else
-  echo "package smoke: PostgreSQL unavailable; using legacy test-harness fixture path" >&2
-  export STRIATUM_DAEMON_REQUIRED=0
-  export STRIATUM_TEST_HARNESS=1
-  export STRIATUM_DAEMON_DB_URL=""
-  "$RUNNER" --repo "$TARGET" init --json >/dev/null
-  run_workflow_smoke "striatum/package-smoke"
-  test -f "$TARGET/.striatum/state.sqlite3"
+  echo "package smoke: skipping; PostgreSQL is required for daemon-owned Striatum state" >&2
+  exit 0
 fi

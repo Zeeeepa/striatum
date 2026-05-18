@@ -75,8 +75,10 @@ Recent checkpoints:
   directly instead of emulating `PRAGMA user_version`.
 - Production daemon CLI/admin dispatch now imports the PostgreSQL-only
   `striatum.daemon_pg.client_admin` surface instead of the legacy Python daemon
-  module. The only CLI-side legacy daemon registry wrapper is isolated under
-  `striatum.legacy_sqlite.daemon_registry` for paired SQLite test fixtures.
+  module. The CLI-side legacy daemon registry wrapper and its direct
+  `--daemon`/`dashboard --all` SQLite fallback paths are removed; remaining
+  `striatum.daemon` imports are explicit legacy migration/test fixtures
+  (D117).
 - Runtime path and token-file helpers now live in `striatum.daemon_runtime`,
   and PostgreSQL repository registration helpers used by day-zero setup and
   daemon RPC routing now live in `striatum.daemon_pg.repositories`, reducing
@@ -510,10 +512,12 @@ Recent checkpoints:
 - `daemon migrate-repo-local --verify-cutover --json` now emits
   `striatum.repo_cutover_report.v1` using PostgreSQL queries plus raw
   source/tombstone/sentinel file checks, without opening SQLite as a database.
-- Fresh-clone and package smoke scripts now exercise the daemon/Postgres repo
-  registration path when PostgreSQL is available, keep their smoke workflow
-  inside the target repository for `run prepare`, install the packaged RPC
-  method contract into wheels, and use the current `striatum-orchestrator`
+- Fresh-clone and package smoke scripts now exercise only the daemon/Postgres
+  repo registration path. If PostgreSQL setup is unavailable they skip with a
+  clear prerequisite message instead of falling back to repo-local SQLite
+  test-harness mode; the scripts still keep their smoke workflow inside the
+  target repository for `run prepare`, install the packaged RPC method
+  contract into wheels, and use the current `striatum-orchestrator`
   distribution artifact names.
 - Artifact view template-context shaping, byline display, recorded
   attestation chips, lane-evidence chips, and expected-artifact row shaping

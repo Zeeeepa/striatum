@@ -42,8 +42,9 @@ registry can open. Writable SQLite import windows are
 closed: retired `daemon migrate` and `daemon migrate-repo-local` spellings
 refuse before importing SQLite migration code. Production daemon CLI/admin
 dispatch now uses PostgreSQL-only helpers instead of importing the legacy
-Python daemon module. `striatum daemon start` now launches the Go daemon; the
-Python daemon selector is retired.
+Python daemon module, and the CLI-side legacy registry wrapper is gone.
+`striatum daemon start` now launches the Go daemon; the Python daemon selector
+is retired.
 
 ## Next 1-3 Actions
 

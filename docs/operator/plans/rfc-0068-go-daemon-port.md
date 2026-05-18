@@ -21,7 +21,8 @@ Move production daemon ownership to Go while keeping Python CLI/web
 clients where useful. `striatum daemon start` now defaults to Go after active
 contract-method parity. Python daemon deletion waits on legacy fixture cleanup
 not calendar time; production daemon CLI/admin dispatch no longer imports the
-legacy daemon module.
+legacy daemon module, and the CLI-side legacy daemon registry wrapper is
+removed.
 
 ## Workstreams
 
