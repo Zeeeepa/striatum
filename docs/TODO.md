@@ -340,13 +340,10 @@ Legend: ✅ done · 🟡 most done (sub-tasks remain) · ⏳ open/blocked · �
     one outer transaction with rollback-event emission on failure, and
     review verdicts are validated + recorded with `findings_artifact_id`
     defaulting from the published artifact when kind=`finding`; (F4)
-    `process_progress.progress_loop_once` is invoked from
-    `daemon.daemon_sweep_once` and folds results into the sweep
-    payload; (F5) `startup_grace_seconds=60` default, `FileNotFoundError`
-    /`OSError` on log scan tolerated, `should_stop` predicate checked
-    between supervisors, shared `progress_advisory_lock`, and PID-reuse
-    guard via `process_start_time`; (F6) `tests/test_mcp_dogfood_e2e.py`
-    + new `test_progress_loop_once_*` cases. 4th codex/codex
+    the legacy `process_progress.progress_loop_once` wrapper was later
+    retired with the Python-daemon sweep path; the shared
+    `daemon_supervisor.progress_watcher` checks remain as compatibility
+    coverage. 4th codex/codex
     anti-pattern instance (D098 cycle-exhaustion override). Codex
     needs_revision findings absorbed into RFC 0040 V1.6 (item 28
     below).

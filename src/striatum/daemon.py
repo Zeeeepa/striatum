@@ -54,7 +54,6 @@ from striatum.errors import (
     SchemaVersionError,
     StriatumError,
 )
-from striatum.process_progress import progress_loop_once
 from striatum.primitives import json_dumps, utc_now
 from striatum.recovery.auto import run_auto_sweep
 from striatum.repo_policy import db_path
@@ -2021,7 +2020,6 @@ def daemon_sweep_once(
         repo = Path(str(repo_row["repo_root"]))
         try:
             with connect_repo(repo) as repo_conn:
-                progress_result = progress_loop_once(repo_conn, repo=repo)
                 runs = repo_conn.execute(
                     "SELECT run_id FROM runs WHERE state IN ('running','paused') ORDER BY created_at"
                 ).fetchall()
@@ -2039,7 +2037,6 @@ def daemon_sweep_once(
                         )
                     started = time.monotonic()
                     result = run_auto_sweep(repo_conn, run_id=run_id, repo=repo, recovery_author=author)
-                    result = {**result, "progress": progress_result}
                     elapsed = time.monotonic() - started
                     state = "active"
                     if elapsed > per_run_timeout_seconds:

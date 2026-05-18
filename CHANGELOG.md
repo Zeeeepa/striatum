@@ -137,6 +137,9 @@ Recent checkpoints:
 - Shared identity helpers no longer import `sqlite3`; the legacy
   session-lane attestation path accepts a generic row-capable connection while
   PostgreSQL code keeps using the substrate-neutral author/process helpers.
+- The legacy `striatum.process_progress` SQLite wrapper was deleted; the
+  retired Python-daemon sweep path no longer invokes repo-local supervised
+  progress reconciliation, while shared progress-watcher coverage remains.
 - The standalone `striatum.daemon_pg.sqlite_compat` helper was removed. Its
   last repository-identity calculation now lives beside the one-way
   repo-local migration fixture, and the unused daemon audit-chain validators
