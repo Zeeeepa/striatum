@@ -462,7 +462,7 @@ def test_recovery_watch_scheduler_refuses_before_sqlite_connect(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    monkeypatch.delenv("STRIATUM_TEST_HARNESS", raising=False)
+    monkeypatch.setenv("STRIATUM_TEST_HARNESS", "1")
     monkeypatch.setenv("STRIATUM_DAEMON_REQUIRED", "1")
     monkeypatch.setenv("STRIATUM_SQLITE_CONNECT_TRIPWIRE", "1")
     monkeypatch.setenv("STRIATUM_DAEMON_SOCKET", str(tmp_path / "missing.sock"))

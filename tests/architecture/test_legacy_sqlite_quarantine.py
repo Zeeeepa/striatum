@@ -72,10 +72,6 @@ PRODUCTION_SQLITE_QUARANTINE = {
         "service transition",
         "legacy recovery sweep retained for fixture and service transition",
     ),
-    Path("src/striatum/recovery/watch.py"): SQLiteClassification(
-        "service transition",
-        "legacy recovery watcher retained for fixture and service transition",
-    ),
     Path("src/striatum/legacy_sqlite/service.py"): SQLiteClassification(
         "service transition",
         "gated subprocess-fixture web fallbacks and legacy page reads isolated from primary service code",

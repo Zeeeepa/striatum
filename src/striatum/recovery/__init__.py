@@ -28,7 +28,6 @@ from striatum.recovery.watch import (
     PIDFILE_COLLISION_EXIT_CODE,
     pidfile_path,
     run_daemon_watch,
-    run_watch,
 )
 
 __all__ = [
@@ -40,7 +39,6 @@ __all__ = [
     "run_daemon_watch",
     "run_marker_file_hook",
     "run_shell_hook",
-    "run_watch",
     "run_webhook_hook",
     "validate_recovery_policy",
 ]

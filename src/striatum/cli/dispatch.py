@@ -290,7 +290,6 @@ def dispatch(args: argparse.Namespace) -> object:
         args.command == "recovery"
         and getattr(args, "recovery_command", None) == "watch"
     )
-    legacy_test_harness = os.environ.get("STRIATUM_TEST_HARNESS") == "1"
     if recovery_watch:
         skip_daemon_route = True
     if not skip_daemon_route:
@@ -637,7 +636,7 @@ def dispatch(args: argparse.Namespace) -> object:
         )
     if args.command == "archive" and args.archive_command == "create":
         raise StriatumError("archive create requires daemon-backed PostgreSQL state", exit_code=8)
-    if recovery_watch and not legacy_test_harness:
+    if recovery_watch:
         from striatum.recovery import run_daemon_watch
         from striatum.service_daemon import ServiceDaemonRpcError
 
@@ -1039,42 +1038,6 @@ def dispatch(args: argparse.Namespace) -> object:
                     exit_code=11,
                 )
             return _cli_inbox(conn, session_id=args.session_id)
-        if args.command == "recovery" and args.recovery_command == "watch":
-            from striatum.recovery import run_watch
-
-            cli_overrides = {
-                "autonomous_review_requeue": getattr(
-                    args, "autonomous_review_requeue", None
-                ),
-                "autonomous_process_reconcile": getattr(
-                    args, "autonomous_process_reconcile", None
-                ),
-                "max_requeues_per_sweep": getattr(
-                    args, "max_requeues_per_sweep", None
-                ),
-                "checkpoint_timeout_seconds": getattr(
-                    args, "checkpoint_timeout_seconds", None
-                ),
-                "eligible_after_seconds": getattr(
-                    args, "eligible_after_seconds", None
-                ),
-            }
-            exit_code = run_watch(
-                repo=repo,
-                run_id=args.run_id,
-                interval_seconds=float(args.interval_seconds),
-                exit_on_terminal=bool(args.exit_on_terminal),
-                max_sweeps=getattr(args, "max_sweeps", None),
-                cli_overrides=cli_overrides,
-                json_output=bool(args.json),
-            )
-            if exit_code != 0:
-                # Pidfile collision is the only non-zero exit shape today;
-                # InvalidTransitionError uses exit code 4 by construction.
-                raise InvalidTransitionError(
-                    f"recovery watch refused (exit {exit_code})"
-                )
-            return None
         if args.command == "checkpoint" and args.checkpoint_command == "resolve":
             return checkpoint_resolve(
                 conn,

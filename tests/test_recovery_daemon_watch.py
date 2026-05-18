@@ -112,6 +112,43 @@ def test_daemon_watch_exits_when_sweep_reports_terminal_run(
     assert lines[-1]["swept_total"] == 1
 
 
+def test_daemon_watch_no_exit_on_terminal_continues(tmp_path: Path) -> None:
+    calls = 0
+
+    def call_method(_repo: Path, method: str, params: Mapping[str, Any]) -> dict[str, Any]:
+        nonlocal calls
+        calls += 1
+        assert method == "recovery.sweep"
+        return {
+            "run_id": params["run_id"],
+            "run_state": "completed",
+            "swept_at": "2026-05-17T00:00:00Z",
+            "actions": [],
+            "escalations": [],
+            "still_stuck": [],
+        }
+
+    out = StringIO()
+
+    code = run_daemon_watch(
+        tmp_path,
+        run_id="run_1",
+        interval_seconds=0,
+        exit_on_terminal=False,
+        max_sweeps=2,
+        json_output=True,
+        stdout=out,
+        install_signal_handlers=False,
+        call_method=call_method,
+        now=lambda: "2026-05-17T00:00:05Z",
+    )
+
+    assert code == 0
+    assert calls == 2
+    lines = [json.loads(line) for line in out.getvalue().splitlines()]
+    assert lines[-1]["reason"] == "max_sweeps_reached"
+
+
 def test_daemon_watch_pidfile_collision_refused(tmp_path: Path) -> None:
     pidfile = tmp_path / ".striatum" / "scratch" / "recovery-watch-run_1.pid"
     pidfile.parent.mkdir(parents=True, exist_ok=True)
@@ -132,3 +169,30 @@ def test_daemon_watch_pidfile_collision_refused(tmp_path: Path) -> None:
     line = json.loads(out.getvalue().splitlines()[0])
     assert line["event"] == "watch_collision"
     assert "another recovery watch is active" in line["message"]
+
+
+def test_daemon_watch_stale_pidfile_overwritten(tmp_path: Path) -> None:
+    pidfile = tmp_path / ".striatum" / "scratch" / "recovery-watch-run_1.pid"
+    pidfile.parent.mkdir(parents=True, exist_ok=True)
+    pidfile.write_text("99999999\n", encoding="ascii")
+
+    code = run_daemon_watch(
+        tmp_path,
+        run_id="run_1",
+        interval_seconds=0,
+        max_sweeps=1,
+        json_output=True,
+        stdout=StringIO(),
+        install_signal_handlers=False,
+        call_method=lambda _repo, _method, params: {
+            "run_id": params["run_id"],
+            "run_state": "running",
+            "swept_at": "2026-05-17T00:00:00Z",
+            "actions": [],
+            "escalations": [],
+            "still_stuck": [],
+        },
+    )
+
+    assert code == 0
+    assert not pidfile.exists()

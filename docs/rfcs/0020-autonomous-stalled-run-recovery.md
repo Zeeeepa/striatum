@@ -289,7 +289,7 @@ Defer because it destroys work.
   hook kinds, repo-internal marker-file paths, and negative
   numbers.
 - Tests at `tests/test_recovery_auto.py` and
-  `tests/test_recovery_watch.py` cover: stale-lease sweep,
+  `tests/test_recovery_daemon_watch.py` cover: stale-lease sweep,
   process-reconcile sweep, checkpoint escalation, retry-budget
   enforcement, hook kinds, daemon lifetime, single-instance
   enforcement, dry-run idempotency, and the
