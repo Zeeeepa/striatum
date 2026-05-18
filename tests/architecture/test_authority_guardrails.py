@@ -99,6 +99,9 @@ DIRECT_PG_BOOTSTRAP_IMPORT_ALLOWLIST: dict[str, set[str]] = {
         "striatum.daemon_pg.config.resolve_config",
         "striatum.daemon_pg.connection.connect",
     },
+    "src/striatum/legacy_sqlite/repo_local_migration.py::<module>": {
+        "striatum.daemon_pg.connection.connect",
+    },
 }
 
 

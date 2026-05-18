@@ -123,6 +123,14 @@ Recent checkpoints:
   `striatum.legacy_sqlite.repo_local_migration`; the old
   `striatum.daemon_pg.repo_local_migration` import path is now a lazy facade
   and no longer imports SQLite on plain module import.
+- Legacy service/chat/MCP subprocess fixtures now opt into
+  `STRIATUM_LEGACY_SERVICE_FIXTURE=1` explicitly, and the authority matrix
+  names the retired repo-local migration import fixture's bounded direct-PG
+  exception.
+- The 2026-05-18 architecture review artifacts were refreshed to reflect the
+  Go/PostgreSQL daemon, capability-token, public-adoption, and
+  human-principal escalation direction; the rejected embedded-storage and
+  single-binary recommendations remain out of the actionable roadmap.
 - The retired `src/striatum/daemon.py` Python daemon / daemon-global SQLite
   registry module was deleted. Architecture guardrails now assert the module
   remains absent and keep daemon-global refusal coverage on the PostgreSQL

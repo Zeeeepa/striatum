@@ -65,6 +65,7 @@ imports and fails on unlisted direct PostgreSQL client helpers.
 | `src/striatum/cli/dispatch.py::_dispatch_daemon_repo` | `repo add/list/remove` CLI bridge | `client_admin` | calls PostgreSQL admin client helpers; no repo-local SQLite state |
 | `src/striatum/cli/dispatch.py::_dispatch_cross_repo` | paired legacy test-harness fallback for cross-repo commands | `connect_and_migrate` | production path refuses before this branch unless the paired test-harness escape is enabled |
 | `src/striatum/cli/workflow.py::_running_runs_for_workflow_pg` | local workflow-upgrade running-run guard | `resolve_config`, `connect` | read-only guard; fail closed when daemon PostgreSQL state is unknown |
+| `src/striatum/legacy_sqlite/repo_local_migration.py::<module>` | retired repo-local SQLite import fixture | `connect` | legacy migration fixture only; operator command refuses before importing this module |
 
 ## Registered Daemon Methods
 

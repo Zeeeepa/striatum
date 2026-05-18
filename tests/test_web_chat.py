@@ -159,6 +159,7 @@ def _spawn_service_with_chat(
     env["STRIATUM_CHAT_API_KEY"] = "fake-key"
     env["STRIATUM_CHAT_MODEL"] = model
     env["STRIATUM_CHAT_API_FLAVOR"] = flavor
+    env["STRIATUM_LEGACY_SERVICE_FIXTURE"] = "1"
     with _socket.socket(_socket.AF_INET, _socket.SOCK_STREAM) as sock:
         sock.bind(("127.0.0.1", 0))
         port = cast(int, sock.getsockname()[1])
@@ -224,6 +225,7 @@ def test_chat_disabled_without_env_vars(tmp_path: Path) -> None:
     _striatum_init(tmp_path)
     env = os.environ.copy()
     env["PYTHONPATH"] = str(ROOT / "src")
+    env["STRIATUM_LEGACY_SERVICE_FIXTURE"] = "1"
     # Strip any existing chat env vars so we test the empty-state.
     for key in (
         "STRIATUM_CHAT_API_BASE_URL", "STRIATUM_CHAT_API_KEY",
@@ -410,6 +412,7 @@ def test_chat_unconfigured_post_new_returns_412(tmp_path: Path) -> None:
     _striatum_init(tmp_path)
     env = os.environ.copy()
     env["PYTHONPATH"] = str(ROOT / "src")
+    env["STRIATUM_LEGACY_SERVICE_FIXTURE"] = "1"
     for key in (
         "STRIATUM_CHAT_API_BASE_URL", "STRIATUM_CHAT_API_KEY",
         "STRIATUM_CHAT_MODEL", "STRIATUM_CHAT_API_FLAVOR",

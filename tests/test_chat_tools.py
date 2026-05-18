@@ -158,8 +158,12 @@ def test_git_diff_dirty_tree(tmp_path: Path) -> None:
 # --- striatum_status / striatum_why ---------------------------------
 
 
-def test_striatum_status_in_initialized_repo(tmp_path: Path) -> None:
+def test_striatum_status_in_initialized_repo(
+    tmp_path: Path,
+    monkeypatch: Any,
+) -> None:
     _git_init(tmp_path)
+    monkeypatch.setenv("STRIATUM_LEGACY_SERVICE_FIXTURE", "1")
     from striatum.db import init_repo as legacy_init_repo
 
     legacy_init_repo(tmp_path)
@@ -184,8 +188,12 @@ def _workflow_spec() -> dict[str, Any]:
     }
 
 
-def test_generate_workflow_preview_tool_writes_nothing(tmp_path: Path) -> None:
+def test_generate_workflow_preview_tool_writes_nothing(
+    tmp_path: Path,
+    monkeypatch: Any,
+) -> None:
     _git_init(tmp_path)
+    monkeypatch.setenv("STRIATUM_LEGACY_SERVICE_FIXTURE", "1")
     out = execute_tool("generate_workflow_preview", {"spec": _workflow_spec()}, repo=tmp_path)
     parsed = json.loads(out)
     assert parsed["ok"] is True

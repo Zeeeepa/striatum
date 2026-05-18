@@ -381,7 +381,11 @@ def test_local_mcp_raw_invoke_routes_mapped_reads_through_daemon_rpc(
     assert calls == [(tmp_path, "status", {})]
 
 
-def test_local_mcp_wrapper_supports_resources_and_raw_invoke(tmp_path: Path) -> None:
+def test_local_mcp_wrapper_supports_resources_and_raw_invoke(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("STRIATUM_LEGACY_SERVICE_FIXTURE", "1")
     server = LocalRpcServer(repo=tmp_path)
     init_repo(tmp_path)
 
@@ -475,7 +479,11 @@ def test_mcp_handles_two_framed_requests_in_sequence(tmp_path: Path) -> None:
     assert tools == []
 
 
-def test_mcp_handles_framed_body_with_embedded_newlines(tmp_path: Path) -> None:
+def test_mcp_handles_framed_body_with_embedded_newlines(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("STRIATUM_LEGACY_SERVICE_FIXTURE", "1")
     init_repo(tmp_path)
     # A multi-line request body is the whole point of Content-Length framing.
     payload: dict[str, Any] = {

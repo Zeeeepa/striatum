@@ -1,22 +1,10 @@
 # STRIATUM ARCHITECTURE REVIEW
-author: reviewer-gemini-cli-001
 
 **Date:** 2026-05-18
 **Reviewer:** Gemini CLI
 **Project:** striatum-orchestrator (Striatum)
 
 ---
-
-## Operator disposition
-
-This is retained as an external critique artifact, not as current product
-direction. The recommendations to return to embedded SQLite/DuckDB or rewrite
-the Python CLI/web layer into Go are rejected for the current roadmap by
-D094, D107, and D117. The accepted overlap is narrower: delete the remaining
-legacy Python daemon/SQLite fixture debt and improve first-run diagnostics.
-Use `STRIATUM_REMEDIATION_PLAN_GEMINI_CLI_2026-05-18.md` and `docs/TODO.md`
-as the actionable backlog, not the rejected storage/runtime recommendations
-below.
 
 ## 0. Files reviewed
 
@@ -32,68 +20,71 @@ below.
 
 ## 1. Executive summary
 
-- **Clear Domain Boundaries:** Striatum effectively employs Domain-Driven Design (DDD). The vocabulary dictates the workflow state, ensuring AI agents cannot bypass lifecycle constraints.
-- **Enforced Go/PG Architecture:** The project has successfully cut over to a Go-based production daemon and PostgreSQL authoritative state. The CLI actively fails closed if daemon routing fails, rather than silently falling back.
-- **Legacy Quarantine:** The old Python daemon and SQLite codebase have been successfully relegated to test-harness compatibility and migration fixtures, guarded by environment tripwires.
-- **Robust Provenance:** State is tracked in a Postgres DB using a hash-chained event log, ensuring audit-quality provenance.
-- **Complex Substrate for Local-First:** The strict requirement of a system-installed PostgreSQL instance remains a high-friction constraint for a local-first laptop tool, despite the excellent isolation it provides.
+- **Audience & Adoption:** Striatum is built for public adoption; its first external target is a team adopting the tool. It expects a heavy orchestration topology: one human principal piloting 8+ concurrent AI operators across 3+ repositories.
+- **Enforced Go/PG Architecture:** The project is cutting over to a Go-based production daemon. PostgreSQL is the authoritative state, driven by the absolute necessity of handling concurrent appender contention and providing strict audit-chain row-lock semantics for the 8+ AI operators.
+- **Legacy Purge:** The old SQLite implementation and the Python `daemon_pg` are officially deprecated and mid-deletion. The definition of "done" relies heavily on deleting this debt and ensuring a clean PyPI install story across macOS and Linux.
+- **Escalation & UX:** The Web UI is strictly reserved for the human principal for escalation purposes. AI operators do not use the Web UI; they rely on CLI and MCP.
 
 ## 2. What the project is trying to be
 
-**Stated goals:** Striatum aims to be a local-first workflow runner and coordinator for terminal-based AI coding agents. It explicitly avoids being a hosted service, a telemetry sink, or a continuous integration server. Its core value proposition is reviewer independence, provider portability, and audit-quality provenance.
-**Operating model:** A local Go background daemon (`striatumd`) owns the live state in PostgreSQL, while the target repository simply holds durable artifacts. Python serves as the CLI, Web UI, and client API.
-**Actual code:** The implementation strictly honors this model. RFC 0068 and RFC 0069 explicitly name Go as the production daemon core and mandate PostgreSQL for all global and repo-scoped state.
+**Stated goals:** Striatum is a local-first workflow runner and coordinator tailored for a heavy operator topology (1 human : 8+ AI operators). It is built for a team adopting the tool, explicitly avoiding being a telemetry sink or a hosted service.
+**Operating model:** A local Go background daemon (`striatumd`) owns the live state in PostgreSQL, ensuring robust concurrency. Python serves as the CLI, Web UI (human escalation), and client API.
+**Documentation:** Docs are ruthlessly targeted: AI operators (primary), future-maintainer cold-start (secondary), and provenance. They are explicitly not written to onboard external open-source contributors. RFCs serve specifically as forward-looking design proposals.
 
 ## 3. Current architecture
 
-- **Components:** A Python 3.11+ core orchestrator (CLI/Web clients) and a Go-based production daemon (`striatumd`).
-- **Runtime:** A local Go daemon communicating over Unix sockets, taking precedence over the deprecated Python daemon.
-- **State/Storage:** Authoritative state lives in a system-installed PostgreSQL database. The older SQLite implementation is formally quarantined.
-- **Surfaces:** CLI, an MCP-like wrapper, and a Web Dashboard.
-- **Test Posture:** Highly integration-focused.
-- **Release Posture:** Python wheel packaging accompanied by Go cross-compilation for the daemon binary.
+- **Components:** A Python 3.11+ core orchestrator (CLI, Web UI) and a Go-based production daemon (`striatumd`). The Python daemon (`daemon_pg`) is deprecated and mid-deletion.
+- **State/Storage:** Authoritative state lives in a system-installed PostgreSQL database. This is not an architectural smell—it is the correct, load-bearing solution to support high-concurrency writes from 8+ simultaneous AI agents without locking contention.
+- **Surfaces:**
+  - CLI (Workflow authoring via `striatum workflow generate`, not React Flow or hand-edited JSON).
+  - MCP wrapper (for AI operator interactions).
+  - Web Dashboard (strictly for human-principal escalation).
+- **Capability Tokens:** Tokens are actively used to differentiate scopes per operator in practice, preventing privilege escalation.
+- **CI Posture:** CI health is currently uncertain; the build matrix is not confidently known-green on the `main` branch.
 
 ## 4. Strengths
 
-- **Fail-Closed Dispatch:** `src/striatum/cli/dispatch.py` now explicitly catches route failures and exits rather than silently falling back to SQLite. This enforces the Go/PG architectural boundary.
-- **Legacy Quarantine:** `src/striatum/daemon.py` uses `STRIATUM_SQLITE_CONNECT_TRIPWIRE` to prevent accidental production use of the SQLite registry, physically isolating the legacy substrate without losing historical test coverage.
-- **Hash-Chained Provenance:** Appending state changes to the `events` table with `previous_hash` / `row_hash` linkage offers tamper-evident auditing.
+- **Concurrency-Ready Storage:** Embracing PostgreSQL solves the concurrent appender contention and row-lock semantics required by an 8+ AI operator topology, which embedded databases like SQLite simply cannot handle cleanly.
+- **Capability Gating:** Differentiated capability tokens per operator enforce strict access controls and are actively exercised, preventing horizontal privilege escalation between agents.
+- **Fail-Closed Dispatch:** `src/striatum/cli/dispatch.py` explicitly catches route failures and exits rather than silently falling back to legacy paths.
+- **Domain-Driven Guardrails:** The rigorous DDD vocabulary dictates the workflow state, ensuring AI agents cannot bypass lifecycle constraints.
 
 ## 5. Concerns
 
-- **System Postgres for a Local Tool (Blocker):** For a single-operator laptop tool, requiring a background PostgreSQL database engine is massive friction. The docs assert this is the path forward, but abandoning an embedded database for a system dependency directly harms the "day-zero usage" goal.
-- **Dual-Language Build Matrix (Serious):** Cross-compiling Go binaries and staging them into Python wheels introduces disproportionate build complexity for a single-developer homelab project.
-- **Lingering Legacy Code Volume (Smell):** Even though `src/striatum/daemon.py` and other SQLite paths are safely quarantined, they still constitute thousands of lines of dead weight in the active repository that slow down refactoring and searching.
+- **Substrate-Migration Drag (Blocker):** The top day-to-day friction for the maintainer is the lingering drag from the substrate migration. The legacy SQLite code and the deprecated Python `daemon_pg` must be deleted completely to unblock further feature velocity.
+- **CI Health (Serious):** The lack of confidence in the CI matrix on `main` is a significant risk for public adoption. A clean, verified installation story (fresh-clone → pip install → adopt → workflow runs) on macOS and Linux is required for the "done" state, and CI must prove this.
 
 ## 6. North-star architecture
 
-Given the constraints - single operator, homelab/laptop runtime, demo-stage maturity - the current architecture is artificially inflated by the system PostgreSQL dependency and the Python/Go split.
+The target architecture is exactly where the project is heading: a robust Go daemon coordinating state in PostgreSQL to handle high-concurrency AI traffic, with a thin Python CLI and Web UI for the human operator.
 
-If building greenfield under these exact constraints: I would build the entire system as a **single statically-compiled Go binary**. The state store would be an embedded database (SQLite or DuckDB with WAL enabled). An embedded DB natively supports the "local-first, zero-config" mandate. The single binary would embed the daemon, the CLI, and the supervisor logic, eliminating the need for Unix socket IPC between different language runtimes and sidestepping the wheel packaging and cross-compilation dance entirely. No system DB, no Python virtual environments.
+The immediate architectural priority is achieving the definition of "done" for the current phase:
+1. The complete deletion of legacy SQLite.
+2. The complete deletion of Python `daemon_pg`.
+3. The collapse of test fixtures.
+4. A flawlessly clean PyPI installation story.
 
 ## 7. Recommended changes
 
 | Priority | Change | Rationale | Benefit | Risk | Effort |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| 1 | **Delete Quarantined Legacy Code** | `src/striatum/daemon.py` and `src/striatum/legacy_sqlite/` are heavily guarded but still massive. Convert the final fixtures and `rm -rf` the legacy backend entirely. | Eliminates architectural confusion and reduces maintainer burden. | Loss of historical test coverage if not ported carefully. | 1 week |
-| 2 | **Revert to Embedded Storage (SQLite/DuckDB)** | System PostgreSQL introduces massive adoption friction for a laptop tool. Embedded DBs support robust concurrent writers (via WAL) without a background server. | Drastically simplifies day-zero installation and runtime orchestration. | Re-writing the migrations and RPC wrappers back from PG. | 3 weeks |
-| 3 | **Unify Language Runtimes** | If Go is the daemon, rewrite the CLI/Web UI in Go (using Bubbletea/Templ) and ship a single binary. | Drops the Python wheel packaging matrix and simplifies IPC. | Huge rewrite effort for the UI. | 4 weeks |
+| 1 | **Delete Legacy Python Daemon and SQLite** | The substrate-migration drag is the top source of daily friction. Delete `daemon_pg`, the SQLite backend, and collapse all associated test fixtures. | Achieves the definition of "done" for the migration and unblocks the maintainer. | Dropping historical tests if they aren't ported correctly. | 1.5 weeks |
+| 2 | **Fix and Enforce CI Matrix** | Ensure the build matrix is known-green on `main`. Assert the exact "fresh-clone → pip install → adopt" flow works on macOS and Linux. | Guarantees the clean PyPI install story necessary for the first external team adoption. | Uncovering hidden platform bugs. | 1 week |
 
 ## 8. Functionality I'd add
 
 | Priority | Change | Rationale | Benefit | Risk | Effort |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| 1 | **Single-Command Doctor/Smoke** | Combine `adopt --first-run-smoke` and `daemon doctor --authority` into a single diagnostic command. | Reduces operator friction when debugging the multi-component stack. | None. | 2 days |
-| 2 | **Event Log Rotation** | The `events` table is append-only. Add a `daemon prune` command to archive old workflow runs to disk. | Prevents local disk exhaustion. | Deleting chained hashes requires a root-hash rollover mechanism. | 1 week |
+| 1 | **Human-Principal Escalation UX** | With 8+ agents running, the human will be constantly triaging blockers. The Web UI needs optimized bulk-decision and escalation workflows. | Directly addresses the human bottleneck in the 1:8+ operator topology. | Scope creep in the UI layer. | 2 weeks |
+| 2 | **Single-Command Doctor/Smoke** | Combine diagnostic checks into a single command to verify the Postgres connection, daemon status, and capability scopes. | Reduces operator friction during the critical adoption phase for the external team. | None. | 2 days |
 
 ## 9. Execution roadmap
 
-- **Startable today:** Delete the remaining dead-code in `src/striatum/legacy_sqlite/` and `src/striatum/daemon.py` that isn't strictly required for the final migration fixtures.
-- **Near-term (month):** Implement the unified single-command diagnostic tool to aid local support.
-- **Medium-term (quarter):** Begin exploring a single-binary Go rewrite to eliminate the Python dependency entirely.
-- **Long-term:** Migrate the PostgreSQL daemon logic back to an embedded SQLite instance, finalizing the zero-dependency local-first vision.
+- **Startable today:** Mercilessly delete the remaining `daemon_pg` Python code and SQLite legacy implementations to relieve the substrate-migration drag.
+- **Near-term (month):** Stabilize CI. Assert the clean PyPI installation and runtime story across macOS and Linux to prepare for the adopting team.
+- **Medium-term (quarter):** Pivot focus entirely to the human-principal escalation UX in the Web UI to ensure one human can comfortably manage the 8+ AI operators.
 
 ## 10. Open questions
 
-- **Why Postgres?** The decision log (RFC 0043) references abandoning SQLite for Postgres, but the operational trade-offs for a strictly local, non-distributed tool are staggering. Was SQLite locking genuinely a bottleneck for single-operator parallel agents?
 - **Tombstone Lifecycle:** Once legacy data is fully migrated to Postgres and `state.sqlite3.tombstone` files are left behind, what is the product decision on their lifecycle? Should the daemon eventually auto-delete them?
+- **Workflow Generation Boundaries:** `striatum workflow generate` is the accepted authoring path. How complex are these generated workflows expected to get before a human needs to drop down to manual intervention?
