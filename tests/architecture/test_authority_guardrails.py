@@ -29,7 +29,6 @@ DIRECT_DAEMON_METHODS: frozenset[str] = frozenset(
         "cross_repo.describe",
         "cross_repo.why",
         "cross_repo.cancel",
-        "apply.reviewed_patch",
         "apply.receipt.show",
         "apply.receipt.verify",
     }
@@ -70,11 +69,7 @@ LOCAL_FILE_AUTHORING_METHODS_EXPECTED: frozenset[str] = frozenset(
     }
 )
 
-GO_DAEMON_RETIREMENT_BLOCKER_METHODS: frozenset[str] = frozenset(
-    {
-        "apply.reviewed_patch",
-    }
-)
+GO_DAEMON_RETIREMENT_BLOCKER_METHODS: frozenset[str] = frozenset()
 
 
 def _authority_matrix_section(start: str, end: str | None = None) -> str:

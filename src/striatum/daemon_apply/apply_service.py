@@ -9,15 +9,11 @@ from __future__ import annotations
 
 from typing import Any, Mapping
 
-from striatum.daemon_apply.signing_key import key_loaded
 from striatum.daemon_rpc.envelope import RpcError
 
 
 def handle_apply_rpc(method: str, params: Mapping[str, Any]) -> dict[str, Any]:
-    if method == "apply.reviewed_patch":
-        if not key_loaded():
-            raise RpcError("sealed_key_missing", "sealed apply requires a daemon signing key")
-        raise RpcError("apply_gate_unsatisfied", "sealed apply mutation is not enabled in this runner")
+    del params
     if method in {"apply.receipt.show", "apply.receipt.verify"}:
         raise RpcError("receipt_missing", "apply receipt was not found", exit_code=4)
     raise RpcError("method_unknown", f"unknown apply RPC method: {method}")

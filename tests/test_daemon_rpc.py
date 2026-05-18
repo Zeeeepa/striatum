@@ -104,13 +104,11 @@ def test_workflow_error_rpc_details_preserve_field_path() -> None:
     assert error.details == {"field_path": "jobs[0].role_id"}
 
 
-def test_apply_reviewed_patch_ignores_client_supplied_signing_key(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("striatum.daemon_apply.apply_service.key_loaded", lambda: False)
-
+def test_apply_reviewed_patch_is_retired_from_apply_service() -> None:
     with pytest.raises(RpcError) as exc:
         handle_apply_rpc("apply.reviewed_patch", {"signing_key_loaded": True})
 
-    assert exc.value.code == "sealed_key_missing"
+    assert exc.value.code == "method_unknown"
 
 
 def test_second_connection_must_handshake_even_after_first_connection() -> None:
@@ -323,7 +321,7 @@ def test_method_registry_declares_expected_capabilities() -> None:
     assert METHOD_REGISTRY["daemon.describe"].required_capability == "read"
     assert METHOD_REGISTRY["claim_next"].required_capability == "claim"
     assert METHOD_REGISTRY["submit_review"].required_capability == "review"
-    assert METHOD_REGISTRY["apply.reviewed_patch"].required_capability == "apply"
+    assert "apply.reviewed_patch" not in METHOD_REGISTRY
     assert METHOD_REGISTRY["recovery.cancel_job"].required_capability == "recovery"
     assert METHOD_REGISTRY["daemon.key.rotate"].required_capability == "admin"
 
@@ -335,7 +333,7 @@ def test_method_registry_declares_expected_capabilities() -> None:
         "daemon.hello",
         "daemon.describe",
         "supervise.start",
-        "apply.reviewed_patch",
+        "apply.receipt.show",
         "cross_repo.describe",
     } <= methods
 

@@ -238,8 +238,9 @@ def test_daemon_mcp_tools_call_reauthorizes_and_audits_denial(monkeypatch) -> No
     assert request_logs[0]["decision"] == "denied"
 
 
-def test_daemon_mcp_unknown_tool_is_default_denied_and_audited(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+def test_daemon_mcp_retired_apply_reviewed_patch_is_default_denied_and_audited(monkeypatch) -> None:  # type: ignore[no-untyped-def]
     audit_calls: list[dict[str, Any]] = []
+
     def fake_append_unknown_audit_row(*args: Any, **kwargs: Any) -> int:
         audit_calls.append(kwargs)
         return 9
@@ -248,7 +249,7 @@ def test_daemon_mcp_unknown_tool_is_default_denied_and_audited(monkeypatch) -> N
     monkeypatch.setattr("striatum.daemon_rpc.request_log.append_request_log", lambda *args, **kwargs: None)
 
     result = DaemonRpcServer(pg_conn=object()).call_daemon_tool(
-        {"name": "not.a.method", "request_id": "req-2", "arguments": {}}
+        {"name": "apply.reviewed_patch", "request_id": "req-2", "arguments": {"repository_id": "repo_a"}}
     )
 
     assert result["isError"] is True

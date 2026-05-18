@@ -3,12 +3,10 @@ package main
 import (
 	"context"
 	"errors"
-	"path/filepath"
 	"reflect"
 	"sort"
 	"testing"
 
-	daemonapply "github.com/halbritt/striatum/go/pkg/apply"
 	"github.com/halbritt/striatum/go/pkg/db"
 	"github.com/halbritt/striatum/go/pkg/rpc"
 )
@@ -138,59 +136,6 @@ func TestRegisterHandlersWiresKeyRotateHook(t *testing.T) {
 	}
 }
 
-type retirementBlockerExpectation struct {
-	code        string
-	remediation string
-}
-
-var goDaemonRetirementBlockers = map[string]retirementBlockerExpectation{
-	"apply.reviewed_patch": {
-		code:        "sealed_key_missing",
-		remediation: "decide sealed-apply authority or remove the mutation from the production contract",
-	},
-}
-
-func TestGoDaemonPythonRetirementBlockersFailClosed(t *testing.T) {
-	t.Setenv(daemonapply.EnvSigningKeyPath, filepath.Join(t.TempDir(), "missing.key"))
-
-	server := rpc.NewServer()
-	registerHandlers(server, coverageRunner{}, handlerOptions{
-		ShutdownHook: func(context.Context) error {
-			return nil
-		},
-		KeyRotateHook: func(context.Context) (map[string]any, error) {
-			return map[string]any{
-				"status":         "rotated",
-				"signing_key_id": "ed25519:test",
-			}, nil
-		},
-	})
-
-	for _, method := range sortedRetirementBlockerMethods() {
-		expected := goDaemonRetirementBlockers[method]
-		handler := server.Handlers[method]
-		if handler == nil {
-			t.Fatalf("%s retirement blocker handler missing", method)
-		}
-		_, err := handler(context.Background(), rpc.Envelope{
-			SchemaVersion: rpc.SupportedEnvelopeVersion,
-			RequestID:     "retirement-ledger-" + method,
-			Method:        method,
-			Params:        retirementBlockerParams(method),
-		})
-		var rpcErr *rpc.Error
-		if !errors.As(err, &rpcErr) {
-			t.Fatalf("%s returned non-RPC error: %v", method, err)
-		}
-		if rpcErr.Code != expected.code {
-			t.Fatalf("%s error code = %q, want %q; remediation: %s", method, rpcErr.Code, expected.code, expected.remediation)
-		}
-		if rpcErr.Code == "not_implemented" {
-			t.Fatalf("%s regressed to generic not_implemented", method)
-		}
-	}
-}
-
 func TestLocalWorkflowRunnerCancelRefusesInactiveRepository(t *testing.T) {
 	runner := &inactiveRepositoryRunner{}
 
@@ -236,19 +181,6 @@ func coverageParams() map[string]any {
 		"workflow_path":        "workflow.json",
 		"workflow_template_id": "default",
 	}
-}
-
-func retirementBlockerParams(method string) map[string]any {
-	return coverageParams()
-}
-
-func sortedRetirementBlockerMethods() []string {
-	methods := make([]string, 0, len(goDaemonRetirementBlockers))
-	for method := range goDaemonRetirementBlockers {
-		methods = append(methods, method)
-	}
-	sort.Strings(methods)
-	return methods
 }
 
 type inactiveRepositoryRunner struct {

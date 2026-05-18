@@ -26,10 +26,10 @@ dependency edges, and "what would I do next" framing. Update on every
 - **Current workstream:** TODO 61-64 / RFC 0068-0071 architecture remediation.
   D107 supersedes D105: Go is now the default production daemon core, Python
   daemon deletion remains after parity, Python CLI/web clients stay useful, and
-  SQLite eradication continues across production and compatibility paths. The
-  current RFC 0068 cutover ledger is now one explicit fail-closed method:
-  `apply.reviewed_patch`. D110 removed the SQLite-bound migration and dogfood
-  composite RPC names from the production contract.
+  SQLite eradication continues across production and compatibility paths. D110
+  removed the SQLite-bound migration and dogfood composite RPC names from the
+  production contract, and D112 removed `apply.reviewed_patch`; stale direct
+  calls to all removed names audit as `method_unknown`.
 - **CI:** GitHub Actions has been backlogged during the 2026-05-17/18
   remediation commits. Treat latest-head CI failures as stop-the-line; queued
   and in-progress older runs are not by themselves blockers.
@@ -361,9 +361,8 @@ useful, and SQLite removal from production and compatibility paths.
 - TODO item 61 owns the Go daemon port and Python-daemon retirement.
 
 **Next after this ships:** RFC 0068 owns the Python-daemon retirement gate:
-shrink the explicit Go fail-closed ledger and delete the Python daemon entry
-point once the ledger reaches zero or the remaining methods are removed from
-production discovery/contract.
+keep the Go contract/conformance gate green and delete the Python daemon entry
+point once the SQLite import-window and legacy fixture cleanup is complete.
 
 ---
 
@@ -998,7 +997,8 @@ Release order after Phase 0:
 13. **TODO 61 / RFC 0068:** port the production daemon to Go, keep the
     resident recovery scheduler in Go, enforce workflow-loader path/source
     checks in Go `run.prepare`, rotate the local Ed25519 sealed-apply
-    fallback key through Go `daemon.key.rotate`, keep Go
+    fallback key through Go `daemon.key.rotate`, keep removed
+    `apply.reviewed_patch` calls returning `method_unknown`, keep Go
     `workflow.generate --shape multi_phase` and
     `workflow.upgrade --add-phases` parity green, keep
     `make daemon-go-conformance` green, and retire the Python daemon after

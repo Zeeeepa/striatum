@@ -171,7 +171,6 @@ SERVER_INLINE_METHODS: frozenset[str] = frozenset(
         "cross_repo.describe",
         "cross_repo.why",
         "cross_repo.cancel",
-        "apply.reviewed_patch",
         "apply.receipt.show",
         "apply.receipt.verify",
         "workflow.generate.preview",

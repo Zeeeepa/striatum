@@ -1342,12 +1342,14 @@ state. The daemon DB contains `daemon_supervisors` and `apply_receipts`;
 `process_supervisor_pointers` live in the daemon-owned per-repo
 PostgreSQL tables under `repository_id`, so packet delivery,
 lane-attestation, and evidence paths read the same live substrate. The
-daemon `apply.reviewed_patch` route is an AI guardrail and fails closed
-without signing-key/apply authority; it is not a cryptographic
-non-repudiation claim against a malicious local operator. The Go daemon
-can rotate and load the local Ed25519 `0600` fallback signing-key file
-through `daemon.key.rotate`; full reviewed-patch mutation and stronger
-key custody are still separate apply-gate work.
+reviewed-patch apply mutation is not part of the production daemon RPC
+contract per D112; stale direct calls to `apply.reviewed_patch` return and
+audit as `method_unknown`. Apply receipt read/verify routes remain as
+evidence helpers, not cryptographic non-repudiation claims against a
+malicious local operator. The Go daemon can rotate and load the local
+Ed25519 `0600` fallback signing-key file through `daemon.key.rotate`; full
+reviewed-patch mutation and stronger key custody are still separate
+apply-gate work.
 
 RFC 0032 extends the daemon V2 capability vocabulary to `read`, `write`,
 `review`, `claim`, `apply`, `admin`, and `recovery`, and each registry
@@ -1411,13 +1413,15 @@ and RFC 0033 PostgreSQL substrate. RFC 0068 and D111 make that Go daemon the
 only supported daemon implementation launched by `striatum daemon start`;
 `--core go` is a deprecated no-op compatibility flag and `--core python` is
 not accepted. Current Go handler coverage has no missing or generic
-`not_implemented` active contract methods; the remaining retirement blocker
-is the explicitly fail-closed `apply.reviewed_patch` surface. D110
-deliberately removed the SQLite-bound
+`not_implemented` active contract methods. D110 deliberately removed the
+SQLite-bound
 `daemon.migrate_repo_local`, `dogfood.publish_on_behalf`, and
 `dogfood.surgical_recovery` RPC names from production discovery and the daemon
-method contract. After the remaining ledger row is resolved, the Python daemon
-is retired; the Python CLI/web service may remain as clients of the Go daemon.
+method contract. D112 likewise removed `apply.reviewed_patch` from the
+production daemon RPC contract; stale direct calls audit as `method_unknown`.
+After the remaining SQLite import-window and legacy fixture cleanup is
+resolved, the Python daemon is retired; the Python CLI/web service may remain
+as clients of the Go daemon.
 
 ### Local Web UI
 

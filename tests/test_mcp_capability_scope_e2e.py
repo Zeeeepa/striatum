@@ -289,7 +289,7 @@ def test_read_only_token_cannot_call_write_tool(
     assert harness.audit_rows(transport="mcp")[-1]["denial_reason"] == "capability_missing"
 
 
-def test_unknown_method_denied_and_audited(
+def test_retired_apply_reviewed_patch_denied_as_unknown_and_audited(
     multi_repo_harness: MultiRepoHarness,
     clean_daemon_db: None,
 ) -> None:
@@ -297,7 +297,10 @@ def test_unknown_method_denied_and_audited(
     harness.register_all()
     token = harness.issue_token(["read"], repo_id=str(harness.repos[0].repository_id))
 
-    result = harness.mcp_client(token).call_tool("not.a.method", repository_id=str(harness.repos[0].repository_id))
+    result = harness.mcp_client(token).call_tool(
+        "apply.reviewed_patch",
+        repository_id=str(harness.repos[0].repository_id),
+    )
 
     assert result["isError"] is True
     assert result["structuredContent"]["error"] == "method_unknown"

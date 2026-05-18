@@ -59,9 +59,8 @@ The Go daemon port lands through independent, testable slices:
    dogfood, adapter, byline, inbox, recovery, corpus, and local API helpers.
    Migration fixtures must be named as one-way import fixtures and isolated
    from production modules.
-6. **Retirement.** Once the Go conformance suite passes, the explicit
-   fail-closed retirement ledger is resolved, and the import-window fixtures
-   are quarantined, remove the legacy Python daemon module and any
+6. **Retirement.** Once the Go conformance suite passes and the import-window
+   fixtures are quarantined, remove the legacy Python daemon module and any
    Python-daemon-only production code.
 
 ## Acceptance Criteria
@@ -76,8 +75,9 @@ The Go daemon port lands through independent, testable slices:
   `contracts/daemon_methods.json` or hides unsupported methods from production
   clients.
 - Production MCP discovery hides local workflow-file authoring methods. Removed
-  dogfood composite names audit as `method_unknown`; any hidden registered
-  methods still reauthorize and fail closed when called directly.
+  dogfood composite and reviewed-patch mutation names audit as
+  `method_unknown`; any hidden registered methods still reauthorize and fail
+  closed when called directly.
 - CLI, web, MCP, and service tests pass against the Go daemon without direct
   SQLite opens.
 - Production daemon/client paths do not open repo-local SQLite or the legacy
@@ -85,7 +85,7 @@ The Go daemon port lands through independent, testable slices:
   migration, fixture, or transitional compatibility exceptions guarded by
   architecture tests.
 - The Python daemon can be deleted without losing production behavior once the
-  remaining legacy harness, sealed-apply, and import-window tasks are done.
+  remaining legacy harness and import-window tasks are done.
 
 ## Implementation Notes
 
@@ -109,13 +109,11 @@ The Go daemon port lands through independent, testable slices:
   V1.1 output path, including ordered phases, per-track job remapping,
   `phase_synthesis` gates, and cross-phase synthesis-to-entry edges.
 - As of 2026-05-18, Go handler coverage reports zero missing or generic
-  `not_implemented` handlers for active contract methods. The remaining
-  Python-daemon retirement blockers are executable in
-  `go/cmd/striatumd/handler_coverage_test.go`: `apply.reviewed_patch`
-  must keep returning a named fail-closed RPC error until it is ported or
-  removed by product decision. D110 removed `daemon.migrate_repo_local`,
-  `dogfood.publish_on_behalf`, and `dogfood.surgical_recovery` from the
-  production method contract.
+  `not_implemented` handlers for active contract methods. D110 removed
+  `daemon.migrate_repo_local`, `dogfood.publish_on_behalf`, and
+  `dogfood.surgical_recovery` from the production method contract. D112
+  removed `apply.reviewed_patch` from the production method contract; stale
+  direct calls return and audit as `method_unknown`.
 - Python/Go production MCP `tools/list` now hides local workflow-file
   authoring methods. Daemon MCP `resources/list` and `resources/read` use
   PostgreSQL-backed repository visibility and read projections whenever a
@@ -138,28 +136,25 @@ The Go daemon port lands through independent, testable slices:
 
 ## Retirement Gate
 
-The Python daemon can be deleted after this ledger reaches zero or every
-remaining row has been removed from production discovery and the daemon method
-contract:
-
-| Method | Current Go behavior | Retirement action |
-|---|---|---|
-| `apply.reviewed_patch` | Fails closed with `sealed_key_missing` / `apply_gate_unsatisfied`. | Decide sealed-apply authority or remove the mutation from the production contract. |
-
-Removed from the production contract by D110: `daemon.migrate_repo_local`,
-`dogfood.publish_on_behalf`, and `dogfood.surgical_recovery`. The local
-`striatum daemon migrate-repo-local` helper remains an explicit one-way
-migration fixture until the SQLite import window closes.
+The production daemon RPC retirement ledger is empty. Removed names return and
+audit as `method_unknown`: D110 removed `daemon.migrate_repo_local`,
+`dogfood.publish_on_behalf`, and `dogfood.surgical_recovery`; D112 removed
+`apply.reviewed_patch`. The local `striatum daemon migrate-repo-local` helper
+remains an explicit one-way migration fixture until the SQLite import window
+closes.
 
 `make daemon-go-conformance`, `go test ./cmd/striatumd`, and
 `tests/architecture/test_authority_guardrails.py` are the executable cutover
-checks for this ledger.
+checks for the remaining Go production contract and method-removal behavior.
 
 ## Resolved Questions
 
 - D109 resolved the daemon-core default, and D111 completed the selector
   retirement: `striatum daemon start` launches Go, `--core go` is a
   deprecated no-op, and Python is no longer selectable as a daemon core.
+- D112 resolved reviewed-patch apply mutation handling for this checkpoint:
+  `apply.reviewed_patch` is not a production daemon RPC until a future
+  sealed-apply decision defines the full mutation contract.
 
 ## Open Questions
 

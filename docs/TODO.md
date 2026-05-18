@@ -112,7 +112,7 @@ so external references keep resolving even as items move between sections.
 | 58 | RFC 0059 Architecture remediation Phase 10 — day-zero setup improvements | ✅ done |
 | 59 | RFC 0059 RFC 0066 Architecture remediation Phase 11 — replay, archive, and corpus v2 foundations | 🟡 corpus verify + run archive foundations landed |
 | 60 | RFC 0059 RFC 0067 Architecture remediation Phase 12 — optional Git/PR integration | ⏳ blocked on product decision |
-| 61 | RFC 0068 Go production daemon port and Python daemon retirement | 🟡 Go default; Python daemon deletion and SQLite import-window cleanup remain |
+| 61 | RFC 0068 Go production daemon port and Python daemon retirement | 🟡 Go default; Python daemon deletion and SQLite import-window cleanup remain; production RPC retirement ledger empty |
 | 62 | RFC 0069 PostgreSQL-only daemon-global surfaces | 🟡 guardrail residuals only |
 | 63 | RFC 0070 daemon client/service boundary completion | 🟡 production boundary mostly done |
 | 64 | RFC 0071 operator diagnostics and cutover evidence | ✅ accepted diagnostic slice done |
@@ -1240,14 +1240,14 @@ review and plan are root-level operator artifacts:
     web/chat preview callers now route
     `workflow.generate.preview` through daemon RPC in production. Go now owns
     `daemon.key.rotate` for the local Ed25519 `0600` fallback signing-key
-    file and still registers an explicit retirement fail-closed handler for
-    `apply.reviewed_patch`; D110 removed `daemon.migrate_repo_local`,
+    file. D110 removed `daemon.migrate_repo_local`,
     `dogfood.publish_on_behalf`, and `dogfood.surgical_recovery` from the
-    production daemon contract; Go `daemon.shutdown` wires to the process
+    production daemon contract, and D112 removed `apply.reviewed_patch`;
+    stale direct calls to all four names return/audit as `method_unknown`.
+    Go `daemon.shutdown` wires to the process
     cancellation path. The Go
     handler-coverage ledger reports zero generic `not_implemented` handlers
-    for active contract methods and now pins the remaining retirement blocker
-    to an exact RPC error code. Go also owns daemon-global `repo.resolve` for
+    for active contract methods. Go also owns daemon-global `repo.resolve` for
     repository path resolution without client-side direct PG access, and fresh
     Go startup now bootstraps the first PostgreSQL admin client plus the
     private runtime `client-token`. Go daemon startup now also launches a
@@ -1261,17 +1261,18 @@ review and plan are root-level operator artifacts:
     path checks and JSON-only workflow source validation in the Go daemon path.
     Production `cross-repo` CLI dispatch now refuses direct PostgreSQL fallback
     outside the paired legacy test-harness escape. Remaining Go-port debt is
-    the retirement ledger: decide sealed-apply authority, close the one-way
-    SQLite import window, decide whether PostgreSQL-native operator composites
-    should replace the removed dogfood RPC names, and delete the Python daemon
-    entry point. The operator-facing Python daemon core selector is retired
-    and the multi-repo harness / CI lane is Go-only. Prep work has
+    to close the one-way SQLite import window, decide whether PostgreSQL-native
+    operator composites should replace the removed dogfood RPC names, and
+    delete the Python daemon entry point. D112 removed the reviewed-patch apply
+    mutation from the production daemon RPC contract until a future sealed-apply
+    decision reintroduces it. The operator-facing Python daemon core selector
+    is retired and the multi-repo harness / CI lane is Go-only. Prep work has
     started by moving runtime path/token helpers to `daemon_runtime` and
     PostgreSQL repository registration helpers to `daemon_pg.repositories` so
     Python CLI/client code no longer imports the legacy daemon for those
     surfaces. The `striatumd` console script now targets a Go-daemon launcher
     shim instead of `striatum.daemon:main`; remaining Python-daemon work is
-    module deletion after the retirement ledger and SQLite import window close.
+    module deletion after the SQLite import window and legacy fixtures close.
     The multi-repo harness participant runner no longer creates or queries
     repo-local SQLite; cross-repo E2E assertions now inspect daemon-owned
     PostgreSQL participant rows. SQLite-era repository identity and daemon
@@ -1322,11 +1323,12 @@ review and plan are root-level operator artifacts:
     method; CLI and service clients no longer open daemon PostgreSQL to map a
     repo path to `repository_id`; daemon-mapped `/v1/invoke` production reads
     and mutations route through daemon RPC; local MCP/chat mapped commands
-    share that daemon-routing policy; and D110 removed the SQLite-bound
-    dogfood composites from the production daemon contract. Production daemon
-    MCP `tools/list` now hides local workflow-file authoring methods in both
-    Python and Go, while direct calls to removed dogfood composite names audit
-    as `method_unknown`. Remaining work is to decide whether to reintroduce
+    share that daemon-routing policy; D110 removed the SQLite-bound dogfood
+    composites from the production daemon contract, and D112 removed
+    `apply.reviewed_patch`. Production daemon MCP `tools/list` now hides local
+    workflow-file authoring methods in both Python and Go, while direct calls
+    to removed method names audit as `method_unknown`. Remaining work is to
+    decide whether to reintroduce
     PostgreSQL-native operator composites or keep the primitive daemon-method
     workflow as the supported path, plus the broader Python-daemon retirement
     under RFC 0068.

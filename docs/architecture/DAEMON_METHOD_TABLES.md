@@ -84,7 +84,6 @@
 | `recovery.auto` | `recovery` | `single_repo` | 1 | 1 | yes |
 | `recovery.auto_publish_stale_artifacts` | `recovery` | `single_repo` | 1 | 1 | no |
 | `recovery.auto_finalize` | `recovery` | `single_repo` | 1 | 1 | no |
-| `apply.reviewed_patch` | `apply` | `single_repo` | 1 | 1 | no |
 | `apply.receipt.show` | `read` | `single_repo` | 1 | 1 | no |
 | `apply.receipt.verify` | `read` | `single_repo` | 1 | 1 | no |
 | `repo.add` | `admin` | `daemon_global` | 1 | 1 | no |

@@ -866,11 +866,12 @@ per-repository pointer state under the registered repository scope. The
 surface, and daemon-routed `supervise.*` calls use the same packet/FIFO
 and lane-attestation invariants.
 
-Sealed apply is intentionally fail-closed. `apply.reviewed_patch` requires
-daemon apply authority and a loadable daemon signing key, and it records
-apply receipts in daemon-owned state. The receipt is an AI guardrail: it
-does not prove model-token authorship or resistance to a malicious local
-operator with filesystem or database access.
+Reviewed-patch apply is intentionally absent from the production daemon RPC
+contract. Per D112, stale direct calls to `apply.reviewed_patch` return and
+audit as `method_unknown`. Apply receipts remain readable/verifiable as
+daemon-owned evidence helpers; a receipt is an AI guardrail, not proof of
+model-token authorship or resistance to a malicious local operator with
+filesystem or database access.
 
 The Go daemon's current signing-key path is the local Ed25519 fallback
 file: `STRIATUM_DAEMON_SIGNING_KEY_PATH` when set, otherwise
@@ -883,15 +884,18 @@ deferred.
 
 ### Go daemon port notes (RFC 0039 / RFC 0068)
 
-> Status: active retirement backlog. D109 made the Go daemon the default and
-> D111 retired the Python daemon selector. `striatum daemon start` launches
-> the Go daemon; `--core go` is a deprecated no-op compatibility flag.
+> Status: active retirement backlog. D109 made the Go daemon the default,
+> D111 retired the Python daemon selector, and D112 removed
+> `apply.reviewed_patch` from the production daemon RPC contract.
+> `striatum daemon start` launches the Go daemon; `--core go` is a
+> deprecated no-op compatibility flag.
 
 RFC 0039 produced a Go `go/cmd/striatumd` prototype that speaks the
 RFC 0030 envelope-v1 wire protocol over the RFC 0033 PostgreSQL
 substrate. The D105 Python-primary constraint was superseded by D107; active
-contract methods now have Go handlers and the remaining Python-daemon
-retirement work is the explicit fail-closed ledger in RFC 0068.
+contract methods now have Go handlers. The remaining Python-daemon retirement
+work is SQLite import-window and legacy fixture cleanup, not a production
+reviewed-patch RPC blocker.
 
 Build the binary from a contributor checkout:
 

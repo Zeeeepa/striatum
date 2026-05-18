@@ -27,9 +27,9 @@ diagnostics instead of probing implicit legacy registry configuration.
 
 Go `daemon.key.rotate` now owns the local Ed25519 fallback signing-key
 rotation path and `daemon.hello` advertises the fallback public key when the
-key is loadable. This removes another explicit fail-closed Go parity stub;
-full reviewed-patch apply mutation and OS keyring custody remain outside this
-slice.
+key is loadable. D112 keeps full reviewed-patch apply mutation and OS keyring
+custody outside this slice by removing `apply.reviewed_patch` from the
+production daemon RPC contract; stale calls audit as `method_unknown`.
 
 Web and chat workflow-generation preview now use the daemon RPC
 `workflow.generate.preview` route in production and keep the in-process

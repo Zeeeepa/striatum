@@ -19,15 +19,18 @@ guardrails in `tests/architecture/test_authority_guardrails.py` keep route
 labels, capabilities, scopes, and CLI fallback cells aligned with the daemon
 contract/runtime while this matrix remains curated for authority and status
 classification. Go daemon handler coverage is also executable in
-`go/cmd/striatumd/handler_coverage_test.go`, which classifies contract methods
-as missing, placeholder-backed, implemented, or explicit retirement blockers.
+`go/cmd/striatumd/handler_coverage_test.go`, which fails if active contract
+methods are missing Go handlers or regress to generic `not_implemented`
+placeholders.
 
 D107 / RFC 0068 supersedes D105. The Go columns below are no longer
 D105-bounded reference material; they are the production-port backlog. Any
 `placeholder` or SQLite-backed row is active debt before the Python daemon can
 retire. D110 removed the SQLite-bound `daemon.migrate_repo_local`,
 `dogfood.publish_on_behalf`, and `dogfood.surgical_recovery` RPC names from
-the production contract; they no longer appear as registered methods.
+the production contract; D112 removed `apply.reviewed_patch` as well. These
+names no longer appear as registered methods, and stale calls audit as
+`method_unknown`.
 
 Legend:
 
@@ -38,8 +41,8 @@ Legend:
   directly and daemon RPC fails closed instead of falling back.
 - **go authority**: `real` means a production Go handler is registered.
   `placeholder` means the Go fixture returns `not_implemented`.
-  `fail_closed` means a handler exists but intentionally refuses the
-  operation.
+  Removed unsupported methods are absent from this table and audit as
+  `method_unknown`.
 - **sqlite dependency** names whether production execution can still open
   repo-local SQLite through dogfood compatibility helpers, local legacy
   service surfaces, or migration-only paths.
@@ -126,7 +129,6 @@ Legend:
 | `recovery.auto_publish_stale_artifacts` | `recovery auto-publish` | recovery | single_repo | pg | real | no | no | explicit stale-artifact auto-publish |
 | `recovery.auto` | deprecated alias | recovery | single_repo | pg alias | real | no | no | deprecated compatibility alias for stale-artifact auto-publish; current CLI does not emit it |
 | `recovery.auto_finalize` | `recovery auto-finalize` | recovery | single_repo | pg | real | no | no | dry-run by default; Go handler registered; live mode requires workflow opt-in or force |
-| `apply.reviewed_patch` | n/a | apply | single_repo | direct apply service | fail_closed | no | no | fail closed until apply authority |
 | `apply.receipt.show` | n/a | read | single_repo | direct apply service | real | no | no | stable |
 | `apply.receipt.verify` | n/a | read | single_repo | direct apply service | real | no | no | stable |
 | `repo.add` | `repo add` | admin | daemon_global | pg repo registrar | real | no | no ordinary repo-local SQLite | bootstrap/admin |
@@ -226,13 +228,12 @@ remediation phases should either daemon-route, quarantine, or delete.
    helpers now live in `primitives.py` and `repo_policy.py`; guardrails keep
    daemon PG/RPC production modules from importing SQLite helpers.
 9. Go no longer has generic `not_implemented` handlers for active contract
-   methods. Remaining Python-daemon retirement debt is the explicit
-   fail-closed `apply.reviewed_patch` row pinned by
-   `go/cmd/striatumd/handler_coverage_test.go` and
-   `tests/architecture/test_authority_guardrails.py`. D110 removed the
-   SQLite-bound dogfood composites and the repo-local SQLite import RPC from the
-   production contract. Web/service DTO parity gaps are tracked separately
-   under RFC 0069-0071.
+   methods. D110 removed the SQLite-bound dogfood composites and the
+   repo-local SQLite import RPC from the production contract; D112 removed
+   `apply.reviewed_patch`. Removed names stay absent from the registry and
+   stale MCP/RPC calls return `method_unknown`; contract, architecture, and
+   MCP/RPC tests pin that behavior. Web/service DTO parity gaps are tracked
+   separately under RFC 0069-0071.
 10. Daemon MCP resources (`resources/list` and `resources/read`) use
     PostgreSQL-backed repository visibility and read projections when a daemon
     PostgreSQL connection is present; the legacy registry-backed path remains

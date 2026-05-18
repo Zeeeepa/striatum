@@ -12,21 +12,12 @@ const EnvSigningKeyPath = "STRIATUM_DAEMON_SIGNING_KEY_PATH"
 var ErrReceiptMissing = errors.New("receipt missing")
 
 type Service struct {
-	Runner    ReceiptQuerier
-	KeyLoaded func() bool
+	Runner ReceiptQuerier
 }
 
 func (s Service) Register(server *rpc.Server) {
-	server.Register("apply.reviewed_patch", s.ReviewedPatch)
 	server.Register("apply.receipt.show", s.ShowReceipt)
 	server.Register("apply.receipt.verify", s.VerifyReceipt)
-}
-
-func (s Service) ReviewedPatch(ctx context.Context, envelope rpc.Envelope) (map[string]any, error) {
-	if !s.keyLoaded() {
-		return nil, rpc.NewError("sealed_key_missing", "sealed apply requires a daemon signing key", nil)
-	}
-	return nil, rpc.NewError("apply_gate_unsatisfied", "sealed apply mutation is not enabled in this runner", nil)
 }
 
 func (s Service) ShowReceipt(ctx context.Context, envelope rpc.Envelope) (map[string]any, error) {
@@ -65,13 +56,6 @@ func (s Service) load(ctx context.Context, envelope rpc.Envelope) (Receipt, erro
 		return Receipt{}, err
 	}
 	return receipt, nil
-}
-
-func (s Service) keyLoaded() bool {
-	if s.KeyLoaded != nil {
-		return s.KeyLoaded()
-	}
-	return FallbackKeyLoaded()
 }
 
 func FallbackKeyLoaded() bool {

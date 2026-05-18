@@ -46,8 +46,11 @@ Recent checkpoints:
 - D110 removes the SQLite-bound `daemon.migrate_repo_local`,
   `dogfood.publish_on_behalf`, and `dogfood.surgical_recovery` RPC methods
   from the production daemon contract and MCP discovery. Unknown calls now
-  audit as `method_unknown`; the RFC 0068 retirement ledger is reduced to
-  `apply.reviewed_patch`.
+  audit as `method_unknown`.
+- D112 removes `apply.reviewed_patch` from the production daemon RPC contract
+  instead of carrying it as a fail-closed RFC 0068 retirement blocker. Stale
+  direct calls now return and audit as `method_unknown`; apply receipt reads
+  and daemon signing-key rotation remain supported.
 - Runtime path and token-file helpers now live in `striatum.daemon_runtime`,
   and PostgreSQL repository registration helpers used by day-zero setup and
   daemon RPC routing now live in `striatum.daemon_pg.repositories`, reducing
@@ -158,13 +161,14 @@ Recent checkpoints:
   `daemon.token.create/revoke/rotate` write only daemon PostgreSQL client and
   capability rows, store HMAC-SHA256 token hashes, and return cleartext bearer
   tokens only at creation/rotation time.
-- Go now keeps an explicit fail-closed handler for `apply.reviewed_patch`
-  instead of a generic `not_implemented` stub or Python fallback.
+- `apply.reviewed_patch` is no longer a production daemon RPC. The supported
+  apply-adjacent surface is receipt read/verify plus daemon key rotation until
+  a future sealed-apply decision reintroduces a mutation.
 - Go now owns `repo.init` as PostgreSQL-backed repository initialization that
   creates only operational scratch and refuses repo-local SQLite state.
 - The Go daemon handler-coverage ledger now reports zero generic
-  `not_implemented` handlers for active contract methods; remaining Go debt is
-  explicit fail-closed or parity work.
+  `not_implemented` handlers for active contract methods; removed unsupported
+  method names are expected to audit as `method_unknown`.
 - Go now owns `run.graph` for JSON, Mermaid, DOT, and ASCII run graph
   projections from PostgreSQL workflow snapshots, materialized dependencies,
   latest job attempts, and review verdicts.
