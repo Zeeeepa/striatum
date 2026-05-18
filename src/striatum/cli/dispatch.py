@@ -1547,8 +1547,8 @@ def _daemon_doctor_repo_cutover_report(args: argparse.Namespace) -> dict[str, ob
     if repo_arg is None:
         return None
     from striatum.daemon_pg.config import resolve_config
-    from striatum.daemon_pg.repo_local_migration import (
-        RepoLocalMigrationOptions,
+    from striatum.daemon_pg.repo_cutover_report import (
+        RepoCutoverReportOptions,
         verify_repo_cutover,
     )
 
@@ -1568,7 +1568,7 @@ def _daemon_doctor_repo_cutover_report(args: argparse.Namespace) -> dict[str, ob
         }
     try:
         return verify_repo_cutover(
-            RepoLocalMigrationOptions(repo=repo, postgres_url=config.url)
+            RepoCutoverReportOptions(repo=repo, postgres_url=config.url)
         )
     except Exception as exc:  # noqa: BLE001 - doctor should return a diagnostic report.
         return {

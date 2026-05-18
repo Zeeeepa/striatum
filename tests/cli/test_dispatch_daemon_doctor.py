@@ -222,7 +222,7 @@ def test_daemon_doctor_repo_option_embeds_cutover_report(
         }
 
     monkeypatch.setattr(
-        "striatum.daemon_pg.repo_local_migration.verify_repo_cutover",
+        "striatum.daemon_pg.repo_cutover_report.verify_repo_cutover",
         fake_verify,
     )
     args = _doctor_args()
@@ -247,6 +247,50 @@ def test_daemon_doctor_repo_option_embeds_cutover_report(
     }
 
 
+def test_daemon_doctor_repo_option_does_not_import_retired_sqlite_migrator(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import sys
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    monkeypatch.setattr(
+        "striatum.daemon_pg.connection.doctor",
+        lambda **_: {"ok": True, "schema_version": 6, "status": "ok"},
+    )
+    monkeypatch.setattr(
+        daemon_mod,
+        "read_doctor",
+        lambda **_: {
+            "ok": True,
+            "status": "post_pg_cutover_unused",
+            "note": "SQLite client registry is no longer the authoritative auth surface.",
+        },
+    )
+    monkeypatch.setattr(
+        "striatum.daemon_pg.repo_cutover_report.verify_repo_cutover",
+        lambda _options: {
+            "schema_version": "striatum.repo_cutover_report.v1",
+            "ok": True,
+            "mode": "repo_cutover_verification",
+            "repo": str(repo.resolve()),
+            "recommendations": [],
+        },
+    )
+    sys.modules.pop("sqlite3", None)
+    sys.modules.pop("striatum.daemon_pg.repo_local_migration", None)
+    args = _doctor_args()
+    args.authority = True
+    args.postgres_url = "postgresql://localhost/striatum_test"
+    args.doctor_repo = str(repo)
+
+    _dispatch_daemon(args)
+
+    assert "sqlite3" not in sys.modules
+    assert "striatum.daemon_pg.repo_local_migration" not in sys.modules
+
+
 def test_daemon_doctor_authority_report_flags_repo_cutover_failure(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -267,7 +311,7 @@ def test_daemon_doctor_authority_report_flags_repo_cutover_failure(
         },
     )
     monkeypatch.setattr(
-        "striatum.daemon_pg.repo_local_migration.verify_repo_cutover",
+        "striatum.daemon_pg.repo_cutover_report.verify_repo_cutover",
         lambda _options: {
             "schema_version": "striatum.repo_cutover_report.v1",
             "ok": False,

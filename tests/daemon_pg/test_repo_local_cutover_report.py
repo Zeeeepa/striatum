@@ -10,13 +10,17 @@ from typing import Iterator
 import pytest
 
 from _harness.pg import create_ephemeral_database, drop_ephemeral_database
+from striatum.daemon_pg import repo_cutover_report as report_mod
 from striatum.daemon_pg import repo_local_migration as migration_mod
 from striatum.daemon_pg.connection import connect
 from striatum.daemon_pg.handlers.context import RepoHandlerContext
+from striatum.daemon_pg.repo_cutover_report import (
+    RepoCutoverReportOptions,
+    verify_repo_cutover,
+)
 from striatum.daemon_pg.repo_local_migration import (
     RepoLocalMigrationOptions,
     migrate_repo_local,
-    verify_repo_cutover,
 )
 from striatum.daemon_rpc.capability import RpcAuthContext
 
@@ -60,8 +64,9 @@ def test_verify_cutover_reports_tombstoned_migration_without_opening_sqlite(
     migrate_repo_local(RepoLocalMigrationOptions(repo=repo, postgres_url=pg_url))
     sqlite_module = getattr(migration_mod, "sqlite3")
     monkeypatch.setattr(sqlite_module, "connect", _fail_sqlite_connect)
+    assert not hasattr(report_mod, "sqlite3")
 
-    report = verify_repo_cutover(RepoLocalMigrationOptions(repo=repo, postgres_url=pg_url))
+    report = verify_repo_cutover(RepoCutoverReportOptions(repo=repo, postgres_url=pg_url))
 
     assert report["schema_version"] == "striatum.repo_cutover_report.v1"
     assert report["ok"] is True
@@ -101,8 +106,9 @@ def test_verify_cutover_diagnoses_incomplete_finalization_without_opening_sqlite
         migrate_repo_local(RepoLocalMigrationOptions(repo=repo, postgres_url=pg_url))
     sqlite_module = getattr(migration_mod, "sqlite3")
     monkeypatch.setattr(sqlite_module, "connect", _fail_sqlite_connect)
+    assert not hasattr(report_mod, "sqlite3")
 
-    report = verify_repo_cutover(RepoLocalMigrationOptions(repo=repo, postgres_url=pg_url))
+    report = verify_repo_cutover(RepoCutoverReportOptions(repo=repo, postgres_url=pg_url))
 
     assert report["ok"] is False
     finalization = report["sqlite_finalization"]
@@ -134,7 +140,7 @@ def test_verify_cutover_flags_destination_counts_below_checkpoint(
     finally:
         conn.close()
 
-    report = verify_repo_cutover(RepoLocalMigrationOptions(repo=repo, postgres_url=pg_url))
+    report = verify_repo_cutover(RepoCutoverReportOptions(repo=repo, postgres_url=pg_url))
 
     assert report["ok"] is False
     assert report["destination_counts"]["not_below_checkpoint"] is False
@@ -167,7 +173,7 @@ def test_verify_cutover_reports_mixed_event_chain_after_post_cutover_event(
     finally:
         conn.close()
 
-    report = verify_repo_cutover(RepoLocalMigrationOptions(repo=repo, postgres_url=pg_url))
+    report = verify_repo_cutover(RepoCutoverReportOptions(repo=repo, postgres_url=pg_url))
 
     chain = report["event_chain"]
     assert chain["ok"] is True

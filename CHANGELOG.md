@@ -112,6 +112,9 @@ Recent checkpoints:
 - Legacy SQLite DB imports used by the paired test-harness CLI dispatch path
   moved behind `striatum.legacy_sqlite.cli_dispatch_db`; importing
   `striatum.cli.dispatch` no longer imports `sqlite3` or `striatum.db`.
+- `daemon doctor --repo --authority` now uses the SQLite-free
+  `striatum.daemon_pg.repo_cutover_report` module for cutover verification
+  instead of importing the retired repo-local SQLite migrator.
 - The retired `src/striatum/daemon.py` Python daemon / daemon-global SQLite
   registry module was deleted. Architecture guardrails now assert the module
   remains absent and keep daemon-global refusal coverage on the PostgreSQL
