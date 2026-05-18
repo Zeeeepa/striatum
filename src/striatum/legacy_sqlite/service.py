@@ -20,7 +20,6 @@ from striatum.repo_policy import db_path
 from striatum.web.artifacts import byline_line as _byline_line
 from striatum.web.artifacts import lane_evidence_chip as _lane_evidence_chip
 from striatum.web.artifacts import shape_artifact_rows
-from striatum.web.doctor import shape_doctor_records
 
 
 JsonObject = dict[str, Any]
@@ -453,17 +452,6 @@ def legacy_artifact_view_payload(repo: Path, *, run_id: str, artifact_id: str) -
             run_id=run_id,
         )
         return {"run": dict(run_row), "artifact": artifact}
-
-
-def legacy_doctor_page_payload(repo: Path) -> JsonObject:
-    from striatum.cli.introspect import doctor as doctor_command
-
-    with sqlite3.connect(str(db_path(repo))) as conn:
-        conn.row_factory = sqlite3.Row
-        doctor_payload = doctor_command(conn, repo=repo, run_id=None, verbose=True)
-    records = shape_doctor_records(list(doctor_payload.get("problem_records") or []))
-    doctor_payload["problem_records"] = records
-    return doctor_payload
 
 
 def legacy_stream_events_body(
@@ -1035,7 +1023,6 @@ __all__ = [
     "legacy_artifact_metadata",
     "legacy_artifact_raw_fallback_enabled",
     "legacy_artifact_view_payload",
-    "legacy_doctor_page_payload",
     "legacy_fixture_fallback_enabled",
     "legacy_job_cancel",
     "legacy_job_detail_payload",

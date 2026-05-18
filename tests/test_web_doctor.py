@@ -33,8 +33,6 @@ def test_doctor_page_response_shapes_problem_groups_and_recipes(
 
     response = web_doctor.doctor_page_response(
         tmp_path,
-        legacy_fallback_enabled=lambda code: False,
-        legacy_payload=lambda repo: {"problem_records": []},
     )
 
     assert calls == [(tmp_path, "doctor", {"verbose": True})]
@@ -46,31 +44,6 @@ def test_doctor_page_response_shapes_problem_groups_and_recipes(
         response.doctor["problem_records"][0]
     ]
     assert response.problem_groups["unknown"] == [response.doctor["problem_records"][1]]
-
-
-def test_doctor_page_response_uses_gated_legacy_payload(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    def fake_call_repo_method(repo: Path, method: str, params: dict[str, Any]) -> dict[str, Any]:
-        raise ServiceDaemonRpcError(503, "daemon_unreachable", "daemon unavailable")
-
-    legacy_calls: list[Path] = []
-
-    def legacy_payload(repo: Path) -> dict[str, Any]:
-        legacy_calls.append(repo)
-        return {"problem_records": [{"check": "legacy_check"}]}
-
-    monkeypatch.setattr("striatum.service_daemon.call_repo_method", fake_call_repo_method)
-
-    response = web_doctor.doctor_page_response(
-        tmp_path,
-        legacy_fallback_enabled=lambda code: code == "daemon_unreachable",
-        legacy_payload=legacy_payload,
-    )
-
-    assert legacy_calls == [tmp_path]
-    assert response.problem_groups["legacy_check"] == [response.doctor["problem_records"][0]]
 
 
 def test_doctor_page_response_raises_http_shaped_error_when_fallback_refused(
@@ -85,8 +58,6 @@ def test_doctor_page_response_raises_http_shaped_error_when_fallback_refused(
     with pytest.raises(web_doctor.DoctorPageError) as excinfo:
         web_doctor.doctor_page_response(
             tmp_path,
-            legacy_fallback_enabled=lambda code: False,
-            legacy_payload=lambda repo: {"problem_records": []},
         )
 
     assert excinfo.value.status == 503

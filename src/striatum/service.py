@@ -120,7 +120,6 @@ _legacy_artifact_raw_fallback_enabled = _LazyLegacyCallable(
     "legacy_artifact_raw_fallback_enabled"
 )
 _legacy_artifact_view_payload = _LazyLegacyCallable("legacy_artifact_view_payload")
-_legacy_doctor_page_payload = _LazyLegacyCallable("legacy_doctor_page_payload")
 _legacy_fixture_fallback_enabled = _LazyLegacyCallable("legacy_fixture_fallback_enabled")
 _legacy_job_cancel = _LazyLegacyCallable("legacy_job_cancel")
 _legacy_job_detail_payload = _LazyLegacyCallable("legacy_job_detail_payload")
@@ -472,8 +471,6 @@ class StriatumServiceHandler(BaseHTTPRequestHandler):
         try:
             response = _doctor_page_response(
                 self.state.repo,
-                legacy_fallback_enabled=_legacy_web_read_fallback_enabled,
-                legacy_payload=_legacy_doctor_page_payload,
             )
             html = _jinja_env().get_template("doctor.html").render(
                 doctor=response.doctor,

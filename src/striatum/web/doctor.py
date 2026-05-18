@@ -4,12 +4,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Mapping
+from typing import Any, Mapping
 
 
 JsonObject = dict[str, Any]
-DoctorPayloadLoader = Callable[[Path], Mapping[str, Any]]
-LegacyFallbackPredicate = Callable[[str], bool]
 
 
 @dataclass(frozen=True)
@@ -66,9 +64,6 @@ def shape_doctor_records(records: list[Any]) -> list[JsonObject]:
 
 def doctor_page_response(
     repo: Path,
-    *,
-    legacy_fallback_enabled: LegacyFallbackPredicate,
-    legacy_payload: DoctorPayloadLoader,
 ) -> DoctorPageResponse:
     from striatum.service_daemon import ServiceDaemonRpcError, call_repo_method
 
@@ -76,9 +71,7 @@ def doctor_page_response(
     try:
         doctor_payload = call_repo_method(repo, "doctor", {"verbose": True})
     except ServiceDaemonRpcError as exc:
-        if not legacy_fallback_enabled(exc.code):
-            raise DoctorPageError(exc.status, exc.code, exc.message) from exc
-        doctor_payload = legacy_payload(repo)
+        raise DoctorPageError(exc.status, exc.code, exc.message) from exc
     raw_records = doctor_payload.get("problem_records")
     records = shape_doctor_records(raw_records if isinstance(raw_records, list) else [])
     doctor = dict(doctor_payload)
