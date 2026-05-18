@@ -281,7 +281,7 @@ def test_repo_resolve_routes_through_python_pg_helper(monkeypatch: pytest.Monkey
             "schema_version": 16,
         }
 
-    monkeypatch.setattr("striatum.daemon.repo_resolve_pg", fake_repo_resolve_pg)
+    monkeypatch.setattr("striatum.daemon_pg.repositories.repo_resolve_pg", fake_repo_resolve_pg)
 
     result = DaemonRpcRouter(pg_conn=pg_conn)._route_repo(
         RpcEnvelope(
@@ -303,7 +303,7 @@ def test_repo_resolve_missing_path_returns_repo_not_registered(
     def fake_repo_resolve_pg(_conn: object, path: Path) -> dict[str, Any]:
         raise NotFoundError(f"active repository path is not registered: {path}")
 
-    monkeypatch.setattr("striatum.daemon.repo_resolve_pg", fake_repo_resolve_pg)
+    monkeypatch.setattr("striatum.daemon_pg.repositories.repo_resolve_pg", fake_repo_resolve_pg)
 
     with pytest.raises(RpcError) as exc:
         DaemonRpcRouter(pg_conn=object())._route_repo(

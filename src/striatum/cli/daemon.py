@@ -9,9 +9,9 @@ import shutil
 from pathlib import Path
 from typing import Any
 
-from striatum import daemon as daemon_mod
 from striatum.daemon_pg.migrations import LATEST_DAEMON_DB_VERSION
 from striatum.daemon_rpc.registry import METHODS_ETAG
+from striatum.daemon_runtime import socket_path
 from striatum.daemon_pg.config import resolve_config
 from striatum.daemon_pg.repo_local_migration import (
     RepoLocalMigrationOptions,
@@ -61,6 +61,8 @@ def resolve_daemon_core(cli_value: str | None) -> str:
 
 
 def run_python_daemon_foreground(args: argparse.Namespace) -> Any:
+    from striatum import daemon as daemon_mod
+
     return daemon_mod.run_daemon_foreground(
         sweep_interval_seconds=float(args.sweep_interval_seconds),
         max_sweeps=args.max_sweeps,
@@ -76,8 +78,7 @@ def run_go_daemon_foreground(
 ) -> Any:
     binary = resolve_go_binary()
     command = [str(binary)]
-    socket_path = daemon_mod.socket_path()
-    command.extend(["--socket", str(socket_path)])
+    command.extend(["--socket", str(socket_path())])
     if postgres_url:
         command.extend(["--postgres-url", postgres_url])
     command.extend(["--sweep-interval-seconds", str(float(sweep_interval_seconds))])

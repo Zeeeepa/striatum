@@ -112,7 +112,7 @@ so external references keep resolving even as items move between sections.
 | 58 | RFC 0059 Architecture remediation Phase 10 — day-zero setup improvements | ✅ done |
 | 59 | RFC 0059 RFC 0066 Architecture remediation Phase 11 — replay, archive, and corpus v2 foundations | 🟡 corpus verify + run archive foundations landed |
 | 60 | RFC 0059 RFC 0067 Architecture remediation Phase 12 — optional Git/PR integration | ⏳ blocked on product decision |
-| 61 | RFC 0068 Go production daemon port and Python daemon retirement | 🟡 Go parity gated by fail-closed ledger |
+| 61 | RFC 0068 Go production daemon port and Python daemon retirement | 🟡 Go default; Python daemon deletion and SQLite import-window cleanup remain |
 | 62 | RFC 0069 PostgreSQL-only daemon-global surfaces | 🟡 guardrail residuals only |
 | 63 | RFC 0070 daemon client/service boundary completion | 🟡 production boundary mostly done |
 | 64 | RFC 0071 operator diagnostics and cutover evidence | ✅ accepted diagnostic slice done |
@@ -864,9 +864,9 @@ review and plan are root-level operator artifacts:
     the explicitly quarantined dogfood compatibility route. Mapped CLI
     commands now also fail closed if route translation raises unexpectedly,
     preventing a route-layer crash from falling through to repo-local
-    SQLite. Remaining
-    follow-up: quarantine the legacy SQLite domain under a migration/service
-    namespace as part of the service/adapter cleanup. The repo administration
+    SQLite. The legacy SQLite service quarantine has landed; remaining
+    follow-up is to shrink the named migration/test-fixture exceptions and
+    close the one-way import window. The repo administration
     verbs are no longer part of that debt: `repo.add`, `repo.list`, and
     `repo.remove` now route through daemon RPC, register directly in
     `striatumd.repositories`, and `repo add --init` creates only operational
@@ -1264,10 +1264,15 @@ review and plan are root-level operator artifacts:
     path checks and JSON-only workflow source validation in the Go daemon path.
     Production `cross-repo` CLI dispatch now refuses direct PostgreSQL fallback
     outside the paired legacy test-harness escape. Remaining Go-port debt is
-    the retirement ledger: decide sealed-apply authority, close the one-way
-    SQLite import window, decide whether PostgreSQL-native operator composites
-    should replace the removed dogfood RPC names, and delete the Python daemon
-    entry point.
+    the retirement ledger: decide sealed-apply authority, remove the
+    operator-facing Python daemon core selector, switch the multi-repo harness
+    and CI lanes to Go-only, close the one-way SQLite import window, decide
+    whether PostgreSQL-native operator composites should replace the removed
+    dogfood RPC names, and delete the Python daemon entry point. Prep work has
+    started by moving runtime path/token helpers to `daemon_runtime` and
+    PostgreSQL repository registration helpers to `daemon_pg.repositories` so
+    Python CLI/client code no longer imports the legacy daemon for those
+    surfaces.
 
 62. **RFC 0069: PostgreSQL-only daemon-global surfaces.** Most done. Port daemon
     sweep, dashboard-all, daemon MCP resource list/read, and

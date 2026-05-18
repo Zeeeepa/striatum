@@ -20,5 +20,7 @@ authority, not a mix of daemon/Postgres and direct repo-local state.
 Landed slices include fail-closed daemon-routed CLI behavior, service/web
 fallback quarantine under `striatum.legacy_sqlite.service`, day-zero setup
 docs, and guardrail tests that prevent production service imports from opening
-repo-local SQLite. Remaining work is cleanup and quarantine hardening: remove
-or narrow test-only fallback entry points as replacement PG/web paths land.
+repo-local SQLite. Remaining work is cleanup of the explicit exceptions:
+remove or narrow test-only fallback entry points, keep one-way migration code
+isolated, and close the SQLite import window once operators no longer need
+repo-local source imports.

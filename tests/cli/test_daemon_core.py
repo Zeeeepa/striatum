@@ -62,8 +62,7 @@ def test_go_daemon_launcher_execs_with_migrations_sha_source(
     captured: dict[str, object] = {}
 
     monkeypatch.setattr(daemon_cli, "resolve_go_binary", lambda: binary)
-    daemon_mod = getattr(daemon_cli, "daemon_mod")
-    monkeypatch.setattr(daemon_mod, "socket_path", lambda: socket)
+    monkeypatch.setattr(daemon_cli, "socket_path", lambda: socket)
 
     def fake_execv(path: str, argv: list[str]) -> None:
         captured["path"] = path

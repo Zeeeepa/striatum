@@ -38,13 +38,12 @@ panes, terminal output, and provider hooks are never live
 control-plane state. See [`docs/POSTGRES_TRANSITION.md`](POSTGRES_TRANSITION.md)
 for the operator runbook.
 
-RFC 0048 (v1.49.0 → v1.55.0) completed the substrate port: every
-single-repo mutation, recovery, and read handler runs natively
-against the daemon's per-repo Postgres tables in the current Python daemon
-core. D107 / RFC 0068 changes the target architecture: the production daemon
-defaults to Go after active contract-method parity, the Python daemon is
-transitional deletion work, and the Python CLI/web layers may remain daemon
-clients. The
+RFC 0048 (v1.49.0 → v1.55.0) completed the PostgreSQL substrate port:
+every single-repo mutation, recovery, and read handler had a native
+PostgreSQL implementation before the Go cutover. D107 / RFC 0068 changes
+the target architecture: the production daemon defaults to Go after active
+contract-method parity, the Python daemon is transitional deletion work,
+and the Python CLI/web layers may remain daemon clients. The
 `STRIATUM_DAEMON_REQUIRED=0 STRIATUM_TEST_HARNESS=1` escape no
 longer takes effect for ported methods — mapped CLI verbs fail
 closed instead of falling back to SQLite when the daemon is

@@ -251,8 +251,10 @@ before deleting fallbacks.
 - `recovery auto-publish` no longer emits the unregistered
   `recovery.auto_publish` method.
 
-**Next after this ships:** TODO item 49/50 are now active. Keep the
-authority matrix and contract tests current while deleting fallback paths.
+**Next after this ships:** TODO item 61 is the active cutover path. Keep the
+Go conformance gate green while deleting the Python daemon selector,
+shrinking migration/test-only SQLite exceptions, and preserving the authority
+matrix and contract tests as drift guards.
 
 ---
 

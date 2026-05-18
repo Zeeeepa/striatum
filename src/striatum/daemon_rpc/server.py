@@ -206,18 +206,18 @@ class DaemonRpcRouter:
         raise RpcError("method_unknown", f"method has no handler: {envelope.method}")
 
     def _route_repo(self, envelope: RpcEnvelope) -> dict[str, Any]:
-        from striatum import daemon as daemon_mod
+        from striatum.daemon_pg import repositories
 
         if self.pg_conn is None:
             raise RpcError("daemon_db_missing", "repo routes require daemon PostgreSQL")
         if envelope.method == "repo.list":
-            return daemon_mod.repo_list_pg(self.pg_conn)
+            return repositories.repo_list_pg(self.pg_conn)
         if envelope.method == "repo.resolve":
             raw_path = envelope.params.get("path") or envelope.params.get("repo_root")
             if not isinstance(raw_path, str) or not raw_path:
                 raise RpcError("schema_invalid", "repo.resolve requires path")
             try:
-                return daemon_mod.repo_resolve_pg(self.pg_conn, Path(raw_path))
+                return repositories.repo_resolve_pg(self.pg_conn, Path(raw_path))
             except NotFoundError as exc:
                 raise RpcError("repo_not_registered", str(exc)) from exc
         if envelope.method == "repo.add":
@@ -227,7 +227,7 @@ class DaemonRpcRouter:
             display_name = envelope.params.get("display_name")
             if display_name is not None and not isinstance(display_name, str):
                 raise RpcError("schema_invalid", "repo.add display_name must be a string")
-            return daemon_mod.repo_add_pg(
+            return repositories.repo_add_pg(
                 self.pg_conn,
                 Path(raw_path),
                 display_name=display_name,
@@ -238,7 +238,7 @@ class DaemonRpcRouter:
             identifier = envelope.params.get("id") or envelope.params.get("repository_id")
             if not isinstance(identifier, str) or not identifier:
                 raise RpcError("schema_invalid", "repo.remove requires id")
-            return daemon_mod.repo_remove_pg(self.pg_conn, identifier)
+            return repositories.repo_remove_pg(self.pg_conn, identifier)
         raise RpcError("method_unknown", f"method has no handler: {envelope.method}")
 
     def _route_cross_repo(

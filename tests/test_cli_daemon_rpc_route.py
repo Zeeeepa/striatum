@@ -727,7 +727,7 @@ def test_call_with_handshake_uses_striatum_version_for_hello(monkeypatch: pytest
 
     monkeypatch.setattr("striatum.cli.daemon_rpc_route.socket.socket", lambda *_args: FakeSocket())
     monkeypatch.setattr("striatum.cli.daemon_rpc_route.hello_envelope", fake_hello_envelope)
-    monkeypatch.setattr("striatum.daemon.read_runtime_token", lambda: "tok.secret")
+    monkeypatch.setattr("striatum.cli.daemon_rpc_route.read_runtime_token", lambda: "tok.secret")
 
     response = _call_with_handshake(Path("/tmp/striatumd.sock"), "doctor", {"verbose": False})
 

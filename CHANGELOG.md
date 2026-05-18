@@ -48,6 +48,10 @@ Recent checkpoints:
   from the production daemon contract and MCP discovery. Unknown calls now
   audit as `method_unknown`; the RFC 0068 retirement ledger is reduced to
   `apply.reviewed_patch`.
+- Runtime path and token-file helpers now live in `striatum.daemon_runtime`,
+  and PostgreSQL repository registration helpers used by day-zero setup and
+  daemon RPC routing now live in `striatum.daemon_pg.repositories`, reducing
+  Python CLI/client imports of the legacy Python daemon module.
 - `striatum daemon start` now defaults to the Go daemon after active
   contract-method parity. `STRIATUM_DAEMON_CORE=python` or `--core python`
   remains as an explicit transitional escape while the Python daemon entry

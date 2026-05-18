@@ -155,7 +155,7 @@ def test_adopt_registers_new_repo_without_repo_local_migration(
     monkeypatch.setenv("STRIATUM_DAEMON_REQUIRED", "1")
     monkeypatch.setenv("STRIATUM_SQLITE_CONNECT_TRIPWIRE", "1")
     monkeypatch.setattr("striatum.day_zero.connect_and_migrate", fake_connect_and_migrate)
-    monkeypatch.setattr("striatum.daemon.repo_add_pg", fake_repo_add_pg)
+    monkeypatch.setattr("striatum.daemon_pg.repositories.repo_add_pg", fake_repo_add_pg)
 
     args = argparse.Namespace(
         command="adopt",

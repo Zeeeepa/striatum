@@ -78,9 +78,12 @@ The Go daemon port lands through independent, testable slices:
   methods still reauthorize and fail closed when called directly.
 - CLI, web, MCP, and service tests pass against the Go daemon without direct
   SQLite opens.
-- Production source modules no longer import `sqlite3` or `striatum.db`; any
-  remaining imports live under migration/fixture packages with guardrail tests.
-- The Python daemon can be deleted without losing production behavior.
+- Production daemon/client paths do not open repo-local SQLite or the legacy
+  daemon registry; remaining `sqlite3` / `striatum.db` imports are named
+  migration, fixture, or transitional compatibility exceptions guarded by
+  architecture tests.
+- The Python daemon can be deleted without losing production behavior once the
+  remaining selector, harness, entry-point, and import-window tasks are done.
 
 ## Implementation Notes
 
@@ -118,6 +121,10 @@ The Go daemon port lands through independent, testable slices:
 - `striatum daemon start` now resolves to the Go daemon by default unless
   `STRIATUM_DAEMON_CORE` or `--core python` explicitly selects the
   transitional Python daemon.
+- Runtime path/token helpers have moved to `striatum.daemon_runtime`, and
+  PostgreSQL repository-registration helpers used by day-zero and daemon RPC
+  live in `striatum.daemon_pg.repositories`; remaining imports from
+  `striatum.daemon` are legacy daemon, migration, or compatibility debt.
 
 ## Retirement Gate
 

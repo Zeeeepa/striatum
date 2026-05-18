@@ -38,6 +38,17 @@ from striatum.db import (
     utc_now,
 )
 from striatum.daemon_rpc.token_hash import hash_token
+from striatum.daemon_runtime import (
+    ENV_RUNTIME as _ENV_RUNTIME,
+    DaemonRuntimeTokenError,
+    ensure_private_dir as _ensure_private_dir,
+    pid_path as _runtime_pid_path,
+    read_runtime_token as _runtime_read_runtime_token,
+    runtime_dir as _runtime_dir,
+    socket_path as _runtime_socket_path,
+    token_file as _runtime_token_file,
+    write_runtime_token as _runtime_write_runtime_token,
+)
 from striatum.errors import (
     EXIT_DAEMON_AUTH,
     EXIT_DAEMON_CAPABILITY,
@@ -58,7 +69,7 @@ SUPPORTED_CAPABILITIES = {READ_CAPABILITY, ADMIN_CAPABILITY}
 DEFAULT_SWEEP_TIMEOUT_SECONDS = 30.0
 
 ENV_REGISTRY = "STRIATUM_DAEMON_REGISTRY"
-ENV_RUNTIME = "STRIATUM_DAEMON_RUNTIME_DIR"
+ENV_RUNTIME = _ENV_RUNTIME
 ENV_ALLOW_LEGACY_SQLITE_REGISTRY = "STRIATUM_ALLOW_LEGACY_SQLITE_REGISTRY"
 ENV_SQLITE_CONNECT_TRIPWIRE = "STRIATUM_SQLITE_CONNECT_TRIPWIRE"
 
@@ -113,35 +124,19 @@ def registry_path() -> Path:
 
 
 def runtime_dir() -> Path:
-    override = os.environ.get(ENV_RUNTIME)
-    if override:
-        return Path(override).expanduser().resolve()
-    if sys.platform == "darwin":
-        return Path.home() / "Library" / "Caches" / "striatum" / "runtime"
-    base = os.environ.get("XDG_RUNTIME_DIR")
-    if base:
-        return Path(base) / "striatum"
-    return Path.home() / ".cache" / "striatum" / "runtime"
+    return _runtime_dir()
 
 
 def token_file() -> Path:
-    return runtime_dir() / "client-token"
+    return _runtime_token_file()
 
 
 def socket_path() -> Path:
-    return runtime_dir() / "striatumd.sock"
+    return _runtime_socket_path()
 
 
 def pid_path() -> Path:
-    return runtime_dir() / "striatumd.pid"
-
-
-def _ensure_private_dir(path: Path) -> None:
-    path.mkdir(parents=True, exist_ok=True)
-    try:
-        os.chmod(path, 0o700)
-    except PermissionError:
-        pass
+    return _runtime_pid_path()
 
 
 def connect_registry() -> sqlite3.Connection:
@@ -640,23 +635,14 @@ def _hash_token(*, secret: str, salt: str) -> str:
 
 
 def read_runtime_token() -> str | None:
-    path = token_file()
-    if not path.exists():
-        return None
-    mode = path.stat().st_mode & 0o777
-    if mode & 0o077:
-        raise DaemonAuthError("daemon token fallback file is not owner-only")
-    return path.read_text(encoding="utf-8").strip() or None
+    try:
+        return _runtime_read_runtime_token()
+    except DaemonRuntimeTokenError as exc:
+        raise DaemonAuthError(str(exc)) from exc
 
 
 def write_runtime_token(token: str) -> None:
-    path = token_file()
-    _ensure_private_dir(path.parent)
-    path.write_text(token + "\n", encoding="utf-8")
-    try:
-        os.chmod(path, 0o600)
-    except PermissionError:
-        pass
+    _runtime_write_runtime_token(token)
 
 
 def _authorize(

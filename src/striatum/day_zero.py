@@ -12,9 +12,9 @@ from typing import Any, Literal
 import striatum
 from striatum.bootstrap import init_operational_scratch
 from striatum.cli.daemon_required import daemon_socket_is_reachable, resolve_socket_path
-from striatum.daemon import read_runtime_token, token_file
 from striatum.daemon_pg.config import resolve_config
 from striatum.daemon_pg.connection import connect, connect_and_migrate, doctor as pg_doctor
+from striatum.daemon_runtime import read_runtime_token, token_file
 from striatum.primitives import json_loads
 
 ServiceManager = Literal["auto", "systemd", "launchd"]
@@ -127,11 +127,11 @@ def adopt(
                 RepoLocalMigrationOptions(repo=repo, postgres_url=cfg.url)
             )
         else:
-            from striatum import daemon as daemon_registry
+            from striatum.daemon_pg.repositories import repo_add_pg
 
             conn = connect_and_migrate(postgres_url=cfg.url, daemon_version=striatum.__version__)
             try:
-                result["registration"] = daemon_registry.repo_add_pg(conn, repo, init=True)
+                result["registration"] = repo_add_pg(conn, repo, init=True)
             finally:
                 conn.close()
     return result

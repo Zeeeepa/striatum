@@ -28,6 +28,7 @@ from striatum.cli.daemon_required import daemon_socket_is_reachable, resolve_soc
 from striatum.daemon_rpc.client import hello_envelope
 from striatum.daemon_rpc.envelope import RpcEnvelope, RpcError
 from striatum.daemon_rpc.registry import CONTRACT_PATH, METHOD_REGISTRY
+from striatum.daemon_runtime import read_runtime_token
 from striatum.db import json_loads
 from striatum.errors import StriatumError
 
@@ -177,8 +178,6 @@ def _call_with_handshake(sock_path: Path, method: str, params: Mapping[str, Any]
                 f"daemon.hello refused: {hello_resp.get('data')}",
             )
         # Real call — load runtime token so RPC authorization can proceed.
-        from striatum.daemon import read_runtime_token
-
         capability_token = read_runtime_token()
         envelope = RpcEnvelope(
             schema_version=1,
