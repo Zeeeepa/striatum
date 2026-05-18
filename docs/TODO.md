@@ -1269,7 +1269,9 @@ review and plan are root-level operator artifacts:
     started by moving runtime path/token helpers to `daemon_runtime` and
     PostgreSQL repository registration helpers to `daemon_pg.repositories` so
     Python CLI/client code no longer imports the legacy daemon for those
-    surfaces.
+    surfaces. The `striatumd` console script now targets a Go-daemon launcher
+    shim instead of `striatum.daemon:main`; remaining Python-daemon work is
+    module deletion after the retirement ledger and SQLite import window close.
 
 62. **RFC 0069: PostgreSQL-only daemon-global surfaces.** Most done. Port daemon
     sweep, dashboard-all, daemon MCP resource list/read, and

@@ -13,7 +13,7 @@ license-files = ["LICENSE"]
 authors = [
   { name = "Hal Britt" },
 ]
-keywords = ["ai-agents", "cli", "local-first", "orchestration", "sqlite"]
+keywords = ["ai-agents", "cli", "local-first", "orchestration", "postgres"]
 urls.Homepage = "https://github.com/halbritt/striatum"
 urls.Repository = "https://github.com/halbritt/striatum"
 urls.Issues = "https://github.com/halbritt/striatum/issues"
@@ -42,7 +42,7 @@ dev = [
 
 [project.scripts]
 striatum = "striatum.cli:main"
-striatumd = "striatum.daemon:main"
+striatumd = "striatum.daemon_entrypoint:main"
 
 [tool.setuptools.package-data]
 "striatum.web.static" = ["*.html", "*.js", "*.css", "*.svg", "build/*.js", "build/*.css", "build/*.sha256"]

@@ -197,8 +197,8 @@ CLI behavior when the daemon is unreachable:
 - Stderr message names the daemon socket path the client tried, names
   the most likely remediation (`systemctl --user start striatumd` on
   Linux with the systemd unit; `launchctl bootstrap` hint on macOS; an
-  explicit `striatumd --foreground` reminder for foreground operation;
-  Postgres install hints if the daemon was never started), and exits.
+  explicit `striatumd` reminder for foreground operation; Postgres install
+  hints if the daemon was never started), and exits.
   No SQLite fallback is attempted, no SQLite file is created or read.
 - `daemon doctor` runs even when the daemon is down (it reads
   configuration only) and emits the same remediation list.

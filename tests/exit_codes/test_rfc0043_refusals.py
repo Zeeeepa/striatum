@@ -63,7 +63,7 @@ def test_daemon_unreachable_message_lists_remediation(tmp_path: Path) -> None:
     )
     assert "Linux systemd: systemctl --user start striatumd" in text
     assert "macOS launchd: launchctl bootstrap" in text
-    assert "Foreground: striatumd --foreground" in text
+    assert "Foreground: striatumd" in text
     assert "Postgres" in text
 
 

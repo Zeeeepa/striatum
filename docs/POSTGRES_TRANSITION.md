@@ -187,8 +187,8 @@ If the daemon is unreachable when a CLI verb runs, the verb refuses
 with **exit code 11 (`daemon_unreachable`)** and stderr names the
 socket path it tried plus the platform-specific remediation
 (`systemctl --user start striatumd` on Linux with the bundled unit;
-`launchctl bootstrap` hint on macOS; an explicit `striatumd
---foreground` reminder; Postgres install hints if the daemon was
+`launchctl bootstrap` hint on macOS; an explicit foreground
+`striatumd` reminder; Postgres install hints if the daemon was
 never started). `striatum --help`, `striatum --version`, and
 `striatum daemon doctor` keep working without a daemon because they
 touch no state.

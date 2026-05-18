@@ -44,7 +44,7 @@ launches the Go daemon; the Python daemon selector is retired.
    a concrete method, DTO, registry probe, or conformance gap is visible.
 2. Use the RFC 0068 retirement ledger as the next cutover gate: resolve
    `apply.reviewed_patch`, close the SQLite import-window debt, then delete
-   the Python daemon entry point.
+   the remaining Python daemon module.
 3. Keep `make daemon-go-conformance` green while any retirement-ledger row
    remains fail-closed.
 

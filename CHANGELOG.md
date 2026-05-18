@@ -56,6 +56,9 @@ Recent checkpoints:
   start` always launches the Go daemon; `--core go` remains a deprecated
   no-op compatibility flag, while `--core python` and
   `STRIATUM_DAEMON_CORE=python` no longer select a Python daemon.
+- The `striatumd` console script now targets a small Go-daemon launcher shim
+  instead of importing the legacy Python daemon module; the old
+  `striatumd --foreground` spelling is accepted as a compatibility alias.
 - Packaged wheels now stage the Go daemon binary before build, and fresh-clone
   smoke builds `go/bin/striatumd` before the default daemon start path.
 - Go PostgreSQL mutation paths now encode structured JSONB arguments through

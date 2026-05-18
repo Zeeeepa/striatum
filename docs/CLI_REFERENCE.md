@@ -207,7 +207,7 @@ striatum daemon migrate-repo-local --from sqlite --to pg
                          [--keep-sqlite-readonly |
                           --no-keep-sqlite-readonly --confirm-delete]
                          [--json]
-striatumd                     # console-script alias for `daemon start`
+striatumd [daemon-start options]
 striatum repo add <path> [--init] [--no-migrate]
 striatum repo list
 striatum repo remove <id>
@@ -219,10 +219,11 @@ striatum cross-repo cancel <cross_repo_run_id> [--reason <text>]
 
 `striatum daemon start` / `striatumd` runs the supported foreground daemon
 process. It launches the Go daemon; `--core go` is a deprecated no-op
-compatibility flag and `--core python` is no longer accepted. Per D094 /
-RFC 0043 the daemon is a hard prerequisite for every Striatum verb; CLI verbs
-without a reachable daemon refuse with exit code 11 (`daemon_unreachable`) and
-do not fall back to direct mode.
+compatibility flag, `--core python` is no longer accepted, and
+`striatumd --foreground` is accepted only as a legacy spelling for
+`striatumd`. Per D094 / RFC 0043 the daemon is a hard prerequisite for every
+Striatum verb; CLI verbs without a reachable daemon refuse with exit code 11
+(`daemon_unreachable`) and do not fall back to direct mode.
 
 The first `daemon start` bootstraps a single admin token when
 daemon-owned Postgres has no clients and writes a `0600`

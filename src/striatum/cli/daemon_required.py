@@ -4,8 +4,8 @@ V1.5: daemon-required enforcement is the default. The two refusal paths:
 
 - :data:`EXIT_DAEMON_UNREACHABLE` (11) — raised when the daemon socket
   cannot be reached. Stderr names the socket path tried plus platform
-  remediation (Linux systemd, macOS launchd, ``striatumd --foreground``,
-  Postgres install hint). The JSON error envelope carries a short ``hint``.
+  remediation (Linux systemd, macOS launchd, ``striatumd``, Postgres install
+  hint). The JSON error envelope carries a short ``hint``.
 - :data:`EXIT_REPO_NOT_MIGRATED` (12) — raised when the daemon is reachable
   but the target repo has no ``repo_migrations`` row yet. Stderr names
   ``striatum daemon migrate-repo-local --from sqlite --to pg --repo <path>``.
@@ -106,7 +106,7 @@ def render_daemon_unreachable_message(socket_path: Path) -> str:
         "Linux systemd: systemctl --user start striatumd\n"
         "macOS launchd: launchctl bootstrap gui/$UID "
         "~/Library/LaunchAgents/io.striatum.striatumd.plist\n"
-        "Foreground: striatumd --foreground\n"
+        "Foreground: striatumd\n"
         "Postgres: run `striatum daemon doctor --postgres-url <url>` or "
         "set STRIATUM_DAEMON_DB_URL."
     )

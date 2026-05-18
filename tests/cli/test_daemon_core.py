@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 
 import pytest
@@ -13,6 +14,7 @@ from striatum.cli.daemon import (
 from striatum.cli.parser import build_parser
 from striatum.daemon_pg.migrations import LATEST_DAEMON_DB_VERSION
 from striatum.daemon_rpc.registry import METHODS_ETAG
+from striatum.daemon_entrypoint import main as striatumd_main
 from striatum.errors import StriatumError
 
 
@@ -39,6 +41,47 @@ def test_daemon_start_core_python_is_rejected() -> None:
 def test_daemon_start_core_unknown_is_rejected() -> None:
     with pytest.raises(SystemExit):
         build_parser().parse_args(["daemon", "start", "--core", "rust"])
+
+
+def test_striatumd_console_script_routes_to_daemon_start_without_legacy_daemon_import(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+    sys.modules.pop("striatum.daemon", None)
+
+    def fake_cli_main(argv: list[str]) -> int:
+        captured["argv"] = argv
+        return 0
+
+    import striatum.cli
+
+    monkeypatch.setattr(striatum.cli, "main", fake_cli_main)
+    assert striatumd_main(["--postgres-url", "postgresql://example/striatum"]) == 0
+
+    assert captured["argv"] == [
+        "daemon",
+        "start",
+        "--postgres-url",
+        "postgresql://example/striatum",
+    ]
+    assert "striatum.daemon" not in sys.modules
+
+
+def test_striatumd_console_script_accepts_legacy_foreground_alias(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_cli_main(argv: list[str]) -> int:
+        captured["argv"] = argv
+        return 0
+
+    import striatum.cli
+
+    monkeypatch.setattr(striatum.cli, "main", fake_cli_main)
+    assert striatumd_main(["--foreground", "--max-sweeps", "1"]) == 0
+
+    assert captured["argv"] == ["daemon", "start", "--max-sweeps", "1"]
 
 
 def test_go_daemon_launcher_execs_with_migrations_sha_source(
