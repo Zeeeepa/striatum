@@ -84,6 +84,8 @@ Recent checkpoints:
 - Production `cross-repo` CLI dispatch now refuses the remaining direct
   PostgreSQL fallback path if daemon RPC routing did not handle the command;
   the direct path is limited to the explicit legacy test-harness escape.
+- Go cross-repo lifecycle reads now return typed `not_found` RPC errors for
+  missing cross-repo run ids instead of leaking plain internal errors.
 - `striatum init --with-striatum-layout` now scaffolds the RFC 0056
   consumer-repo directories `striatum/workflows/` and
   `striatum/<workflow-slug>/` without writing workflow files or `.gitignore`

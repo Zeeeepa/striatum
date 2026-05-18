@@ -48,4 +48,5 @@ and artifact-root `.gitignore` policy out of scope.
 Go `cross_repo.cancel` parity now matches the Python participant-cancel
 semantics for terminal participants, preparing participants without local run
 ids, inactive participant repositories, and blocked-error details persisted to
-`last_reconcile_error`.
+`last_reconcile_error`. Missing cross-repo run ids now return the typed
+daemon RPC `not_found` error instead of a plain internal error.

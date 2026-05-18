@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/halbritt/striatum/go/pkg/db"
+	"github.com/halbritt/striatum/go/pkg/rpc"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 )
@@ -127,8 +128,24 @@ func TestCancelRunBlocksNonPreparingParticipantWithoutLocalRun(t *testing.T) {
 	}
 }
 
+func TestDescribeRunReturnsTypedNotFound(t *testing.T) {
+	ctx := context.Background()
+	runner := newLifecycleFakeRunner("", nil)
+	runner.runMissing = true
+
+	_, err := DescribeRun(ctx, runner, "xrun_missing")
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	var rpcErr *rpc.Error
+	if !errors.As(err, &rpcErr) || rpcErr.Code != "not_found" {
+		t.Fatalf("err = %#v, want not_found RPC error", err)
+	}
+}
+
 type lifecycleFakeRunner struct {
 	runState             string
+	runMissing           bool
 	participants         map[string]Participant
 	lastReconcileError   string
 	cancelingTransition  bool
@@ -174,6 +191,9 @@ func (r *lifecycleFakeRunner) Exec(_ context.Context, sql string, args ...any) e
 
 func (r *lifecycleFakeRunner) QueryRow(_ context.Context, sql string, _ ...any) db.Row {
 	if strings.Contains(sql, "SELECT workflow_id, workflow_version, primary_repository_id, state") {
+		if r.runMissing {
+			return lifecycleFakeRow{err: pgx.ErrNoRows}
+		}
 		version := "2026-05-18"
 		return lifecycleFakeRow{values: []any{"workflow", &version, "repo_primary", r.runState}}
 	}

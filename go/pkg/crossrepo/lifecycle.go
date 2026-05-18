@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/halbritt/striatum/go/pkg/db"
+	"github.com/halbritt/striatum/go/pkg/rpc"
 	"github.com/jackc/pgx/v5"
 )
 
@@ -168,7 +169,7 @@ func crossRepoRun(ctx context.Context, runner db.Runner, crossRepoRunID string) 
 	var workflowVersion *string
 	err := runner.QueryRow(ctx, "SELECT workflow_id, workflow_version, primary_repository_id, state FROM striatumd.cross_repo_runs WHERE cross_repo_run_id = $1", crossRepoRunID).Scan(&workflowID, &workflowVersion, &primaryID, &state)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, fmt.Errorf("cross-repo run not found: %s", crossRepoRunID)
+		return nil, rpc.NewError("not_found", fmt.Sprintf("cross-repo run not found: %s", crossRepoRunID), nil)
 	}
 	if err != nil {
 		return nil, err

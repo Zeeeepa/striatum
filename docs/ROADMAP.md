@@ -324,7 +324,8 @@ fallback path or repo-administration path.
   E2E coverage and unregistered prepare/start/reconcile policy, not an
   explicit placeholder. Go participant-cancel parity now covers terminal
   skips, preparing participants without local runs, inactive participant
-  repositories, and blocked-error persistence.
+  repositories, blocked-error persistence, and typed `not_found` errors for
+  missing cross-repo run ids.
 
 ---
 
