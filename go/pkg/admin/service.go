@@ -4,6 +4,7 @@ package admin
 import (
 	"context"
 
+	"github.com/halbritt/striatum/go/pkg/blob"
 	"github.com/halbritt/striatum/go/pkg/db"
 	"github.com/halbritt/striatum/go/pkg/rpc"
 )
@@ -13,6 +14,11 @@ type Service struct {
 	DaemonVersion string
 	ShutdownHook  ShutdownFunc
 	KeyRotateHook KeyRotateFunc
+	// BlobClient is the daemon's S3 client. Nil when blob storage is
+	// not configured (STRIATUM_BLOB_ENDPOINT unset); RepoInit then
+	// records a NULL striatumd.repositories.blob_bucket and the
+	// publish path refuses blob-routed artifact kinds.
+	BlobClient *blob.Client
 }
 
 func (s Service) Register(server *rpc.Server) {

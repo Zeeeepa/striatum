@@ -4,12 +4,15 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"syscall"
+	"time"
 
+	"github.com/halbritt/striatum/go/pkg/blob"
 	"github.com/halbritt/striatum/go/pkg/rpc"
 	"github.com/jackc/pgx/v5"
 )
@@ -23,6 +26,8 @@ type repoRegistration struct {
 	StateDBPath   string
 	SchemaVersion int
 	State         string
+	BlobBucket    string
+	BlobCreatedAt *time.Time
 }
 
 func (s Service) RepoInit(ctx context.Context, envelope rpc.Envelope) (map[string]any, error) {
@@ -57,6 +62,14 @@ func (s Service) RepoInit(ctx context.Context, envelope rpc.Envelope) (map[strin
 		return nil, err
 	}
 	if existing != nil {
+		// Re-adopt of an already-registered repo. Backfill the blob
+		// bucket if blob storage was configured after the original
+		// adopt; otherwise return the existing row untouched.
+		if s.BlobClient != nil && existing.BlobBucket == "" {
+			if err := s.provisionAndRecord(ctx, existing, envelope.Params); err != nil {
+				return nil, err
+			}
+		}
 		return repoInitResult(*existing, true), nil
 	}
 	existing, err = s.findInitRegistration(ctx, "repo_root", repo)
@@ -75,17 +88,39 @@ func (s Service) RepoInit(ctx context.Context, envelope rpc.Envelope) (map[strin
 	if displayName == "" {
 		displayName = filepath.Base(repo)
 	}
+
+	// RFC 0072: provision the blob bucket BEFORE the INSERT so a refusal
+	// (repo_blob_conflict, blob_apply_required) does not leave a
+	// half-registered row behind. With no blob configured, we skip
+	// silently and record a NULL bucket on the row.
+	var blobBucket string
+	var blobCreatedAt *time.Time
+	if s.BlobClient != nil {
+		bucket, createdAt, err := s.provisionBucket(ctx, repositoryID, envelope.Params)
+		if err != nil {
+			return nil, err
+		}
+		blobBucket = bucket
+		blobCreatedAt = createdAt
+	}
+
+	var blobBucketArg any
+	if blobBucket != "" {
+		blobBucketArg = blobBucket
+	}
 	if err := s.Runner.Exec(ctx, `
 		INSERT INTO striatumd.repositories(repository_id, repo_identity, repo_root,
 		  state_db_path, display_name, registered_at, removed_at, last_seen_at,
-		  last_schema_version, state, settings_json)
-		VALUES ($1, $2, $3, $4, $5, now(), NULL, now(), $6, 'active', '{}'::jsonb)`,
+		  last_schema_version, state, settings_json, blob_bucket, blob_created_at)
+		VALUES ($1, $2, $3, $4, $5, now(), NULL, now(), $6, 'active', '{}'::jsonb, $7, $8)`,
 		repositoryID,
 		identity,
 		repo,
 		stateDir,
 		displayName,
 		latestRepoLocalSchemaVersion,
+		blobBucketArg,
+		nullableTime(blobCreatedAt),
 	); err != nil {
 		return nil, err
 	}
@@ -96,7 +131,77 @@ func (s Service) RepoInit(ctx context.Context, envelope rpc.Envelope) (map[strin
 		StateDBPath:   stateDir,
 		SchemaVersion: latestRepoLocalSchemaVersion,
 		State:         "active",
+		BlobBucket:    blobBucket,
+		BlobCreatedAt: blobCreatedAt,
 	}, false), nil
+}
+
+// provisionBucket runs the RFC 0072 adopt-time blob provisioning and
+// returns the resulting bucket name and creation timestamp. Errors are
+// already RPC-shaped (`repo_blob_conflict`, `blob_apply_required`,
+// `blob_provision_failed`) and can be returned directly to the client.
+func (s Service) provisionBucket(ctx context.Context, repositoryID string, params map[string]any) (string, *time.Time, error) {
+	bucket := stringParam(params, "blob_bucket")
+	if bucket == "" {
+		bucket = blob.DefaultBucketName("", repositoryID)
+	}
+	apply := boolParam(params, "apply_blob_creation")
+	result, err := s.BlobClient.Provision(ctx, bucket, blob.ProvisionOptions{
+		ApplyCreation: apply,
+		RepositoryID:  repositoryID,
+	})
+	if errors.Is(err, blob.ErrApplyRequired) {
+		return "", nil, rpc.NewError(
+			"blob_apply_required",
+			fmt.Sprintf("bucket %q does not exist; re-run adopt with --apply-blob-creation to create it", bucket),
+			map[string]any{"bucket": bucket},
+		)
+	}
+	if err != nil {
+		return "", nil, rpc.NewError("blob_provision_failed", err.Error(), map[string]any{"bucket": bucket})
+	}
+	if result.Refused != "" {
+		return "", nil, rpc.NewError("repo_blob_conflict", result.Refused, map[string]any{
+			"bucket":        bucket,
+			"repository_id": repositoryID,
+		})
+	}
+	now := time.Now().UTC()
+	return result.BucketName, &now, nil
+}
+
+// provisionAndRecord backfills blob_bucket on an existing registration
+// row. Used when the operator enables blob storage after a repo was
+// originally adopted without it.
+func (s Service) provisionAndRecord(ctx context.Context, reg *repoRegistration, params map[string]any) error {
+	bucket, createdAt, err := s.provisionBucket(ctx, reg.RepositoryID, params)
+	if err != nil {
+		return err
+	}
+	if err := s.Runner.Exec(ctx, `
+		UPDATE striatumd.repositories
+		   SET blob_bucket = $1, blob_created_at = $2
+		 WHERE repository_id = $3`,
+		bucket, createdAt, reg.RepositoryID,
+	); err != nil {
+		return err
+	}
+	reg.BlobBucket = bucket
+	reg.BlobCreatedAt = createdAt
+	return nil
+}
+
+func boolParam(params map[string]any, key string) bool {
+	if value, ok := params[key].(bool); ok {
+		return value
+	}
+	if value, ok := params[key].(string); ok {
+		switch strings.ToLower(value) {
+		case "1", "true", "yes", "on":
+			return true
+		}
+	}
+	return false
 }
 
 func (s Service) resolveRepoForInit(ctx context.Context, params map[string]any) (string, error) {
@@ -134,12 +239,14 @@ func (s Service) findInitRegistration(ctx context.Context, field string, value s
 	}
 	row := s.Runner.QueryRow(ctx, `
 		SELECT repository_id, repo_root, repo_identity, state_db_path,
-		       last_schema_version, state
+		       last_schema_version, state, blob_bucket, blob_created_at
 		  FROM striatumd.repositories
 		 WHERE `+where+` AND state != 'removed'
 		 ORDER BY repository_id
 		 LIMIT 1`, value)
 	var found repoRegistration
+	var blobBucket *string
+	var blobCreatedAt *time.Time
 	err := row.Scan(
 		&found.RepositoryID,
 		&found.RepoRoot,
@@ -147,6 +254,8 @@ func (s Service) findInitRegistration(ctx context.Context, field string, value s
 		&found.StateDBPath,
 		&found.SchemaVersion,
 		&found.State,
+		&blobBucket,
+		&blobCreatedAt,
 	)
 	if err != nil {
 		if err == pgx.ErrNoRows {
@@ -154,11 +263,15 @@ func (s Service) findInitRegistration(ctx context.Context, field string, value s
 		}
 		return nil, err
 	}
+	if blobBucket != nil {
+		found.BlobBucket = *blobBucket
+	}
+	found.BlobCreatedAt = blobCreatedAt
 	return &found, nil
 }
 
 func repoInitResult(row repoRegistration, already bool) map[string]any {
-	return map[string]any{
+	result := map[string]any{
 		"repository_id":      row.RepositoryID,
 		"repo_root":          row.RepoRoot,
 		"repo_identity":      row.RepoIdentity,
@@ -171,6 +284,13 @@ func repoInitResult(row repoRegistration, already bool) map[string]any {
 		"python_dependency":  false,
 		"source_import_mode": "none",
 	}
+	if row.BlobBucket != "" {
+		result["blob_bucket"] = row.BlobBucket
+	}
+	if row.BlobCreatedAt != nil {
+		result["blob_created_at"] = row.BlobCreatedAt.UTC().Format(time.RFC3339)
+	}
+	return result
 }
 
 func canonicalRepo(value string) (string, error) {

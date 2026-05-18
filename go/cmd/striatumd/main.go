@@ -16,6 +16,7 @@ import (
 
 	"github.com/halbritt/striatum/go/pkg/admin"
 	daemonapply "github.com/halbritt/striatum/go/pkg/apply"
+	"github.com/halbritt/striatum/go/pkg/blob"
 	"github.com/halbritt/striatum/go/pkg/crossrepo"
 	"github.com/halbritt/striatum/go/pkg/db"
 	"github.com/halbritt/striatum/go/pkg/mutations"
@@ -200,9 +201,17 @@ func main() {
 		}()
 		return nil
 	}
+	blobClient, err := loadBlobClient()
+	if err != nil {
+		log.Fatalf("blob client setup: %v", err)
+	}
+	if blobClient != nil {
+		log.Printf("blob storage configured")
+	}
 	registerHandlers(server, runner, handlerOptions{
 		ShutdownHook:  shutdownHook,
 		KeyRotateHook: daemonapply.RotateFallbackSigningKey,
+		BlobClient:    blobClient,
 	})
 
 	if err := os.MkdirAll(filepath.Dir(socketPath), 0o700); err != nil {
@@ -286,6 +295,24 @@ func (f *optionalIntFlag) String() string {
 type handlerOptions struct {
 	ShutdownHook  admin.ShutdownFunc
 	KeyRotateHook admin.KeyRotateFunc
+	BlobClient    *blob.Client
+}
+
+// loadBlobClient builds the daemon's S3 client from environment
+// configuration. Returns (nil, nil) when blob storage is opt-out
+// (STRIATUM_BLOB_ENDPOINT unset); returns a non-nil error for
+// half-configured or malformed configuration. The daemon refuses to
+// start when configuration is malformed but happily runs without blob
+// storage when it is simply absent (RFC 0072 is opt-in for V1).
+func loadBlobClient() (*blob.Client, error) {
+	cfg, err := blob.LoadConfig()
+	if blob.IsDisabled(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return blob.New(cfg)
 }
 
 func registerHandlers(server *rpc.Server, runner db.Runner, opts ...handlerOptions) {
@@ -298,6 +325,7 @@ func registerHandlers(server *rpc.Server, runner db.Runner, opts ...handlerOptio
 		DaemonVersion: daemonVersion,
 		ShutdownHook:  options.ShutdownHook,
 		KeyRotateHook: options.KeyRotateHook,
+		BlobClient:    options.BlobClient,
 	}.Register(server)
 	daemonapply.Service{Runner: runner}.Register(server)
 	registerCrossRepoHandlers(server, runner)
