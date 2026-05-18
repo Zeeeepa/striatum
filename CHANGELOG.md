@@ -90,6 +90,9 @@ Recent checkpoints:
   daemon supervisor helper imports, and several tests now import neutral
   primitives/path-policy helpers directly instead of loading them through
   `striatum.db`; the SQLite quarantine allowlist shrank accordingly.
+- Legacy SQLite cutover guardrail tests now live with the legacy quarantine
+  tripwires, so `tests/test_daemon_pg.py` no longer imports the retired Python
+  daemon module.
 - Runtime path and token-file helpers now live in `striatum.daemon_runtime`,
   and PostgreSQL repository registration helpers used by day-zero setup and
   daemon RPC routing now live in `striatum.daemon_pg.repositories`, reducing

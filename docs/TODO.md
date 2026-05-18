@@ -1285,9 +1285,8 @@ review and plan are root-level operator artifacts:
     audit-chain verification used by one-way migration fixtures now live in
     `striatum.daemon_pg.sqlite_compat`, further shrinking imports from the
     legacy Python daemon module. Legacy daemon security fixture coverage has
-    also moved onto current runtime/MCP/capability helpers, leaving direct
-    Python-daemon imports to cutover/quarantine fixtures and harness launch
-    glue.
+    also moved onto current runtime/MCP/capability helpers. Direct
+    Python-daemon imports are now confined to the legacy quarantine fixtures.
 
 62. **RFC 0069: PostgreSQL-only daemon-global surfaces.** Most done. Port daemon
     sweep, dashboard-all, daemon MCP resource list/read, and

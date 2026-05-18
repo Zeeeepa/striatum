@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import os
-import sqlite3
 import subprocess
 import sys
 from pathlib import Path
@@ -10,21 +9,20 @@ from typing import Any, cast
 
 import pytest
 
-from striatum import daemon
+from striatum.daemon_pg.client_admin import ENV_REGISTRY
 from striatum.daemon_pg.config import ENV_DAEMON_DB_URL, redact_url, resolve_config
 from striatum.daemon_pg.connection import doctor as pg_doctor
-from striatum.daemon_pg.cutover import CUTOVER_COMPLETED_KEY
 from striatum.daemon_pg.migrations import MIGRATIONS
 from striatum.daemon_pg.roles import role_repair_sql
-from striatum.errors import StriatumError
+from striatum.daemon_runtime import ENV_RUNTIME
 
 
 def _env(tmp_path: Path) -> dict[str, str]:
     env = os.environ.copy()
     env.update(
         {
-            daemon.ENV_REGISTRY: str(tmp_path / "daemon" / "striatumd.sqlite3"),
-            daemon.ENV_RUNTIME: str(tmp_path / "runtime"),
+            ENV_REGISTRY: str(tmp_path / "daemon" / "striatumd.sqlite3"),
+            ENV_RUNTIME: str(tmp_path / "runtime"),
             "PYTHONPATH": str(Path.cwd() / "src"),
             "XDG_CONFIG_HOME": str(tmp_path / "config"),
         }
@@ -158,52 +156,3 @@ def test_dogfood_surgical_recovery_migration_extends_capability_constraints() ->
     assert "rpc_methods_required_capability_check" in sql
     assert "client_capabilities_capability_check" in sql
     assert "'surgical_recovery'" in sql
-
-
-def test_sqlite_registry_refuses_after_pg_cutover_marker(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    env = _env(tmp_path)
-    monkeypatch.setenv(daemon.ENV_REGISTRY, env[daemon.ENV_REGISTRY])
-    monkeypatch.setenv(daemon.ENV_RUNTIME, env[daemon.ENV_RUNTIME])
-
-    conn = daemon.connect_registry()
-    with daemon.registry_transaction(conn):
-        conn.execute(
-            "INSERT INTO daemon_meta(key, value) VALUES(?, ?)",
-            (CUTOVER_COMPLETED_KEY, "2026-05-11T00:00:00Z"),
-        )
-    conn.close()
-
-    with pytest.raises(daemon.DaemonRegistryError, match="cut over to PostgreSQL"):
-        daemon.connect_registry()
-
-
-def test_cutover_refuses_broken_v1_audit_before_postgres_connect(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    env = _env(tmp_path)
-    monkeypatch.setenv(daemon.ENV_REGISTRY, env[daemon.ENV_REGISTRY])
-    monkeypatch.setenv(daemon.ENV_RUNTIME, env[daemon.ENV_RUNTIME])
-    monkeypatch.setenv("XDG_CONFIG_HOME", env["XDG_CONFIG_HOME"])
-    monkeypatch.delenv(ENV_DAEMON_DB_URL, raising=False)
-    repo = tmp_path / "repo"
-    repo.mkdir()
-    _run_cli(repo, "init", env=env)
-    daemon.repo_add(repo)
-
-    reg = Path(env[daemon.ENV_REGISTRY])
-    conn = sqlite3.connect(reg)
-    conn.execute("DROP TRIGGER audit_no_update")
-    conn.execute("UPDATE audit_log SET command = 'tampered' WHERE audit_id = 1")
-    conn.commit()
-    conn.close()
-
-    from striatum.daemon_pg.cutover import CutoverOptions, migrate
-
-    with pytest.raises(StriatumError, match="audit chain is not clean"):
-        migrate(
-            CutoverOptions(
-                source_registry=reg,
-                postgres_url="postgresql://unused/striatumd",
-                dry_run=True,
-            )
-        )

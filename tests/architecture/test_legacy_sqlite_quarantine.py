@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ast
+import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
@@ -8,6 +9,9 @@ from typing import Callable
 import pytest
 
 from striatum import daemon
+from striatum.daemon_pg.config import ENV_DAEMON_DB_URL
+from striatum.daemon_pg.cutover import CUTOVER_COMPLETED_KEY
+from striatum.errors import StriatumError
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -368,6 +372,61 @@ def test_legacy_sqlite_registry_allows_test_harness_pair_only(
     conn.close()
 
     assert registry.exists()
+
+
+def test_legacy_sqlite_registry_refuses_after_pg_cutover_marker(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    registry = tmp_path / "daemon" / "striatumd.sqlite3"
+    monkeypatch.setenv(daemon.ENV_REGISTRY, str(registry))
+    monkeypatch.setenv(daemon.ENV_RUNTIME, str(tmp_path / "runtime"))
+    monkeypatch.setenv("STRIATUM_DAEMON_REQUIRED", "0")
+    monkeypatch.setenv("STRIATUM_TEST_HARNESS", "1")
+
+    conn = daemon.connect_registry()
+    with daemon.registry_transaction(conn):
+        conn.execute(
+            "INSERT INTO daemon_meta(key, value) VALUES(?, ?)",
+            (CUTOVER_COMPLETED_KEY, "2026-05-11T00:00:00Z"),
+        )
+    conn.close()
+
+    with pytest.raises(daemon.DaemonRegistryError, match="cut over to PostgreSQL"):
+        daemon.connect_registry()
+
+
+def test_legacy_cutover_refuses_broken_v1_audit_before_postgres_connect(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    registry = tmp_path / "daemon" / "striatumd.sqlite3"
+    monkeypatch.setenv(daemon.ENV_REGISTRY, str(registry))
+    monkeypatch.setenv(daemon.ENV_RUNTIME, str(tmp_path / "runtime"))
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    monkeypatch.setenv("STRIATUM_DAEMON_REQUIRED", "0")
+    monkeypatch.setenv("STRIATUM_TEST_HARNESS", "1")
+    monkeypatch.delenv(ENV_DAEMON_DB_URL, raising=False)
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    daemon.repo_add(repo, init=True)
+
+    conn = sqlite3.connect(registry)
+    conn.execute("DROP TRIGGER audit_no_update")
+    conn.execute("UPDATE audit_log SET command = 'tampered' WHERE audit_id = 1")
+    conn.commit()
+    conn.close()
+
+    from striatum.daemon_pg.cutover import CutoverOptions, migrate
+
+    with pytest.raises(StriatumError, match="audit chain is not clean"):
+        migrate(
+            CutoverOptions(
+                source_registry=registry,
+                postgres_url="postgresql://unused/striatumd",
+                dry_run=True,
+            )
+        )
 
 
 def test_test_sqlite_references_are_classified_as_test_fixtures() -> None:
