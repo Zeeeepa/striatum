@@ -9,13 +9,12 @@ from __future__ import annotations
 
 import fcntl
 import os
-import sqlite3
 import threading
 import time
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Iterator
+from typing import Any, Callable, Iterator
 
 from striatum.repo_policy import state_dir
 
@@ -156,7 +155,7 @@ class SupervisedProgressWatcher:
         self,
         *,
         heartbeat_callback: HeartbeatCallback,
-        conn: sqlite3.Connection | None = None,
+        conn: Any | None = None,
         repo: Path | None = None,
         config: ProgressWatcherConfig | None = None,
         clock: Callable[[], float] = time.time,

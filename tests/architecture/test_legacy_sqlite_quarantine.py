@@ -111,10 +111,6 @@ PRODUCTION_SQLITE_QUARANTINE = {
         "adapter transition",
         "legacy worktree helpers retained for adapter/test fixtures",
     ),
-    Path("src/striatum/daemon_supervisor/progress_watcher.py"): SQLiteClassification(
-        "adapter transition",
-        "legacy supervisor progress watcher during daemon supervisor transition",
-    ),
     Path("src/striatum/identity.py"): SQLiteClassification(
         "adapter transition",
         "legacy lane-attestation/byline helper still accepts SQLite rows",

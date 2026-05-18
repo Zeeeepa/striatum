@@ -1297,10 +1297,12 @@ review and plan are root-level operator artifacts:
     one-way repo-local migration fixture, and the unused daemon audit-chain
     validators are gone. The unused repo-local SQLite supervisor pointer
     helper is deleted; current supervisor pointer writes live under the
-    daemon/PostgreSQL handlers. Mixed legacy modules now import neutral
-    JSON/id/time/path helpers directly from `striatum.primitives` and
-    `striatum.repo_policy`, with a guardrail blocking new neutral imports
-    through `striatum.db`. Legacy daemon security fixture coverage has also
+    daemon/PostgreSQL handlers. The supervised progress watcher no longer
+    imports `sqlite3`; its optional connection is caller-owned. Mixed legacy
+    modules now import neutral JSON/id/time/path helpers directly from
+    `striatum.primitives` and `striatum.repo_policy`, with a guardrail
+    blocking new neutral imports through `striatum.db`. Legacy daemon
+    security fixture coverage has also
     moved onto current runtime/MCP/capability helpers. Direct
     Python-daemon imports are now confined to the legacy quarantine fixtures.
 

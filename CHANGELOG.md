@@ -128,6 +128,9 @@ Recent checkpoints:
 - The unused repo-local SQLite supervisor pointer helper
   (`striatum.daemon_supervisor.pointer`) was deleted; current supervisor
   pointer writes live under the daemon/PostgreSQL handlers.
+- `striatum.daemon_supervisor.progress_watcher` no longer imports `sqlite3`;
+  its optional connection is typed generically while the caller owns the
+  legacy repo-local connection.
 - The standalone `striatum.daemon_pg.sqlite_compat` helper was removed. Its
   last repository-identity calculation now lives beside the one-way
   repo-local migration fixture, and the unused daemon audit-chain validators
