@@ -31,6 +31,9 @@ Recent checkpoints:
   now live in a substrate-neutral formatter used by PostgreSQL handlers and
   corpus exports; the SQLite-backed CLI module keeps only its legacy snapshot
   and export wrapper.
+- The remaining direct SQLite CLI dispatch block now runs only under the
+  paired legacy test-harness escape; production commands that are not
+  daemon-routed fail closed before opening repo-local state.
 - The Go daemon launch contract now reports supported daemon PostgreSQL schema
   and migration count from `--describe`; the Python launcher refuses stale Go
   daemon binaries before socket bind when their schema, migration count, or

@@ -675,6 +675,12 @@ def dispatch(args: argparse.Namespace) -> object:
                 f"recovery watch refused (exit {exit_code})"
             )
         return None
+    if not _legacy_sqlite_test_harness_enabled():
+        raise StriatumError(
+            f"daemon_route_required: {args.command} must route through daemon RPC; "
+            "legacy SQLite dispatch is available only to paired test fixtures",
+            exit_code=12,
+        )
     ensure_initialized(repo)
     with connect(repo) as conn:
         if args.command == "run" and args.run_command == "prepare":
