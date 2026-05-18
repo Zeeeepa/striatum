@@ -179,8 +179,7 @@ def legacy_run_detail_payload(repo: Path, *, run_id: str) -> JsonObject:
                 artifacts=artifacts,
                 packet=packet,
             )
-            job["artifacts"] = legacy_shape_artifact_rows(
-                conn,
+            job["artifacts"] = shape_artifact_rows(
                 artifacts=artifacts,
                 expected_rows=job["expected_artifact_rows"],
             )
@@ -279,8 +278,7 @@ def legacy_job_detail_payload(repo: Path, *, run_id: str, job_ref: str) -> JsonO
             artifacts=artifacts,
             packet=packet,
         )
-        artifacts = legacy_shape_artifact_rows(
-            conn,
+        artifacts = shape_artifact_rows(
             artifacts=artifacts,
             expected_rows=job["expected_artifact_rows"],
         )
@@ -444,8 +442,7 @@ def legacy_artifact_view_payload(repo: Path, *, run_id: str, artifact_id: str) -
             if job_row is not None
             else []
         )
-        shaped = legacy_shape_artifact_rows(
-            conn,
+        shaped = shape_artifact_rows(
             artifacts=[artifact],
             expected_rows=expected_rows,
         )
@@ -938,16 +935,6 @@ def _shape_verdict_rows(
     return list(reversed(shaped))
 
 
-def legacy_shape_artifact_rows(
-    conn: sqlite3.Connection | None,
-    *,
-    artifacts: list[dict[str, Any]],
-    expected_rows: list[JsonObject],
-) -> list[dict[str, Any]]:
-    del conn
-    return shape_artifact_rows(artifacts=artifacts, expected_rows=expected_rows)
-
-
 def send_legacy_fixture_error(handler: BaseHTTPRequestHandler, exc: Exception) -> bool:
     from striatum.errors import InvalidTransitionError, NotFoundError, StriatumError
 
@@ -1059,7 +1046,6 @@ __all__ = [
     "legacy_run_list_items_for_test_harness",
     "legacy_run_posture_verdicts_payload",
     "legacy_run_resume",
-    "legacy_shape_artifact_rows",
     "legacy_stream_events_body",
     "legacy_verify_state_health",
     "legacy_web_read_fallback_enabled",

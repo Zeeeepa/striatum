@@ -152,6 +152,8 @@ Recent checkpoints:
 - The unused legacy Python-daemon `dashboard_all` repo-local fallback was
   deleted; daemon-global dashboard reads stay on the PostgreSQL client/admin
   and Go daemon paths.
+- The legacy service artifact-row wrapper was removed; the remaining SQLite
+  service fallback uses the shared web artifact row shaper directly.
 - The standalone `striatum.daemon_pg.sqlite_compat` helper was removed. Its
   last repository-identity calculation now lives beside the one-way
   repo-local migration fixture, and the unused daemon audit-chain validators
