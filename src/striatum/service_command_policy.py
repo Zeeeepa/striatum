@@ -6,6 +6,8 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
+LEGACY_SERVICE_FIXTURE_ENV = "STRIATUM_LEGACY_SERVICE_FIXTURE"
+
 SERVICE_CLI_LOCAL_READ_SUBCOMMANDS: dict[str, frozenset[str]] = {
     "workflow": frozenset({"validate", "lint", "plan", "graph", "templates"}),
 }
@@ -47,10 +49,7 @@ def daemon_route_for_argv(argv: list[str], repo: Path) -> DaemonCommandRoute | N
     ``striatum.api.invoke``.
     """
 
-    if (
-        os.environ.get("STRIATUM_TEST_HARNESS") == "1"
-        and os.environ.get("STRIATUM_DAEMON_REQUIRED") == "0"
-    ):
+    if legacy_service_fixture_fallback_enabled():
         return None
     route = _daemon_route_for_argv(argv, repo)
     if route is None:
@@ -70,6 +69,15 @@ def daemon_mutation_route_for_argv(argv: list[str], repo: Path) -> DaemonCommand
     if entry is None or entry.required_capability == "read":
         return None
     return route
+
+
+def legacy_service_fixture_fallback_enabled() -> bool:
+    """Return True only for explicit legacy service/web SQLite fixtures."""
+    return (
+        os.environ.get("STRIATUM_TEST_HARNESS") == "1"
+        and os.environ.get("STRIATUM_DAEMON_REQUIRED") == "0"
+        and os.environ.get(LEGACY_SERVICE_FIXTURE_ENV) == "1"
+    )
 
 
 def _daemon_method_for_argv(argv: list[str]) -> str | None:

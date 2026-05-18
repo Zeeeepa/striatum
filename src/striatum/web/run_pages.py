@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -66,10 +65,7 @@ def render_run_list_page(ctx: RunPageContext) -> None:
             ]
             runs.sort(key=lambda item: str(item.get("created_at") or ""), reverse=True)
         except ServiceDaemonRpcError as exc:
-            if (
-                os.environ.get("STRIATUM_TEST_HARNESS") == "1"
-                and os.environ.get("STRIATUM_DAEMON_REQUIRED") == "0"
-            ):
+            if ctx.legacy_web_read_fallback_enabled(exc.code):
                 runs = ctx.legacy_run_list_items_for_test_harness(
                     ctx.state.repo,
                     shape_run=lambda item: run_list_view_item(ctx.state, item),

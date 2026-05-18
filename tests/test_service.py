@@ -148,6 +148,7 @@ def _spawn_service(
     env["PYTHONPATH"] = str(ROOT / "src")
     env["STRIATUM_TEST_HARNESS"] = "1"
     env["STRIATUM_DAEMON_REQUIRED"] = "0"
+    env["STRIATUM_LEGACY_SERVICE_FIXTURE"] = "1"
     if "--port" not in args and "--unix" not in args:
         port = _free_port()
         full_args = [*args, "--host", "127.0.0.1", "--port", str(port)]
@@ -1633,6 +1634,67 @@ def test_service_daemon_rpc_error_preserves_response_details(
         assert exc.details == {"field_path": "jobs[0].role_id"}
     else:  # pragma: no cover - defensive assertion path.
         raise AssertionError("expected ServiceDaemonRpcError")
+
+
+def test_service_daemon_call_repo_method_ignores_broad_test_harness_without_service_fixture(
+    tmp_path: Path,
+    monkeypatch: Any,
+) -> None:
+    sys.path.insert(0, str(ROOT / "src"))
+    try:
+        import striatum.service_daemon as service_daemon
+    finally:
+        sys.path.pop(0)
+
+    calls: list[tuple[Path, str, dict[str, Any]]] = []
+    monkeypatch.setenv("STRIATUM_TEST_HARNESS", "1")
+    monkeypatch.setenv("STRIATUM_DAEMON_REQUIRED", "0")
+    monkeypatch.delenv("STRIATUM_LEGACY_SERVICE_FIXTURE", raising=False)
+    monkeypatch.setattr(service_daemon, "resolve_socket_path", lambda: tmp_path / "daemon.sock")
+    monkeypatch.setattr(service_daemon, "daemon_socket_is_reachable", lambda path: True)
+    monkeypatch.setattr(service_daemon, "_resolve_repository_id", lambda sock_path, repo: "repo_test")
+
+    def fake_call_with_handshake(
+        sock_path: Path,
+        method: str,
+        params: dict[str, Any],
+    ) -> dict[str, Any]:
+        calls.append((sock_path, method, dict(params)))
+        return {"ok": True, "data": {"state": "ok"}}
+
+    monkeypatch.setattr(service_daemon, "_call_with_handshake", fake_call_with_handshake)
+
+    result = service_daemon.call_repo_method(tmp_path, "status", {})
+
+    assert result == {"state": "ok"}
+    assert calls == [
+        (
+            tmp_path / "daemon.sock",
+            "status",
+            {"repository_id": "repo_test"},
+        )
+    ]
+
+
+def test_service_command_policy_routes_mapped_invoke_without_service_fixture(
+    tmp_path: Path,
+    monkeypatch: Any,
+) -> None:
+    sys.path.insert(0, str(ROOT / "src"))
+    try:
+        from striatum.service_command_policy import daemon_route_for_argv
+    finally:
+        sys.path.pop(0)
+
+    monkeypatch.setenv("STRIATUM_TEST_HARNESS", "1")
+    monkeypatch.setenv("STRIATUM_DAEMON_REQUIRED", "0")
+    monkeypatch.delenv("STRIATUM_LEGACY_SERVICE_FIXTURE", raising=False)
+
+    route = daemon_route_for_argv(["status"], tmp_path)
+
+    assert route is not None
+    assert route.method == "status"
+    assert route.params == {}
 
 
 def test_web_branch_confirm_posts_daemon_rpc_then_run_start_without_sqlite(

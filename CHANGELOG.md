@@ -96,6 +96,10 @@ Recent checkpoints:
 - Product docs now describe the Python daemon module/selector as deleted,
   with remaining cleanup limited to legacy SQLite fixture/import conversion
   or deletion.
+- Service/web legacy SQLite fallback now requires the explicit
+  `STRIATUM_LEGACY_SERVICE_FIXTURE=1` marker in addition to the paired
+  test-harness daemon opt-out; broad pytest daemon opt-out alone no longer
+  disables daemon RPC routing for service calls.
 - The retired `src/striatum/daemon.py` Python daemon / daemon-global SQLite
   registry module was deleted. Architecture guardrails now assert the module
   remains absent and keep daemon-global refusal coverage on the PostgreSQL

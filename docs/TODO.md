@@ -907,6 +907,10 @@ review and plan are root-level operator artifacts:
     `striatum.cli.run_summary` no longer loads SQLite. Legacy SQLite list
     readers now live under `striatum.legacy_sqlite.cli_list_commands`;
     importing `striatum.cli.list_commands` no longer loads SQLite.
+    Service/web legacy SQLite fallback now requires
+    `STRIATUM_LEGACY_SERVICE_FIXTURE=1` in addition to the paired
+    test-harness daemon opt-out, so broad pytest daemon opt-out no longer
+    disables daemon RPC routing for service calls.
 
 50. ~~**Phase 2: single method-contract source.**~~ ✅ Done. Contract source is now
     live at `contracts/daemon_methods.json`; Python `METHOD_REGISTRY`

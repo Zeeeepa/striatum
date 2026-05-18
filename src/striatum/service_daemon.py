@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping
@@ -11,6 +10,7 @@ from striatum.cli.daemon_required import daemon_socket_is_reachable, resolve_soc
 from striatum.cli.daemon_rpc_route import _call_with_handshake, _resolve_repository_id
 from striatum.daemon_rpc.envelope import RpcError
 from striatum.daemon_rpc.registry import METHOD_REGISTRY
+from striatum.service_command_policy import legacy_service_fixture_fallback_enabled
 
 
 @dataclass(frozen=True)
@@ -32,10 +32,7 @@ def call_repo_method(repo: Path, method: str, params: Mapping[str, Any]) -> dict
 
     if method not in METHOD_REGISTRY:
         raise ServiceDaemonRpcError(500, "method_unknown", f"method has no registry entry: {method}")
-    if (
-        os.environ.get("STRIATUM_TEST_HARNESS") == "1"
-        and os.environ.get("STRIATUM_DAEMON_REQUIRED") == "0"
-    ):
+    if legacy_service_fixture_fallback_enabled():
         raise ServiceDaemonRpcError(
             503,
             "daemon_unreachable",

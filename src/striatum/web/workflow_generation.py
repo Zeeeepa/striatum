@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping, cast
 from urllib.parse import unquote
 
 from striatum import service_daemon
+from striatum.service_command_policy import legacy_service_fixture_fallback_enabled
 from striatum.workflow_generator import (
     GeneratorError,
     WorkflowGenerationSpec,
@@ -62,10 +62,7 @@ def service_daemon_error_response(exc: service_daemon.ServiceDaemonRpcError) -> 
 
 
 def _test_harness_local_fallback_enabled() -> bool:
-    return (
-        os.environ.get("STRIATUM_TEST_HARNESS") == "1"
-        and os.environ.get("STRIATUM_DAEMON_REQUIRED") == "0"
-    )
+    return legacy_service_fixture_fallback_enabled()
 
 
 def _local_workflow_preview_response(spec_body: JsonObject) -> WorkflowGenerationResponse:

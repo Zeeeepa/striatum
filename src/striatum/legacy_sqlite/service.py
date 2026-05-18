@@ -8,7 +8,6 @@ the explicit test-harness environment gate.
 from __future__ import annotations
 
 import json
-import os
 import sqlite3
 import subprocess
 import time
@@ -17,6 +16,7 @@ from pathlib import Path
 from typing import Any, Callable, Mapping
 
 from striatum.repo_policy import db_path
+from striatum.service_command_policy import legacy_service_fixture_fallback_enabled
 from striatum.web.artifacts import byline_line as _byline_line
 from striatum.web.artifacts import lane_evidence_chip as _lane_evidence_chip
 from striatum.web.artifacts import shape_artifact_rows
@@ -29,24 +29,21 @@ def legacy_fixture_fallback_enabled(code: str) -> bool:
     """Return whether service tests may exercise the pre-cutover SQLite path."""
     return (
         code in {"daemon_unreachable", "repo_not_registered"}
-        and os.environ.get("STRIATUM_TEST_HARNESS") == "1"
-        and os.environ.get("STRIATUM_DAEMON_REQUIRED") == "0"
+        and legacy_service_fixture_fallback_enabled()
     )
 
 
 def legacy_artifact_raw_fallback_enabled(code: str) -> bool:
     return (
         code in {"daemon_unreachable", "repo_not_registered"}
-        and os.environ.get("STRIATUM_TEST_HARNESS") == "1"
-        and os.environ.get("STRIATUM_DAEMON_REQUIRED") == "0"
+        and legacy_service_fixture_fallback_enabled()
     )
 
 
 def legacy_web_read_fallback_enabled(code: str) -> bool:
     return (
         code in {"daemon_unreachable", "repo_not_registered"}
-        and os.environ.get("STRIATUM_TEST_HARNESS") == "1"
-        and os.environ.get("STRIATUM_DAEMON_REQUIRED") == "0"
+        and legacy_service_fixture_fallback_enabled()
     )
 
 
