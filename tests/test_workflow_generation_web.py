@@ -50,13 +50,26 @@ def test_workflow_template_show_response_decodes_template_id() -> None:
     assert response.payload["data"]["template_id"] == "review"
 
 
-def test_workflow_generate_preview_writes_nothing(
+def test_workflow_generate_preview_does_not_fallback_with_legacy_service_fixture(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("STRIATUM_TEST_HARNESS", "1")
     monkeypatch.setenv("STRIATUM_DAEMON_REQUIRED", "0")
     monkeypatch.setenv("STRIATUM_LEGACY_SERVICE_FIXTURE", "1")
+
+    def fake_call_repo_method(_repo: Path, _method: str, _params: dict[str, Any]) -> dict[str, Any]:
+        raise ServiceDaemonRpcError(
+            503,
+            "daemon_unreachable",
+            "daemon_unreachable: workflow.generate.preview requires the Striatum daemon",
+        )
+
+    def local_generator_tripwire(_spec: object) -> None:
+        raise AssertionError("legacy service fixture used local preview fallback")
+
+    monkeypatch.setattr("striatum.service_daemon.call_repo_method", fake_call_repo_method)
+    monkeypatch.setattr("striatum.web.workflow_generation.generate_workflow", local_generator_tripwire)
 
     response = workflow_generate_response(
         repo=tmp_path,
@@ -65,8 +78,9 @@ def test_workflow_generate_preview_writes_nothing(
         allow_mutations=False,
     )
 
-    assert response.status == 200
-    assert response.payload["data"]["workflow"]["workflow_id"] == "demo"
+    assert response.status == 503
+    assert response.payload["ok"] is False
+    assert response.payload["error"]["code"] == "daemon_unreachable"
     assert not (tmp_path / "workflows" / "demo").exists()
 
 

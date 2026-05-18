@@ -367,8 +367,8 @@ Recent checkpoints:
   phase-inference path for preview/apply, synthesis-job insertion,
   cross-phase edge rewriting, and non-terminal-run refusal.
 - Web and chat workflow-generation preview now call
-  `workflow.generate.preview` through daemon RPC in production, preserving
-  the local in-process generator only for the explicit test-harness fallback.
+  `workflow.generate.preview` through daemon RPC in all modes; the old local
+  in-process preview fallback was removed from service/chat fixtures.
 - Production `cross-repo` CLI dispatch now refuses the remaining direct
   PostgreSQL fallback path if daemon RPC routing did not handle the command;
   the direct path is limited to the explicit legacy test-harness escape.

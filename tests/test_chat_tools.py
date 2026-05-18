@@ -188,16 +188,32 @@ def _workflow_spec() -> dict[str, Any]:
     }
 
 
-def test_generate_workflow_preview_tool_writes_nothing(
+def test_generate_workflow_preview_tool_does_not_fallback_with_legacy_service_fixture(
     tmp_path: Path,
     monkeypatch: Any,
 ) -> None:
+    import striatum.service_daemon as service_daemon
+
     _git_init(tmp_path)
+    monkeypatch.setenv("STRIATUM_TEST_HARNESS", "1")
+    monkeypatch.setenv("STRIATUM_DAEMON_REQUIRED", "0")
     monkeypatch.setenv("STRIATUM_LEGACY_SERVICE_FIXTURE", "1")
+
+    def fake_call_repo_method(_repo: Path, _method: str, _params: dict[str, Any]) -> dict[str, Any]:
+        raise service_daemon.ServiceDaemonRpcError(
+            503,
+            "daemon_unreachable",
+            "daemon_unreachable: workflow.generate.preview requires the Striatum daemon",
+        )
+
+    monkeypatch.setattr(service_daemon, "call_repo_method", fake_call_repo_method)
+
     out = execute_tool("generate_workflow_preview", {"spec": _workflow_spec()}, repo=tmp_path)
     parsed = json.loads(out)
-    assert parsed["ok"] is True
-    assert parsed["data"]["workflow"]["workflow_id"] == "demo"
+
+    assert parsed["ok"] is False
+    assert parsed["error"]["code"] == "daemon_unreachable"
+    assert parsed["error"]["status"] == 503
     assert not (tmp_path / "workflows" / "demo").exists()
 
 

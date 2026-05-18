@@ -1302,7 +1302,7 @@ review and plan are root-level operator artifacts:
     phase-inference path for preview/apply, synthesis-job insertion,
     cross-phase edge rewriting, and non-terminal-run refusal;
     web/chat preview callers now route
-    `workflow.generate.preview` through daemon RPC in production. Go now owns
+    `workflow.generate.preview` through daemon RPC in all modes. Go now owns
     `daemon.key.rotate` for the local Ed25519 `0600` fallback signing-key
     file. D110 removed `daemon.migrate_repo_local`,
     `dogfood.publish_on_behalf`, and `dogfood.surgical_recovery` from the

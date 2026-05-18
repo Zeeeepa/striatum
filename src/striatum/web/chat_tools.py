@@ -772,21 +772,11 @@ def _tool_generate_workflow_preview(repo: Path, spec_body: dict[str, Any] | None
     if spec_body is None:
         return "[error] missing spec object"
     from striatum import service_daemon
-    from striatum.web.workflow_generation import _test_harness_local_fallback_enabled
 
     try:
         data = service_daemon.call_repo_method(repo, "workflow.generate.preview", {"spec": spec_body})
     except service_daemon.ServiceDaemonRpcError as exc:
-        if not _test_harness_local_fallback_enabled():
-            return _service_daemon_error(exc)
-        from striatum.workflow_generator import GeneratorError, WorkflowGenerationSpec, generate_workflow
-
-        try:
-            spec = WorkflowGenerationSpec.from_json(spec_body)
-            generated = generate_workflow(spec)
-        except GeneratorError as gen_exc:
-            return _generator_error("workflow_generate_preview_failed", gen_exc)
-        data = generated.to_json()
+        return _service_daemon_error(exc)
     return json.dumps({"ok": True, "data": data}, indent=2, sort_keys=True)
 
 
