@@ -2249,29 +2249,6 @@ def health_pg(pg_conn: Any) -> dict[str, Any]:
     return {"mode": "daemon", "ok": True, "protocol_version": PROTOCOL_VERSION}
 
 
-def rotate_audit_segment_for_test() -> dict[str, Any]:
-    conn = connect_registry()
-    with registry_transaction(conn):
-        current = conn.execute(
-            "SELECT * FROM audit_segments WHERE state = 'open' ORDER BY segment_id DESC LIMIT 1"
-        ).fetchone()
-        if current is None:
-            raise DaemonRegistryError("no open audit segment")
-        conn.execute(
-            "UPDATE audit_segments SET closed_at = ?, state = 'closed' WHERE segment_id = ?",
-            (utc_now(), current["segment_id"]),
-        )
-        conn.execute(
-            """
-            INSERT INTO audit_segments(opened_at, previous_segment_id,
-              previous_segment_last_hash, state, retention_state)
-            VALUES (?, ?, ?, 'open', 'active')
-            """,
-            (utc_now(), current["segment_id"], current["last_hash"]),
-        )
-        return {"closed_segment_id": current["segment_id"], "previous_hash": current["last_hash"]}
-
-
 def main(argv: Sequence[str] | None = None) -> int:
     """Console entry point for ``striatumd``."""
     from striatum.cli import main as cli_main

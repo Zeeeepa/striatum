@@ -156,6 +156,8 @@ Recent checkpoints:
   service fallback uses the shared web artifact row shaper directly.
 - The web doctor page no longer has a legacy SQLite fallback; daemon doctor
   DTO errors fail closed as HTTP-shaped doctor page errors.
+- The unused SQLite registry audit-segment rotation test helper was deleted
+  from the legacy Python daemon module.
 - The standalone `striatum.daemon_pg.sqlite_compat` helper was removed. Its
   last repository-identity calculation now lives beside the one-way
   repo-local migration fixture, and the unused daemon audit-chain validators

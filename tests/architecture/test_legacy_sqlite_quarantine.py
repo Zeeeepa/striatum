@@ -168,7 +168,6 @@ DAEMON_CONNECT_REGISTRY_CALLERS: dict[str, str] = {
     "daemon_sweep_once": "legacy RFC 0028 daemon registry fallback",
     "health": "legacy RFC 0028 daemon registry fallback",
     "read_doctor": "legacy read fallback",
-    "rotate_audit_segment_for_test": "test-only legacy registry helper",
     "run_daemon_foreground": "legacy RFC 0028 daemon registry fallback",
 }
 
