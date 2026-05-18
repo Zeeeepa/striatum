@@ -302,7 +302,27 @@ parallelism, and lane constraints. YAML files are rejected.
 Mermaid `flowchart TD` (default), JSON, or Graphviz DOT
 (`--format dot`, pipe through `dot -Tsvg` to render).
 
-To scaffold a new workflow tree:
+The canonical authoring path is `striatum workflow generate` (see
+[WRITING_WORKFLOWS.md](WRITING_WORKFLOWS.md) for the full surface and
+options):
+
+```bash
+"$RUNNER" workflow templates list --kind shape --json
+"$RUNNER" workflow generate striatum/workflows/my-change \
+  --shape code_change \
+  --lane-set local \
+  --artifact-root striatum/my-change \
+  --dry-run --json
+```
+
+`--shape` selects the graph family; `--lane-set` selects the lane
+topology. The dry-run envelope contains the compiled workflow,
+generated files, graph metadata, warnings, and validation result.
+Remove `--dry-run` to write the workflow tree.
+
+For a single-style starter (no lane-topology choice), the
+compatibility verb `workflow init` wraps the generator with
+`lane_set: "local"`:
 
 ```bash
 "$RUNNER" workflow init --style review path/to/new-flow

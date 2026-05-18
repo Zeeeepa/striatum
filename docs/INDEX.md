@@ -9,6 +9,7 @@ collectively, not individually.
 | File | Audience | Summary |
 |---|---|---|
 | [USING_STRIATUM.md](USING_STRIATUM.md) | New arrival (RFC 0054) | Day-zero usage guide: the operator + principal model, prerequisites, day-zero setup, first run, escalation surface. Read this first. |
+| [ADOPTER_READING_PATH.md](ADOPTER_READING_PATH.md) | Team adopting striatum | Curated 6-RFC reading list explaining how the system thinks: DDD, lane attestation, multi-repo daemon, RPC envelope, PG substrate, human-principal role. Read after USING_STRIATUM. |
 | [GETTING_STARTED.md](GETTING_STARTED.md) | New user | From a fresh target repo to a running workflow in ~15 minutes; leads with AI-operator setup and keeps operator-by-hand notes as a sidebar. Superseded by USING_STRIATUM.md for the role-aware walkthrough; retained for the deeper install / verify steps. |
 | [HOW_TO_HUMAN.md](HOW_TO_HUMAN.md) | Human principal | Escalation playbook for resolving blockers and decisions; retains the operator-by-hand walkthrough as reference. |
 | [CONSUMER_REPO_LAYOUT.md](CONSUMER_REPO_LAYOUT.md) | Target-repo owner (RFC 0056) | Opinionated-but-non-mandatory directory layout recommendations: where the workflow file lives, where artifacts land, what to gitignore. |
@@ -32,6 +33,7 @@ collectively, not individually.
 | [UBIQUITOUS_LANGUAGE.md](UBIQUITOUS_LANGUAGE.md) | Anyone | Glossary of striatum-specific terms (run, session, lease, work packet, lane, etc.). |
 | [TODO.md](TODO.md) | Maintainer | Active product-improvement tracker. |
 | [ROADMAP.md](ROADMAP.md) | Operator kicking off / resuming work | Forward-looking sequencing of TODO items, RFC follow-ups, open GH issues, and active runway. Use after `operator/BRIEF.md` when picking up cold. Stays in sync with version bumps. |
+| [RELEASING.md](RELEASING.md) | Maintainer | Versioning policy and release cadence: when to bump major/minor/patch, the pre-release checklist, and changelog discipline. |
 | [architecture/COMMAND_AUTHORITY_MATRIX.md](architecture/COMMAND_AUTHORITY_MATRIX.md) | Maintainer | Phase 0 inventory of CLI/RPC authority paths across Python PG handlers, daemon RPC route translations, closed fallback guardrails, Go handlers, and legacy SQLite dependencies. |
 | [architecture/DAEMON_METHOD_TABLES.md](architecture/DAEMON_METHOD_TABLES.md) | Maintainer | Generated daemon method registry and CLI route translation reference, sourced from `contracts/daemon_methods.json` and guarded by `scripts/generate_daemon_method_tables.py --check`. |
 | [architecture/REMEDIATION_SYNTHESIS_2026-05-17.md](architecture/REMEDIATION_SYNTHESIS_2026-05-17.md) | Maintainer | Synthesis of the Codex/Gemini remediation plans: D107, RFC 0068-0071, Go daemon port sequencing, PostgreSQL-only cleanup, and dogfood-065 execution plan. |

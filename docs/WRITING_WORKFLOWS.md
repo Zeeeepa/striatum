@@ -1,41 +1,16 @@
 # Writing Workflows
 
-This guide is for authoring a `workflow.json` from scratch (or
-from a starter scaffold) and validating it against the runner.
+This guide is for authoring a `workflow.json` and validating it
+against the runner. The **canonical authoring path is `striatum
+workflow generate`**; hand-editing and visual editing are alternate
+paths for advanced cases.
+
 For the AI-operator commands that consume a workflow, see
 [HOW_TO_AGENT.md](HOW_TO_AGENT.md). For human-principal
-escalations, see [HOW_TO_HUMAN.md](HOW_TO_HUMAN.md).
+escalations, see [HOW_TO_HUMAN.md](HOW_TO_HUMAN.md). For the workflow
+families and graph shapes, see [WORKFLOW_TYPES.md](WORKFLOW_TYPES.md).
 
-## Choose the workflow type first
-
-Start with [WORKFLOW_TYPES.md](WORKFLOW_TYPES.md) before editing
-JSON. It explains the current workflow families, shows the graph
-shapes, distinguishes starter scaffolds from examples, and states the
-current default behavior: striatum never auto-selects a runtime
-workflow for a repository, while `workflow init` defaults to the
-`review` scaffold style when `--style` is omitted.
-
-## Start from an example
-
-Start from `examples/rfc-ledger-cleanup/workflow.json`. For
-smaller fixtures, see `examples/docs-review-flow/`,
-`examples/code-change-flow/`,
-`examples/failed-review-revision-cycle/`,
-`examples/human-checkpoint-flow/`, and
-`examples/adapter-unavailable-flow/`.
-
-Or scaffold a new tree:
-
-```bash
-striatum workflow init --style review path/to/new-flow
-```
-
-`--style` accepts `minimal`, `review` (default), or `code-change`.
-The generated tree includes `workflow.json` plus `roles/` and
-`prompts/` stubs and validates cleanly. The command refuses to
-overwrite an existing path.
-
-For more control, generate from the template catalog:
+## The primary path: `striatum workflow generate`
 
 ```bash
 striatum workflow templates list
@@ -52,8 +27,52 @@ The dry-run envelope contains the compiled workflow, generated files,
 graph metadata, warnings, and validation result. Removing `--dry-run`
 writes `workflow.json`, role stubs, and prompt stubs under that
 workflow tree, then revalidates the written file. V1 refuses
-overwrites; edit the generated workflow afterward when you need fields
-the generator does not expose.
+overwrites.
+
+`--shape` selects the graph family (`minimal`, `review`,
+`code_change`, `human_checkpoint`, `evidence_backed`,
+`multi_review_synthesis`, `custom`). `--lane-set` selects the
+lane topology (`local`, `single_agent`, `author_reviewer`,
+`multi_review`, `custom`). They compose independently, so the same
+graph shape can run on different lane topologies.
+
+The generator is the path a team adopting striatum should reach for
+first. The other surfaces below exist for cases where the generator's
+closed vocabulary does not cover the workflow.
+
+## Alternate paths (advanced)
+
+### Scaffold from a starter style
+
+```bash
+striatum workflow init --style review path/to/new-flow
+```
+
+`--style` accepts `minimal`, `review` (default), or `code-change`.
+This is compatibility sugar over the generator with
+`lane_set: "local"` — use it when you want a single-file starter
+without picking a lane topology. The generated tree includes
+`workflow.json` plus `roles/` and `prompts/` stubs and validates
+cleanly. The command refuses to overwrite an existing path.
+
+### Start from an example fixture
+
+For shapes the generator does not cover, start from a checked-in
+example: `examples/rfc-ledger-cleanup/workflow.json`,
+`examples/docs-review-flow/`, `examples/code-change-flow/`,
+`examples/failed-review-revision-cycle/`,
+`examples/human-checkpoint-flow/`, or
+`examples/adapter-unavailable-flow/`. Copy, edit, then run
+`striatum workflow validate <path> --json` to check the result.
+
+### Visual editing
+
+The web UI at `/workflows/edit/<path>` provides a React Flow graph
+editor for already-generated workflows. It is *not* the recommended
+authoring path: round-tripping a workflow through the visual editor
+can lose coordinates and is fragile. Use the generator for new
+workflows; use the visual editor only to inspect or make small
+structural edits.
 
 ## Required top-level fields
 
