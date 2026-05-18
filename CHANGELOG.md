@@ -41,6 +41,9 @@ Recent checkpoints:
 - The deterministic `next_actions` projection moved into a substrate-neutral
   module. PostgreSQL read-model status no longer imports the SQLite-backed
   CLI introspection module for that helper.
+- `current_git_branch` moved into a substrate-neutral Git helper so
+  PostgreSQL run-summary and branch-confirm handlers no longer import the
+  SQLite-backed CLI mutation module for Git branch inspection.
 - The Go daemon launch contract now reports supported daemon PostgreSQL schema
   and migration count from `--describe`; the Python launcher refuses stale Go
   daemon binaries before socket bind when their schema, migration count, or

@@ -11,6 +11,7 @@ from striatum.daemon_pg.handlers.context import RepoHandlerContext, transaction
 from striatum.daemon_pg.handlers.registry import register_pg_handler
 from striatum.daemon_rpc.envelope import RpcError
 from striatum.errors import InvalidTransitionError, WorkflowError
+from striatum.git_helpers import current_git_branch
 
 
 @register_pg_handler("branch.confirm")
@@ -95,20 +96,6 @@ def handle(ctx: RepoHandlerContext, params: Mapping[str, Any]) -> dict[str, Any]
             "created": created,
             "mode": mode,
         }
-
-
-def current_git_branch(repo: Path) -> str | None:
-    result = subprocess.run(
-        ["git", "branch", "--show-current"],
-        cwd=repo,
-        text=True,
-        capture_output=True,
-        check=False,
-    )
-    branch = result.stdout.strip()
-    if result.returncode != 0 or branch == "":
-        return None
-    return branch
 
 
 def git_create_or_checkout_branch(repo: Path, branch: str) -> tuple[str, bool]:

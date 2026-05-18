@@ -6,12 +6,12 @@ from collections.abc import Mapping
 from typing import Any
 
 from striatum.daemon_pg.handlers.context import RepoHandlerContext
+from striatum.git_helpers import current_git_branch
 from striatum.run_summary_format import (
     format_run_duration,
     group_verdicts_by_workflow_job,
     render_run_summary_markdown,
 )
-from striatum.cli.mutations import current_git_branch
 
 from .doctor import doctor_payload
 from ._read_model import (

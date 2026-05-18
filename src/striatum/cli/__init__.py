@@ -26,7 +26,7 @@ _SYMBOL_MODULES = {
     "cancel_job": "striatum.cli.recovery",
     "checkpoint_resolve": "striatum.cli.mutations",
     "claimable_jobs_by_role_lane": "striatum.cli.introspect",
-    "current_git_branch": "striatum.cli.mutations",
+    "current_git_branch": "striatum.git_helpers",
     "decision_record": "striatum.cli.mutations",
     "dependency_context": "striatum.cli.introspect",
     "dependency_summary": "striatum.cli.evidence",

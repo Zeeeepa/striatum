@@ -26,6 +26,7 @@ from striatum.errors import (
     NotFoundError,
     WorkflowError,
 )
+from striatum.git_helpers import current_git_branch
 from striatum.identity import session_lane_attestation, validate_operator_label
 from striatum.primitives import JsonObject, json_loads, new_id, sha256_bytes, utc_now
 from striatum.repo_policy import repo_relative_path
@@ -165,21 +166,6 @@ def git_create_or_checkout_branch(repo: Path, branch: str) -> tuple[str, bool]:
         f"git checkout failed for branch {branch!r}: {stderr}" if stderr
         else f"git checkout failed for branch {branch!r}"
     )
-
-
-def current_git_branch(repo: Path) -> str | None:
-    """Return the current Git branch when detectable."""
-    result = subprocess.run(
-        ["git", "branch", "--show-current"],
-        cwd=repo,
-        text=True,
-        capture_output=True,
-        check=False,
-    )
-    branch = result.stdout.strip()
-    if result.returncode != 0 or branch == "":
-        return None
-    return branch
 
 
 def run_start(conn: sqlite3.Connection, *, run_id: str) -> JsonObject:

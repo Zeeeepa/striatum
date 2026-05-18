@@ -9,6 +9,7 @@ from striatum.db import (
     insert_event,
     row_by_id,
 )
+from striatum.git_helpers import current_git_branch
 from striatum.primitives import JsonObject, json_loads, sha256_bytes
 from striatum.repo_policy import repo_relative_path
 from striatum.run_summary_format import (
@@ -18,8 +19,6 @@ from striatum.run_summary_format import (
 )
 
 from striatum.cli.evidence import evidence_artifact_summaries, evidence_session_summaries
-from striatum.cli.mutations import current_git_branch
-
 
 def run_summary_export(conn: sqlite3.Connection, *, repo: Path, run_id: str, path_text: str) -> JsonObject:
     """Write a compact reader-facing run summary."""
