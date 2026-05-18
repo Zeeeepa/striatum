@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Mapping
-from typing import Any, cast
+from typing import Any
 
 from striatum.cli.run_summary import render_run_summary_markdown
 from striatum.corpus import git as git_helpers
@@ -23,7 +23,6 @@ from striatum.corpus.types import SUB_KINDS, CorpusBundleResult, CorpusProvenanc
 from striatum.corpus.writer import verify_jsonl_files, write_jsonl_bundle
 from striatum.daemon_pg.handlers.context import RepoHandlerContext
 from striatum.daemon_rpc.envelope import RpcError
-from striatum.errors import StriatumError
 
 from ._read_model import events_for
 from ._registry import register_pg_handler
@@ -62,15 +61,15 @@ def handle(ctx: RepoHandlerContext, params: Mapping[str, Any]) -> dict[str, Any]
     files = write_jsonl_bundle(out, rows)
     row_counts = verify_jsonl_files(out, files)
     manifest = build_manifest(
-        cast(Any, _SchemaVersionConn(ctx)),
         repo=ctx.repo_root,
         since_ref=since,
         since_commit=since_commit,
         files=files,
         row_counts={kind: row_counts.get(kind, 0) for kind in SUB_KINDS},
         missing_optional_sources=missing_optional,
+        state_authority=_manifest_state_authority(ctx),
+        daemon_audit_included=True,
     )
-    manifest["daemon_audit_included"] = True
     verify_manifest(manifest, row_counts)
     manifest_path, bundle_sha256 = write_manifest(out, manifest)
     return CorpusBundleResult(
@@ -147,30 +146,26 @@ def _enumerate_audit_chain(ctx: RepoHandlerContext) -> list[CorpusRow]:
     return result
 
 
-class _SchemaVersionConn:
-    def __init__(self, ctx: RepoHandlerContext) -> None:
-        self._ctx = ctx
-
-    def execute(self, sql: str) -> Any:
-        if sql != "PRAGMA user_version":
-            raise StriatumError("unsupported manifest query for PG corpus export", exit_code=6)
-        with self._ctx.cursor() as cur:
-            cur.execute(
-                """
-                SELECT r.last_schema_version
-                FROM striatumd.repositories r
-                WHERE r.repository_id = %s
-                """,
-                (self._ctx.repository_id,),
-            )
-            row = cur.fetchone()
-        version = int(row["last_schema_version"]) if row is not None else 0
-        return _SingleRowResult((version,))
-
-
-class _SingleRowResult:
-    def __init__(self, row: tuple[int]) -> None:
-        self._row = row
-
-    def fetchone(self) -> tuple[int]:
-        return self._row
+def _manifest_state_authority(ctx: RepoHandlerContext) -> dict[str, object]:
+    with ctx.cursor() as cur:
+        cur.execute(
+            """
+            SELECT r.repository_id,
+                   r.last_schema_version AS repository_schema_version,
+                   sm.value AS daemon_schema_version
+            FROM striatumd.repositories r
+            LEFT JOIN striatumd.schema_meta sm
+              ON sm.key = 'substrate_version'
+            WHERE r.repository_id = %s
+            """,
+            (ctx.repository_id,),
+        )
+        row = cur.fetchone()
+    if row is None:
+        raise RpcError("not_found", f"repository not found: {ctx.repository_id}")
+    return {
+        "substrate": "postgresql",
+        "repository_id": str(row["repository_id"]),
+        "repository_schema_version": int(row["repository_schema_version"]),
+        "daemon_schema_version": int(row["daemon_schema_version"] or 0),
+    }

@@ -27,13 +27,16 @@ def export_corpus_bundle(
     files = write_jsonl_bundle(out, rows)
     row_counts = verify_jsonl_files(out, files)
     manifest = build_manifest(
-        conn,
         repo=repo,
         since_ref=since,
         since_commit=since_commit,
         files=files,
         row_counts={kind: row_counts.get(kind, 0) for kind in SUB_KINDS},
         missing_optional_sources=missing_optional,
+        state_authority={
+            "substrate": "legacy_sqlite_fixture",
+            "repository_schema_version": _repo_local_schema_version(conn),
+        },
     )
     verify_manifest(manifest, row_counts)
     manifest_path, bundle_sha256 = write_manifest(out, manifest)
@@ -46,6 +49,11 @@ def export_corpus_bundle(
         bundle_sha256=bundle_sha256,
     )
     return result.to_json(repo=repo)
+
+
+def _repo_local_schema_version(conn: sqlite3.Connection) -> int:
+    row = conn.execute("PRAGMA user_version").fetchone()
+    return int(row[0]) if row is not None else 0
 
 
 def _validate_out(repo: Path, out_text: str) -> Path:

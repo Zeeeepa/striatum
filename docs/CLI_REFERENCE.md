@@ -456,8 +456,10 @@ striatum corpus verify --bundle <dir>
 provenance (RFCs, decision-log rows, operator reports, run summaries,
 audit-chain entries, changelog entries, ubiquitous-language terms,
 harness-friction patterns, recent commits) plus a verifying
-`manifest.json`. Re-running over unchanged inputs produces byte-identical
-JSONL files and stable per-file SHA-256s (only `generated_at` varies).
+`manifest.json` with explicit `state_authority` metadata. Re-running over
+unchanged inputs produces byte-identical JSONL files and stable per-file
+SHA-256s; only `generated_at` varies, and it is excluded from the bundle
+digest.
 `corpus verify` is a local read-only checker for an existing bundle; it
 validates the manifest, per-file hashes and byte counts, JSONL row shape,
 duplicate row ids, row/file `sub_kind` consistency, row counts, and the

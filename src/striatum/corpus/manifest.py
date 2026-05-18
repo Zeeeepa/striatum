@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-import sqlite3
+from collections.abc import Mapping
 from datetime import datetime, timezone
 from importlib import metadata
 from pathlib import Path
@@ -25,13 +25,7 @@ def generated_at_now() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
-def repo_local_schema_version(conn: sqlite3.Connection) -> int:
-    row = conn.execute("PRAGMA user_version").fetchone()
-    return int(row[0]) if row is not None else 0
-
-
 def build_manifest(
-    conn: sqlite3.Connection,
     *,
     repo: Path,
     since_ref: str,
@@ -39,6 +33,8 @@ def build_manifest(
     files: dict[str, dict[str, int | str]],
     row_counts: dict[str, int],
     missing_optional_sources: list[str],
+    state_authority: Mapping[str, object],
+    daemon_audit_included: bool = False,
     generated_at: str | None = None,
 ) -> dict[str, object]:
     return {
@@ -57,20 +53,26 @@ def build_manifest(
         "source_kinds": [SOURCE_KIND],
         "row_counts": {kind: int(row_counts.get(kind, 0)) for kind in SUB_KINDS},
         "files": files,
-        "repo_local_schema_version": repo_local_schema_version(conn),
+        "state_authority": _state_authority_payload(state_authority),
         "missing_optional_sources": missing_optional_sources,
-        "daemon_audit_included": False,
+        "daemon_audit_included": daemon_audit_included,
     }
 
 
 def write_manifest(out: Path, manifest: dict[str, object]) -> tuple[Path, str]:
     path = out / "manifest.json"
-    body = json.dumps(manifest, ensure_ascii=False, indent=2, sort_keys=False).encode("utf-8") + b"\n"
+    manifest_with_hash = dict(manifest)
+    canonical_payload = dict(manifest_with_hash)
+    canonical_payload.pop("bundle_sha256", None)
+    canonical_payload.pop("generated_at", None)
+    canonical = json.dumps(canonical_payload, ensure_ascii=False, separators=(",", ":"), sort_keys=True).encode("utf-8")
+    digest = hashlib.sha256(canonical).hexdigest()
+    manifest_with_hash["bundle_sha256"] = digest
+    body = json.dumps(manifest_with_hash, ensure_ascii=False, indent=2, sort_keys=False).encode("utf-8") + b"\n"
     tmp = out / ".manifest.json.tmp"
     tmp.write_bytes(body)
     tmp.replace(path)
-    canonical = json.dumps(manifest, ensure_ascii=False, separators=(",", ":"), sort_keys=True).encode("utf-8")
-    return path, hashlib.sha256(canonical).hexdigest()
+    return path, digest
 
 
 def verify_manifest(manifest: dict[str, object], row_counts: dict[str, int]) -> None:
@@ -82,3 +84,17 @@ def verify_manifest(manifest: dict[str, object], row_counts: dict[str, int]) -> 
     for kind in SUB_KINDS:
         if int(counts.get(kind, -1)) != int(row_counts.get(kind, 0)):
             raise StriatumError(f"manifest row count mismatch: {kind}", exit_code=6)
+
+
+def _state_authority_payload(state_authority: Mapping[str, object]) -> dict[str, object]:
+    payload = dict(state_authority)
+    substrate = payload.get("substrate")
+    if not isinstance(substrate, str) or not substrate.strip():
+        raise StriatumError("invalid corpus manifest state_authority.substrate", exit_code=6)
+    for key in ("daemon_schema_version", "repository_schema_version"):
+        if key in payload and payload[key] is not None:
+            value = payload[key]
+            if not isinstance(value, int | str):
+                raise StriatumError(f"invalid corpus manifest state_authority.{key}", exit_code=6)
+            payload[key] = int(value)
+    return payload

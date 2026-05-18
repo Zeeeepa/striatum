@@ -222,11 +222,13 @@ already-shipped Striatum export remains stable.
 | `harness_friction_pattern` | `friction:<slug>` |
 
 `manifest.json` carries `striatum_version`, repository path, git HEAD,
-dirty-tree flag, `since` ref, per-file SHA-256, repo-local SQLite schema
-version, selected row counts, emitted `source_kind` values, and
-`generated_at`. The export result reports a `bundle_sha256` derived from the
-canonical manifest. Engram refuses partial bundles when manifest row counts or
-file hashes do not match the emitted JSONL files.
+dirty-tree flag, `since` ref, per-file SHA-256, explicit `state_authority`
+metadata for the daemon/PostgreSQL authority, selected row counts, emitted
+`source_kind` values, `generated_at`, and `bundle_sha256`. The bundle digest is
+derived from the canonical manifest after excluding `bundle_sha256` and
+`generated_at`, so the timestamp can vary without changing the content hash.
+Engram refuses partial bundles when manifest row counts or file hashes do not
+match the emitted JSONL files.
 
 The export never includes transcripts, terminal output, raw model output,
 SQLite blobs, or ambiguous free-text live-state fields. Run summaries are

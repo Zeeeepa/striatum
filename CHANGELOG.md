@@ -69,6 +69,10 @@ Recent checkpoints:
 - `workflow upgrade` and `workflow upgrade --add-phases` now use only the
   daemon PostgreSQL running-run guard. The repo-local SQLite fallback and its
   paired test-harness escape were removed from the workflow-upgrade path.
+- Corpus manifest construction no longer accepts or fakes a SQLite
+  connection. Manifests now carry explicit `state_authority` metadata, and the
+  PostgreSQL `corpus.export` handler reads daemon/repository schema metadata
+  directly instead of emulating `PRAGMA user_version`.
 - Runtime path and token-file helpers now live in `striatum.daemon_runtime`,
   and PostgreSQL repository registration helpers used by day-zero setup and
   daemon RPC routing now live in `striatum.daemon_pg.repositories`, reducing

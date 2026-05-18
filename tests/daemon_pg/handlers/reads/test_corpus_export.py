@@ -30,4 +30,7 @@ def test_corpus_export_queries_are_repository_scoped_and_pg_backed() -> None:
     assert "events_for" in source
     assert "sqlite3" not in source
     assert "connect(" not in source
+    assert "PRAGMA user_version" not in source
+    assert "_SchemaVersionConn" not in source
+    assert '"substrate": "postgresql"' in source
     assert "<daemon-postgres>" in source

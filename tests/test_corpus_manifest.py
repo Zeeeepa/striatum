@@ -1,7 +1,7 @@
 from __future__ import annotations
 
+import json
 import re
-import sqlite3
 import subprocess
 from pathlib import Path
 
@@ -21,27 +21,37 @@ def _git_repo(repo: Path) -> None:
     subprocess.run(["git", "commit", "-m", "seed"], cwd=repo, check=True, capture_output=True)
 
 
-def test_manifest_includes_schema_git_sqlite_and_counts(tmp_path: Path) -> None:
+def test_manifest_includes_schema_git_authority_and_counts(tmp_path: Path) -> None:
     _git_repo(tmp_path)
-    conn = sqlite3.connect(":memory:")
-    conn.execute("PRAGMA user_version = 13")
     files: dict[str, dict[str, int | str]] = {"rfcs.jsonl": {"sha256": "abc", "rows": 1, "bytes": 10}}
     row_counts = {kind: 0 for kind in SUB_KINDS}
     row_counts["rfc"] = 1
 
     manifest = build_manifest(
-        conn,
         repo=tmp_path,
         since_ref="HEAD",
         since_commit="abc",
         files=files,
         row_counts=row_counts,
         missing_optional_sources=["docs/HARNESS_FRICTION_PATTERNS.md"],
+        state_authority={
+            "substrate": "postgresql",
+            "repository_id": "repo_123",
+            "repository_schema_version": 13,
+            "daemon_schema_version": 8,
+        },
+        daemon_audit_included=True,
         generated_at="2026-05-13T00:00:00Z",
     )
 
     assert manifest["schema_version"] == "striatum.corpus_export.v1"
-    assert manifest["repo_local_schema_version"] == 13
+    assert manifest["state_authority"] == {
+        "substrate": "postgresql",
+        "repository_id": "repo_123",
+        "repository_schema_version": 13,
+        "daemon_schema_version": 8,
+    }
+    assert manifest["daemon_audit_included"] is True
     assert manifest["row_counts"] == row_counts
     assert manifest["missing_optional_sources"] == ["docs/HARNESS_FRICTION_PATTERNS.md"]
 
@@ -62,4 +72,5 @@ def test_write_manifest_returns_canonical_sha(tmp_path: Path) -> None:
     path, digest = write_manifest(tmp_path, {"b": 2, "a": 1})
     assert path.name == "manifest.json"
     assert len(digest) == 64
+    assert json.loads(path.read_text(encoding="utf-8"))["bundle_sha256"] == digest
     assert path.read_text(encoding="utf-8").endswith("\n")

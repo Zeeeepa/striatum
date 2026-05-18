@@ -93,6 +93,7 @@ def _verify_declared_bytes(root: Path, files: dict[str, dict[str, int | str]]) -
 def _canonical_manifest_sha(manifest: dict[str, Any]) -> str:
     canonical_manifest = dict(manifest)
     canonical_manifest.pop("bundle_sha256", None)
+    canonical_manifest.pop("generated_at", None)
     body = json.dumps(
         cast(dict[str, object], canonical_manifest),
         ensure_ascii=False,

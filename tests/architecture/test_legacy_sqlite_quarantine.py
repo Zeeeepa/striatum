@@ -91,10 +91,6 @@ PRODUCTION_SQLITE_QUARANTINE = {
         "service transition",
         "corpus export compatibility with legacy SQLite fixtures",
     ),
-    Path("src/striatum/corpus/manifest.py"): SQLiteClassification(
-        "service transition",
-        "corpus manifest reports legacy schema metadata for fixtures",
-    ),
     Path("src/striatum/recovery/auto.py"): SQLiteClassification(
         "service transition",
         "legacy recovery sweep retained for fixture and service transition",

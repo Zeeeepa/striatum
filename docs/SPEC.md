@@ -690,10 +690,11 @@ redacted JSONL bundle of Striatum's durable provenance — RFCs, decision-log
 rows, operator reports, run summaries, audit-chain entries, changelog
 entries, ubiquitous-language terms, harness-friction patterns, and recent
 commits — plus a verifying `manifest.json` with per-file row counts, SHA-256
-hashes, and a derived `bundle_sha256`. The bundle is read-only durable
+hashes, explicit `state_authority` metadata for the daemon/PostgreSQL
+authority, and a derived `bundle_sha256`. The bundle is read-only durable
 provenance, not live state, and re-running the export over unchanged inputs
 produces byte-identical JSONL with stable hashes (`generated_at` is the only
-allowed timestamp variation).
+allowed timestamp variation and is excluded from the bundle digest).
 
 Corpus exports are produced on operator demand. Striatum does not stream
 runtime events to any external consumer and does not call any external

@@ -50,6 +50,10 @@ def test_corpus_export_cli_success_and_manifest(tmp_path: Path) -> None:
     assert data["status"] == "exported"
     assert data["manifest_path"] == "exports/corpus/manifest.json"
     assert (tmp_path / "exports/corpus/rfcs.jsonl").exists()
+    manifest = json.loads((tmp_path / "exports/corpus/manifest.json").read_text(encoding="utf-8"))
+    assert "repo_local_schema_version" not in manifest
+    assert manifest["state_authority"]["substrate"] == "legacy_sqlite_fixture"
+    assert manifest["bundle_sha256"] == data["bundle_sha256"]
 
 
 def test_corpus_export_invalid_since_returns_json_error_code_8(tmp_path: Path) -> None:
