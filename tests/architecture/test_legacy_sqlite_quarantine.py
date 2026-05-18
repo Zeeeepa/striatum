@@ -70,7 +70,7 @@ PRODUCTION_SQLITE_QUARANTINE = {
         "service transition",
         "legacy run-summary reader pending daemon DTO replacement",
     ),
-    Path("src/striatum/recovery/auto.py"): SQLiteClassification(
+    Path("src/striatum/legacy_sqlite/recovery_auto.py"): SQLiteClassification(
         "service transition",
         "legacy recovery sweep retained for fixture and service transition",
     ),

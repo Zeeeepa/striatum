@@ -63,6 +63,9 @@ Recent checkpoints:
   `compute_node_states`) moved to `striatum.legacy_sqlite.workflow`;
   `striatum.workflow` now keeps validation, graph, and planning helpers
   separate from the fixture-only run-state implementation.
+- The legacy repo-local SQLite autonomous recovery sweep moved to
+  `striatum.legacy_sqlite.recovery_auto`; `striatum.recovery.auto` now
+  exposes only lazy compatibility wrappers for that retired path.
 - The Go daemon launch contract now reports supported daemon PostgreSQL schema
   and migration count from `--describe`; the Python launcher refuses stale Go
   daemon binaries before socket bind when their schema, migration count, or

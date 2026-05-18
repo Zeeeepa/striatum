@@ -882,7 +882,9 @@ review and plan are root-level operator artifacts:
     contract facade with lazy compatibility wrappers. Legacy SQLite workflow
     live-state helpers now live under `striatum.legacy_sqlite.workflow`;
     `striatum.workflow` is kept to validation, graph, and planning helpers
-    plus lazy compatibility wrappers.
+    plus lazy compatibility wrappers. The legacy SQLite autonomous recovery
+    sweep now lives under `striatum.legacy_sqlite.recovery_auto`, with
+    `striatum.recovery.auto` reduced to lazy compatibility wrappers.
 
 50. ~~**Phase 2: single method-contract source.**~~ ✅ Done. Contract source is now
     live at `contracts/daemon_methods.json`; Python `METHOD_REGISTRY`
