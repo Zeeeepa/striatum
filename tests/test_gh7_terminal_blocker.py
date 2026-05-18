@@ -19,7 +19,6 @@ This test pins the two halves of the fix:
 
 from __future__ import annotations
 
-import sqlite3
 from unittest.mock import MagicMock
 
 from striatum.process_completion import evaluate_and_block_inline
@@ -40,7 +39,7 @@ class _FakeRow:
 
 def test_evaluate_and_block_inline_skips_when_job_terminal() -> None:
     """GH #7: skip the post-process blocker once the job is terminal."""
-    conn = MagicMock(spec=sqlite3.Connection)
+    conn = MagicMock()
     job = _FakeRow(
         job_id="job_test_001",
         run_id="run_test_001",
@@ -68,7 +67,7 @@ def test_evaluate_and_block_inline_skips_when_job_terminal() -> None:
 def test_evaluate_and_block_inline_skips_for_each_terminal_state() -> None:
     """GH #7: the guard covers all four terminal states uniformly."""
     for terminal in ("completed", "failed", "canceled", "skipped"):
-        conn = MagicMock(spec=sqlite3.Connection)
+        conn = MagicMock()
         job = _FakeRow(
             job_id=f"job_test_{terminal}",
             run_id=f"run_test_{terminal}",

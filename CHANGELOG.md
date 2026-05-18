@@ -131,6 +131,8 @@ Recent checkpoints:
   of the root `striatum.db` / `striatum.migrations` compatibility facades, and
   architecture guardrails prevent new test fixture imports through those root
   facades.
+- The GH #7 terminal-blocker regression test no longer imports `sqlite3` just
+  to mock the early-return connection path.
 - Operator docs now describe legacy SQLite migration/tombstone paths as
   historical remnants or fixture-only compatibility, while current setup
   guidance uses daemon PostgreSQL registration.
