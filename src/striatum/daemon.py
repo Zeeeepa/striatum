@@ -524,15 +524,6 @@ def daemon_status_pg(pg_conn: Any, *, token: str | None = None) -> dict[str, Any
     }
 
 
-def _instance_id(conn: sqlite3.Connection) -> str:
-    row = conn.execute("SELECT value FROM daemon_meta WHERE key = 'instance_id'").fetchone()
-    if row is None:
-        value = uuid.uuid4().hex[:12]
-        conn.execute("INSERT INTO daemon_meta(key, value) VALUES('instance_id', ?)", (value,))
-        return value
-    return str(row["value"])
-
-
 def _read_pid() -> int | None:
     path = pid_path()
     if not path.exists():
