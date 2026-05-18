@@ -161,6 +161,10 @@ Recent checkpoints:
 - Duplicate repo add/list/remove helpers and their legacy SQLite registry
   fallbacks were deleted from the legacy Python daemon module; repo
   registration now lives only on the PostgreSQL admin/repository helpers.
+- Legacy Python-daemon global entry points (`status`, `stop`, `health`,
+  `audit`, `sweep`, `doctor`, and foreground startup) no longer open the
+  SQLite daemon registry; without a PostgreSQL daemon URL they fail closed
+  before touching registry files.
 - The standalone `striatum.daemon_pg.sqlite_compat` helper was removed. Its
   last repository-identity calculation now lives beside the one-way
   repo-local migration fixture, and the unused daemon audit-chain validators

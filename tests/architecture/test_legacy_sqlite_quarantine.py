@@ -158,15 +158,7 @@ NEUTRAL_DB_REEXPORTS = frozenset(
 )
 
 
-DAEMON_CONNECT_REGISTRY_CALLERS: dict[str, str] = {
-    "daemon_audit": "legacy RFC 0028 daemon registry fallback",
-    "daemon_status": "legacy RFC 0028 daemon registry fallback",
-    "daemon_stop": "legacy RFC 0028 daemon registry fallback",
-    "daemon_sweep_once": "legacy RFC 0028 daemon registry fallback",
-    "health": "legacy RFC 0028 daemon registry fallback",
-    "read_doctor": "legacy read fallback",
-    "run_daemon_foreground": "legacy RFC 0028 daemon registry fallback",
-}
+DAEMON_CONNECT_REGISTRY_CALLERS: dict[str, str] = {}
 
 
 def test_daemon_pg_does_not_import_legacy_sqlite_db_module() -> None:
@@ -293,13 +285,15 @@ def test_primary_service_lazy_loads_legacy_api_wrapper() -> None:
     "call",
     [
         lambda: daemon.run_daemon_foreground(max_sweeps=1),
+        lambda: daemon.daemon_status(),
+        lambda: daemon.daemon_stop(),
         lambda: daemon.daemon_sweep_once(),
         lambda: daemon.health(),
         lambda: daemon.daemon_audit(),
         lambda: daemon.read_doctor(repo=None, verbose=True),
     ],
 )
-def test_production_daemon_global_surfaces_refuse_before_sqlite_registry_connect(
+def test_production_daemon_global_surfaces_refuse_without_postgres_url(
     call: Callable[[], object],
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -314,7 +308,7 @@ def test_production_daemon_global_surfaces_refuse_before_sqlite_registry_connect
     monkeypatch.delenv(daemon.ENV_ALLOW_LEGACY_SQLITE_REGISTRY, raising=False)
     monkeypatch.setenv(daemon.ENV_SQLITE_CONNECT_TRIPWIRE, "1")
 
-    with pytest.raises(daemon.DaemonRegistryError, match="legacy SQLite daemon registry is disabled"):
+    with pytest.raises(daemon.DaemonRegistryError, match="daemon PostgreSQL URL is not configured"):
         call()
 
     assert not registry.exists()

@@ -18,12 +18,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, BinaryIO, Iterator, Mapping, Sequence, cast
 
-from striatum.cli.introspect import doctor as repo_doctor
-from striatum.db import (
-    connect as connect_repo,
-    insert_event,
-    transaction,
-)
+from striatum.db import connect as connect_repo
 from striatum.daemon_rpc.token_hash import hash_token
 from striatum.daemon_runtime import (
     ENV_RUNTIME as _ENV_RUNTIME,
@@ -46,7 +41,6 @@ from striatum.errors import (
     StriatumError,
 )
 from striatum.primitives import json_dumps, utc_now
-from striatum.recovery.auto import run_auto_sweep
 
 REGISTRY_VERSION = 1
 PROTOCOL_VERSION = 1
@@ -341,10 +335,16 @@ def _parse_time(value: str | None) -> datetime | None:
         return None
 
 
-def _pg_connection_configured() -> bool:
+def _connect_pg(*, postgres_url: str | None = None) -> Any:
     from striatum.daemon_pg.config import resolve_config
 
-    return resolve_config().url is not None
+    if resolve_config(postgres_url=postgres_url).url is None:
+        raise DaemonRegistryError(
+            "daemon PostgreSQL URL is not configured; configure STRIATUM_DAEMON_DB_URL"
+        )
+    from striatum.daemon_pg.connection import connect_and_migrate
+
+    return connect_and_migrate(postgres_url=postgres_url)
 
 
 def _pg_dict_cursor(conn: Any) -> Any:
@@ -759,34 +759,16 @@ def _registered_repo_for_path(conn: sqlite3.Connection, repo: Path) -> sqlite3.R
 
 
 def daemon_status() -> dict[str, Any]:
-    if _pg_connection_configured():
-        from striatum.daemon_pg.connection import connect_and_migrate
-
-        try:
-            pg_conn = connect_and_migrate()
-        except StriatumError:
-            raise
-        except Exception as exc:  # noqa: BLE001 - status should not leak tracebacks.
-            raise _daemon_status_pg_unavailable(exc) from exc
-        try:
-            return daemon_status_pg(pg_conn, token=read_runtime_token())
-        finally:
-            pg_conn.close()
-
-    conn = connect_registry()
-    token = read_runtime_token()
-    with registry_transaction(conn):
-        _require_auth(conn, command="daemon.status", required=READ_CAPABILITY, token=token)
-        pid = _read_pid()
-        return {
-            "mode": "daemon",
-            "protocol_version": PROTOCOL_VERSION,
-            "registry_path": str(registry_path()),
-            "runtime_dir": str(runtime_dir()),
-            "pid": pid,
-            "running": _pid_alive(pid) if pid is not None else False,
-            "instance_id": _instance_id(conn),
-        }
+    try:
+        pg_conn = _connect_pg()
+    except StriatumError:
+        raise
+    except Exception as exc:  # noqa: BLE001 - status should not leak tracebacks.
+        raise _daemon_status_pg_unavailable(exc) from exc
+    try:
+        return daemon_status_pg(pg_conn, token=read_runtime_token())
+    finally:
+        pg_conn.close()
 
 
 def _daemon_status_pg_unavailable(exc: BaseException) -> StriatumError:
@@ -861,29 +843,16 @@ def _pid_alive(pid: int | None) -> bool:
 
 
 def daemon_stop() -> dict[str, Any]:
-    if _pg_connection_configured():
-        from striatum.daemon_pg.connection import connect_and_migrate
-
-        pg_conn = connect_and_migrate()
-        try:
-            _require_pg_auth(
-                pg_conn,
-                command="daemon.stop",
-                required=ADMIN_CAPABILITY,
-                token=read_runtime_token(),
-            )
-        finally:
-            pg_conn.close()
-        pid = _read_pid()
-        if pid is None or not _pid_alive(pid):
-            return {"stopped": False, "reason": "not_running"}
-        os.kill(pid, signal.SIGTERM)
-        return {"stopped": True, "pid": pid}
-
-    conn = connect_registry()
-    token = read_runtime_token()
-    with registry_transaction(conn):
-        _require_auth(conn, command="daemon.stop", required=ADMIN_CAPABILITY, token=token)
+    pg_conn = _connect_pg()
+    try:
+        _require_pg_auth(
+            pg_conn,
+            command="daemon.stop",
+            required=ADMIN_CAPABILITY,
+            token=read_runtime_token(),
+        )
+    finally:
+        pg_conn.close()
     pid = _read_pid()
     if pid is None or not _pid_alive(pid):
         return {"stopped": False, "reason": "not_running"}
@@ -900,9 +869,6 @@ def run_daemon_foreground(
     import threading
     import uuid
 
-    pg_doctor: dict[str, Any] | None = None
-    daemon_pg_conn: Any | None = None
-    pg_bootstrap: dict[str, str] | None = None
     # RFC 0048 V1.5: resolve daemon.toml + env + flag in one shot so the
     # daemon picks up the configured PG URL regardless of how it was launched
     # (systemd unit, direct shell, etc.). Without this the systemd-launched
@@ -910,36 +876,30 @@ def run_daemon_foreground(
     from striatum.daemon_pg.config import resolve_config
 
     _resolved_cfg = resolve_config(postgres_url=postgres_url)
-    if _resolved_cfg.url is not None:
-        from striatum.daemon_pg.connection import doctor as daemon_pg_doctor, connect as daemon_pg_connect
+    if _resolved_cfg.url is None:
+        raise DaemonRegistryError(
+            "daemon PostgreSQL URL is not configured; configure STRIATUM_DAEMON_DB_URL"
+        )
+    from striatum.daemon_pg.connection import doctor as daemon_pg_doctor, connect as daemon_pg_connect
 
-        pg_doctor = daemon_pg_doctor(postgres_url=_resolved_cfg.url, apply=True)
-        if not pg_doctor.get("ok"):
-            raise DaemonRegistryError("daemon PostgreSQL doctor failed; refusing daemon start")
-        daemon_pg_conn = daemon_pg_connect(_resolved_cfg.url)
-        daemon_pg_conn.autocommit = True
-        # RFC 0048 V1.5: row_factory dict_row so authorize()'s _row_dict
-        # (which expects mapping-like keys) works against per-cursor results.
-        try:
-            import psycopg
-            daemon_pg_conn.row_factory = psycopg.rows.dict_row
-        except Exception:  # noqa: BLE001
-            pass
-        # RFC 0048 Phase C: bootstrap an admin client into striatumd.clients
-        # on first start so RPC verbs can authenticate. Mirrors the SQLite
-        # registry's _bootstrap_admin_if_needed but targets Postgres. The
-        # token file under runtime_dir() is overwritten so the CLI can read
-        # it for capability_token on each request.
-        pg_bootstrap = _bootstrap_pg_admin_if_needed(daemon_pg_conn)
-    bootstrap: dict[str, str] | None
-    if daemon_pg_conn is not None:
-        bootstrap = pg_bootstrap
-        daemon_instance_id = _pg_instance_id(daemon_pg_conn)
-    else:
-        conn = connect_registry()
-        with conn:
-            bootstrap = _bootstrap_admin_if_needed(conn)
-            daemon_instance_id = _instance_id(conn)
+    pg_doctor = daemon_pg_doctor(postgres_url=_resolved_cfg.url, apply=True)
+    if not pg_doctor.get("ok"):
+        raise DaemonRegistryError("daemon PostgreSQL doctor failed; refusing daemon start")
+    daemon_pg_conn = daemon_pg_connect(_resolved_cfg.url)
+    daemon_pg_conn.autocommit = True
+    # RFC 0048 V1.5: row_factory dict_row so authorize()'s _row_dict
+    # (which expects mapping-like keys) works against per-cursor results.
+    try:
+        import psycopg
+        daemon_pg_conn.row_factory = psycopg.rows.dict_row
+    except Exception:  # noqa: BLE001
+        pass
+    # RFC 0048 Phase C: bootstrap an admin client into striatumd.clients
+    # on first start so RPC verbs can authenticate. The token file under
+    # runtime_dir() is overwritten so the CLI can read it for
+    # capability_token on each request.
+    bootstrap = _bootstrap_pg_admin_if_needed(daemon_pg_conn)
+    daemon_instance_id = _pg_instance_id(daemon_pg_conn)
     _ensure_private_dir(runtime_dir())
     pid = _read_pid()
     if pid is not None and _pid_alive(pid):
@@ -1091,40 +1051,16 @@ def read_doctor(
     token: str | None = None,
     postgres_url: str | None = None,
 ) -> dict[str, Any]:
-    if postgres_url is not None or _pg_connection_configured():
-        from striatum.daemon_pg.connection import connect_and_migrate
-
-        pg_conn = connect_and_migrate(postgres_url=postgres_url)
+    pg_conn = _connect_pg(postgres_url=postgres_url)
+    try:
+        _bootstrap_pg_admin_if_needed(pg_conn)
         try:
-            _bootstrap_pg_admin_if_needed(pg_conn)
-            try:
-                pg_conn.commit()
-            except Exception:  # noqa: BLE001 - autocommit connections do not need an explicit commit.
-                pass
-            return read_doctor_pg(pg_conn, repo=repo, run_id=run_id, verbose=verbose, token=token)
-        finally:
-            pg_conn.close()
-
-    conn = connect_registry()
-    token = read_runtime_token() if token is None else token
-    with registry_transaction(conn):
-        repository_id: int | None = None
-        if repo is not None:
-            repo_row = _registered_repo_for_path(conn, repo)
-            repository_id = int(repo_row["repository_id"])
-        _require_auth(conn, command="doctor", required=READ_CAPABILITY, repository_id=repository_id, token=token, payload={"run_id": run_id})
-        problems = daemon_doctor_records(conn)
-    if repo is None:
-        data: dict[str, Any] = {"problems": [p["message"] for p in problems]}
-        if verbose:
-            data["problem_records"] = problems
-        return {"mode": "daemon", "protocol_version": PROTOCOL_VERSION, **data}
-    with connect_repo(repo) as repo_conn:
-        data = repo_doctor(repo_conn, repo=repo, run_id=run_id, verbose=verbose)
-    data["daemon_problems"] = [p["message"] for p in problems]
-    if verbose:
-        data["daemon_problem_records"] = problems
-    return {"mode": "daemon", "repository_id": repository_id, "protocol_version": PROTOCOL_VERSION, **data}
+            pg_conn.commit()
+        except Exception:  # noqa: BLE001 - autocommit connections do not need an explicit commit.
+            pass
+        return read_doctor_pg(pg_conn, repo=repo, run_id=run_id, verbose=verbose, token=token)
+    finally:
+        pg_conn.close()
 
 
 def read_doctor_pg(
@@ -1365,106 +1301,18 @@ def daemon_sweep_once(
     require_client_auth: bool = False,
     pg_conn: Any | None = None,
 ) -> dict[str, Any]:
-    if pg_conn is not None or _pg_connection_configured():
-        owns_pg_conn = pg_conn is None
-        if pg_conn is None:
-            from striatum.daemon_pg.connection import connect_and_migrate
-
-            pg_conn = connect_and_migrate()
-        try:
-            return _daemon_sweep_once_pg(
-                pg_conn,
-                per_run_timeout_seconds=per_run_timeout_seconds,
-                require_client_auth=require_client_auth,
-            )
-        finally:
-            if owns_pg_conn and pg_conn is not None:
-                pg_conn.close()
-    conn = connect_registry()
-    token = read_runtime_token()
-    with registry_transaction(conn):
-        if require_client_auth:
-            _require_auth(conn, command="daemon.sweep", required=ADMIN_CAPABILITY, token=token)
-        else:
-            auth = AuthContext(None, None, "admin", None, "allowed")
-            audit_request(conn, command="daemon.sweep", auth=auth, transport="daemon-internal")
-        repos = conn.execute(
-            """
-            SELECT r.*
-            FROM repositories r
-            LEFT JOIN scheduler_cursors c
-              ON c.repository_id = r.repository_id
-             AND c.cursor_kind = 'recovery'
-             AND c.state != 'removed'
-            WHERE r.state = 'active'
-            GROUP BY r.repository_id
-            ORDER BY COALESCE(MIN(c.last_sweep_at), ''), r.repository_id
-            """
-        ).fetchall()
-        instance_id = _instance_id(conn)
-    author = f"striatumd-{instance_id}"
-    sweeps: list[dict[str, Any]] = []
-    for repo_row in repos:
-        repo = Path(str(repo_row["repo_root"]))
-        try:
-            with connect_repo(repo) as repo_conn:
-                runs = repo_conn.execute(
-                    "SELECT run_id FROM runs WHERE state IN ('running','paused') ORDER BY created_at"
-                ).fetchall()
-                for run in runs:
-                    run_id = str(run["run_id"])
-                    with registry_transaction(conn):
-                        conn.execute(
-                            """
-                            INSERT OR REPLACE INTO scheduler_cursors(repository_id, run_id,
-                              cursor_kind, last_sweep_at, next_sweep_after,
-                              last_result_json, state)
-                            VALUES (?, ?, 'recovery', NULL, NULL, '{}', 'in_progress')
-                            """,
-                            (int(repo_row["repository_id"]), run_id),
-                        )
-                    started = time.monotonic()
-                    result = run_auto_sweep(repo_conn, run_id=run_id, repo=repo, recovery_author=author)
-                    elapsed = time.monotonic() - started
-                    state = "active"
-                    if elapsed > per_run_timeout_seconds:
-                        state = "sweep_degraded"
-                        result = {**result, "degraded": True, "degraded_reason": "sweep_timeout", "elapsed_seconds": elapsed}
-                    with transaction(repo_conn):
-                        insert_event(
-                            repo_conn,
-                            run_id=run_id,
-                            event_type="daemon.recovery_sweep",
-                            payload={
-                                "author": author,
-                                "repository_id": int(repo_row["repository_id"]),
-                                "result": result,
-                            },
-                        )
-                    with registry_transaction(conn):
-                        conn.execute(
-                            """
-                            UPDATE scheduler_cursors
-                            SET last_sweep_at = ?, last_result_json = ?, state = ?
-                            WHERE repository_id = ? AND run_id = ? AND cursor_kind = 'recovery'
-                            """,
-                            (utc_now(), json_dumps(result), state, int(repo_row["repository_id"]), run_id),
-                        )
-                    sweeps.append({"repository_id": int(repo_row["repository_id"]), "run_id": run_id, "result": result})
-        except Exception as exc:  # noqa: BLE001
-            with registry_transaction(conn):
-                conn.execute(
-                    """
-                    INSERT OR REPLACE INTO scheduler_cursors(repository_id, run_id,
-                      cursor_kind, last_sweep_at, next_sweep_after,
-                      last_result_json, state)
-                    VALUES (?, '<repo>', 'recovery', ?, NULL, ?, 'sweep_degraded')
-                    """,
-                    (int(repo_row["repository_id"]), utc_now(), json_dumps({"error": str(exc)})),
-                )
-            sweeps.append({"repository_id": int(repo_row["repository_id"]), "error": str(exc)})
-    _ = token
-    return {"mode": "daemon", "sweeps": sweeps}
+    owns_pg_conn = pg_conn is None
+    if pg_conn is None:
+        pg_conn = _connect_pg()
+    try:
+        return _daemon_sweep_once_pg(
+            pg_conn,
+            per_run_timeout_seconds=per_run_timeout_seconds,
+            require_client_auth=require_client_auth,
+        )
+    finally:
+        if owns_pg_conn and pg_conn is not None:
+            pg_conn.close()
 
 
 def _daemon_sweep_once_pg(
@@ -1595,37 +1443,16 @@ def _upsert_pg_scheduler_cursor(
 
 
 def daemon_audit(limit: int = 100) -> dict[str, Any]:
-    if _pg_connection_configured():
-        from striatum.daemon_pg.connection import connect_and_migrate
-
-        pg_conn = connect_and_migrate()
+    pg_conn = _connect_pg()
+    try:
+        _bootstrap_pg_admin_if_needed(pg_conn)
         try:
-            _bootstrap_pg_admin_if_needed(pg_conn)
-            try:
-                pg_conn.commit()
-            except Exception:  # noqa: BLE001 - autocommit connections do not need an explicit commit.
-                pass
-            return daemon_audit_pg(pg_conn, limit=limit, token=read_runtime_token())
-        finally:
-            pg_conn.close()
-
-    conn = connect_registry()
-    token = read_runtime_token()
-    with registry_transaction(conn):
-        _require_auth(conn, command="daemon.audit", required=ADMIN_CAPABILITY, token=token, payload={"limit": limit})
-        rows = conn.execute(
-            """
-            SELECT audit_id, timestamp, client_id, repository_id, command,
-                   authorization_result, denial_reason, transport,
-                   request_id, exit_code, payload_sha256, previous_hash,
-                   row_hash, segment_id
-            FROM audit_log
-            ORDER BY audit_id DESC
-            LIMIT ?
-            """,
-            (limit,),
-        ).fetchall()
-        return {"mode": "daemon", "audit": [dict(row) for row in rows]}
+            pg_conn.commit()
+        except Exception:  # noqa: BLE001 - autocommit connections do not need an explicit commit.
+            pass
+        return daemon_audit_pg(pg_conn, limit=limit, token=read_runtime_token())
+    finally:
+        pg_conn.close()
 
 
 def daemon_audit_pg(pg_conn: Any, *, limit: int = 100, token: str | None = None) -> dict[str, Any]:
@@ -1668,24 +1495,11 @@ def daemon_audit_pg(pg_conn: Any, *, limit: int = 100, token: str | None = None)
 
 
 def health() -> dict[str, Any]:
-    if _pg_connection_configured():
-        from striatum.daemon_pg.connection import connect_and_migrate
-
-        pg_conn = connect_and_migrate()
-        try:
-            return health_pg(pg_conn)
-        finally:
-            pg_conn.close()
-
-    conn = connect_registry()
-    with registry_transaction(conn):
-        audit_request(
-            conn,
-            command="health",
-            auth=AuthContext(None, None, None, None, "allowed"),
-            transport="cli",
-        )
-    return {"mode": "daemon", "ok": True, "protocol_version": PROTOCOL_VERSION}
+    pg_conn = _connect_pg()
+    try:
+        return health_pg(pg_conn)
+    finally:
+        pg_conn.close()
 
 
 def health_pg(pg_conn: Any) -> dict[str, Any]:
