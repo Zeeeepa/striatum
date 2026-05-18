@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -16,6 +17,33 @@ func TestSafeArchiveOutputPathRejectsEscapes(t *testing.T) {
 				t.Fatalf("expected %q to be rejected", path)
 			}
 		})
+	}
+}
+
+func TestSafeEvidenceOutputPathRejectsEscapes(t *testing.T) {
+	repo := t.TempDir()
+	for _, path := range []string{"../EVIDENCE.md", "/tmp/EVIDENCE.md", ".striatum/EVIDENCE.md"} {
+		t.Run(path, func(t *testing.T) {
+			if _, err := safeEvidenceOutputPath(repo, path); err == nil {
+				t.Fatalf("expected %q to be rejected", path)
+			}
+		})
+	}
+}
+
+func TestRenderEvidenceMarkdownIncludesHeader(t *testing.T) {
+	body, err := renderEvidenceMarkdown(
+		map[string]any{"run_id": "run_1", "state": "running", "branch_name": "main"},
+		map[string]any{"runs": []map[string]any{{"run_id": "run_1"}}},
+	)
+	if err != nil {
+		t.Fatalf("render evidence: %v", err)
+	}
+	if !strings.Contains(body, "# Striatum Evidence Export") {
+		t.Fatalf("evidence header missing: %s", body)
+	}
+	if !strings.Contains(body, "\"run_id\": \"run_1\"") {
+		t.Fatalf("evidence snapshot missing run id: %s", body)
 	}
 }
 

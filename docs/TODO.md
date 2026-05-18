@@ -329,9 +329,9 @@ Legend: ✅ done · 🟡 most done (sub-tasks remain) · ⏳ open/blocked · �
     through `daemon_pg/mcp_dispatch.py::dispatch_mcp_tool_call` →
     composite tools `dogfood.publish_on_behalf` +
     `dogfood.surgical_recovery` are now functional through the MCP
-    path in the historical SQLite-era implementation; D107/RFC 0070 later
-    retired those SQLite-bound composites from production Python and Go daemon
-    paths until a PostgreSQL-native replacement is accepted. (F2/F3)
+    path in the historical SQLite-era implementation; D110 later removed
+    those SQLite-bound composites from the production daemon contract until a
+    PostgreSQL-native replacement is accepted. (F2/F3)
     `publish_on_behalf` runs ack/publish/verdict inside
     one outer transaction with rollback-event emission on failure, and
     review verdicts are validated + recorded with `findings_artifact_id`
@@ -446,7 +446,9 @@ Legend: ✅ done · 🟡 most done (sub-tasks remain) · ⏳ open/blocked · �
     `branch.confirm`, `run.*`, `worktree.*`, `recovery.*`,
     `supervise.*`, `workflow.*` + daemon-global `repo.list` +
     `daemon.migrate_repo_local`), keeping legacy undotted aliases as
-    `deprecated=True`. New test suites: `tests/cli/test_no_daemon_retired.py`,
+    `deprecated=True`; D110 later removed `daemon.migrate_repo_local` from
+    the production daemon contract. New test suites:
+    `tests/cli/test_no_daemon_retired.py`,
     `tests/cli/test_daemon_doctor_without_daemon.py`,
     `tests/exit_codes/test_rfc0043_refusals.py`,
     `tests/daemon_rpc/test_registry_rfc0043_coverage.py`,
@@ -1241,14 +1243,14 @@ review and plan are root-level operator artifacts:
     web/chat preview callers now route
     `workflow.generate.preview` through daemon RPC in production. Go now owns
     `daemon.key.rotate` for the local Ed25519 `0600` fallback signing-key
-    file and still registers explicit retirement fail-closed handlers for
-    `apply.reviewed_patch`, `daemon.migrate_repo_local`,
-    `dogfood.publish_on_behalf`, and
-    `dogfood.surgical_recovery`; Go `daemon.shutdown` wires to the process
+    file and still registers an explicit retirement fail-closed handler for
+    `apply.reviewed_patch`; D110 removed `daemon.migrate_repo_local`,
+    `dogfood.publish_on_behalf`, and `dogfood.surgical_recovery` from the
+    production daemon contract; Go `daemon.shutdown` wires to the process
     cancellation path. The Go
     handler-coverage ledger reports zero generic `not_implemented` handlers
-    for active contract methods and now pins those four retirement blockers to
-    exact RPC error codes. Go also owns daemon-global `repo.resolve` for
+    for active contract methods and now pins the remaining retirement blocker
+    to an exact RPC error code. Go also owns daemon-global `repo.resolve` for
     repository path resolution without client-side direct PG access, and fresh
     Go startup now bootstraps the first PostgreSQL admin client plus the
     private runtime `client-token`. Go daemon startup now also launches a
@@ -1262,10 +1264,10 @@ review and plan are root-level operator artifacts:
     path checks and JSON-only workflow source validation in the Go daemon path.
     Production `cross-repo` CLI dispatch now refuses direct PostgreSQL fallback
     outside the paired legacy test-harness escape. Remaining Go-port debt is
-    the retirement ledger: decide sealed-apply authority, either remove or
-    port the two dogfood composites as PostgreSQL-native operator composites,
-    close the one-way SQLite import window, and delete the Python daemon entry
-    point.
+    the retirement ledger: decide sealed-apply authority, close the one-way
+    SQLite import window, decide whether PostgreSQL-native operator composites
+    should replace the removed dogfood RPC names, and delete the Python daemon
+    entry point.
 
 62. **RFC 0069: PostgreSQL-only daemon-global surfaces.** Most done. Port daemon
     sweep, dashboard-all, daemon MCP resource list/read, and
@@ -1310,15 +1312,14 @@ review and plan are root-level operator artifacts:
     method; CLI and service clients no longer open daemon PostgreSQL to map a
     repo path to `repository_id`; daemon-mapped `/v1/invoke` production reads
     and mutations route through daemon RPC; local MCP/chat mapped commands
-    share that daemon-routing policy; and Python/Go dogfood composites now
-    fail closed before any repo-local SQLite import. Production daemon MCP
-    `tools/list` now hides local workflow-file authoring methods and the
-    retired dogfood composites in both Python and Go, while direct
-    `tools/call` still reauthorizes/audits hidden registered composites before
-    returning the explicit fail-closed RPC error. Remaining work is to decide
-    whether to reintroduce PostgreSQL-native operator composites or keep the
-    primitive daemon-method workflow as the supported path, plus the broader
-    Python-daemon retirement under RFC 0068.
+    share that daemon-routing policy; and D110 removed the SQLite-bound
+    dogfood composites from the production daemon contract. Production daemon
+    MCP `tools/list` now hides local workflow-file authoring methods in both
+    Python and Go, while direct calls to removed dogfood composite names audit
+    as `method_unknown`. Remaining work is to decide whether to reintroduce
+    PostgreSQL-native operator composites or keep the primitive daemon-method
+    workflow as the supported path, plus the broader Python-daemon retirement
+    under RFC 0068.
 
 64. **RFC 0071: operator diagnostics and cutover evidence.** Diagnostic slices
     landed: `striatum daemon doctor --authority --json` reports

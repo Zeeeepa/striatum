@@ -175,7 +175,7 @@ def test_daemon_mcp_tools_match_registered_non_deprecated_authorized_methods(mon
     }
 
 
-def test_daemon_mcp_tools_list_hides_retired_dogfood_composites(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+def test_daemon_mcp_tools_list_excludes_removed_dogfood_composites(monkeypatch) -> None:  # type: ignore[no-untyped-def]
     def fake_authorize(conn: object, *, required: str | None, repository_id: str | None, token: str | None) -> RpcAuthContext:
         decision = "allowed" if required == "surgical_recovery" else "denied"
         return RpcAuthContext(
@@ -258,55 +258,6 @@ def test_daemon_mcp_unknown_tool_is_default_denied_and_audited(monkeypatch) -> N
     assert audit_calls[0]["auth"].denial_reason == "method_unknown"
 
 
-def test_daemon_rpc_dogfood_publish_on_behalf_fails_closed_without_sqlite(
-    monkeypatch: Any,
-    tmp_path: Path,
-) -> None:
-    request_logs: list[dict[str, Any]] = []
-
-    monkeypatch.setattr("striatum.daemon_rpc.server.request_id_seen", lambda *args, **kwargs: False)
-    monkeypatch.setattr(
-        "striatum.daemon_rpc.server.authorize",
-        lambda *args, **kwargs: RpcAuthContext("client", "token", "repo_a", "write", "allowed"),
-    )
-    monkeypatch.setattr("striatum.daemon_rpc.server.append_audit_row", lambda *args, **kwargs: 17)
-    monkeypatch.setattr(
-        "striatum.daemon_rpc.server.append_request_log",
-        lambda *args, **kwargs: request_logs.append(kwargs),
-    )
-    monkeypatch.setattr(DaemonRpcRouter, "_repo_root_for", lambda self, envelope, auth: tmp_path)
-    router = DaemonRpcRouter(pg_conn=object(), repo_root=tmp_path)
-    router._handshaken_connections.add("mcp")
-
-    response = router.handle(
-        RpcEnvelope(
-            schema_version=1,
-            request_id="dogfood-failure",
-            method="dogfood.publish_on_behalf",
-            params={
-                "repository_id": "repo_a",
-                "session_id": "sess_1",
-                "artifact_path": "docs/out.md",
-                "artifact_kind": "handoff",
-                "logical_name": "out",
-                "reason": "operator inspected the stalled session",
-            },
-        ),
-        connection_id="mcp",
-    )
-
-    assert response.ok is False
-    assert response.data["code"] == "dogfood_publish_on_behalf_retired"
-    assert response.data["details"]["blocker"] == "legacy_python_composite_uses_repo_local_sqlite_connection"
-    assert response.data["details"]["remediation"] == [
-        "work.ack",
-        "artifact.publish",
-        "review.verdict or work.complete",
-    ]
-    assert request_logs[0]["response"]["ok"] is False
-    assert request_logs[0]["response"]["data"]["code"] == "dogfood_publish_on_behalf_retired"
-
-
 def test_mcp_structured_error_uses_nested_rpc_error_codes(monkeypatch) -> None:  # type: ignore[no-untyped-def]
     def fake_authorize(conn: object, *, required: str | None, repository_id: str | None, token: str | None) -> RpcAuthContext:
         return RpcAuthContext("client", "token", repository_id, required, "allowed")
@@ -338,8 +289,8 @@ def test_mcp_structured_error_uses_nested_rpc_error_codes(monkeypatch) -> None: 
     result = dispatch_mcp_tool_call(
         pg_conn=object(),
         router=cast(DaemonRpcRouter, FakeRouter()),
-        name="dogfood.publish_on_behalf",
-        arguments={"repository_id": "repo_a"},
+        name="work.send_message",
+        arguments={"repository_id": "repo_a", "session_id": "sess_1", "kind": "note"},
         token="dtok.secret",
         request_id="req-nested-error",
     )

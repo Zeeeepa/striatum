@@ -78,30 +78,10 @@ func TestRegisterInstallsLifecycleHandlers(t *testing.T) {
 		"repo.init",
 		"daemon.shutdown",
 		"daemon.key.rotate",
-		"daemon.migrate_repo_local",
 	} {
 		if server.Handlers[method] == nil {
 			t.Fatalf("%s was not registered", method)
 		}
-	}
-}
-
-func TestMigrateRepoLocalIsRetiredWithoutSQLiteImport(t *testing.T) {
-	_, err := Service{Runner: &fakeRunner{}}.MigrateRepoLocal(context.Background(), rpc.Envelope{
-		Params: map[string]any{"from": "sqlite", "to": "pg"},
-	})
-	var rpcErr *rpc.Error
-	if !errors.As(err, &rpcErr) {
-		t.Fatalf("expected rpc error, got %v", err)
-	}
-	if rpcErr.Code != "legacy_migration_retired" {
-		t.Fatalf("code = %s", rpcErr.Code)
-	}
-	if rpcErr.Details["reason"] != "sqlite_retired" {
-		t.Fatalf("reason = %v", rpcErr.Details["reason"])
-	}
-	if rpcErr.Details["sqlite_dependency"] != false {
-		t.Fatalf("sqlite dependency = %v", rpcErr.Details["sqlite_dependency"])
 	}
 }
 

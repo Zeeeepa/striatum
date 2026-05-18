@@ -2,6 +2,11 @@ package reads
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
 
 	"github.com/halbritt/striatum/go/pkg/db"
 	"github.com/halbritt/striatum/go/pkg/rpc"
@@ -46,11 +51,12 @@ func HandleRunSummary(ctx context.Context, runner db.Runner, envelope rpc.Envelo
 	}
 
 	artifacts, err := collectRows(ctx, runner,
-		`SELECT artifact_id, job_id, kind, logical_name, path,
-		        content_sha256, byline, published_at
+		`SELECT artifact_id, job_id, artifact_kind AS kind, logical_name,
+		        repo_path AS path, content_sha256, author_line AS byline,
+		        created_at AS published_at
 		   FROM striatumd.artifacts
 		  WHERE repository_id = $1 AND run_id = $2
-		  ORDER BY published_at`,
+		  ORDER BY created_at`,
 		repositoryID, runID,
 	)
 	if err != nil {
@@ -58,11 +64,11 @@ func HandleRunSummary(ctx context.Context, runner db.Runner, envelope rpc.Envelo
 	}
 
 	verdicts, err := collectRows(ctx, runner,
-		`SELECT verdict_id, job_id, session_id, verdict, review_posture,
-		        recorded_at
+		`SELECT verdict_id, job_id, session_id, verdict,
+		        posture AS review_posture, created_at AS recorded_at
 		   FROM striatumd.verdicts
 		  WHERE repository_id = $1 AND run_id = $2
-		  ORDER BY recorded_at`,
+		  ORDER BY created_at`,
 		repositoryID, runID,
 	)
 	if err != nil {
@@ -84,56 +90,139 @@ func HandleRunSummary(ctx context.Context, runner db.Runner, envelope rpc.Envelo
 }
 
 // HandleEvidenceExport mirrors reads/evidence_export.py — a redacted
-// markdown export structure. The Go port returns the rows as data;
-// rendering to Markdown stays the CLI's responsibility (matches the
-// Python handler which also returns a structured payload).
+// Markdown export written under the target repository.
 func HandleEvidenceExport(ctx context.Context, runner db.Runner, envelope rpc.Envelope) (map[string]any, error) {
 	repositoryID, err := requireRepositoryID(envelope)
 	if err != nil {
 		return nil, err
 	}
 	runID := stringParam(envelope, "run_id")
-	args := []any{repositoryID}
-	runWhere := ""
-	if runID != "" {
-		args = append(args, runID)
-		runWhere = " AND run_id = $2"
+	pathText := stringParam(envelope, "path")
+	if runID == "" {
+		return nil, rpc.NewError("schema_invalid", "evidence.export requires run_id", nil)
+	}
+	if pathText == "" {
+		return nil, rpc.NewError("schema_invalid", "evidence.export requires path", nil)
+	}
+	repoRoot, err := archiveRepositoryRoot(ctx, runner, repositoryID)
+	if err != nil {
+		return nil, err
+	}
+	target, err := safeEvidenceOutputPath(repoRoot, pathText)
+	if err != nil {
+		return nil, err
 	}
 	runs, err := collectRows(ctx, runner,
 		`SELECT run_id, state, branch_name, completed_at
-		   FROM striatumd.runs WHERE repository_id = $1`+runWhere+
-			` ORDER BY created_at DESC LIMIT 50`,
-		args...,
+		   FROM striatumd.runs
+		  WHERE repository_id = $1 AND run_id = $2`,
+		repositoryID,
+		runID,
 	)
 	if err != nil {
 		return nil, err
 	}
+	if len(runs) == 0 {
+		return nil, rpc.NewError("not_found", "run not found: "+runID, nil)
+	}
 	artifacts, err := collectRows(ctx, runner,
-		`SELECT artifact_id, run_id, job_id, kind, logical_name, path,
-		        content_sha256, byline, published_at
-		   FROM striatumd.artifacts WHERE repository_id = $1`+runWhere+
-			` ORDER BY published_at DESC LIMIT 500`,
-		args...,
+		`SELECT artifact_id, run_id, job_id, artifact_kind AS kind,
+		        logical_name, repo_path AS path, content_sha256,
+		        author_line AS byline, created_at AS published_at
+		   FROM striatumd.artifacts
+		  WHERE repository_id = $1 AND run_id = $2
+		  ORDER BY created_at DESC LIMIT 500`,
+		repositoryID,
+		runID,
 	)
 	if err != nil {
 		return nil, err
 	}
 	verdicts, err := collectRows(ctx, runner,
-		`SELECT verdict_id, run_id, job_id, verdict, review_posture, recorded_at
-		   FROM striatumd.verdicts WHERE repository_id = $1`+runWhere+
-			` ORDER BY recorded_at DESC LIMIT 500`,
-		args...,
+		`SELECT verdict_id, run_id, job_id, verdict,
+		        posture AS review_posture, created_at AS recorded_at
+		   FROM striatumd.verdicts
+		  WHERE repository_id = $1 AND run_id = $2
+		  ORDER BY created_at DESC LIMIT 500`,
+		repositoryID,
+		runID,
 	)
 	if err != nil {
 		return nil, err
 	}
 	doctor, _ := HandleDoctor(ctx, runner, envelope)
+	payload := map[string]any{
+		"runs":      runs,
+		"artifacts": artifacts,
+		"verdicts":  verdicts,
+		"doctor":    doctor,
+	}
+	body, err := renderEvidenceMarkdown(runs[0], payload)
+	if err != nil {
+		return nil, err
+	}
+	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+		return nil, err
+	}
+	meta, err := writeArchiveFile(target, []byte(body))
+	if err != nil {
+		return nil, err
+	}
 	return map[string]any{
+		"status":    "exported",
+		"run_id":    runID,
+		"path":      pathText,
+		"sha256":    meta["sha256"],
+		"bytes":     meta["bytes"],
 		"runs":      runs,
 		"artifacts": artifacts,
 		"verdicts":  verdicts,
 		"doctor":    doctor,
 	}, nil
+}
+
+func safeEvidenceOutputPath(repoRoot string, pathText string) (string, error) {
+	if filepath.IsAbs(pathText) {
+		return "", rpc.NewError("path_outside_scope", "path must be repo-relative", nil)
+	}
+	repoResolved, err := filepath.Abs(repoRoot)
+	if err != nil {
+		return "", err
+	}
+	target, err := filepath.Abs(filepath.Join(repoResolved, pathText))
+	if err != nil {
+		return "", err
+	}
+	rel, err := filepath.Rel(repoResolved, target)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
+		return "", rpc.NewError("path_outside_scope", "path must stay inside the repository", nil)
+	}
+	if rel == ".striatum" || strings.HasPrefix(rel, ".striatum"+string(os.PathSeparator)) {
+		return "", rpc.NewError("path_outside_scope", "path must not be under .striatum", nil)
+	}
+	if info, err := os.Stat(target); err == nil && info.IsDir() {
+		return "", rpc.NewError("path_outside_scope", "--path must be a file", nil)
+	}
+	return target, nil
+}
+
+func renderEvidenceMarkdown(run map[string]any, payload map[string]any) (string, error) {
+	payloadJSON, err := json.MarshalIndent(payload, "", "  ")
+	if err != nil {
+		return "", err
+	}
+	var b strings.Builder
+	b.WriteString("# Striatum Evidence Export\n\n")
+	b.WriteString(fmt.Sprintf("- run_id: `%s`\n", fmt.Sprint(run["run_id"])))
+	b.WriteString(fmt.Sprintf("- state: `%s`\n", fmt.Sprint(run["state"])))
+	if branch := fmt.Sprint(run["branch_name"]); branch != "" && branch != "<nil>" {
+		b.WriteString(fmt.Sprintf("- branch: `%s`\n", branch))
+	}
+	b.WriteString("\n## Snapshot\n\n")
+	b.WriteString("```json\n")
+	b.Write(payloadJSON)
+	b.WriteString("\n```\n")
+	return b.String(), nil
 }
 
 // HandleCorpusExport mirrors reads/corpus_export.py — exposes the
@@ -149,11 +238,12 @@ func HandleCorpusExport(ctx context.Context, runner db.Runner, envelope rpc.Enve
 	}
 	limit, count := limitClause(envelope, 1000)
 	rows, err := collectRows(ctx, runner,
-		`SELECT artifact_id, run_id, kind, logical_name, path,
-		        content_sha256, byline, published_at
+		`SELECT artifact_id, run_id, artifact_kind AS kind, logical_name,
+		        repo_path AS path, content_sha256, author_line AS byline,
+		        created_at AS published_at
 		   FROM striatumd.artifacts
 		  WHERE repository_id = $1
-		  ORDER BY published_at DESC`+limit,
+		  ORDER BY created_at DESC`+limit,
 		repositoryID,
 	)
 	if err != nil {

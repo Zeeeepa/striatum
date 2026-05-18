@@ -66,19 +66,3 @@ func (s Service) KeyRotate(ctx context.Context, envelope rpc.Envelope) (map[stri
 	}
 	return result, nil
 }
-
-func (s Service) MigrateRepoLocal(ctx context.Context, envelope rpc.Envelope) (map[string]any, error) {
-	return nil, rpc.NewError(
-		"legacy_migration_retired",
-		"daemon.migrate_repo_local is retired in the Go production daemon; repo-local SQLite import is not available",
-		map[string]any{
-			"operation":          "daemon.migrate_repo_local",
-			"reason":             "sqlite_retired",
-			"from":               envelope.Params["from"],
-			"to":                 envelope.Params["to"],
-			"python_dependency":  false,
-			"sqlite_dependency":  false,
-			"source_import_mode": "none",
-		},
-	)
-}

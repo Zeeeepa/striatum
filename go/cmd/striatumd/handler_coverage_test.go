@@ -148,18 +148,6 @@ var goDaemonRetirementBlockers = map[string]retirementBlockerExpectation{
 		code:        "sealed_key_missing",
 		remediation: "decide sealed-apply authority or remove the mutation from the production contract",
 	},
-	"daemon.migrate_repo_local": {
-		code:        "legacy_migration_retired",
-		remediation: "delete the Python one-way SQLite import after the final migration-fixture window closes",
-	},
-	"dogfood.publish_on_behalf": {
-		code:        "dogfood_publish_on_behalf_retired",
-		remediation: "use primitive daemon methods or port a PostgreSQL-native operator composite",
-	},
-	"dogfood.surgical_recovery": {
-		code:        "dogfood_surgical_recovery_retired",
-		remediation: "use primitive recovery methods or port a PostgreSQL-native row-lock recovery composite",
-	},
 }
 
 func TestGoDaemonPythonRetirementBlockersFailClosed(t *testing.T) {
@@ -251,24 +239,7 @@ func coverageParams() map[string]any {
 }
 
 func retirementBlockerParams(method string) map[string]any {
-	params := coverageParams()
-	switch method {
-	case "daemon.migrate_repo_local":
-		params["from"] = "sqlite"
-		params["to"] = "pg"
-	case "dogfood.publish_on_behalf":
-		params["session_id"] = "sess_1"
-		params["artifact_path"] = "docs/out.md"
-		params["artifact_kind"] = "finding"
-		params["logical_name"] = "finding"
-		params["reason"] = "retirement ledger validation"
-	case "dogfood.surgical_recovery":
-		params["job_id"] = "job_1"
-		params["reason"] = "retirement ledger validation"
-		params["extend_lease_seconds"] = 900
-		params["confirm_write"] = true
-	}
-	return params
+	return coverageParams()
 }
 
 func sortedRetirementBlockerMethods() []string {

@@ -71,8 +71,6 @@ func TestRegisterInstallsInitialMutationHandlers(t *testing.T) {
 		"workflow.init",
 		"workflow.generate",
 		"workflow.upgrade",
-		"dogfood.publish_on_behalf",
-		"dogfood.surgical_recovery",
 		"review.verdict",
 		"verdict",
 		"review.submit",

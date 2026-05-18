@@ -57,8 +57,6 @@ func TestVisibleToolsHideProductionUnsupportedMethods(t *testing.T) {
 		"workflow.init",
 		"workflow.generate",
 		"workflow.upgrade",
-		"dogfood.publish_on_behalf",
-		"dogfood.surgical_recovery",
 	} {
 		if _, ok := names[hidden]; ok {
 			t.Fatalf("production-unsupported method leaked into MCP tools/list: %s", hidden)

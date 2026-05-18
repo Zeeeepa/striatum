@@ -7,7 +7,7 @@ from _harness.multi_repo import MultiRepoHarness
 pytestmark = pytest.mark.multi_repo
 
 
-def test_mcp_publish_on_behalf_is_retired_before_sqlite_composite(
+def test_mcp_publish_on_behalf_is_removed_from_production_contract(
     multi_repo_harness: MultiRepoHarness,
     clean_daemon_db: None,
 ) -> None:
@@ -29,17 +29,14 @@ def test_mcp_publish_on_behalf_is_retired_before_sqlite_composite(
 
     assert result["isError"] is True
     structured = result["structuredContent"]
-    assert structured["error"] == "dogfood_publish_on_behalf_retired"
-    assert structured["error_codes"] == ["dogfood_publish_on_behalf_retired"]
-    data = structured["data"]
-    assert data["code"] == "dogfood_publish_on_behalf_retired"
-    assert data["details"]["blocker"] == "legacy_python_composite_uses_repo_local_sqlite_connection"
+    assert structured["error"] == "method_unknown"
     row = harness.audit_rows(transport="mcp")[-1]
-    assert row["decision"] == "allowed"
+    assert row["decision"] == "denied"
+    assert row["denial_reason"] == "method_unknown"
     assert row["method"] == "dogfood.publish_on_behalf"
 
 
-def test_mcp_surgical_recovery_is_retired_before_sqlite_composite(
+def test_mcp_surgical_recovery_is_removed_from_production_contract(
     multi_repo_harness: MultiRepoHarness,
     clean_daemon_db: None,
 ) -> None:
@@ -63,15 +60,8 @@ def test_mcp_surgical_recovery_is_retired_before_sqlite_composite(
 
     assert result["isError"] is True
     structured = result["structuredContent"]
-    assert structured["error"] == "dogfood_surgical_recovery_retired"
-    assert structured["error_codes"] == ["dogfood_surgical_recovery_retired"]
-    data = structured["data"]
-    assert data["code"] == "dogfood_surgical_recovery_retired"
-    assert (
-        data["details"]["blocker"]
-        == "legacy_python_composite_uses_repo_local_sqlite_connection_and_progress_lock_policy"
-    )
-    assert data["details"]["extend_lease_seconds"] == 900
+    assert structured["error"] == "method_unknown"
     row = harness.audit_rows(transport="mcp")[-1]
-    assert row["decision"] == "allowed"
+    assert row["decision"] == "denied"
+    assert row["denial_reason"] == "method_unknown"
     assert row["method"] == "dogfood.surgical_recovery"

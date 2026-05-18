@@ -40,8 +40,9 @@ authoring/MCP surfaces ambiguous.
 4. Route daemon-mapped `LocalRpcServer` and chat-tool commands through the
    shared daemon RPC policy, keeping local `api.invoke` only for unmapped
    authoring and explicit test-fixture compatibility.
-5. Port `dogfood.publish_on_behalf` and `dogfood.surgical_recovery` to PG or
-   unregister them from production daemon MCP until ported.
+5. Keep `dogfood.publish_on_behalf` and `dogfood.surgical_recovery` absent
+   from the production daemon contract unless a PostgreSQL-native composite
+   is accepted.
 6. Remove Python-daemon-specific production fallback paths after Go parity
    lands.
 
@@ -73,15 +74,14 @@ authoring/MCP surfaces ambiguous.
 - Local MCP and web chat tools use the same command-routing helper, so mapped
   status, why, lifecycle, artifact, review, and recovery commands also cross
   the daemon RPC boundary instead of entering local CLI dispatch.
-- `dogfood.publish_on_behalf` and `dogfood.surgical_recovery` are retired in
-  both Python and Go daemon paths with explicit fail-closed RPC errors because
-  the historical composites were SQLite-bound. Operators should use primitive
-  daemon methods until a PostgreSQL-native composite is accepted.
+- `dogfood.publish_on_behalf` and `dogfood.surgical_recovery` are absent from
+  both Python and Go production daemon contracts because the historical
+  composites were SQLite-bound. Operators should use primitive daemon methods
+  until a PostgreSQL-native composite is accepted.
 - Production daemon MCP `tools/list` now exposes only supported production
-  methods. It hides local workflow-file authoring methods and the retired
-  dogfood composites in both Python and Go; direct `tools/call` still
-  reauthorizes, audits, and returns the explicit fail-closed RPC error for a
-  hidden registered composite.
+  methods. It hides local workflow-file authoring methods in both Python and
+  Go; direct calls to removed dogfood composite names audit as
+  `method_unknown`.
 
 ## Open Questions
 

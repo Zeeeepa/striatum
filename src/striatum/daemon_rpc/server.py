@@ -38,12 +38,7 @@ LOCAL_FILE_AUTHORING_METHODS: frozenset[str] = frozenset(
     }
 )
 
-PRODUCTION_MCP_HIDDEN_METHODS: frozenset[str] = LOCAL_FILE_AUTHORING_METHODS | frozenset(
-    {
-        "dogfood.publish_on_behalf",
-        "dogfood.surgical_recovery",
-    }
-)
+PRODUCTION_MCP_HIDDEN_METHODS: frozenset[str] = LOCAL_FILE_AUTHORING_METHODS
 
 
 class DaemonRpcRouter:
@@ -186,8 +181,6 @@ class DaemonRpcRouter:
             from striatum.daemon_apply.apply_service import handle_apply_rpc
 
             return handle_apply_rpc(envelope.method, envelope.params)
-        if envelope.method.startswith("dogfood."):
-            return self._route_dogfood(envelope, repo_root=repo_root)
         if self.pg_conn is not None:
             import striatum.daemon_pg.handlers  # noqa: F401 - import registers handlers.
             from striatum.daemon_pg.handlers.context import RepoHandlerContext
@@ -288,56 +281,6 @@ class DaemonRpcRouter:
                 ),
             )
         raise RpcError("method_unknown", f"method has no handler: {envelope.method}")
-
-    def _route_dogfood(self, envelope: RpcEnvelope, *, repo_root: Path) -> dict[str, Any]:
-        if envelope.method == "dogfood.publish_on_behalf":
-            repository_id = _repository_id(envelope.params)
-            raise RpcError(
-                "dogfood_publish_on_behalf_retired",
-                "dogfood.publish_on_behalf is not available in the Python daemon because "
-                "the legacy composite is SQLite-bound; use daemon-native work.ack, "
-                "artifact.publish, review.verdict, and work.complete until the Postgres "
-                "composite is ported",
-                details={
-                    "operation": "dogfood.publish_on_behalf",
-                    "repository_id": repository_id,
-                    "reason": str(envelope.params.get("reason") or ""),
-                    "blocker": "legacy_python_composite_uses_repo_local_sqlite_connection",
-                    "remediation": [
-                        "work.ack",
-                        "artifact.publish",
-                        "review.verdict or work.complete",
-                    ],
-                },
-            )
-        if envelope.method == "dogfood.surgical_recovery":
-            repository_id = _repository_id(envelope.params)
-            extend_seconds = int(envelope.params.get("extend_lease_seconds") or 900)
-            raise RpcError(
-                "dogfood_surgical_recovery_retired",
-                "dogfood.surgical_recovery is not available in the Python daemon because "
-                "the legacy composite is SQLite-bound and depends on dogfood-only "
-                "operator recovery policy; use ordinary recovery methods or port the "
-                "Postgres row-lock composite before enabling it",
-                details={
-                    "operation": "dogfood.surgical_recovery",
-                    "repository_id": repository_id,
-                    "job_id": str(envelope.params.get("job_id") or ""),
-                    "reason": str(envelope.params.get("reason") or ""),
-                    "extend_lease_seconds": extend_seconds,
-                    "blocker": (
-                        "legacy_python_composite_uses_repo_local_sqlite_connection_"
-                        "and_progress_lock_policy"
-                    ),
-                    "remediation": [
-                        "recovery.stale_leases",
-                        "recovery.requeue_stale for non-repo-write work",
-                        "recovery.cancel_job after operator inspection",
-                    ],
-                },
-            )
-        raise RpcError("method_unknown", f"method has no handler: {envelope.method}")
-
 
 def _repository_id(params: Mapping[str, Any]) -> str | None:
     value = params.get("repository_id")

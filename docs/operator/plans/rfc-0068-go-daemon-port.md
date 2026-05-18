@@ -41,7 +41,7 @@ retirement ledger, not calendar time.
 
 - Should `apply.reviewed_patch` become a real sealed-apply mutation, or be
   removed from the production contract?
-- Should the retired dogfood composites be deleted permanently, or ported as
-  PostgreSQL-native operator composites?
+- Should new PostgreSQL-native operator composites replace the retired dogfood
+  method names, or should operators keep using primitive daemon methods?
 - When should the one-way SQLite import window close so the Python migration
-  helper and `daemon.migrate_repo_local` contract row can be deleted?
+  helper can be deleted?

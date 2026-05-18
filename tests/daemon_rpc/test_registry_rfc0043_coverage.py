@@ -148,7 +148,6 @@ EXPECTED_CAPABILITY: dict[str, str] = {
     "repo.list": "read",
     "repo.resolve": "read",
     "daemon.migrate": "admin",
-    "daemon.migrate_repo_local": "admin",
 }
 
 # Methods that the server handles inline (no PG handler needed).
@@ -168,7 +167,6 @@ SERVER_INLINE_METHODS: frozenset[str] = frozenset(
         "daemon.key.rotate",
         "daemon.shutdown",
         "daemon.migrate",
-        "daemon.migrate_repo_local",
         "cross_repo.list",
         "cross_repo.describe",
         "cross_repo.why",
@@ -176,8 +174,6 @@ SERVER_INLINE_METHODS: frozenset[str] = frozenset(
         "apply.reviewed_patch",
         "apply.receipt.show",
         "apply.receipt.verify",
-        "dogfood.publish_on_behalf",
-        "dogfood.surgical_recovery",
         "workflow.generate.preview",
     }
 )
@@ -269,7 +265,7 @@ def test_repo_scope_modes_are_correct() -> None:
     # admin methods stay daemon_global; cross-repo coordination methods
     # report cross_repo.
     assert METHOD_REGISTRY["session.register"].effective_repository_scope_mode == "single_repo"
-    assert METHOD_REGISTRY["daemon.migrate_repo_local"].effective_repository_scope_mode == "daemon_global"
+    assert METHOD_REGISTRY["daemon.migrate"].effective_repository_scope_mode == "daemon_global"
     assert METHOD_REGISTRY["cross_repo.describe"].effective_repository_scope_mode == "cross_repo"
 
 

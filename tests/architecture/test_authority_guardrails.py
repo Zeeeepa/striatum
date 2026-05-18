@@ -48,7 +48,6 @@ BOOTSTRAP_OR_MIGRATION_METHODS: frozenset[str] = frozenset(
         "daemon.key.rotate",
         "daemon.shutdown",
         "daemon.migrate",
-        "daemon.migrate_repo_local",
     }
 )
 
@@ -71,19 +70,9 @@ LOCAL_FILE_AUTHORING_METHODS_EXPECTED: frozenset[str] = frozenset(
     }
 )
 
-DOGFOOD_SQLITE_METHODS: frozenset[str] = frozenset(
-    {
-        "dogfood.publish_on_behalf",
-        "dogfood.surgical_recovery",
-    }
-)
-
 GO_DAEMON_RETIREMENT_BLOCKER_METHODS: frozenset[str] = frozenset(
     {
         "apply.reviewed_patch",
-        "daemon.migrate_repo_local",
-        "dogfood.publish_on_behalf",
-        "dogfood.surgical_recovery",
     }
 )
 
@@ -166,8 +155,6 @@ def test_registry_methods_have_explicit_authority_path() -> None:
         if method in NOT_IMPLEMENTED_METHODS:
             continue
         if method in LOCAL_FILE_AUTHORING_METHODS:
-            continue
-        if method in DOGFOOD_SQLITE_METHODS:
             continue
         unclassified.append(method)
 

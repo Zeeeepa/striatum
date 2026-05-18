@@ -1412,10 +1412,11 @@ PostgreSQL substrate. RFC 0068 now makes that Go daemon the default production
 core; `--core python` is a temporary explicit escape while Python-daemon
 deletion work drains. Current Go handler coverage has no missing or generic
 `not_implemented` active contract methods; the remaining
-retirement blockers are the explicitly fail-closed `apply.reviewed_patch`,
+retirement blocker is the explicitly fail-closed `apply.reviewed_patch`
+surface. D110 deliberately removed the SQLite-bound
 `daemon.migrate_repo_local`, `dogfood.publish_on_behalf`, and
-`dogfood.surgical_recovery` surfaces. After that ledger is removed or each row
-is deliberately taken out of production discovery/contract, the Python daemon
+`dogfood.surgical_recovery` RPC names from production discovery and the daemon
+method contract. After the remaining ledger row is resolved, the Python daemon
 is retired; the Python CLI/web service may remain as clients of the Go daemon.
 
 ### Local Web UI

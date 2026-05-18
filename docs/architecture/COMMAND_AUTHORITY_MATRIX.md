@@ -25,7 +25,9 @@ as missing, placeholder-backed, implemented, or explicit retirement blockers.
 D107 / RFC 0068 supersedes D105. The Go columns below are no longer
 D105-bounded reference material; they are the production-port backlog. Any
 `placeholder` or SQLite-backed row is active debt before the Python daemon can
-retire.
+retire. D110 removed the SQLite-bound `daemon.migrate_repo_local`,
+`dogfood.publish_on_behalf`, and `dogfood.surgical_recovery` RPC names from
+the production contract; they no longer appear as registered methods.
 
 Legend:
 
@@ -99,7 +101,6 @@ Legend:
 | `workflow.init` | `workflow init` | write | single_repo | local_file_authoring | real | no | no live state | Go scaffold writer; refuses unsafe paths/overwrites |
 | `workflow.generate` | `workflow generate` | write | single_repo | local_file_authoring | real | no | no live state | Go generator writer; refuses unsafe paths/overwrites |
 | `workflow.upgrade` | `workflow upgrade` | write | single_repo | local_file_authoring | real | no | PG running-run guard only; no Go SQLite import | Go upgrade supports harness-profile updates and `--add-phases` V1.1 rewrites |
-| `dogfood.publish_on_behalf` | MCP/chat dogfood tool | write | single_repo | fail_closed | fail_closed | no | no production SQLite | SQLite-bound composite retired with explicit RPC error; use primitive daemon methods |
 | `review.submit` | `submit-review` | review | single_repo | pg | real | no | no | stable |
 | `review.verdict` | `verdict` | review | single_repo | pg | real | no | no | stable |
 | `review.override` | `override-verdict` | admin | single_repo | pg | real | no | no | stable |
@@ -128,7 +129,6 @@ Legend:
 | `apply.reviewed_patch` | n/a | apply | single_repo | direct apply service | fail_closed | no | no | fail closed until apply authority |
 | `apply.receipt.show` | n/a | read | single_repo | direct apply service | real | no | no | stable |
 | `apply.receipt.verify` | n/a | read | single_repo | direct apply service | real | no | no | stable |
-| `dogfood.surgical_recovery` | MCP/chat dogfood tool | surgical_recovery | single_repo | fail_closed | fail_closed | no | no production SQLite | SQLite-bound composite retired with explicit RPC error; use primitive recovery methods |
 | `repo.add` | `repo add` | admin | daemon_global | pg repo registrar | real | no | no ordinary repo-local SQLite | bootstrap/admin |
 | `repo.remove` | `repo remove` | admin | daemon_global | pg repo registrar | real | no | no | bootstrap/admin |
 | `daemon.token.create` | n/a | admin | daemon_global | not implemented in Python RPC | real | no | no | Go PostgreSQL token issuance; cleartext token returned once |
@@ -137,7 +137,6 @@ Legend:
 | `daemon.key.rotate` | n/a | admin | daemon_global | not implemented in Python RPC | real | no | no | Go rotates the local Ed25519 sealed-apply fallback key file and returns key id/public-key metadata; full apply-gate mutation remains separate |
 | `daemon.shutdown` | `daemon stop` out of band | admin | daemon_global | daemon lifecycle helper | real | no | no | Go process-cancel hook returns accepted shutdown response; handler still fails closed only when embedded without a hook |
 | `daemon.migrate` | `daemon migrate` | admin | daemon_global | migration CLI helper | real | no | no | Go applies embedded PostgreSQL migrations; no SQLite/Python dependency |
-| `daemon.migrate_repo_local` | `daemon migrate-repo-local` | admin | daemon_global | migration CLI helper | fail_closed | no | Go refuses SQLite import | explicit `legacy_migration_retired`; Python migration helper remains one-way legacy source path |
 | `cross_repo.list` | `cross-repo list` | read | cross_repo | direct cross-repo service | real | no | no | stable |
 | `cross_repo.describe` | `cross-repo describe` | read | cross_repo | direct cross-repo service | real | no | no | stable |
 | `cross_repo.why` | `cross-repo why` | read | cross_repo | direct cross-repo service | real | no | no | stable |
@@ -227,12 +226,13 @@ remediation phases should either daemon-route, quarantine, or delete.
    helpers now live in `primitives.py` and `repo_policy.py`; guardrails keep
    daemon PG/RPC production modules from importing SQLite helpers.
 9. Go no longer has generic `not_implemented` handlers for active contract
-   methods. Remaining Python-daemon retirement debt is explicit fail-closed
-   work pinned by `go/cmd/striatumd/handler_coverage_test.go` and
-   `tests/architecture/test_authority_guardrails.py`: `apply.reviewed_patch`,
-   the two retired dogfood composites, and the retired repo-local SQLite
-   import. Web/service DTO parity gaps are tracked separately under
-   RFC 0069-0071.
+   methods. Remaining Python-daemon retirement debt is the explicit
+   fail-closed `apply.reviewed_patch` row pinned by
+   `go/cmd/striatumd/handler_coverage_test.go` and
+   `tests/architecture/test_authority_guardrails.py`. D110 removed the
+   SQLite-bound dogfood composites and the repo-local SQLite import RPC from the
+   production contract. Web/service DTO parity gaps are tracked separately
+   under RFC 0069-0071.
 10. Daemon MCP resources (`resources/list` and `resources/read`) use
     PostgreSQL-backed repository visibility and read projections when a daemon
     PostgreSQL connection is present; the legacy registry-backed path remains

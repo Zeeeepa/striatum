@@ -54,7 +54,6 @@ func Register(server *rpc.Server, runner db.Runner) {
 	server.Register("workflow.init", makeHandler(runner, HandleWorkflowInit))
 	server.Register("workflow.generate", makeHandler(runner, HandleWorkflowGenerate))
 	server.Register("workflow.upgrade", makeHandler(runner, HandleWorkflowUpgrade))
-	RegisterDogfood(server, runner)
 	server.Register("review.verdict", makeHandler(runner, HandleRecordVerdict))
 	server.Register("verdict", makeHandler(runner, HandleRecordVerdict))
 	server.Register("review.submit", makeHandler(runner, HandleSubmitReview))

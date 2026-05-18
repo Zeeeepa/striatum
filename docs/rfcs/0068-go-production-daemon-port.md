@@ -73,9 +73,9 @@ The Go daemon port lands through independent, testable slices:
 - The Go daemon serves every production method in
   `contracts/daemon_methods.json` or hides unsupported methods from production
   clients.
-- Production MCP discovery hides local workflow-file authoring methods and
-  retired dogfood composites; direct hidden calls still reauthorize, audit, and
-  return explicit fail-closed RPC errors.
+- Production MCP discovery hides local workflow-file authoring methods. Removed
+  dogfood composite names audit as `method_unknown`; any hidden registered
+  methods still reauthorize and fail closed when called directly.
 - CLI, web, MCP, and service tests pass against the Go daemon without direct
   SQLite opens.
 - Production source modules no longer import `sqlite3` or `striatum.db`; any
@@ -103,15 +103,15 @@ The Go daemon port lands through independent, testable slices:
 - As of 2026-05-18, Go handler coverage reports zero missing or generic
   `not_implemented` handlers for active contract methods. The remaining
   Python-daemon retirement blockers are executable in
-  `go/cmd/striatumd/handler_coverage_test.go`: `apply.reviewed_patch`,
-  `daemon.migrate_repo_local`, `dogfood.publish_on_behalf`, and
-  `dogfood.surgical_recovery` must keep returning named fail-closed RPC
-  errors until they are ported or removed by product decision.
+  `go/cmd/striatumd/handler_coverage_test.go`: `apply.reviewed_patch`
+  must keep returning a named fail-closed RPC error until it is ported or
+  removed by product decision. D110 removed `daemon.migrate_repo_local`,
+  `dogfood.publish_on_behalf`, and `dogfood.surgical_recovery` from the
+  production method contract.
 - Python/Go production MCP `tools/list` now hides local workflow-file
-  authoring methods and the retired dogfood composites. Daemon MCP
-  `resources/list` and `resources/read` use PostgreSQL-backed repository
-  visibility and read projections whenever a daemon PostgreSQL connection is
-  present.
+  authoring methods. Daemon MCP `resources/list` and `resources/read` use
+  PostgreSQL-backed repository visibility and read projections whenever a
+  daemon PostgreSQL connection is present.
 - SQLite remnants allowed under this RFC are one-way migration/test fixtures
   only. Production daemon, service, MCP, and operator-helper paths must not
   reopen repo-local SQLite or the legacy daemon registry.
@@ -128,9 +128,11 @@ contract:
 | Method | Current Go behavior | Retirement action |
 |---|---|---|
 | `apply.reviewed_patch` | Fails closed with `sealed_key_missing` / `apply_gate_unsatisfied`. | Decide sealed-apply authority or remove the mutation from the production contract. |
-| `daemon.migrate_repo_local` | Fails closed with `legacy_migration_retired`. | Close the one-way SQLite import window and keep only explicit migration fixtures, or delete the method. |
-| `dogfood.publish_on_behalf` | Fails closed with `dogfood_publish_on_behalf_retired`. | Use primitive daemon methods or design a PostgreSQL-native operator composite. |
-| `dogfood.surgical_recovery` | Fails closed with `dogfood_surgical_recovery_retired`. | Use ordinary recovery methods or design a PostgreSQL-native row-lock recovery composite. |
+
+Removed from the production contract by D110: `daemon.migrate_repo_local`,
+`dogfood.publish_on_behalf`, and `dogfood.surgical_recovery`. The local
+`striatum daemon migrate-repo-local` helper remains an explicit one-way
+migration fixture until the SQLite import window closes.
 
 `make daemon-go-conformance`, `go test ./cmd/striatumd`, and
 `tests/architecture/test_authority_guardrails.py` are the executable cutover

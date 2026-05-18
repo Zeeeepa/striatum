@@ -50,9 +50,7 @@ func isHiddenProductionTool(method string) bool {
 		"workflow.templates.show",
 		"workflow.init",
 		"workflow.generate",
-		"workflow.upgrade",
-		"dogfood.publish_on_behalf",
-		"dogfood.surgical_recovery":
+		"workflow.upgrade":
 		return true
 	default:
 		return false

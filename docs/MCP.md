@@ -159,11 +159,11 @@ Each local owner/test chat tool can shell through the local CLI/API wrapper.
 Production daemon MCP/chat calls dispatch through daemon RPC and the daemon's
 audit chain.
 The historical RFC 0040 composite operator tools
-(`dogfood.publish_on_behalf`, `dogfood.surgical_recovery`) are retired in the
-production Python and Go daemon paths because their original implementation was
-SQLite-bound. Use primitive daemon methods (`ack`, `publish_artifact`,
-`verdict`/`complete`, and ordinary recovery tools) until a PostgreSQL-native
-composite is accepted.
+(`dogfood.publish_on_behalf`, `dogfood.surgical_recovery`) are absent from the
+production daemon method contract because their original implementation was
+SQLite-bound. Calls to those names return `method_unknown`. Use primitive
+daemon methods (`ack`, `publish_artifact`, `verdict`/`complete`, and ordinary
+recovery tools) until a PostgreSQL-native composite is accepted.
 
 ### Example chat-tool sequence
 
@@ -250,9 +250,9 @@ Daemon MCP mutation capabilities use the closed RFC 0032 vocabulary:
 `tools/list` returns the effective supported production tool set: method
 registry entries intersected with the token's grants, repository scope, and
 the production-support visibility filter. Local workflow-file authoring
-methods and retired dogfood composites are hidden from discovery, even though
-direct `tools/call` still re-authorizes and fails closed/audits when a hidden
-registered method is called. `tools/call` also fails closed for unknown
+methods are hidden from discovery. Removed dogfood composite names audit as
+`method_unknown`; hidden registered methods still re-authorize and fail
+closed/audit when called directly. `tools/call` also fails closed for unknown
 methods, missing tokens, revoked/expired tokens, missing capabilities,
 expired capabilities, and repository scope mismatches. Repo-scoped `apply`
 grants remain single-repo; a token that can apply in repo A cannot apply in

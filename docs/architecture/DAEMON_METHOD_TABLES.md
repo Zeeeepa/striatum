@@ -62,7 +62,6 @@
 | `workflow.init` | `write` | `single_repo` | 1 | 1 | no |
 | `workflow.generate` | `write` | `single_repo` | 1 | 1 | no |
 | `workflow.upgrade` | `write` | `single_repo` | 1 | 1 | no |
-| `dogfood.publish_on_behalf` | `write` | `single_repo` | 1 | 1 | no |
 | `review.submit` | `review` | `single_repo` | 1 | 1 | no |
 | `review.verdict` | `review` | `single_repo` | 1 | 1 | no |
 | `review.override` | `admin` | `single_repo` | 1 | 1 | no |
@@ -88,7 +87,6 @@
 | `apply.reviewed_patch` | `apply` | `single_repo` | 1 | 1 | no |
 | `apply.receipt.show` | `read` | `single_repo` | 1 | 1 | no |
 | `apply.receipt.verify` | `read` | `single_repo` | 1 | 1 | no |
-| `dogfood.surgical_recovery` | `surgical_recovery` | `single_repo` | 1 | 1 | no |
 | `repo.add` | `admin` | `daemon_global` | 1 | 1 | no |
 | `repo.remove` | `admin` | `daemon_global` | 1 | 1 | no |
 | `daemon.token.create` | `admin` | `daemon_global` | 1 | 1 | no |
@@ -97,7 +95,6 @@
 | `daemon.key.rotate` | `admin` | `daemon_global` | 1 | 1 | no |
 | `daemon.shutdown` | `admin` | `daemon_global` | 1 | 1 | no |
 | `daemon.migrate` | `admin` | `daemon_global` | 1 | 1 | no |
-| `daemon.migrate_repo_local` | `admin` | `daemon_global` | 1 | 1 | no |
 | `cross_repo.list` | `read` | `cross_repo` | 1 | 1 | no |
 | `cross_repo.describe` | `read` | `cross_repo` | 1 | 1 | no |
 | `cross_repo.why` | `read` | `cross_repo` | 1 | 1 | no |

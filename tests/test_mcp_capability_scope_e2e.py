@@ -19,17 +19,16 @@ def test_repo_scoped_write_token_authorizes_repo_a_write_and_audits_allowed(
     token = harness.issue_token(["write"], repo_id=str(harness.repos[0].repository_id))
 
     result = harness.mcp_client(token, repo_index=0).call_tool(
-        "dogfood.publish_on_behalf",
+        "work.send_message",
         repository_id=str(harness.repos[0].repository_id),
-        arguments={"reason": "capability scope smoke"},
+        arguments={"session_id": "sess_missing", "kind": "note", "body_json": "{}"},
     )
 
     assert result["isError"] is True
-    assert result["structuredContent"]["error"] == "dogfood_publish_on_behalf_retired"
     row = harness.audit_rows(transport="mcp")[-1]
     assert row["decision"] == "allowed"
     assert row["denial_reason"] is None
-    assert row["method"] == "dogfood.publish_on_behalf"
+    assert row["method"] == "work.send_message"
 
 
 def test_repo_scoped_write_token_denied_against_repo_b_and_audits_scope_mismatch(
@@ -41,8 +40,9 @@ def test_repo_scoped_write_token_denied_against_repo_b_and_audits_scope_mismatch
     token = harness.issue_token(["write"], repo_id=str(harness.repos[0].repository_id))
 
     result = harness.mcp_client(token, repo_index=0).call_tool(
-        "dogfood.publish_on_behalf",
+        "work.send_message",
         repository_id=str(harness.repos[1].repository_id),
+        arguments={"session_id": "sess_missing", "kind": "note", "body_json": "{}"},
     )
 
     assert result["isError"] is True
@@ -82,8 +82,6 @@ def test_tools_list_hides_production_unsupported_methods_for_matching_tokens(
     assert "workflow.validate" not in names
     assert "workflow.generate" not in names
     assert "workflow.upgrade" not in names
-    assert "dogfood.publish_on_behalf" not in names
-    assert "dogfood.surgical_recovery" not in names
 
 
 def test_pg_daemon_mcp_resources_filter_repo_scope_without_sqlite(
@@ -281,8 +279,9 @@ def test_read_only_token_cannot_call_write_tool(
     token = harness.issue_token(["read"], repo_id=str(harness.repos[0].repository_id))
 
     result = harness.mcp_client(token, repo_index=0).call_tool(
-        "dogfood.publish_on_behalf",
+        "work.send_message",
         repository_id=str(harness.repos[0].repository_id),
+        arguments={"session_id": "sess_missing", "kind": "note", "body_json": "{}"},
     )
 
     assert result["isError"] is True
@@ -315,8 +314,9 @@ def test_revoked_token_denied_and_audited(
     harness.revoke_token(token)
 
     result = harness.mcp_client(token, repo_index=0).call_tool(
-        "dogfood.publish_on_behalf",
+        "work.send_message",
         repository_id=str(harness.repos[0].repository_id),
+        arguments={"session_id": "sess_missing", "kind": "note", "body_json": "{}"},
     )
 
     assert result["structuredContent"]["error"] == "token_revoked"
@@ -333,8 +333,9 @@ def test_expired_token_denied_and_audited(
     harness.expire_token(token)
 
     result = harness.mcp_client(token, repo_index=0).call_tool(
-        "dogfood.publish_on_behalf",
+        "work.send_message",
         repository_id=str(harness.repos[0].repository_id),
+        arguments={"session_id": "sess_missing", "kind": "note", "body_json": "{}"},
     )
 
     assert result["structuredContent"]["error"] == "token_expired"
@@ -350,8 +351,9 @@ def test_audit_chain_continuous_across_allowed_and_denied_calls(
     token = harness.issue_token(["write"], repo_id=str(harness.repos[0].repository_id))
     client = harness.mcp_client(token, repo_index=0)
 
-    client.call_tool("dogfood.publish_on_behalf", repository_id=str(harness.repos[0].repository_id))
-    client.call_tool("dogfood.publish_on_behalf", repository_id=str(harness.repos[1].repository_id))
+    args: dict[str, object] = {"session_id": "sess_missing", "kind": "note", "body_json": "{}"}
+    client.call_tool("work.send_message", repository_id=str(harness.repos[0].repository_id), arguments=args)
+    client.call_tool("work.send_message", repository_id=str(harness.repos[1].repository_id), arguments=args)
     client.call_tool("not.a.method", repository_id=str(harness.repos[0].repository_id))
 
     harness.assert_audit_chain()

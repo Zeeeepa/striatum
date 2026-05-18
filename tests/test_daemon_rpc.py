@@ -325,8 +325,6 @@ def test_method_registry_declares_expected_capabilities() -> None:
     assert METHOD_REGISTRY["submit_review"].required_capability == "review"
     assert METHOD_REGISTRY["apply.reviewed_patch"].required_capability == "apply"
     assert METHOD_REGISTRY["recovery.cancel_job"].required_capability == "recovery"
-    assert METHOD_REGISTRY["dogfood.publish_on_behalf"].required_capability == "write"
-    assert METHOD_REGISTRY["dogfood.surgical_recovery"].required_capability == "surgical_recovery"
     assert METHOD_REGISTRY["daemon.key.rotate"].required_capability == "admin"
 
     described = describe_methods()
@@ -339,8 +337,6 @@ def test_method_registry_declares_expected_capabilities() -> None:
         "supervise.start",
         "apply.reviewed_patch",
         "cross_repo.describe",
-        "dogfood.publish_on_behalf",
-        "dogfood.surgical_recovery",
     } <= methods
 
 

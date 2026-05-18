@@ -31,9 +31,9 @@ V1.5 has landed with `striatum operator current-brief` plus strict
 `operator_brief` context-budget validation. Go `workflow.generate --shape
 multi_phase` now emits the same V1.1 phased workflow graph as Python, closing
 that explicit generator parity gap. Production daemon MCP `tools/list` now
-hides local workflow-file authoring methods and the retired dogfood composites
-in both Python and Go, while direct hidden composite calls still audit and fail
-closed. SQLite registry-probe guardrails now classify every remaining direct
+hides local workflow-file authoring methods in both Python and Go; direct
+calls to removed dogfood composite names audit as `method_unknown`.
+SQLite registry-probe guardrails now classify every remaining direct
 `striatum.daemon.connect_registry()` caller and tripwire daemon MCP resource
 reads before the legacy registry can open. `striatum daemon start` now
 defaults to the Go daemon; `--core python` remains only as an explicit
@@ -43,9 +43,8 @@ transitional escape.
 
 1. Continue RFC 0068/RFC 0069 Go and PostgreSQL read-model parity only when
    a concrete method, DTO, registry probe, or conformance gap is visible.
-2. Use the RFC 0068 retirement ledger as the next cutover gate: shrink
-   `apply.reviewed_patch`, `daemon.migrate_repo_local`, and the two dogfood
-   composites, then delete the Python daemon entry point.
+2. Use the RFC 0068 retirement ledger as the next cutover gate: resolve
+   `apply.reviewed_patch`, then delete the Python daemon entry point.
 3. Keep `make daemon-go-conformance` green while any retirement-ledger row
    remains fail-closed.
 

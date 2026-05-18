@@ -27,9 +27,9 @@ dependency edges, and "what would I do next" framing. Update on every
   D107 supersedes D105: Go is now the default production daemon core, Python
   daemon deletion remains after parity, Python CLI/web clients stay useful, and
   SQLite eradication continues across production and compatibility paths. The
-  current RFC 0068 cutover ledger is explicit fail-closed work only:
-  `apply.reviewed_patch`, `daemon.migrate_repo_local`, and the two retired
-  dogfood composites.
+  current RFC 0068 cutover ledger is now one explicit fail-closed method:
+  `apply.reviewed_patch`. D110 removed the SQLite-bound migration and dogfood
+  composite RPC names from the production contract.
 - **CI:** GitHub Actions has been backlogged during the 2026-05-17/18
   remediation commits. Treat latest-head CI failures as stop-the-line; queued
   and in-progress older runs are not by themselves blockers.

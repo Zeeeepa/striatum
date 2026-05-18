@@ -139,10 +139,10 @@ def test_mcp_tool_descriptor_is_derived_from_method_entry() -> None:
         "required_capability": "read",
         "repository_scope_mode": "single_repo",
     }
-    assert mcp_tool_descriptor(METHOD_REGISTRY["dogfood.surgical_recovery"]) == {
-        "name": "dogfood.surgical_recovery",
-        "description": "Invoke daemon RPC method `dogfood.surgical_recovery`.",
-        "required_capability": "surgical_recovery",
+    assert mcp_tool_descriptor(METHOD_REGISTRY["recovery.cancel_job"]) == {
+        "name": "recovery.cancel_job",
+        "description": "Invoke daemon RPC method `recovery.cancel_job`.",
+        "required_capability": "recovery",
         "repository_scope_mode": "single_repo",
     }
 

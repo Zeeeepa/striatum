@@ -43,10 +43,11 @@ Recent checkpoints:
 - The Go daemon now has an executable handler-coverage ledger for missing
   and placeholder methods, and `recovery.sweep` is registered on the Go
   mutation surface instead of only the deprecated `recovery.auto` alias.
-- The Go daemon now also has an executable Python-retirement blocker ledger:
-  `apply.reviewed_patch`, `daemon.migrate_repo_local`, and the two retired
-  dogfood composites must keep returning explicit fail-closed RPC errors
-  until the corresponding product decision removes or ports each surface.
+- D110 removes the SQLite-bound `daemon.migrate_repo_local`,
+  `dogfood.publish_on_behalf`, and `dogfood.surgical_recovery` RPC methods
+  from the production daemon contract and MCP discovery. Unknown calls now
+  audit as `method_unknown`; the RFC 0068 retirement ledger is reduced to
+  `apply.reviewed_patch`.
 - `striatum daemon start` now defaults to the Go daemon after active
   contract-method parity. `STRIATUM_DAEMON_CORE=python` or `--core python`
   remains as an explicit transitional escape while the Python daemon entry
@@ -77,6 +78,9 @@ Recent checkpoints:
 - Go now owns `archive.create` for the V1 run archive bundle format, including
   safe repo-relative output paths, PostgreSQL run-scoped row export, and
   deterministic manifest/file hashes.
+- Go `evidence.export` now writes the Markdown evidence file under the target
+  repository and uses current PostgreSQL artifact/verdict column aliases; the
+  same alias fix covers Go `run.summary` and `corpus.export`.
 - Go now owns the read-only `worktree.list` handler over PostgreSQL
   `job_worktrees`, returning the Python-compatible `worktrees` row list with
   optional run filtering.
@@ -141,10 +145,8 @@ Recent checkpoints:
   `daemon.token.create/revoke/rotate` write only daemon PostgreSQL client and
   capability rows, store HMAC-SHA256 token hashes, and return cleartext bearer
   tokens only at creation/rotation time.
-- Go now registers explicit fail-closed handlers for
-  `daemon.migrate_repo_local`, `apply.reviewed_patch`,
-  `dogfood.publish_on_behalf`, and `dogfood.surgical_recovery` instead of
-  generic `not_implemented` stubs or Python/SQLite fallbacks.
+- Go now keeps an explicit fail-closed handler for `apply.reviewed_patch`
+  instead of a generic `not_implemented` stub or Python fallback.
 - Go now owns `repo.init` as PostgreSQL-backed repository initialization that
   creates only operational scratch and refuses repo-local SQLite state.
 - The Go daemon handler-coverage ledger now reports zero generic
@@ -187,15 +189,13 @@ Recent checkpoints:
 - Go `run.prepare` now loads workflow files through the Go workflow-authoring
   loader before writing rows, so repo-bound path checks and JSON-only workflow
   source validation are enforced in the Go daemon path.
-- The Python daemon dogfood composite routes now fail closed before importing
-  `striatum.db.connect`; both Python and Go retire the SQLite-bound
-  `dogfood.publish_on_behalf` and `dogfood.surgical_recovery` composites in
-  favor of primitive daemon methods until a PostgreSQL-native composite is
-  designed.
+- The SQLite-bound `dogfood.publish_on_behalf` and
+  `dogfood.surgical_recovery` composites are removed from the production
+  daemon contract in favor of primitive daemon methods until a
+  PostgreSQL-native composite is designed.
 - Production daemon MCP `tools/list` now hides local workflow-file authoring
-  methods and the retired dogfood composites in both Python and Go, while
-  direct `tools/call` dispatch still reauthorizes and returns the explicit
-  fail-closed RPC errors for those composites.
+  methods in both Python and Go; direct calls to removed dogfood composites
+  now audit as `method_unknown`.
 - SQLite registry-probe guardrails now classify every remaining direct
   `striatum.daemon.connect_registry()` caller and runtime-tripwire daemon MCP
   resource reads, so newly introduced daemon-global SQLite probes fail the
