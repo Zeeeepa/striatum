@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import json
-import sqlite3
 from pathlib import Path
 
+from striatum.legacy_sqlite.db import connect
 from test_web_run_posture_verdicts import _prepare_run
 from test_web_ui import _git_init_repo, _http_get_raw, _spawn_service, _stop_service, _striatum_init
 
@@ -12,7 +12,7 @@ def test_posture_verdicts_show_override_provenance_and_attestation(tmp_path: Pat
     _git_init_repo(tmp_path)
     _striatum_init(tmp_path)
     run_id = _prepare_run(tmp_path)
-    with sqlite3.connect(tmp_path / ".striatum" / "state.sqlite3") as conn:
+    with connect(tmp_path) as conn:
         job_id = str(conn.execute("SELECT job_id FROM jobs WHERE run_id = ? LIMIT 1", (run_id,)).fetchone()[0])
         conn.execute(
             """

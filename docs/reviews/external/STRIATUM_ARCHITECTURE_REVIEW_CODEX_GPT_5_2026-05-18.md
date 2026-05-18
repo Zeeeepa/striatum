@@ -1,6 +1,12 @@
 # STRIATUM Architecture Review - CODEX_GPT_5 - 2026-05-18
 author: reviewer-codex-gpt-5-001
 
+Staleness note, 2026-05-18: this review snapshot predates the follow-up commit
+that deleted the retired Python daemon module. References to
+`src/striatum/daemon.py` are historical review evidence; remaining cleanup is
+legacy SQLite fixture conversion/deletion and guardrail cleanup around Python
+client/admin surfaces.
+
 ## 0. Files reviewed
 
 stated: The architecture-review prompt asks for an architecture review of the project rooted at the current working directory, with every reviewed file listed before any claims. The repo instructions additionally say to start with `README.md`, `docs/INDEX.md`, `docs/SPEC.md`, `docs/DECISION_LOG.md`, `docs/UBIQUITOUS_LANGUAGE.md`, and `docs/TODO.md`.
@@ -119,7 +125,7 @@ mine: This split is pragmatic only if "Python client" stays literal. Renderers a
 
 stated: Local authoring and fixture migration are special cases, not production state authority (`docs/SPEC.md:97-119`, `docs/DECISION_LOG.md:27`).
 
-actual: The old Python daemon and SQLite modules remain. `src/striatum/daemon.py` still imports SQLite-backed registry code and contains legacy repository operations, but `connect_registry` refuses production use unless the paired test harness is enabled (`src/striatum/daemon.py:1-73`, `src/striatum/daemon.py:141-209`, `src/striatum/daemon.py:963-1030`). `src/striatum/cli/dispatch.py` still imports `sqlite3` and `striatum.db`, and it still contains a long local fallback dispatcher, but front-end enforcement and daemon RPC routing prevent mapped production commands from reaching that code (`src/striatum/cli/dispatch.py:5-25`, `src/striatum/cli/dispatch.py:224-313`, `src/striatum/cli/dispatch.py:686-1145`). The quarantine test intentionally classifies remaining SQLite references and fails on unclassified growth (`tests/architecture/test_legacy_sqlite_quarantine.py:21-179`, `tests/architecture/test_legacy_sqlite_quarantine.py:211-390`).
+actual: This historical review snapshot found the old Python daemon and broad SQLite modules still present. Later follow-through deleted `src/striatum/daemon.py`, so the remaining current risk is narrower: legacy SQLite compatibility modules, fixture paths, and Python client/admin surfaces that must keep routing through the Go/PostgreSQL daemon boundary. The quarantine test intentionally classifies remaining SQLite references and fails on unclassified growth (`tests/architecture/test_legacy_sqlite_quarantine.py:21-179`, `tests/architecture/test_legacy_sqlite_quarantine.py:211-390`).
 
 mine: The guards are real, but the code volume is still architectural risk. The correct long-term change is not another guardrail layer; it is converting the remaining fixtures and deleting the old substrate.
 

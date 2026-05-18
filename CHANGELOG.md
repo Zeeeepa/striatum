@@ -137,6 +137,11 @@ Recent checkpoints:
   instead of importing `sqlite3` directly for its completed-run setup.
 - The web pause/resume and posture-verdict tests now use the explicit legacy
   SQLite fixture helper instead of opening repo-local SQLite directly.
+- Web/dashboard provenance, recovery-panel, breadcrumb, and posture-override
+  tests now seed legacy repo-local state through the explicit legacy SQLite
+  fixture helper instead of importing `sqlite3` directly.
+- Stale remediation/review artifacts now call out deleted Python-daemon
+  references as historical evidence instead of current source state.
 - Operator docs now describe legacy SQLite migration/tombstone paths as
   historical remnants or fixture-only compatibility, while current setup
   guidance uses daemon PostgreSQL registration.
@@ -243,12 +248,12 @@ Recent checkpoints:
   `striatum.daemon_pg.client_admin` surface instead of the legacy Python daemon
   module. The CLI-side legacy daemon registry wrapper and its direct
   `--daemon`/`dashboard --all` SQLite fallback paths are removed; remaining
-  `striatum.daemon` imports are explicit legacy migration/test fixtures
+  `striatum.daemon` references are guardrail/test assertions or historical docs
   (D117).
 - Legacy daemon security fixture coverage was narrowed again: runtime token and
   daemon MCP denial checks now exercise `daemon_runtime`, `daemon_pg.client_admin`,
-  and daemon RPC capability helpers directly, leaving the Python daemon import
-  to cutover/quarantine fixtures.
+  and daemon RPC capability helpers directly, leaving only cutover/quarantine
+  fixture coverage for retired behavior.
 - The multi-repo Go daemon test harness no longer imports the legacy Python
   daemon module for runtime environment constant names; it uses
   `daemon_runtime` and the PostgreSQL admin client surface directly.

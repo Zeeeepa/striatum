@@ -6,6 +6,11 @@
 
 ---
 
+Staleness note, 2026-05-18: this review snapshot includes the retired Python
+daemon module before its later deletion. `src/striatum/daemon.py` references
+below are historical evidence; Python `daemon_pg` client/admin code remains
+transitional cleanup rather than a production daemon alternative.
+
 ## 0. Files reviewed
 
 - `README.md`
@@ -16,13 +21,13 @@
 - `docs/rfcs/0068-go-production-daemon-port.md`
 - `docs/rfcs/0069-pg-only-daemon-global-surfaces.md`
 - `src/striatum/cli/dispatch.py`
-- `src/striatum/daemon.py`
+- `src/striatum/daemon.py` (historical snapshot; later deleted)
 
 ## 1. Executive summary
 
 - **Audience & Adoption:** Striatum is built for public adoption; its first external target is a team adopting the tool. It expects a heavy orchestration topology: one human principal piloting 8+ concurrent AI operators across 3+ repositories.
 - **Enforced Go/PG Architecture:** The project is cutting over to a Go-based production daemon. PostgreSQL is the authoritative state, driven by the absolute necessity of handling concurrent appender contention and providing strict audit-chain row-lock semantics for the 8+ AI operators.
-- **Legacy Purge:** The old SQLite implementation and the Python `daemon_pg` are officially deprecated and mid-deletion. The definition of "done" relies heavily on deleting this debt and ensuring a clean PyPI install story across macOS and Linux.
+- **Legacy Purge:** The retired Python daemon module is deleted. Legacy SQLite fixtures and Python `daemon_pg` client/admin cleanup remain transitional debt; the definition of "done" relies heavily on deleting that debt and ensuring a clean PyPI install story across macOS and Linux.
 - **Escalation & UX:** The Web UI is strictly reserved for the human principal for escalation purposes. AI operators do not use the Web UI; they rely on CLI and MCP.
 
 ## 2. What the project is trying to be
@@ -33,7 +38,7 @@
 
 ## 3. Current architecture
 
-- **Components:** A Python 3.11+ core orchestrator (CLI, Web UI) and a Go-based production daemon (`striatumd`). The Python daemon (`daemon_pg`) is deprecated and mid-deletion.
+- **Components:** A Python 3.11+ core orchestrator (CLI, Web UI) and a Go-based production daemon (`striatumd`). Python `daemon_pg` direct-state/admin code is transitional cleanup, not a production daemon alternative.
 - **State/Storage:** Authoritative state lives in a system-installed PostgreSQL database. This is not an architectural smell—it is the correct, load-bearing solution to support high-concurrency writes from 8+ simultaneous AI agents without locking contention.
 - **Surfaces:**
   - CLI (Workflow authoring via `striatum workflow generate`, not React Flow or hand-edited JSON).

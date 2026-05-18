@@ -14,6 +14,8 @@ landed or inverted: `repo.resolve`, hardcoded RPC client-version cleanup,
 `/v1/invoke` daemon routing, daemon MCP filtering/resources, dogfood composite
 fail-closed behavior, PostgreSQL daemon sweep/global reads, Go
 `workflow.generate --shape multi_phase`, and `daemon doctor --authority`.
+Later follow-through deleted the retired Python daemon module; any
+`src/striatum/daemon.py` references below are historical evidence only.
 
 ## 0. Source Review
 

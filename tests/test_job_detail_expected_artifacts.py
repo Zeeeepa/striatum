@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import json
-import sqlite3
 from pathlib import Path
 
+from striatum.legacy_sqlite.db import connect
 from test_cli_mvp import claim, packet_ids, prepare_started_run, register, run_cli
 from test_web_ui import _http_get_raw, _spawn_service, _stop_service
 
@@ -14,7 +14,7 @@ def test_job_detail_expected_artifacts_and_process_evidence(tmp_path: Path) -> N
     packet = claim(tmp_path, session_id)
     job_id, _, lease_id = packet_ids(packet)
     packet_id = "packet_process_evidence"
-    with sqlite3.connect(tmp_path / ".striatum" / "state.sqlite3") as conn:
+    with connect(tmp_path) as conn:
         conn.execute("UPDATE work_packets SET packet_id = ? WHERE job_id = ?", (packet_id, job_id))
         conn.execute(
             """

@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import json
-import sqlite3
 from pathlib import Path
 
+from striatum.legacy_sqlite.db import connect
 from test_cli_mvp import claim, complete_claimed_job, prepare_started_run, register
 from test_web_ui import _http_get_raw, _spawn_service, _stop_service
 
@@ -20,7 +20,7 @@ def test_artifact_view_renders_byline_integrity_and_provenance_trail(tmp_path: P
         kind="handoff",
         path="docs/reviews/rfc-ledger/RFC_LEDGER_DRAFT.md",
     )
-    with sqlite3.connect(tmp_path / ".striatum" / "state.sqlite3") as conn:
+    with connect(tmp_path) as conn:
         artifact_id = str(conn.execute("SELECT artifact_id FROM artifacts WHERE run_id = ?", (run_id,)).fetchone()[0])
         conn.execute(
             """

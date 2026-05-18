@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import json
-import sqlite3
 from pathlib import Path
 
+from striatum.legacy_sqlite.db import connect
 from test_cli_mvp import claim, prepare_started_run, register, write_artifact
 from test_web_ui import _http_get_raw, _spawn_service, _stop_service
 from striatum.service import _jinja_env
@@ -18,7 +18,7 @@ def test_run_detail_renders_recovery_panel_with_blocker_recipe(tmp_path: Path) -
     expected = packet["expected_artifacts"][0]
     write_artifact(tmp_path, str(expected["path"]), text=f"{expected['author_line']}\n\nstale\n")
 
-    with sqlite3.connect(tmp_path / ".striatum" / "state.sqlite3") as conn:
+    with connect(tmp_path) as conn:
         conn.execute("UPDATE leases SET state = 'expired' WHERE lease_id = ?", (lease_id,))
         conn.execute("UPDATE jobs SET state = 'stale_lease' WHERE job_id = ?", (job_id,))
         conn.execute(

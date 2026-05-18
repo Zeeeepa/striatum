@@ -16,8 +16,9 @@ author: coordinator-codex-gpt-5.5-001
 
 Striatum's live-state boundary is daemon-owned PostgreSQL. The active
 remediation runway is D107/RFC 0068: Go is the production/default daemon,
-and remaining cleanup is legacy SQLite fixture conversion/deletion, Python
-daemon module deletion, and removal of production SQLite fallbacks. Recent
+and remaining cleanup is legacy SQLite fixture conversion/deletion plus
+continued guardrail cleanup around retired Python daemon and production SQLite
+fallbacks. Recent
 checkpoints routed daemon MCP
 resources, daemon audit, daemon health, daemon doctor diagnostics,
 daemon lifecycle helpers, and workflow-upgrade running-run checks away
@@ -52,8 +53,8 @@ is retired.
 1. Keep RFC 0068/RFC 0069 Go and PostgreSQL conformance green; only add
    parity work when a concrete method, DTO, registry probe, or conformance
    gap is visible.
-2. Convert or delete legacy SQLite fixtures, then delete the remaining Python
-   daemon module.
+2. Convert or delete legacy SQLite fixtures; keep guardrails asserting the
+   retired Python daemon module remains absent.
 3. Keep `make daemon-go-conformance` green and keep removed method names
    returning/auditing as `method_unknown`.
 

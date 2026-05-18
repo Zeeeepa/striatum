@@ -2,8 +2,9 @@
 
 Date: 2026-05-16
 Companion review: `STRIATUM_ARCHITECTURE_REVIEW_2026-05-16.md`
-Status: active plan with shipped progress. Current completion status lives
-in `CHANGELOG.md`, `docs/TODO.md`, and `docs/ROADMAP.md`.
+Status: superseded historical input with shipped follow-through. Current
+completion status lives in `CHANGELOG.md`, `docs/TODO.md`, and
+`docs/ROADMAP.md`.
 
 ## Goal
 

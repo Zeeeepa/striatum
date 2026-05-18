@@ -14,13 +14,15 @@ have since landed or inverted: the dispatch fail-closed guard, PostgreSQL
 daemon registry/global surface work, `repo.resolve`, dynamic RPC client
 versions, `/v1/invoke` daemon routing, `daemon doctor --authority`, and the
 Go daemon parity/retirement-ledger work.
+Later follow-through deleted the retired Python daemon module; any
+`src/striatum/daemon.py` references below are historical evidence only.
 
 ## 0. Source review
 
 - **Review File:** `STRIATUM_ARCHITECTURE_REVIEW_CODEX_GPT_5_2026-05-17.md`
 - **Date:** 2026-05-17
 - **Model:** Codex GPT-5
-- **Repo State Context:** The review is entirely fresh and accurate. The code paths cited (e.g., `src/striatum/cli/dispatch.py` fallthroughs and `src/striatum/daemon.py` SQLite references) are present in the exact lines mentioned. No drift has occurred since the review was generated.
+- **Repo State Context:** Historical claim, now stale after later remediation. The cited `src/striatum/cli/dispatch.py` fallthroughs and `src/striatum/daemon.py` SQLite references were present when the review was generated; later commits deleted the retired Python daemon module and closed the cited production fallbacks.
 
 ## 1. Executive summary
 

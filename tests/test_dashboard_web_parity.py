@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import json
-import sqlite3
 from pathlib import Path
 
 from striatum.dashboard import render_frame
+from striatum.legacy_sqlite.db import connect
 
 from test_cli_mvp import (
     claim,
@@ -53,8 +53,7 @@ def test_dashboard_and_run_page_surface_same_v1_chip_labels(tmp_path: Path) -> N
     # remains visible, and synthesize a separate stale lease on blocked work.
     register(tmp_path, run_id, "reviewer", "gemini")
     stale_lease_id = "lease_dashboard_web_parity_stale"
-    with sqlite3.connect(tmp_path / ".striatum" / "state.sqlite3") as conn:
-        conn.row_factory = sqlite3.Row
+    with connect(tmp_path) as conn:
         stale_job = conn.execute(
             """
             SELECT job_id, expected_artifacts_json

@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-import sqlite3
 from pathlib import Path
 
+from striatum.legacy_sqlite.db import connect
 from test_cli_mvp import prepare_started_run
 from test_web_ui import _http_get_raw, _spawn_service, _stop_service
 
@@ -12,7 +12,7 @@ def test_view_file_breadcrumb_omits_legacy_sqlite_run_link(tmp_path: Path) -> No
     target = tmp_path / "docs" / "dogfood" / "055" / "build" / "HANDOFF.md"
     target.parent.mkdir(parents=True)
     target.write_text("# Handoff\n", encoding="utf-8")
-    with sqlite3.connect(tmp_path / ".striatum" / "state.sqlite3") as conn:
+    with connect(tmp_path) as conn:
         conn.execute(
             "UPDATE runs SET branch_name = 'striatum/dogfood-055-rfc-0050-v1-5' WHERE run_id = ?",
             (run_id,),
@@ -33,7 +33,7 @@ def test_view_file_breadcrumb_hides_ambiguous_matches(tmp_path: Path) -> None:
     target = tmp_path / "docs" / "dogfood" / "055" / "build" / "HANDOFF.md"
     target.parent.mkdir(parents=True)
     target.write_text("# Handoff\n", encoding="utf-8")
-    with sqlite3.connect(tmp_path / ".striatum" / "state.sqlite3") as conn:
+    with connect(tmp_path) as conn:
         conn.execute(
             "UPDATE runs SET branch_name = 'striatum/dogfood-055-rfc-0050-v1-5' WHERE run_id = ?",
             (run_id,),
