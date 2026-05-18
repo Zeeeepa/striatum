@@ -66,6 +66,10 @@ Recent checkpoints:
 - The legacy repo-local SQLite autonomous recovery sweep moved to
   `striatum.legacy_sqlite.recovery_auto`; `striatum.recovery.auto` now
   exposes only lazy compatibility wrappers for that retired path.
+- Process-adapter diagnostic envelope and recovery-command helpers remain in
+  neutral `striatum.process_completion`; SQLite output validation and blocker
+  insertion moved to `striatum.legacy_sqlite.process_completion` and now load
+  lazily for legacy adapter paths.
 - The Go daemon launch contract now reports supported daemon PostgreSQL schema
   and migration count from `--describe`; the Python launcher refuses stale Go
   daemon binaries before socket bind when their schema, migration count, or

@@ -50,7 +50,7 @@ def test_evaluate_and_block_inline_skips_when_job_terminal() -> None:
     )
     kind, envelope = evaluate_and_block_inline(
         conn,
-        job=job,  # type: ignore[arg-type]
+        job=job,
         session_id="sess_test_001",
         process_id="proc_test_001",
         command=["/bin/sh", "-c", "exit 1"],
@@ -78,7 +78,7 @@ def test_evaluate_and_block_inline_skips_for_each_terminal_state() -> None:
         )
         kind, envelope = evaluate_and_block_inline(
             conn,
-            job=job,  # type: ignore[arg-type]
+            job=job,
             session_id=f"sess_test_{terminal}",
             process_id=f"proc_test_{terminal}",
             command=["/bin/sh", "-c", "exit 1"],

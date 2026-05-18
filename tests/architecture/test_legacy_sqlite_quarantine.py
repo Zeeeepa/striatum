@@ -101,7 +101,7 @@ PRODUCTION_SQLITE_QUARANTINE = {
         "adapter transition",
         "legacy process adapter table helpers retained during supervisor transition",
     ),
-    Path("src/striatum/process_completion.py"): SQLiteClassification(
+    Path("src/striatum/legacy_sqlite/process_completion.py"): SQLiteClassification(
         "adapter transition",
         "legacy process-completion reconciliation retained during supervisor transition",
     ),
