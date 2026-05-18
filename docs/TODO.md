@@ -1295,8 +1295,10 @@ review and plan are root-level operator artifacts:
     PostgreSQL participant rows. The standalone SQLite compatibility helper is
     removed; its last repository-identity calculation is inlined beside the
     one-way repo-local migration fixture, and the unused daemon audit-chain
-    validators are gone. Legacy daemon security fixture coverage has also
-    moved onto current runtime/MCP/capability helpers. Direct
+    validators are gone. The unused repo-local SQLite supervisor pointer
+    helper is deleted; current supervisor pointer writes live under the
+    daemon/PostgreSQL handlers. Legacy daemon security fixture coverage has
+    also moved onto current runtime/MCP/capability helpers. Direct
     Python-daemon imports are now confined to the legacy quarantine fixtures.
 
 62. **RFC 0069: PostgreSQL-only daemon-global surfaces.** Most done. Port daemon

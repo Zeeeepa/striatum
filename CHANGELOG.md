@@ -126,6 +126,9 @@ Recent checkpoints:
   and PostgreSQL repository registration helpers used by day-zero setup and
   daemon RPC routing now live in `striatum.daemon_pg.repositories`, reducing
   Python CLI/client imports of the legacy Python daemon module.
+- The unused repo-local SQLite supervisor pointer helper
+  (`striatum.daemon_supervisor.pointer`) was deleted; current supervisor
+  pointer writes live under the daemon/PostgreSQL handlers.
 - The standalone `striatum.daemon_pg.sqlite_compat` helper was removed. Its
   last repository-identity calculation now lives beside the one-way
   repo-local migration fixture, and the unused daemon audit-chain validators
