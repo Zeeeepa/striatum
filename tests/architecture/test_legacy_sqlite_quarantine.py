@@ -90,7 +90,7 @@ PRODUCTION_SQLITE_QUARANTINE = {
         "adapter transition",
         "legacy recovery mutations retained for adapter/test fixtures",
     ),
-    Path("src/striatum/cli/worktree.py"): SQLiteClassification(
+    Path("src/striatum/legacy_sqlite/cli_worktree.py"): SQLiteClassification(
         "adapter transition",
         "legacy worktree helpers retained for adapter/test fixtures",
     ),
@@ -382,6 +382,28 @@ def test_dogfood_import_does_not_eager_load_legacy_sqlite_modules() -> None:
     ]
     code = (
         "import sys; import striatum.dogfood; import striatum.dogfood.operator_tools; "
+        f"legacy={legacy_modules!r}; "
+        "print('\\n'.join(name for name in legacy if name in sys.modules))"
+    )
+
+    proc = subprocess.run(
+        [sys.executable, "-c", code],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    assert proc.stdout.strip() == ""
+
+
+def test_cli_worktree_import_does_not_eager_load_legacy_sqlite_modules() -> None:
+    legacy_modules = [
+        "sqlite3",
+        "striatum.db",
+        "striatum.legacy_sqlite.cli_worktree",
+    ]
+    code = (
+        "import sys; import striatum.cli.worktree; "
         f"legacy={legacy_modules!r}; "
         "print('\\n'.join(name for name in legacy if name in sys.modules))"
     )

@@ -80,6 +80,9 @@ Recent checkpoints:
 - The SQLite-bound dogfood operator composites moved to
   `striatum.legacy_sqlite.dogfood_operator_tools`; `striatum.dogfood` and
   `striatum.dogfood.operator_tools` now import without loading SQLite.
+- The legacy SQLite worktree CLI helpers moved to
+  `striatum.legacy_sqlite.cli_worktree`; `striatum.cli.worktree` now exposes
+  lazy wrappers for compatibility callers.
 - The retired `src/striatum/daemon.py` Python daemon / daemon-global SQLite
   registry module was deleted. Architecture guardrails now assert the module
   remains absent and keep daemon-global refusal coverage on the PostgreSQL
