@@ -109,7 +109,7 @@ PRODUCTION_SQLITE_QUARANTINE = {
         "adapter transition",
         "legacy supervised wrapper helper retained during supervisor transition",
     ),
-    Path("src/striatum/workflow.py"): SQLiteClassification(
+    Path("src/striatum/legacy_sqlite/workflow.py"): SQLiteClassification(
         "adapter transition",
         "legacy run prepare and workflow event helpers retained for fixtures",
     ),

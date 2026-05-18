@@ -879,7 +879,10 @@ review and plan are root-level operator artifacts:
     named migration/test fixtures and quarantined compatibility modules. The
     legacy SQLite artifact publisher now lives under
     `striatum.legacy_sqlite.artifacts`; `striatum.artifacts` is a neutral
-    contract facade with lazy compatibility wrappers.
+    contract facade with lazy compatibility wrappers. Legacy SQLite workflow
+    live-state helpers now live under `striatum.legacy_sqlite.workflow`;
+    `striatum.workflow` is kept to validation, graph, and planning helpers
+    plus lazy compatibility wrappers.
 
 50. ~~**Phase 2: single method-contract source.**~~ ✅ Done. Contract source is now
     live at `contracts/daemon_methods.json`; Python `METHOD_REGISTRY`

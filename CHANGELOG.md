@@ -59,6 +59,10 @@ Recent checkpoints:
   `striatum.legacy_sqlite.artifacts`; `striatum.artifacts` is now a neutral
   compatibility facade that imports the legacy publisher only when callers
   invoke legacy publish/byline helpers.
+- Legacy repo-local SQLite workflow live-state helpers (`create_run` and
+  `compute_node_states`) moved to `striatum.legacy_sqlite.workflow`;
+  `striatum.workflow` now keeps validation, graph, and planning helpers
+  separate from the fixture-only run-state implementation.
 - The Go daemon launch contract now reports supported daemon PostgreSQL schema
   and migration count from `--describe`; the Python launcher refuses stale Go
   daemon binaries before socket bind when their schema, migration count, or
