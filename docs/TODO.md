@@ -899,7 +899,12 @@ review and plan are root-level operator artifacts:
     now live under `striatum.legacy_sqlite.dogfood_operator_tools`; importing
     `striatum.dogfood` no longer loads SQLite. Legacy SQLite worktree CLI
     helpers now live under `striatum.legacy_sqlite.cli_worktree`; importing
-    `striatum.cli.worktree` no longer loads SQLite.
+    `striatum.cli.worktree` no longer loads SQLite. Legacy SQLite evidence
+    reader/export helpers now live under `striatum.legacy_sqlite.cli_evidence`;
+    importing `striatum.cli.evidence` no longer loads SQLite. Legacy SQLite
+    run-summary reader/export helpers now live under
+    `striatum.legacy_sqlite.cli_run_summary`; importing
+    `striatum.cli.run_summary` no longer loads SQLite.
 
 50. ~~**Phase 2: single method-contract source.**~~ ✅ Done. Contract source is now
     live at `contracts/daemon_methods.json`; Python `METHOD_REGISTRY`

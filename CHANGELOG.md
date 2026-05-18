@@ -83,6 +83,12 @@ Recent checkpoints:
 - The legacy SQLite worktree CLI helpers moved to
   `striatum.legacy_sqlite.cli_worktree`; `striatum.cli.worktree` now exposes
   lazy wrappers for compatibility callers.
+- The legacy SQLite evidence CLI reader/exporter moved to
+  `striatum.legacy_sqlite.cli_evidence`; `striatum.cli.evidence` now exposes
+  lazy wrappers for compatibility callers.
+- The legacy SQLite run-summary CLI reader/exporter moved to
+  `striatum.legacy_sqlite.cli_run_summary`; `striatum.cli.run_summary` now
+  exposes lazy wrappers for compatibility callers.
 - The retired `src/striatum/daemon.py` Python daemon / daemon-global SQLite
   registry module was deleted. Architecture guardrails now assert the module
   remains absent and keep daemon-global refusal coverage on the PostgreSQL

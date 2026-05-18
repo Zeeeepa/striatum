@@ -51,7 +51,7 @@ PRODUCTION_SQLITE_QUARANTINE = {
         "service transition",
         "daemon-first CLI with test-harness legacy fallback dispatch",
     ),
-    Path("src/striatum/cli/evidence.py"): SQLiteClassification(
+    Path("src/striatum/legacy_sqlite/cli_evidence.py"): SQLiteClassification(
         "service transition",
         "legacy evidence-export reader pending daemon DTO replacement",
     ),
@@ -63,7 +63,7 @@ PRODUCTION_SQLITE_QUARANTINE = {
         "service transition",
         "legacy list readers pending daemon DTO replacement",
     ),
-    Path("src/striatum/cli/run_summary.py"): SQLiteClassification(
+    Path("src/striatum/legacy_sqlite/cli_run_summary.py"): SQLiteClassification(
         "service transition",
         "legacy run-summary reader pending daemon DTO replacement",
     ),
@@ -404,6 +404,50 @@ def test_cli_worktree_import_does_not_eager_load_legacy_sqlite_modules() -> None
     ]
     code = (
         "import sys; import striatum.cli.worktree; "
+        f"legacy={legacy_modules!r}; "
+        "print('\\n'.join(name for name in legacy if name in sys.modules))"
+    )
+
+    proc = subprocess.run(
+        [sys.executable, "-c", code],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    assert proc.stdout.strip() == ""
+
+
+def test_cli_evidence_import_does_not_eager_load_legacy_sqlite_modules() -> None:
+    legacy_modules = [
+        "sqlite3",
+        "striatum.db",
+        "striatum.legacy_sqlite.cli_evidence",
+    ]
+    code = (
+        "import sys; import striatum.cli.evidence; "
+        f"legacy={legacy_modules!r}; "
+        "print('\\n'.join(name for name in legacy if name in sys.modules))"
+    )
+
+    proc = subprocess.run(
+        [sys.executable, "-c", code],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    assert proc.stdout.strip() == ""
+
+
+def test_cli_run_summary_import_does_not_eager_load_legacy_sqlite_modules() -> None:
+    legacy_modules = [
+        "sqlite3",
+        "striatum.db",
+        "striatum.legacy_sqlite.cli_run_summary",
+    ]
+    code = (
+        "import sys; import striatum.cli.run_summary; "
         f"legacy={legacy_modules!r}; "
         "print('\\n'.join(name for name in legacy if name in sys.modules))"
     )
