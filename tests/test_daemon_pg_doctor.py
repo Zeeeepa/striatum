@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from _harness.multi_repo import MultiRepoHarness
-from striatum import daemon
+from striatum.daemon_pg import client_admin as daemon
 from striatum.cli.dispatch import _dispatch_daemon
 from striatum.daemon_pg.config import ENV_DAEMON_DB_URL
 

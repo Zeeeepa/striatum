@@ -8,7 +8,7 @@ from typing import Any, cast
 
 import pytest
 
-from striatum import daemon as daemon_mod
+from striatum.daemon_pg import client_admin as daemon_mod
 from striatum.cli.dispatch import _dispatch_daemon
 
 

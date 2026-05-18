@@ -32,7 +32,7 @@ compatibility.
 | Dashboard run-progress parity | landed |
 | Terminal dashboard production DTO routing | landed |
 | Go status read-model parity | landed |
-| Remaining registry-probe/global diagnostics cleanup | in_progress |
+| Remaining registry-probe/global diagnostics cleanup | guardrail residuals only |
 
 ## Decisions Made
 

@@ -20,7 +20,8 @@ author: coordinator-codex-gpt-5.5-001
 Move production daemon ownership to Go while keeping Python CLI/web
 clients where useful. `striatum daemon start` now defaults to Go after active
 contract-method parity. Python daemon deletion waits on legacy fixture cleanup
-and remaining production imports, not calendar time.
+not calendar time; production daemon CLI/admin dispatch no longer imports the
+legacy daemon module.
 
 ## Workstreams
 
@@ -31,7 +32,7 @@ and remaining production imports, not calendar time.
 | Go read/mutation handler parity | landed for active contract methods; no generic `not_implemented` handlers remain |
 | Default daemon-core flip | landed; Go is default, Python selector is retired |
 | Production RPC retirement ledger | landed; D110/D112 removed unsupported names and stale calls are `method_unknown` |
-| Python daemon retirement gate | in_progress; writable SQLite import window closed; legacy fixture and production-import cleanup remain |
+| Python daemon retirement gate | in_progress; writable SQLite import window closed; legacy fixture cleanup remains |
 
 ## Decisions Made
 

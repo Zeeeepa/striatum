@@ -8,7 +8,7 @@ import pytest
 
 from _harness import pg
 from _harness.tokens import issue_token
-from striatum import daemon
+from striatum.daemon_pg import client_admin as daemon
 from striatum.daemon_pg.connection import connect
 from striatum.daemon_rpc.envelope import RpcEnvelope
 from striatum.daemon_rpc.server import DaemonRpcRouter

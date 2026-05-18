@@ -112,7 +112,7 @@ so external references keep resolving even as items move between sections.
 | 58 | RFC 0059 Architecture remediation Phase 10 — day-zero setup improvements | ✅ done |
 | 59 | RFC 0059 RFC 0066 Architecture remediation Phase 11 — replay, archive, and corpus v2 foundations | 🟡 corpus verify + run archive foundations landed |
 | 60 | RFC 0059 RFC 0067 Architecture remediation Phase 12 — optional Git/PR integration | ⏳ blocked on product decision |
-| 61 | RFC 0068 Go production daemon port and Python daemon retirement | 🟡 Go default; writable SQLite import window closed; Python daemon deletion and legacy fixture cleanup remain |
+| 61 | RFC 0068 Go production daemon port and Python daemon retirement | 🟡 Go default; production daemon dispatch detached; Python daemon deletion and legacy fixture cleanup remain |
 | 62 | RFC 0069 PostgreSQL-only daemon-global surfaces | 🟡 guardrail residuals only |
 | 63 | RFC 0070 daemon client/service boundary completion | 🟡 production boundary mostly done |
 | 64 | RFC 0071 operator diagnostics and cutover evidence | ✅ accepted diagnostic slice done |
@@ -1271,13 +1271,12 @@ review and plan are root-level operator artifacts:
     a future sealed-apply decision reintroduces it. The operator-facing Python
     daemon core selector is retired and the multi-repo harness / CI lane is
     Go-only. Prep work has
-    started by moving runtime path/token helpers to `daemon_runtime` and
-    PostgreSQL repository registration helpers to `daemon_pg.repositories` so
-    Python CLI/client code no longer imports the legacy daemon for those
-    surfaces. The `striatumd` console script now targets a Go-daemon launcher
-    shim instead of `striatum.daemon:main`; remaining Python-daemon work is
-    module deletion after legacy fixtures and remaining production imports are
-    closed.
+    started by moving runtime path/token helpers to `daemon_runtime`,
+    PostgreSQL repository registration helpers to `daemon_pg.repositories`,
+    and production daemon CLI/admin helpers to `daemon_pg.client_admin`. The
+    `striatumd` console script now targets a Go-daemon launcher shim instead
+    of `striatum.daemon:main`; remaining Python-daemon work is module deletion
+    after legacy SQLite fixtures are converted or deleted.
     The multi-repo harness participant runner no longer creates or queries
     repo-local SQLite; cross-repo E2E assertions now inspect daemon-owned
     PostgreSQL participant rows. SQLite-era repository identity and daemon
@@ -1313,9 +1312,11 @@ review and plan are root-level operator artifacts:
     for job counts, nested verdict posture counts, queue-based claimable work,
     blocker/checkpoint payloads, process health, supervisor stalls, phase
     progress, provenance mode, auto-finalize dry-run visibility, and
-    deterministic next actions. Architecture tests now classify every
-    remaining direct `striatum.daemon.connect_registry()` caller before the
-    legacy SQLite registry can open.
+    deterministic next actions. Production daemon CLI/admin dispatch now uses
+    PostgreSQL-only helpers and isolates the old daemon registry wrapper under
+    `legacy_sqlite` for paired test fixtures. Architecture tests now classify
+    every remaining direct `striatum.daemon` import before the legacy SQLite
+    registry can open.
     Residual daemon-global gaps are any future registry probes found by those
     guardrail scans. The workflow-upgrade running-run guard is now
     PostgreSQL-only and fails closed when PostgreSQL state is unknown, even

@@ -40,15 +40,17 @@ SQLite registry-probe guardrails now classify every remaining direct
 without a PostgreSQL connection is retired and fails closed before the legacy
 registry can open. Writable SQLite import windows are
 closed: retired `daemon migrate` and `daemon migrate-repo-local` spellings
-refuse before importing SQLite migration code. `striatum daemon start` now
-launches the Go daemon; the Python daemon selector is retired.
+refuse before importing SQLite migration code. Production daemon CLI/admin
+dispatch now uses PostgreSQL-only helpers instead of importing the legacy
+Python daemon module. `striatum daemon start` now launches the Go daemon; the
+Python daemon selector is retired.
 
 ## Next 1-3 Actions
 
 1. Continue RFC 0068/RFC 0069 Go and PostgreSQL read-model parity only when
    a concrete method, DTO, registry probe, or conformance gap is visible.
-2. Convert or delete legacy SQLite fixtures and remaining production imports,
-   then delete the remaining Python daemon module.
+2. Convert or delete legacy SQLite fixtures, then delete the remaining Python
+   daemon module.
 3. Keep `make daemon-go-conformance` green and keep removed method names
    returning/auditing as `method_unknown`.
 

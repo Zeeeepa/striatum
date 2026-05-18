@@ -258,6 +258,15 @@ def test_daemon_connect_registry_callers_are_explicitly_classified() -> None:
     assert all(reason for reason in DAEMON_CONNECT_REGISTRY_CALLERS.values())
 
 
+def test_production_sources_do_not_import_legacy_python_daemon() -> None:
+    offenders = _legacy_daemon_imports_under(ROOT / "src" / "striatum")
+    allowed = {
+        Path("src/striatum/legacy_sqlite/daemon_registry.py"),
+    }
+
+    assert offenders == allowed
+
+
 def test_legacy_service_owns_page_read_payload_fallbacks() -> None:
     service_source = (ROOT / "src" / "striatum" / "service.py").read_text(encoding="utf-8")
     root_compat_path = ROOT / "src" / "striatum" / "service_legacy.py"
@@ -452,6 +461,25 @@ def _imports_from_striatum(node: ast.AST, name: str) -> bool:
         and node.module == "striatum"
         and any(alias.name == name for alias in node.names)
     )
+
+
+def _legacy_daemon_imports_under(root: Path) -> set[Path]:
+    offenders: set[Path] = set()
+    for path in sorted(root.rglob("*.py")):
+        rel = path.relative_to(ROOT)
+        if rel == Path("src/striatum/daemon.py"):
+            continue
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                if any(alias.name == "striatum.daemon" for alias in node.names):
+                    offenders.add(rel)
+            elif isinstance(node, ast.ImportFrom):
+                if node.module == "striatum" and any(alias.name == "daemon" for alias in node.names):
+                    offenders.add(rel)
+                if node.module == "striatum.daemon":
+                    offenders.add(rel)
+    return offenders
 
 
 def _dotted_name(node: ast.AST) -> str | None:
