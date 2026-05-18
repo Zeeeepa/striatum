@@ -55,10 +55,6 @@ PRODUCTION_SQLITE_QUARANTINE = {
     ),
     # CLI/API/read DTO surfaces that still carry SQLite compatibility while
     # the local service and corpus/export paths finish their daemon DTO move.
-    Path("src/striatum/api.py"): SQLiteClassification(
-        "service transition",
-        "local in-process API wrapper around legacy CLI fallback semantics",
-    ),
     Path("src/striatum/cli/daemon_rpc_route.py"): SQLiteClassification(
         "service transition",
         "daemon-route argument decoding still imports legacy JSON helper",

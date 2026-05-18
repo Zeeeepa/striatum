@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
-import sqlite3
 from pathlib import Path
 from typing import Sequence
 
 from striatum.cli import build_parser, dispatch
-from striatum.db import JsonObject
 from striatum.errors import StriatumError
+from striatum.primitives import JsonObject
 
 
 def invoke(args: Sequence[str], *, repo: str | Path = ".") -> JsonObject:
@@ -32,6 +31,4 @@ def invoke(args: Sequence[str], *, repo: str | Path = ".") -> JsonObject:
         if isinstance(details, dict):
             error["details"] = details
         return {"ok": False, "error": error}
-    except sqlite3.Error as exc:
-        return {"ok": False, "error": {"message": str(exc), "code": 1}}
     return {"ok": True, "data": result}

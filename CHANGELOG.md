@@ -63,6 +63,9 @@ Recent checkpoints:
   daemon PostgreSQL connection. The no-`pg_conn` legacy SQLite registry
   fallback is retired, and the corresponding Python-daemon MCP resource
   helpers were removed.
+- `striatum.api` no longer imports `sqlite3` or `striatum.db`; it uses the
+  shared primitives types and leaves SQLite-era failures outside the local API
+  compatibility wrapper.
 - Runtime path and token-file helpers now live in `striatum.daemon_runtime`,
   and PostgreSQL repository registration helpers used by day-zero setup and
   daemon RPC routing now live in `striatum.daemon_pg.repositories`, reducing
