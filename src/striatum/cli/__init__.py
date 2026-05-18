@@ -52,7 +52,7 @@ _SYMBOL_MODULES = {
     "list_sessions": "striatum.cli.list_commands",
     "list_workflows": "striatum.cli.list_commands",
     "main": "striatum.cli.dispatch",
-    "next_actions": "striatum.cli.introspect",
+    "next_actions": "striatum.next_actions",
     "prevalidate_submit_review": "striatum.cli.mutations",
     "recent_events_for_run": "striatum.cli.introspect",
     "redact_evidence_payload": "striatum.evidence_presentation",

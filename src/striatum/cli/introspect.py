@@ -17,6 +17,7 @@ from striatum.db import (
 )
 from striatum.identity import session_lane_attestation
 from striatum.errors import InvalidTransitionError, NotFoundError, WorkflowError
+from striatum.next_actions import next_actions
 from striatum.primitives import JsonObject, json_loads, utc_now
 from striatum.supervisor import SUPERVISOR_ACTIVE_STATES
 from striatum.workflow import (
@@ -850,79 +851,6 @@ def dependency_context(conn: sqlite3.Connection, *, job_id: str) -> list[JsonObj
             }
         )
     return result
-
-
-def next_actions(
-    *,
-    open_blockers: list[JsonObject],
-    human_checkpoints: list[JsonObject],
-    non_accepting_verdicts: list[JsonObject],
-    claimable_jobs: list[JsonObject],
-    has_orphan_supervisor: bool = False,
-    has_stale_leases: bool = False,
-) -> list[str]:
-    """Return deterministic coordinator next-action names.
-
-    The V1.41 burn-down (`striatum byline`, `striatum inbox`,
-    `striatum recovery auto-publish`) introduced new operator
-    affordances. The UI rework (`docs/design/UI_REWORK.md` OQ-4)
-    needs these to appear in ``next_actions`` so the
-    ``dashboard --once`` ↔ web parity tests (§9.9, §9.10) can
-    compare against a single deterministic action list.
-
-    Rules:
-
-    - ``inspect_packet_with_inbox``: always emitted when there is at
-      least one claimable packet (operators querying the inbox helper
-      is the first step before claim).
-    - ``derive_expected_byline``: emitted alongside any human
-      checkpoint or non-accepting verdict where an operator may
-      need to publish-on-behalf or compose a review (the V1.41
-      ``byline`` verb is the one-shot helper).
-    - ``recovery_auto_publish``: emitted when there are stale leases
-      with on-disk artifacts that would self-heal via the V1.41
-      auto-publish sweep. The caller passes ``has_stale_leases=True``
-      when the run's stale-lease scan returns at least one entry
-      whose ``expected_artifacts[].path`` is on disk; the actual
-      conformance check (byline match) remains deferred to the
-      auto-publish call itself.
-
-    Existing actions retain their ordering and conditions so
-    downstream consumers that key on the existing names continue to
-    work unchanged.
-    """
-    actions: list[str] = []
-    if claimable_jobs:
-        actions.append("claim_available_work")
-        # V1.41 surfacing: inbox is the operator's first move on a
-        # claimable packet (read expected_artifacts, expected_author_line,
-        # lease/message ids). Closes UI_REWORK.md OQ-4.
-        actions.append("inspect_packet_with_inbox")
-    if has_orphan_supervisor:
-        # HARNESS-001: a lost supervisor with a still-held lease silently
-        # blocks the run. Surface a stable action name so dashboards and
-        # scripts can react before the lease expires (default 30 minutes
-        # is a long time to wait if the operator is not watching).
-        actions.append("recover_orphan_supervisor")
-    if has_stale_leases:
-        # V1.41 surfacing: recovery auto-publish self-heals stale
-        # leases when the on-disk artifact matches the expected
-        # byline. Two-condition gate enforced by the verb itself.
-        actions.append("recovery_auto_publish")
-    if open_blockers:
-        actions.extend(["inspect_blocker", "export_run_evidence"])
-    if human_checkpoints:
-        actions.append("resolve_human_checkpoint")
-        # V1.41 surfacing: composing an operator-override or a
-        # publish-on-behalf review requires the canonical byline,
-        # which the byline helper derives. Dashboard parity needs this.
-        actions.append("derive_expected_byline")
-    if non_accepting_verdicts:
-        actions.append("revise_workflow_cycle")
-        # Same as above: a non-accepting verdict commonly precedes an
-        # operator override which needs the expected byline.
-        actions.append("derive_expected_byline")
-    return list(dict.fromkeys(actions))
 
 
 def downstream_jobs(conn: sqlite3.Connection, *, job_id: str) -> list[JsonObject]:

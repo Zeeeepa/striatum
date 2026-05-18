@@ -38,6 +38,9 @@ Recent checkpoints:
   `striatum.db`, legacy workflow/artifact helpers, or SQLite-backed CLI
   reader/mutation modules; fixture-only imports are loaded only after the
   paired legacy test-harness gate.
+- The deterministic `next_actions` projection moved into a substrate-neutral
+  module. PostgreSQL read-model status no longer imports the SQLite-backed
+  CLI introspection module for that helper.
 - The Go daemon launch contract now reports supported daemon PostgreSQL schema
   and migration count from `--describe`; the Python launcher refuses stale Go
   daemon binaries before socket bind when their schema, migration count, or

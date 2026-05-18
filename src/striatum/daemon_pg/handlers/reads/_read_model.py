@@ -6,7 +6,6 @@ from collections import Counter
 from collections.abc import Mapping
 from typing import Any
 
-from striatum.cli.introspect import next_actions as legacy_next_actions
 from striatum.daemon_pg.handlers.context import (
     RepoHandlerContext,
     session_lane_attestation,
@@ -19,6 +18,7 @@ from striatum.daemon_pg.handlers.recovery_evidence.supervisor_stalls import (
     stalled_supervisors,
 )
 from striatum.daemon_rpc.envelope import RpcError
+from striatum.next_actions import next_actions
 
 from ._sql import (
     parse_json_list,
@@ -88,7 +88,7 @@ def status_payload(ctx: RepoHandlerContext, *, run_id: str | None) -> dict[str, 
     auto_finalize = (
         auto_finalize_projection(ctx, run_id=run_id) if run_id is not None else None
     )
-    actions = legacy_next_actions(
+    actions = next_actions(
         open_blockers=open_blockers,
         human_checkpoints=human_checkpoints,
         non_accepting_verdicts=non_accepting,

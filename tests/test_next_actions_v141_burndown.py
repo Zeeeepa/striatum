@@ -18,7 +18,7 @@ cannot silently drop a name the UI depends on.
 
 from __future__ import annotations
 
-from striatum.cli.introspect import next_actions
+from striatum.next_actions import next_actions
 
 
 def test_inbox_action_surfaces_on_claimable_packets() -> None:
