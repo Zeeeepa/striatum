@@ -247,7 +247,8 @@ Legend: ✅ done · 🟡 most done (sub-tasks remain) · ⏳ open/blocked · �
 ## In Progress
 
 1. ~~**Process adapter.**~~ ✅ Done for current scope: single-shot `adapter run` is shipped
-   (`src/striatum/process_adapter.py`). Long-lived supervision (RFC 0009,
+   (legacy implementation now isolated at
+   `src/striatum/legacy_sqlite/process_adapter.py`). Long-lived supervision (RFC 0009,
    accepted) landed in `src/striatum/supervisor.py` plus
    `.striatum/bin/{claude,codex,gemini}-supervised-wrapper.sh`:
    `process_supervisors` table (migration version 4), `striatum supervise
@@ -888,7 +889,10 @@ review and plan are root-level operator artifacts:
     SQLite process-completion output validation and blocker insertion now
     live under `striatum.legacy_sqlite.process_completion`; the root
     `striatum.process_completion` module keeps only neutral envelope/recovery
-    helpers plus lazy compatibility wrappers.
+    helpers plus lazy compatibility wrappers. The legacy SQLite process
+    adapter now lives under `striatum.legacy_sqlite.process_adapter`; the root
+    `striatum.process_adapter` module keeps neutral env expansion/schema
+    constants plus lazy compatibility wrappers.
 
 50. ~~**Phase 2: single method-contract source.**~~ ✅ Done. Contract source is now
     live at `contracts/daemon_methods.json`; Python `METHOD_REGISTRY`

@@ -94,7 +94,7 @@ PRODUCTION_SQLITE_QUARANTINE = {
         "adapter transition",
         "legacy worktree helpers retained for adapter/test fixtures",
     ),
-    Path("src/striatum/process_adapter.py"): SQLiteClassification(
+    Path("src/striatum/legacy_sqlite/process_adapter.py"): SQLiteClassification(
         "adapter transition",
         "legacy process adapter table helpers retained during supervisor transition",
     ),
@@ -316,6 +316,28 @@ def test_daemon_pg_handler_registration_does_not_eager_load_legacy_sqlite_module
     ]
     code = (
         "import sys; import striatum.daemon_pg.handlers; "
+        f"legacy={legacy_modules!r}; "
+        "print('\\n'.join(name for name in legacy if name in sys.modules))"
+    )
+
+    proc = subprocess.run(
+        [sys.executable, "-c", code],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    assert proc.stdout.strip() == ""
+
+
+def test_process_adapter_import_does_not_eager_load_legacy_sqlite_modules() -> None:
+    legacy_modules = [
+        "sqlite3",
+        "striatum.db",
+        "striatum.legacy_sqlite.process_adapter",
+    ]
+    code = (
+        "import sys; import striatum.process_adapter; "
         f"legacy={legacy_modules!r}; "
         "print('\\n'.join(name for name in legacy if name in sys.modules))"
     )

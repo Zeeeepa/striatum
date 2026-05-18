@@ -70,6 +70,10 @@ Recent checkpoints:
   neutral `striatum.process_completion`; SQLite output validation and blocker
   insertion moved to `striatum.legacy_sqlite.process_completion` and now load
   lazily for legacy adapter paths.
+- The legacy repo-local SQLite process adapter moved to
+  `striatum.legacy_sqlite.process_adapter`; `striatum.process_adapter` now
+  keeps neutral env expansion/schema constants and lazy wrappers for legacy
+  adapter calls.
 - The retired `src/striatum/daemon.py` Python daemon / daemon-global SQLite
   registry module was deleted. Architecture guardrails now assert the module
   remains absent and keep daemon-global refusal coverage on the PostgreSQL
