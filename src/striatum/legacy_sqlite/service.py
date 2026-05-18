@@ -13,7 +13,7 @@ import subprocess
 import time
 from http.server import BaseHTTPRequestHandler
 from pathlib import Path
-from typing import Any, Callable, Mapping
+from typing import Any, Callable, Mapping, cast
 
 from striatum.repo_policy import db_path
 from striatum.service_command_policy import legacy_service_fixture_fallback_enabled
@@ -113,12 +113,15 @@ def legacy_job_cancel(
     from striatum.db import connect
 
     with connect(repo) as conn:
-        return cancel_job(
-            conn,
-            run_id=run_id,
-            job_id=job_id,
-            reason=reason,
-            cascade=cascade,
+        return cast(
+            JsonObject,
+            cancel_job(
+                conn,
+                run_id=run_id,
+                job_id=job_id,
+                reason=reason,
+                cascade=cascade,
+            ),
         )
 
 

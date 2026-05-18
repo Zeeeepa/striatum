@@ -913,7 +913,9 @@ review and plan are root-level operator artifacts:
     disables daemon RPC routing for service calls. Legacy SQLite status/why/
     doctor introspection helpers now live under
     `striatum.legacy_sqlite.cli_introspect`; importing
-    `striatum.cli.introspect` no longer loads SQLite.
+    `striatum.cli.introspect` no longer loads SQLite. Legacy SQLite recovery
+    mutation helpers now live under `striatum.legacy_sqlite.cli_recovery`;
+    importing `striatum.cli.recovery` no longer loads SQLite.
 
 50. ~~**Phase 2: single method-contract source.**~~ ✅ Done. Contract source is now
     live at `contracts/daemon_methods.json`; Python `METHOD_REGISTRY`
