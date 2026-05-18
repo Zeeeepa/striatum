@@ -108,7 +108,25 @@ func SortedMethods() []MethodEntry {
 }
 
 func MethodsETag() string {
-	payload, _ := json.Marshal(SortedMethods())
+	entries := SortedMethods()
+	material := make([]map[string]any, 0, len(entries))
+	for _, entry := range entries {
+		material = append(material, methodEntryPublicMap(entry))
+	}
+	payload, _ := json.Marshal(material)
 	sum := sha256.Sum256(payload)
 	return "sha256:" + hex.EncodeToString(sum[:])
+}
+
+func methodEntryPublicMap(entry MethodEntry) map[string]any {
+	return map[string]any{
+		"method":                entry.Method,
+		"required_capability":   entry.RequiredCapability,
+		"repository_scope":      entry.RepositoryScope,
+		"repository_scope_mode": entry.RepositoryScopeMode,
+		"params_schema_version": entry.ParamsSchemaVersion,
+		"audit_class":           entry.AuditClass,
+		"min_envelope":          entry.MinEnvelope,
+		"deprecated":            entry.Deprecated,
+	}
 }

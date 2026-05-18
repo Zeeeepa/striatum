@@ -29,6 +29,7 @@ cd "$CLONE"
 python3 -m venv .venv
 .venv/bin/python -m pip install --quiet --upgrade pip
 .venv/bin/python -m pip install --quiet -e ".[dev,daemon-pg]"
+make daemon-go-build >/dev/null
 
 RUNNER="$CLONE/.venv/bin/striatum"
 "$RUNNER" --help >/dev/null

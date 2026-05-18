@@ -28,15 +28,13 @@ Two related changes shape the current product:
    retired. `.striatum/` survives as operational scratch only.
 
 3. **RFC 0048 (V1.49.0 → V1.55.0)** finished the substrate port on
-   the daemon side: every mutation, recovery, and read handler now
-   has a native PG handler in `src/striatum/daemon_pg/handlers/`
-   owned by the incumbent Python daemon core. D107 / RFC 0068 later
-   restored the Go production-daemon port as active backlog; the Go
-   tree's selected parity/support code is now port scaffolding rather
-   than a permanent boundary. The
-   CLI dispatch routes mapped verbs through the daemon's Unix
-   socket; mapped methods fail closed instead of falling back to
-   SQLite when the daemon is unreachable. **Schema v6**
+   the daemon side: every mutation, recovery, and read handler gained
+   a native PG handler in `src/striatum/daemon_pg/handlers/`.
+   D107 / RFC 0068 and D109 then moved the production default to the
+   Go daemon while the Python daemon remains only as an explicit
+   transitional escape. The CLI dispatch routes mapped verbs through
+   the daemon's Unix socket; mapped methods fail closed instead of
+   falling back to SQLite when the daemon is unreachable. **Schema v6**
    (migration 0006) promotes the per-event chain hash anchors out
    of `payload_json._event_chain` into dedicated `previous_hash` /
    `row_hash` columns and adds a `striatumd.repo_event_chain_heads`
@@ -370,8 +368,9 @@ remaining substrate-port work on the daemon side:
 - **Phase B (v1.50.0–v1.54.0 + follow-up)** — Go parity/support
   fixtures: 12 read handlers (`go/pkg/reads/`) and selected mutation
   plumbing (`go/pkg/mutations/`) were implemented as developer-harness
-  counterparts. D107 / RFC 0068 makes this work seed material for the
-  production Go daemon port, not a finished parity claim.
+  counterparts. D107 / RFC 0068 later promoted this to production daemon
+  port work; D109 makes Go the default daemon core after active
+  contract-method parity.
 - **Phase C (v1.51.0–v1.52.0)** — CLI dispatch routes ~30 verbs
   through the Unix-socket daemon RPC; the daemon bootstraps an
   admin client into `striatumd.clients` (Postgres) and writes its

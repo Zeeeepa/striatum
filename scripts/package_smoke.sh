@@ -47,6 +47,7 @@ tar \
   . | tar -C "$SOURCE" -xf -
 
 cd "$SOURCE"
+make daemon-go-install >/dev/null
 "$PYTHON_FOR_BUILD" -m build --sdist --wheel --outdir "$DIST" >/dev/null
 
 wheel_count="$(find "$DIST" -maxdepth 1 -name 'striatum_orchestrator-*.whl' | wc -l | tr -d ' ')"

@@ -135,12 +135,16 @@ func HandleClaimNext(ctx context.Context, runner db.Runner, envelope rpc.Envelop
 			return nil, err
 		}
 		packetSum := sha256.Sum256(packetJSON)
+		packetJSONArg, err := db.JSONBArg(tx, packet)
+		if err != nil {
+			return nil, err
+		}
 		if err := tx.Exec(ctx, `
 			INSERT INTO striatumd.work_packets (
 			  repository_id, packet_id, run_id, job_id, message_id, lease_id,
 			  session_id, packet_json, packet_sha256, created_at
 			)
-			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+			VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9,$10)`,
 			repositoryID,
 			packetID,
 			runID,
@@ -148,7 +152,7 @@ func HandleClaimNext(ctx context.Context, runner db.Runner, envelope rpc.Envelop
 			chosen["message_id"],
 			leaseID,
 			sessionID,
-			packet,
+			packetJSONArg,
 			hex.EncodeToString(packetSum[:]),
 			now,
 		); err != nil {

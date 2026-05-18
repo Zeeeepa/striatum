@@ -1116,12 +1116,22 @@ func evaluateAndBlockLostProcess(ctx context.Context, runner any, repositoryID s
 	if !ok {
 		return nil, fmt.Errorf("runner does not support exec")
 	}
+	blockerPayload := map[string]any{
+		"process_id":             processID,
+		"command":                command,
+		"missing_artifact_paths": missingPaths,
+		"review_verdict_missing": verdictMissing,
+	}
+	blockerPayloadArg, err := db.JSONBArg(runner, blockerPayload)
+	if err != nil {
+		return nil, err
+	}
 	if err := exec.Exec(ctx, `
 		INSERT INTO striatumd.blockers (
 		  repository_id, blocker_id, run_id, job_id, session_id,
 		  severity, blocker_kind, description, state, created_at, payload_json
 		)
-		VALUES ($1,$2,$3,$4,$5,'blocked',$6,$7,'open',$8,$9)`,
+		VALUES ($1,$2,$3,$4,$5,'blocked',$6,$7,'open',$8,$9::jsonb)`,
 		repositoryID,
 		blockerID,
 		job["run_id"],
@@ -1130,12 +1140,7 @@ func evaluateAndBlockLostProcess(ctx context.Context, runner any, repositoryID s
 		blockerKind,
 		description,
 		now,
-		map[string]any{
-			"process_id":             processID,
-			"command":                command,
-			"missing_artifact_paths": missingPaths,
-			"review_verdict_missing": verdictMissing,
-		},
+		blockerPayloadArg,
 	); err != nil {
 		return nil, err
 	}
@@ -1266,20 +1271,24 @@ func insertPendingMessageForJob(ctx context.Context, runner any, repositoryID st
 	if !ok {
 		return "", fmt.Errorf("runner does not support exec")
 	}
+	payloadArg, err := db.JSONBArg(runner, map[string]any{})
+	if err != nil {
+		return "", err
+	}
 	if err := exec.Exec(ctx, `
 		INSERT INTO striatumd.queue_messages (
 		  repository_id, message_id, run_id, job_id, kind, state, priority,
 		  target_role_id, target_lane_id, payload_json, claim_count,
 		  max_claims, created_at, updated_at
 		)
-		VALUES ($1,$2,$3,$4,'work','pending',0,$5,$6,$7,0,$8,$9,$10)`,
+		VALUES ($1,$2,$3,$4,'work','pending',0,$5,$6,$7::jsonb,0,$8,$9,$10)`,
 		repositoryID,
 		messageID,
 		job["run_id"],
 		job["job_id"],
 		job["role_id"],
 		nullable(targetLane),
-		map[string]any{},
+		payloadArg,
 		job["max_attempts"],
 		now,
 		now,

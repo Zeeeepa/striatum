@@ -88,16 +88,20 @@ func (s ActiveRunSweep) SweepOnce(ctx context.Context) (map[string]any, error) {
 }
 
 func upsertSchedulerCursor(ctx context.Context, runner db.Runner, repositoryID string, runID string, result map[string]any, state string) error {
+	resultArg, err := db.JSONBArg(runner, result)
+	if err != nil {
+		return err
+	}
 	return runner.Exec(ctx, `
 		INSERT INTO striatumd.scheduler_cursors(
 		  repository_id, run_id, cursor_kind, last_sweep_at,
 		  next_sweep_after, last_result_json, state
 		)
-		VALUES ($1, $2, 'recovery', now(), NULL, $3, $4)
+		VALUES ($1, $2, 'recovery', now(), NULL, $3::jsonb, $4)
 		ON CONFLICT (repository_id, run_id, cursor_kind)
 		DO UPDATE SET last_sweep_at = now(),
 		              next_sweep_after = NULL,
 		              last_result_json = EXCLUDED.last_result_json,
 		              state = EXCLUDED.state`,
-		repositoryID, runID, result, state)
+		repositoryID, runID, resultArg, state)
 }

@@ -24,9 +24,12 @@ dependency edges, and "what would I do next" framing. Update on every
   locking, append-only role-grant checks, and the inline helper wiring needed
   by recovery paths.
 - **Current workstream:** TODO 61-64 / RFC 0068-0071 architecture remediation.
-  D107 supersedes D105: the target is now a Go production daemon port, Python
-  daemon retirement after parity, Python CLI/web clients where useful, and
-  SQLite eradication from production and compatibility paths.
+  D107 supersedes D105: Go is now the default production daemon core, Python
+  daemon deletion remains after parity, Python CLI/web clients stay useful, and
+  SQLite eradication continues across production and compatibility paths. The
+  current RFC 0068 cutover ledger is explicit fail-closed work only:
+  `apply.reviewed_patch`, `daemon.migrate_repo_local`, and the two retired
+  dogfood composites.
 - **CI:** GitHub Actions has been backlogged during the 2026-05-17/18
   remediation commits. Treat latest-head CI failures as stop-the-line; queued
   and in-progress older runs are not by themselves blockers.
@@ -278,18 +281,20 @@ authority matrix and contract tests current while deleting fallback paths.
 - Production `striatum init` and `striatum adopt` now share the same
   scratch-only bootstrap, with repo-local SQLite init retained only for
   legacy test fixtures.
-- Workflow authoring methods are explicitly CLI-local: daemon RPC refuses
-  them with `not_implemented`, MCP tool listing hides them, and route tests
-  prevent accidental daemon routing.
+- Workflow authoring methods are no longer production live-state authority:
+  Python daemon RPC refuses them as CLI-local, Go implements the file
+  authoring/generation handlers without mutating daemon state, production MCP
+  tool listing hides them, and route tests prevent accidental production
+  fallback.
 - `workflow upgrade` checks daemon PG for non-terminal runs and fails closed
   whenever PostgreSQL state is unknown; repo-local SQLite is retained only
   under the paired legacy test-harness escape.
 
-**Remaining Phase 1 debt:** legacy SQLite domain code is still used by the
-local service, adapter/byline/inbox helpers, dogfood compatibility tools, and
-migration/test fixtures. Quarantine that code under a migration/service
-namespace while executing Phase 4; it is no longer a daemon production
-fallback path or repo-administration path.
+**Remaining Phase 1 debt:** legacy SQLite code is now a named
+migration/test-fixture and quarantined compatibility concern, not a daemon
+production fallback path or repo-administration path. Newly discovered
+production registry or repo-local SQLite probes should be treated as
+guardrail failures.
 
 ---
 
@@ -353,8 +358,10 @@ useful, and SQLite removal from production and compatibility paths.
 - TODO item 30 remains completed helper groundwork.
 - TODO item 61 owns the Go daemon port and Python-daemon retirement.
 
-**Next after this ships:** Phase 4 can make the local web service
-daemon-first without needing to support two domain daemons.
+**Next after this ships:** RFC 0068 owns the Python-daemon retirement gate:
+shrink the explicit Go fail-closed ledger and delete the Python daemon entry
+point once the ledger reaches zero or the remaining methods are removed from
+production discovery/contract.
 
 ---
 

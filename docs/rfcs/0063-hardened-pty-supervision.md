@@ -4,11 +4,11 @@
 Implemented
 
 ## Summary
-Architecture remediation Phase 6 hardened supervised process execution while
-the Python daemon was still the incumbent authority and Go was a narrow PTY
-helper. D107 / RFC 0068 later reopened the full Go production daemon port, so
-the helper protocol remains useful transition infrastructure rather than a
-permanent Python-daemon boundary.
+Architecture remediation Phase 6 hardened supervised process execution at a
+time when the Python daemon was still the incumbent authority and Go was a
+narrow PTY helper. D107 / RFC 0068 later reopened the full Go production daemon
+port and D109 made Go the daemon default, so the helper protocol remains useful
+infrastructure rather than a permanent Python-daemon boundary.
 
 ## Motivation
 Derived from the STRIATUM Architecture Review and Remediation Plan (2026-05-16).

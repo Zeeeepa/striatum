@@ -70,8 +70,8 @@ func EnvelopeFromMap(payload map[string]any) (Envelope, error) {
 		return Envelope{}, NewError("schema_invalid", "daemon RPC request_id must be a non-empty string", nil)
 	}
 	method, ok := payload["method"].(string)
-	if !ok || method == "" || !hasDot(method) {
-		return Envelope{}, NewError("schema_invalid", "daemon RPC method must be a dotted string", nil)
+	if !ok || method == "" {
+		return Envelope{}, NewError("schema_invalid", "daemon RPC method must be a non-empty string", nil)
 	}
 	params, ok := payload["params"].(map[string]any)
 	if !ok {
@@ -159,15 +159,6 @@ func intValue(value any) (int, bool) {
 		}
 	}
 	return 0, false
-}
-
-func hasDot(value string) bool {
-	for _, ch := range value {
-		if ch == '.' {
-			return true
-		}
-	}
-	return false
 }
 
 func DecodeResponse(body []byte) (Response, error) {

@@ -18,8 +18,9 @@ author: coordinator-codex-gpt-5.5-001
 ## Outcome
 
 Move production daemon ownership to Go while keeping Python CLI/web
-clients where useful. Python daemon retirement waits on explicit parity,
-not calendar time.
+clients where useful. `striatum daemon start` now defaults to Go after active
+contract-method parity. Python daemon deletion waits on the explicit
+retirement ledger, not calendar time.
 
 ## Workstreams
 
@@ -27,8 +28,9 @@ not calendar time.
 |---|---|
 | Go startup, runtime token bootstrap, shutdown | landed |
 | Go resident recovery scheduler | landed |
-| Go read/mutation handler parity | in_progress; multi-phase workflow generation parity landed |
-| Python daemon retirement gate | open |
+| Go read/mutation handler parity | landed for active contract methods; no generic `not_implemented` handlers remain |
+| Default daemon-core flip | landed; Go is default, Python is explicit `--core python` escape |
+| Python daemon retirement gate | in_progress; fail-closed blocker ledger is executable |
 
 ## Decisions Made
 
@@ -37,5 +39,9 @@ not calendar time.
 
 ## Open Questions
 
-- Which remaining Python-only handlers should be direct Go parity work
-  versus explicit fail-closed methods until product demand appears?
+- Should `apply.reviewed_patch` become a real sealed-apply mutation, or be
+  removed from the production contract?
+- Should the retired dogfood composites be deleted permanently, or ported as
+  PostgreSQL-native operator composites?
+- When should the one-way SQLite import window close so the Python migration
+  helper and `daemon.migrate_repo_local` contract row can be deleted?

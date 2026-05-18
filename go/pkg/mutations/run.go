@@ -475,19 +475,23 @@ func runPrepare(ctx context.Context, runner any, repositoryID string, workflowPa
 	if !ok {
 		return nil, fmt.Errorf("runner does not support exec")
 	}
+	workflowJSONArg, err := db.JSONBArg(runner, workflow)
+	if err != nil {
+		return nil, err
+	}
 	if err := exec.Exec(ctx, `
 		INSERT INTO striatumd.workflow_snapshots (
 		  repository_id, workflow_snapshot_id, workflow_id, workflow_version,
 		  source_path, content_sha256, workflow_json, loaded_at
 		)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+		VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb,$8)`,
 		repositoryID,
 		snapshotID,
 		workflowID,
 		nullable(workflow["workflow_version"]),
 		sourcePath,
 		hex.EncodeToString(sum[:]),
-		workflow,
+		workflowJSONArg,
 		now,
 	); err != nil {
 		return nil, err
@@ -548,6 +552,22 @@ func runPrepare(ctx context.Context, runner any, repositoryID string, workflowPa
 		if laneID != "" {
 			laneSelector["lane_id"] = laneID
 		}
+		laneSelectorArg, err := db.JSONBArg(runner, laneSelector)
+		if err != nil {
+			return nil, err
+		}
+		capabilityReqsArg, err := db.JSONBArg(runner, capabilityReqs)
+		if err != nil {
+			return nil, err
+		}
+		writeScopeArg, err := db.JSONBArg(runner, valueOr(job["write_scope"], map[string]any{}))
+		if err != nil {
+			return nil, err
+		}
+		expectedArtifactsArg, err := db.JSONBArg(runner, valueOr(job["expected_artifacts"], []any{}))
+		if err != nil {
+			return nil, err
+		}
 		if err := exec.Exec(ctx, `
 			INSERT INTO striatumd.jobs (
 			  repository_id, job_id, run_id, workflow_job_id, title, job_type,
@@ -555,7 +575,7 @@ func runPrepare(ctx context.Context, runner any, repositoryID string, workflowPa
 			  max_attempts, fresh_session_required, write_scope_json,
 			  expected_artifacts_json, idempotency_key, created_at
 			)
-			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'blocked',$10,$11,$12,$13,$14,$15)`,
+			VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9::jsonb,'blocked',$10,$11,$12::jsonb,$13::jsonb,$14,$15)`,
 			repositoryID,
 			jobID,
 			runID,
@@ -563,12 +583,12 @@ func runPrepare(ctx context.Context, runner any, repositoryID string, workflowPa
 			valueOr(job["title"], workflowJobID),
 			jobType,
 			job["role_id"],
-			laneSelector,
-			capabilityReqs,
+			laneSelectorArg,
+			capabilityReqsArg,
 			valueOr(job["max_attempts"], 1),
 			effectiveFreshSessionRequired(job),
-			valueOr(job["write_scope"], map[string]any{}),
-			valueOr(job["expected_artifacts"], []any{}),
+			writeScopeArg,
+			expectedArtifactsArg,
 			fmt.Sprintf("%s:%s:1", runID, workflowJobID),
 			now,
 		); err != nil {
@@ -587,13 +607,17 @@ func runPrepare(ctx context.Context, runner any, repositoryID string, workflowPa
 		if workflowJobType(workflow, fromID) == "review" || workflowJobType(workflow, fromID) == "phase_synthesis" {
 			gate["requires_verdict"] = []string{"accept", "accept_with_findings"}
 		}
+		gateArg, err := db.JSONBArg(runner, gate)
+		if err != nil {
+			return nil, err
+		}
 		if err := exec.Exec(ctx, `
 			INSERT INTO striatumd.job_dependencies (
 			  repository_id, job_id, depends_on_job_id, gate_json
 			)
-			VALUES ($1,$2,$3,$4)
+			VALUES ($1,$2,$3,$4::jsonb)
 			ON CONFLICT (repository_id, job_id, depends_on_job_id) DO NOTHING`,
-			repositoryID, toJobID, fromJobID, gate); err != nil {
+			repositoryID, toJobID, fromJobID, gateArg); err != nil {
 			return nil, err
 		}
 	}

@@ -431,20 +431,24 @@ func enqueueJob(ctx context.Context, runner any, repositoryID, jobID string) (st
 	if !ok {
 		return "", fmt.Errorf("runner does not support exec")
 	}
+	payloadArg, err := db.JSONBArg(runner, map[string]any{})
+	if err != nil {
+		return "", err
+	}
 	if err := exec.Exec(ctx, `
 		INSERT INTO striatumd.queue_messages (
 		  repository_id, message_id, run_id, job_id, kind, state, priority,
 		  target_role_id, target_lane_id, payload_json, claim_count,
 		  max_claims, created_at, updated_at
 		)
-		VALUES ($1,$2,$3,$4,'work','pending',0,$5,$6,$7,0,$8,$9,$10)`,
+		VALUES ($1,$2,$3,$4,'work','pending',0,$5,$6,$7::jsonb,0,$8,$9,$10)`,
 		repositoryID,
 		messageID,
 		job["run_id"],
 		jobID,
 		job["role_id"],
 		nullable(targetLane),
-		map[string]any{},
+		payloadArg,
 		job["max_attempts"],
 		now,
 		now,
@@ -722,16 +726,7 @@ func appendEvent(
 }
 
 func eventPayloadInsertArg(runner any, payload map[string]any) (any, error) {
-	switch runner.(type) {
-	case db.PgxRunner, *db.PgxTxRunner:
-		body, err := json.Marshal(payload)
-		if err != nil {
-			return nil, err
-		}
-		return string(body), nil
-	default:
-		return payload, nil
-	}
+	return db.JSONBArg(runner, payload)
 }
 
 func previousChainHead(ctx context.Context, runner any, repositoryID string) (any, error) {

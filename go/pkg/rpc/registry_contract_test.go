@@ -1,6 +1,8 @@
 package rpc
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"os"
@@ -46,6 +48,22 @@ func TestRegistryMatchesDaemonMethodsContract(t *testing.T) {
 		if !reflect.DeepEqual(got, want) {
 			t.Errorf("%s metadata drifts from contract:\n got: %#v\nwant: %#v", method, got, want)
 		}
+	}
+}
+
+func TestMethodsETagMatchesDaemonMethodsContract(t *testing.T) {
+	contractPath := filepath.Join(findRepositoryRoot(t), "contracts", "daemon_methods.json")
+	payload, err := os.ReadFile(contractPath)
+	if errors.Is(err, os.ErrNotExist) {
+		t.Skip("contracts/daemon_methods.json is not present in this checkout")
+	}
+	if err != nil {
+		t.Fatalf("read contract: %v", err)
+	}
+
+	expected := methodsETagFromContract(t, decodeContractMethods(t, payload))
+	if got := MethodsETag(); got != expected {
+		t.Fatalf("MethodsETag() = %s, want %s", got, expected)
 	}
 }
 
@@ -116,6 +134,44 @@ func registryContractView() []contractMethod {
 		})
 	}
 	return methods
+}
+
+func methodsETagFromContract(t *testing.T, methods []contractMethod) string {
+	t.Helper()
+	sort.Slice(methods, func(i, j int) bool {
+		return methods[i].Method < methods[j].Method
+	})
+	material := make([]map[string]any, 0, len(methods))
+	for _, method := range methods {
+		material = append(material, contractMethodPublicMap(method))
+	}
+	payload, err := json.Marshal(material)
+	if err != nil {
+		t.Fatalf("marshal contract etag material: %v", err)
+	}
+	sum := sha256.Sum256(payload)
+	return "sha256:" + hex.EncodeToString(sum[:])
+}
+
+func contractMethodPublicMap(method contractMethod) map[string]any {
+	var requiredCapability any
+	if method.RequiredCapability != nil {
+		requiredCapability = *method.RequiredCapability
+	}
+	repositoryScope := false
+	if method.RepositoryScope != nil {
+		repositoryScope = *method.RepositoryScope
+	}
+	return map[string]any{
+		"method":                method.Method,
+		"required_capability":   requiredCapability,
+		"repository_scope":      repositoryScope,
+		"repository_scope_mode": method.RepositoryScopeMode,
+		"params_schema_version": method.ParamsSchemaVersion,
+		"audit_class":           method.AuditClass,
+		"min_envelope":          method.MinEnvelope,
+		"deprecated":            method.Deprecated,
+	}
 }
 
 func methodsByName(t *testing.T, methods []contractMethod) map[string]contractMethod {

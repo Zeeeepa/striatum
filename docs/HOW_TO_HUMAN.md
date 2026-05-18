@@ -883,20 +883,15 @@ deferred.
 
 ### Go daemon port notes (RFC 0039 / RFC 0068)
 
-> Status: active architecture backlog. D107 / RFC 0068 makes the Go
-> production-daemon port the target, but the Python daemon (`striatum
-> daemon start`) remains the incumbent until Go reaches the shared
-> contract, Postgres, audit, authorization, MCP, service, recovery, and
-> packaging parity gate.
+> Status: active retirement backlog. D109 makes the Go daemon the default for
+> `striatum daemon start`; `--core python` remains only as an explicit
+> transitional escape until the Python daemon entry point is deleted.
 
 RFC 0039 produced a Go `go/cmd/striatumd` prototype that speaks the
 RFC 0030 envelope-v1 wire protocol over the RFC 0033 PostgreSQL
-substrate. Phase 1 (Steps 1+2) landed the read-side RPC skeleton and the
-PostgreSQL connection/migration/audit layer. The D105 Python-primary
-constraint was superseded by D107; production mutating verbs,
-daemon-owned supervision, migration ownership, MCP tools, service
-integration, and release packaging are now RFC 0068 port work rather than
-out of scope.
+substrate. The D105 Python-primary constraint was superseded by D107; active
+contract methods now have Go handlers and the remaining Python-daemon
+retirement work is the explicit fail-closed ledger in RFC 0068.
 
 Build the binary from a contributor checkout:
 
@@ -917,17 +912,17 @@ Run it directly for developer inspection:
 ```bash
 ./go/bin/striatumd \
   --socket "${XDG_RUNTIME_DIR:-/tmp}/striatum/daemon.sock" \
-  --db-url "$STRIATUM_DAEMON_DB_URL" \
-  --migrations-dir src/striatum/daemon_pg/sql
+  --postgres-url "$STRIATUM_DAEMON_DB_URL" \
+  --migrations-sha-source src/striatum/daemon_pg/sql
 ```
 
-`daemon.describe` exposes the supported schema, migration count, method
-etag, and implemented method table. Any handler gap shown there is an
-RFC 0068 parity blocker, not accepted product behavior.
+`daemon.describe` exposes the supported schema, migration count, and method
+etag. A missing or generic `not_implemented` active handler is an RFC 0068
+regression, not accepted product behavior.
 
 Coexistence rule: only one daemon may own the PostgreSQL substrate at a
-time. **Stop the Python daemon before starting the Go daemon** (and vice
-versa). The Go binary refuses to start with exit code 14
+time. **Stop any Python daemon before starting the Go daemon**. The Go binary
+refuses to start with exit code 14
 `daemon_already_running` when it detects another `striatumd-*`
 connection in `pg_stat_activity`.
 
@@ -937,12 +932,12 @@ compatibility and conformance work through the `daemon_core` parameter:
 ```python
 from _harness.multi_repo import MultiRepoHarness
 
-# Incumbent/default path while RFC 0068 is in progress.
+# Explicit Python-daemon regression path while deletion work drains.
 harness = MultiRepoHarness(daemon_pg_url=...)
 
-# Opt into the Go core. The harness invokes `make -C go build` if
-# the binary is missing; set STRIATUMD_GO_BIN=/path/to/striatumd to
-# skip the build step and reuse a prebuilt binary.
+# Go core path. The harness invokes `make -C go build` if the binary is
+# missing; set STRIATUMD_GO_BIN=/path/to/striatumd to skip the build step and
+# reuse a prebuilt binary.
 harness = MultiRepoHarness(daemon_pg_url=..., daemon_core="go")
 ```
 

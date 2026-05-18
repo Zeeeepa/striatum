@@ -43,6 +43,26 @@ Recent checkpoints:
 - The Go daemon now has an executable handler-coverage ledger for missing
   and placeholder methods, and `recovery.sweep` is registered on the Go
   mutation surface instead of only the deprecated `recovery.auto` alias.
+- The Go daemon now also has an executable Python-retirement blocker ledger:
+  `apply.reviewed_patch`, `daemon.migrate_repo_local`, and the two retired
+  dogfood composites must keep returning explicit fail-closed RPC errors
+  until the corresponding product decision removes or ports each surface.
+- `striatum daemon start` now defaults to the Go daemon after active
+  contract-method parity. `STRIATUM_DAEMON_CORE=python` or `--core python`
+  remains as an explicit transitional escape while the Python daemon entry
+  point is deleted.
+- Packaged wheels now stage the Go daemon binary before build, and fresh-clone
+  smoke builds `go/bin/striatumd` before the default daemon start path.
+- Go PostgreSQL mutation paths now encode structured JSONB arguments through
+  a shared pgx-safe helper, covering workflow snapshots, job definitions,
+  queue messages, work packets, session capabilities, supervisor metadata,
+  blockers, recovery cursors, and event payloads.
+- The Go RPC envelope validator now matches the published daemon contract by
+  accepting non-empty method strings, including contracted undotted reads such
+  as `status` and `dashboard`.
+- Release metadata checks now source both package name and version from
+  `pyproject.toml`, avoiding false failures when an unrelated `striatum`
+  distribution is installed beside `striatum-orchestrator`.
 - Go now registers the canonical `recovery.auto_publish_stale_artifacts`
   method, keeps the deprecated `recovery.auto` alias on the same handler, and
   requires every auto-published file to match the expected byline.
@@ -121,8 +141,8 @@ Recent checkpoints:
   `daemon.token.create/revoke/rotate` write only daemon PostgreSQL client and
   capability rows, store HMAC-SHA256 token hashes, and return cleartext bearer
   tokens only at creation/rotation time.
-- Go now registers explicit fail-closed handlers for `daemon.key.rotate`,
-  `daemon.shutdown`, `daemon.migrate_repo_local`,
+- Go now registers explicit fail-closed handlers for
+  `daemon.migrate_repo_local`, `apply.reviewed_patch`,
   `dogfood.publish_on_behalf`, and `dogfood.surgical_recovery` instead of
   generic `not_implemented` stubs or Python/SQLite fallbacks.
 - Go now owns `repo.init` as PostgreSQL-backed repository initialization that
@@ -485,9 +505,9 @@ Recent checkpoints:
   CLI-local.
 - **Go production-daemon strategy.**
   D107 supersedes D105 and restores the Go production-daemon port as the
-  active architecture target. The Python daemon remains the incumbent until
-  Go reaches contract, Postgres, audit, authorization, MCP, service,
-  recovery, and packaging parity.
+  active architecture target. D109 now makes Go the default daemon core;
+  `--core python` remains only as a transitional escape while the Python
+  daemon entry point is deleted.
 - **Daemon-first web service.**
   The local web service now uses daemon RPC for run cancel/pause/resume, job
   cancel/retry, branch confirm, workflow run-now lifecycles, run listing,

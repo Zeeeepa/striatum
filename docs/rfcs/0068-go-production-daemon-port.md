@@ -18,8 +18,8 @@ SQLite from production and compatibility paths.
 ## Goals
 
 - Supersede D105 with D107: Go becomes the intended production daemon core.
-- Keep Python as the current implementation only until the Go daemon passes
-  the production conformance gate.
+- Keep Python only as an explicit transitional daemon escape until the
+  retirement ledger is zero and the Python daemon entry point can be deleted.
 - Keep the Python CLI acceptable as a client of the Go daemon.
 - Preserve the RFC 0030 envelope, capability, request-id, version-skew, audit,
   and method-registry semantics.
@@ -58,20 +58,24 @@ The Go daemon port lands through independent, testable slices:
    dogfood, adapter, byline, inbox, recovery, corpus, and local API helpers.
    Migration fixtures must be named as one-way import fixtures and isolated
    from production modules.
-6. **Retirement.** Once the Go conformance suite passes, remove the Python
-   daemon entry point and any Python daemon-only production code.
+6. **Retirement.** Once the Go conformance suite passes and the explicit
+   fail-closed retirement ledger is resolved, remove the Python daemon entry
+   point and any Python daemon-only production code.
 
 ## Acceptance Criteria
 
 - D107 is recorded and D105 is superseded.
-- `striatum daemon start` launches the Go daemon by default after the final
-  parity phase; before that, Go is selectable and clearly marked as the target
-  production core.
+- `striatum daemon start` launches the Go daemon by default after active
+  contract-method parity; `--core python` remains only as an explicit
+  transitional escape until the Python daemon entry point is deleted.
 - The Go daemon supports the current PostgreSQL schema version and refuses stale
   packaged binaries with a rebuild/remediation hint.
 - The Go daemon serves every production method in
   `contracts/daemon_methods.json` or hides unsupported methods from production
   clients.
+- Production MCP discovery hides local workflow-file authoring methods and
+  retired dogfood composites; direct hidden calls still reauthorize, audit, and
+  return explicit fail-closed RPC errors.
 - CLI, web, MCP, and service tests pass against the Go daemon without direct
   SQLite opens.
 - Production source modules no longer import `sqlite3` or `striatum.db`; any
@@ -96,11 +100,50 @@ The Go daemon port lands through independent, testable slices:
 - Go `workflow.generate --shape multi_phase` now ports the Python generator's
   V1.1 output path, including ordered phases, per-track job remapping,
   `phase_synthesis` gates, and cross-phase synthesis-to-entry edges.
+- As of 2026-05-18, Go handler coverage reports zero missing or generic
+  `not_implemented` handlers for active contract methods. The remaining
+  Python-daemon retirement blockers are executable in
+  `go/cmd/striatumd/handler_coverage_test.go`: `apply.reviewed_patch`,
+  `daemon.migrate_repo_local`, `dogfood.publish_on_behalf`, and
+  `dogfood.surgical_recovery` must keep returning named fail-closed RPC
+  errors until they are ported or removed by product decision.
+- Python/Go production MCP `tools/list` now hides local workflow-file
+  authoring methods and the retired dogfood composites. Daemon MCP
+  `resources/list` and `resources/read` use PostgreSQL-backed repository
+  visibility and read projections whenever a daemon PostgreSQL connection is
+  present.
+- SQLite remnants allowed under this RFC are one-way migration/test fixtures
+  only. Production daemon, service, MCP, and operator-helper paths must not
+  reopen repo-local SQLite or the legacy daemon registry.
+- `striatum daemon start` now resolves to the Go daemon by default unless
+  `STRIATUM_DAEMON_CORE` or `--core python` explicitly selects the
+  transitional Python daemon.
+
+## Retirement Gate
+
+The Python daemon can be deleted after this ledger reaches zero or every
+remaining row has been removed from production discovery and the daemon method
+contract:
+
+| Method | Current Go behavior | Retirement action |
+|---|---|---|
+| `apply.reviewed_patch` | Fails closed with `sealed_key_missing` / `apply_gate_unsatisfied`. | Decide sealed-apply authority or remove the mutation from the production contract. |
+| `daemon.migrate_repo_local` | Fails closed with `legacy_migration_retired`. | Close the one-way SQLite import window and keep only explicit migration fixtures, or delete the method. |
+| `dogfood.publish_on_behalf` | Fails closed with `dogfood_publish_on_behalf_retired`. | Use primitive daemon methods or design a PostgreSQL-native operator composite. |
+| `dogfood.surgical_recovery` | Fails closed with `dogfood_surgical_recovery_retired`. | Use ordinary recovery methods or design a PostgreSQL-native row-lock recovery composite. |
+
+`make daemon-go-conformance`, `go test ./cmd/striatumd`, and
+`tests/architecture/test_authority_guardrails.py` are the executable cutover
+checks for this ledger.
+
+## Resolved Questions
+
+- D109 resolved the daemon-core default: `striatum daemon start` now launches
+  Go by default; Python remains only as `--core python` /
+  `STRIATUM_DAEMON_CORE=python` during deletion work.
 
 ## Open Questions
 
-- Should the intermediate default remain Python until all slices pass, or flip
-  to Go behind an explicit `STRIATUM_GO_DAEMON_EXPERIMENTAL=1` gate earlier?
 - Should historical SQLite import fixtures be retained indefinitely for
   migration tests, or removed after a final deprecation window?
 

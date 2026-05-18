@@ -33,10 +33,10 @@ def test_daemon_start_core_env_default(monkeypatch: pytest.MonkeyPatch) -> None:
     assert args.core == "go"
 
 
-def test_daemon_core_default_is_python(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_daemon_core_default_is_go(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv(ENV_DAEMON_CORE, raising=False)
 
-    assert resolve_daemon_core(None) == "python"
+    assert resolve_daemon_core(None) == "go"
 
 
 def test_daemon_core_flag_wins_over_env(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -1,10 +1,12 @@
 # RFC 0039: Go Daemon Core
 
-Status: reopened by D107 / RFC 0068 (Go production daemon port target)
+Status: superseded by D107 / D109 / RFC 0068 (Go production daemon default)
 Date: 2026-05-13
 Supersession note: D105 temporarily narrowed Go to support/runtime work.
 D107/RFC 0068 supersedes that constraint and restores the Go production daemon
-port as the target architecture.
+port as the target architecture. D109 later flips `striatum daemon start` to
+the Go daemon by default; older sections in this RFC that describe Python as
+the default are historical phase notes.
 Context:
 [`RFC 0028`](0028-long-running-daemon-and-multi-repository-control-plane.md),
 [`RFC 0030`](0030-daemon-rpc-server-and-version-skew-protocol.md),
@@ -236,11 +238,13 @@ run: only one daemon owns the Postgres database at a time. The pidfile
 A new operator-side config flag chooses which daemon implementation
 runs:
 
-- `striatum daemon start` (Python CLI) defaults to the Python daemon
-  for backwards compat during transition.
-- `striatum daemon start --core go` boots the Go daemon binary instead.
-- `STRIATUM_DAEMON_CORE=go` env var sets the default.
-- A future RFC retires the Python daemon and flips the default to Go.
+- `striatum daemon start` (Python CLI) defaults to the Go daemon after D109.
+- `striatum daemon start --core python` boots the transitional Python daemon
+  while deletion work drains.
+- `STRIATUM_DAEMON_CORE=python` selects that transitional escape by default
+  for a process environment.
+- RFC 0068 retires the Python daemon after the fail-closed ledger is removed
+  or those methods leave the production contract.
 
 The Python CLI launches the Go daemon as a subprocess via the packaged
 `striatum._daemongo` binary when present, then falls back to

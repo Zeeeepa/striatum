@@ -50,8 +50,8 @@ def dispatch_daemon(args: argparse.Namespace) -> Any:
 
 
 def resolve_daemon_core(cli_value: str | None) -> str:
-    """Resolve the daemon core while preserving the Phase 2 python default."""
-    value = cli_value or os.environ.get(ENV_DAEMON_CORE) or "python"
+    """Resolve the daemon core; Go is the production default after RFC 0068 parity."""
+    value = cli_value or os.environ.get(ENV_DAEMON_CORE) or "go"
     if value not in VALID_DAEMON_CORES:
         raise StriatumError(
             f"unknown daemon core {value!r}; expected python or go",

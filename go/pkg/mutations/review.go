@@ -322,14 +322,18 @@ func resolveOverrideSession(ctx context.Context, runner any, repositoryID, reque
 	if !ok {
 		return "", fmt.Errorf("runner does not support exec")
 	}
+	capabilitiesArg, err := db.JSONBArg(runner, []string{})
+	if err != nil {
+		return "", err
+	}
 	if err := exec.Exec(ctx, `
 		INSERT INTO striatumd.sessions (
 		  repository_id, session_id, run_id, role_id, lane_id, slug, ordinal,
 		  capabilities_json, parent_session_id, fresh_context, state,
 		  registered_at, last_heartbeat_at, non_fresh_reason, operator_label
 		)
-		VALUES ($1,$2,$3,'reviewer',$4,$5,$6,$7,NULL,true,'active',$8,$9,NULL,$10)`,
-		repositoryID, sessionID, runID, laneID, slug, ordinal, []string{}, now, now, operatorLabel); err != nil {
+		VALUES ($1,$2,$3,'reviewer',$4,$5,$6,$7::jsonb,NULL,true,'active',$8,$9,NULL,$10)`,
+		repositoryID, sessionID, runID, laneID, slug, ordinal, capabilitiesArg, now, now, operatorLabel); err != nil {
 		return "", err
 	}
 	if _, err := appendEvent(ctx, runner, repositoryID, runID, "session.registered", sessionID, nil, nil, nil, nil, map[string]any{

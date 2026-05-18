@@ -18,8 +18,9 @@ import striatum.daemon as daemon
 ROOT = Path(__file__).resolve().parents[2]
 
 DaemonCore = Literal["python", "go"]
-# D107 makes Go the production-daemon target; Python remains the default
-# harness core until the Go daemon reaches parity and the default flips.
+# D107 makes Go the production-daemon default. The harness keeps an explicit
+# per-fixture core selector so Python-daemon regression tests can run until
+# that entry point is deleted.
 
 _GO_BIN_ENV = "STRIATUMD_GO_BIN"
 _DEFAULT_GO_BIN = ROOT / "go" / "bin" / "striatumd"
@@ -110,6 +111,8 @@ class DaemonProcess:
                 "striatum.cli",
                 "daemon",
                 "start",
+                "--core",
+                "python",
                 "--postgres-url",
                 self.postgres_url,
                 "--sweep-interval-seconds",

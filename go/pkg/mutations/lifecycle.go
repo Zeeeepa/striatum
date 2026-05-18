@@ -109,13 +109,17 @@ func HandleRegisterSession(ctx context.Context, runner db.Runner, envelope rpc.E
 		}
 		slug := fmt.Sprintf("%s-%s-%d", role, lane, ordinal)
 		now := nowString()
+		capabilitiesArg, err := db.JSONBArg(tx, capabilities)
+		if err != nil {
+			return nil, err
+		}
 		if err := tx.Exec(ctx, `
 			INSERT INTO striatumd.sessions (
 			  repository_id, session_id, run_id, role_id, lane_id, slug, ordinal,
 			  capabilities_json, parent_session_id, fresh_context, state,
 			  registered_at, last_heartbeat_at, non_fresh_reason, operator_label
 			)
-			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'active',$11,$12,$13,$14)`,
+			VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9,$10,'active',$11,$12,$13,$14)`,
 			repositoryID,
 			sessionID,
 			runID,
@@ -123,7 +127,7 @@ func HandleRegisterSession(ctx context.Context, runner db.Runner, envelope rpc.E
 			lane,
 			slug,
 			ordinal,
-			capabilities,
+			capabilitiesArg,
 			parentSessionID,
 			fresh,
 			now,

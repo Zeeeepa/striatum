@@ -444,14 +444,22 @@ func insertStartingSupervisorRows(ctx context.Context, runner db.TxRunner, repos
 		metadata["helper_events_path"] = eventPath
 		metadata["helper_events_offset"] = 0
 	}
+	commandArg, err := db.JSONBArg(runner, config.Command)
+	if err != nil {
+		return err
+	}
 	if err := runner.Exec(ctx, `
 		INSERT INTO striatumd.process_supervisors (
 		  repository_id, supervisor_id, run_id, session_id, adapter,
 		  command_json, cwd, scratch_path, stdin_pipe_path, state, started_at
 		)
-		VALUES ($1,$2,$3,$4,'process',$5,$6,$7,$8,'starting',$9)`,
-		repositoryID, supervisorID, config.RunID, config.SessionID, config.Command, config.RepoRoot, scratch, pipePath, startedAt,
+		VALUES ($1,$2,$3,$4,'process',$5::jsonb,$6,$7,$8,'starting',$9)`,
+		repositoryID, supervisorID, config.RunID, config.SessionID, commandArg, config.RepoRoot, scratch, pipePath, startedAt,
 	); err != nil {
+		return err
+	}
+	metadataArg, err := db.JSONBArg(runner, metadata)
+	if err != nil {
 		return err
 	}
 	if err := runner.Exec(ctx, `
@@ -459,8 +467,8 @@ func insertStartingSupervisorRows(ctx context.Context, runner db.TxRunner, repos
 		  repository_id, supervisor_id, daemon_supervisor_id, run_id,
 		  session_id, state, updated_at, metadata_json
 		)
-		VALUES ($1,$2,$3,$4,$5,'starting',$6,$7)`,
-		repositoryID, supervisorID, daemonSupervisorID, config.RunID, config.SessionID, startedAt, metadata,
+		VALUES ($1,$2,$3,$4,$5,'starting',$6,$7::jsonb)`,
+		repositoryID, supervisorID, daemonSupervisorID, config.RunID, config.SessionID, startedAt, metadataArg,
 	); err != nil {
 		return err
 	}
@@ -470,9 +478,9 @@ func insertStartingSupervisorRows(ctx context.Context, runner db.TxRunner, repos
 		  repo_supervisor_id, daemon_instance_id, adapter, command_json,
 		  command_sha256, cwd, stdin_pipe_path, state, started_at
 		)
-		VALUES ($1,$2,$3,$4,$5,$6,'process',$7,$8,$9,$10,'starting',$11)`,
+		VALUES ($1,$2,$3,$4,$5,$6,'process',$7::jsonb,$8,$9,$10,'starting',$11)`,
 		daemonSupervisorID, repositoryID, config.RunID, config.SessionID,
-		supervisorID, currentDaemonInstanceID(), config.Command, sha256Hex(commandJSON),
+		supervisorID, currentDaemonInstanceID(), commandArg, sha256Hex(commandJSON),
 		config.RepoRoot, pipePath, startedAt,
 	)
 }
@@ -1024,11 +1032,15 @@ func mergePointerMetadata(ctx context.Context, runner db.TxRunner, repositoryID,
 	for key, value := range metadata {
 		current[key] = value
 	}
+	metadataArg, err := db.JSONBArg(runner, current)
+	if err != nil {
+		return err
+	}
 	return runner.Exec(ctx, `
 		UPDATE striatumd.process_supervisor_pointers
-		   SET metadata_json = $1
+		   SET metadata_json = $1::jsonb
 		 WHERE repository_id = $2 AND supervisor_id = $3`,
-		current, repositoryID, supervisorID,
+		metadataArg, repositoryID, supervisorID,
 	)
 }
 

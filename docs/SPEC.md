@@ -42,8 +42,9 @@ RFC 0048 (v1.49.0 → v1.55.0) completed the substrate port: every
 single-repo mutation, recovery, and read handler runs natively
 against the daemon's per-repo Postgres tables in the current Python daemon
 core. D107 / RFC 0068 changes the target architecture: the production daemon
-is being ported to Go, the Python daemon is transitional until Go parity is
-reached, and the Python CLI/web layers may remain daemon clients. The
+defaults to Go after active contract-method parity, the Python daemon is
+transitional deletion work, and the Python CLI/web layers may remain daemon
+clients. The
 `STRIATUM_DAEMON_REQUIRED=0 STRIATUM_TEST_HARNESS=1` escape no
 longer takes effect for ported methods — mapped CLI verbs fail
 closed instead of falling back to SQLite when the daemon is
@@ -1405,13 +1406,17 @@ state edits. Legacy repo-local supervision shapes survive only as migration
 sources and subprocess compatibility fixtures; they are not a production
 authority boundary.
 
-The current Python daemon is the incumbent implementation, not the desired
-permanent boundary. RFC 0039 introduced `go/cmd/striatumd` behind the RFC 0030
-envelope-v1 wire protocol and RFC 0033 PostgreSQL substrate. RFC 0068 now makes
-that Go daemon the target production core. It must pass the same contract,
-PostgreSQL schema, audit-chain, authorization, MCP, recovery, service, and
-packaging gates before the default flips. After parity, the Python daemon is
-retired; the Python CLI/web service may remain as clients of the Go daemon.
+The Python daemon is no longer the default production core. RFC 0039 introduced
+`go/cmd/striatumd` behind the RFC 0030 envelope-v1 wire protocol and RFC 0033
+PostgreSQL substrate. RFC 0068 now makes that Go daemon the default production
+core; `--core python` is a temporary explicit escape while Python-daemon
+deletion work drains. Current Go handler coverage has no missing or generic
+`not_implemented` active contract methods; the remaining
+retirement blockers are the explicitly fail-closed `apply.reviewed_patch`,
+`daemon.migrate_repo_local`, `dogfood.publish_on_behalf`, and
+`dogfood.surgical_recovery` surfaces. After that ledger is removed or each row
+is deliberately taken out of production discovery/contract, the Python daemon
+is retired; the Python CLI/web service may remain as clients of the Go daemon.
 
 ### Local Web UI
 

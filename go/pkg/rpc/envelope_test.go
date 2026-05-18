@@ -24,6 +24,17 @@ func TestEnvelopeRoundTrip(t *testing.T) {
 	}
 }
 
+func TestEnvelopeAcceptsContractedUndottedMethods(t *testing.T) {
+	body := []byte(`{"schema_version":1,"request_id":"req_status","method":"status","params":{},"deadline_ms":0}`)
+	envelope, err := DecodeEnvelope(body)
+	if err != nil {
+		t.Fatalf("decode undotted contract method: %v", err)
+	}
+	if envelope.Method != "status" {
+		t.Fatalf("method = %q, want status", envelope.Method)
+	}
+}
+
 func TestDescribeRequiresHandshake(t *testing.T) {
 	server := NewServer()
 	envelope := Envelope{

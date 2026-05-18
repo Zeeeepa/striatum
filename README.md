@@ -59,7 +59,7 @@ pip install striatum-orchestrator
 # Check/provision the daemon's Postgres substrate.
 striatum daemon doctor --apply-migrations
 
-# Start the daemon in a separate terminal and keep it running.
+# Start the Go daemon in a separate terminal and keep it running.
 striatum daemon start
 
 # Adopt/register a target repo and install the operator skill bundle.

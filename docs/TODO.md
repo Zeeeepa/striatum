@@ -33,7 +33,7 @@ so external references keep resolving even as items move between sections.
 | 14 | Packaging and release | ✅ done |
 | 15 | `run summary` polish | ✅ done |
 | 16 | Keep generic language current | ⏳ open |
-| 17 | SQLite migration system (RFC 0006) | ✅ done |
+| 17 | Legacy SQLite migration fixture (RFC 0006/D094) | ✅ done |
 | 18 | Workflow type catalog and chooser | ✅ done |
 | F1 | Run historical bootstrap as runner workflow | ✅ done |
 | F2 | Fuller publication policy | ⏳ open |
@@ -112,9 +112,9 @@ so external references keep resolving even as items move between sections.
 | 58 | RFC 0059 Architecture remediation Phase 10 — day-zero setup improvements | ✅ done |
 | 59 | RFC 0059 RFC 0066 Architecture remediation Phase 11 — replay, archive, and corpus v2 foundations | 🟡 corpus verify + run archive foundations landed |
 | 60 | RFC 0059 RFC 0067 Architecture remediation Phase 12 — optional Git/PR integration | ⏳ blocked on product decision |
-| 61 | RFC 0068 Go production daemon port and Python daemon retirement | ⏳ active |
-| 62 | RFC 0069 PostgreSQL-only daemon-global surfaces | 🟡 most done |
-| 63 | RFC 0070 daemon client/service boundary completion | 🟡 most done |
+| 61 | RFC 0068 Go production daemon port and Python daemon retirement | 🟡 Go parity gated by fail-closed ledger |
+| 62 | RFC 0069 PostgreSQL-only daemon-global surfaces | 🟡 guardrail residuals only |
+| 63 | RFC 0070 daemon client/service boundary completion | 🟡 production boundary mostly done |
 | 64 | RFC 0071 operator diagnostics and cutover evidence | ✅ accepted diagnostic slice done |
 | 65 | RFC 0058 operator progress surface | ✅ done |
 
@@ -609,11 +609,10 @@ Legend: ✅ done · 🟡 most done (sub-tasks remain) · ⏳ open/blocked · �
     hygiene in the RFC 0068 conformance gate.
 
 25. **Phase 2 (RFC 0039 Steps 3-6): Go replacement daemon.**
-    Reopened by D107 / RFC 0068. Do pursue `striatum daemon start --core go`
-    as the target production daemon path, but only behind the shared
-    contract/Postgres/audit/MCP/service/recovery conformance gate. The Python
-    CLI may remain a client; the Python daemon is transitional until Go parity
-    is reached. This item is now tracked by item 61 and dogfood 065.
+    Reopened by D107 / RFC 0068 and now superseded by item 61. `striatum
+    daemon start` defaults to the Go daemon after active contract-method
+    parity; `--core python` is a temporary explicit escape while Python-daemon
+    deletion work drains. The Python CLI may remain a client.
 
 26. ~~**Harness improvement: forbid codex/codex implementer+reviewer
     pairing in workflow validator.**~~ ✅ Done: cycle-exhaustion observed three
@@ -850,8 +849,10 @@ review and plan are root-level operator artifacts:
 49. **Phase 1: close production SQLite fallback.** Production daemon RPC
     fallback is closed: `CLI_ROUTES` is empty, `DaemonRpcRouter` no longer
     imports or calls `striatum.api.invoke`, local MCP/chat mapped commands
-    route through daemon RPC, workflow authoring methods fail closed in
-    daemon RPC as CLI-local helpers, and `run.graph`,
+    route through daemon RPC, Python daemon RPC refuses workflow authoring
+    as CLI-local, and Go implements workflow authoring/generation handlers
+    without live-state mutation while hiding them from production MCP
+    discovery. `run.graph`,
     `worktree.*`, and `supervise.*` now have native PG handlers, and
     `recovery watch` now runs as a CLI-local daemon scheduler over
     `recovery.sweep` instead of a broken `recovery.watch` RPC. The
@@ -872,8 +873,8 @@ review and plan are root-level operator artifacts:
     SQLite initializer remains reachable only under the explicit
     `STRIATUM_TEST_HARNESS=1` / `STRIATUM_DAEMON_REQUIRED=0` fixture path.
     `adapter run`, `byline`, and `inbox --session-id` are now retired outside
-    that same legacy fixture escape. Local web, dogfood compatibility, and
-    migration fixtures still use legacy SQLite shapes.
+    that same legacy fixture escape. Legacy SQLite shapes are now limited to
+    named migration/test fixtures and quarantined compatibility modules.
 
 50. ~~**Phase 2: single method-contract source.**~~ ✅ Done. Contract source is now
     live at `contracts/daemon_methods.json`; Python `METHOD_REGISTRY`
@@ -1240,12 +1241,14 @@ review and plan are root-level operator artifacts:
     web/chat preview callers now route
     `workflow.generate.preview` through daemon RPC in production. Go now owns
     `daemon.key.rotate` for the local Ed25519 `0600` fallback signing-key
-    file and still registers explicit fail-closed handlers for
-    `daemon.migrate_repo_local`, `dogfood.publish_on_behalf`, and
+    file and still registers explicit retirement fail-closed handlers for
+    `apply.reviewed_patch`, `daemon.migrate_repo_local`,
+    `dogfood.publish_on_behalf`, and
     `dogfood.surgical_recovery`; Go `daemon.shutdown` wires to the process
     cancellation path. The Go
     handler-coverage ledger reports zero generic `not_implemented` handlers
-    for active contract methods. Go also owns daemon-global `repo.resolve` for
+    for active contract methods and now pins those four retirement blockers to
+    exact RPC error codes. Go also owns daemon-global `repo.resolve` for
     repository path resolution without client-side direct PG access, and fresh
     Go startup now bootstraps the first PostgreSQL admin client plus the
     private runtime `client-token`. Go daemon startup now also launches a
@@ -1258,9 +1261,11 @@ review and plan are root-level operator artifacts:
     the Go workflow-authoring loader before writing rows, enforcing repo-bound
     path checks and JSON-only workflow source validation in the Go daemon path.
     Production `cross-repo` CLI dispatch now refuses direct PostgreSQL fallback
-    outside the paired legacy test-harness escape.
-    Remaining Go-port debt is explicit fail-closed/parity work before the
-    default daemon core flips.
+    outside the paired legacy test-harness escape. Remaining Go-port debt is
+    the retirement ledger: decide sealed-apply authority, either remove or
+    port the two dogfood composites as PostgreSQL-native operator composites,
+    close the one-way SQLite import window, and delete the Python daemon entry
+    point.
 
 62. **RFC 0069: PostgreSQL-only daemon-global surfaces.** Most done. Port daemon
     sweep, dashboard-all, daemon MCP resource list/read, and

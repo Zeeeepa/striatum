@@ -261,7 +261,7 @@ def build_parser() -> argparse.ArgumentParser:
         default=os.environ.get("STRIATUM_DAEMON_CORE"),
         help=(
             "daemon implementation to launch; defaults to "
-            "STRIATUM_DAEMON_CORE or python"
+            "STRIATUM_DAEMON_CORE or go"
         ),
     )
     daemon_start.add_argument("--sweep-interval-seconds", type=float, default=60.0)

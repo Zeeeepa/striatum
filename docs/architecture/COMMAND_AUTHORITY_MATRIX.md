@@ -20,7 +20,7 @@ labels, capabilities, scopes, and CLI fallback cells aligned with the daemon
 contract/runtime while this matrix remains curated for authority and status
 classification. Go daemon handler coverage is also executable in
 `go/cmd/striatumd/handler_coverage_test.go`, which classifies contract methods
-as missing, placeholder-backed, or implemented.
+as missing, placeholder-backed, implemented, or explicit retirement blockers.
 
 D107 / RFC 0068 supersedes D105. The Go columns below are no longer
 D105-bounded reference material; they are the production-port backlog. Any
@@ -34,8 +34,8 @@ Legend:
   `CLI_ROUTES`.
   `local_file_authoring` means the CLI implements a repository-file helper
   directly and daemon RPC fails closed instead of falling back.
-- **go authority**: `real` means a Go transition/harness handler is
-  registered. `placeholder` means the Go fixture returns `not_implemented`.
+- **go authority**: `real` means a production Go handler is registered.
+  `placeholder` means the Go fixture returns `not_implemented`.
   `fail_closed` means a handler exists but intentionally refuses the
   operation.
 - **sqlite dependency** names whether production execution can still open
@@ -98,7 +98,7 @@ Legend:
 | `worktree.release` | `worktree release` | write | single_repo | pg | real | no | no | Go shells out to `git worktree remove --force` and records release state |
 | `workflow.init` | `workflow init` | write | single_repo | local_file_authoring | real | no | no live state | Go scaffold writer; refuses unsafe paths/overwrites |
 | `workflow.generate` | `workflow generate` | write | single_repo | local_file_authoring | real | no | no live state | Go generator writer; refuses unsafe paths/overwrites |
-| `workflow.upgrade` | `workflow upgrade` | write | single_repo | local_file_authoring | real | no | PG running-run guard only; no Go SQLite import | Go upgrade supports harness-profile updates and fails closed for `--add-phases` |
+| `workflow.upgrade` | `workflow upgrade` | write | single_repo | local_file_authoring | real | no | PG running-run guard only; no Go SQLite import | Go upgrade supports harness-profile updates and `--add-phases` V1.1 rewrites |
 | `dogfood.publish_on_behalf` | MCP/chat dogfood tool | write | single_repo | fail_closed | fail_closed | no | no production SQLite | SQLite-bound composite retired with explicit RPC error; use primitive daemon methods |
 | `review.submit` | `submit-review` | review | single_repo | pg | real | no | no | stable |
 | `review.verdict` | `verdict` | review | single_repo | pg | real | no | no | stable |
@@ -176,7 +176,7 @@ remediation phases should either daemon-route, quarantine, or delete.
 | `self-update` | local pip + installer helper | no workflow state | bootstrap_admin |
 | `daemon start` | daemon lifecycle launcher | no repo-local workflow SQLite | bootstrap_admin |
 | `daemon service install` / `start` / `status` | local service-manager helper; Go start forwards resident recovery scheduler flags | no workflow state | bootstrap_admin |
-| `daemon doctor` | daemon PG doctor plus legacy registry probe | legacy registry probe only | bootstrap_admin |
+| `daemon doctor` | daemon PG doctor plus disabled legacy-registry diagnostic; registry probe only when PG diagnostics are unavailable or under explicit fixture escapes | diagnostic/test-only registry probe | bootstrap_admin |
 | `doctor --first-run` | day-zero smoke over daemon socket, PG doctor, token, MCP, and sample read route | no workflow state | bootstrap_admin |
 | `daemon migrate` | daemon registry migration helper | source registry migration only | legacy_migration |
 | `daemon migrate-repo-local` | per-repo SQLite -> Postgres migration | intentional source SQLite import | legacy_migration |
@@ -227,10 +227,12 @@ remediation phases should either daemon-route, quarantine, or delete.
    helpers now live in `primitives.py` and `repo_policy.py`; guardrails keep
    daemon PG/RPC production modules from importing SQLite helpers.
 9. Go no longer has generic `not_implemented` handlers for active contract
-   methods. Remaining Go-port debt is explicit fail-closed or parity work:
-   `apply.reviewed_patch`, dogfood composites, daemon key rotation,
-   the retired repo-local migration import, and web/service DTO parity gaps
-   tracked under RFC 0069-0071.
+   methods. Remaining Python-daemon retirement debt is explicit fail-closed
+   work pinned by `go/cmd/striatumd/handler_coverage_test.go` and
+   `tests/architecture/test_authority_guardrails.py`: `apply.reviewed_patch`,
+   the two retired dogfood composites, and the retired repo-local SQLite
+   import. Web/service DTO parity gaps are tracked separately under
+   RFC 0069-0071.
 10. Daemon MCP resources (`resources/list` and `resources/read`) use
     PostgreSQL-backed repository visibility and read projections when a daemon
     PostgreSQL connection is present; the legacy registry-backed path remains

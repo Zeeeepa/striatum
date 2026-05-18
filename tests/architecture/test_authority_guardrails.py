@@ -78,6 +78,15 @@ DOGFOOD_SQLITE_METHODS: frozenset[str] = frozenset(
     }
 )
 
+GO_DAEMON_RETIREMENT_BLOCKER_METHODS: frozenset[str] = frozenset(
+    {
+        "apply.reviewed_patch",
+        "daemon.migrate_repo_local",
+        "dogfood.publish_on_behalf",
+        "dogfood.surgical_recovery",
+    }
+)
+
 
 def _authority_matrix_section(start: str, end: str | None = None) -> str:
     text = AUTHORITY_MATRIX_PATH.read_text(encoding="utf-8")
@@ -280,6 +289,16 @@ def test_authority_matrix_has_no_go_placeholders() -> None:
         "COMMAND_AUTHORITY_MATRIX.md still marks Go authority as placeholder: "
         + ", ".join(placeholders)
     )
+
+
+def test_authority_matrix_go_fail_closed_rows_are_retirement_blockers() -> None:
+    fail_closed = {
+        method
+        for method, row in sorted(_registered_matrix_rows().items())
+        if row[5] == "fail_closed"
+    }
+
+    assert fail_closed == GO_DAEMON_RETIREMENT_BLOCKER_METHODS
 
 
 def test_daemon_cli_routes_are_empty_after_phase_1_fallback_removal() -> None:

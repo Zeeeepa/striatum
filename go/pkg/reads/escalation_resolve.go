@@ -66,13 +66,17 @@ func HandleEscalationResolve(ctx context.Context, runner db.Runner, envelope rpc
 			payload["escalation_resolution"] = resolutionPayload
 		}
 		now := resolveNowString()
+		payloadArg, err := db.JSONBArg(tx, payload)
+		if err != nil {
+			return nil, err
+		}
 		if err := tx.Exec(ctx, `
 			UPDATE striatumd.blockers
 			   SET state = 'resolved',
 			       resolved_at = $1,
-			       payload_json = $2
+			       payload_json = $2::jsonb
 			 WHERE repository_id = $3
-			   AND blocker_id = $4`, now, payload, repositoryID, escalationID); err != nil {
+			   AND blocker_id = $4`, now, payloadArg, repositoryID, escalationID); err != nil {
 			return nil, err
 		}
 		eventPayload := map[string]any{"escalation_id": escalationID}
@@ -223,13 +227,17 @@ func appendResolveEvent(
 	if !ok {
 		return 0, fmt.Errorf("runner does not support exec")
 	}
+	payloadArg, err := db.JSONBArg(runner, payload)
+	if err != nil {
+		return 0, err
+	}
 	if err := exec.Exec(ctx, `
 		INSERT INTO striatumd.events (
 		  repository_id, event_id, run_id, event_type, actor_session_id, job_id,
 		  message_id, artifact_id, lease_id, payload_json, created_at,
 		  previous_hash, row_hash
 		)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,$11,$12,$13)`,
 		repositoryID,
 		eventID,
 		nullableResolve(runID),
@@ -239,7 +247,7 @@ func appendResolveEvent(
 		nullableResolve(messageID),
 		nullableResolve(artifactID),
 		nullableResolve(leaseID),
-		payload,
+		payloadArg,
 		createdAt,
 		nullableResolve(previousHash),
 		rowHash,

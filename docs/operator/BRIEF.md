@@ -35,16 +35,19 @@ hides local workflow-file authoring methods and the retired dogfood composites
 in both Python and Go, while direct hidden composite calls still audit and fail
 closed. SQLite registry-probe guardrails now classify every remaining direct
 `striatum.daemon.connect_registry()` caller and tripwire daemon MCP resource
-reads before the legacy registry can open.
+reads before the legacy registry can open. `striatum daemon start` now
+defaults to the Go daemon; `--core python` remains only as an explicit
+transitional escape.
 
 ## Next 1-3 Actions
 
 1. Continue RFC 0068/RFC 0069 Go and PostgreSQL read-model parity only when
    a concrete method, DTO, registry probe, or conformance gap is visible.
-2. Next smallest unblocked slice is the RFC 0068 Python-daemon retirement
-   prep ledger.
-3. Keep `make daemon-go-conformance` green while shrinking explicit
-   fail-closed parity work before the default daemon core flips.
+2. Use the RFC 0068 retirement ledger as the next cutover gate: shrink
+   `apply.reviewed_patch`, `daemon.migrate_repo_local`, and the two dogfood
+   composites, then delete the Python daemon entry point.
+3. Keep `make daemon-go-conformance` green while any retirement-ledger row
+   remains fail-closed.
 
 ## Blockers
 

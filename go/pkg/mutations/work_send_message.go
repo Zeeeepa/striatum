@@ -37,16 +37,20 @@ func HandleSendMessage(ctx context.Context, runner db.Runner, envelope rpc.Envel
 		}
 		now := nowString()
 		payload := map[string]any{"kind": kind, "body": body}
+		payloadArg, err := db.JSONBArg(tx, payload)
+		if err != nil {
+			return nil, err
+		}
 		if err := tx.Exec(ctx, `
 			INSERT INTO striatumd.queue_messages (
 			  repository_id, message_id, run_id, kind, state, payload_json,
 			  created_at, updated_at
 			)
-			VALUES ($1,$2,$3,'agent_message','completed',$4,$5,$6)`,
+			VALUES ($1,$2,$3,'agent_message','completed',$4::jsonb,$5,$6)`,
 			repositoryID,
 			messageID,
 			runID,
-			payload,
+			payloadArg,
 			now,
 			now,
 		); err != nil {
