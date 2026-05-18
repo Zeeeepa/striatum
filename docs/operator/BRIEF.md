@@ -3,7 +3,7 @@ schema_version: "striatum.operator_brief.v1"
 artifact_kind: "operator_brief"
 brief_id: "brief_2026-05-17_go-daemon-remediation"
 supersedes: "brief_2026-05-17_initial-operator-surface"
-scope_links: ["docs/operator/plans/rfc-0068-go-daemon-port.md", "docs/operator/plans/rfc-0069-pg-only-daemon-global-surfaces.md", "docs/operator/plans/rfc-0058-operator-progress-surface.md"]
+scope_links: ["docs/operator/plans/rfc-0068-go-daemon-port.md", "docs/operator/plans/rfc-0069-pg-only-daemon-global-surfaces.md"]
 context_budget_lines: 300
 retrieval_priority: "high"
 status: "current"
@@ -26,14 +26,16 @@ and `dashboard.all` now carries per-active-run progress fields for phase
 state, auto-finalize dry-run visibility, and supervisor stalls. The compact
 terminal dashboard now renders production text frames from daemon/PostgreSQL
 DTOs, with legacy SQLite access isolated under paired test-harness fixtures.
+Go `status` now matches the PostgreSQL/Python read-model shape, and RFC 0058
+V1.5 has landed with `striatum operator current-brief` plus strict
+`operator_brief` context-budget validation.
 
 ## Next 1-3 Actions
 
 1. Continue RFC 0068/RFC 0069 Go and PostgreSQL read-model parity only when
-   a concrete method, DTO, or conformance gap is visible; Go `status` detail
-   is the current known read-model follow-up.
-2. Defer RFC 0058 V1.5 to a focused slice: current-brief CLI, context-budget
-   linting, and optional operator-tree init/rotation.
+   a concrete method, DTO, registry probe, or conformance gap is visible.
+2. Keep `make daemon-go-conformance` green while shrinking explicit
+   fail-closed parity work before the default daemon core flips.
 
 ## Blockers
 
@@ -55,4 +57,3 @@ DTOs, with legacy SQLite access isolated under paired test-harness fixtures.
 
 - `docs/operator/plans/rfc-0068-go-daemon-port.md`
 - `docs/operator/plans/rfc-0069-pg-only-daemon-global-surfaces.md`
-- `docs/operator/plans/rfc-0058-operator-progress-surface.md`

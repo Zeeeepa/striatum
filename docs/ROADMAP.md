@@ -976,17 +976,20 @@ Release order after Phase 0:
     PostgreSQL-backed daemon lifecycle/health/audit/doctor reads. The
     dashboard-all run-progress slice now exposes phase progress,
     auto-finalize dry-run visibility, and supervisor-stall detail; the
-    terminal dashboard now renders production text frames from daemon DTOs.
-    Go status detail remains.
+    terminal dashboard now renders production text frames from daemon DTOs;
+    Go `status` now matches the PostgreSQL/Python read-model shape. Remaining
+    RFC 0069 work is any registry-probe/global-surface cleanup still found by
+    guardrail scans.
 15. **TODO 63 / RFC 0070:** complete daemon client/service boundaries and
     remove direct client DB access.
 16. **TODO 64 / RFC 0071:** authority doctor and repository cutover report
     diagnostics landed; remaining work is deciding which matrix rows should be
     generated rather than curated.
-17. **TODO 65 / RFC 0058:** V1 landed. Use `docs/operator/BRIEF.md` as the
-    current-state authority and keep plans/progress notes schema-valid; defer
-    current-brief CLI, context-budget linting, and operator-tree init/rotation
-    commands to V1.5.
+17. **TODO 65 / RFC 0058:** V1 and V1.5 landed. Use
+    `docs/operator/BRIEF.md` as the current-state authority; `striatum
+    operator current-brief` is the local read helper, and
+    `operator_brief` context-budget overruns are schema errors. Optional
+    operator-tree init/rotation remains deferred outside RFC 0058.
 
 **Blocked on:** current blockers are Phase 7 accepted-risk persistence,
 Phase 8 default auto-finalize policy, Phase 11 Corpus V2 decisions, Phase 12

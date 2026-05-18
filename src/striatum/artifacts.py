@@ -390,6 +390,28 @@ def _front_matter_block(text: str) -> str | None:
     return block
 
 
+def _front_matter_body(text: str) -> str | None:
+    """Return Markdown body text after a leading front-matter block."""
+    if not text.startswith("---"):
+        return None
+    head_end = 3
+    if head_end < len(text) and text[head_end] == "\r":
+        head_end += 1
+    if head_end >= len(text) or text[head_end] != "\n":
+        return None
+    body_start = head_end + 1
+    rel = text.find("\n---", body_start - 1)
+    if rel == -1:
+        return None
+    close_start = rel + 1
+    close_end = close_start + 3
+    if close_end < len(text) and text[close_end] == "\r":
+        close_end += 1
+    if close_end < len(text) and text[close_end] == "\n":
+        close_end += 1
+    return text[close_end:]
+
+
 def _parse_front_matter(block: str, *, kind: str) -> dict[str, object]:
     """Parse a minimal `key: <json-value>` block.
 
@@ -462,6 +484,24 @@ def _validate_front_matter(parsed: dict[str, object], schema: FrontMatterSchema)
         raise ArtifactError(
             f"{schema.artifact_kind} artifact front matter has unknown fields: "
             f"{', '.join(extra)}"
+        )
+
+
+def _validate_operator_brief_context_budget(
+    *, parsed: dict[str, object], body: str | None
+) -> None:
+    """Promote RFC 0058 V1.5 body-length drift to a schema error."""
+    if body is None:
+        return
+    budget = parsed.get("context_budget_lines")
+    if isinstance(budget, bool) or not isinstance(budget, int):
+        return
+    body_lines = 0 if body == "" else len(body.splitlines())
+    if body_lines > budget:
+        raise ArtifactError(
+            "operator_brief artifact front matter field "
+            f"'context_budget_lines' budget exceeded: body has {body_lines} "
+            f"lines, limit is {budget}"
         )
 
 
@@ -564,6 +604,11 @@ def parse_artifact_front_matter(
         return None
     parsed = _parse_front_matter(block, kind=kind)
     _validate_front_matter(parsed, schema)
+    if schema.artifact_kind == "operator_brief":
+        _validate_operator_brief_context_budget(
+            parsed=parsed,
+            body=_front_matter_body(text),
+        )
     return parsed
 
 

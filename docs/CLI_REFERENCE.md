@@ -27,6 +27,7 @@ striatum run start
 striatum run summary
 striatum archive create
 striatum archive verify
+striatum operator current-brief
 ```
 
 `workflow init [--style minimal|review|code-change] <path>`
@@ -101,6 +102,18 @@ DDD docs, migrates/registers the repo into daemon PostgreSQL when a
 Postgres URL is configured, and returns a suggested starter workflow
 path. Use `--dry-run` to preview, or `--no-register` when you only want
 the filesystem setup.
+
+`operator current-brief [--operator-docs-root <path>] [--json]`
+(RFC 0058 V1.5) is a local read-only helper for the operator progress
+surface. It reads `docs/operator/BRIEF.md` by default, refuses a missing
+brief, symlink, non-regular file, invalid `operator_brief` front matter,
+or `status` other than `current`, and prints `path`, `brief_id`,
+`supersedes`, `scope_links`, `context_budget_lines`,
+`retrieval_priority`, and `cold_start_paths`. This command does not
+route through daemon RPC and is exempt from daemon-required enforcement
+because Markdown operator provenance is the authority for this surface.
+`--operator-docs-root` points at the directory containing `BRIEF.md`,
+not at the file itself.
 
 ## Agent / session work loop
 

@@ -159,6 +159,14 @@ Recent checkpoints:
   only reachable through the paired test-harness compatibility escape; JSON
   `dashboard --run-id` and daemon-global `dashboard --all` remain RPC DTO
   surfaces.
+- Go `status` now uses the PostgreSQL/Python read-model shape instead of raw
+  row dumps: job counts by state, nested verdict counts by posture/verdict,
+  queue-based claimable jobs, blocker/checkpoint payloads, run-scoped process
+  health, supervisor stalls, phase/provenance fields, auto-finalize dry-run
+  visibility, and deterministic `next_actions`.
+- RFC 0058 V1.5 landed: `striatum operator current-brief` reads and validates
+  the current operator brief without daemon RPC, and `operator_brief`
+  `context_budget_lines` overruns are schema errors instead of warnings.
 - Daemon MCP `resources/list` and `resources/read` now use PostgreSQL-backed
   repository visibility, status, doctor, blocker, run, why, dashboard, and
   stale-lease projections whenever a daemon PostgreSQL connection is present;

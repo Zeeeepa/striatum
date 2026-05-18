@@ -1,6 +1,6 @@
 # RFC 0058: Operator Progress Surface — brief, plans, progress notes
 
-Status: partially implemented
+Status: implemented
 Date: 2026-05-15
 Context:
 [`docs/DECISION_LOG.md`](../DECISION_LOG.md),
@@ -219,10 +219,10 @@ The `operator_brief` is the single mandatory hop for cold-start. To make
   to `docs/operator/briefs/<date>-<slug>.md` and writes the new brief in
   place.
 
-Validator emits a `front_matter_warning` (not error) when
-`context_budget_lines` is exceeded, so operators see drift before it
-calcifies. A V1.5 follow-up can promote this to an error after the
-convention beds in.
+V1 initially emitted a `front_matter_warning` when
+`context_budget_lines` was exceeded. V1.5 promotes this to an artifact
+schema error: publishing or parsing an `operator_brief` with a body
+longer than its declared budget is refused.
 
 ### 4. Canonical paths and the docs/operator/ tree
 
@@ -245,6 +245,28 @@ docs/operator/
 current brief, the open plans, and the last seven progress notes.
 Maintained by hand; the rendering belongs in the existing web UI
 (`/view/` already serves this tree, no new code).
+
+### 4.1 Current Brief CLI (V1.5)
+
+`striatum operator current-brief [--operator-docs-root <path>] [--json]`
+is a local read-only command that reads the current operator brief from
+`docs/operator/BRIEF.md` by default. It returns or prints:
+
+- `path`
+- `brief_id`
+- `supersedes`
+- `scope_links`
+- `context_budget_lines`
+- `retrieval_priority`
+- `cold_start_paths`
+
+The command refuses a missing brief, a symlink, a non-regular file,
+invalid `operator_brief` front matter, or a brief whose `status` is not
+`current`. It is explicitly exempt from daemon-required enforcement and
+daemon RPC routing because this surface is repository Markdown
+provenance, not live workflow state.
+
+V1.5 does not implement operator-tree initialization or brief rotation.
 
 ### 5. Composition with corpus export (RFC 0044 V1)
 
@@ -320,13 +342,13 @@ are read by humans and future retrieval-backed operators only.
   - Add deprecation pointer to `docs/handoffs/README.md`.
   - Add new tree to `docs/INDEX.md`.
 
-- **V1.5** (follow-up):
+- **V1.5** (landed 2026-05-18):
   - Promote `context_budget_lines` warning to error.
   - Add a `striatum operator current-brief` CLI verb (read-only — prints
-    path to current brief + parsed `scope_links`) so the agent harness
+    the current brief metadata and cold-start paths) so the agent harness
     can fetch the cold-start set without grepping.
-  - Strip `docs/ROADMAP.md` §1 "State as of" header; the brief is sole
-    state source.
+  - Treat optional operator-tree init/rotation as deferred work outside
+    this RFC.
 
 - **V2** (separate RFC):
   - Move `docs/operator/INDEX.md` rendering into the web UI as a
@@ -367,10 +389,12 @@ When both are present, `workflow.json` wins. When neither is present,
 the default applies. The resolved root MUST be inside the repo's write
 scope and MUST NOT overlap `.striatum/` (RFC 0043 scratch boundary).
 
-**Collision detection at install.** `striatum operator init` (V1.5 verb)
-and the V1 in-repo seed both refuse to write into a non-empty
-operator tree without an explicit override. Modeled on RFC 0021's
-DDD-scaffold pattern:
+**Deferred collision detection at install.** A future
+`striatum operator init` or rotation command should refuse to write into
+a non-empty operator tree without an explicit override. The V1 in-repo seed
+was committed directly in this repository, and V1.5 intentionally shipped
+only the read-only `current-brief` command. The deferred write command should
+follow RFC 0021's DDD-scaffold pattern:
 
 - `--dry-run` prints the would-create paths and any pre-existing
   conflicts with `would_collide` / `would_create` status vocabulary;
@@ -429,13 +453,10 @@ V1 lands when:
 8. Corpus export regression test asserts `docs/operator/**` rows carry
    the kind + priority + supersedes columns (augmentation-boundary
    coverage already exists per RFC 0044 V1).
-9. Per §9: the operator-tree root resolves from
-   `workflow.operator_docs_root` → `striatum.operator_docs_root` →
-   `docs/operator/` default; the corpus enumerator picks up the
-   resolved path without a hard-coded constant; and an in-repo seed
-   against a non-empty operator tree refuses without `--dry-run` /
-   `--operator-docs-root` / `--force`. (The `striatum operator init`
-   verb itself is V1.5 scope; V1 lands the resolution + refusal rules.)
+9. Per §9: `striatum operator current-brief` accepts
+   `--operator-docs-root` for local reads. Broader `striatum.toml` /
+   `workflow.operator_docs_root` precedence and collision-checked
+   write initialization are deferred outside RFC 0058.
 
 ## Open Questions
 

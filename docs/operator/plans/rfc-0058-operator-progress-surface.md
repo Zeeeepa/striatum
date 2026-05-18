@@ -4,10 +4,10 @@ artifact_kind: "work_plan"
 plan_id: "plan_rfc-0058-operator-progress-surface"
 scope_kind: "rfc"
 scope_ref: "docs/rfcs/0058-operator-progress-surface.md"
-state: "in_progress"
+state: "closed"
 opened_at: "2026-05-17"
-closed_at: null
-closure_summary: null
+closed_at: "2026-05-18"
+closure_summary: "V1 and V1.5 landed: schemas, corpus metadata, seeded docs, current-brief CLI, and context-budget schema errors. Operator init and rotation remain out of scope."
 supersedes: null
 retrieval_priority: "high"
 ---
@@ -19,7 +19,9 @@ author: coordinator-codex-gpt-5.5-001
 
 Create a bounded operator state surface under `docs/operator/` so cold
 starts do not require re-reading ROADMAP, TODO, handoffs, operator
-reports, and friction logs.
+reports, and friction logs. V1.5 adds the read-only
+`striatum operator current-brief` command and promotes brief
+context-budget drift to an artifact schema error.
 
 ## Workstreams
 
@@ -29,8 +31,8 @@ reports, and friction logs.
 | Corpus metadata columns | landed |
 | Seeded current brief, plans, progress note | landed |
 | Docs cold-start references | landed |
-| V1.5 current-brief CLI and context-budget lint | open |
-| Optional operator-tree init/rotation CLI | open |
+| V1.5 current-brief CLI and context-budget lint | landed |
+| Optional operator-tree init/rotation CLI | deferred |
 
 ## Decisions Made
 
@@ -39,7 +41,5 @@ reports, and friction logs.
 
 ## Open Questions
 
-- Whether operator-tree init/rotation belongs in V1.5 or waits for a
+- Whether operator-tree init/rotation should land later as part of a
   broader operator-workspace command group.
-- Whether configurable `operator_docs_root` should be implemented before
-  the RFC is marked fully complete or explicitly deferred as V2.

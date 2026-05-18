@@ -16,5 +16,5 @@ unknown. The legacy repo-local SQLite guard only remains available under the
 paired test-harness compatibility escape, and the refusal applies to both
 normal harness-profile upgrades and `--add-phases --apply`.
 
-The remaining RFC 0069 read-model follow-up after this slice is Go status
-detail parity where concrete gaps remain.
+The later Go status detail-parity follow-up landed on 2026-05-18. Remaining
+RFC 0069 work is registry-probe/global-surface cleanup found by guardrails.

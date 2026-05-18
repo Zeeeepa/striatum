@@ -110,6 +110,11 @@ Add a production registry tripwire and port daemon-global surfaces in order:
   from the daemon/PostgreSQL `dashboard` DTO. The repo-local SQLite payload
   gatherer is isolated under `striatum.legacy_sqlite.dashboard` for paired
   test-harness fixtures.
+- Go `status` now returns the PostgreSQL/Python read-model shape, including
+  job counts, nested verdict posture counts, queue-based claimable jobs,
+  blockers and human checkpoints, process health, supervisor stalls, phase
+  progress, provenance mode, auto-finalize dry-run visibility, and
+  deterministic next actions.
 - The Go daemon now starts a resident recovery scheduler loop after socket
   bind. The loop runs an immediate PostgreSQL active-run sweep, calls the Go
   `recovery.sweep` path per active run, records `daemon.recovery_sweep`
@@ -118,9 +123,8 @@ Add a production registry tripwire and port daemon-global surfaces in order:
 
 ## Open Questions
 
-- Should Go `status` carry the full Python/PostgreSQL status read-model detail
-  before the default daemon core flips, or should only dashboard/web DTOs be
-  parity-gated?
+- Should any remaining registry-probe/global diagnostic paths be generated
+  from the daemon method contract instead of curated by guardrail tests?
 
 ## Domain Modeling
 

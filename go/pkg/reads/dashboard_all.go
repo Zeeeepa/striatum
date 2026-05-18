@@ -201,7 +201,7 @@ func dashboardAllStatus(ctx context.Context, runner db.Runner, repositoryID stri
 		"claimable_jobs":                       claimable,
 		"blocked_downstream_jobs":              blockedDownstream,
 		"process_health":                       processHealth,
-		"next_actions":                         computeNextActions(claimable, openBlockers),
+		"next_actions":                         statusNextActions(claimable, openBlockers, humanCheckpoints, nonAccepting, false, false, processHealth, map[string]any{"next_actions": []string{}}, nil),
 	}, nil
 }
 
@@ -640,6 +640,16 @@ func dashboardAllAutoFinalizePolicy(workflow map[string]any) map[string]any {
 }
 
 func dashboardAllSupervisorStalls(ctx context.Context, runner db.Runner, repositoryID, runID string) (map[string]any, error) {
+	where := `ps.repository_id = $1
+		    AND ps.state = 'attached'
+		    AND l.state = 'active'
+		    AND l.resource_type = 'job'
+		    AND j.state IN ('claimed', 'running')`
+	args := []any{repositoryID}
+	if runID != "" {
+		where += " AND ps.run_id = $2"
+		args = append(args, runID)
+	}
 	rows, err := collectRows(ctx, runner,
 		`SELECT ps.supervisor_id, ps.run_id, ps.session_id, ps.pid,
 		        ps.state AS supervisor_state,
@@ -665,14 +675,9 @@ func dashboardAllSupervisorStalls(ctx context.Context, runner db.Runner, reposit
 		   LEFT JOIN striatumd.queue_messages qm
 		     ON qm.repository_id = j.repository_id
 		    AND qm.message_id = j.current_message_id
-		  WHERE ps.repository_id = $1
-		    AND ps.run_id = $2
-		    AND ps.state = 'attached'
-		    AND l.state = 'active'
-		    AND l.resource_type = 'job'
-		    AND j.state IN ('claimed', 'running')
+		  WHERE `+where+`
 		  ORDER BY ps.started_at DESC, ps.supervisor_id DESC`,
-		repositoryID, runID,
+		args...,
 	)
 	if err != nil {
 		return nil, err

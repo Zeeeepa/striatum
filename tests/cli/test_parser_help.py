@@ -93,3 +93,12 @@ def test_rfc0053_help_uses_operator_and_reader_facing_terms(
     assert "after operator" in requeue_help
     assert "inspection; pair with --justification" in requeue_help
     assert "after manual inspection" not in requeue_help
+
+
+def test_operator_current_brief_help_documents_local_read_options(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    out = _help_for(["operator", "current-brief"], capsys)
+    assert "current operator brief metadata" in out
+    assert "--operator-docs-root" in out
+    assert "--json" in out

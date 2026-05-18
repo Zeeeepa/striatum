@@ -1,0 +1,242 @@
+package reads
+
+import (
+	"context"
+	"errors"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/halbritt/striatum/go/pkg/db"
+	"github.com/halbritt/striatum/go/pkg/rpc"
+	"github.com/jackc/pgx/v5"
+)
+
+type statusFakeRunner struct {
+	repoRoot string
+	runFound bool
+}
+
+func (statusFakeRunner) Exec(context.Context, string, ...any) error {
+	return errors.New("status must be read-only")
+}
+
+func (statusFakeRunner) QueryRow(context.Context, string, ...any) db.Row {
+	return dashboardAllFakeRow{}
+}
+
+func (statusFakeRunner) QueryScalar(context.Context, string, ...any) (string, error) {
+	return "", errors.New("unexpected scalar query")
+}
+
+func (statusFakeRunner) BeginTx(context.Context) (db.TxRunner, error) {
+	return nil, errors.New("status must not open a transaction")
+}
+
+func (r statusFakeRunner) Query(_ context.Context, sql string, args ...any) (pgx.Rows, error) {
+	now := time.Now().UTC().Truncate(time.Second)
+	switch {
+	case strings.Contains(sql, "SELECT r.run_id") && strings.Contains(sql, "LIMIT 1"):
+		if r.runFound {
+			return dashboardAllRowsFromMaps([]map[string]any{{"run_id": "run_a"}}), nil
+		}
+		return dashboardAllRowsFromMaps(nil), nil
+	case strings.Contains(sql, "SELECT r.run_id, r.state, r.branch_name"):
+		return dashboardAllRowsFromMaps([]map[string]any{{
+			"run_id": "run_a", "state": "running", "branch_name": "main",
+		}}), nil
+	case strings.Contains(sql, "SELECT j.state, COUNT(*) AS count"):
+		return dashboardAllRowsFromMaps([]map[string]any{
+			{"state": "completed", "count": int64(2)},
+			{"state": "running", "count": int64(1)},
+		}), nil
+	case strings.Contains(sql, "SELECT s.session_id") && strings.Contains(sql, "ps.pid AS pid"):
+		return dashboardAllRowsFromMaps([]map[string]any{{
+			"session_id": "sess_a", "run_id": "run_a", "role_id": "author",
+			"lane_id": "lane_a", "slug": "author-1", "ordinal": int64(1),
+			"state": "active", "operator_label": "codex",
+			"supervisor_id": "sup_a", "pid": int64(os.Getpid()),
+		}}), nil
+	case strings.Contains(sql, "FROM striatumd.blockers b"):
+		row := map[string]any{
+			"blocker_id": "blk_a", "run_id": "run_a", "job_id": "job_review",
+			"session_id": "sess_a", "severity": "human_checkpoint",
+			"blocker_kind": "operator_decision", "description": "needs decision",
+			"state": "open", "created_at": now, "payload_json": map[string]any{"kind": "decision"},
+			"workflow_job_id": "review", "job_state": "blocked",
+		}
+		return dashboardAllRowsFromMaps([]map[string]any{row}), nil
+	case strings.Contains(sql, "v.verdict != 'accept'"):
+		return dashboardAllRowsFromMaps([]map[string]any{{
+			"verdict_id": "verdict_a", "run_id": "run_a", "job_id": "job_review",
+			"workflow_job_id": "review", "verdict": "needs_revision",
+			"posture": "blocking", "created_at": now,
+		}}), nil
+	case strings.Contains(sql, "GROUP BY v.posture, v.verdict"):
+		return dashboardAllRowsFromMaps([]map[string]any{{
+			"posture": "blocking", "verdict": "needs_revision", "count": int64(1),
+		}}), nil
+	case strings.Contains(sql, "FROM striatumd.queue_messages q"):
+		return dashboardAllRowsFromMaps([]map[string]any{{
+			"run_id": "run_a", "job_id": "job_draft", "workflow_job_id": "draft",
+			"role_id": "author", "lane_id": "lane_a", "count": int64(1),
+		}}), nil
+	case strings.Contains(sql, "j.state = 'blocked'") && strings.Contains(sql, "FROM striatumd.jobs j"):
+		return dashboardAllRowsFromMaps([]map[string]any{{
+			"run_id": "run_a", "job_id": "job_review", "workflow_job_id": "review", "state": "blocked",
+		}}), nil
+	case strings.Contains(sql, "FROM striatumd.process_executions p"):
+		return dashboardAllRowsFromMaps([]map[string]any{{
+			"running_count": int64(2), "stale_running_count": int64(1),
+			"lost_count": int64(1), "timed_out_count": int64(1),
+		}}), nil
+	case strings.Contains(sql, "FROM striatumd.process_supervisors ps"):
+		return dashboardAllRowsFromMaps([]map[string]any{{
+			"supervisor_id": "sup_a", "run_id": "run_a", "session_id": "sess_a", "pid": int64(os.Getpid()),
+			"supervisor_state": "attached", "supervisor_heartbeat_at": now.Add(-10 * time.Minute),
+			"session_last_heartbeat_at": now.Add(-10 * time.Minute),
+			"lease_id":                  "lease_a", "job_id": "job_run", "acquired_at": now.Add(-10 * time.Minute),
+			"expires_at": now.Add(10 * time.Minute), "lease_last_heartbeat_at": now.Add(-10 * time.Minute),
+			"workflow_job_id": "run", "job_state": "running",
+			"message_id": "msg_run", "message_state": "acked",
+		}}), nil
+	case strings.Contains(sql, "FROM striatumd.process_supervisors s"):
+		return dashboardAllRowsFromMaps([]map[string]any{{"?column?": int64(1)}}), nil
+	case strings.Contains(sql, "j.expected_artifacts_json"):
+		return dashboardAllRowsFromMaps([]map[string]any{{
+			"repo_root": r.repoRoot,
+			"expected_artifacts_json": []any{
+				map[string]any{"path": "artifacts/result.md", "required": true},
+			},
+		}}), nil
+	case strings.Contains(sql, "SELECT w.workflow_json"):
+		return dashboardAllRowsFromMaps([]map[string]any{{"workflow_json": map[string]any{
+			"provenance_mode": "strict",
+			"recovery":        map[string]any{"auto_finalize": map[string]any{"enabled": true}},
+			"phases": []any{
+				map[string]any{"id": "phase_build", "name": "Build", "synthesis_job_id": "review"},
+			},
+			"jobs": []any{
+				map[string]any{"id": "draft", "phase_id": "phase_build"},
+				map[string]any{"id": "review", "phase_id": "phase_build"},
+			},
+		}}}), nil
+	case strings.Contains(sql, "COUNT(*) AS candidate_count"):
+		return dashboardAllRowsFromMaps([]map[string]any{{"candidate_count": int64(1)}}), nil
+	case strings.Contains(sql, "SELECT j.job_id, j.workflow_job_id, j.state, j.attempt"):
+		return dashboardAllRowsFromMaps([]map[string]any{
+			{"job_id": "job_draft", "workflow_job_id": "draft", "state": "completed", "attempt": int64(1)},
+			{"job_id": "job_review", "workflow_job_id": "review", "state": "running", "attempt": int64(1)},
+		}), nil
+	case strings.Contains(sql, "v.job_id, v.verdict_id, v.verdict"):
+		return dashboardAllRowsFromMaps([]map[string]any{{
+			"job_id": "job_review", "verdict_id": "verdict_latest",
+			"verdict": "needs_revision", "posture": "blocking", "created_at": now,
+		}}), nil
+	default:
+		return nil, errors.New("unexpected query: " + sql)
+	}
+}
+
+func TestHandleStatusBuildsPythonShapedRunProjection(t *testing.T) {
+	repoRoot := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(repoRoot, "artifacts"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repoRoot, "artifacts", "result.md"), []byte("---\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := HandleStatus(context.Background(), statusFakeRunner{repoRoot: repoRoot, runFound: true}, rpc.Envelope{
+		Params: map[string]any{"repository_id": "repo_a", "run_id": "run_a"},
+	})
+	if err != nil {
+		t.Fatalf("HandleStatus: %v", err)
+	}
+
+	jobs := result["jobs"].(map[string]int)
+	if jobs["completed"] != 2 || jobs["running"] != 1 {
+		t.Fatalf("jobs = %#v", jobs)
+	}
+	verdicts := result["verdicts_by_posture"].(map[string]map[string]int)
+	if verdicts["blocking"]["needs_revision"] != 1 {
+		t.Fatalf("verdicts_by_posture = %#v", verdicts)
+	}
+	claimable := result["claimable_jobs"].([]map[string]any)
+	if len(claimable) != 1 || claimable[0]["workflow_job_id"] != "draft" {
+		t.Fatalf("claimable_jobs = %#v", claimable)
+	}
+	sessions := result["sessions"].([]map[string]any)
+	if len(sessions) != 1 || sessions[0]["lane_attestation"] != "attested" || sessions[0]["pid"] == nil {
+		t.Fatalf("sessions = %#v", sessions)
+	}
+	processHealth := result["process_health"].(map[string]any)
+	if processHealth["stale_running_count"] != 1 {
+		t.Fatalf("process_health = %#v", processHealth)
+	}
+	supervisorStalls := result["supervisor_stalls"].(map[string]any)
+	if supervisorStalls["stalled_count"] != 1 || supervisorStalls["warning_count"] != 1 {
+		t.Fatalf("supervisor_stalls = %#v", supervisorStalls)
+	}
+	autoFinalize := result["auto_finalize_dry_run"].(map[string]any)
+	if autoFinalize["candidate_count"] != 1 {
+		t.Fatalf("auto_finalize_dry_run = %#v", autoFinalize)
+	}
+	if result["provenance_mode"] != "strict" || result["current_phase_id"] != "phase_build" {
+		t.Fatalf("run progress fields = %#v", result)
+	}
+	actions := result["next_actions"].([]string)
+	for _, expected := range []string{
+		"claim_available_work",
+		"inspect_packet_with_inbox",
+		"recover_orphan_supervisor",
+		"recovery_auto_publish",
+		"resolve_human_checkpoint",
+		"derive_expected_byline",
+		"revise_workflow_cycle",
+		"recovery_process_reconcile",
+		"supervisor_stall_investigate",
+		"recovery_auto_finalize",
+	} {
+		if !containsString(actions, expected) {
+			t.Fatalf("next_actions missing %s in %#v", expected, actions)
+		}
+	}
+	if stringCount(actions, "derive_expected_byline") != 1 {
+		t.Fatalf("next_actions should de-duplicate derive_expected_byline: %#v", actions)
+	}
+}
+
+func TestHandleStatusRejectsUnknownRunID(t *testing.T) {
+	_, err := HandleStatus(context.Background(), statusFakeRunner{runFound: false}, rpc.Envelope{
+		Params: map[string]any{"repository_id": "repo_a", "run_id": "missing"},
+	})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	var rpcErr *rpc.Error
+	if !errors.As(err, &rpcErr) || rpcErr.Code != "not_found" {
+		t.Fatalf("err = %#v", err)
+	}
+}
+
+func containsString(items []string, expected string) bool {
+	for _, item := range items {
+		if item == expected {
+			return true
+		}
+	}
+	return false
+}
+
+func stringCount(items []string, expected string) int {
+	count := 0
+	for _, item := range items {
+		if item == expected {
+			count++
+		}
+	}
+	return count
+}

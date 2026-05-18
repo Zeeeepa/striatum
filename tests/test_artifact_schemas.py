@@ -192,6 +192,33 @@ def test_operator_brief_scope_links_are_bounded(tmp_path: Path) -> None:
         raise AssertionError("operator_brief with six scope links should fail")
 
 
+def test_operator_brief_context_budget_lines_is_schema_error(tmp_path: Path) -> None:
+    text = (
+        "---\n"
+        'schema_version: "striatum.operator_brief.v1"\n'
+        'artifact_kind: "operator_brief"\n'
+        'brief_id: "brief_over_budget"\n'
+        "supersedes: null\n"
+        'scope_links: ["docs/operator/plans/rfc-0058-operator-progress-surface.md"]\n'
+        "context_budget_lines: 1\n"
+        'retrieval_priority: "high"\n'
+        'status: "current"\n'
+        "---\n\n"
+        "# Brief\n"
+        "Too many body lines.\n"
+    )
+    path = tmp_path / "brief.md"
+
+    try:
+        parse_artifact_front_matter(kind="operator_brief", path=path, payload=text.encode("utf-8"))
+    except Exception as exc:  # noqa: BLE001 - assert message without depending on subclass import here.
+        message = str(exc)
+        assert "context_budget_lines" in message
+        assert "budget exceeded" in message
+    else:
+        raise AssertionError("operator_brief over context budget should fail")
+
+
 def test_legacy_sqlite_bootstrap_does_not_constrain_artifact_kind() -> None:
     assert "artifact_kind TEXT NOT NULL CHECK" not in SCHEMA_SQL
 

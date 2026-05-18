@@ -207,6 +207,25 @@ def build_parser() -> argparse.ArgumentParser:
     adopt.add_argument("--no-register", dest="register", action="store_false", default=True)
     adopt.add_argument("--json", action="store_true")
 
+    operator = sub.add_parser("operator")
+    operator_sub = operator.add_subparsers(dest="operator_command", required=True)
+    current_brief = operator_sub.add_parser(
+        "current-brief",
+        help="read docs/operator/BRIEF.md and print the current operator brief metadata",
+        description=(
+            "Read docs/operator/BRIEF.md and print the current operator brief metadata."
+        ),
+    )
+    current_brief.add_argument(
+        "--operator-docs-root",
+        help="operator docs directory containing BRIEF.md; defaults to docs/operator",
+    )
+    current_brief.add_argument(
+        "--json",
+        action="store_true",
+        help="emit the current operator brief metadata as JSON",
+    )
+
     daemon = sub.add_parser("daemon")
     daemon_sub = daemon.add_subparsers(dest="daemon_command", required=True)
     daemon_start = daemon_sub.add_parser("start")

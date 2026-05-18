@@ -65,6 +65,7 @@ from striatum.cli.mutations import (
     submit_review,
     verdict_work,
 )
+from striatum.cli.operator import current_brief, format_current_brief
 from striatum.cli.parser import build_parser
 from striatum.cli.recovery import (
     cancel_job,
@@ -227,6 +228,10 @@ def dispatch(args: argparse.Namespace) -> object:
     local_verify = (
         (args.command == "corpus" and getattr(args, "corpus_command", None) == "verify")
         or (args.command == "archive" and getattr(args, "archive_command", None) == "verify")
+        or (
+            args.command == "operator"
+            and getattr(args, "operator_command", None) == "current-brief"
+        )
     )
     if not local_verify:
         enforce_daemon_required(
@@ -263,7 +268,15 @@ def dispatch(args: argparse.Namespace) -> object:
         from striatum.day_zero import first_run_smoke
 
         return first_run_smoke(repo)
-    skip_daemon_route = args.command in {"daemon", "init", "skills", "plugin", "serve", "byline"}
+    skip_daemon_route = args.command in {
+        "daemon",
+        "init",
+        "operator",
+        "skills",
+        "plugin",
+        "serve",
+        "byline",
+    }
     if args.command == "corpus" and getattr(args, "corpus_command", None) == "verify":
         skip_daemon_route = True
     if args.command == "archive" and getattr(args, "archive_command", None) == "verify":
@@ -299,6 +312,14 @@ def dispatch(args: argparse.Namespace) -> object:
             ) from route_exc
     if args.command == "daemon":
         return _dispatch_daemon(args)
+    if args.command == "operator" and args.operator_command == "current-brief":
+        payload = current_brief(
+            repo,
+            operator_docs_root=getattr(args, "operator_docs_root", None),
+        )
+        if bool(getattr(args, "json", False)):
+            return payload
+        return format_current_brief(payload)
     if args.command == "repo":
         return _dispatch_daemon_repo(args)
     if args.command == "cross-repo":

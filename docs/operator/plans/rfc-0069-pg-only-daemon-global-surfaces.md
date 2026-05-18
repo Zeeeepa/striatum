@@ -31,7 +31,8 @@ compatibility.
 | Workflow upgrade fail-closed on unknown PostgreSQL state | landed |
 | Dashboard run-progress parity | landed |
 | Terminal dashboard production DTO routing | landed |
-| Remaining dashboard/global diagnostics parity | in_progress |
+| Go status read-model parity | landed |
+| Remaining registry-probe/global diagnostics cleanup | in_progress |
 
 ## Decisions Made
 
@@ -40,5 +41,5 @@ compatibility.
 
 ## Open Questions
 
-- Whether Go `status` should be expanded to full Python/PostgreSQL read-model
-  detail before the default daemon core flips.
+- Whether any remaining registry-probe/global diagnostic paths should be
+  generated from the method contract instead of curated by guardrail tests.

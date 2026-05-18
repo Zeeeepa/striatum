@@ -14,11 +14,15 @@ task explicitly asks for deeper archaeology.
 
 - [`rfc-0068-go-daemon-port.md`](plans/rfc-0068-go-daemon-port.md)
 - [`rfc-0069-pg-only-daemon-global-surfaces.md`](plans/rfc-0069-pg-only-daemon-global-surfaces.md)
-- [`rfc-0058-operator-progress-surface.md`](plans/rfc-0058-operator-progress-surface.md)
 
 ## Recent Progress
 
+- [`2026-05-18-go-status-and-current-brief.md`](progress/2026-05-18-go-status-and-current-brief.md)
 - [`2026-05-17-terminal-dashboard-daemon-dto.md`](progress/2026-05-17-terminal-dashboard-daemon-dto.md)
 - [`2026-05-17-workflow-upgrade-fail-closed.md`](progress/2026-05-17-workflow-upgrade-fail-closed.md)
 - [`2026-05-17-dashboard-run-progress.md`](progress/2026-05-17-dashboard-run-progress.md)
 - [`2026-05-17-remediation-to-operator-surface.md`](progress/2026-05-17-remediation-to-operator-surface.md)
+
+## Closed Plans
+
+- [`rfc-0058-operator-progress-surface.md`](plans/rfc-0058-operator-progress-surface.md)

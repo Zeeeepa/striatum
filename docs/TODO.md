@@ -116,7 +116,7 @@ so external references keep resolving even as items move between sections.
 | 62 | RFC 0069 PostgreSQL-only daemon-global surfaces | 🟡 most done |
 | 63 | RFC 0070 daemon client/service boundary completion | 🟡 most done |
 | 64 | RFC 0071 operator diagnostics and cutover evidence | 🟡 first slice landed |
-| 65 | RFC 0058 operator progress surface | 🟡 V1 landed; V1.5 remains |
+| 65 | RFC 0058 operator progress surface | ✅ done |
 
 Legend: ✅ done · 🟡 most done (sub-tasks remain) · ⏳ open/blocked · 💤 shelved
 
@@ -1262,8 +1262,12 @@ review and plan are root-level operator artifacts:
     opt-in is diagnostic-only. The terminal dashboard now renders production
     text frames from the daemon/PostgreSQL `dashboard` DTO, with the old
     repo-local SQLite gatherer isolated under `legacy_sqlite` for paired test
-    fixtures. Residual daemon-global gaps are Go `status` read-model detail
-    and any remaining registry probes found by guardrail scans. The
+    fixtures. Go `status` now matches the PostgreSQL/Python read-model shape
+    for job counts, nested verdict posture counts, queue-based claimable work,
+    blocker/checkpoint payloads, process health, supervisor stalls, phase
+    progress, provenance mode, auto-finalize dry-run visibility, and
+    deterministic next actions. Residual daemon-global gaps are any remaining
+    registry probes found by guardrail scans. The
     workflow-upgrade running-run guard now fails closed when PostgreSQL state
     is unknown and only opens repo-local SQLite under the paired test-harness
     compatibility escape.
@@ -1289,13 +1293,16 @@ review and plan are root-level operator artifacts:
     opening SQLite as a database. Remaining: decide how much of the command
     authority matrix should be generated versus curated.
 
-65. **RFC 0058: operator progress surface.** V1 foundation landed:
+65. **RFC 0058: operator progress surface.** Done:
     `operator_brief`, `work_plan`, `progress_note`, and `operator_report`
     are publisher-known artifact kinds with V1 front-matter schemas;
     corpus export emits operator-doc metadata columns; and `docs/operator/`
     now carries the current brief, open plans, progress notes, and a handoff
-    deprecation pointer. Remaining: optional V1.5 operator-tree init/rotation
-    commands and stricter context-budget linting.
+    deprecation pointer. V1.5 landed `striatum operator current-brief`,
+    configurable `--operator-docs-root`, daemon-enforcement/RPC exemptions for
+    that local read, and schema errors for `operator_brief`
+    `context_budget_lines` overruns. Operator-tree init/rotation is deferred
+    outside the accepted V1.5 slice.
 
 ## GH issue follow-ups
 

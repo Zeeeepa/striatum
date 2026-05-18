@@ -16,5 +16,5 @@ both Go and Python/PostgreSQL projections. Each entry carries phase progress,
 auto-finalize dry-run visibility, and supervisor-stall detail without opening
 repo-local SQLite.
 
-Remaining related work is outside this slice: continue Go status/dashboard DTO
-parity where concrete gaps remain.
+Go status detail parity landed on 2026-05-18. Remaining related work is only
+concrete registry-probe or global DTO cleanup found by guardrail scans.
