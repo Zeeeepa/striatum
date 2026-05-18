@@ -111,21 +111,60 @@ def serve_artifact_raw(ctx: ArtifactRawContext, artifact_id: str) -> None:
         ctx.send_json(500, _error(500, f"{type(exc).__name__}: {exc}"))
         return
 
-    try:
-        repo_path = resolve_artifact_file(ctx.repo, artifact.get("repo_path"))
-    except ValueError:
-        ctx.send_json(404, _error(404, "artifact file missing on disk"))
-        return
-    if not repo_path.is_file():
-        ctx.send_json(404, _error(404, "artifact file missing on disk"))
-        return
-    try:
-        data = repo_path.read_bytes()
-    except OSError as exc:
-        ctx.send_json(500, _error(500, str(exc)))
-        return
+    # RFC 0072: prefer the daemon-fetched body when the artifact is
+    # blob-routed (blob_key set). Otherwise fall back to the legacy
+    # disk read.
+    data: bytes | None = None
+    content_type: str | None = None
+    blob_key = artifact.get("blob_key")
+    if isinstance(blob_key, str) and blob_key:
+        try:
+            payload = call_repo_method(
+                ctx.repo,
+                "artifact.get_content",
+                {"artifact_id": artifact_id},
+            )
+        except ServiceDaemonRpcError as exc:
+            ctx.send_json(exc.status, _rpc_error(exc.code, exc.message))
+            return
+        except Exception as exc:  # noqa: BLE001
+            ctx.send_json(500, _error(500, f"{type(exc).__name__}: {exc}"))
+            return
+        body_base64 = payload.get("body_base64") if isinstance(payload, Mapping) else None
+        if not isinstance(body_base64, str):
+            ctx.send_json(500, _error(500, "blob artifact missing body_base64"))
+            return
+        try:
+            import base64
+
+            data = base64.b64decode(body_base64, validate=True)
+        except (ValueError, TypeError) as exc:
+            ctx.send_json(500, _error(500, f"blob body base64 decode failed: {exc}"))
+            return
+        content_type_raw = payload.get("content_type") if isinstance(payload, Mapping) else None
+        if isinstance(content_type_raw, str) and content_type_raw:
+            content_type = content_type_raw
+
+    if data is None:
+        try:
+            repo_path = resolve_artifact_file(ctx.repo, artifact.get("repo_path"))
+        except ValueError:
+            ctx.send_json(404, _error(404, "artifact file missing on disk"))
+            return
+        if not repo_path.is_file():
+            ctx.send_json(404, _error(404, "artifact file missing on disk"))
+            return
+        try:
+            data = repo_path.read_bytes()
+        except OSError as exc:
+            ctx.send_json(500, _error(500, str(exc)))
+            return
+        if content_type is None:
+            content_type = artifact_content_type(repo_path)
+    if content_type is None:
+        content_type = "application/octet-stream"
     ctx.send_response(200)
-    ctx.send_header("Content-Type", artifact_content_type(repo_path))
+    ctx.send_header("Content-Type", content_type)
     ctx.send_header("Content-Length", str(len(data)))
     ctx.send_header("Content-Security-Policy", "default-src 'none'")
     ctx.send_header("Connection", "close")
@@ -137,6 +176,15 @@ def serve_artifact_raw(ctx: ArtifactRawContext, artifact_id: str) -> None:
 
 
 def inline_artifact_body(repo: Path, artifact: Mapping[str, Any]) -> InlineArtifactBody:
+    # RFC 0072: blob-routed artifacts have their body in S3, not on
+    # disk. Fetch via daemon RPC artifact.get_content; the daemon
+    # verifies sha256 on read. Markdown bodies render through the same
+    # md pipeline as the disk path; non-markdown returns no inline
+    # body (operator opens the raw endpoint).
+    blob_key = artifact.get("blob_key")
+    if isinstance(blob_key, str) and blob_key:
+        return _inline_blob_artifact_body(repo, artifact)
+
     repo_path = artifact.get("repo_path") or ""
     try:
         full = resolve_artifact_file(repo, repo_path)
@@ -148,6 +196,48 @@ def inline_artifact_body(repo: Path, artifact: Mapping[str, Any]) -> InlineArtif
         return InlineArtifactBody(rendered_md=md_render(body), body_text=None)
     except (ValueError, OSError):
         return InlineArtifactBody()
+
+
+def _inline_blob_artifact_body(repo: Path, artifact: Mapping[str, Any]) -> InlineArtifactBody:
+    artifact_id = artifact.get("artifact_id")
+    repo_path = artifact.get("repo_path")
+    if not isinstance(artifact_id, str) or not artifact_id:
+        return InlineArtifactBody()
+    if not isinstance(repo_path, str) or not repo_path.endswith(".md"):
+        # Non-markdown bodies (.json, binary, etc.) do not get inline
+        # rendering. The raw endpoint serves them.
+        return InlineArtifactBody()
+
+    try:
+        from striatum.service_daemon import ServiceDaemonRpcError, call_repo_method
+
+        payload = call_repo_method(
+            repo,
+            "artifact.get_content",
+            {"artifact_id": artifact_id},
+        )
+    except ServiceDaemonRpcError:
+        return InlineArtifactBody()
+    except Exception:  # noqa: BLE001
+        return InlineArtifactBody()
+
+    body_base64 = payload.get("body_base64") if isinstance(payload, Mapping) else None
+    if not isinstance(body_base64, str):
+        return InlineArtifactBody()
+    try:
+        import base64
+
+        body_bytes = base64.b64decode(body_base64, validate=True)
+    except (ValueError, TypeError):
+        return InlineArtifactBody()
+    try:
+        body_text = body_bytes.decode("utf-8")
+    except UnicodeDecodeError:
+        return InlineArtifactBody()
+
+    from striatum.web.markdown import render as md_render
+
+    return InlineArtifactBody(rendered_md=md_render(body_text), body_text=None)
 
 
 def artifact_view_template_context(
