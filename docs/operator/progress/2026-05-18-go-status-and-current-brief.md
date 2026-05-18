@@ -34,3 +34,8 @@ slice.
 Web and chat workflow-generation preview now use the daemon RPC
 `workflow.generate.preview` route in production and keep the in-process
 generator only for the explicit test-harness fallback.
+
+RFC 0070 client-boundary cleanup also fenced the remaining production
+`cross-repo` CLI direct-PostgreSQL fallback. If daemon RPC routing does not
+handle a cross-repo command, production dispatch now fails closed instead of
+opening daemon PostgreSQL directly.

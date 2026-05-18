@@ -1239,6 +1239,8 @@ review and plan are root-level operator artifacts:
     CI executes that gate on Linux with PostgreSQL. Go `run.prepare` now uses
     the Go workflow-authoring loader before writing rows, enforcing repo-bound
     path checks and JSON-only workflow source validation in the Go daemon path.
+    Production `cross-repo` CLI dispatch now refuses direct PostgreSQL fallback
+    outside the paired legacy test-harness escape.
     Remaining Go-port debt is explicit fail-closed/parity work before the
     default daemon core flips.
 

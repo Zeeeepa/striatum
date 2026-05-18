@@ -1659,6 +1659,12 @@ def _dispatch_daemon_repo(args: argparse.Namespace) -> object:
 
 
 def _dispatch_cross_repo(args: argparse.Namespace) -> object:
+    if not _legacy_sqlite_test_harness_enabled():
+        raise StriatumError(
+            "daemon_route_required: cross-repo commands must route through "
+            "daemon RPC and cannot open daemon PostgreSQL directly",
+            exit_code=12,
+        )
     from striatum.cross_repo import (
         PgCrossRepoLocalRunner,
         cancel_cross_repo_run,

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import importlib
 import json
 from pathlib import Path
 from typing import Any, Mapping
@@ -898,6 +899,24 @@ def test_cross_repo_cancel_routes_when_daemon_is_reachable(monkeypatch: pytest.M
         "method": "cross_repo.cancel",
         "params": {"cross_repo_run_id": "xrun_1", "reason": "operator requested"},
     }
+
+
+def test_cross_repo_direct_dispatch_refuses_production_pg_fallback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    dispatch_mod = importlib.import_module("striatum.cli.dispatch")
+
+    monkeypatch.delenv("STRIATUM_TEST_HARNESS", raising=False)
+    monkeypatch.delenv("STRIATUM_DAEMON_REQUIRED", raising=False)
+
+    args = argparse.Namespace(
+        command="cross-repo",
+        cross_repo_command="list",
+        postgres_url=None,
+    )
+
+    with pytest.raises(StriatumError, match="daemon_route_required"):
+        dispatch_mod._dispatch_cross_repo(args)  # noqa: SLF001 - client-boundary guardrail.
 
 
 def test_decision_record_preserves_run_path_and_followup() -> None:

@@ -81,6 +81,9 @@ Recent checkpoints:
 - Web and chat workflow-generation preview now call
   `workflow.generate.preview` through daemon RPC in production, preserving
   the local in-process generator only for the explicit test-harness fallback.
+- Production `cross-repo` CLI dispatch now refuses the remaining direct
+  PostgreSQL fallback path if daemon RPC routing did not handle the command;
+  the direct path is limited to the explicit legacy test-harness escape.
 - Go `daemon.key.rotate` now rotates a local Ed25519 sealed-apply signing
   key into the `0600` fallback key file, returns the new key id/public key
   metadata, and `daemon.hello` advertises the current public key when the
