@@ -5,7 +5,7 @@
   <h1>Workflows</h1>
   <p class="run-meta">
     <span class="muted">{{ workflows | length }} workflow.json file{{ "" if workflows | length == 1 else "s" }}</span>
-    <a class="primary-button" href="/workflows/new">New workflow</a>
+    <span class="muted">Author via <code>striatum workflow generate</code>.</span>
   </p>
 
   {% if workflows %}

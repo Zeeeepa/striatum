@@ -41,33 +41,11 @@
     </section>
 
     <section>
-      <h2>Workflow chooser</h2>
-      <div
-        id="island-workflow-chooser"
-        data-props='{"allowMutations": false, "templatesUrl": "/workflow-templates", "previewUrl": "/workflows/generate/preview", "generateUrl": "/workflows/generate"}'
-      ></div>
-    </section>
-
-    <section>
       <h2>Recovery panel</h2>
       <div
         id="island-recovery-panel"
         data-props='{"runId": "run_demo", "recipes": [{"label": "Process reconcile", "command": "striatum recovery process-reconcile --run-id run_demo"}]}'
       ></div>
-    </section>
-
-    <section>
-      <h2>Workflow graph editor</h2>
-      <div
-        id="island-workflow-graph-editor"
-        data-props='{"path": "examples/workflow.json", "saveUrl": "/workflows/edit/examples/workflow.json", "fallback": false}'
-      ></div>
-      <script id="workflow-data" type="application/json">
-        {"workflow_id": "demo", "jobs": [{"id": "draft_1", "type": "generic"}, {"id": "review_1", "type": "review"}], "edges": [{"from": "draft_1", "to": "review_1", "on": "completed"}]}
-      </script>
-      <script id="workflow-sha256" type="application/json">
-        ""
-      </script>
     </section>
 
     <section>

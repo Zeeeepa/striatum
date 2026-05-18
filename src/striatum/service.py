@@ -387,23 +387,8 @@ class StriatumServiceHandler(BaseHTTPRequestHandler):
     def _render_workflows_index_page(self) -> None:
         _workflows.render_workflows_index_page(self._workflow_route_context())
 
-    def _render_workflows_new_page(self) -> None:
-        _workflows.render_workflows_new_page(self._workflow_route_context())
-
     def _render_workflow_detail_page(self, rel_path: str) -> None:
         _workflows.render_workflow_detail_page(
-            self._workflow_route_context(),
-            rel_path,
-        )
-
-    def _render_workflow_edit_page(self, rel_path: str) -> None:
-        _workflows.render_workflow_edit_page(
-            self._workflow_route_context(),
-            rel_path,
-        )
-
-    def _handle_workflow_edit_save(self, rel_path: str) -> None:
-        _workflows.handle_workflow_edit_save(
             self._workflow_route_context(),
             rel_path,
         )

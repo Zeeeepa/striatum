@@ -36,31 +36,12 @@ WEB_BUILD_ASSETS = (
     "build/island-shared.js",
     "build/island-tree-browser.js",
     "build/island-recovery-panel.js",
-    "build/island-workflow-chooser.js",
-    "build/island-workflow-graph-editor.js",
     "build/island-code-viewer.js",
     "build/style.css",
     "build/manifest.sha256",
 )
 STATIC_ASSET_URL_RE = re.compile(r"https?://[^\s\"'<>`,)}]+", re.IGNORECASE)
-INERT_STATIC_ASSET_URLS_BY_ASSET = {
-    # React Flow/D3 bundle these as namespace identifiers and reference
-    # metadata. They are not imports, fetch targets, or CDN/service
-    # dependencies, so they do not violate D020's local-first boundary.
-    "build/island-workflow-graph-editor.js": frozenset(
-        {
-            "http://www.w3.org/1999/xhtml",
-            "http://www.w3.org/1999/xlink",
-            "http://www.w3.org/2000/svg",
-            "http://www.w3.org/2000/xmlns/",
-            "http://www.w3.org/XML/1998/namespace",
-            "https://reactflow.dev",
-            "https://reactflow.dev/api-reference/types/react-flow-instance#screen-to-flow-position",
-            "https://reactflow.dev/error#001",
-            "https://reactflow.dev/pro",
-        }
-    ),
-}
+INERT_STATIC_ASSET_URLS_BY_ASSET: dict[str, frozenset[str]] = {}
 
 
 def _git_init_repo(repo: Path) -> None:
@@ -399,8 +380,6 @@ _PLACEHOLDER_SENTINEL = "Striatum frontend island placeholder loaded"
 _STABLE_ISLAND_ENTRIES = (
     "build/island-shared.js",
     "build/island-tree-browser.js",
-    "build/island-workflow-chooser.js",
-    "build/island-workflow-graph-editor.js",
     "build/island-code-viewer.js",
 )
 
@@ -415,18 +394,6 @@ def test_island_bundles_have_no_placeholder_sentinel() -> None:
             f"{name} still contains the V1 placeholder sentinel; "
             "rebuild with `make ui-build` (RFC 0038 V1.5 F1)."
         )
-
-
-def test_island_workflow_chooser_bundle_resolvable_for_chooser_route() -> None:
-    """RFC 0038 V1.5 F4 — packaging tests assert the chooser bundle is
-    available through importlib.resources. The named-resource lookup
-    mirrors what `service._serve_static_file` does in production."""
-    from importlib.resources import files
-
-    pkg = files("striatum.web.static")
-    chooser = pkg.joinpath("build/island-workflow-chooser.js")
-    assert chooser.is_file()
-    assert len(chooser.read_bytes()) > 0
 
 
 # ----- 8. /v1/* endpoints still work when --web is set ------------------

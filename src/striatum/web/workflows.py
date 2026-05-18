@@ -9,7 +9,6 @@ the index page + chat tool consume.
 from __future__ import annotations
 
 import json
-import hashlib
 from collections.abc import Callable
 from datetime import UTC, datetime
 from dataclasses import dataclass
@@ -21,16 +20,11 @@ __all__ = [
     "WorkflowDetailPageResponse",
     "WorkflowRouteContext",
     "discover",
-    "handle_workflow_edit_save",
     "list_repo_tree",
     "load_workflow_at",
     "render_workflow_detail_page",
-    "render_workflow_edit_page",
     "render_workflows_index_page",
-    "render_workflows_new_page",
-    "save_workflow_file",
     "workflow_detail_page_response",
-    "workflow_edit_payload",
     "workflow_index_page_response",
 ]
 
@@ -61,13 +55,6 @@ _SKIP_DIRS = frozenset({
     ".coverage",
     "htmlcov",
 })
-
-
-@dataclass(frozen=True)
-class _WorkflowPath:
-    target: Path
-    rel_norm: str
-    rel_parts: tuple[str, ...]
 
 
 class WorkflowFileError(Exception):
@@ -103,88 +90,11 @@ class WorkflowRouteContext:
     jinja_env: TemplateEnvFactory
 
 
-def _resolve_edit_path(repo: Path, rel_path: str) -> _WorkflowPath:
-    if not rel_path:
-        raise WorkflowFileError(404, "missing path")
-    if rel_path.startswith("/") or "\x00" in rel_path or ".." in Path(rel_path).parts:
-        raise WorkflowFileError(400, "invalid path")
-    repo_root = repo.resolve()
-    target = (repo / rel_path).resolve()
-    try:
-        target.relative_to(repo_root)
-    except ValueError as exc:
-        raise WorkflowFileError(400, "path escapes repo") from exc
-    rel_parts = target.relative_to(repo_root).parts
-    if rel_parts and rel_parts[0] in (".git", ".striatum"):
-        raise WorkflowFileError(404, "hidden path")
-    return _WorkflowPath(target=target, rel_norm="/".join(rel_parts), rel_parts=rel_parts)
-
-
-def workflow_edit_payload(repo: Path, rel_path: str) -> dict[str, Any]:
-    """Return template data for the workflow visual editor."""
-    resolved = _resolve_edit_path(repo, rel_path)
-    target = resolved.target
-    is_new = not target.is_file()
-    if is_new:
-        stem = (
-            resolved.rel_parts[-2]
-            if len(resolved.rel_parts) >= 2
-            else (resolved.rel_parts[0] if resolved.rel_parts else "new-workflow")
-        )
-        workflow_data: dict[str, Any] = {
-            "schema_version": "striatum.workflow.v1",
-            "workflow_id": stem,
-            "workflow_version": "1",
-            "name": "",
-            "branch": {"mode": "confirm", "suggested_name": f"wf/{stem}", "allow_dirty": False},
-            "coordinator": {"role_id": "", "lane_id": ""},
-            "lanes": {},
-            "roles": {},
-            "context_docs": [],
-            "parallelism": {
-                "mode": "declared",
-                "max_active_jobs": 1,
-                "require_disjoint_write_scopes": True,
-            },
-            "jobs": [],
-            "edges": [],
-            "cycles": [],
-        }
-        sha256 = ""
-    else:
-        try:
-            workflow_data = json.loads(target.read_text(encoding="utf-8"))
-            if not isinstance(workflow_data, dict):
-                workflow_data = {}
-        except (OSError, json.JSONDecodeError):
-            workflow_data = {}
-        try:
-            sha256 = hashlib.sha256(target.read_bytes()).hexdigest()
-        except OSError:
-            sha256 = ""
-    return {
-        "rel_path": resolved.rel_norm,
-        "is_new": is_new,
-        "workflow_data": workflow_data,
-        "workflow_sha256": sha256,
-    }
-
-
 def render_workflows_index_page(ctx: WorkflowRouteContext) -> None:
     try:
         workflows = workflow_index_page_response(ctx.repo)
         html = ctx.jinja_env().get_template("workflows_index.html").render(
             workflows=workflows,
-        )
-        ctx.send_html(200, html)
-    except Exception as exc:  # noqa: BLE001
-        ctx.send_json(500, _error(500, str(exc)))
-
-
-def render_workflows_new_page(ctx: WorkflowRouteContext) -> None:
-    try:
-        html = ctx.jinja_env().get_template("workflow_new.html").render(
-            allow_mutations=ctx.allow_mutations,
         )
         ctx.send_html(200, html)
     except Exception as exc:  # noqa: BLE001
@@ -203,146 +113,6 @@ def render_workflow_detail_page(ctx: WorkflowRouteContext, rel_path: str) -> Non
         ctx.send_json(exc.status_code, _error(exc.status_code, exc.message))
     except Exception as exc:  # noqa: BLE001
         ctx.send_json(500, _error(500, str(exc)))
-
-
-def render_workflow_edit_page(ctx: WorkflowRouteContext, rel_path: str) -> None:
-    try:
-        payload = workflow_edit_payload(ctx.repo, rel_path)
-        html = ctx.jinja_env().get_template("workflow_edit.html").render(
-            rel_path=payload["rel_path"],
-            is_new=payload["is_new"],
-            workflow_json=json.dumps(payload["workflow_data"]),
-            workflow_sha256=payload["workflow_sha256"],
-        )
-        ctx.send_html(200, html)
-    except WorkflowFileError as exc:
-        ctx.send_json(exc.status_code, _error(exc.status_code, exc.message))
-    except Exception as exc:  # noqa: BLE001
-        ctx.send_json(500, _error(500, str(exc)))
-
-
-def handle_workflow_edit_save(ctx: WorkflowRouteContext, rel_path: str) -> None:
-    if not ctx.allow_mutations:
-        ctx.send_json(405, _error(405, "workflow edit requires --allow-mutations"))
-        return
-    data = _read_workflow_edit_body(ctx, rel_path)
-    if data is None:
-        return
-    try:
-        result = save_workflow_file(
-            ctx.repo,
-            rel_path,
-            data,
-            if_match=ctx.headers.get("If-Match", ""),
-        )
-    except WorkflowFileError as exc:
-        error: JsonObject = {"code": exc.status_code, "message": exc.message}
-        if exc.errors is not None:
-            error["errors"] = exc.errors
-        if exc.current_sha256 is not None:
-            error["current_sha256"] = exc.current_sha256
-        ctx.send_json(exc.status_code, {"ok": False, "error": error})
-        return
-    ctx.send_json(200, {"ok": True, "data": result})
-
-
-def _read_workflow_edit_body(
-    ctx: WorkflowRouteContext,
-    rel_path: str,
-) -> dict[str, Any] | None:
-    if not rel_path:
-        ctx.send_json(404, _error(404, "missing path"))
-        return None
-    if rel_path.startswith("/") or "\x00" in rel_path or ".." in Path(rel_path).parts:
-        ctx.send_json(400, _error(400, "invalid path"))
-        return None
-    ctype = ctx.headers.get("Content-Type", "")
-    if "application/json" not in ctype:
-        ctx.send_json(415, _error(415, "Content-Type must be application/json"))
-        return None
-    try:
-        length = int(ctx.headers.get("Content-Length") or "0")
-    except ValueError:
-        length = 0
-    if length > 1024 * 1024:
-        ctx.send_json(413, _error(413, "body too large (1 MB cap)"))
-        return None
-    try:
-        raw = ctx.rfile.read(length).decode("utf-8", errors="replace") if length > 0 else ""
-    except OSError as exc:
-        ctx.send_json(400, _error(400, str(exc)))
-        return None
-    try:
-        data = json.loads(raw)
-    except json.JSONDecodeError as exc:
-        ctx.send_json(400, _error(400, f"invalid JSON: {exc}"))
-        return None
-    if not isinstance(data, dict):
-        ctx.send_json(400, _error(400, "body must be a JSON object"))
-        return None
-    return data
-
-
-def save_workflow_file(
-    repo: Path,
-    rel_path: str,
-    data: dict[str, Any],
-    *,
-    if_match: str = "",
-) -> dict[str, str]:
-    """Validate and atomically write a workflow JSON file."""
-    from striatum.errors import WorkflowError
-    from striatum.workflow import validate_workflow
-
-    resolved = _resolve_edit_path(repo, rel_path)
-    target = resolved.target
-    try:
-        validate_workflow(data)
-    except WorkflowError as exc:
-        errors: list[dict[str, str]] = []
-        field_path = getattr(exc, "field_path", None)
-        if isinstance(field_path, str) and field_path:
-            errors.append({"field_path": field_path, "message": str(exc)})
-        raise WorkflowFileError(422, str(exc), errors=errors) from exc
-    except Exception as exc:  # noqa: BLE001
-        raise WorkflowFileError(422, f"{type(exc).__name__}: {exc}", errors=[]) from exc
-
-    expected_sha = if_match.strip().strip('"')
-    if expected_sha and target.is_file():
-        try:
-            current_sha = hashlib.sha256(target.read_bytes()).hexdigest()
-        except OSError as exc:
-            raise WorkflowFileError(500, f"read failed: {exc}") from exc
-        if current_sha != expected_sha:
-            raise WorkflowFileError(
-                412,
-                "If-Match precondition failed; file changed on disk",
-                current_sha256=current_sha,
-            )
-
-    try:
-        target.parent.mkdir(parents=True, exist_ok=True)
-        tmp = target.with_suffix(target.suffix + ".tmp")
-        tmp.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
-        if expected_sha and target.is_file():
-            try:
-                final_sha = hashlib.sha256(target.read_bytes()).hexdigest()
-            except OSError:
-                final_sha = expected_sha
-            if final_sha != expected_sha:
-                tmp.unlink(missing_ok=True)
-                raise WorkflowFileError(
-                    412,
-                    "If-Match precondition failed; file changed during validate",
-                    current_sha256=final_sha,
-                )
-        tmp.replace(target)
-    except WorkflowFileError:
-        raise
-    except OSError as exc:
-        raise WorkflowFileError(500, f"write failed: {exc}") from exc
-    new_sha = hashlib.sha256(target.read_bytes()).hexdigest()
-    return {"path": resolved.rel_norm, "status": "saved", "sha256": new_sha}
 
 
 def _modified_at(path: Path) -> str | None:

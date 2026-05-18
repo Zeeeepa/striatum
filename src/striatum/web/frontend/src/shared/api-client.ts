@@ -6,10 +6,7 @@
 
 import type {
   ApiResult,
-  GeneratedWorkflow,
   RepoTreeResponse,
-  WorkflowDocument,
-  WorkflowTemplateListResponse,
 } from "./types";
 
 async function handle<T>(resp: Response): Promise<ApiResult<T>> {
@@ -51,82 +48,4 @@ export async function fetchRepoTree(
     headers: { Accept: "application/json" },
   });
   return handle<RepoTreeResponse>(resp);
-}
-
-export async function fetchWorkflowTemplates(
-  url: string = "/workflow-templates",
-): Promise<ApiResult<WorkflowTemplateListResponse>> {
-  const resp = await fetch(url, {
-    credentials: "same-origin",
-    headers: { Accept: "application/json" },
-  });
-  return handle<WorkflowTemplateListResponse>(resp);
-}
-
-export interface GenerationSpec {
-  shape: string;
-  lane_set: string;
-  modifiers?: string[];
-  workflow_id: string;
-  name?: string;
-  scaffold_root: string;
-  artifact_root: string;
-  branch_suggestion?: string;
-  lane_commands?: Record<string, string[]>;
-  options?: Record<string, unknown>;
-}
-
-export async function generateWorkflowPreview(
-  spec: GenerationSpec,
-  url: string = "/workflows/generate/preview",
-): Promise<ApiResult<GeneratedWorkflow>> {
-  const resp = await fetch(url, {
-    method: "POST",
-    credentials: "same-origin",
-    headers: { "Content-Type": "application/json", Accept: "application/json" },
-    body: JSON.stringify({ spec }),
-  });
-  return handle<GeneratedWorkflow>(resp);
-}
-
-export async function generateWorkflowWrite(
-  spec: GenerationSpec,
-  url: string = "/workflows/generate",
-): Promise<ApiResult<GeneratedWorkflow>> {
-  const resp = await fetch(url, {
-    method: "POST",
-    credentials: "same-origin",
-    headers: { "Content-Type": "application/json", Accept: "application/json" },
-    body: JSON.stringify({ spec, confirm_write: true }),
-  });
-  return handle<GeneratedWorkflow>(resp);
-}
-
-export interface SaveWorkflowResult {
-  status: 200 | 412 | number;
-  body: unknown;
-}
-
-export async function saveWorkflow(
-  relPath: string,
-  body: WorkflowDocument,
-  diskSha256: string,
-  url?: string,
-): Promise<SaveWorkflowResult> {
-  const headers: Record<string, string> = { "Content-Type": "application/json" };
-  if (diskSha256) headers["If-Match"] = `"${diskSha256}"`;
-  const target = url ?? "/workflows/edit/" + relPath;
-  const resp = await fetch(target, {
-    method: "POST",
-    credentials: "same-origin",
-    headers,
-    body: JSON.stringify(body),
-  });
-  let parsed: unknown = null;
-  try {
-    parsed = await resp.json();
-  } catch {
-    parsed = null;
-  }
-  return { status: resp.status, body: parsed };
 }

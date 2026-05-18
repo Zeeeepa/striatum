@@ -10,9 +10,7 @@ from striatum.web.workflows import (
     WorkflowFileError,
     discover,
     load_workflow_at,
-    save_workflow_file,
     workflow_detail_page_response,
-    workflow_edit_payload,
     workflow_index_page_response,
 )
 
@@ -265,61 +263,6 @@ def test_load_workflow_at_missing(tmp_path: Path) -> None:
     assert load_workflow_at(tmp_path, "nope.json") is None
 
 
-# --- workflow editor file helpers -----------------------------------
-
-
-def test_workflow_edit_payload_scaffolds_missing_workflow(tmp_path: Path) -> None:
-    payload = workflow_edit_payload(tmp_path, "examples/new-flow/workflow.json")
-
-    assert payload["rel_path"] == "examples/new-flow/workflow.json"
-    assert payload["is_new"] is True
-    assert payload["workflow_sha256"] == ""
-    assert payload["workflow_data"]["workflow_id"] == "new-flow"
-
-
-def test_workflow_edit_payload_refuses_hidden_path(tmp_path: Path) -> None:
-    try:
-        workflow_edit_payload(tmp_path, ".striatum/workflow.json")
-    except WorkflowFileError as exc:
-        assert exc.status_code == 404
-        assert exc.message == "hidden path"
-    else:  # pragma: no cover - pytest assertion context.
-        raise AssertionError("expected hidden path refusal")
-
-
-def test_save_workflow_file_writes_valid_json_and_sha(tmp_path: Path) -> None:
-    result = save_workflow_file(
-        tmp_path,
-        "examples/new-wf/workflow.json",
-        dict(_VALID_WORKFLOW),
-    )
-
-    target = tmp_path / "examples" / "new-wf" / "workflow.json"
-    assert result["path"] == "examples/new-wf/workflow.json"
-    assert result["status"] == "saved"
-    assert result["sha256"]
-    assert json.loads(target.read_text(encoding="utf-8"))["workflow_id"] == "wf-test-valid"
-
-
-def test_save_workflow_file_stale_if_match_reports_current_sha(tmp_path: Path) -> None:
-    target = tmp_path / "examples" / "wf" / "workflow.json"
-    target.parent.mkdir(parents=True)
-    target.write_text(json.dumps(_VALID_WORKFLOW), encoding="utf-8")
-
-    try:
-        save_workflow_file(
-            tmp_path,
-            "examples/wf/workflow.json",
-            dict(_VALID_WORKFLOW),
-            if_match="deadbeef",
-        )
-    except WorkflowFileError as exc:
-        assert exc.status_code == 412
-        assert exc.current_sha256
-    else:  # pragma: no cover - pytest assertion context.
-        raise AssertionError("expected If-Match refusal")
-
-
 # --- workflow page response helpers ---------------------------------
 
 
@@ -401,7 +344,6 @@ def test_workflows_index_renders(tmp_path: Path) -> None:
         assert b"<time datetime=" in body
         assert b"workflows-index-data" in body
         assert b"/static/workflows_index.js" in body
-        assert b'href="/workflows/new"' in body
     finally:
         _stop_service(proc)
 
@@ -420,39 +362,6 @@ def test_workflows_index_renders_lint_warning_count_and_text(tmp_path: Path) -> 
         assert b"1 warning" in body
         assert b"same_model_review_pair" in body
         assert b"same model family" in body
-    finally:
-        _stop_service(proc)
-
-
-def test_workflows_new_renders_chooser_island(tmp_path: Path) -> None:
-    _git_init_repo(tmp_path)
-    _striatum_init(tmp_path)
-    proc, port = _spawn_service(tmp_path, "--web")
-    try:
-        status, _, body = _http_get_raw(port, "/workflows/new")
-        assert status == 200
-        assert b'id="island-workflow-chooser"' in body
-        assert b"/static/build/island-workflow-chooser.js" in body
-    finally:
-        _stop_service(proc)
-
-
-def test_workflows_edit_renders_graph_editor_island(tmp_path: Path) -> None:
-    """RFC 0038 V1.5 regression — `/workflows/edit/<path>` ships the graph
-    editor island bundle. Pins the bundle URL so packaging and template
-    surface stay aligned with `/static/build/`."""
-    _git_init_repo(tmp_path)
-    _striatum_init(tmp_path)
-    (tmp_path / "examples").mkdir()
-    (tmp_path / "examples" / "workflow.json").write_text(
-        json.dumps(_VALID_WORKFLOW), encoding="utf-8",
-    )
-    proc, port = _spawn_service(tmp_path, "--web")
-    try:
-        status, _, body = _http_get_raw(port, "/workflows/edit/examples/workflow.json")
-        assert status == 200
-        assert b'id="island-workflow-graph-editor"' in body
-        assert b"/static/build/island-workflow-graph-editor.js" in body
     finally:
         _stop_service(proc)
 

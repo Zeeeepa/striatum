@@ -19,16 +19,12 @@ import "./shared/theme.css";
 
 import TreeBrowser from "./islands/tree-browser";
 import RecoveryPanel from "./islands/recovery-panel";
-import WorkflowChooser from "./islands/workflow-chooser";
-import WorkflowGraphEditor from "./islands/workflow-graph-editor";
 import CodeViewer from "./islands/code-viewer";
 import type { RecoveryPanelProps } from "./islands/recovery-panel";
 
 import type {
   CodeViewerProps,
   TreeBrowserProps,
-  WorkflowChooserProps,
-  WorkflowGraphEditorProps,
 } from "./shared/types";
 
 mount<TreeBrowserProps>({
@@ -43,20 +39,6 @@ mount<RecoveryPanelProps>({
   label: "recovery-panel",
   defaultProps: { runId: "" },
   render: (props) => createElement(RecoveryPanel, props),
-});
-
-mount<WorkflowChooserProps>({
-  containerId: "island-workflow-chooser",
-  label: "workflow-chooser",
-  defaultProps: { allowMutations: false },
-  render: (props) => createElement(WorkflowChooser, props),
-});
-
-mount<WorkflowGraphEditorProps>({
-  containerId: "island-workflow-graph-editor",
-  label: "workflow-graph-editor",
-  defaultProps: { path: "", saveUrl: "" },
-  render: (props) => createElement(WorkflowGraphEditor, props),
 });
 
 mount<CodeViewerProps>({

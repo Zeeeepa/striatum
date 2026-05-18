@@ -61,12 +61,6 @@ def dispatch_get(handler: Any) -> None:
     if handler.state.web_enabled and path == "/workflows":
         handler._render_workflows_index_page()
         return
-    if handler.state.web_enabled and path == "/workflows/new":
-        handler._render_workflows_new_page()
-        return
-    if handler.state.web_enabled and path.startswith("/workflows/edit/"):
-        handler._render_workflow_edit_page(path[len("/workflows/edit/"):])
-        return
     if handler.state.web_enabled and path.startswith("/workflows/"):
         handler._render_workflow_detail_page(path[len("/workflows/"):])
         return
@@ -106,9 +100,6 @@ def dispatch_post(handler: Any) -> None:
         return
     if handler.state.web_enabled and parsed.path == "/chat/new":
         handler._handle_chat_new()
-        return
-    if handler.state.web_enabled and parsed.path.startswith("/workflows/edit/"):
-        handler._handle_workflow_edit_save(parsed.path[len("/workflows/edit/"):])
         return
     if handler.state.web_enabled and parsed.path.startswith("/workflows/run/"):
         handler._handle_workflow_run_now(parsed.path[len("/workflows/run/"):])
