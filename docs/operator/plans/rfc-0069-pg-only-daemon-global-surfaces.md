@@ -28,7 +28,7 @@ compatibility.
 | Registry gate requires paired test escape | landed |
 | Daemon MCP resources over PostgreSQL | landed |
 | Daemon audit, health, doctor, status, stop over PostgreSQL | landed |
-| Workflow upgrade fail-closed on SQLite fallback | landed |
+| Workflow upgrade fail-closed on unknown PostgreSQL state | landed |
 | Dashboard run-progress parity | landed |
 | Remaining dashboard/global diagnostics parity | in_progress |
 

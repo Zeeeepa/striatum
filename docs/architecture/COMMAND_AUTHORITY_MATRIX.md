@@ -182,7 +182,7 @@ remediation phases should either daemon-route, quarantine, or delete.
 | `cross-repo cancel` | daemon RPC + PG participant cancel | no | daemon_recovery |
 | `workflow validate` / `lint` / `plan` / `graph` | local authoring helpers; daemon RPC fails closed | no live state | local_file_authoring |
 | `workflow init` / `generate` / `templates` | local authoring helpers; daemon RPC fails closed | no live state | local_file_authoring |
-| `workflow upgrade` | local authoring helper with PG running-run guard | legacy SQLite only before cutover; fails closed after cutover if PG unavailable | local_file_authoring |
+| `workflow upgrade` | local authoring helper with PG running-run guard | production fails closed when PG state is unknown; legacy SQLite only under paired test-harness escape | local_file_authoring |
 | `recovery watch` | foreground scheduler repeatedly calling daemon `recovery.sweep` | no production SQLite | daemon_scheduler |
 | `run graph` | daemon RPC to PG handler | no | daemon_native |
 | `send` | daemon RPC to PG handler | no | daemon_native |

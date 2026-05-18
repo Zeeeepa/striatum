@@ -281,7 +281,8 @@ authority matrix and contract tests current while deleting fallback paths.
   them with `not_implemented`, MCP tool listing hides them, and route tests
   prevent accidental daemon routing.
 - `workflow upgrade` checks daemon PG for non-terminal runs and fails closed
-  after repo-local SQLite cutover if PG cannot be reached.
+  whenever PostgreSQL state is unknown; repo-local SQLite is retained only
+  under the paired legacy test-harness escape.
 
 **Remaining Phase 1 debt:** legacy SQLite domain code is still used by the
 local service, adapter/byline/inbox helpers, dogfood compatibility tools, and

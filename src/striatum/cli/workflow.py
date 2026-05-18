@@ -25,7 +25,7 @@ import sqlite3
 from pathlib import Path
 
 from striatum.db import JsonObject, db_path
-from striatum.errors import WorkflowError
+from striatum.errors import RepoNotMigratedError, WorkflowError
 from striatum.workflow import load_workflow
 from striatum.workflow_generator.catalog import get_harness_fragment_by_tool_family
 
@@ -551,23 +551,18 @@ def _running_runs_for_workflow(*, repo: Path, workflow_path: Path) -> list[str]:
     if pg_running is not None:
         return pg_running
     state_db = db_path(repo)
-    if _repo_sqlite_cutover_marker_exists(state_db):
-        raise WorkflowError(
-            "workflow upgrade cannot verify non-terminal runs because this "
-            "repository has been migrated off repo-local SQLite and daemon "
-            "PostgreSQL was unavailable",
-            field_path="path",
-        )
-    if not state_db.exists():
-        return []
-    if not _legacy_sqlite_workflow_upgrade_allowed():
-        raise WorkflowError(
-            "workflow upgrade cannot verify non-terminal runs from repo-local "
-            "SQLite outside the paired test-harness compatibility escape; "
-            "configure daemon PostgreSQL and rerun the upgrade",
-            field_path="path",
-        )
-    return _running_runs_for_workflow_sqlite(state_db=state_db, candidates=candidates)
+    if (
+        _legacy_sqlite_workflow_upgrade_allowed()
+        and state_db.exists()
+        and not _repo_sqlite_cutover_marker_exists(state_db)
+    ):
+        return _running_runs_for_workflow_sqlite(state_db=state_db, candidates=candidates)
+    raise WorkflowError(
+        "workflow upgrade cannot verify non-terminal runs because daemon "
+        "PostgreSQL state is unknown or unavailable; configure daemon "
+        "PostgreSQL and rerun the upgrade",
+        field_path="path",
+    )
 
 
 def _workflow_source_path_candidates(*, repo: Path, workflow_path: Path) -> set[str]:
@@ -586,6 +581,7 @@ def _workflow_source_path_candidates(*, repo: Path, workflow_path: Path) -> set[
 def _running_runs_for_workflow_pg(*, repo: Path, candidates: set[str]) -> list[str] | None:
     """Return PG-backed running runs, or ``None`` when PG is not configured."""
     try:
+        from striatum.cli.daemon_required import build_repo_not_migrated_error
         from striatum.daemon_pg.config import resolve_config
         from striatum.daemon_pg.connection import connect
     except ImportError:
@@ -612,7 +608,7 @@ def _running_runs_for_workflow_pg(*, repo: Path, candidates: set[str]) -> list[s
             )
             row = cur.fetchone()
             if row is None:
-                return None
+                raise build_repo_not_migrated_error(repo.resolve())
             repository_id = str(row[0])
             cur.execute(
                 """
@@ -629,7 +625,9 @@ def _running_runs_for_workflow_pg(*, repo: Path, candidates: set[str]) -> list[s
                 (repository_id, sorted(candidates)),
             )
             return [str(row[0]) for row in cur.fetchall()]
-    except Exception:  # noqa: BLE001 - fall back to legacy guard before cutover.
+    except RepoNotMigratedError:
+        raise
+    except Exception:  # noqa: BLE001 - fail closed when PG state is unknown.
         return None
     finally:
         if conn is not None:

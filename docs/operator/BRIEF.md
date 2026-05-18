@@ -20,15 +20,15 @@ ownership to Go, retire the Python daemon after parity, and remove
 production SQLite fallbacks. Recent checkpoints routed daemon MCP
 resources, daemon audit, daemon health, daemon doctor diagnostics,
 daemon lifecycle helpers, and workflow-upgrade running-run checks away
-from production SQLite paths. The RFC 0058 V1 operator surface is now
-landed, and `dashboard.all` now carries per-active-run progress fields
-for phase state, auto-finalize dry-run visibility, and supervisor stalls.
+from production SQLite paths; workflow upgrade now also fails closed when
+PostgreSQL state is unknown. The RFC 0058 V1 operator surface is now landed,
+and `dashboard.all` now carries per-active-run progress fields for phase
+state, auto-finalize dry-run visibility, and supervisor stalls.
 
 ## Next 1-3 Actions
 
-1. Harden the remaining production failure modes surfaced by the scans:
-   workflow-upgrade unknown PG state and the terminal dashboard's legacy
-   repo-local read path.
+1. Route the terminal dashboard's legacy repo-local read path through
+   daemon/PostgreSQL DTOs.
 2. Continue RFC 0068/RFC 0069 Go and PostgreSQL read-model parity only when
    a concrete method, DTO, or conformance gap is visible.
 3. Defer RFC 0058 V1.5 to a focused slice: current-brief CLI, context-budget

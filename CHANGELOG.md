@@ -76,8 +76,8 @@ Recent checkpoints:
 - Go now owns workflow generation handlers: `workflow.generate.preview`
   produces read-only planned writes; `workflow.generate` and `workflow.init`
   write safe repo-relative scaffold files; `workflow.upgrade` uses
-  PostgreSQL running-run checks and fails closed for unported `--add-phases`
-  rewrites.
+  PostgreSQL running-run checks and fails closed when PostgreSQL state is
+  unknown, including `--add-phases` rewrites.
 - Go now owns `supervise.status`, `supervise.list`, and
   `supervise.reattach_status` as read-only PostgreSQL projections. The status
   handler reports liveness, lane attestation, and stalled-supervisor fields
@@ -365,7 +365,8 @@ Recent checkpoints:
   registry access.
 - `workflow upgrade` now fails closed instead of falling back to repo-local
   SQLite running-run checks unless the paired test-harness compatibility escape
-  is active.
+  is active; unknown PostgreSQL state is a refusal even when no legacy SQLite
+  marker exists.
 - RFC 0058 V1 now has publisher-visible operator artifact kinds
   (`operator_brief`, `work_plan`, `progress_note`, `operator_report`),
   corpus metadata columns for operator docs, and a seeded

@@ -130,6 +130,15 @@ def _striatum_init(repo: Path) -> None:
     )
 
 
+@pytest.fixture(autouse=True)
+def _pg_known_no_running_runs(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        workflow_mod,
+        "_running_runs_for_workflow_pg",
+        lambda **_kwargs: [],
+    )
+
+
 # --- happy paths ------------------------------------------------------
 
 
@@ -210,23 +219,33 @@ def test_upgrade_force_overwrites_conflict(tmp_path: Path) -> None:
 # --- running-workflow guard ------------------------------------------
 
 
-def test_upgrade_refuses_when_workflow_has_running_run(tmp_path: Path) -> None:
+def test_upgrade_refuses_when_workflow_has_running_run(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     _git_init_repo(tmp_path)
-    _striatum_init(tmp_path)
     path = _write_workflow(tmp_path, _baseline_workflow())
-    prep = invoke(["run", "prepare", "--workflow", str(path)], repo=tmp_path)
-    assert prep.get("ok") is True, prep
+    monkeypatch.setattr(
+        workflow_mod,
+        "_running_runs_for_workflow_pg",
+        lambda **_kwargs: ["run_pg_active"],
+    )
     with pytest.raises(WorkflowError) as exc_info:
         workflow_upgrade(path, repo=tmp_path)
-    assert "non-terminal runs" in str(exc_info.value)
+    assert "run_pg_active" in str(exc_info.value)
 
 
-def test_upgrade_dry_run_reports_running_runs(tmp_path: Path) -> None:
+def test_upgrade_dry_run_reports_running_runs(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     _git_init_repo(tmp_path)
-    _striatum_init(tmp_path)
     path = _write_workflow(tmp_path, _baseline_workflow())
-    prep = invoke(["run", "prepare", "--workflow", str(path)], repo=tmp_path)
-    assert prep.get("ok") is True, prep
+    monkeypatch.setattr(
+        workflow_mod,
+        "_running_runs_for_workflow_pg",
+        lambda **_kwargs: ["run_pg_active"],
+    )
     result = workflow_upgrade(path, repo=tmp_path, dry_run=True)
     assert result["status"] == "would_refuse_running"
     assert result["running_runs"]
@@ -250,23 +269,44 @@ def test_upgrade_refuses_running_runs_from_pg_when_sqlite_absent(
     assert "run_pg_active" in str(exc_info.value)
 
 
-def test_upgrade_fails_closed_after_sqlite_cutover_when_pg_unavailable(
+def test_upgrade_fails_closed_when_pg_state_unknown_without_sqlite_marker(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _git_init_repo(tmp_path)
     path = _write_workflow(tmp_path, _baseline_workflow())
-    striatum_dir = tmp_path / ".striatum"
-    striatum_dir.mkdir()
-    (striatum_dir / "state.sqlite3.migrated").write_text("", encoding="utf-8")
+    snapshot = path.read_text(encoding="utf-8")
     monkeypatch.setattr(
         workflow_mod,
         "_running_runs_for_workflow_pg",
         lambda **_kwargs: None,
     )
+    monkeypatch.delenv("STRIATUM_TEST_HARNESS", raising=False)
+    monkeypatch.setenv("STRIATUM_DAEMON_REQUIRED", "1")
 
-    with pytest.raises(WorkflowError, match="daemon PostgreSQL was unavailable"):
+    with pytest.raises(WorkflowError, match="daemon PostgreSQL state is unknown"):
         workflow_upgrade(path, repo=tmp_path)
+    assert path.read_text(encoding="utf-8") == snapshot
+
+
+def test_upgrade_add_phases_fails_closed_when_pg_state_unknown(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _git_init_repo(tmp_path)
+    path = _write_workflow(tmp_path, _parallel_group_workflow())
+    snapshot = path.read_text(encoding="utf-8")
+    monkeypatch.setattr(
+        workflow_mod,
+        "_running_runs_for_workflow_pg",
+        lambda **_kwargs: None,
+    )
+    monkeypatch.delenv("STRIATUM_TEST_HARNESS", raising=False)
+    monkeypatch.setenv("STRIATUM_DAEMON_REQUIRED", "1")
+
+    with pytest.raises(WorkflowError, match="daemon PostgreSQL state is unknown"):
+        workflow_upgrade(path, repo=tmp_path, add_phases=True, apply=True)
+    assert path.read_text(encoding="utf-8") == snapshot
 
 
 def test_upgrade_refuses_repo_local_sqlite_fallback_outside_test_harness(
@@ -291,7 +331,7 @@ def test_upgrade_refuses_repo_local_sqlite_fallback_outside_test_harness(
         lambda *_args, **_kwargs: pytest.fail("workflow upgrade opened repo-local SQLite"),
     )
 
-    with pytest.raises(WorkflowError, match="paired test-harness compatibility escape"):
+    with pytest.raises(WorkflowError, match="daemon PostgreSQL state is unknown"):
         workflow_upgrade(path, repo=tmp_path)
 
 

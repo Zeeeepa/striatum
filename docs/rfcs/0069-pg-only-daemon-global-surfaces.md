@@ -104,7 +104,8 @@ Add a production registry tripwire and port daemon-global surfaces in order:
   directory.
 - `workflow upgrade` no longer falls back to repo-local SQLite running-run
   checks in production. That compatibility path requires the paired
-  test-harness escape, so PostgreSQL verification failures fail closed.
+  test-harness escape, so PostgreSQL verification failures fail closed even
+  when no legacy SQLite marker exists.
 - The Go daemon now starts a resident recovery scheduler loop after socket
   bind. The loop runs an immediate PostgreSQL active-run sweep, calls the Go
   `recovery.sweep` path per active run, records `daemon.recovery_sweep`
