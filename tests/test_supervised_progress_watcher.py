@@ -49,7 +49,9 @@ def _run_cli(repo: Path, *args: str) -> dict[str, Any]:
 
 
 def _claimed_packet(repo: Path) -> tuple[str, dict[str, Any]]:
-    _run_cli(repo, "init")
+    from striatum.db import init_repo as legacy_init_repo
+
+    legacy_init_repo(repo)
     prepared = _run_cli(repo, "run", "prepare", "--workflow", str(WORKFLOW))
     run_id = str(prepared["run_id"])
     _run_cli(repo, "branch", "confirm", "--run-id", run_id, "--branch", "striatum/test")

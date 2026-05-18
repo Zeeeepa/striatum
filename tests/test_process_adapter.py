@@ -175,7 +175,9 @@ def _start_with(repo: Path, workflow: JsonDict) -> tuple[str, str, str, str, str
     _git_init_repo(repo)
     workflow_path = repo / "workflow.json"
     workflow_path.write_text(json.dumps(workflow), encoding="utf-8")
-    _run_cli(repo, "init")
+    from striatum.db import init_repo as legacy_init_repo
+
+    legacy_init_repo(repo)
     prepared = _data(_run_cli(repo, "run", "prepare", "--workflow", str(workflow_path)))
     run_id = str(prepared["run_id"])
     _run_cli(repo, "run", "start", "--run-id", run_id)
@@ -381,7 +383,6 @@ def test_workflow_validation_rejects_excessive_timeout(tmp_path: Path) -> None:
     workflow = _build_workflow(command=["true"], adapter_timeout_seconds=1_000_000)
     workflow_path = tmp_path / "workflow.json"
     workflow_path.write_text(json.dumps(workflow), encoding="utf-8")
-    _run_cli(tmp_path, "init")
     rejected = _run_cli(tmp_path, "workflow", "validate", str(workflow_path), check=False)
     assert rejected["returncode"] == 8
     assert "adapter_timeout_seconds" in str(rejected["error"]["message"])
@@ -391,7 +392,6 @@ def test_workflow_validation_rejects_non_positive_timeout(tmp_path: Path) -> Non
     workflow = _build_workflow(command=["true"], adapter_timeout_seconds=0)
     workflow_path = tmp_path / "workflow.json"
     workflow_path.write_text(json.dumps(workflow), encoding="utf-8")
-    _run_cli(tmp_path, "init")
     rejected = _run_cli(tmp_path, "workflow", "validate", str(workflow_path), check=False)
     assert rejected["returncode"] == 8
     assert "positive integer" in str(rejected["error"]["message"])
@@ -624,12 +624,14 @@ def test_lane_env_unknown_variable_is_left_in_place() -> None:
 
 def test_migrations_v8_v9_idempotent(tmp_path: Path) -> None:
     """v8 + v9 migrations must be re-runnable on an already-migrated DB."""
-    _run_cli(tmp_path, "init")
+    from striatum.db import init_repo as legacy_init_repo
+
+    legacy_init_repo(tmp_path)
     db_path = tmp_path / ".striatum" / "state.sqlite3"
     assert db_path.exists()
     # Re-init touches the DB; running migrations a second time must be
     # safe (apply_migrations short-circuits when user_version matches).
-    _run_cli(tmp_path, "init")
+    legacy_init_repo(tmp_path)
     conn = sqlite3.connect(db_path)
     try:
         version = conn.execute("PRAGMA user_version").fetchone()[0]

@@ -99,7 +99,9 @@ def _prepare_run(repo: Path, workflow: JsonDict, *, branch: str = "feature/work"
     subprocess.run(
         ["git", "checkout", "-b", branch], cwd=repo, check=True, capture_output=True
     )
-    run_cli(repo, "init")
+    from striatum.db import init_repo as legacy_init_repo
+
+    legacy_init_repo(repo)
     workflow_path = _write_workflow(repo / "workflow.json", workflow)
     prepared = data(run_cli(repo, "run", "prepare", "--workflow", str(workflow_path)))
     run_id = str(prepared["run_id"])

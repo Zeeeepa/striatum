@@ -121,7 +121,9 @@ def _data(payload: JsonDict) -> JsonDict:
 def _start_run_with(repo: Path, workflow: JsonDict) -> tuple[str, str]:
     workflow_path = repo / "workflow.json"
     workflow_path.write_text(json.dumps(workflow), encoding="utf-8")
-    _run_cli(repo, "init")
+    from striatum.db import init_repo as legacy_init_repo
+
+    legacy_init_repo(repo)
     prepared = _data(_run_cli(repo, "run", "prepare", "--workflow", str(workflow_path)))
     run_id = str(prepared["run_id"])
     _run_cli(repo, "branch", "confirm", "--run-id", run_id, "--branch", "striatum/test-hp")
@@ -376,7 +378,6 @@ def test_workflow_validate_cli_surfaces_missing_lane_command_warning(tmp_path: P
     workflow["lanes"]["alpha"]["command"] = [".striatum/bin/missing-wrapper.sh"]
     workflow_path = tmp_path / "workflow.json"
     workflow_path.write_text(json.dumps(workflow), encoding="utf-8")
-    _run_cli(tmp_path, "init")
     payload = _data(_run_cli(tmp_path, "workflow", "validate", str(workflow_path)))
     assert payload["valid"] is True
     assert "warnings" in payload
@@ -394,7 +395,6 @@ def test_workflow_validate_cli_surfaces_warnings(tmp_path: Path) -> None:
     workflow["lanes"]["alpha"]["harness_profile_id"] = "generic_default"
     workflow_path = tmp_path / "workflow.json"
     workflow_path.write_text(json.dumps(workflow), encoding="utf-8")
-    _run_cli(tmp_path, "init")
     payload = _data(_run_cli(tmp_path, "workflow", "validate", str(workflow_path)))
     assert payload["valid"] is True
     assert "warnings" in payload

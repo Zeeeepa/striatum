@@ -38,9 +38,15 @@ def _git_repo(repo: Path) -> str:
     return subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=repo, text=True).strip()
 
 
+def _legacy_init_repo(repo: Path) -> None:
+    from striatum.db import init_repo
+
+    init_repo(repo)
+
+
 def test_corpus_export_cli_success_and_manifest(tmp_path: Path) -> None:
     base = _git_repo(tmp_path)
-    _run(tmp_path, "init")
+    _legacy_init_repo(tmp_path)
     (tmp_path / "docs/rfcs").mkdir(parents=True)
     (tmp_path / "docs/rfcs/0044-demo.md").write_text("# Demo\n\nBody\n", encoding="utf-8")
 
@@ -58,7 +64,7 @@ def test_corpus_export_cli_success_and_manifest(tmp_path: Path) -> None:
 
 def test_corpus_export_invalid_since_returns_json_error_code_8(tmp_path: Path) -> None:
     _git_repo(tmp_path)
-    _run(tmp_path, "init")
+    _legacy_init_repo(tmp_path)
     payload = _run(tmp_path, "corpus", "export", "--since", "missing-ref", "--out", "exports", check=False)
     assert payload["ok"] is False
     assert payload["returncode"] == 8
@@ -67,7 +73,7 @@ def test_corpus_export_invalid_since_returns_json_error_code_8(tmp_path: Path) -
 
 def test_corpus_export_rejects_bad_output_targets(tmp_path: Path) -> None:
     base = _git_repo(tmp_path)
-    _run(tmp_path, "init")
+    _legacy_init_repo(tmp_path)
     outside = tmp_path.parent / "outside-corpus"
     for out in [".striatum/corpus", str(outside)]:
         payload = _run(tmp_path, "corpus", "export", "--since", base, "--out", out, check=False)

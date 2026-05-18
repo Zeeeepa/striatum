@@ -48,7 +48,9 @@ def data(payload: JsonDict) -> JsonDict:
 
 
 def init_repo(repo: Path) -> None:
-    run_cli(repo, "init")
+    from striatum.db import init_repo as legacy_init_repo
+
+    legacy_init_repo(repo)
 
 
 def prepare_started_run(repo: Path, *, workflow: Path = WORKFLOW) -> str:
@@ -215,11 +217,8 @@ def test_doctor_flags_editable_install_outside_repo(tmp_path: Path) -> None:
     assert "repo_path" in matching[0]["context"]
 
 
-def test_init_refuses_when_install_lags_repo_migrations(tmp_path: Path) -> None:
-    """``init`` against a fresh DB refuses when the repo's source tree has a
-    higher ``LATEST_VERSION`` than the running install."""
-    # Set the fake repo's source tree to LATEST_VERSION=999 so the running
-    # install (currently 6) is guaranteed to be lower.
+def test_init_ignores_legacy_repo_local_migration_version(tmp_path: Path) -> None:
+    """``init`` is scratch-only and no longer opens repo-local migrations."""
     fake_migrations = tmp_path / "src" / "striatum" / "migrations.py"
     fake_migrations.parent.mkdir(parents=True, exist_ok=True)
     fake_migrations.write_text(
@@ -228,13 +227,9 @@ def test_init_refuses_when_install_lags_repo_migrations(tmp_path: Path) -> None:
         "MIGRATIONS = [Migration(version=999)]\n",
         encoding="utf-8",
     )
-    payload = run_cli(tmp_path, "init", check=False)
-    assert payload["returncode"] != 0
-    error = payload.get("error", {})
-    assert isinstance(error, dict)
-    message = str(error.get("message", ""))
-    assert "older than the repo source tree" in message
-    assert "pip install -e" in message
+    payload = data(run_cli(tmp_path, "init"))
+    assert payload["state_store"] == "daemon_postgres"
+    assert not (tmp_path / ".striatum" / "state.sqlite3").exists()
 
 
 # ---------------------------------------------------------------------------

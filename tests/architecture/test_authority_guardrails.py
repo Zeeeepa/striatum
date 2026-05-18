@@ -89,9 +89,6 @@ DIRECT_PG_BOOTSTRAP_IMPORT_ALLOWLIST: dict[str, set[str]] = {
     "src/striatum/cli/dispatch.py::_daemon_doctor_repo_cutover_report": {
         "striatum.daemon_pg.config.resolve_config",
     },
-    "src/striatum/cli/dispatch.py::_daemon_authority_report": {
-        "striatum.daemon_pg.client_admin",
-    },
     "src/striatum/cli/dispatch.py::_dispatch_daemon_repo": {
         "striatum.daemon_pg.client_admin",
     },

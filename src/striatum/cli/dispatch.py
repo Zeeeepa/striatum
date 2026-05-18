@@ -17,7 +17,6 @@ from striatum.db import (
     complete_job,
     connect,
     ensure_initialized,
-    init_repo,
     transaction,
 )
 from striatum.cli.daemon_required import enforce_daemon_required
@@ -332,10 +331,6 @@ def dispatch(args: argparse.Namespace) -> object:
             "scratch_dir": str(state_dir / "scratch"),
             "state_store": "daemon_postgres",
         }
-        if _legacy_sqlite_test_harness_enabled():
-            init_repo(repo)
-            init_result["db"] = str(repo / ".striatum" / "state.sqlite3")
-            init_result["compatibility_mode"] = "legacy_sqlite_test_harness"
         with_skills = getattr(args, "with_skills", None)
         if with_skills is not None:
             init_result["skills"] = _skills_install_dispatch(

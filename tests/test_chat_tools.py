@@ -8,7 +8,6 @@ wrap_tool_result delimiters.
 from __future__ import annotations
 
 import json
-import os
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -161,15 +160,9 @@ def test_git_diff_dirty_tree(tmp_path: Path) -> None:
 
 def test_striatum_status_in_initialized_repo(tmp_path: Path) -> None:
     _git_init(tmp_path)
-    # Initialize striatum so the API can answer.
-    env = os.environ.copy()
-    env["PYTHONPATH"] = str(Path(__file__).resolve().parents[1] / "src")
-    import sys
-    subprocess.run(
-        [sys.executable, "-m", "striatum.cli",
-         "--repo", str(tmp_path), "init"],
-        cwd=tmp_path, env=env, check=True, capture_output=True,
-    )
+    from striatum.db import init_repo as legacy_init_repo
+
+    legacy_init_repo(tmp_path)
     out = execute_tool("striatum_status", {}, repo=tmp_path)
     parsed = json.loads(out)
     assert parsed.get("ok") is True
@@ -447,13 +440,9 @@ def test_dogfood_lifecycle_run_summary_returns_invoke_envelope(tmp_path: Path) -
     which is what we serialize.
     """
     _git_init(tmp_path)
-    env = os.environ.copy()
-    env["PYTHONPATH"] = str(Path(__file__).resolve().parents[1] / "src")
-    import sys
-    subprocess.run(
-        [sys.executable, "-m", "striatum.cli", "--repo", str(tmp_path), "init"],
-        cwd=tmp_path, env=env, check=True, capture_output=True,
-    )
+    from striatum.db import init_repo as legacy_init_repo
+
+    legacy_init_repo(tmp_path)
     out = execute_tool(
         "run_summary",
         {"run_id": "run_missing", "path": "scratch/summary.json"},

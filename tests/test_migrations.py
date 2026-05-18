@@ -52,6 +52,12 @@ def db_file(repo: Path) -> Path:
     return repo / ".striatum" / "state.sqlite3"
 
 
+def legacy_init_repo(repo: Path) -> None:
+    from striatum.db import init_repo
+
+    init_repo(repo)
+
+
 def read_user_version(path: Path) -> int:
     conn = sqlite3.connect(path)
     try:
@@ -63,7 +69,7 @@ def read_user_version(path: Path) -> int:
 
 
 def test_init_sets_current_user_version(tmp_path: Path) -> None:
-    run_cli(tmp_path, "init")
+    legacy_init_repo(tmp_path)
     assert db_file(tmp_path).exists()
     assert read_user_version(db_file(tmp_path)) == LATEST_VERSION
 
@@ -122,7 +128,7 @@ def test_connect_to_older_db_runs_migrations(tmp_path: Path) -> None:
 def test_connect_to_future_db_refuses(tmp_path: Path) -> None:
     # Initialize a real database so the file is well-formed, then set
     # PRAGMA user_version to a future value the runner cannot support.
-    run_cli(tmp_path, "init")
+    legacy_init_repo(tmp_path)
     target = db_file(tmp_path)
     conn = sqlite3.connect(target)
     try:
@@ -145,7 +151,7 @@ def test_dummy_v2_migration_preserves_data(
 ) -> None:
     # Initialize at the real LATEST_VERSION (currently 1) and prepare a run
     # so v1 data exists.
-    run_cli(tmp_path, "init")
+    legacy_init_repo(tmp_path)
     prepared = data(run_cli(tmp_path, "run", "prepare", "--workflow", str(WORKFLOW)))
     run_id = str(prepared["run_id"])
 

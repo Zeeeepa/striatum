@@ -54,7 +54,9 @@ def data(payload: JsonDict) -> JsonDict:
 
 
 def init_repo(repo: Path) -> None:
-    run_cli(repo, "init")
+    from striatum.db import init_repo as legacy_init_repo
+
+    legacy_init_repo(repo)
 
 
 def temporary_workflow(tmp_path: Path, workflow: JsonDict) -> Path:

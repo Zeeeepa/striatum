@@ -109,7 +109,9 @@ def rpc_result(server: LocalRpcServer, method: str, params: JsonDict | None = No
 
 
 def init_repo(repo: Path) -> None:
-    run_cli(repo, "init")
+    from striatum.db import init_repo as legacy_init_repo
+
+    legacy_init_repo(repo)
 
 
 def prepare_started_run(repo: Path, workflow_path: Path = WORKFLOW) -> str:
@@ -319,6 +321,10 @@ def test_init_status_and_doctor(tmp_path: Path) -> None:
 def test_local_api_wraps_cli_semantics_without_printing_or_exiting(tmp_path: Path) -> None:
     initialized = api_data(invoke(["init"], repo=tmp_path))
     assert initialized["state_dir"] == str(tmp_path / ".striatum")
+    assert initialized["state_store"] == "daemon_postgres"
+    assert not (tmp_path / ".striatum" / "state.sqlite3").exists()
+
+    init_repo(tmp_path)
     status = api_data(invoke(["status"], repo=tmp_path))
     assert status["runs"] == []
 

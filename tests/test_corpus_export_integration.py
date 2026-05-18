@@ -43,9 +43,15 @@ def _git_repo(repo: Path) -> str:
     return subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=repo, text=True).strip()
 
 
+def _legacy_init_repo(repo: Path) -> None:
+    from striatum.db import init_repo
+
+    init_repo(repo)
+
+
 def test_corpus_export_replays_with_stable_jsonl_hashes(tmp_path: Path) -> None:
     base = _git_repo(tmp_path)
-    _run(tmp_path, "init")
+    _legacy_init_repo(tmp_path)
     prepared = _data(_run(tmp_path, "run", "prepare", "--workflow", str(WORKFLOW)))
     run_id = str(prepared["run_id"])
     _run(tmp_path, "branch", "confirm", "--run-id", run_id, "--branch", "striatum/test")

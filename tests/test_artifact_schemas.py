@@ -45,7 +45,9 @@ def data(payload: dict[str, object]) -> dict[str, object]:
 
 
 def init_repo(repo: Path) -> None:
-    run_cli(repo, "init")
+    from striatum.db import init_repo as legacy_init_repo
+
+    legacy_init_repo(repo)
 
 
 def prepare_started_run(repo: Path) -> str:

@@ -104,7 +104,9 @@ def _start_and_claim(
     _git_init_repo(repo)
     workflow_path = repo / "workflow.json"
     workflow_path.write_text(json.dumps(_workflow(job_type=job_type, kind=kind)), encoding="utf-8")
-    _run_cli(repo, "init")
+    from striatum.db import init_repo as legacy_init_repo
+
+    legacy_init_repo(repo)
     prepared = _data(_run_cli(repo, "run", "prepare", "--workflow", str(workflow_path)))
     run_id = str(prepared["run_id"])
     _run_cli(repo, "branch", "confirm", "--run-id", run_id, "--branch", "striatum/test")

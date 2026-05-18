@@ -62,7 +62,6 @@ imports and fails on unlisted direct PostgreSQL client helpers.
 | `src/striatum/day_zero.py::adopt` | guided first-run repo registration | `repo_add_pg` | initializes operational scratch and repository registration only |
 | `src/striatum/cli/dispatch.py::_dispatch_daemon` | `daemon doctor`, lifecycle/status/audit/sweep/service commands | `client_admin`, `doctor` | daemon-global admin/diagnostic plane only |
 | `src/striatum/cli/dispatch.py::_daemon_doctor_repo_cutover_report` | `daemon doctor --repo --authority` cutover verification | `resolve_config` | verify-only repository cutover report |
-| `src/striatum/cli/dispatch.py::_daemon_authority_report` | authority diagnostic report | `client_admin` | diagnostic environment/escape reporting only |
 | `src/striatum/cli/dispatch.py::_dispatch_daemon_repo` | `repo add/list/remove` CLI bridge | `client_admin` | calls PostgreSQL admin client helpers; no repo-local SQLite state |
 | `src/striatum/cli/dispatch.py::_dispatch_cross_repo` | paired legacy test-harness fallback for cross-repo commands | `connect_and_migrate` | production path refuses before this branch unless the paired test-harness escape is enabled |
 | `src/striatum/cli/workflow.py::_running_runs_for_workflow_pg` | local workflow-upgrade running-run guard | `resolve_config`, `connect` | read-only guard; fail closed when daemon PostgreSQL state is unknown |

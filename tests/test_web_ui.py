@@ -78,12 +78,9 @@ def _git_init_repo(repo: Path) -> None:
 
 
 def _striatum_init(repo: Path) -> None:
-    env = os.environ.copy()
-    env["PYTHONPATH"] = str(ROOT / "src")
-    subprocess.run(
-        [sys.executable, "-m", "striatum.cli", "--repo", str(repo), "init", "--json"],
-        cwd=repo, env=env, check=True, capture_output=True,
-    )
+    from striatum.db import init_repo as legacy_init_repo
+
+    legacy_init_repo(repo)
 
 
 def _free_port() -> int:
