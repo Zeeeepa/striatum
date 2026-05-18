@@ -307,23 +307,11 @@ type lifecycleFakeLocalRunner struct {
 	canceled         []string
 }
 
-func (l *lifecycleFakeLocalRunner) Prepare(context.Context, string, string, string) (string, error) {
-	return "", errors.New("not implemented")
-}
-func (l *lifecycleFakeLocalRunner) Start(context.Context, string, string) error {
-	return errors.New("not implemented")
-}
 func (l *lifecycleFakeLocalRunner) Cancel(_ context.Context, repositoryID string, localRunID string, _ string) error {
 	if repositoryID == l.failRepositoryID {
 		return errors.New("cancel failed for consumer")
 	}
 	l.canceled = append(l.canceled, repositoryID+"/"+localRunID)
-	return nil
-}
-func (l *lifecycleFakeLocalRunner) ParticipantIntact(context.Context, string, *string) bool {
-	return false
-}
-func (l *lifecycleFakeLocalRunner) HumanCheckpoint(context.Context, string, *string, string) error {
 	return nil
 }
 func (l *lifecycleFakeLocalRunner) canceledAliases() []string {
@@ -351,5 +339,5 @@ func strPtr(value string) *string {
 }
 
 var _ db.Runner = (*lifecycleFakeRunner)(nil)
-var _ LocalRunner = (*lifecycleFakeLocalRunner)(nil)
+var _ CancelRunner = (*lifecycleFakeLocalRunner)(nil)
 var _ pgx.Rows = (*lifecycleFakeRows)(nil)

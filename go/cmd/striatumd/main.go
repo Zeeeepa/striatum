@@ -398,10 +398,6 @@ type localWorkflowRunner struct {
 	runner db.Runner
 }
 
-func (l localWorkflowRunner) Prepare(ctx context.Context, repositoryID string, alias string, crossRepoRunID string) (string, error) {
-	return "", fmt.Errorf("cross-repo local prepare is not wired in the Go daemon")
-}
-
 func (l localWorkflowRunner) Start(ctx context.Context, repositoryID string, localRunID string) error {
 	_, err := mutations.HandleRunStart(ctx, l.runner, rpc.Envelope{
 		SchemaVersion: rpc.SupportedEnvelopeVersion,
@@ -434,14 +430,6 @@ func (l localWorkflowRunner) Cancel(ctx context.Context, repositoryID string, lo
 		},
 	})
 	return err
-}
-
-func (l localWorkflowRunner) ParticipantIntact(ctx context.Context, repositoryID string, localRunID *string) bool {
-	return false
-}
-
-func (l localWorkflowRunner) HumanCheckpoint(ctx context.Context, repositoryID string, localRunID *string, reason string) error {
-	return nil
 }
 
 func notImplementedHandler(method string) rpc.Handler {

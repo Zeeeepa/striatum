@@ -59,7 +59,7 @@ func Why(ctx context.Context, runner db.Runner, crossRepoRunID string) (map[stri
 	}, nil
 }
 
-func StartRun(ctx context.Context, runner db.Runner, crossRepoRunID string, local LocalRunner) (map[string]any, error) {
+func StartRun(ctx context.Context, runner db.Runner, crossRepoRunID string, local StartRunner) (map[string]any, error) {
 	run, err := crossRepoRun(ctx, runner, crossRepoRunID)
 	if err != nil {
 		return nil, err
@@ -91,7 +91,7 @@ func StartRun(ctx context.Context, runner db.Runner, crossRepoRunID string, loca
 	return map[string]any{"cross_repo_run_id": crossRepoRunID, "state": "running", "started": started}, nil
 }
 
-func CancelRun(ctx context.Context, runner db.Runner, crossRepoRunID string, reason string, local LocalRunner) (map[string]any, error) {
+func CancelRun(ctx context.Context, runner db.Runner, crossRepoRunID string, reason string, local CancelRunner) (map[string]any, error) {
 	run, err := crossRepoRun(ctx, runner, crossRepoRunID)
 	if err != nil {
 		return nil, err

@@ -25,6 +25,10 @@ Recent checkpoints:
 - The command authority matrix now names the bounded direct-PostgreSQL
   bootstrap/admin plane, and an architecture guardrail scans Python client/CLI
   sources so new direct daemon-PG helper imports must be explicitly listed.
+- The Go cross-repo runner boundary was narrowed from one speculative
+  `LocalRunner` interface to per-operation prepare/start/cancel interfaces,
+  removing the unused `ParticipantIntact` and `HumanCheckpoint` hooks and the
+  Go daemon's placeholder `Prepare` method.
 - Go migration SHA-source verification now rejects extra newer Python-source
   migrations, closing the stale-binary gap where an old Go binary could pass
   hash checks until it hit a migrated database.

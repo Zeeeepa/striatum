@@ -12,12 +12,16 @@ import (
 	"github.com/halbritt/striatum/go/pkg/db"
 )
 
-type LocalRunner interface {
+type PrepareRunner interface {
 	Prepare(ctx context.Context, repositoryID string, alias string, crossRepoRunID string) (string, error)
+}
+
+type StartRunner interface {
 	Start(ctx context.Context, repositoryID string, localRunID string) error
+}
+
+type CancelRunner interface {
 	Cancel(ctx context.Context, repositoryID string, localRunID string, reason string) error
-	ParticipantIntact(ctx context.Context, repositoryID string, localRunID *string) bool
-	HumanCheckpoint(ctx context.Context, repositoryID string, localRunID *string, reason string) error
 }
 
 type NoopLocalRunner struct{}
@@ -31,14 +35,8 @@ func (NoopLocalRunner) Start(ctx context.Context, repositoryID string, localRunI
 func (NoopLocalRunner) Cancel(ctx context.Context, repositoryID string, localRunID string, reason string) error {
 	return fmt.Errorf("cross-repo local cancel is not wired in the Go daemon")
 }
-func (NoopLocalRunner) ParticipantIntact(ctx context.Context, repositoryID string, localRunID *string) bool {
-	return false
-}
-func (NoopLocalRunner) HumanCheckpoint(ctx context.Context, repositoryID string, localRunID *string, reason string) error {
-	return nil
-}
 
-func PrepareRun(ctx context.Context, runner db.Runner, workflow map[string]any, local LocalRunner, crossRepoRunID string) (map[string]any, error) {
+func PrepareRun(ctx context.Context, runner db.Runner, workflow map[string]any, local PrepareRunner, crossRepoRunID string) (map[string]any, error) {
 	repositories, primaryAlias, err := repositories(workflow)
 	if err != nil {
 		return nil, err

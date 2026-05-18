@@ -1268,7 +1268,10 @@ review and plan are root-level operator artifacts:
     direct repo-local imports require the explicit fixture escape. Remaining
     Go-port debt is to delete or convert legacy SQLite fixtures, decide whether
     PostgreSQL-native operator composites should replace the removed dogfood
-    RPC names, and delete the Python daemon entry point. D112 removed the
+    RPC names, and delete the Python daemon entry point. The Go cross-repo
+    runner boundary now uses per-operation prepare/start/cancel interfaces, so
+    unused `ParticipantIntact` and `HumanCheckpoint` hooks are gone until a
+    future handler needs them. D112 removed the
     reviewed-patch apply mutation from the production daemon RPC contract until
     a future sealed-apply decision reintroduces it. The operator-facing Python
     daemon core selector is retired and the multi-repo harness / CI lane is

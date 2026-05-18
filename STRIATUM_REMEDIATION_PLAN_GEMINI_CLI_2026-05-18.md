@@ -89,6 +89,10 @@ author: planner-gemini-cli-001
 - **acceptance:** Accepting a risk during a run inserts a row into the new PG table, which is then exposed in `striatum status --json` and evidence exports.
 
 ### P2-TRIM-UNUSED-HOOKS
+- **status:** completed 2026-05-18; the Go cross-repo runner boundary now
+  uses per-operation prepare/start/cancel interfaces and no longer exposes
+  unused `ParticipantIntact` / `HumanCheckpoint` hooks or a placeholder
+  daemon-local `Prepare` method.
 - **source:** R6 (trim unused cross-repo runner hooks)
 - **what:** Remove or unexport placeholder methods (e.g., `Prepare`, `HumanCheckpoint`) from the Go cross-repo runner interface until they are actively required.
 - **why:** Keeping speculative, unused interfaces creates confusion about what orchestration features are actually supported and wired up.
