@@ -165,6 +165,9 @@ Recent checkpoints:
   `audit`, `sweep`, `doctor`, and foreground startup) no longer open the
   SQLite daemon registry; without a PostgreSQL daemon URL they fail closed
   before touching registry files.
+- The now-unreachable SQLite daemon auth/audit/doctor helper island was
+  removed from the legacy Python daemon module after the global fallbacks
+  moved to PostgreSQL-only behavior.
 - The standalone `striatum.daemon_pg.sqlite_compat` helper was removed. Its
   last repository-identity calculation now lives beside the one-way
   repo-local migration fixture, and the unused daemon audit-chain validators

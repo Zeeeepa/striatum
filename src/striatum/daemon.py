@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
-import hmac
 import os
 import secrets
 import signal
@@ -13,12 +11,10 @@ import sys
 import time
 import uuid
 from contextlib import contextmanager
-from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, BinaryIO, Iterator, Mapping, Sequence, cast
 
-from striatum.db import connect as connect_repo
 from striatum.daemon_rpc.token_hash import hash_token
 from striatum.daemon_runtime import (
     ENV_RUNTIME as _ENV_RUNTIME,
@@ -40,13 +36,12 @@ from striatum.errors import (
     SchemaVersionError,
     StriatumError,
 )
-from striatum.primitives import json_dumps, utc_now
+from striatum.primitives import utc_now
 
 REGISTRY_VERSION = 1
 PROTOCOL_VERSION = 1
 READ_CAPABILITY = "read"
 ADMIN_CAPABILITY = "admin"
-SUPPORTED_CAPABILITIES = {READ_CAPABILITY, ADMIN_CAPABILITY}
 DEFAULT_SWEEP_TIMEOUT_SECONDS = 30.0
 
 ENV_REGISTRY = "STRIATUM_DAEMON_REGISTRY"
@@ -81,16 +76,6 @@ class DaemonCapabilityError(StriatumError):
 class DaemonRegistryError(StriatumError):
     def __init__(self, message: str) -> None:
         super().__init__(message, exit_code=EXIT_DAEMON_REGISTRY)
-
-
-@dataclass(frozen=True)
-class AuthContext:
-    client_id: str | None
-    token_id: str | None
-    capability: str | None
-    repository_id: int | None
-    authorization_result: str
-    denial_reason: str | None = None
 
 
 def registry_path() -> Path:
@@ -321,20 +306,6 @@ def registry_transaction(conn: sqlite3.Connection) -> Iterator[sqlite3.Connectio
         conn.commit()
 
 
-def _now_dt() -> datetime:
-    return datetime.now(UTC).replace(microsecond=0)
-
-
-def _parse_time(value: str | None) -> datetime | None:
-    if not value:
-        return None
-    text = value[:-1] + "+00:00" if value.endswith("Z") else value
-    try:
-        return datetime.fromisoformat(text)
-    except ValueError:
-        return None
-
-
 def _connect_pg(*, postgres_url: str | None = None) -> Any:
     from striatum.daemon_pg.config import resolve_config
 
@@ -371,59 +342,6 @@ def _pg_json_ready(row: dict[str, Any]) -> dict[str, Any]:
         else:
             result[key] = value
     return result
-
-
-def _bootstrap_admin_if_needed(
-    conn: sqlite3.Connection,
-    *,
-    token: str | None = None,
-) -> dict[str, str] | None:
-    row = conn.execute("SELECT COUNT(*) AS c FROM clients").fetchone()
-    if row is not None and int(row["c"]) > 0:
-        return None
-    if token is not None:
-        token_id, sep, secret = token.partition(".")
-        if not sep or not token_id or not secret:
-            raise DaemonAuthError("daemon runtime token is malformed")
-        salt = secrets.token_hex(16)
-        token_hash = _hash_token(secret=secret, salt=salt)
-        client_id = f"dclient_{uuid.uuid4().hex}"
-        now = utc_now()
-        conn.execute(
-            """
-            INSERT INTO clients(client_id, client_kind, display_name, token_id,
-              token_hash, token_salt, created_at, expires_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, NULL)
-            """,
-            (
-                client_id,
-                "cli",
-                "bootstrap-admin",
-                token_id,
-                token_hash,
-                salt,
-                now,
-            ),
-        )
-        for capability in (ADMIN_CAPABILITY, READ_CAPABILITY):
-            conn.execute(
-                """
-                INSERT INTO client_capabilities(capability_id, client_id,
-                  repository_id, capability, granted_at, expires_at)
-                VALUES (?, ?, NULL, ?, ?, NULL)
-                """,
-                (f"dcap_{uuid.uuid4().hex}", client_id, capability, now),
-            )
-        write_runtime_token(token)
-        return {"client_id": client_id, "token_id": token_id, "token": token}
-    return create_client(
-        conn,
-        display_name="bootstrap-admin",
-        client_kind="cli",
-        capabilities=[ADMIN_CAPABILITY, READ_CAPABILITY],
-        repository_id=None,
-        persist_runtime_token=True,
-    )
 
 
 def _bootstrap_pg_admin_if_needed(pg_conn: Any) -> dict[str, str] | None:
@@ -504,48 +422,6 @@ def _pg_instance_id(pg_conn: Any) -> str:
     return value
 
 
-def create_client(
-    conn: sqlite3.Connection,
-    *,
-    display_name: str,
-    client_kind: str,
-    capabilities: Sequence[str],
-    repository_id: int | None,
-    expires_at: str | None = None,
-    persist_runtime_token: bool = False,
-) -> dict[str, str]:
-    for capability in capabilities:
-        if capability not in SUPPORTED_CAPABILITIES:
-            raise DaemonCapabilityError(f"unsupported daemon capability {capability!r}")
-    token_id = f"dtok_{secrets.token_urlsafe(12)}"
-    secret = secrets.token_urlsafe(32)
-    salt = secrets.token_hex(16)
-    token_hash = _hash_token(secret=secret, salt=salt)
-    client_id = f"dclient_{uuid.uuid4().hex}"
-    now = utc_now()
-    conn.execute(
-        """
-        INSERT INTO clients(client_id, client_kind, display_name, token_id,
-          token_hash, token_salt, created_at, expires_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        """,
-        (client_id, client_kind, display_name, token_id, token_hash, salt, now, expires_at),
-    )
-    for capability in capabilities:
-        conn.execute(
-            """
-            INSERT INTO client_capabilities(capability_id, client_id,
-              repository_id, capability, granted_at, expires_at)
-            VALUES (?, ?, ?, ?, ?, ?)
-            """,
-            (f"dcap_{uuid.uuid4().hex}", client_id, repository_id, capability, now, expires_at),
-        )
-    token = f"{token_id}.{secret}"
-    if persist_runtime_token:
-        write_runtime_token(token)
-    return {"client_id": client_id, "token_id": token_id, "token": token}
-
-
 def _hash_token(*, secret: str, salt: str) -> str:
     return hash_token(secret=secret, salt=salt)
 
@@ -559,159 +435,6 @@ def read_runtime_token() -> str | None:
 
 def write_runtime_token(token: str) -> None:
     _runtime_write_runtime_token(token)
-
-
-def _authorize(
-    conn: sqlite3.Connection,
-    *,
-    required: str,
-    repository_id: int | None,
-    token: str | None,
-) -> AuthContext:
-    if token is None:
-        return AuthContext(None, None, None, repository_id, "denied", "token_missing")
-    token_id, sep, secret = token.partition(".")
-    if not sep or not token_id or not secret:
-        return AuthContext(None, token_id or None, None, repository_id, "denied", "token_malformed")
-    row = conn.execute(
-        "SELECT * FROM clients WHERE token_id = ?",
-        (token_id,),
-    ).fetchone()
-    if row is None:
-        return AuthContext(None, token_id, None, repository_id, "denied", "token_invalid")
-    expected = _hash_token(secret=secret, salt=str(row["token_salt"]))
-    if not hmac.compare_digest(expected, str(row["token_hash"])):
-        return AuthContext(str(row["client_id"]), token_id, None, repository_id, "denied", "token_invalid")
-    if row["revoked_at"] is not None:
-        return AuthContext(str(row["client_id"]), token_id, None, repository_id, "denied", "token_revoked")
-    expires = _parse_time(row["expires_at"])
-    if expires is not None and expires <= _now_dt():
-        return AuthContext(str(row["client_id"]), token_id, None, repository_id, "denied", "token_expired")
-    cap = conn.execute(
-        """
-        SELECT * FROM client_capabilities
-        WHERE client_id = ? AND capability = ?
-          AND (repository_id IS NULL OR repository_id = ?)
-          AND revoked_at IS NULL
-        ORDER BY repository_id IS NULL
-        LIMIT 1
-        """,
-        (row["client_id"], required, repository_id),
-    ).fetchone()
-    if cap is None:
-        return AuthContext(str(row["client_id"]), token_id, None, repository_id, "denied", "capability_denied")
-    cap_expires = _parse_time(cap["expires_at"])
-    if cap_expires is not None and cap_expires <= _now_dt():
-        return AuthContext(str(row["client_id"]), token_id, None, repository_id, "denied", "capability_expired")
-    conn.execute(
-        "UPDATE clients SET last_used_at = ? WHERE client_id = ?",
-        (utc_now(), row["client_id"]),
-    )
-    return AuthContext(str(row["client_id"]), token_id, required, repository_id, "allowed")
-
-
-def audit_request(
-    conn: sqlite3.Connection,
-    *,
-    command: str,
-    auth: AuthContext,
-    transport: str,
-    payload: Mapping[str, Any] | None = None,
-    request_id: str | None = None,
-    exit_code: int | None = None,
-) -> None:
-    segment = conn.execute(
-        "SELECT * FROM audit_segments WHERE state = 'open' ORDER BY segment_id DESC LIMIT 1"
-    ).fetchone()
-    if segment is None:
-        conn.execute(
-            "INSERT INTO audit_segments(opened_at, state, retention_state) VALUES(?, 'open', 'active')",
-            (utc_now(),),
-        )
-        segment_id = int(conn.execute("SELECT last_insert_rowid()").fetchone()[0])
-    else:
-        segment_id = int(segment["segment_id"])
-    previous = conn.execute(
-        "SELECT row_hash FROM audit_log ORDER BY audit_id DESC LIMIT 1"
-    ).fetchone()
-    previous_hash = str(previous["row_hash"]) if previous is not None else None
-    timestamp = utc_now()
-    payload_sha = hashlib.sha256(json_dumps(payload or {}).encode("utf-8")).hexdigest()
-    row_material = {
-        "timestamp": timestamp,
-        "client_id": auth.client_id,
-        "repository_id": auth.repository_id,
-        "command": command,
-        "authorization_result": auth.authorization_result,
-        "denial_reason": auth.denial_reason,
-        "transport": transport,
-        "request_id": request_id,
-        "exit_code": exit_code,
-        "payload_sha256": payload_sha,
-        "previous_hash": previous_hash,
-        "segment_id": segment_id,
-    }
-    row_hash = hashlib.sha256(json_dumps(row_material).encode("utf-8")).hexdigest()
-    cur = conn.execute(
-        """
-        INSERT INTO audit_log(timestamp, client_id, repository_id, command,
-          authorization_result, denial_reason, transport, request_id,
-          exit_code, payload_sha256, previous_hash, row_hash, segment_id)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """,
-        (
-            timestamp,
-            auth.client_id,
-            auth.repository_id,
-            command,
-            auth.authorization_result,
-            auth.denial_reason,
-            transport,
-            request_id,
-            exit_code,
-            payload_sha,
-            previous_hash,
-            row_hash,
-            segment_id,
-        ),
-    )
-    audit_id = int(cur.lastrowid or 0)
-    conn.execute(
-        """
-        UPDATE audit_segments
-        SET first_audit_id = COALESCE(first_audit_id, ?),
-            last_audit_id = ?,
-            first_hash = COALESCE(first_hash, ?),
-            last_hash = ?
-        WHERE segment_id = ?
-        """,
-        (audit_id, audit_id, row_hash, row_hash, segment_id),
-    )
-
-
-def _require_auth(
-    conn: sqlite3.Connection,
-    *,
-    command: str,
-    required: str,
-    repository_id: int | None = None,
-    token: str | None = None,
-    payload: Mapping[str, Any] | None = None,
-    transport: str = "cli",
-) -> AuthContext:
-    auth = _authorize(conn, required=required, repository_id=repository_id, token=token)
-    audit_request(conn, command=command, auth=auth, transport=transport, payload=payload)
-    if auth.authorization_result != "allowed":
-        # Denied requests are audit-significant. Persist the audit row even
-        # though the caller's higher-level operation is about to fail.
-        try:
-            conn.commit()
-        except sqlite3.Error:
-            pass
-        if auth.denial_reason and auth.denial_reason.startswith("token_"):
-            raise DaemonAuthError(f"daemon authorization failed: {auth.denial_reason}")
-        raise DaemonCapabilityError(f"daemon authorization failed: {auth.denial_reason}")
-    return auth
 
 
 def _require_pg_auth(
@@ -745,18 +468,6 @@ def _require_pg_auth(
             raise DaemonAuthError(f"daemon authorization failed: {auth.denial_reason}")
         raise DaemonCapabilityError(f"daemon authorization failed: {auth.denial_reason}")
     return auth
-
-
-def _registered_repo_for_path(conn: sqlite3.Connection, repo: Path) -> sqlite3.Row:
-    resolved = repo.resolve()
-    row = conn.execute(
-        "SELECT * FROM repositories WHERE repo_root = ? AND state = 'active'",
-        (str(resolved),),
-    ).fetchone()
-    if row is None:
-        raise DaemonCapabilityError("repository is not registered with daemon")
-    return cast(sqlite3.Row, row)
-
 
 def daemon_status() -> dict[str, Any]:
     try:
@@ -1166,132 +877,6 @@ def daemon_doctor_records_pg(pg_conn: Any) -> list[dict[str, Any]]:
         records.append({"check": "daemon_removed_repo_audit_refs", "id": "audit_log", "message": "removed repository ids remain in retained audit rows", "context": {"count": int(removed_refs["count"])}})
     for row in degraded:
         records.append({"check": "daemon_sweep_degraded", "id": f"{row['repository_id']}:{row['run_id']}", "message": "daemon recovery sweep is degraded", "context": {"last_result_json": row["last_result_json"]}})
-    return records
-
-
-def daemon_doctor_records(conn: sqlite3.Connection) -> list[dict[str, Any]]:
-    records: list[dict[str, Any]] = []
-    reg = registry_path()
-    if reg.exists() and reg.stat().st_mode & 0o077:
-        records.append({"check": "daemon_registry_permissions", "id": str(reg), "message": "daemon registry is not owner-only", "context": {"mode": oct(reg.stat().st_mode & 0o777)}})
-    rt = runtime_dir()
-    if rt.exists() and rt.stat().st_mode & 0o077:
-        records.append({"check": "daemon_runtime_permissions", "id": str(rt), "message": "daemon runtime directory is not owner-only", "context": {"mode": oct(rt.stat().st_mode & 0o777)}})
-    if token_file().exists() and token_file().stat().st_mode & 0o077:
-        records.append({"check": "daemon_token_permissions", "id": str(token_file()), "message": "daemon token fallback file is not owner-only", "context": {"mode": oct(token_file().stat().st_mode & 0o777)}})
-    records.extend(_audit_chain_records(conn))
-    missing = conn.execute(
-        "SELECT repository_id, repo_root, state_db_path FROM repositories WHERE state = 'active'"
-    ).fetchall()
-    for row in missing:
-        if not Path(str(row["state_db_path"])).exists():
-            records.append({"check": "daemon_repo_state_missing", "id": str(row["repository_id"]), "message": "registered repository state database is missing", "context": {"repo_root": row["repo_root"]}})
-    removed_refs = conn.execute(
-        """
-        SELECT COUNT(*) AS count FROM audit_log a
-        JOIN repositories r ON r.repository_id = a.repository_id
-        WHERE r.state = 'removed'
-        """
-    ).fetchone()
-    if removed_refs is not None and int(removed_refs["count"]) > 0:
-        records.append({"check": "daemon_removed_repo_audit_refs", "id": "audit_log", "message": "removed repository ids remain in retained audit rows", "context": {"count": int(removed_refs["count"])}})
-    degraded = conn.execute(
-        """
-        SELECT repository_id, run_id, last_result_json
-        FROM scheduler_cursors
-        WHERE state = 'sweep_degraded'
-        ORDER BY repository_id, run_id
-        """
-    ).fetchall()
-    for row in degraded:
-        records.append({"check": "daemon_sweep_degraded", "id": f"{row['repository_id']}:{row['run_id']}", "message": "daemon recovery sweep is degraded", "context": {"last_result_json": row["last_result_json"]}})
-    for row in missing:
-        try:
-            from striatum.recovery.watch import pidfile_path, _pid_alive, _read_pidfile
-
-            with connect_repo(Path(str(row["repo_root"]))) as repo_conn:
-                runs = repo_conn.execute(
-                    "SELECT run_id FROM runs WHERE state IN ('running','paused')"
-                ).fetchall()
-            for run in runs:
-                pidfile = pidfile_path(Path(str(row["repo_root"])), str(run["run_id"]))
-                pid = _read_pidfile(pidfile)
-                if pid is not None and _pid_alive(pid):
-                    records.append({"check": "daemon_duplicate_recovery_scheduler", "id": f"{row['repository_id']}:{run['run_id']}", "message": "recovery watch is active for a daemon-swept run", "context": {"pid": pid, "pidfile": str(pidfile)}})
-        except Exception:  # noqa: BLE001
-            continue
-    return records
-
-
-def _audit_chain_records(conn: sqlite3.Connection) -> list[dict[str, Any]]:
-    records: list[dict[str, Any]] = []
-    previous: str | None = None
-    rows = conn.execute("SELECT * FROM audit_log ORDER BY audit_id").fetchall()
-    for row in rows:
-        if row["previous_hash"] != previous:
-            records.append({"check": "daemon_audit_chain", "id": str(row["audit_id"]), "message": "daemon audit hash chain is broken", "context": {"expected_previous_hash": previous, "actual_previous_hash": row["previous_hash"]}})
-            break
-        material = {
-            "timestamp": row["timestamp"],
-            "client_id": row["client_id"],
-            "repository_id": row["repository_id"],
-            "command": row["command"],
-            "authorization_result": row["authorization_result"],
-            "denial_reason": row["denial_reason"],
-            "transport": row["transport"],
-            "request_id": row["request_id"],
-            "exit_code": row["exit_code"],
-            "payload_sha256": row["payload_sha256"],
-            "previous_hash": row["previous_hash"],
-            "segment_id": row["segment_id"],
-        }
-        computed = hashlib.sha256(json_dumps(material).encode("utf-8")).hexdigest()
-        if not hmac.compare_digest(computed, str(row["row_hash"])):
-            records.append({"check": "daemon_audit_row_hash", "id": str(row["audit_id"]), "message": "daemon audit row hash is invalid", "context": {}})
-            break
-        previous = str(row["row_hash"])
-    records.extend(_audit_segment_records(conn))
-    return records
-
-
-def _audit_segment_records(conn: sqlite3.Connection) -> list[dict[str, Any]]:
-    records: list[dict[str, Any]] = []
-    segments = conn.execute("SELECT * FROM audit_segments ORDER BY segment_id").fetchall()
-    previous_segment_last_hash: str | None = None
-    for segment in segments:
-        segment_id = int(segment["segment_id"])
-        rows = conn.execute(
-            "SELECT * FROM audit_log WHERE segment_id = ? ORDER BY audit_id",
-            (segment_id,),
-        ).fetchall()
-        if segment["state"] == "purged":
-            if rows:
-                records.append({"check": "daemon_audit_segment_retention", "id": str(segment_id), "message": "purged audit segment still has retained rows", "context": {}})
-            previous_segment_last_hash = str(segment["last_hash"]) if segment["last_hash"] is not None else previous_segment_last_hash
-            continue
-        if segment["previous_segment_last_hash"] != previous_segment_last_hash:
-            records.append({"check": "daemon_audit_segment_chain", "id": str(segment_id), "message": "daemon audit segment chain is broken", "context": {"expected_previous_segment_last_hash": previous_segment_last_hash, "actual_previous_segment_last_hash": segment["previous_segment_last_hash"]}})
-            break
-        if not rows:
-            if segment["first_audit_id"] is not None or segment["last_audit_id"] is not None:
-                records.append({"check": "daemon_audit_segment_rows", "id": str(segment_id), "message": "daemon audit segment manifest references missing rows", "context": {}})
-                break
-            previous_segment_last_hash = str(segment["last_hash"]) if segment["last_hash"] is not None else previous_segment_last_hash
-            continue
-        first = rows[0]
-        last = rows[-1]
-        if (
-            segment["first_audit_id"] != first["audit_id"]
-            or segment["last_audit_id"] != last["audit_id"]
-            or segment["first_hash"] != first["row_hash"]
-            or segment["last_hash"] != last["row_hash"]
-        ):
-            records.append({"check": "daemon_audit_segment_manifest", "id": str(segment_id), "message": "daemon audit segment manifest does not match retained rows", "context": {}})
-            break
-        if first["previous_hash"] != previous_segment_last_hash:
-            records.append({"check": "daemon_audit_segment_boundary", "id": str(segment_id), "message": "daemon audit segment boundary hash is broken", "context": {"expected_first_previous_hash": previous_segment_last_hash, "actual_first_previous_hash": first["previous_hash"]}})
-            break
-        previous_segment_last_hash = str(last["row_hash"])
     return records
 
 
