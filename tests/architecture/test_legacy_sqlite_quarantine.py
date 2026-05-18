@@ -81,7 +81,7 @@ PRODUCTION_SQLITE_QUARANTINE = {
     # Adapter, supervisor, artifact, byline, and workflow helpers whose
     # production authority has moved to daemon/Postgres but whose legacy
     # functions still support adapters and test harnesses.
-    Path("src/striatum/artifacts.py"): SQLiteClassification(
+    Path("src/striatum/legacy_sqlite/artifacts.py"): SQLiteClassification(
         "adapter transition",
         "legacy artifact publisher used by adapter/test-harness paths",
     ),

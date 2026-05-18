@@ -55,6 +55,10 @@ Recent checkpoints:
   `striatum.artifacts` or `striatum.workflow`; architecture guardrails now
   cover those legacy module boundaries in addition to `sqlite3`,
   `striatum.db`, and SQLite-backed CLI readers.
+- The legacy repo-local SQLite artifact publisher moved to
+  `striatum.legacy_sqlite.artifacts`; `striatum.artifacts` is now a neutral
+  compatibility facade that imports the legacy publisher only when callers
+  invoke legacy publish/byline helpers.
 - The Go daemon launch contract now reports supported daemon PostgreSQL schema
   and migration count from `--describe`; the Python launcher refuses stale Go
   daemon binaries before socket bind when their schema, migration count, or
