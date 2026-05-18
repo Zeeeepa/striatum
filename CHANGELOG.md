@@ -83,6 +83,9 @@ Recent checkpoints:
   daemon MCP denial checks now exercise `daemon_runtime`, `daemon_pg.client_admin`,
   and daemon RPC capability helpers directly, leaving the Python daemon import
   to cutover/quarantine fixtures.
+- The multi-repo Go daemon test harness no longer imports the legacy Python
+  daemon module for runtime environment constant names; it uses
+  `daemon_runtime` and the PostgreSQL admin client surface directly.
 - Runtime path and token-file helpers now live in `striatum.daemon_runtime`,
   and PostgreSQL repository registration helpers used by day-zero setup and
   daemon RPC routing now live in `striatum.daemon_pg.repositories`, reducing

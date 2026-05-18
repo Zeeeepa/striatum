@@ -12,7 +12,8 @@ from pathlib import Path
 from types import FrameType
 from typing import Literal
 
-import striatum.daemon as daemon
+from striatum.daemon_pg.client_admin import ENV_REGISTRY
+from striatum.daemon_runtime import ENV_RUNTIME
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -73,8 +74,8 @@ class DaemonProcess:
         registry = self.scratch_dir / "daemon-registry.sqlite3"
         self.env = os.environ.copy()
         self.env["PYTHONPATH"] = str(ROOT / "src")
-        self.env[daemon.ENV_REGISTRY] = str(registry)
-        self.env[daemon.ENV_RUNTIME] = str(runtime)
+        self.env[ENV_REGISTRY] = str(registry)
+        self.env[ENV_RUNTIME] = str(runtime)
         # The test harness creates ephemeral databases as the local DB owner;
         # the daemon connects as that same owner, which has implicit
         # UPDATE/DELETE on the audit tables that the production doctor refuses
