@@ -30,3 +30,7 @@ rotation path and `daemon.hello` advertises the fallback public key when the
 key is loadable. This removes another explicit fail-closed Go parity stub;
 full reviewed-patch apply mutation and OS keyring custody remain outside this
 slice.
+
+Web and chat workflow-generation preview now use the daemon RPC
+`workflow.generate.preview` route in production and keep the in-process
+generator only for the explicit test-harness fallback.

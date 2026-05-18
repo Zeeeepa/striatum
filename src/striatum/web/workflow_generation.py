@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping, cast
 from urllib.parse import unquote
 
+from striatum import service_daemon
 from striatum.workflow_generator import (
     GeneratorError,
     WorkflowGenerationSpec,
@@ -44,6 +46,32 @@ def generator_error_response(exc: Exception, *, status: int = 400) -> WorkflowGe
     if isinstance(ref, str):
         error["ref"] = ref
     return WorkflowGenerationResponse(status, {"ok": False, "error": error})
+
+
+def service_daemon_error_response(exc: service_daemon.ServiceDaemonRpcError) -> WorkflowGenerationResponse:
+    error: JsonObject = {"code": exc.code, "message": exc.message}
+    if exc.kind is not None:
+        error["kind"] = exc.kind
+    if exc.details:
+        error["details"] = exc.details
+        for key in ("field_path", "hint", "ref"):
+            value = exc.details.get(key)
+            if isinstance(value, str):
+                error[key] = value
+    return WorkflowGenerationResponse(exc.status, {"ok": False, "error": error})
+
+
+def _test_harness_local_fallback_enabled() -> bool:
+    return (
+        os.environ.get("STRIATUM_TEST_HARNESS") == "1"
+        and os.environ.get("STRIATUM_DAEMON_REQUIRED") == "0"
+    )
+
+
+def _local_workflow_preview_response(spec_body: JsonObject) -> WorkflowGenerationResponse:
+    spec = WorkflowGenerationSpec.from_json(spec_body)
+    generated = generate_workflow(spec)
+    return WorkflowGenerationResponse(200, {"ok": True, "data": generated.to_json()})
 
 
 def workflow_templates_response(kind: str | None) -> WorkflowGenerationResponse:
@@ -108,10 +136,20 @@ def workflow_generate_response(
                 },
             )
     try:
+        if preview:
+            try:
+                data = service_daemon.call_repo_method(
+                    repo,
+                    "workflow.generate.preview",
+                    {"spec": cast(JsonObject, spec_body)},
+                )
+            except service_daemon.ServiceDaemonRpcError as exc:
+                if not _test_harness_local_fallback_enabled():
+                    return service_daemon_error_response(exc)
+                return _local_workflow_preview_response(cast(JsonObject, spec_body))
+            return WorkflowGenerationResponse(200, {"ok": True, "data": data})
         spec = WorkflowGenerationSpec.from_json(cast(JsonObject, spec_body))
         generated = generate_workflow(spec)
-        if preview:
-            return WorkflowGenerationResponse(200, {"ok": True, "data": generated.to_json()})
         return WorkflowGenerationResponse(
             200,
             {"ok": True, "data": write_generated_workflow(generated, repo=repo)},

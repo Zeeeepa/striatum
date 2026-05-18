@@ -78,6 +78,9 @@ Recent checkpoints:
   write safe repo-relative scaffold files; `workflow.upgrade` uses
   PostgreSQL running-run checks and fails closed when PostgreSQL state is
   unknown, including `--add-phases` rewrites.
+- Web and chat workflow-generation preview now call
+  `workflow.generate.preview` through daemon RPC in production, preserving
+  the local in-process generator only for the explicit test-harness fallback.
 - Go `daemon.key.rotate` now rotates a local Ed25519 sealed-apply signing
   key into the `0600` fallback key file, returns the new key id/public key
   metadata, and `daemon.hello` advertises the current public key when the

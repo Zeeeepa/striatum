@@ -571,7 +571,7 @@ def execute_tool(
             return _tool_list_workflows(repo)
         if name == "generate_workflow_preview":
             spec = args.get("spec")
-            return _tool_generate_workflow_preview(spec if isinstance(spec, dict) else None)
+            return _tool_generate_workflow_preview(repo, spec if isinstance(spec, dict) else None)
         if name == "generate_workflow_write":
             spec = args.get("spec")
             return _tool_generate_workflow_write(
@@ -768,17 +768,26 @@ def _tool_git_diff(repo: Path, rel: str | None) -> str:
     return output
 
 
-def _tool_generate_workflow_preview(spec_body: dict[str, Any] | None) -> str:
-    from striatum.workflow_generator import GeneratorError, WorkflowGenerationSpec, generate_workflow
-
+def _tool_generate_workflow_preview(repo: Path, spec_body: dict[str, Any] | None) -> str:
     if spec_body is None:
         return "[error] missing spec object"
+    from striatum import service_daemon
+    from striatum.web.workflow_generation import _test_harness_local_fallback_enabled
+
     try:
-        spec = WorkflowGenerationSpec.from_json(spec_body)
-        generated = generate_workflow(spec)
-    except GeneratorError as exc:
-        return _generator_error("workflow_generate_preview_failed", exc)
-    return json.dumps({"ok": True, "data": generated.to_json()}, indent=2, sort_keys=True)
+        data = service_daemon.call_repo_method(repo, "workflow.generate.preview", {"spec": spec_body})
+    except service_daemon.ServiceDaemonRpcError as exc:
+        if not _test_harness_local_fallback_enabled():
+            return _service_daemon_error(exc)
+        from striatum.workflow_generator import GeneratorError, WorkflowGenerationSpec, generate_workflow
+
+        try:
+            spec = WorkflowGenerationSpec.from_json(spec_body)
+            generated = generate_workflow(spec)
+        except GeneratorError as gen_exc:
+            return _generator_error("workflow_generate_preview_failed", gen_exc)
+        data = generated.to_json()
+    return json.dumps({"ok": True, "data": data}, indent=2, sort_keys=True)
 
 
 def _tool_generate_workflow_write(
@@ -997,3 +1006,27 @@ def _generator_error(code: str, exc: Exception) -> str:
     if isinstance(ref, str):
         error["error"]["ref"] = ref
     return json.dumps(error, indent=2, sort_keys=True)
+
+
+def _service_daemon_error(exc: Exception) -> str:
+    error_body: dict[str, Any] = {
+        "ok": False,
+        "error": {
+            "code": getattr(exc, "code", "daemon_error"),
+            "message": str(exc),
+        },
+    }
+    status = getattr(exc, "status", None)
+    if isinstance(status, int):
+        error_body["error"]["status"] = status
+    kind = getattr(exc, "kind", None)
+    if isinstance(kind, str):
+        error_body["error"]["kind"] = kind
+    details = getattr(exc, "details", None)
+    if isinstance(details, dict) and details:
+        error_body["error"]["details"] = details
+        for key in ("field_path", "hint", "ref"):
+            value = details.get(key)
+            if isinstance(value, str):
+                error_body["error"][key] = value
+    return json.dumps(error_body, indent=2, sort_keys=True)

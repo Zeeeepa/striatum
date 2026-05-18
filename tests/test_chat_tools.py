@@ -200,6 +200,61 @@ def test_generate_workflow_preview_tool_writes_nothing(tmp_path: Path) -> None:
     assert not (tmp_path / "workflows" / "demo").exists()
 
 
+def test_generate_workflow_preview_tool_routes_through_daemon_rpc(
+    tmp_path: Path,
+    monkeypatch: Any,
+) -> None:
+    import striatum.service_daemon as service_daemon
+
+    monkeypatch.delenv("STRIATUM_TEST_HARNESS", raising=False)
+    monkeypatch.delenv("STRIATUM_DAEMON_REQUIRED", raising=False)
+
+    calls: list[tuple[Path, str, dict[str, Any]]] = []
+    rpc_only_spec = {"not": "a-valid-generator-spec"}
+
+    def fake_call_repo_method(repo: Path, method: str, params: dict[str, Any]) -> dict[str, Any]:
+        calls.append((repo, method, dict(params)))
+        return {"workflow": {"workflow_id": "rpc-demo"}, "lint": {"valid": True}}
+
+    monkeypatch.setattr(service_daemon, "call_repo_method", fake_call_repo_method)
+
+    out = execute_tool("generate_workflow_preview", {"spec": rpc_only_spec}, repo=tmp_path)
+
+    assert json.loads(out) == {
+        "ok": True,
+        "data": {"workflow": {"workflow_id": "rpc-demo"}, "lint": {"valid": True}},
+    }
+    assert calls == [(tmp_path, "workflow.generate.preview", {"spec": rpc_only_spec})]
+    assert not (tmp_path / "workflows" / "demo").exists()
+
+
+def test_generate_workflow_preview_tool_does_not_fallback_in_production(
+    tmp_path: Path,
+    monkeypatch: Any,
+) -> None:
+    import striatum.service_daemon as service_daemon
+
+    monkeypatch.delenv("STRIATUM_TEST_HARNESS", raising=False)
+    monkeypatch.delenv("STRIATUM_DAEMON_REQUIRED", raising=False)
+
+    def fake_call_repo_method(_repo: Path, _method: str, _params: dict[str, Any]) -> dict[str, Any]:
+        raise service_daemon.ServiceDaemonRpcError(
+            503,
+            "daemon_unreachable",
+            "daemon_unreachable: workflow.generate.preview requires the Striatum daemon",
+        )
+
+    monkeypatch.setattr(service_daemon, "call_repo_method", fake_call_repo_method)
+
+    out = execute_tool("generate_workflow_preview", {"spec": _workflow_spec()}, repo=tmp_path)
+    parsed = json.loads(out)
+
+    assert parsed["ok"] is False
+    assert parsed["error"]["code"] == "daemon_unreachable"
+    assert parsed["error"]["status"] == 503
+    assert not (tmp_path / "workflows" / "demo").exists()
+
+
 def test_generate_workflow_write_requires_mutation_gate_and_operator_gesture(tmp_path: Path) -> None:
     _git_init(tmp_path)
     args = {"spec": _workflow_spec(), "confirm_write": True}
