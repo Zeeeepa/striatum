@@ -35,6 +35,9 @@ author: planner-gemini-cli-001
 ## 4. P1 - serious
 
 ### P1-ADMIN-PLANE-DEFINE
+- **status:** completed 2026-05-18; the command authority matrix now names
+  the direct PostgreSQL bootstrap/admin plane, and an architecture guardrail
+  scans Python client/CLI sources for unlisted direct daemon-PG helper imports.
 - **source:** R2 (define and test the bootstrap/admin plane)
 - **what:** Add an architecture guardrail test that explicitly allowlists the CLI/admin commands permitted to use direct PostgreSQL connections (e.g., `adopt`, `repo add`, `daemon doctor`).
 - **why:** Without a formal boundary, future developers might use "bootstrap" as a loophole to bypass the daemon and directly mutate live workflow state from the CLI.

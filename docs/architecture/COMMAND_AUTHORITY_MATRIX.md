@@ -47,6 +47,26 @@ Legend:
   repo-local SQLite through dogfood compatibility helpers, local legacy
   service surfaces, or migration-only paths.
 
+## Direct PostgreSQL Bootstrap/Admin Plane
+
+These Python client/CLI touchpoints may configure or open daemon PostgreSQL
+directly because they run before a daemon is healthy, inspect daemon health, or
+guard local authoring against active runs. This is not a general live-state
+mutation escape hatch: ordinary workflow state changes must route through
+daemon RPC. `tests/architecture/test_authority_guardrails.py` scans for these
+imports and fails on unlisted direct PostgreSQL client helpers.
+
+| File/function | Allowed surface | Direct PostgreSQL helper imports | Constraint |
+|---|---|---|---|
+| `src/striatum/day_zero.py::<module>` | guided adoption, first-run smoke, service status helpers | `resolve_config`, `connect`, `connect_and_migrate`, `doctor` | day-zero setup/diagnostic only; workflow mutations still route through daemon RPC |
+| `src/striatum/day_zero.py::adopt` | guided first-run repo registration | `repo_add_pg` | initializes operational scratch and repository registration only |
+| `src/striatum/cli/dispatch.py::_dispatch_daemon` | `daemon doctor`, lifecycle/status/audit/sweep/service commands | `client_admin`, `doctor` | daemon-global admin/diagnostic plane only |
+| `src/striatum/cli/dispatch.py::_daemon_doctor_repo_cutover_report` | `daemon doctor --repo --authority` cutover verification | `resolve_config` | verify-only repository cutover report |
+| `src/striatum/cli/dispatch.py::_daemon_authority_report` | authority diagnostic report | `client_admin` | diagnostic environment/escape reporting only |
+| `src/striatum/cli/dispatch.py::_dispatch_daemon_repo` | `repo add/list/remove` CLI bridge | `client_admin` | calls PostgreSQL admin client helpers; no repo-local SQLite state |
+| `src/striatum/cli/dispatch.py::_dispatch_cross_repo` | paired legacy test-harness fallback for cross-repo commands | `connect_and_migrate` | production path refuses before this branch unless the paired test-harness escape is enabled |
+| `src/striatum/cli/workflow.py::_running_runs_for_workflow_pg` | local workflow-upgrade running-run guard | `resolve_config`, `connect` | read-only guard; fail closed when daemon PostgreSQL state is unknown |
+
 ## Registered Daemon Methods
 
 | RPC method | CLI command | Capability | Scope | Python authority | Go authority | CLI fallback | SQLite dependency | Status |

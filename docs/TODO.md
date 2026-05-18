@@ -1353,6 +1353,9 @@ review and plan are root-level operator artifacts:
     D108 keeps the command authority matrix
     curated for authority/status classification while architecture tests now
     enforce generated CLI route labels and runtime CLI fallback cells.
+    The direct PostgreSQL bootstrap/admin plane is now explicitly listed in
+    the matrix and guarded by an import scan so ordinary workflow commands
+    cannot quietly add direct daemon-PG helper imports.
     `striatum daemon doctor --repo <path> --authority --json` now mirrors the
     verify-only repository cutover report in doctor output and summarizes that
     repository cutover in the authority report. Remaining: no known

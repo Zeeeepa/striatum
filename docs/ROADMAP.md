@@ -1016,7 +1016,9 @@ Release order after Phase 0:
     terminal dashboard now renders production text frames from daemon DTOs;
     Go `status` now matches the PostgreSQL/Python read-model shape.
     `dashboard --all` now routes through daemon RPC, and architecture tests
-    assert production sources do not import the legacy Python daemon. Daemon
+    assert production sources do not import the legacy Python daemon. The
+    direct PostgreSQL bootstrap/admin plane is now explicitly listed in the
+    command authority matrix and guarded by an import scan. Daemon
     MCP resource fallback without a PostgreSQL connection is retired and fails
     closed before the legacy registry can open; remaining RFC 0069 work is any
     future registry-probe/global-surface cleanup found by those guardrail

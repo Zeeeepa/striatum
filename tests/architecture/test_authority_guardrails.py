@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 import importlib
 import json
 from pathlib import Path
@@ -71,6 +72,38 @@ LOCAL_FILE_AUTHORING_METHODS_EXPECTED: frozenset[str] = frozenset(
 
 GO_DAEMON_RETIREMENT_BLOCKER_METHODS: frozenset[str] = frozenset()
 
+DIRECT_PG_BOOTSTRAP_IMPORT_ALLOWLIST: dict[str, set[str]] = {
+    "src/striatum/day_zero.py::<module>": {
+        "striatum.daemon_pg.config.resolve_config",
+        "striatum.daemon_pg.connection.connect",
+        "striatum.daemon_pg.connection.connect_and_migrate",
+        "striatum.daemon_pg.connection.doctor",
+    },
+    "src/striatum/day_zero.py::adopt": {
+        "striatum.daemon_pg.repositories.repo_add_pg",
+    },
+    "src/striatum/cli/dispatch.py::_dispatch_daemon": {
+        "striatum.daemon_pg.client_admin",
+        "striatum.daemon_pg.connection.doctor",
+    },
+    "src/striatum/cli/dispatch.py::_daemon_doctor_repo_cutover_report": {
+        "striatum.daemon_pg.config.resolve_config",
+    },
+    "src/striatum/cli/dispatch.py::_daemon_authority_report": {
+        "striatum.daemon_pg.client_admin",
+    },
+    "src/striatum/cli/dispatch.py::_dispatch_daemon_repo": {
+        "striatum.daemon_pg.client_admin",
+    },
+    "src/striatum/cli/dispatch.py::_dispatch_cross_repo": {
+        "striatum.daemon_pg.connection.connect_and_migrate",
+    },
+    "src/striatum/cli/workflow.py::_running_runs_for_workflow_pg": {
+        "striatum.daemon_pg.config.resolve_config",
+        "striatum.daemon_pg.connection.connect",
+    },
+}
+
 
 def _authority_matrix_section(start: str, end: str | None = None) -> str:
     text = AUTHORITY_MATRIX_PATH.read_text(encoding="utf-8")
@@ -101,6 +134,12 @@ def _registered_matrix_rows() -> dict[str, list[str]]:
 def _deprecated_alias_matrix_rows() -> dict[str, list[str]]:
     return _authority_matrix_rows(
         _authority_matrix_section("## Deprecated Alias Methods", "## CLI-Only Or Out-Of-Band Commands")
+    )
+
+
+def _direct_pg_bootstrap_matrix_rows() -> dict[str, list[str]]:
+    return _authority_matrix_rows(
+        _authority_matrix_section("## Direct PostgreSQL Bootstrap/Admin Plane", "## Registered Daemon Methods")
     )
 
 
@@ -157,6 +196,18 @@ def test_registry_methods_have_explicit_authority_path() -> None:
         "daemon RPC methods lack an explicit authority classification: "
         + ", ".join(unclassified)
     )
+
+
+def test_direct_postgres_bootstrap_plane_is_explicitly_allowlisted() -> None:
+    observed = _direct_pg_client_imports_under(REPO_ROOT / "src" / "striatum")
+    allowed = {
+        key: set(value)
+        for key, value in DIRECT_PG_BOOTSTRAP_IMPORT_ALLOWLIST.items()
+    }
+
+    assert observed == allowed
+    matrix_rows = _direct_pg_bootstrap_matrix_rows()
+    assert set(matrix_rows) == set(DIRECT_PG_BOOTSTRAP_IMPORT_ALLOWLIST)
 
 
 def test_authority_matrix_covers_active_registry_methods() -> None:
@@ -457,3 +508,78 @@ def test_daemon_routed_command_fails_closed_when_route_layer_crashes(
 
     with pytest.raises(StriatumError, match="daemon_route_failed"):
         dispatch_mod.dispatch(args)
+
+
+def _direct_pg_client_imports_under(root: Path) -> dict[str, set[str]]:
+    observed: dict[str, set[str]] = {}
+    excluded_prefixes = {
+        Path("src/striatum/daemon_pg"),
+        Path("src/striatum/daemon_rpc"),
+    }
+    excluded_files = {
+        Path("src/striatum/daemon.py"),
+    }
+    for path in sorted(root.rglob("*.py")):
+        rel = path.relative_to(REPO_ROOT)
+        if rel in excluded_files or any(rel.is_relative_to(prefix) for prefix in excluded_prefixes):
+            continue
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        visitor = _DirectPgImportVisitor(rel)
+        visitor.visit(tree)
+        observed.update(visitor.observed)
+    return observed
+
+
+class _DirectPgImportVisitor(ast.NodeVisitor):
+    def __init__(self, rel: Path) -> None:
+        self.rel = rel
+        self.stack: list[str] = []
+        self.observed: dict[str, set[str]] = {}
+
+    def visit_FunctionDef(self, node: ast.FunctionDef) -> None:  # noqa: N802 - ast visitor API.
+        self.stack.append(str(node.name))
+        try:
+            self.generic_visit(node)
+        finally:
+            self.stack.pop()
+
+    def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:  # noqa: N802 - ast visitor API.
+        self.stack.append(str(node.name))
+        try:
+            self.generic_visit(node)
+        finally:
+            self.stack.pop()
+
+    def visit_ImportFrom(self, node: ast.ImportFrom) -> None:  # noqa: N802 - ast visitor API.
+        module = node.module
+        if module is None:
+            return
+        symbols: set[str] = set()
+        if module == "striatum.daemon_pg":
+            symbols.update(
+                "striatum.daemon_pg.client_admin"
+                for alias in node.names
+                if alias.name == "client_admin"
+            )
+        elif module == "striatum.daemon_pg.config":
+            symbols.update(
+                f"{module}.{alias.name}"
+                for alias in node.names
+                if alias.name == "resolve_config"
+            )
+        elif module == "striatum.daemon_pg.connection":
+            symbols.update(
+                f"{module}.{alias.name}"
+                for alias in node.names
+                if alias.name in {"connect", "connect_and_migrate", "doctor"}
+            )
+        elif module == "striatum.daemon_pg.repositories":
+            symbols.update(
+                f"{module}.{alias.name}"
+                for alias in node.names
+                if alias.name
+                in {"repo_add_pg", "repo_list_pg", "repo_remove_pg", "repo_resolve_pg"}
+            )
+        if symbols:
+            context = self.stack[-1] if self.stack else "<module>"
+            self.observed.setdefault(f"{self.rel.as_posix()}::{context}", set()).update(symbols)
