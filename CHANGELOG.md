@@ -106,6 +106,9 @@ Recent checkpoints:
 - Legacy SQLite recovery mutation helpers moved to
   `striatum.legacy_sqlite.cli_recovery`; `striatum.cli.recovery` now keeps
   parity constants and lazy compatibility accessors.
+- Legacy SQLite workflow-loop mutation helpers moved to
+  `striatum.legacy_sqlite.cli_mutations`; `striatum.cli.mutations` now keeps
+  the neutral verdict-job constant and lazy compatibility accessors.
 - The retired `src/striatum/daemon.py` Python daemon / daemon-global SQLite
   registry module was deleted. Architecture guardrails now assert the module
   remains absent and keep daemon-global refusal coverage on the PostgreSQL
