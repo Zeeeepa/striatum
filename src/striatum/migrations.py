@@ -20,6 +20,8 @@ _PROTECTED_NAMES = frozenset(
         "__name__",
         "__package__",
         "__spec__",
+        "_LEGACY_MODULE",
+        "_PROTECTED_NAMES",
     }
 )
 
@@ -38,14 +40,14 @@ class _LegacyFacadeModule(ModuleType):
         return __getattr__(name)
 
     def __setattr__(self, name: str, value: object) -> None:
-        if name.startswith("_") or name in _PROTECTED_NAMES:
+        if name in _PROTECTED_NAMES:
             super().__setattr__(name, value)
             return
         setattr(import_module(_LEGACY_MODULE), name, value)
         super().__setattr__(name, value)
 
     def __delattr__(self, name: str) -> None:
-        if not name.startswith("_") and name not in _PROTECTED_NAMES:
+        if name not in _PROTECTED_NAMES:
             legacy_module = import_module(_LEGACY_MODULE)
             if hasattr(legacy_module, name):
                 delattr(legacy_module, name)

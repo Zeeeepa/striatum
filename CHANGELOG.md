@@ -119,6 +119,10 @@ Recent checkpoints:
   `striatum.legacy_sqlite.db` and `striatum.legacy_sqlite.migrations`;
   root `striatum.db` / `striatum.migrations` are lazy compatibility facades
   that do not import SQLite until legacy fixture callers request attributes.
+- The retired repo-local SQLite import helper moved to
+  `striatum.legacy_sqlite.repo_local_migration`; the old
+  `striatum.daemon_pg.repo_local_migration` import path is now a lazy facade
+  and no longer imports SQLite on plain module import.
 - The retired `src/striatum/daemon.py` Python daemon / daemon-global SQLite
   registry module was deleted. Architecture guardrails now assert the module
   remains absent and keep daemon-global refusal coverage on the PostgreSQL

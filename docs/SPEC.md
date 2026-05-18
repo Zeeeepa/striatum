@@ -47,6 +47,8 @@ fixture/import conversion or deletion; and the Python CLI/web layers may
 remain daemon clients. The repo-local SQLite engine and migrations are
 quarantined under `striatum.legacy_sqlite`; root `striatum.db` /
 `striatum.migrations` are lazy compatibility facades for legacy fixtures. The
+retired repo-local import helper is also quarantined under
+`striatum.legacy_sqlite`, with the old daemon-PG path kept as a lazy facade.
 `STRIATUM_DAEMON_REQUIRED=0 STRIATUM_TEST_HARNESS=1` escape no
 longer takes effect for ported methods — mapped CLI verbs fail
 closed instead of falling back to SQLite when the daemon is
@@ -1420,8 +1422,9 @@ D113 closes the writable SQLite import window. The Python daemon module has
 been deleted; remaining retirement work is legacy SQLite fixture/import
 conversion or deletion. The repo-local SQLite engine and migrations are
 quarantined under `striatum.legacy_sqlite`; root compatibility modules are lazy
-facades only. The Python CLI/web service may remain as clients of the Go
-daemon.
+facades only. The retired repo-local import helper is quarantined under the
+same legacy namespace. The Python CLI/web service may remain as clients of the
+Go daemon.
 
 ### Local Web UI
 

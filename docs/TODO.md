@@ -928,7 +928,11 @@ review and plan are root-level operator artifacts:
     SQLite engine and schema migrations now live under
     `striatum.legacy_sqlite.db` and `striatum.legacy_sqlite.migrations`; root
     `striatum.db` / `striatum.migrations` are lazy compatibility facades that
-    do not import SQLite until legacy fixture callers request attributes.
+    do not import SQLite until legacy fixture callers request attributes. The
+    retired repo-local SQLite import helper now lives under
+    `striatum.legacy_sqlite.repo_local_migration`; the old
+    `striatum.daemon_pg.repo_local_migration` path is a lazy facade and no
+    longer imports SQLite on plain module import.
 
 50. ~~**Phase 2: single method-contract source.**~~ ✅ Done. Contract source is now
     live at `contracts/daemon_methods.json`; Python `METHOD_REGISTRY`

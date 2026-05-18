@@ -41,7 +41,7 @@ PRODUCTION_SQLITE_QUARANTINE = {
         "migration",
         "pre-D094 repo-local schema migrations retained for migration fixtures",
     ),
-    Path("src/striatum/daemon_pg/repo_local_migration.py"): SQLiteClassification(
+    Path("src/striatum/legacy_sqlite/repo_local_migration.py"): SQLiteClassification(
         "migration",
         "pre-D094 repo-local SQLite to daemon Postgres migration command",
     ),
@@ -423,6 +423,27 @@ def test_root_sqlite_facades_do_not_eager_load_legacy_modules() -> None:
     ]
     code = (
         "import sys; import striatum.db; import striatum.migrations; "
+        f"legacy={legacy_modules!r}; "
+        "print('\\n'.join(name for name in legacy if name in sys.modules))"
+    )
+
+    proc = subprocess.run(
+        [sys.executable, "-c", code],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    assert proc.stdout.strip() == ""
+
+
+def test_repo_local_migration_facade_does_not_eager_load_legacy_modules() -> None:
+    legacy_modules = [
+        "sqlite3",
+        "striatum.legacy_sqlite.repo_local_migration",
+    ]
+    code = (
+        "import sys; import striatum.daemon_pg.repo_local_migration; "
         f"legacy={legacy_modules!r}; "
         "print('\\n'.join(name for name in legacy if name in sys.modules))"
     )

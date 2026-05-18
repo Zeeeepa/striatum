@@ -304,7 +304,9 @@ production registry or repo-local SQLite probes should be treated as
 guardrail failures. The repo-local SQLite engine and migrations now live under
 `striatum.legacy_sqlite`; root `striatum.db` / `striatum.migrations` remain
 lazy compatibility facades for legacy fixtures and do not import SQLite on
-plain module import.
+plain module import. The retired repo-local import helper is also quarantined
+under `striatum.legacy_sqlite`; the old daemon-PG import path is a lazy
+compatibility facade.
 
 ---
 
@@ -364,6 +366,7 @@ the retired Python daemon module is deleted, and remaining retirement work is
 legacy SQLite fixture/import cleanup while Python CLI/web clients remain useful.
 The repo-local SQLite engine and schema migrations are now quarantined under
 `striatum.legacy_sqlite`; root compatibility modules are lazy facades only.
+The retired repo-local import helper follows the same pattern.
 
 **Landed in this slice:**
 - `docs/DECISION_LOG.md` records D107 and marks D105 superseded.
