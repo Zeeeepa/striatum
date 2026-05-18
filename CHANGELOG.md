@@ -131,6 +131,9 @@ Recent checkpoints:
 - `striatum.daemon_supervisor.progress_watcher` no longer imports `sqlite3`;
   its optional connection is typed generically while the caller owns the
   legacy repo-local connection.
+- Legacy corpus export helpers no longer import `sqlite3` or `striatum.db`;
+  their caller supplies the connection while corpus-specific row lookup stays
+  local to the compatibility exporter.
 - The standalone `striatum.daemon_pg.sqlite_compat` helper was removed. Its
   last repository-identity calculation now lives beside the one-way
   repo-local migration fixture, and the unused daemon audit-chain validators

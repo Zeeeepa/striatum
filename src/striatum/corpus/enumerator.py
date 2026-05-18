@@ -4,9 +4,8 @@ from __future__ import annotations
 
 import json
 import re
-import sqlite3
 from pathlib import Path
-from typing import Iterable
+from typing import Any, Iterable
 
 from striatum.cli.run_summary import render_run_summary_markdown, run_summary_snapshot
 from striatum.corpus import git as git_helpers
@@ -17,7 +16,6 @@ from striatum.corpus.redaction import (
     validate_source_path,
 )
 from striatum.corpus.types import CorpusProvenance, CorpusRow
-from striatum.db import row_by_id
 from striatum.primitives import json_loads
 
 ATX_RE = re.compile(r"^(#{1,6})\s+(.+?)\s*$", re.MULTILINE)
@@ -28,7 +26,7 @@ OPERATOR_DOC_KINDS = {"operator_brief", "work_plan", "progress_note"}
 
 
 def enumerate_rows(
-    conn: sqlite3.Connection,
+    conn: Any,
     *,
     repo: Path,
     since_commit: str,
@@ -139,7 +137,7 @@ def enumerate_operator_docs(repo: Path, changed: set[str]) -> list[CorpusRow]:
 
 
 def enumerate_run_summaries(
-    conn: sqlite3.Connection,
+    conn: Any,
     *,
     repo: Path,
     changed: set[str],
@@ -156,7 +154,7 @@ def enumerate_run_summaries(
     # Live summaries for the current repository are generated through the
     # same helpers as `striatum run summary`, then redacted before rendering.
     for run_id in _live_run_ids(conn):
-        run = row_by_id(conn, "runs", "run_id", run_id)
+        run = _row_by_id(conn, "runs", "run_id", run_id)
         snapshot = run_summary_snapshot(conn, repo=repo, run_id=run_id)
         redacted = redact_run_summary_payload(snapshot)
         content = render_run_summary_markdown(run=dict(run), summary=redacted)
@@ -173,13 +171,13 @@ def enumerate_run_summaries(
     return rows
 
 
-def enumerate_audit_chain(conn: sqlite3.Connection, *, repo: Path) -> list[CorpusRow]:
+def enumerate_audit_chain(conn: Any, *, repo: Path) -> list[CorpusRow]:
     rows: list[CorpusRow] = []
     try:
         events = conn.execute(
             "SELECT event_id, event_type, run_id, job_id, created_at, payload_json FROM events ORDER BY created_at, event_id"
         ).fetchall()
-    except sqlite3.Error:
+    except Exception:  # noqa: BLE001 - legacy fixtures may not have event tables.
         return []
     for event in events:
         payload: dict[str, object] = {
@@ -412,9 +410,19 @@ def _split_by_regex_heading(text: str, pattern: re.Pattern[str]) -> list[tuple[s
     return sections
 
 
-def _live_run_ids(conn: sqlite3.Connection) -> list[str]:
+def _live_run_ids(conn: Any) -> list[str]:
     try:
         rows = conn.execute("select run_id from runs order by created_at, run_id").fetchall()
-    except sqlite3.Error:
+    except Exception:  # noqa: BLE001 - corpus export tolerates missing legacy tables.
         return []
     return [str(row["run_id"]) for row in rows]
+
+
+def _row_by_id(conn: Any, table: str, key_column: str, key_value: str) -> Any:
+    row = conn.execute(
+        f"SELECT * FROM {table} WHERE {key_column} = ?",
+        (key_value,),
+    ).fetchone()
+    if row is None:
+        raise KeyError(f"unknown {table}.{key_column}: {key_value}")
+    return row

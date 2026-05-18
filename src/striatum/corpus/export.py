@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-import sqlite3
 from pathlib import Path
+from typing import Any
 
 from striatum.corpus import git as git_helpers
 from striatum.corpus.enumerator import enumerate_rows
@@ -14,7 +14,7 @@ from striatum.errors import StriatumError
 
 
 def export_corpus_bundle(
-    conn: sqlite3.Connection,
+    conn: Any,
     *,
     repo: Path,
     since: str,
@@ -51,7 +51,7 @@ def export_corpus_bundle(
     return result.to_json(repo=repo)
 
 
-def _repo_local_schema_version(conn: sqlite3.Connection) -> int:
+def _repo_local_schema_version(conn: Any) -> int:
     row = conn.execute("PRAGMA user_version").fetchone()
     return int(row[0]) if row is not None else 0
 
