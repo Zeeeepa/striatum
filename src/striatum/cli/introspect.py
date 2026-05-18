@@ -11,16 +11,14 @@ from types import ModuleType
 from typing import Callable
 
 from striatum.db import (
-    JsonObject,
     expire_leases,
-    json_loads,
     latest_verdict,
     row_by_id,
 )
 from striatum.identity import session_lane_attestation
 from striatum.errors import InvalidTransitionError, NotFoundError, WorkflowError
+from striatum.primitives import JsonObject, json_loads, utc_now
 from striatum.supervisor import SUPERVISOR_ACTIVE_STATES
-from striatum.db import utc_now
 from striatum.workflow import (
     mermaid_state_class,
     workflow_phase_index,

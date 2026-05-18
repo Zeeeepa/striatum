@@ -14,8 +14,9 @@ from striatum.daemon_supervisor.progress_watcher import (
     SupervisedProgressTarget,
     SupervisedProgressWatcher,
 )
-from striatum.db import JsonObject, insert_event, transaction, utc_now
+from striatum.db import insert_event, transaction
 from striatum.identity import process_start_time
+from striatum.primitives import JsonObject, utc_now
 
 
 @dataclass(frozen=True)

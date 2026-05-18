@@ -17,7 +17,8 @@ from striatum.corpus.redaction import (
     validate_source_path,
 )
 from striatum.corpus.types import CorpusProvenance, CorpusRow
-from striatum.db import json_loads, row_by_id
+from striatum.db import row_by_id
+from striatum.primitives import json_loads
 
 ATX_RE = re.compile(r"^(#{1,6})\s+(.+?)\s*$", re.MULTILINE)
 RFC_PATH_RE = re.compile(r"^docs/rfcs/([0-9]{4})-.*\.md$")

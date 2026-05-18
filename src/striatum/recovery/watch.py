@@ -20,7 +20,8 @@ import threading
 from pathlib import Path
 from typing import Any, Callable, Mapping, TextIO
 
-from striatum.db import connect, json_loads, row_by_id, utc_now
+from striatum.db import connect, row_by_id
+from striatum.primitives import json_loads, utc_now
 from striatum.errors import InvalidTransitionError, NotFoundError
 from striatum.recovery.auto import run_auto_sweep
 from striatum.recovery.policy import resolve_policy

@@ -9,7 +9,8 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, cast
 
-from striatum.db import connect, expire_leases, transaction, utc_now
+from striatum.db import connect, expire_leases, transaction
+from striatum.primitives import utc_now
 from striatum.dogfood.operator_tools import surgical_recovery
 from striatum.identity import process_start_time
 

@@ -93,6 +93,10 @@ Recent checkpoints:
 - Legacy SQLite cutover guardrail tests now live with the legacy quarantine
   tripwires, so `tests/test_daemon_pg.py` no longer imports the retired Python
   daemon module.
+- Process-progress polling, CLI introspection, recovery watching, corpus
+  enumeration, and dogfood recovery tests now import neutral JSON/timestamp
+  helpers from `striatum.primitives`; only the explicitly legacy dashboard
+  fixture still imports those names through `striatum.db`.
 - Runtime path and token-file helpers now live in `striatum.daemon_runtime`,
   and PostgreSQL repository registration helpers used by day-zero setup and
   daemon RPC routing now live in `striatum.daemon_pg.repositories`, reducing
