@@ -53,6 +53,10 @@ author: planner-gemini-cli-001
 - **acceptance:** An agent connecting via MCP only receives tools defined in `contracts/daemon_methods.json` that its token's capability explicitly grants.
 
 ### P1-GO-RELEASE-PROVENANCE
+- **status:** completed 2026-05-18; Go daemon builds stamp package version,
+  git SHA, and dirty/clean state into `striatumd --describe`, while the
+  Python launcher rejects unstamped `go-dev` binaries and missing git
+  provenance before socket bind.
 - **source:** R4 (stamp the Go daemon binary with release/build metadata)
 - **what:** Inject the package version, git SHA, and contract etag into the Go daemon build process, and expose them via a `striatumd --describe` command.
 - **why:** A single operator needs to be able to trivially prove exactly which binary is running when debugging local orchestration failures; `go-dev` is practically useless.

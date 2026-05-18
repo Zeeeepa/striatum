@@ -18,6 +18,10 @@ Recent checkpoints:
   and migration count from `--describe`; the Python launcher refuses stale Go
   daemon binaries before socket bind when their schema, migration count, or
   method contract does not match the source tree.
+- Go daemon builds now stamp `striatumd --describe` with the Python package
+  version, git SHA, and dirty/clean state. The Python launcher also rejects
+  unstamped `go-dev` binaries and binaries that omit git provenance before
+  they can bind a socket.
 - Go migration SHA-source verification now rejects extra newer Python-source
   migrations, closing the stale-binary gap where an old Go binary could pass
   hash checks until it hit a migrated database.

@@ -18,6 +18,19 @@ WORKFLOW="$TARGET/docs/workflows/smoke/workflow.json"
 DAEMON_PID=""
 PG_ADMIN_URL=""
 PG_DATABASE_NAME=""
+SOURCE_GIT_SHA="$(git -C "$ROOT" rev-parse HEAD 2>/dev/null || echo unknown)"
+SOURCE_GIT_DIRTY="$(
+  if git -C "$ROOT" diff --quiet --ignore-submodules HEAD -- 2>/dev/null; then
+    echo clean
+  else
+    echo dirty
+  fi
+)"
+
+if [[ "$SOURCE_GIT_SHA" == "unknown" ]]; then
+  echo "package smoke requires source git SHA for Go daemon provenance" >&2
+  exit 1
+fi
 
 cleanup() {
   if [[ -n "${DAEMON_PID:-}" ]] && kill -0 "$DAEMON_PID" 2>/dev/null; then
@@ -47,7 +60,7 @@ tar \
   . | tar -C "$SOURCE" -xf -
 
 cd "$SOURCE"
-make daemon-go-install >/dev/null
+GIT_SHA="$SOURCE_GIT_SHA" GIT_DIRTY="$SOURCE_GIT_DIRTY" make daemon-go-install >/dev/null
 "$PYTHON_FOR_BUILD" -m build --sdist --wheel --outdir "$DIST" >/dev/null
 
 wheel_count="$(find "$DIST" -maxdepth 1 -name 'striatum_orchestrator-*.whl' | wc -l | tr -d ' ')"
@@ -68,6 +81,27 @@ wheel="$(find "$DIST" -maxdepth 1 -name 'striatum_orchestrator-*.whl' -print -qu
 
 RUNNER="$PACKAGE_VENV/bin/striatum"
 "$RUNNER" --help >/dev/null
+GO_BIN="$("$PACKAGE_VENV/bin/python" - <<'PY'
+from striatum._daemongo import find_binary
+
+print(find_binary())
+PY
+)"
+GO_DESCRIBE="$("$GO_BIN" --describe)"
+PACKAGE_VERSION="$("$PACKAGE_VENV/bin/python" - <<'PY'
+import striatum
+
+print(striatum.__version__)
+PY
+)"
+if [[ "$GO_DESCRIBE" != *"daemon_version=$PACKAGE_VERSION"* ]]; then
+  echo "packaged Go daemon version mismatch: $GO_DESCRIBE" >&2
+  exit 1
+fi
+if [[ "$GO_DESCRIBE" != *"git_sha=$SOURCE_GIT_SHA"* ]]; then
+  echo "packaged Go daemon git SHA mismatch: $GO_DESCRIBE" >&2
+  exit 1
+fi
 
 mkdir -p "$TARGET"
 git -C "$TARGET" init --quiet

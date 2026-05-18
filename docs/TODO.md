@@ -1189,10 +1189,12 @@ review and plan are root-level operator artifacts:
     port production daemon ownership to Go, retire the Python daemon after
     parity, keep Python CLI/web clients where useful, and remove SQLite from
     production and compatibility paths. First slice landed in dogfood 065:
-    Go `--describe` reports supported schema and migration count, the Python
-    launcher rejects stale Go daemon binaries before socket bind, Go migration
-    SHA-source verification refuses extra newer source migrations, and Go
-    `doctor` reads `schema_meta['substrate_version']` correctly. A Go
+    Go `--describe` reports supported schema, migration count, method etag,
+    stamped package version, git SHA, and dirty/clean state; the Python
+    launcher rejects stale or unstamped Go daemon binaries before socket bind.
+    Go migration SHA-source verification refuses extra newer source
+    migrations, and Go `doctor` reads `schema_meta['substrate_version']`
+    correctly. A Go
     handler-coverage test now records every missing or placeholder contract
     method explicitly, and `recovery.sweep` is wired to the Go recovery sweep
     handler instead of only the deprecated `recovery.auto` alias. Go now

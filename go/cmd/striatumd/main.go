@@ -78,7 +78,11 @@ func (a *supervisorPointerStoreAdapter) GetSupervisorPointer(ctx context.Context
 	}, nil
 }
 
-const daemonVersion = "go-dev"
+var (
+	daemonVersion = "go-dev"
+	buildGitSHA   = "unknown"
+	buildDirty    = "unknown"
+)
 
 func main() {
 	var socketPath string
@@ -103,12 +107,14 @@ func main() {
 			log.Fatalf("load migration sha set: %v", err)
 		}
 		fmt.Printf(
-			"core=go envelope=%d framing=%s supported_schema=%d methods_etag=%s daemon_version=%s migration_count=%d\n",
+			"core=go envelope=%d framing=%s supported_schema=%d methods_etag=%s daemon_version=%s git_sha=%s build_dirty=%s migration_count=%d\n",
 			rpc.SupportedEnvelopeVersion,
 			rpc.DefaultFraming,
 			db.LatestDaemonDBVersion,
 			rpc.MethodsETag(),
 			daemonVersion,
+			buildGitSHA,
+			buildDirty,
 			len(migrationSHAs),
 		)
 		return

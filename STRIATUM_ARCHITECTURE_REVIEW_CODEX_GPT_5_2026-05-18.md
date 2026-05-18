@@ -73,7 +73,7 @@ stated: Striatum is supposed to be a standalone, local-first workflow runner for
 
 actual: The implementation is much closer to that stated architecture than the shape of the codebase first suggests. `striatum daemon start` now launches the Go daemon (`src/striatum/cli/daemon.py:35-50`), `striatumd` is a shim into that path rather than an import of the Python daemon (`src/striatum/daemon_entrypoint.py:1-17`), the parser rejects `--core python` and leaves only a no-op `--core go` compatibility flag (`src/striatum/cli/parser.py:254-381`), and the Go daemon refuses to bind before PostgreSQL is configured and migrated (`go/cmd/striatumd/main.go:81-177`). Active method coverage is guarded by generated Go registry data and a handler coverage test that fails if an active method is absent or still wired to a `not_implemented` handler (`go/pkg/rpc/registry_methods.go:5-107`, `go/cmd/striatumd/handler_coverage_test.go:40-69`).
 
-mine: I do not see a present P0 architecture failure in the live path. The important risks are serious but bounded: large legacy SQLite/Python-daemon code remains packaged and importable; service and MCP compatibility surfaces still expose a broader CLI-shaped facade than the north-star architecture needs; direct PostgreSQL bootstrap/admin code is necessary but should be named as a bounded plane; and the Go daemon has weak release provenance because it still reports `go-dev`. The next maintainer work should be deletion and boundary tightening, not new orchestration infrastructure.
+mine: I do not see a present P0 architecture failure in the live path. The important risks are serious but bounded: large legacy SQLite/Python-daemon code remains packaged and importable; service and MCP compatibility surfaces still expose a broader CLI-shaped facade than the north-star architecture needs; and direct PostgreSQL bootstrap/admin code is necessary but should be named as a bounded plane. The release-provenance gap noted in the original review was closed on 2026-05-18: Go builds now stamp package version and git SHA into `striatumd --describe`, and the Python launcher rejects unstamped binaries before socket bind. The next maintainer work should be deletion and boundary tightening, not new orchestration infrastructure.
 
 stated: The review should not recommend Kubernetes, cloud services, telemetry, or a multi-person operating model.
 
@@ -167,13 +167,13 @@ actual: Some commands necessarily operate before or beside a daemon. `adopt` and
 
 mine: I agree with the implementation, but the architecture needs a name for this: a bounded bootstrap/admin plane. Without that name, future code will either over-constrain useful setup commands or use "bootstrap" as a loophole for live workflow mutations outside daemon RPC.
 
-### Concern 4 - Go daemon release provenance is weak
+### Concern 4 - Go daemon release provenance remediated
 
 stated: The release model packages Go daemon binaries into the Python distribution and checks their contract freshness (`pyproject.toml:54-57`, `Makefile:107-121`, `src/striatum/cli/daemon.py:107-150`).
 
-actual: The Go daemon still reports `daemonVersion = "go-dev"` in source (`go/cmd/striatumd/main.go:81`). The Python launcher checks schema version, migration count, and method etag, but not a package version or build id (`src/striatum/cli/daemon.py:107-150`). Audit/request metadata is designed to include daemon identity, so an unchanging dev string reduces diagnostic value (`go/cmd/striatumd/main.go:143-177`).
+actual: Updated 2026-05-18. The Go daemon source keeps `go-dev` only as an unstamped fallback, while the Makefile injects the Python package version, git SHA, and dirty/clean state with Go linker flags. `striatumd --describe` reports that provenance alongside schema, migration count, and method etag, and the Python launcher rejects binaries that still report `go-dev` or omit git SHA before they can bind a socket (`go/Makefile:1-52`, `go/cmd/striatumd/main.go:81-119`, `src/striatum/cli/daemon.py:107-164`).
 
-mine: This is not a correctness blocker, but it is cheap operational debt. A single operator debugging a local installation benefits from being able to prove which binary is running.
+mine: This concern is remediated. Keep package smoke and launcher checks around it so local support can prove which daemon binary is running.
 
 ### Concern 5 - the contract is real, but source-of-truth sprawl remains
 
@@ -236,9 +236,9 @@ mine: Generate the live MCP tool/resource list from `contracts/daemon_methods.js
 
 stated: Packaged Go daemon binaries are part of the release artifact.
 
-actual: The source reports `go-dev`, and freshness checks do not verify binary version (`go/cmd/striatumd/main.go:81`, `src/striatum/cli/daemon.py:107-150`).
+actual: Updated 2026-05-18. `go/Makefile` stamps release provenance into Go daemon builds, `striatumd --describe` exposes it, and the launcher verifies package version plus git SHA before accepting a binary.
 
-mine: Inject version, git SHA, contract etag, and migration SHA at build time or via a generated Go file. Make `striatumd --describe` expose them and make package smoke assert that the packaged binary matches the Python package version and contract etag. This is small and high-leverage for local support.
+mine: Done for package version, git SHA, dirty/clean state, contract etag, schema, and migration count. The residual maintenance task is to keep release/package smoke coverage from regressing this provenance.
 
 ### R5 - generate more authority documentation from the method contract
 

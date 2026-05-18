@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 
+from striatum import __version__ as STRIATUM_VERSION
 from striatum.cli import daemon as daemon_cli
 from striatum.cli.daemon import (
     ENV_GO_BIN,
@@ -209,7 +210,9 @@ def test_go_binary_env_override(monkeypatch: pytest.MonkeyPatch, tmp_path: Path)
     binary.write_text(
         "#!/bin/sh\n"
         "if [ \"$1\" = \"--describe\" ]; then\n"
-        f"  echo core=go supported_schema={LATEST_DAEMON_DB_VERSION} migration_count={LATEST_DAEMON_DB_VERSION} methods_etag={METHODS_ETAG}\n"
+        f"  echo core=go supported_schema={LATEST_DAEMON_DB_VERSION} "
+        f"migration_count={LATEST_DAEMON_DB_VERSION} methods_etag={METHODS_ETAG} "
+        f"daemon_version={STRIATUM_VERSION} git_sha=abc123 build_dirty=dirty\n"
         "  exit 0\n"
         "fi\n",
         encoding="utf-8",
@@ -225,7 +228,9 @@ def test_packaged_go_resolver_accepts_find_binary(monkeypatch: pytest.MonkeyPatc
     binary.write_text(
         "#!/bin/sh\n"
         "if [ \"$1\" = \"--describe\" ]; then\n"
-        f"  echo core=go supported_schema={LATEST_DAEMON_DB_VERSION} migration_count={LATEST_DAEMON_DB_VERSION} methods_etag={METHODS_ETAG}\n"
+        f"  echo core=go supported_schema={LATEST_DAEMON_DB_VERSION} "
+        f"migration_count={LATEST_DAEMON_DB_VERSION} methods_etag={METHODS_ETAG} "
+        f"daemon_version={STRIATUM_VERSION} git_sha=abc123 build_dirty=dirty\n"
         "  exit 0\n"
         "fi\n",
         encoding="utf-8",
@@ -291,10 +296,54 @@ def test_go_binary_env_override_rejects_stale_migration_count(
         resolve_go_binary()
 
 
+def test_go_binary_env_override_rejects_unstamped_version(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    binary = tmp_path / "striatumd"
+    binary.write_text(
+        "#!/bin/sh\n"
+        f"echo core=go supported_schema={LATEST_DAEMON_DB_VERSION} "
+        f"migration_count={LATEST_DAEMON_DB_VERSION} methods_etag={METHODS_ETAG} "
+        "daemon_version=go-dev git_sha=abc123\n",
+        encoding="utf-8",
+    )
+    binary.chmod(0o755)
+    monkeypatch.setenv(ENV_GO_BIN, str(binary))
+
+    with pytest.raises(StriatumError, match="reports version"):
+        resolve_go_binary()
+
+
+def test_go_binary_env_override_rejects_missing_git_sha(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    binary = tmp_path / "striatumd"
+    binary.write_text(
+        "#!/bin/sh\n"
+        f"echo core=go supported_schema={LATEST_DAEMON_DB_VERSION} "
+        f"migration_count={LATEST_DAEMON_DB_VERSION} methods_etag={METHODS_ETAG} "
+        f"daemon_version={STRIATUM_VERSION} git_sha=unknown\n",
+        encoding="utf-8",
+    )
+    binary.chmod(0o755)
+    monkeypatch.setenv(ENV_GO_BIN, str(binary))
+
+    with pytest.raises(StriatumError, match="git SHA"):
+        resolve_go_binary()
+
+
 def test_parse_go_describe() -> None:
-    assert _parse_go_describe("core=go supported_schema=8 migration_count=8 methods_etag=sha256:abc\n") == {
+    assert _parse_go_describe(
+        "core=go supported_schema=8 migration_count=8 methods_etag=sha256:abc "
+        "daemon_version=1.2.3 git_sha=abc123 build_dirty=clean\n"
+    ) == {
         "core": "go",
         "supported_schema": "8",
         "migration_count": "8",
         "methods_etag": "sha256:abc",
+        "daemon_version": "1.2.3",
+        "git_sha": "abc123",
+        "build_dirty": "clean",
     }

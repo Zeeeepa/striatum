@@ -9,6 +9,7 @@ import shutil
 from pathlib import Path
 from typing import Any
 
+from striatum import __version__ as STRIATUM_VERSION
 from striatum.daemon_pg.migrations import LATEST_DAEMON_DB_VERSION
 from striatum.daemon_rpc.registry import METHODS_ETAG
 from striatum.daemon_runtime import socket_path
@@ -145,6 +146,17 @@ def _verify_go_binary_contract(binary: Path) -> Path:
         raise StriatumError(
             f"Go daemon binary {binary} has method contract {fields.get('methods_etag') or 'unknown'}; "
             f"expected {METHODS_ETAG}. Regenerate and rebuild the Go daemon.",
+            exit_code=2,
+        )
+    if fields.get("daemon_version") != STRIATUM_VERSION:
+        raise StriatumError(
+            f"Go daemon binary {binary} reports version {fields.get('daemon_version') or 'unknown'}; "
+            f"expected {STRIATUM_VERSION}. Rebuild go/bin/striatumd.",
+            exit_code=2,
+        )
+    if fields.get("git_sha") in {None, "", "unknown"}:
+        raise StriatumError(
+            f"Go daemon binary {binary} does not report a git SHA; rebuild go/bin/striatumd.",
             exit_code=2,
         )
     return binary

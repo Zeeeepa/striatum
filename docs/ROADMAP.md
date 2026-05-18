@@ -998,6 +998,7 @@ Release order after Phase 0:
 12. **TODO 60 / Phase 12:** optional Git/PR integration waits on a product
     decision for commit authority and hosted-provider boundaries.
 13. **TODO 61 / RFC 0068:** port the production daemon to Go, keep the
+    Go binary release provenance stamped and verified by `--describe`,
     resident recovery scheduler in Go, enforce workflow-loader path/source
     checks in Go `run.prepare`, rotate the local Ed25519 sealed-apply
     fallback key through Go `daemon.key.rotate`, keep removed

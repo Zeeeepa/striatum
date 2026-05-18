@@ -48,6 +48,12 @@ def test_smoke_scripts_do_not_fall_back_to_repo_local_sqlite() -> None:
         for needle in forbidden:
             assert needle not in script
         assert "PostgreSQL is required for daemon-owned Striatum state" in script
+    package_smoke = (ROOT / "scripts" / "package_smoke.sh").read_text(
+        encoding="utf-8"
+    )
+    assert 'GIT_SHA="$SOURCE_GIT_SHA" GIT_DIRTY="$SOURCE_GIT_DIRTY"' in package_smoke
+    assert "daemon_version=$PACKAGE_VERSION" in package_smoke
+    assert "git_sha=$SOURCE_GIT_SHA" in package_smoke
 
 
 def test_packaged_daemon_rpc_contract_matches_root_contract() -> None:
@@ -59,6 +65,16 @@ def test_packaged_daemon_rpc_contract_matches_root_contract() -> None:
         encoding="utf-8"
     )
     assert '"striatum.daemon_rpc" = ["daemon_methods.json"]' in pyproject
+
+
+def test_go_daemon_build_stamps_release_provenance() -> None:
+    makefile = (ROOT / "go" / "Makefile").read_text(encoding="utf-8")
+
+    assert "PACKAGE_VERSION ?=" in makefile
+    assert "GIT_SHA ?=" in makefile
+    assert "-X main.daemonVersion=$(PACKAGE_VERSION)" in makefile
+    assert "-X main.buildGitSHA=$(GIT_SHA)" in makefile
+    assert "-ldflags \"$(GO_DAEMON_LDFLAGS)\"" in makefile
 
 
 def test_ui_bundle_size_script_accepts_override_and_refuses_drift(tmp_path: Path) -> None:
