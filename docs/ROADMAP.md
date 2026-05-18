@@ -972,7 +972,7 @@ The other doc phases are unblocked.
 
 ### 5.9 Architecture remediation sequence (TODO 49-64)
 
-This sequence comes from `STRIATUM_ARCHITECTURE_REMEDIATION_PLAN_2026-05-16.md`.
+This sequence comes from `reviews/external/STRIATUM_ARCHITECTURE_REMEDIATION_PLAN_2026-05-16.md`.
 Production daemon fallback is now closed for mapped Python paths, but D107
 changed the runway: Go is now the production/default daemon, and the remaining
 work is eliminating SQLite from production and compatibility paths.

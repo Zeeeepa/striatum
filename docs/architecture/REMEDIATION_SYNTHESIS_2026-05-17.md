@@ -8,8 +8,8 @@ author: coordinator-codex-gpt-5-001
 
 This synthesis reconciles the two root-level remediation drafts:
 
-- `STRIATUM_REMEDIATION_PLAN_CODEX_GPT_5_2026-05-17.md`
-- `STRIATUM_REMEDIATION_PLAN_GEMINI_2026-05-17.md`
+- `../reviews/external/STRIATUM_REMEDIATION_PLAN_CODEX_GPT_5_2026-05-17.md`
+- `../reviews/external/STRIATUM_REMEDIATION_PLAN_GEMINI_2026-05-17.md`
 
 The product boundary remains `docs/SPEC.md`: Striatum is a standalone,
 local-first workflow runner; daemon-owned PostgreSQL is live state; repository

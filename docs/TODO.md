@@ -832,8 +832,8 @@ section is the canonical status snapshot.
 
 Items 48-60 track the 2026-05-16 architecture remediation plan. The source
 review and plan are root-level operator artifacts:
-`STRIATUM_ARCHITECTURE_REVIEW_2026-05-16.md` and
-`STRIATUM_ARCHITECTURE_REMEDIATION_PLAN_2026-05-16.md`.
+`reviews/external/STRIATUM_ARCHITECTURE_REVIEW_2026-05-16.md` and
+`reviews/external/STRIATUM_ARCHITECTURE_REMEDIATION_PLAN_2026-05-16.md`.
 
 48. ~~**Phase 0: command authority matrix and guardrails.**~~ Done:
     `docs/architecture/COMMAND_AUTHORITY_MATRIX.md` inventories the

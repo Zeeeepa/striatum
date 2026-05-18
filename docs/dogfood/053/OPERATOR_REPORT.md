@@ -27,6 +27,6 @@
 ## V1.7+ Follow-ups (also tracked in RFC 0046 §Open + CHANGELOG)
 
 1. Add `observed_output_paths_json` column to `process_executions` so the guard becomes path-specific (currently V1 ships the weaker "any clean exit-0 row for the session" guarantee).
-2. Web UI `LaneEvidenceChip` + dashboard `evid:` column per `CLAUDE_DESIGN_UI_REWORK_PROMPT.md`.
+2. Web UI `LaneEvidenceChip` + dashboard `evid:` column per `../../research/CLAUDE_DESIGN_UI_REWORK_PROMPT.md`.
 3. RFC 0047 V1 implementation (decision-record propagation, GH #3) — scoped for V1.8.
 4. RFC 0048 Phase A (port Python mutation handlers to PG-backed daemon-internal logic) — scoped for V2.0.

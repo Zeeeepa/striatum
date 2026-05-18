@@ -136,6 +136,10 @@ Recent checkpoints:
 - Operator docs now describe legacy SQLite migration/tombstone paths as
   historical remnants or fixture-only compatibility, while current setup
   guidance uses daemon PostgreSQL registration.
+- External architecture review and remediation-plan artifacts moved from the
+  repository root into `docs/reviews/external/`; comparison and design
+  research notes moved into `docs/research/`, leaving the root limited to
+  canonical project files.
 - The 2026-05-18 architecture review artifacts were refreshed to reflect the
   Go/PostgreSQL daemon, capability-token, public-adoption, and
   human-principal escalation direction; the rejected embedded-storage and
