@@ -5,20 +5,11 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import sqlite3
 import sys
 from pathlib import Path
-from typing import Any, Sequence, cast
+from typing import TYPE_CHECKING, Any, Sequence, cast
 
-from striatum.artifacts import publish_artifact
 from striatum.bootstrap import init_operational_scratch
-from striatum.db import (
-    claim_next,
-    complete_job,
-    connect,
-    ensure_initialized,
-    transaction,
-)
 from striatum.cli.daemon_required import enforce_daemon_required
 from striatum.errors import (
     DaemonUnreachableError,
@@ -26,63 +17,11 @@ from striatum.errors import (
     RepoNotMigratedError,
     StriatumError,
 )
-from striatum.process_adapter import run_process_adapter
 from striatum.primitives import json_dumps, json_loads
-from striatum.workflow import (
-    create_run,
-    lint_workflow,
-    load_workflow,
-    plan_workflow,
-    validate_workflow,
-    workflow_graph_data,
-    workflow_graph_dot,
-    workflow_graph_mermaid,
-)
-
-from striatum.cli.evidence import evidence_export
-from striatum.cli.introspect import doctor, run_graph, status, why
-from striatum.cli.list_commands import (
-    list_artifacts,
-    list_jobs,
-    list_runs,
-    list_sessions,
-    list_workflows,
-)
-from striatum.cli.mutations import (
-    ack_work,
-    block_work,
-    branch_confirm,
-    checkpoint_resolve,
-    close_session,
-    decision_record,
-    heartbeat,
-    register_session,
-    release_work,
-    run_start,
-    send_message,
-    submit_review,
-    verdict_work,
-)
-from striatum.cli.operator import current_brief, format_current_brief
 from striatum.cli.parser import build_parser
-from striatum.cli.recovery import (
-    cancel_job,
-    process_reconcile,
-    requeue_stale,
-    resume_blocker,
-    stale_leases,
-)
-from striatum.cli.run_summary import run_summary_export
-from striatum.cli.supervise import (
-    supervise_list,
-    supervise_send,
-    supervise_start,
-    supervise_status,
-    supervise_stop,
-)
-from striatum.cli.workflow import workflow_upgrade
-from striatum.cli.workflow_init import workflow_init
-from striatum.cli.worktree import worktree_create, worktree_list, worktree_release
+
+if TYPE_CHECKING:
+    import sqlite3
 
 
 def _legacy_sqlite_test_harness_enabled() -> bool:
@@ -143,7 +82,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         else:
             print(str(exc), file=sys.stderr)
         return exc.exit_code
-    except sqlite3.Error as exc:
+    except Exception as exc:
+        import sqlite3 as _sqlite3
+
+        if not isinstance(exc, _sqlite3.Error):
+            raise
         if getattr(args, "json", False):
             print(json_dumps({"ok": False, "error": {"message": str(exc), "code": 1}}))
         else:
@@ -308,6 +251,8 @@ def dispatch(args: argparse.Namespace) -> object:
     if args.command == "daemon":
         return _dispatch_daemon(args)
     if args.command == "operator" and args.operator_command == "current-brief":
+        from striatum.cli.operator import current_brief, format_current_brief
+
         payload = current_brief(
             repo,
             operator_docs_root=getattr(args, "operator_docs_root", None),
@@ -425,6 +370,8 @@ def dispatch(args: argparse.Namespace) -> object:
             force=bool(args.force),
         )
     if args.command == "workflow" and args.workflow_command == "validate":
+        from striatum.workflow import load_workflow, validate_workflow
+
         workflow = load_workflow(Path(args.path))
         warnings: list[str] = []
         validate_workflow(workflow, warnings=warnings, repo_root=repo)
@@ -450,6 +397,8 @@ def dispatch(args: argparse.Namespace) -> object:
             validation_result["warnings"] = warnings
         return validation_result
     if args.command == "workflow" and args.workflow_command == "lint":
+        from striatum.workflow import lint_workflow
+
         if args.override_rationale is not None and not args.strict:
             raise StriatumError(
                 "--override-rationale is valid only with workflow lint --strict",
@@ -509,9 +458,18 @@ def dispatch(args: argparse.Namespace) -> object:
             accepted_risk_decision_id=accepted_risk_decision_id,
         )
     if args.command == "workflow" and args.workflow_command == "plan":
+        from striatum.workflow import load_workflow, plan_workflow
+
         workflow = load_workflow(Path(args.path))
         return plan_workflow(workflow, repo_root=repo)
     if args.command == "workflow" and args.workflow_command == "graph":
+        from striatum.workflow import (
+            load_workflow,
+            workflow_graph_data,
+            workflow_graph_dot,
+            workflow_graph_mermaid,
+        )
+
         workflow = load_workflow(Path(args.path))
         if args.format == "json":
             return workflow_graph_data(workflow)
@@ -525,8 +483,12 @@ def dispatch(args: argparse.Namespace) -> object:
             return {"format": "mermaid", "source": mermaid}
         return mermaid
     if args.command == "workflow" and args.workflow_command == "init":
+        from striatum.cli.workflow_init import workflow_init
+
         return workflow_init(Path(args.path), style=args.style)
     if args.command == "workflow" and args.workflow_command == "upgrade":
+        from striatum.cli.workflow import workflow_upgrade
+
         return workflow_upgrade(
             Path(args.path),
             repo=repo,
@@ -681,9 +643,61 @@ def dispatch(args: argparse.Namespace) -> object:
             "legacy SQLite dispatch is available only to paired test fixtures",
             exit_code=12,
         )
+    from striatum.artifacts import publish_artifact
+    from striatum.cli.evidence import evidence_export
+    from striatum.cli.introspect import doctor, run_graph, status, why
+    from striatum.cli.list_commands import (
+        list_artifacts,
+        list_jobs,
+        list_runs,
+        list_sessions,
+        list_workflows,
+    )
+    from striatum.cli.mutations import (
+        ack_work,
+        block_work,
+        branch_confirm,
+        checkpoint_resolve,
+        close_session,
+        decision_record,
+        heartbeat,
+        register_session,
+        release_work,
+        run_start,
+        send_message,
+        submit_review,
+        verdict_work,
+    )
+    from striatum.cli.recovery import (
+        cancel_job,
+        process_reconcile,
+        requeue_stale,
+        resume_blocker,
+        stale_leases,
+    )
+    from striatum.cli.run_summary import run_summary_export
+    from striatum.cli.supervise import (
+        supervise_list,
+        supervise_send,
+        supervise_start,
+        supervise_status,
+        supervise_stop,
+    )
+    from striatum.cli.worktree import worktree_create, worktree_list, worktree_release
+    from striatum.db import (
+        claim_next,
+        complete_job,
+        connect,
+        ensure_initialized,
+        transaction,
+    )
+    from striatum.process_adapter import run_process_adapter
+
     ensure_initialized(repo)
     with connect(repo) as conn:
         if args.command == "run" and args.run_command == "prepare":
+            from striatum.workflow import create_run
+
             with transaction(conn):
                 prepared = create_run(
                     conn, repo=repo, workflow_path=Path(args.workflow)
@@ -1236,6 +1250,8 @@ def _same_model_pairing_findings(
     *,
     repo_root: Path,
 ) -> list[dict[str, Any]]:
+    from striatum.workflow import lint_workflow
+
     payload = lint_workflow(workflow, repo_root=repo_root)
     if payload.get("valid") is not True:
         return []

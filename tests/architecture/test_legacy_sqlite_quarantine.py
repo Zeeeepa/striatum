@@ -244,6 +244,37 @@ def test_cli_package_import_does_not_eager_load_legacy_sqlite_modules() -> None:
     assert proc.stdout.strip() == ""
 
 
+def test_cli_dispatch_import_does_not_eager_load_legacy_sqlite_modules() -> None:
+    legacy_modules = [
+        "sqlite3",
+        "striatum.artifacts",
+        "striatum.cli.evidence",
+        "striatum.cli.introspect",
+        "striatum.cli.list_commands",
+        "striatum.cli.mutations",
+        "striatum.cli.recovery",
+        "striatum.cli.run_summary",
+        "striatum.cli.worktree",
+        "striatum.db",
+        "striatum.process_adapter",
+        "striatum.workflow",
+    ]
+    code = (
+        "import sys; import striatum.cli.dispatch; "
+        f"legacy={legacy_modules!r}; "
+        "print('\\n'.join(name for name in legacy if name in sys.modules))"
+    )
+
+    proc = subprocess.run(
+        [sys.executable, "-c", code],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    assert proc.stdout.strip() == ""
+
+
 def test_daemon_connect_registry_callers_are_explicitly_classified() -> None:
     callers = _direct_callers(ROOT / "src" / "striatum" / "daemon.py", "connect_registry")
 
