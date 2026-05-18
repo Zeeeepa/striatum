@@ -26,8 +26,8 @@ dependency edges, and "what would I do next" framing. Update on every
 - **Current workstream:** TODO 61-64 / RFC 0068-0071 architecture remediation.
   D107 supersedes D105: Go is now the default production daemon core, active
   contract-method parity is landed, Python CLI/web clients stay useful, and
-  Python daemon deletion waits on legacy SQLite fixture/import/module cleanup.
-  SQLite eradication continues across production and compatibility paths. D110
+  the retired Python daemon module is deleted. SQLite eradication continues
+  across production and compatibility paths. D110
   removed the SQLite-bound migration and dogfood composite RPC names from the
   production contract, and D112 removed `apply.reviewed_patch`; stale direct
   calls to all removed names audit as `method_unknown`. D113 closes writable
@@ -357,8 +357,8 @@ guardrail failures.
 
 **Decision:** D105 named Python as the primary production daemon core, but
 D107 supersedes it. RFC 0068 has moved the production/default daemon to Go;
-Python daemon retirement is now legacy SQLite fixture/import/module cleanup,
-while Python CLI/web clients remain useful.
+the retired Python daemon module is deleted, and remaining retirement work is
+legacy SQLite fixture/import cleanup while Python CLI/web clients remain useful.
 
 **Landed in this slice:**
 - `docs/DECISION_LOG.md` records D107 and marks D105 superseded.
@@ -366,9 +366,9 @@ while Python CLI/web clients remain useful.
 - TODO item 30 remains completed helper groundwork.
 - TODO item 61 owns the Go daemon port and Python-daemon retirement.
 
-**Next after this ships:** RFC 0068 owns the Python-daemon retirement gate:
-keep the Go contract/conformance gate green and delete the Python daemon entry
-point once legacy SQLite fixtures and remaining production imports are closed.
+**Next after this ships:** RFC 0068 owns the remaining cleanup gate: keep the
+Go contract/conformance gate green while deleting or converting legacy SQLite
+fixtures and compatibility imports.
 
 ---
 
@@ -1016,8 +1016,9 @@ Release order after Phase 0:
     `make daemon-go-conformance` green, keep writable SQLite import commands
     retired, keep the deleted daemon-global SQLite registry cutover helper out
     of production code, keep speculative cross-repo runner hooks trimmed until
-    a handler needs them, and delete or convert legacy SQLite fixtures/import
-    paths before removing the Python daemon module.
+    a handler needs them, and delete or convert remaining legacy SQLite
+    fixtures/import paths; the retired Python daemon module is already
+    removed.
 14. **TODO 62 / RFC 0069:** move daemon-global surfaces to PostgreSQL/Go,
     including scheduler cursors, PostgreSQL-backed daemon MCP resources, and
     PostgreSQL-backed daemon lifecycle/health/audit/doctor reads. The
@@ -1026,7 +1027,8 @@ Release order after Phase 0:
     terminal dashboard now renders production text frames from daemon DTOs;
     Go `status` now matches the PostgreSQL/Python read-model shape.
     `dashboard --all` now routes through daemon RPC, and architecture tests
-    assert production sources do not import the legacy Python daemon. The
+    assert production sources do not import `striatum.daemon` and that the
+    retired module remains deleted. The
     direct PostgreSQL bootstrap/admin plane is now explicitly listed in the
     command authority matrix and guarded by an import scan. Daemon
     MCP resource fallback without a PostgreSQL connection is retired and fails

@@ -14,10 +14,10 @@ Recent checkpoints:
 
 - D107 supersedes D105: Go is now the production/default daemon, active
   contract-method parity is landed, D111 retires the Python daemon selector,
-  and the remaining Python-daemon work is legacy fixture/import/module
-  deletion. Python CLI/web clients remain useful, while SQLite is retired from
-  production and operator compatibility paths. RFC 0068 records the port; RFC
-  0069-0071 cover daemon-global PG, client-boundary, and diagnostic follow-ups.
+  and the retired Python daemon module is deleted. Python CLI/web clients
+  remain useful, while SQLite is retired from production and operator
+  compatibility paths. RFC 0068 records the port; RFC 0069-0071 cover
+  daemon-global PG, client-boundary, and diagnostic follow-ups.
 - Stale decision/RFC wording now reflects the Go/PostgreSQL runtime boundary:
   durable artifact provenance, evidence identity, worktree state, dogfood
   composite tooling, and packaging notes no longer imply a current Python
@@ -70,6 +70,10 @@ Recent checkpoints:
   neutral `striatum.process_completion`; SQLite output validation and blocker
   insertion moved to `striatum.legacy_sqlite.process_completion` and now load
   lazily for legacy adapter paths.
+- The retired `src/striatum/daemon.py` Python daemon / daemon-global SQLite
+  registry module was deleted. Architecture guardrails now assert the module
+  remains absent and keep daemon-global refusal coverage on the PostgreSQL
+  admin helper surface.
 - The Go daemon launch contract now reports supported daemon PostgreSQL schema
   and migration count from `--describe`; the Python launcher refuses stale Go
   daemon binaries before socket bind when their schema, migration count, or

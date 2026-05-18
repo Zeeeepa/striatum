@@ -513,12 +513,9 @@ def _direct_pg_client_imports_under(root: Path) -> dict[str, set[str]]:
         Path("src/striatum/daemon_pg"),
         Path("src/striatum/daemon_rpc"),
     }
-    excluded_files = {
-        Path("src/striatum/daemon.py"),
-    }
     for path in sorted(root.rglob("*.py")):
         rel = path.relative_to(REPO_ROOT)
-        if rel in excluded_files or any(rel.is_relative_to(prefix) for prefix in excluded_prefixes):
+        if any(rel.is_relative_to(prefix) for prefix in excluded_prefixes):
             continue
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
         visitor = _DirectPgImportVisitor(rel)

@@ -106,9 +106,8 @@ def test_concurrent_denied_requests_preserve_audit_chain(
     def worker(index: int) -> None:
         try:
             conn = connect(pg_url)
-            # Production daemon connection is autocommit=True (see
-            # src/striatum/daemon.py daemon-start path); replicate so audit
-            # rows persist across worker boundaries.
+            # Production daemon connections run autocommit=True; replicate so
+            # audit rows persist across worker boundaries.
             conn.autocommit = True
             router = DaemonRpcRouter(pg_conn=conn, repo_root=tmp_path)
             envelope = RpcEnvelope(
@@ -200,9 +199,8 @@ def test_concurrent_allowed_and_denied_no_orphan_mutations(
     def worker(index: int) -> None:
         try:
             conn = connect(pg_url)
-            # Production daemon connection is autocommit=True (see
-            # src/striatum/daemon.py daemon-start path); replicate so audit
-            # rows persist across worker boundaries.
+            # Production daemon connections run autocommit=True; replicate so
+            # audit rows persist across worker boundaries.
             conn.autocommit = True
             router = DaemonRpcRouter(pg_conn=conn, repo_root=tmp_path)
             envelope = RpcEnvelope(

@@ -9,12 +9,9 @@ from typing import Callable
 
 import pytest
 
-from striatum import daemon
+from striatum.daemon_pg import client_admin as daemon
 
 ROOT = Path(__file__).resolve().parents[2]
-CUTOVER_COMPLETED_KEY = "pg_cutover_completed_at"
-
-
 @dataclass(frozen=True)
 class SQLiteClassification:
     category: str
@@ -116,12 +113,6 @@ PRODUCTION_SQLITE_QUARANTINE = {
     Path("src/striatum/dogfood/operator_tools.py"): SQLiteClassification(
         "dogfood fixture",
         "operator dogfood recovery tools are compatibility fixtures",
-    ),
-    # Bootstrap/admin surfaces may inspect or initialize legacy files while
-    # guiding an operator into the daemon/Postgres runtime.
-    Path("src/striatum/daemon.py"): SQLiteClassification(
-        "bootstrap/admin",
-        "legacy RFC 0028 daemon registry and bootstrap helpers",
     ),
 }
 
@@ -339,11 +330,9 @@ def test_daemon_pg_handler_registration_does_not_eager_load_legacy_sqlite_module
     assert proc.stdout.strip() == ""
 
 
-def test_daemon_connect_registry_callers_are_explicitly_classified() -> None:
-    callers = _direct_callers(ROOT / "src" / "striatum" / "daemon.py", "connect_registry")
-
-    assert callers == set(DAEMON_CONNECT_REGISTRY_CALLERS)
-    assert all(reason for reason in DAEMON_CONNECT_REGISTRY_CALLERS.values())
+def test_legacy_python_daemon_module_is_deleted() -> None:
+    assert not (ROOT / "src" / "striatum" / "daemon.py").exists()
+    assert DAEMON_CONNECT_REGISTRY_CALLERS == {}
 
 
 def test_production_sources_do_not_import_legacy_python_daemon() -> None:
@@ -409,7 +398,6 @@ def test_primary_service_lazy_loads_legacy_api_wrapper() -> None:
 @pytest.mark.parametrize(
     "call",
     [
-        lambda: daemon.run_daemon_foreground(max_sweeps=1),
         lambda: daemon.daemon_status(),
         lambda: daemon.daemon_stop(),
         lambda: daemon.daemon_sweep_once(),
@@ -436,60 +424,6 @@ def test_production_daemon_global_surfaces_refuse_without_postgres_url(
         call()
 
     assert not registry.exists()
-
-
-def test_legacy_sqlite_registry_ignores_obsolete_standalone_escape(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    registry = tmp_path / "daemon" / "striatumd.sqlite3"
-    monkeypatch.setenv(daemon.ENV_REGISTRY, str(registry))
-    monkeypatch.setenv(daemon.ENV_RUNTIME, str(tmp_path / "runtime"))
-    monkeypatch.setenv("STRIATUM_DAEMON_REQUIRED", "1")
-    monkeypatch.delenv("STRIATUM_TEST_HARNESS", raising=False)
-    monkeypatch.setenv("STRIATUM_ALLOW_LEGACY_SQLITE_REGISTRY", "1")
-
-    with pytest.raises(daemon.DaemonRegistryError, match="legacy SQLite daemon registry is disabled"):
-        daemon.connect_registry()
-
-    assert not registry.exists()
-
-
-def test_legacy_sqlite_registry_allows_test_harness_pair_only(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    registry = tmp_path / "daemon" / "striatumd.sqlite3"
-    monkeypatch.setenv(daemon.ENV_REGISTRY, str(registry))
-    monkeypatch.setenv(daemon.ENV_RUNTIME, str(tmp_path / "runtime"))
-    monkeypatch.setenv("STRIATUM_DAEMON_REQUIRED", "0")
-    monkeypatch.setenv("STRIATUM_TEST_HARNESS", "1")
-    conn = daemon.connect_registry()
-    conn.close()
-
-    assert registry.exists()
-
-
-def test_legacy_sqlite_registry_refuses_after_pg_cutover_marker(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    registry = tmp_path / "daemon" / "striatumd.sqlite3"
-    monkeypatch.setenv(daemon.ENV_REGISTRY, str(registry))
-    monkeypatch.setenv(daemon.ENV_RUNTIME, str(tmp_path / "runtime"))
-    monkeypatch.setenv("STRIATUM_DAEMON_REQUIRED", "0")
-    monkeypatch.setenv("STRIATUM_TEST_HARNESS", "1")
-
-    conn = daemon.connect_registry()
-    with daemon.registry_transaction(conn):
-        conn.execute(
-            "INSERT INTO daemon_meta(key, value) VALUES(?, ?)",
-            (CUTOVER_COMPLETED_KEY, "2026-05-11T00:00:00Z"),
-        )
-    conn.close()
-
-    with pytest.raises(daemon.DaemonRegistryError, match="cut over to PostgreSQL"):
-        daemon.connect_registry()
 
 
 def test_test_sqlite_references_are_classified_as_test_fixtures() -> None:
@@ -570,8 +504,6 @@ def _legacy_daemon_imports_under(root: Path) -> set[Path]:
     offenders: set[Path] = set()
     for path in sorted(root.rglob("*.py")):
         rel = path.relative_to(ROOT)
-        if rel == Path("src/striatum/daemon.py"):
-            continue
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
         for node in ast.walk(tree):
             if isinstance(node, ast.Import):

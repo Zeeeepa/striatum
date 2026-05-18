@@ -1,7 +1,7 @@
 """PostgreSQL repository registry helpers.
 
 These helpers are shared by the Python CLI client path and daemon RPC router.
-They deliberately live outside the legacy Python daemon module so repository
+They deliberately live outside the deleted Python daemon module so repository
 registration can survive Python-daemon deletion.
 """
 
