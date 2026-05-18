@@ -904,7 +904,9 @@ review and plan are root-level operator artifacts:
     importing `striatum.cli.evidence` no longer loads SQLite. Legacy SQLite
     run-summary reader/export helpers now live under
     `striatum.legacy_sqlite.cli_run_summary`; importing
-    `striatum.cli.run_summary` no longer loads SQLite.
+    `striatum.cli.run_summary` no longer loads SQLite. Legacy SQLite list
+    readers now live under `striatum.legacy_sqlite.cli_list_commands`;
+    importing `striatum.cli.list_commands` no longer loads SQLite.
 
 50. ~~**Phase 2: single method-contract source.**~~ ✅ Done. Contract source is now
     live at `contracts/daemon_methods.json`; Python `METHOD_REGISTRY`
