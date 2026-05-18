@@ -321,7 +321,10 @@ fallback path or repo-administration path.
   workflow authoring CLI-local and catch route/contract drift.
 - `cross_repo.cancel` now delegates to the PG-native participant-cancel
   runner through the daemon RPC route map; remaining cross-repo work is
-  lifecycle hardening and E2E coverage, not an explicit placeholder.
+  E2E coverage and unregistered prepare/start/reconcile policy, not an
+  explicit placeholder. Go participant-cancel parity now covers terminal
+  skips, preparing participants without local runs, inactive participant
+  repositories, and blocked-error persistence.
 
 ---
 

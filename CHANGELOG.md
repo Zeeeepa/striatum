@@ -124,7 +124,10 @@ Recent checkpoints:
   projections from PostgreSQL workflow snapshots, materialized dependencies,
   latest job attempts, and review verdicts.
 - Go `cross_repo.cancel` now calls the Go cross-repo lifecycle service and
-  local run-cancel mutation instead of returning `not_implemented`.
+  local run-cancel mutation instead of returning `not_implemented`, and now
+  matches Python participant-cancel parity for terminal skips, preparing
+  participants without local runs, inactive participant repositories, and
+  persisted `blocked_errors`.
 - Go now owns `repo.add`, `repo.list`, and `repo.remove` handlers over
   daemon-owned PostgreSQL, including SQLite-source refusal, operational
   scratch initialization, active-path conflict checks, and repo-scoped

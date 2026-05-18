@@ -1205,7 +1205,9 @@ review and plan are root-level operator artifacts:
     DTO/web-context parity stays tracked by
     the coverage ledger rather than claimed complete. `cross_repo.cancel` now
     calls the Go cross-repo lifecycle service and local run-cancel mutation
-    instead of returning `not_implemented`. Go now owns `repo.add`,
+    instead of returning `not_implemented`, with participant-cancel parity for
+    terminal skips, preparing participants without local runs, inactive
+    participant repositories, and persisted `blocked_errors`. Go now owns `repo.add`,
     `repo.list`, and `repo.remove` handlers over daemon-owned PostgreSQL,
     including SQLite-source refusal and repo-scoped capability revocation on
     removal. Go now owns `recovery.auto_finalize` as a dry-run-by-default,

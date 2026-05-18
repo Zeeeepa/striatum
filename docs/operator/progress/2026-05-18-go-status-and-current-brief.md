@@ -44,3 +44,8 @@ RFC 0056 Phase B landed as `init --with-striatum-layout`: an opt-in
 directory-only scaffold for `striatum/workflows/` and
 `striatum/<workflow-slug>/`. It intentionally leaves workflow-file generation
 and artifact-root `.gitignore` policy out of scope.
+
+Go `cross_repo.cancel` parity now matches the Python participant-cancel
+semantics for terminal participants, preparing participants without local run
+ids, inactive participant repositories, and blocked-error details persisted to
+`last_reconcile_error`.

@@ -136,6 +136,26 @@ func TestRegisterHandlersWiresKeyRotateHook(t *testing.T) {
 	}
 }
 
+func TestLocalWorkflowRunnerCancelRefusesInactiveRepository(t *testing.T) {
+	runner := &inactiveRepositoryRunner{}
+
+	err := localWorkflowRunner{runner: runner}.Cancel(
+		context.Background(),
+		"repo_disabled",
+		"run_1",
+		"operator canceled cross-repo run",
+	)
+	if err == nil {
+		t.Fatal("expected inactive repository error")
+	}
+	if err.Error() != "active repository not found: repo_disabled" {
+		t.Fatalf("error = %q", err.Error())
+	}
+	if runner.beganTx {
+		t.Fatal("inactive repository should be refused before run.cancel transaction")
+	}
+}
+
 func coverageParams() map[string]any {
 	return map[string]any{
 		"apply_receipt_id":     "receipt_1",
@@ -161,6 +181,27 @@ func coverageParams() map[string]any {
 		"workflow_path":        "workflow.json",
 		"workflow_template_id": "default",
 	}
+}
+
+type inactiveRepositoryRunner struct {
+	beganTx bool
+}
+
+func (r *inactiveRepositoryRunner) Exec(context.Context, string, ...any) error {
+	return errCoverageRunner
+}
+
+func (r *inactiveRepositoryRunner) QueryRow(context.Context, string, ...any) db.Row {
+	return coverageRow{}
+}
+
+func (r *inactiveRepositoryRunner) QueryScalar(context.Context, string, ...any) (string, error) {
+	return "", nil
+}
+
+func (r *inactiveRepositoryRunner) BeginTx(context.Context) (db.TxRunner, error) {
+	r.beganTx = true
+	return nil, errCoverageRunner
 }
 
 func assertSameStrings(t *testing.T, label string, got []string, want []string) {

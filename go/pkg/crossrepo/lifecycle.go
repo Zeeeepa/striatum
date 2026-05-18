@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
+	"strings"
 	"time"
 
 	"github.com/halbritt/striatum/go/pkg/db"
@@ -105,13 +107,30 @@ func CancelRun(ctx context.Context, runner db.Runner, crossRepoRunID string, rea
 	}
 	canceled := []string{}
 	blocked := []string{}
+	blockedErrors := map[string]string{}
+	skippedTerminal := []string{}
+	skippedNoLocalRun := []string{}
 	for _, item := range items {
+		if terminal(item.State) {
+			skippedTerminal = append(skippedTerminal, item.RepositoryAlias)
+			continue
+		}
 		if item.LocalRunID == nil {
+			if item.State == "preparing" {
+				skippedNoLocalRun = append(skippedNoLocalRun, item.RepositoryAlias)
+				if err := updateParticipant(ctx, runner, crossRepoRunID, item.RepositoryAlias, "canceled"); err != nil {
+					return nil, err
+				}
+				continue
+			}
 			blocked = append(blocked, item.RepositoryAlias)
+			blockedErrors[item.RepositoryAlias] = fmt.Sprintf("participant %s has no local_run_id", item.RepositoryAlias)
+			_ = updateParticipant(ctx, runner, crossRepoRunID, item.RepositoryAlias, "blocked")
 			continue
 		}
 		if err := local.Cancel(ctx, item.RepositoryID, *item.LocalRunID, reason); err != nil {
 			blocked = append(blocked, item.RepositoryAlias)
+			blockedErrors[item.RepositoryAlias] = err.Error()
 			_ = updateParticipant(ctx, runner, crossRepoRunID, item.RepositoryAlias, "blocked")
 			continue
 		}
@@ -124,10 +143,24 @@ func CancelRun(ctx context.Context, runner db.Runner, crossRepoRunID string, rea
 	if len(blocked) > 0 {
 		state = "blocked"
 	}
-	if err := runner.Exec(ctx, "UPDATE striatumd.cross_repo_runs SET state = $1, canceled_at = CASE WHEN $1 = 'canceled' THEN $2 ELSE canceled_at END WHERE cross_repo_run_id = $3", state, time.Now().UTC(), crossRepoRunID); err != nil {
+	var lastError any
+	if len(blockedErrors) > 0 {
+		lastError = joinBlockedErrors(blockedErrors)
+	}
+	if err := runner.Exec(ctx, "UPDATE striatumd.cross_repo_runs SET state = $1, canceled_at = CASE WHEN $2 = 'canceled' THEN $3 ELSE canceled_at END, last_reconcile_error = $4 WHERE cross_repo_run_id = $5", state, state, time.Now().UTC(), lastError, crossRepoRunID); err != nil {
 		return nil, err
 	}
-	return map[string]any{"cross_repo_run_id": crossRepoRunID, "state": state, "canceled": canceled, "blocked": blocked}, nil
+	result := map[string]any{"cross_repo_run_id": crossRepoRunID, "state": state, "canceled": canceled, "blocked": blocked}
+	if len(blockedErrors) > 0 {
+		result["blocked_errors"] = blockedErrors
+	}
+	if len(skippedTerminal) > 0 {
+		result["skipped_terminal"] = skippedTerminal
+	}
+	if len(skippedNoLocalRun) > 0 {
+		result["skipped_no_local_run"] = skippedNoLocalRun
+	}
+	return result, nil
 }
 
 func crossRepoRun(ctx context.Context, runner db.Runner, crossRepoRunID string) (map[string]any, error) {
@@ -189,4 +222,17 @@ func updateParticipant(ctx context.Context, runner db.Runner, runID string, alia
 
 func terminal(state string) bool {
 	return state == "canceled" || state == "completed" || state == "failed" || state == "aborted"
+}
+
+func joinBlockedErrors(blockedErrors map[string]string) string {
+	aliases := make([]string, 0, len(blockedErrors))
+	for alias := range blockedErrors {
+		aliases = append(aliases, alias)
+	}
+	sort.Strings(aliases)
+	parts := make([]string, 0, len(aliases))
+	for _, alias := range aliases {
+		parts = append(parts, fmt.Sprintf("%s: %s", alias, blockedErrors[alias]))
+	}
+	return strings.Join(parts, "; ")
 }

@@ -382,7 +382,7 @@ func registerCrossRepoHandlers(server *rpc.Server, runner db.Runner) {
 		}
 		reason := param(envelope.Params, "reason")
 		if reason == "" {
-			reason = "cross_repo_canceled"
+			reason = "operator canceled cross-repo run"
 		}
 		return crossrepo.CancelRun(ctx, runner, runID, reason, local)
 	})
@@ -410,7 +410,14 @@ func (l localWorkflowRunner) Start(ctx context.Context, repositoryID string, loc
 }
 
 func (l localWorkflowRunner) Cancel(ctx context.Context, repositoryID string, localRunID string, reason string) error {
-	_, err := mutations.HandleRunCancel(ctx, l.runner, rpc.Envelope{
+	active, err := l.runner.QueryScalar(ctx, "SELECT repo_root FROM striatumd.repositories WHERE repository_id = $1 AND state = 'active'", repositoryID)
+	if err != nil {
+		return err
+	}
+	if active == "" {
+		return fmt.Errorf("active repository not found: %s", repositoryID)
+	}
+	_, err = mutations.HandleRunCancel(ctx, l.runner, rpc.Envelope{
 		SchemaVersion: rpc.SupportedEnvelopeVersion,
 		RequestID:     "cross_repo_cancel_" + localRunID,
 		Method:        "run.cancel",
