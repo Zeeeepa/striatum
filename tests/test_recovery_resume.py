@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 import json
-import sqlite3
 from pathlib import Path
 from typing import Any, cast
 
+from striatum.legacy_sqlite.db import connect
 from test_process_adapter import (
     _build_workflow,
     _data,
@@ -21,21 +21,17 @@ JsonDict = dict[str, Any]
 
 
 def _lease_state(repo: Path, lease_id: str) -> str:
-    conn = sqlite3.connect(repo / ".striatum" / "state.sqlite3")
-    try:
+    with connect(repo) as conn:
         row = conn.execute(
             "SELECT state FROM leases WHERE lease_id = ?",
             (lease_id,),
         ).fetchone()
-    finally:
-        conn.close()
     assert row is not None
     return str(row[0])
 
 
 def _event_payload(repo: Path, event_type: str) -> JsonDict:
-    conn = sqlite3.connect(repo / ".striatum" / "state.sqlite3")
-    try:
+    with connect(repo) as conn:
         row = conn.execute(
             """
             SELECT payload_json FROM events
@@ -45,8 +41,6 @@ def _event_payload(repo: Path, event_type: str) -> JsonDict:
             """,
             (event_type,),
         ).fetchone()
-    finally:
-        conn.close()
     assert row is not None
     payload = json.loads(str(row[0]))
     assert isinstance(payload, dict)

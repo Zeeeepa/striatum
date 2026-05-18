@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-import sqlite3
 from pathlib import Path
 
+from striatum.legacy_sqlite.db import connect
 from test_cli_mvp import (
     WORKFLOW,
     _git_init_repo,
@@ -14,12 +14,8 @@ from test_cli_mvp import (
 )
 
 
-def _state_dir(repo: Path) -> Path:
-    return repo / ".striatum" / "state.sqlite3"
-
-
 def _run_state(repo: Path, run_id: str) -> str:
-    with sqlite3.connect(_state_dir(repo)) as conn:
+    with connect(repo) as conn:
         row = conn.execute(
             "SELECT state FROM runs WHERE run_id = ?", (run_id,)
         ).fetchone()
@@ -54,7 +50,7 @@ def test_cancel_run_from_running(tmp_path: Path) -> None:
     canceled = data(run_cli(tmp_path, "run", "cancel", "--run-id", run_id))
     assert canceled["state"] == "canceled"
     # All in-flight jobs should be canceled.
-    with sqlite3.connect(_state_dir(tmp_path)) as conn:
+    with connect(tmp_path) as conn:
         non_terminal = conn.execute(
             """
             SELECT COUNT(*) FROM jobs
@@ -93,7 +89,7 @@ def test_cancel_run_with_reason(tmp_path: Path) -> None:
     data(run_cli(
         tmp_path, "run", "cancel", "--run-id", run_id, "--reason", "spec changed",
     ))
-    with sqlite3.connect(_state_dir(tmp_path)) as conn:
+    with connect(tmp_path) as conn:
         stop_reason = conn.execute(
             "SELECT stop_reason FROM runs WHERE run_id = ?", (run_id,),
         ).fetchone()[0]
@@ -111,7 +107,7 @@ def test_cancel_run_refuses_completed(tmp_path: Path) -> None:
         "--branch", "striatum/cancel-completed", "--create",
     ))
     # Force-mark the run completed (test shortcut).
-    with sqlite3.connect(_state_dir(tmp_path)) as conn:
+    with connect(tmp_path) as conn:
         conn.execute(
             "UPDATE runs SET state = 'completed' WHERE run_id = ?", (run_id,),
         )

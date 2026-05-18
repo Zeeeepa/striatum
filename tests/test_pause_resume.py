@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-import sqlite3
 from pathlib import Path
 
+from striatum.legacy_sqlite.db import connect
 from test_cli_mvp import (
     WORKFLOW,
     _git_init_repo,
@@ -14,12 +14,8 @@ from test_cli_mvp import (
 )
 
 
-def _state_dir(repo: Path) -> Path:
-    return repo / ".striatum" / "state.sqlite3"
-
-
 def _paused_at(repo: Path, run_id: str) -> str | None:
-    with sqlite3.connect(_state_dir(repo)) as conn:
+    with connect(repo) as conn:
         row = conn.execute(
             "SELECT paused_at FROM runs WHERE run_id = ?", (run_id,),
         ).fetchone()
@@ -68,7 +64,7 @@ def test_pause_with_reason(tmp_path: Path) -> None:
     ))
     data(run_cli(tmp_path, "run", "start", "--run-id", run_id))
     data(run_cli(tmp_path, "run", "pause", "--run-id", run_id, "--reason", "ad-hoc maintenance"))
-    with sqlite3.connect(_state_dir(tmp_path)) as conn:
+    with connect(tmp_path) as conn:
         reason = conn.execute(
             "SELECT paused_reason FROM runs WHERE run_id = ?", (run_id,),
         ).fetchone()[0]
@@ -115,7 +111,7 @@ def test_pause_refuses_completed(tmp_path: Path) -> None:
         tmp_path, "branch", "confirm", "--run-id", run_id,
         "--branch", "striatum/pause-completed", "--create",
     ))
-    with sqlite3.connect(_state_dir(tmp_path)) as conn:
+    with connect(tmp_path) as conn:
         conn.execute("UPDATE runs SET state='completed' WHERE run_id=?", (run_id,))
         conn.commit()
     result = run_cli(tmp_path, "run", "pause", "--run-id", run_id, check=False)
@@ -131,7 +127,7 @@ def test_resume_refuses_terminal(tmp_path: Path) -> None:
         tmp_path, "branch", "confirm", "--run-id", run_id,
         "--branch", "striatum/resume-terminal", "--create",
     ))
-    with sqlite3.connect(_state_dir(tmp_path)) as conn:
+    with connect(tmp_path) as conn:
         conn.execute("UPDATE runs SET state='canceled' WHERE run_id=?", (run_id,))
         conn.commit()
     result = run_cli(tmp_path, "run", "resume", "--run-id", run_id, check=False)
