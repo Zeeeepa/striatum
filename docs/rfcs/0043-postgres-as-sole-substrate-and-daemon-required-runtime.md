@@ -429,19 +429,24 @@ substrate flip enables.
   pretend the cost is zero. `daemon doctor` and `striatum init` both
   emit platform-specific install hints.
 - **Direct CLI mode disappears.** Operators who used `--no-daemon` for
-  quick experiments lose that path. The migration command lowers the
-  cost to a one-time per-repo operation, and the daemon's
-  foreground-mode startup is cheap, but the friction is real.
+  quick experiments lose that path. D113 retired the writable SQLite
+  migration commands, so the current operator path is a one-time
+  archive/remove of legacy SQLite followed by `striatum adopt` or
+  `striatum repo add --init`. The daemon's foreground-mode startup is
+  cheap, but the friction is real.
 - **CI matrix grows by one Postgres instance per test run that
   previously used SQLite.** RFC 0035 already pays this; the marginal
   cost is zero for tests already on the harness. Tests that have not
   adopted the harness yet need to move. Estimated change: ~20 test
   files.
-- **The Python daemon must own the full method registry from §5
-  before this RFC's acceptance criteria can be met.** The current
-  registry covers daemon-global operations (RFC 0030/0031/0032) but
-  not the long tail of repo-local mutations. That's implementation
-  work that did not exist before; this RFC names it.
+- **The daemon must own the full method registry from §5 before this
+  RFC's acceptance criteria can be met.** This was originally framed
+  as Python-daemon implementation work. D107/D111 supersede that
+  framing: Go is the production daemon core and Python may remain as
+  CLI/web client code. Current conformance work is therefore measured
+  against the Go daemon contract, with unsupported retired methods
+  removed from the production registry rather than kept as Python-era
+  placeholders.
 - **Schema-version coupling tightens.** Today, repo-local SQLite and
   daemon-DB Postgres evolve on independent migration tracks. After
   this RFC, every schema change is one place — which is the point,
@@ -471,8 +476,8 @@ substrate flip enables.
 - Multi-tenancy is a column add, not a rewrite.
 - Hosted mode becomes accessible (with separate auth work).
 - RFC 0039 (Go daemon) gets a clean scope: one substrate, one wire
-  protocol. Phase 1 is "single-binary Go daemon," not "Go daemon plus
-  SQLite shim."
+  protocol. Phase 1 is "single-binary Go daemon," not a second
+  implementation of the retired repo-local compatibility layer.
 - Cross-repo workflows (RFC 0032) stop having to reconcile two
   substrates on every transition.
 - MVCC eliminates the WAL contention that the daemon-mediated mutation

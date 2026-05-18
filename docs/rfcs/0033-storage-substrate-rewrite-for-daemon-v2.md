@@ -303,13 +303,14 @@ The daemon may not assume single-writer semantics anymore:
 
 ### 8. Packaging and distribution
 
-- The Python daemon distribution does **not** bundle Postgres. The
-  daemon wheel stays small (no `postgres/` subdir). Operators install
+- The Striatum distribution / Go daemon does **not** bundle Postgres.
+  The package stays small (no `postgres/` subdir). Operators install
   Postgres via their platform package manager (Homebrew, apt, pacman,
-  pkg, ...) or use a system service.
+  pkg, ...) or use a system service. Python may remain as CLI/web
+  client code, not as a production daemon-core requirement.
 - `daemon doctor` documents the minimum supported Postgres major
   version and refuses to start against an unsupported version.
-- The future Go daemon (D084) inherits the same "system Postgres
+- The Go production daemon inherits the same "system Postgres
   required" stance unless a follow-up RFC changes it.
 - Bundled / Dockerized distribution is documented as a deferred
   follow-up RFC. Two paths are plausible:

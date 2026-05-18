@@ -8,7 +8,10 @@ fragments in the bundled template catalog, generator enrichment by default,
 and `striatum workflow upgrade`. The composite tools
 (`dogfood.publish_on_behalf`, `dogfood.surgical_recovery`) and the daemon-
 side supervised-progress heartbeat were scoped to the systems half and landed
-under the same RFC. See [`docs/HARNESS_FRICTION_PATTERNS.md`](../HARNESS_FRICTION_PATTERNS.md)
+under the same RFC; D110 later removed the SQLite-bound composite tools from
+the production daemon contract, so operators now use primitive daemon methods
+until a PostgreSQL-native composite is accepted. See
+[`docs/HARNESS_FRICTION_PATTERNS.md`](../HARNESS_FRICTION_PATTERNS.md)
 for the long-form record of the four observed friction patterns and the
 fixes that landed.
 Context:
@@ -142,8 +145,9 @@ mechanical friction recurring across every dogfood.
   exit can be improved with prompt fragments (item #5) but the wrapper
   itself stays single-shot.
 - Backporting these improvements to the V1 daemon vs the planned Go
-  daemon (RFC 0039). Scope here is the Python daemon; the Go daemon
-  picks up the same surface per RFC 0039 §6.
+  daemon (RFC 0039). This was originally scoped as Python-daemon work;
+  D107/D111 now make Go the production daemon core while Python may
+  remain as CLI/web client code.
 
 ## External Prior Art
 
@@ -278,8 +282,9 @@ Implementation:
   configurable), the watcher logs a warning and lets the normal lease
   expiry path fire.
 
-This is daemon-side machinery; no model-side change. Lands in the
-Python daemon and per RFC 0039 §6 in the Go daemon.
+This is daemon-side machinery; no model-side change. It was initially
+specified against the Python daemon and later carried into the Go
+production daemon target per D107/D111.
 
 ### 5. Per-model "no-questions" harness profile fragment
 
@@ -431,10 +436,10 @@ composite tools and the supervised-progress watcher.
   Recommendation: scoped to harness-profile fragments in V1; other
   upgrades are separate verbs.
 - Should this RFC's MCP tools be exposed via the Go daemon (RFC 0039)
-  from day one? Recommendation: yes — the Go daemon's MCP surface
-  mirrors the Python daemon's, so adding the dogfood tools in the
-  Python daemon's RFC 0040 implementation means the Go daemon picks
-  them up automatically per RFC 0039 §6.
+  from day one? Historical recommendation: yes. Current status:
+  D110 removed the SQLite-bound composite tools from the production
+  contract; any replacement must be PostgreSQL-native and implemented
+  against the Go production daemon contract.
 
 ## Domain Modeling
 

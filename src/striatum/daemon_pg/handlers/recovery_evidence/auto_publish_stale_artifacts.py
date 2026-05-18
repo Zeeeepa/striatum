@@ -277,9 +277,8 @@ def _expected_byline_pg(
 
     The helper is intentionally pure aside from one SELECT (session
     lookup). Track A's PG identity helper, when it lands, will provide
-    a typed version; for now we open a one-shot SQLite shim by reading
-    the run's workflow_json + session row via PG and constructing the
-    same canonical byline string.
+    a typed version; for now we read the run's workflow_json + session
+    row via PG and construct the same canonical byline string.
     """
     from striatum.identity import artifact_author_identity
 

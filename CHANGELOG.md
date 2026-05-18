@@ -15,6 +15,10 @@ Recent checkpoints:
   and SQLite eradication continues across production and compatibility paths.
   RFC 0068 records the port; RFC 0069-0071 scaffold the daemon-global PG,
   client boundary, and diagnostic follow-ups.
+- Stale decision/RFC wording now reflects the Go/PostgreSQL runtime boundary:
+  durable artifact provenance, evidence identity, worktree state, dogfood
+  composite tooling, and packaging notes no longer imply a current Python
+  daemon or repo-local SQLite authority.
 - The Go daemon launch contract now reports supported daemon PostgreSQL schema
   and migration count from `--describe`; the Python launcher refuses stale Go
   daemon binaries before socket bind when their schema, migration count, or
