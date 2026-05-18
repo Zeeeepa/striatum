@@ -4,13 +4,11 @@ from __future__ import annotations
 
 import json
 import re
-import sqlite3
 import sys
 from pathlib import Path, PurePosixPath
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from striatum.artifacts import ALLOWED_ARTIFACT_KINDS
-from striatum.db import insert_event
 from striatum.errors import WorkflowError
 from striatum.primitives import JsonObject, json_dumps, new_id, sha256_bytes, utc_now
 from striatum.repo_policy import (
@@ -18,6 +16,9 @@ from striatum.repo_policy import (
     adapter_constraint_enforcement,
     adapter_enforcement_satisfies,
 )
+
+if TYPE_CHECKING:
+    import sqlite3
 
 # JSON workflow files are user-authored and need dynamic validation.
 JsonValue = dict[str, Any]
@@ -677,6 +678,8 @@ def validate_workflow(
 def create_run(conn: sqlite3.Connection, *, repo: Path, workflow_path: Path) -> JsonObject:
     """Snapshot workflow JSON and create a prepared run."""
     workflow = load_workflow(workflow_path)
+    from striatum.db import insert_event
+
     now = utc_now()
     raw_json = json_dumps(workflow)
     workflow_snapshot_id = new_id("wfs")

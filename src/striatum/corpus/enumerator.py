@@ -7,7 +7,6 @@ import re
 from pathlib import Path
 from typing import Any, Iterable
 
-from striatum.cli.run_summary import run_summary_snapshot
 from striatum.corpus import git as git_helpers
 from striatum.corpus.redaction import (
     redact_commit_message,
@@ -155,6 +154,8 @@ def enumerate_run_summaries(
     # Live summaries for the current repository are generated through the
     # same helpers as `striatum run summary`, then redacted before rendering.
     for run_id in _live_run_ids(conn):
+        from striatum.cli.run_summary import run_summary_snapshot
+
         run = _row_by_id(conn, "runs", "run_id", run_id)
         snapshot = run_summary_snapshot(conn, repo=repo, run_id=run_id)
         redacted = redact_run_summary_payload(snapshot)

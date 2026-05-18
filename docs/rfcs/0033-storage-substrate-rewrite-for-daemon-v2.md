@@ -60,8 +60,10 @@ daemon-owned PostgreSQL.
   of the daemon core (D084).
 - Define the audit-chain format on the new substrate so that segment
   manifests, hash anchors, and retention semantics survive intact.
-- Specify migration from the V1 daemon registry SQLite to the new
-  substrate, including operator UX for in-place upgrade.
+- Specify the then-current migration from the V1 daemon registry SQLite to the
+  new substrate, including operator UX for in-place upgrade. This is
+  historical: D113 later retired writable SQLite import commands from
+  operator paths.
 - Specify test infrastructure: how does the test suite spin the new
   substrate up and down deterministically?
 - Preserve the then-current repo-local workflow model for the RFC 0033
@@ -196,9 +198,9 @@ guardrails:
   Postgres via the package manager / service manager they already use.
   This keeps the daemon a single process and avoids nesting Postgres
   supervision inside daemon supervision.
-- Schema migrations are daemon-owned and forward-only (RFC 0033 §3); the
-  V1 SQLite registry has an explicit "export to PG" path during the
-  V1→V2 cutover (§4).
+- Schema migrations are daemon-owned and forward-only (RFC 0033 §3). The
+  original V1 SQLite registry "export to PG" path in §4 is retained as
+  historical context; current command spellings refuse before opening SQLite.
 - Bundled PostgreSQL is **deferred** to a follow-up RFC. The two
   plausible bundling paths are a Dockerized distribution (daemon +
   Postgres in one compose) and an embedded-binary distribution (daemon
@@ -297,9 +299,9 @@ The daemon may not assume single-writer semantics anymore:
   `pg_ctl`-equivalent helpers; teardown deletes the directory.
 - A `STRIATUM_DAEMON_DB_URL` env override lets CI run against a shared
   Postgres if desired, with explicit isolation per test.
-- Integration tests assert: schema migration applies forward, audit
-  chain verification passes after migration, V1 SQLite import is
-  byte-equivalent in hash anchors.
+- Integration tests assert: schema migration applies forward and audit
+  chain verification passes after migration. Historical SQLite-import
+  byte-equivalence coverage is fixture-only.
 
 ### 8. Packaging and distribution
 
@@ -341,8 +343,9 @@ The daemon may not assume single-writer semantics anymore:
 
 ## Compatibility and Migration
 
-- V1 SQLite registry remains readable until the operator runs `daemon
-  migrate`. After migration, V1 reads are refused.
+- The V1 SQLite registry import path is retired for operators. Current
+  `daemon migrate` spellings are compatibility refusals; any SQLite import
+  exercise is fixture-only.
 - Repo-local `.striatum/state.sqlite3` was unaffected by RFC 0033 itself.
   Current production workflow state now lives in daemon-owned PostgreSQL per
   D094/RFC 0043; V1 SQLite survives only as migration source, tombstone, or
@@ -364,10 +367,9 @@ The daemon may not assume single-writer semantics anymore:
   documented but not enforced by code.
 - The schema-version-in-every-audit-row promise constrains future audit
   redesigns. We accept that cost.
-- The Go core port (D084) inherits the system-Postgres choice; if Go
-  daemon designers prefer something else, this RFC may need a partner
-  RFC re-evaluating substrate at port time. We document that explicitly
-  rather than pretend it cannot happen.
+- The Go core port (D084, later D107/RFC 0068) inherits the system-Postgres
+  choice. D111 keeps that substrate as the production daemon boundary rather
+  than re-evaluating storage at port time.
 - Daemon installer complexity stays low because the daemon does not
   manage Postgres. The cost shows up in the operator's machine setup
   instead.
@@ -404,8 +406,8 @@ The daemon may not assume single-writer semantics anymore:
 - Documentation in `docs/SPEC.md`, `docs/MCP.md`,
   `docs/UBIQUITOUS_LANGUAGE.md`, `docs/CLI_REFERENCE.md`, and
   `docs/HOW_TO_HUMAN.md` is updated to name the substrate, the system-PG
-  requirement, the `STRIATUM_DAEMON_DB_URL` env var, and operator UX
-  for `daemon migrate`.
+  requirement, the `STRIATUM_DAEMON_DB_URL` env var, and the retired
+  `daemon migrate` compatibility refusal.
 
 ## Open Questions
 
@@ -419,8 +421,10 @@ The daemon may not assume single-writer semantics anymore:
   never installed Postgres? Recommendation: `daemon doctor` emits
   platform-specific install hints (Homebrew, apt, pacman, pkg). The
   bundled / Dockerized follow-up RFC will lower this bar further.
-- Does the system-Postgres choice survive the Python→Go port (D084),
-  or do we re-evaluate substrate at port time?
+- ~~Does the system-Postgres choice survive the Python→Go port (D084),
+  or do we re-evaluate substrate at port time?~~ **Resolved**:
+  D107/RFC 0068 and D111 keep system PostgreSQL as the Go daemon's
+  production live-state substrate.
 - If the operator wipes the daemon DB, what is the recovery story for
   the audit chain? Document that audit cannot be reconstructed from
   repo-local state and that this is the expected outcome.
@@ -430,8 +434,9 @@ The daemon may not assume single-writer semantics anymore:
 Terms to add to `docs/UBIQUITOUS_LANGUAGE.md` after acceptance:
 
 - **Daemon DB** — the daemon-owned Postgres instance that holds registry,
-  audit, capability, scheduler, and RPC-session state for V2. Distinct
-  from `.striatum/state.sqlite3`, which is repo-local run state.
+  audit, capability, scheduler, RPC-session state, and current per-repository
+  workflow state. `.striatum/state.sqlite3` is historical migration/fixture
+  material, not repo-local run truth.
 - **Daemon DB migration** — the daemon-owned forward-only versioned
   migration set applied at startup; refuses to run if the on-disk schema
   is newer than the daemon binary.

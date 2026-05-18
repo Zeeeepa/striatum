@@ -6,7 +6,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
-from striatum.archive import write_run_archive
+from striatum.archive.writer import write_run_archive
 from striatum.daemon_pg.handlers.context import RepoHandlerContext
 from striatum.daemon_rpc.envelope import RpcError
 

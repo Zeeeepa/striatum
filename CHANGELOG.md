@@ -7,14 +7,17 @@
 The remediation plan from the 2026-05-16 architecture review is now tracked
 in the roadmap/TODO and has several production slices landed:
 
+Current behavior is summarized in this section. Older release entries below
+remain historical notes for the behavior that shipped at that tag.
+
 Recent checkpoints:
 
 - D107 supersedes D105: Go is now the production/default daemon, active
-  contract-method parity is landed, Python daemon deletion waits on legacy
-  SQLite fixture/import/module cleanup, Python CLI/web clients remain useful,
-  and SQLite eradication continues across production and compatibility paths.
-  RFC 0068 records the port; RFC 0069-0071 scaffold the daemon-global PG,
-  client boundary, and diagnostic follow-ups.
+  contract-method parity is landed, D111 retires the Python daemon selector,
+  and the remaining Python-daemon work is legacy fixture/import/module
+  deletion. Python CLI/web clients remain useful, while SQLite is retired from
+  production and operator compatibility paths. RFC 0068 records the port; RFC
+  0069-0071 cover daemon-global PG, client-boundary, and diagnostic follow-ups.
 - Stale decision/RFC wording now reflects the Go/PostgreSQL runtime boundary:
   durable artifact provenance, evidence identity, worktree state, dogfood
   composite tooling, and packaging notes no longer imply a current Python
@@ -77,8 +80,8 @@ Recent checkpoints:
   migrations, closing the stale-binary gap where an old Go binary could pass
   hash checks until it hit a migrated database.
 - Fresh Go daemon startup now bootstraps the first PostgreSQL admin client
-  and writes the private runtime `client-token`, matching the Python daemon's
-  first-start auth contract.
+  and writes the private runtime `client-token`, matching the legacy Python
+  daemon's first-start auth contract without requiring that daemon core.
 - The Go daemon now starts a resident recovery scheduler after socket bind.
   It runs an immediate PostgreSQL active-run sweep, calls the Go
   `recovery.sweep` path, records `daemon.recovery_sweep`, updates
@@ -330,9 +333,9 @@ Recent checkpoints:
 - Go now owns daemon-global `repo.resolve`, a read-capability bootstrap method
   that normalizes a repository path and returns active repository metadata
   without requiring CLI/web clients to open daemon PostgreSQL directly.
-- The transitional Python daemon also handles `repo.resolve` through
-  PostgreSQL so existing Python-daemon deployments do not regress while the Go
-  daemon default cutover is still in progress.
+- The retired Python-daemon compatibility path also handles `repo.resolve`
+  through PostgreSQL for legacy fixture coverage; production deployments use
+  the Go daemon.
 - Python CLI and service repository-scoped RPC routing now resolve repository
   ids through daemon RPC instead of importing daemon PostgreSQL connection
   helpers. Resolution errors fail closed rather than falling back to local
@@ -604,8 +607,8 @@ Recent checkpoints:
 - `repo.add`, `repo.list`, and `repo.remove` now route through daemon RPC and
   operate directly on daemon-owned Postgres registration rows. `repo add
   --init` creates only `.striatum/` operational scratch and no
-  `.striatum/state.sqlite3`; existing repo-local SQLite sources must use the
-  explicit per-repo migration command.
+  `.striatum/state.sqlite3`; existing repo-local SQLite sources must be
+  archived/removed before registration. The legacy importer is fixture-only.
 - Production `striatum init` and `striatum adopt` now use the same
   scratch-only bootstrap and no longer create repo-local SQLite, including
   `init --with-skills` in paired test-harness mode.
@@ -659,7 +662,7 @@ Recent checkpoints:
   from appearing silently, and tripwire representative production commands
   against direct SQLite opens.
 - **Single daemon method contract source.**
-  `contracts/daemon_methods.json` drives Python daemon registration,
+  `contracts/daemon_methods.json` drives the Python compatibility registry,
   `daemon.describe`, generated Go registry metadata, MCP tool descriptors,
   generated architecture reference tables for daemon methods and CLI route
   translation, runtime CLI route lookup through the declarative `cli_routes`

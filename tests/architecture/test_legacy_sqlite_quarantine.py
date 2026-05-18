@@ -275,6 +275,68 @@ def test_cli_dispatch_import_does_not_eager_load_legacy_sqlite_modules() -> None
     assert proc.stdout.strip() == ""
 
 
+def test_corpus_and_archive_imports_do_not_eager_load_legacy_sqlite_modules() -> None:
+    imports = [
+        "striatum.corpus",
+        "striatum.corpus.types",
+        "striatum.corpus.manifest",
+        "striatum.corpus.writer",
+        "striatum.corpus.verify",
+        "striatum.archive",
+        "striatum.archive.writer",
+        "striatum.archive.verify",
+    ]
+    legacy_modules = [
+        "sqlite3",
+        "striatum.cli.evidence",
+        "striatum.cli.introspect",
+        "striatum.cli.run_summary",
+        "striatum.corpus.export",
+        "striatum.db",
+    ]
+    code = (
+        "import importlib, sys; "
+        f"imports={imports!r}; "
+        f"legacy={legacy_modules!r}; "
+        "[importlib.import_module(name) for name in imports]; "
+        "print('\\n'.join(name for name in legacy if name in sys.modules))"
+    )
+
+    proc = subprocess.run(
+        [sys.executable, "-c", code],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    assert proc.stdout.strip() == ""
+
+
+def test_daemon_pg_handler_registration_does_not_eager_load_legacy_sqlite_modules() -> None:
+    legacy_modules = [
+        "sqlite3",
+        "striatum.cli.evidence",
+        "striatum.cli.introspect",
+        "striatum.cli.run_summary",
+        "striatum.corpus.export",
+        "striatum.db",
+    ]
+    code = (
+        "import sys; import striatum.daemon_pg.handlers; "
+        f"legacy={legacy_modules!r}; "
+        "print('\\n'.join(name for name in legacy if name in sys.modules))"
+    )
+
+    proc = subprocess.run(
+        [sys.executable, "-c", code],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    assert proc.stdout.strip() == ""
+
+
 def test_daemon_connect_registry_callers_are_explicitly_classified() -> None:
     callers = _direct_callers(ROOT / "src" / "striatum" / "daemon.py", "connect_registry")
 

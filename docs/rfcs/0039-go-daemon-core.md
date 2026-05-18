@@ -1,12 +1,13 @@
 # RFC 0039: Go Daemon Core
 
-Status: superseded by D107 / D109 / RFC 0068 (Go production daemon default)
+Status: superseded by D107 / D109 / D111 / RFC 0068 (Go production daemon)
 Date: 2026-05-13
 Supersession note: D105 temporarily narrowed Go to support/runtime work.
 D107/RFC 0068 supersedes that constraint and restores the Go production daemon
 port as the target architecture. D109 later flips `striatum daemon start` to
-the Go daemon by default; older sections in this RFC that describe Python as
-the default are historical phase notes.
+the Go daemon by default, and D111 retires the Python daemon selector. Older
+sections in this RFC that describe Python as the default, dual-core CI, or
+operator-selectable Python are historical phase notes.
 Context:
 [`RFC 0028`](0028-long-running-daemon-and-multi-repository-control-plane.md),
 [`RFC 0030`](0030-daemon-rpc-server-and-version-skew-protocol.md),
@@ -14,7 +15,7 @@ Context:
 [`RFC 0032`](0032-cross-repo-workflows-and-mcp-mutation-capabilities.md),
 [`RFC 0033`](0033-storage-substrate-rewrite-for-daemon-v2.md),
 [`RFC 0035`](0035-multi-repo-test-harness-for-cross-repo-workflows.md),
-[`docs/DECISION_LOG.md`](../DECISION_LOG.md) (D082, D084, D086, D087, D088, D107),
+[`docs/DECISION_LOG.md`](../DECISION_LOG.md) (D082, D084, D086, D087, D088, D107, D109, D111),
 `src/striatum/daemon.py`,
 `src/striatum/daemon_rpc/`,
 `src/striatum/daemon_apply/`,
@@ -101,13 +102,13 @@ test parity, migration path, retirement of the Python daemon.
 - Ship the Go daemon as a single statically-linked binary per
   platform (Linux x86_64, Linux arm64, macOS x86_64, macOS arm64).
 - Maintain test parity: the RFC 0035 multi-repo test harness must
-  cover the Go daemon end-to-end before the Python daemon is
-  retired. The harness already boots a daemon subprocess; the
-  binary just needs to be the Go one.
-- Provide a migration path: Python daemon and Go daemon coexist
-  during transition; one or the other is selected via
-  configuration; eventual retirement of the Python daemon happens
-  in a separate RFC.
+  cover the Go daemon end-to-end before the Python daemon is retired from
+  production. The harness already boots a daemon subprocess; the binary just
+  needs to be the Go one.
+- Provide a historical migration path: Python daemon and Go daemon coexist
+  during transition, then D109/D111 move production startup to Go and retire
+  Python daemon selection. Remaining Python-daemon code is deletion/fixture
+  debt, not an operator runtime choice.
 
 ## Non-Goals
 
@@ -229,20 +230,24 @@ RFC 0033 Postgres substrate is the unchanged contract. The Go daemon:
 - Uses the same audit-chain hash helper (defined as SQL/Postgres
   function or replicated in Go).
 
-The Python daemon and Go daemon are **mutually exclusive** in a given
-run: only one daemon owns the Postgres database at a time. The pidfile
-+ socket-path lock prevents concurrent daemons.
+During the historical coexistence window, the Python daemon and Go daemon were
+**mutually exclusive** in a given run: only one daemon owned the Postgres
+database at a time. Current production startup uses the Go daemon; the pidfile
++ socket-path lock still prevents concurrent daemon processes.
 
 ### 4. Selection mechanism
 
 Superseded by D111 / RFC 0068 follow-through: the selection mechanism below
 was transitional and no longer selects a production daemon. Current production
-startup uses the Go daemon; `--core python` and `STRIATUM_DAEMON_CORE=python`
-are compatibility spellings that refuse rather than booting a Python daemon.
+startup uses the Go daemon; `--core go` is a deprecated no-op compatibility
+flag, while `--core python` and `STRIATUM_DAEMON_CORE=python` no longer select
+a daemon.
 
 - `striatum daemon start` (Python CLI) defaults to the Go daemon after D109.
-- `striatum daemon start --core python` is retired by D111.
-- `STRIATUM_DAEMON_CORE=python` is retired by D111.
+- `striatum daemon start --core python` is retired by D111 and does not boot a
+  Python daemon.
+- `STRIATUM_DAEMON_CORE=python` is retired by D111 and does not boot a Python
+  daemon.
 - RFC 0068 tracks deletion of the legacy Python daemon module after fixture
   cleanup.
 
@@ -264,18 +269,17 @@ regardless of daemon language.
   editable testing with `make daemon-go-install`; custom binaries use
   `STRIATUMD_GO_BIN=/path/to/striatumd`.
 
-**Operator install during transition:**
+**Current operator install:**
 
 ```bash
 pip install striatum-orchestrator
-striatum daemon start --core go
+striatum daemon start
 ```
 
+`--core go` is accepted only as a deprecated no-op compatibility flag.
 Contributor checkouts can use `make -C go build`; custom binaries use
-`STRIATUMD_GO_BIN=/path/to/striatumd`.
-
-After the Go daemon is the default, the Python daemon becomes optional
-and a future RFC may retire it entirely.
+`STRIATUMD_GO_BIN=/path/to/striatumd`. The Python daemon is no longer an
+optional production core.
 
 ### 6. Process supervision
 
@@ -298,16 +302,15 @@ metadata lives in the daemon DB. The Go implementation:
 The RFC 0035 multi-repo test harness boots a daemon subprocess via
 `tests/_harness/daemon.py`. Extending the harness:
 
-- New `daemon_core` parameter (`"python"` or `"go"`) on the
-  `MultiRepoHarness` constructor.
-- When `daemon_core="go"`, the harness uses the packaged Go daemon if
-  available, then `STRIATUMD_GO_BIN`, then builds or uses
-  `go/bin/striatumd`.
-- All five e2e test files (prepare, lifecycle, crash-recovery,
-  MCP capability scope, per-repo write-scope) run against both daemon
-  cores in CI.
-- The acceptance bar for shipping the Go daemon is parity: every test
-  passing for Python must pass for Go.
+- Historical V1/V1.5 harness work added a `daemon_core` parameter
+  (`"python"` or `"go"`) so the Go daemon could be compared against the
+  Python daemon before the cutover.
+- Current conformance uses the Go daemon as the production gate
+  (`make daemon-go-conformance` / `CORE=go`). The Python-core CI lane is
+  retired by D111; any remaining Python-daemon exercise is legacy fixture
+  cleanup.
+- The acceptance bar for production is now Go conformance plus explicit
+  removal of unsupported method names from the production contract.
 
 Per-language unit tests:
 
@@ -328,25 +331,27 @@ schema.
 
 Three phases:
 
-**Phase 1 — coexistence (RFC 0039 V1 scope):**
-- Both daemons exist; operators choose via `--core` flag.
-- Default stays Python.
-- Multi-repo test harness covers both.
-- CI runs both daemon test matrices.
-- Documentation labels each daemon's tradeoffs.
+**Phase 1 — historical coexistence (RFC 0039 V1 scope):**
+- Both daemons existed; operators could choose via `--core` flag.
+- The default stayed Python during this historical phase.
+- Multi-repo test harness coverage compared both cores before cutover.
+- CI ran both daemon test matrices before D111 retired the Python-core lane.
+- Documentation labelled each daemon's tradeoffs before Go became the
+  production core.
 
-**Phase 2 / Phase 3 reopened by D107 / RFC 0068:**
-D107 restores the path where Go becomes the production daemon and the Python
-daemon retires after parity. The Python CLI may remain the operator client,
-but daemon ownership, PostgreSQL migrations, audit, authorization, MCP,
-recovery, and supervision must move behind the Go daemon before the default
-flips.
+**Phase 2 / Phase 3 superseded by D107 / RFC 0068 / D111:**
+D107 restored the path where Go becomes the production daemon, D109 flipped
+the default, and D111 retired Python daemon selection. The Python CLI may
+remain the operator client, but daemon ownership, PostgreSQL migrations,
+audit, authorization, MCP, recovery, and supervision are now Go production
+responsibilities.
 
-RFC 0039 covers Phase 1 only.
+The original RFC 0039 acceptance covered Phase 1 only; RFC 0068 owns the
+production cutover and Python-daemon retirement follow-through.
 
-### 10. CI matrix
+### 10. Historical CI matrix
 
-Existing CI matrix gains:
+The original CI matrix gained:
 
 - Go 1.23 (or current Go LTS) toolchain setup.
 - `go build ./...` step for Go daemon binaries.
@@ -366,24 +371,24 @@ Existing CI matrix gains:
   `go/Makefile`.
 - Go daemon implements the full RFC 0030 envelope-v1 + version
   handshake + method registry + capability gating.
-- Go daemon reads/writes the RFC 0033 Postgres substrate using the
-  same schema + migrations as the Python daemon.
+- Go daemon reads/writes the RFC 0033/RFC 0043 Postgres substrate using the
+  same daemon-owned schema and migrations.
 - Go daemon owns supervised processes per RFC 0031, including PTY
   + signal handling + supervised-progress lease heartbeat.
 - Go daemon implements the RFC 0032 cross-repo run lifecycle +
   MCP `tools/call` + `tools/list` + audit append.
-- `striatum daemon start --core go` launches the Go daemon binary
-  via the Python CLI.
-- `MultiRepoHarness(daemon_core="go")` boots the Go daemon and runs
-  all five e2e test files green.
-- CI runs the Python and Go daemon test matrices on every PR.
+- `striatum daemon start` launches the Go daemon binary via the Python CLI;
+  `--core go` is retained only as a deprecated no-op compatibility flag.
+- The multi-repo harness boots the Go daemon and runs the daemon conformance
+  suite green.
+- CI runs the Go daemon conformance gate; the Python-core lane is retired.
 - Cross-compile produces linux-amd64 + linux-arm64 + darwin-amd64
   + darwin-arm64 binaries on release.
 - Distribution: a release ships the wheel (Python) + four Go binaries
   per platform.
-- Documentation: `docs/SPEC.md` daemon section names both daemon
-  cores; `docs/HOW_TO_HUMAN.md` documents the `--core go` flag and
-  installation; `CHANGELOG.md` records the addition.
+- Documentation: `docs/SPEC.md` daemon section names Go as the production
+  daemon, `docs/HOW_TO_HUMAN.md` documents normal `striatum daemon start`
+  usage, and `CHANGELOG.md` records the cutover.
 - No regression in any existing Python test.
 
 ## Implementation Plan
@@ -399,12 +404,12 @@ test parity at each step.
 > PostgreSQL substrate, with a cross-language v2 audit-row hash that
 > the Python verifier accepts. The RFC 0035 multi-repo test harness
 > gained a `daemon_core` parameter (`"python"` default; `"go"` opts in)
-> so e2e fixtures can target either core. Later slices added
+> so e2e fixtures could target either core before D111. Later slices added
 > `striatum daemon start --core go`, packaged binary lookup,
 > conformance gates, generated registry metadata, and broad Go handler
-> coverage. Current remaining work is explicit fail-closed and parity
-> debt tracked by RFC 0068 / TODO 61 before the default daemon core
-> flips.
+> coverage. D109/D111 have since flipped production startup to Go and retired
+> Python core selection; RFC 0068 / TODO 61 now track fixture cleanup and
+> Python-daemon module deletion.
 
 ### Step 1. Skeleton + envelope-v1
 
@@ -425,8 +430,9 @@ the RFC 0035 harness path).
 
 ### Step 3. Read-only daemon (CLI integration)
 
-Wire the Python CLI's `striatum daemon start --core go` to launch
-the Go binary. The Go daemon handles read-only verbs (status,
+Wire the Python CLI's historical `striatum daemon start --core go` path to
+launch the Go binary. Current startup uses `striatum daemon start`; `--core
+go` remains a deprecated no-op. The Go daemon handles read-only verbs (status,
 dashboard, audit show) from the Python CLI. First end-to-end test:
 `MultiRepoHarness(daemon_core="go")` smoke + `test_cross_repo_prepare_e2e`
 read-only assertions.
@@ -478,10 +484,10 @@ Go daemon binary while source and sdist installs keep the
 - Should the Go daemon expose Prometheus metrics? Recommendation:
   no — local-first ethos says no telemetry surface. Operators
   who want metrics can scrape the audit chain.
-- Should the existing Python daemon `striatum daemon start` keep
-  working forever, or be removed in a future RFC? Recommendation:
-  remove in a future RFC (Phase 3 per §9) after Go has been the
-  default for one release cycle.
+- ~~Should the existing Python daemon `striatum daemon start` keep
+  working forever, or be removed in a future RFC?~~ Resolved by D111:
+  `striatum daemon start` launches Go, `--core python` no longer selects a
+  daemon, and the remaining Python daemon module is legacy deletion work.
 
 ## Domain Modeling
 
@@ -492,11 +498,11 @@ apply receipts) is preserved verbatim across languages. The wire
 protocol (RFC 0030 envelope-v1) and the storage substrate (RFC 0033
 Postgres) are the language-independent contracts.
 
-The single relevant new concept is **daemon core**: a value object on
-the operator-facing configuration enumerating which language
-implementation is running. V1 closed set: `{python, go}`. V1 default:
-`python`. The operator sees `striatum daemon describe` reflect the
-current core; the CLI client behavior is identical against either.
+The single relevant concept was **daemon core**: a value object on
+the operator-facing configuration enumerating which language implementation
+was running during the transition. D111 retires that operator choice. Current
+production core is Go; Python may remain only in CLI/web client code and
+legacy fixture paths.
 
 ## V1.5 Deltas (correctness slice)
 
@@ -574,7 +580,9 @@ fixture in `tests/conftest.py` reads that variable and passes it to
 the Go-core matrix exercises a real boot, a read-only RPC, and the F4
 audit chain. The CI shape is intentionally two explicit jobs
 (`CORE=python`, `CORE=go`) rather than in-process parametrization, so
-the Go-core evidence is intentional rather than implied.
+the Go-core evidence was intentional rather than implied. Current CI uses the
+Go daemon conformance gate; Python-core execution is retired outside legacy
+fixtures.
 
 ## V1.6 Deltas (supervisor + CI hardening)
 

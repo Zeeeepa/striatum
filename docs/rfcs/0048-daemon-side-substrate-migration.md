@@ -7,7 +7,8 @@
 Completion note: RFC 0048 is no longer pending V1.5 hardening. By
 v1.55.0 production mapped verbs are PG-native/fail-closed through daemon
 RPC, `CLI_ROUTES` fallback is empty, and legacy SQLite remains only for
-guarded legacy migration fixture tests and test-fixture compatibility paths.
+guarded one-way migration/import fixtures and named subprocess compatibility
+fixtures.
 
 ## V1 Phase A landing summary (2026-05-14, v1.49.0)
 
@@ -95,12 +96,13 @@ made the daemon required at the CLI level (`STRIATUM_DAEMON_REQUIRED`
 enforcement). RFC 0043 V1.5 (dogfood-050) and V1.6 (dogfood-052)
 closed the migration ergonomics + escape-path + locking gaps.
 
-The gemini adversarial review of dogfood-050 identified a deeper gap:
-the daemon's RPC server still delegates single-repo business logic
+The gemini adversarial review of dogfood-050 identified a deeper gap that
+existed before this RFC completed:
+the daemon's RPC server still delegated single-repo business logic
 back to the SQLite-backed CLI dispatch (`DaemonRpcRouter._route` →
 `striatum.api.invoke` → `striatum.db.connect` → SQLite). Even after
-a successful `migrate-repo-local`, the daemon continues to read and
-write SQLite for non-lifecycle verbs. The substrate flip is a
+a successful `migrate-repo-local`, the daemon continued to read and
+write SQLite for non-lifecycle verbs. The substrate flip was a
 **facade** for single-repo operations.
 
 Symptoms:
@@ -111,11 +113,11 @@ Symptoms:
 - The `striatumd.*` Postgres tables for the migrated repo are
   read-only after migration unless the operator manually points
   the daemon at them.
-- The Go daemon (RFC 0039) inherits the same delegation pattern —
-  it registers RPC methods that return `not_implemented`, not real
+- The Go daemon (RFC 0039) inherited the same delegation pattern —
+  it registered RPC methods that returned `not_implemented`, not real
   PG-backed handlers (codex F2 from dogfood-049).
 
-## Goals (V2.0 phase)
+## Historical goals (V2.0 phase)
 
 - Port every single-repo mutation handler in `src/striatum/cli/`
   (mutations, evidence, recovery, worktree, run_summary, etc.) to
@@ -123,17 +125,18 @@ Symptoms:
   `striatum.db.connect`.
 - Replace `DaemonRpcRouter._route` delegation to
   `striatum.api.invoke` with native PG-backed handlers.
-- Implement the same mutation surface in `go/pkg/rpc/` / `go/pkg/apply/`
-  so `--core go` actually services single-repo verbs (not just lifecycle).
-- Remove the `STRIATUM_DAEMON_REQUIRED=0 + STRIATUM_TEST_HARNESS=1`
-  test-harness escape once the test suite has moved off SQLite-backed
-  fixtures.
+- Implement the same mutation surface in Go so the production daemon services
+  single-repo verbs directly over PostgreSQL.
+- Remove production dependence on the
+  `STRIATUM_DAEMON_REQUIRED=0 + STRIATUM_TEST_HARNESS=1` test-harness escape
+  as the test suite moves off SQLite-backed fixtures.
 
 ## Non-goals
 
-- Removing SQLite as a development substrate entirely. The repo-local
-  `.striatum/state.sqlite3` stays as the bootstrap path for `striatum
-  init`; the daemon migrates it on first run.
+- Historical note: this RFC did not initially remove SQLite as a development
+  substrate entirely. D113 later closed writable SQLite import windows and
+  current `striatum init` creates only operational scratch; importer paths are
+  fixture-only.
 - Hosted/cloud-mode daemon (deferred separately).
 - Multi-tenancy enforcement (RFC 0027 follow-up).
 
@@ -153,10 +156,9 @@ dogfoods:
   similarly.
 - Port `evidence.py::evidence_export` to read from PG directly.
 
-Each method is its own commit. The daemon RPC router swaps the
-delegated handler for the PG-backed one as each lands. SQLite
-delegation stays as a fallback for un-ported methods during the
-transition.
+Each method is its own commit. Historically, the daemon RPC router swapped the
+delegated handler for the PG-backed one as each landed. That transition is
+complete: production mapped verbs no longer fall back to SQLite delegation.
 
 ### Phase B — Go read/support parity
 
@@ -182,11 +184,13 @@ Python/Postgres substrate cutover.
 RFC 0048 completed across v1.49.0-v1.55.0. Phase A handler porting, Phase C
 CLI fail-closed routing, and V1.5 hardening are no longer pending. Go parity
 work now continues under D107 / RFC 0068, while this RFC remains limited to
-the completed Python/Postgres substrate flip.
+the completed PostgreSQL handler substrate flip.
 
-Existing repos that have already run `migrate-repo-local` continue
-to work — the daemon already has their PG state; Phase A handlers
-just start reading it natively instead of routing through SQLite.
+Repositories that were migrated during the historical transition continue to
+work from daemon-owned PostgreSQL state. Current operators do not run
+`migrate-repo-local`; repositories with legacy SQLite sources are registered
+only after the operator archives/removes those files, while importer code is
+reserved for explicit fixtures.
 
 ## Acceptance (completed)
 
@@ -205,10 +209,12 @@ just start reading it natively instead of routing through SQLite.
    gate every Phase A test on the same `STRIATUM_PG_TEST_URL` /
    `STRIATUM_MULTI_REPO_REQUIRE_PG` sentinel pattern that V1.6
    F-ci closed in dogfood-049.
-2. Operator UX during the transition: should the CLI surface a
+2. ~~Operator UX during the transition: should the CLI surface a
    "this method is daemon-PG-backed" / "this method still routes
-   through SQLite" indicator? Default: yes, via a `--explain` flag
-   on `striatum doctor` and the daemon's startup banner.
+   through SQLite" indicator?~~ Resolved by the completed cutover:
+   production mapped verbs are daemon/PostgreSQL-backed and fail closed;
+   `daemon doctor --authority --json` reports remaining fixture exceptions
+   without reopening SQLite.
 3. Go core blocker: GH #2 + #5 lane evidence guard (RFC 0046) lands
    first; Phase B inherits it. No re-design needed.
 

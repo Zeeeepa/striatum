@@ -3,22 +3,17 @@
 from __future__ import annotations
 
 import json
-import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable
+from typing import TYPE_CHECKING, Callable
 
-from striatum.db import (
-    active_lease_for,
-    active_worktree_for_job,
-    insert_event,
-    row_by_id,
-    transaction,
-)
 from striatum.errors import ArtifactError
 from striatum.identity import artifact_author_identity, session_lane_attestation
 from striatum.primitives import json_loads, new_id, sha256_bytes, utc_now
 from striatum.repo_policy import path_allowed, repo_relative_path
+
+if TYPE_CHECKING:
+    import sqlite3
 
 
 MARKDOWN_SUFFIXES = {".md", ".markdown"}
@@ -630,6 +625,13 @@ def publish_artifact(
     override_rationale records the rationale on the artifact row and
     emits a ``provenance.publish_without_process_execution`` event.
     """
+    from striatum.db import (
+        active_lease_for,
+        active_worktree_for_job,
+        insert_event,
+        transaction,
+    )
+
     with transaction(conn):
         job = conn.execute("SELECT * FROM jobs WHERE job_id = ?", (job_id,)).fetchone()
         if job is None:
@@ -996,6 +998,8 @@ def markdown_title_block_author_lines(text: str) -> list[str]:
 
 def expected_author_line(conn: sqlite3.Connection, *, job: sqlite3.Row, session_id: str) -> str:
     """Return the exact work-packet author line expected for this job/session."""
+    from striatum.db import row_by_id
+
     run = row_by_id(conn, "runs", "run_id", str(job["run_id"]))
     snapshot = row_by_id(
         conn,
@@ -1041,6 +1045,8 @@ def _enforce_required_attestation_for_artifact(
 
 
 def _job_requires_attested_lane(conn: sqlite3.Connection, *, job: sqlite3.Row) -> bool:
+    from striatum.db import row_by_id
+
     run = row_by_id(conn, "runs", "run_id", str(job["run_id"]))
     snapshot = row_by_id(
         conn,

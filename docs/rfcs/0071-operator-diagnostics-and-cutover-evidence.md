@@ -1,8 +1,8 @@
 # RFC 0071: Operator Diagnostics and Cutover Evidence
 
-Status: partially implemented
+Status: implemented
 Date: 2026-05-17
-Context: [RFC 0043](0043-postgres-as-sole-substrate-and-daemon-required-runtime.md), [RFC 0058](0058-operator-progress-surface.md), [RFC 0069](0069-pg-only-daemon-global-surfaces.md), [RFC 0070](0070-daemon-client-service-boundary.md)
+Context: [RFC 0043](0043-postgres-as-sole-substrate-and-daemon-required-runtime.md), [RFC 0058](0058-operator-progress-surface.md), [RFC 0068](0068-go-production-daemon-port.md), [RFC 0069](0069-pg-only-daemon-global-surfaces.md), [RFC 0070](0070-daemon-client-service-boundary.md)
 
 ## Problem
 
@@ -26,17 +26,15 @@ multiple files and test names.
 
 ## Proposal
 
-After RFC 0069 and RFC 0070 land:
+The implemented diagnostic slice provides:
 
-1. Add `daemon doctor --repo <path> --authority --json` detail with a
-   structured report confirming PG rows, event-chain anchoring, tombstone
-   state, and absence of production SQLite opens.
-2. Add `doctor --authority --json` daemon doctor detail that
-   reports live-state authority by surface.
-3. Generate the stable daemon method authority matrix from
-   `contracts/daemon_methods.json` plus checked-in override metadata, or keep
-   the current hand-maintained matrix with stricter drift tests if generation
-   proves too costly.
+1. `daemon doctor --repo <path> --authority --json` detail with a structured
+   report confirming PG rows, event-chain anchoring, tombstone state, and
+   absence of production SQLite opens.
+2. `doctor --authority --json` daemon doctor detail that reports live-state
+   authority by surface.
+3. A curated daemon method authority matrix with stricter drift tests; D108
+   rejected full generation for the current slice.
 
 ## Acceptance Criteria
 
@@ -57,8 +55,9 @@ After RFC 0069 and RFC 0070 land:
   `striatum.authority_report.v1` with PostgreSQL status, legacy SQLite
   registry status, daemon method fallback counts, allowed migration/test-only
   SQLite exceptions, and remediation recommendations.
-- The daemon doctor treats a production-disabled legacy SQLite registry as the
-  expected post-cutover state when PostgreSQL doctor is healthy.
+- The daemon doctor treats legacy SQLite registry access as retired production
+  behavior. Any registry details in diagnostics are quarantine/fixture
+  evidence, not a live fallback.
 - `striatum daemon doctor --repo <path> --authority --json` now emits a
   verify-only `striatum.repo_cutover_report.v1` with repository registration,
   migration checkpoint, destination counts, raw source/tombstone/sentinel
