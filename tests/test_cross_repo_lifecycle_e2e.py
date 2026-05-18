@@ -25,7 +25,7 @@ def test_prepare_start_summary_cancel_two_repo_run(
     assert {row["state"] for row in described["participants"]} == {"running"}
     assert canceled["state"] == "canceled"
     for index in range(2):
-        assert harness.repo_sqlite_query(index, "SELECT state FROM runs")[0]["state"] == "canceled"
+        assert harness.participant_runs(index)[0]["state"] == "canceled"
 
 
 def test_mixed_participant_state_is_reflected_in_describe_and_dashboard(

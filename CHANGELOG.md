@@ -59,6 +59,9 @@ Recent checkpoints:
 - The `striatumd` console script now targets a small Go-daemon launcher shim
   instead of importing the legacy Python daemon module; the old
   `striatumd --foreground` spelling is accepted as a compatibility alias.
+- The multi-repo test harness no longer initializes participant repositories
+  with repo-local SQLite. Participant prepare/start/cancel/checkpoint
+  assertions now use daemon-owned PostgreSQL rows under `striatumd.*`.
 - Packaged wheels now stage the Go daemon binary before build, and fresh-clone
   smoke builds `go/bin/striatumd` before the default daemon start path.
 - Go PostgreSQL mutation paths now encode structured JSONB arguments through

@@ -92,5 +92,5 @@ def test_unreachable_participant_mid_run_creates_primary_checkpoint(
 
     assert result["state"] == "blocked"
     assert harness._runner().checkpoints
-    rows = harness.repo_sqlite_query(0, "SELECT severity, blocker_kind FROM blockers")
+    rows = harness.participant_blockers(0)
     assert rows == [{"severity": "human_checkpoint", "blocker_kind": "human_checkpoint"}]

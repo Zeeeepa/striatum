@@ -20,7 +20,7 @@ from striatum.daemon_pg.connection import connect
 from _harness import audit, pg, repos, tokens
 from _harness.daemon import DaemonCore, DaemonProcess, PauseHook
 from _harness.mcp import McpClient
-from _harness.repos import RepoDescriptor, RepoLocalRunner
+from _harness.repos import PgParticipantRunner, RepoDescriptor
 
 
 class MultiRepoHarness:
@@ -42,7 +42,7 @@ class MultiRepoHarness:
         self._repo_count = repo_count
         self._daemon_core: DaemonCore = daemon_core
         self._running = False
-        self.local_runner: RepoLocalRunner | None = None
+        self.participant_runner: PgParticipantRunner | None = None
 
     @property
     def daemon_core(self) -> DaemonCore:
@@ -88,8 +88,22 @@ class MultiRepoHarness:
         finally:
             conn.close()
 
-    def reset_repo_local(self, repo_index: int) -> None:
-        repos.clear_repo_local(self.repos[repo_index])
+    def reset_repo_pg(self, repo_index: int) -> None:
+        repo_id = self.repos[repo_index].repository_id
+        if repo_id is None:
+            return
+        conn = self.pg_conn()
+        try:
+            with conn.cursor() as cur:
+                cur.execute("DELETE FROM striatumd.blockers WHERE repository_id = %s", (repo_id,))
+                cur.execute("DELETE FROM striatumd.runs WHERE repository_id = %s", (repo_id,))
+                cur.execute(
+                    "DELETE FROM striatumd.workflow_snapshots WHERE repository_id = %s",
+                    (repo_id,),
+                )
+            conn.commit()
+        finally:
+            conn.close()
 
     def register_all(self) -> list[str]:
         conn = self.pg_conn()
@@ -163,17 +177,47 @@ class MultiRepoHarness:
         finally:
             conn.close()
 
-    def repo_sqlite_query(self, repo_index: int, sql: str, args: Sequence[object] = ()) -> list[dict[str, object]]:
-        import sqlite3
+    def participant_runs(self, repo_index: int) -> list[dict[str, object]]:
+        repo_id = self.repos[repo_index].repository_id
+        if repo_id is None:
+            return []
+        return self.daemon_db_query(
+            """
+            SELECT run_id, state, cross_repo_run_id
+            FROM striatumd.runs
+            WHERE repository_id = %s
+            ORDER BY created_at, run_id
+            """,
+            (repo_id,),
+        )
 
-        from striatum.db import db_path
-
-        conn = sqlite3.connect(db_path(self.repos[repo_index].path))
-        conn.row_factory = sqlite3.Row
-        try:
-            return [dict(row) for row in conn.execute(sql, tuple(args)).fetchall()]
-        finally:
-            conn.close()
+    def participant_blockers(
+        self,
+        repo_index: int,
+        run_id: str | None = None,
+    ) -> list[dict[str, object]]:
+        repo_id = self.repos[repo_index].repository_id
+        if repo_id is None:
+            return []
+        if run_id is None:
+            return self.daemon_db_query(
+                """
+                SELECT severity, blocker_kind
+                FROM striatumd.blockers
+                WHERE repository_id = %s
+                ORDER BY created_at, blocker_id
+                """,
+                (repo_id,),
+            )
+        return self.daemon_db_query(
+            """
+            SELECT severity, blocker_kind
+            FROM striatumd.blockers
+            WHERE repository_id = %s AND run_id = %s
+            ORDER BY created_at, blocker_id
+            """,
+            (repo_id, run_id),
+        )
 
     def prepare_cross_repo_run(self, workflow: dict[str, object]) -> dict[str, Any]:
         runner = self._runner(workflow)
@@ -255,15 +299,19 @@ class MultiRepoHarness:
         finally:
             runner.unreachable_ids.discard(repo_id)
 
-    def _runner(self, workflow: dict[str, object] | None = None) -> RepoLocalRunner:
+    def _runner(self, workflow: dict[str, object] | None = None) -> PgParticipantRunner:
         repos_by_id = {str(repo.repository_id): repo for repo in self.repos if repo.repository_id is not None}
-        if self.local_runner is None:
-            self.local_runner = RepoLocalRunner(repos_by_id, workflow=workflow)
+        if self.participant_runner is None:
+            self.participant_runner = PgParticipantRunner(
+                repos_by_id,
+                self.pg_conn,
+                workflow=workflow,
+            )
         else:
-            self.local_runner.repos_by_id = repos_by_id
+            self.participant_runner.repos_by_id = repos_by_id
             if workflow is not None:
-                self.local_runner.workflow = workflow
-        return self.local_runner
+                self.participant_runner.workflow = workflow
+        return self.participant_runner
 
 
 def pg_available_url() -> str:

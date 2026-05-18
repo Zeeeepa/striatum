@@ -23,7 +23,10 @@ def test_prepare_valid_two_repo_workflow_creates_daemon_and_local_rows(
     assert harness.daemon_db_query("SELECT state FROM striatumd.cross_repo_runs WHERE cross_repo_run_id = %s", (xrun,))[0]["state"] == "prepared"
     assert len(harness.daemon_db_query("SELECT * FROM striatumd.cross_repo_run_repositories WHERE cross_repo_run_id = %s", (xrun,))) == 2
     for index in range(2):
-        rows = harness.repo_sqlite_query(index, "SELECT cross_repo_run_id FROM runs")
+        rows = [
+            {"cross_repo_run_id": row["cross_repo_run_id"]}
+            for row in harness.participant_runs(index)
+        ]
         assert rows == [{"cross_repo_run_id": xrun}]
 
 
@@ -42,8 +45,8 @@ def test_prepare_unknown_repository_id_refuses_without_writes(
         harness.prepare_cross_repo_run(workflow)
 
     assert harness.daemon_db_query("SELECT state FROM striatumd.cross_repo_runs") == []
-    assert harness.repo_sqlite_query(0, "SELECT run_id FROM runs") == []
-    assert harness.repo_sqlite_query(1, "SELECT run_id FROM runs") == []
+    assert harness.participant_runs(0) == []
+    assert harness.participant_runs(1) == []
 
 
 def test_prepare_repo_local_failure_aborts_without_false_prepared(

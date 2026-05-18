@@ -94,6 +94,9 @@ The Go daemon port lands through independent, testable slices:
   `CORE=go`, including Go daemon smoke, audit, mutation-registry, and
   supervisor smoke coverage. CI runs that gate on Linux where the PostgreSQL
   service is available.
+- The multi-repo harness participant runner writes prepare/start/cancel and
+  human-checkpoint state to daemon-owned PostgreSQL tables instead of creating
+  or querying `.striatum/state.sqlite3` in target repositories.
 - Go `run.prepare` uses the Go workflow-authoring loader for source-path
   resolution before inserting workflow snapshot rows, so traversal refusal and
   JSON-only workflow-source validation no longer depend on Python-daemon

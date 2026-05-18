@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
-import shutil
-import sqlite3
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping
 
-import striatum.daemon as daemon
-from striatum.db import db_path, init_repo, json_dumps, new_id, sha256_bytes, utc_now
+from striatum.daemon_pg.repositories import repo_add_pg
+from striatum.primitives import json_dumps, new_id, sha256_bytes, utc_now
 from striatum.workflow import validate_workflow
 
 
@@ -20,9 +19,15 @@ class RepoDescriptor:
     repository_id: str | None = None
 
 
-class RepoLocalRunner:
-    def __init__(self, repos_by_id: Mapping[str, RepoDescriptor], workflow: Mapping[str, Any] | None = None) -> None:
+class PgParticipantRunner:
+    def __init__(
+        self,
+        repos_by_id: Mapping[str, RepoDescriptor],
+        pg_conn_factory: Callable[[], Any],
+        workflow: Mapping[str, Any] | None = None,
+    ) -> None:
         self.repos_by_id = repos_by_id
+        self.pg_conn_factory = pg_conn_factory
         self.workflow = workflow
         self.fail_prepare_alias: str | None = None
         self.fail_start_alias: str | None = None
@@ -35,7 +40,19 @@ class RepoLocalRunner:
             raise RuntimeError(f"repository {repository_alias} unavailable")
         repo = self.repos_by_id[repository_id]
         workflow = dict(self.workflow or {})
-        return _insert_local_run(repo.path, workflow=workflow, cross_repo_run_id=cross_repo_run_id)
+        conn = self.pg_conn_factory()
+        try:
+            run_id = _insert_pg_run(
+                conn,
+                repo,
+                repository_id=repository_id,
+                workflow=workflow,
+                cross_repo_run_id=cross_repo_run_id,
+            )
+            conn.commit()
+            return run_id
+        finally:
+            conn.close()
 
     def _matches_fail_alias(self, repository_id: str, fail_alias: str | None) -> bool:
         """Return True if `fail_alias` matches `repository_id` under either
@@ -63,45 +80,83 @@ class RepoLocalRunner:
             raise RuntimeError("repository unavailable")
         if self._matches_fail_alias(repository_id, self.fail_start_alias):
             raise RuntimeError("repository unavailable")
-        with sqlite3.connect(db_path(self.repos_by_id[repository_id].path)) as conn:
-            conn.execute("UPDATE runs SET state = 'running', started_at = ? WHERE run_id = ?", (utc_now(), local_run_id))
+        conn = self.pg_conn_factory()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    UPDATE striatumd.runs
+                    SET state = 'running', started_at = %s
+                    WHERE repository_id = %s AND run_id = %s
+                    """,
+                    (utc_now(), repository_id, local_run_id),
+                )
             conn.commit()
+        finally:
+            conn.close()
 
     def cancel(self, *, repository_id: str, local_run_id: str, reason: str) -> None:
         if repository_id in self.unreachable_ids:
             raise RuntimeError("repository unavailable")
         if self._matches_fail_alias(repository_id, self.fail_cancel_alias):
             raise RuntimeError("repository unavailable")
-        with sqlite3.connect(db_path(self.repos_by_id[repository_id].path)) as conn:
-            conn.execute(
-                "UPDATE runs SET state = 'canceled', completed_at = ?, stop_reason = ? WHERE run_id = ?",
-                (utc_now(), reason, local_run_id),
-            )
+        conn = self.pg_conn_factory()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    UPDATE striatumd.runs
+                    SET state = 'canceled', completed_at = %s, stop_reason = %s
+                    WHERE repository_id = %s AND run_id = %s
+                    """,
+                    (utc_now(), reason, repository_id, local_run_id),
+                )
             conn.commit()
+        finally:
+            conn.close()
 
     def participant_intact(self, *, repository_id: str, local_run_id: str | None) -> bool:
         if local_run_id is None or repository_id in self.unreachable_ids:
             return False
-        with sqlite3.connect(db_path(self.repos_by_id[repository_id].path)) as conn:
-            return conn.execute("SELECT 1 FROM runs WHERE run_id = ?", (local_run_id,)).fetchone() is not None
+        conn = self.pg_conn_factory()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT 1
+                    FROM striatumd.runs
+                    WHERE repository_id = %s AND run_id = %s
+                    """,
+                    (repository_id, local_run_id),
+                )
+                return cur.fetchone() is not None
+        finally:
+            conn.close()
 
     def human_checkpoint(self, *, repository_id: str, local_run_id: str | None, reason: str) -> None:
         self.checkpoints.append({"repository_id": repository_id, "local_run_id": local_run_id, "reason": reason})
         if local_run_id is None or repository_id not in self.repos_by_id:
             return
-        with sqlite3.connect(db_path(self.repos_by_id[repository_id].path)) as conn:
-            blocker_id = new_id("blk")
-            conn.execute(
-                """
-                INSERT INTO blockers(
-                  blocker_id, run_id, job_id, session_id, severity, blocker_kind,
-                  description, state, created_at, payload_json
+        conn = self.pg_conn_factory()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    INSERT INTO striatumd.blockers(
+                      repository_id, blocker_id, run_id, job_id, session_id,
+                      severity, blocker_kind, description, state, created_at,
+                      payload_json
+                    )
+                    VALUES (
+                      %s, %s, %s, NULL, NULL, 'human_checkpoint',
+                      'human_checkpoint', %s, 'open', %s, '{}'::jsonb
+                    )
+                    """,
+                    (repository_id, new_id("blk"), local_run_id, reason, utc_now()),
                 )
-                VALUES (?, ?, NULL, NULL, 'human_checkpoint', 'human_checkpoint', ?, 'open', ?, '{}')
-                """,
-                (blocker_id, local_run_id, reason, utc_now()),
-            )
             conn.commit()
+        finally:
+            conn.close()
 
 
 def init_repositories(scratch_dir: Path, repo_count: int) -> list[RepoDescriptor]:
@@ -109,62 +164,14 @@ def init_repositories(scratch_dir: Path, repo_count: int) -> list[RepoDescriptor
     for index in range(repo_count):
         path = scratch_dir / f"repo-{index}"
         path.mkdir(parents=True, exist_ok=True)
-        init_repo(path)
         repos.append(RepoDescriptor(alias=f"repo{index}", path=path))
     return repos
 
 
 def register_repo(conn: Any, repo: RepoDescriptor) -> str:
-    repository_id = new_id("repo")
-    with sqlite3.connect(db_path(repo.path)) as repo_conn:
-        version = int(repo_conn.execute("PRAGMA user_version").fetchone()[0])
-    with conn.cursor() as cur:
-        cur.execute(
-            """
-            INSERT INTO striatumd.repositories(
-              repository_id, repo_identity, repo_root, state_db_path, display_name,
-              registered_at, last_seen_at, last_schema_version, state, settings_json
-            )
-            VALUES (%s, %s, %s, %s, %s, now(), now(), %s, 'active', '{}'::jsonb)
-            ON CONFLICT (repo_identity) WHERE state IN ('active','missing','disabled')
-            DO UPDATE SET last_seen_at = EXCLUDED.last_seen_at
-            RETURNING repository_id
-            """,
-            (
-                repository_id,
-                daemon._repo_identity(repo.path),  # test setup uses the production identity helper.
-                str(repo.path.resolve()),
-                str(db_path(repo.path).resolve()),
-                repo.path.name,
-                version,
-            ),
-        )
-        row = cur.fetchone()
-    conn.commit()
-    repo.repository_id = str(row[0])
+    result = repo_add_pg(conn, repo.path, display_name=repo.path.name, init=True)
+    repo.repository_id = str(result["repository_id"])
     return repo.repository_id
-
-
-def clear_repo_local(repo: RepoDescriptor) -> None:
-    preserved = {"schema_meta"}
-    conn = sqlite3.connect(db_path(repo.path))
-    try:
-        rows = conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'").fetchall()
-        conn.execute("PRAGMA foreign_keys = OFF")
-        for (name,) in rows:
-            if str(name).startswith("sqlite_") or str(name) in preserved:
-                continue
-            conn.execute(f'DELETE FROM "{name}"')
-        conn.execute("PRAGMA foreign_keys = ON")
-        conn.commit()
-    finally:
-        conn.close()
-    for child in (repo.path / "docs").glob("**/*") if (repo.path / "docs").exists() else []:
-        if child.is_file():
-            child.unlink()
-    docs = repo.path / "docs"
-    if docs.exists():
-        shutil.rmtree(docs)
 
 
 def two_repo_workflow(repo_a: str, repo_b: str) -> dict[str, Any]:
@@ -230,46 +237,64 @@ def _job(job_id: str, repository: str, path: str) -> dict[str, Any]:
     }
 
 
-def _insert_local_run(repo: Path, *, workflow: dict[str, Any], cross_repo_run_id: str) -> str:
+def _insert_pg_run(
+    conn: Any,
+    repo: RepoDescriptor,
+    *,
+    repository_id: str,
+    workflow: dict[str, Any],
+    cross_repo_run_id: str,
+) -> str:
     run_id = new_id("run")
     snapshot_id = new_id("wfs")
     payload = json_dumps(workflow)
-    conn = sqlite3.connect(db_path(repo))
-    try:
-        now = utc_now()
-        conn.execute(
+    now = utc_now()
+    with conn.cursor() as cur:
+        cur.execute(
             """
-            INSERT INTO workflow_snapshots(
-              workflow_snapshot_id, workflow_id, workflow_version, source_path,
+            INSERT INTO striatumd.workflow_snapshots(
+              repository_id, workflow_snapshot_id, workflow_id, workflow_version, source_path,
               content_sha256, workflow_json, loaded_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
             """,
             (
+                repository_id,
                 snapshot_id,
                 str(workflow.get("workflow_id", "multi-repo-e2e")),
                 workflow.get("workflow_version"),
                 "<multi-repo-harness>",
                 sha256_bytes(payload.encode("utf-8")),
-                payload,
+                _jsonb_payload(workflow),
                 now,
             ),
         )
-        conn.execute(
+        cur.execute(
             """
-            INSERT INTO runs(
-              run_id, workflow_snapshot_id, repo_root, state, branch_name,
+            INSERT INTO striatumd.runs(
+              repository_id, run_id, workflow_snapshot_id, repo_root, state, branch_name,
               branch_base, created_at, cross_repo_run_id
             )
-            VALUES (?, ?, ?, 'ready', ?, NULL, ?, ?)
+            VALUES (%s, %s, %s, %s, 'ready', %s, NULL, %s, %s)
             """,
-            (run_id, snapshot_id, str(repo), "test/multi-repo", now, cross_repo_run_id),
+            (
+                repository_id,
+                run_id,
+                snapshot_id,
+                str(repo.path.resolve()),
+                "test/multi-repo",
+                now,
+                cross_repo_run_id,
+            ),
         )
-        conn.commit()
-    finally:
-        conn.close()
     return run_id
 
 
 def _alias_for_id(repos_by_id: Mapping[str, RepoDescriptor], repository_id: str) -> str:
     return repos_by_id[repository_id].alias
+
+
+def _jsonb_payload(value: Mapping[str, Any]) -> Any:
+    from psycopg.types.json import Jsonb
+
+    return Jsonb(dict(value))

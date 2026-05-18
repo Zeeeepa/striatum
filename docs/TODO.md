@@ -1272,6 +1272,9 @@ review and plan are root-level operator artifacts:
     surfaces. The `striatumd` console script now targets a Go-daemon launcher
     shim instead of `striatum.daemon:main`; remaining Python-daemon work is
     module deletion after the retirement ledger and SQLite import window close.
+    The multi-repo harness participant runner no longer creates or queries
+    repo-local SQLite; cross-repo E2E assertions now inspect daemon-owned
+    PostgreSQL participant rows.
 
 62. **RFC 0069: PostgreSQL-only daemon-global surfaces.** Most done. Port daemon
     sweep, dashboard-all, daemon MCP resource list/read, and

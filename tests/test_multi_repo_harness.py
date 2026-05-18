@@ -9,13 +9,23 @@ from _harness.multi_repo import MultiRepoHarness
 pytestmark = pytest.mark.multi_repo
 
 
-def test_start_registers_two_repos_with_distinct_sqlite_state(multi_repo_harness: MultiRepoHarness) -> None:
+def test_start_registers_two_repos_without_repo_local_sqlite(
+    multi_repo_harness: MultiRepoHarness,
+) -> None:
     harness = multi_repo_harness
 
     assert len(harness.repos) == 2
     assert harness.repos[0].repository_id != harness.repos[1].repository_id
     assert harness.socket_path.exists()
-    assert all((repo.path / ".striatum" / "state.sqlite3").exists() for repo in harness.repos)
+    rows = harness.daemon_db_query(
+        "SELECT repository_id, repo_root FROM striatumd.repositories ORDER BY repo_root"
+    )
+    assert len(rows) == 2
+    assert {row["repository_id"] for row in rows} == {
+        harness.repos[0].repository_id,
+        harness.repos[1].repository_id,
+    }
+    assert all(not (repo.path / ".striatum" / "state.sqlite3").exists() for repo in harness.repos)
 
 
 def test_reset_daemon_db_preserves_schema_metadata_and_clears_data(
