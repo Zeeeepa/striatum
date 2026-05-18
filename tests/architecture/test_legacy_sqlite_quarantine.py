@@ -159,9 +159,6 @@ NEUTRAL_DB_REEXPORTS = frozenset(
 
 
 DAEMON_CONNECT_REGISTRY_CALLERS: dict[str, str] = {
-    "_repo_add_legacy_sqlite": "explicit legacy repository registry fallback",
-    "_repo_list_legacy_sqlite": "explicit legacy repository registry fallback",
-    "_repo_remove_legacy_sqlite": "explicit legacy repository registry fallback",
     "daemon_audit": "legacy RFC 0028 daemon registry fallback",
     "daemon_status": "legacy RFC 0028 daemon registry fallback",
     "daemon_stop": "legacy RFC 0028 daemon registry fallback",

@@ -158,6 +158,9 @@ Recent checkpoints:
   DTO errors fail closed as HTTP-shaped doctor page errors.
 - The unused SQLite registry audit-segment rotation test helper was deleted
   from the legacy Python daemon module.
+- Duplicate repo add/list/remove helpers and their legacy SQLite registry
+  fallbacks were deleted from the legacy Python daemon module; repo
+  registration now lives only on the PostgreSQL admin/repository helpers.
 - The standalone `striatum.daemon_pg.sqlite_compat` helper was removed. Its
   last repository-identity calculation now lives beside the one-way
   repo-local migration fixture, and the unused daemon audit-chain validators
