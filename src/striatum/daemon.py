@@ -10,6 +10,7 @@ import sqlite3
 import sys
 import time
 import uuid
+from collections.abc import Callable
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
@@ -1098,6 +1099,8 @@ def health_pg(pg_conn: Any) -> dict[str, Any]:
 
 def main(argv: Sequence[str] | None = None) -> int:
     """Console entry point for ``striatumd``."""
-    from striatum.cli import main as cli_main
+    from striatum import cli as cli_package
+
+    cli_main = cast(Callable[[list[str]], int], cli_package.main)
 
     return cli_main(["daemon", "start", *(list(argv) if argv is not None else sys.argv[1:])])

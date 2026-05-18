@@ -2233,7 +2233,7 @@ def test_evidence_redaction_drops_unknown_fields_by_default(
     real_snapshot = cli_module.evidence_snapshot
 
     def patched_snapshot(conn: sqlite3.Connection, *, run_id: str) -> JsonDict:
-        payload = real_snapshot(conn, run_id=run_id)
+        payload = cast(JsonDict, real_snapshot(conn, run_id=run_id))
         payload["future_unknown_field"] = private_marker
         # Inject a nested unknown field inside a known list element.
         if payload.get("artifacts"):

@@ -5,7 +5,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Sequence
 
-from striatum.cli import build_parser, dispatch
+from striatum.cli.dispatch import dispatch
+from striatum.cli.parser import build_parser
 from striatum.errors import StriatumError
 from striatum.primitives import JsonObject
 

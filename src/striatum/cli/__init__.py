@@ -1,162 +1,100 @@
-"""Command line interface for the striatum MVP.
+"""Command line interface package.
 
-This package re-exports every public CLI symbol so callers (the
-``striatum.cli:main`` console entry point, ``striatum.api``, ``striatum.mcp``,
-``striatum.dashboard``, and the test suite) can keep importing from
-``striatum.cli`` without needing to know about the internal split.
+The package keeps historical ``from striatum.cli import ...`` imports working
+without importing legacy SQLite-heavy helper modules during a plain package
+import. Runtime code should prefer importing concrete submodules directly.
 """
 
 from __future__ import annotations
 
-from striatum.cli.dispatch import dispatch, main
-from striatum.cli.evidence import (
-    EVIDENCE_FREE_TEXT_PLACEHOLDER,
-    EVIDENCE_POLICY,
-    dependency_summary,
-    evidence_artifact_summaries,
-    evidence_export,
-    evidence_job_summaries,
-    evidence_snapshot,
-    redact_evidence_payload,
-    render_evidence_markdown,
-)
-from striatum.cli.introspect import (
-    blocked_downstream_jobs,
-    blocker_summaries,
-    blockers_for_job,
-    claimable_jobs_by_role_lane,
-    dependency_context,
-    doctor,
-    downstream_jobs,
-    events_for,
-    events_for_process,
-    human_checkpoint_context,
-    jobs_for_run,
-    jobs_for_session,
-    latest_non_accepting_verdicts,
-    latest_verdict_row,
-    next_actions,
-    recent_events_for_run,
-    run_graph,
-    status,
-    table_exists,
-    verdicts_for_artifact,
-    why,
-)
-from striatum.cli.mutations import (
-    ack_work,
-    block_work,
-    branch_confirm,
-    checkpoint_resolve,
-    current_git_branch,
-    decision_record,
-    git_create_or_checkout_branch,
-    heartbeat,
-    prevalidate_submit_review,
-    register_session,
-    release_work,
-    render_decision_markdown,
-    run_start,
-    send_message,
-    submit_review,
-    verdict_work,
-)
-from striatum.cli.list_commands import (
-    list_artifacts,
-    list_jobs,
-    list_runs,
-    list_sessions,
-    list_workflows,
-)
-from striatum.cli.parser import add_work_identity, build_parser
-from striatum.cli.recovery import cancel_job, requeue_stale, resume_blocker, stale_leases
-from striatum.cli.run_summary import (
-    render_run_summary_markdown,
-    run_summary_export,
-    run_summary_snapshot,
-)
-from striatum.cli.supervise import (
-    SUPERVISOR_ACTIVE_STATES,
-    supervise_list,
-    supervise_send,
-    supervise_start,
-    supervise_status,
-    supervise_stop,
-)
-from striatum.cli.workflow_init import workflow_init
-from striatum.cli.worktree import worktree_create, worktree_list, worktree_release
+from importlib import import_module
+from typing import Any
 
-__all__ = [
-    "EVIDENCE_FREE_TEXT_PLACEHOLDER",
-    "EVIDENCE_POLICY",
-    "SUPERVISOR_ACTIVE_STATES",
-    "ack_work",
-    "add_work_identity",
-    "block_work",
-    "blocked_downstream_jobs",
-    "blocker_summaries",
-    "blockers_for_job",
-    "branch_confirm",
-    "build_parser",
-    "cancel_job",
-    "checkpoint_resolve",
-    "claimable_jobs_by_role_lane",
-    "current_git_branch",
-    "decision_record",
-    "dependency_context",
-    "dependency_summary",
-    "dispatch",
-    "doctor",
-    "downstream_jobs",
-    "events_for",
-    "events_for_process",
-    "evidence_artifact_summaries",
-    "evidence_export",
-    "evidence_job_summaries",
-    "evidence_snapshot",
-    "git_create_or_checkout_branch",
-    "heartbeat",
-    "human_checkpoint_context",
-    "jobs_for_run",
-    "jobs_for_session",
-    "latest_non_accepting_verdicts",
-    "latest_verdict_row",
-    "list_artifacts",
-    "list_jobs",
-    "list_runs",
-    "list_sessions",
-    "list_workflows",
-    "main",
-    "next_actions",
-    "prevalidate_submit_review",
-    "recent_events_for_run",
-    "redact_evidence_payload",
-    "register_session",
-    "release_work",
-    "render_decision_markdown",
-    "render_evidence_markdown",
-    "render_run_summary_markdown",
-    "requeue_stale",
-    "resume_blocker",
-    "run_graph",
-    "run_start",
-    "run_summary_export",
-    "run_summary_snapshot",
-    "send_message",
-    "stale_leases",
-    "status",
-    "submit_review",
-    "supervise_list",
-    "supervise_send",
-    "supervise_start",
-    "supervise_status",
-    "supervise_stop",
-    "table_exists",
-    "verdict_work",
-    "verdicts_for_artifact",
-    "why",
-    "workflow_init",
-    "worktree_create",
-    "worktree_list",
-    "worktree_release",
-]
+
+_SYMBOL_MODULES = {
+    "EVIDENCE_FREE_TEXT_PLACEHOLDER": "striatum.cli.evidence",
+    "EVIDENCE_POLICY": "striatum.cli.evidence",
+    "SUPERVISOR_ACTIVE_STATES": "striatum.cli.supervise",
+    "ack_work": "striatum.cli.mutations",
+    "add_work_identity": "striatum.cli.parser",
+    "block_work": "striatum.cli.mutations",
+    "blocked_downstream_jobs": "striatum.cli.introspect",
+    "blocker_summaries": "striatum.cli.introspect",
+    "blockers_for_job": "striatum.cli.introspect",
+    "branch_confirm": "striatum.cli.mutations",
+    "build_parser": "striatum.cli.parser",
+    "cancel_job": "striatum.cli.recovery",
+    "checkpoint_resolve": "striatum.cli.mutations",
+    "claimable_jobs_by_role_lane": "striatum.cli.introspect",
+    "current_git_branch": "striatum.cli.mutations",
+    "decision_record": "striatum.cli.mutations",
+    "dependency_context": "striatum.cli.introspect",
+    "dependency_summary": "striatum.cli.evidence",
+    "dispatch": "striatum.cli.dispatch",
+    "doctor": "striatum.cli.introspect",
+    "downstream_jobs": "striatum.cli.introspect",
+    "events_for": "striatum.cli.introspect",
+    "events_for_process": "striatum.cli.introspect",
+    "evidence_artifact_summaries": "striatum.cli.evidence",
+    "evidence_export": "striatum.cli.evidence",
+    "evidence_job_summaries": "striatum.cli.evidence",
+    "evidence_snapshot": "striatum.cli.evidence",
+    "git_create_or_checkout_branch": "striatum.cli.mutations",
+    "heartbeat": "striatum.cli.mutations",
+    "human_checkpoint_context": "striatum.cli.introspect",
+    "jobs_for_run": "striatum.cli.introspect",
+    "jobs_for_session": "striatum.cli.introspect",
+    "latest_non_accepting_verdicts": "striatum.cli.introspect",
+    "latest_verdict_row": "striatum.cli.introspect",
+    "list_artifacts": "striatum.cli.list_commands",
+    "list_jobs": "striatum.cli.list_commands",
+    "list_runs": "striatum.cli.list_commands",
+    "list_sessions": "striatum.cli.list_commands",
+    "list_workflows": "striatum.cli.list_commands",
+    "main": "striatum.cli.dispatch",
+    "next_actions": "striatum.cli.introspect",
+    "prevalidate_submit_review": "striatum.cli.mutations",
+    "recent_events_for_run": "striatum.cli.introspect",
+    "redact_evidence_payload": "striatum.cli.evidence",
+    "register_session": "striatum.cli.mutations",
+    "release_work": "striatum.cli.mutations",
+    "render_decision_markdown": "striatum.cli.mutations",
+    "render_evidence_markdown": "striatum.cli.evidence",
+    "render_run_summary_markdown": "striatum.cli.run_summary",
+    "requeue_stale": "striatum.cli.recovery",
+    "resume_blocker": "striatum.cli.recovery",
+    "run_graph": "striatum.cli.introspect",
+    "run_start": "striatum.cli.mutations",
+    "run_summary_export": "striatum.cli.run_summary",
+    "run_summary_snapshot": "striatum.cli.run_summary",
+    "send_message": "striatum.cli.mutations",
+    "stale_leases": "striatum.cli.recovery",
+    "status": "striatum.cli.introspect",
+    "submit_review": "striatum.cli.mutations",
+    "supervise_list": "striatum.cli.supervise",
+    "supervise_send": "striatum.cli.supervise",
+    "supervise_start": "striatum.cli.supervise",
+    "supervise_status": "striatum.cli.supervise",
+    "supervise_stop": "striatum.cli.supervise",
+    "table_exists": "striatum.cli.introspect",
+    "verdict_work": "striatum.cli.mutations",
+    "verdicts_for_artifact": "striatum.cli.introspect",
+    "why": "striatum.cli.introspect",
+    "workflow_init": "striatum.cli.workflow_init",
+    "worktree_create": "striatum.cli.worktree",
+    "worktree_list": "striatum.cli.worktree",
+    "worktree_release": "striatum.cli.worktree",
+}
+
+
+__all__ = sorted(_SYMBOL_MODULES)
+
+
+def __getattr__(name: str) -> Any:
+    module_name = _SYMBOL_MODULES.get(name)
+    if module_name is None:
+        raise AttributeError(f"module 'striatum.cli' has no attribute {name!r}")
+    module = import_module(module_name)
+    value = getattr(module, name)
+    globals()[name] = value
+    return value

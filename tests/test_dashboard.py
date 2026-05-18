@@ -269,8 +269,9 @@ def test_dashboard_dispatch_renders_human_dashboard_without_json_route(
     monkeypatch: Any,
 ) -> None:
     from striatum import dashboard as dashboard_mod
-    from striatum.cli import build_parser, dispatch
     from striatum.cli import daemon_rpc_route
+    from striatum.cli.dispatch import dispatch
+    from striatum.cli.parser import build_parser
 
     monkeypatch.delenv("STRIATUM_TEST_HARNESS", raising=False)
     monkeypatch.setenv("STRIATUM_DAEMON_REQUIRED", "1")
@@ -305,8 +306,9 @@ def test_dashboard_json_preserves_daemon_dto_route(
     tmp_path: Path,
     monkeypatch: Any,
 ) -> None:
-    from striatum.cli import build_parser, dispatch
     from striatum.cli import daemon_rpc_route
+    from striatum.cli.dispatch import dispatch
+    from striatum.cli.parser import build_parser
 
     payload = {"run": {"run_id": "run_json"}}
     monkeypatch.setattr(daemon_rpc_route, "try_route", lambda _args, _repo: (True, payload))

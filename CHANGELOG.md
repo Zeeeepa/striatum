@@ -19,6 +19,10 @@ Recent checkpoints:
   durable artifact provenance, evidence identity, worktree state, dogfood
   composite tooling, and packaging notes no longer imply a current Python
   daemon or repo-local SQLite authority.
+- `import striatum.cli` no longer eagerly imports SQLite-backed legacy
+  evidence/introspection/list/mutation/recovery/run-summary/worktree modules;
+  historical package-level re-exports now resolve lazily when callers request
+  a specific compatibility symbol.
 - The Go daemon launch contract now reports supported daemon PostgreSQL schema
   and migration count from `--describe`; the Python launcher refuses stale Go
   daemon binaries before socket bind when their schema, migration count, or

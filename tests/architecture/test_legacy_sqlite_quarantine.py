@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import ast
+import subprocess
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
@@ -212,6 +214,34 @@ def test_service_primary_module_no_longer_opens_legacy_sqlite() -> None:
     offenders = _sqlite_references_under(ROOT / "src" / "striatum")
 
     assert Path("src/striatum/service.py") not in offenders
+
+
+def test_cli_package_import_does_not_eager_load_legacy_sqlite_modules() -> None:
+    legacy_modules = [
+        "striatum.cli.dispatch",
+        "striatum.cli.evidence",
+        "striatum.cli.introspect",
+        "striatum.cli.list_commands",
+        "striatum.cli.mutations",
+        "striatum.cli.recovery",
+        "striatum.cli.run_summary",
+        "striatum.cli.worktree",
+        "striatum.db",
+    ]
+    code = (
+        "import sys; import striatum.cli; "
+        f"legacy={legacy_modules!r}; "
+        "print('\\n'.join(name for name in legacy if name in sys.modules))"
+    )
+
+    proc = subprocess.run(
+        [sys.executable, "-c", code],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    assert proc.stdout.strip() == ""
 
 
 def test_daemon_connect_registry_callers_are_explicitly_classified() -> None:
