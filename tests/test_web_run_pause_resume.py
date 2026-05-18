@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import json
-import sqlite3
 from pathlib import Path
 
+from striatum.legacy_sqlite.db import connect
 from test_web_ui import (
     _git_init_repo,
     _http_get_raw,
@@ -30,7 +30,7 @@ def _prepare_run(repo: Path) -> str:
 
 
 def _first_job_id(repo: Path, run_id: str) -> str:
-    with sqlite3.connect(repo / ".striatum" / "state.sqlite3") as conn:
+    with connect(repo) as conn:
         row = conn.execute(
             "SELECT job_id FROM jobs WHERE run_id = ? ORDER BY created_at LIMIT 1",
             (run_id,),

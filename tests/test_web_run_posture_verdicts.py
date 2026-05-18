@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import json
-import sqlite3
 from pathlib import Path
 
+from striatum.legacy_sqlite.db import connect
 from test_web_ui import (
     _git_init_repo,
     _http_get_raw,
@@ -31,9 +31,7 @@ def _prepare_run(repo: Path) -> str:
 
 def _insert_verdict(repo: Path, run_id: str, *, posture: str, verdict: str = "accept") -> None:
     """Helper: insert a verdict row directly so the drill-down has data."""
-    db = repo / ".striatum" / "state.sqlite3"
-    with sqlite3.connect(db) as conn:
-        conn.row_factory = sqlite3.Row
+    with connect(repo) as conn:
         job = conn.execute(
             "SELECT job_id FROM jobs WHERE run_id = ? LIMIT 1", (run_id,),
         ).fetchone()

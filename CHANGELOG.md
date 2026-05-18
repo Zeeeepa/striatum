@@ -135,6 +135,8 @@ Recent checkpoints:
   to mock the early-return connection path.
 - The web cancel-route test now uses the explicit legacy SQLite fixture helper
   instead of importing `sqlite3` directly for its completed-run setup.
+- The web pause/resume and posture-verdict tests now use the explicit legacy
+  SQLite fixture helper instead of opening repo-local SQLite directly.
 - Operator docs now describe legacy SQLite migration/tombstone paths as
   historical remnants or fixture-only compatibility, while current setup
   guidance uses daemon PostgreSQL registration.
