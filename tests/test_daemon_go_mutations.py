@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 import uuid
 from typing import Any
 
@@ -17,20 +16,13 @@ from striatum.daemon_rpc.envelope import RpcEnvelope
 pytestmark = pytest.mark.multi_repo
 
 
-def _require_go_core() -> None:
-    if os.environ.get("STRIATUM_MULTI_REPO_DAEMON_CORE", "python") != "go":
-        pytest.skip("Go daemon mutation test only runs with CORE=go")
-
-
 def test_go_daemon_describes_rfc0043_mutation_methods(
     tmp_path_factory: pytest.TempPathFactory,
 ) -> None:
-    _require_go_core()
     harness = MultiRepoHarness(
         daemon_pg_url=pg_available_url(),
         repo_count=1,
         scratch_dir=tmp_path_factory.mktemp("daemon_go_mutations"),
-        daemon_core="go",
     )
     harness.start()
     try:
@@ -87,12 +79,10 @@ def test_go_daemon_describes_rfc0043_mutation_methods(
 def test_go_daemon_cross_repo_cancel_uses_socket_and_pg_lifecycle(
     tmp_path_factory: pytest.TempPathFactory,
 ) -> None:
-    _require_go_core()
     harness = MultiRepoHarness(
         daemon_pg_url=pg_available_url(),
         repo_count=2,
         scratch_dir=tmp_path_factory.mktemp("daemon_go_cross_repo_cancel"),
-        daemon_core="go",
     )
     harness.start()
     try:

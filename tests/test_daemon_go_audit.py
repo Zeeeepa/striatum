@@ -8,7 +8,6 @@ append (F4) is exercised end-to-end against the F5 pgx driver.
 
 from __future__ import annotations
 
-import os
 import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
@@ -20,11 +19,6 @@ from _harness.multi_repo import MultiRepoHarness, pg_available_url
 from striatum.daemon_rpc.client import call_unix, hello_envelope
 
 pytestmark = pytest.mark.multi_repo
-
-
-def _require_go_core() -> None:
-    if os.environ.get("STRIATUM_MULTI_REPO_DAEMON_CORE", "python") != "go":
-        pytest.skip("Go daemon audit test only runs with CORE=go")
 
 
 def _hello(socket_path: Path) -> None:
@@ -40,12 +34,10 @@ def _hello(socket_path: Path) -> None:
 def test_go_daemon_audit_chain_is_linear_under_concurrency(
     tmp_path_factory: pytest.TempPathFactory,
 ) -> None:
-    _require_go_core()
     harness = MultiRepoHarness(
         daemon_pg_url=pg_available_url(),
         repo_count=1,
         scratch_dir=tmp_path_factory.mktemp("daemon_go_audit"),
-        daemon_core="go",
     )
     harness.start()
     try:

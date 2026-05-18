@@ -554,12 +554,9 @@ Legend: ✅ done · 🟡 most done (sub-tasks remain) · ⏳ open/blocked · �
     `--socket / --postgres-url / --migrate / --describe /
     --migrations-sha-source`; `go/Makefile` writes
     `go/bin/striatumd`; `tests/_harness/daemon.py::_start_go`
-    launches with the locked argv. (F3) top-level `Makefile` exposes
-    `CORE ?= python` and forwards as
-    `STRIATUM_MULTI_REPO_DAEMON_CORE`; `tests/conftest.py` adds a
-    class-scoped `daemon_core` fixture; CI shape is the
-    synthesis-locked **two explicit jobs** (`CORE=python`,
-    `CORE=go`). New tests:
+    launches with the locked argv. The original dogfood-047 F3
+    two-core harness shape is historical; D111 now makes the top-level
+    `Makefile`, `tests/conftest.py`, and CI multi-repo lane Go-only. New tests:
     `tests/test_daemon_go_smoke.py` (boot + `daemon.hello` +
     `daemon.describe` + audit-chain-head moved),
     `tests/test_daemon_go_audit.py` (concurrent audit-emitting RPC
@@ -612,9 +609,9 @@ Legend: ✅ done · 🟡 most done (sub-tasks remain) · ⏳ open/blocked · �
 
 25. **Phase 2 (RFC 0039 Steps 3-6): Go replacement daemon.**
     Reopened by D107 / RFC 0068 and now superseded by item 61. `striatum
-    daemon start` defaults to the Go daemon after active contract-method
-    parity; `--core python` is a temporary explicit escape while Python-daemon
-    deletion work drains. The Python CLI may remain a client.
+    daemon start` launches the Go daemon after active contract-method
+    parity; D111 retires the Python daemon selector. The Python CLI may remain
+    a client.
 
 26. ~~**Harness improvement: forbid codex/codex implementer+reviewer
     pairing in workflow validator.**~~ ✅ Done: cycle-exhaustion observed three
@@ -1264,11 +1261,11 @@ review and plan are root-level operator artifacts:
     path checks and JSON-only workflow source validation in the Go daemon path.
     Production `cross-repo` CLI dispatch now refuses direct PostgreSQL fallback
     outside the paired legacy test-harness escape. Remaining Go-port debt is
-    the retirement ledger: decide sealed-apply authority, remove the
-    operator-facing Python daemon core selector, switch the multi-repo harness
-    and CI lanes to Go-only, close the one-way SQLite import window, decide
-    whether PostgreSQL-native operator composites should replace the removed
-    dogfood RPC names, and delete the Python daemon entry point. Prep work has
+    the retirement ledger: decide sealed-apply authority, close the one-way
+    SQLite import window, decide whether PostgreSQL-native operator composites
+    should replace the removed dogfood RPC names, and delete the Python daemon
+    entry point. The operator-facing Python daemon core selector is retired
+    and the multi-repo harness / CI lane is Go-only. Prep work has
     started by moving runtime path/token helpers to `daemon_runtime` and
     PostgreSQL repository registration helpers to `daemon_pg.repositories` so
     Python CLI/client code no longer imports the legacy daemon for those

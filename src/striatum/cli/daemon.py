@@ -20,9 +20,7 @@ from striatum.daemon_pg.repo_local_migration import (
 )
 from striatum.errors import StriatumError
 
-ENV_DAEMON_CORE = "STRIATUM_DAEMON_CORE"
 ENV_GO_BIN = "STRIATUMD_GO_BIN"
-VALID_DAEMON_CORES = frozenset({"python", "go"})
 
 
 def dispatch_daemon(args: argparse.Namespace) -> Any:
@@ -49,27 +47,6 @@ def dispatch_daemon(args: argparse.Namespace) -> Any:
     raise StriatumError("unknown daemon command", exit_code=2)
 
 
-def resolve_daemon_core(cli_value: str | None) -> str:
-    """Resolve the daemon core; Go is the production default after RFC 0068 parity."""
-    value = cli_value or os.environ.get(ENV_DAEMON_CORE) or "go"
-    if value not in VALID_DAEMON_CORES:
-        raise StriatumError(
-            f"unknown daemon core {value!r}; expected python or go",
-            exit_code=2,
-        )
-    return value
-
-
-def run_python_daemon_foreground(args: argparse.Namespace) -> Any:
-    from striatum import daemon as daemon_mod
-
-    return daemon_mod.run_daemon_foreground(
-        sweep_interval_seconds=float(args.sweep_interval_seconds),
-        max_sweeps=args.max_sweeps,
-        postgres_url=getattr(args, "postgres_url", None),
-    )
-
-
 def run_go_daemon_foreground(
     *,
     postgres_url: str | None = None,
@@ -89,9 +66,6 @@ def run_go_daemon_foreground(
 
 
 def launch_daemon_start(args: argparse.Namespace) -> Any:
-    core = resolve_daemon_core(getattr(args, "core", None))
-    if core == "python":
-        return run_python_daemon_foreground(args)
     return run_go_daemon_foreground(
         postgres_url=getattr(args, "postgres_url", None),
         sweep_interval_seconds=float(args.sweep_interval_seconds),

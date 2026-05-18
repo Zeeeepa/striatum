@@ -1,13 +1,12 @@
 """Go daemon launch-contract smoke test.
 
-Boots the harness with ``daemon_core="go"`` and verifies the binary serves the
+Boots the Go daemon harness and verifies the binary serves the
 locked envelope-v1 socket: socket exists, daemon.hello completes, daemon.describe
 returns a methods_etag and the audit chain head moves forward.
 """
 
 from __future__ import annotations
 
-import os
 import uuid
 
 import pytest
@@ -19,20 +18,13 @@ from striatum.daemon_rpc.envelope import RpcEnvelope
 pytestmark = pytest.mark.multi_repo
 
 
-def _require_go_core() -> None:
-    if os.environ.get("STRIATUM_MULTI_REPO_DAEMON_CORE", "python") != "go":
-        pytest.skip("Go daemon smoke test only runs with CORE=go")
-
-
 def test_multi_repo_harness_boots_go_daemon(
     tmp_path_factory: pytest.TempPathFactory,
 ) -> None:
-    _require_go_core()
     harness = MultiRepoHarness(
         daemon_pg_url=pg_available_url(),
         repo_count=1,
         scratch_dir=tmp_path_factory.mktemp("daemon_go_smoke"),
-        daemon_core="go",
     )
     harness.start()
     try:

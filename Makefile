@@ -1,6 +1,6 @@
 VENV ?= .venv
 PYTHON ?= $(VENV)/bin/python
-CORE ?= python
+CORE ?= go
 
 # HARNESS-002 fix: resolve the install path explicitly so
 # ``make install`` invoked from any cwd installs *this* Makefile's

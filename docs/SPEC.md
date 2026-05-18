@@ -1405,14 +1405,15 @@ state edits. Legacy repo-local supervision shapes survive only as migration
 sources and subprocess compatibility fixtures; they are not a production
 authority boundary.
 
-The Python daemon is no longer the default production core. RFC 0039 introduced
-`go/cmd/striatumd` behind the RFC 0030 envelope-v1 wire protocol and RFC 0033
-PostgreSQL substrate. RFC 0068 now makes that Go daemon the default production
-core; `--core python` is a temporary explicit escape while Python-daemon
-deletion work drains. Current Go handler coverage has no missing or generic
-`not_implemented` active contract methods; the remaining
-retirement blocker is the explicitly fail-closed `apply.reviewed_patch`
-surface. D110 deliberately removed the SQLite-bound
+The Python daemon is no longer a selectable production core. RFC 0039
+introduced `go/cmd/striatumd` behind the RFC 0030 envelope-v1 wire protocol
+and RFC 0033 PostgreSQL substrate. RFC 0068 and D111 make that Go daemon the
+only supported daemon implementation launched by `striatum daemon start`;
+`--core go` is a deprecated no-op compatibility flag and `--core python` is
+not accepted. Current Go handler coverage has no missing or generic
+`not_implemented` active contract methods; the remaining retirement blocker
+is the explicitly fail-closed `apply.reviewed_patch` surface. D110
+deliberately removed the SQLite-bound
 `daemon.migrate_repo_local`, `dogfood.publish_on_behalf`, and
 `dogfood.surgical_recovery` RPC names from production discovery and the daemon
 method contract. After the remaining ledger row is resolved, the Python daemon

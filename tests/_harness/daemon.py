@@ -6,7 +6,6 @@ import os
 import shutil
 import signal
 import subprocess
-import sys
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -17,10 +16,7 @@ import striatum.daemon as daemon
 
 ROOT = Path(__file__).resolve().parents[2]
 
-DaemonCore = Literal["python", "go"]
-# D107 makes Go the production-daemon default. The harness keeps an explicit
-# per-fixture core selector so Python-daemon regression tests can run until
-# that entry point is deleted.
+DaemonCore = Literal["go"]
 
 _GO_BIN_ENV = "STRIATUMD_GO_BIN"
 _DEFAULT_GO_BIN = ROOT / "go" / "bin" / "striatumd"
@@ -65,13 +61,13 @@ def _resolve_go_binary() -> Path:
 class DaemonProcess:
     scratch_dir: Path
     postgres_url: str
-    daemon_core: DaemonCore = "python"
+    daemon_core: DaemonCore = "go"
     env: dict[str, str] = field(init=False)
     process: subprocess.Popen[str] | None = field(default=None, init=False)
     _socket_path: Path = field(init=False)
 
     def __post_init__(self) -> None:
-        if self.daemon_core not in ("python", "go"):
+        if self.daemon_core != "go":
             raise ValueError(f"unknown daemon_core: {self.daemon_core!r}")
         runtime = self.scratch_dir / "runtime"
         registry = self.scratch_dir / "daemon-registry.sqlite3"
@@ -96,36 +92,7 @@ class DaemonProcess:
         if self.process is not None and self.process.poll() is None:
             raise RuntimeError("daemon process is already running")
         self.socket_path.parent.mkdir(parents=True, exist_ok=True)
-        if self.daemon_core == "go":
-            self._start_go()
-        else:
-            self._start_python()
-
-    def _start_python(self) -> None:
-        env = self.env.copy()
-        env["STRIATUM_DAEMON_DB_URL"] = self.postgres_url
-        self.process = subprocess.Popen(
-            [
-                sys.executable,
-                "-m",
-                "striatum.cli",
-                "daemon",
-                "start",
-                "--core",
-                "python",
-                "--postgres-url",
-                self.postgres_url,
-                "--sweep-interval-seconds",
-                "3600",
-                "--json",
-            ],
-            cwd=ROOT,
-            env=env,
-            text=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-        )
-        self._wait_for_socket()
+        self._start_go()
 
     def _start_go(self) -> None:
         binary = _resolve_go_binary()

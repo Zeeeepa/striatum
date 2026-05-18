@@ -6,10 +6,8 @@ import pytest
 
 from striatum.cli import daemon as daemon_cli
 from striatum.cli.daemon import (
-    ENV_DAEMON_CORE,
     ENV_GO_BIN,
     _parse_go_describe,
-    resolve_daemon_core,
     resolve_go_binary,
 )
 from striatum.cli.parser import build_parser
@@ -25,33 +23,22 @@ def test_daemon_start_core_go_parses() -> None:
     assert args.core == "go"
 
 
-def test_daemon_start_core_env_default(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv(ENV_DAEMON_CORE, "go")
+def test_daemon_start_core_env_is_ignored(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("STRIATUM_DAEMON_CORE", "python")
 
     args = build_parser().parse_args(["daemon", "start"])
 
-    assert args.core == "go"
+    assert args.core is None
 
 
-def test_daemon_core_default_is_go(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv(ENV_DAEMON_CORE, raising=False)
-
-    assert resolve_daemon_core(None) == "go"
-
-
-def test_daemon_core_flag_wins_over_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv(ENV_DAEMON_CORE, "python")
-
-    assert resolve_daemon_core("go") == "go"
+def test_daemon_start_core_python_is_rejected() -> None:
+    with pytest.raises(SystemExit):
+        build_parser().parse_args(["daemon", "start", "--core", "python"])
 
 
-def test_daemon_core_rejects_unknown(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv(ENV_DAEMON_CORE, "rust")
-
-    with pytest.raises(StriatumError) as exc:
-        resolve_daemon_core(None)
-
-    assert exc.value.exit_code == 2
+def test_daemon_start_core_unknown_is_rejected() -> None:
+    with pytest.raises(SystemExit):
+        build_parser().parse_args(["daemon", "start", "--core", "rust"])
 
 
 def test_go_daemon_launcher_execs_with_migrations_sha_source(
@@ -124,8 +111,6 @@ def test_launch_daemon_start_passes_sweep_options_to_go(
         [
             "daemon",
             "start",
-            "--core",
-            "go",
             "--postgres-url",
             "postgresql://example/striatum",
             "--sweep-interval-seconds",

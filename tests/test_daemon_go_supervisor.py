@@ -5,8 +5,6 @@ These tests require a built ``go/bin/striatumd`` and an ephemeral Postgres.
 They are skipped when:
 
 * the Go binary is not present (``go/bin/striatumd`` missing), OR
-* ``STRIATUM_MULTI_REPO_DAEMON_CORE`` != ``go`` (the CI matrix axis
-  selector), OR
 * an ephemeral Postgres URL is unavailable.
 
 The shape mirrors ``tests/test_daemon_go_smoke.py`` so the same fixture +
@@ -15,7 +13,6 @@ skip rules apply.
 
 from __future__ import annotations
 
-import os
 import shutil
 from pathlib import Path
 
@@ -25,20 +22,12 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 GO_BIN = REPO_ROOT / "go" / "bin" / "striatumd"
 
 
-def _go_core_selected() -> bool:
-    return os.environ.get("STRIATUM_MULTI_REPO_DAEMON_CORE", "").lower() == "go"
-
-
 def _go_bin_available() -> bool:
     return GO_BIN.is_file() or bool(shutil.which("striatumd"))
 
 
 pytestmark = [
     pytest.mark.multi_repo,
-    pytest.mark.skipif(
-        not _go_core_selected(),
-        reason="Go daemon supervisor tests gated on STRIATUM_MULTI_REPO_DAEMON_CORE=go",
-    ),
     pytest.mark.skipif(
         not _go_bin_available(),
         reason="go/bin/striatumd not built; run `make daemon-go-build`",

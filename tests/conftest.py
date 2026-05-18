@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import os
 from collections.abc import Iterator
-from typing import cast
 
 import pytest
 
@@ -46,12 +45,12 @@ def postgres_url() -> str:
 
 @pytest.fixture(scope="class")
 def daemon_core() -> DaemonCore:
-    core = os.environ.get("STRIATUM_MULTI_REPO_DAEMON_CORE", "python")
-    if core not in {"python", "go"}:
+    core = os.environ.get("STRIATUM_MULTI_REPO_DAEMON_CORE", "go")
+    if core != "go":
         raise pytest.UsageError(
-            f"STRIATUM_MULTI_REPO_DAEMON_CORE must be python or go, got {core!r}"
+            f"STRIATUM_MULTI_REPO_DAEMON_CORE must be go, got {core!r}"
         )
-    return cast(DaemonCore, core)
+    return "go"
 
 
 @pytest.fixture(scope="class")

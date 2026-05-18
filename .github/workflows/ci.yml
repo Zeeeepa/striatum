@@ -56,7 +56,7 @@ jobs:
           python -m pip install -e ".[dev,daemon-pg]"
       - name: Go helper check
         run: make daemon-go-helper-check
-      - name: Multi-repo harness (CORE=python)
+      - name: Multi-repo harness
         # macOS GitHub-hosted runners can't run services:, so the
         # multi-repo step is Linux-only. Without the Postgres service the
         # STRIATUM_MULTI_REPO_REQUIRE_PG=1 below would intentionally fail
@@ -64,7 +64,7 @@ jobs:
         if: matrix.os == 'ubuntu-latest'
         env:
           STRIATUM_MULTI_REPO_REQUIRE_PG: "1"
-        run: make test-multi-repo CORE=python
+        run: make test-multi-repo
       - name: Go helper PG integration
         if: matrix.os == 'ubuntu-latest'
         env:

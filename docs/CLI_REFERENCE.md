@@ -189,7 +189,7 @@ registration state and requires a daemon `read` capability token
 ## Daemon and multi-repo registry (RFC 0028 V1)
 
 ```text
-striatum daemon start [--core go|python]
+striatum daemon start [--core go]
 striatum daemon status
 striatum daemon stop
 striatum daemon sweep
@@ -218,11 +218,11 @@ striatum cross-repo cancel <cross_repo_run_id> [--reason <text>]
 ```
 
 `striatum daemon start` / `striatumd` runs the supported foreground daemon
-process. It defaults to the Go daemon; `--core python` is a temporary explicit
-escape while Python-daemon deletion work drains. Per D094 / RFC 0043 the daemon
-is a hard prerequisite for every Striatum verb; CLI verbs without a reachable
-daemon refuse with exit code 11 (`daemon_unreachable`) and do not fall back to
-direct mode.
+process. It launches the Go daemon; `--core go` is a deprecated no-op
+compatibility flag and `--core python` is no longer accepted. Per D094 /
+RFC 0043 the daemon is a hard prerequisite for every Striatum verb; CLI verbs
+without a reachable daemon refuse with exit code 11 (`daemon_unreachable`) and
+do not fall back to direct mode.
 
 The first `daemon start` bootstraps a single admin token when
 daemon-owned Postgres has no clients and writes a `0600`

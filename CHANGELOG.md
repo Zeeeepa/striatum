@@ -52,10 +52,10 @@ Recent checkpoints:
   and PostgreSQL repository registration helpers used by day-zero setup and
   daemon RPC routing now live in `striatum.daemon_pg.repositories`, reducing
   Python CLI/client imports of the legacy Python daemon module.
-- `striatum daemon start` now defaults to the Go daemon after active
-  contract-method parity. `STRIATUM_DAEMON_CORE=python` or `--core python`
-  remains as an explicit transitional escape while the Python daemon entry
-  point is deleted.
+- D111 retires the operator-facing Python daemon selector. `striatum daemon
+  start` always launches the Go daemon; `--core go` remains a deprecated
+  no-op compatibility flag, while `--core python` and
+  `STRIATUM_DAEMON_CORE=python` no longer select a Python daemon.
 - Packaged wheels now stage the Go daemon binary before build, and fresh-clone
   smoke builds `go/bin/striatumd` before the default daemon start path.
 - Go PostgreSQL mutation paths now encode structured JSONB arguments through
@@ -509,9 +509,9 @@ Recent checkpoints:
   CLI-local.
 - **Go production-daemon strategy.**
   D107 supersedes D105 and restores the Go production-daemon port as the
-  active architecture target. D109 now makes Go the default daemon core;
-  `--core python` remains only as a transitional escape while the Python
-  daemon entry point is deleted.
+  active architecture target. D109 made Go the default daemon core, and D111
+  retires the Python daemon selector while leaving the Python CLI/web layers
+  as daemon clients.
 - **Daemon-first web service.**
   The local web service now uses daemon RPC for run cancel/pause/resume, job
   cancel/retry, branch confirm, workflow run-now lifecycles, run listing,

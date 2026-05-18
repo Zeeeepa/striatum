@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import os
 from pathlib import Path
 
 from striatum import __version__
@@ -257,12 +256,9 @@ def build_parser() -> argparse.ArgumentParser:
     daemon_start = daemon_sub.add_parser("start")
     daemon_start.add_argument(
         "--core",
-        choices=["python", "go"],
-        default=os.environ.get("STRIATUM_DAEMON_CORE"),
-        help=(
-            "daemon implementation to launch; defaults to "
-            "STRIATUM_DAEMON_CORE or go"
-        ),
+        choices=["go"],
+        default=None,
+        help="deprecated no-op; Go is the only supported daemon implementation",
     )
     daemon_start.add_argument("--sweep-interval-seconds", type=float, default=60.0)
     daemon_start.add_argument("--max-sweeps", type=int, default=None)

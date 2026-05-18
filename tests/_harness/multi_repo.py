@@ -30,7 +30,7 @@ class MultiRepoHarness:
         repo_count: int = 2,
         scratch_dir: Path | None = None,
         *,
-        daemon_core: DaemonCore = "python",
+        daemon_core: DaemonCore = "go",
     ) -> None:
         self._base_pg_url = daemon_pg_url
         self._scratch_root = Path(scratch_dir) if scratch_dir is not None else Path.cwd() / ".tmp-multi-repo"

@@ -66,8 +66,8 @@ The Go daemon port lands through independent, testable slices:
 
 - D107 is recorded and D105 is superseded.
 - `striatum daemon start` launches the Go daemon by default after active
-  contract-method parity; `--core python` remains only as an explicit
-  transitional escape until the Python daemon entry point is deleted.
+  contract-method parity; D111 retires the Python core selector, so
+  `--core python` and `STRIATUM_DAEMON_CORE=python` are no longer supported.
 - The Go daemon supports the current PostgreSQL schema version and refuses stale
   packaged binaries with a rebuild/remediation hint.
 - The Go daemon serves every production method in
@@ -118,9 +118,9 @@ The Go daemon port lands through independent, testable slices:
 - SQLite remnants allowed under this RFC are one-way migration/test fixtures
   only. Production daemon, service, MCP, and operator-helper paths must not
   reopen repo-local SQLite or the legacy daemon registry.
-- `striatum daemon start` now resolves to the Go daemon by default unless
-  `STRIATUM_DAEMON_CORE` or `--core python` explicitly selects the
-  transitional Python daemon.
+- `striatum daemon start` now always launches the Go daemon. `--core go`
+  remains a deprecated no-op compatibility flag; the Python daemon is not
+  selectable by CLI flag or environment variable.
 - Runtime path/token helpers have moved to `striatum.daemon_runtime`, and
   PostgreSQL repository-registration helpers used by day-zero and daemon RPC
   live in `striatum.daemon_pg.repositories`; remaining imports from
@@ -147,9 +147,9 @@ checks for this ledger.
 
 ## Resolved Questions
 
-- D109 resolved the daemon-core default: `striatum daemon start` now launches
-  Go by default; Python remains only as `--core python` /
-  `STRIATUM_DAEMON_CORE=python` during deletion work.
+- D109 resolved the daemon-core default, and D111 completed the selector
+  retirement: `striatum daemon start` launches Go, `--core go` is a
+  deprecated no-op, and Python is no longer selectable as a daemon core.
 
 ## Open Questions
 

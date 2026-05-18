@@ -883,9 +883,9 @@ deferred.
 
 ### Go daemon port notes (RFC 0039 / RFC 0068)
 
-> Status: active retirement backlog. D109 makes the Go daemon the default for
-> `striatum daemon start`; `--core python` remains only as an explicit
-> transitional escape until the Python daemon entry point is deleted.
+> Status: active retirement backlog. D109 made the Go daemon the default and
+> D111 retired the Python daemon selector. `striatum daemon start` launches
+> the Go daemon; `--core go` is a deprecated no-op compatibility flag.
 
 RFC 0039 produced a Go `go/cmd/striatumd` prototype that speaks the
 RFC 0030 envelope-v1 wire protocol over the RFC 0033 PostgreSQL
@@ -921,23 +921,23 @@ etag. A missing or generic `not_implemented` active handler is an RFC 0068
 regression, not accepted product behavior.
 
 Coexistence rule: only one daemon may own the PostgreSQL substrate at a
-time. **Stop any Python daemon before starting the Go daemon**. The Go binary
-refuses to start with exit code 14
+time. Stop any old transitional Python daemon before starting current
+Striatum. The Go binary refuses to start with exit code 14
 `daemon_already_running` when it detects another `striatumd-*`
 connection in `pg_stat_activity`.
 
-The RFC 0035 multi-repo test harness can target the Go core for
-compatibility and conformance work through the `daemon_core` parameter:
+The RFC 0035 multi-repo test harness now targets the Go daemon. The
+`daemon_core` parameter remains only as a deprecated compatibility seam and
+accepts `go`:
 
 ```python
 from _harness.multi_repo import MultiRepoHarness
 
-# Explicit Python-daemon regression path while deletion work drains.
 harness = MultiRepoHarness(daemon_pg_url=...)
 
-# Go core path. The harness invokes `make -C go build` if the binary is
-# missing; set STRIATUMD_GO_BIN=/path/to/striatumd to skip the build step and
-# reuse a prebuilt binary.
+# The harness invokes `make -C go build` if the binary is missing; set
+# STRIATUMD_GO_BIN=/path/to/striatumd to skip the build step and reuse a
+# prebuilt binary.
 harness = MultiRepoHarness(daemon_pg_url=..., daemon_core="go")
 ```
 
