@@ -1292,10 +1292,10 @@ review and plan are root-level operator artifacts:
     removed.
     The multi-repo harness participant runner no longer creates or queries
     repo-local SQLite; cross-repo E2E assertions now inspect daemon-owned
-    PostgreSQL participant rows. SQLite-era repository identity and daemon
-    audit-chain verification used by one-way migration fixtures now live in
-    `striatum.daemon_pg.sqlite_compat`, further shrinking imports from the
-    legacy Python daemon module. Legacy daemon security fixture coverage has
+    PostgreSQL participant rows. SQLite-era repository identity used by
+    one-way migration fixtures now lives in `striatum.daemon_pg.sqlite_compat`;
+    unused daemon audit-chain validators were removed from that helper, so it
+    no longer imports `sqlite3`. Legacy daemon security fixture coverage has
     also moved onto current runtime/MCP/capability helpers. Direct
     Python-daemon imports are now confined to the legacy quarantine fixtures.
 
