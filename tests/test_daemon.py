@@ -12,7 +12,13 @@ import pytest
 
 from striatum import daemon
 from striatum.db import utc_now
-from striatum.errors import EXIT_DAEMON_AUTH, EXIT_DAEMON_CAPABILITY, EXIT_WORKFLOW
+from striatum.errors import (
+    EXIT_DAEMON_AUTH,
+    EXIT_DAEMON_CAPABILITY,
+    EXIT_DAEMON_REGISTRY,
+    EXIT_WORKFLOW,
+    StriatumError,
+)
 from striatum.mcp import DaemonRpcServer
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -130,6 +136,36 @@ def test_forced_daemon_refuses_unsupported_mutation_verbs(tmp_path: Path) -> Non
     )
     assert rejected["returncode"] == EXIT_WORKFLOW
     assert "--daemon does not yet route `claim-next`" in rejected["error"]["message"]
+
+
+def test_daemon_status_reports_pg_migration_privilege_failure_without_traceback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class InsufficientPrivilege(Exception):
+        sqlstate = "42501"
+
+    from striatum.daemon_pg import connection
+
+    monkeypatch.setattr(daemon, "_pg_connection_configured", lambda: True)
+    monkeypatch.setattr(
+        connection,
+        "connect_and_migrate",
+        lambda: (_ for _ in ()).throw(
+            InsufficientPrivilege("must be owner of table runs")
+        ),
+    )
+
+    with pytest.raises(StriatumError) as exc_info:
+        daemon.daemon_status()
+
+    exc = exc_info.value
+    assert exc.exit_code == EXIT_DAEMON_REGISTRY
+    assert "pending migrations require database owner/admin privileges" in str(exc)
+    assert "must be owner of table runs" in str(exc)
+    assert getattr(exc, "hint") == (
+        "run `striatum daemon doctor --apply-migrations --repair-grants` "
+        "as a database owner/admin, then retry `striatum daemon status`"
+    )
 
 
 def test_repo_remove_revokes_repo_scoped_capability_and_readd_uses_new_id(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

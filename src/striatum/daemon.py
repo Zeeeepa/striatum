@@ -1322,7 +1322,12 @@ def daemon_status() -> dict[str, Any]:
     if _pg_connection_configured():
         from striatum.daemon_pg.connection import connect_and_migrate
 
-        pg_conn = connect_and_migrate()
+        try:
+            pg_conn = connect_and_migrate()
+        except StriatumError:
+            raise
+        except Exception as exc:  # noqa: BLE001 - status should not leak tracebacks.
+            raise _daemon_status_pg_unavailable(exc) from exc
         try:
             return daemon_status_pg(pg_conn, token=read_runtime_token())
         finally:
@@ -1342,6 +1347,29 @@ def daemon_status() -> dict[str, Any]:
             "running": _pid_alive(pid) if pid is not None else False,
             "instance_id": _instance_id(conn),
         }
+
+
+def _daemon_status_pg_unavailable(exc: BaseException) -> StriatumError:
+    sqlstate = getattr(exc, "sqlstate", None) or getattr(
+        getattr(exc, "diag", None),
+        "sqlstate",
+        None,
+    )
+    if sqlstate == "42501":
+        message = (
+            "daemon PostgreSQL status unavailable: pending migrations require "
+            f"database owner/admin privileges; runtime role was refused: {exc}"
+        )
+    else:
+        message = f"daemon PostgreSQL status unavailable: {exc}"
+    error = StriatumError(message, exit_code=EXIT_DAEMON_REGISTRY)
+    setattr(
+        error,
+        "hint",
+        "run `striatum daemon doctor --apply-migrations --repair-grants` "
+        "as a database owner/admin, then retry `striatum daemon status`",
+    )
+    return error
 
 
 def daemon_status_pg(pg_conn: Any, *, token: str | None = None) -> dict[str, Any]:
@@ -1645,11 +1673,12 @@ def read_doctor(
     run_id: str | None = None,
     verbose: bool = False,
     token: str | None = None,
+    postgres_url: str | None = None,
 ) -> dict[str, Any]:
-    if _pg_connection_configured():
+    if postgres_url is not None or _pg_connection_configured():
         from striatum.daemon_pg.connection import connect_and_migrate
 
-        pg_conn = connect_and_migrate()
+        pg_conn = connect_and_migrate(postgres_url=postgres_url)
         try:
             _bootstrap_pg_admin_if_needed(pg_conn)
             try:

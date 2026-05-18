@@ -167,6 +167,12 @@ Recent checkpoints:
 - RFC 0058 V1.5 landed: `striatum operator current-brief` reads and validates
   the current operator brief without daemon RPC, and `operator_brief`
   `context_budget_lines` overruns are schema errors instead of warnings.
+- Daemon diagnostics now fail closed without traceback leakage when the
+  runtime PostgreSQL role cannot apply pending migrations, returning a
+  structured `daemon status --json` error with the owner/admin repair hint.
+  `daemon doctor --postgres-url` also threads that explicit URL into
+  secondary daemon diagnostics instead of relying on env/config and risking an
+  implicit legacy-registry probe.
 - Daemon MCP `resources/list` and `resources/read` now use PostgreSQL-backed
   repository visibility, status, doctor, blocker, run, why, dashboard, and
   stale-lease projections whenever a daemon PostgreSQL connection is present;

@@ -1461,12 +1461,20 @@ def _dispatch_daemon(args: argparse.Namespace) -> object:
                 "PostgreSQL is the authoritative daemon state."
             )
             try:
-                daemon_diagnostics = daemon_mod.read_doctor(repo=None, verbose=True)
+                daemon_diagnostics = daemon_mod.read_doctor(
+                    repo=None,
+                    verbose=True,
+                    postgres_url=getattr(args, "postgres_url", None),
+                )
             except Exception as exc:  # noqa: BLE001 - daemon doctor must still report PG onboarding.
                 daemon_diagnostics = {"ok": False, "error": str(exc)}
         else:
             try:
-                v1 = daemon_mod.read_doctor(repo=None, verbose=True)
+                v1 = daemon_mod.read_doctor(
+                    repo=None,
+                    verbose=True,
+                    postgres_url=getattr(args, "postgres_url", None),
+                )
             except Exception as exc:  # noqa: BLE001 - daemon doctor must still report PG onboarding.
                 v1 = {"ok": False, "error": str(exc)}
         result: dict[str, object] = {"mode": "daemon", "postgres": pg, "sqlite_registry": v1}

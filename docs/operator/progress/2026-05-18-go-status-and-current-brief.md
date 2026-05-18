@@ -19,3 +19,8 @@ visibility, and next actions.
 RFC 0058 V1.5 also landed: `striatum operator current-brief` reads the
 current operator brief locally, and `operator_brief` context-budget overruns
 are schema errors.
+
+Follow-up diagnostic cleanup: `daemon status --json` now reports PostgreSQL
+migration privilege failures as structured CLI errors with repair hints, and
+`daemon doctor --postgres-url` threads that explicit URL into secondary daemon
+diagnostics instead of probing implicit legacy registry configuration.

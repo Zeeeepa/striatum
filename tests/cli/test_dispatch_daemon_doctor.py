@@ -237,3 +237,29 @@ def test_role_repair_flags_are_passed_to_pg_doctor(
 
     assert seen["provision_rw_role"] is True
     assert seen["repair_grants"] is True
+
+
+def test_explicit_postgres_url_is_passed_to_daemon_diagnostics(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    seen: dict[str, Any] = {}
+
+    monkeypatch.setattr(
+        "striatum.daemon_pg.connection.doctor",
+        lambda **_: {"ok": True, "schema_version": 6, "status": "ok"},
+    )
+
+    def _read_doctor(**kwargs: Any) -> dict[str, Any]:
+        seen.update(kwargs)
+        return {"mode": "daemon", "problems": [], "protocol_version": 1}
+
+    monkeypatch.setattr(daemon_mod, "read_doctor", _read_doctor)
+    args = _doctor_args()
+    args.postgres_url = "postgres://striatumd_rw:secret@example.invalid/striatum"
+
+    result = _dispatch_daemon(args)
+
+    assert isinstance(result, dict)
+    assert seen["repo"] is None
+    assert seen["verbose"] is True
+    assert seen["postgres_url"] == args.postgres_url
