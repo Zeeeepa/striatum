@@ -89,8 +89,13 @@ def test_repair_role_grants_provisions_and_repairs_runtime_grants() -> None:
     assert result["ok"] is True
     assert "create_role" in result["applied"]
     assert "protect_audit_log" in result["applied"]
+    assert "grant_artifacts_blob_columns" in result["applied"]
     assert "CREATE ROLE \"striatumd_rw\" WITH LOGIN" in sql
     assert "REVOKE UPDATE, DELETE ON striatumd.\"audit_log\" FROM \"striatumd_rw\"" in sql
+    assert (
+        "GRANT UPDATE (blob_key, blob_sha256, blob_content_type) "
+        "ON striatumd.artifacts TO \"striatumd_rw\""
+    ) in sql
     assert "REVOKE DELETE ON striatumd.repo_event_chain_heads FROM \"striatumd_rw\"" in sql
     assert conn.commits == 1
 

@@ -110,6 +110,12 @@ def test_daemon_role_repair_sql_keeps_append_only_tables_protected() -> None:
     for table in ("audit_log", "events", "artifacts"):
         assert f"REVOKE UPDATE, DELETE ON striatumd.{table} FROM \"striatumd_rw\"" in sql
         assert f"GRANT SELECT, INSERT ON striatumd.{table} TO \"striatumd_rw\"" in sql
+    # GH #27 / RFC 0072: column-level UPDATE on the three blob-reference
+    # columns is the surgical exception to the artifacts append-only revoke.
+    assert (
+        'GRANT UPDATE (blob_key, blob_sha256, blob_content_type) '
+        'ON striatumd.artifacts TO "striatumd_rw"'
+    ) in sql
     assert 'REVOKE DELETE ON striatumd.repo_event_chain_heads FROM "striatumd_rw"' in sql
 
 

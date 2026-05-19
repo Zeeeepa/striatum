@@ -89,6 +89,19 @@ def repair_role_grants(
                 f"GRANT SELECT, INSERT ON striatumd.{_quote_ident(table)} TO {_quote_ident(role)}",
             )
             applied.append(f"protect_{table}")
+        # GH #27 / RFC 0072: artifact.backfill_blob needs column-level UPDATE
+        # on the three blob-reference columns of striatumd.artifacts. The
+        # table-wide UPDATE was revoked above; this grants back exactly the
+        # mutable columns so backfill works without disabling the
+        # `artifacts_no_update` trigger (migration 0010 makes the trigger
+        # column-aware).
+        if _table_exists(conn, "artifacts"):
+            _execute(
+                conn,
+                "GRANT UPDATE (blob_key, blob_sha256, blob_content_type) "
+                f"ON striatumd.artifacts TO {_quote_ident(role)}",
+            )
+            applied.append("grant_artifacts_blob_columns")
         if _table_exists(conn, "repo_event_chain_heads"):
             _execute(
                 conn,
@@ -153,6 +166,8 @@ def role_repair_sql(
         f"GRANT SELECT, INSERT ON striatumd.audit_log TO {quoted_role};",
         f"GRANT SELECT, INSERT ON striatumd.events TO {quoted_role};",
         f"GRANT SELECT, INSERT ON striatumd.artifacts TO {quoted_role};",
+        "GRANT UPDATE (blob_key, blob_sha256, blob_content_type) "
+        f"ON striatumd.artifacts TO {quoted_role};",
         "GRANT SELECT, INSERT, UPDATE ON striatumd.repo_event_chain_heads "
         f"TO {quoted_role};",
         f"REVOKE DELETE ON striatumd.repo_event_chain_heads FROM {quoted_role};",

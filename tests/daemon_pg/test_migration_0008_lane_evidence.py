@@ -39,6 +39,7 @@ def test_migration_0008_adds_artifact_override_rationale(pg_url: str) -> None:
         assert row[0] == "attestation_override_rationale"
         assert row[1] == "YES"
         assert row[2] == "text"
-        assert read_schema_version(conn) == LATEST_DAEMON_DB_VERSION == 8
+        assert read_schema_version(conn) == LATEST_DAEMON_DB_VERSION
+        assert LATEST_DAEMON_DB_VERSION >= 8
     finally:
         conn.close()
