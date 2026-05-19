@@ -79,3 +79,7 @@ new GH issues rather than amending the closed one.
   --requeue blocked ([gh#24](https://github.com/halbritt/striatum/issues/24))
 - [25/](25/) — repo list (no --json) misleading repo_not_migrated
   error ([gh#25](https://github.com/halbritt/striatum/issues/25))
+- [26/](26/) — RFC 0073: surface blob diagnostics through striatum
+  daemon doctor ([gh#26](https://github.com/halbritt/striatum/issues/26))
+- [27/](27/) — artifacts_no_update trigger should allow blob_* column
+  updates ([gh#27](https://github.com/halbritt/striatum/issues/27))
