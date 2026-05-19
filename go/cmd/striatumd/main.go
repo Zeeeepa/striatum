@@ -217,6 +217,15 @@ func main() {
 	if err := os.MkdirAll(filepath.Dir(socketPath), 0o700); err != nil {
 		log.Fatalf("create socket directory: %v", err)
 	}
+	pidPath := daemonPidfilePath(socketPath)
+	if err := writeDaemonPidfile(pidPath, os.Getpid()); err != nil {
+		log.Fatalf("write daemon pidfile: %v", err)
+	}
+	defer func() {
+		if err := os.Remove(pidPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+			log.Printf("remove daemon pidfile %s: %v", pidPath, err)
+		}
+	}()
 	listener, err := rpc.ListenUnix(socketPath)
 	if err != nil {
 		log.Fatalf("listen on %s: %v", socketPath, err)
