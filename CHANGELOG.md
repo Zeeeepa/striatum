@@ -2,6 +2,42 @@
 
 ## Unreleased — 2026-05-19
 
+## v1.57.0 — 2026-05-19
+
+### GH #25 / #26 / #27 cluster: doctor parity + repo list + artifacts trigger
+
+Three follow-up issues surfaced after the GH #22/#23/#24 cluster
+shipped, all driven through the docs/issues/<N>/ workflow shape and
+verified end-to-end:
+
+- **GH #25**: `striatum repo list` (no `--json`) now consults the
+  daemon repo registry instead of pre-flighting on
+  `.striatum/state.sqlite3`. The misleading `repo_not_migrated`
+  refusal is replaced by a human-readable table; daemon-unreachable
+  errors surface cleanly. CLI dispatch routed through
+  `src/striatum/cli/daemon_rpc_route.py` (+93 LOC).
+
+- **GH #26 / RFC 0073**: `striatum daemon doctor` now surfaces the
+  RFC 0072 blob diagnostics block under `data.blob`. The Python
+  doctor handler delegates to a focused Go `reads.doctor_blob_block`
+  sub-handler (Option B from RFC 0073), so the operator sees
+  `{configured, reachable, bucket, bucket_status, ...}` at the same
+  level as `daemon_diagnostics`. Closes the silent-gap pattern that
+  caused two SCOPE artifacts to publish to repo-path only during the
+  earlier cluster.
+
+- **GH #27**: PG migration 0010 introduces a column-aware
+  `artifacts_no_update` trigger that allows UPDATEs touching ONLY
+  `(blob_key, blob_sha256, blob_content_type)` and refuses any other
+  identity-column update with the existing `P0001`. `roles.py` grants
+  column-level UPDATE for those three columns to `striatumd_rw`.
+  `artifact.backfill_blob` no longer requires owner trigger-disable.
+  400-line test suite covers positive, negative, mixed, DELETE-still-
+  refused, and migration-idempotency cases.
+
+`artifact.backfill_blob` itself shipped in v1.56.0; the v1.57.0 work
+makes it operable for the runtime role.
+
 ## v1.56.0 — 2026-05-19
 
 ### GH #22 / #23 / #24 daemon-recovery cluster
