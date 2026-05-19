@@ -357,6 +357,9 @@ func HandleReleaseWork(ctx context.Context, runner db.Runner, envelope rpc.Envel
 		if _, err := activeLeaseFor(ctx, tx, repositoryID, leaseID, sessionID, fmt.Sprint(job["job_id"])); err != nil {
 			return nil, err
 		}
+		if requeue && isRepoWrite(job) {
+			return nil, rpc.NewError("invalid_transition", "release --requeue is not supported for repo_write jobs; use striatum recovery requeue-stale after operator inspection", nil)
+		}
 		now := nowString()
 		jobState := "blocked"
 		messageState := "blocked"

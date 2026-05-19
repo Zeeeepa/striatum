@@ -161,8 +161,19 @@ func HandleClaimNext(ctx context.Context, runner db.Runner, envelope rpc.Envelop
 		if _, err := appendEvent(ctx, tx, repositoryID, runID, "queue.claimed", sessionID, jobID, chosen["message_id"], nil, leaseID, nil); err != nil {
 			return nil, err
 		}
-		return map[string]any{"status": "claimed", "packet": packet}, nil
+		return claimNextResult(sessionID, packetID, packet), nil
 	})
+}
+
+func claimNextResult(sessionID, packetID string, packet map[string]any) map[string]any {
+	return map[string]any{
+		"status":    "claimed",
+		"packet_id": packetID,
+		"packet":    packet,
+		"next_steps": map[string]any{
+			"supervise_send": "striatum supervise send --session-id " + sessionID + " --packet-id " + packetID,
+		},
+	}
 }
 
 func buildPacket(

@@ -34,7 +34,15 @@ striatum --repo $REPO register-session --run-id $RUN \
     --role $ROLE --lane $LANE --json
 
 # 2. Claim the next packet.
-striatum --repo $REPO claim-next --session-id $SESSION --json
+CLAIM=$(striatum --repo $REPO claim-next --session-id $SESSION --json)
+
+# For supervised lanes, deliver the claimed packet using the top-level
+# packet id from claim-next output.
+PACKET_ID=$(printf '%s\n' "$CLAIM" | jq -r .data.packet_id)
+striatum --repo $REPO supervise send \
+    --session-id $SESSION --packet-id $PACKET_ID --json
+# Or paste the generated command:
+# printf '%s\n' "$CLAIM" | jq -r .data.next_steps.supervise_send
 
 # 3. Ack the packet and start work.
 striatum --repo $REPO ack --session-id $SESSION \

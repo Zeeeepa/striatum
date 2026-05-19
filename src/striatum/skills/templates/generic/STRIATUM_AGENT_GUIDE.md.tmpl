@@ -69,6 +69,22 @@ terminated JSON on stdin via `striatum supervise send`:
 
 {verbs_supervise}
 
+Copy-pasteable supervised claim/send flow:
+
+```bash
+SESSION=$(striatum --repo $REPO register-session --run-id $RUN \
+    --role $ROLE --lane $LANE --fresh --json | jq -r .data.session_id)
+striatum --repo $REPO supervise start --session-id $SESSION --json
+CLAIM=$(striatum --repo $REPO claim-next --session-id $SESSION --json)
+PACKET_ID=$(printf '%s\n' "$CLAIM" | jq -r .data.packet_id)
+striatum --repo $REPO supervise send \
+    --session-id $SESSION --packet-id $PACKET_ID --json
+```
+
+Use `data.packet_id`, or paste `data.next_steps.supervise_send`.
+Do not use `message_id`, `lease_id`, `job_id`, `session_id`, or
+`supervisor_id` as `--packet-id`.
+
 ## Recovery
 
 When a run looks stuck:

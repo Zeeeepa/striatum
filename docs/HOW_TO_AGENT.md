@@ -154,8 +154,11 @@ If the lane's harness profile sets `supervision.compatible: true`,
 your CLI may be held alive across multiple work packets via
 `striatum supervise start --session-id <id>` (RFC 0009). Packets
 arrive on stdin as newline-terminated JSON, delivered by
-`striatum supervise send`. Read them line-by-line and react via
-the normal CLI verbs above.
+`striatum supervise send --session-id <id> --packet-id <packet_id>`.
+Use the top-level `data.packet_id` from `claim-next --json`, or paste
+`data.next_steps.supervise_send`; message, lease, job, session, and
+supervisor ids are not packet ids. Read packets line-by-line and react
+via the normal CLI verbs above.
 
 Stdout and stderr are sent to `DEVNULL`; the supervisor never
 parses your output for state. Use `striatum supervise stop` to

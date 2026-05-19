@@ -29,16 +29,33 @@ Run `striatum <verb> --help` for full flag sets.
 ## Common patterns
 
 ```bash
-striatum --repo $REPO supervise start --session-id $SESSION
-# packets are delivered via:
-striatum --repo $REPO supervise send --supervisor-id $SUP \
-    --packet-json '{{...}}'
-striatum --repo $REPO supervise stop --supervisor-id $SUP
+# Register a fresh session for a supervised lane.
+SESSION=$(striatum --repo $REPO register-session --run-id $RUN \
+    --role $ROLE --lane $LANE --fresh --json | jq -r .data.session_id)
+
+# Start the long-lived supervised process.
+striatum --repo $REPO supervise start --session-id $SESSION --json
+
+# Claim work and use the top-level packet id from claim-next output.
+CLAIM=$(striatum --repo $REPO claim-next --session-id $SESSION --json)
+PACKET_ID=$(printf '%s\n' "$CLAIM" | jq -r .data.packet_id)
+
+# Equivalent copy-paste command is also available at:
+#   jq -r .data.next_steps.supervise_send
+striatum --repo $REPO supervise send \
+    --session-id $SESSION --packet-id $PACKET_ID --json
+
+striatum --repo $REPO supervise stop \
+    --session-id $SESSION --reason operator_requested --json
 ```
 
 The supervised process reads packets from stdin one line at a
 time. Stdout and stderr are sent to `DEVNULL`; the runner does not
 parse supervisor output for state.
+
+Use `data.packet_id` from `claim-next`; `message_id`, `lease_id`,
+`job_id`, `session_id`, and `supervisor_id` are different identifiers
+and are not accepted as `--packet-id`.
 
 ## Where to look next
 

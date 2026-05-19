@@ -599,6 +599,9 @@ func latestTerminalSupervisor(ctx context.Context, runner any, repositoryID, ses
 
 func loadWorkPacket(ctx context.Context, runner db.TxRunner, repositoryID, packetID string) (supervisionPacketRow, error) {
 	var row supervisionPacketRow
+	if wrongKind, ok := wrongKindPacketID(packetID); ok {
+		return row, rpc.NewError("not_found", fmt.Sprintf("%s is a %s id, not a work packet id; use data.packet_id (or data.packet.packet_id) from claim-next JSON for supervise send", packetID, wrongKind), nil)
+	}
 	var packetRaw any
 	err := runner.QueryRow(ctx, `
 		SELECT packet_id, run_id, job_id, lease_id, session_id, packet_json
@@ -614,6 +617,23 @@ func loadWorkPacket(ctx context.Context, runner db.TxRunner, repositoryID, packe
 	}
 	row.Packet = asMap(packetRaw)
 	return row, nil
+}
+
+func wrongKindPacketID(packetID string) (string, bool) {
+	switch {
+	case strings.HasPrefix(packetID, "msg_"):
+		return "message", true
+	case strings.HasPrefix(packetID, "lease_"):
+		return "lease", true
+	case strings.HasPrefix(packetID, "job_"):
+		return "job", true
+	case strings.HasPrefix(packetID, "sess_"):
+		return "session", true
+	case strings.HasPrefix(packetID, "sup_"):
+		return "supervisor", true
+	default:
+		return "", false
+	}
 }
 
 func ensureActivePacketLease(ctx context.Context, runner db.TxRunner, repositoryID string, packet supervisionPacketRow, sessionID string) error {

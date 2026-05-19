@@ -119,6 +119,33 @@ func TestSuperviseSendDeliversPacketUnacknowledged(t *testing.T) {
 	}
 }
 
+func TestSuperviseSendWrongKindPacketIDPointsAtClaimNextPacketID(t *testing.T) {
+	tx := &superviseControlFakeTx{}
+	runner := &superviseControlFakeRunner{txs: []*superviseControlFakeTx{tx}}
+	_, err := HandleSuperviseSend(context.Background(), runner, rpc.Envelope{
+		SchemaVersion: rpc.SupportedEnvelopeVersion,
+		RequestID:     "req_send_wrong_id",
+		Method:        "supervise.send",
+		Params: map[string]any{
+			"repository_id": "repo_1",
+			"session_id":    "sess_1",
+			"packet_id":     "msg_123",
+		},
+	})
+	if err == nil {
+		t.Fatalf("expected supervise send to reject wrong-kind packet id")
+	}
+	rpcErr, ok := err.(*rpc.Error)
+	if !ok || rpcErr.Code != "not_found" {
+		t.Fatalf("err = %#v", err)
+	}
+	if !strings.Contains(rpcErr.Message, "msg_123 is a message id, not a work packet id") ||
+		!strings.Contains(rpcErr.Message, "data.packet_id") ||
+		!strings.Contains(rpcErr.Message, "data.packet.packet_id") {
+		t.Fatalf("message = %q", rpcErr.Message)
+	}
+}
+
 func TestSuperviseStopMarksSupervisorStoppedAndUnlinksPipe(t *testing.T) {
 	dir := t.TempDir()
 	pipePath := dir + "/stdin.pipe"
