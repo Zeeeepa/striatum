@@ -46,9 +46,18 @@ def render_run_graph(
         Optional job rows for tooltip metadata. When supplied,
         ``workflow_job_id`` rows provide role and timestamp data.
     """
+    from striatum.errors import WorkflowError
     from striatum.workflow import workflow_graph_data
 
-    data = workflow_graph_data(workflow)
+    # Defense-in-depth: a missing or malformed workflow snapshot from
+    # the daemon would otherwise cause validate_workflow to raise and
+    # 500 the run-detail page. Render a placeholder SVG instead.
+    if not isinstance(workflow, dict) or not workflow:
+        return '<svg viewBox="0 0 100 60" xmlns="http://www.w3.org/2000/svg"><text x="10" y="35" font-size="11" fill="currentColor">(workflow snapshot unavailable)</text></svg>'
+    try:
+        data = workflow_graph_data(workflow)
+    except WorkflowError:
+        return '<svg viewBox="0 0 100 60" xmlns="http://www.w3.org/2000/svg"><text x="10" y="35" font-size="11" fill="currentColor">(workflow snapshot invalid)</text></svg>'
     graph = data.get("graph", {})
     nodes_in = list(graph.get("nodes", []))
     edges_in = list(graph.get("edges", []))

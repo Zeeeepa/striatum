@@ -2,6 +2,7 @@ package reads
 
 import (
 	"context"
+	"encoding/json"
 	"strconv"
 	"strings"
 
@@ -89,13 +90,14 @@ func HandleRunDetail(ctx context.Context, runner db.Runner, envelope rpc.Envelop
 	if err != nil {
 		return nil, err
 	}
+	workflow := loadWorkflowSnapshot(ctx, runner, repositoryID, runs[0])
 	status, err := HandleStatus(ctx, runner, envelope)
 	if err != nil {
 		status = map[string]any{"next_actions": []any{}}
 	}
 	return map[string]any{
 		"run":                   runs[0],
-		"workflow":              map[string]any{},
+		"workflow":              workflow,
 		"jobs":                  jobs,
 		"next_actions":          status["next_actions"],
 		"recovery_panel":        map[string]any{},
@@ -106,6 +108,51 @@ func HandleRunDetail(ctx context.Context, runner db.Runner, envelope rpc.Envelop
 		"suggested_branch_name": "",
 		"allow_dirty":           false,
 	}, nil
+}
+
+// loadWorkflowSnapshot returns the parsed workflow_json body for the
+// run's recorded workflow_snapshot_id, or an empty map on any
+// failure. The run-detail render path validates the returned map; an
+// empty map renders as "(no jobs)" rather than crashing the page.
+func loadWorkflowSnapshot(
+	ctx context.Context,
+	runner db.Runner,
+	repositoryID string,
+	run map[string]any,
+) map[string]any {
+	snapshotID, _ := run["workflow_snapshot_id"].(string)
+	if snapshotID == "" {
+		return map[string]any{}
+	}
+	rows, err := collectRows(ctx, runner,
+		`SELECT workflow_json
+		   FROM striatumd.workflow_snapshots
+		  WHERE repository_id = $1 AND workflow_snapshot_id = $2
+		  LIMIT 1`,
+		repositoryID, snapshotID,
+	)
+	if err != nil || len(rows) == 0 {
+		return map[string]any{}
+	}
+	body := rows[0]["workflow_json"]
+	if doc, ok := body.(map[string]any); ok {
+		return doc
+	}
+	// pgx can return jsonb as []byte when the row-scan path does not
+	// auto-decode; fall back to JSON-unmarshalling that shape.
+	if raw, ok := body.([]byte); ok {
+		var doc map[string]any
+		if err := json.Unmarshal(raw, &doc); err == nil {
+			return doc
+		}
+	}
+	if raw, ok := body.(string); ok {
+		var doc map[string]any
+		if err := json.Unmarshal([]byte(raw), &doc); err == nil {
+			return doc
+		}
+	}
+	return map[string]any{}
 }
 
 func HandleJobDetail(ctx context.Context, runner db.Runner, envelope rpc.Envelope) (map[string]any, error) {

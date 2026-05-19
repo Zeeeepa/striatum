@@ -191,12 +191,24 @@ def render_run_detail_page(ctx: RunPageContext, run_id: str) -> None:
             run_id=run_id,
             jobs=jobs,
         )
+        # _recovery_panel.html references panel.run_id and
+        # panel.recipes; an empty dict from the daemon yields a Jinja
+        # Undefined that tojson cannot serialize. Backfill the two
+        # required keys so the template renders with no recipes when
+        # the daemon does not return any.
+        recovery_panel_raw = payload.get("recovery_panel")
+        if isinstance(recovery_panel_raw, Mapping):
+            recovery_panel = dict(recovery_panel_raw)
+        else:
+            recovery_panel = {}
+        recovery_panel.setdefault("run_id", run_id)
+        recovery_panel.setdefault("recipes", [])
         html = ctx.jinja_env().get_template("run_detail.html").render(
             run=run,
             jobs=jobs,
             graph_svg=graph_svg_body,
             next_actions=payload.get("next_actions") or [],
-            recovery_panel=payload.get("recovery_panel") or {},
+            recovery_panel=recovery_panel,
             verdicts_by_posture=payload.get("verdicts_by_posture") or {},
             sessions=payload.get("sessions") or [],
             phase_progress=payload.get("phase_progress") or [],
