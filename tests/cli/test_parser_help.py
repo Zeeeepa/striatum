@@ -81,3 +81,15 @@ def test_operator_current_brief_help_documents_local_read_options(
     assert "current operator brief metadata" in out
     assert "--operator-docs-root" in out
     assert "--json" in out
+
+
+def test_daemon_doctor_help_documents_as_owner_flag(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """GH #22: --as-owner is the supported operator path for owner-role migrations."""
+    out = _help_for(["daemon", "doctor"], capsys)
+    assert "--as-owner" in out
+    assert "--apply-migrations" in out
+    assert "postgresql:///striatum_daemon" in out
+    # The test-harness env var must not appear in operator-facing help.
+    assert "STRIATUM_PG_DOCTOR_TEST_HARNESS_OWNER_OK" not in out

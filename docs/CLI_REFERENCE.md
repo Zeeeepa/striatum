@@ -197,6 +197,7 @@ striatum daemon service install [--manager auto|systemd|launchd] [--dry-run]
 striatum daemon service start [--manager auto|systemd|launchd] [--dry-run]
 striatum daemon service status [--manager auto|systemd|launchd]
 striatum daemon doctor [--postgres-url <url>] [--apply-migrations]
+                       [--as-owner <owner-url>]
                        [--provision-rw-role] [--repair-grants]
                        [--explain] [--authority] [--repo <path>] [--json]
 striatum daemon migrate --from sqlite --to pg [retired compatibility refusal]
@@ -266,6 +267,17 @@ and emits the remediation list operators need to bring the daemon online.
 `--apply-migrations` brings the daemon-owned schema forward
 in-place; without it, doctor reports the required version and
 exits so operators can review before applying.
+`--as-owner <owner-url>` (GH #22) is the supported owner-role migration
+path: when set together with `--apply-migrations` (and/or
+`--provision-rw-role` / `--repair-grants`), doctor opens a second
+connection against the owner URL and runs migration application,
+role provisioning, and grant repair through it, while the
+`unsafe_privileges` runtime guardrail still evaluates the runtime role
+resolved from `--postgres-url` / `STRIATUM_DAEMON_DB_URL`. Local Linux
+installs typically use a peer-auth socket URL such as
+`postgresql:///striatum_daemon`. If the owner URL is unreachable, doctor
+returns `status: "as_owner_unreachable"` with the redacted URL and the
+scrubbed error.
 `--provision-rw-role` creates the local `striatumd_rw` runtime role
 when the current Postgres connection can create roles. `--repair-grants`
 applies the runtime grants and append-only revokes; when privileges are

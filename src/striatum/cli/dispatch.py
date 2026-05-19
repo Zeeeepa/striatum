@@ -1477,6 +1477,7 @@ def _dispatch_daemon(args: argparse.Namespace) -> object:
             apply=bool(getattr(args, "apply_migrations", False)),
             provision_rw_role=bool(getattr(args, "provision_rw_role", False)),
             repair_grants=bool(getattr(args, "repair_grants", False)),
+            as_owner_url=getattr(args, "as_owner_url", None),
         )
         daemon_diagnostics: dict[str, object] | None = None
         if pg.get("ok"):

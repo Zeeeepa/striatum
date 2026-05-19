@@ -76,6 +76,7 @@ from striatum.web.run_actions import RunActionContext as _RunActionContext
 from striatum.web import run_pages as _run_pages
 from striatum.web.run_pages import RunPageContext as _RunPageContext
 from striatum.web import workflows as _workflows
+from striatum.web import dogfood_historical as _dogfood_historical
 from striatum.web.workflows import WorkflowRouteContext as _WorkflowRouteContext
 from striatum.web import view_file as _view_file
 from striatum.web.view_file import ViewRouteContext as _ViewRouteContext
@@ -386,6 +387,53 @@ class StriatumServiceHandler(BaseHTTPRequestHandler):
 
     def _render_workflows_index_page(self) -> None:
         _workflows.render_workflows_index_page(self._workflow_route_context())
+
+    def _dogfood_historical_ctx(self) -> "_dogfood_historical.DogfoodHistoricalContext":
+        return _dogfood_historical.DogfoodHistoricalContext(
+            repo=self.state.repo,
+            send_json=self._send_json,
+            send_html=self._send_html,
+            jinja_env=_jinja_env,
+        )
+
+    def _dogfood_historical_raw_ctx(self) -> "_dogfood_historical.DogfoodHistoricalRawContext":
+        return _dogfood_historical.DogfoodHistoricalRawContext(
+            repo=self.state.repo,
+            send_json=self._send_json,
+            send_response=self.send_response,
+            send_header=self.send_header,
+            end_headers=self.end_headers,
+            write_body=self.wfile.write,
+        )
+
+    def _render_dogfood_index_page(self) -> None:
+        _dogfood_historical.render_dogfood_index_page(self._dogfood_historical_ctx())
+
+    def _render_dogfood_run_page(self, dogfood_id: str) -> None:
+        _dogfood_historical.render_dogfood_run_page(
+            self._dogfood_historical_ctx(),
+            dogfood_id,
+        )
+
+    def _render_dogfood_file_page(
+        self,
+        dogfood_id: str,
+        rel_path: str,
+        *,
+        raw: bool,
+    ) -> None:
+        if raw:
+            _dogfood_historical.serve_dogfood_file_raw(
+                self._dogfood_historical_raw_ctx(),
+                dogfood_id,
+                rel_path,
+            )
+            return
+        _dogfood_historical.render_dogfood_file_page(
+            self._dogfood_historical_ctx(),
+            dogfood_id,
+            rel_path,
+        )
 
     def _render_workflow_detail_page(self, rel_path: str) -> None:
         _workflows.render_workflow_detail_page(

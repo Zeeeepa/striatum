@@ -167,6 +167,61 @@ func (c *Client) HeadObject(ctx context.Context, bucket, key string) (size int64
 	return stat.Size, stat.ContentType, nil
 }
 
+// ListObjectEntry is a minimal listing record. The full minio.ObjectInfo
+// carries fields we do not need at this layer; reducing the surface
+// keeps the daemon RPC contract narrow.
+type ListObjectEntry struct {
+	Key          string
+	Size         int64
+	LastModified string // ISO-8601, set only when minio reports a timestamp.
+}
+
+// ListByPrefix returns every object under the given key prefix in
+// alphabetical (server-default) order. Recursive: no delimiter is
+// passed, so subkeys appear flat.
+//
+// Used by the historical-dogfood browse surface to enumerate files
+// under `dogfood-historical/<dogfood_id>/`. For larger buckets where
+// pagination matters, callers should pass a more specific prefix; the
+// current historical migration produces ~1.3k keys total which list
+// in a single round-trip.
+func (c *Client) ListByPrefix(ctx context.Context, bucket, prefix string) ([]ListObjectEntry, error) {
+	opts := minio.ListObjectsOptions{Prefix: prefix, Recursive: true}
+	out := make([]ListObjectEntry, 0, 32)
+	for object := range c.mc.ListObjects(ctx, bucket, opts) {
+		if object.Err != nil {
+			return nil, object.Err
+		}
+		entry := ListObjectEntry{Key: object.Key, Size: object.Size}
+		if !object.LastModified.IsZero() {
+			entry.LastModified = object.LastModified.UTC().Format("2006-01-02T15:04:05Z")
+		}
+		out = append(out, entry)
+	}
+	return out, nil
+}
+
+// ListCommonPrefixes enumerates the immediate-child "directories"
+// under the given prefix, using the supplied delimiter (typically "/").
+// Used to enumerate `dogfood-historical/<dogfood_id>/` entries
+// without listing every file under each.
+func (c *Client) ListCommonPrefixes(ctx context.Context, bucket, prefix, delimiter string) ([]string, error) {
+	opts := minio.ListObjectsOptions{Prefix: prefix, Recursive: false}
+	prefixes := make([]string, 0, 32)
+	for object := range c.mc.ListObjects(ctx, bucket, opts) {
+		if object.Err != nil {
+			return nil, object.Err
+		}
+		// minio-go reports "directory" entries with a key ending in
+		// the delimiter and a zero size. Plain object keys also come
+		// through this iterator; filter to the directory shape.
+		if delimiter != "" && strings.HasSuffix(object.Key, delimiter) {
+			prefixes = append(prefixes, object.Key)
+		}
+	}
+	return prefixes, nil
+}
+
 // RemoteSha256 reads the X-Striatum-Sha256 user metadata header from
 // the named object. Used by the historical-migration flow to
 // distinguish "already uploaded with matching content" from "needs

@@ -287,6 +287,18 @@ def build_parser() -> argparse.ArgumentParser:
     )
     daemon_doctor.add_argument("--apply-migrations", action="store_true")
     daemon_doctor.add_argument(
+        "--as-owner",
+        dest="as_owner_url",
+        default=None,
+        help=(
+            "GH #22: owner/admin libpq URL used only for --apply-migrations "
+            "(and --repair-grants when combined). The runtime role connection "
+            "from --postgres-url / STRIATUM_DAEMON_DB_URL is still used for "
+            "the privilege summary. Example: postgresql:///striatum_daemon "
+            "for a local peer-auth socket owned by the operator."
+        ),
+    )
+    daemon_doctor.add_argument(
         "--provision-rw-role",
         action="store_true",
         help="create the local striatumd_rw runtime role when the current Postgres user can create roles",

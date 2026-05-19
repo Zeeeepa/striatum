@@ -115,6 +115,56 @@ to run from an admin `psql` session. Connect the daemon as
 `striatumd_rw` after provisioning; running as the database owner still
 fails the append-only privilege check.
 
+### Applying daemon migrations as the owner role (GH #22)
+
+When a Striatum upgrade adds a new daemon migration, the runtime role
+(`striatumd_rw`) cannot apply it because the migration may `ALTER` existing
+tables that are owned by the operator (peer-auth socket installs) or a
+DB owner role. The runtime role intentionally lacks `ALTER`/owner privileges
+so the append-only contract on `striatumd.audit_log` / `events` / `artifacts`
+holds at run-time.
+
+Pass `--as-owner <owner-url>` to point the migration connection at the owner
+role while keeping the runtime privilege summary on the runtime role:
+
+```bash
+striatum daemon doctor \
+  --postgres-url "$STRIATUM_DAEMON_DB_URL" \
+  --apply-migrations \
+  --as-owner 'postgresql:///striatum_daemon' \
+  --repair-grants \
+  --json
+```
+
+`postgresql:///striatum_daemon` is the local peer-auth socket form: on a
+typical Linux PostgreSQL install, the Unix user that owns the
+`striatum_daemon` database can connect over the socket with no password
+when peer auth routes them to a role with `CREATE`/owner rights. The
+URL is also the right shape for an `ident` map; pass any libpq URL the
+owner can authenticate against (for example
+`postgresql://postgres@127.0.0.1/striatum_daemon`).
+
+What the flag does:
+
+- `--apply-migrations` is executed on the owner connection so `ALTER`
+  statements succeed.
+- `--repair-grants` (and `--provision-rw-role`, when combined) also run
+  on the owner connection, because they issue `GRANT`/`REVOKE`/`CREATE ROLE`
+  statements that the runtime role is not authorized to issue.
+- The `unsafe_privileges` guardrail still evaluates the *runtime* connection
+  resolved from `--postgres-url` / `STRIATUM_DAEMON_DB_URL`. The owner
+  connection is never treated as the runtime role, so the append-only
+  posture for `striatumd_rw` is preserved.
+- If the owner URL is unreachable, doctor returns
+  `status: "as_owner_unreachable"` with the redacted owner URL and the
+  scrubbed error, and does not run `apply_migrations()`.
+
+When `daemon status` refuses with `pending migrations require database
+owner/admin privileges`, this is the supported remediation. The
+`STRIATUM_PG_DOCTOR_TEST_HARNESS_OWNER_OK` environment variable that older
+docs mention is a test-harness affordance only and is not a supported
+operator path. Production deployments must never set it.
+
 ## Configure the daemon DB connection
 
 Choose one of three surfaces. They are checked in this order:

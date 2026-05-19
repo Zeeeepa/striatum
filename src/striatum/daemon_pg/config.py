@@ -63,7 +63,8 @@ def _read_config_url(path: Path) -> str | None:
 def redact_url(url: str) -> str:
     parts = urlsplit(url)
     netloc = parts.netloc
-    if "@" in netloc:
+    has_credentials = "@" in netloc
+    if has_credentials:
         userinfo, host = netloc.rsplit("@", 1)
         if ":" in userinfo:
             username, _password = userinfo.split(":", 1)
@@ -71,11 +72,19 @@ def redact_url(url: str) -> str:
         else:
             netloc = f"{userinfo}@{host}"
     query_pairs = []
+    sensitive_query = False
     for key, value in parse_qsl(parts.query, keep_blank_values=True):
         if key.lower() in {"password", "pass", "token", "sslpassword"}:
             query_pairs.append((key, "<redacted>"))
+            sensitive_query = True
         else:
             query_pairs.append((key, value))
+    # urlunsplit collapses the libpq peer-auth `postgresql:///db` triple slash
+    # to a single slash because urlsplit reports an empty netloc. When there
+    # is nothing to redact, returning the original input preserves the
+    # operator-recognizable URL shape (GH #22).
+    if not has_credentials and not sensitive_query:
+        return url
     return urlunsplit((parts.scheme, netloc, parts.path, urlencode(query_pairs), parts.fragment))
 
 

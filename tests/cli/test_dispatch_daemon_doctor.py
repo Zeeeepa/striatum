@@ -22,6 +22,7 @@ def _doctor_args() -> argparse.Namespace:
         repair_grants=False,
         explain=False,
         authority=False,
+        as_owner_url=None,
     )
 
 
@@ -359,6 +360,32 @@ def test_role_repair_flags_are_passed_to_pg_doctor(
 
     assert seen["provision_rw_role"] is True
     assert seen["repair_grants"] is True
+
+
+def test_as_owner_url_is_passed_to_pg_doctor(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """GH #22: --as-owner reaches striatum.daemon_pg.connection.doctor."""
+    seen: dict[str, Any] = {}
+
+    def _pg_doctor(**kwargs: Any) -> dict[str, Any]:
+        seen.update(kwargs)
+        return {"ok": True, "schema_version": 9, "status": "ok"}
+
+    monkeypatch.setattr("striatum.daemon_pg.connection.doctor", _pg_doctor)
+    monkeypatch.setattr(
+        daemon_mod,
+        "read_doctor",
+        lambda **_: {"mode": "daemon", "problems": [], "protocol_version": 1},
+    )
+    args = _doctor_args()
+    args.apply_migrations = True
+    args.as_owner_url = "postgresql:///striatum_daemon"
+
+    _dispatch_daemon(args)
+
+    assert seen["apply"] is True
+    assert seen["as_owner_url"] == "postgresql:///striatum_daemon"
 
 
 def test_explicit_postgres_url_is_passed_to_daemon_diagnostics(

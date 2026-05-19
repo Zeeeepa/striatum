@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block title %}Historical dogfoods · Striatum{% endblock %}
+{% block main %}
+<section class="page-section">
+  <header>
+    <p class="breadcrumb"><a href="/">← Home</a></p>
+    <h1>Historical dogfoods</h1>
+    <p class="run-meta">
+      <span class="muted">{{ dogfood_ids | length }} run{{ "" if dogfood_ids | length == 1 else "s" }} in blob storage</span>
+      <span class="muted">RFC 0072: bodies live under <code>dogfood-historical/&lt;id&gt;/&lt;rel_path&gt;</code> in the per-repo S3 bucket.</span>
+    </p>
+  </header>
+
+  {% if dogfood_ids %}
+  <ul class="run-list" role="list">
+    {% for dogfood_id in dogfood_ids %}
+    <li><a href="/dogfood/{{ dogfood_id }}/"><code>{{ dogfood_id }}</code></a></li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p class="muted">
+    No historical dogfoods migrated. Run
+    <code>striatum corpus migrate-historical-dogfoods --bucket &lt;name&gt;</code>
+    to populate this view.
+  </p>
+  {% endif %}
+</section>
+{% endblock %}

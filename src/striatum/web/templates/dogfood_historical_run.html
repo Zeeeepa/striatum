@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block title %}Dogfood {{ dogfood_id }} · Striatum{% endblock %}
+{% block main %}
+<section class="page-section">
+  <header>
+    <p class="breadcrumb">
+      <a href="/dogfood/">← Historical dogfoods</a>
+    </p>
+    <h1>Dogfood <code>{{ dogfood_id }}</code></h1>
+    <p class="run-meta">
+      <span class="muted">{{ files | length }} file{{ "" if files | length == 1 else "s" }}</span>
+      <span class="muted">From <code>dogfood-historical/{{ dogfood_id }}/</code> in blob storage.</span>
+    </p>
+  </header>
+
+  {% if files %}
+  <table class="run-table">
+    <thead>
+      <tr>
+        <th>Path</th>
+        <th>Size</th>
+        <th>Last modified</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for file in files %}
+      <tr>
+        <td><a href="/dogfood/{{ dogfood_id }}/{{ file.rel_path }}"><code>{{ file.rel_path }}</code></a></td>
+        <td>{{ file.size_bytes }}</td>
+        <td><code>{{ file.last_modified or "—" }}</code></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="muted">No files indexed under this dogfood id.</p>
+  {% endif %}
+</section>
+{% endblock %}

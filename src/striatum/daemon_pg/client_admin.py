@@ -298,8 +298,11 @@ def _daemon_status_pg_unavailable(exc: BaseException) -> StriatumError:
     setattr(
         error,
         "hint",
-        "run `striatum daemon doctor --apply-migrations --repair-grants` "
-        "as a database owner/admin, then retry `striatum daemon status`",
+        "run `striatum daemon doctor --apply-migrations --as-owner "
+        "<owner-url> --repair-grants` (GH #22) so the owner role applies "
+        "the pending migrations, then retry `striatum daemon status`; the "
+        "owner URL may be a local peer-auth socket such as "
+        "`postgresql:///striatum_daemon`",
     )
     return error
 
@@ -344,21 +347,55 @@ def _pid_alive(pid: int | None) -> bool:
 
 
 def daemon_stop() -> dict[str, Any]:
-    pg_conn = _connect_pg()
+    # GH #22: stop must succeed when migrations are pending. Read the pidfile
+    # and SIGTERM the daemon first; PG authorization/audit happens after the
+    # signal as best-effort so a stale schema cannot block recovery.
+    pid = _read_pid()
+    if pid is None or not _pid_alive(pid):
+        result: dict[str, Any] = {"stopped": False, "reason": "not_running"}
+    else:
+        os.kill(pid, signal.SIGTERM)
+        result = {"stopped": True, "pid": pid}
+    _best_effort_audit_stop(result)
+    return result
+
+
+def _best_effort_audit_stop(result: Mapping[str, Any]) -> None:
+    """Append a `daemon.stop` audit row when PG is reachable without migrating.
+
+    Connects with `connect()` directly so pending migrations never block stop
+    (GH #22). Authorization and audit append are wrapped so a failure here
+    never prevents the SIGTERM result from being returned to the caller.
+    """
+    if not _pg_connection_configured():
+        return
+    try:
+        from striatum.daemon_pg.connection import connect
+
+        config = resolve_config()
+        if config.url is None:
+            return
+        pg_conn = connect(config.url)
+    except Exception:  # noqa: BLE001 - audit is advisory; SIGTERM is authoritative.
+        return
     try:
         _require_pg_auth(
             pg_conn,
             command="daemon.stop",
             required=ADMIN_CAPABILITY,
             token=read_runtime_token(),
+            payload=dict(result),
         )
+    except Exception:  # noqa: BLE001 - audit is advisory; SIGTERM is authoritative.
+        try:
+            pg_conn.rollback()
+        except Exception:  # noqa: BLE001
+            pass
     finally:
-        pg_conn.close()
-    pid = _read_pid()
-    if pid is None or not _pid_alive(pid):
-        return {"stopped": False, "reason": "not_running"}
-    os.kill(pid, signal.SIGTERM)
-    return {"stopped": True, "pid": pid}
+        try:
+            pg_conn.close()
+        except Exception:  # noqa: BLE001
+            pass
 
 
 def read_doctor(
