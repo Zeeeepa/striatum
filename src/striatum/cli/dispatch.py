@@ -178,10 +178,23 @@ def dispatch(args: argparse.Namespace) -> object:
         )
     )
     if not local_verify:
+        # GH #25: ``repo list`` is a daemon-global read of the daemon's
+        # repository registry. The legacy SQLite-presence probe in
+        # ``enforce_daemon_required`` belongs to mutation/setup verbs
+        # (``adopt``, ``repo add --init``), not to a registry listing
+        # that has nothing to do with the cwd's local state. Skip only
+        # the migration probe — the daemon socket reachability check
+        # still runs, so an unreachable daemon surfaces the documented
+        # ``daemon_unreachable`` refusal (exit code 11).
+        check_repo_migration = not (
+            args.command == "repo"
+            and getattr(args, "repo_command", None) == "list"
+        )
         enforce_daemon_required(
             getattr(args, "command", None),
             repo,
             first_run=bool(getattr(args, "first_run", False)),
+            check_repo_migration=check_repo_migration,
         )
     daemon_forced = bool(getattr(args, "daemon", False)) or (
         os.environ.get("STRIATUM_DAEMON") == "1"

@@ -126,7 +126,100 @@ def try_route(args: argparse.Namespace, repo: Path) -> tuple[bool, Any]:
         and isinstance(data.get("source"), str)
     ):
         return (True, data["source"])
+    if (
+        method == "repo.list"
+        and not bool(getattr(args, "json", False))
+        and isinstance(data, Mapping)
+    ):
+        return (True, _format_repo_list_table(data, repo))
     return (True, data)
+
+
+def _format_repo_list_table(data: Mapping[str, Any], repo: Path) -> str:
+    """Render the daemon-global ``repo.list`` payload as a human table.
+
+    Column layout matches ``docs/issues/25/SCOPE.md``. The current
+    repository (matched on ``repo_root``) is marked with ``*`` and sorted
+    first; remaining rows are sorted by display name, repo root, and
+    repository id for stable output. The ``--json`` path is unchanged
+    and is not routed through this formatter.
+    """
+    raw_repositories = data.get("repositories")
+    if not isinstance(raw_repositories, list):
+        return ""
+    try:
+        cwd_root = str(repo.resolve())
+    except OSError:
+        cwd_root = str(repo)
+
+    rows: list[tuple[bool, str, str, str, str, str]] = []
+    for item in raw_repositories:
+        if not isinstance(item, Mapping):
+            continue
+        repository_id = str(item.get("repository_id") or "")
+        repo_root = str(item.get("repo_root") or "")
+        display_name = item.get("display_name")
+        state = item.get("state")
+        last_seen_at = item.get("last_seen_at")
+        is_cwd = bool(repo_root) and repo_root == cwd_root
+        rows.append(
+            (
+                is_cwd,
+                _display_or_dash(display_name),
+                _display_or_dash(state),
+                _display_or_dash(last_seen_at),
+                _short_repository_id(repository_id),
+                repo_root or "-",
+            )
+        )
+
+    rows.sort(
+        key=lambda row: (
+            0 if row[0] else 1,
+            row[1],
+            row[5],
+            row[4],
+        )
+    )
+
+    headers = (
+        "DISPLAY_NAME",
+        "STATE",
+        "LAST_SEEN_AT",
+        "REPOSITORY_ID",
+        "REPO_ROOT",
+    )
+    body = [headers, *[row[1:] for row in rows]]
+    widths = [max(len(str(col)) for col in column) for column in zip(*body)]
+    markers = [" ", *[("*" if row[0] else " ") for row in rows]]
+
+    lines: list[str] = []
+    for marker, columns in zip(markers, body):
+        cells = [str(column).ljust(width) for column, width in zip(columns, widths)]
+        lines.append(f"{marker} {'  '.join(cells)}".rstrip())
+    return "\n".join(lines)
+
+
+def _display_or_dash(value: Any) -> str:
+    if value is None:
+        return "-"
+    text = str(value)
+    return text if text else "-"
+
+
+def _short_repository_id(repository_id: str) -> str:
+    """Render a short, stable prefix of a daemon ``repository_id``.
+
+    ``repo_`` + first 8 hex chars when the canonical shape is present;
+    otherwise the first 13 characters of the raw value for stability.
+    ``-`` for an empty/missing value.
+    """
+    if not repository_id:
+        return "-"
+    if repository_id.startswith("repo_"):
+        suffix = repository_id[len("repo_") :]
+        return f"repo_{suffix[:8]}" if suffix else "repo_"
+    return repository_id[:13]
 
 
 def _striatum_error_from_rpc_error(error: RpcError) -> StriatumError:

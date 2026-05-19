@@ -199,12 +199,28 @@ def repo_is_migrated(repo_path: Path) -> bool:
     return False
 
 
-def enforce_daemon_required(command: str | None, repo: Path, *, first_run: bool = False) -> None:
+def enforce_daemon_required(
+    command: str | None,
+    repo: Path,
+    *,
+    first_run: bool = False,
+    check_repo_migration: bool = True,
+) -> None:
     """Raise the RFC 0043 §3 refusals when enforcement is enabled.
 
     The dispatcher calls this before the SQLite/in-process fallback so
     the operator sees codes 11/12 immediately instead of the legacy
     ``state.sqlite3 not found`` failure mode.
+
+    ``check_repo_migration`` lets the caller skip the per-repo
+    ``repo_is_migrated`` (SQLite-presence) probe while keeping the
+    daemon-socket reachability requirement. Daemon-global read commands
+    (e.g. ``repo list``) must not refuse with ``repo_not_migrated``
+    just because the cwd has a legacy ``.striatum/state.sqlite3``
+    file — the registry is daemon-side and is the sole source of truth.
+    Mutation/setup paths (``adopt``, ``repo add --init``) keep the
+    default ``True`` so the SQLite-retirement check still fires where it
+    belongs.
     """
     if command == "doctor" and first_run:
         return
@@ -213,5 +229,5 @@ def enforce_daemon_required(command: str | None, repo: Path, *, first_run: bool 
         return
     if not daemon_socket_is_reachable(requirement.socket_path):
         raise build_daemon_unreachable_error(requirement.socket_path)
-    if not repo_is_migrated(repo):
+    if check_repo_migration and not repo_is_migrated(repo):
         raise build_repo_not_migrated_error(repo)

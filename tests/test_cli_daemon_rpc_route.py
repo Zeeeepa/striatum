@@ -12,8 +12,10 @@ import striatum
 from striatum.cli.daemon_rpc_route import (
     _LOOKUP,
     _call_with_handshake,
+    _format_repo_list_table,
     _load_cli_route_contracts,
     _resolve_repository_id,
+    _short_repository_id,
     _subcommand,
     try_route,
 )
@@ -1151,6 +1153,151 @@ def test_try_route_resolves_repository_by_daemon_rpc_without_client_pg(
         ("repo.resolve", {"path": str(repo.resolve())}),
         ("status", {"run_id": "run_1", "repository_id": "repo_a"}),
     ]
+
+
+def test_repo_list_routes_with_empty_params() -> None:
+    method, params = _route(
+        "repo",
+        "list",
+        repo_command="list",
+    )
+
+    assert method == "repo.list"
+    assert params == {}
+
+
+def test_repo_list_json_payload_is_unchanged_by_table_formatter(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``repo list --json`` must keep the daemon payload byte-for-byte
+    identical so existing consumers that parse ``data.repositories[]``
+    continue to work after GH #25.
+    """
+    args = argparse.Namespace(command="repo", repo_command="list", json=True)
+    payload = {
+        "repositories": [
+            {
+                "repository_id": "repo_a89ecd16640f4f81abc",
+                "repo_root": "/repo/a",
+                "display_name": "a",
+                "state": "active",
+                "last_seen_at": "2026-05-19T12:00:00Z",
+            }
+        ]
+    }
+    monkeypatch.delenv("STRIATUM_TEST_HARNESS", raising=False)
+    monkeypatch.delenv("STRIATUM_IN_DAEMON_HANDLER", raising=False)
+    monkeypatch.setattr(
+        "striatum.cli.daemon_rpc_route.resolve_socket_path",
+        lambda: Path("/tmp/striatumd.sock"),
+    )
+    monkeypatch.setattr(
+        "striatum.cli.daemon_rpc_route.daemon_socket_is_reachable",
+        lambda _path: True,
+    )
+    captured: dict[str, object] = {}
+
+    def fake_call(_path: Path, method: str, params: Mapping[str, Any]) -> dict[str, Any]:
+        captured["method"] = method
+        captured["params"] = dict(params)
+        return {"ok": True, "data": payload}
+
+    monkeypatch.setattr("striatum.cli.daemon_rpc_route._call_with_handshake", fake_call)
+
+    routed, data = try_route(args, tmp_path)
+
+    assert routed is True
+    assert data == payload
+    assert captured == {"method": "repo.list", "params": {}}
+
+
+def test_repo_list_non_json_renders_human_table(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Non-JSON ``repo list`` must return a formatted table string so
+    ``main()`` prints the table rather than serializing the dict as
+    JSON. The current repository is sorted first and marked with ``*``.
+    """
+    args = argparse.Namespace(command="repo", repo_command="list", json=False)
+    payload = {
+        "repositories": [
+            {
+                "repository_id": "repo_b1234567cafe",
+                "repo_root": "/repo/other",
+                "display_name": "other",
+                "state": "active",
+                "last_seen_at": "2026-05-18T10:00:00Z",
+            },
+            {
+                "repository_id": "repo_a89ecd1664ff",
+                "repo_root": str(tmp_path),
+                "display_name": "striatum",
+                "state": "active",
+                "last_seen_at": "2026-05-19T12:00:00Z",
+            },
+        ]
+    }
+    monkeypatch.delenv("STRIATUM_TEST_HARNESS", raising=False)
+    monkeypatch.delenv("STRIATUM_IN_DAEMON_HANDLER", raising=False)
+    monkeypatch.setattr(
+        "striatum.cli.daemon_rpc_route.resolve_socket_path",
+        lambda: Path("/tmp/striatumd.sock"),
+    )
+    monkeypatch.setattr(
+        "striatum.cli.daemon_rpc_route.daemon_socket_is_reachable",
+        lambda _path: True,
+    )
+    monkeypatch.setattr(
+        "striatum.cli.daemon_rpc_route._call_with_handshake",
+        lambda _path, _method, _params: {"ok": True, "data": payload},
+    )
+
+    routed, data = try_route(args, tmp_path)
+
+    assert routed is True
+    assert isinstance(data, str)
+    lines = data.splitlines()
+    assert lines[0].startswith("  DISPLAY_NAME"), lines
+    # Current repo row is sorted first and prefixed with ``*``.
+    assert lines[1].startswith("* striatum"), lines
+    # The other repo row keeps a blank marker.
+    assert lines[2].startswith("  other"), lines
+    assert "repo_a89ecd16" in lines[1]
+    assert "repo_b1234567" in lines[2]
+    assert str(tmp_path) in lines[1]
+
+
+def test_repo_list_table_handles_missing_columns(tmp_path: Path) -> None:
+    """Missing ``display_name``, ``state``, and ``last_seen_at`` render
+    as ``-`` so the table stays aligned for partial daemon payloads.
+    """
+    rendered = _format_repo_list_table(
+        {
+            "repositories": [
+                {
+                    "repository_id": "repo_deadbeefcafe",
+                    "repo_root": "/repo/orphan",
+                }
+            ]
+        },
+        tmp_path,
+    )
+    body_line = rendered.splitlines()[1]
+    # Three leading "-" cells (display_name, state, last_seen_at), the
+    # short repository id, and the repo root must all be present.
+    dash_cells = [cell for cell in body_line.split("  ") if cell.strip() == "-"]
+    assert len(dash_cells) == 3
+    assert "repo_deadbeef" in body_line
+    assert "/repo/orphan" in body_line
+
+
+def test_short_repository_id_handles_unexpected_shapes() -> None:
+    assert _short_repository_id("repo_a89ecd1664ff") == "repo_a89ecd16"
+    assert _short_repository_id("custom-12345-id-xxx") == "custom-12345-"
+    assert _short_repository_id("repo_") == "repo_"
+    assert _short_repository_id("") == "-"
 
 
 def test_client_boundary_source_does_not_import_daemon_pg_lookup() -> None:

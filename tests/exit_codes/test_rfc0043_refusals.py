@@ -336,6 +336,58 @@ def test_dispatch_exit_12_json_envelope(
         listener.close()
 
 
+def test_repo_list_does_not_refuse_when_local_sqlite_state_exists(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """GH #25: ``repo list`` is a daemon-global registry read. The
+    legacy ``.striatum/state.sqlite3`` preflight must not fire for the
+    listing verb — it stays in ``adopt`` / ``repo add --init`` where
+    setup is happening. ``enforce_daemon_required`` with
+    ``check_repo_migration=False`` is the seam the dispatcher uses.
+    """
+    import socket as socket_mod
+
+    socket_path = tmp_path / "striatumd.sock"
+    listener = socket_mod.socket(socket_mod.AF_UNIX, socket_mod.SOCK_STREAM)
+    try:
+        listener.bind(str(socket_path))
+        listener.listen(1)
+        monkeypatch.setenv(ENV_DAEMON_SOCKET, str(socket_path))
+        (tmp_path / ".striatum").mkdir()
+        (tmp_path / ".striatum" / "state.sqlite3").write_bytes(b"")
+
+        # Default behavior (mutation-style path): still refuses.
+        with pytest.raises(RepoNotMigratedError):
+            enforce_daemon_required("repo", tmp_path)
+
+        # The list-side seam: no refusal even with the legacy file
+        # present.
+        enforce_daemon_required("repo", tmp_path, check_repo_migration=False)
+    finally:
+        listener.close()
+
+
+def test_repo_list_unreachable_daemon_reports_daemon_unreachable(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """GH #25: with the daemon socket unreachable, ``repo list`` exits
+    with the documented ``daemon_unreachable`` refusal (exit code 11),
+    not the legacy ``repo_not_migrated`` SQLite-state error.
+    """
+    monkeypatch.setenv(ENV_DAEMON_SOCKET, str(tmp_path / "no-socket"))
+    (tmp_path / ".striatum").mkdir()
+    (tmp_path / ".striatum" / "state.sqlite3").write_bytes(b"")
+
+    rc = dispatch_mod.main(["--repo", str(tmp_path), "repo", "list"])
+
+    assert rc == 11
+    captured = capsys.readouterr()
+    assert "daemon_unreachable" in captured.err
+    assert "repo_not_migrated" not in captured.err
+
+
 @pytest.mark.multi_repo
 def test_dispatch_exit_12_json_envelope_with_foreground_daemon_socket(
     tmp_path: Path,
