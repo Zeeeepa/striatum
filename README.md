@@ -226,11 +226,7 @@ striatum --repo "$TARGET_REPO" run start --run-id <run_id> --json
 striatum --repo "$TARGET_REPO" dashboard --run-id <run_id> --once
 ```
 
-<<<<<<< HEAD
-Full walkthrough: [`docs/USING_STRIATUM.md`](docs/USING_STRIATUM.md). AI-operator playbook: [`docs/HOW_TO_AGENT.md`](docs/HOW_TO_AGENT.md). Human-principal escalation playbook: [`docs/HOW_TO_HUMAN.md`](docs/HOW_TO_HUMAN.md).
-=======
-Full walkthrough: [`docs/USING_STRIATUM.md`](docs/USING_STRIATUM.md). Operator playbook: [`docs/HOW_TO_HUMAN.md`](docs/HOW_TO_HUMAN.md). Agent companion: [`docs/HOW_TO_AGENT.md`](docs/HOW_TO_AGENT.md).
->>>>>>> 4a0a734 (docs: rewrite README with marketing framing, architecture diagram, and workflow shape examples)
+Full walkthrough: [`docs/USING_STRIATUM.md`](docs/USING_STRIATUM.md). AI-operator playbook: [`docs/HOW_TO_AGENT.md`](docs/HOW_TO_AGENT.md). Human-principal escalation guide: [`docs/HOW_TO_HUMAN.md`](docs/HOW_TO_HUMAN.md).
 
 ### Install the agent skill bundle
 
@@ -250,16 +246,7 @@ striatum skills install --profile all
 
 The skill bundle teaches a Striatum-aware agent how to drive the runner without reading the source repo. Generated files are version-stamped; `striatum doctor` flags outdated bundles and emits the exact `skills install` invocation to fix them.
 
-<<<<<<< HEAD
-- **Version**: see [`CHANGELOG.md`](CHANGELOG.md); the latest tag is the source of truth.
-- **Platforms**: Linux + macOS. Python 3.11+. Postgres 14+ (system install).
-- **PyPI**: `striatum-orchestrator` (the bare `striatum` package on PyPI is unrelated). Python module name is `striatum`.
-- **License**: Apache-2.0.
-- **RFCs**: [`docs/rfcs/README.md`](docs/rfcs/README.md). RFC 0048 (substrate port to PG-native daemon handlers) completed in v1.55.0. Active work is tracked in [`docs/TODO.md`](docs/TODO.md) and [`docs/ROADMAP.md`](docs/ROADMAP.md).
-- **Contributions**: follow [`AGENTS.md`](AGENTS.md). Make changes through the dogfood workflow when the change is RFC-class; cowboy commits are fine for small bugs and docs.
-=======
 ### Use the local web UI
->>>>>>> 4a0a734 (docs: rewrite README with marketing framing, architecture diagram, and workflow shape examples)
 
 ```bash
 striatum --repo "$TARGET_REPO" serve --web --allow-mutations
@@ -313,23 +300,10 @@ PYTHONPATH=src python3 -m striatum.cli --help
 
 | File | When to read |
 |---|---|
-<<<<<<< HEAD
-| [`docs/USING_STRIATUM.md`](docs/USING_STRIATUM.md) | The day-zero usage guide — operator + principal in one pass. |
-| [`docs/HOW_TO_HUMAN.md`](docs/HOW_TO_HUMAN.md) | Human-principal escalation playbook; retains manual operator reference for debugging and demos. |
-| [`docs/HOW_TO_AGENT.md`](docs/HOW_TO_AGENT.md) | Long-form companion to the RFC 0015 agent skill bundle. |
-| [`docs/POSTGRES_TRANSITION.md`](docs/POSTGRES_TRANSITION.md) | Operator runbook for the D094 / RFC 0043 PostgreSQL cutover, retired SQLite import handling, and repository registration. |
-| [`docs/WORKFLOW_TYPES.md`](docs/WORKFLOW_TYPES.md) | Workflow shapes and lane sets; starters, examples, defaults. |
-| [`docs/WRITING_WORKFLOWS.md`](docs/WRITING_WORKFLOWS.md) | How to author your own `workflow.json`. |
-| [`docs/CLI_REFERENCE.md`](docs/CLI_REFERENCE.md) | Flat list of every CLI verb and stable exit codes. |
-| [`docs/SPEC.md`](docs/SPEC.md) | The implementation contract; the source of truth when this page disagrees with the runner. |
-| [`docs/CONSUMER_REPO_LAYOUT.md`](docs/CONSUMER_REPO_LAYOUT.md) | Recommended target-repo layout (RFC 0056). |
-| [`docs/INDEX.md`](docs/INDEX.md) | Every doc in `docs/` with a one-line summary. |
-| [`docs/rfcs/README.md`](docs/rfcs/README.md) | Accepted and proposed RFCs (0001 → current). |
-=======
 | [`docs/USING_STRIATUM.md`](docs/USING_STRIATUM.md) | The day-zero usage guide — operator + principal in one pass |
-| [`docs/HOW_TO_HUMAN.md`](docs/HOW_TO_HUMAN.md) | Long-form playbook: every CLI verb in the order an operator uses it |
+| [`docs/HOW_TO_HUMAN.md`](docs/HOW_TO_HUMAN.md) | Human-principal escalation playbook; retains manual operator reference for debugging and demos |
 | [`docs/HOW_TO_AGENT.md`](docs/HOW_TO_AGENT.md) | Long-form companion to the RFC 0015 agent skill bundle |
-| [`docs/POSTGRES_TRANSITION.md`](docs/POSTGRES_TRANSITION.md) | Operator runbook for the D094 / RFC 0043 PostgreSQL cutover |
+| [`docs/POSTGRES_TRANSITION.md`](docs/POSTGRES_TRANSITION.md) | Operator runbook for the D094 / RFC 0043 PostgreSQL cutover, retired SQLite handling, and repo registration |
 | [`docs/WORKFLOW_TYPES.md`](docs/WORKFLOW_TYPES.md) | Workflow shapes and lane sets; starters, examples, defaults |
 | [`docs/WRITING_WORKFLOWS.md`](docs/WRITING_WORKFLOWS.md) | How to author your own `workflow.json` |
 | [`docs/CLI_REFERENCE.md`](docs/CLI_REFERENCE.md) | Flat list of every CLI verb and stable exit codes |
@@ -338,4 +312,3 @@ PYTHONPATH=src python3 -m striatum.cli --help
 | [`docs/ROADMAP.md`](docs/ROADMAP.md) | Operator kickoff doc: active runway, queue, blocked items |
 | [`docs/INDEX.md`](docs/INDEX.md) | Every doc in `docs/` with a one-line summary |
 | [`docs/rfcs/README.md`](docs/rfcs/README.md) | Accepted and proposed RFCs (0001 → current) |
->>>>>>> 4a0a734 (docs: rewrite README with marketing framing, architecture diagram, and workflow shape examples)
