@@ -75,3 +75,5 @@ new GH issues rather than amending the closed one.
   --admin-url ([gh#22](https://github.com/halbritt/striatum/issues/22))
 - [23/](23/) — daemon status reads striatumd.pid but no code path
   writes it ([gh#23](https://github.com/halbritt/striatum/issues/23))
+- [24/](24/) — supervise send packet_id discoverability + release
+  --requeue blocked ([gh#24](https://github.com/halbritt/striatum/issues/24))

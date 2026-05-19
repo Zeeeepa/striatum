@@ -1,0 +1,183 @@
+{
+  "schema_version": "striatum.workflow.v1",
+  "workflow_id": "gh-24-supervise-send-discoverability",
+  "workflow_version": "1",
+  "name": "GH #24: supervise send packet_id discoverability + release --requeue blocked",
+  "context_docs": [
+    "docs/issues/24/SPEC.md",
+    "docs/ROADMAP.md",
+    "docs/TODO.md",
+    "docs/DECISION_LOG.md",
+    "docs/HOW_TO_AGENT.md",
+    "docs/SPEC.md",
+    "docs/INDEX.md",
+    "AGENTS.md"
+  ],
+  "coordinator": {
+    "lane": "codex"
+  },
+  "parallelism": {
+    "max_active_jobs": 1
+  },
+  "branch": {
+    "mode": "auto",
+    "suggested_name": "striatum/gh-24-supervise-send-discoverability"
+  },
+  "lanes": {
+    "codex": {
+      "adapter": "process",
+      "command": [
+        "bash",
+        "-lc",
+        "PYTHONPATH=src python3 -m striatum.cli skills install --profile all --scope user --force --json >/dev/null && export PATH=\"$PWD/.venv/bin:$PATH\" && exec .striatum/bin/codex-supervised-wrapper.sh"
+      ],
+      "model": "codex",
+      "strategy_version": "2026-05-19",
+      "supervision": {
+        "compatible": true,
+        "stdin_format": "newline_delimited_json",
+        "wrapper_required": true
+      }
+    },
+    "claude_code": {
+      "adapter": "process",
+      "command": [
+        "bash",
+        "-lc",
+        "PYTHONPATH=src python3 -m striatum.cli skills install --profile all --scope user --force --json >/dev/null && export PATH=\"$PWD/.venv/bin:$PATH\" && exec .striatum/bin/claude-supervised-wrapper.sh"
+      ],
+      "model": "claude_code",
+      "strategy_version": "2026-05-19",
+      "supervision": {
+        "compatible": "verify_pipe_behavior_first",
+        "stdin_format": "prompt_text",
+        "wrapper_required": true
+      }
+    }
+  },
+  "roles": {
+    "coordinator": {
+      "description": "Operator/control-plane role."
+    },
+    "triager": {
+      "description": "Bounds scope from the captured GH issue and project roadmap."
+    },
+    "implementer": {
+      "description": "Applies the scoped source changes."
+    },
+    "reviewer": {
+      "description": "Fresh-context reviewer who verifies the scoped change."
+    }
+  },
+  "jobs": [
+    {
+      "id": "triage",
+      "type": "synthesis",
+      "title": "Triage GH #24",
+      "role_id": "triager",
+      "lane_id": "claude_code",
+      "fresh_session_required": true,
+      "objective": "Bound scope for GH #24: make packet_id discoverable from claim-next, surface a useful supervise-send error for wrong-kind IDs, and make release --requeue either honor the requeue or refuse loudly for repo_write jobs.",
+      "task_prompt": {
+        "path": "docs/issues/24/prompts/triage.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/issues/24/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "scope",
+          "kind": "synthesis",
+          "path": "docs/issues/24/SCOPE.md",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "fix",
+      "type": "build",
+      "title": "Implement GH #24",
+      "role_id": "implementer",
+      "lane_id": "codex",
+      "required_review_postures": [
+        "compliance_license"
+      ],
+      "objective": "Implement packet_id discoverability + supervise-send error path + release --requeue semantics per docs/issues/24/SCOPE.md.",
+      "task_prompt": {
+        "path": "docs/issues/24/prompts/fix.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "src/striatum/cli/",
+          "src/striatum/skills/",
+          "go/pkg/mutations/",
+          "go/pkg/rpc/",
+          "tests/cli/",
+          "tests/test_supervise.py",
+          "tests/test_daemon_pg.py",
+          "docs/HOW_TO_AGENT.md",
+          "docs/issues/24/build/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "handoff",
+          "kind": "handoff",
+          "path": "docs/issues/24/build/HANDOFF.md",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "verify",
+      "type": "review",
+      "title": "Verify GH #24",
+      "role_id": "reviewer",
+      "lane_id": "claude_code",
+      "fresh_session_required": true,
+      "reviewer_context_policy": "fresh",
+      "review_posture": "compliance_license",
+      "objective": "Verify GH #24 is closed against its captured SPEC and the implementer handoff.",
+      "task_prompt": {
+        "path": "docs/issues/24/prompts/verify.md"
+      },
+      "write_scope": {
+        "mode": "review_only_artifact",
+        "repo_write": false,
+        "allowed_paths": [
+          "docs/issues/24/review/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "verify_review",
+          "kind": "finding",
+          "path": "docs/issues/24/review/REVIEW.md",
+          "required": true
+        }
+      ]
+    }
+  ],
+  "edges": [
+    {"from": "triage", "to": "fix", "on": "completed"},
+    {"from": "fix", "to": "verify", "on": "completed"}
+  ],
+  "cycles": [
+    {"from": "verify", "to": "fix", "on_verdict": "needs_revision", "max_iterations": 1}
+  ]
+}
