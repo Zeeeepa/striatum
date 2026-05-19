@@ -426,6 +426,7 @@ def read_doctor_pg(
     verbose: bool = False,
     token: str | None = None,
 ) -> dict[str, Any]:
+    from striatum.daemon_pg.blob_doctor import fetch_blob_doctor_block
     from striatum.daemon_pg.handlers.context import RepoHandlerContext
     from striatum.daemon_pg.handlers.reads.doctor import doctor_payload
 
@@ -442,6 +443,7 @@ def read_doctor_pg(
         data: dict[str, Any] = {"problems": [str(p["message"]) for p in problems]}
         if verbose:
             data["problem_records"] = problems
+        data["blob"] = fetch_blob_doctor_block("")
         return {"mode": "daemon", "protocol_version": PROTOCOL_VERSION, **data}
 
     try:
@@ -464,6 +466,7 @@ def read_doctor_pg(
         auth=auth,
     )
     data = doctor_payload(ctx, run_id=run_id, verbose=verbose)
+    data["blob"] = fetch_blob_doctor_block(repository_id)
     daemon_problems = daemon_doctor_records_pg(pg_conn)
     data["daemon_problems"] = [str(p["message"]) for p in daemon_problems]
     if verbose:

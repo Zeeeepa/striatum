@@ -9,7 +9,9 @@ from typing import Any, cast
 import pytest
 
 from striatum.daemon_pg import client_admin as daemon_mod
-from striatum.cli.dispatch import _dispatch_daemon
+from striatum.cli.dispatch import _dispatch_daemon, _format_blob_doctor_summary
+from striatum.daemon_pg.blob_doctor import fetch_blob_doctor_block
+from striatum.daemon_rpc.envelope import RpcError
 
 
 def _doctor_args() -> argparse.Namespace:
@@ -154,6 +156,100 @@ def test_sqlite_registry_success_path_unchanged(
     assert isinstance(sqlite_registry, dict)
     assert sqlite_registry["status"] == "post_pg_cutover_unused"
     assert result["daemon_diagnostics"] == {"mode": "daemon", "problems": [], "protocol_version": 1}
+
+
+def test_daemon_doctor_merges_blob_configured_false_and_formats_summary(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "striatum.daemon_pg.connection.doctor",
+        lambda **_: {"ok": True, "schema_version": 6, "status": "ok"},
+    )
+    monkeypatch.setattr(
+        daemon_mod,
+        "read_doctor",
+        lambda **_: {
+            "mode": "daemon",
+            "problems": [],
+            "protocol_version": 1,
+            "blob": {"configured": False},
+        },
+    )
+
+    result = _dispatch_daemon(_doctor_args())
+
+    assert isinstance(result, dict)
+    assert result["blob"] == {"configured": False}
+    assert result["daemon_diagnostics"]["blob"] == {"configured": False}
+    assert _format_blob_doctor_summary({"configured": False}) == "blob: not configured"
+
+
+def test_daemon_doctor_merges_repo_blob_ok_block_and_formats_summary(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    monkeypatch.setattr(
+        "striatum.daemon_pg.connection.doctor",
+        lambda **_: {"ok": True, "schema_version": 6, "status": "ok"},
+    )
+
+    def _read_doctor(**kwargs: Any) -> dict[str, Any]:
+        assert kwargs["repo"] == repo
+        return {
+            "mode": "daemon",
+            "repository_id": "repo_1",
+            "problems": [],
+            "protocol_version": 1,
+            "blob": {
+                "configured": True,
+                "reachable": True,
+                "bucket": "striatum-repo-1",
+                "bucket_status": "ok",
+                "round_trip_ms": 12,
+                "round_trip_sha256": "abc123",
+            },
+        }
+
+    monkeypatch.setattr(daemon_mod, "read_doctor", _read_doctor)
+    monkeypatch.setattr(
+        "striatum.daemon_pg.repo_cutover_report.verify_repo_cutover",
+        lambda _options: {
+            "schema_version": "striatum.repo_cutover_report.v1",
+            "ok": True,
+            "mode": "repo_cutover_verification",
+            "repo": str(repo.resolve()),
+            "recommendations": [],
+        },
+    )
+    args = _doctor_args()
+    args.doctor_repo = str(repo)
+
+    result = _dispatch_daemon(args)
+
+    assert isinstance(result, dict)
+    blob = result["blob"]
+    assert isinstance(blob, dict)
+    assert blob["bucket"] == "striatum-repo-1"
+    assert blob["bucket_status"] == "ok"
+    assert blob["round_trip_ms"] == 12
+    assert blob["round_trip_sha256"] == "abc123"
+    assert _format_blob_doctor_summary(blob) == "blob: configured (bucket=striatum-repo-1, probe=ok)"
+
+
+def test_fetch_blob_doctor_block_method_unknown_is_loud(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def _raise_method_unknown(*_args: Any, **_kwargs: Any) -> dict[str, Any]:
+        raise RpcError("method_unknown", "unknown daemon RPC method: doctor.blob_block")
+
+    monkeypatch.setattr("striatum.daemon_pg.blob_doctor._call_with_handshake", _raise_method_unknown)
+
+    assert fetch_blob_doctor_block() == {
+        "configured": None,
+        "errors": ["daemon binary predates RFC 0073; rebuild and restart daemon"],
+    }
 
 
 def test_daemon_doctor_authority_report_names_cutover_state(

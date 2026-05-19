@@ -92,6 +92,15 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(str(exc), file=sys.stderr)
         return 1
     if result is not None:
+        if (
+            not getattr(args, "json", False)
+            and getattr(args, "command", None) == "daemon"
+            and getattr(args, "daemon_command", None) == "doctor"
+            and isinstance(result, dict)
+            and _daemon_doctor_blob_block(result) is not None
+        ):
+            print(_format_daemon_doctor_human(result))
+            return 0
         if getattr(args, "json", False) or isinstance(result, dict):
             print(json_dumps({"ok": True, "data": result}))
         else:
@@ -1500,7 +1509,7 @@ def _dispatch_daemon(args: argparse.Namespace) -> object:
             )
             try:
                 daemon_diagnostics = daemon_admin.read_doctor(
-                    repo=None,
+                    repo=Path(args.doctor_repo) if getattr(args, "doctor_repo", None) else None,
                     run_id=None,
                     verbose=True,
                     postgres_url=getattr(args, "postgres_url", None),
@@ -1510,7 +1519,7 @@ def _dispatch_daemon(args: argparse.Namespace) -> object:
         else:
             try:
                 v1 = daemon_admin.read_doctor(
-                    repo=None,
+                    repo=Path(args.doctor_repo) if getattr(args, "doctor_repo", None) else None,
                     run_id=None,
                     verbose=True,
                     postgres_url=getattr(args, "postgres_url", None),
@@ -1520,6 +1529,10 @@ def _dispatch_daemon(args: argparse.Namespace) -> object:
         result: dict[str, object] = {"mode": "daemon", "postgres": pg, "sqlite_registry": v1}
         if daemon_diagnostics is not None:
             result["daemon_diagnostics"] = daemon_diagnostics
+            if isinstance(daemon_diagnostics.get("blob"), dict):
+                result["blob"] = daemon_diagnostics["blob"]
+        elif isinstance(v1.get("blob"), dict):
+            result["blob"] = v1["blob"]
         repo_cutover = _daemon_doctor_repo_cutover_report(args)
         if repo_cutover is not None:
             result["repo_cutover"] = repo_cutover
@@ -1589,6 +1602,54 @@ def _post_pg_cutover_sqlite_registry_result(note: str) -> dict[str, object]:
         "status": "post_pg_cutover_unused",
         "note": note,
     }
+
+
+def _daemon_doctor_blob_block(result: dict[str, object]) -> dict[str, Any] | None:
+    blob = result.get("blob")
+    if isinstance(blob, dict):
+        return cast(dict[str, Any], blob)
+    diagnostics = result.get("daemon_diagnostics")
+    if isinstance(diagnostics, dict) and isinstance(diagnostics.get("blob"), dict):
+        return cast(dict[str, Any], diagnostics["blob"])
+    sqlite_registry = result.get("sqlite_registry")
+    if isinstance(sqlite_registry, dict) and isinstance(sqlite_registry.get("blob"), dict):
+        return cast(dict[str, Any], sqlite_registry["blob"])
+    return None
+
+
+def _format_daemon_doctor_human(result: dict[str, object]) -> str:
+    return "\n".join(
+        [
+            json_dumps({"ok": True, "data": result}),
+            _format_blob_doctor_summary(_daemon_doctor_blob_block(result) or {}),
+        ]
+    )
+
+
+def _format_blob_doctor_summary(blob: dict[str, Any]) -> str:
+    configured = blob.get("configured")
+    errors = blob.get("errors")
+    first_error = ""
+    if isinstance(errors, list) and errors:
+        first_error = str(errors[0])
+    if configured is False:
+        if first_error.startswith("daemon socket unreachable:"):
+            return f"blob: unreachable: {first_error}"
+        return "blob: not configured"
+    if configured is None:
+        return f"blob: unavailable: {first_error or 'unknown'}"
+    if blob.get("reachable") is False:
+        return f"blob: unreachable: {first_error or 'unknown'}"
+    bucket_status = blob.get("bucket_status")
+    bucket = blob.get("bucket")
+    if bucket_status == "ok":
+        endpoint = blob.get("endpoint")
+        if endpoint:
+            return f"blob: configured (endpoint={endpoint}, bucket={bucket}, probe=ok)"
+        return f"blob: configured (bucket={bucket}, probe=ok)"
+    if isinstance(bucket_status, str) and bucket_status:
+        return f"blob: configured (bucket={bucket}, status={bucket_status})"
+    return "blob: configured"
 
 
 def _daemon_doctor_repo_cutover_report(args: argparse.Namespace) -> dict[str, object] | None:

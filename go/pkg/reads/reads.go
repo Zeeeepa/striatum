@@ -112,10 +112,12 @@ func Register(server *rpc.Server, runner db.Runner, opts ...Options) {
 		o = opts[0]
 	}
 	packageBlobClient = o.BlobClient
+	rpc.MethodRegistry["doctor.blob_block"] = rpc.NewMethod("doctor.blob_block", rpc.CapPtr(rpc.CapabilityRead), false, rpc.ScopeDaemonGlobal)
 	server.Register("status", makeHandler(runner, HandleStatus))
 	server.Register("dashboard", makeHandler(runner, HandleDashboard))
 	server.Register("dashboard.all", makeHandler(runner, HandleDashboardAll))
 	server.Register("doctor", makeHandler(runner, HandleDoctor))
+	server.Register("doctor.blob_block", makeHandler(runner, HandleDoctorBlobBlock))
 	server.Register("why", makeHandler(runner, HandleWhy))
 	server.Register("list.runs", makeHandler(runner, HandleListRuns))
 	server.Register("list.sessions", makeHandler(runner, HandleListSessions))
