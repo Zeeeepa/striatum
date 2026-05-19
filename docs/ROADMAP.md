@@ -13,16 +13,19 @@ dependency edges, and "what would I do next" framing. Update on every
 
 ---
 
-## 1. State as of 2026-05-18 (v1.55.0 + Unreleased remediation)
+## 1. State as of 2026-05-19 (v1.56.0)
 
-- **Latest tag:** `v1.55.0` is the latest released tag and
-  `pyproject.toml` version. Current `main` also contains Unreleased
+- **Latest tag:** `v1.56.0` is the latest released tag and
+  `pyproject.toml` version. v1.56.0 packages the
   architecture-remediation follow-through from 2026-05-17 through
-  2026-05-18.
-- **Latest substantive release:** v1.55.0 completed RFC 0048 V1.5 hardening,
-  Schema v6 event-chain columns, capability-denial coverage, audit-chain row
-  locking, append-only role-grant checks, and the inline helper wiring needed
-  by recovery paths.
+  2026-05-18, RFC 0072 blob-backed artifact storage, and the
+  GH #22 / #23 / #24 daemon-recovery cluster from 2026-05-18 → 2026-05-19.
+- **Latest substantive release:** v1.56.0 — daemon recovery hardening
+  (owner-role migrations, striatumd pidfile lifecycle, packet_id
+  discoverability + release --requeue refusal), RFC 0072 blob-backed
+  artifact storage, and the v1.55→v1.56 architecture remediation
+  follow-through (Go default daemon, retired Python daemon module,
+  SQLite eradication).
 - **Current workstream:** TODO 61-64 / RFC 0068-0071 architecture remediation.
   D107 supersedes D105: Go is now the default production daemon core, active
   contract-method parity is landed, Python CLI/web clients stay useful, and

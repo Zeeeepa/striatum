@@ -1,6 +1,40 @@
 # Changelog
 
-## Unreleased — 2026-05-18
+## Unreleased — 2026-05-19
+
+## v1.56.0 — 2026-05-19
+
+### GH #22 / #23 / #24 daemon-recovery cluster
+
+Three daemon-recovery bugs surfaced while bringing the local 1.54.0 →
+1.55.0 daemon back up after RFC 0072 migration 0009 landed:
+
+- **GH #22**: `striatum daemon doctor --apply-migrations --as-owner
+  <owner-url>` is the first-class operator path for applying pending
+  daemon migrations as the table-owner role. `striatum daemon stop`
+  is now pidfile-driven (audit is best-effort), so a pending migration
+  cannot lock the daemon out of being stopped. The migration-privilege
+  hint string names the supported `--as-owner` shape and no longer
+  advertises the test-harness env var.
+
+- **GH #23**: the Go daemon now writes
+  `<runtime_dir>/striatumd.pid` atomically (temp + rename) before
+  binding the Unix socket, and removes it on clean shutdown. A
+  pre-existing pidfile pointing at a live foreign `striatumd` refuses
+  to start; a stale PID is overwritten. `striatum daemon status` is
+  now accurate without the manual `echo $pid > striatumd.pid`
+  workaround.
+
+- **GH #24**: `claim-next` surfaces `data.packet_id` beside
+  `data.status` / `data.packet`, and `data.next_steps.supervise_send`
+  carries the literal command. `supervise send` detects obvious
+  wrong-kind IDs (`msg_*`, `lease_*`, `job_*`, `sess_*`, `sup_*`) and
+  fails with a message pointing at the right field. `release --requeue`
+  on `repo_write` jobs refuses with `invalid_transition` and names
+  `striatum recovery requeue-stale` as the recovery verb instead of
+  silently parking the job in `blocked`. Skill templates
+  (claim-loop, supervise, gemini guide, generic guide) updated with
+  the real CLI paths.
 
 ### Architecture remediation follow-through
 
