@@ -1,39 +1,31 @@
 """RFC 0072 step 7: bulk-migrate ``docs/dogfood/`` into blob storage.
 
-One-shot operator script. Walks the on-disk dogfood directories,
-uploads every file to the configured per-repo S3 bucket at
-``dogfood-historical/<dogfood_id>/<rel_path>``, and reports what
-happened. Idempotent — files already present in the bucket with a
-matching sha256 are skipped.
+One-shot operator script. Walks the on-disk dogfood directories and
+issues a per-file ``corpus.migrate_historical_dogfood_file`` RPC to
+the running daemon, which holds the S3 credentials and the per-repo
+bucket binding. Idempotent: a remote object whose
+``X-Striatum-Sha256`` metadata matches the local sha256 is reported
+as ``skipped_already_present`` and no upload is performed.
 
 The script does **not** delete the on-disk files: that's the operator's
-explicit step (``git rm -r docs/dogfood/`` plus an
-``.gitignore`` update). The script's job is to make the deletion
-safe — i.e., every file is verified to be available in blob storage.
+explicit step (``git rm -r docs/dogfood/`` plus an ``.gitignore``
+update). The script's job is to make the deletion safe — i.e., every
+file is verified to be available in blob storage.
 
-Configuration is read from environment variables (matching
-``go/pkg/blob.LoadConfig``):
-
-- ``STRIATUM_BLOB_ENDPOINT`` (required) — base URL, e.g.
-  ``http://127.0.0.1:3900``.
-- ``STRIATUM_BLOB_ACCESS_KEY`` / ``STRIATUM_BLOB_SECRET_KEY`` (required).
-- ``STRIATUM_BLOB_REGION`` (default ``us-east-1``).
-- ``STRIATUM_BLOB_PATH_STYLE`` (default true).
-
-The per-repo bucket name is supplied via ``--bucket`` (the operator
-already knows it from the ``adopt`` flow).
+The Python side has no S3 client dependency: the daemon holds the
+credentials, the daemon talks to S3, the CLI just walks the tree and
+hands bodies to the daemon over the existing RPC envelope.
 """
 
 from __future__ import annotations
 
 import argparse
-import hashlib
+import base64
 import json
-import os
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Iterator
 
 
 @dataclass(frozen=True)
@@ -45,7 +37,7 @@ class MigrationEntry:
     blob_key: str
     sha256: str
     size_bytes: int
-    status: str  # "uploaded", "skipped_already_present", "verified", "error"
+    status: str  # "uploaded", "skipped_already_present", "would_upload", "error"
     error: str | None = None
 
 
@@ -71,209 +63,96 @@ def iter_dogfood_files(dogfood_root: Path) -> Iterator[tuple[str, Path, str]]:
             yield dogfood_id, path, rel_path
 
 
-def sha256_of(path: Path) -> tuple[str, int]:
-    h = hashlib.sha256()
-    size = 0
-    with path.open("rb") as f:
-        while True:
-            chunk = f.read(64 * 1024)
-            if not chunk:
-                break
-            h.update(chunk)
-            size += len(chunk)
-    return h.hexdigest(), size
-
-
 def canonical_blob_key(dogfood_id: str, rel_path: str) -> str:
-    """Canonical key shape, mirrored from ``go/pkg/blob.HistoricalDogfoodKey``.
-
-    Path-shaped (browsable in the MinIO console); no sha256 in the
-    key because integrity verification is via the bucket-level
-    sha256 round-trip.
+    """Canonical key shape, mirrored from
+    ``go/pkg/blob.HistoricalDogfoodKey``. Used by the CLI only for
+    display in the per-file report; the daemon computes the
+    authoritative key independently and returns it in the response.
     """
 
     clean = rel_path.lstrip("/").removeprefix("./")
     return f"dogfood-historical/{dogfood_id}/{clean}"
 
 
-def content_type_for(path: Path) -> str:
-    suffix = path.suffix.lower()
-    if suffix == ".md":
-        return "text/markdown; charset=utf-8"
-    if suffix == ".json":
-        return "application/json"
-    if suffix == ".txt":
-        return "text/plain; charset=utf-8"
-    if suffix in {".yml", ".yaml"}:
-        return "application/x-yaml"
-    if suffix == ".sh":
-        return "text/x-shellscript; charset=utf-8"
-    return "application/octet-stream"
-
-
-class MigrationConfig:
-    """Loaded once at script start. Mirrors blob.Config on the Go side."""
-
-    def __init__(self) -> None:
-        endpoint = os.environ.get("STRIATUM_BLOB_ENDPOINT", "").strip()
-        if not endpoint:
-            raise SystemExit("STRIATUM_BLOB_ENDPOINT is required")
-        access = os.environ.get("STRIATUM_BLOB_ACCESS_KEY", "").strip()
-        secret = os.environ.get("STRIATUM_BLOB_SECRET_KEY", "").strip()
-        if not access:
-            raise SystemExit("STRIATUM_BLOB_ACCESS_KEY is required")
-        if not secret:
-            raise SystemExit("STRIATUM_BLOB_SECRET_KEY is required")
-        region = os.environ.get("STRIATUM_BLOB_REGION", "").strip() or "us-east-1"
-        path_style = os.environ.get("STRIATUM_BLOB_PATH_STYLE", "").lower()
-        secure = endpoint.startswith("https://")
-        host = endpoint.removeprefix("https://").removeprefix("http://")
-        self.host = host
-        self.region = region
-        self.access = access
-        self.secret = secret
-        self.secure = secure
-        # path_style ∈ {"", "1", "true", "yes", "on"} → True; "0"/"false"/"no"/"off" → False.
-        if path_style in ("0", "false", "no", "off"):
-            self.path_style = False
-        else:
-            self.path_style = True
-
-
-def build_client(cfg: MigrationConfig) -> Any:
-    from minio import Minio
-
-    return Minio(
-        cfg.host,
-        access_key=cfg.access,
-        secret_key=cfg.secret,
-        secure=cfg.secure,
-        region=cfg.region,
-    )
-
-
-def remote_sha256(client: Any, bucket: str, key: str) -> str | None:
-    """Return the sha256 of the existing object at ``bucket/key`` if it
-    exists. Sha is stored in user metadata under X-Amz-Meta-X-Striatum-Sha256
-    by ``go/pkg/blob.Client.PutBytes``; if absent, return "" (object
-    exists but no sha known).
-    Returns ``None`` if the object does not exist.
-    """
-
-    from minio.error import S3Error
-
-    try:
-        stat = client.stat_object(bucket, key)
-    except S3Error as exc:
-        if exc.code in ("NoSuchKey", "NoSuchBucket"):
-            return None
-        raise
-    meta = getattr(stat, "metadata", None) or {}
-    for header_key, value in meta.items():
-        if header_key.lower() in (
-            "x-amz-meta-x-striatum-sha256",
-            "x-striatum-sha256",
-        ):
-            return str(value)
-    return ""
-
-
 def migrate_one(
-    client: Any,
-    bucket: str,
+    repo: Path,
     dogfood_id: str,
     path: Path,
     rel_path: str,
     *,
     dry_run: bool,
 ) -> MigrationEntry:
-    key = canonical_blob_key(dogfood_id, rel_path)
     try:
-        digest, size = sha256_of(path)
+        body = path.read_bytes()
     except OSError as exc:
         return MigrationEntry(
             dogfood_id=dogfood_id,
             rel_path=rel_path,
-            blob_key=key,
+            blob_key=canonical_blob_key(dogfood_id, rel_path),
             sha256="",
             size_bytes=0,
             status="error",
             error=f"local read failed: {exc}",
         )
 
-    existing = remote_sha256(client, bucket, key)
-    if existing == digest:
-        return MigrationEntry(
-            dogfood_id=dogfood_id,
-            rel_path=rel_path,
-            blob_key=key,
-            sha256=digest,
-            size_bytes=size,
-            status="skipped_already_present",
-        )
-
-    if dry_run:
-        return MigrationEntry(
-            dogfood_id=dogfood_id,
-            rel_path=rel_path,
-            blob_key=key,
-            sha256=digest,
-            size_bytes=size,
-            status="would_upload",
-        )
-
-    import io
-
     try:
-        body = path.read_bytes()
-        client.put_object(
-            bucket,
-            key,
-            io.BytesIO(body),
-            length=len(body),
-            content_type=content_type_for(path),
-            metadata={"X-Striatum-Sha256": digest},
+        from striatum.service_daemon import ServiceDaemonRpcError, call_repo_method
+
+        params: dict[str, object] = {
+            "dogfood_id": dogfood_id,
+            "rel_path": rel_path,
+            "body_base64": base64.b64encode(body).decode("ascii"),
+        }
+        if dry_run:
+            params["dry_run"] = True
+        result = call_repo_method(
+            repo,
+            "corpus.migrate_historical_dogfood_file",
+            params,
         )
-    except Exception as exc:  # noqa: BLE001 - propagate any S3 failure verbatim.
+    except ServiceDaemonRpcError as exc:
         return MigrationEntry(
             dogfood_id=dogfood_id,
             rel_path=rel_path,
-            blob_key=key,
-            sha256=digest,
-            size_bytes=size,
+            blob_key=canonical_blob_key(dogfood_id, rel_path),
+            sha256="",
+            size_bytes=len(body),
             status="error",
-            error=f"put failed: {type(exc).__name__}: {exc}",
+            error=f"daemon rpc {exc.code}: {exc.message}",
+        )
+    except Exception as exc:  # noqa: BLE001 - any failure becomes a per-file error.
+        return MigrationEntry(
+            dogfood_id=dogfood_id,
+            rel_path=rel_path,
+            blob_key=canonical_blob_key(dogfood_id, rel_path),
+            sha256="",
+            size_bytes=len(body),
+            status="error",
+            error=f"{type(exc).__name__}: {exc}",
         )
 
-    # Verify round-trip
-    verify = remote_sha256(client, bucket, key)
-    if verify is None:
+    if not isinstance(result, dict):
         return MigrationEntry(
             dogfood_id=dogfood_id,
             rel_path=rel_path,
-            blob_key=key,
-            sha256=digest,
-            size_bytes=size,
+            blob_key=canonical_blob_key(dogfood_id, rel_path),
+            sha256="",
+            size_bytes=len(body),
             status="error",
-            error="verify failed: object missing after put",
+            error="daemon returned unexpected response shape",
         )
-    if verify and verify != digest:
-        return MigrationEntry(
-            dogfood_id=dogfood_id,
-            rel_path=rel_path,
-            blob_key=key,
-            sha256=digest,
-            size_bytes=size,
-            status="error",
-            error=f"verify failed: remote sha {verify} != local sha {digest}",
-        )
+
+    blob_key = str(result.get("blob_key") or canonical_blob_key(dogfood_id, rel_path))
+    sha256 = str(result.get("sha256") or "")
+    size = int(result.get("size_bytes") or len(body))
+    status = str(result.get("status") or "error")
     return MigrationEntry(
         dogfood_id=dogfood_id,
         rel_path=rel_path,
-        blob_key=key,
-        sha256=digest,
+        blob_key=blob_key,
+        sha256=sha256,
         size_bytes=size,
-        status="uploaded",
+        status=status,
     )
 
 
@@ -284,16 +163,30 @@ def run_migration(
     dry_run: bool,
     limit: int | None,
 ) -> tuple[list[MigrationEntry], dict[str, int]]:
-    cfg = MigrationConfig()
-    client = build_client(cfg)
+    """Walk the on-disk dogfood tree and migrate each file through
+    the daemon RPC.
+
+    The ``bucket`` argument is kept for parity with the operator
+    runbook and surfaced in the report header, but the daemon
+    authoritatively resolves the bucket from
+    ``striatumd.repositories.blob_bucket`` for the addressed repo.
+    Passing a different value here does not redirect the upload.
+    """
+
+    del bucket  # daemon-side lookup is authoritative; see docstring.
 
     dogfood_root = repo / "docs" / "dogfood"
     entries: list[MigrationEntry] = []
-    counts = {"uploaded": 0, "skipped_already_present": 0, "would_upload": 0, "error": 0}
+    counts: dict[str, int] = {
+        "uploaded": 0,
+        "skipped_already_present": 0,
+        "would_upload": 0,
+        "error": 0,
+    }
     for index, (dogfood_id, path, rel_path) in enumerate(iter_dogfood_files(dogfood_root)):
         if limit is not None and index >= limit:
             break
-        entry = migrate_one(client, bucket, dogfood_id, path, rel_path, dry_run=dry_run)
+        entry = migrate_one(repo, dogfood_id, path, rel_path, dry_run=dry_run)
         entries.append(entry)
         counts[entry.status] = counts.get(entry.status, 0) + 1
     return entries, counts
@@ -303,8 +196,8 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="striatum-corpus-migrate-historical-dogfoods",
         description=(
-            "RFC 0072: bulk-migrate docs/dogfood/ into the configured "
-            "per-repo S3 bucket. Idempotent. Does not delete on-disk files."
+            "RFC 0072: bulk-migrate docs/dogfood/ into the per-repo S3 bucket "
+            "via the daemon. Idempotent. Does not delete on-disk files."
         ),
     )
     parser.add_argument(
@@ -316,7 +209,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--bucket",
         required=True,
-        help="Per-repo S3 bucket (recorded on striatumd.repositories.blob_bucket)",
+        help=(
+            "Per-repo S3 bucket (informational; the daemon resolves the "
+            "bucket authoritatively from striatumd.repositories.blob_bucket)."
+        ),
     )
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument(

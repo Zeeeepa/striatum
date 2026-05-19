@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strings"
 
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
@@ -164,4 +165,35 @@ func (c *Client) HeadObject(ctx context.Context, bucket, key string) (size int64
 		return 0, "", err
 	}
 	return stat.Size, stat.ContentType, nil
+}
+
+// RemoteSha256 reads the X-Striatum-Sha256 user metadata header from
+// the named object. Used by the historical-migration flow to
+// distinguish "already uploaded with matching content" from "needs
+// upload". Returns:
+//
+//   - (sha256, true, nil) when the object exists and the metadata
+//     header is present.
+//   - ("", true, nil) when the object exists but the metadata header
+//     is missing (object was uploaded by a non-striatum path).
+//   - ("", false, nil) when the object does not exist.
+//   - ("", false, error) on any other failure (network, auth, etc.).
+func (c *Client) RemoteSha256(ctx context.Context, bucket, key string) (string, bool, error) {
+	stat, err := c.mc.StatObject(ctx, bucket, key, minio.StatObjectOptions{})
+	if err != nil {
+		var s3err minio.ErrorResponse
+		if errors.As(err, &s3err) && (s3err.Code == "NoSuchKey" || s3err.Code == "NoSuchBucket") {
+			return "", false, nil
+		}
+		return "", false, err
+	}
+	// minio-go normalizes user metadata under stat.UserMetadata with
+	// the leading x-amz-meta- stripped. Values are case-preserved as
+	// the server returns them; case-insensitive lookup avoids surprises.
+	for k, v := range stat.UserMetadata {
+		if strings.EqualFold(k, "X-Striatum-Sha256") {
+			return v, true, nil
+		}
+	}
+	return "", true, nil
 }

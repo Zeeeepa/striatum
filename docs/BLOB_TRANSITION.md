@@ -161,7 +161,14 @@ Before running:
   reports `bucket_status: "ok"` for the striatum repo.
 - Look up the bucket name:
   `psql -c "SELECT blob_bucket FROM striatumd.repositories WHERE repo_root = '/path/to/striatum'"`.
-- Install the blob extra: `pip install -e '.[blob]'`.
+
+The migration goes through the daemon — no S3 client is installed on
+the Python side. The CLI walks `docs/dogfood/`, reads each file, and
+hands the base64-encoded body to the daemon over the existing
+`corpus.migrate_historical_dogfood_file` RPC. The daemon does the
+actual upload using the same `*blob.Client` that the live publish
+path uses, so credentials and per-repo bucket binding stay in one
+place.
 
 Dry-run first:
 

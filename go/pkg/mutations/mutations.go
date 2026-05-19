@@ -104,6 +104,7 @@ func Register(server *rpc.Server, runner db.Runner, opts ...Options) {
 	server.Register("recovery.auto", makeHandler(runner, HandleRecoveryAuto))
 	server.Register("recovery.auto_finalize", makeHandler(runner, HandleRecoveryAutoFinalize))
 	server.Register("supervise.report", makeHandler(runner, HandleSuperviseReport))
+	server.Register("corpus.migrate_historical_dogfood_file", makeHandler(runner, HandleCorpusMigrateHistoricalDogfoodFile))
 }
 
 func makeHandler(runner db.Runner, fn handlerFn) rpc.Handler {

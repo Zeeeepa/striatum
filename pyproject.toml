@@ -33,9 +33,6 @@ dependencies = ["jinja2>=3.1", "markdown-it-py>=4.0"]
 daemon-pg = [
   "psycopg[binary]>=3.2",
 ]
-blob = [
-  "minio>=7.2",
-]
 dev = [
   "build>=1.2",
   "mypy>=1.10",
@@ -79,5 +76,5 @@ files = ["src", "tests"]
 # already gated at the call sites; allow them to be untyped without
 # masking real bugs.
 [[tool.mypy.overrides]]
-module = ["keyring", "keyring.*", "psycopg", "psycopg.*", "minio", "minio.*"]
+module = ["keyring", "keyring.*", "psycopg", "psycopg.*"]
 ignore_missing_imports = true
