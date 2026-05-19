@@ -230,6 +230,16 @@ def build_parser() -> argparse.ArgumentParser:
         default=True,
     )
     adopt.add_argument("--no-register", dest="register", action="store_false", default=True)
+    adopt.add_argument(
+        "--apply-blob-creation",
+        action="store_true",
+        help="RFC 0072: create the per-repo S3 bucket during adopt if it does not exist.",
+    )
+    adopt.add_argument(
+        "--blob-bucket",
+        default=None,
+        help="RFC 0072: explicit bucket name (default: striatum-<repository_id>).",
+    )
     adopt.add_argument("--json", action="store_true")
 
     operator = sub.add_parser("operator")

@@ -1,1 +1,0 @@
-Implement V1.5. Ship: striatum.web.chat_tools (tool definitions + execute_tool); chat_provider.py extension for tool-use request/response per flavor; briefing in _handle_chat_new; tool-call loop in _handle_chat_send; chat.html rendering of tool calls/results; ride-along fixes (graph route tolerance + doctor template); tests; v1.13.0 bump.

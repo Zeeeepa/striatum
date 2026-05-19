@@ -1,1 +1,0 @@
-Pin: tool schemas (read_file, list_dir, striatum_status, striatum_why, git_log, git_diff); tool-call loop (10-iteration cap); briefing format; JSONL role extensions; per-flavor request/response handling; ride-along fixes; test plan.

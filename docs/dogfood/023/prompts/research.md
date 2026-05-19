@@ -1,1 +1,0 @@
-Map: workflow_graph_data + render_run_graph (reusable for thumbnails); validate_workflow (try/except for status); rg or os.walk pattern for **/workflow.json discovery; service.py route table extension shape.

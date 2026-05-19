@@ -131,9 +131,17 @@ func (s *Server) Serve(ctx context.Context, listener net.Listener) error {
 	}
 }
 
+// MaxEnvelopeBytes is the largest RPC envelope (newline-framed JSON
+// line) the server accepts. bufio.Scanner defaults to 64 KiB which
+// is too small for envelopes carrying base64-encoded artifact bodies
+// (RFC 0072 corpus.migrate_historical_dogfood_file). 8 MiB gives the
+// migration headroom while still bounding memory per connection.
+const MaxEnvelopeBytes = 8 * 1024 * 1024
+
 func (s *Server) ServeConn(ctx context.Context, rwc io.ReadWriteCloser, connectionID string) error {
 	defer rwc.Close()
 	reader := bufio.NewScanner(rwc)
+	reader.Buffer(make([]byte, 64*1024), MaxEnvelopeBytes)
 	writer := bufio.NewWriter(rwc)
 	for reader.Scan() {
 		line := reader.Bytes()

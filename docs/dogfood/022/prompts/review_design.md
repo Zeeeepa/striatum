@@ -1,1 +1,0 @@
-Devil's-advocate review. Sweep: scope creep? tool surface too broad/narrow? execute_tool path-traversal-safe? prompt injection via briefing? loop iteration cap right? striatum verbs that mutate accidentally exposed? both flavors covered correctly?

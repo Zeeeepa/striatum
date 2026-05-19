@@ -1,1 +1,0 @@
-Devils advocate build review. Verify: cancel from running, ready, blocked states; cancel idempotency; lease cleanup; auto-suffix when conflict; suffix avoids further collision; mutation gating on POST cancel + workflows/run; CSP unchanged; full suite green.

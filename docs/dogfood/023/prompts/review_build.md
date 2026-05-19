@@ -1,1 +1,0 @@
-Devil's-advocate build review. Verify: discover skips .git/.striatum/.venv/__pycache__; path safety; invalid workflow doesn't crash detail page; list_workflows tool returns expected shape; lint/typecheck/test.

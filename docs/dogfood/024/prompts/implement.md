@@ -1,1 +1,0 @@
-Implement V1.5. Ship: workflow_edit.html, workflow_edit.js (state mgmt + render); striatum.web.workflow_edit module (parse, validate, save); /workflows/edit/<path> GET + POST routes; /workflows/<path> page gets "Edit" link; tests covering happy path, validation rejection, path safety, mutation gating.

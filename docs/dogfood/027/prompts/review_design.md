@@ -1,1 +1,0 @@
-Devils advocate. Sweep: pause-as-column vs pause-as-state (which is more correct?); leases held when paused (do they expire normally?); resume race (resume + claim-next collision); retry idempotency on a queued job; retry-cancel-retry sequence; cascade cancel from web; partial-run pause semantics.

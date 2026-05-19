@@ -16,9 +16,17 @@ main.log
 status.json
 final_status.json
 go/bin/
-docs/dogfood/030/design/gemini/
+# RFC 0072: historical dogfood artifacts moved to S3-compatible blob
+# storage at dogfood-historical/<dogfood_id>/<rel_path>. The old
+# per-file overrides above (030/design/gemini, 043/build/.../HANDOFF.md)
+# are subsumed by this broader exclusion. Recovered via
+# `striatum corpus migrate-historical-dogfoods` round-trip in S3.
+docs/dogfood/
+# Keep the two index files git-tracked: they are not per-run scaffold
+# bodies, they are the human-readable map of what each numbered run
+# shipped.
+!docs/dogfood/HISTORICAL.md
+!docs/dogfood/FRICTION_LOG.md
 
-!docs/dogfood/043/build/python/HANDOFF.md
-!docs/dogfood/043/build/frontend/HANDOFF.md
 .striatum/
 .scratch/

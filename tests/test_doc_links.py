@@ -22,9 +22,33 @@ def _markdown_files() -> list[Path]:
     return [f for f in files if f.exists()]
 
 
+def _is_historical_dogfood_link(target: str) -> bool:
+    """True when ``target`` references a file inside a numbered
+    ``docs/dogfood/<id>/`` run directory.
+
+    Per RFC 0072 step 8, per-run dogfood bodies live in
+    S3-compatible blob storage at
+    ``dogfood-historical/<dogfood_id>/<rel_path>``; only the
+    ``HISTORICAL.md`` and ``FRICTION_LOG.md`` indexes remain
+    git-tracked. Older docs that reference per-run bodies (~25
+    long-standing pointers in DECISION_LOG, SPEC, INDEX, DOC_MAP,
+    FRONTEND_DEVELOPMENT, and a handful of RFCs) keep the
+    historical anchor for context even though the file is no
+    longer on disk. See docs/BLOB_TRANSITION.md.
+    """
+    parts = target.lstrip("./").split("/")
+    while parts and parts[0] in ("..", ""):
+        parts = parts[1:]
+    if len(parts) < 2 or parts[0] != "dogfood":
+        return False
+    second = parts[1]
+    return second not in {"HISTORICAL.md", "FRICTION_LOG.md"}
+
+
 def test_relative_doc_links_resolve() -> None:
     """Every Markdown link in the curated doc set must point at a file
-    that exists on disk. URLs and pure-anchor links are skipped."""
+    that exists on disk. URLs, pure-anchor links, and (per RFC 0072)
+    historical ``dogfood/<id>/...`` paths are skipped."""
     failures: list[str] = []
     for path in _markdown_files():
         text = path.read_text(encoding="utf-8")
@@ -34,6 +58,9 @@ def test_relative_doc_links_resolve() -> None:
                 continue
             target_path, _, _ = target.partition("#")
             if not target_path:
+                continue
+            normalized = target_path.replace("\\", "/")
+            if _is_historical_dogfood_link(normalized):
                 continue
             resolved = (path.parent / target_path).resolve()
             if not resolved.exists():

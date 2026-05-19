@@ -1,1 +1,0 @@
-Devils advocate build review. Verify: run-now mutation gate (405 without --allow-mutations); branch-hygiene path (allow-dirty? auto-merge?); If-Match works on stale, missing, and matching; field-level errors render correctly without breaking V1.5 banner fallback; CSP unchanged; full suite green.
