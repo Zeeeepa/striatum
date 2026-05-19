@@ -77,3 +77,5 @@ new GH issues rather than amending the closed one.
   writes it ([gh#23](https://github.com/halbritt/striatum/issues/23))
 - [24/](24/) — supervise send packet_id discoverability + release
   --requeue blocked ([gh#24](https://github.com/halbritt/striatum/issues/24))
+- [25/](25/) — repo list (no --json) misleading repo_not_migrated
+  error ([gh#25](https://github.com/halbritt/striatum/issues/25))
