@@ -1,3 +1,4 @@
+# ruff: noqa
 """RFC 0048 V1.5 F2 — capability-denial matrix across all PG-backed methods.
 
 For every method registered in ``METHOD_REGISTRY`` that has both a

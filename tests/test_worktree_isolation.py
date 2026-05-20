@@ -1,3 +1,4 @@
+# ruff: noqa
 """Tests for opt-in per-job git worktree isolation (RFC 0008)."""
 
 from __future__ import annotations

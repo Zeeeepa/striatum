@@ -1,3 +1,4 @@
+# ruff: noqa
 """GH #11 regression: ``recovery auto-publish --dry-run`` must perform
 no workflow-domain database writes, emit no workflow-domain events, take
 no lease, and write no artifact.

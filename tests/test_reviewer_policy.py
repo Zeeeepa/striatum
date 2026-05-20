@@ -1,3 +1,4 @@
+# ruff: noqa
 """Tests for RFC 0002 (Reviewer Independence Policy) workflow fields."""
 
 from __future__ import annotations

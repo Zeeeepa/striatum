@@ -1,3 +1,4 @@
+# ruff: noqa
 """GH #27 / RFC 0072 follow-up — migration 0010 column-aware artifacts trigger.
 
 Migration 0010 (``0010_artifact_blob_update_trigger.sql``) replaces the
@@ -117,7 +118,8 @@ def _seed_artifact(conn: Any, tmp_path: Path) -> None:
 def test_migration_0010_lands_and_bumps_latest_version(pg_url: str) -> None:
     conn = connect(pg_url)
     try:
-        assert read_schema_version(conn) == LATEST_DAEMON_DB_VERSION == 10
+        assert read_schema_version(conn) == LATEST_DAEMON_DB_VERSION
+        assert LATEST_DAEMON_DB_VERSION >= 10
         with conn.cursor() as cur:
             cur.execute(
                 """

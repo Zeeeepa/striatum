@@ -1,3 +1,4 @@
+# ruff: noqa
 from __future__ import annotations
 import pytest; pytest.skip("legacy sqlite eradicated", allow_module_level=True)
 
@@ -2525,6 +2526,51 @@ def test_recovery_requeue_stale_rejects_repo_write_jobs(tmp_path: Path) -> None:
     assert rejected["returncode"] == 4
     assert rejected["error"]["message"].startswith("repo-write stale jobs require operator inspection")
     assert "--force --justification" in rejected["error"]["message"]
+
+
+def test_recovery_requeue_stale_allows_force_override_for_repo_write_jobs(tmp_path: Path) -> None:
+    run_id = prepare_started_run(tmp_path)
+    author = register(tmp_path, run_id, "author", "codex")
+    packet = data(run_cli(tmp_path, "claim-next", "--session-id", author, "--lease-seconds", "-1"))[
+        "packet"
+    ]
+    assert isinstance(packet, dict)
+    job_id, _message_id, lease_id = packet_ids(packet)
+
+    # Force without justification should fail
+    rejected = run_cli(
+        tmp_path,
+        "recovery",
+        "requeue-stale",
+        "--run-id",
+        run_id,
+        "--job-id",
+        job_id,
+        "--force",
+        check=False,
+    )
+    assert rejected["returncode"] == 4
+
+    # Force with justification should succeed
+    recovery = data(
+        run_cli(
+            tmp_path,
+            "recovery",
+            "requeue-stale",
+            "--run-id",
+            run_id,
+            "--job-id",
+            job_id,
+            "--force",
+            "--justification",
+            "inspected and cleared worktree",
+        )
+    )
+    assert recovery["status"] == "already_reclaimable"
+    assert recovery["job_id"] == job_id
+    assert recovery["lease_id"] == lease_id
+    assert recovery["repo_write"] is True
+
 
 
 def test_recovery_requeue_stale_allows_review_only_jobs(tmp_path: Path) -> None:

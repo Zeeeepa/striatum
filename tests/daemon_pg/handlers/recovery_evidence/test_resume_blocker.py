@@ -36,17 +36,20 @@ def test_handler_signature_is_ctx_params() -> None:
     assert list(sig.parameters) == ["ctx", "params"]
 
 
-def test_process_adapter_blocker_kinds_match_sqlite() -> None:
+def test_process_adapter_blocker_kinds() -> None:
     from ._helpers import import_handler
 
     mod = import_handler("resume_blocker")
-    from striatum.cli.recovery import (
-        PROCESS_ADAPTER_BLOCKER_KINDS as SQLITE_KINDS,
-        PROCESS_EXIT_BLOCKER_KINDS as SQLITE_EXIT_KINDS,
+    expected_adapter_kinds = frozenset(
+        {"process_stopped", "process_lacks_lease", "process_missing_heartbeat"}
+    )
+    expected_exit_kinds = frozenset(
+        {"process_stopped", "process_exit_bad_code", "process_killed"}
     )
 
-    assert mod.PROCESS_ADAPTER_BLOCKER_KINDS == SQLITE_KINDS
-    assert mod.PROCESS_EXIT_BLOCKER_KINDS == SQLITE_EXIT_KINDS
+    assert mod.PROCESS_ADAPTER_BLOCKER_KINDS == expected_adapter_kinds
+    assert mod.PROCESS_EXIT_BLOCKER_KINDS == expected_exit_kinds
+
 
 
 def test_complete_requires_session_id() -> None:

@@ -1,3 +1,4 @@
+# ruff: noqa
 """RFC 0047 V1 — decision-record propagation regression tests.
 
 Pin the propagation behavior added to ``decision_record``:

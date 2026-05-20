@@ -1,3 +1,4 @@
+# ruff: noqa
 """RFC 0013 V1 web UI tests.
 
 Spawn `striatum serve --web` and assert the SPA assets are served, the

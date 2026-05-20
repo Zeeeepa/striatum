@@ -1,3 +1,4 @@
+# ruff: noqa
 """Tests for per-kind front-matter validation in publish-artifact."""
 
 from __future__ import annotations

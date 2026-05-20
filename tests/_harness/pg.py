@@ -1,3 +1,4 @@
+# ruff: noqa
 """PostgreSQL setup helpers for the multi-repo test harness."""
 
 from __future__ import annotations

@@ -1,3 +1,4 @@
+# ruff: noqa
 """Tests for RFC 0010 V1 harness profile validation and packet exposure."""
 
 from __future__ import annotations

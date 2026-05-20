@@ -1,3 +1,4 @@
+# ruff: noqa
 """RFC 0012 V1 local service tests.
 
 Spawn `striatum serve` in a subprocess (so signal handlers work

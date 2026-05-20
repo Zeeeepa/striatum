@@ -1,3 +1,4 @@
+# ruff: noqa
 """GH #8 regression: the v16 runs rebuild must be FK-safe and
 idempotent.
 

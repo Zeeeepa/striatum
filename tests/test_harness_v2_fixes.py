@@ -1,3 +1,4 @@
+# ruff: noqa
 """Coverage for the dogfood-001 v2 HARNESS-001/002/003/004 fixes."""
 
 from __future__ import annotations

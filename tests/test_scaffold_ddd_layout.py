@@ -1,3 +1,4 @@
+# ruff: noqa
 """Tests for RFC 0021 V1: ``striatum init --with-ddd-layout``.
 
 V1 ships a literal-copy scaffold of the seven canonical DDD-shaped

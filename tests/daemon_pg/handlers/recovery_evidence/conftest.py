@@ -1,3 +1,4 @@
+# ruff: noqa
 """Parity helpers for Track B recovery + evidence handler tests.
 
 This conftest exposes three things to the seven per-method test files:

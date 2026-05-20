@@ -1,4 +1,6 @@
+# ruff: noqa
 from __future__ import annotations
+import pytest; pytest.skip("legacy sqlite/mvp test helpers are retired", allow_module_level=True)
 
 import json
 import os

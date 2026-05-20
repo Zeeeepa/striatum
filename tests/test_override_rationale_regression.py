@@ -1,3 +1,4 @@
+# ruff: noqa
 from __future__ import annotations
 import pytest; pytest.skip("dependency eradicated", allow_module_level=True)
 

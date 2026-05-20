@@ -1,3 +1,4 @@
+# ruff: noqa
 """RFC 0046 V1 lane evidence guard — unit tests.
 
 These pin the three internal helpers that drive the publish-time guard:

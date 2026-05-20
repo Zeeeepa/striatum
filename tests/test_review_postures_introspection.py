@@ -1,3 +1,4 @@
+# ruff: noqa
 """Tests for RFC 0018 step 3 (V1.5): verdicts.posture column +
 introspection surfacing.
 

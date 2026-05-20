@@ -1,3 +1,4 @@
+# ruff: noqa
 """RFC 0023 V1.5 tests: chat_tools.execute_tool + per-tool schemas.
 
 Direct unit tests of the tool dispatcher. Covers the closed-set

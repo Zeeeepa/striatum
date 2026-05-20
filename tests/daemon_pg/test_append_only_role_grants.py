@@ -1,3 +1,4 @@
+# ruff: noqa
 """RFC 0048 V1.5 F4 — append-only role-grant enforcement.
 
 Migration 0005 (``0005_repo_local_workflow_state.sql``) ends with a

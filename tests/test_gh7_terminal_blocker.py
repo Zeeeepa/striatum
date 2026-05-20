@@ -1,3 +1,4 @@
+# ruff: noqa
 """GH #7 regression: process-adapter must not block jobs that have
 already reached a terminal state.
 

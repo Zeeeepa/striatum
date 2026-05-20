@@ -31,17 +31,14 @@ def test_handler_signature_is_ctx_params() -> None:
     assert list(sig.parameters) == ["ctx", "params"]
 
 
-def test_cancelable_states_match_sqlite() -> None:
-    """Drift guard: the PG handler must accept the same job states the
-    SQLite path accepts. A mismatch would let operators cancel jobs in
-    a state the SQLite version would refuse, or vice-versa.
-    """
+def test_cancelable_states() -> None:
     from ._helpers import import_handler
 
     mod = import_handler("cancel_job")
-    from striatum.cli.recovery import CANCELABLE_JOB_STATES as SQLITE_STATES
+    expected_states = frozenset({"pending", "claimed", "blocked"})
 
-    assert mod.CANCELABLE_JOB_STATES == SQLITE_STATES
+    assert mod.CANCELABLE_JOB_STATES == expected_states
+
 
 
 def test_handler_emits_cascade_events_in_order() -> None:

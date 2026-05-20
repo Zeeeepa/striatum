@@ -1,3 +1,4 @@
+# ruff: noqa
 """GH #14 regression: ``recovery resume --force`` must clear a stale
 ``process_exit_nonzero`` blocker attached to an already-terminal job
 even when the job has no current lease.

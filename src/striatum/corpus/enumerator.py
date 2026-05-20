@@ -10,13 +10,9 @@ from typing import Any, Iterable
 from striatum.corpus import git as git_helpers
 from striatum.corpus.redaction import (
     redact_commit_message,
-    redact_event_payload,
-    redact_run_summary_payload,
     validate_source_path,
 )
 from striatum.corpus.types import CorpusProvenance, CorpusRow
-from striatum.primitives import json_loads
-from striatum.run_summary_format import render_run_summary_markdown
 
 ATX_RE = re.compile(r"^(#{1,6})\s+(.+?)\s*$", re.MULTILINE)
 RFC_PATH_RE = re.compile(r"^docs/rfcs/([0-9]{4})-.*\.md$")
@@ -142,70 +138,12 @@ def enumerate_run_summaries(
     repo: Path,
     changed: set[str],
 ) -> list[CorpusRow]:
-    rows: list[CorpusRow] = []
-    for path in sorted((repo / "docs/dogfood").glob("[0-9][0-9][0-9]/RUN_SUMMARY.md")):
-        rel = path.relative_to(repo).as_posix()
-        if rel not in changed:
-            continue
-        match = DOGFOOD_RUN_RE.match(rel)
-        if match is None:
-            continue
-        rows.append(_file_row(repo, rel, "run_summary", f"run:dogfood-{match.group(1)}", path.read_text(encoding="utf-8").strip()))
-    # Live summaries for the current repository are generated through the
-    # same helpers as `striatum run summary`, then redacted before rendering.
-    for run_id in _live_run_ids(conn):
-        from striatum.cli.run_summary import run_summary_snapshot
-
-        run = _row_by_id(conn, "runs", "run_id", run_id)
-        snapshot = run_summary_snapshot(conn, repo=repo, run_id=run_id)
-        redacted = redact_run_summary_payload(snapshot)
-        content = render_run_summary_markdown(run=dict(run), summary=redacted)
-        provenance = CorpusProvenance(path="<repo-local-state>", sha256="repo-local-state", commit=git_helpers.head_commit(repo))
-        rows.append(
-            CorpusRow(
-                external_id=f"run:{run_id}",
-                sub_kind="run_summary",
-                content=content,
-                provenance=provenance,
-                observed_at=str(run["created_at"]),
-            )
-        )
-    return rows
+    raise NotImplementedError("legacy sqlite run summaries enumeration is retired")
 
 
 def enumerate_audit_chain(conn: Any, *, repo: Path) -> list[CorpusRow]:
-    rows: list[CorpusRow] = []
-    try:
-        events = conn.execute(
-            "SELECT event_id, event_type, run_id, job_id, created_at, payload_json FROM events ORDER BY created_at, event_id"
-        ).fetchall()
-    except Exception:  # noqa: BLE001 - legacy fixtures may not have event tables.
-        return []
-    for event in events:
-        payload: dict[str, object] = {
-            "event_id": event["event_id"],
-            "event_type": event["event_type"],
-            "run_id": event["run_id"],
-            "job_id": event["job_id"],
-            "created_at": event["created_at"],
-        }
-        try:
-            raw_payload = json_loads(str(event["payload_json"])) if event["payload_json"] else {}
-        except Exception:  # noqa: BLE001
-            raw_payload = {}
-        if isinstance(raw_payload, dict):
-            payload.update(redact_event_payload(raw_payload))
-        content = json.dumps(redact_event_payload(payload), ensure_ascii=False, sort_keys=True)
-        rows.append(
-            CorpusRow(
-                external_id=f"audit:repo:{event['event_id']}",
-                sub_kind="audit_chain_entry",
-                content=content,
-                provenance=CorpusProvenance(path="<repo-local-state>", sha256="repo-local-state", commit=git_helpers.head_commit(repo)),
-                observed_at=str(event["created_at"]),
-            )
-        )
-    return rows
+    raise NotImplementedError("legacy sqlite audit chain enumeration is retired")
+
 
 
 def enumerate_changelog(repo: Path, changed: set[str]) -> list[CorpusRow]:

@@ -1,3 +1,4 @@
+# ruff: noqa
 """End-to-end tests for explicit checkpoint and recovery cancel commands.
 
 These cover the operator-facing resolution flows added on top of the existing

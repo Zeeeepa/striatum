@@ -33,6 +33,10 @@ def handle(ctx: RepoHandlerContext, params: Mapping[str, Any]) -> dict[str, Any]
     job_id = str(params.get("job_id") or "")
     if not run_id or not job_id:
         raise NotFoundError("recovery.requeue_stale requires run_id and job_id")
+    force = bool(params.get("force", False))
+    justification = str(params.get("justification") or "").strip()
+    if force and not justification:
+        raise InvalidTransitionError("--force requeue requires --justification")
     recovery_author = params.get("recovery_author")
     recovery_author = str(recovery_author) if recovery_author else None
 
@@ -66,7 +70,8 @@ def handle(ctx: RepoHandlerContext, params: Mapping[str, Any]) -> dict[str, Any]
     if not rows:
         raise InvalidTransitionError("job has no stale expired lease to requeue")
     row = rows[0]
-    if is_repo_write_scope(row.get("write_scope_json")):
+    repo_write = is_repo_write_scope(row.get("write_scope_json"))
+    if repo_write and not force:
         raise InvalidTransitionError(
             "repo-write stale jobs require operator inspection; rerun with "
             '`--force --justification "<reason>"` to override after inspection'
@@ -131,10 +136,14 @@ def handle(ctx: RepoHandlerContext, params: Mapping[str, Any]) -> dict[str, Any]
 
     payload: dict[str, Any] = {
         "already_reclaimable": already_reclaimable,
-        "repo_write": False,
+        "repo_write": repo_write,
     }
     if recovery_author is not None:
         payload["author"] = recovery_author
+    if force and repo_write:
+        payload["operator_override"] = True
+        payload["justification"] = justification
+
     ctx.append_event(
         run_id=run_id,
         event_type="recovery.stale_requeued",
@@ -150,7 +159,7 @@ def handle(ctx: RepoHandlerContext, params: Mapping[str, Any]) -> dict[str, Any]
         "workflow_job_id": row["workflow_job_id"],
         "lease_id": row["lease_id"],
         "message_id": message_id,
-        "repo_write": False,
+        "repo_write": repo_write,
         "next_actions": ["register_or_select_session", "claim_available_work"],
     }
 

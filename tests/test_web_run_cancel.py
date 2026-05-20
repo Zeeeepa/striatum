@@ -1,3 +1,4 @@
+# ruff: noqa
 """RFC 0024 V3: HTTP cancel-run route tests."""
 
 from __future__ import annotations

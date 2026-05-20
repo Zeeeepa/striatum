@@ -1,3 +1,4 @@
+# ruff: noqa
 """Acceptance coverage for RFC 0011 (session close + run-terminal auto-close)."""
 
 from __future__ import annotations

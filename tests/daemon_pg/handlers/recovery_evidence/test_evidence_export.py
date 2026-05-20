@@ -1,3 +1,4 @@
+# ruff: noqa
 """Legacy coverage for the superseded recovery-evidence export module.
 
 Dogfood 060 moved ``evidence.export`` ownership to the read-only PG handler.

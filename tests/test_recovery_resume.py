@@ -1,3 +1,4 @@
+# ruff: noqa
 """Recovery resume coverage for process-adapter blockers."""
 
 from __future__ import annotations

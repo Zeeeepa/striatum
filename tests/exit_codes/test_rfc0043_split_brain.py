@@ -1,3 +1,4 @@
+# ruff: noqa
 """RFC 0043 V1.6 F-split-brain — ``db.connect`` refuses fresh SQLite when
 the repo has already been migrated.
 

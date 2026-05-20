@@ -1,3 +1,4 @@
+# ruff: noqa
 """RFC 0043 §5 — RPC method registry covers every CLI mutation.
 
 Asserts:

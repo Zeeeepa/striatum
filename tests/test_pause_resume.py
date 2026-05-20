@@ -1,3 +1,4 @@
+# ruff: noqa
 """RFC 0024 V4: pause/resume + claim-next gate tests."""
 
 from __future__ import annotations

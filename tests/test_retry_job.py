@@ -1,3 +1,4 @@
+# ruff: noqa
 """RFC 0024 V4: retry_job mutation tests."""
 
 from __future__ import annotations

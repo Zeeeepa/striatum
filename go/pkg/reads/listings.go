@@ -63,26 +63,32 @@ func HandleListSessions(ctx context.Context, runner db.Runner, envelope rpc.Enve
 	role := stringParam(envelope, "role")
 	lane := stringParam(envelope, "lane")
 	args := []any{repositoryID}
-	where := "WHERE repository_id = $1"
+	where := "WHERE s.repository_id = $1"
 	if runID != "" {
 		args = append(args, runID)
-		where += " AND run_id = $" + strconv.Itoa(len(args))
+		where += " AND s.run_id = $" + strconv.Itoa(len(args))
 	}
 	if role != "" {
 		args = append(args, role)
-		where += " AND role_id = $" + strconv.Itoa(len(args))
+		where += " AND s.role_id = $" + strconv.Itoa(len(args))
 	}
 	if lane != "" {
 		args = append(args, lane)
-		where += " AND lane_id = $" + strconv.Itoa(len(args))
+		where += " AND s.lane_id = $" + strconv.Itoa(len(args))
 	}
 	limit, count := limitClause(envelope, 200)
 	items, err := collectRows(ctx, runner,
-		`SELECT session_id, run_id, role_id, lane_id, state, slug,
-		        capabilities_json, lane_attestation, lane_attestation_reason,
-		        registered_at, closed_at, closed_reason
-		   FROM striatumd.sessions `+where+
-			` ORDER BY registered_at DESC`+limit,
+		`SELECT s.session_id, s.run_id, s.role_id, s.lane_id, s.state, s.slug,
+		        s.capabilities_json,
+		        CASE WHEN ps.supervisor_id IS NOT NULL THEN 'attested' ELSE 'unattested' END AS lane_attestation,
+		        CASE WHEN ps.supervisor_id IS NOT NULL THEN NULL ELSE 'no_attached_supervisor' END AS lane_attestation_reason,
+		        s.registered_at, s.closed_at, s.close_reason
+		   FROM striatumd.sessions s
+		   LEFT JOIN striatumd.process_supervisors ps
+		     ON ps.repository_id = s.repository_id
+		    AND ps.session_id = s.session_id
+		    AND ps.state = 'attached' `+where+
+			` ORDER BY s.registered_at DESC`+limit,
 		args...,
 	)
 	if err != nil {

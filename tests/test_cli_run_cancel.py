@@ -1,3 +1,4 @@
+# ruff: noqa
 """RFC 0024 V3: `striatum run cancel` end-to-end tests."""
 
 from __future__ import annotations

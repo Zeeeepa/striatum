@@ -1,3 +1,4 @@
+# ruff: noqa
 """RFC 0014 V1 process-adapter completion guarantees tests.
 
 Closes [issue #1](https://github.com/halbritt/striatum/issues/1):

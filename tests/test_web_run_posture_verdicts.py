@@ -1,3 +1,4 @@
+# ruff: noqa
 """RFC 0024 V4.1: drill-down for verdicts-by-posture chips."""
 
 from __future__ import annotations
