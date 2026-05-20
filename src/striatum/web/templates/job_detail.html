@@ -47,7 +47,9 @@
     {% for verdict in verdicts %}
     <li>
       {{ ui.verdict_chip(verdict.verdict, verdict.provenance, verdict.override_rationale) }}
+      {% if verdict.lane_attestation_chip %}
       {{ ui.lane_attestation_chip(verdict.lane_attestation_chip.attested, verdict.lane_attestation_chip.reason, verdict.lane_attestation_chip.supervisor_id, state=verdict.lane_attestation_chip.state) }}
+      {% endif %}
       {% if verdict.override_rationale %}
       <p class="override-rationale">Override rationale: {{ verdict.override_rationale }}</p>
       {% elif verdict.rationale %}
@@ -107,8 +109,10 @@
         <span class="artifact-kind">{{ artifact.artifact_kind }}</span>
         <code>{{ artifact.repo_path }}</code>
       </a>
-      {{ ui.byline_line(artifact.author_line, artifact.expected_author_line, artifact.lane_attestation_chip.attested) }}
+      {{ ui.byline_line(artifact.author_line, artifact.expected_author_line, artifact.lane_attestation_chip.attested if artifact.lane_attestation_chip else none) }}
+      {% if artifact.lane_evidence_chip %}
       {{ ui.lane_evidence_chip(artifact.lane_evidence_chip.state, artifact.lane_evidence_chip.rationale) }}
+      {% endif %}
     </li>
     {% endfor %}
   </ul>

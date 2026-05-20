@@ -72,16 +72,17 @@ def test_readme_has_human_and_agent_quick_start_headings() -> None:
     """The human/agent split is a first-class README contract per
     RFC 0017; this guard prevents a silent regression.
 
-    Updated for RFC 0055 Phase A (v1.55.0 README rewrite): the README
-    no longer carries two separate H2 quick-start headings — a single
-    ``## Quick start`` block is paired with role coverage in
-    ``## The two roles`` (RFC 0053). The contract being guarded is
-    "both roles surface explicitly in the README"; the new shape is
-    two sections rather than two quick-starts.
+    Updated for the marketing-framing rewrite: the H2 headings now use
+    title case (``## Quick Start``, ``## The Two Roles``). The
+    contract being guarded is "both roles surface explicitly in the
+    README"; the heading-case check is intentionally case-insensitive
+    so a future copy-edit can re-title these sections without breaking
+    the test.
     """
     text = (ROOT / "README.md").read_text(encoding="utf-8")
-    assert "## Quick start" in text, "README must keep a quick-start section"
-    assert "## The two roles" in text, (
+    lower = text.lower()
+    assert "## quick start" in lower, "README must keep a quick-start section"
+    assert "## the two roles" in lower, (
         "README must explicitly cover both AI operator and human principal "
         "roles (RFC 0053)"
     )
@@ -90,12 +91,15 @@ def test_readme_has_human_and_agent_quick_start_headings() -> None:
 
 
 def test_readme_under_line_budget() -> None:
-    """RFC 0017 caps the README at 250 lines; the cap exists so the
-    README stays first-contact material instead of growing back into
-    a SPEC duplicate."""
+    """RFC 0017 originally capped the README at 250 lines; the
+    marketing rewrite (motivation + architecture diagram + workflow
+    shapes block + role coverage) intentionally raised the ceiling.
+    Hold the new ceiling at 400 lines so the README does not silently
+    grow back into a SPEC duplicate."""
     lines = (ROOT / "README.md").read_text(encoding="utf-8").splitlines()
-    assert len(lines) <= 250, (
-        f"README is {len(lines)} lines; RFC 0017 budget is 250"
+    assert len(lines) <= 400, (
+        f"README is {len(lines)} lines; budget is 400 (raised from 250 "
+        "for the marketing rewrite; grow this deliberately, not silently)"
     )
 
 

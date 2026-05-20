@@ -37,7 +37,7 @@
           <p class="override-rationale">{{ v.override_rationale }}</p>
           {% endif %}
         </td>
-        <td>{{ ui.lane_attestation_chip(v.lane_attestation_chip.attested, v.lane_attestation_chip.reason, v.lane_attestation_chip.supervisor_id, state=v.lane_attestation_chip.state) }}</td>
+        <td>{% if v.lane_attestation_chip %}{{ ui.lane_attestation_chip(v.lane_attestation_chip.attested, v.lane_attestation_chip.reason, v.lane_attestation_chip.supervisor_id, state=v.lane_attestation_chip.state) }}{% endif %}</td>
         <td>
           <a href="/run/{{ run.run_id }}/job/{{ v.job_id }}">
             <code>{{ v.workflow_job_id }}</code>
