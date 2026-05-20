@@ -226,6 +226,7 @@ def test_status_records_reattach_for_surviving_supervisor_after_daemon_restart(
             pid_start_time=pid_start,
             with_pointer=True,
             with_daemon=True,
+            daemon_instance_id="daemon-old",
         )
         conn.commit()
 
@@ -1116,6 +1117,7 @@ def _insert_supervisor_snapshot(
     pid_start_time: str,
     with_pointer: bool = False,
     with_daemon: bool = False,
+    daemon_instance_id: str | None = None,
 ) -> None:
     now = "2026-05-16T00:00:00Z"
     command = ["sleep", "60"]
@@ -1162,7 +1164,7 @@ def _insert_supervisor_snapshot(
                     pid,
                     pid_start_time,
                     now,
-                    Jsonb({"daemon_instance_id": _current_daemon_instance_id()}),
+                    Jsonb({"daemon_instance_id": daemon_instance_id or _current_daemon_instance_id()}),
                 ),
             )
         if with_daemon:
@@ -1182,7 +1184,7 @@ def _insert_supervisor_snapshot(
                     repository_id,
                     session_id,
                     supervisor_id,
-                    _current_daemon_instance_id(),
+                    daemon_instance_id or _current_daemon_instance_id(),
                     Jsonb(command),
                     "/tmp",
                     f"/tmp/{supervisor_id}/stdin.pipe",
