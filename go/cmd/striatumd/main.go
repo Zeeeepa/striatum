@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/halbritt/striatum/go/pkg/admin"
+	"github.com/halbritt/striatum/go/pkg/agentloop"
 	daemonapply "github.com/halbritt/striatum/go/pkg/apply"
 	"github.com/halbritt/striatum/go/pkg/blob"
 	"github.com/halbritt/striatum/go/pkg/crossrepo"
@@ -93,10 +94,12 @@ func main() {
 	var migrationsSHASource string
 	var sweepIntervalSeconds float64
 	var maxSweeps optionalIntFlag
+	var agentLoop bool
 	flag.StringVar(&socketPath, "socket", defaultSocketPath(), "Unix socket path")
 	flag.StringVar(&postgresURL, "postgres-url", "", "PostgreSQL connection URL")
 	flag.BoolVar(&migrate, "migrate", true, "apply daemon PostgreSQL migrations before serving when a URL is configured")
 	flag.BoolVar(&describe, "describe", false, "print daemon metadata and exit")
+	flag.BoolVar(&agentLoop, "agent-loop", false, "run as the interactive MCP agent loop instead of a daemon server")
 	flag.StringVar(&migrationsSHASource, "migrations-sha-source", "", "verify embedded migration SHAs against SQL files at this path before serving")
 	flag.Float64Var(&sweepIntervalSeconds, "sweep-interval-seconds", 60.0, "seconds between resident recovery sweeps")
 	flag.Var(&maxSweeps, "max-sweeps", "maximum resident recovery sweeps before exiting; when set to 0, one startup sweep still runs")
@@ -119,6 +122,17 @@ func main() {
 			len(migrationSHAs),
 		)
 		return
+	}
+
+	if agentLoop {
+		repoRoot := os.Getenv("STRIATUM_REPO")
+		runID := os.Getenv("STRIATUM_RUN_ID")
+		sessionID := os.Getenv("STRIATUM_SESSION_ID")
+
+		if err := agentloop.Run(socketPath, repoRoot, runID, sessionID, flag.Args()); err != nil {
+			log.Fatalf("agent-loop failed: %v", err)
+		}
+		os.Exit(0)
 	}
 
 	if migrationsSHASource != "" {
