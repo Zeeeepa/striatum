@@ -117,6 +117,7 @@ so external references keep resolving even as items move between sections.
 | 63 | RFC 0070 daemon client/service boundary completion | 🟡 production boundary mostly done |
 | 64 | RFC 0071 operator diagnostics and cutover evidence | ✅ accepted diagnostic slice done |
 | 65 | RFC 0058 operator progress surface | ✅ done |
+| 66 | Decision/RFC supersession hygiene and duplicate decision-id cleanup | 🟡 policy landed; ledger audit remains |
 
 Legend: ✅ done · 🟡 most done (sub-tasks remain) · ⏳ open/blocked · 💤 shelved
 

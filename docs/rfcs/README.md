@@ -18,7 +18,7 @@ and, when behavior changes, `docs/SPEC.md`.
 | [0003](0003-support-ledgers-and-evidence-audits.md) | accepted | Add support ledgers and evidence-audit jobs for claims made by artifacts. |
 | [0004](0004-critique-to-action-loop.md) | accepted | Normalize review action items and require resolution checks. |
 | [0005](0005-harness-meta-optimization.md) | accepted | Use runner events to propose harness improvements, gated by review. |
-| [0006](0006-sqlite-schema-migration-system.md) | accepted / historical | Forward-only pre-D094 SQLite migrations keyed off `PRAGMA user_version`; current live state is daemon-owned PostgreSQL and remaining SQLite coverage is fixture-only. |
+| [0006](0006-sqlite-schema-migration-system.md) | superseded / historical | Forward-only pre-D094 SQLite migrations keyed off `PRAGMA user_version`; current live state is daemon-owned PostgreSQL and remaining SQLite coverage is fixture-only. |
 | [0007](0007-workflow-visualization.md) | accepted | Export workflow graphs for authoring and review. |
 | [0008](0008-worktree-isolation-for-parallel-jobs.md) | accepted | Opt-in per-job Git worktree isolation for parallel repo-write jobs. |
 | [0009](0009-long-lived-process-supervision.md) | accepted | Architecture for V2 supervised agent processes that span multiple work packets. |
@@ -98,6 +98,7 @@ Use this shape for new RFCs:
 Status: proposed | accepted | deferred | rejected | superseded
 Date: YYYY-MM-DD
 Context: links
+Superseded by: successor decision/RFC links, when status is superseded
 
 ## Problem
 ## Goals
@@ -107,6 +108,11 @@ Context: links
 ## Open Questions
 ## Domain Modeling
 ```
+
+When an RFC is fully replaced, update both the RFC header and this index to
+`superseded`; keep the file as provenance and name the successor artifact.
+When only part of an RFC is replaced, keep the live status and add a current
+status note that names the superseded clause and successor.
 
 The optional `## Domain Modeling` section identifies which DDD
 pattern the new concept fits (aggregate root, value object,

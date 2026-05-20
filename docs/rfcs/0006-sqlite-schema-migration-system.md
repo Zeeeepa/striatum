@@ -1,7 +1,12 @@
 # RFC 0006: SQLite Schema Migration System
 
-Status: accepted
+Status: superseded / historical
 Date: 2026-05-07
+
+Superseded by: RFC 0033, RFC 0043, D094, and D113. This RFC is retained as
+the historical SQLite migration design and fixture reference. It is not
+current production authority; live workflow state is daemon-owned
+PostgreSQL.
 
 ## Problem
 
