@@ -1,0 +1,154 @@
+{
+  "schema_version": "striatum.workflow.v1",
+  "workflow_id": "gh-29",
+  "workflow_version": "2026-05-20",
+  "name": "Refactor Agent Loop to MCP Client Model",
+  "branch": {
+    "mode": "confirm",
+    "suggested_name": "striatum/workflow.json",
+    "allow_dirty": false
+  },
+  "coordinator": {
+    "role_id": "author",
+    "lane_id": "local"
+  },
+  "lanes": {
+    "local": {
+      "adapter": "process",
+      "display_model": "Local Fixture",
+      "command": [
+        "sh",
+        "-c",
+        "cat >/dev/null"
+      ],
+      "capabilities": [
+        "write",
+        "review"
+      ]
+    }
+  },
+  "roles": {
+    "author": {
+      "definition_path": "roles/author.md"
+    },
+    "reviewer": {
+      "definition_path": "roles/reviewer.md"
+    }
+  },
+  "context_docs": [],
+  "parallelism": {
+    "mode": "declared",
+    "max_active_jobs": 1,
+    "require_disjoint_write_scopes": true
+  },
+  "jobs": [
+    {
+      "id": "draft",
+      "type": "draft",
+      "title": "Draft starter artifact",
+      "role_id": "author",
+      "lane_id": "local",
+      "objective": "Produce the starter artifact for this workflow.",
+      "task_prompt": {
+        "path": "prompts/draft.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/issues/29/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "draft",
+          "kind": "handoff",
+          "path": "docs/issues/29/DRAFT.md",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "review",
+      "type": "review",
+      "title": "Review the draft",
+      "role_id": "reviewer",
+      "lane_id": "local",
+      "objective": "Review the draft and record a finding.",
+      "task_prompt": {
+        "path": "prompts/review.md"
+      },
+      "write_scope": {
+        "mode": "review_only_artifact",
+        "repo_write": false,
+        "allowed_paths": [
+          "docs/issues/29/review/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "review",
+          "kind": "finding",
+          "path": "docs/issues/29/review/REVIEW.md",
+          "required": true
+        }
+      ],
+      "fresh_session_required": true
+    },
+    {
+      "id": "apply",
+      "type": "synthesis",
+      "title": "Apply the accepted review",
+      "role_id": "author",
+      "lane_id": "local",
+      "objective": "Apply the accepted review findings.",
+      "task_prompt": {
+        "path": "prompts/apply.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/issues/29/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "summary",
+          "kind": "synthesis",
+          "path": "docs/issues/29/SUMMARY.md",
+          "required": true
+        }
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "from": "draft",
+      "to": "review",
+      "on": "completed"
+    },
+    {
+      "from": "review",
+      "to": "apply",
+      "on": "completed"
+    }
+  ],
+  "cycles": [
+    {
+      "from": "review",
+      "to": "draft",
+      "on_verdict": "needs_revision",
+      "max_iterations": 1
+    }
+  ]
+}
