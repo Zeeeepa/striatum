@@ -62,7 +62,8 @@ def supervisor_progress_rows(
         ctx,
         sql=(
             "SELECT ps.supervisor_id, ps.run_id, ps.session_id, ps.pid, "
-            "       ps.state AS supervisor_state, ps.heartbeat_at AS supervisor_heartbeat_at, "
+            "       ps.state AS supervisor_state, "
+            "       COALESCE(ptr.last_heartbeat_at, ps.heartbeat_at) AS supervisor_heartbeat_at, "
             "       s.last_heartbeat_at AS session_last_heartbeat_at, "
             "       l.lease_id, l.resource_id AS job_id, l.acquired_at, "
             "       l.expires_at, l.last_heartbeat_at AS lease_last_heartbeat_at, "
@@ -84,6 +85,9 @@ def supervisor_progress_rows(
             "LEFT JOIN striatumd.queue_messages qm "
             "  ON qm.repository_id = j.repository_id "
             " AND qm.message_id = j.current_message_id "
+            "LEFT JOIN striatumd.process_supervisor_pointers ptr "
+            "  ON ptr.repository_id = ps.repository_id "
+            " AND ptr.supervisor_id = ps.supervisor_id "
             f"WHERE {where} "
             "ORDER BY ps.started_at DESC, ps.supervisor_id DESC"
         ),

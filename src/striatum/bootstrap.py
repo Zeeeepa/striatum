@@ -7,6 +7,7 @@ Authoritative workflow state lives in the daemon-owned PostgreSQL instance.
 from __future__ import annotations
 
 import os
+from importlib import resources
 from pathlib import Path
 from typing import Callable
 
@@ -39,7 +40,30 @@ def init_operational_scratch(
         except PermissionError:
             pass
     _ensure_gitignore_entry(repo)
+    _copy_reference_wrappers(state_dir)
     return state_dir
+
+
+def _copy_reference_wrappers(state_dir: Path) -> None:
+    bin_dir = state_dir / "bin"
+    bin_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        os.chmod(bin_dir, 0o700)
+    except PermissionError:
+        pass
+
+    try:
+        files = resources.files("striatum.scaffold.templates.bin")
+        for file in files.iterdir():
+            if file.is_file() and file.name.endswith(".sh"):
+                dest = bin_dir / file.name
+                dest.write_bytes(file.read_bytes())
+                try:
+                    os.chmod(dest, 0o755)
+                except PermissionError:
+                    pass
+    except Exception:
+        pass
 
 
 def require_operational_scratch(
