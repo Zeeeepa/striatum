@@ -20,11 +20,19 @@ We have just accepted **RFC 0050**, which mandates the removal of the remaining 
 
 The `agent-loop` supervisor logic must be redesigned. Instead of acting as a proxy that passes raw JSON to an agent's stdin, the supervisor must act purely as a PTY manager. It will spawn the agent, provide a bootstrap prompt with the daemon's HTTP/SSE MCP endpoint, and allow the agent to autonomously connect, query `tools/list`, call `work.await_packet`, and interact with the event bus natively.
 
+The CLI is no longer the target operator control plane. The cutover path is
+to make daemon MCP and the operator UI cover live workflow control first, then
+retire or hide the CLI verbs they replace. Bootstrap and diagnostics commands
+may survive only when explicitly justified.
+
 ## Next 1-3 Actions
 
-1. Implement the HTTP/SSE MCP server in the Go daemon as per RFC 0050.
-2. Refactor `go/pkg/agentloop` to act exclusively as a PTY supervisor that injects the daemon SSE endpoint into the agent's bootstrap prompt.
-3. Delete `src/striatum/mcp.py` and ensure the Python execution environment is fully decoupled from MCP operations.
+1. Land the Go daemon `/mcp/sse` smoke path: MCP initialize, `tools/list`
+   from the production-visible tool set, and a deterministic test MCP client.
+2. Add one read-only `tools/call` and one low-risk mutating `tools/call`
+   through daemon RPC with token/capability denial tests.
+3. Prove the lane loop with a fake MCP agent before refactoring the real
+   `agent-loop` PTY bootstrap and deleting `src/striatum/mcp.py`.
 
 ## Blockers
 
@@ -37,6 +45,9 @@ The `agent-loop` supervisor logic must be redesigned. Instead of acting as a pro
 ## Hazards / Do Not
 
 - Do not write proxy wrappers that poll the daemon and spoon-feed JSON to the agents. Agents MUST operate as autonomous MCP clients.
+- Do not delete CLI workflow-control verbs before MCP/UI parity exists and is
+  covered by tests; classify any remaining CLI commands as bootstrap,
+  diagnostics, or temporary compatibility.
 - Do not reopen repo-local SQLite or the legacy daemon registry in
   production paths.
 - Do not add hosted services, telemetry, transcript capture, or external

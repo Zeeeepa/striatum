@@ -1,7 +1,7 @@
 # RFC 0050 — Native Go Daemon HTTP/SSE MCP and Agent Loop
 
-**Status:** accepted (pending implementation)
-**Scope:** Architecture alignment / Python deprecation
+**Status:** accepted (active implementation roadmap)
+**Scope:** Architecture alignment / Python MCP and CLI control-plane deprecation
 
 ## Background
 
@@ -14,6 +14,11 @@ As Striatum moves to a single native Go binary (deprecating the Python CLI and w
 - **Deprecate Python MCP**: Completely remove `src/striatum/mcp.py`.
 - **Native Daemon SSE**: Build an HTTP/SSE MCP server natively into the Go `striatumd` daemon. This allows agents to connect directly to the running daemon without spawning proxy processes.
 - **Autonomous Agents**: Refactor the `-agent-loop` supervisor to act strictly as a PTY manager. It will spawn the agent process, inject a bootstrap prompt containing the daemon's HTTP/SSE endpoint, and let the agent natively use its own MCP client to discover tools (like `work.await_packet`), execute work, and report completions.
+- **Retire the CLI control plane**: Stop requiring a human operator or an
+  AI operator to drive live workflow state through `striatum` CLI verbs. The
+  daemon MCP surface and operator UI become the primary control planes; any
+  remaining CLI entry points are temporary bootstrap, diagnostics, or
+  compatibility shims until equivalent MCP/UI paths exist.
 
 ## Design Sketch
 
@@ -35,8 +40,117 @@ The Go `-agent-loop` subcommand (or the generic lane supervisor) will:
 
 It will **no longer** long-poll `await_packet` itself or pipe raw JSON.
 
+## Roadmap
+
+The current implementation work is split into gates so the native daemon MCP
+transport can land without waiting for every agent-loop and CLI-retirement
+dependency. Each phase should leave the tree shippable and should add tests
+that fail closed when the daemon cannot authorize or serve the requested
+method.
+
+### Phase A: Native MCP Smoke
+
+- Add the Go daemon HTTP listener and `/mcp/sse` endpoint behind the existing
+  local-only daemon boundary.
+- Support MCP initialization and `tools/list` using the production-visible
+  tool set from `go/pkg/mcp`.
+- Add a deterministic test MCP client that exercises the endpoint without
+  launching a real terminal agent.
+- Keep Python MCP and CLI behavior unchanged during this phase.
+
+### Phase B: Read-Only Tool Calls
+
+- Implement `tools/call` for a narrow read method such as `daemon.hello`,
+  `daemon.welcome`, `repo.resolve`, or an equivalent status/describe method.
+- Enforce capability tokens and return the same denial vocabulary as daemon
+  JSON-RPC.
+- Record request/audit evidence so MCP calls are observable alongside other
+  daemon calls.
+
+### Phase C: First Mutating Tool Call
+
+- Route one low-risk mutation through MCP, preferably a workflow-loop method
+  already present in `contracts/daemon_methods.json`.
+- Cover success, missing-token, wrong-capability, wrong-repository, and
+  unsupported-method cases.
+- Prove that `tools/list` hides unsupported production methods instead of
+  advertising a call that will fail at runtime.
+
+### Phase D: Work Packet Loop
+
+- Expose the minimal lane loop over MCP: `work.await_packet`, `work.ack`,
+  `work.heartbeat`, artifact publication, verdict/complete, and close/release
+  behavior as applicable to the current daemon method contract.
+- Preserve lease semantics, stale-lease refusal, write-scope policy, and
+  author/byline validation exactly as the daemon RPC path does.
+- Add an end-to-end fake-agent harness that completes a small workflow entirely
+  through MCP `tools/call`.
+
+### Phase E: Agent-Loop Bootstrap
+
+- Refactor `go/pkg/agentloop` into a PTY supervisor that launches the agent
+  process and injects only the MCP endpoint, token material, target repository
+  identity, and lane instructions.
+- The supervisor must not claim work, poll `work.await_packet`, or spoon-feed
+  JSON packets to the agent.
+- Prove the loop first with a scripted MCP-capable fake agent, then with one
+  real interactive agent profile.
+
+### Phase F: CLI Retirement Cutover
+
+- Define CLI retirement as: no live workflow control operation requires a
+  human or AI operator to invoke `striatum` CLI verbs.
+- Move operator-facing workflow setup, lane selection, run observation,
+  recovery, escalation, artifact review, and workflow selection to daemon MCP
+  and/or the operator UI.
+- Keep only explicitly justified bootstrap and diagnostics commands until
+  equivalent MCP/UI surfaces exist; delete or hide workflow-control commands
+  once the replacement path has parity tests.
+- Update docs, examples, and skills so they teach MCP/UI operation first and
+  stop presenting CLI loops as the normal path.
+
+### Phase G: Python MCP Deletion
+
+- Delete `src/striatum/mcp.py` after native Go MCP supports the production
+  lane loop and the operator path no longer depends on the Python wrapper.
+- Remove Python MCP launch docs, tests, and aliases.
+- Keep any Python client code that remains useful for web/UI compatibility
+  separate from MCP server authority.
+
+## Dependencies And Non-Blockers
+
+Hard dependencies for the active Operator track:
+
+- Native Go HTTP/SSE MCP transport.
+- Capability-token handoff from daemon/supervisor to MCP clients.
+- Contract-derived MCP tool visibility.
+- Read and mutation dispatch through the daemon method registry.
+- A deterministic MCP test client and fake-agent harness.
+- PTY bootstrap that tells real agents how to connect without making the
+  supervisor the workflow brain.
+
+Do not block the first MCP daemon slices on:
+
+- Full committee-deliberation workflow semantics.
+- Full workflow-shape catalog expansion.
+- Optional Git/PR authority.
+- Sealed apply implementation.
+- Deleting every CLI command before MCP/UI parity exists.
+- Support for every possible external agent before one real lane proves the
+  loop.
+
 ## Acceptance Criteria
 
-- `src/striatum/mcp.py` is deleted.
-- The Go daemon exposes a functional `/mcp/sse` endpoint.
-- An interactive agent (e.g., Claude Code) can be spawned in `-agent-loop`, connect to the SSE endpoint, and successfully complete a work packet via MCP `tools/call`.
+- Phase A-C accepted: the Go daemon exposes a functional `/mcp/sse` endpoint,
+  supports initialization, `tools/list`, one read call, and one authorized
+  mutation through MCP with fail-closed tests.
+- Phase D accepted: a fake MCP agent can complete a workflow packet loop
+  without invoking the CLI or Python MCP wrapper.
+- Phase E accepted: an interactive agent can be spawned by the PTY supervisor,
+  connect to the daemon SSE endpoint, discover tools, and complete a work
+  packet via MCP `tools/call`.
+- Phase F accepted: documented operator and agent workflows no longer require
+  CLI verbs for live workflow control; remaining CLI commands are explicitly
+  classified as bootstrap, diagnostics, or temporary compatibility.
+- Phase G accepted: `src/striatum/mcp.py` and its docs/tests/aliases are
+  removed after native Go MCP and replacement operator surfaces have parity.

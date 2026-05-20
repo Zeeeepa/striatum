@@ -46,6 +46,34 @@ dependency edges, and "what would I do next" framing. Update on every
   coverage added where behavior changes.
 - **Branches:** `main` is the active integration branch.
 
+### 1.1 Active Operator track: HTTP/SSE MCP daemon and CLI retirement
+
+An Operator is actively working on native HTTP/SSE MCP in the Go daemon and
+the longer cutover away from CLI-driven workflow control. The working spec is
+[`RFC 0050 — Native Go Daemon HTTP/SSE MCP and Agent Loop`](rfcs/0050-go-daemon-http-sse-mcp.md).
+
+Order the work as a set of gates, not as one all-or-nothing cutover:
+
+1. Land a native Go `/mcp/sse` endpoint with initialization and `tools/list`.
+2. Route one read-only daemon method through MCP with token enforcement.
+3. Route one low-risk mutation through MCP with fail-closed authorization and
+   unsupported-method tests.
+4. Prove the lane work-packet loop with a fake MCP agent: await/ack/heartbeat,
+   publish/verdict/complete as supported by the daemon contract, and stale
+   lease behavior.
+5. Refactor `go/pkg/agentloop` into a PTY bootstrapper that gives agents the
+   endpoint/token/repository/lane instructions and then lets the agent use its
+   own MCP client.
+6. Move live operator actions to MCP/UI surfaces until no workflow-control
+   operation requires a human or AI operator to invoke `striatum` CLI verbs.
+7. Delete `src/striatum/mcp.py` and retire Python MCP launch docs once native
+   Go MCP and the replacement operator paths have parity.
+
+For this roadmap, "eliminating the CLI" means eliminating CLI verbs as the
+live workflow control plane. Bootstrap and diagnostics commands may survive
+temporarily, but every survivor must be explicitly classified and backed by a
+planned MCP/UI replacement or a narrow operational justification.
+
 ## 2. Just shipped (this week)
 
 | Version | Scope | Notes |
