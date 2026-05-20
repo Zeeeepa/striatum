@@ -1,4 +1,4 @@
-"""Interactive loop wrapper for non-native CLIs (RFC 0049).
+"""Universal interactive loop wrapper for CLI agents (RFC 0049).
 
 This script:
 1. Long-polls work.await_packet.
@@ -90,7 +90,7 @@ def call_daemon(method: str, params: dict[str, Any], socket_path: Path) -> dict[
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Wrap a non-interactive CLI in an MCP interactive loop")
+    parser = argparse.ArgumentParser(description="Wrap a CLI agent in an MCP interactive loop")
     parser.add_argument("command", nargs="+", help="The command to execute for each packet")
     args = parser.parse_args()
 
