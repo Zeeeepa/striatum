@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/halbritt/striatum/go/pkg/db"
 	"github.com/halbritt/striatum/go/pkg/rpc"
@@ -561,4 +562,72 @@ func boolValue(value any) bool {
 		return typed == "true" || typed == "1"
 	}
 	return false
+}
+
+func HandleAwaitPacket(ctx context.Context, runner db.Runner, envelope rpc.Envelope) (map[string]any, error) {
+	repositoryID, err := requireRepositoryID(envelope)
+	if err != nil {
+		return nil, err
+	}
+	sessionID := stringParam(envelope, "session_id")
+	if sessionID == "" {
+		return nil, rpc.NewError("schema_invalid", "work.await_packet requires session_id", nil)
+	}
+
+	timeout := 30 * time.Second
+	pollInterval := 500 * time.Millisecond
+	deadline := time.Now().Add(timeout)
+
+	for {
+		res, err := HandleClaimNext(ctx, runner, envelope)
+		if err != nil {
+			return nil, err
+		}
+
+		status := fmt.Sprint(res["status"])
+		if status == "claimed" {
+			return res, nil
+		}
+
+		isRunning, err := isRunRunning(ctx, runner, repositoryID, sessionID)
+		if err != nil {
+			return nil, err
+		}
+		if !isRunning {
+			return map[string]any{"status": "no_work"}, nil
+		}
+
+		if time.Now().After(deadline) {
+			return map[string]any{"status": "no_work"}, nil
+		}
+
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(pollInterval):
+		}
+	}
+}
+
+func isRunRunning(ctx context.Context, runner db.Runner, repositoryID, sessionID string) (bool, error) {
+	var state string
+	var paused bool
+	_, err := withTx(ctx, runner, func(tx db.TxRunner) (map[string]any, error) {
+		session, err := rowByID(ctx, tx, repositoryID, "sessions", "session_id", sessionID, true)
+		if err != nil {
+			return nil, err
+		}
+		runID := fmt.Sprint(session["run_id"])
+		run, err := rowByID(ctx, tx, repositoryID, "runs", "run_id", runID, true)
+		if err != nil {
+			return nil, err
+		}
+		state = fmt.Sprint(run["state"])
+		paused = nullable(run["paused_at"]) != nil
+		return nil, nil
+	})
+	if err != nil {
+		return false, err
+	}
+	return state == "running" && !paused, nil
 }

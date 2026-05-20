@@ -9,7 +9,7 @@ from typing import Any
 
 from striatum.errors import SchemaVersionError, StriatumError
 
-LATEST_DAEMON_DB_VERSION = 10
+LATEST_DAEMON_DB_VERSION = 11
 MIGRATION_LOCK_KEY = 332933
 
 
@@ -42,6 +42,11 @@ MIGRATIONS: tuple[PgMigration, ...] = (
         10,
         "artifact blob reference update trigger (GH #27)",
         "0010_artifact_blob_update_trigger.sql",
+    ),
+    PgMigration(
+        11,
+        "stateful escalation inbox (RFC 0062)",
+        "0011_escalation_inbox.sql",
     ),
 )
 

@@ -433,6 +433,18 @@ func HandleBlockWork(ctx context.Context, runner db.Runner, envelope rpc.Envelop
 		); err != nil {
 			return nil, err
 		}
+		if isEscalation(severity, kind) {
+			if err := tx.Exec(ctx, `
+				INSERT INTO striatumd.escalation_inbox (
+				  repository_id, escalation_id, run_id, job_id, session_id,
+				  blocker_id, blocker_kind, severity, state, created_at
+				)
+				VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'pending',$9)`,
+				repositoryID, blockerID, job["run_id"], jobID, sessionID, blockerID, kind, severity, now,
+			); err != nil {
+				return nil, err
+			}
+		}
 		if err := tx.Exec(ctx, `
 			UPDATE striatumd.jobs
 			   SET state = $1, current_lease_id = NULL
@@ -524,4 +536,17 @@ func HandleCompleteWork(ctx context.Context, runner db.Runner, envelope rpc.Enve
 		}
 		return map[string]any{"status": "completed", "job_id": jobID}, nil
 	})
+}
+
+func isEscalation(severity string, kind string) bool {
+	if severity == "human_checkpoint" {
+		return true
+	}
+	switch kind {
+	case "ambiguous_goal", "missing_authority", "contradicting_decisions",
+		"no_available_reviewer_lane", "committee_stalemate", "override_required",
+		"ai_self_declared":
+		return true
+	}
+	return false
 }

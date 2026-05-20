@@ -17,6 +17,8 @@ def handle(ctx: RepoHandlerContext, params: Mapping[str, Any]) -> dict[str, Any]
     kind = str(params["kind"])
     severity = str(params["severity"])
     description = str(params["description"])
+    from striatum.escalations import ESCALATION_BLOCKER_KINDS
+    is_escalation = (severity == "human_checkpoint" or kind in ESCALATION_BLOCKER_KINDS)
     with transaction(ctx):
         job = ctx.row_by_id("jobs", "job_id", job_id, for_update=True)
         active_lease_for(ctx, lease_id=lease_id, session_id=session_id, job_id=job_id)
@@ -34,6 +36,17 @@ def handle(ctx: RepoHandlerContext, params: Mapping[str, Any]) -> dict[str, Any]
                 """,
                 (ctx.repository_id, blocker_id, job["run_id"], job_id, session_id, severity, kind, description, now),
             )
+            if is_escalation:
+                cur.execute(
+                    """
+                    INSERT INTO striatumd.escalation_inbox (
+                      repository_id, escalation_id, run_id, job_id, session_id,
+                      blocker_id, blocker_kind, severity, state, created_at
+                    )
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 'pending', %s)
+                    """,
+                    (ctx.repository_id, blocker_id, job["run_id"], job_id, session_id, blocker_id, kind, severity, now),
+                )
             cur.execute(
                 "UPDATE striatumd.jobs SET state = %s, current_lease_id = NULL WHERE repository_id = %s AND job_id = %s",
                 (state, ctx.repository_id, job_id),

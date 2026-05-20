@@ -799,7 +799,7 @@ func launchPipeProcess(ctx context.Context, config supervisionStartConfig, super
 	defer stdin.Close()
 	cmd := exec.CommandContext(ctx, config.Command[0], config.Command[1:]...)
 	cmd.Dir = config.RepoRoot
-	cmd.Env = supervisedEnv(config.RepoRoot, config.RunID, config.SessionID, supervisorID)
+	cmd.Env = supervisedEnv(config.RepoRoot, config.RunID, config.SessionID, supervisorID, config.LaneID)
 	cmd.Stdin = stdin
 	stdout, err := os.OpenFile(os.DevNull, os.O_WRONLY, 0)
 	if err != nil {
@@ -836,7 +836,7 @@ func launchPTYHelper(ctx context.Context, config supervisionStartConfig, supervi
 		SupervisorID:    supervisorID,
 		ScratchDir:      filepath.Dir(scratch),
 		Command:         config.Command,
-		Env:             supervisedEnvEntries(config.RepoRoot, config.RunID, config.SessionID, supervisorID),
+		Env:             supervisedEnvEntries(config.RepoRoot, config.RunID, config.SessionID, supervisorID, config.LaneID),
 		WorkingDir:      config.RepoRoot,
 		PacketInputPath: pipePath,
 	}
@@ -1280,16 +1280,17 @@ func currentDaemonInstanceID() string {
 	return "go-pg-handler"
 }
 
-func supervisedEnv(repoRoot, runID, sessionID, supervisorID string) []string {
-	return append(os.Environ(), supervisedEnvEntries(repoRoot, runID, sessionID, supervisorID)...)
+func supervisedEnv(repoRoot, runID, sessionID, supervisorID, laneID string) []string {
+	return append(os.Environ(), supervisedEnvEntries(repoRoot, runID, sessionID, supervisorID, laneID)...)
 }
 
-func supervisedEnvEntries(repoRoot, runID, sessionID, supervisorID string) []string {
+func supervisedEnvEntries(repoRoot, runID, sessionID, supervisorID, laneID string) []string {
 	return []string{
 		"STRIATUM_RUN_ID=" + runID,
 		"STRIATUM_SESSION_ID=" + sessionID,
 		"STRIATUM_SUPERVISOR_ID=" + supervisorID,
 		"STRIATUM_REPO=" + repoRoot,
+		"STRIATUM_LANE_ID=" + laneID,
 	}
 }
 

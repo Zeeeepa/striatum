@@ -155,6 +155,18 @@ func Validate(workflow map[string]any) error {
 	if err != nil {
 		return err
 	}
+	for laneID, laneVal := range lanes {
+		lane, ok := laneVal.(map[string]any)
+		if !ok {
+			return fieldErr(fmt.Sprintf("lanes.%s", laneID), "lane %q must be an object", laneID)
+		}
+		if modelVal, exists := lane["model"]; exists {
+			modelStr, ok := modelVal.(string)
+			if !ok || modelStr == "" {
+				return fieldErr(fmt.Sprintf("lanes.%s.model", laneID), "lane %q model must be a non-empty string", laneID)
+			}
+		}
+	}
 	roles, err := object(workflow, "roles")
 	if err != nil {
 		return err

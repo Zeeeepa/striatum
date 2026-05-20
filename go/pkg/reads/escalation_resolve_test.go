@@ -144,7 +144,15 @@ func (tx *escalationResolveFakeTx) QueryScalar(context.Context, string, ...any) 
 	return "", errors.New("unexpected query scalar")
 }
 
-func (tx *escalationResolveFakeTx) Query(context.Context, string, ...any) (pgx.Rows, error) {
+func (tx *escalationResolveFakeTx) Query(_ context.Context, sql string, _ ...any) (pgx.Rows, error) {
+	if strings.Contains(sql, "striatumd.artifacts") {
+		return &fakeRows{
+			fields: []string{"artifact_id", "run_id", "job_id", "session_id", "logical_name"},
+			rows: [][]any{{
+				"art_decision", "run_1", nil, nil, "dec_1",
+			}},
+		}, nil
+	}
 	return &fakeRows{
 		fields: []string{"blocker_id", "run_id", "job_id", "state", "payload_json"},
 		rows: [][]any{{

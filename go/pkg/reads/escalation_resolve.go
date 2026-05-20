@@ -65,6 +65,28 @@ func HandleEscalationResolve(ctx context.Context, runner db.Runner, envelope rpc
 		if len(resolutionPayload) > 0 {
 			payload["escalation_resolution"] = resolutionPayload
 		}
+		var decisionArtifactID any = nil
+		if decisionSet && decisionID != "" {
+			artifacts, err := collectRows(ctx, tx, `
+				SELECT artifact_id, run_id, job_id, session_id, logical_name
+				  FROM striatumd.artifacts
+				 WHERE repository_id = $1
+				   AND artifact_kind = 'decision'
+				   AND run_id = $2
+				   AND logical_name = $3
+				 LIMIT 1`, repositoryID, blocker["run_id"], decisionID)
+			if err != nil {
+				return nil, err
+			}
+			if len(artifacts) == 0 {
+				return nil, rpc.NewError("not_found", "decision artifact for decision_id not found in run", nil)
+			}
+			artifact := artifacts[0]
+			if nullableResolve(artifact["job_id"]) != nil || nullableResolve(artifact["session_id"]) != nil {
+				return nil, rpc.NewError("invalid_transition", "decision artifact must be run-level (no job or session binding)", nil)
+			}
+			decisionArtifactID = artifact["artifact_id"]
+		}
 		now := resolveNowString()
 		payloadArg, err := db.JSONBArg(tx, payload)
 		if err != nil {
@@ -77,6 +99,17 @@ func HandleEscalationResolve(ctx context.Context, runner db.Runner, envelope rpc
 			       payload_json = $2::jsonb
 			 WHERE repository_id = $3
 			   AND blocker_id = $4`, now, payloadArg, repositoryID, escalationID); err != nil {
+			return nil, err
+		}
+		if err := tx.Exec(ctx, `
+			UPDATE striatumd.escalation_inbox
+			   SET state = 'resolved',
+			       resolved_at = $1,
+			       decision_artifact_id = $2,
+			       resolution_note = $3,
+			       payload_json = $4::jsonb
+			 WHERE repository_id = $5
+			   AND escalation_id = $6`, now, decisionArtifactID, nullableResolve(resolutionNote), payloadArg, repositoryID, escalationID); err != nil {
 			return nil, err
 		}
 		eventPayload := map[string]any{"escalation_id": escalationID}

@@ -308,6 +308,20 @@ def _link_escalation_artifact(
             """,
             (_jsonb(metadata), ctx.repository_id, escalation_id),
         )
+        cur.execute(
+            """
+            UPDATE striatumd.escalation_inbox
+               SET payload_json = jsonb_set(
+                       COALESCE(payload_json, '{}'::jsonb),
+                       '{escalation_artifact}',
+                       %s,
+                       true
+                   )
+             WHERE repository_id = %s
+               AND escalation_id = %s
+            """,
+            (_jsonb(metadata), ctx.repository_id, escalation_id),
+        )
 
 
 def _is_escalation_class_blocker(blocker: Mapping[str, Any]) -> bool:

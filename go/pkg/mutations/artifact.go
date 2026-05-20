@@ -32,6 +32,7 @@ var allowedArtifactKinds = map[string]bool{
 	"support_ledger":               true,
 	"action_item_ledger":           true,
 	"harness_improvement_proposal": true,
+	"escalation":                   true,
 }
 
 func HandlePublishArtifact(ctx context.Context, runner db.Runner, envelope rpc.Envelope) (map[string]any, error) {
@@ -109,12 +110,27 @@ func publishArtifact(
 	}
 	sum := sha256.Sum256(payload)
 	digest := hex.EncodeToString(sum[:])
+	now := nowString()
 	existing, err := oneRow(ctx, runner, `
 		SELECT * FROM striatumd.artifacts
 		 WHERE repository_id = $1 AND run_id = $2 AND job_id = $3 AND logical_name = $4
 		 LIMIT 1`, repositoryID, job["run_id"], jobID, logicalName)
 	if err == nil {
 		if fmt.Sprint(existing["content_sha256"]) == digest && fmt.Sprint(existing["repo_path"]) == pathText {
+			if kind == "escalation" {
+				block, ok := frontMatterBlock(string(payload))
+				if !ok {
+					return nil, rpc.NewError("artifact_error", "escalation artifact front matter is required to link an escalation blocker", nil)
+				}
+				frontMatter, err := parseFrontMatterBlock(block)
+				if err != nil {
+					return nil, rpc.NewError("artifact_error", "escalation artifact front matter is required to link an escalation blocker", nil)
+				}
+				err = linkEscalationArtifact(ctx, runner, repositoryID, frontMatter, fmt.Sprint(existing["artifact_id"]), fmt.Sprint(job["run_id"]), jobID, sessionID, pathText, digest, now)
+				if err != nil {
+					return nil, err
+				}
+			}
 			return map[string]any{"status": "already_published", "artifact_id": existing["artifact_id"]}, nil
 		}
 		return nil, rpc.NewError("artifact_error", "artifact logical name already exists with different content", nil)
@@ -126,7 +142,6 @@ func publishArtifact(
 	if err != nil {
 		return nil, err
 	}
-	now := nowString()
 	authorLine := firstAuthorLine(payload)
 
 	// RFC 0072: blob-routed artifact kinds upload to the per-repo S3
@@ -194,6 +209,20 @@ func publishArtifact(
 		nullable(blobContentType),
 	); err != nil {
 		return nil, err
+	}
+	if kind == "escalation" {
+		block, ok := frontMatterBlock(string(payload))
+		if !ok {
+			return nil, rpc.NewError("artifact_error", "escalation artifact front matter is required to link an escalation blocker", nil)
+		}
+		frontMatter, err := parseFrontMatterBlock(block)
+		if err != nil {
+			return nil, rpc.NewError("artifact_error", "escalation artifact front matter is required to link an escalation blocker", nil)
+		}
+		err = linkEscalationArtifact(ctx, runner, repositoryID, frontMatter, artifactID, fmt.Sprint(job["run_id"]), jobID, sessionID, pathText, digest, now)
+		if err != nil {
+			return nil, err
+		}
 	}
 	eventPayload := map[string]any{
 		"logical_name": logicalName,
@@ -430,6 +459,16 @@ var frontMatterSchemas = map[string]frontMatterSchema{
 			"expected_benefit": {true, isStringValue},
 			"risk":             {false, isStringValue},
 			"rollback":         {false, isStringValue},
+		},
+	},
+	"escalation": {
+		fields: map[string]frontMatterField{
+			"schema_version": {true, equalsValue("striatum.escalation.v1")},
+			"artifact_kind":  {true, equalsValue("escalation")},
+			"escalation_id":  {true, isStringValue},
+			"run_id":         {true, isStringValue},
+			"job_id":         {false, isStringValue},
+			"session_id":     {false, isStringValue},
 		},
 	},
 }
@@ -708,4 +747,132 @@ func canonicalBylineForm(line string) string {
 
 func errorsIsNoRows(err error) bool {
 	return err == nil || err == pgx.ErrNoRows
+}
+
+func linkEscalationArtifact(
+	ctx context.Context,
+	runner any,
+	repositoryID string,
+	frontMatter map[string]any,
+	artifactID string,
+	runID string,
+	jobID string,
+	sessionID string,
+	repoPath string,
+	contentSha256 string,
+	linkedAt string,
+) error {
+	escalationID, _ := frontMatter["escalation_id"].(string)
+	if escalationID == "" {
+		return rpc.NewError("artifact_error", "escalation artifact front matter missing escalation_id", nil)
+	}
+	frontRunID, _ := frontMatter["run_id"].(string)
+	if frontRunID != runID {
+		return rpc.NewError("artifact_error", "escalation artifact run_id must match publish context", nil)
+	}
+	if frontJobID, ok := frontMatter["job_id"].(string); ok && frontJobID != jobID {
+		return rpc.NewError("artifact_error", "escalation artifact job_id must match publish context", nil)
+	}
+	if frontSessionID, ok := frontMatter["session_id"].(string); ok && frontSessionID != sessionID {
+		return rpc.NewError("artifact_error", "escalation artifact session_id must match publish context", nil)
+	}
+
+	blocker, err := oneRow(ctx, runner, `
+		SELECT blocker_id, run_id, severity, blocker_kind, payload_json
+		  FROM striatumd.blockers
+		 WHERE repository_id = $1
+		   AND blocker_id = $2
+		   FOR UPDATE`, repositoryID, escalationID)
+	if err != nil {
+		return rpc.NewError("artifact_error", "escalation artifact escalation_id does not match an existing blocker", nil)
+	}
+	if fmt.Sprint(blocker["run_id"]) != runID {
+		return rpc.NewError("artifact_error", "escalation artifact blocker must belong to the same run", nil)
+	}
+	if !isEscalationClassBlocker(blocker) {
+		return rpc.NewError("artifact_error", "escalation artifact blocker is not escalation-class", nil)
+	}
+
+	metadata := map[string]any{
+		"artifact_id":    artifactID,
+		"repo_path":      repoPath,
+		"content_sha256": contentSha256,
+		"linked_at":      linkedAt,
+		"link_source":    "artifact.publish",
+	}
+
+	payloadJSONRaw := blocker["payload_json"]
+	var payloadJSON map[string]any
+	if payloadStr, ok := payloadJSONRaw.(string); ok {
+		json.Unmarshal([]byte(payloadStr), &payloadJSON)
+	} else if payloadBytes, ok := payloadJSONRaw.([]byte); ok {
+		json.Unmarshal(payloadBytes, &payloadJSON)
+	} else if payloadMap, ok := payloadJSONRaw.(map[string]any); ok {
+		payloadJSON = payloadMap
+	}
+	if payloadJSON == nil {
+		payloadJSON = map[string]any{}
+	}
+
+	if existingLink, ok := payloadJSON["escalation_artifact"].(map[string]any); ok {
+		for _, key := range []string{"artifact_id", "repo_path", "content_sha256", "link_source"} {
+			if existingLink[key] != metadata[key] {
+				return rpc.NewError("artifact_error", "escalation blocker is already linked to a different artifact", nil)
+			}
+		}
+		return nil
+	}
+
+	metadataBytes, err := json.Marshal(metadata)
+	if err != nil {
+		return err
+	}
+
+	exec, ok := runner.(interface {
+		Exec(context.Context, string, ...any) error
+	})
+	if !ok {
+		return fmt.Errorf("runner does not support exec")
+	}
+
+	if err := exec.Exec(ctx, `
+		UPDATE striatumd.blockers
+		   SET payload_json = jsonb_set(
+				   COALESCE(payload_json, '{}'::jsonb),
+				   '{escalation_artifact}',
+				   $1,
+				   true
+			   )
+		 WHERE repository_id = $2
+		   AND blocker_id = $3`, string(metadataBytes), repositoryID, escalationID); err != nil {
+		return err
+	}
+
+	if err := exec.Exec(ctx, `
+		UPDATE striatumd.escalation_inbox
+		   SET payload_json = jsonb_set(
+				   COALESCE(payload_json, '{}'::jsonb),
+				   '{escalation_artifact}',
+				   $1,
+				   true
+			   )
+		 WHERE repository_id = $2
+		   AND escalation_id = $3`, string(metadataBytes), repositoryID, escalationID); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func isEscalationClassBlocker(blocker map[string]any) bool {
+	severity := fmt.Sprint(blocker["severity"])
+	kind := fmt.Sprint(blocker["blocker_kind"])
+	return severity == "human_checkpoint" ||
+		kind == "ambiguous_goal" ||
+		kind == "missing_authority" ||
+		kind == "contradicting_decisions" ||
+		kind == "no_available_reviewer_lane" ||
+		kind == "committee_stalemate" ||
+		kind == "override_required" ||
+		kind == "ai_self_declared"
 }

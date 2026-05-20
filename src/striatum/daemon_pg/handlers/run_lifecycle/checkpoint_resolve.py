@@ -44,7 +44,7 @@ def handle(ctx: RepoHandlerContext, params: Mapping[str, Any]) -> dict[str, Any]
         now = ctx.now()
         downstream_jobs: list[dict[str, Any]] = []
         if action == "continue":
-            _resolve_blocker(ctx, blocker_id=blocker_id, resolved_at=now)
+            _resolve_blocker(ctx, blocker_id=blocker_id, resolved_at=now, decision_artifact_id=decision_artifact_id)
             if blocker_job_id is not None:
                 downstream_jobs = _continue_checkpoint_job(
                     ctx,
@@ -54,7 +54,7 @@ def handle(ctx: RepoHandlerContext, params: Mapping[str, Any]) -> dict[str, Any]
             event_type = "checkpoint.resolved"
             next_actions = ["claim_available_work", "monitor_run_progress"]
         else:
-            _resolve_blocker(ctx, blocker_id=blocker_id, resolved_at=now)
+            _resolve_blocker(ctx, blocker_id=blocker_id, resolved_at=now, decision_artifact_id=decision_artifact_id)
             if blocker_job_id is not None:
                 downstream_jobs = _cancel_checkpoint_job(
                     ctx,
@@ -165,7 +165,13 @@ def _cancel_checkpoint_job(
     return _downstream_jobs(ctx, job_id=job_id)
 
 
-def _resolve_blocker(ctx: RepoHandlerContext, *, blocker_id: str, resolved_at: str) -> None:
+def _resolve_blocker(
+    ctx: RepoHandlerContext,
+    *,
+    blocker_id: str,
+    resolved_at: str,
+    decision_artifact_id: str | None = None,
+) -> None:
     with ctx.cursor() as cur:
         cur.execute(
             """
@@ -174,6 +180,16 @@ def _resolve_blocker(ctx: RepoHandlerContext, *, blocker_id: str, resolved_at: s
             WHERE repository_id = %s AND blocker_id = %s
             """,
             (resolved_at, ctx.repository_id, blocker_id),
+        )
+        cur.execute(
+            """
+            UPDATE striatumd.escalation_inbox
+            SET state = 'resolved',
+                resolved_at = %s,
+                decision_artifact_id = %s
+            WHERE repository_id = %s AND escalation_id = %s
+            """,
+            (resolved_at, decision_artifact_id, ctx.repository_id, blocker_id),
         )
 
 

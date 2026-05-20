@@ -95,6 +95,7 @@ func TestRegisterInstallsInitialMutationHandlers(t *testing.T) {
 		"recovery.auto",
 		"recovery.auto_finalize",
 		"supervise.report",
+		"work.await_packet",
 	} {
 		handler, ok := server.Handlers[method]
 		if !ok {

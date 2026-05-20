@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/halbritt/striatum/go/pkg/db"
 	"github.com/halbritt/striatum/go/pkg/rpc"
@@ -383,7 +384,11 @@ func HandleEscalationList(ctx context.Context, runner db.Runner, envelope rpc.En
 		        b.created_at, b.resolved_at, b.payload_json,
 		        a.artifact_id AS linked_artifact_id,
 		        a.repo_path AS linked_repo_path,
-		        a.content_sha256 AS linked_content_sha256
+		        a.content_sha256 AS linked_content_sha256,
+		        e.state AS inbox_state,
+		        e.viewed_at,
+		        e.decision_artifact_id,
+		        e.resolution_note
 		   FROM striatumd.blockers b
 		   LEFT JOIN striatumd.jobs j
 		     ON j.repository_id = b.repository_id AND j.job_id = b.job_id
@@ -392,6 +397,8 @@ func HandleEscalationList(ctx context.Context, runner db.Runner, envelope rpc.En
 		   LEFT JOIN striatumd.artifacts a
 		     ON a.repository_id = b.repository_id
 		    AND a.artifact_id = b.payload_json #>> '{escalation_artifact,artifact_id}'
+		   LEFT JOIN striatumd.escalation_inbox e
+		     ON e.repository_id = b.repository_id AND e.escalation_id = b.blocker_id
 		  `+where+
 			` ORDER BY b.created_at ASC, b.blocker_id ASC
 		    LIMIT `+placeholder(len(args)),
@@ -421,6 +428,16 @@ func HandleEscalationShow(ctx context.Context, runner db.Runner, envelope rpc.En
 	if escalationID == "" {
 		return nil, rpc.NewError("schema_invalid", "escalation_id must be a non-empty string", nil)
 	}
+	now := time.Now().UTC().Format(time.RFC3339)
+	if err := runner.Exec(ctx, `
+		UPDATE striatumd.escalation_inbox
+		   SET state = 'viewed', viewed_at = $1
+		 WHERE repository_id = $2
+		   AND escalation_id = $3
+		   AND state = 'pending'`,
+		now, repositoryID, escalationID); err != nil {
+		return nil, err
+	}
 	rows, err := collectRows(ctx, runner,
 		`SELECT b.blocker_id AS escalation_id, b.blocker_id, b.run_id,
 		        b.job_id, j.workflow_job_id, b.session_id,
@@ -429,7 +446,11 @@ func HandleEscalationShow(ctx context.Context, runner db.Runner, envelope rpc.En
 		        b.created_at, b.resolved_at, b.payload_json,
 		        a.artifact_id AS linked_artifact_id,
 		        a.repo_path AS linked_repo_path,
-		        a.content_sha256 AS linked_content_sha256
+		        a.content_sha256 AS linked_content_sha256,
+		        e.state AS inbox_state,
+		        e.viewed_at,
+		        e.decision_artifact_id,
+		        e.resolution_note
 		   FROM striatumd.blockers b
 		   LEFT JOIN striatumd.jobs j
 		     ON j.repository_id = b.repository_id AND j.job_id = b.job_id
@@ -438,6 +459,8 @@ func HandleEscalationShow(ctx context.Context, runner db.Runner, envelope rpc.En
 		   LEFT JOIN striatumd.artifacts a
 		     ON a.repository_id = b.repository_id
 		    AND a.artifact_id = b.payload_json #>> '{escalation_artifact,artifact_id}'
+		   LEFT JOIN striatumd.escalation_inbox e
+		     ON e.repository_id = b.repository_id AND e.escalation_id = b.blocker_id
 		  WHERE b.repository_id = $1
 		    AND b.blocker_id = $2
 		    AND `+escalationPredicate(),
@@ -516,23 +539,27 @@ func shapeEscalations(rows []map[string]any) []map[string]any {
 			source = "human_checkpoint"
 		}
 		shaped = append(shaped, map[string]any{
-			"escalation_id":       row["escalation_id"],
-			"blocker_id":          row["blocker_id"],
-			"run_id":              row["run_id"],
-			"job_id":              row["job_id"],
-			"workflow_job_id":     row["workflow_job_id"],
-			"session_id":          row["session_id"],
-			"session_role_id":     row["session_role_id"],
-			"session_lane_id":     row["session_lane_id"],
-			"source":              source,
-			"class":               row["class"],
-			"severity":            row["severity"],
-			"description":         row["description"],
-			"state":               row["state"],
-			"created_at":          row["created_at"],
-			"resolved_at":         row["resolved_at"],
-			"escalation_artifact": escalationArtifactSummary(row),
-			"payload":             objectOrEmpty(row["payload_json"]),
+			"escalation_id":        row["escalation_id"],
+			"blocker_id":           row["blocker_id"],
+			"run_id":               row["run_id"],
+			"job_id":               row["job_id"],
+			"workflow_job_id":      row["workflow_job_id"],
+			"session_id":           row["session_id"],
+			"session_role_id":      row["session_role_id"],
+			"session_lane_id":      row["session_lane_id"],
+			"source":               source,
+			"class":                row["class"],
+			"severity":             row["severity"],
+			"description":          row["description"],
+			"state":                row["state"],
+			"inbox_state":          row["inbox_state"],
+			"viewed_at":            row["viewed_at"],
+			"created_at":           row["created_at"],
+			"resolved_at":          row["resolved_at"],
+			"decision_artifact_id": row["decision_artifact_id"],
+			"resolution_note":      row["resolution_note"],
+			"escalation_artifact":  escalationArtifactSummary(row),
+			"payload":              objectOrEmpty(row["payload_json"]),
 		})
 	}
 	return shaped

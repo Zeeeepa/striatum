@@ -51,7 +51,11 @@ def list_escalations(ctx: RepoHandlerContext, params: Mapping[str, Any]) -> dict
                    b.payload_json,
                    a.artifact_id AS linked_artifact_id,
                    a.repo_path AS linked_repo_path,
-                   a.content_sha256 AS linked_content_sha256
+                   a.content_sha256 AS linked_content_sha256,
+                   e.state AS inbox_state,
+                   e.viewed_at,
+                   e.decision_artifact_id,
+                   e.resolution_note
               FROM striatumd.blockers b
               LEFT JOIN striatumd.jobs j
                 ON j.repository_id = b.repository_id
@@ -62,6 +66,9 @@ def list_escalations(ctx: RepoHandlerContext, params: Mapping[str, Any]) -> dict
               LEFT JOIN striatumd.artifacts a
                 ON a.repository_id = b.repository_id
                AND a.artifact_id = b.payload_json #>> '{{escalation_artifact,artifact_id}}'
+              LEFT JOIN striatumd.escalation_inbox e
+                ON e.repository_id = b.repository_id
+               AND e.escalation_id = b.blocker_id
              WHERE {" AND ".join(filters)}
              ORDER BY b.created_at ASC, b.blocker_id ASC
              LIMIT %s
@@ -79,9 +86,22 @@ def list_escalations(ctx: RepoHandlerContext, params: Mapping[str, Any]) -> dict
     }
 
 
-@register_pg_handler("escalation.show", read_only=True)
+@register_pg_handler("escalation.show", read_only=False)
 def show_escalation(ctx: RepoHandlerContext, params: Mapping[str, Any]) -> dict[str, Any]:
     escalation_id = _required_escalation_id(params)
+    with transaction(ctx):
+        now = ctx.now()
+        with ctx.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE striatumd.escalation_inbox
+                   SET state = 'viewed', viewed_at = %s
+                 WHERE repository_id = %s
+                   AND escalation_id = %s
+                   AND state = 'pending'
+                """,
+                (now, ctx.repository_id, escalation_id),
+            )
     return {"escalation": _load_escalation(ctx, escalation_id=escalation_id)}
 
 
@@ -95,6 +115,33 @@ def resolve_escalation(ctx: RepoHandlerContext, params: Mapping[str, Any]) -> di
         if blocker["state"] != "open":
             raise InvalidTransitionError("escalation is not open")
         now = ctx.now()
+        decision_artifact_id = None
+        if decision_id is not None:
+            with ctx.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT artifact_id, job_id, session_id
+                    FROM striatumd.artifacts
+                    WHERE repository_id = %s
+                      AND artifact_kind = 'decision'
+                      AND run_id = %s
+                      AND logical_name = %s
+                    LIMIT 1
+                    """,
+                    (ctx.repository_id, str(blocker["run_id"]), decision_id),
+                )
+                row = cur.fetchone()
+            if row is None:
+                from striatum.errors import NotFoundError
+                raise NotFoundError(
+                    f"decision artifact for decision_id={decision_id!r} not found in run"
+                )
+            if row["job_id"] is not None or row["session_id"] is not None:
+                raise InvalidTransitionError(
+                    "decision artifact must be run-level (no job or session binding)"
+                )
+            decision_artifact_id = str(row["artifact_id"])
+
         payload = dict(blocker.get("payload_json") or {})
         resolution_payload: dict[str, Any] = {}
         if decision_id is not None:
@@ -114,6 +161,26 @@ def resolve_escalation(ctx: RepoHandlerContext, params: Mapping[str, Any]) -> di
                    AND blocker_id = %s
                 """,
                 (now, _jsonb(payload), ctx.repository_id, escalation_id),
+            )
+            cur.execute(
+                """
+                UPDATE striatumd.escalation_inbox
+                   SET state = 'resolved',
+                       resolved_at = %s,
+                       decision_artifact_id = %s,
+                       resolution_note = %s,
+                       payload_json = %s
+                 WHERE repository_id = %s
+                   AND escalation_id = %s
+                """,
+                (
+                    now,
+                    decision_artifact_id,
+                    resolution_note,
+                    _jsonb(payload),
+                    ctx.repository_id,
+                    escalation_id,
+                ),
             )
         event_payload: dict[str, Any] = {"escalation_id": escalation_id}
         event_payload.update(resolution_payload)
@@ -158,7 +225,11 @@ def _load_escalation(ctx: RepoHandlerContext, *, escalation_id: str) -> dict[str
                    b.payload_json,
                    a.artifact_id AS linked_artifact_id,
                    a.repo_path AS linked_repo_path,
-                   a.content_sha256 AS linked_content_sha256
+                   a.content_sha256 AS linked_content_sha256,
+                   e.state AS inbox_state,
+                   e.viewed_at,
+                   e.decision_artifact_id,
+                   e.resolution_note
               FROM striatumd.blockers b
               LEFT JOIN striatumd.jobs j
                 ON j.repository_id = b.repository_id
@@ -169,6 +240,9 @@ def _load_escalation(ctx: RepoHandlerContext, *, escalation_id: str) -> dict[str
               LEFT JOIN striatumd.artifacts a
                 ON a.repository_id = b.repository_id
                AND a.artifact_id = b.payload_json #>> '{{escalation_artifact,artifact_id}}'
+              LEFT JOIN striatumd.escalation_inbox e
+                ON e.repository_id = b.repository_id
+               AND e.escalation_id = b.blocker_id
              WHERE b.repository_id = %s
                AND b.blocker_id = %s
                AND {_escalation_predicate()}
@@ -224,8 +298,12 @@ def _project_row(row: Mapping[str, Any]) -> dict[str, Any]:
         "severity": str(row["severity"]),
         "description": str(row["description"]),
         "state": str(row["state"]),
+        "inbox_state": _optional_str(row.get("inbox_state")),
+        "viewed_at": json_value(row.get("viewed_at")),
         "created_at": json_value(row.get("created_at")),
         "resolved_at": json_value(row.get("resolved_at")),
+        "decision_artifact_id": _optional_str(row.get("decision_artifact_id")),
+        "resolution_note": _optional_str(row.get("resolution_note")),
         "escalation_artifact": _escalation_artifact_summary(payload, row),
         "payload": payload if isinstance(payload, dict) else {},
     }

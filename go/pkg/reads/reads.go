@@ -33,7 +33,7 @@ type Queryer interface {
 	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
 }
 
-func queryer(runner db.Runner) (Queryer, error) {
+func queryer(runner any) (Queryer, error) {
 	q, ok := runner.(Queryer)
 	if !ok {
 		return nil, fmt.Errorf("runner does not support row queries")
@@ -56,7 +56,7 @@ func stringParam(envelope rpc.Envelope, key string) string {
 	return ""
 }
 
-func collectRows(ctx context.Context, runner db.Runner, sql string, args ...any) ([]map[string]any, error) {
+func collectRows(ctx context.Context, runner any, sql string, args ...any) ([]map[string]any, error) {
 	q, err := queryer(runner)
 	if err != nil {
 		return nil, err

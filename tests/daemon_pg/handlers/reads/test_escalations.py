@@ -87,6 +87,30 @@ def test_escalation_show_and_resolve_update_blocker_and_append_event(
     assert shown["escalation"]["state"] == "open"
     assert shown["escalation"]["escalation_artifact"]["artifact_id"] == "art_escalation"
 
+    inbox_row = _one(
+        pg_conn,
+        "SELECT state, viewed_at FROM striatumd.escalation_inbox WHERE repository_id = %s AND escalation_id = %s",
+        ("repo_1", "blk_authority"),
+    )
+    assert inbox_row["state"] == "viewed"
+    assert inbox_row["viewed_at"] is not None
+
+    # Insert a dummy decision artifact so resolution can link to it
+    with pg_conn.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO striatumd.artifacts (
+              repository_id, artifact_id, run_id, job_id, session_id, logical_name,
+              artifact_kind, repo_path, content_sha256, size_bytes, publish_mode,
+              created_at
+            )
+            VALUES ('repo_1', 'art_decision', 'run_1', NULL, NULL, 'dec_1',
+                    'decision', 'docs/decisions/DECISION.md', 'sha-decision', 12,
+                    'create', '2026-05-16T00:00:00Z')
+            """
+        )
+    pg_conn.commit()
+
     resolved = module.resolve_escalation(
         ctx,
         {
@@ -108,6 +132,17 @@ def test_escalation_show_and_resolve_update_blocker_and_append_event(
         "decision_id": "dec_1",
         "resolution_note": "principal approved requested authority",
     }
+    
+    inbox_resolved = _one(
+        pg_conn,
+        "SELECT state, resolved_at, decision_artifact_id, resolution_note FROM striatumd.escalation_inbox WHERE repository_id = %s AND escalation_id = %s",
+        ("repo_1", "blk_authority"),
+    )
+    assert inbox_resolved["state"] == "resolved"
+    assert inbox_resolved["resolved_at"] is not None
+    assert inbox_resolved["decision_artifact_id"] == "art_decision"
+    assert inbox_resolved["resolution_note"] == "principal approved requested authority"
+
     events = _events(pg_conn)
     assert events == [
         {
@@ -288,6 +323,30 @@ def _seed(conn: Any, tmp_path: Path) -> None:
                     Jsonb(payload),
                 ),
             )
+            # Seed escalation_inbox for escalation class blockers
+            from striatum.daemon_pg.handlers.reads.escalations import ESCALATION_BLOCKER_KINDS
+            is_escalation = (severity == "human_checkpoint") or (kind in ESCALATION_BLOCKER_KINDS)
+            if is_escalation:
+                inbox_state = "resolved" if state == "resolved" else "pending"
+                cur.execute(
+                    """
+                    INSERT INTO striatumd.escalation_inbox (
+                      repository_id, escalation_id, run_id, job_id, session_id,
+                      blocker_id, blocker_kind, severity, state, created_at, payload_json
+                    )
+                    VALUES ('repo_1', %s, 'run_1', 'job_1', 'sess_1',
+                            %s, %s, %s, %s, %s, %s)
+                    """,
+                    (
+                        blocker_id,
+                        blocker_id,
+                        kind,
+                        severity,
+                        inbox_state,
+                        now,
+                        Jsonb(payload),
+                    ),
+                )
 
 
 def _one(conn: Any, sql: str, params: tuple[Any, ...]) -> dict[str, Any]:

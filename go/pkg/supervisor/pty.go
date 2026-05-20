@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 
 	"github.com/creack/pty"
 )
@@ -31,6 +32,16 @@ type LaunchResult struct {
 	PID         int
 	StdinWriter io.WriteCloser
 	Cmd         *exec.Cmd
+}
+
+func getEnvValue(env []string, key string) string {
+	prefix := key + "="
+	for _, entry := range env {
+		if strings.HasPrefix(entry, prefix) {
+			return entry[len(prefix):]
+		}
+	}
+	return ""
 }
 
 // Launch starts the supervised child. UsePTY=true allocates a pseudo-tty
@@ -102,6 +113,45 @@ func ensureFIFO(scratchDir string, supervisorID string, fifoPath string) error {
 // daemon writes packets to the master, the child reads them off the slave
 // as ordinary stdin.
 func launchPTY(ctx context.Context, spec LaunchSpec) (*LaunchResult, error) {
+	runID := getEnvValue(spec.Env, "STRIATUM_RUN_ID")
+	laneID := getEnvValue(spec.Env, "STRIATUM_LANE_ID")
+	if runID != "" && laneID != "" {
+		if _, err := exec.LookPath("tmux"); err == nil {
+			sessionName := fmt.Sprintf("striatum-%s-%s", runID, laneID)
+			
+			// Kill existing session with the same name if any (to avoid collisions / stale sessions)
+			_ = exec.Command("tmux", "kill-session", "-t", sessionName).Run()
+			
+			// 1. Create the detached tmux session
+			newSessionArgs := []string{"new-session", "-d", "-s", sessionName, "-c", spec.WorkingDir}
+			newSessionArgs = append(newSessionArgs, spec.Command...)
+			createCmd := exec.Command("tmux", newSessionArgs...)
+			createCmd.Env = append(os.Environ(), spec.Env...)
+			if err := createCmd.Run(); err != nil {
+				return nil, fmt.Errorf("supervisor: failed to create tmux session: %w", err)
+			}
+			
+			// 2. Disable status bar to avoid polluting stdout
+			_ = exec.Command("tmux", "set-option", "-t", sessionName, "status", "off").Run()
+			
+			// 3. Attach to the session in the PTY
+			attachCmd := exec.CommandContext(ctx, "tmux", "attach-session", "-t", sessionName)
+			attachCmd.Dir = spec.WorkingDir
+			attachCmd.Env = append(os.Environ(), spec.Env...)
+			
+			ptmx, err := pty.Start(attachCmd)
+			if err != nil {
+				return nil, fmt.Errorf("supervisor: pty.Start (tmux attach): %w", err)
+			}
+			
+			return &LaunchResult{
+				PID:         attachCmd.Process.Pid,
+				StdinWriter: ptmx,
+				Cmd:         attachCmd,
+			}, nil
+		}
+	}
+
 	cmd := exec.CommandContext(ctx, spec.Command[0], spec.Command[1:]...)
 	cmd.Dir = spec.WorkingDir
 	cmd.Env = append(os.Environ(), spec.Env...)

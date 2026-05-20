@@ -47,6 +47,7 @@ var methodEntries = []MethodEntry{
 	{Method: "session.register", RequiredCapability: CapPtr(CapabilityClaim), RepositoryScope: true, RepositoryScopeMode: ScopeSingleRepo, ParamsSchemaVersion: 1, AuditClass: "metadata", MinEnvelope: 1},
 	{Method: "session.close", RequiredCapability: CapPtr(CapabilityClaim), RepositoryScope: true, RepositoryScopeMode: ScopeSingleRepo, ParamsSchemaVersion: 1, AuditClass: "metadata", MinEnvelope: 1},
 	{Method: "work.claim_next", RequiredCapability: CapPtr(CapabilityClaim), RepositoryScope: true, RepositoryScopeMode: ScopeSingleRepo, ParamsSchemaVersion: 1, AuditClass: "metadata", MinEnvelope: 1},
+	{Method: "work.await_packet", RequiredCapability: CapPtr(CapabilityClaim), RepositoryScope: true, RepositoryScopeMode: ScopeSingleRepo, ParamsSchemaVersion: 1, AuditClass: "metadata", MinEnvelope: 1},
 	{Method: "work.ack", RequiredCapability: CapPtr(CapabilityClaim), RepositoryScope: true, RepositoryScopeMode: ScopeSingleRepo, ParamsSchemaVersion: 1, AuditClass: "metadata", MinEnvelope: 1},
 	{Method: "work.heartbeat", RequiredCapability: CapPtr(CapabilityClaim), RepositoryScope: true, RepositoryScopeMode: ScopeSingleRepo, ParamsSchemaVersion: 1, AuditClass: "metadata", MinEnvelope: 1},
 	{Method: "work.release", RequiredCapability: CapPtr(CapabilityClaim), RepositoryScope: true, RepositoryScopeMode: ScopeSingleRepo, ParamsSchemaVersion: 1, AuditClass: "metadata", MinEnvelope: 1},

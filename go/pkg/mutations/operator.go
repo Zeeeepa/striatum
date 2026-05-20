@@ -172,6 +172,12 @@ func HandleCheckpointResolve(ctx context.Context, runner db.Runner, envelope rpc
 				 WHERE repository_id = $2 AND blocker_id = $3`, now, repositoryID, blockerID); err != nil {
 				return nil, err
 			}
+			if err := tx.Exec(ctx, `
+				UPDATE striatumd.escalation_inbox
+				   SET state = 'resolved', resolved_at = $1, decision_artifact_id = $2
+				 WHERE repository_id = $3 AND escalation_id = $4`, now, artifactID, repositoryID, blockerID); err != nil {
+				return nil, err
+			}
 			if blockerJobID != nil {
 				job, err := rowByID(ctx, tx, repositoryID, "jobs", "job_id", fmt.Sprint(blockerJobID), true)
 				if err != nil {
@@ -217,6 +223,12 @@ func HandleCheckpointResolve(ctx context.Context, runner db.Runner, envelope rpc
 				UPDATE striatumd.blockers
 				   SET state = 'resolved', resolved_at = $1
 				 WHERE repository_id = $2 AND blocker_id = $3`, now, repositoryID, blockerID); err != nil {
+				return nil, err
+			}
+			if err := tx.Exec(ctx, `
+				UPDATE striatumd.escalation_inbox
+				   SET state = 'resolved', resolved_at = $1, decision_artifact_id = $2
+				 WHERE repository_id = $3 AND escalation_id = $4`, now, artifactID, repositoryID, blockerID); err != nil {
 				return nil, err
 			}
 			if blockerJobID != nil {

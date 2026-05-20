@@ -103,6 +103,32 @@ func TestValidateReturnsAuthoringErrors(t *testing.T) {
 	}
 }
 
+func TestValidateRejectsInvalidLaneModel(t *testing.T) {
+	workflow := validWorkflow()
+	lanes := workflow["lanes"].(map[string]any)
+	lanes["codex"] = map[string]any{"adapter": "process", "model": 123} // Invalid model type (int)
+	err := Validate(workflow)
+	if err == nil || !strings.Contains(err.Error(), "model must be a non-empty string") {
+		t.Fatalf("Validate invalid lane model error = %v", err)
+	}
+
+	workflow = validWorkflow()
+	lanes = workflow["lanes"].(map[string]any)
+	lanes["codex"] = map[string]any{"adapter": "process", "model": ""} // Invalid empty model
+	err = Validate(workflow)
+	if err == nil || !strings.Contains(err.Error(), "model must be a non-empty string") {
+		t.Fatalf("Validate invalid lane model error = %v", err)
+	}
+
+	workflow = validWorkflow()
+	lanes = workflow["lanes"].(map[string]any)
+	lanes["codex"] = map[string]any{"adapter": "process", "model": "gpt-4"} // Valid model
+	err = Validate(workflow)
+	if err != nil {
+		t.Fatalf("Validate valid lane model error = %v", err)
+	}
+}
+
 func writeWorkflow(t *testing.T, path string, workflow map[string]any) {
 	t.Helper()
 	raw, err := json.Marshal(workflow)
