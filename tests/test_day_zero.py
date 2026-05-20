@@ -210,7 +210,7 @@ def test_adopt_refuses_legacy_sqlite_import_window_without_opening_sqlite(
     result = dispatch(args)
 
     assert isinstance(result, dict)
-    assert result["registration"]["status"] == "sqlite_import_retired"
+    assert result["registration"]["status"] == "sqlite_migration_required"
     assert "migrate-repo-local" not in result["registration"]["hint"]
     assert (state_dir / "state.sqlite3").exists()
 

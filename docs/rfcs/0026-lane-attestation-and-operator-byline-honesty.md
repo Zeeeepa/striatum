@@ -5,7 +5,7 @@ Date: 2026-05-09
 Context:
 [`docs/UBIQUITOUS_LANGUAGE.md`](../UBIQUITOUS_LANGUAGE.md)
 (operator, operator surrogate, supervised session, artifact author),
-[`src/striatum/cli/mutations.py`](../../src/striatum/cli/mutations.py)
+`striatum.cli.mutations` (retired)
 (`register_session`),
 [`src/striatum/identity.py`](../../src/striatum/identity.py)
 (`artifact_author_identity`),
@@ -40,7 +40,7 @@ verbs — see `docs/UBIQUITOUS_LANGUAGE.md` "operator" and "operator
 surrogate") asserts a `lane_id` when calling `register-session`, and that
 assertion is treated as attested provenance everywhere downstream:
 
-- `register_session` (`src/striatum/cli/mutations.py:216-322`) records the
+- `register_session` (formerly `src/striatum/cli/mutations.py:216-322`) records the
   operator-supplied `lane_id` directly into `sessions.lane_id` after
   confirming only that the lane id is declared in the workflow. The
   docstring at lines 230-237 already admits the gap explicitly: *"The

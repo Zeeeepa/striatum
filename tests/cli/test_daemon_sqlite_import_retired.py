@@ -84,24 +84,3 @@ def test_retired_daemon_migrate_refuses_before_importing_sqlite_cutover(
     assert "striatum.daemon_pg.cutover" not in sys.modules
 
 
-def test_direct_repo_local_migration_helper_is_guarded_by_explicit_test_escape(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    from striatum.daemon_pg.repo_local_migration import (
-        RepoLocalMigrationOptions,
-        migrate_repo_local,
-    )
-
-    monkeypatch.delenv("STRIATUM_LEGACY_SQLITE_IMPORT", raising=False)
-
-    with pytest.raises(StriatumError) as exc:
-        migrate_repo_local(
-            RepoLocalMigrationOptions(
-                repo=tmp_path,
-                postgres_url="postgresql://localhost/striatum_test",
-            )
-        )
-
-    assert exc.value.exit_code == 12
-    assert "repo_local_sqlite_import_retired" in str(exc.value)

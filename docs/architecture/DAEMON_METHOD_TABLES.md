@@ -35,6 +35,7 @@
 | `artifact.get_content` | `read` | `single_repo` | 1 | 1 | no |
 | `artifact.list_for_run` | `read` | `single_repo` | 1 | 1 | no |
 | `corpus.migrate_historical_dogfood_file` | `write` | `single_repo` | 1 | 1 | no |
+| `artifact.backfill_blob` | `write` | `single_repo` | 1 | 1 | no |
 | `corpus.list_historical_dogfoods` | `read` | `single_repo` | 1 | 1 | no |
 | `corpus.list_historical_dogfood_files` | `read` | `single_repo` | 1 | 1 | no |
 | `corpus.fetch_historical_dogfood_file` | `read` | `single_repo` | 1 | 1 | no |
