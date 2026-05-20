@@ -50,6 +50,7 @@
 | `session.register` | `claim` | `single_repo` | 1 | 1 | no |
 | `session.close` | `claim` | `single_repo` | 1 | 1 | no |
 | `work.claim_next` | `claim` | `single_repo` | 1 | 1 | no |
+| `work.await_packet` | `claim` | `single_repo` | 1 | 1 | no |
 | `work.ack` | `claim` | `single_repo` | 1 | 1 | no |
 | `work.heartbeat` | `claim` | `single_repo` | 1 | 1 | no |
 | `work.release` | `claim` | `single_repo` | 1 | 1 | no |
