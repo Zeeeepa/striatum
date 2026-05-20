@@ -6,13 +6,13 @@ Context:
 [`RFC 0014`](0014-process-adapter-completion-guarantees.md),
 [`RFC 0009`](0009-long-lived-process-supervision.md),
 [`RFC 0013`](0013-local-web-ui.md),
-[`docs/DECISION_LOG.md`](../DECISION_LOG.md) (D028, D036, D055, D057, D083),
+[`docs/DECISION_LOG.md`](../DECISION_LOG.md) (D028, D036, D055, D057, D122),
 [`docs/SPEC.md`](../SPEC.md) § "Adapter Boundary",
 `src/striatum/process_completion.py`,
 `src/striatum/cli/recovery.py` (retired),
 `src/striatum/cli/mutations.py` (retired) (`checkpoint_resolve`)
 
-V1 core acceptance (D083) covers the CLI primitive, process-adapter envelope
+V1 core acceptance (D122) covers the CLI primitive, process-adapter envelope
 commands, documentation, skills/plugin guidance, and focused regression tests.
 Dashboard and web-UI action surfacing remain deferred follow-up work.
 
