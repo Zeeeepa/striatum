@@ -60,15 +60,15 @@ def launch_daemon_start(args: argparse.Namespace) -> Any:
 
 
 def resolve_go_binary() -> Path:
-    packaged = _resolve_packaged_go_binary()
-    if packaged is not None:
-        return _verify_go_binary_contract(packaged)
     override = os.environ.get(ENV_GO_BIN)
     if override:
         binary = Path(override).expanduser().resolve()
         if not binary.exists():
             raise StriatumError(f"{ENV_GO_BIN}={override} does not exist", exit_code=2)
         return _verify_go_binary_contract(binary)
+    packaged = _resolve_packaged_go_binary()
+    if packaged is not None:
+        return _verify_go_binary_contract(packaged)
     repo_binary = Path(__file__).resolve().parents[3] / "go" / "bin" / "striatumd"
     if repo_binary.exists():
         return _verify_go_binary_contract(repo_binary)
