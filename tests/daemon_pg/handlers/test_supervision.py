@@ -20,6 +20,7 @@ from striatum.daemon_pg.handlers.context import RepoHandlerContext
 from striatum.daemon_pg.handlers.registry import resolve_pg_handler
 from striatum.daemon_pg.handlers.reads import _read_model
 from striatum.daemon_pg.handlers.supervision import (
+    _current_daemon_instance_id,
     handle_list,
     handle_reattach_status,
     handle_report,
@@ -1151,7 +1152,7 @@ def _insert_supervisor_snapshot(
                   repository_id, supervisor_id, daemon_supervisor_id, run_id,
                   session_id, pid, pid_start_time, state, updated_at, metadata_json
                 )
-                VALUES (%s, %s, %s, 'run_1', %s, %s, %s, 'attached', %s, '{}'::jsonb)
+                VALUES (%s, %s, %s, 'run_1', %s, %s, %s, 'attached', %s, %s)
                 """,
                 (
                     repository_id,
@@ -1161,6 +1162,7 @@ def _insert_supervisor_snapshot(
                     pid,
                     pid_start_time,
                     now,
+                    Jsonb({"daemon_instance_id": _current_daemon_instance_id()}),
                 ),
             )
         if with_daemon:
@@ -1172,7 +1174,7 @@ def _insert_supervisor_snapshot(
                   command_sha256, cwd, stdin_pipe_path, pid, pid_start_time,
                   state, started_at, heartbeat_at
                 )
-                VALUES (%s, %s, 'run_1', %s, %s, 'daemon-test', 'process',
+                VALUES (%s, %s, 'run_1', %s, %s, %s, 'process',
                         %s, 'sha256:test', %s, %s, %s, %s, 'attached', %s, %s)
                 """,
                 (
@@ -1180,6 +1182,7 @@ def _insert_supervisor_snapshot(
                     repository_id,
                     session_id,
                     supervisor_id,
+                    _current_daemon_instance_id(),
                     Jsonb(command),
                     "/tmp",
                     f"/tmp/{supervisor_id}/stdin.pipe",
