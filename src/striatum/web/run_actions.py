@@ -7,14 +7,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from striatum.git_utils import short_git_status as _short_git_status
+
 JsonObject = dict[str, Any]
+
 JsonSender = Callable[[int, JsonObject], None]
 JsonBodyReader = Callable[[int], dict[str, Any] | None]
-LegacyFallbackChecker = Callable[[str], bool]
-LegacyCallable = Callable[..., Any]
-LegacyFixtureErrorSender = Callable[[Any, Exception], bool]
-LegacyRunNowErrorSender = Callable[[Any, Path, Exception], bool]
-ShortGitStatus = Callable[[Path], str]
 
 
 @dataclass(frozen=True)
@@ -25,18 +23,6 @@ class RunActionContext:
     rfile: Any
     send_json: JsonSender
     read_json_body_strict: JsonBodyReader
-    legacy_error_handler: Any
-    legacy_web_read_fallback_enabled: LegacyFallbackChecker
-    legacy_fixture_fallback_enabled: LegacyFallbackChecker
-    legacy_workflow_run_now: LegacyCallable
-    legacy_run_cancel: LegacyCallable
-    legacy_run_pause: LegacyCallable
-    legacy_run_resume: LegacyCallable
-    legacy_job_cancel: LegacyCallable
-    legacy_job_retry: LegacyCallable
-    send_legacy_run_now_error: LegacyRunNowErrorSender
-    send_legacy_fixture_error: LegacyFixtureErrorSender
-    short_git_status: ShortGitStatus
 
 
 def handle_workflow_run_now(ctx: RunActionContext, rel_path: str) -> None:
@@ -84,19 +70,6 @@ def handle_workflow_run_now(ctx: RunActionContext, rel_path: str) -> None:
             return
         call_repo_method(ctx.repo, "run.start", {"run_id": run_id})
     except ServiceDaemonRpcError as exc:
-        if ctx.legacy_web_read_fallback_enabled(exc.code):
-            try:
-                result = ctx.legacy_workflow_run_now(ctx.repo, workflow_path=target)
-            except Exception as legacy_exc:  # noqa: BLE001 - mapped below.
-                if ctx.send_legacy_run_now_error(
-                    ctx.legacy_error_handler,
-                    ctx.repo,
-                    legacy_exc,
-                ):
-                    return
-                raise
-            ctx.send_json(200, {"ok": True, "data": result})
-            return
         if exc.code in {"workflow_error", "schema_invalid"}:
             _send_workflow_error(
                 ctx,
@@ -179,15 +152,10 @@ def handle_run_cancel(ctx: RunActionContext, run_id: str) -> None:
     if body is None:
         return
     reason = body.get("reason") if isinstance(body.get("reason"), str) else None
-    _call_with_legacy_fixture_fallback(
+    _call_with_daemon(
         ctx,
         method="run.cancel",
         params={"run_id": run_id, "reason": reason},
-        legacy_call=lambda: ctx.legacy_run_cancel(
-            ctx.repo,
-            run_id=run_id,
-            reason=reason,
-        ),
     )
 
 
@@ -199,15 +167,10 @@ def handle_run_pause(ctx: RunActionContext, run_id: str) -> None:
     if body is None:
         return
     reason = body.get("reason") if isinstance(body.get("reason"), str) else None
-    _call_with_legacy_fixture_fallback(
+    _call_with_daemon(
         ctx,
         method="run.pause",
         params={"run_id": run_id, "reason": reason},
-        legacy_call=lambda: ctx.legacy_run_pause(
-            ctx.repo,
-            run_id=run_id,
-            reason=reason,
-        ),
     )
 
 
@@ -218,11 +181,10 @@ def handle_run_resume(ctx: RunActionContext, run_id: str) -> None:
     body = ctx.read_json_body_strict(64 * 1024)
     if body is None:
         return
-    _call_with_legacy_fixture_fallback(
+    _call_with_daemon(
         ctx,
         method="run.resume",
         params={"run_id": run_id},
-        legacy_call=lambda: ctx.legacy_run_resume(ctx.repo, run_id=run_id),
     )
 
 
@@ -264,30 +226,6 @@ def handle_job_action(ctx: RunActionContext, path: str) -> None:
             ctx.send_json(400, _error(400, f"unknown job action: {action}"))
             return
     except ServiceDaemonRpcError as exc:
-        if ctx.legacy_fixture_fallback_enabled(exc.code):
-            try:
-                if action == "cancel":
-                    result = ctx.legacy_job_cancel(
-                        ctx.repo,
-                        run_id=run_id,
-                        job_id=job_id,
-                        reason=reason,
-                        cascade=cascade,
-                    )
-                elif action == "retry":
-                    result = ctx.legacy_job_retry(
-                        ctx.repo,
-                        run_id=run_id,
-                        job_id=job_id,
-                    )
-                else:  # pragma: no cover - action is validated above.
-                    raise
-            except Exception as legacy_exc:  # noqa: BLE001 - mapped below.
-                if ctx.send_legacy_fixture_error(ctx.legacy_error_handler, legacy_exc):
-                    return
-                raise
-            ctx.send_json(200, {"ok": True, "data": result})
-            return
         ctx.send_json(exc.status, _daemon_error(exc))
         return
     except Exception as exc:  # noqa: BLE001
@@ -336,27 +274,17 @@ def _workflow_run_target(ctx: RunActionContext, rel_path: str) -> Path | None:
     return target
 
 
-def _call_with_legacy_fixture_fallback(
+def _call_with_daemon(
     ctx: RunActionContext,
     *,
     method: str,
     params: JsonObject,
-    legacy_call: Callable[[], Any],
 ) -> None:
     from striatum.service_daemon import ServiceDaemonRpcError, call_repo_method
 
     try:
         result = call_repo_method(ctx.repo, method, params)
     except ServiceDaemonRpcError as exc:
-        if ctx.legacy_fixture_fallback_enabled(exc.code):
-            try:
-                result = legacy_call()
-            except Exception as legacy_exc:  # noqa: BLE001 - mapped below.
-                if ctx.send_legacy_fixture_error(ctx.legacy_error_handler, legacy_exc):
-                    return
-                raise
-            ctx.send_json(200, {"ok": True, "data": result})
-            return
         ctx.send_json(exc.status, _daemon_error(exc))
         return
     except Exception as exc:  # noqa: BLE001
@@ -380,7 +308,7 @@ def _send_workflow_error(
                     "code": 409,
                     "message": message,
                     "kind": "dirty_tree",
-                    "git_status": ctx.short_git_status(ctx.repo),
+                    "git_status": _short_git_status(ctx.repo),
                 },
             },
         )

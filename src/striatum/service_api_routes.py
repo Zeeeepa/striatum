@@ -19,8 +19,6 @@ JsonSender = Callable[[int, JsonObject], None]
 InvokeFunc = Callable[[list[str]], JsonObject]
 VersionFunc = Callable[[], str]
 ServiceModeFunc = Callable[[Any], str]
-LegacyFallbackChecker = Callable[[str], bool]
-LegacyStreamEvents = Callable[..., Any]
 
 
 @dataclass(frozen=True)
@@ -33,8 +31,6 @@ class ServiceApiRouteContext:
     invoke_func: InvokeFunc
     striatum_version: VersionFunc
     service_mode: ServiceModeFunc
-    legacy_web_read_fallback_enabled: LegacyFallbackChecker
-    legacy_stream_events_body: LegacyStreamEvents
     poll_interval_seconds: float
 
 
@@ -172,9 +168,6 @@ def handle_daemon_read(
     try:
         payload = call_repo_method(ctx.state.repo, method, dict(params))
     except ServiceDaemonRpcError as exc:
-        if legacy_argv is not None and ctx.legacy_web_read_fallback_enabled(exc.code):
-            handle_invoke(ctx, legacy_argv)
-            return
         ctx.send_json(exc.status, _rpc_error(exc.code, exc.message))
         return
     ctx.send_json(200, {"ok": True, "data": payload})
@@ -200,15 +193,6 @@ def stream_events(
         )
         return
     try:
-        if ctx.legacy_web_read_fallback_enabled("daemon_unreachable"):
-            ctx.legacy_stream_events_body(
-                ctx.writer,
-                repo=ctx.state.repo,
-                run_id=run_id,
-                since=since,
-                poll_interval_seconds=ctx.poll_interval_seconds,
-            )
-            return
         stream_events_daemon_body(ctx, run_id, since=since)
     finally:
         ctx.state.release_sse_slot(run_id)

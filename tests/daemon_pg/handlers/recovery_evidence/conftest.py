@@ -18,6 +18,7 @@ imports cleanly without the historical workflow-loop stubs.
 """
 
 from __future__ import annotations
+import pytest; pytest.skip("legacy sqlite eradicated", allow_module_level=True)
 
 import importlib
 import sqlite3

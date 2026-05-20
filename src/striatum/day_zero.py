@@ -116,18 +116,18 @@ def adopt(
             }
         elif dry_run:
             result["registration"] = {
-                "status": "sqlite_import_retired" if inspection["state_db_exists"] else "would_register_repo",
+                "status": "would_register_repo",
                 "postgres_url_source": cfg.source,
                 "redacted_url": cfg.redacted_url,
             }
         elif inspection["state_db_exists"]:
             result["registration"] = {
-                "status": "sqlite_import_retired",
+                "status": "sqlite_migration_required",
                 "state_db_path": str(repo / ".striatum" / "state.sqlite3"),
                 "hint": (
-                    "SQLite import windows are closed; archive or remove the "
-                    "legacy .striatum/state.sqlite3 file, then register the "
-                    "repository with striatum adopt or striatum repo add --init."
+                    "Legacy SQLite state found. Migration to PostgreSQL is required. "
+                    "Archive or remove the legacy .striatum/state.sqlite3 file, then "
+                    "register the repository with striatum adopt or striatum repo add --init."
                 ),
             }
         else:

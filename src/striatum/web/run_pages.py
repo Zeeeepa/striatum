@@ -22,8 +22,6 @@ JsonObject = dict[str, Any]
 JsonSender = Callable[[int, JsonObject], None]
 HtmlSender = Callable[[int, str], None]
 TemplateEnvFactory = Callable[[], Any]
-LegacyFallbackChecker = Callable[[str], bool]
-LegacyCallable = Callable[..., Any]
 
 
 class RunPageState(Protocol):
@@ -41,12 +39,6 @@ class RunPageContext:
     send_json: JsonSender
     send_html: HtmlSender
     jinja_env: TemplateEnvFactory
-    legacy_web_read_fallback_enabled: LegacyFallbackChecker
-    legacy_run_list_items_for_test_harness: LegacyCallable
-    legacy_run_posture_verdicts_payload: LegacyCallable
-    legacy_run_detail_payload: LegacyCallable
-    legacy_job_detail_payload: LegacyCallable
-    legacy_artifact_view_payload: LegacyCallable
 
 
 def render_run_list_page(ctx: RunPageContext) -> None:
@@ -65,14 +57,8 @@ def render_run_list_page(ctx: RunPageContext) -> None:
             ]
             runs.sort(key=lambda item: str(item.get("created_at") or ""), reverse=True)
         except ServiceDaemonRpcError as exc:
-            if ctx.legacy_web_read_fallback_enabled(exc.code):
-                runs = ctx.legacy_run_list_items_for_test_harness(
-                    ctx.state.repo,
-                    shape_run=lambda item: run_list_view_item(ctx.state, item),
-                )
-            else:
-                ctx.send_json(exc.status, _rpc_error(exc.code, exc.message))
-                return
+            ctx.send_json(exc.status, _rpc_error(exc.code, exc.message))
+            return
         html = ctx.jinja_env().get_template("run_list.html").render(runs=runs)
         ctx.send_html(200, html)
     except Exception as exc:  # noqa: BLE001
@@ -122,19 +108,8 @@ def render_run_posture_verdicts_page(
                 {"run_id": run_id, "posture": posture},
             )
         except ServiceDaemonRpcError as exc:
-            if ctx.legacy_web_read_fallback_enabled(exc.code):
-                try:
-                    payload = ctx.legacy_run_posture_verdicts_payload(
-                        ctx.state.repo,
-                        run_id=run_id,
-                        posture=posture,
-                    )
-                except KeyError:
-                    ctx.send_json(404, _error(404, "run not found"))
-                    return
-            else:
-                ctx.send_json(exc.status, _rpc_error(exc.code, exc.message))
-                return
+            ctx.send_json(exc.status, _rpc_error(exc.code, exc.message))
+            return
         try:
             context = run_posture_verdicts_template_context(
                 payload,
@@ -159,15 +134,8 @@ def render_run_detail_page(ctx: RunPageContext, run_id: str) -> None:
         try:
             payload = call_repo_method(ctx.state.repo, "run.detail", {"run_id": run_id})
         except ServiceDaemonRpcError as exc:
-            if ctx.legacy_web_read_fallback_enabled(exc.code):
-                try:
-                    payload = ctx.legacy_run_detail_payload(ctx.state.repo, run_id=run_id)
-                except KeyError:
-                    ctx.send_json(404, _error(404, "run not found"))
-                    return
-            else:
-                ctx.send_json(exc.status, _rpc_error(exc.code, exc.message))
-                return
+            ctx.send_json(exc.status, _rpc_error(exc.code, exc.message))
+            return
         run_raw = payload.get("run")
         workflow_raw = payload.get("workflow")
         jobs_raw = payload.get("jobs")
@@ -232,19 +200,8 @@ def render_job_detail_page(ctx: RunPageContext, run_id: str, job_id: str) -> Non
                 {"run_id": run_id, "job_id": job_id},
             )
         except ServiceDaemonRpcError as exc:
-            if ctx.legacy_web_read_fallback_enabled(exc.code):
-                try:
-                    payload = ctx.legacy_job_detail_payload(
-                        ctx.state.repo,
-                        run_id=run_id,
-                        job_ref=job_id,
-                    )
-                except KeyError:
-                    ctx.send_json(404, _error(404, "not found"))
-                    return
-            else:
-                ctx.send_json(exc.status, _rpc_error(exc.code, exc.message))
-                return
+            ctx.send_json(exc.status, _rpc_error(exc.code, exc.message))
+            return
         try:
             context = job_detail_template_context(
                 payload,
@@ -278,19 +235,8 @@ def render_artifact_view_page(
                 },
             )
         except ServiceDaemonRpcError as exc:
-            if ctx.legacy_web_read_fallback_enabled(exc.code):
-                try:
-                    payload = ctx.legacy_artifact_view_payload(
-                        ctx.state.repo,
-                        run_id=run_id,
-                        artifact_id=artifact_id,
-                    )
-                except KeyError:
-                    ctx.send_json(404, _error(404, "not found"))
-                    return
-            else:
-                ctx.send_json(exc.status, _rpc_error(exc.code, exc.message))
-                return
+            ctx.send_json(exc.status, _rpc_error(exc.code, exc.message))
+            return
         try:
             context = artifact_view_template_context(ctx.state.repo, payload)
         except ArtifactViewPayloadError as exc:

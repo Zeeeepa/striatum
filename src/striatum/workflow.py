@@ -497,13 +497,6 @@ def mermaid_state_class(state: str) -> str:
     return "state-pending"
 
 
-def compute_node_states(
-    conn: Any, *, run_id: str
-) -> dict[str, str]:
-    """Compatibility wrapper for legacy repo-local SQLite graph state."""
-    from striatum.legacy_sqlite.workflow import compute_node_states as legacy_compute_node_states
-
-    return legacy_compute_node_states(conn, run_id=run_id)
 
 
 def validate_workflow(
@@ -651,11 +644,6 @@ def validate_workflow(
     _warn_same_lane_review_implement_cycles(workflow, job_map=job_map, warnings=warnings)
 
 
-def create_run(conn: Any, *, repo: Path, workflow_path: Path) -> JsonObject:
-    """Compatibility wrapper for legacy repo-local SQLite run preparation."""
-    from striatum.legacy_sqlite.workflow import create_run as legacy_create_run
-
-    return legacy_create_run(conn, repo=repo, workflow_path=workflow_path)
 
 
 def workflow_job_map(workflow: JsonObject) -> dict[str, JsonValue]:

@@ -11,13 +11,9 @@ ENVELOPE_VERSION = "striatum.process_adapter.envelope.v1"
 
 __all__ = [
     "ENVELOPE_VERSION",
-    "block_job_with_envelope",
     "build_diagnostic_envelope",
     "build_recovery_commands",
-    "evaluate_and_block_after_reconcile",
-    "evaluate_and_block_inline",
     "pick_inline_blocker_kind",
-    "validate_outputs",
 ]
 
 
@@ -105,39 +101,3 @@ def build_recovery_commands(
     if blocker_kind == "process_lost_with_outputs_missing":
         cmds.append(f"striatum recovery process-reconcile --run-id {run_id}")
     return cmds
-
-
-def validate_outputs(*args: Any, **kwargs: Any) -> tuple[list[str], bool]:
-    return cast(
-        tuple[list[str], bool],
-        _legacy_process_completion().validate_outputs(*args, **kwargs),
-    )
-
-
-def block_job_with_envelope(*args: Any, **kwargs: Any) -> str:
-    return cast(
-        str,
-        _legacy_process_completion().block_job_with_envelope(*args, **kwargs),
-    )
-
-
-def evaluate_and_block_inline(
-    *args: Any, **kwargs: Any
-) -> tuple[str | None, JsonObject | None]:
-    return cast(
-        tuple[str | None, JsonObject | None],
-        _legacy_process_completion().evaluate_and_block_inline(*args, **kwargs),
-    )
-
-
-def evaluate_and_block_after_reconcile(
-    *args: Any, **kwargs: Any
-) -> tuple[str | None, JsonObject | None]:
-    return cast(
-        tuple[str | None, JsonObject | None],
-        _legacy_process_completion().evaluate_and_block_after_reconcile(*args, **kwargs),
-    )
-
-
-def _legacy_process_completion() -> Any:
-    return import_module("striatum.legacy_sqlite.process_completion")

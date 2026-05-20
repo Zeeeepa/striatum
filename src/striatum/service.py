@@ -101,47 +101,7 @@ def invoke(argv: list[str], *, repo: Path) -> JsonObject:
     return _api.invoke(argv, repo=repo)
 
 
-def _legacy_service() -> Any:
-    from striatum.legacy_sqlite import service as legacy_service
 
-    return legacy_service
-
-
-class _LazyLegacyCallable:
-    def __init__(self, name: str) -> None:
-        self._name = name
-
-    def __call__(self, *args: Any, **kwargs: Any) -> Any:
-        return getattr(_legacy_service(), self._name)(*args, **kwargs)
-
-
-_shape_verdict_rows = _LazyLegacyCallable("_shape_verdict_rows")
-_legacy_artifact_metadata = _LazyLegacyCallable("legacy_artifact_metadata")
-_legacy_artifact_raw_fallback_enabled = _LazyLegacyCallable(
-    "legacy_artifact_raw_fallback_enabled"
-)
-_legacy_artifact_view_payload = _LazyLegacyCallable("legacy_artifact_view_payload")
-_legacy_fixture_fallback_enabled = _LazyLegacyCallable("legacy_fixture_fallback_enabled")
-_legacy_job_cancel = _LazyLegacyCallable("legacy_job_cancel")
-_legacy_job_detail_payload = _LazyLegacyCallable("legacy_job_detail_payload")
-_legacy_job_retry = _LazyLegacyCallable("legacy_job_retry")
-_legacy_run_cancel = _LazyLegacyCallable("legacy_run_cancel")
-_legacy_run_detail_payload = _LazyLegacyCallable("legacy_run_detail_payload")
-_legacy_run_list_items_for_test_harness = _LazyLegacyCallable(
-    "legacy_run_list_items_for_test_harness"
-)
-_legacy_run_pause = _LazyLegacyCallable("legacy_run_pause")
-_legacy_run_posture_verdicts_payload = _LazyLegacyCallable(
-    "legacy_run_posture_verdicts_payload"
-)
-_legacy_run_resume = _LazyLegacyCallable("legacy_run_resume")
-_legacy_stream_events_body = _LazyLegacyCallable("legacy_stream_events_body")
-_legacy_verify_state_health = _LazyLegacyCallable("legacy_verify_state_health")
-_legacy_web_read_fallback_enabled = _LazyLegacyCallable("legacy_web_read_fallback_enabled")
-_legacy_workflow_run_now = _LazyLegacyCallable("legacy_workflow_run_now")
-_send_legacy_fixture_error = _LazyLegacyCallable("send_legacy_fixture_error")
-_send_legacy_run_now_error = _LazyLegacyCallable("send_legacy_run_now_error")
-_short_git_status = _LazyLegacyCallable("short_git_status")
 
 SSE_POLL_INTERVAL_SECONDS = 0.25
 
@@ -260,8 +220,6 @@ class StriatumServiceHandler(BaseHTTPRequestHandler):
             invoke_func=lambda argv: invoke(argv, repo=self.state.repo),
             striatum_version=_striatum_version,
             service_mode=_service_mode,
-            legacy_web_read_fallback_enabled=_legacy_web_read_fallback_enabled,
-            legacy_stream_events_body=_legacy_stream_events_body,
             poll_interval_seconds=SSE_POLL_INTERVAL_SECONDS,
         )
 
@@ -337,8 +295,6 @@ class StriatumServiceHandler(BaseHTTPRequestHandler):
                 send_header=self.send_header,
                 end_headers=self.end_headers,
                 write_body=self.wfile.write,
-                legacy_artifact_raw_fallback_enabled=_legacy_artifact_raw_fallback_enabled,
-                legacy_artifact_metadata=_legacy_artifact_metadata,
             ),
             artifact_id,
         )
@@ -351,12 +307,6 @@ class StriatumServiceHandler(BaseHTTPRequestHandler):
             send_json=self._send_json,
             send_html=self._send_html,
             jinja_env=_jinja_env,
-            legacy_web_read_fallback_enabled=_legacy_web_read_fallback_enabled,
-            legacy_run_list_items_for_test_harness=_legacy_run_list_items_for_test_harness,
-            legacy_run_posture_verdicts_payload=_legacy_run_posture_verdicts_payload,
-            legacy_run_detail_payload=_legacy_run_detail_payload,
-            legacy_job_detail_payload=_legacy_job_detail_payload,
-            legacy_artifact_view_payload=_legacy_artifact_view_payload,
         )
 
     def _render_run_list_page(self) -> None:
@@ -460,18 +410,6 @@ class StriatumServiceHandler(BaseHTTPRequestHandler):
             rfile=self.rfile,
             send_json=self._send_json,
             read_json_body_strict=self._read_json_body_strict,
-            legacy_error_handler=self,
-            legacy_web_read_fallback_enabled=_legacy_web_read_fallback_enabled,
-            legacy_fixture_fallback_enabled=_legacy_fixture_fallback_enabled,
-            legacy_workflow_run_now=_legacy_workflow_run_now,
-            legacy_run_cancel=_legacy_run_cancel,
-            legacy_run_pause=_legacy_run_pause,
-            legacy_run_resume=_legacy_run_resume,
-            legacy_job_cancel=_legacy_job_cancel,
-            legacy_job_retry=_legacy_job_retry,
-            send_legacy_run_now_error=_send_legacy_run_now_error,
-            send_legacy_fixture_error=_send_legacy_fixture_error,
-            short_git_status=_short_git_status,
         )
 
     def _handle_workflow_run_now(self, rel_path: str) -> None:
@@ -787,9 +725,6 @@ def run_service(
 
 
 def _verify_service_startup(repo: Path) -> None:
-    if _legacy_web_read_fallback_enabled("daemon_unreachable"):
-        _legacy_verify_state_health(repo, error_type=ServiceConfigError)
-        return
     from striatum.service_daemon import ServiceDaemonRpcError, call_repo_method
 
     try:

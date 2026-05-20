@@ -336,7 +336,71 @@ def workflow_detail_page_response(repo: Path, rel_path: str) -> WorkflowDetailPa
             graph_svg = render_run_graph(data, node_states={}, run_id=None)
         except Exception:  # noqa: BLE001
             graph_svg = None
+    if isinstance(data, dict):
+        _annotate_workflow_doc_links(repo, rel_path, data)
     return WorkflowDetailPageResponse(workflow=entry, graph_svg=graph_svg)
+
+
+def _annotate_workflow_doc_links(repo: Path, workflow_rel_path: str, data: dict[str, Any]) -> None:
+    """Walk a parsed workflow JSON and attach `_view_link` strings for
+    every prompt-shaped path (context_docs, role definitions,
+    per-job task_prompts).
+
+    Paths in workflow.json are sometimes workflow-relative
+    (``prompts/draft.md``) and sometimes repo-relative
+    (``examples/foo/roles/author.md``). The resolver checks both
+    relative to ``repo``; the first existing file wins. When neither
+    exists, the workflow-relative form is recorded — clicking through
+    will land on the /view/ route, which can render a "missing"
+    message itself.
+    """
+    workflow_dir = "/".join(workflow_rel_path.split("/")[:-1])
+
+    def resolve(path: str) -> str:
+        if not isinstance(path, str) or not path:
+            return ""
+        cleaned = path.lstrip("./")
+        candidates: list[str] = []
+        if cleaned:
+            candidates.append(cleaned)
+        if workflow_dir and cleaned and not cleaned.startswith(workflow_dir + "/"):
+            candidates.append(workflow_dir + "/" + cleaned)
+        for candidate in candidates:
+            full = (repo / candidate).resolve()
+            try:
+                full.relative_to(repo.resolve())
+            except ValueError:
+                continue
+            if full.is_file():
+                return candidate
+        return candidates[-1] if candidates else cleaned
+
+    context_docs = data.get("context_docs")
+    if isinstance(context_docs, list):
+        for doc in context_docs:
+            if isinstance(doc, dict):
+                doc_path = doc.get("path")
+                if isinstance(doc_path, str):
+                    doc["_view_link"] = resolve(doc_path)
+
+    roles = data.get("roles")
+    if isinstance(roles, dict):
+        for role in roles.values():
+            if isinstance(role, dict):
+                role_path = role.get("definition_path")
+                if isinstance(role_path, str):
+                    role["_view_link"] = resolve(role_path)
+
+    jobs = data.get("jobs")
+    if isinstance(jobs, list):
+        for job in jobs:
+            if not isinstance(job, dict):
+                continue
+            task_prompt = job.get("task_prompt")
+            if isinstance(task_prompt, dict):
+                prompt_path = task_prompt.get("path")
+                if isinstance(prompt_path, str):
+                    task_prompt["_view_link"] = resolve(prompt_path)
 
 
 def list_repo_tree(repo: Path, rel_path: str) -> dict[str, Any] | None:

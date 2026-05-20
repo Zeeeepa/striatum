@@ -28,8 +28,6 @@ ResponseStarter = Callable[[int], None]
 HeaderSender = Callable[[str, str], None]
 HeaderFinisher = Callable[[], None]
 BodyWriter = Callable[[bytes], object]
-LegacyFallbackChecker = Callable[[str], bool]
-LegacyCallable = Callable[..., Any]
 
 
 class ArtifactViewPayloadError(ValueError):
@@ -44,8 +42,6 @@ class ArtifactRawContext:
     send_header: HeaderSender
     end_headers: HeaderFinisher
     write_body: BodyWriter
-    legacy_artifact_raw_fallback_enabled: LegacyFallbackChecker
-    legacy_artifact_metadata: LegacyCallable
 
 
 @dataclass(frozen=True)
@@ -94,19 +90,8 @@ def serve_artifact_raw(ctx: ArtifactRawContext, artifact_id: str) -> None:
             return
         artifact = artifact_raw
     except ServiceDaemonRpcError as exc:
-        if ctx.legacy_artifact_raw_fallback_enabled(exc.code):
-            try:
-                legacy = ctx.legacy_artifact_metadata(ctx.repo, artifact_id=artifact_id)
-            except Exception as legacy_exc:  # noqa: BLE001 - legacy fixture path.
-                ctx.send_json(500, _error(500, str(legacy_exc)))
-                return
-            if legacy is None:
-                ctx.send_json(404, _error(404, "artifact not found"))
-                return
-            artifact = legacy
-        else:
-            ctx.send_json(exc.status, _rpc_error(exc.code, exc.message))
-            return
+        ctx.send_json(exc.status, _rpc_error(exc.code, exc.message))
+        return
     except Exception as exc:  # noqa: BLE001
         ctx.send_json(500, _error(500, f"{type(exc).__name__}: {exc}"))
         return

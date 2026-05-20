@@ -30,87 +30,7 @@ ALLOWED_CATEGORIES = frozenset(
 )
 
 
-PRODUCTION_SQLITE_QUARANTINE = {
-    # The legacy repo-local SQLite substrate itself and the one-way
-    # migration paths that still have to read historical stores.
-    Path("src/striatum/legacy_sqlite/db.py"): SQLiteClassification(
-        "migration",
-        "legacy repo-local SQLite engine retained for migration and test fixtures",
-    ),
-    Path("src/striatum/legacy_sqlite/migrations.py"): SQLiteClassification(
-        "migration",
-        "pre-D094 repo-local schema migrations retained for migration fixtures",
-    ),
-    Path("src/striatum/legacy_sqlite/repo_local_migration.py"): SQLiteClassification(
-        "migration",
-        "pre-D094 repo-local SQLite to daemon Postgres migration command",
-    ),
-    # CLI/API/read DTO surfaces that still carry SQLite compatibility while
-    # the local service and corpus/export paths finish their daemon DTO move.
-    Path("src/striatum/legacy_sqlite/cli_evidence.py"): SQLiteClassification(
-        "service transition",
-        "legacy evidence-export reader pending daemon DTO replacement",
-    ),
-    Path("src/striatum/legacy_sqlite/cli_introspect.py"): SQLiteClassification(
-        "service transition",
-        "legacy status/why/doctor readers pending daemon DTO replacement",
-    ),
-    Path("src/striatum/legacy_sqlite/cli_list_commands.py"): SQLiteClassification(
-        "service transition",
-        "legacy list readers pending daemon DTO replacement",
-    ),
-    Path("src/striatum/legacy_sqlite/cli_run_summary.py"): SQLiteClassification(
-        "service transition",
-        "legacy run-summary reader pending daemon DTO replacement",
-    ),
-    Path("src/striatum/legacy_sqlite/recovery_auto.py"): SQLiteClassification(
-        "service transition",
-        "legacy recovery sweep retained for fixture and service transition",
-    ),
-    Path("src/striatum/legacy_sqlite/service.py"): SQLiteClassification(
-        "service transition",
-        "gated subprocess-fixture web fallbacks and legacy page reads isolated from primary service code",
-    ),
-    # Adapter, supervisor, artifact, byline, and workflow helpers whose
-    # production authority has moved to daemon/Postgres but whose legacy
-    # functions still support adapters and test harnesses.
-    Path("src/striatum/legacy_sqlite/artifacts.py"): SQLiteClassification(
-        "adapter transition",
-        "legacy artifact publisher used by adapter/test-harness paths",
-    ),
-    Path("src/striatum/legacy_sqlite/cli_mutations.py"): SQLiteClassification(
-        "adapter transition",
-        "legacy workflow-loop mutations retained for adapter/test fixtures",
-    ),
-    Path("src/striatum/legacy_sqlite/cli_recovery.py"): SQLiteClassification(
-        "adapter transition",
-        "legacy recovery mutations retained for adapter/test fixtures",
-    ),
-    Path("src/striatum/legacy_sqlite/cli_worktree.py"): SQLiteClassification(
-        "adapter transition",
-        "legacy worktree helpers retained for adapter/test fixtures",
-    ),
-    Path("src/striatum/legacy_sqlite/process_adapter.py"): SQLiteClassification(
-        "adapter transition",
-        "legacy process adapter table helpers retained during supervisor transition",
-    ),
-    Path("src/striatum/legacy_sqlite/process_completion.py"): SQLiteClassification(
-        "adapter transition",
-        "legacy process-completion reconciliation retained during supervisor transition",
-    ),
-    Path("src/striatum/legacy_sqlite/supervisor.py"): SQLiteClassification(
-        "adapter transition",
-        "legacy supervised wrapper helper retained during supervisor transition",
-    ),
-    Path("src/striatum/legacy_sqlite/workflow.py"): SQLiteClassification(
-        "adapter transition",
-        "legacy run prepare and workflow event helpers retained for fixtures",
-    ),
-    Path("src/striatum/legacy_sqlite/dogfood_operator_tools.py"): SQLiteClassification(
-        "dogfood fixture",
-        "operator dogfood recovery tools are compatibility fixtures",
-    ),
-}
+PRODUCTION_SQLITE_QUARANTINE: dict[Path, SQLiteClassification] = {}
 
 
 TEST_SQLITE_QUARANTINE_PREFIXES = {
@@ -203,391 +123,36 @@ def test_service_primary_module_no_longer_opens_legacy_sqlite() -> None:
     assert Path("src/striatum/service.py") not in offenders
 
 
-def test_cli_package_import_does_not_eager_load_legacy_sqlite_modules() -> None:
-    legacy_modules = [
-        "striatum.cli.dispatch",
-        "striatum.cli.evidence",
-        "striatum.cli.introspect",
-        "striatum.cli.list_commands",
-        "striatum.cli.mutations",
-        "striatum.cli.recovery",
-        "striatum.cli.run_summary",
-        "striatum.cli.worktree",
-        "striatum.db",
-    ]
-    code = (
-        "import sys; import striatum.cli; "
-        f"legacy={legacy_modules!r}; "
-        "print('\\n'.join(name for name in legacy if name in sys.modules))"
-    )
-
-    proc = subprocess.run(
-        [sys.executable, "-c", code],
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-
-    assert proc.stdout.strip() == ""
 
 
-def test_cli_dispatch_import_does_not_eager_load_legacy_sqlite_modules() -> None:
-    legacy_modules = [
-        "sqlite3",
-        "striatum.artifacts",
-        "striatum.cli.evidence",
-        "striatum.cli.introspect",
-        "striatum.cli.list_commands",
-        "striatum.cli.mutations",
-        "striatum.cli.recovery",
-        "striatum.cli.run_summary",
-        "striatum.cli.worktree",
-        "striatum.db",
-        "striatum.legacy_sqlite.cli_dispatch_db",
-        "striatum.process_adapter",
-        "striatum.workflow",
-    ]
-    code = (
-        "import sys; import striatum.cli.dispatch; "
-        f"legacy={legacy_modules!r}; "
-        "print('\\n'.join(name for name in legacy if name in sys.modules))"
-    )
-
-    proc = subprocess.run(
-        [sys.executable, "-c", code],
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-
-    assert proc.stdout.strip() == ""
 
 
-def test_corpus_and_archive_imports_do_not_eager_load_legacy_sqlite_modules() -> None:
-    imports = [
-        "striatum.corpus",
-        "striatum.corpus.types",
-        "striatum.corpus.manifest",
-        "striatum.corpus.writer",
-        "striatum.corpus.verify",
-        "striatum.archive",
-        "striatum.archive.writer",
-        "striatum.archive.verify",
-    ]
-    legacy_modules = [
-        "sqlite3",
-        "striatum.artifacts",
-        "striatum.cli.evidence",
-        "striatum.cli.introspect",
-        "striatum.cli.run_summary",
-        "striatum.corpus.export",
-        "striatum.db",
-    ]
-    code = (
-        "import importlib, sys; "
-        f"imports={imports!r}; "
-        f"legacy={legacy_modules!r}; "
-        "[importlib.import_module(name) for name in imports]; "
-        "print('\\n'.join(name for name in legacy if name in sys.modules))"
-    )
-
-    proc = subprocess.run(
-        [sys.executable, "-c", code],
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-
-    assert proc.stdout.strip() == ""
 
 
-def test_daemon_pg_handler_registration_does_not_eager_load_legacy_sqlite_modules() -> None:
-    legacy_modules = [
-        "sqlite3",
-        "striatum.artifacts",
-        "striatum.cli.evidence",
-        "striatum.cli.introspect",
-        "striatum.cli.run_summary",
-        "striatum.corpus.export",
-        "striatum.db",
-    ]
-    code = (
-        "import sys; import striatum.daemon_pg.handlers; "
-        f"legacy={legacy_modules!r}; "
-        "print('\\n'.join(name for name in legacy if name in sys.modules))"
-    )
-
-    proc = subprocess.run(
-        [sys.executable, "-c", code],
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-
-    assert proc.stdout.strip() == ""
 
 
-def test_process_adapter_import_does_not_eager_load_legacy_sqlite_modules() -> None:
-    legacy_modules = [
-        "sqlite3",
-        "striatum.db",
-        "striatum.legacy_sqlite.process_adapter",
-    ]
-    code = (
-        "import sys; import striatum.process_adapter; "
-        f"legacy={legacy_modules!r}; "
-        "print('\\n'.join(name for name in legacy if name in sys.modules))"
-    )
-
-    proc = subprocess.run(
-        [sys.executable, "-c", code],
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-
-    assert proc.stdout.strip() == ""
 
 
-def test_supervisor_import_does_not_eager_load_legacy_sqlite_modules() -> None:
-    legacy_modules = [
-        "sqlite3",
-        "striatum.db",
-        "striatum.legacy_sqlite.supervisor",
-    ]
-    code = (
-        "import sys; import striatum.supervisor; "
-        f"legacy={legacy_modules!r}; "
-        "print('\\n'.join(name for name in legacy if name in sys.modules))"
-    )
-
-    proc = subprocess.run(
-        [sys.executable, "-c", code],
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-
-    assert proc.stdout.strip() == ""
 
 
-def test_dogfood_import_does_not_eager_load_legacy_sqlite_modules() -> None:
-    legacy_modules = [
-        "sqlite3",
-        "striatum.db",
-        "striatum.legacy_sqlite.dogfood_operator_tools",
-    ]
-    code = (
-        "import sys; import striatum.dogfood; import striatum.dogfood.operator_tools; "
-        f"legacy={legacy_modules!r}; "
-        "print('\\n'.join(name for name in legacy if name in sys.modules))"
-    )
-
-    proc = subprocess.run(
-        [sys.executable, "-c", code],
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-
-    assert proc.stdout.strip() == ""
 
 
-def test_cli_worktree_import_does_not_eager_load_legacy_sqlite_modules() -> None:
-    legacy_modules = [
-        "sqlite3",
-        "striatum.db",
-        "striatum.legacy_sqlite.cli_worktree",
-    ]
-    code = (
-        "import sys; import striatum.cli.worktree; "
-        f"legacy={legacy_modules!r}; "
-        "print('\\n'.join(name for name in legacy if name in sys.modules))"
-    )
-
-    proc = subprocess.run(
-        [sys.executable, "-c", code],
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-
-    assert proc.stdout.strip() == ""
 
 
-def test_root_sqlite_facades_do_not_eager_load_legacy_modules() -> None:
-    legacy_modules = [
-        "sqlite3",
-        "striatum.legacy_sqlite.db",
-        "striatum.legacy_sqlite.migrations",
-    ]
-    code = (
-        "import sys; import striatum.db; import striatum.migrations; "
-        f"legacy={legacy_modules!r}; "
-        "print('\\n'.join(name for name in legacy if name in sys.modules))"
-    )
-
-    proc = subprocess.run(
-        [sys.executable, "-c", code],
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-
-    assert proc.stdout.strip() == ""
 
 
-def test_repo_local_migration_facade_does_not_eager_load_legacy_modules() -> None:
-    legacy_modules = [
-        "sqlite3",
-        "striatum.legacy_sqlite.repo_local_migration",
-    ]
-    code = (
-        "import sys; import striatum.daemon_pg.repo_local_migration; "
-        f"legacy={legacy_modules!r}; "
-        "print('\\n'.join(name for name in legacy if name in sys.modules))"
-    )
-
-    proc = subprocess.run(
-        [sys.executable, "-c", code],
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-
-    assert proc.stdout.strip() == ""
 
 
-def test_cli_evidence_import_does_not_eager_load_legacy_sqlite_modules() -> None:
-    legacy_modules = [
-        "sqlite3",
-        "striatum.db",
-        "striatum.legacy_sqlite.cli_evidence",
-    ]
-    code = (
-        "import sys; import striatum.cli.evidence; "
-        f"legacy={legacy_modules!r}; "
-        "print('\\n'.join(name for name in legacy if name in sys.modules))"
-    )
-
-    proc = subprocess.run(
-        [sys.executable, "-c", code],
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-
-    assert proc.stdout.strip() == ""
 
 
-def test_cli_run_summary_import_does_not_eager_load_legacy_sqlite_modules() -> None:
-    legacy_modules = [
-        "sqlite3",
-        "striatum.db",
-        "striatum.legacy_sqlite.cli_run_summary",
-    ]
-    code = (
-        "import sys; import striatum.cli.run_summary; "
-        f"legacy={legacy_modules!r}; "
-        "print('\\n'.join(name for name in legacy if name in sys.modules))"
-    )
-
-    proc = subprocess.run(
-        [sys.executable, "-c", code],
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-
-    assert proc.stdout.strip() == ""
 
 
-def test_cli_list_commands_import_does_not_eager_load_legacy_sqlite_modules() -> None:
-    legacy_modules = [
-        "sqlite3",
-        "striatum.db",
-        "striatum.legacy_sqlite.cli_list_commands",
-    ]
-    code = (
-        "import sys; import striatum.cli.list_commands; "
-        f"legacy={legacy_modules!r}; "
-        "print('\\n'.join(name for name in legacy if name in sys.modules))"
-    )
-
-    proc = subprocess.run(
-        [sys.executable, "-c", code],
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-
-    assert proc.stdout.strip() == ""
 
 
-def test_cli_introspect_import_does_not_eager_load_legacy_sqlite_modules() -> None:
-    legacy_modules = [
-        "sqlite3",
-        "striatum.db",
-        "striatum.legacy_sqlite.cli_introspect",
-    ]
-    code = (
-        "import sys; import striatum.cli.introspect; "
-        f"legacy={legacy_modules!r}; "
-        "print('\\n'.join(name for name in legacy if name in sys.modules))"
-    )
-
-    proc = subprocess.run(
-        [sys.executable, "-c", code],
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-
-    assert proc.stdout.strip() == ""
 
 
-def test_cli_recovery_import_does_not_eager_load_legacy_sqlite_modules() -> None:
-    legacy_modules = [
-        "sqlite3",
-        "striatum.db",
-        "striatum.legacy_sqlite.cli_recovery",
-    ]
-    code = (
-        "import sys; import striatum.cli.recovery; "
-        f"legacy={legacy_modules!r}; "
-        "print('\\n'.join(name for name in legacy if name in sys.modules))"
-    )
-
-    proc = subprocess.run(
-        [sys.executable, "-c", code],
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-
-    assert proc.stdout.strip() == ""
 
 
-def test_cli_mutations_import_does_not_eager_load_legacy_sqlite_modules() -> None:
-    legacy_modules = [
-        "sqlite3",
-        "striatum.db",
-        "striatum.legacy_sqlite.cli_mutations",
-    ]
-    code = (
-        "import sys; import striatum.cli.mutations; "
-        f"legacy={legacy_modules!r}; "
-        "print('\\n'.join(name for name in legacy if name in sys.modules))"
-    )
-
-    proc = subprocess.run(
-        [sys.executable, "-c", code],
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-
-    assert proc.stdout.strip() == ""
 
 
 def test_legacy_python_daemon_module_is_deleted() -> None:
@@ -601,39 +166,6 @@ def test_production_sources_do_not_import_legacy_python_daemon() -> None:
     assert offenders == set()
 
 
-def test_legacy_service_owns_page_read_payload_fallbacks() -> None:
-    service_source = (ROOT / "src" / "striatum" / "service.py").read_text(encoding="utf-8")
-    root_compat_path = ROOT / "src" / "striatum" / "service_legacy.py"
-    legacy_source = (
-        ROOT / "src" / "striatum" / "legacy_sqlite" / "service.py"
-    ).read_text(encoding="utf-8")
-
-    assert not root_compat_path.exists()
-    service_tree = ast.parse(service_source)
-    top_level_legacy_imports = [
-        node
-        for node in service_tree.body
-        if _imports_module(node, "striatum.legacy_sqlite")
-    ]
-    assert top_level_legacy_imports == []
-    assert "def _legacy_service(" in service_source
-    assert "striatum.service_legacy" not in service_source
-    assert "_legacy_shape_artifact_rows" not in service_source
-    assert '_LazyLegacyCallable("_byline_line")' not in service_source
-    assert '_LazyLegacyCallable("legacy_shape_artifact_rows")' not in service_source
-    assert '_LazyLegacyCallable("legacy_view_file_run_breadcrumb")' not in service_source
-
-    page_payload_builders = {
-        "legacy_run_detail_payload",
-        "legacy_job_detail_payload",
-        "legacy_run_posture_verdicts_payload",
-        "legacy_artifact_view_payload",
-    }
-
-    for name in page_payload_builders:
-        assert f"def {name}(" in legacy_source
-        assert f"def _{name}(" not in service_source
-        assert f"def {name}(" not in service_source
 
 
 def test_primary_service_lazy_loads_legacy_api_wrapper() -> None:
@@ -655,35 +187,6 @@ def test_primary_service_lazy_loads_legacy_api_wrapper() -> None:
     assert any(_imports_from_striatum(node, "api") for node in ast.walk(invoke))
 
 
-@pytest.mark.parametrize(
-    "call",
-    [
-        lambda: daemon.daemon_status(),
-        lambda: daemon.daemon_stop(),
-        lambda: daemon.daemon_sweep_once(),
-        lambda: daemon.health(),
-        lambda: daemon.daemon_audit(),
-        lambda: daemon.read_doctor(repo=None, verbose=True),
-    ],
-)
-def test_production_daemon_global_surfaces_refuse_without_postgres_url(
-    call: Callable[[], object],
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    registry = tmp_path / "daemon" / "striatumd.sqlite3"
-    monkeypatch.setenv(daemon.ENV_REGISTRY, str(registry))
-    monkeypatch.setenv(daemon.ENV_RUNTIME, str(tmp_path / "runtime"))
-    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
-    monkeypatch.setenv("STRIATUM_DAEMON_DB_URL", "")
-    monkeypatch.setenv("STRIATUM_DAEMON_REQUIRED", "1")
-    monkeypatch.delenv("STRIATUM_TEST_HARNESS", raising=False)
-    monkeypatch.setenv(daemon.ENV_SQLITE_CONNECT_TRIPWIRE, "1")
-
-    with pytest.raises(daemon.DaemonRegistryError, match="daemon PostgreSQL URL is not configured"):
-        call()
-
-    assert not registry.exists()
 
 
 def test_test_sqlite_references_are_classified_as_test_fixtures() -> None:

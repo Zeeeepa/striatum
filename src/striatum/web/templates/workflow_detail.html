@@ -50,12 +50,31 @@
   {% if workflow.data %}
   {% set d = workflow.data %}
 
+  {% if d.context_docs %}
+  <h2>Context docs</h2>
+  <table class="data-table">
+    <thead><tr><th>Path</th><th>Required</th></tr></thead>
+    <tbody>
+      {% for doc in d.context_docs %}
+      <tr>
+        <td>
+          {% set link = doc._view_link or doc.path %}
+          {% if link %}<a href="/view/{{ link }}"><code>{{ doc.path }}</code></a>
+          {% else %}<code>{{ doc.path or "—" }}</code>{% endif %}
+        </td>
+        <td>{% if doc.required %}<span class="status-pill status-completed">required</span>{% else %}<span class="muted">optional</span>{% endif %}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+
   {% if d.jobs %}
   <h2>Jobs</h2>
   <table class="data-table">
     <thead>
       <tr>
-        <th>ID</th><th>Type</th><th>Role</th><th>Lane</th><th>Posture</th><th>Required postures</th><th>Artifacts</th>
+        <th>ID</th><th>Type</th><th>Role</th><th>Lane</th><th>Prompt</th><th>Posture</th><th>Required postures</th><th>Artifacts</th>
       </tr>
     </thead>
     <tbody>
@@ -65,6 +84,12 @@
         <td>{{ job.type }}</td>
         <td>{{ job.role_id or "—" }}</td>
         <td>{{ job.lane_id or "—" }}</td>
+        <td>
+          {% if job.task_prompt and job.task_prompt.path %}
+            {% set prompt_link = job.task_prompt._view_link or job.task_prompt.path %}
+            <a href="/view/{{ prompt_link }}"><code>{{ job.task_prompt.path }}</code></a>
+          {% else %}<span class="muted">—</span>{% endif %}
+        </td>
         <td>{% if job.review_posture %}<span class="posture-chip">{{ job.review_posture }}</span>{% else %}<span class="muted">—</span>{% endif %}</td>
         <td>
           {% if job.required_review_postures %}
@@ -105,12 +130,17 @@
   {% if d.roles %}
   <h2>Roles</h2>
   <table class="data-table">
-    <thead><tr><th>ID</th><th>Definition path</th></tr></thead>
+    <thead><tr><th>ID</th><th>Definition</th></tr></thead>
     <tbody>
       {% for role_id, role in d.roles.items() %}
       <tr>
         <td><code>{{ role_id }}</code></td>
-        <td><code>{{ role.definition_path or "—" }}</code></td>
+        <td>
+          {% if role.definition_path %}
+            {% set role_link = role._view_link or role.definition_path %}
+            <a href="/view/{{ role_link }}"><code>{{ role.definition_path }}</code></a>
+          {% else %}<span class="muted">—</span>{% endif %}
+        </td>
       </tr>
       {% endfor %}
     </tbody>

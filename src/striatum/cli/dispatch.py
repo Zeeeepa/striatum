@@ -17,29 +17,12 @@ from striatum.errors import (
     RepoNotMigratedError,
     StriatumError,
 )
-from striatum.primitives import json_dumps, json_loads
+from striatum.primitives import json_dumps
 from striatum.cli.parser import build_parser
 
 
-def _legacy_sqlite_test_harness_enabled() -> bool:
-    return (
-        os.environ.get("STRIATUM_TEST_HARNESS") == "1"
-        and os.environ.get("STRIATUM_DAEMON_REQUIRED") == "0"
-    )
 
 
-def _is_sqlite_exception(exc: BaseException) -> bool:
-    return any(cls.__module__ == "sqlite3" for cls in type(exc).__mro__)
-
-
-def _is_legacy_adapter_run(args: argparse.Namespace) -> bool:
-    return args.command == "adapter" and getattr(args, "adapter_command", None) == "run"
-
-
-def _is_legacy_operator_helper(args: argparse.Namespace) -> bool:
-    if args.command == "byline":
-        return True
-    return args.command == "inbox" and bool(getattr(args, "session_id", None))
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -83,14 +66,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         else:
             print(str(exc), file=sys.stderr)
         return exc.exit_code
-    except Exception as exc:
-        if not _is_sqlite_exception(exc):
-            raise
-        if getattr(args, "json", False):
-            print(json_dumps({"ok": False, "error": {"message": str(exc), "code": 1}}))
-        else:
-            print(str(exc), file=sys.stderr)
-        return 1
+    except Exception:
+        raise
     if result is not None:
         if (
             not getattr(args, "json", False)
@@ -159,21 +136,9 @@ def _skills_install_dispatch(
 def dispatch(args: argparse.Namespace) -> object:
     """Dispatch a parsed command."""
     repo = Path(args.repo).resolve()
-    if _is_legacy_adapter_run(args) and not _legacy_sqlite_test_harness_enabled():
-        raise StriatumError(
-            "adapter run is retired outside legacy test fixtures; use daemon-supervised process lanes",
-            exit_code=8,
-        )
-    if _is_legacy_operator_helper(args) and not _legacy_sqlite_test_harness_enabled():
-        raise StriatumError(
-            "legacy operator helpers are retired outside test fixtures; use daemon RPC read surfaces",
-            exit_code=8,
-        )
     # RFC 0043 §3 (V1.5): daemon-required enforcement is the default. Fail
     # fast with exit code 11 (daemon socket unreachable) or 12 (repo not
-    # migrated) before any legacy local fixture code is touched. The paired
-    # ``STRIATUM_DAEMON_REQUIRED=0`` / ``STRIATUM_TEST_HARNESS=1`` opt-out is
-    # limited to explicitly quarantined legacy fixtures.
+    # migrated) before any legacy local fixture code is touched.
     local_verify = (
         (args.command == "corpus" and getattr(args, "corpus_command", None) == "verify")
         or (
@@ -187,14 +152,6 @@ def dispatch(args: argparse.Namespace) -> object:
         )
     )
     if not local_verify:
-        # GH #25: ``repo list`` is a daemon-global read of the daemon's
-        # repository registry. The legacy SQLite-presence probe in
-        # ``enforce_daemon_required`` belongs to mutation/setup verbs
-        # (``adopt``, ``repo add --init``), not to a registry listing
-        # that has nothing to do with the cwd's local state. Skip only
-        # the migration probe — the daemon socket reachability check
-        # still runs, so an unreachable daemon surfaces the documented
-        # ``daemon_unreachable`` refusal (exit code 11).
         check_repo_migration = not (
             args.command == "repo"
             and getattr(args, "repo_command", None) == "list"
@@ -205,16 +162,6 @@ def dispatch(args: argparse.Namespace) -> object:
             first_run=bool(getattr(args, "first_run", False)),
             check_repo_migration=check_repo_migration,
         )
-    daemon_forced = bool(getattr(args, "daemon", False)) or (
-        os.environ.get("STRIATUM_DAEMON") == "1"
-    )
-    # RFC 0048 Phase C: route CLI verbs through daemon RPC (Unix socket)
-    # when the verb maps to a registered RPC method AND the daemon is
-    # reachable. Falls through to legacy SQLite dispatch only when no mapping
-    # exists (init, skills, plugin, daemon, serve, and fixture-only helpers)
-    # or when the explicit test-harness compatibility guard disables daemon
-    # routing. Once routing is attempted, unexpected route failures must fail
-    # closed instead of opening legacy state.
     if args.command == "self-update":
         return _dispatch_self_update(args)
     if args.command == "adopt":
@@ -232,6 +179,7 @@ def dispatch(args: argparse.Namespace) -> object:
         )
     if args.command == "doctor" and bool(getattr(args, "first_run", False)):
         return _dispatch_first_run_doctor(repo)
+
     skip_daemon_route = args.command in {
         "daemon",
         "init",
@@ -264,6 +212,7 @@ def dispatch(args: argparse.Namespace) -> object:
     )
     if recovery_watch:
         skip_daemon_route = True
+
     if not skip_daemon_route:
         try:
             from striatum.cli.daemon_rpc_route import try_route as _try_route_via_daemon
@@ -278,6 +227,7 @@ def dispatch(args: argparse.Namespace) -> object:
                 f"RPC dispatch and cannot fall back to legacy state: {route_exc}",
                 exit_code=1,
             ) from route_exc
+
     if args.command == "daemon":
         return _dispatch_daemon(args)
     if args.command == "operator" and args.operator_command == "current-brief":
@@ -294,11 +244,7 @@ def dispatch(args: argparse.Namespace) -> object:
         return _dispatch_daemon_repo(args)
     if args.command == "cross-repo":
         return _dispatch_cross_repo(args)
-    if daemon_forced:
-        raise StriatumError(
-            "--daemon direct fallback is retired; use daemon-routed CLI commands without the flag",
-            exit_code=8,
-        )
+
     if args.command == "init":
         state_dir = init_operational_scratch(repo)
         init_result: dict[str, object] = {
@@ -693,487 +639,11 @@ def dispatch(args: argparse.Namespace) -> object:
                 f"recovery watch refused (exit {exit_code})"
             )
         return None
-    if not _legacy_sqlite_test_harness_enabled():
-        raise StriatumError(
-            f"daemon_route_required: {args.command} must route through daemon RPC; "
-            "legacy SQLite dispatch is available only to paired test fixtures",
-            exit_code=12,
-        )
-    from striatum.artifacts import publish_artifact
-    from striatum.cli.evidence import evidence_export
-    from striatum.cli.introspect import doctor, run_graph, status, why
-    from striatum.cli.list_commands import (
-        list_artifacts,
-        list_jobs,
-        list_runs,
-        list_sessions,
-        list_workflows,
+    raise StriatumError(
+        f"daemon_route_required: {args.command} must route through daemon RPC; "
+        "legacy SQLite dispatch is retired.",
+        exit_code=12,
     )
-    from striatum.cli.mutations import (
-        ack_work,
-        block_work,
-        branch_confirm,
-        checkpoint_resolve,
-        close_session,
-        decision_record,
-        heartbeat,
-        register_session,
-        release_work,
-        run_start,
-        send_message,
-        submit_review,
-        verdict_work,
-    )
-    from striatum.cli.recovery import (
-        cancel_job,
-        process_reconcile,
-        requeue_stale,
-        resume_blocker,
-        stale_leases,
-    )
-    from striatum.cli.run_summary import run_summary_export
-    from striatum.cli.supervise import (
-        supervise_list,
-        supervise_send,
-        supervise_start,
-        supervise_status,
-        supervise_stop,
-    )
-    from striatum.cli.worktree import worktree_create, worktree_list, worktree_release
-    from striatum.legacy_sqlite.cli_dispatch_db import (
-        cancel_run,
-        claim_next,
-        complete_job,
-        connect,
-        ensure_initialized,
-        override_review_verdict,
-        pause_run,
-        resume_run,
-        retry_job,
-        transaction,
-    )
-    from striatum.process_adapter import run_process_adapter
-
-    ensure_initialized(repo)
-    with connect(repo) as conn:
-        if args.command == "run" and args.run_command == "prepare":
-            from striatum.workflow import create_run
-
-            with transaction(conn):
-                prepared = create_run(
-                    conn, repo=repo, workflow_path=Path(args.workflow)
-                )
-            # Auto-branch mode (RFC 0010 follow-up): when the workflow's
-            # branch.mode is "auto", drive `branch confirm --create`
-            # implicitly so operators don't have to type a separate step.
-            # Falls back to `needs_branch_confirmation` if git checkout
-            # fails (dirty tree, conflicting branch); the operator can
-            # then resolve the issue and run `branch confirm` manually.
-            if prepared.get("branch_mode") == "auto":
-                suggested = prepared.get("suggested_branch_name")
-                if isinstance(suggested, str) and suggested:
-                    confirmed = branch_confirm(
-                        conn,
-                        repo=repo,
-                        run_id=str(prepared["run_id"]),
-                        branch=suggested,
-                        create=True,
-                    )
-                    return {
-                        "run_id": prepared["run_id"],
-                        "state": confirmed["state"],
-                        "branch": confirmed["branch"],
-                        "branch_mode": "auto",
-                        "branch_created": confirmed.get("created", False),
-                        "current_git_branch": confirmed.get("current_git_branch"),
-                        "warning": confirmed.get("warning"),
-                    }
-            return prepared
-        if args.command == "branch" and args.branch_command == "confirm":
-            return branch_confirm(
-                conn,
-                repo=repo,
-                run_id=args.run_id,
-                branch=args.branch,
-                create=args.create,
-                use_current=args.use_current,
-                strict=args.strict,
-            )
-        if args.command == "run" and args.run_command == "start":
-            return run_start(conn, run_id=args.run_id)
-        if args.command == "run" and args.run_command == "cancel":
-            with transaction(conn):
-                return cancel_run(conn, run_id=args.run_id, reason=args.reason)
-        if args.command == "run" and args.run_command == "pause":
-            with transaction(conn):
-                return pause_run(conn, run_id=args.run_id, reason=args.reason)
-        if args.command == "run" and args.run_command == "resume":
-            with transaction(conn):
-                return resume_run(conn, run_id=args.run_id)
-        if args.command == "run" and args.run_command == "retry-job":
-            with transaction(conn):
-                return retry_job(conn, run_id=args.run_id, job_id=args.job_id)
-        if args.command == "run" and args.run_command == "summary":
-            return run_summary_export(conn, repo=repo, run_id=args.run_id, path_text=args.path)
-        if args.command == "run" and args.run_command == "graph":
-            result = run_graph(
-                conn,
-                run_id=args.run_id,
-                output_format=args.format,
-                graph_orient=str(getattr(args, "graph_orient", "tb")),
-                graph_style=str(getattr(args, "graph_style", "layered")),
-            )
-            if args.format == "mermaid" and isinstance(result, str) and args.json:
-                return {"format": "mermaid", "source": result}
-            return result
-        if args.command == "register-session":
-            return register_session(
-                conn,
-                run_id=args.run_id,
-                role=args.role,
-                lane=args.lane,
-                capabilities=args.capability,
-                fresh=args.fresh,
-                parent_session_id=args.parent_session_id,
-                force_non_fresh=args.force_non_fresh,
-                non_fresh_reason=args.reason,
-                operator_label=args.operator_label,
-            )
-        if args.command == "session" and args.session_command == "close":
-            return close_session(
-                conn,
-                session_id=args.session_id,
-                reason=args.reason,
-            )
-        if args.command == "claim-next":
-            return claim_next(
-                conn,
-                repo=repo,
-                session_id=args.session_id,
-                lease_seconds=args.lease_seconds,
-            )
-        if args.command == "ack":
-            return ack_work(conn, session_id=args.session_id, message_id=args.message_id, lease_id=args.lease_id)
-        if args.command == "heartbeat":
-            return heartbeat(conn, session_id=args.session_id, lease_id=args.lease_id, extend_seconds=args.extend_seconds)
-        if args.command == "release":
-            return release_work(
-                conn,
-                session_id=args.session_id,
-                message_id=args.message_id,
-                lease_id=args.lease_id,
-                reason=args.reason,
-                requeue=args.requeue,
-            )
-        if args.command == "send":
-            return send_message(conn, session_id=args.session_id, kind=args.kind, body_json=args.body_json)
-        if args.command == "block":
-            return block_work(
-                conn,
-                session_id=args.session_id,
-                job_id=args.job_id,
-                lease_id=args.lease_id,
-                kind=args.kind,
-                severity=args.severity,
-                description=args.description,
-            )
-        if args.command == "publish-artifact":
-            # V1.41: default --kind and --logical-name from the workflow's
-            # expected_artifacts when --path matches a declared artifact
-            # path.
-            kind, logical_name = _resolve_publish_defaults(
-                conn,
-                job_id=args.job_id,
-                kind=args.kind,
-                logical_name=args.logical_name,
-                path_text=args.path,
-            )
-            allow_no_proc = bool(getattr(args, "allow_no_process_execution", False))
-            override_rationale = getattr(args, "override_rationale", None)
-            # RFC 0046 V1: explicit refusal at the CLI boundary when
-            # --allow-no-process-execution lands without a non-empty
-            # --override-rationale. Exit code 2 (invalid args) per
-            # argparse convention, before the publish-artifact write
-            # transaction opens.
-            if allow_no_proc and not (
-                override_rationale and override_rationale.strip()
-            ):
-                raise StriatumError(
-                    "publish-artifact --allow-no-process-execution "
-                    "requires a non-empty --override-rationale",
-                    exit_code=2,
-                )
-            return publish_artifact(
-                conn,
-                repo=repo,
-                session_id=args.session_id,
-                job_id=args.job_id,
-                lease_id=args.lease_id,
-                kind=kind,
-                logical_name=logical_name,
-                path_text=args.path,
-                allow_no_process_execution=allow_no_proc,
-                override_rationale=override_rationale,
-            )
-        if args.command == "complete":
-            return complete_job(
-                conn,
-                session_id=args.session_id,
-                job_id=args.job_id,
-                lease_id=args.lease_id,
-                summary=args.summary,
-            )
-        if args.command == "verdict":
-            return verdict_work(
-                conn,
-                session_id=args.session_id,
-                job_id=args.job_id,
-                lease_id=args.lease_id,
-                verdict=args.verdict,
-                findings_artifact_id=args.findings_artifact_id,
-                rationale=args.rationale,
-            )
-        if args.command == "override-verdict":
-            # V1.41: --auto-fresh-session takes the operator's named
-            # session and, if it already has a verdict for this job
-            # (so override-verdict would refuse), registers a fresh
-            # operator reviewer session on the same lane and uses it.
-            # Removes the two-step "register fresh, then override"
-            # dance that operator-on-behalf flows have required since
-            # dogfood-049.
-            session_id = args.session_id
-            if getattr(args, "auto_fresh_session", False):
-                session_id = _resolve_override_session(
-                    conn,
-                    requested_session_id=args.session_id,
-                    job_id=args.job_id,
-                    rationale=args.rationale,
-                )
-            return override_review_verdict(
-                conn,
-                session_id=session_id,
-                job_id=args.job_id,
-                verdict=args.verdict,
-                rationale=args.rationale,
-                findings_artifact_id=args.findings_artifact_id,
-            )
-        if args.command == "submit-review":
-            allow_no_proc = bool(getattr(args, "allow_no_process_execution", False))
-            override_rationale = getattr(args, "override_rationale", None)
-            if allow_no_proc and not (
-                override_rationale and override_rationale.strip()
-            ):
-                raise StriatumError(
-                    "submit-review --allow-no-process-execution "
-                    "requires a non-empty --override-rationale",
-                    exit_code=2,
-                )
-            return submit_review(
-                conn,
-                repo=repo,
-                session_id=args.session_id,
-                job_id=args.job_id,
-                lease_id=args.lease_id,
-                path_text=args.path,
-                verdict=args.verdict,
-                logical_name=args.logical_name,
-                kind=args.kind,
-                rationale=args.rationale,
-                allow_no_process_execution=allow_no_proc,
-                override_rationale=override_rationale,
-            )
-        if args.command == "evidence" and args.evidence_command == "export":
-            return evidence_export(conn, repo=repo, run_id=args.run_id, path_text=args.path)
-        if args.command == "corpus" and args.corpus_command == "export":
-            from striatum.corpus import export_corpus_bundle
-
-            return export_corpus_bundle(
-                conn,
-                repo=repo,
-                since=args.since,
-                out_text=args.out,
-            )
-        if args.command == "decision" and args.decision_command == "record":
-            return decision_record(
-                conn,
-                repo=repo,
-                run_id=args.run_id,
-                path_text=args.path,
-                outcome=args.outcome,
-                title=args.title,
-                decision_id=args.decision_id,
-                rationale=args.rationale,
-                follow_up=args.follow_up,
-            )
-        if args.command == "status":
-            return status(conn, run_id=args.run_id)
-        if args.command == "why":
-            return why(conn, target_id=args.id)
-        if args.command == "doctor":
-            return doctor(conn, repo=repo, run_id=args.run_id, verbose=args.verbose)
-        if args.command == "recovery" and args.recovery_command == "stale-leases":
-            return stale_leases(conn, run_id=args.run_id)
-        if args.command == "recovery" and args.recovery_command == "requeue-stale":
-            return requeue_stale(
-                conn,
-                run_id=args.run_id,
-                job_id=args.job_id,
-                force=bool(getattr(args, "force", False)),
-                justification=getattr(args, "justification", None),
-            )
-        if args.command == "recovery" and args.recovery_command == "cancel-job":
-            return cancel_job(
-                conn,
-                run_id=args.run_id,
-                job_id=args.job_id,
-                reason=args.reason,
-                cascade=bool(args.cascade),
-            )
-        if args.command == "recovery" and args.recovery_command == "process-reconcile":
-            return process_reconcile(conn, run_id=args.run_id)
-        if args.command == "recovery" and args.recovery_command == "resume":
-            return resume_blocker(
-                conn,
-                blocker_id=args.blocker_id,
-                complete=bool(args.complete),
-                session_id=args.session_id,
-                summary=args.summary,
-                force=bool(args.force),
-                extend_seconds=int(args.extend_seconds),
-            )
-        if args.command == "recovery" and args.recovery_command == "auto":
-            from striatum.recovery import resolve_policy, run_auto_sweep
-
-            run_row = conn.execute(
-                "SELECT workflow_snapshot_id FROM runs WHERE run_id = ?",
-                (args.run_id,),
-            ).fetchone()
-            workflow_payload = None
-            if run_row is not None:
-                snap = conn.execute(
-                    "SELECT workflow_json FROM workflow_snapshots "
-                    "WHERE workflow_snapshot_id = ?",
-                    (str(run_row["workflow_snapshot_id"]),),
-                ).fetchone()
-                if snap is not None:
-                    try:
-                        wf = json_loads(str(snap["workflow_json"]))
-                    except Exception:  # noqa: BLE001
-                        wf = {}
-                    if isinstance(wf, dict):
-                        workflow_payload = wf.get("recovery_policy")
-            cli_overrides = {
-                "autonomous_review_requeue": getattr(
-                    args, "autonomous_review_requeue", None
-                ),
-                "autonomous_process_reconcile": getattr(
-                    args, "autonomous_process_reconcile", None
-                ),
-                "max_requeues_per_sweep": getattr(
-                    args, "max_requeues_per_sweep", None
-                ),
-                "checkpoint_timeout_seconds": getattr(
-                    args, "checkpoint_timeout_seconds", None
-                ),
-                "eligible_after_seconds": getattr(
-                    args, "eligible_after_seconds", None
-                ),
-            }
-            policy = resolve_policy(
-                workflow_payload=workflow_payload, cli_overrides=cli_overrides
-            )
-            return run_auto_sweep(
-                conn,
-                run_id=args.run_id,
-                repo=repo,
-                policy=policy,
-                dry_run=bool(args.dry_run),
-            )
-        if args.command == "recovery" and args.recovery_command == "auto-publish":
-            from striatum.cli.recovery import auto_publish_stale_artifacts
-
-            return auto_publish_stale_artifacts(
-                conn,
-                repo=repo,
-                run_id=args.run_id,
-                dry_run=bool(args.dry_run),
-            )
-        if args.command == "byline":
-            return _cli_byline(conn, session_id=args.session_id, job_id=args.job_id)
-        if args.command == "inbox":
-            if not getattr(args, "session_id", None):
-                raise StriatumError(
-                    "principal inbox is daemon RPC only; start striatumd and retry, "
-                    "or pass --session-id for the legacy packet helper",
-                    exit_code=11,
-                )
-            return _cli_inbox(conn, session_id=args.session_id)
-        if args.command == "checkpoint" and args.checkpoint_command == "resolve":
-            return checkpoint_resolve(
-                conn,
-                blocker_id=args.blocker_id,
-                action=args.action,
-                decision_id=args.decision_id,
-            )
-        if args.command == "escalation":
-            raise StriatumError(
-                "escalation commands are daemon RPC only; start striatumd and retry",
-                exit_code=11,
-            )
-        if args.command == "adapter" and args.adapter_command == "run":
-            return run_process_adapter(
-                conn,
-                repo=repo,
-                session_id=args.session_id,
-                lease_id=args.lease_id,
-                stdin_mode=args.stdin,
-                inherit_stdio=args.inherit_stdio,
-                timeout_seconds=args.timeout_seconds,
-            )
-        if args.command == "worktree" and args.worktree_command == "create":
-            return worktree_create(
-                conn,
-                repo=repo,
-                session_id=args.session_id,
-                job_id=args.job_id,
-                lease_id=args.lease_id,
-            )
-        if args.command == "worktree" and args.worktree_command == "release":
-            return worktree_release(conn, repo=repo, worktree_id=args.worktree_id)
-        if args.command == "worktree" and args.worktree_command == "list":
-            return worktree_list(conn, run_id=args.run_id)
-        if args.command == "supervise" and args.supervise_command == "start":
-            return supervise_start(conn, repo=repo, session_id=args.session_id)
-        if args.command == "supervise" and args.supervise_command == "send":
-            return supervise_send(conn, session_id=args.session_id, packet_id=args.packet_id)
-        if args.command == "supervise" and args.supervise_command == "stop":
-            return supervise_stop(conn, session_id=args.session_id, reason=args.reason)
-        if args.command == "supervise" and args.supervise_command == "status":
-            return supervise_status(conn, session_id=args.session_id)
-        if args.command == "supervise" and args.supervise_command == "list":
-            return supervise_list(conn, run_id=args.run_id, state=args.state)
-        if args.command == "list" and args.list_command == "runs":
-            return list_runs(conn, state=args.state, limit=args.limit)
-        if args.command == "list" and args.list_command == "sessions":
-            return list_sessions(
-                conn,
-                run_id=args.run_id,
-                state=args.state,
-                role=args.role,
-                lane=args.lane,
-            )
-        if args.command == "list" and args.list_command == "jobs":
-            return list_jobs(
-                conn,
-                run_id=args.run_id,
-                state=args.state,
-                workflow_job_id=args.workflow_job_id,
-            )
-        if args.command == "list" and args.list_command == "artifacts":
-            return list_artifacts(conn, run_id=args.run_id, kind=args.kind)
-        if args.command == "list" and args.list_command == "workflows":
-            return list_workflows(conn, limit=args.limit)
-    raise StriatumError("unknown command", exit_code=2)
 
 
 def _workflow_generate(args: argparse.Namespace, repo: Path) -> object:
@@ -1816,12 +1286,10 @@ def _dispatch_daemon_repo(args: argparse.Namespace) -> object:
 
 
 def _dispatch_cross_repo(args: argparse.Namespace) -> object:
-    if not _legacy_sqlite_test_harness_enabled():
-        raise StriatumError(
-            "daemon_route_required: cross-repo commands must route through "
-            "daemon RPC and cannot open daemon PostgreSQL directly",
-            exit_code=12,
-        )
+    raise StriatumError(
+        "daemon_route_required: cross-repo commands must route through daemon RPC; legacy SQLite dispatch is retired.",
+        exit_code=12,
+    )
     from striatum.cross_repo import (
         PgCrossRepoLocalRunner,
         cancel_cross_repo_run,
@@ -1863,181 +1331,3 @@ def _dispatch_cross_repo(args: argparse.Namespace) -> object:
     raise StriatumError("unknown cross-repo command", exit_code=2)
 
 
-def _resolve_publish_defaults(
-    conn: Any,
-    *,
-    job_id: str,
-    kind: str | None,
-    logical_name: str | None,
-    path_text: str,
-) -> tuple[str, str]:
-    """V1.41: derive --kind / --logical-name from expected_artifacts.
-
-    When the operator passes `--path` and the path matches a
-    declared `expected_artifacts[].path` for the job, fall back to
-    that artifact's declared `kind` / `logical_name`. Pass-through
-    if the operator already supplied them, or if the path is
-    ambiguous / unmatched.
-    """
-    import json
-    if kind and logical_name:
-        return kind, logical_name
-    row = conn.execute(
-        "SELECT expected_artifacts_json FROM jobs WHERE job_id = ?",
-        (job_id,),
-    ).fetchone()
-    if row is None:
-        if not kind or not logical_name:
-            raise StriatumError(
-                "publish-artifact requires --kind and --logical-name "
-                "for unknown jobs",
-                exit_code=2,
-            )
-        return kind, logical_name
-    # expected_artifacts_json stores a JSON array; raw json.loads (not the
-    # strict striatum.db.json_loads which only accepts objects).
-    try:
-        declared_raw = json.loads(str(row["expected_artifacts_json"] or "[]"))
-    except (json.JSONDecodeError, TypeError):
-        declared_raw = []
-    declared_list: list[dict[str, object]] = (
-        [d for d in declared_raw if isinstance(d, dict)]
-        if isinstance(declared_raw, list)
-        else []
-    )
-    matches = [d for d in declared_list if d.get("path") == path_text]
-    if len(matches) != 1:
-        if not kind or not logical_name:
-            expected = ", ".join(
-                f"{d.get('path')} ({d.get('logical_name')}/{d.get('kind')})"
-                for d in declared_list
-            ) or "(none declared)"
-            raise StriatumError(
-                f"publish-artifact could not default --kind/--logical-name: "
-                f"path {path_text!r} matches {len(matches)} declared "
-                f"artifacts; expected exactly 1. Declared: {expected}",
-                exit_code=2,
-            )
-        return kind, logical_name
-    declared_artifact = matches[0]
-    resolved_kind = kind or str(declared_artifact.get("kind", ""))
-    resolved_logical = logical_name or str(declared_artifact.get("logical_name", ""))
-    return resolved_kind, resolved_logical
-
-
-def _resolve_override_session(
-    conn: Any,
-    *,
-    requested_session_id: str,
-    job_id: str,
-    rationale: str,
-) -> str:
-    """V1.41: if requested_session_id already has a verdict for job_id,
-    register a fresh operator reviewer session on the same lane and
-    return its id. Otherwise return requested_session_id unchanged.
-
-    The override path requires a session distinct from the one that
-    submitted the original verdict; before V1.41 this was a manual
-    two-step (register-session + override-verdict).
-    """
-    existing = conn.execute(
-        "SELECT 1 FROM verdicts WHERE job_id = ? AND session_id = ?",
-        (job_id, requested_session_id),
-    ).fetchone()
-    if existing is None:
-        return requested_session_id
-    session_row = conn.execute(
-        "SELECT run_id, lane_id FROM sessions WHERE session_id = ?",
-        (requested_session_id,),
-    ).fetchone()
-    if session_row is None:
-        return requested_session_id
-    from striatum.cli.mutations import register_session
-
-    label = f"operator-override-{job_id[-12:]}"
-    result = register_session(
-        conn,
-        run_id=str(session_row["run_id"]),
-        role="reviewer",
-        lane=str(session_row["lane_id"]),
-        capabilities=[],
-        fresh=True,
-        parent_session_id=None,
-        operator_label=label,
-    )
-    return str(result["session_id"])
-
-
-def _cli_byline(conn: Any, *, session_id: str, job_id: str) -> object:
-    """V1.41: print the expected author line for a (session, job) pair."""
-    from striatum.artifacts import expected_author_line
-    job = conn.execute(
-        "SELECT * FROM jobs WHERE job_id = ?", (job_id,)
-    ).fetchone()
-    if job is None:
-        raise StriatumError(f"job {job_id!r} not found", exit_code=2)
-    line = expected_author_line(conn, job=job, session_id=session_id)
-    return {"session_id": session_id, "job_id": job_id, "byline": line}
-
-
-def _cli_inbox(conn: Any, *, session_id: str) -> object:
-    """V1.41: print the current packet for a session.
-
-    Returns the workflow_job_id, message_id, lease_id, expected_artifacts,
-    and the expected author line. Designed for operator-on-behalf flows
-    that previously required parsing `striatum why <sid> --json`.
-    """
-    import json
-    from striatum.artifacts import expected_author_line
-    session = conn.execute(
-        "SELECT * FROM sessions WHERE session_id = ?", (session_id,)
-    ).fetchone()
-    if session is None:
-        raise StriatumError(f"session {session_id!r} not found", exit_code=2)
-    job = conn.execute(
-        """
-        SELECT * FROM jobs
-         WHERE current_message_id IS NOT NULL
-           AND current_lease_id IS NOT NULL
-           AND state IN ('claimed', 'running')
-           AND job_id IN (
-                 SELECT resource_id FROM leases
-                  WHERE owner_session_id = ?
-                    AND state = 'active'
-                    AND resource_type = 'job'
-           )
-         ORDER BY started_at DESC LIMIT 1
-        """,
-        (session_id,),
-    ).fetchone()
-    if job is None:
-        return {
-            "session_id": session_id,
-            "lane_id": session["lane_id"],
-            "role_id": session["role_id"],
-            "current_packet": None,
-        }
-    # expected_artifacts_json is a JSON array, not an object — use raw
-    # json.loads here, not the strict striatum.db.json_loads helper.
-    try:
-        expected_raw = json.loads(str(job["expected_artifacts_json"] or "[]"))
-    except (json.JSONDecodeError, TypeError):
-        expected_raw = []
-    expected: list[object] = list(expected_raw) if isinstance(expected_raw, list) else []
-    try:
-        byline = expected_author_line(conn, job=job, session_id=session_id)
-    except Exception:  # noqa: BLE001
-        byline = None
-    return {
-        "session_id": session_id,
-        "lane_id": session["lane_id"],
-        "role_id": session["role_id"],
-        "current_packet": {
-            "workflow_job_id": job["workflow_job_id"],
-            "job_id": job["job_id"],
-            "message_id": job["current_message_id"],
-            "lease_id": job["current_lease_id"],
-            "expected_artifacts": expected,
-            "expected_author_line": byline,
-        },
-    }

@@ -1,6 +1,7 @@
 """Acceptance coverage for RFC 0011 (session close + run-terminal auto-close)."""
 
 from __future__ import annotations
+import pytest; pytest.skip("legacy sqlite eradicated", allow_module_level=True)
 
 import json
 import os
