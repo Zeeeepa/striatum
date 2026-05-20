@@ -170,6 +170,15 @@
       "summary": "Default profile for unspecified tool families.",
       "native_delegation_mode": "not_applicable",
       "native_delegation_instruction": "This is a one-shot supervised invocation: do not ask the operator a follow-up question. Write the expected artifact at the declared path and exit normally; the operator publishes on your behalf if direct CLI access is denied."
+    },
+    {
+      "profile_id": "agy_default",
+      "kind": "harness_profile_fragment",
+      "tool_family": "agy",
+      "display_name": "Antigravity default profile",
+      "summary": "Default profile for the Antigravity agent harness.",
+      "native_delegation_mode": "preferred",
+      "native_delegation_instruction": "Use native delegation for parallelizable tasks. The parent session remains accountable for Striatum artifacts. Do not ask follow-up questions, just execute one-shot."
     }
   ]
 }

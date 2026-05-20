@@ -146,6 +146,8 @@ HARNESS_PROFILE_TOOL_FAMILIES = frozenset({
     "codex",
     "claude_code",
     "gemini_cli",
+    "agy",
+    "antigravity",
 })
 
 # RFC 0010 V1: required-when-declared and known optional fields in a profile
@@ -1572,6 +1574,12 @@ def _validate_lane_constraints(
     for lane_id, lane_value in lanes.items():
         if not isinstance(lane_value, dict):
             raise WorkflowError(f"lane {lane_id!r} must be an object")
+        model = lane_value.get("model")
+        if model is not None:
+            if not isinstance(model, str) or not model:
+                raise WorkflowError(
+                    f"lane {lane_id!r} model must be a non-empty string"
+                )
         timeout = lane_value.get("adapter_timeout_seconds")
         if timeout is not None:
             if not isinstance(timeout, int) or isinstance(timeout, bool) or timeout <= 0:

@@ -9,8 +9,8 @@ Context:
 [`docs/DECISION_LOG.md`](../DECISION_LOG.md) (D028, D036, D055, D057, D083),
 [`docs/SPEC.md`](../SPEC.md) § "Adapter Boundary",
 `src/striatum/process_completion.py`,
-`src/striatum/cli/recovery.py`,
-`src/striatum/cli/mutations.py` (`checkpoint_resolve`)
+`src/striatum/cli/recovery.py` (retired),
+`src/striatum/cli/mutations.py` (retired) (`checkpoint_resolve`)
 
 V1 core acceptance (D083) covers the CLI primitive, process-adapter envelope
 commands, documentation, skills/plugin guidance, and focused regression tests.
@@ -41,19 +41,19 @@ sequence:
 In practice this sequence does not close the loop for any **repo-write** job:
 
 - `recovery requeue-stale` refuses repo-write jobs by design
-  (D036, [`recovery.py:104-105`](../../src/striatum/cli/recovery.py)) and
-  additionally requires an *expired* lease — the lease deliberately stays
+  (D036, `recovery.py:104-105` (retired)) and
+  Additionally requires an *expired* lease — the lease deliberately stays
   active per RFC 0014's "do not release on block" rule
-  ([`process_completion.py:188-195`](../../src/striatum/process_completion.py)).
+  (`process_completion.py:188-195`).
 - `recovery process-reconcile` only acts on `process_executions` rows whose
   `state = 'running'` and whose pid is gone
-  ([`recovery.py:365-373`](../../src/striatum/cli/recovery.py)). Inline
+  (`recovery.py:365-373` (retired)). Inline
   blockers come from processes that already exited cleanly; their rows are
   not in `running`.
 - `checkpoint resolve` refuses anything other than `human_checkpoint`
-  blockers ([`mutations.py:912-915`](../../src/striatum/cli/mutations.py)).
+  blockers (`mutations.py:912-915` (retired)).
 - `complete` refuses jobs whose state is not `running`
-  ([`db.py:1444-1445`](../../src/striatum/db.py)).
+  (`db.py:1444-1445` (retired)).
 
 The result is a sealed terminal state for repo-write process-adapter
 blockers: the operator can publish the missing artifact, can record the
@@ -175,7 +175,7 @@ Behavior:
 6. **Optional inline complete**: when `--complete --session-id <id>
    [--summary <text>]` is supplied, the verb proceeds to call the
    existing `complete_job` path
-   ([`db.py:1432`](../../src/striatum/db.py)) using the lease the job
+   (`db.py:1432` (retired)) using the lease the job
    already carries. This is a convenience wrapper — the lease ID is
    read from `jobs.current_lease_id`; the operator does not have to
    look it up. The session ID is required because `complete_job`
@@ -218,7 +218,7 @@ blocker is in the lost family or when the underlying
 
 `publish_artifact` accepts a blocked job's active lease
 ([`artifacts.py:387`](../../src/striatum/artifacts.py)). `complete_job`
-does not ([`db.py:1444-1445`](../../src/striatum/db.py)). That asymmetry
+does not (`db.py:1444-1445` (retired)). That asymmetry
 is what made the Gemini race possible: the agent's late artifact landed
 cleanly, but the agent could not call `complete` to close the job out
 because the inline validator had already blocked it.
