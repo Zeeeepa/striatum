@@ -419,7 +419,7 @@ func supervisorProgressForSession(ctx context.Context, runner db.Runner, reposit
 	rows, err := collectRows(ctx, runner,
 		`SELECT ps.supervisor_id, ps.run_id, ps.session_id, ps.pid,
 		        ps.state AS supervisor_state,
-		        COALESCE(ptr.last_heartbeat_at, ps.heartbeat_at) AS supervisor_heartbeat_at,
+		        COALESCE(ptr.updated_at, ps.heartbeat_at) AS supervisor_heartbeat_at,
 		        s.last_heartbeat_at AS session_last_heartbeat_at,
 		        l.lease_id, l.resource_id AS job_id, l.acquired_at,
 		        l.expires_at, l.last_heartbeat_at AS lease_last_heartbeat_at,
