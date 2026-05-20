@@ -1,0 +1,338 @@
+{
+  "schema_version": "striatum.workflow.v1",
+  "workflow_id": "rfc-0050-http-sse-mcp",
+  "workflow_version": "2026-05-20",
+  "name": "RFC 0050 — HTTP/SSE MCP server in striatumd",
+  "branch": {
+    "mode": "confirm",
+    "suggested_name": "striatum/rfc-0050-http-sse-mcp",
+    "allow_dirty": false
+  },
+  "coordinator": {
+    "role_id": "coordinator",
+    "lane_id": "codex"
+  },
+  "lanes": {
+    "codex": {
+      "adapter": "process",
+      "display_model": "Codex GPT-5.5",
+      "command": [".striatum/bin/codex-supervised-wrapper.sh"],
+      "capabilities": ["write", "review", "synthesis"]
+    },
+    "claude_code": {
+      "adapter": "process",
+      "display_model": "Claude Code",
+      "command": [".striatum/bin/claude-supervised-wrapper.sh"],
+      "capabilities": ["write", "review", "synthesis"]
+    },
+    "gemini": {
+      "adapter": "process",
+      "display_model": "Gemini",
+      "command": [".striatum/bin/gemini-supervised-wrapper.sh"],
+      "capabilities": ["write", "review"]
+    }
+  },
+  "roles": {
+    "coordinator": {"definition_path": "roles/coordinator.md"},
+    "designer": {"definition_path": "roles/designer.md"},
+    "implementer": {"definition_path": "roles/implementer.md"},
+    "reviewer": {"definition_path": "roles/reviewer.md"}
+  },
+  "context_docs": [
+    {"path": "docs/rfcs/0050-go-daemon-http-sse-mcp.md", "required": true},
+    {"path": "docs/operator/BRIEF.md", "required": false},
+    {"path": "go/pkg/mcp/tools.go", "required": false},
+    {"path": "go/pkg/mcp/capabilities.go", "required": false},
+    {"path": "go/pkg/agentloop/loop.go", "required": false}
+  ],
+  "parallelism": {
+    "mode": "declared",
+    "max_active_jobs": 3,
+    "require_disjoint_write_scopes": true
+  },
+  "jobs": [
+    {
+      "id": "design_codex",
+      "type": "draft",
+      "title": "Design HTTP/SSE MCP server (codex lane)",
+      "role_id": "designer",
+      "lane_id": "codex",
+      "parallel_group": "design",
+      "fresh_session_required": true,
+      "objective": "Independently design RFC 0050: HTTP/SSE MCP server in striatumd plus agentloop PTY refactor.",
+      "task_prompt": {"path": "prompts/design.md"},
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": ["docs/rfc-0050/design/codex/"],
+        "forbidden_paths": [".striatum/"]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "codex_design",
+          "kind": "handoff",
+          "path": "docs/rfc-0050/design/codex/DESIGN.md",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "design_claude",
+      "type": "draft",
+      "title": "Design HTTP/SSE MCP server (claude_code lane)",
+      "role_id": "designer",
+      "lane_id": "claude_code",
+      "parallel_group": "design",
+      "fresh_session_required": true,
+      "objective": "Independently design RFC 0050: HTTP/SSE MCP server in striatumd plus agentloop PTY refactor.",
+      "task_prompt": {"path": "prompts/design.md"},
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": ["docs/rfc-0050/design/claude_code/"],
+        "forbidden_paths": [".striatum/"]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "claude_design",
+          "kind": "handoff",
+          "path": "docs/rfc-0050/design/claude_code/DESIGN.md",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "design_gemini",
+      "type": "draft",
+      "title": "Design HTTP/SSE MCP server (gemini lane)",
+      "role_id": "designer",
+      "lane_id": "gemini",
+      "parallel_group": "design",
+      "fresh_session_required": true,
+      "objective": "Independently design RFC 0050: HTTP/SSE MCP server in striatumd plus agentloop PTY refactor.",
+      "task_prompt": {"path": "prompts/design.md"},
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": ["docs/rfc-0050/design/gemini/"],
+        "forbidden_paths": [".striatum/"]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "gemini_design",
+          "kind": "handoff",
+          "path": "docs/rfc-0050/design/gemini/DESIGN.md",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "synth",
+      "type": "synthesis",
+      "title": "Synthesize RFC 0050 designs",
+      "role_id": "designer",
+      "lane_id": "codex",
+      "fresh_session_required": true,
+      "objective": "Reconcile the three RFC 0050 design proposals into a single buildable synthesis. Pick concrete approaches for the HTTP/SSE endpoint, capability-token auth path, tools/list and tools/call wiring, and the agentloop PTY refactor.",
+      "task_prompt": {"path": "prompts/synth.md"},
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": ["docs/rfc-0050/"],
+        "forbidden_paths": [".striatum/", "docs/rfc-0050/design/"]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "synthesis",
+          "kind": "synthesis",
+          "path": "docs/rfc-0050/DESIGN_SYNTHESIS.md",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "review_design",
+      "type": "review",
+      "title": "Design review (ergonomics_dx)",
+      "role_id": "reviewer",
+      "lane_id": "claude_code",
+      "fresh_session_required": true,
+      "reviewer_context_policy": "fresh",
+      "review_posture": "ergonomics_dx",
+      "objective": "Review the design synthesis for operator/agent ergonomics before any Go code is written.",
+      "task_prompt": {"path": "prompts/review_design.md"},
+      "write_scope": {
+        "mode": "review_only_artifact",
+        "repo_write": false,
+        "allowed_paths": ["docs/rfc-0050/review/design/"],
+        "forbidden_paths": [".striatum/"]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "design_review",
+          "kind": "finding",
+          "path": "docs/rfc-0050/review/design/REVIEW.md",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "implement",
+      "type": "build",
+      "title": "Implement RFC 0050 HTTP/SSE MCP",
+      "role_id": "implementer",
+      "lane_id": "codex",
+      "required_review_postures": [
+        "threat_model",
+        "ergonomics_dx",
+        "devils_advocate"
+      ],
+      "objective": "Implement the synthesized design: HTTP/SSE MCP server in the Go daemon (tools/list, tools/call, capability-token auth, port config) plus an integration test. Refactor agentloop to PTY-only is in scope for follow-on (action 2 in the operator brief) — focus this build on the daemon side and config wiring.",
+      "task_prompt": {"path": "prompts/implement.md"},
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/rfc-0050/build/",
+          "go/pkg/mcp/",
+          "go/pkg/rpc/",
+          "go/cmd/striatumd/",
+          "go/internal/",
+          "go/go.mod",
+          "go/go.sum",
+          "tests/"
+        ],
+        "forbidden_paths": [".striatum/"]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "implementation",
+          "kind": "handoff",
+          "path": "docs/rfc-0050/build/HANDOFF.md",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "review_build_codex",
+      "type": "review",
+      "title": "Build review codex threat_model",
+      "role_id": "reviewer",
+      "lane_id": "codex",
+      "parallel_group": "build_review",
+      "fresh_session_required": true,
+      "reviewer_context_policy": "fresh",
+      "review_posture": "threat_model",
+      "objective": "Threat-model the HTTP/SSE MCP server: surface auth-bypass risks, request-smuggling angles, capability-token leakage, and any new attack surface.",
+      "task_prompt": {"path": "prompts/review_build.md"},
+      "write_scope": {
+        "mode": "review_only_artifact",
+        "repo_write": false,
+        "allowed_paths": ["docs/rfc-0050/review/build/codex/"],
+        "forbidden_paths": [".striatum/"]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "build_review_codex",
+          "kind": "finding",
+          "path": "docs/rfc-0050/review/build/codex/REVIEW.md",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "review_build_claude",
+      "type": "review",
+      "title": "Build review claude ergonomics_dx",
+      "role_id": "reviewer",
+      "lane_id": "claude_code",
+      "parallel_group": "build_review",
+      "fresh_session_required": true,
+      "reviewer_context_policy": "fresh",
+      "review_posture": "ergonomics_dx",
+      "objective": "Review the implementation for operator and agent-side ergonomics: agent connect flow, error shapes, config defaults, port discoverability.",
+      "task_prompt": {"path": "prompts/review_build.md"},
+      "write_scope": {
+        "mode": "review_only_artifact",
+        "repo_write": false,
+        "allowed_paths": ["docs/rfc-0050/review/build/claude_code/"],
+        "forbidden_paths": [".striatum/"]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "build_review_claude",
+          "kind": "finding",
+          "path": "docs/rfc-0050/review/build/claude_code/REVIEW.md",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "review_build_gemini",
+      "type": "review",
+      "title": "Build review gemini devils_advocate",
+      "role_id": "reviewer",
+      "lane_id": "gemini",
+      "parallel_group": "build_review",
+      "fresh_session_required": true,
+      "reviewer_context_policy": "fresh",
+      "review_posture": "devils_advocate",
+      "objective": "Adversarially probe the HTTP/SSE implementation: SSE keep-alive edge cases, slow-client backpressure, concurrent tools/call streams, regression risk in the existing Unix-socket RPC path.",
+      "task_prompt": {"path": "prompts/review_build.md"},
+      "write_scope": {
+        "mode": "review_only_artifact",
+        "repo_write": false,
+        "allowed_paths": ["docs/rfc-0050/review/build/gemini/"],
+        "forbidden_paths": [".striatum/"]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "build_review_gemini",
+          "kind": "finding",
+          "path": "docs/rfc-0050/review/build/gemini/REVIEW.md",
+          "required": true
+        }
+      ]
+    }
+  ],
+  "edges": [
+    {"from": "design_codex", "to": "synth", "on": "completed"},
+    {"from": "design_claude", "to": "synth", "on": "completed"},
+    {"from": "design_gemini", "to": "synth", "on": "completed"},
+    {"from": "synth", "to": "review_design", "on": "completed"},
+    {"from": "review_design", "to": "implement", "on": "completed"},
+    {"from": "implement", "to": "review_build_codex", "on": "completed"},
+    {"from": "implement", "to": "review_build_claude", "on": "completed"},
+    {"from": "implement", "to": "review_build_gemini", "on": "completed"}
+  ],
+  "cycles": [
+    {
+      "from": "review_design",
+      "to": "synth",
+      "on_verdict": "needs_revision",
+      "max_iterations": 2,
+      "allow_same_lane": true
+    },
+    {
+      "from": "review_build_codex",
+      "to": "implement",
+      "on_verdict": "needs_revision",
+      "max_iterations": 2,
+      "allow_same_lane": true
+    },
+    {
+      "from": "review_build_claude",
+      "to": "implement",
+      "on_verdict": "needs_revision",
+      "max_iterations": 2,
+      "allow_same_lane": true
+    },
+    {
+      "from": "review_build_gemini",
+      "to": "implement",
+      "on_verdict": "needs_revision",
+      "max_iterations": 2,
+      "allow_same_lane": true
+    }
+  ]
+}
