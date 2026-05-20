@@ -83,3 +83,5 @@ new GH issues rather than amending the closed one.
   daemon doctor ([gh#26](https://github.com/halbritt/striatum/issues/26))
 - [27/](27/) — artifacts_no_update trigger should allow blob_* column
   updates ([gh#27](https://github.com/halbritt/striatum/issues/27))
+- [28/](28/) — Unified Interactive Harness, Tmux Supervisor, and Escalation Inbox ([gh#28](https://github.com/halbritt/striatum/issues/28))
+
