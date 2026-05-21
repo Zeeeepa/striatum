@@ -79,6 +79,12 @@ live workflow control plane. Bootstrap and diagnostics commands may survive
 temporarily, but every survivor must be explicitly classified and backed by a
 planned MCP/UI replacement or a narrow operational justification.
 
+Post-transition operator introspection is proposed in
+[`RFC 0075 - Tmux-Observable MCP Agent Sessions And Liveness Deadlines`](rfcs/0075-tmux-observable-mcp-agent-sessions.md):
+live interactive agents should run in daemon-created tmux-backed PTYs, while
+daemon MCP activity and lease heartbeats remain the authoritative liveness
+signals. Tmux panes are for human inspection, not workflow state.
+
 ## 2. Just shipped (this week)
 
 | Version | Scope | Notes |
