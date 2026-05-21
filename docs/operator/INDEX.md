@@ -14,6 +14,8 @@ task explicitly asks for deeper archaeology.
 
 - [`rfc-0068-go-daemon-port.md`](plans/rfc-0068-go-daemon-port.md)
 - [`rfc-0069-pg-only-daemon-global-surfaces.md`](plans/rfc-0069-pg-only-daemon-global-surfaces.md)
+- [`rfc-0050-cli-retirement-cutover.md`](plans/rfc-0050-cli-retirement-cutover.md)
+- [`rfc-0075-tmux-observable-mcp-agent-sessions.md`](plans/rfc-0075-tmux-observable-mcp-agent-sessions.md)
 
 ## Recent Progress
 

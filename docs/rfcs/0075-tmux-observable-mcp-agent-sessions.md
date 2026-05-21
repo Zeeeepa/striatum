@@ -224,6 +224,16 @@ Disallowed by default:
 - Evidence export, daemon audit, and artifact publication remain free of
   broad transcript capture by default.
 
+## Implementation Scaffold
+
+The first implementation workflow is scaffolded at
+[`docs/operator/workflows/rfc-0075-and-mcp-cutover/workflow.json`](../operator/workflows/rfc-0075-and-mcp-cutover/workflow.json).
+It deliberately starts with a cutover map and liveness-contract design before
+any source implementation. The paired operator plans are:
+
+- [`RFC 0050 CLI Retirement Cutover`](../operator/plans/rfc-0050-cli-retirement-cutover.md)
+- [`RFC 0075 Tmux-Observable MCP Agent Sessions`](../operator/plans/rfc-0075-tmux-observable-mcp-agent-sessions.md)
+
 ## Open Questions
 
 - Should `session.ready`, `session.heartbeat`, `session.question`, and

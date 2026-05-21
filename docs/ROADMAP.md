@@ -70,8 +70,10 @@ Order the work as a set of gates, not as one all-or-nothing cutover:
 5. [done] Refactor `go/pkg/agentloop` into a PTY bootstrapper that gives agents the
    endpoint/token/repository/lane instructions and then lets the agent use its
    own MCP client.
-6. Move live operator actions to MCP/UI surfaces until no workflow-control
-   operation requires a human or AI operator to invoke `striatum` CLI verbs.
+6. [scaffolded] Move live operator actions to MCP/UI surfaces until no
+   workflow-control operation requires a human or AI operator to invoke
+   `striatum` CLI verbs. The cutover map and first-slice workflow live at
+   `docs/operator/workflows/rfc-0075-and-mcp-cutover/workflow.json`.
 7. [done] Delete `src/striatum/mcp.py` and retire Python MCP launch docs.
 
 For this roadmap, "eliminating the CLI" means eliminating CLI verbs as the
@@ -84,6 +86,10 @@ Post-transition operator introspection is proposed in
 live interactive agents should run in daemon-created tmux-backed PTYs, while
 daemon MCP activity and lease heartbeats remain the authoritative liveness
 signals. Tmux panes are for human inspection, not workflow state.
+The open plans are
+[`RFC 0050 CLI Retirement Cutover`](operator/plans/rfc-0050-cli-retirement-cutover.md)
+and
+[`RFC 0075 Tmux-Observable MCP Agent Sessions`](operator/plans/rfc-0075-tmux-observable-mcp-agent-sessions.md).
 
 ## 2. Just shipped (this week)
 

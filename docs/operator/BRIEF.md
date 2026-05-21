@@ -3,7 +3,7 @@ schema_version: "striatum.operator_brief.v1"
 artifact_kind: "operator_brief"
 brief_id: "brief_2026-05-20_go-daemon-http-sse-mcp"
 supersedes: "brief_2026-05-17_go-daemon-remediation"
-scope_links: ["docs/operator/plans/rfc-0068-go-daemon-port.md", "docs/operator/plans/rfc-0069-pg-only-daemon-global-surfaces.md", "docs/rfcs/0050-go-daemon-http-sse-mcp.md"]
+scope_links: ["docs/operator/plans/rfc-0068-go-daemon-port.md", "docs/operator/plans/rfc-0069-pg-only-daemon-global-surfaces.md", "docs/operator/plans/rfc-0050-cli-retirement-cutover.md", "docs/operator/plans/rfc-0075-tmux-observable-mcp-agent-sessions.md", "docs/rfcs/0075-tmux-observable-mcp-agent-sessions.md"]
 context_budget_lines: 300
 retrieval_priority: "high"
 status: "current"
@@ -37,6 +37,12 @@ to make daemon MCP and the operator UI cover live workflow control first, then
 retire or hide the CLI verbs they replace. Bootstrap and diagnostics commands
 may survive only when explicitly justified.
 
+RFC 0075 is now proposed and scaffolded as the next post-MCP operator
+observability slice. It keeps tmux as local inspection metadata, not workflow
+state, and requires explicit liveness deadlines around MCP discovery,
+`work.await_packet`, packet ack, and lease heartbeat before live agents can
+silently burn a run.
+
 The human-principal checkpoint for TODO 55, 56, 59, and 60 is resolved. D124
 chooses daemon-core accepted-risk persistence for workflow lint; D125 keeps
 auto-finalize dry-run by default with a three-live-dogfood evidence gate;
@@ -47,9 +53,10 @@ provider actions in core.
 
 ## Next 1-3 Actions
 
-1. Restart any long-lived local `striatumd` processes so they pick up the
-   rebuilt packaged Go binary, publish the `/mcp` endpoint, and enforce the
-   Host/Origin and bearer-token checks.
+1. Run the scaffolded RFC 0075 / MCP cutover workflow at
+   `docs/operator/workflows/rfc-0075-and-mcp-cutover/workflow.json` to produce
+   the cutover map and liveness contract before deleting any CLI
+   workflow-control verb.
 2. Apply the TODO 55/56/59/60 follow-ups: daemon accepted-risk mutation
    surfaces, auto-finalize observability/circuit-breaker work, Corpus Contract
    V2 schema/archive defaults, and the read-only local Git snapshot slice.
@@ -68,6 +75,8 @@ provider actions in core.
 ## Hazards / Do Not
 
 - Do not write proxy wrappers that poll the daemon and spoon-feed JSON to the agents. Agents MUST operate as autonomous MCP clients.
+- Do not treat tmux panes, pane text, or transcripts as workflow state; RFC
+  0075 keeps tmux local and observational only.
 - Do not delete CLI workflow-control verbs before MCP/UI parity exists and is
   covered by tests; classify any remaining CLI commands as bootstrap,
   diagnostics, or temporary compatibility.
@@ -81,4 +90,6 @@ provider actions in core.
 
 - `docs/operator/plans/rfc-0068-go-daemon-port.md`
 - `docs/operator/plans/rfc-0069-pg-only-daemon-global-surfaces.md`
-- `docs/rfcs/0050-go-daemon-http-sse-mcp.md`
+- `docs/operator/plans/rfc-0050-cli-retirement-cutover.md`
+- `docs/operator/plans/rfc-0075-tmux-observable-mcp-agent-sessions.md`
+- `docs/operator/workflows/rfc-0075-and-mcp-cutover/workflow.json`

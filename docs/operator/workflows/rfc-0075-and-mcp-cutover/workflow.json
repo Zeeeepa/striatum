@@ -1,0 +1,365 @@
+{
+  "schema_version": "striatum.workflow.v1",
+  "workflow_id": "rfc-0075-and-mcp-cutover",
+  "workflow_version": "2026-05-21",
+  "name": "RFC 0075 and remaining MCP cutover",
+  "context_docs": [
+    "README.md",
+    "docs/INDEX.md",
+    "docs/SPEC.md",
+    "docs/DECISION_LOG.md",
+    "docs/UBIQUITOUS_LANGUAGE.md",
+    "docs/TODO.md",
+    "docs/ROADMAP.md",
+    "docs/operator/BRIEF.md",
+    "docs/MCP.md",
+    "docs/HOW_TO_AGENT.md",
+    "docs/rfcs/0050-go-daemon-http-sse-mcp.md",
+    "docs/rfcs/0075-tmux-observable-mcp-agent-sessions.md",
+    "docs/operator/plans/rfc-0050-cli-retirement-cutover.md",
+    "docs/operator/plans/rfc-0075-tmux-observable-mcp-agent-sessions.md",
+    "contracts/daemon_methods.json",
+    "go/pkg/agentloop/loop.go",
+    "go/pkg/mcp/http.go",
+    "go/pkg/mcp/tools.go",
+    "go/pkg/mutations/lifecycle.go",
+    "go/pkg/mutations/claim.go",
+    "tests/test_mcp_fake_agent_loop_e2e.py",
+    "AGENTS.md"
+  ],
+  "coordinator": {
+    "role_id": "coordinator",
+    "lane_id": "codex"
+  },
+  "parallelism": {
+    "mode": "declared",
+    "max_active_jobs": 2,
+    "require_disjoint_write_scopes": true
+  },
+  "branch": {
+    "mode": "confirm",
+    "suggested_name": "striatum/rfc-0075-mcp-cutover",
+    "allow_dirty": false
+  },
+  "lanes": {
+    "codex": {
+      "adapter": "process",
+      "command": [
+        "bash",
+        "-lc",
+        "PYTHONPATH=src python3 -m striatum.cli skills install --profile all --scope user --force --json >/dev/null && export PATH=\"$PWD/.venv/bin:$PATH\" && exec .striatum/bin/codex-supervised-wrapper.sh"
+      ],
+      "model": "codex",
+      "display_model": "Codex",
+      "strategy_version": "2026-05-21",
+      "supervision": {
+        "compatible": true,
+        "stdin_format": "newline_delimited_json",
+        "wrapper_required": true
+      }
+    },
+    "claude_code": {
+      "adapter": "process",
+      "command": [
+        "bash",
+        "-lc",
+        "PYTHONPATH=src python3 -m striatum.cli skills install --profile all --scope user --force --json >/dev/null && export PATH=\"$PWD/.venv/bin:$PATH\" && exec .striatum/bin/claude-supervised-wrapper.sh"
+      ],
+      "model": "claude_code",
+      "display_model": "Claude Code",
+      "strategy_version": "2026-05-21",
+      "supervision": {
+        "compatible": "verify_pipe_behavior_first",
+        "stdin_format": "prompt_text",
+        "wrapper_required": true
+      }
+    },
+    "gemini": {
+      "adapter": "process",
+      "command": [
+        "bash",
+        "-lc",
+        "PYTHONPATH=src python3 -m striatum.cli skills install --profile all --scope user --force --json >/dev/null && export PATH=\"$PWD/.venv/bin:$PATH\" && exec .striatum/bin/gemini-supervised-wrapper.sh"
+      ],
+      "model": "gemini",
+      "display_model": "Gemini",
+      "strategy_version": "2026-05-21",
+      "supervision": {
+        "compatible": true,
+        "stdin_format": "prompt_text",
+        "wrapper_required": true
+      }
+    }
+  },
+  "roles": {
+    "coordinator": {
+      "description": "Operator/control-plane role."
+    },
+    "mapper": {
+      "description": "Maps remaining CLI cutover work to MCP/UI replacements and guarded survivor categories."
+    },
+    "designer": {
+      "description": "Turns RFC 0075 into bounded daemon/session implementation slices."
+    },
+    "implementer": {
+      "description": "Implements the first accepted RFC 0075 or cutover slice inside the declared write scope."
+    },
+    "reviewer": {
+      "description": "Fresh-context reviewer for authority boundary and regression risk."
+    },
+    "synthesizer": {
+      "description": "Summarizes accepted scope, test evidence, and next cutover slice."
+    }
+  },
+  "jobs": [
+    {
+      "id": "map_cutover",
+      "type": "synthesis",
+      "title": "Map remaining MCP/UI cutover",
+      "role_id": "mapper",
+      "lane_id": "codex",
+      "parallel_group": "planning",
+      "fresh_session_required": true,
+      "objective": "Map remaining live workflow-control CLI verbs to daemon MCP and operator UI replacements. Classify any CLI survivors as bootstrap, diagnostics, or temporary compatibility before deletion work begins.",
+      "task_prompt": {
+        "path": "prompts/map_cutover.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/operator/artifacts/rfc-0075-and-mcp-cutover/map/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "cutover_map",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/rfc-0075-and-mcp-cutover/map/CUTOVER_MAP.md",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "design_liveness",
+      "type": "synthesis",
+      "title": "Design RFC 0075 liveness contract",
+      "role_id": "designer",
+      "lane_id": "claude_code",
+      "parallel_group": "planning",
+      "fresh_session_required": true,
+      "objective": "Turn RFC 0075 into a bounded liveness/session contract: tmux metadata, MCP protocol activity, session-level startup tools, deadlines, status surfaces, and tests.",
+      "task_prompt": {
+        "path": "prompts/design_liveness_contract.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/operator/artifacts/rfc-0075-and-mcp-cutover/design/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "liveness_contract",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/rfc-0075-and-mcp-cutover/design/LIVENESS_CONTRACT.md",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "implement_first_slice",
+      "type": "build",
+      "title": "Implement first RFC 0075/cutover slice",
+      "role_id": "implementer",
+      "lane_id": "codex",
+      "fresh_session_required": true,
+      "required_review_postures": [
+        "custom:authority_boundary",
+        "custom:regression_risk"
+      ],
+      "objective": "Implement the smallest first slice selected by the cutover map and RFC 0075 liveness contract. Preserve the no-transcript/no-terminal-authority boundary and do not delete CLI workflow-control verbs before MCP/UI parity exists.",
+      "task_prompt": {
+        "path": "prompts/implement_first_slice.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "contracts/",
+          "go/",
+          "src/striatum/",
+          "tests/",
+          "docs/MCP.md",
+          "docs/SPEC.md",
+          "docs/TODO.md",
+          "docs/ROADMAP.md",
+          "docs/operator/BRIEF.md",
+          "docs/operator/plans/",
+          "docs/rfcs/0075-tmux-observable-mcp-agent-sessions.md",
+          "docs/operator/artifacts/rfc-0075-and-mcp-cutover/build/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "implementation_handoff",
+          "kind": "handoff",
+          "path": "docs/operator/artifacts/rfc-0075-and-mcp-cutover/build/HANDOFF.md",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "review_authority",
+      "type": "review",
+      "title": "Authority-boundary review",
+      "role_id": "reviewer",
+      "lane_id": "claude_code",
+      "parallel_group": "implementation_review",
+      "fresh_session_required": true,
+      "reviewer_context_policy": "fresh",
+      "review_posture": "custom:authority_boundary",
+      "objective": "Review the slice for no-terminal-authority, no-transcript, daemon/MCP capability, and CLI-retirement boundary regressions.",
+      "task_prompt": {
+        "path": "prompts/review_authority.md"
+      },
+      "write_scope": {
+        "mode": "review_only_artifact",
+        "repo_write": false,
+        "allowed_paths": [
+          "docs/operator/artifacts/rfc-0075-and-mcp-cutover/review/authority/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "authority_review",
+          "kind": "finding",
+          "path": "docs/operator/artifacts/rfc-0075-and-mcp-cutover/review/authority/REVIEW.md",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "review_regression",
+      "type": "review",
+      "title": "Regression-risk review",
+      "role_id": "reviewer",
+      "lane_id": "gemini",
+      "parallel_group": "implementation_review",
+      "fresh_session_required": true,
+      "reviewer_context_policy": "fresh",
+      "review_posture": "custom:regression_risk",
+      "objective": "Review the slice for missing tests, daemon startup/MCP regressions, status-surface breakage, and headless-fixture compatibility.",
+      "task_prompt": {
+        "path": "prompts/review_regression.md"
+      },
+      "write_scope": {
+        "mode": "review_only_artifact",
+        "repo_write": false,
+        "allowed_paths": [
+          "docs/operator/artifacts/rfc-0075-and-mcp-cutover/review/regression/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "regression_review",
+          "kind": "finding",
+          "path": "docs/operator/artifacts/rfc-0075-and-mcp-cutover/review/regression/REVIEW.md",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "finalize_cutover",
+      "type": "synthesis",
+      "title": "Finalize RFC 0075/cutover slice",
+      "role_id": "synthesizer",
+      "lane_id": "codex",
+      "fresh_session_required": true,
+      "objective": "Summarize the accepted slice, tests run, remaining RFC 0075 and CLI-retirement gaps, and the next smallest implementation slice.",
+      "task_prompt": {
+        "path": "prompts/finalize_cutover.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/operator/artifacts/rfc-0075-and-mcp-cutover/final/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "cutover_summary",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/rfc-0075-and-mcp-cutover/final/SUMMARY.md",
+          "required": true
+        }
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "from": "map_cutover",
+      "to": "implement_first_slice",
+      "on": "completed"
+    },
+    {
+      "from": "design_liveness",
+      "to": "implement_first_slice",
+      "on": "completed"
+    },
+    {
+      "from": "implement_first_slice",
+      "to": "review_authority",
+      "on": "completed"
+    },
+    {
+      "from": "implement_first_slice",
+      "to": "review_regression",
+      "on": "completed"
+    },
+    {
+      "from": "review_authority",
+      "to": "finalize_cutover",
+      "on": "completed"
+    },
+    {
+      "from": "review_regression",
+      "to": "finalize_cutover",
+      "on": "completed"
+    }
+  ],
+  "cycles": [
+    {
+      "from": "review_authority",
+      "to": "implement_first_slice",
+      "on_verdict": "needs_revision",
+      "max_iterations": 1
+    },
+    {
+      "from": "review_regression",
+      "to": "implement_first_slice",
+      "on_verdict": "needs_revision",
+      "max_iterations": 1
+    }
+  ]
+}
