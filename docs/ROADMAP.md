@@ -48,9 +48,10 @@ dependency edges, and "what would I do next" framing. Update on every
 
 ### 1.1 Active Operator track: HTTP/SSE MCP daemon and CLI retirement
 
-Native HTTP MCP in the Go daemon has landed for RFC 0050 Phase A-C: `/mcp` is
+Native HTTP MCP in the Go daemon has landed for RFC 0050 Phase A-D: `/mcp` is
 the primary direct request endpoint, `/mcp/sse` remains the SSE/backcompat
-alias, and tool discovery/calls reuse daemon RPC authorization. The remaining
+alias, tool discovery/calls reuse daemon RPC authorization, and the fake MCP
+agent coverage completes a minimal packet loop through `/mcp`. The remaining
 active work is the longer cutover away from CLI-driven workflow control. The
 working spec is
 [`RFC 0050 — Native Go Daemon HTTP/SSE MCP and Agent Loop`](rfcs/0050-go-daemon-http-sse-mcp.md).
@@ -62,10 +63,10 @@ Order the work as a set of gates, not as one all-or-nothing cutover:
 2. [done] Route one read-only daemon method through MCP with token enforcement.
 3. [done] Route one low-risk mutation through MCP with fail-closed authorization and
    unsupported-method tests.
-4. [partial] Prove the lane work-packet loop with a fake MCP agent: await/ack/heartbeat,
-   publish/verdict/complete as supported by the daemon contract, and stale
-   lease behavior. Current coverage exercises daemon-backed MCP list/call and
-   authorization; a fully scripted fake-agent lane remains useful.
+4. [done] Prove the lane work-packet loop with a fake MCP agent:
+   prepare/start, `session.register`, `work.await_packet`, `work.ack`,
+   `work.heartbeat`, `artifact.publish`, `work.complete`, and stale lease
+   refusal now run through daemon-backed MCP `tools/call`.
 5. [done] Refactor `go/pkg/agentloop` into a PTY bootstrapper that gives agents the
    endpoint/token/repository/lane instructions and then lets the agent use its
    own MCP client.

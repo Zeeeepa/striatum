@@ -16,11 +16,15 @@ author: antigravity-001
 
 Striatum's live-state boundary is daemon-owned PostgreSQL. The active
 remediation runway is D107/RFC 0068: Go is the production/default daemon.
-RFC 0050 Phase A-C has landed in the native Go daemon: `striatumd` serves MCP
+RFC 0050 Phase A-D has landed in the native Go daemon: `striatumd` serves MCP
 over loopback HTTP at `/mcp`, keeps `/mcp/sse` as the SSE/backcompat alias,
 capability-filters `tools/list`, routes `tools/call` through daemon RPC, and
 publishes the current endpoint in the daemon runtime as `mcp-http-endpoint`.
-The current source also has the Python `mcp.py` wrapper removed.
+The daemon-backed fake MCP agent proof now completes a workflow packet loop
+through `/mcp`: prepare/start, session registration, `work.await_packet`,
+`work.ack`, `work.heartbeat`, `artifact.publish`, and `work.complete`, with
+stale lease refusal covered. The current source also has the Python `mcp.py`
+wrapper removed.
 
 The `agent-loop` supervisor is now a PTY bootstrapper instead of a proxy that
 passes raw JSON to an agent's stdin. It spawns the agent, provides a bootstrap
@@ -52,8 +56,6 @@ provider actions in core.
 3. Continue CLI-retirement work: move remaining live operator actions to
    MCP/UI surfaces and classify any CLI survivors as bootstrap, diagnostics,
    or temporary compatibility.
-4. Add a fully scripted fake-agent lane if more end-to-end proof is needed
-   beyond the daemon-backed MCP list/call and authorization coverage.
 
 ## Blockers
 

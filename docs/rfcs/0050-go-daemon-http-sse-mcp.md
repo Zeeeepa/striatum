@@ -87,6 +87,12 @@ method.
 - Add an end-to-end fake-agent harness that completes a small workflow entirely
   through MCP `tools/call`.
 
+**Implementation status:** landed for the current minimal packet loop. The
+daemon-backed fake-agent harness prepares and starts a one-job workflow,
+registers a session, claims with `work.await_packet`, acknowledges and
+heartbeats the lease, publishes the required handoff artifact, completes the
+job/run, and verifies stale leases refuse later lifecycle mutation.
+
 ### Phase E: Agent-Loop Bootstrap
 
 - Refactor `go/pkg/agentloop` into a PTY supervisor that launches the agent
@@ -147,7 +153,8 @@ Do not block the first MCP daemon slices on:
   supports initialization, `tools/list`, one read call, and one authorized
   mutation through MCP with fail-closed tests.
 - Phase D accepted: a fake MCP agent can complete a workflow packet loop
-  without invoking the CLI or Python MCP wrapper.
+  without invoking the CLI or Python MCP wrapper; stale lease refusal is
+  covered through the same MCP path.
 - Phase E accepted: an interactive agent can be spawned by the PTY supervisor,
   connect to the daemon SSE endpoint, discover tools, and complete a work
   packet via MCP `tools/call`.

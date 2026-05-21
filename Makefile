@@ -147,6 +147,7 @@ test-multi-repo: $(VENV)/.installed-daemon-pg
 		tests/test_cross_repo_lifecycle_e2e.py \
 		tests/test_cross_repo_crash_recovery_e2e.py \
 		tests/test_mcp_capability_scope_e2e.py \
+		tests/test_mcp_fake_agent_loop_e2e.py \
 		tests/test_per_repo_write_scope_e2e.py \
 		tests/test_daemon_go_smoke.py \
 		tests/test_daemon_go_audit.py \
