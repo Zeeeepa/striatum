@@ -22,13 +22,15 @@ verification commands before running it.
 
 - [`OPERATOR_INITIALIZATION_PROMPT.md`](OPERATOR_INITIALIZATION_PROMPT.md):
   paste into a fresh AI operator session before it starts or resumes a
-  Striatum run. Fill in its run-specific block first; it establishes mission,
-  environment, required reading, daemon/Postgres mode, operating rules,
-  recovery posture, report cadence, and first actions.
+  Striatum run. Fill in its run-specific block first; it is the complete
+  bootstrap and boundary prompt, establishing mission, environment, required
+  reading, daemon/Postgres mode, hard product boundaries, lane/model policy,
+  out-of-scope work, definition of done, recovery posture, report cadence, and
+  first actions.
 - [`OPERATOR_BOUNDARY_PROMPT.md`](OPERATOR_BOUNDARY_PROMPT.md): paste into an
-  operator session when you only need the guardrail that separates
+  operator session only when you need the short refresher that separates
   control-plane coordination from workflow role work, for example when an
-  in-progress operator session is drifting into design, implementation,
+  already-initialized operator session is drifting into design, implementation,
   review, synthesis, or artifact authorship.
 - [`RFC_0026_0027_SCAFFOLD_PROMPT.md`](RFC_0026_0027_SCAFFOLD_PROMPT.md):
   paste into a fresh CLI agent session to install/load Striatum guidance,

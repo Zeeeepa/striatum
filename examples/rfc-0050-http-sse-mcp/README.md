@@ -4,10 +4,14 @@ Striatum dogfood fixture for implementing
 [RFC 0050](../../docs/rfcs/0050-go-daemon-http-sse-mcp.md): native
 HTTP/SSE MCP server in the Go `striatumd` daemon.
 
+Current source note: RFC 0050 Phase A-C and the follow-on agentloop/Python-MCP
+cleanup have landed on `main`. This fixture preserves the original dogfood
+shape and is useful for replay, audit, or regression-design exercises.
+
 **Action covered:** action 1 of the operator brief —
 "Implement the HTTP/SSE MCP server in the Go daemon as per RFC 0050."
 
-**Out of scope (follow-on runs):**
+**Original out of scope for this fixture run:**
 - Agentloop PTY refactor (action 2).
 - `src/striatum/mcp.py` deletion (action 3).
 
@@ -20,6 +24,22 @@ build reviews (threat_model / ergonomics_dx / devils_advocate).
 `max_active_jobs: 3` lets design and build-review fan out simultaneously.
 
 ## How to run
+
+Before starting the workflow, fill
+[`../../prompts/OPERATOR_INITIALIZATION_PROMPT.md`](../../prompts/OPERATOR_INITIALIZATION_PROMPT.md)
+with this fixture's scope:
+
+- Operator assignment and active scope: RFC 0050 Phase A-C / action 1.
+- Hard product boundaries: local-only Go daemon, daemon-owned PostgreSQL,
+  capability-token authorization, no hosted services, no telemetry, no
+  repo-local SQLite authority.
+- Original out of scope: agentloop PTY refactor, deleting `src/striatum/mcp.py`,
+  full CLI retirement.
+- Definition of done: daemon MCP initialize, `tools/list`, one read-only
+  `tools/call`, one low-risk mutating `tools/call`, denial tests, docs update,
+  and reviewer-ready verification commands.
+- Lane policy: Codex as operator/implementer, Claude/Opus-family ergonomics
+  verifier, Gemini-family adversarial scanner unless the human overrides.
 
 ```bash
 striatum --repo /path/to/striatum workflow validate examples/rfc-0050-http-sse-mcp/workflow.json
