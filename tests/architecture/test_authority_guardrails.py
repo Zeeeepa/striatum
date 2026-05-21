@@ -1,6 +1,5 @@
 # ruff: noqa
 from __future__ import annotations
-import pytest; pytest.skip("legacy sqlite eradicated", allow_module_level=True)
 
 import ast
 import importlib
@@ -59,6 +58,19 @@ NOT_IMPLEMENTED_METHODS: frozenset[str] = frozenset(
     }
 )
 
+GO_ONLY_DAEMON_METHODS: frozenset[str] = frozenset(
+    {
+        "artifact.backfill_blob",
+        "artifact.get_content",
+        "artifact.list_for_run",
+        "corpus.fetch_historical_dogfood_file",
+        "corpus.list_historical_dogfood_files",
+        "corpus.list_historical_dogfoods",
+        "corpus.migrate_historical_dogfood_file",
+        "work.await_packet",
+    }
+)
+
 LOCAL_FILE_AUTHORING_METHODS_EXPECTED: frozenset[str] = frozenset(
     {
         "workflow.validate",
@@ -99,9 +111,6 @@ DIRECT_PG_BOOTSTRAP_IMPORT_ALLOWLIST: dict[str, set[str]] = {
     },
     "src/striatum/cli/workflow.py::_running_runs_for_workflow_pg": {
         "striatum.daemon_pg.config.resolve_config",
-        "striatum.daemon_pg.connection.connect",
-    },
-    "src/striatum/legacy_sqlite/repo_local_migration.py::<module>": {
         "striatum.daemon_pg.connection.connect",
     },
 }
@@ -189,6 +198,8 @@ def test_registry_methods_have_explicit_authority_path() -> None:
         if method in BOOTSTRAP_OR_MIGRATION_METHODS:
             continue
         if method in NOT_IMPLEMENTED_METHODS:
+            continue
+        if method in GO_ONLY_DAEMON_METHODS:
             continue
         if method in LOCAL_FILE_AUTHORING_METHODS:
             continue

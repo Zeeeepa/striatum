@@ -1,7 +1,7 @@
-"""Parity test for ``recovery.cancel_job`` PG handler.
+"""Contract tests for ``recovery.cancel_job`` PG handler.
 
-Asserts the handler registers, holds the locked signature, and refuses
-empty-reason or terminal-state inputs the same way the SQLite path does.
+Asserts the handler registers, holds the locked signature, and exposes
+the current daemon/PostgreSQL cancelable job-state contract.
 """
 
 from __future__ import annotations
@@ -35,10 +35,11 @@ def test_cancelable_states() -> None:
     from ._helpers import import_handler
 
     mod = import_handler("cancel_job")
-    expected_states = frozenset({"pending", "claimed", "blocked"})
+    expected_states = frozenset(
+        {"blocked", "queued", "claimed", "running", "stale_lease", "waiting_human"}
+    )
 
     assert mod.CANCELABLE_JOB_STATES == expected_states
-
 
 
 def test_handler_emits_cascade_events_in_order() -> None:

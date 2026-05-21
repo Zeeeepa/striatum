@@ -7,6 +7,154 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[2]
+
+
+TRACK2_FIRST_BATCH_TESTS = frozenset(
+    {
+        Path("tests/test_artifact_schemas.py"),
+        Path("tests/test_cli_mvp.py"),
+        Path("tests/test_process_adapter.py"),
+        Path("tests/test_service.py"),
+    }
+)
+
+
+RESIDUAL_LEGACY_SQLITE_TEST_IMPORTS: dict[Path, set[str]] = {
+    Path("tests/daemon_pg/handlers/recovery_evidence/conftest.py"): {
+        "from striatum.legacy_sqlite.db import connect"
+    },
+    Path("tests/exit_codes/test_rfc0043_split_brain.py"): {
+        "from striatum.legacy_sqlite.db import connect, db_path"
+    },
+    Path("tests/fixtures/v1_repo_local_sqlite/build_fixture.py"): {
+        "from striatum.legacy_sqlite.migrations import apply_migrations"
+    },
+    Path("tests/test_artifact_view_provenance_trail.py"): {
+        "from striatum.legacy_sqlite.db import connect"
+    },
+    Path("tests/test_chat_tools.py"): {"from striatum.legacy_sqlite.db import init_repo"},
+    Path("tests/test_cli_corpus_export.py"): {
+        "from striatum.legacy_sqlite.db import init_repo"
+    },
+    Path("tests/test_cli_run_cancel.py"): {"from striatum.legacy_sqlite.db import connect"},
+    Path("tests/test_corpus_export_integration.py"): {
+        "from striatum.legacy_sqlite.db import init_repo"
+    },
+    Path("tests/test_daemon_rpc.py"): {
+        "from striatum.legacy_sqlite.db import connect, init_repo"
+    },
+    Path("tests/test_dashboard.py"): {
+        "from striatum.legacy_sqlite.db import connect, ensure_initialized"
+    },
+    Path("tests/test_dashboard_web_parity.py"): {
+        "from striatum.legacy_sqlite.db import connect"
+    },
+    Path("tests/test_decision_propagation.py"): {
+        "from striatum.legacy_sqlite.migrations import apply_migrations"
+    },
+    Path("tests/test_dogfood_publish_on_behalf.py"): {
+        "from striatum.legacy_sqlite.db import connect",
+        "from striatum.legacy_sqlite.db import init_repo",
+    },
+    Path("tests/test_dogfood_surgical_recovery.py"): {
+        "from striatum.legacy_sqlite.db import connect, expire_leases, transaction",
+        "from striatum.legacy_sqlite.db import init_repo",
+    },
+    Path("tests/test_gh14_terminal_blocker_recovery.py"): {
+        "from striatum.legacy_sqlite.db import connect"
+    },
+    Path("tests/test_gh8_v16_rebuild_idempotent.py"): {
+        "from striatum.legacy_sqlite.migrations import apply_migrations"
+    },
+    Path("tests/test_harness_profiles.py"): {
+        "from striatum.legacy_sqlite.db import init_repo"
+    },
+    Path("tests/test_harness_v2_fixes.py"): {
+        "from striatum.legacy_sqlite.db import connect",
+        "from striatum.legacy_sqlite.db import init_repo",
+    },
+    Path("tests/test_job_detail_expected_artifacts.py"): {
+        "from striatum.legacy_sqlite.db import connect"
+    },
+    Path("tests/test_lane_evidence_guard.py"): {
+        "from striatum.legacy_sqlite.migrations import apply_migrations"
+    },
+    Path("tests/test_list_commands.py"): {"from striatum.legacy_sqlite.db import init_repo"},
+    Path("tests/test_pause_resume.py"): {"from striatum.legacy_sqlite.db import connect"},
+    Path("tests/test_posture_verdicts_override_provenance.py"): {
+        "from striatum.legacy_sqlite.db import connect"
+    },
+    Path("tests/test_recovery_dry_run_no_side_effects.py"): {
+        "from striatum.legacy_sqlite.db import connect"
+    },
+    Path("tests/test_recovery_extended.py"): {"from striatum.legacy_sqlite.db import connect"},
+    Path("tests/test_recovery_panel_dry_run.py"): {
+        "from striatum.legacy_sqlite.db import connect"
+    },
+    Path("tests/test_recovery_resume.py"): {"from striatum.legacy_sqlite.db import connect"},
+    Path("tests/test_retry_job.py"): {"from striatum.legacy_sqlite.db import connect"},
+    Path("tests/test_review_postures_introspection.py"): {
+        "from striatum.legacy_sqlite.db import connect",
+        "from striatum.legacy_sqlite.migrations import apply_migrations",
+    },
+    Path("tests/test_reviewer_policy.py"): {"from striatum.legacy_sqlite.db import connect"},
+    Path("tests/test_run_detail_recovery_panel.py"): {
+        "from striatum.legacy_sqlite.db import connect"
+    },
+    Path("tests/test_session_close.py"): {
+        "from striatum.legacy_sqlite.db import connect",
+        "from striatum.legacy_sqlite.db import init_repo",
+    },
+    Path("tests/test_skills_install.py"): {
+        "from striatum.legacy_sqlite.db import connect, init_repo"
+    },
+    Path("tests/test_supervise.py"): {
+        "from striatum.legacy_sqlite.db import connect",
+        "from striatum.legacy_sqlite.db import init_repo",
+    },
+    Path("tests/test_supervised_progress_watcher.py"): {
+        "from striatum.legacy_sqlite.db import connect",
+        "from striatum.legacy_sqlite.db import init_repo",
+    },
+    Path("tests/test_view_file_breadcrumb_heuristic.py"): {
+        "from striatum.legacy_sqlite.db import connect"
+    },
+    Path("tests/test_web_run_cancel.py"): {"from striatum.legacy_sqlite.db import connect"},
+    Path("tests/test_web_run_pause_resume.py"): {
+        "from striatum.legacy_sqlite.db import connect"
+    },
+    Path("tests/test_web_run_posture_verdicts.py"): {
+        "from striatum.legacy_sqlite.db import connect"
+    },
+    Path("tests/test_web_ui.py"): {"from striatum.legacy_sqlite.db import init_repo"},
+    Path("tests/test_worktree_isolation.py"): {
+        "from striatum.legacy_sqlite.db import connect",
+        "from striatum.legacy_sqlite.db import init_repo",
+    },
+}
+
+
+RESIDUAL_SQLITE_REFERENCE_TESTS: dict[Path, set[str]] = {
+    Path("tests/daemon_pg/handlers/recovery_evidence/conftest.py"): {
+        "import sqlite3",
+        "usage sqlite3",
+    },
+    Path("tests/fixtures/v1_repo_local_sqlite/build_fixture.py"): {
+        "import sqlite3",
+        "usage sqlite3",
+    },
+    Path("tests/test_byline_regression.py"): {"import sqlite3", "usage sqlite3"},
+    Path("tests/test_decision_propagation.py"): {"import sqlite3", "usage sqlite3"},
+    Path("tests/test_gh8_v16_rebuild_idempotent.py"): {"import sqlite3", "usage sqlite3"},
+    Path("tests/test_lane_evidence_guard.py"): {"import sqlite3", "usage sqlite3"},
+    Path("tests/test_override_rationale_regression.py"): {
+        "import sqlite3",
+        "usage sqlite3",
+    },
+    Path("tests/test_service.py"): {"import sqlite3", "usage sqlite3"},
+}
+
+
 @dataclass(frozen=True)
 class SQLiteClassification:
     category: str
@@ -26,14 +174,6 @@ ALLOWED_CATEGORIES = frozenset(
 
 
 PRODUCTION_SQLITE_QUARANTINE: dict[Path, SQLiteClassification] = {}
-
-
-TEST_SQLITE_QUARANTINE_PREFIXES = {
-    Path("tests"): SQLiteClassification(
-        "test fixture",
-        "tests may build or inspect legacy SQLite fixtures",
-    ),
-}
 
 
 DAEMON_RPC_DB_IMPORT_ALLOWLIST: dict[Path, set[str]] = {}
@@ -155,10 +295,20 @@ def test_legacy_python_daemon_module_is_deleted() -> None:
     assert DAEMON_CONNECT_REGISTRY_CALLERS == {}
 
 
+def test_legacy_sqlite_package_is_deleted_from_production_sources() -> None:
+    assert not (ROOT / "src" / "striatum" / "legacy_sqlite").exists()
+
+
 def test_production_sources_do_not_import_legacy_python_daemon() -> None:
     offenders = _legacy_daemon_imports_under(ROOT / "src" / "striatum")
 
     assert offenders == set()
+
+
+def test_production_sources_do_not_import_legacy_sqlite_package() -> None:
+    offenders = _legacy_sqlite_imports_under(ROOT / "src" / "striatum")
+
+    assert offenders == {}
 
 
 
@@ -186,25 +336,36 @@ def test_primary_service_lazy_loads_legacy_api_wrapper() -> None:
 
 def test_test_sqlite_references_are_classified_as_test_fixtures() -> None:
     offenders = _sqlite_references_under(ROOT / "tests")
-    unclassified = {
-        path
-        for path in offenders
-        if not any(path.is_relative_to(prefix) for prefix in TEST_SQLITE_QUARANTINE_PREFIXES)
-    }
 
     assert offenders
-    assert not unclassified
-    assert all(
-        classification.category == "test fixture" and classification.reason
-        for classification in TEST_SQLITE_QUARANTINE_PREFIXES.values()
-    )
+    assert offenders == RESIDUAL_SQLITE_REFERENCE_TESTS
 
 
-def test_test_fixtures_import_legacy_sqlite_modules_directly() -> None:
-    offenders = _legacy_sqlite_facade_imports_under(ROOT / "tests")
-    offenders.pop(Path("tests/architecture/test_legacy_sqlite_quarantine.py"), None)
+def test_first_track2_batch_has_no_legacy_state_imports() -> None:
+    offenders = {
+        path: imports
+        for path, imports in _legacy_state_imports_under(ROOT / "tests").items()
+        if path in TRACK2_FIRST_BATCH_TESTS
+    }
 
     assert offenders == {}
+
+
+def test_first_track2_batch_has_no_broad_module_level_legacy_skip() -> None:
+    offenders = {
+        path: reason
+        for path in TRACK2_FIRST_BATCH_TESTS
+        if (reason := _module_level_skip_reason(ROOT / path)) is not None
+    }
+
+    assert offenders == {}
+
+
+def test_residual_legacy_sqlite_test_imports_are_explicit_future_batches() -> None:
+    offenders = _legacy_state_imports_under(ROOT / "tests")
+    offenders.pop(Path("tests/architecture/test_legacy_sqlite_quarantine.py"), None)
+
+    assert offenders == RESIDUAL_LEGACY_SQLITE_TEST_IMPORTS
 
 
 def _db_imports_under(root: Path) -> dict[Path, set[str]]:
@@ -222,9 +383,13 @@ def _db_imports_under(root: Path) -> dict[Path, set[str]]:
     return offenders
 
 
-def _legacy_sqlite_facade_imports_under(root: Path) -> dict[Path, set[str]]:
+def _legacy_state_imports_under(root: Path) -> dict[Path, set[str]]:
     offenders: dict[Path, set[str]] = {}
-    facade_modules = {"striatum.db", "striatum.migrations"}
+    legacy_modules = {
+        "striatum.db",
+        "striatum.legacy_sqlite",
+        "striatum.migrations",
+    }
     facade_names = {"db", "migrations"}
     for path in sorted(root.rglob("*.py")):
         rel = path.relative_to(ROOT)
@@ -232,10 +397,16 @@ def _legacy_sqlite_facade_imports_under(root: Path) -> dict[Path, set[str]]:
         for node in ast.walk(tree):
             if isinstance(node, ast.Import):
                 for alias in node.names:
-                    if alias.name in facade_modules:
+                    if any(
+                        alias.name == module or alias.name.startswith(f"{module}.")
+                        for module in legacy_modules
+                    ):
                         offenders.setdefault(rel, set()).add(f"import {alias.name}")
             elif isinstance(node, ast.ImportFrom):
-                if node.module in facade_modules:
+                if node.module and any(
+                    node.module == module or node.module.startswith(f"{module}.")
+                    for module in legacy_modules
+                ):
                     imported = ", ".join(alias.name for alias in node.names)
                     offenders.setdefault(rel, set()).add(
                         f"from {node.module} import {imported}"
@@ -248,6 +419,50 @@ def _legacy_sqlite_facade_imports_under(root: Path) -> dict[Path, set[str]]:
                         offenders.setdefault(rel, set()).add(
                             "from striatum import " + ", ".join(imported_names)
                         )
+    return offenders
+
+
+def _module_level_skip_reason(path: Path) -> str | None:
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    for node in tree.body:
+        if not isinstance(node, ast.Expr) or not isinstance(node.value, ast.Call):
+            continue
+        call = node.value
+        if _dotted_name(call.func) != "pytest.skip":
+            continue
+        if not any(
+            keyword.arg == "allow_module_level" and isinstance(keyword.value, ast.Constant)
+            and keyword.value.value is True
+            for keyword in call.keywords
+        ):
+            continue
+        if call.args and isinstance(call.args[0], ast.Constant):
+            return str(call.args[0].value)
+        return "<unknown>"
+    return None
+
+
+def _legacy_sqlite_imports_under(root: Path) -> dict[Path, set[str]]:
+    offenders: dict[Path, set[str]] = {}
+    for path in sorted(root.rglob("*.py")):
+        rel = path.relative_to(ROOT)
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    if alias.name == "striatum.legacy_sqlite" or alias.name.startswith(
+                        "striatum.legacy_sqlite."
+                    ):
+                        offenders.setdefault(rel, set()).add(f"import {alias.name}")
+            elif isinstance(node, ast.ImportFrom):
+                if node.module and (
+                    node.module == "striatum.legacy_sqlite"
+                    or node.module.startswith("striatum.legacy_sqlite.")
+                ):
+                    imported = ", ".join(alias.name for alias in node.names)
+                    offenders.setdefault(rel, set()).add(
+                        f"from {node.module} import {imported}"
+                    )
     return offenders
 
 

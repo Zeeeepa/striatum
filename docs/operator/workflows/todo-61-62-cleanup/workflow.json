@@ -1,0 +1,385 @@
+{
+  "schema_version": "striatum.workflow.v1",
+  "workflow_id": "todo-61-62-cleanup",
+  "workflow_version": "2026-05-21",
+  "name": "TODO 61-62 cleanup",
+  "context_docs": [
+    "README.md",
+    "docs/INDEX.md",
+    "docs/SPEC.md",
+    "docs/DECISION_LOG.md",
+    "docs/UBIQUITOUS_LANGUAGE.md",
+    "docs/TODO.md",
+    "docs/ROADMAP.md",
+    "docs/operator/BRIEF.md",
+    "docs/HOW_TO_AGENT.md",
+    "docs/architecture/COMMAND_AUTHORITY_MATRIX.md",
+    "docs/rfcs/0068-go-production-daemon-port.md",
+    "docs/rfcs/0069-pg-only-daemon-global-surfaces.md",
+    "AGENTS.md"
+  ],
+  "coordinator": {
+    "role_id": "coordinator",
+    "lane_id": "codex"
+  },
+  "parallelism": {
+    "mode": "declared",
+    "max_active_jobs": 3,
+    "require_disjoint_write_scopes": true
+  },
+  "branch": {
+    "mode": "confirm",
+    "suggested_name": "striatum/todo-61-62-cleanup",
+    "allow_dirty": true
+  },
+  "lanes": {
+    "codex": {
+      "adapter": "process",
+      "command": [
+        "bash",
+        "-lc",
+        "PYTHONPATH=src python3 -m striatum.cli skills install --profile all --scope user --force --json >/dev/null && export PATH=\"$PWD/.venv/bin:$PATH\" && exec .striatum/bin/codex-supervised-wrapper.sh"
+      ],
+      "model": "codex",
+      "display_model": "Codex",
+      "strategy_version": "2026-05-21",
+      "supervision": {
+        "compatible": true,
+        "stdin_format": "newline_delimited_json",
+        "wrapper_required": true
+      }
+    },
+    "claude_code": {
+      "adapter": "process",
+      "command": [
+        "bash",
+        "-lc",
+        "PYTHONPATH=src python3 -m striatum.cli skills install --profile all --scope user --force --json >/dev/null && export PATH=\"$PWD/.venv/bin:$PATH\" && exec .striatum/bin/claude-supervised-wrapper.sh"
+      ],
+      "model": "claude_code",
+      "display_model": "Claude Code",
+      "strategy_version": "2026-05-21",
+      "supervision": {
+        "compatible": "verify_pipe_behavior_first",
+        "stdin_format": "prompt_text",
+        "wrapper_required": true
+      }
+    },
+    "gemini": {
+      "adapter": "process",
+      "command": [
+        "bash",
+        "-lc",
+        "PYTHONPATH=src python3 -m striatum.cli skills install --profile all --scope user --force --json >/dev/null && export PATH=\"$PWD/.venv/bin:$PATH\" && exec .striatum/bin/gemini-supervised-wrapper.sh"
+      ],
+      "model": "gemini",
+      "display_model": "Gemini",
+      "strategy_version": "2026-05-21",
+      "supervision": {
+        "compatible": true,
+        "stdin_format": "prompt_text",
+        "wrapper_required": true
+      }
+    }
+  },
+  "roles": {
+    "coordinator": {
+      "description": "Operator/control-plane role."
+    },
+    "triager": {
+      "description": "Bounds cleanup scope from TODO/RFC state and current daemon diagnostics."
+    },
+    "implementer": {
+      "description": "Applies source, test, and documentation cleanup inside the declared write scope."
+    },
+    "reviewer": {
+      "description": "Fresh-context reviewer who verifies the cleanup against product boundaries and regression risk."
+    },
+    "synthesizer": {
+      "description": "Reconciles triage/review artifacts into a concrete implementation or follow-up plan."
+    }
+  },
+  "jobs": [
+    {
+      "id": "triage_61",
+      "type": "synthesis",
+      "title": "Triage TODO 61 residual cleanup",
+      "role_id": "triager",
+      "lane_id": "codex",
+      "parallel_group": "triage",
+      "fresh_session_required": true,
+      "objective": "Identify the remaining TODO 61 / RFC 0068 cleanup needed after the Go production daemon and native MCP changes. Focus on legacy SQLite compatibility modules, migration/in-memory fixtures, stale Python daemon assumptions, and operator-composite decision boundaries.",
+      "task_prompt": {
+        "path": "prompts/triage_61.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/operator/artifacts/todo-61-62-cleanup/triage/61/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "todo_61_triage",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/todo-61-62-cleanup/triage/61/TRIAGE.md",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "triage_62",
+      "type": "synthesis",
+      "title": "Triage TODO 62 residual cleanup",
+      "role_id": "triager",
+      "lane_id": "claude_code",
+      "parallel_group": "triage",
+      "fresh_session_required": true,
+      "objective": "Identify the remaining TODO 62 / RFC 0069 cleanup needed after PostgreSQL-only daemon-global surfaces. Include the current daemon doctor warning that expects .striatum/state.sqlite3 even though repo scratch exists and SQLite live state is retired.",
+      "task_prompt": {
+        "path": "prompts/triage_62.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/operator/artifacts/todo-61-62-cleanup/triage/62/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "todo_62_triage",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/todo-61-62-cleanup/triage/62/TRIAGE.md",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "cleanup_plan",
+      "type": "synthesis",
+      "title": "Synthesize cleanup plan",
+      "role_id": "synthesizer",
+      "lane_id": "gemini",
+      "fresh_session_required": true,
+      "objective": "Reconcile the TODO 61 and TODO 62 triage artifacts into a bounded implementation plan. Separate implementation work from product decisions that must remain blocked.",
+      "task_prompt": {
+        "path": "prompts/cleanup_plan.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/operator/artifacts/todo-61-62-cleanup/plan/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "cleanup_plan",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/todo-61-62-cleanup/plan/CLEANUP_PLAN.md",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "implement_cleanup",
+      "type": "build",
+      "title": "Implement TODO 61-62 cleanup",
+      "role_id": "implementer",
+      "lane_id": "codex",
+      "fresh_session_required": true,
+      "required_review_postures": [
+        "custom:architecture_boundary",
+        "custom:regression_risk"
+      ],
+      "objective": "Implement the cleanup plan for TODO 61-62. Preserve the current RFC 0050 Go-daemon/MCP work and do not decide the blocked product questions for TODO 55, 56, 59, or 60.",
+      "task_prompt": {
+        "path": "prompts/implement_cleanup.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "go/",
+          "src/striatum/",
+          "tests/",
+          "docs/operator/artifacts/todo-61-62-cleanup/build/",
+          "docs/TODO.md",
+          "docs/ROADMAP.md",
+          "docs/operator/BRIEF.md",
+          "docs/architecture/",
+          "docs/rfcs/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "cleanup_handoff",
+          "kind": "handoff",
+          "path": "docs/operator/artifacts/todo-61-62-cleanup/build/HANDOFF.md",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "review_cleanup_architecture",
+      "type": "review",
+      "title": "Architecture-boundary review",
+      "role_id": "reviewer",
+      "lane_id": "claude_code",
+      "parallel_group": "cleanup_review",
+      "fresh_session_required": true,
+      "reviewer_context_policy": "fresh",
+      "review_posture": "custom:architecture_boundary",
+      "objective": "Review the cleanup for product-boundary, daemon-authority, and operator-boundary regressions.",
+      "task_prompt": {
+        "path": "prompts/review_cleanup.md"
+      },
+      "write_scope": {
+        "mode": "review_only_artifact",
+        "repo_write": false,
+        "allowed_paths": [
+          "docs/operator/artifacts/todo-61-62-cleanup/review/architecture/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "architecture_review",
+          "kind": "finding",
+          "path": "docs/operator/artifacts/todo-61-62-cleanup/review/architecture/REVIEW.md",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "review_cleanup_regression",
+      "type": "review",
+      "title": "Regression-risk review",
+      "role_id": "reviewer",
+      "lane_id": "gemini",
+      "parallel_group": "cleanup_review",
+      "fresh_session_required": true,
+      "reviewer_context_policy": "fresh",
+      "review_posture": "custom:regression_risk",
+      "objective": "Review the cleanup for test coverage, stale compatibility assumptions, and broken daemon/runtime behavior.",
+      "task_prompt": {
+        "path": "prompts/review_cleanup.md"
+      },
+      "write_scope": {
+        "mode": "review_only_artifact",
+        "repo_write": false,
+        "allowed_paths": [
+          "docs/operator/artifacts/todo-61-62-cleanup/review/regression/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "regression_review",
+          "kind": "finding",
+          "path": "docs/operator/artifacts/todo-61-62-cleanup/review/regression/REVIEW.md",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "finalize_cleanup",
+      "type": "synthesis",
+      "title": "Finalize cleanup result",
+      "role_id": "synthesizer",
+      "lane_id": "codex",
+      "fresh_session_required": true,
+      "objective": "Summarize the accepted cleanup, tests run, unresolved blockers, and the next TODO item to queue.",
+      "task_prompt": {
+        "path": "prompts/finalize_cleanup.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/operator/artifacts/todo-61-62-cleanup/final/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "cleanup_summary",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/todo-61-62-cleanup/final/SUMMARY.md",
+          "required": true
+        }
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "from": "triage_61",
+      "to": "cleanup_plan",
+      "on": "completed"
+    },
+    {
+      "from": "triage_62",
+      "to": "cleanup_plan",
+      "on": "completed"
+    },
+    {
+      "from": "cleanup_plan",
+      "to": "implement_cleanup",
+      "on": "completed"
+    },
+    {
+      "from": "implement_cleanup",
+      "to": "review_cleanup_architecture",
+      "on": "completed"
+    },
+    {
+      "from": "implement_cleanup",
+      "to": "review_cleanup_regression",
+      "on": "completed"
+    },
+    {
+      "from": "review_cleanup_architecture",
+      "to": "finalize_cleanup",
+      "on": "completed"
+    },
+    {
+      "from": "review_cleanup_regression",
+      "to": "finalize_cleanup",
+      "on": "completed"
+    }
+  ],
+  "cycles": [
+    {
+      "from": "review_cleanup_architecture",
+      "to": "implement_cleanup",
+      "on_verdict": "needs_revision",
+      "max_iterations": 1
+    },
+    {
+      "from": "review_cleanup_regression",
+      "to": "implement_cleanup",
+      "on_verdict": "needs_revision",
+      "max_iterations": 1
+    }
+  ]
+}

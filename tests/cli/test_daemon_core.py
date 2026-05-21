@@ -138,10 +138,12 @@ def test_launch_daemon_start_passes_sweep_options_to_go(
     def fake_run_go_daemon_foreground(
         *,
         postgres_url: str | None = None,
+        mcp_http_addr: str | None = None,
         sweep_interval_seconds: float = 60.0,
         max_sweeps: int | None = None,
     ) -> dict[str, object]:
         captured["postgres_url"] = postgres_url
+        captured["mcp_http_addr"] = mcp_http_addr
         captured["sweep_interval_seconds"] = sweep_interval_seconds
         captured["max_sweeps"] = max_sweeps
         return {"started": True}
@@ -157,6 +159,8 @@ def test_launch_daemon_start_passes_sweep_options_to_go(
             "start",
             "--postgres-url",
             "postgresql://example/striatum",
+            "--mcp-http-addr",
+            "127.0.0.1:8765",
             "--sweep-interval-seconds",
             "7.5",
             "--max-sweeps",
@@ -167,6 +171,7 @@ def test_launch_daemon_start_passes_sweep_options_to_go(
     assert daemon_cli.launch_daemon_start(args) == {"started": True}
     assert captured == {
         "postgres_url": "postgresql://example/striatum",
+        "mcp_http_addr": "127.0.0.1:8765",
         "sweep_interval_seconds": 7.5,
         "max_sweeps": 2,
     }
@@ -178,7 +183,7 @@ def test_go_daemon_launcher_rejects_stale_binary_before_exec(
     binary = tmp_path / "striatumd"
     binary.write_text(
         "#!/bin/sh\n"
-        "if [ \"$1\" = \"--describe\" ]; then\n"
+        'if [ "$1" = "--describe" ]; then\n'
         f"  echo core=go supported_schema={LATEST_DAEMON_DB_VERSION - 1} "
         f"migration_count={LATEST_DAEMON_DB_VERSION} methods_etag={METHODS_ETAG}\n"
         "  exit 0\n"
@@ -209,7 +214,7 @@ def test_go_binary_env_override(monkeypatch: pytest.MonkeyPatch, tmp_path: Path)
     binary = tmp_path / "striatumd"
     binary.write_text(
         "#!/bin/sh\n"
-        "if [ \"$1\" = \"--describe\" ]; then\n"
+        'if [ "$1" = "--describe" ]; then\n'
         f"  echo core=go supported_schema={LATEST_DAEMON_DB_VERSION} "
         f"migration_count={LATEST_DAEMON_DB_VERSION} methods_etag={METHODS_ETAG} "
         f"daemon_version={STRIATUM_VERSION} git_sha=abc123 build_dirty=dirty\n"
@@ -223,11 +228,13 @@ def test_go_binary_env_override(monkeypatch: pytest.MonkeyPatch, tmp_path: Path)
     assert resolve_go_binary() == binary.resolve()
 
 
-def test_packaged_go_resolver_accepts_find_binary(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_packaged_go_resolver_accepts_find_binary(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     binary = tmp_path / "striatumd"
     binary.write_text(
         "#!/bin/sh\n"
-        "if [ \"$1\" = \"--describe\" ]; then\n"
+        'if [ "$1" = "--describe" ]; then\n'
         f"  echo core=go supported_schema={LATEST_DAEMON_DB_VERSION} "
         f"migration_count={LATEST_DAEMON_DB_VERSION} methods_etag={METHODS_ETAG} "
         f"daemon_version={STRIATUM_VERSION} git_sha=abc123 build_dirty=dirty\n"
@@ -250,7 +257,9 @@ def test_packaged_go_resolver_accepts_find_binary(monkeypatch: pytest.MonkeyPatc
     assert resolve_go_binary() == binary.resolve()
 
 
-def test_go_binary_env_override_rejects_stale_schema(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_go_binary_env_override_rejects_stale_schema(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     binary = tmp_path / "striatumd"
     binary.write_text(
         "#!/bin/sh\n"

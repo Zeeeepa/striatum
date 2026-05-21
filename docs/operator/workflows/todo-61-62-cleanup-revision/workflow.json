@@ -1,0 +1,161 @@
+{
+  "schema_version": "striatum.workflow.v1",
+  "workflow_id": "todo-61-62-cleanup-revision",
+  "workflow_version": "2026-05-21",
+  "name": "TODO 61-62 cleanup revision",
+  "context_docs": [
+    "docs/operator/artifacts/todo-61-62-cleanup/build/HANDOFF.md",
+    "docs/operator/artifacts/todo-61-62-cleanup/review/regression/REVIEW.md",
+    "docs/operator/artifacts/todo-61-62-cleanup/review/architecture/REVIEW.md",
+    "docs/TODO.md",
+    "docs/ROADMAP.md",
+    "docs/architecture/COMMAND_AUTHORITY_MATRIX.md",
+    "docs/rfcs/0068-go-production-daemon-port.md",
+    "docs/rfcs/0069-pg-only-daemon-global-surfaces.md",
+    "AGENTS.md"
+  ],
+  "coordinator": {
+    "role_id": "coordinator",
+    "lane_id": "codex"
+  },
+  "parallelism": {
+    "mode": "declared",
+    "max_active_jobs": 2,
+    "require_disjoint_write_scopes": true
+  },
+  "branch": {
+    "mode": "confirm",
+    "suggested_name": "striatum/todo-61-62-cleanup-revision",
+    "allow_dirty": true
+  },
+  "lanes": {
+    "codex": {
+      "adapter": "process",
+      "command": [
+        "bash",
+        "-lc",
+        "PYTHONPATH=src python3 -m striatum.cli skills install --profile all --scope user --force --json >/dev/null && export PATH=\"$PWD/.venv/bin:$PATH\" && exec .striatum/bin/codex-supervised-wrapper.sh"
+      ],
+      "model": "codex",
+      "display_model": "Codex",
+      "strategy_version": "2026-05-21",
+      "supervision": {
+        "compatible": true,
+        "stdin_format": "newline_delimited_json",
+        "wrapper_required": true
+      }
+    },
+    "gemini": {
+      "adapter": "process",
+      "command": [
+        "bash",
+        "-lc",
+        "PYTHONPATH=src python3 -m striatum.cli skills install --profile all --scope user --force --json >/dev/null && export PATH=\"$PWD/.venv/bin:$PATH\" && exec .striatum/bin/gemini-supervised-wrapper.sh"
+      ],
+      "model": "gemini",
+      "display_model": "Gemini",
+      "strategy_version": "2026-05-21",
+      "supervision": {
+        "compatible": true,
+        "stdin_format": "prompt_text",
+        "wrapper_required": true
+      }
+    }
+  },
+  "roles": {
+    "coordinator": {
+      "description": "Operator/control-plane role."
+    },
+    "implementer": {
+      "description": "Applies the specific regression-review F1 fix and focused tests."
+    },
+    "reviewer": {
+      "description": "Fresh-context reviewer for the F1 revision."
+    }
+  },
+  "jobs": [
+    {
+      "id": "fix_state_path_projection",
+      "type": "build",
+      "title": "Fix repo state-path projection divergence",
+      "role_id": "implementer",
+      "lane_id": "codex",
+      "fresh_session_required": true,
+      "required_review_postures": [
+        "custom:regression_risk"
+      ],
+      "objective": "Fix the regression-review F1 issue: Python repository list/resolve projections must normalize stale `.striatum/state.sqlite3` values to the `.striatum/` operational scratch directory consistently with doctor and MCP resources.",
+      "task_prompt": {
+        "path": "prompts/fix_state_path_projection.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "src/striatum/daemon_pg/repositories.py",
+          "tests/",
+          "docs/architecture/COMMAND_AUTHORITY_MATRIX.md",
+          "docs/operator/artifacts/todo-61-62-cleanup-revision/build/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "revision_handoff",
+          "kind": "handoff",
+          "path": "docs/operator/artifacts/todo-61-62-cleanup-revision/build/HANDOFF.md",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "review_state_path_projection",
+      "type": "review",
+      "title": "Review repo state-path projection fix",
+      "role_id": "reviewer",
+      "lane_id": "gemini",
+      "fresh_session_required": true,
+      "reviewer_context_policy": "fresh",
+      "review_posture": "custom:regression_risk",
+      "objective": "Verify that the F1 repo state-path projection divergence is fixed without reopening SQLite production authority or widening scope into blocked product decisions.",
+      "task_prompt": {
+        "path": "prompts/review_state_path_projection.md"
+      },
+      "write_scope": {
+        "mode": "review_only_artifact",
+        "repo_write": false,
+        "allowed_paths": [
+          "docs/operator/artifacts/todo-61-62-cleanup-revision/review/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "revision_review",
+          "kind": "finding",
+          "path": "docs/operator/artifacts/todo-61-62-cleanup-revision/review/REVIEW.md",
+          "required": true
+        }
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "from": "fix_state_path_projection",
+      "to": "review_state_path_projection",
+      "on": "completed"
+    }
+  ],
+  "cycles": [
+    {
+      "from": "review_state_path_projection",
+      "to": "fix_state_path_projection",
+      "on_verdict": "needs_revision",
+      "max_iterations": 1
+    }
+  ]
+}

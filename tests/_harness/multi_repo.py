@@ -33,7 +33,9 @@ class MultiRepoHarness:
         daemon_core: DaemonCore = "go",
     ) -> None:
         self._base_pg_url = daemon_pg_url
-        self._scratch_root = Path(scratch_dir) if scratch_dir is not None else Path.cwd() / ".tmp-multi-repo"
+        self._scratch_root = (
+            Path(scratch_dir) if scratch_dir is not None else Path.cwd() / ".tmp-multi-repo"
+        )
         self._ephemeral: pg.EphemeralPostgres | None = None
         self.daemon_pg_url = daemon_pg_url
         self.repos: list[RepoDescriptor] = []
@@ -115,19 +117,22 @@ class MultiRepoHarness:
 
     def pg_conn(self) -> Any:
         conn = connect(self.daemon_pg_url)
-        # Production daemon runs autocommit=True (see daemon.py daemon-start)
-        # so audit rows commit promptly across the in-process McpClient /
-        # DaemonRpcServer flow (RFC 0048 V1.5 F3). Keep row_factory at the
-        # psycopg default (tuple_row) here — many test helpers do positional
-        # `row[0]` access; only the dispatch-side cursors that need mapping
-        # rows opt-in via per-cursor `row_factory=dict_row`.
+        # Production daemon runs autocommit=True so audit rows commit promptly
+        # across daemon-backed MCP and direct PG resource-helper checks. Keep
+        # row_factory at the psycopg default (tuple_row) here: many test
+        # helpers do positional `row[0]` access; only dispatch-side cursors
+        # that need mapping rows opt in via per-cursor `row_factory=dict_row`.
         conn.autocommit = True
         return conn
 
-    def issue_token(self, capabilities: list[str], repo_id: str | None = None, expires_in: int | None = 3600) -> str:
+    def issue_token(
+        self, capabilities: list[str], repo_id: str | None = None, expires_in: int | None = 3600
+    ) -> str:
         conn = self.pg_conn()
         try:
-            return tokens.issue_token(conn, capabilities=capabilities, repo_id=repo_id, expires_in=expires_in)
+            return tokens.issue_token(
+                conn, capabilities=capabilities, repo_id=repo_id, expires_in=expires_in
+            )
         finally:
             conn.close()
 
@@ -147,7 +152,10 @@ class MultiRepoHarness:
 
     def mcp_client(self, token: str, repo_index: int | None = None) -> McpClient:
         repo_root = self.repos[repo_index].path if repo_index is not None else None
-        return McpClient(pg_conn=self.pg_conn(), token=token, repo_root=repo_root)
+        endpoint = self.daemon.mcp_endpoint if self.daemon is not None else None
+        return McpClient(
+            pg_conn=self.pg_conn(), token=token, repo_root=repo_root, endpoint=endpoint
+        )
 
     def audit_rows(self, *, transport: str | None = None) -> list[dict[str, object]]:
         conn = self.pg_conn()
@@ -235,7 +243,9 @@ class MultiRepoHarness:
     def start_cross_repo_run(self, cross_repo_run_id: str) -> dict[str, Any]:
         conn = self.pg_conn()
         try:
-            result = start_cross_repo_run(conn, cross_repo_run_id=cross_repo_run_id, local_runner=self._runner())
+            result = start_cross_repo_run(
+                conn, cross_repo_run_id=cross_repo_run_id, local_runner=self._runner()
+            )
             conn.commit()
             return result
         finally:
@@ -300,7 +310,9 @@ class MultiRepoHarness:
             runner.unreachable_ids.discard(repo_id)
 
     def _runner(self, workflow: dict[str, object] | None = None) -> PgParticipantRunner:
-        repos_by_id = {str(repo.repository_id): repo for repo in self.repos if repo.repository_id is not None}
+        repos_by_id = {
+            str(repo.repository_id): repo for repo in self.repos if repo.repository_id is not None
+        }
         if self.participant_runner is None:
             self.participant_runner = PgParticipantRunner(
                 repos_by_id,

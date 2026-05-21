@@ -6,12 +6,12 @@ correctly), exercise endpoints via HTTP, assert behaviour.
 """
 
 from __future__ import annotations
-import pytest; pytest.skip("legacy sqlite eradicated", allow_module_level=True)
 
 import json
 import os
 import signal
 import socket
+import sqlite3
 import subprocess
 import sys
 import time
@@ -20,92 +20,17 @@ import urllib.request
 from pathlib import Path
 from typing import Any, cast
 
+import pytest
+
 
 ROOT = Path(__file__).resolve().parents[1]
+LEGACY_SQLITE_FIXTURE_REASON = (
+    "historical repo-local SQLite service fixture quarantined after Go/PG cutover"
+)
 
 
 def _insert_phased_run(repo: Path) -> str:
-    sys.path.insert(0, str(ROOT / "src"))
-    try:
-        from striatum.legacy_sqlite.db import connect
-        from striatum.legacy_sqlite.db import init_repo
-    finally:
-        sys.path.pop(0)
-
-    init_repo(repo)
-    workflow = {
-        "schema_version": "striatum.workflow.v1.1",
-        "workflow_id": "wf_phased",
-        "workflow_version": "v1",
-        "name": "Phased",
-        "phases": [
-            {
-                "id": "phase_design",
-                "name": "Design",
-                "description": "Design work",
-                "color": "#6b7280",
-                "synthesis_job_id": "synthesize_design",
-            },
-            {"id": "phase_build", "name": "Build", "synthesis_job_id": "synthesize_build"},
-        ],
-        "jobs": [
-            {"id": "design_a", "type": "generic", "role_id": "author", "phase_id": "phase_design"},
-            {"id": "synthesize_design", "type": "phase_synthesis", "role_id": "author", "phase_id": "phase_design"},
-            {"id": "build_a", "type": "generic", "role_id": "author", "phase_id": "phase_build"},
-            {"id": "synthesize_build", "type": "phase_synthesis", "role_id": "author", "phase_id": "phase_build"},
-        ],
-        "edges": [],
-        "cycles": [],
-    }
-    with connect(repo) as conn:
-        conn.execute(
-            """
-            INSERT INTO workflow_snapshots (
-              workflow_snapshot_id, workflow_id, workflow_version, source_path,
-              content_sha256, workflow_json, loaded_at
-            )
-            VALUES ('wfs_phased', 'wf_phased', 'v1', 'workflow.json', 'abc', ?, '2026-05-13T00:00:00Z')
-            """,
-            (json.dumps(workflow),),
-        )
-        conn.execute(
-            """
-            INSERT INTO runs (
-              run_id, workflow_snapshot_id, repo_root, state, branch_name,
-              branch_base, created_at
-            )
-            VALUES ('run_phased', 'wfs_phased', ?, 'running', 'main', NULL, '2026-05-13T00:00:00Z')
-            """,
-            (str(repo),),
-        )
-        for workflow_job_id, job_type, state in (
-            ("design_a", "generic", "completed"),
-            ("synthesize_design", "generic", "blocked"),
-            ("build_a", "generic", "blocked"),
-            ("synthesize_build", "generic", "blocked"),
-        ):
-            conn.execute(
-                """
-                INSERT INTO jobs (
-                  job_id, run_id, workflow_job_id, title, job_type, role_id,
-                  lane_selector_json, capability_requirements_json, state,
-                  attempt, max_attempts, fresh_session_required, write_scope_json,
-                  expected_artifacts_json, idempotency_key, created_at
-                )
-                VALUES (?, 'run_phased', ?, ?, ?, 'author', '{}', '[]', ?,
-                        1, 1, 0, '{}', '[]', ?, '2026-05-13T00:00:00Z')
-                """,
-                (
-                    f"job_run_phased_{workflow_job_id}",
-                    workflow_job_id,
-                    workflow_job_id,
-                    job_type,
-                    state,
-                    f"run_phased:{workflow_job_id}:1",
-                ),
-            )
-        conn.commit()
-    return "run_phased"
+    pytest.skip(LEGACY_SQLITE_FIXTURE_REASON)
 
 
 def _git_init_repo(repo: Path) -> None:
@@ -123,9 +48,7 @@ def _git_init_repo(repo: Path) -> None:
 
 
 def _striatum_init(repo: Path) -> None:
-    from striatum.legacy_sqlite.db import init_repo as legacy_init_repo
-
-    legacy_init_repo(repo)
+    pytest.skip(LEGACY_SQLITE_FIXTURE_REASON)
 
 
 def _free_port() -> int:
@@ -198,6 +121,8 @@ def _spawn_service(
             time.sleep(0.1)
         if proc.poll() is not None:
             stdout, stderr = proc.communicate(timeout=2)
+            if b"test-harness local fallback" in stderr:
+                pytest.skip(LEGACY_SQLITE_FIXTURE_REASON)
             raise AssertionError(
                 f"service exited before responding: rc={proc.returncode} "
                 f"stdout={stdout!r} stderr={stderr!r}"
@@ -268,7 +193,6 @@ def _web_mutation_handler(
 
     import striatum.service as service
     import striatum.service_daemon as service_daemon
-    import striatum.legacy_sqlite.db as db
 
     def sqlite_tripwire(*args: Any, **kwargs: Any) -> None:
         raise AssertionError("web POST mutation handler opened repo-local SQLite")
@@ -319,7 +243,7 @@ def _web_mutation_handler(
         "_send_json",
         lambda status, body: sent.update({"status": status, "body": body}),
     )
-    monkeypatch.setattr(db, "connect", sqlite_tripwire)
+    monkeypatch.setattr(sqlite3, "connect", sqlite_tripwire)
     monkeypatch.setattr(service_daemon, "call_repo_method", fake_call_repo_method)
     return handler, sent
 
@@ -663,34 +587,7 @@ def test_serve_runs_endpoint(tmp_path: Path) -> None:
 
 
 def test_status_derives_phase_progress_from_snapshot(tmp_path: Path) -> None:
-    run_id = _insert_phased_run(tmp_path)
-    sys.path.insert(0, str(ROOT / "src"))
-    try:
-        from striatum.cli.introspect import phase_progress_for_run
-        from striatum.legacy_sqlite.db import connect
-    finally:
-        sys.path.pop(0)
-
-    with connect(tmp_path) as conn:
-        progress = phase_progress_for_run(conn, run_id=run_id)
-
-    assert progress is not None
-    assert progress["current_phase_id"] == "phase_design"
-    assert progress["phases"][0] == {
-        "id": "phase_design",
-        "name": "Design",
-        "index": 0,
-        "state": "active",
-        "jobs_total": 2,
-        "jobs_completed": 1,
-        "jobs_by_state": {"completed": 1, "blocked": 1},
-        "synthesis_job_id": "synthesize_design",
-        "synthesis_state": "blocked",
-        "synthesis_verdict": None,
-        "description": "Design work",
-        "color": "#6b7280",
-    }
-    assert progress["phases"][1]["state"] == "active"
+    pytest.skip(LEGACY_SQLITE_FIXTURE_REASON)
 
 
 def test_service_run_detail_passes_phase_progress_context(tmp_path: Path, monkeypatch: Any) -> None:
@@ -791,7 +688,7 @@ def test_service_run_detail_passes_phase_progress_context(tmp_path: Path, monkey
         "render_run_graph",
         lambda workflow, node_states, *, run_id, jobs: "<svg></svg>",
     )
-    monkeypatch.setattr("striatum.legacy_sqlite.service.sqlite3.connect", sqlite_tripwire)
+    monkeypatch.setattr(sqlite3, "connect", sqlite_tripwire)
     monkeypatch.setattr(service_daemon, "call_repo_method", fake_call_repo_method)
 
     handler._render_run_detail_page("run_phased")
@@ -887,7 +784,7 @@ def test_service_job_detail_reads_daemon_dto_without_sqlite(
         lambda status, body: sent.update({"status": status, "body": body}),
     )
     monkeypatch.setattr(service, "_jinja_env", lambda: FakeEnvironment())
-    monkeypatch.setattr("striatum.legacy_sqlite.service.sqlite3.connect", sqlite_tripwire)
+    monkeypatch.setattr(sqlite3, "connect", sqlite_tripwire)
     monkeypatch.setattr(service_daemon, "call_repo_method", fake_call_repo_method)
 
     handler._render_job_detail_page("run_123", "review")
@@ -975,7 +872,7 @@ def test_service_run_list_reads_daemon_dto_without_sqlite(
         lambda status, body: sent.update({"status": status, "body": body}),
     )
     monkeypatch.setattr(service, "_jinja_env", lambda: FakeEnvironment())
-    monkeypatch.setattr("striatum.legacy_sqlite.service.sqlite3.connect", sqlite_tripwire)
+    monkeypatch.setattr(sqlite3, "connect", sqlite_tripwire)
     monkeypatch.setattr(service_daemon, "call_repo_method", fake_call_repo_method)
 
     handler._render_run_list_page()
@@ -1022,7 +919,7 @@ def test_chat_briefing_active_runs_reads_daemon_dto_without_sqlite(
         }
 
     monkeypatch.setattr(service, "_safe_git", lambda repo, argv: "")
-    monkeypatch.setattr("striatum.legacy_sqlite.service.sqlite3.connect", sqlite_tripwire)
+    monkeypatch.setattr(sqlite3, "connect", sqlite_tripwire)
     monkeypatch.setattr(service_daemon, "call_repo_method", fake_call_repo_method)
 
     briefing = service._build_chat_briefing(tmp_path)
@@ -1110,7 +1007,7 @@ def test_run_posture_verdicts_reads_daemon_dto_without_sqlite(
         lambda status, body: sent.update({"status": status, "body": body}),
     )
     monkeypatch.setattr(service, "_jinja_env", lambda: FakeEnvironment())
-    monkeypatch.setattr("striatum.legacy_sqlite.service.sqlite3.connect", sqlite_tripwire)
+    monkeypatch.setattr(sqlite3, "connect", sqlite_tripwire)
     monkeypatch.setattr(service_daemon, "call_repo_method", fake_call_repo_method)
 
     handler._render_run_posture_verdicts_page("run_daemon", "security")
@@ -1171,7 +1068,7 @@ def test_artifact_raw_reads_daemon_dto_without_sqlite(tmp_path: Path, monkeypatc
     monkeypatch.setattr(handler, "send_response", lambda status: responses.append(status))
     monkeypatch.setattr(handler, "send_header", lambda key, value: headers.update({key: value}))
     monkeypatch.setattr(handler, "end_headers", lambda: None)
-    monkeypatch.setattr("striatum.legacy_sqlite.service.sqlite3.connect", sqlite_tripwire)
+    monkeypatch.setattr(sqlite3, "connect", sqlite_tripwire)
     monkeypatch.setattr(service_daemon, "call_repo_method", fake_call_repo_method)
 
     handler._handle_artifact_raw("art_daemon")
@@ -1255,7 +1152,7 @@ def test_artifact_view_reads_daemon_dto_without_sqlite(tmp_path: Path, monkeypat
         lambda status, body: sent.update({"status": status, "body": body}),
     )
     monkeypatch.setattr(service, "_jinja_env", lambda: FakeEnvironment())
-    monkeypatch.setattr("striatum.legacy_sqlite.service.sqlite3.connect", sqlite_tripwire)
+    monkeypatch.setattr(sqlite3, "connect", sqlite_tripwire)
     monkeypatch.setattr(service_daemon, "call_repo_method", fake_call_repo_method)
 
     handler._render_artifact_view_page("run_daemon", "art_daemon")
@@ -1303,7 +1200,7 @@ def test_json_read_endpoints_route_daemon_without_invoke_or_sqlite(
         calls.append((repo, method, dict(params)))
         return {"method": method, "params": dict(params)}
 
-    monkeypatch.setattr("striatum.legacy_sqlite.service.sqlite3.connect", sqlite_tripwire)
+    monkeypatch.setattr(sqlite3, "connect", sqlite_tripwire)
     monkeypatch.setattr(service, "invoke", invoke_tripwire)
     monkeypatch.setattr(service_daemon, "call_repo_method", fake_call_repo_method)
 
@@ -1411,7 +1308,7 @@ def test_doctor_page_reads_daemon_dto_without_sqlite(
         lambda status, body: sent.update({"status": status, "body": body}),
     )
     monkeypatch.setattr(service, "_jinja_env", lambda: FakeEnvironment())
-    monkeypatch.setattr("striatum.legacy_sqlite.service.sqlite3.connect", sqlite_tripwire)
+    monkeypatch.setattr(sqlite3, "connect", sqlite_tripwire)
     monkeypatch.setattr(service_daemon, "call_repo_method", fake_call_repo_method)
 
     handler._render_doctor_page()
@@ -1535,7 +1432,6 @@ def test_workflow_run_now_maps_daemon_workflow_error_details_to_422(
     from email.message import Message
     from io import BytesIO
 
-    import striatum.legacy_sqlite.db as db
     import striatum.service as service
     import striatum.service_daemon as service_daemon
 
@@ -1578,7 +1474,7 @@ def test_workflow_run_now_maps_daemon_workflow_error_details_to_422(
         "_send_json",
         lambda status, body: sent.update({"status": status, "body": body}),
     )
-    monkeypatch.setattr(db, "connect", sqlite_tripwire)
+    monkeypatch.setattr(sqlite3, "connect", sqlite_tripwire)
     monkeypatch.setattr(service_daemon, "call_repo_method", fake_call_repo_method)
 
     handler._handle_workflow_run_now("examples/wf/workflow.json")
@@ -1787,7 +1683,7 @@ def test_service_startup_checks_daemon_doctor_without_sqlite(
 
     monkeypatch.delenv("STRIATUM_TEST_HARNESS", raising=False)
     monkeypatch.delenv("STRIATUM_DAEMON_REQUIRED", raising=False)
-    monkeypatch.setattr("striatum.legacy_sqlite.service.sqlite3.connect", sqlite_tripwire)
+    monkeypatch.setattr(sqlite3, "connect", sqlite_tripwire)
     monkeypatch.setattr(service_daemon, "call_repo_method", fake_call_repo_method)
 
     service._verify_service_startup(tmp_path)
@@ -1940,7 +1836,7 @@ def test_sse_stream_reads_daemon_events_without_sqlite(
     monkeypatch.setattr(handler, "send_header", lambda key, value: headers.update({key: value}))
     monkeypatch.setattr(handler, "end_headers", lambda: None)
     monkeypatch.setattr("striatum.service.time.sleep", lambda seconds: None)
-    monkeypatch.setattr("striatum.legacy_sqlite.service.sqlite3.connect", sqlite_tripwire)
+    monkeypatch.setattr(sqlite3, "connect", sqlite_tripwire)
     monkeypatch.setattr(service_daemon, "call_repo_method", fake_call_repo_method)
 
     handler._stream_events("run_daemon", since=10)
@@ -1958,69 +1854,7 @@ def test_sse_stream_reads_daemon_events_without_sqlite(
 
 
 def test_serve_sse_replay_with_since(tmp_path: Path) -> None:
-    _git_init_repo(tmp_path)
-    _striatum_init(tmp_path)
-    # Insert a synthetic run + events directly so we don't depend on
-    # claim-loop machinery here.
-    from striatum.legacy_sqlite.db import connect
-
-    with connect(tmp_path) as conn:
-        conn.execute(
-            """
-            INSERT INTO workflow_snapshots (
-              workflow_snapshot_id, workflow_id, workflow_version, source_path,
-              content_sha256, workflow_json, loaded_at
-            )
-            VALUES ('wfs_test', 'wf_test', 'v1', '/tmp/wf.json', 'abc', '{}', '2026-05-08T00:00:00Z')
-            """,
-        )
-        conn.execute(
-            """
-            INSERT INTO runs (run_id, workflow_snapshot_id, repo_root, state, branch_name, branch_base, created_at)
-            VALUES ('run_sse', 'wfs_test', ?, 'running', 'striatum/x', NULL, '2026-05-08T00:00:00Z')
-            """,
-            (str(tmp_path),),
-        )
-        for i in range(3):
-            conn.execute(
-                """
-                INSERT INTO events (run_id, event_type, payload_json, created_at)
-                VALUES ('run_sse', 'demo.event', ?, ?)
-                """,
-                (json.dumps({"i": i}), "2026-05-08T00:00:00Z"),
-            )
-        conn.commit()
-        first_event_id = conn.execute(
-            "SELECT MIN(event_id) FROM events WHERE run_id = 'run_sse'"
-        ).fetchone()[0]
-
-    proc, port = _spawn_service(tmp_path)
-    try:
-        # Connect to SSE with ?since=<middle event>; expect the third event,
-        # then the run_terminal close.
-        # Mark the run terminal so the stream closes deterministically.
-        with connect(tmp_path) as conn:
-            conn.execute("UPDATE runs SET state = 'completed' WHERE run_id = 'run_sse'")
-            conn.commit()
-
-        url = f"http://127.0.0.1:{port}/v1/runs/run_sse/events?since={first_event_id}"
-        events: list[str] = []
-        with urllib.request.urlopen(url, timeout=10) as resp:
-            for raw in resp:
-                line = raw.decode("utf-8").rstrip("\n")
-                events.append(line)
-                if line.startswith("event: striatum.run_terminal"):
-                    # Read the id + data lines and break after the blank.
-                    events.append(resp.readline().decode("utf-8").rstrip("\n"))
-                    events.append(resp.readline().decode("utf-8").rstrip("\n"))
-                    break
-        joined = "\n".join(events)
-        # Two of the original three events should appear (those with
-        # event_id > first_event_id).
-        assert joined.count("demo.event") >= 1
-        assert "striatum.run_terminal" in joined
-    finally:
-        _stop_service(proc)
+    pytest.skip(LEGACY_SQLITE_FIXTURE_REASON)
 
 
 # ----- 11. Single-instance enforcement ------------------------------------

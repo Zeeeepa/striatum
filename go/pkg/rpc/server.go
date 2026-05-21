@@ -17,6 +17,10 @@ type AuditRecorder interface {
 	RecordRPC(context.Context, Envelope, AuthContext, Response) (string, error)
 }
 
+type TransportAuditRecorder interface {
+	RecordRPCTransport(context.Context, Envelope, AuthContext, Response, string) (string, error)
+}
+
 type Server struct {
 	DaemonVersion   string
 	SubstrateSchema int
@@ -60,6 +64,10 @@ func (s *Server) HandleWithoutHandshake(ctx context.Context, envelope Envelope, 
 }
 
 func (s *Server) handle(ctx context.Context, envelope Envelope, connectionID string, requireHandshake bool) Response {
+	transport := "rpc"
+	if !requireHandshake && connectionID == "mcp" {
+		transport = "mcp"
+	}
 	auth := AuthContext{RepositoryID: repositoryID(envelope.Params), Decision: "allowed"}
 	if duplicate := s.markRequest(envelope.RequestID); duplicate {
 		return ErrorResponse(envelope.RequestID, NewError("duplicate_request", "daemon RPC request_id was already used", nil), "")
@@ -105,7 +113,13 @@ func (s *Server) handle(ctx context.Context, envelope Envelope, connectionID str
 		response = OKResponse(envelope.RequestID, data, "")
 	}
 	if s.AuditRecorder != nil {
-		auditID, auditErr := s.AuditRecorder.RecordRPC(ctx, envelope, auth, response)
+		var auditID string
+		var auditErr error
+		if recorder, ok := s.AuditRecorder.(TransportAuditRecorder); ok {
+			auditID, auditErr = recorder.RecordRPCTransport(ctx, envelope, auth, response, transport)
+		} else {
+			auditID, auditErr = s.AuditRecorder.RecordRPC(ctx, envelope, auth, response)
+		}
 		if auditErr == nil && auditID != "" {
 			response.AuditID = auditID
 		}

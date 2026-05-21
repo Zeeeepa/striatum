@@ -11,6 +11,7 @@ from _harness.tokens import issue_token
 from striatum.daemon_pg import client_admin as daemon
 from striatum.daemon_pg.connection import connect
 from striatum.daemon_pg.mcp_resources import dashboard_all_resource_pg
+from striatum.daemon_pg.repositories import repo_list_pg, repo_resolve_pg
 from striatum.daemon_rpc.envelope import RpcEnvelope
 from striatum.daemon_rpc.server import DaemonRpcRouter
 from striatum.errors import SchemaVersionError, StriatumError
@@ -62,6 +63,44 @@ def test_repo_add_registers_pg_without_creating_sqlite(
     duplicate = daemon.repo_add(repo / ".")
     assert duplicate["already_registered"] is True
     assert duplicate["repository_id"] == added["repository_id"]
+
+
+def test_repo_list_and_resolve_normalize_stale_state_sqlite_projection(
+    tmp_path: Path,
+    pg_url: str,
+    pg_conn: Any,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    monkeypatch.setenv("STRIATUM_DAEMON_DB_URL", pg_url)
+    monkeypatch.setenv(daemon.ENV_RUNTIME, str(tmp_path / "runtime"))
+
+    added = daemon.repo_add(repo, init=True)
+    repository_id = str(added["repository_id"])
+    stale_state_path = repo / ".striatum" / "state.sqlite3"
+    scratch_path = str(repo / ".striatum")
+    with pg_conn.cursor() as cur:
+        cur.execute(
+            """
+            UPDATE striatumd.repositories
+            SET state_db_path = %s
+            WHERE repository_id = %s
+            """,
+            (str(stale_state_path), repository_id),
+        )
+
+    listed = repo_list_pg(pg_conn)
+    resolved = repo_resolve_pg(pg_conn, repo)
+
+    assert listed["repositories"][0]["state_db_path"] == scratch_path
+    assert resolved["state_db_path"] == scratch_path
+    with pg_conn.cursor() as cur:
+        cur.execute(
+            "SELECT state_db_path FROM striatumd.repositories WHERE repository_id = %s",
+            (repository_id,),
+        )
+        assert cur.fetchone()[0] == str(stale_state_path)
 
 
 def test_repo_add_refuses_existing_sqlite_source_without_opening_it(

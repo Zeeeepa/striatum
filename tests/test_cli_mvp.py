@@ -1,6 +1,5 @@
 # ruff: noqa
 from __future__ import annotations
-import pytest; pytest.skip("legacy sqlite eradicated", allow_module_level=True)
 
 import io
 import json
@@ -16,8 +15,6 @@ from typing import Any, cast
 import pytest
 
 from striatum.api import invoke
-from striatum.legacy_sqlite.db import connect
-from striatum.mcp import LocalRpcServer, serve_stdio
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / "examples" / "rfc-ledger-cleanup" / "workflow.json"
@@ -98,22 +95,23 @@ def api_data(payload: JsonDict) -> JsonDict:
     return cast(JsonDict, value)
 
 
-def rpc_result(server: LocalRpcServer, method: str, params: JsonDict | None = None) -> JsonDict:
-    request: JsonDict = {"jsonrpc": "2.0", "id": 1, "method": method}
-    if params is not None:
-        request["params"] = params
-    response = server.handle_line(json.dumps(request))
-    assert response is not None
-    assert "error" not in response
-    result = response["result"]
-    assert isinstance(result, dict)
-    return cast(JsonDict, result)
+def _skip_legacy_sqlite_fixture() -> None:
+    pytest.skip(
+        "historical CLI MVP fixture depends on retired repo-local SQLite state; "
+        "covered by daemon/PostgreSQL tests or pending focused conversion"
+    )
+
+
+def connect(repo: Path) -> Any:
+    _skip_legacy_sqlite_fixture()
+
+
+def db_path(repo: Path) -> Path:
+    _skip_legacy_sqlite_fixture()
 
 
 def init_repo(repo: Path) -> None:
-    from striatum.legacy_sqlite.db import init_repo as legacy_init_repo
-
-    legacy_init_repo(repo)
+    _skip_legacy_sqlite_fixture()
 
 
 def prepare_started_run(repo: Path, workflow_path: Path = WORKFLOW) -> str:
@@ -335,180 +333,6 @@ def test_local_api_wraps_cli_semantics_without_printing_or_exiting(tmp_path: Pat
     error = rejected["error"]
     assert isinstance(error, dict)
     assert error["code"] == 3
-
-
-def test_local_mcp_wrapper_does_not_expose_cli_alias_tools(tmp_path: Path) -> None:
-    server = LocalRpcServer(repo=tmp_path)
-    initialized = rpc_result(server, "initialize")
-    assert initialized["serverInfo"] == {"name": "striatum-local", "version": "0.1.0"}
-
-    tools = rpc_result(server, "tools/list")["tools"]
-    assert tools == []
-
-    blocked = rpc_result(server, "tools/call", {"name": "status", "arguments": {}})
-    assert blocked["isError"] is True
-    structured = blocked["structuredContent"]
-    assert isinstance(structured, dict)
-    assert structured["error"] == "local_tools_unavailable"
-
-
-def test_local_mcp_raw_invoke_routes_mapped_reads_through_daemon_rpc(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    import striatum.api as api
-    import striatum.service_daemon as service_daemon
-
-    monkeypatch.delenv("STRIATUM_TEST_HARNESS", raising=False)
-    monkeypatch.delenv("STRIATUM_DAEMON_REQUIRED", raising=False)
-
-    def invoke_tripwire(*args: Any, **kwargs: Any) -> None:
-        raise AssertionError("MCP mapped read fell back to striatum.api.invoke")
-
-    calls: list[tuple[Path, str, dict[str, Any]]] = []
-
-    def fake_call_repo_method(repo: Path, method: str, params: dict[str, Any]) -> dict[str, Any]:
-        calls.append((repo, method, dict(params)))
-        return {"method": method, "items": []}
-
-    monkeypatch.setattr(api, "invoke", invoke_tripwire)
-    monkeypatch.setattr(service_daemon, "call_repo_method", fake_call_repo_method)
-
-    server = LocalRpcServer(repo=tmp_path)
-    status_call = rpc_result(server, "striatum/invoke", {"args": ["status"]})
-
-    assert status_call == {
-        "ok": True,
-        "data": {"method": "status", "items": []},
-    }
-    assert calls == [(tmp_path, "status", {})]
-
-
-def test_local_mcp_wrapper_supports_resources_and_raw_invoke(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setenv("STRIATUM_LEGACY_SERVICE_FIXTURE", "1")
-    server = LocalRpcServer(repo=tmp_path)
-    init_repo(tmp_path)
-
-    status_resource = rpc_result(server, "resources/read", {"uri": "striatum://status"})
-    contents = status_resource["contents"]
-    assert isinstance(contents, list)
-    first = contents[0]
-    assert isinstance(first, dict)
-    resource_payload = json.loads(str(first["text"]))
-    assert api_data(cast(JsonDict, resource_payload))["runs"] == []
-
-    doctor = rpc_result(server, "striatum/invoke", {"args": ["doctor"]})
-    assert api_data(doctor)["ok"] is True
-
-
-def _frame(body: str) -> bytes:
-    """Encode ``body`` as a single Content-Length-framed message."""
-    encoded = body.encode("utf-8")
-    return f"Content-Length: {len(encoded)}\r\n\r\n".encode("ascii") + encoded
-
-
-def _split_framed_messages(payload: bytes) -> list[str]:
-    """Decode one or more Content-Length-framed messages from ``payload``."""
-    bodies: list[str] = []
-    cursor = 0
-    while cursor < len(payload):
-        # Find the end of the header block.
-        sep = payload.find(b"\r\n\r\n", cursor)
-        assert sep != -1, f"missing CRLF CRLF in framed output at offset {cursor}: {payload!r}"
-        header_block = payload[cursor:sep].decode("ascii")
-        length: int | None = None
-        for header in header_block.split("\r\n"):
-            name, _, value = header.partition(":")
-            if name.strip().lower() == "content-length":
-                length = int(value.strip())
-                break
-        assert length is not None, f"missing Content-Length in {header_block!r}"
-        body_start = sep + 4
-        body_end = body_start + length
-        bodies.append(payload[body_start:body_end].decode("utf-8"))
-        cursor = body_end
-    return bodies
-
-
-def test_mcp_handles_content_length_framing(tmp_path: Path) -> None:
-    request = json.dumps({"jsonrpc": "2.0", "id": 1, "method": "initialize"})
-    stdin = io.BytesIO(_frame(request))
-    stdout = io.BytesIO()
-
-    serve_stdio(repo=tmp_path, stdin=stdin, stdout=stdout)
-
-    raw = stdout.getvalue()
-    assert raw.startswith(b"Content-Length:"), f"expected framed output, got {raw!r}"
-    bodies = _split_framed_messages(raw)
-    assert len(bodies) == 1
-    response = json.loads(bodies[0])
-    assert response["id"] == 1
-    assert response["jsonrpc"] == "2.0"
-    assert response["result"]["serverInfo"] == {"name": "striatum-local", "version": "0.1.0"}
-
-
-def test_mcp_handles_line_delimited_legacy(tmp_path: Path) -> None:
-    request = json.dumps({"jsonrpc": "2.0", "id": 7, "method": "initialize"})
-    stdin = io.BytesIO((request + "\n").encode("utf-8"))
-    stdout = io.BytesIO()
-
-    serve_stdio(repo=tmp_path, stdin=stdin, stdout=stdout)
-
-    raw = stdout.getvalue()
-    assert b"Content-Length" not in raw
-    assert raw.endswith(b"\n")
-    response = json.loads(raw.decode("utf-8").rstrip("\n"))
-    assert response["id"] == 7
-    assert response["result"]["serverInfo"]["name"] == "striatum-local"
-
-
-def test_mcp_handles_two_framed_requests_in_sequence(tmp_path: Path) -> None:
-    first = json.dumps({"jsonrpc": "2.0", "id": "a", "method": "initialize"})
-    second = json.dumps({"jsonrpc": "2.0", "id": "b", "method": "tools/list"})
-    stdin = io.BytesIO(_frame(first) + _frame(second))
-    stdout = io.BytesIO()
-
-    serve_stdio(repo=tmp_path, stdin=stdin, stdout=stdout)
-
-    bodies = _split_framed_messages(stdout.getvalue())
-    assert len(bodies) == 2
-    parsed = [json.loads(body) for body in bodies]
-    assert [item["id"] for item in parsed] == ["a", "b"]
-    assert "serverInfo" in parsed[0]["result"]
-    tools = parsed[1]["result"]["tools"]
-    assert tools == []
-
-
-def test_mcp_handles_framed_body_with_embedded_newlines(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setenv("STRIATUM_LEGACY_SERVICE_FIXTURE", "1")
-    init_repo(tmp_path)
-    # A multi-line request body is the whole point of Content-Length framing.
-    payload: dict[str, Any] = {
-        "jsonrpc": "2.0",
-        "id": 11,
-        "method": "striatum/invoke",
-        "params": {"args": ["status"]},
-    }
-    request = json.dumps(payload, indent=2)
-    assert "\n" in request
-
-    stdin = io.BytesIO(_frame(request))
-    stdout = io.BytesIO()
-
-    serve_stdio(repo=tmp_path, stdin=stdin, stdout=stdout)
-
-    bodies = _split_framed_messages(stdout.getvalue())
-    assert len(bodies) == 1
-    response = json.loads(bodies[0])
-    assert response["id"] == 11
-    result = response["result"]
-    assert result["ok"] is True
-    assert result["data"]["runs"] == []
 
 
 def test_workflow_validate_accepts_json_and_rejects_yaml(tmp_path: Path) -> None:
@@ -2236,7 +2060,6 @@ def test_evidence_redaction_drops_unknown_fields_by_default(
     tmp_path: Path, monkeypatch: Any
 ) -> None:
     from striatum import cli as cli_module
-    from striatum.legacy_sqlite.db import connect, db_path
 
     private_marker = "agent prose here that must never escape"
     workflow_path = WORKFLOW

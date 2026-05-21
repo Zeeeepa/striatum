@@ -34,6 +34,7 @@ from striatum.errors import (
     NotFoundError,
     StriatumError,
 )
+from striatum.repo_policy import state_dir
 
 PROTOCOL_VERSION = 1
 READ_CAPABILITY = "read"
@@ -489,7 +490,7 @@ def daemon_doctor_records_pg(pg_conn: Any) -> list[dict[str, Any]]:
         records.extend(verify_rows(audit_rows))
         cur.execute(
             """
-            SELECT repository_id, repo_root, state_db_path
+            SELECT repository_id, repo_root
             FROM striatumd.repositories
             WHERE state = 'active'
             ORDER BY repository_id
@@ -515,9 +516,16 @@ def daemon_doctor_records_pg(pg_conn: Any) -> list[dict[str, Any]]:
         )
         degraded = [_pg_json_ready(_pg_row_dict(row)) for row in cur.fetchall()]
     for row in active_repos:
-        state_path = Path(str(row["state_db_path"]))
-        if not state_path.exists():
-            records.append({"check": "daemon_repo_state_missing", "id": str(row["repository_id"]), "message": "registered repository operational scratch is missing", "context": {"repo_root": row["repo_root"], "state_db_path": str(state_path)}})
+        scratch_path = state_dir(Path(str(row["repo_root"])))
+        if not scratch_path.is_dir():
+            records.append(
+                {
+                    "check": "daemon_repo_scratch_missing",
+                    "id": str(row["repository_id"]),
+                    "message": "registered repository `.striatum/` operational scratch is missing",
+                    "context": {"repo_root": row["repo_root"], "state_dir": str(scratch_path)},
+                }
+            )
     if int(removed_refs["count"]) > 0:
         records.append({"check": "daemon_removed_repo_audit_refs", "id": "audit_log", "message": "removed repository ids remain in retained audit rows", "context": {"count": int(removed_refs["count"])}})
     for row in degraded:

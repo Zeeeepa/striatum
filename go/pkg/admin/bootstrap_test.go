@@ -109,6 +109,19 @@ func TestRuntimeTokenPathMatchesPythonRuntimeOverride(t *testing.T) {
 	}
 }
 
+func TestRuntimeMCPEndpointPathMatchesPythonRuntimeOverride(t *testing.T) {
+	runtimeDir := filepath.Join(t.TempDir(), "runtime")
+	t.Setenv(EnvRuntimeDir, runtimeDir)
+
+	endpointPath, err := RuntimeMCPEndpointPath()
+	if err != nil {
+		t.Fatalf("runtime MCP endpoint path: %v", err)
+	}
+	if endpointPath != filepath.Join(runtimeDir, "mcp-http-endpoint") {
+		t.Fatalf("runtime MCP endpoint path = %s", endpointPath)
+	}
+}
+
 func fileMode(t *testing.T, path string) os.FileMode {
 	t.Helper()
 	info, err := os.Stat(path)

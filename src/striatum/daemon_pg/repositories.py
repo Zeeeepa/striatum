@@ -19,6 +19,7 @@ from striatum.bootstrap import (
 from striatum.errors import EXIT_DAEMON_CAPABILITY, NotFoundError, SchemaVersionError, StriatumError
 from striatum.primitives import utc_now
 from striatum.repo_local_schema import LATEST_REPO_LOCAL_SCHEMA_VERSION
+from striatum.repo_policy import DB_NAME, db_path, state_dir
 
 
 class RepoRegistrationError(StriatumError):
@@ -35,7 +36,7 @@ def repo_add_pg(
     init: bool = False,
 ) -> dict[str, Any]:
     repo = _canonical_repo(path)
-    legacy_state = repo / ".striatum" / "state.sqlite3"
+    legacy_state = db_path(repo)
     if legacy_state.exists():
         raise SchemaVersionError(
             "repo-local SQLite state exists and SQLite import windows are closed; "
@@ -58,13 +59,14 @@ def repo_add_pg(
         existing_identity = cur.fetchone()
         if existing_identity is not None:
             row = _pg_row_dict(existing_identity)
+            item = _repository_projection(row)
             return {
-                "repository_id": str(row["repository_id"]),
-                "repo_root": str(row["repo_root"]),
-                "repo_identity": str(row["repo_identity"]),
-                "state_db_path": str(row["state_db_path"]),
-                "schema_version": int(row["last_schema_version"]),
-                "state": str(row["state"]),
+                "repository_id": str(item["repository_id"]),
+                "repo_root": str(item["repo_root"]),
+                "repo_identity": str(item["repo_identity"]),
+                "state_db_path": str(item["state_db_path"]),
+                "schema_version": int(item["last_schema_version"]),
+                "state": str(item["state"]),
                 "already_registered": True,
             }
         cur.execute(
@@ -125,7 +127,7 @@ def repo_list_pg(pg_conn: Any) -> dict[str, Any]:
         rows = cur.fetchall()
     repositories = []
     for row in rows:
-        item = _pg_json_ready(_pg_row_dict(row))
+        item = _repository_projection(_pg_row_dict(row))
         item["repository_id"] = str(item["repository_id"])
         repositories.append(item)
     return {"repositories": repositories}
@@ -136,7 +138,7 @@ def repo_resolve_pg(pg_conn: Any, path: Path) -> dict[str, Any]:
     row = find_repo_pg(pg_conn, str(repo), include_removed=False)
     if row is None:
         raise NotFoundError(f"active repository path is not registered: {repo}")
-    item = _pg_json_ready(row)
+    item = _repository_projection(row)
     return {
         "repository_id": str(item["repository_id"]),
         "repo_root": str(item["repo_root"]),
@@ -214,7 +216,7 @@ def _canonical_repo(path: Path) -> Path:
     if _has_symlink_component(lexical):
         raise RepoRegistrationError("repo registration refuses symlink paths")
     resolved = raw.resolve(strict=True)
-    state = resolved / ".striatum" / "state.sqlite3"
+    state = db_path(resolved)
     if _has_symlink_component(state.parent) or state.is_symlink():
         raise RepoRegistrationError("repo state database symlink is not allowed")
     return resolved
@@ -263,6 +265,18 @@ def _pg_json_ready(row: dict[str, Any]) -> dict[str, Any]:
         else:
             result[key] = value
     return result
+
+
+def _repository_projection(row: dict[str, Any]) -> dict[str, Any]:
+    item = _pg_json_ready(row)
+    repo_root = item.get("repo_root")
+    if repo_root is None:
+        return item
+    scratch_path = state_dir(Path(str(repo_root)))
+    stored_state_path = Path(str(item.get("state_db_path", "")))
+    if stored_state_path.name == DB_NAME and stored_state_path.parent.name == scratch_path.name:
+        item["state_db_path"] = str(scratch_path)
+    return item
 
 
 def _init_operational_scratch(repo: Path) -> Path:

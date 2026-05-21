@@ -1120,7 +1120,7 @@ paths; `minimal` writes a single author job with no review; `code-change`
 adds a one-shot `needs_revision` cycle. The command refuses to overwrite an
 existing path.
 
-## Local API And MCP Wrapper Boundary
+## Local API And MCP Boundary
 
 `striatum.api.invoke(args, repo=...)` is the minimal local Python API. It
 parses the same command arguments as the CLI, calls the same dispatcher, and
@@ -1140,22 +1140,23 @@ This API is an adapter convenience only. It must not write SQLite directly,
 reimplement workflow transitions, bypass artifact validation, or define a
 separate command vocabulary.
 
-The legacy local MCP-like wrapper speaks stdio JSON-RPC with LSP-style
-`Content-Length` framing by default and automatic line-delimited fallback.
-`python -m striatum.mcp --framing {auto,line,framed}` lets tests and
-compatibility harnesses pin the wire shape. Its local `tools/list` is empty
-and `tools/call` returns `local_tools_unavailable`; production tool discovery
-and invocation belong to daemon MCP. The wrapper keeps read resources and
-explicit raw `striatum/invoke` for compatibility/manual use. Daemon-mapped
-`striatum/invoke` requests route through daemon RPC in production; only
-unmapped local authoring and explicit fixture/test compatibility paths fall
-back to `striatum.api.invoke`.
+The production MCP surface is native to the Go `striatumd` daemon. It serves
+HTTP/SSE on loopback, publishes its current endpoint in the daemon runtime
+directory as `mcp-http-endpoint`, and supports `initialize`, `tools/list`, and
+`tools/call` over MCP JSON-RPC. `tools/list` is derived from the daemon method
+registry and capability-filtered per token and repository scope. `tools/call`
+dispatches through daemon RPC, so authorization, request logging, audit rows,
+and method-denial vocabulary match the Unix-socket daemon path.
 
-Post-D103, operator-driven production runs use daemon MCP as the mandatory
-tool surface. The legacy local wrapper is not an authority boundary and is not
-the normal operator contract. CLI use remains acceptable only when it is
-daemon-backed or when a documented bootstrap/admin/debug exception is recorded
-by the operator. See `docs/MCP.md` for the wire shape and tool list.
+The retired local Python stdio MCP wrapper is not a product surface. Tests and
+compatibility harnesses must not depend on the removed Python MCP module; any
+local manual invocation should use daemon MCP or ordinary daemon-backed CLI
+routes.
+
+Operator-driven production runs use daemon MCP as the mandatory tool surface.
+CLI use remains acceptable only when it is daemon-backed or when a documented
+bootstrap/admin/debug exception is recorded by the operator. See `docs/MCP.md`
+for the wire shape and tool list.
 
 ### Local Service
 

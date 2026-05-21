@@ -1,0 +1,287 @@
+{
+  "schema_version": "striatum.workflow.v1",
+  "workflow_id": "todo-61-track2-recovery-evidence-assertions",
+  "workflow_version": "2026-05-21",
+  "name": "TODO 61 Track 2 recovery evidence assertion cleanup",
+  "context_docs": [
+    "README.md",
+    "docs/INDEX.md",
+    "docs/SPEC.md",
+    "docs/DECISION_LOG.md",
+    "docs/UBIQUITOUS_LANGUAGE.md",
+    "docs/TODO.md",
+    "docs/ROADMAP.md",
+    "docs/operator/BRIEF.md",
+    "docs/HOW_TO_AGENT.md",
+    "docs/operator/artifacts/todo-61-track2-test-debt/map/MAP.md",
+    "docs/operator/artifacts/todo-61-track2-guardrail-unblock/build/recovery_evidence/HANDOFF.md",
+    "docs/operator/artifacts/todo-61-track2-guardrail-unblock/review/regression/REVIEW.md",
+    "docs/operator/artifacts/todo-61-track2-guardrail-unblock/review/authority/REVIEW.md",
+    "docs/rfcs/0068-go-production-daemon-port.md",
+    "docs/rfcs/0069-pg-only-daemon-global-surfaces.md",
+    "AGENTS.md"
+  ],
+  "coordinator": {
+    "role_id": "coordinator",
+    "lane_id": "codex"
+  },
+  "parallelism": {
+    "mode": "declared",
+    "max_active_jobs": 4,
+    "require_disjoint_write_scopes": true
+  },
+  "branch": {
+    "mode": "confirm",
+    "suggested_name": "striatum/todo-61-track2-recovery-evidence-assertions",
+    "allow_dirty": true
+  },
+  "lanes": {
+    "codex": {
+      "adapter": "process",
+      "command": [
+        "bash",
+        "-lc",
+        "PYTHONPATH=src python3 -m striatum.cli skills install --profile all --scope user --force --json >/dev/null && export PATH=\"$PWD/.venv/bin:$PATH\" && exec .striatum/bin/codex-supervised-wrapper.sh"
+      ],
+      "model": "codex",
+      "display_model": "Codex",
+      "strategy_version": "2026-05-21",
+      "supervision": {
+        "compatible": true,
+        "stdin_format": "newline_delimited_json",
+        "wrapper_required": true
+      }
+    },
+    "claude_code": {
+      "adapter": "process",
+      "command": [
+        "bash",
+        "-lc",
+        "PYTHONPATH=src python3 -m striatum.cli skills install --profile all --scope user --force --json >/dev/null && export PATH=\"$PWD/.venv/bin:$PATH\" && exec .striatum/bin/claude-supervised-wrapper.sh"
+      ],
+      "model": "claude_code",
+      "display_model": "Claude Code",
+      "strategy_version": "2026-05-21",
+      "supervision": {
+        "compatible": "verify_pipe_behavior_first",
+        "stdin_format": "prompt_text",
+        "wrapper_required": true
+      }
+    },
+    "gemini": {
+      "adapter": "process",
+      "command": [
+        "bash",
+        "-lc",
+        "PYTHONPATH=src python3 -m striatum.cli skills install --profile all --scope user --force --json >/dev/null && export PATH=\"$PWD/.venv/bin:$PATH\" && exec .striatum/bin/gemini-supervised-wrapper.sh"
+      ],
+      "model": "gemini",
+      "display_model": "Gemini",
+      "strategy_version": "2026-05-21",
+      "supervision": {
+        "compatible": true,
+        "stdin_format": "prompt_text",
+        "wrapper_required": true
+      }
+    }
+  },
+  "roles": {
+    "coordinator": {
+      "description": "Operator/control-plane role."
+    },
+    "implementer": {
+      "description": "Updates one stale recovery-evidence test assertion set."
+    },
+    "reviewer": {
+      "description": "Fresh-context reviewer for recovery-evidence assertion cleanup."
+    }
+  },
+  "jobs": [
+    {
+      "id": "fix_cancel_job_assertions",
+      "type": "build",
+      "title": "Refresh recovery.cancel_job assertion set",
+      "role_id": "implementer",
+      "lane_id": "codex",
+      "parallel_group": "recovery_evidence_assertions",
+      "fresh_session_required": true,
+      "required_review_postures": [
+        "custom:regression_risk",
+        "custom:authority_boundary"
+      ],
+      "objective": "Update the stale recovery.cancel_job evidence test so it asserts the current daemon/PostgreSQL cancelable job-state contract instead of the retired SQLite-era subset.",
+      "task_prompt": {
+        "path": "prompts/fix_cancel_job_assertions.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "tests/daemon_pg/handlers/recovery_evidence/test_cancel_job.py",
+          "docs/operator/artifacts/todo-61-track2-recovery-evidence-assertions/build/cancel_job/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "cancel_job_handoff",
+          "kind": "handoff",
+          "path": "docs/operator/artifacts/todo-61-track2-recovery-evidence-assertions/build/cancel_job/HANDOFF.md",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "fix_resume_blocker_assertions",
+      "type": "build",
+      "title": "Refresh recovery.resume blocker-kind assertion sets",
+      "role_id": "implementer",
+      "lane_id": "codex",
+      "parallel_group": "recovery_evidence_assertions",
+      "fresh_session_required": true,
+      "required_review_postures": [
+        "custom:regression_risk",
+        "custom:authority_boundary"
+      ],
+      "objective": "Update the stale recovery.resume evidence test so it asserts the current daemon/PostgreSQL process-adapter blocker-kind contract instead of the retired SQLite-era allow-lists.",
+      "task_prompt": {
+        "path": "prompts/fix_resume_blocker_assertions.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "tests/daemon_pg/handlers/recovery_evidence/test_resume_blocker.py",
+          "docs/operator/artifacts/todo-61-track2-recovery-evidence-assertions/build/resume_blocker/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "resume_blocker_handoff",
+          "kind": "handoff",
+          "path": "docs/operator/artifacts/todo-61-track2-recovery-evidence-assertions/build/resume_blocker/HANDOFF.md",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "review_recovery_assertions_regression",
+      "type": "review",
+      "title": "Recovery evidence assertion regression review",
+      "role_id": "reviewer",
+      "lane_id": "gemini",
+      "parallel_group": "recovery_evidence_assertion_review",
+      "fresh_session_required": true,
+      "reviewer_context_policy": "fresh",
+      "review_posture": "custom:regression_risk",
+      "objective": "Verify that the two stale recovery-evidence assertion failures are resolved and the recovery-evidence shard now passes without hiding active PostgreSQL coverage.",
+      "task_prompt": {
+        "path": "prompts/review_recovery_assertions_regression.md"
+      },
+      "write_scope": {
+        "mode": "review_only_artifact",
+        "repo_write": false,
+        "allowed_paths": [
+          "docs/operator/artifacts/todo-61-track2-recovery-evidence-assertions/review/regression/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "recovery_assertions_regression_review",
+          "kind": "finding",
+          "path": "docs/operator/artifacts/todo-61-track2-recovery-evidence-assertions/review/regression/REVIEW.md",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "review_recovery_assertions_authority",
+      "type": "review",
+      "title": "Recovery evidence assertion authority review",
+      "role_id": "reviewer",
+      "lane_id": "claude_code",
+      "parallel_group": "recovery_evidence_assertion_review",
+      "fresh_session_required": true,
+      "reviewer_context_policy": "fresh",
+      "review_posture": "custom:authority_boundary",
+      "objective": "Verify that the assertion cleanup preserves daemon/PostgreSQL authority, does not restore production SQLite, and does not decide TODO 55, 56, 59, or 60.",
+      "task_prompt": {
+        "path": "prompts/review_recovery_assertions_authority.md"
+      },
+      "write_scope": {
+        "mode": "review_only_artifact",
+        "repo_write": false,
+        "allowed_paths": [
+          "docs/operator/artifacts/todo-61-track2-recovery-evidence-assertions/review/authority/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "recovery_assertions_authority_review",
+          "kind": "finding",
+          "path": "docs/operator/artifacts/todo-61-track2-recovery-evidence-assertions/review/authority/REVIEW.md",
+          "required": true
+        }
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "from": "fix_cancel_job_assertions",
+      "to": "review_recovery_assertions_regression",
+      "on": "completed"
+    },
+    {
+      "from": "fix_cancel_job_assertions",
+      "to": "review_recovery_assertions_authority",
+      "on": "completed"
+    },
+    {
+      "from": "fix_resume_blocker_assertions",
+      "to": "review_recovery_assertions_regression",
+      "on": "completed"
+    },
+    {
+      "from": "fix_resume_blocker_assertions",
+      "to": "review_recovery_assertions_authority",
+      "on": "completed"
+    }
+  ],
+  "cycles": [
+    {
+      "from": "review_recovery_assertions_regression",
+      "to": "fix_cancel_job_assertions",
+      "on_verdict": "needs_revision",
+      "max_iterations": 1
+    },
+    {
+      "from": "review_recovery_assertions_regression",
+      "to": "fix_resume_blocker_assertions",
+      "on_verdict": "needs_revision",
+      "max_iterations": 1
+    },
+    {
+      "from": "review_recovery_assertions_authority",
+      "to": "fix_cancel_job_assertions",
+      "on_verdict": "needs_revision",
+      "max_iterations": 1
+    },
+    {
+      "from": "review_recovery_assertions_authority",
+      "to": "fix_resume_blocker_assertions",
+      "on_verdict": "needs_revision",
+      "max_iterations": 1
+    }
+  ]
+}

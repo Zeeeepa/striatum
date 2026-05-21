@@ -6,10 +6,13 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"net"
+	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -20,6 +23,7 @@ import (
 	"github.com/halbritt/striatum/go/pkg/blob"
 	"github.com/halbritt/striatum/go/pkg/crossrepo"
 	"github.com/halbritt/striatum/go/pkg/db"
+	"github.com/halbritt/striatum/go/pkg/mcp"
 	"github.com/halbritt/striatum/go/pkg/mutations"
 	"github.com/halbritt/striatum/go/pkg/reads"
 	recoverypkg "github.com/halbritt/striatum/go/pkg/recovery"
@@ -95,8 +99,10 @@ func main() {
 	var sweepIntervalSeconds float64
 	var maxSweeps optionalIntFlag
 	var agentLoop bool
+	var mcpHTTPAddr string
 	flag.StringVar(&socketPath, "socket", defaultSocketPath(), "Unix socket path")
 	flag.StringVar(&postgresURL, "postgres-url", "", "PostgreSQL connection URL")
+	flag.StringVar(&mcpHTTPAddr, "mcp-http-addr", defaultMCPHTTPAddr(), "loopback HTTP/SSE MCP listen address; use 'off' to disable")
 	flag.BoolVar(&migrate, "migrate", true, "apply daemon PostgreSQL migrations before serving when a URL is configured")
 	flag.BoolVar(&describe, "describe", false, "print daemon metadata and exit")
 	flag.BoolVar(&agentLoop, "agent-loop", false, "run as the interactive MCP agent loop instead of a daemon server")
@@ -245,6 +251,15 @@ func main() {
 		log.Fatalf("listen on %s: %v", socketPath, err)
 	}
 	log.Printf("striatumd-go listening on %s", socketPath)
+	stopMCPHTTP, err := startMCPHTTPServer(ctx, cancel, mcpHTTPAddr, server, authorizer)
+	if err != nil {
+		_ = listener.Close()
+		_ = os.Remove(pidPath)
+		log.Fatalf("start MCP HTTP/SSE server: %v", err)
+	}
+	if stopMCPHTTP != nil {
+		defer stopMCPHTTP()
+	}
 	schedulerErr := startRecoveryScheduler(ctx, cancel, runner, sweepIntervalSeconds, maxSweeps)
 	go func() {
 		<-ctx.Done()
@@ -252,15 +267,149 @@ func main() {
 	}()
 	if err := server.Serve(ctx, listener); err != nil && ctx.Err() == nil {
 		cancel()
+		if stopMCPHTTP != nil {
+			stopMCPHTTP()
+		}
 		log.Fatalf("serve: %v", err)
 	}
 	cancel()
 	if schedulerErr != nil {
 		err := <-schedulerErr
 		if err != nil && !errors.Is(err, context.Canceled) {
+			if stopMCPHTTP != nil {
+				stopMCPHTTP()
+			}
 			log.Fatalf("recovery scheduler: %v", err)
 		}
 	}
+}
+
+func startMCPHTTPServer(ctx context.Context, cancel context.CancelFunc, addr string, rpcServer *rpc.Server, authorizer rpc.Authorizer) (func(), error) {
+	value := strings.TrimSpace(addr)
+	if value == "" {
+		value = "127.0.0.1:0"
+	}
+	if strings.EqualFold(value, "off") || strings.EqualFold(value, "disabled") || strings.EqualFold(value, "none") {
+		return nil, nil
+	}
+	listener, err := listenMCPHTTP(value)
+	if err != nil {
+		return nil, err
+	}
+	endpoint := mcpEndpointURL(listener.Addr())
+	endpointPath, err := writeMCPEndpointFile(endpoint)
+	if err != nil {
+		_ = listener.Close()
+		return nil, err
+	}
+	httpServer := &http.Server{
+		Handler: mcp.NewHTTPHandler(mcp.Service{
+			RPC:        rpcServer,
+			Authorizer: authorizer,
+		}),
+		ReadHeaderTimeout: 5 * time.Second,
+	}
+	log.Printf("striatumd-go MCP HTTP/SSE listening on %s", endpoint)
+	log.Printf("striatumd-go MCP endpoint file %s", endpointPath)
+	go func() {
+		err := httpServer.Serve(listener)
+		if err != nil && !errors.Is(err, http.ErrServerClosed) {
+			log.Printf("MCP HTTP/SSE server stopped: %v", err)
+			cancel()
+		}
+	}()
+	go func() {
+		<-ctx.Done()
+		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer shutdownCancel()
+		_ = httpServer.Shutdown(shutdownCtx)
+	}()
+	return func() {
+		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer shutdownCancel()
+		_ = httpServer.Shutdown(shutdownCtx)
+		_ = listener.Close()
+		if err := os.Remove(endpointPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+			log.Printf("remove MCP endpoint file %s: %v", endpointPath, err)
+		}
+	}, nil
+}
+
+func listenMCPHTTP(addr string) (net.Listener, error) {
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		return nil, fmt.Errorf("invalid MCP HTTP listen address %q: %w", addr, err)
+	}
+	if host == "" {
+		return nil, fmt.Errorf("MCP HTTP listen address %q must bind an explicit loopback host", addr)
+	}
+	if host != "localhost" {
+		ip := net.ParseIP(host)
+		if ip == nil || !ip.IsLoopback() {
+			return nil, fmt.Errorf("MCP HTTP listen address %q must bind loopback only", addr)
+		}
+	}
+	listener, err := net.Listen("tcp", addr)
+	if err != nil {
+		return nil, err
+	}
+	if tcpAddr, ok := listener.Addr().(*net.TCPAddr); ok && !tcpAddr.IP.IsLoopback() {
+		_ = listener.Close()
+		return nil, fmt.Errorf("MCP HTTP listen address %q resolved to non-loopback address %s", addr, tcpAddr.IP.String())
+	}
+	return listener, nil
+}
+
+func mcpEndpointURL(addr net.Addr) string {
+	host, port, err := net.SplitHostPort(addr.String())
+	if err != nil {
+		return "http://" + addr.String() + mcp.EndpointPath
+	}
+	return "http://" + net.JoinHostPort(host, port) + mcp.EndpointPath
+}
+
+func writeMCPEndpointFile(endpoint string) (string, error) {
+	path, err := admin.RuntimeMCPEndpointPath()
+	if err != nil {
+		return "", err
+	}
+	if err := writeOwnerOnlyTextFile(path, endpoint+"\n"); err != nil {
+		return "", fmt.Errorf("write MCP endpoint file %s: %w", path, err)
+	}
+	return path, nil
+}
+
+func writeOwnerOnlyTextFile(path string, content string) error {
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return err
+	}
+	if err := os.Chmod(dir, 0o700); err != nil {
+		return err
+	}
+	tmp, err := os.CreateTemp(dir, "."+filepath.Base(path)+"-*")
+	if err != nil {
+		return err
+	}
+	tmpName := tmp.Name()
+	defer func() {
+		_ = os.Remove(tmpName)
+	}()
+	if err := tmp.Chmod(0o600); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if _, err := tmp.WriteString(content); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	if err := os.Chmod(tmpName, 0o600); err != nil {
+		return err
+	}
+	return os.Rename(tmpName, path)
 }
 
 func startRecoveryScheduler(ctx context.Context, cancel context.CancelFunc, runner db.Runner, sweepIntervalSeconds float64, maxSweepsFlag optionalIntFlag) <-chan error {
@@ -502,4 +651,11 @@ func defaultSocketPath() string {
 		runtimeDir = os.TempDir()
 	}
 	return filepath.Join(runtimeDir, "striatum", "daemon-go.sock")
+}
+
+func defaultMCPHTTPAddr() string {
+	if value := os.Getenv("STRIATUM_DAEMON_MCP_HTTP_ADDR"); strings.TrimSpace(value) != "" {
+		return value
+	}
+	return "127.0.0.1:0"
 }

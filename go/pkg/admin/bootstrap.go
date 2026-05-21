@@ -34,6 +34,14 @@ func RuntimeTokenPath() (string, error) {
 	return filepath.Join(runtimeDir, "client-token"), nil
 }
 
+func RuntimeMCPEndpointPath() (string, error) {
+	runtimeDir, err := RuntimeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(runtimeDir, "mcp-http-endpoint"), nil
+}
+
 func RuntimeDir() (string, error) {
 	if override := os.Getenv(EnvRuntimeDir); override != "" {
 		return absExpandUser(override)

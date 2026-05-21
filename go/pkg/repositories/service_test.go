@@ -77,6 +77,87 @@ func TestResolveReturnsActiveRepositoryMetadata(t *testing.T) {
 	}
 }
 
+func TestListNormalizesStaleStateSQLiteProjection(t *testing.T) {
+	repo := t.TempDir()
+	staleStatePath := filepath.Join(repo, ".striatum", "state.sqlite3")
+	runner := &resolveFakeRunner{
+		rows: []map[string]any{repositoryRowWithStatePath("repo_stale", repo, "active", staleStatePath)},
+	}
+
+	result, err := Service{Runner: runner}.List(context.Background(), rpc.Envelope{})
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+
+	items, ok := result["repositories"].([]map[string]any)
+	if !ok || len(items) != 1 {
+		t.Fatalf("repositories = %#v", result["repositories"])
+	}
+	if items[0]["state_db_path"] != filepath.Join(repo, ".striatum") {
+		t.Fatalf("state_db_path = %#v", items[0]["state_db_path"])
+	}
+	if runner.rows[0]["state_db_path"] != staleStatePath {
+		t.Fatalf("stored row was rewritten: %#v", runner.rows[0]["state_db_path"])
+	}
+}
+
+func TestResolveNormalizesStaleStateSQLiteProjection(t *testing.T) {
+	repo := t.TempDir()
+	staleStatePath := filepath.Join(repo, ".striatum", "state.sqlite3")
+	runner := &resolveFakeRunner{
+		rows: []map[string]any{repositoryRowWithStatePath("repo_stale", repo, "active", staleStatePath)},
+	}
+
+	result, err := Service{Runner: runner}.Resolve(context.Background(), rpc.Envelope{
+		Params: map[string]any{"path": repo},
+	})
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+
+	if result["state_db_path"] != filepath.Join(repo, ".striatum") {
+		t.Fatalf("state_db_path = %#v", result["state_db_path"])
+	}
+	if runner.rows[0]["state_db_path"] != staleStatePath {
+		t.Fatalf("stored row was rewritten: %#v", runner.rows[0]["state_db_path"])
+	}
+}
+
+func TestAddAlreadyRegisteredNormalizesStaleStateSQLiteProjection(t *testing.T) {
+	repo := t.TempDir()
+	if err := os.Mkdir(filepath.Join(repo, ".striatum"), 0o700); err != nil {
+		t.Fatalf("mkdir .striatum: %v", err)
+	}
+	identity, err := repoIdentity(repo)
+	if err != nil {
+		t.Fatalf("repoIdentity: %v", err)
+	}
+	staleStatePath := filepath.Join(repo, ".striatum", "state.sqlite3")
+	row := repositoryRowWithStatePath("repo_existing", repo, "active", staleStatePath)
+	row["repo_identity"] = identity
+	runner := &resolveFakeRunner{rows: []map[string]any{row}}
+
+	result, err := Service{Runner: runner}.Add(context.Background(), rpc.Envelope{
+		Params: map[string]any{"path": repo},
+	})
+	if err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+
+	if result["already_registered"] != true {
+		t.Fatalf("already_registered = %#v", result["already_registered"])
+	}
+	if result["state_db_path"] != filepath.Join(repo, ".striatum") {
+		t.Fatalf("state_db_path = %#v", result["state_db_path"])
+	}
+	if runner.rows[0]["state_db_path"] != staleStatePath {
+		t.Fatalf("stored row was rewritten: %#v", runner.rows[0]["state_db_path"])
+	}
+	if len(runner.execs) > 0 {
+		t.Fatalf("already-registered repo.add should not write, execs = %#v", runner.execs)
+	}
+}
+
 func TestResolveNormalizesPathBeforeLookup(t *testing.T) {
 	parent := t.TempDir()
 	repo := filepath.Join(parent, "repo")
@@ -136,11 +217,15 @@ func TestResolveRemovedPathReturnsNotRegistered(t *testing.T) {
 }
 
 func repositoryRow(repositoryID string, repoRoot string, state string) map[string]any {
+	return repositoryRowWithStatePath(repositoryID, repoRoot, state, filepath.Join(repoRoot, ".striatum"))
+}
+
+func repositoryRowWithStatePath(repositoryID string, repoRoot string, state string, stateDBPath string) map[string]any {
 	return map[string]any{
 		"repository_id":        repositoryID,
 		"repo_identity":        "inode:1:2:root:" + repoRoot,
 		"repo_root":            repoRoot,
-		"state_db_path":        filepath.Join(repoRoot, ".striatum"),
+		"state_db_path":        stateDBPath,
 		"display_name":         filepath.Base(repoRoot),
 		"registered_at":        "2026-05-17T00:00:00Z",
 		"removed_at":           nil,
@@ -191,10 +276,20 @@ func (r *resolveFakeRunner) BeginTx(context.Context) (db.TxRunner, error) {
 func (r *resolveFakeRunner) Query(_ context.Context, sql string, args ...any) (pgx.Rows, error) {
 	r.query = sql
 	r.args = args
-	repoRoot, _ := args[0].(string)
 	matched := make([]map[string]any, 0, len(r.rows))
+	if len(args) == 0 {
+		for _, row := range r.rows {
+			matched = append(matched, row)
+		}
+		return resolveRowsFromMaps(matched), nil
+	}
+	value, _ := args[0].(string)
 	for _, row := range r.rows {
-		if row["repo_root"] == repoRoot && row["state"] != "removed" {
+		if strings.Contains(sql, "repo_identity") && row["repo_identity"] == value && row["state"] != "removed" {
+			matched = append(matched, row)
+			continue
+		}
+		if row["repo_root"] == value && row["state"] != "removed" {
 			matched = append(matched, row)
 		}
 	}

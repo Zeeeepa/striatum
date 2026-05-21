@@ -97,16 +97,14 @@ def build_parser() -> argparse.ArgumentParser:
         "--striatum-layout-workflow",
         default="code-change",
         help=(
-            "Workflow slug for --with-striatum-layout artifact directory "
-            "(default: code-change)."
+            "Workflow slug for --with-striatum-layout artifact directory (default: code-change)."
         ),
     )
     init.add_argument(
         "--striatum-layout-dry-run",
         action="store_true",
         help=(
-            "With --with-striatum-layout, report directory actions without "
-            "creating directories."
+            "With --with-striatum-layout, report directory actions without creating directories."
         ),
     )
 
@@ -118,9 +116,7 @@ def build_parser() -> argparse.ArgumentParser:
         choices=["claude_code", "codex", "gemini", "generic", "all"],
         default="claude_code",
     )
-    skills_install.add_argument(
-        "--scope", choices=["project", "user"], default="project"
-    )
+    skills_install.add_argument("--scope", choices=["project", "user"], default="project")
     skills_install.add_argument("--namespace", default="striatum-")
     skills_install.add_argument("--force", action="store_true")
     skills_install.add_argument("--dry-run", action="store_true")
@@ -134,18 +130,21 @@ def build_parser() -> argparse.ArgumentParser:
         choices=["claude_code", "codex", "gemini", "all"],
         default="claude_code",
     )
-    plugin_install.add_argument(
-        "--scope", choices=["project", "user"], default="project"
-    )
+    plugin_install.add_argument("--scope", choices=["project", "user"], default="project")
     plugin_install.add_argument("--namespace", default="striatum")
     plugin_install.add_argument("--target", default=None)
     plugin_install.add_argument("--force", action="store_true")
     plugin_install.add_argument("--dry-run", action="store_true")
     plugin_install.add_argument(
-        "--with-marketplace", dest="with_marketplace", action="store_true", default=True,
+        "--with-marketplace",
+        dest="with_marketplace",
+        action="store_true",
+        default=True,
     )
     plugin_install.add_argument(
-        "--no-marketplace", dest="with_marketplace", action="store_false",
+        "--no-marketplace",
+        dest="with_marketplace",
+        action="store_false",
     )
     plugin_install.add_argument("--json", action="store_true")
     plugin_uninstall = plugin_sub.add_parser("uninstall")
@@ -154,9 +153,7 @@ def build_parser() -> argparse.ArgumentParser:
         choices=["claude_code", "codex", "gemini", "all"],
         default="claude_code",
     )
-    plugin_uninstall.add_argument(
-        "--scope", choices=["project", "user"], default="project"
-    )
+    plugin_uninstall.add_argument("--scope", choices=["project", "user"], default="project")
     plugin_uninstall.add_argument("--namespace", default="striatum")
     plugin_uninstall.add_argument("--target", default=None)
     plugin_uninstall.add_argument("--force", action="store_true")
@@ -197,15 +194,18 @@ def build_parser() -> argparse.ArgumentParser:
         help="Operator-scope flag passed to plugin install + skills install (default user; project for in-repo overrides).",
     )
     self_update.add_argument(
-        "--skip-plugin", action="store_true",
+        "--skip-plugin",
+        action="store_true",
         help="Skip the plugin install step.",
     )
     self_update.add_argument(
-        "--skip-skills", action="store_true",
+        "--skip-skills",
+        action="store_true",
         help="Skip the skills install step.",
     )
     self_update.add_argument(
-        "--dry-run", action="store_true",
+        "--dry-run",
+        action="store_true",
         help="Report the commands that would run without executing them.",
     )
     self_update.add_argument("--json", action="store_true")
@@ -247,9 +247,7 @@ def build_parser() -> argparse.ArgumentParser:
     current_brief = operator_sub.add_parser(
         "current-brief",
         help="read docs/operator/BRIEF.md and print the current operator brief metadata",
-        description=(
-            "Read docs/operator/BRIEF.md and print the current operator brief metadata."
-        ),
+        description=("Read docs/operator/BRIEF.md and print the current operator brief metadata."),
     )
     current_brief.add_argument(
         "--operator-docs-root",
@@ -273,6 +271,11 @@ def build_parser() -> argparse.ArgumentParser:
     daemon_start.add_argument("--sweep-interval-seconds", type=float, default=60.0)
     daemon_start.add_argument("--max-sweeps", type=int, default=None)
     daemon_start.add_argument("--postgres-url")
+    daemon_start.add_argument(
+        "--mcp-http-addr",
+        default=None,
+        help="loopback HTTP/SSE MCP listen address for the Go daemon; use 'off' to disable",
+    )
     daemon_start.add_argument("--json", action="store_true")
     daemon_doctor = daemon_sub.add_parser("doctor")
     daemon_doctor.add_argument("--postgres-url")
@@ -415,15 +418,21 @@ def build_parser() -> argparse.ArgumentParser:
     daemon_service = daemon_sub.add_parser("service")
     daemon_service_sub = daemon_service.add_subparsers(dest="service_command", required=True)
     daemon_service_install = daemon_service_sub.add_parser("install")
-    daemon_service_install.add_argument("--manager", choices=["auto", "systemd", "launchd"], default="auto")
+    daemon_service_install.add_argument(
+        "--manager", choices=["auto", "systemd", "launchd"], default="auto"
+    )
     daemon_service_install.add_argument("--dry-run", action="store_true")
     daemon_service_install.add_argument("--json", action="store_true")
     daemon_service_start = daemon_service_sub.add_parser("start")
-    daemon_service_start.add_argument("--manager", choices=["auto", "systemd", "launchd"], default="auto")
+    daemon_service_start.add_argument(
+        "--manager", choices=["auto", "systemd", "launchd"], default="auto"
+    )
     daemon_service_start.add_argument("--dry-run", action="store_true")
     daemon_service_start.add_argument("--json", action="store_true")
     daemon_service_status = daemon_service_sub.add_parser("status")
-    daemon_service_status.add_argument("--manager", choices=["auto", "systemd", "launchd"], default="auto")
+    daemon_service_status.add_argument(
+        "--manager", choices=["auto", "systemd", "launchd"], default="auto"
+    )
     daemon_service_status.add_argument("--json", action="store_true")
 
     repo_cmd = sub.add_parser("repo")
@@ -475,8 +484,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--allow-same-model-pairing",
         action="store_true",
         help=(
-            "accept same-model implementer/reviewer pairings after an "
-            "explicit operator override"
+            "accept same-model implementer/reviewer pairings after an explicit operator override"
         ),
     )
     validate.add_argument("--json", action="store_true")
@@ -485,10 +493,7 @@ def build_parser() -> argparse.ArgumentParser:
     lint.add_argument(
         "--strict",
         action="store_true",
-        help=(
-            "refuse workflows with lint warnings unless "
-            "--override-rationale is provided"
-        ),
+        help=("refuse workflows with lint warnings unless --override-rationale is provided"),
     )
     lint.add_argument(
         "--override-rationale",
@@ -1114,22 +1119,29 @@ def build_parser() -> argparse.ArgumentParser:
     )
     recovery_watch.add_argument("--run-id", required=True)
     recovery_watch.add_argument(
-        "--interval-seconds", type=float, default=60.0,
+        "--interval-seconds",
+        type=float,
+        default=60.0,
         help="seconds between sweeps; default 60",
     )
     exit_group = recovery_watch.add_mutually_exclusive_group()
     exit_group.add_argument(
-        "--exit-on-terminal", dest="exit_on_terminal",
-        action="store_true", default=True,
+        "--exit-on-terminal",
+        dest="exit_on_terminal",
+        action="store_true",
+        default=True,
         help="exit cleanly when the run reaches a terminal state (default)",
     )
     exit_group.add_argument(
-        "--no-exit-on-terminal", dest="exit_on_terminal",
+        "--no-exit-on-terminal",
+        dest="exit_on_terminal",
         action="store_false",
         help="keep looping even after the run reaches a terminal state",
     )
     recovery_watch.add_argument(
-        "--max-sweeps", type=int, default=None,
+        "--max-sweeps",
+        type=int,
+        default=None,
         help="cap total sweeps; default unlimited",
     )
     recovery_watch.add_argument(
@@ -1145,13 +1157,22 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
     )
     recovery_watch.add_argument(
-        "--max-requeue", dest="max_requeues_per_sweep", type=int, default=None,
+        "--max-requeue",
+        dest="max_requeues_per_sweep",
+        type=int,
+        default=None,
     )
     recovery_watch.add_argument(
-        "--checkpoint-timeout", dest="checkpoint_timeout_seconds", type=int, default=None,
+        "--checkpoint-timeout",
+        dest="checkpoint_timeout_seconds",
+        type=int,
+        default=None,
     )
     recovery_watch.add_argument(
-        "--eligible-after", dest="eligible_after_seconds", type=int, default=None,
+        "--eligible-after",
+        dest="eligible_after_seconds",
+        type=int,
+        default=None,
     )
     recovery_watch.add_argument("--json", action="store_true")
 

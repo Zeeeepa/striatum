@@ -1,0 +1,223 @@
+{
+  "schema_version": "striatum.workflow.v1",
+  "workflow_id": "todo-61-62-go-repo-projection-revision",
+  "workflow_version": "2026-05-21",
+  "name": "TODO 61-62 Go repo projection revision",
+  "context_docs": [
+    "docs/operator/artifacts/todo-61-62-cleanup/build/HANDOFF.md",
+    "docs/operator/artifacts/todo-61-62-cleanup/review/regression/REVIEW.md",
+    "docs/operator/artifacts/todo-61-62-cleanup-revision/build/HANDOFF.md",
+    "docs/operator/artifacts/todo-61-62-cleanup-revision/review/REVIEW.md",
+    "docs/TODO.md",
+    "docs/ROADMAP.md",
+    "docs/architecture/COMMAND_AUTHORITY_MATRIX.md",
+    "docs/rfcs/0068-go-production-daemon-port.md",
+    "docs/rfcs/0069-pg-only-daemon-global-surfaces.md",
+    "AGENTS.md"
+  ],
+  "coordinator": {
+    "role_id": "coordinator",
+    "lane_id": "codex"
+  },
+  "parallelism": {
+    "mode": "declared",
+    "max_active_jobs": 3,
+    "require_disjoint_write_scopes": true
+  },
+  "branch": {
+    "mode": "confirm",
+    "suggested_name": "striatum/todo-61-62-go-repo-projection-revision",
+    "allow_dirty": true
+  },
+  "lanes": {
+    "codex": {
+      "adapter": "process",
+      "command": [
+        "bash",
+        "-lc",
+        "PYTHONPATH=src python3 -m striatum.cli skills install --profile all --scope user --force --json >/dev/null && export PATH=\"$PWD/.venv/bin:$PATH\" && exec .striatum/bin/codex-supervised-wrapper.sh"
+      ],
+      "model": "codex",
+      "display_model": "Codex",
+      "strategy_version": "2026-05-21",
+      "supervision": {
+        "compatible": true,
+        "stdin_format": "newline_delimited_json",
+        "wrapper_required": true
+      }
+    },
+    "claude_code": {
+      "adapter": "process",
+      "command": [
+        "bash",
+        "-lc",
+        "PYTHONPATH=src python3 -m striatum.cli skills install --profile all --scope user --force --json >/dev/null && export PATH=\"$PWD/.venv/bin:$PATH\" && exec .striatum/bin/claude-supervised-wrapper.sh"
+      ],
+      "model": "claude_code",
+      "display_model": "Claude Code",
+      "strategy_version": "2026-05-21",
+      "supervision": {
+        "compatible": "verify_pipe_behavior_first",
+        "stdin_format": "prompt_text",
+        "wrapper_required": true
+      }
+    },
+    "gemini": {
+      "adapter": "process",
+      "command": [
+        "bash",
+        "-lc",
+        "PYTHONPATH=src python3 -m striatum.cli skills install --profile all --scope user --force --json >/dev/null && export PATH=\"$PWD/.venv/bin:$PATH\" && exec .striatum/bin/gemini-supervised-wrapper.sh"
+      ],
+      "model": "gemini",
+      "display_model": "Gemini",
+      "strategy_version": "2026-05-21",
+      "supervision": {
+        "compatible": true,
+        "stdin_format": "prompt_text",
+        "wrapper_required": true
+      }
+    }
+  },
+  "roles": {
+    "coordinator": {
+      "description": "Operator/control-plane role."
+    },
+    "implementer": {
+      "description": "Applies the remaining production Go repo projection fix and focused tests."
+    },
+    "reviewer": {
+      "description": "Fresh-context reviewer for the Go projection revision."
+    }
+  },
+  "jobs": [
+    {
+      "id": "fix_go_state_path_projection",
+      "type": "build",
+      "title": "Fix Go repo state-path projection divergence",
+      "role_id": "implementer",
+      "lane_id": "codex",
+      "fresh_session_required": true,
+      "required_review_postures": [
+        "custom:regression_risk",
+        "custom:authority_boundary"
+      ],
+      "objective": "Fix the remaining production Go repo projection issue from cleanup F1: daemon-backed repo.add/repo.list/repo.resolve outputs must normalize stale `.striatum/state.sqlite3` rows to the `.striatum/` operational scratch directory without rewriting stored history.",
+      "task_prompt": {
+        "path": "prompts/fix_go_state_path_projection.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "go/pkg/repositories/",
+          "go/pkg/admin/",
+          "docs/operator/artifacts/todo-61-62-go-repo-projection-revision/build/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "go_projection_revision_handoff",
+          "kind": "handoff",
+          "path": "docs/operator/artifacts/todo-61-62-go-repo-projection-revision/build/HANDOFF.md",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "review_go_projection_regression",
+      "type": "review",
+      "title": "Regression review for Go repo projection",
+      "role_id": "reviewer",
+      "lane_id": "gemini",
+      "parallel_group": "go_projection_review",
+      "fresh_session_required": true,
+      "reviewer_context_policy": "fresh",
+      "review_posture": "custom:regression_risk",
+      "objective": "Verify that daemon-backed repo list/resolve/add projections no longer expose stale `.striatum/state.sqlite3` values and that focused tests cover the regression.",
+      "task_prompt": {
+        "path": "prompts/review_go_projection_regression.md"
+      },
+      "write_scope": {
+        "mode": "review_only_artifact",
+        "repo_write": false,
+        "allowed_paths": [
+          "docs/operator/artifacts/todo-61-62-go-repo-projection-revision/review/regression/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "go_projection_regression_review",
+          "kind": "finding",
+          "path": "docs/operator/artifacts/todo-61-62-go-repo-projection-revision/review/regression/REVIEW.md",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "review_go_projection_authority",
+      "type": "review",
+      "title": "Authority-boundary review for Go repo projection",
+      "role_id": "reviewer",
+      "lane_id": "claude_code",
+      "parallel_group": "go_projection_review",
+      "fresh_session_required": true,
+      "reviewer_context_policy": "fresh",
+      "review_posture": "custom:authority_boundary",
+      "objective": "Verify that the Go projection fix preserves daemon/Postgres authority, does not reopen repo-local SQLite production behavior, and does not decide the blocked TODO 55, 56, 59, or 60 product questions.",
+      "task_prompt": {
+        "path": "prompts/review_go_projection_authority.md"
+      },
+      "write_scope": {
+        "mode": "review_only_artifact",
+        "repo_write": false,
+        "allowed_paths": [
+          "docs/operator/artifacts/todo-61-62-go-repo-projection-revision/review/authority/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "go_projection_authority_review",
+          "kind": "finding",
+          "path": "docs/operator/artifacts/todo-61-62-go-repo-projection-revision/review/authority/REVIEW.md",
+          "required": true
+        }
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "from": "fix_go_state_path_projection",
+      "to": "review_go_projection_regression",
+      "on": "completed"
+    },
+    {
+      "from": "fix_go_state_path_projection",
+      "to": "review_go_projection_authority",
+      "on": "completed"
+    }
+  ],
+  "cycles": [
+    {
+      "from": "review_go_projection_regression",
+      "to": "fix_go_state_path_projection",
+      "on_verdict": "needs_revision",
+      "max_iterations": 1
+    },
+    {
+      "from": "review_go_projection_authority",
+      "to": "fix_go_state_path_projection",
+      "on_verdict": "needs_revision",
+      "max_iterations": 1
+    }
+  ]
+}

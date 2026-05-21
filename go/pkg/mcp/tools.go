@@ -26,7 +26,7 @@ func (s Service) ToolsList(ctx context.Context, params map[string]any, token str
 
 func (s Service) ToolsCall(ctx context.Context, name string, arguments map[string]any, token string, requestID string) map[string]any {
 	if s.RPC == nil {
-		return toolResult(name, false, "", "daemon RPC server is not configured", nil)
+		return toolResult(name, false, "", "daemon_rpc_missing", "daemon RPC server is not configured", nil)
 	}
 	envelope := rpc.Envelope{
 		SchemaVersion:   rpc.SupportedEnvelopeVersion,
@@ -37,7 +37,7 @@ func (s Service) ToolsCall(ctx context.Context, name string, arguments map[strin
 	}
 	response := s.RPC.HandleWithoutHandshake(ctx, envelope, "mcp")
 	if response.OK {
-		return toolResult(name, true, "", "", response.Data)
+		return toolResult(name, true, response.AuditID, "", "", response.Data)
 	}
 	code := "command_failed"
 	message := ""
@@ -49,14 +49,18 @@ func (s Service) ToolsCall(ctx context.Context, name string, arguments map[strin
 			message = value
 		}
 	}
-	return toolResult(name, false, code, message, response.Data)
+	return toolResult(name, false, response.AuditID, code, message, response.Data)
 }
 
-func toolResult(name string, ok bool, code string, message string, data map[string]any) map[string]any {
+func toolResult(name string, ok bool, auditID string, code string, message string, data map[string]any) map[string]any {
+	var audit any
+	if auditID != "" {
+		audit = auditID
+	}
 	structured := map[string]any{
 		"ok":       ok,
 		"method":   name,
-		"audit_id": nil,
+		"audit_id": audit,
 	}
 	if data != nil {
 		structured["data"] = data

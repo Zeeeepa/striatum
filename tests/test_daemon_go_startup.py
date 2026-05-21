@@ -53,9 +53,7 @@ def test_go_striatumd_refuses_to_serve_without_postgres_config(
     )
 
     assert result.returncode != 0
-    assert "refuses to start without a Postgres URL" in (
-        result.stdout + result.stderr
-    )
+    assert "refuses to start without a Postgres URL" in (result.stdout + result.stderr)
     assert not socket_path.exists()
 
 
@@ -106,6 +104,12 @@ def test_go_striatumd_bootstraps_fresh_admin_runtime_token(tmp_path: Path) -> No
         assert token_path.exists()
         assert token_path.stat().st_mode & 0o777 == 0o600
         assert runtime_dir.stat().st_mode & 0o777 == 0o700
+        endpoint_path = runtime_dir / "mcp-http-endpoint"
+        assert endpoint_path.exists()
+        assert endpoint_path.stat().st_mode & 0o777 == 0o600
+        endpoint = endpoint_path.read_text(encoding="utf-8").strip()
+        assert endpoint.startswith("http://127.0.0.1:"), endpoint
+        assert endpoint.endswith("/mcp/sse"), endpoint
         token = token_path.read_text(encoding="utf-8").strip()
         token_id, sep, secret = token.partition(".")
         assert sep == "."
@@ -179,8 +183,7 @@ def _wait_for_socket(proc: subprocess.Popen[str], socket_path: Path) -> None:
         if proc.poll() is not None:
             stdout, stderr = proc.communicate(timeout=1)
             raise AssertionError(
-                "Go daemon exited during startup\n"
-                f"stdout={stdout}\nstderr={stderr}"
+                f"Go daemon exited during startup\nstdout={stdout}\nstderr={stderr}"
             )
         if socket_path.exists():
             return
@@ -188,8 +191,7 @@ def _wait_for_socket(proc: subprocess.Popen[str], socket_path: Path) -> None:
     proc.terminate()
     stdout, stderr = proc.communicate(timeout=5)
     raise AssertionError(
-        "Go daemon socket did not appear before startup timeout\n"
-        f"stdout={stdout}\nstderr={stderr}"
+        f"Go daemon socket did not appear before startup timeout\nstdout={stdout}\nstderr={stderr}"
     )
 
 

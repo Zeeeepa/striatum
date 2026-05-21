@@ -16,6 +16,7 @@ from striatum.daemon_pg.handlers.reads.why import handle as why_handle
 from striatum.daemon_pg.handlers.recovery_evidence._sql import is_repo_write_scope
 from striatum.daemon_rpc.capability import RpcAuthContext, authorize
 from striatum.daemon_rpc.request_log import append_audit_row
+from striatum.repo_policy import DB_NAME, state_dir
 from striatum.primitives import JsonObject
 
 READ_CAPABILITY = "read"
@@ -408,7 +409,17 @@ def _repository_rows(pg_conn: Any, *, active_only: bool) -> list[dict[str, Any]]
             ORDER BY repository_id
             """
         )
-        return [row_to_json(row) for row in cur.fetchall()]
+        rows = [row_to_json(row) for row in cur.fetchall()]
+    for row in rows:
+        repo_root = row.get("repo_root")
+        if repo_root is None:
+            continue
+        scratch_path = state_dir(Path(str(repo_root)))
+        row["state_dir"] = str(scratch_path)
+        stored_state_path = Path(str(row.get("state_db_path", "")))
+        if stored_state_path.name == DB_NAME and stored_state_path.parent.name == scratch_path.name:
+            row["state_db_path"] = str(scratch_path)
+    return rows
 
 
 def _audit(

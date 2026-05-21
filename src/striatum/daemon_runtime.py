@@ -37,6 +37,10 @@ def token_file() -> Path:
     return runtime_dir() / "client-token"
 
 
+def mcp_endpoint_file() -> Path:
+    return runtime_dir() / "mcp-http-endpoint"
+
+
 def socket_path() -> Path:
     return runtime_dir() / "striatumd.sock"
 

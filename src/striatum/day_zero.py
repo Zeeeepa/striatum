@@ -8,19 +8,23 @@ import sys
 import uuid
 from pathlib import Path
 from typing import Any, Literal
+from urllib.parse import urljoin
+from urllib.request import Request, urlopen
 
 import striatum
 from striatum.bootstrap import init_operational_scratch
 from striatum.cli.daemon_required import daemon_socket_is_reachable, resolve_socket_path
 from striatum.daemon_pg.config import resolve_config
 from striatum.daemon_pg.connection import connect, connect_and_migrate, doctor as pg_doctor
-from striatum.daemon_runtime import read_runtime_token, token_file
-from striatum.primitives import json_loads
+from striatum.daemon_runtime import mcp_endpoint_file, read_runtime_token, token_file
+from striatum.primitives import json_dumps, json_loads
 
 ServiceManager = Literal["auto", "systemd", "launchd"]
 
 SYSTEMD_UNIT_NAME = "striatumd.service"
 LAUNCHD_LABEL = "io.striatum.striatumd"
+MCP_HTTP_URL_ENV = "STRIATUM_DAEMON_MCP_HTTP_URL"
+MCP_HTTP_URL_COMPAT_ENV = "STRIATUM_MCP_URL"
 
 
 def service_install(
@@ -59,14 +63,25 @@ def service_start(
     if dry_run:
         return {"manager": resolved, "dry_run": True, "command": command, "status": "would_start"}
     result = _run(command)
-    return {"manager": resolved, "dry_run": False, "command": command, "status": _status_from_returncode(result), "process": result}
+    return {
+        "manager": resolved,
+        "dry_run": False,
+        "command": command,
+        "status": _status_from_returncode(result),
+        "process": result,
+    }
 
 
 def service_status(*, manager: ServiceManager = "auto") -> dict[str, Any]:
     resolved = _resolve_manager(manager)
     command = _service_status_command(resolved)
     result = _run(command)
-    return {"manager": resolved, "command": command, "status": _status_from_returncode(result), "process": result}
+    return {
+        "manager": resolved,
+        "command": command,
+        "status": _status_from_returncode(result),
+        "process": result,
+    }
 
 
 def adopt(
@@ -91,7 +106,9 @@ def adopt(
         ),
     }
     if dry_run:
-        result["init"] = {"status": "would_init" if not inspection["state_db_exists"] else "would_skip"}
+        result["init"] = {
+            "status": "would_init" if not inspection["state_db_exists"] else "would_skip"
+        }
     else:
         state_dir = init_operational_scratch(repo)
         result["init"] = {
@@ -172,7 +189,9 @@ def first_run_smoke(repo: Path) -> dict[str, Any]:
     ]
     mcp_check = _mcp_capability_check(repository_id=repository_id, token=token_value)
     checks.append(mcp_check)
-    checks.append(_sample_read_route_check(repository_id=repository_id, token=token_value, socket=socket))
+    checks.append(
+        _sample_read_route_check(repository_id=repository_id, token=token_value, socket=socket)
+    )
     return {
         "schema_version": "striatum.first_run_diagnostic.v1",
         "mode": "first_run",
@@ -323,30 +342,196 @@ def _lookup_repository_id(repo: Path) -> str | None:
 
 
 def _mcp_capability_check(*, repository_id: str | None, token: Any) -> dict[str, Any]:
-    cfg = resolve_config()
-    if cfg.url is None or repository_id is None or not isinstance(token, str):
+    if repository_id is None or not isinstance(token, str):
         return {
             "id": "mcp_capability",
             "ok": False,
             "status": "skipped",
-            "hint": "requires Postgres, runtime token, and a registered repo",
+            "hint": "requires a runtime token and a registered repo",
+        }
+    endpoint = _mcp_http_endpoint()
+    if endpoint is None:
+        return {
+            "id": "mcp_capability",
+            "ok": False,
+            "status": "skipped",
+            "hint": (
+                f"requires native daemon MCP endpoint via {MCP_HTTP_URL_ENV} "
+                f"or {mcp_endpoint_file()}"
+            ),
         }
     try:
-        conn = connect(cfg.url)
-        try:
-            from striatum.mcp import DaemonRpcServer
-
-            tools = DaemonRpcServer(pg_conn=conn).daemon_tool_specs(
-                {"token": token, "repository_id": repository_id}
-            )
-        finally:
-            conn.close()
+        tools = _mcp_http_tools_list(endpoint=endpoint, repository_id=repository_id, token=token)
     except Exception as exc:  # noqa: BLE001
         return {"id": "mcp_capability", "ok": False, "status": "failed", "error": str(exc)}
-    return {"id": "mcp_capability", "ok": bool(tools), "tool_count": len(tools)}
+    return {
+        "id": "mcp_capability",
+        "ok": bool(tools),
+        "tool_count": len(tools),
+        "endpoint": endpoint,
+    }
 
 
-def _sample_read_route_check(*, repository_id: str | None, token: Any, socket: Path) -> dict[str, Any]:
+def _mcp_http_endpoint() -> str | None:
+    for env_name in (MCP_HTTP_URL_ENV, MCP_HTTP_URL_COMPAT_ENV):
+        value = os.environ.get(env_name)
+        if value:
+            return value.strip()
+    endpoint_file = mcp_endpoint_file()
+    if not endpoint_file.exists():
+        return None
+    raw = endpoint_file.read_text(encoding="utf-8").strip()
+    if raw == "":
+        return None
+    try:
+        payload = json_loads(raw)
+    except ValueError:
+        return raw
+    if isinstance(payload, dict):
+        for key in ("sse_url", "url", "endpoint"):
+            value = payload.get(key)
+            if isinstance(value, str) and value:
+                return value
+    return raw
+
+
+def _mcp_http_tools_list(*, endpoint: str, repository_id: str, token: str) -> list[dict[str, Any]]:
+    headers = {
+        "Accept": "text/event-stream",
+        "Authorization": f"Bearer {token}",
+    }
+    sse = urlopen(Request(endpoint, headers=headers), timeout=5)
+    try:
+        first_event = _read_sse_event(sse)
+        message_url = _mcp_message_url(endpoint, first_event)
+        _mcp_jsonrpc_over_sse(
+            message_url=message_url,
+            sse=sse,
+            token=token,
+            method="initialize",
+            params={
+                "protocolVersion": "2024-11-05",
+                "capabilities": {},
+                "clientInfo": {"name": "striatum-first-run", "version": striatum.__version__},
+            },
+        )
+        result = _mcp_jsonrpc_over_sse(
+            message_url=message_url,
+            sse=sse,
+            token=token,
+            method="tools/list",
+            params={"repository_id": repository_id, "token": token},
+        )
+    finally:
+        sse.close()
+    tools = result.get("tools")
+    if not isinstance(tools, list):
+        raise RuntimeError("daemon MCP tools/list response did not contain a tools list")
+    return [dict(tool) for tool in tools if isinstance(tool, dict)]
+
+
+def _mcp_jsonrpc_over_sse(
+    *,
+    message_url: str,
+    sse: Any,
+    token: str,
+    method: str,
+    params: dict[str, Any],
+) -> dict[str, Any]:
+    request_id = f"req_{uuid.uuid4().hex}"
+    payload = {
+        "jsonrpc": "2.0",
+        "id": request_id,
+        "method": method,
+        "params": params,
+    }
+    body = json_dumps(payload).encode("utf-8")
+    request = Request(
+        message_url,
+        data=body,
+        headers={
+            "Accept": "application/json, text/event-stream",
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+        },
+        method="POST",
+    )
+    with urlopen(request, timeout=5) as response:
+        response_body = response.read().decode("utf-8").strip()
+    if response_body:
+        rpc_response = json_loads(response_body)
+    else:
+        rpc_response = _read_matching_mcp_response(sse, request_id=request_id)
+    if not isinstance(rpc_response, dict):
+        raise RuntimeError(f"daemon MCP {method} response was not an object")
+    if rpc_response.get("id") != request_id:
+        raise RuntimeError(f"daemon MCP {method} response id mismatch")
+    error = rpc_response.get("error")
+    if isinstance(error, dict):
+        raise RuntimeError(str(error.get("message") or error.get("code") or error))
+    result = rpc_response.get("result")
+    if not isinstance(result, dict):
+        raise RuntimeError(f"daemon MCP {method} response result was not an object")
+    return result
+
+
+def _read_matching_mcp_response(sse: Any, *, request_id: str) -> dict[str, Any]:
+    for _ in range(10):
+        event = _read_sse_event(sse)
+        if event.get("event") not in ("message", "response", ""):
+            continue
+        data = event.get("data")
+        if not isinstance(data, str) or data == "":
+            continue
+        payload = json_loads(data)
+        if isinstance(payload, dict) and payload.get("id") == request_id:
+            return payload
+    raise RuntimeError(f"daemon MCP response {request_id} was not received")
+
+
+def _mcp_message_url(endpoint: str, event: dict[str, str]) -> str:
+    data = event.get("data", "").strip()
+    if data == "":
+        raise RuntimeError("daemon MCP SSE endpoint did not publish a message URL")
+    uri = data
+    try:
+        payload = json_loads(data)
+    except ValueError:
+        payload = None
+    if isinstance(payload, dict):
+        value = payload.get("uri") or payload.get("url")
+        if isinstance(value, str) and value:
+            uri = value
+    return uri if uri.startswith(("http://", "https://")) else urljoin(endpoint, uri)
+
+
+def _read_sse_event(stream: Any) -> dict[str, str]:
+    event_type = "message"
+    data_lines: list[str] = []
+    while True:
+        raw = stream.readline()
+        if raw == b"":
+            raise RuntimeError("daemon MCP SSE stream closed")
+        line = raw.decode("utf-8").rstrip("\r\n")
+        if line == "":
+            if data_lines:
+                return {"event": event_type, "data": "\n".join(data_lines)}
+            event_type = "message"
+            continue
+        if line.startswith(":"):
+            continue
+        field, _, value = line.partition(":")
+        if value.startswith(" "):
+            value = value[1:]
+        if field == "event":
+            event_type = value
+        elif field == "data":
+            data_lines.append(value)
+
+
+def _sample_read_route_check(
+    *, repository_id: str | None, token: Any, socket: Path
+) -> dict[str, Any]:
     if repository_id is None or not isinstance(token, str):
         return {
             "id": "sample_read_route",
@@ -371,7 +556,11 @@ def _sample_read_route_check(*, repository_id: str | None, token: Any, socket: P
         )
     except Exception as exc:  # noqa: BLE001
         return {"id": "sample_read_route", "ok": False, "status": "failed", "error": str(exc)}
-    return {"id": "sample_read_route", "ok": bool(response.get("ok")), "response_ok": response.get("ok")}
+    return {
+        "id": "sample_read_route",
+        "ok": bool(response.get("ok")),
+        "response_ok": response.get("ok"),
+    }
 
 
 def _call_rpc_sequence(socket: Path, envelope: Any) -> dict[str, Any]:
@@ -422,10 +611,10 @@ def _service_content(manager: Literal["systemd", "launchd"]) -> str:
     command = f"{sys.executable} -m striatum.cli daemon start"
     if manager == "launchd":
         return (
-            "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
-            "<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" "
-            "\"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n"
-            "<plist version=\"1.0\">\n"
+            '<?xml version="1.0" encoding="UTF-8"?>\n'
+            '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" '
+            '"http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n'
+            '<plist version="1.0">\n'
             "<dict>\n"
             f"  <key>Label</key><string>{LAUNCHD_LABEL}</string>\n"
             "  <key>ProgramArguments</key>\n"

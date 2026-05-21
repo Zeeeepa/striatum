@@ -9,6 +9,7 @@ from striatum.daemon_pg import client_admin
 from striatum.daemon_runtime import (
     ENV_RUNTIME,
     DaemonRuntimeTokenError,
+    mcp_endpoint_file,
     read_runtime_token,
     socket_path,
     token_file,
@@ -25,6 +26,7 @@ def test_runtime_paths_resolve_from_runtime_env(
 
     assert socket_path() == runtime.resolve() / "striatumd.sock"
     assert token_file() == runtime.resolve() / "client-token"
+    assert mcp_endpoint_file() == runtime.resolve() / "mcp-http-endpoint"
     assert client_admin.runtime_dir() == runtime.resolve()
     assert client_admin.token_file() == token_file()
     assert client_admin.ENV_RUNTIME == ENV_RUNTIME

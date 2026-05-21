@@ -3,9 +3,9 @@ from __future__ import annotations
 import pytest
 
 from _harness.multi_repo import MultiRepoHarness
+from striatum.daemon_pg.mcp_resources import daemon_mcp_read_resource_pg, daemon_mcp_resources_pg
 from striatum.daemon_rpc.envelope import RpcEnvelope
 from striatum.daemon_rpc.server import DaemonRpcRouter
-from striatum.mcp import DaemonRpcServer
 
 pytestmark = pytest.mark.multi_repo
 
@@ -118,20 +118,11 @@ def test_pg_daemon_mcp_resources_missing_token_denied_without_sqlite(
     monkeypatch.setenv("STRIATUM_SQLITE_CONNECT_TRIPWIRE", "1")
     conn = harness.pg_conn()
     try:
-        response = DaemonRpcServer(pg_conn=conn).handle_request(
-            {
-                "jsonrpc": "2.0",
-                "id": "req-missing-token",
-                "method": "resources/list",
-                "params": {"request_id": "req-missing-token"},
-            }
-        )
+        with pytest.raises(PermissionError, match="token_missing"):
+            daemon_mcp_resources_pg(conn, token=None, request_id="req-missing-token")
     finally:
         conn.close()
 
-    assert response is not None
-    assert response["error"]["code"] == -32603
-    assert "token_missing" in response["error"]["message"]
     row = harness.audit_rows(transport="mcp")[-1]
     assert row["method"] == "mcp.resources.list"
     assert row["decision"] == "denied"
@@ -147,6 +138,14 @@ def test_pg_daemon_mcp_resource_reads_preserve_shapes_without_sqlite(
     harness.register_all()
     repo_id = str(harness.repos[0].repository_id)
     repo_root = str(harness.repos[0].path)
+    harness.daemon_db_query(
+        """
+        UPDATE striatumd.repositories
+        SET state_db_path = %s
+        WHERE repository_id = %s
+        """,
+        (str(harness.repos[0].path / ".striatum" / "state.sqlite3"), repo_id),
+    )
     harness.daemon_db_query(
         """
         INSERT INTO striatumd.workflow_snapshots(
@@ -182,6 +181,9 @@ def test_pg_daemon_mcp_resource_reads_preserve_shapes_without_sqlite(
     why = client.read_resource(f"striatum://repo/{repo_id}/run/run_mcp_resource/why?id=run_mcp_resource")
 
     assert [row["repository_id"] for row in repos["repositories"]] == [repo_id]
+    scratch_path = str(harness.repos[0].path / ".striatum")
+    assert repos["repositories"][0]["state_db_path"] == scratch_path
+    assert repos["repositories"][0]["state_dir"] == scratch_path
     assert status["mode"] == "daemon"
     assert status["repository_id"] == repo_id
     assert status["runs"][0]["run_id"] == "run_mcp_resource"
@@ -213,24 +215,16 @@ def test_pg_daemon_mcp_resource_read_denies_repo_scope_before_lookup(
     monkeypatch.setenv("STRIATUM_SQLITE_CONNECT_TRIPWIRE", "1")
     conn = harness.pg_conn()
     try:
-        response = DaemonRpcServer(pg_conn=conn).handle_request(
-            {
-                "jsonrpc": "2.0",
-                "id": "req-scope-denied",
-                "method": "resources/read",
-                "params": {
-                    "uri": f"striatum://repo/{repo_b}/status",
-                    "token": token,
-                    "request_id": "req-scope-denied",
-                },
-            }
-        )
+        with pytest.raises(PermissionError, match="capability_scope_mismatch"):
+            daemon_mcp_read_resource_pg(
+                conn,
+                f"striatum://repo/{repo_b}/status",
+                token=token,
+                request_id="req-scope-denied",
+            )
     finally:
         conn.close()
 
-    assert response is not None
-    assert response["error"]["code"] == -32603
-    assert "capability_scope_mismatch" in response["error"]["message"]
     row = harness.audit_rows(transport="mcp")[-1]
     assert row["method"] == "mcp.resources.read"
     assert row["decision"] == "denied"

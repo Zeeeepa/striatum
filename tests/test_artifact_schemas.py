@@ -2,7 +2,6 @@
 """Tests for per-kind front-matter validation in publish-artifact."""
 
 from __future__ import annotations
-import pytest; pytest.skip("legacy sqlite eradicated", allow_module_level=True)
 
 import json
 import os
@@ -10,9 +9,11 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 from striatum.artifacts import parse_artifact_front_matter
-from striatum.legacy_sqlite.db import connect
-from striatum.schema import SCHEMA_SQL
+from striatum.errors import WorkflowError
+from striatum.workflow import validate_workflow
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -48,9 +49,7 @@ def data(payload: dict[str, object]) -> dict[str, object]:
 
 
 def init_repo(repo: Path) -> None:
-    from striatum.legacy_sqlite.db import init_repo as legacy_init_repo
-
-    legacy_init_repo(repo)
+    pytest.skip("historical repo-local SQLite publish fixture quarantined")
 
 
 def prepare_started_run(repo: Path) -> str:
@@ -173,6 +172,158 @@ def test_operator_progress_artifact_front_matter_schemas_parse(tmp_path: Path) -
         assert parsed["artifact_kind"] == kind
 
 
+def _parse_text(kind: str, tmp_path: Path, text: str) -> dict[str, object] | None:
+    path = tmp_path / f"{kind}.md"
+    path.write_text(text, encoding="utf-8")
+    return parse_artifact_front_matter(kind=kind, path=path, payload=path.read_bytes())
+
+
+@pytest.mark.parametrize(
+    ("kind", "text", "expected_key"),
+    [
+        (
+            "decision",
+            "---\n"
+            'schema_version: "striatum.decision.v1"\n'
+            'artifact_kind: "decision"\n'
+            'decision_id: "dec_0001"\n'
+            'run_id: "run_1"\n'
+            'owner: "human"\n'
+            'outcome: "accepted"\n'
+            "follow_up_required: false\n"
+            'title: "Approve change"\n'
+            'created_at: "2026-05-07T00:00:00Z"\n'
+            "---\n",
+            "decision_id",
+        ),
+        (
+            "finding",
+            "---\n"
+            'schema_version: "striatum.finding.v1"\n'
+            'artifact_kind: "finding"\n'
+            'verdict_intent: "accept_with_findings"\n'
+            'severity: "medium"\n'
+            'tags: ["scope", "naming"]\n'
+            "---\n",
+            "verdict_intent",
+        ),
+        (
+            "findings_ledger",
+            "---\n"
+            'schema_version: "striatum.findings_ledger.v1"\n'
+            'artifact_kind: "findings_ledger"\n'
+            "summary_count: 3\n"
+            "---\n",
+            "summary_count",
+        ),
+        (
+            "escalation",
+            "---\n"
+            'schema_version: "striatum.escalation.v1"\n'
+            'artifact_kind: "escalation"\n'
+            'escalation_id: "esc_0001"\n'
+            'run_id: "run_1"\n'
+            'severity: "blocked"\n'
+            'blocker_kind: "missing_authority"\n'
+            'description: "Authority is missing."\n'
+            'reasoning: "The AI operator cannot choose this alone."\n'
+            'requested_action: "Decide whether to proceed."\n'
+            'created_at: "2026-05-17T00:00:00Z"\n'
+            "---\n",
+            "escalation_id",
+        ),
+        (
+            "action_item_ledger",
+            "---\n"
+            'schema_version: "striatum.action_item_ledger.v1"\n'
+            'artifact_kind: "action_item_ledger"\n'
+            'source_review_artifact: "docs/reviews/rfc-ledger/codex/RFC_LEDGER_REVIEW.md"\n'
+            "revision_round: 1\n"
+            "total_items: 4\n"
+            "---\n",
+            "revision_round",
+        ),
+        (
+            "harness_improvement_proposal",
+            "---\n"
+            'schema_version: "striatum.harness_improvement_proposal.v1"\n'
+            'artifact_kind: "harness_improvement_proposal"\n'
+            'target: "workflow"\n'
+            'expected_benefit: "Reduce review cycles for trivial typo fixes."\n'
+            "---\n",
+            "target",
+        ),
+    ],
+)
+def test_current_artifact_front_matter_schemas_parse_without_sqlite(
+    tmp_path: Path,
+    kind: str,
+    text: str,
+    expected_key: str,
+) -> None:
+    parsed = _parse_text(kind, tmp_path, text)
+    assert parsed is not None
+    assert parsed["artifact_kind"] == kind
+    assert expected_key in parsed
+
+
+@pytest.mark.parametrize(
+    ("kind", "text", "expected_message"),
+    [
+        (
+            "decision",
+            "---\n"
+            'schema_version: "striatum.decision.v1"\n'
+            'artifact_kind: "decision"\n'
+            'decision_id: "dec_0001"\n'
+            'run_id: "run_1"\n'
+            'owner: "human"\n'
+            'outcome: "bogus"\n'
+            "follow_up_required: false\n"
+            'title: "Approve change"\n'
+            'created_at: "2026-05-07T00:00:00Z"\n'
+            "---\n",
+            "outcome",
+        ),
+        (
+            "finding",
+            "---\n"
+            'schema_version: "striatum.finding.v1"\n'
+            'artifact_kind: "finding"\n'
+            'verdict_intent: "accept"\n'
+            'severity: "meh"\n'
+            "---\n",
+            "severity",
+        ),
+        (
+            "escalation",
+            "---\n"
+            'schema_version: "striatum.escalation.v1"\n'
+            'artifact_kind: "escalation"\n'
+            'escalation_id: "esc_0002"\n'
+            'run_id: "run_1"\n'
+            'severity: "blocked"\n'
+            'blocker_kind: "network_is_weird"\n'
+            'description: "Need help."\n'
+            'reasoning: "The AI operator cannot pick a safe next action."\n'
+            'requested_action: "Choose the next action."\n'
+            'created_at: "2026-05-17T00:00:00Z"\n'
+            "---\n",
+            "blocker_kind",
+        ),
+    ],
+)
+def test_current_artifact_front_matter_schema_errors_do_not_need_sqlite(
+    tmp_path: Path,
+    kind: str,
+    text: str,
+    expected_message: str,
+) -> None:
+    with pytest.raises(Exception) as exc_info:  # noqa: BLE001 - parser exposes schema errors as user-facing exceptions.
+        _parse_text(kind, tmp_path, text)
+    assert expected_message in str(exc_info.value)
+
+
 def test_operator_brief_scope_links_are_bounded(tmp_path: Path) -> None:
     text = (
         "---\n"
@@ -225,7 +376,7 @@ def test_operator_brief_context_budget_lines_is_schema_error(tmp_path: Path) -> 
 
 
 def test_legacy_sqlite_bootstrap_does_not_constrain_artifact_kind() -> None:
-    assert "artifact_kind TEXT NOT NULL CHECK" not in SCHEMA_SQL
+    pytest.skip("historical SQLite schema assertion quarantined")
 
 
 def publish(
@@ -693,26 +844,16 @@ def test_artifact_kind_rejects_truly_unknown_kind(tmp_path: Path) -> None:
 
 def test_workflow_validation_rejects_unknown_artifact_kind(tmp_path: Path) -> None:
     """validate_workflow rejects expected_artifacts with kinds outside the allowed set."""
-    init_repo(tmp_path)
     workflow = _minimal_workflow_for_kind("made_up", path="docs/kind-test/OUT.md")
-    rejected = run_cli(
-        tmp_path,
-        "workflow",
-        "validate",
-        str(_temp_workflow(tmp_path, workflow)),
-        check=False,
-    )
-    assert rejected["returncode"] == 8
-    error = rejected["error"]
-    assert isinstance(error, dict)
-    message = str(error.get("message", ""))
+    with pytest.raises(WorkflowError) as exc_info:
+        validate_workflow(workflow)
+    message = str(exc_info.value)
     assert "draft_job" in message
     assert "made_up" in message
 
 
 def test_workflow_validation_accepts_three_new_kinds(tmp_path: Path) -> None:
     """validate_workflow accepts support_ledger, action_item_ledger, and harness_improvement_proposal."""
-    init_repo(tmp_path)
     workflow: dict[str, object] = {
         "schema_version": "striatum.workflow.v1",
         "workflow_id": "kind-test-three",
@@ -813,30 +954,15 @@ def test_workflow_validation_accepts_three_new_kinds(tmp_path: Path) -> None:
         "edges": [],
         "cycles": [],
     }
-    accepted = run_cli(
-        tmp_path,
-        "workflow",
-        "validate",
-        str(_temp_workflow(tmp_path, workflow)),
-    )
-    assert accepted["returncode"] == 0
-    assert data(accepted)["valid"] is True
+    validate_workflow(workflow)
 
 
 def test_workflow_validation_accepts_escalation_kind(tmp_path: Path) -> None:
     """validate_workflow accepts the RFC 0053 escalation artifact kind."""
-    init_repo(tmp_path)
     workflow = _minimal_workflow_for_kind(
         "escalation", path="docs/kind-test/ESCALATION.md"
     )
-    accepted = run_cli(
-        tmp_path,
-        "workflow",
-        "validate",
-        str(_temp_workflow(tmp_path, workflow)),
-    )
-    assert accepted["returncode"] == 0
-    assert data(accepted)["valid"] is True
+    validate_workflow(workflow)
 
 
 def test_escalation_front_matter_validates_human_principal_request(

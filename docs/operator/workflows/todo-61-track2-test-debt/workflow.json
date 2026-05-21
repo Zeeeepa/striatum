@@ -1,0 +1,398 @@
+{
+  "schema_version": "striatum.workflow.v1",
+  "workflow_id": "todo-61-track2-test-debt",
+  "workflow_version": "2026-05-21",
+  "name": "TODO 61 Track 2 test-debt reduction",
+  "context_docs": [
+    "README.md",
+    "docs/INDEX.md",
+    "docs/SPEC.md",
+    "docs/DECISION_LOG.md",
+    "docs/UBIQUITOUS_LANGUAGE.md",
+    "docs/TODO.md",
+    "docs/ROADMAP.md",
+    "docs/operator/BRIEF.md",
+    "docs/HOW_TO_AGENT.md",
+    "docs/operator/artifacts/todo-61-62-cleanup/plan/CLEANUP_PLAN.md",
+    "docs/operator/artifacts/todo-61-62-cleanup/final/SUMMARY.md",
+    "docs/rfcs/0068-go-production-daemon-port.md",
+    "docs/rfcs/0069-pg-only-daemon-global-surfaces.md",
+    "AGENTS.md"
+  ],
+  "coordinator": {
+    "role_id": "coordinator",
+    "lane_id": "codex"
+  },
+  "parallelism": {
+    "mode": "declared",
+    "max_active_jobs": 4,
+    "require_disjoint_write_scopes": true
+  },
+  "branch": {
+    "mode": "confirm",
+    "suggested_name": "striatum/todo-61-track2-test-debt",
+    "allow_dirty": true
+  },
+  "lanes": {
+    "codex": {
+      "adapter": "process",
+      "command": [
+        "bash",
+        "-lc",
+        "PYTHONPATH=src python3 -m striatum.cli skills install --profile all --scope user --force --json >/dev/null && export PATH=\"$PWD/.venv/bin:$PATH\" && exec .striatum/bin/codex-supervised-wrapper.sh"
+      ],
+      "model": "codex",
+      "display_model": "Codex",
+      "strategy_version": "2026-05-21",
+      "supervision": {
+        "compatible": true,
+        "stdin_format": "newline_delimited_json",
+        "wrapper_required": true
+      }
+    },
+    "claude_code": {
+      "adapter": "process",
+      "command": [
+        "bash",
+        "-lc",
+        "PYTHONPATH=src python3 -m striatum.cli skills install --profile all --scope user --force --json >/dev/null && export PATH=\"$PWD/.venv/bin:$PATH\" && exec .striatum/bin/claude-supervised-wrapper.sh"
+      ],
+      "model": "claude_code",
+      "display_model": "Claude Code",
+      "strategy_version": "2026-05-21",
+      "supervision": {
+        "compatible": "verify_pipe_behavior_first",
+        "stdin_format": "prompt_text",
+        "wrapper_required": true
+      }
+    },
+    "gemini": {
+      "adapter": "process",
+      "command": [
+        "bash",
+        "-lc",
+        "PYTHONPATH=src python3 -m striatum.cli skills install --profile all --scope user --force --json >/dev/null && export PATH=\"$PWD/.venv/bin:$PATH\" && exec .striatum/bin/gemini-supervised-wrapper.sh"
+      ],
+      "model": "gemini",
+      "display_model": "Gemini",
+      "strategy_version": "2026-05-21",
+      "supervision": {
+        "compatible": true,
+        "stdin_format": "prompt_text",
+        "wrapper_required": true
+      }
+    }
+  },
+  "roles": {
+    "coordinator": {
+      "description": "Operator/control-plane role."
+    },
+    "triager": {
+      "description": "Maps the bounded Track 2 legacy SQLite test-debt batch."
+    },
+    "implementer": {
+      "description": "Converts or quarantines legacy SQLite test fixture usage within a disjoint file batch."
+    },
+    "reviewer": {
+      "description": "Fresh-context reviewer for regression and authority-boundary risk."
+    }
+  },
+  "jobs": [
+    {
+      "id": "map_track2_imports",
+      "type": "synthesis",
+      "title": "Map Track 2 test debt batch",
+      "role_id": "triager",
+      "lane_id": "codex",
+      "fresh_session_required": true,
+      "objective": "Map the current legacy SQLite imports and fixture skips for the first TODO 61 Track 2 batch. Keep the scope to tests/test_cli_mvp.py, tests/test_service.py, tests/test_artifact_schemas.py, tests/test_process_adapter.py, and the architecture guardrail.",
+      "task_prompt": {
+        "path": "prompts/map_track2_imports.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/operator/artifacts/todo-61-track2-test-debt/map/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "track2_import_map",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/todo-61-track2-test-debt/map/MAP.md",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "convert_cli_mvp_batch",
+      "type": "build",
+      "title": "Convert CLI MVP legacy fixture imports",
+      "role_id": "implementer",
+      "lane_id": "codex",
+      "parallel_group": "track2_convert",
+      "fresh_session_required": true,
+      "required_review_postures": [
+        "custom:regression_risk",
+        "custom:authority_boundary"
+      ],
+      "objective": "Convert or quarantine legacy SQLite fixture imports in tests/test_cli_mvp.py without broadening production SQLite authority.",
+      "task_prompt": {
+        "path": "prompts/convert_cli_mvp_batch.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "tests/test_cli_mvp.py",
+          "docs/operator/artifacts/todo-61-track2-test-debt/build/cli_mvp/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "cli_mvp_handoff",
+          "kind": "handoff",
+          "path": "docs/operator/artifacts/todo-61-track2-test-debt/build/cli_mvp/HANDOFF.md",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "convert_service_batch",
+      "type": "build",
+      "title": "Convert service legacy fixture imports",
+      "role_id": "implementer",
+      "lane_id": "codex",
+      "parallel_group": "track2_convert",
+      "fresh_session_required": true,
+      "required_review_postures": [
+        "custom:regression_risk",
+        "custom:authority_boundary"
+      ],
+      "objective": "Convert or quarantine legacy SQLite fixture imports in tests/test_service.py without broadening production SQLite authority.",
+      "task_prompt": {
+        "path": "prompts/convert_service_batch.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "tests/test_service.py",
+          "docs/operator/artifacts/todo-61-track2-test-debt/build/service/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "service_handoff",
+          "kind": "handoff",
+          "path": "docs/operator/artifacts/todo-61-track2-test-debt/build/service/HANDOFF.md",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "convert_artifact_process_batch",
+      "type": "build",
+      "title": "Convert artifact/process legacy fixture imports",
+      "role_id": "implementer",
+      "lane_id": "codex",
+      "parallel_group": "track2_convert",
+      "fresh_session_required": true,
+      "required_review_postures": [
+        "custom:regression_risk",
+        "custom:authority_boundary"
+      ],
+      "objective": "Convert or quarantine legacy SQLite fixture imports in tests/test_artifact_schemas.py and tests/test_process_adapter.py without broadening production SQLite authority.",
+      "task_prompt": {
+        "path": "prompts/convert_artifact_process_batch.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "tests/test_artifact_schemas.py",
+          "tests/test_process_adapter.py",
+          "docs/operator/artifacts/todo-61-track2-test-debt/build/artifact_process/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "artifact_process_handoff",
+          "kind": "handoff",
+          "path": "docs/operator/artifacts/todo-61-track2-test-debt/build/artifact_process/HANDOFF.md",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "tighten_track2_guardrail",
+      "type": "build",
+      "title": "Tighten Track 2 architecture guardrail",
+      "role_id": "implementer",
+      "lane_id": "codex",
+      "fresh_session_required": true,
+      "required_review_postures": [
+        "custom:regression_risk",
+        "custom:authority_boundary"
+      ],
+      "objective": "Update the architecture guardrail to enforce the completed first Track 2 batch and document any residual legacy SQLite test-fixture imports as future batches.",
+      "task_prompt": {
+        "path": "prompts/tighten_track2_guardrail.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "tests/architecture/test_legacy_sqlite_quarantine.py",
+          "docs/operator/artifacts/todo-61-track2-test-debt/build/guardrail/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "guardrail_handoff",
+          "kind": "handoff",
+          "path": "docs/operator/artifacts/todo-61-track2-test-debt/build/guardrail/HANDOFF.md",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "review_track2_regression",
+      "type": "review",
+      "title": "Track 2 regression review",
+      "role_id": "reviewer",
+      "lane_id": "gemini",
+      "parallel_group": "track2_review",
+      "fresh_session_required": true,
+      "reviewer_context_policy": "fresh",
+      "review_posture": "custom:regression_risk",
+      "objective": "Verify that the first Track 2 batch reduces legacy SQLite test debt without breaking the focused converted tests or hiding failures with broad module-level skips.",
+      "task_prompt": {
+        "path": "prompts/review_track2_regression.md"
+      },
+      "write_scope": {
+        "mode": "review_only_artifact",
+        "repo_write": false,
+        "allowed_paths": [
+          "docs/operator/artifacts/todo-61-track2-test-debt/review/regression/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "track2_regression_review",
+          "kind": "finding",
+          "path": "docs/operator/artifacts/todo-61-track2-test-debt/review/regression/REVIEW.md",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "review_track2_authority",
+      "type": "review",
+      "title": "Track 2 authority-boundary review",
+      "role_id": "reviewer",
+      "lane_id": "claude_code",
+      "parallel_group": "track2_review",
+      "fresh_session_required": true,
+      "reviewer_context_policy": "fresh",
+      "review_posture": "custom:authority_boundary",
+      "objective": "Verify that the first Track 2 batch preserves daemon/PostgreSQL authority, keeps legacy SQLite isolated as explicit fixtures only, and does not decide TODO 55, 56, 59, or 60.",
+      "task_prompt": {
+        "path": "prompts/review_track2_authority.md"
+      },
+      "write_scope": {
+        "mode": "review_only_artifact",
+        "repo_write": false,
+        "allowed_paths": [
+          "docs/operator/artifacts/todo-61-track2-test-debt/review/authority/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "track2_authority_review",
+          "kind": "finding",
+          "path": "docs/operator/artifacts/todo-61-track2-test-debt/review/authority/REVIEW.md",
+          "required": true
+        }
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "from": "map_track2_imports",
+      "to": "convert_cli_mvp_batch",
+      "on": "completed"
+    },
+    {
+      "from": "map_track2_imports",
+      "to": "convert_service_batch",
+      "on": "completed"
+    },
+    {
+      "from": "map_track2_imports",
+      "to": "convert_artifact_process_batch",
+      "on": "completed"
+    },
+    {
+      "from": "convert_cli_mvp_batch",
+      "to": "tighten_track2_guardrail",
+      "on": "completed"
+    },
+    {
+      "from": "convert_service_batch",
+      "to": "tighten_track2_guardrail",
+      "on": "completed"
+    },
+    {
+      "from": "convert_artifact_process_batch",
+      "to": "tighten_track2_guardrail",
+      "on": "completed"
+    },
+    {
+      "from": "tighten_track2_guardrail",
+      "to": "review_track2_regression",
+      "on": "completed"
+    },
+    {
+      "from": "tighten_track2_guardrail",
+      "to": "review_track2_authority",
+      "on": "completed"
+    }
+  ],
+  "cycles": [
+    {
+      "from": "review_track2_regression",
+      "to": "tighten_track2_guardrail",
+      "on_verdict": "needs_revision",
+      "max_iterations": 1
+    },
+    {
+      "from": "review_track2_authority",
+      "to": "tighten_track2_guardrail",
+      "on_verdict": "needs_revision",
+      "max_iterations": 1
+    }
+  ]
+}

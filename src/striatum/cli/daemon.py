@@ -36,6 +36,7 @@ def dispatch_daemon(args: argparse.Namespace) -> Any:
 def run_go_daemon_foreground(
     *,
     postgres_url: str | None = None,
+    mcp_http_addr: str | None = None,
     sweep_interval_seconds: float = 60.0,
     max_sweeps: int | None = None,
 ) -> Any:
@@ -44,6 +45,8 @@ def run_go_daemon_foreground(
     command.extend(["--socket", str(socket_path())])
     if postgres_url:
         command.extend(["--postgres-url", postgres_url])
+    if mcp_http_addr:
+        command.extend(["--mcp-http-addr", mcp_http_addr])
     command.extend(["--sweep-interval-seconds", str(float(sweep_interval_seconds))])
     if max_sweeps is not None:
         command.extend(["--max-sweeps", str(max_sweeps)])
@@ -54,6 +57,7 @@ def run_go_daemon_foreground(
 def launch_daemon_start(args: argparse.Namespace) -> Any:
     return run_go_daemon_foreground(
         postgres_url=getattr(args, "postgres_url", None),
+        mcp_http_addr=getattr(args, "mcp_http_addr", None),
         sweep_interval_seconds=float(args.sweep_interval_seconds),
         max_sweeps=args.max_sweeps,
     )

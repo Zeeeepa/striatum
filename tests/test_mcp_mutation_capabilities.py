@@ -4,66 +4,13 @@ import json
 from pathlib import Path
 from typing import Any, cast
 
-from striatum.daemon_pg import client_admin as daemon
+from _harness.mcp import daemon_tool_specs
 from striatum.daemon_rpc.capability import authorize
 from striatum.daemon_rpc.capability import RpcAuthContext
 from striatum.daemon_rpc.envelope import RpcEnvelope, RpcError, RpcResponse
 from striatum.daemon_rpc.registry import CAPABILITIES, METHOD_REGISTRY, mcp_tool_descriptor
 from striatum.daemon_rpc.server import DaemonRpcRouter, LOCAL_FILE_AUTHORING_METHODS, PRODUCTION_MCP_HIDDEN_METHODS
 from striatum.daemon_pg.mcp_dispatch import dispatch_mcp_tool_call
-from striatum.mcp import DaemonRpcServer
-
-
-def test_daemon_mcp_resources_without_pg_conn_fails_closed_before_sqlite(
-    monkeypatch: Any,
-    tmp_path: Path,
-) -> None:
-    registry = tmp_path / "daemon" / "striatumd.sqlite3"
-    monkeypatch.setenv(daemon.ENV_REGISTRY, str(registry))
-    monkeypatch.setenv(daemon.ENV_RUNTIME, str(tmp_path / "runtime"))
-    monkeypatch.setenv("STRIATUM_DAEMON_REQUIRED", "1")
-    monkeypatch.delenv("STRIATUM_TEST_HARNESS", raising=False)
-    monkeypatch.setenv(daemon.ENV_SQLITE_CONNECT_TRIPWIRE, "1")
-
-    response = DaemonRpcServer().handle_request(
-        {
-            "jsonrpc": "2.0",
-            "id": "req-no-pg-list",
-            "method": "resources/list",
-            "params": {"token": "dtok.secret"},
-        }
-    )
-
-    assert response is not None
-    assert response["error"]["code"] == -32603
-    assert "daemon MCP resources require daemon PostgreSQL" in response["error"]["message"]
-    assert not registry.exists()
-
-
-def test_daemon_mcp_resource_read_without_pg_conn_fails_closed_before_sqlite(
-    monkeypatch: Any,
-    tmp_path: Path,
-) -> None:
-    registry = tmp_path / "daemon" / "striatumd.sqlite3"
-    monkeypatch.setenv(daemon.ENV_REGISTRY, str(registry))
-    monkeypatch.setenv(daemon.ENV_RUNTIME, str(tmp_path / "runtime"))
-    monkeypatch.setenv("STRIATUM_DAEMON_REQUIRED", "1")
-    monkeypatch.delenv("STRIATUM_TEST_HARNESS", raising=False)
-    monkeypatch.setenv(daemon.ENV_SQLITE_CONNECT_TRIPWIRE, "1")
-
-    response = DaemonRpcServer().handle_request(
-        {
-            "jsonrpc": "2.0",
-            "id": "req-no-pg-read",
-            "method": "resources/read",
-            "params": {"uri": "striatum://daemon/repos", "token": "dtok.secret"},
-        }
-    )
-
-    assert response is not None
-    assert response["error"]["code"] == -32603
-    assert "daemon MCP resources require daemon PostgreSQL" in response["error"]["message"]
-    assert not registry.exists()
 
 
 def test_authorize_refuses_malformed_tokens() -> None:
@@ -71,20 +18,6 @@ def test_authorize_refuses_malformed_tokens() -> None:
         auth = authorize(object(), required="read", repository_id=None, token=token)
         assert auth.decision == "denied"
         assert auth.denial_reason == "token_malformed"
-
-
-def test_daemon_mcp_denies_legacy_invoke() -> None:
-    response = DaemonRpcServer().handle_request(
-        {
-            "jsonrpc": "2.0",
-            "id": 1,
-            "method": "striatum/invoke",
-            "params": {"args": ["status"]},
-        }
-    )
-
-    assert response is not None
-    assert response["error"]["code"] == -32601
 
 
 def _method_contract() -> dict[str, dict[str, Any]]:
@@ -153,7 +86,7 @@ def test_daemon_mcp_tools_list_filters_by_capability(monkeypatch) -> None:  # ty
 
     monkeypatch.setattr("striatum.daemon_rpc.capability.authorize", fake_authorize)
 
-    tools = DaemonRpcServer(pg_conn=object()).daemon_tool_specs({"token": "dtok.secret", "repository_id": "repo_a"})
+    tools = daemon_tool_specs(object(), {"token": "dtok.secret", "repository_id": "repo_a"})
 
     names = {tool["name"] for tool in tools}
     assert "status" in names
@@ -181,7 +114,7 @@ def test_daemon_mcp_tools_match_registered_non_deprecated_authorized_methods(mon
 
     monkeypatch.setattr("striatum.daemon_rpc.capability.authorize", fake_authorize)
 
-    tools = DaemonRpcServer(pg_conn=object()).daemon_tool_specs({"token": "dtok.secret", "repository_id": "repo_a"})
+    tools = daemon_tool_specs(object(), {"token": "dtok.secret", "repository_id": "repo_a"})
 
     names = {tool["name"] for tool in tools}
     assert names == _expected_daemon_mcp_tools(allowed_capabilities)
@@ -211,7 +144,7 @@ def test_daemon_mcp_tools_list_excludes_removed_dogfood_composites(monkeypatch) 
 
     monkeypatch.setattr("striatum.daemon_rpc.capability.authorize", fake_authorize)
 
-    tools = DaemonRpcServer(pg_conn=object()).daemon_tool_specs({"token": "dtok.secret", "repository_id": "repo_a"})
+    tools = daemon_tool_specs(object(), {"token": "dtok.secret", "repository_id": "repo_a"})
 
     names = {tool["name"] for tool in tools}
     assert "dogfood.surgical_recovery" not in names
@@ -242,13 +175,12 @@ def test_daemon_mcp_tools_call_reauthorizes_and_audits_denial(monkeypatch) -> No
     monkeypatch.setattr("striatum.daemon_rpc.request_log.append_audit_row", fake_append_audit_row)
     monkeypatch.setattr("striatum.daemon_rpc.request_log.append_request_log", fake_append_request_log)
 
-    result = DaemonRpcServer(pg_conn=object()).call_daemon_tool(
-        {
-            "name": "publish_artifact",
-            "token": "dtok.secret",
-            "request_id": "req-1",
-            "arguments": {"repository_id": "repo_a"},
-        }
+    result = dispatch_mcp_tool_call(
+        pg_conn=object(),
+        name="publish_artifact",
+        token="dtok.secret",
+        request_id="req-1",
+        arguments={"repository_id": "repo_a"},
     )
 
     assert result["isError"] is True
@@ -270,8 +202,12 @@ def test_daemon_mcp_retired_apply_reviewed_patch_is_default_denied_and_audited(m
     monkeypatch.setattr("striatum.daemon_rpc.request_log.append_audit_row", fake_append_unknown_audit_row)
     monkeypatch.setattr("striatum.daemon_rpc.request_log.append_request_log", lambda *args, **kwargs: None)
 
-    result = DaemonRpcServer(pg_conn=object()).call_daemon_tool(
-        {"name": "apply.reviewed_patch", "request_id": "req-2", "arguments": {"repository_id": "repo_a"}}
+    result = dispatch_mcp_tool_call(
+        pg_conn=object(),
+        name="apply.reviewed_patch",
+        token=None,
+        request_id="req-2",
+        arguments={"repository_id": "repo_a"},
     )
 
     assert result["isError"] is True

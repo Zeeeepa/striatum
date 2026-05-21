@@ -61,15 +61,9 @@ func (s Service) Add(ctx context.Context, envelope rpc.Envelope) (map[string]any
 	}
 	if existing != nil {
 		existing["already_registered"] = true
-		return map[string]any{
-			"repository_id":      existing["repository_id"],
-			"repo_root":          existing["repo_root"],
-			"repo_identity":      existing["repo_identity"],
-			"state_db_path":      existing["state_db_path"],
-			"schema_version":     existing["last_schema_version"],
-			"state":              existing["state"],
-			"already_registered": true,
-		}, nil
+		result := publicRepository(existing)
+		result["already_registered"] = true
+		return result, nil
 	}
 	pathExisting, err := findByRoot(ctx, s.Runner, repo, false)
 	if err != nil {
@@ -120,7 +114,11 @@ func (s Service) List(ctx context.Context, envelope rpc.Envelope) (map[string]an
 	if err != nil {
 		return nil, err
 	}
-	return map[string]any{"repositories": rows}, nil
+	repositories := make([]map[string]any, 0, len(rows))
+	for _, row := range rows {
+		repositories = append(repositories, publicRepository(row))
+	}
+	return map[string]any{"repositories": repositories}, nil
 }
 
 func (s Service) Resolve(ctx context.Context, envelope rpc.Envelope) (map[string]any, error) {
@@ -248,7 +246,7 @@ func publicRepository(row map[string]any) map[string]any {
 		"repository_id":  row["repository_id"],
 		"repo_root":      row["repo_root"],
 		"repo_identity":  row["repo_identity"],
-		"state_db_path":  row["state_db_path"],
+		"state_db_path":  projectedStateDBPath(row),
 		"display_name":   row["display_name"],
 		"registered_at":  row["registered_at"],
 		"removed_at":     row["removed_at"],
@@ -256,6 +254,18 @@ func publicRepository(row map[string]any) map[string]any {
 		"schema_version": row["last_schema_version"],
 		"state":          row["state"],
 	}
+}
+
+func projectedStateDBPath(row map[string]any) any {
+	statePath, ok := row["state_db_path"].(string)
+	if !ok || statePath == "" {
+		return row["state_db_path"]
+	}
+	cleaned := filepath.Clean(statePath)
+	if filepath.Base(cleaned) == "state.sqlite3" && filepath.Base(filepath.Dir(cleaned)) == ".striatum" {
+		return filepath.Dir(cleaned)
+	}
+	return row["state_db_path"]
 }
 
 func queryRows(ctx context.Context, runner db.Runner, sql string, args ...any) ([]map[string]any, error) {

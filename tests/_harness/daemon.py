@@ -30,17 +30,13 @@ def _resolve_go_binary() -> Path:
     if override:
         binary = Path(override)
         if not binary.exists():
-            raise RuntimeError(
-                f"{_GO_BIN_ENV}={override} but the binary is not present on disk"
-            )
+            raise RuntimeError(f"{_GO_BIN_ENV}={override} but the binary is not present on disk")
         return binary
     binary = _DEFAULT_GO_BIN
     if binary.exists():
         return binary
     if not _GO_DIR.is_dir():
-        raise RuntimeError(
-            f"Go daemon source tree is missing at {_GO_DIR}; cannot build striatumd"
-        )
+        raise RuntimeError(f"Go daemon source tree is missing at {_GO_DIR}; cannot build striatumd")
     if shutil.which("make") is None or shutil.which("go") is None:
         raise RuntimeError(
             "make and go must be available to build the striatumd binary; "
@@ -52,9 +48,7 @@ def _resolve_go_binary() -> Path:
         cwd=ROOT,
     )
     if not binary.exists():
-        raise RuntimeError(
-            f"`make -C {_GO_DIR} build` completed but {binary} is missing"
-        )
+        raise RuntimeError(f"`make -C {_GO_DIR} build` completed but {binary} is missing")
     return binary
 
 
@@ -89,6 +83,14 @@ class DaemonProcess:
     def socket_path(self) -> Path:
         return self._socket_path
 
+    @property
+    def mcp_endpoint_path(self) -> Path:
+        return self._socket_path.parent / "mcp-http-endpoint"
+
+    @property
+    def mcp_endpoint(self) -> str:
+        return self.mcp_endpoint_path.read_text(encoding="utf-8").strip()
+
     def start(self) -> None:
         if self.process is not None and self.process.poll() is None:
             raise RuntimeError("daemon process is already running")
@@ -115,9 +117,9 @@ class DaemonProcess:
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
         )
-        self._wait_for_socket()
+        self._wait_for_startup()
 
-    def _wait_for_socket(self) -> None:
+    def _wait_for_startup(self) -> None:
         proc = self.process
         assert proc is not None
         deadline = time.monotonic() + 10
@@ -128,10 +130,10 @@ class DaemonProcess:
                     f"daemon ({self.daemon_core}) exited during startup\n"
                     f"stdout={stdout}\nstderr={stderr}"
                 )
-            if self.socket_path.exists():
+            if self.socket_path.exists() and self.mcp_endpoint_path.exists():
                 return
             time.sleep(0.05)
-        raise RuntimeError("daemon socket did not appear before startup timeout")
+        raise RuntimeError("daemon socket and MCP endpoint did not appear before startup timeout")
 
     def stop(self) -> None:
         proc = self.process

@@ -1,279 +1,158 @@
 # Striatum MCP
 
-Status: daemon MCP is the production tool surface; local stdio wrapper is compatibility-only
-Updated: 2026-05-18
+Status: native Go daemon HTTP/SSE MCP is the production tool surface
+Updated: 2026-05-20
 
 ## Overview
 
-Striatum is a local-first orchestration tool. Production MCP tool discovery
-and invocation are daemon surfaces: `tools/list` is generated from the daemon
-method registry and capability-filtered per token, and `tools/call`
-re-authorizes through daemon RPC.
+Striatum's MCP surface is served by the local Go `striatumd` daemon. The
+transport is HTTP plus Server-Sent Events on loopback only. Tool discovery
+comes from the daemon method registry, is filtered by the caller's capability
+token, and every `tools/call` re-enters daemon RPC with normal authorization,
+request logging, and audit behavior.
 
-The Python stdio wrapper exists for local JSON-RPC framing compatibility and
-manual scripts. It is not a production tool-discovery surface and does not
-advertise CLI-shaped aliases.
+The retired Python `striatum.mcp` stdio wrapper is no longer part of the
+product surface. Agents should connect to the running daemon instead of
+spawning a proxy process.
 
-## Architecture
+## Endpoint
 
-Striatum can run as a local stdio JSON-RPC server:
+`striatumd` starts the MCP HTTP listener by default on an ephemeral loopback
+port. The daemon writes the active SSE endpoint to the owner-only runtime file:
 
-- **Transport:** JSON-RPC over stdio.
-- **Request framing:** Content-Length headers by default, with line-delimited
-  fallback. See [Framing](#framing) below.
-- **Root Directory:** start it inside, or pass `--repo` for, the target
-  repository.
-- **State authority:** daemon-owned PostgreSQL scoped to the registered
-  target repository. `.striatum/` beside the target repo is operational
-  scratch only.
+```text
+$STRIATUM_DAEMON_RUNTIME_DIR/mcp-http-endpoint
+```
 
-Development command:
+If `STRIATUM_DAEMON_RUNTIME_DIR` is unset, the runtime directory follows the
+same daemon token/socket rules documented in `docs/POSTGRES_TRANSITION.md`.
+The file contains a single URL such as:
+
+```text
+http://127.0.0.1:43127/mcp/sse
+```
+
+The listener can be configured with:
 
 ```bash
-PYTHONPATH=src python3 -m striatum.mcp --repo /path/to/target/repository
+striatumd --mcp-http-addr 127.0.0.1:8765
+STRIATUM_DAEMON_MCP_HTTP_ADDR=127.0.0.1:8765 striatumd
 ```
 
-Installed checkouts can use the same module through the installed Python
-environment:
+Use `--mcp-http-addr off` to disable the listener. Non-loopback bind addresses
+are refused.
 
-```bash
-python3 -m striatum.mcp --repo /path/to/target/repository
+## Protocol
+
+The SSE stream opens at:
+
+```http
+GET /mcp/sse
 ```
 
-## Framing
+The first event is `endpoint`; its data is a relative message URL:
 
-The wrapper supports two on-the-wire framings and detects which one to use
-from the very first inbound message:
-
-- **`framed`** -- LSP/MCP-style. Each JSON-RPC body is preceded by a
-  `Content-Length: N\r\n\r\n` header. This is the only safe shape for bodies
-  that contain newlines and is what real MCP clients (Claude Desktop, IDE
-  MCP integrations) speak. Standard MCP clients should now connect cleanly.
-- **`line`** -- legacy local shape. One JSON-RPC object per text line. Used
-  by the existing tests and hand-rolled local scripts.
-
-In the default `auto` mode, the first message determines the shape: if it
-starts with a `Content-Length:` header, both reads and writes lock into
-framed mode; otherwise they lock into line mode. The shape is then stable
-for the remainder of the session, so a real MCP client and a legacy
-line-delimited script both get a coherent server.
-
-Operators can pin either mode explicitly:
-
-```bash
-python3 -m striatum.mcp --framing framed --repo /path/to/target/repository
-python3 -m striatum.mcp --framing line   --repo /path/to/target/repository
-python3 -m striatum.mcp --framing auto   --repo /path/to/target/repository  # default
+```text
+event: endpoint
+data: /mcp/messages?session_id=<session>
 ```
 
-Framed write shape (header lines use CRLF, body has no trailing newline):
+Clients then send JSON-RPC requests to that URL:
 
-```
-Content-Length: 64\r\n
-\r\n
-{"jsonrpc":"2.0","id":1,"result":{"serverInfo":{"name":"..."}}}
+```http
+POST /mcp/messages?session_id=<session>
+Authorization: Bearer <capability-token>
+Content-Type: application/json
 ```
 
-The local stdio compatibility server supports these JSON-RPC methods:
+Responses are delivered on the SSE stream as `message` events. For test and
+diagnostic clients, `POST /mcp/sse` without a session id returns the JSON-RPC
+response body directly as `application/json`.
+
+Supported MCP methods:
 
 - `initialize`
-- `tools/list` (returns an empty list)
-- `tools/call` (returns `local_tools_unavailable`)
-- `resources/list`
-- `resources/read`
-- `striatum/invoke`
+- `notifications/initialized`
+- `tools/list`
+- `tools/call`
 
-`striatum/invoke` accepts raw CLI-style args:
+## Authentication
 
-```json
-{"jsonrpc":"2.0","id":1,"method":"striatum/invoke","params":{"args":["status"]}}
+Use a daemon capability token in the HTTP `Authorization` header:
+
+```http
+Authorization: Bearer dtok_...
 ```
 
-## Tools
+Tokens are the same daemon tokens used by Unix-socket RPC. The daemon runtime
+`client-token` is not automatically applied to arbitrary clients; a supervisor
+or operator must pass token material explicitly.
 
-Local stdio `tools/list` returns an empty list and `tools/call` returns a
-structured `local_tools_unavailable` result. This prevents old CLI-shaped
-aliases such as `status`, `run_prepare`, and `publish_artifact` from looking
-like the production MCP surface.
+`tools/list` accepts an optional `repository_id`. Single-repository tools are
+listed only when the token is authorized for that repository. `tools/call`
+also accepts `repository_id` at the method params level and copies it into the
+tool `arguments` object when the caller did not already provide one.
 
-Compatibility/manual clients can still use `striatum/invoke` for raw
-CLI-style arguments. Daemon-mapped commands route through daemon RPC in
-production; explicit test-harness fallbacks remain test-only.
+## Tool Calls
 
-```json
-{"jsonrpc":"2.0","id":2,"method":"striatum/invoke","params":{"args":["status"]}}
-```
+`tools/list` returns daemon methods that are all of:
 
-The JSON-RPC result uses Striatum's standard `{ok, data | error}` envelope:
+- present in `contracts/daemon_methods.json`,
+- non-deprecated,
+- not internal `daemon.*` handshake methods,
+- not hidden local workflow-authoring methods,
+- authorized by the supplied token and repository scope.
 
-```json
-{"ok":true,"data":{"runs":[]}}
-```
-
-Command validation and workflow errors are returned inside that envelope rather
-than by bypassing Striatum's normal exit-code semantics.
-
-## Dogfood-Lifecycle Tools
-
-RFC 0040 V1 adds twelve chat-tool entries that mirror the operator
-sequence used to drive a dogfood end-to-end. The local web chat
-surface (`striatum serve --web --allow-mutations`) exposes them in
-its tool list; ten are mutation-gated and require `--allow-mutations`,
-two are read-shaped and stay available without it.
-
-| Tool | Mutation? | Underlying CLI verb | Required capability* |
-|------|-----------|---------------------|----------------------|
-| `run_prepare(workflow_path)` | yes | `striatum run prepare --workflow` | `write` |
-| `run_start(run_id)` | yes | `striatum run start --run-id` | `write` |
-| `register_session(run_id, role, lane, fresh?, parent_session_id?, operator_label?, capabilities?)` | yes | `striatum register-session` | `write` |
-| `supervise_start(session_id)` | yes | `striatum supervise start --session-id` | `write` |
-| `claim_next(session_id, lease_seconds?)` | yes | `striatum claim-next` | `claim` |
-| `ack(session_id, message_id, lease_id)` | yes | `striatum ack` | `write` |
-| `publish_artifact(session_id, job_id, lease_id, kind, logical_name, path)` | yes | `striatum publish-artifact` | `write` |
-| `verdict(session_id, job_id, lease_id, verdict, findings_artifact_id?, rationale?)` | yes | `striatum verdict` | `review` |
-| `complete(session_id, job_id, lease_id, summary?)` | yes | `striatum complete` | `write` |
-| `supervise_stop(session_id, reason)` | yes | `striatum supervise stop` | `write` |
-| `run_summary(run_id, path)` | no | `striatum run summary` | `read` |
-| `evidence_export(run_id, path)` | no | `striatum evidence export` | `read` |
-
-\* The `required capability` column lists the daemon-RPC capability
-the matching RPC method already requires (see
-[`src/striatum/daemon_rpc/registry.py`](../src/striatum/daemon_rpc/registry.py)).
-The local web chat surface is owner-only and reuses the mutation gate
-instead of token capabilities; when the daemon serves these tools
-through its MCP transport, `tools/list` filtering applies normally.
-
-Each local owner/test chat tool can shell through the local CLI/API wrapper.
-Production daemon MCP/chat calls dispatch through daemon RPC and the daemon's
-audit chain.
-The historical RFC 0040 composite operator tools
-(`dogfood.publish_on_behalf`, `dogfood.surgical_recovery`) are absent from the
-production daemon method contract because their original implementation was
-SQLite-bound. Calls to those names return `method_unknown`. Use primitive
-daemon methods (`ack`, `publish_artifact`, `verdict`/`complete`, and ordinary
-recovery tools) until a PostgreSQL-native composite is accepted.
-
-### Example chat-tool sequence
-
-The operator session would call these in order to drive a one-job
-dogfood through to completion:
-
-1. `run_prepare(workflow_path="docs/dogfood/0NN/workflow.json")`
-   → `{"run_id": "run_…"}`.
-2. `run_start(run_id="run_…")`.
-3. `register_session(run_id="run_…", role="implementer", lane="claude_code", fresh=true)`
-   → `{"session_id": "sess_…"}`.
-4. `supervise_start(session_id="sess_…")`.
-5. `claim_next(session_id="sess_…")`
-   → `{"packet_id": …, "lease": {"lease_id": "lease_…"}, "message_id": …}`.
-6. (Implementer writes the artifact; if `striatum ack` is denied:)
-   `ack(session_id, message_id, lease_id)` from the operator session.
-7. `publish_artifact(session_id, job_id, lease_id, kind, logical_name, path)`.
-8. `complete(session_id, job_id, lease_id, summary="…")`.
-9. `supervise_stop(session_id, reason="…")`, then
-   `run_summary` + `evidence_export` to capture the artifacts.
-
-The local stdio MCP wrapper no longer exposes CLI-shaped compatibility tools:
-`tools/list` is empty and `tools/call` returns `local_tools_unavailable`.
-Live operation discovery is the daemon MCP surface; web chat/tool-list clients
-use the daemon contract and capability filtering rather than local aliases.
-
-## Resources
-
-The wrapper exposes read-only resources that also map to existing commands:
-
-- `striatum://status`
-- `striatum://status?run_id=<run-id>`
-- `striatum://doctor`
-- `striatum://doctor?run_id=<run-id>`
-- `striatum://why/<id>`
-
-Example:
+Example direct diagnostic request:
 
 ```json
-{"jsonrpc":"2.0","id":3,"method":"resources/read","params":{"uri":"striatum://status"}}
+{"jsonrpc":"2.0","id":"tools","method":"tools/list","params":{"repository_id":"repo_123"}}
 ```
+
+`tools/call` dispatches through daemon RPC. The result uses MCP tool result
+shape with Striatum details in `structuredContent`:
+
+```json
+{
+  "content": [{"type": "text", "text": "status"}],
+  "structuredContent": {
+    "ok": true,
+    "method": "status",
+    "audit_id": "audit_..."
+  },
+  "isError": false
+}
+```
+
+Denied calls fail closed and audit under `transport = "mcp"`. Common denial
+codes include `token_missing`, `token_malformed`, `token_invalid`,
+`token_revoked`, `token_expired`, `capability_missing`,
+`capability_scope_mismatch`, `capability_expired`, `repo_not_registered`, and
+`method_unknown`.
+
+## Agent Loop
+
+The Go `--agent-loop` mode is a PTY supervisor only. It starts the configured
+agent command, exports the daemon MCP endpoint in `STRIATUM_MCP_URL`, passes
+token material through `STRIATUM_MCP_TOKEN` or `STRIATUM_MCP_TOKEN_FILE`, and
+injects a bootstrap prompt.
+
+The supervisor does not call `work.await_packet`, claim work, complete work,
+release work, or write packet JSON. The agent is responsible for using MCP:
+
+1. call `tools/list`,
+2. call `work.await_packet` with `repository_id`, `session_id`, and
+   `lease_seconds`,
+3. use packet-provided commands and write scope,
+4. report state with MCP tools such as `work.ack`, `artifact.publish`,
+   `review.verdict`, `work.complete`, or `work.release`.
 
 ## Boundary
 
-The wrapper deliberately avoids hosted services, network listening sockets,
-telemetry, transcript capture, external persistence, and direct database
-writes. It is a local compatibility adapter over resource reads and explicit
-manual `striatum/invoke` requests.
+The MCP server is local-only and daemon-owned. It does not introduce hosted
+services, telemetry, transcript capture, external persistence, direct database
+writes outside daemon RPC, marker-file state, or terminal-output state.
 
-## Daemon MCP Surface
-
-Daemon MCP is a daemon RPC client surface over the daemon-owned
-PostgreSQL substrate. It is not the old resources-only registry handler:
-`tools/list` returns the caller's effective supported production tools,
-`tools/call` dispatches through daemon RPC, and every call is re-authorized
-under the provided token and repository scope. Denied calls append
-metadata-only audit/request-log rows with `transport = "mcp"`.
-There is no MCP-specific trust shortcut and no daemon-MCP equivalent of
-`serve --allow-mutations`.
-
-Daemon resources:
-
-- `striatum://daemon/repos`
-- `striatum://daemon/dashboard`
-- `striatum://repo/<repository_id>/status`
-- `striatum://repo/<repository_id>/doctor`
-- `striatum://repo/<repository_id>/runs`
-- `striatum://repo/<repository_id>/run/<run_id>`
-- `striatum://repo/<repository_id>/run/<run_id>/why?id=<id>`
-- `striatum://repo/<repository_id>/blockers`
-- `striatum://repo/<repository_id>/stale-leases`
-
-Every daemon MCP `resources/list` and `resources/read` request requires
-an explicit `token` parameter. The token must have `read` capability:
-global read tokens see every active repository, while repo-scoped read
-tokens see only resources for their repository ids and are denied when
-reading another repository. The daemon runtime `client-token` file is not
-implicitly applied to MCP clients. `striatum://daemon/audit` is
-intentionally absent in V1; audit is available only through daemon admin
-CLI registry surfaces.
-
-Daemon MCP mutation capabilities use the closed RFC 0032 vocabulary:
-`read`, `write`, `review`, `claim`, `apply`, `admin`, `recovery`, and
-`surgical_recovery`.
-`tools/list` returns the effective supported production tool set: method
-registry entries intersected with the token's grants, repository scope, and
-the production-support visibility filter. Local workflow-file authoring
-methods are hidden from discovery. Removed dogfood composite names audit as
-`method_unknown`; hidden registered methods still re-authorize and fail
-closed/audit when called directly. `tools/call` also fails closed for unknown
-methods, missing tokens, revoked/expired tokens, missing capabilities,
-expired capabilities, and repository scope mismatches. Repo-scoped `apply`
-grants remain single-repo; a token that can apply in repo A cannot apply in
-repo B.
-
-Striatum's MCP and chat tool surfaces do **not** include any `memory.*`
-capability. Engram (under RFC 0044) defines its own `memory.read_striatum`,
-`memory.describe`, and related capabilities locally inside Engram's own
-MCP server (`engram-mcp-stdio`), wired by the operator out of band.
-Striatum's daemon registry, chat tools, and CLI do not import an Engram
-client and do not call any retrieval surface during state transitions;
-see [`docs/SPEC.md` § Corpus Export And Augmentation Boundary](SPEC.md)
-and [RFC 0057](rfcs/0057-corpus-contract-v2.md).
-
-## Mutation Surface For Agents
-
-RFC 0036 adds an agent-facing `striatum-mcp` skill and chat workflow
-generation tools over the existing surfaces. Agents should call
-`tools/list` first because it is the effective supported production tool set
-for the current token. `tools/call` remains the authorization boundary and
-re-checks every call.
-
-Workflow generation follows preview-then-write. `generate_workflow_preview`
-writes nothing and returns the generated workflow, files, graph metadata,
-warnings, and validation. `generate_workflow_write` is hidden unless the
-service was started with `--allow-mutations`; if a stale or crafted call
-reaches the server anyway, it returns `mutations_disabled`. Even when
-visible, writes require `confirm_write: true` and a separate operator
-confirmation gesture in the chat UI.
-
-Denials are recovery instructions, not retry loops: ask for a narrow token
-on `capability_missing`, stop on `token_revoked`, ask for a fresh token on
-`token_expired`, inspect `tools/list` / `daemon.describe` on
-`method_unknown`, and restart the local service with `--allow-mutations`
-only if the operator actually wants writes.
+Repository files remain provenance; PostgreSQL remains live workflow state.
+`.striatum/` beside a target repository is operational scratch, not an MCP
+message bus.

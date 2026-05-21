@@ -1,16 +1,13 @@
 # ruff: noqa
 """Parity helpers for Track B recovery + evidence handler tests.
 
-This conftest exposes three things to the seven per-method test files:
+This conftest exposes PostgreSQL fixtures for the per-method test files:
 
 1. ``pg_ctx`` — a :class:`RepoHandlerContext` bound to an ephemeral
    PostgreSQL database with the latest migrations applied.
-2. ``sqlite_conn`` — a fresh SQLite connection migrated to the same
-   schema version the CLI uses today.
-3. ``parity_seed`` — a small ``Seed`` object that writes the same fixture
-   shape into both stores so handlers can be invoked on each side and
-   asserted byte-equal (the synthesis "byte-identical state vs the
-   SQLite-backed equivalent on the same input fixture" contract).
+
+``sqlite_conn`` is retained only as a skipped historical fixture for tests
+that still explicitly request the retired repo-local SQLite substrate.
 
 Per RFC 0048 V1.5 #1 the parity rig is now fully unblocked — Track A's
 remaining handlers (``record_verdict``, ``submit_review``,
@@ -19,7 +16,6 @@ imports cleanly without the historical workflow-loop stubs.
 """
 
 from __future__ import annotations
-import pytest; pytest.skip("legacy sqlite eradicated", allow_module_level=True)
 
 import importlib
 import sqlite3
@@ -129,6 +125,10 @@ def pg_ctx(pg_db: Any, tmp_path: Path) -> Any:
 @pytest.fixture
 def sqlite_conn(tmp_path: Path) -> Iterator[sqlite3.Connection]:
     """Return a fresh SQLite connection at the latest schema version."""
+    pytest.skip(
+        "historical repo-local SQLite recovery evidence fixture quarantined "
+        "after Go/PG cutover"
+    )
     repo = tmp_path / "repo"
     (repo / ".striatum").mkdir(parents=True)
     from striatum.legacy_sqlite.db import connect

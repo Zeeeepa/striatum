@@ -9,6 +9,7 @@ import (
 type Tool struct {
 	Name                string `json:"name"`
 	Description         string `json:"description"`
+	InputSchema         map[string]any `json:"inputSchema"`
 	RequiredCapability  string `json:"required_capability"`
 	RepositoryScopeMode string `json:"repository_scope_mode"`
 }
@@ -30,11 +31,26 @@ func VisibleTools(ctx context.Context, authorizer rpc.Authorizer, token string, 
 		tools = append(tools, Tool{
 			Name:                entry.Method,
 			Description:         "Striatum daemon RPC method " + entry.Method,
+			InputSchema:         inputSchema(entry),
 			RequiredCapability:  string(*entry.RequiredCapability),
 			RepositoryScopeMode: string(entry.RepositoryScopeMode),
 		})
 	}
 	return tools
+}
+
+func inputSchema(entry rpc.MethodEntry) map[string]any {
+	schema := map[string]any{
+		"type":                 "object",
+		"additionalProperties": true,
+		"properties": map[string]any{
+			"repository_id": map[string]any{"type": "string"},
+		},
+	}
+	if entry.RepositoryScopeMode == rpc.ScopeSingleRepo {
+		schema["required"] = []string{"repository_id"}
+	}
+	return schema
 }
 
 func isInternal(method string) bool {

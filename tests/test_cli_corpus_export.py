@@ -1,6 +1,8 @@
 # ruff: noqa
 from __future__ import annotations
-import pytest; pytest.skip("legacy sqlite eradicated", allow_module_level=True)
+import pytest
+
+pytest.skip("legacy sqlite eradicated", allow_module_level=True)
 
 import json
 import os
@@ -67,7 +69,9 @@ def test_corpus_export_cli_success_and_manifest(tmp_path: Path) -> None:
 def test_corpus_export_invalid_since_returns_json_error_code_8(tmp_path: Path) -> None:
     _git_repo(tmp_path)
     _legacy_init_repo(tmp_path)
-    payload = _run(tmp_path, "corpus", "export", "--since", "missing-ref", "--out", "exports", check=False)
+    payload = _run(
+        tmp_path, "corpus", "export", "--since", "missing-ref", "--out", "exports", check=False
+    )
     assert payload["ok"] is False
     assert payload["returncode"] == 8
     assert payload["error"]["code"] == 8
@@ -93,11 +97,12 @@ def test_no_engram_imports_or_memory_capabilities_in_striatum() -> None:
         ROOT / "src/striatum/cli",
         ROOT / "src/striatum/daemon_rpc",
         ROOT / "src/striatum/daemon_pg",
-        ROOT / "src/striatum/mcp.py",
         ROOT / "src/striatum/service.py",
     ]
     bodies = "\n".join(
-        path.read_text(encoding="utf-8") if path.is_file() else "\n".join(p.read_text(encoding="utf-8") for p in path.rglob("*.py"))
+        path.read_text(encoding="utf-8")
+        if path.is_file()
+        else "\n".join(p.read_text(encoding="utf-8") for p in path.rglob("*.py"))
         for path in paths
     )
     assert "import engram" not in bodies

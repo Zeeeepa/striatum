@@ -58,8 +58,21 @@ func (a AuditRecorder) RecordRPC(
 	auth rpc.AuthContext,
 	response rpc.Response,
 ) (string, error) {
+	return a.RecordRPCTransport(ctx, envelope, auth, response, "rpc")
+}
+
+func (a AuditRecorder) RecordRPCTransport(
+	ctx context.Context,
+	envelope rpc.Envelope,
+	auth rpc.AuthContext,
+	response rpc.Response,
+	transport string,
+) (string, error) {
 	if a.Runner == nil {
 		return "", nil
+	}
+	if transport == "" {
+		transport = "rpc"
 	}
 	paramsHash, err := CanonicalHash(envelope.Params)
 	if err != nil {
@@ -135,7 +148,7 @@ func (a AuditRecorder) RecordRPC(
 		"method":              envelope.Method,
 		"decision":            auth.Decision,
 		"denial_reason":       nullString(auth.DenialReason),
-		"transport":           "rpc",
+		"transport":           transport,
 		"request_id":          envelope.RequestID,
 		"exit_code":           exitCodeForHash,
 		"params_sha256":       paramsHash,
@@ -158,8 +171,8 @@ func (a AuditRecorder) RecordRPC(
 		) VALUES (
 			$1, 1, 2, $2,
 			$3, $4, $5, $6, $7,
-			'rpc', $8, $9, $10, $11,
-			$12, $13
+			$8, $9, $10, $11, $12,
+			$13, $14
 		) RETURNING audit_id`,
 		tsString,
 		a.DaemonVersion,
@@ -168,6 +181,7 @@ func (a AuditRecorder) RecordRPC(
 		envelope.Method,
 		auth.Decision,
 		nullString(auth.DenialReason),
+		transport,
 		envelope.RequestID,
 		exitCodeValue,
 		paramsHash,

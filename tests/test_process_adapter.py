@@ -11,7 +11,6 @@ validation, blocker insertion, envelope shape, and recovery surface.
 """
 
 from __future__ import annotations
-import pytest; pytest.skip("legacy sqlite eradicated", allow_module_level=True)
 
 import json
 import os
@@ -22,8 +21,6 @@ from pathlib import Path
 from typing import Any, cast
 
 import pytest
-
-from striatum.legacy_sqlite.db import connect
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -58,10 +55,10 @@ def test_adapter_run_is_retired_outside_legacy_test_harness(tmp_path: Path) -> N
         check=False,
     )
 
-    assert result.returncode == 8
+    assert result.returncode == 12
     payload = json.loads(result.stdout)
     assert payload["ok"] is False
-    assert "adapter run is retired" in payload["error"]["message"]
+    assert "adapter must route through daemon RPC" in payload["error"]["message"]
     assert not (tmp_path / ".striatum" / "state.sqlite3").exists()
 
 
@@ -175,12 +172,11 @@ def _build_workflow(
 def _start_with(repo: Path, workflow: JsonDict) -> tuple[str, str, str, str, str]:
     """Init, prepare, start, register, claim. Returns (run_id, session_id,
     job_id, lease_id, message_id)."""
+    pytest.skip("historical repo-local SQLite adapter-run fixture quarantined")
     _git_init_repo(repo)
     workflow_path = repo / "workflow.json"
     workflow_path.write_text(json.dumps(workflow), encoding="utf-8")
-    from striatum.legacy_sqlite.db import init_repo as legacy_init_repo
-
-    legacy_init_repo(repo)
+    raise AssertionError("unreachable after historical SQLite fixture skip")
     prepared = _data(_run_cli(repo, "run", "prepare", "--workflow", str(workflow_path)))
     run_id = str(prepared["run_id"])
     _run_cli(repo, "run", "start", "--run-id", run_id)
@@ -213,40 +209,15 @@ def _publish_artifact(repo: Path, session_id: str, job_id: str, lease_id: str,
 
 
 def _open_blocker(repo: Path, job_id: str) -> JsonDict | None:
-    with connect(repo) as conn:
-        row = conn.execute(
-            "SELECT blocker_id, blocker_kind, severity, state, payload_json "
-            "FROM blockers WHERE job_id = ? AND state = 'open' LIMIT 1",
-            (job_id,),
-        ).fetchone()
-    if row is None:
-        return None
-    return {
-        "blocker_id": row[0],
-        "blocker_kind": row[1],
-        "severity": row[2],
-        "state": row[3],
-        "payload": json.loads(row[4]),
-    }
+    pytest.skip("historical repo-local SQLite blocker fixture quarantined")
 
 
 def _job_state(repo: Path, job_id: str) -> str:
-    with connect(repo) as conn:
-        row = conn.execute("SELECT state FROM jobs WHERE job_id = ?", (job_id,)).fetchone()
-    assert row is not None
-    return str(row[0])
+    pytest.skip("historical repo-local SQLite job-state fixture quarantined")
 
 
 def _process_executions(repo: Path, run_id: str) -> list[JsonDict]:
-    with connect(repo) as conn:
-        rows = conn.execute(
-            "SELECT process_id, pid, state, exit_code FROM process_executions WHERE run_id = ?",
-            (run_id,),
-        ).fetchall()
-    return [
-        {"process_id": r[0], "pid": r[1], "state": r[2], "exit_code": r[3]}
-        for r in rows
-    ]
+    pytest.skip("historical repo-local SQLite process-execution fixture quarantined")
 
 
 # ----- 1. Happy path ------------------------------------------------------
@@ -609,23 +580,4 @@ def test_lane_env_unknown_variable_is_left_in_place() -> None:
 
 def test_migrations_v8_v9_idempotent(tmp_path: Path) -> None:
     """v8 + v9 migrations must be re-runnable on an already-migrated DB."""
-    from striatum.legacy_sqlite.db import init_repo as legacy_init_repo
-
-    legacy_init_repo(tmp_path)
-    db_path = tmp_path / ".striatum" / "state.sqlite3"
-    assert db_path.exists()
-    # Re-init touches the DB; running migrations a second time must be
-    # safe (apply_migrations short-circuits when user_version matches).
-    legacy_init_repo(tmp_path)
-    with connect(tmp_path) as conn:
-        version = conn.execute("PRAGMA user_version").fetchone()[0]
-    assert version >= 9
-    # Verify the columns landed correctly.
-    with connect(tmp_path) as conn:
-        cols = [r[1] for r in conn.execute("PRAGMA table_info(blockers)").fetchall()]
-        assert "payload_json" in cols
-        states_check = conn.execute(
-            "SELECT sql FROM sqlite_master WHERE type='table' AND name='process_executions'"
-        ).fetchone()
-        assert "timed_out" in states_check[0]
-        assert "lost" in states_check[0]
+    pytest.skip("historical SQLite migration fixture quarantined")

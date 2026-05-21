@@ -65,7 +65,6 @@ imports and fails on unlisted direct PostgreSQL client helpers.
 | `src/striatum/cli/dispatch.py::_dispatch_daemon_repo` | `repo add/list/remove` CLI bridge | `client_admin` | calls PostgreSQL admin client helpers; no repo-local SQLite state |
 | `src/striatum/cli/dispatch.py::_dispatch_cross_repo` | paired legacy test-harness fallback for cross-repo commands | `connect_and_migrate` | production path refuses before this branch unless the paired test-harness escape is enabled |
 | `src/striatum/cli/workflow.py::_running_runs_for_workflow_pg` | local workflow-upgrade running-run guard | `resolve_config`, `connect` | read-only guard; fail closed when daemon PostgreSQL state is unknown |
-| `src/striatum/legacy_sqlite/repo_local_migration.py::<module>` | retired repo-local SQLite import fixture | `connect` | legacy migration fixture only; operator command refuses before importing this module |
 
 ## Registered Daemon Methods
 
@@ -83,6 +82,13 @@ imports and fails on unlisted direct PostgreSQL client helpers.
 | `run.summary` | `run summary` | read | single_repo | pg | real | no | no | stable |
 | `run.detail` | web run detail DTO | read | single_repo | pg | real | no | no | stable |
 | `job.detail` | web job detail DTO | read | single_repo | pg | real | no | no | stable |
+| `artifact.get_content` | web artifact content DTO; `invoke` | read | single_repo | not implemented in Python RPC | real | no | no | Go blob/repo-path artifact content read |
+| `artifact.list_for_run` | `invoke` | read | single_repo | not implemented in Python RPC | real | no | no | Go blob migration verification read |
+| `corpus.migrate_historical_dogfood_file` | `corpus migrate-historical-dogfoods` helper | write | single_repo | not implemented in Python RPC | real | no | no | Go historical dogfood blob migration upload |
+| `artifact.backfill_blob` | `invoke` | write | single_repo | not implemented in Python RPC | real | no | no | Go artifact blob-reference backfill |
+| `corpus.list_historical_dogfoods` | web historical dogfood index DTO | read | single_repo | not implemented in Python RPC | real | no | no | Go historical dogfood blob index |
+| `corpus.list_historical_dogfood_files` | web historical dogfood file-list DTO | read | single_repo | not implemented in Python RPC | real | no | no | Go historical dogfood blob file list |
+| `corpus.fetch_historical_dogfood_file` | web historical dogfood file DTO | read | single_repo | not implemented in Python RPC | real | no | no | Go historical dogfood blob fetch |
 | `run.graph` | `run graph` | read | single_repo | pg | real | no | no | stable |
 | `run.events` | web SSE event stream DTO | read | single_repo | pg | real | no | no | stable |
 | `run.posture_verdicts` | web posture verdict drill-down | read | single_repo | pg | real | no | no | stable |
@@ -105,6 +111,7 @@ imports and fails on unlisted direct PostgreSQL client helpers.
 | `session.register` | `register-session` | claim | single_repo | pg | real | no | no | stable |
 | `session.close` | `session close` | claim | single_repo | pg | real | no | no | stable |
 | `work.claim_next` | `claim-next` | claim | single_repo | pg | real | no | no | stable |
+| `work.await_packet` | MCP agent loop | claim | single_repo | not implemented in Python RPC | real | no | no | Go long-poll work-packet acquisition for autonomous MCP agents |
 | `work.ack` | `ack` | claim | single_repo | pg | real | no | no | stable |
 | `work.heartbeat` | `heartbeat` | claim | single_repo | pg | real | no | no | stable |
 | `work.release` | `release` | claim | single_repo | pg | real | no | no | stable |

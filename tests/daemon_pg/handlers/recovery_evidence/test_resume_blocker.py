@@ -1,8 +1,8 @@
-"""Parity test for ``recovery.resume`` PG handler.
+"""Contract test for ``recovery.resume`` PG handler.
 
 Asserts the handler registers under the correct RPC method name, holds
-the locked signature, and propagates the same blocker-kind allow-list
-and ``--force`` requirements the SQLite path enforces.
+the locked signature, and exposes the current daemon/PostgreSQL
+process-adapter blocker-kind contract.
 """
 
 from __future__ import annotations
@@ -41,19 +41,24 @@ def test_process_adapter_blocker_kinds() -> None:
 
     mod = import_handler("resume_blocker")
     expected_adapter_kinds = frozenset(
-        {"process_stopped", "process_lacks_lease", "process_missing_heartbeat"}
+        {
+            "process_outputs_missing",
+            "process_review_verdict_missing",
+            "process_exit_nonzero",
+            "process_timeout_exceeded",
+            "process_lost_with_outputs_missing",
+        }
     )
     expected_exit_kinds = frozenset(
-        {"process_stopped", "process_exit_bad_code", "process_killed"}
+        {"process_exit_nonzero", "process_timeout_exceeded"}
     )
 
     assert mod.PROCESS_ADAPTER_BLOCKER_KINDS == expected_adapter_kinds
     assert mod.PROCESS_EXIT_BLOCKER_KINDS == expected_exit_kinds
 
 
-
 def test_complete_requires_session_id() -> None:
-    """Parity with the SQLite path: ``--complete`` without ``--session-id``
+    """PG contract: ``--complete`` without ``--session-id``
     must refuse before doing any DB work.
     """
     from ._helpers import import_handler

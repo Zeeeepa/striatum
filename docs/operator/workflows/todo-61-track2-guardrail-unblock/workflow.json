@@ -1,0 +1,274 @@
+{
+  "schema_version": "striatum.workflow.v1",
+  "workflow_id": "todo-61-track2-guardrail-unblock",
+  "workflow_version": "2026-05-21",
+  "name": "TODO 61 Track 2 guardrail unblock",
+  "context_docs": [
+    "README.md",
+    "docs/SPEC.md",
+    "docs/TODO.md",
+    "docs/ROADMAP.md",
+    "docs/operator/BRIEF.md",
+    "docs/HOW_TO_AGENT.md",
+    "docs/architecture/COMMAND_AUTHORITY_MATRIX.md",
+    "docs/operator/artifacts/todo-61-track2-test-debt/map/MAP.md",
+    "docs/operator/artifacts/todo-61-track2-test-debt/build/guardrail/HANDOFF.md",
+    "docs/operator/artifacts/todo-61-track2-test-debt/review/regression/REVIEW.md",
+    "docs/operator/artifacts/todo-61-track2-test-debt/review/authority/REVIEW.md",
+    "docs/rfcs/0068-go-production-daemon-port.md",
+    "docs/rfcs/0069-pg-only-daemon-global-surfaces.md",
+    "AGENTS.md"
+  ],
+  "coordinator": {
+    "role_id": "coordinator",
+    "lane_id": "codex"
+  },
+  "parallelism": {
+    "mode": "declared",
+    "max_active_jobs": 3,
+    "require_disjoint_write_scopes": true
+  },
+  "branch": {
+    "mode": "confirm",
+    "suggested_name": "striatum/todo-61-track2-guardrail-unblock",
+    "allow_dirty": true
+  },
+  "lanes": {
+    "codex": {
+      "adapter": "process",
+      "command": [
+        "bash",
+        "-lc",
+        "PYTHONPATH=src python3 -m striatum.cli skills install --profile all --scope user --force --json >/dev/null && export PATH=\"$PWD/.venv/bin:$PATH\" && exec .striatum/bin/codex-supervised-wrapper.sh"
+      ],
+      "model": "codex",
+      "display_model": "Codex",
+      "strategy_version": "2026-05-21",
+      "supervision": {
+        "compatible": true,
+        "stdin_format": "newline_delimited_json",
+        "wrapper_required": true
+      }
+    },
+    "claude_code": {
+      "adapter": "process",
+      "command": [
+        "bash",
+        "-lc",
+        "PYTHONPATH=src python3 -m striatum.cli skills install --profile all --scope user --force --json >/dev/null && export PATH=\"$PWD/.venv/bin:$PATH\" && exec .striatum/bin/claude-supervised-wrapper.sh"
+      ],
+      "model": "claude_code",
+      "display_model": "Claude Code",
+      "strategy_version": "2026-05-21",
+      "supervision": {
+        "compatible": "verify_pipe_behavior_first",
+        "stdin_format": "prompt_text",
+        "wrapper_required": true
+      }
+    },
+    "gemini": {
+      "adapter": "process",
+      "command": [
+        "bash",
+        "-lc",
+        "PYTHONPATH=src python3 -m striatum.cli skills install --profile all --scope user --force --json >/dev/null && export PATH=\"$PWD/.venv/bin:$PATH\" && exec .striatum/bin/gemini-supervised-wrapper.sh"
+      ],
+      "model": "gemini",
+      "display_model": "Gemini",
+      "strategy_version": "2026-05-21",
+      "supervision": {
+        "compatible": true,
+        "stdin_format": "prompt_text",
+        "wrapper_required": true
+      }
+    }
+  },
+  "roles": {
+    "coordinator": {
+      "description": "Operator/control-plane role."
+    },
+    "implementer": {
+      "description": "Applies a bounded Track 2 guardrail follow-up."
+    },
+    "reviewer": {
+      "description": "Fresh-context reviewer for guardrail unblock risk."
+    }
+  },
+  "jobs": [
+    {
+      "id": "unblock_authority_guardrails",
+      "type": "build",
+      "title": "Unblock command authority guardrails",
+      "role_id": "implementer",
+      "lane_id": "codex",
+      "parallel_group": "guardrail_unblock",
+      "fresh_session_required": true,
+      "required_review_postures": [
+        "custom:regression_risk",
+        "custom:authority_boundary"
+      ],
+      "objective": "Remove or narrow the module-level legacy-SQLite skip in tests/architecture/test_authority_guardrails.py, classify current daemon methods, remove stale legacy allowlist entries, and update the command authority matrix as needed.",
+      "task_prompt": {
+        "path": "prompts/unblock_authority_guardrails.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "tests/architecture/test_authority_guardrails.py",
+          "docs/architecture/COMMAND_AUTHORITY_MATRIX.md",
+          "docs/operator/artifacts/todo-61-track2-guardrail-unblock/build/authority_guardrails/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "authority_guardrail_handoff",
+          "kind": "handoff",
+          "path": "docs/operator/artifacts/todo-61-track2-guardrail-unblock/build/authority_guardrails/HANDOFF.md",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "narrow_recovery_evidence_skip",
+      "type": "build",
+      "title": "Narrow recovery-evidence legacy fixture skip",
+      "role_id": "implementer",
+      "lane_id": "codex",
+      "parallel_group": "guardrail_unblock",
+      "fresh_session_required": true,
+      "required_review_postures": [
+        "custom:regression_risk",
+        "custom:authority_boundary"
+      ],
+      "objective": "Move the broad legacy SQLite skip in tests/daemon_pg/handlers/recovery_evidence/conftest.py down to only the specific fixtures/tests that actually need the retired SQLite fixture so active PostgreSQL tests run.",
+      "task_prompt": {
+        "path": "prompts/narrow_recovery_evidence_skip.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "tests/daemon_pg/handlers/recovery_evidence/conftest.py",
+          "docs/operator/artifacts/todo-61-track2-guardrail-unblock/build/recovery_evidence/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "recovery_evidence_handoff",
+          "kind": "handoff",
+          "path": "docs/operator/artifacts/todo-61-track2-guardrail-unblock/build/recovery_evidence/HANDOFF.md",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "review_guardrail_unblock_regression",
+      "type": "review",
+      "title": "Guardrail unblock regression review",
+      "role_id": "reviewer",
+      "lane_id": "gemini",
+      "parallel_group": "guardrail_unblock_review",
+      "fresh_session_required": true,
+      "reviewer_context_policy": "fresh",
+      "review_posture": "custom:regression_risk",
+      "objective": "Verify that authority guardrails and recovery-evidence active tests now run without hiding failures, and that focused tests pass.",
+      "task_prompt": {
+        "path": "prompts/review_guardrail_unblock_regression.md"
+      },
+      "write_scope": {
+        "mode": "review_only_artifact",
+        "repo_write": false,
+        "allowed_paths": [
+          "docs/operator/artifacts/todo-61-track2-guardrail-unblock/review/regression/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "guardrail_unblock_regression_review",
+          "kind": "finding",
+          "path": "docs/operator/artifacts/todo-61-track2-guardrail-unblock/review/regression/REVIEW.md",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "review_guardrail_unblock_authority",
+      "type": "review",
+      "title": "Guardrail unblock authority review",
+      "role_id": "reviewer",
+      "lane_id": "claude_code",
+      "parallel_group": "guardrail_unblock_review",
+      "fresh_session_required": true,
+      "reviewer_context_policy": "fresh",
+      "review_posture": "custom:authority_boundary",
+      "objective": "Verify that the guardrail unblock preserves daemon/PostgreSQL authority and does not reopen production SQLite or decide TODO 55, 56, 59, or 60.",
+      "task_prompt": {
+        "path": "prompts/review_guardrail_unblock_authority.md"
+      },
+      "write_scope": {
+        "mode": "review_only_artifact",
+        "repo_write": false,
+        "allowed_paths": [
+          "docs/operator/artifacts/todo-61-track2-guardrail-unblock/review/authority/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "guardrail_unblock_authority_review",
+          "kind": "finding",
+          "path": "docs/operator/artifacts/todo-61-track2-guardrail-unblock/review/authority/REVIEW.md",
+          "required": true
+        }
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "from": "unblock_authority_guardrails",
+      "to": "review_guardrail_unblock_regression",
+      "on": "completed"
+    },
+    {
+      "from": "unblock_authority_guardrails",
+      "to": "review_guardrail_unblock_authority",
+      "on": "completed"
+    },
+    {
+      "from": "narrow_recovery_evidence_skip",
+      "to": "review_guardrail_unblock_regression",
+      "on": "completed"
+    },
+    {
+      "from": "narrow_recovery_evidence_skip",
+      "to": "review_guardrail_unblock_authority",
+      "on": "completed"
+    }
+  ],
+  "cycles": [
+    {
+      "from": "review_guardrail_unblock_regression",
+      "to": "unblock_authority_guardrails",
+      "on_verdict": "needs_revision",
+      "max_iterations": 1
+    },
+    {
+      "from": "review_guardrail_unblock_authority",
+      "to": "unblock_authority_guardrails",
+      "on_verdict": "needs_revision",
+      "max_iterations": 1
+    }
+  ]
+}
