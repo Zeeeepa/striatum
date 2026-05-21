@@ -29,7 +29,7 @@ func TestListenMCPHTTPAcceptsLoopback(t *testing.T) {
 	}
 	defer listener.Close()
 	endpoint := mcpEndpointURL(listener.Addr())
-	if !strings.HasPrefix(endpoint, "http://127.0.0.1:") || !strings.HasSuffix(endpoint, "/mcp/sse") {
+	if !strings.HasPrefix(endpoint, "http://127.0.0.1:") || !strings.HasSuffix(endpoint, "/mcp") {
 		t.Fatalf("endpoint = %q", endpoint)
 	}
 }
@@ -38,7 +38,7 @@ func TestWriteMCPEndpointFileIsOwnerOnly(t *testing.T) {
 	runtimeDir := filepath.Join(t.TempDir(), "runtime")
 	t.Setenv("STRIATUM_DAEMON_RUNTIME_DIR", runtimeDir)
 
-	path, err := writeMCPEndpointFile("http://127.0.0.1:12345/mcp/sse")
+	path, err := writeMCPEndpointFile("http://127.0.0.1:12345/mcp")
 	if err != nil {
 		t.Fatalf("writeMCPEndpointFile() error = %v", err)
 	}
@@ -49,7 +49,7 @@ func TestWriteMCPEndpointFileIsOwnerOnly(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read endpoint file: %v", err)
 	}
-	if string(body) != "http://127.0.0.1:12345/mcp/sse\n" {
+	if string(body) != "http://127.0.0.1:12345/mcp\n" {
 		t.Fatalf("endpoint file body = %q", string(body))
 	}
 	info, err := os.Stat(path)

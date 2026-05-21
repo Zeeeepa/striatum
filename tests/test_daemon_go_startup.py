@@ -109,7 +109,7 @@ def test_go_striatumd_bootstraps_fresh_admin_runtime_token(tmp_path: Path) -> No
         assert endpoint_path.stat().st_mode & 0o777 == 0o600
         endpoint = endpoint_path.read_text(encoding="utf-8").strip()
         assert endpoint.startswith("http://127.0.0.1:"), endpoint
-        assert endpoint.endswith("/mcp/sse"), endpoint
+        assert endpoint.endswith("/mcp"), endpoint
         token = token_path.read_text(encoding="utf-8").strip()
         token_id, sep, secret = token.partition(".")
         assert sep == "."

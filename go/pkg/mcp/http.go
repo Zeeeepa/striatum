@@ -8,7 +8,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -17,10 +19,12 @@ import (
 )
 
 const (
-	EndpointPath    = "/mcp/sse"
-	MessagePath     = "/mcp/messages"
-	protocolVersion = "2024-11-05"
-	serverName      = "striatum-local"
+	EndpointPath      = "/mcp"
+	SSEEndpointPath   = "/mcp/sse"
+	MessagePath       = "/mcp/messages"
+	protocolVersion   = "2024-11-05"
+	serverName        = "striatum-local"
+	defaultAllowValue = "GET, POST, OPTIONS"
 
 	jsonrpcVersion = "2.0"
 )
@@ -31,6 +35,8 @@ const (
 	jsonrpcMethodNotFound = -32601
 	jsonrpcInvalidParams  = -32602
 	jsonrpcInternalError  = -32603
+	jsonrpcAuthError      = -32001
+	jsonrpcForbidden      = -32003
 )
 
 type HTTPHandler struct {
@@ -70,29 +76,34 @@ func NewHTTPHandler(service Service) *HTTPHandler {
 }
 
 func (h *HTTPHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if r.URL.Path != EndpointPath && r.URL.Path != MessagePath {
+	if !isSupportedPath(r.URL.Path) {
 		http.NotFound(w, r)
 		return
 	}
-	if r.URL.Path == EndpointPath && r.Method == http.MethodGet {
+	if localErr := validateLocalRequest(r); localErr != nil {
+		writeJSONResponseStatus(w, http.StatusForbidden, errorResponse(nil, jsonrpcForbidden, localErr.Message, errorData(localErr.Code, nil)))
+		return
+	}
+	setLocalCORSHeaders(w, r)
+	if isEndpointPath(r.URL.Path) && r.Method == http.MethodGet {
 		h.serveStream(w, r)
 		return
 	}
-	if (r.URL.Path == EndpointPath || r.URL.Path == MessagePath) && r.Method == http.MethodPost {
+	if (isEndpointPath(r.URL.Path) || r.URL.Path == MessagePath) && r.Method == http.MethodPost {
 		h.servePost(w, r)
 		return
 	}
 	if r.Method == http.MethodOptions {
-		if r.URL.Path == EndpointPath {
-			w.Header().Set("Allow", "GET, POST, OPTIONS")
+		if isEndpointPath(r.URL.Path) {
+			w.Header().Set("Allow", defaultAllowValue)
 		} else {
 			w.Header().Set("Allow", "POST, OPTIONS")
 		}
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
-	if r.URL.Path == EndpointPath {
-		w.Header().Set("Allow", "GET, POST, OPTIONS")
+	if isEndpointPath(r.URL.Path) {
+		w.Header().Set("Allow", defaultAllowValue)
 	} else {
 		w.Header().Set("Allow", "POST, OPTIONS")
 	}
@@ -100,6 +111,10 @@ func (h *HTTPHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *HTTPHandler) serveStream(w http.ResponseWriter, r *http.Request) {
+	if _, rpcErr := bearerToken(r); rpcErr != nil {
+		writeJSONResponseStatus(w, http.StatusUnauthorized, jsonrpcResponse{JSONRPC: jsonrpcVersion, ID: nil, Error: rpcErr})
+		return
+	}
 	flusher, ok := w.(http.Flusher)
 	if !ok {
 		http.Error(w, "streaming is not supported", http.StatusInternalServerError)
@@ -137,7 +152,7 @@ func (h *HTTPHandler) serveStream(w http.ResponseWriter, r *http.Request) {
 func (h *HTTPHandler) servePost(w http.ResponseWriter, r *http.Request) {
 	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, rpc.MaxEnvelopeBytes))
 	if err != nil {
-		response := errorResponse(nil, jsonrpcInvalidRequest, err.Error(), nil)
+		response := errorResponse(nil, jsonrpcInvalidRequest, err.Error(), errorData("malformed_body", nil))
 		writeJSONResponse(w, response)
 		return
 	}
@@ -175,29 +190,29 @@ func (h *HTTPHandler) handleBody(ctx context.Context, r *http.Request, body []by
 	decoder := json.NewDecoder(bytes.NewReader(body))
 	decoder.UseNumber()
 	if err := decoder.Decode(&payload); err != nil {
-		return errorResponse(nil, jsonrpcParseError, "invalid JSON: "+err.Error(), nil), true
+		return errorResponse(nil, jsonrpcParseError, "invalid JSON: "+err.Error(), errorData("malformed_body", nil)), true
 	}
 	if err := decoder.Decode(&struct{}{}); err != io.EOF {
-		return errorResponse(nil, jsonrpcParseError, "request body must contain one JSON-RPC object", nil), true
+		return errorResponse(nil, jsonrpcParseError, "request body must contain one JSON-RPC object", errorData("malformed_body", nil)), true
 	}
 	if payload == nil {
-		return errorResponse(nil, jsonrpcInvalidRequest, "JSON-RPC request must be an object", nil), true
+		return errorResponse(nil, jsonrpcInvalidRequest, "JSON-RPC request must be an object", errorData("schema_invalid", nil)), true
 	}
 	rawID, hasID := payload["id"]
 	requestID, validID := jsonrpcID(rawID)
 	if !validID {
-		return errorResponse(nil, jsonrpcInvalidRequest, "id must be a string, number, or null", nil), true
+		return errorResponse(nil, jsonrpcInvalidRequest, "id must be a string, number, or null", errorData("schema_invalid", nil)), true
 	}
 	if payload["jsonrpc"] != jsonrpcVersion {
-		return errorResponse(requestID, jsonrpcInvalidRequest, "jsonrpc must be '2.0'", nil), true
+		return errorResponse(requestID, jsonrpcInvalidRequest, "jsonrpc must be '2.0'", errorData("schema_invalid", nil)), true
 	}
 	method, ok := payload["method"].(string)
 	if !ok || method == "" {
-		return errorResponse(requestID, jsonrpcInvalidRequest, "method is required", nil), true
+		return errorResponse(requestID, jsonrpcInvalidRequest, "method is required", errorData("schema_invalid", nil)), true
 	}
 	params, err := requestParams(payload)
 	if err != nil {
-		return errorResponse(requestID, jsonrpcInvalidParams, err.Error(), nil), true
+		return errorResponse(requestID, jsonrpcInvalidParams, err.Error(), errorData("schema_invalid", nil)), true
 	}
 
 	result, rpcErr := h.dispatch(ctx, r, requestID, method, params)
@@ -217,9 +232,9 @@ func (h *HTTPHandler) dispatch(ctx context.Context, r *http.Request, requestID a
 	case "notifications/initialized":
 		return map[string]any{}, nil
 	case "tools/list":
-		token, err := capabilityToken(params, r, nil)
-		if err != nil {
-			return nil, invalidParams(err)
+		token, rpcErr := bearerToken(r)
+		if rpcErr != nil {
+			return nil, rpcErr
 		}
 		if _, err := optionalString(params, "repository_id"); err != nil {
 			return nil, invalidParams(err)
@@ -243,9 +258,9 @@ func (h *HTTPHandler) dispatch(ctx context.Context, r *http.Request, requestID a
 				arguments["repository_id"] = repositoryID
 			}
 		}
-		token, err := capabilityToken(params, r, arguments)
-		if err != nil {
-			return nil, invalidParams(err)
+		token, rpcErr := bearerToken(r)
+		if rpcErr != nil {
+			return nil, rpcErr
 		}
 		callRequestID, err := callRequestID(params, requestID)
 		if err != nil {
@@ -253,7 +268,7 @@ func (h *HTTPHandler) dispatch(ctx context.Context, r *http.Request, requestID a
 		}
 		return h.Service.ToolsCall(ctx, name, arguments, token, callRequestID), nil
 	default:
-		return nil, &jsonrpcError{Code: jsonrpcMethodNotFound, Message: fmt.Sprintf("unknown method %q", method)}
+		return nil, &jsonrpcError{Code: jsonrpcMethodNotFound, Message: fmt.Sprintf("unknown method %q", method), Data: errorData("method_unknown", nil)}
 	}
 }
 
@@ -353,32 +368,16 @@ func objectParam(params map[string]any, key string) (map[string]any, error) {
 	return cloneMap(object), nil
 }
 
-func capabilityToken(params map[string]any, r *http.Request, arguments map[string]any) (string, error) {
+func bearerToken(r *http.Request) (string, *jsonrpcError) {
 	header := r.Header.Get("Authorization")
-	if header != "" {
-		token, ok := strings.CutPrefix(header, "Bearer ")
-		if !ok || token == "" {
-			return "", fmt.Errorf("Authorization must use Bearer token syntax")
-		}
-		return token, nil
+	if strings.TrimSpace(header) == "" {
+		return "", &jsonrpcError{Code: jsonrpcAuthError, Message: "Authorization bearer token is required", Data: errorData("token_missing", nil)}
 	}
-	for _, source := range []map[string]any{params, arguments} {
-		if source == nil {
-			continue
-		}
-		for _, key := range []string{"token", "capability_token"} {
-			value, exists := source[key]
-			if !exists || value == nil {
-				continue
-			}
-			token, ok := value.(string)
-			if !ok {
-				return "", fmt.Errorf("%s must be a string", key)
-			}
-			return token, nil
-		}
+	parts := strings.Fields(header)
+	if len(parts) != 2 || !strings.EqualFold(parts[0], "Bearer") || parts[1] == "" {
+		return "", &jsonrpcError{Code: jsonrpcAuthError, Message: "Authorization must use Bearer token syntax", Data: errorData("token_malformed", nil)}
 	}
-	return "", nil
+	return parts[1], nil
 }
 
 func callRequestID(params map[string]any, jsonrpcID any) (string, error) {
@@ -424,7 +423,7 @@ func jsonrpcID(value any) (any, bool) {
 }
 
 func invalidParams(err error) *jsonrpcError {
-	return &jsonrpcError{Code: jsonrpcInvalidParams, Message: err.Error()}
+	return &jsonrpcError{Code: jsonrpcInvalidParams, Message: err.Error(), Data: errorData("schema_invalid", nil)}
 }
 
 func errorResponse(id any, code int, message string, data any) jsonrpcResponse {
@@ -455,16 +454,25 @@ func writeDirectSSEPayload(w http.ResponseWriter, payload []byte) {
 }
 
 func writeJSONResponse(w http.ResponseWriter, response jsonrpcResponse) {
+	writeJSONResponseStatus(w, http.StatusOK, response)
+}
+
+func writeJSONResponseStatus(w http.ResponseWriter, status int, response jsonrpcResponse) {
 	encoded, err := json.Marshal(response)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	writeJSONPayload(w, encoded)
+	writeJSONPayloadStatus(w, status, encoded)
 }
 
 func writeJSONPayload(w http.ResponseWriter, payload []byte) {
+	writeJSONPayloadStatus(w, http.StatusOK, payload)
+}
+
+func writeJSONPayloadStatus(w http.ResponseWriter, status int, payload []byte) {
 	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
 	_, _ = w.Write(payload)
 }
 
@@ -515,4 +523,82 @@ func serverVersion(service Service) string {
 		return "0.1.0"
 	}
 	return service.RPC.DaemonVersion
+}
+
+type localRequestError struct {
+	Code    string
+	Message string
+}
+
+func isSupportedPath(path string) bool {
+	return isEndpointPath(path) || path == MessagePath
+}
+
+func isEndpointPath(path string) bool {
+	return path == EndpointPath || path == SSEEndpointPath
+}
+
+func validateLocalRequest(r *http.Request) *localRequestError {
+	if !isLoopbackHost(r.Host) {
+		return &localRequestError{Code: "bad_host", Message: "Host must be loopback"}
+	}
+	origin := strings.TrimSpace(r.Header.Get("Origin"))
+	if origin != "" && !isLoopbackOrigin(origin) {
+		return &localRequestError{Code: "bad_origin", Message: "Origin must be loopback"}
+	}
+	return nil
+}
+
+func setLocalCORSHeaders(w http.ResponseWriter, r *http.Request) {
+	origin := strings.TrimSpace(r.Header.Get("Origin"))
+	if origin == "" {
+		return
+	}
+	header := w.Header()
+	header.Set("Access-Control-Allow-Origin", origin)
+	header.Set("Access-Control-Allow-Headers", "Authorization, Content-Type, Accept")
+	header.Set("Access-Control-Allow-Methods", defaultAllowValue)
+	header.Add("Vary", "Origin")
+}
+
+func isLoopbackOrigin(origin string) bool {
+	parsed, err := url.Parse(origin)
+	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
+		return false
+	}
+	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+		return false
+	}
+	return isLoopbackHost(parsed.Host)
+}
+
+func isLoopbackHost(value string) bool {
+	host := normalizeHost(value)
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
+}
+
+func normalizeHost(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+	if host, _, err := net.SplitHostPort(value); err == nil {
+		return strings.Trim(host, "[]")
+	}
+	if strings.HasPrefix(value, "[") && strings.HasSuffix(value, "]") {
+		return strings.Trim(value, "[]")
+	}
+	return value
+}
+
+func errorData(code string, details any) map[string]any {
+	data := map[string]any{"code": code}
+	if details != nil {
+		data["details"] = details
+	}
+	return data
 }

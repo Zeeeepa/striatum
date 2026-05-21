@@ -1141,10 +1141,11 @@ reimplement workflow transitions, bypass artifact validation, or define a
 separate command vocabulary.
 
 The production MCP surface is native to the Go `striatumd` daemon. It serves
-HTTP/SSE on loopback, publishes its current endpoint in the daemon runtime
-directory as `mcp-http-endpoint`, and supports `initialize`, `tools/list`, and
-`tools/call` over MCP JSON-RPC. `tools/list` is derived from the daemon method
-registry and capability-filtered per token and repository scope. `tools/call`
+loopback HTTP at `/mcp`, keeps `/mcp/sse` as an SSE/backcompat alias, publishes
+its current endpoint in the daemon runtime directory as `mcp-http-endpoint`,
+and supports `initialize`, `tools/list`, and `tools/call` over MCP JSON-RPC.
+`tools/list` is derived from the daemon method registry and
+capability-filtered per bearer token and repository scope. `tools/call`
 dispatches through daemon RPC, so authorization, request logging, audit rows,
 and method-denial vocabulary match the Unix-socket daemon path.
 

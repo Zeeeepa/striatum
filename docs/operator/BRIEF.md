@@ -16,9 +16,11 @@ author: antigravity-001
 
 Striatum's live-state boundary is daemon-owned PostgreSQL. The active
 remediation runway is D107/RFC 0068: Go is the production/default daemon.
-RFC 0050's native Go daemon HTTP/SSE MCP slice has landed: the remaining
-Python `mcp.py` wrapper is removed, `striatumd` serves MCP over loopback
-HTTP/SSE, and the daemon runtime publishes `mcp-http-endpoint`.
+RFC 0050 Phase A-C has landed in the native Go daemon: `striatumd` serves MCP
+over loopback HTTP at `/mcp`, keeps `/mcp/sse` as the SSE/backcompat alias,
+capability-filters `tools/list`, routes `tools/call` through daemon RPC, and
+publishes the current endpoint in the daemon runtime as `mcp-http-endpoint`.
+The current source also has the Python `mcp.py` wrapper removed.
 
 The `agent-loop` supervisor is now a PTY bootstrapper instead of a proxy that
 passes raw JSON to an agent's stdin. It spawns the agent, provides a bootstrap
@@ -42,7 +44,8 @@ provider actions in core.
 ## Next 1-3 Actions
 
 1. Restart any long-lived local `striatumd` processes so they pick up the
-   rebuilt packaged Go binary and publish `mcp-http-endpoint`.
+   rebuilt packaged Go binary, publish the `/mcp` endpoint, and enforce the
+   Host/Origin and bearer-token checks.
 2. Apply the TODO 55/56/59/60 follow-ups: daemon accepted-risk mutation
    surfaces, auto-finalize observability/circuit-breaker work, Corpus Contract
    V2 schema/archive defaults, and the read-only local Git snapshot slice.

@@ -12,7 +12,7 @@ As Striatum moves to a single native Go binary (deprecating the Python CLI and w
 ## Goals
 
 - **Deprecate Python MCP**: Completely remove `src/striatum/mcp.py`.
-- **Native Daemon SSE**: Build an HTTP/SSE MCP server natively into the Go `striatumd` daemon. This allows agents to connect directly to the running daemon without spawning proxy processes.
+- **Native Daemon HTTP/SSE**: Build an HTTP MCP server natively into the Go `striatumd` daemon, with Streamable-HTTP-style `POST /mcp` as the primary endpoint and `/mcp/sse` retained as a compatibility alias for SSE clients. This allows agents to connect directly to the running daemon without spawning proxy processes.
 - **Autonomous Agents**: Refactor the `-agent-loop` supervisor to act strictly as a PTY manager. It will spawn the agent process, inject a bootstrap prompt containing the daemon's HTTP/SSE endpoint, and let the agent natively use its own MCP client to discover tools (like `work.await_packet`), execute work, and report completions.
 - **Retire the CLI control plane**: Stop requiring a human operator or an
   AI operator to drive live workflow state through `striatum` CLI verbs. The
@@ -24,8 +24,8 @@ As Striatum moves to a single native Go binary (deprecating the Python CLI and w
 
 ### 1. Go Daemon HTTP/SSE Server
 The Go daemon (`striatumd`) will expose an HTTP server (e.g., on a configured local port or a specific socket).
-- **Endpoint**: `/mcp/sse`
-- **Protocol**: Standard MCP over HTTP/SSE.
+- **Endpoint**: `/mcp` primary, `/mcp/sse` compatibility alias.
+- **Protocol**: MCP over loopback HTTP, with SSE stream support for clients that require it.
 - **Behavior**: It will natively serve `tools/list` (using `mcp.VisibleTools()`) and `tools/call`. Incoming MCP tool calls will be mapped to daemon JSON-RPC methods, authenticated via the standard capability tokens, and executed in-process.
 
 ### 2. `-agent-loop` Redesign
@@ -34,7 +34,7 @@ The Go `-agent-loop` subcommand (or the generic lane supervisor) will:
 2. Spawn the agent (e.g., `claude`).
 3. Send an initial bootstrap prompt:
    ```
-   You are a Striatum lane agent. Connect to the MCP server at http://localhost:<daemon-port>/mcp/sse. Call 'work.await_packet' to register for work.
+   You are a Striatum lane agent. Connect to the MCP server at http://localhost:<daemon-port>/mcp. Call 'work.await_packet' to register for work.
    ```
 4. Monitor the agent process until termination.
 
@@ -50,8 +50,9 @@ method.
 
 ### Phase A: Native MCP Smoke
 
-- Add the Go daemon HTTP listener and `/mcp/sse` endpoint behind the existing
-  local-only daemon boundary.
+- Add the Go daemon HTTP listener and MCP endpoint behind the existing
+  local-only daemon boundary. `POST /mcp` is the primary direct request path;
+  `/mcp/sse` remains available as an SSE/backcompat alias.
 - Support MCP initialization and `tools/list` using the production-visible
   tool set from `go/pkg/mcp`.
 - Add a deterministic test MCP client that exercises the endpoint without
@@ -141,7 +142,8 @@ Do not block the first MCP daemon slices on:
 
 ## Acceptance Criteria
 
-- Phase A-C accepted: the Go daemon exposes a functional `/mcp/sse` endpoint,
+- Phase A-C accepted: the Go daemon exposes a functional `/mcp` endpoint with
+  `/mcp/sse` compatibility,
   supports initialization, `tools/list`, one read call, and one authorized
   mutation through MCP with fail-closed tests.
 - Phase D accepted: a fake MCP agent can complete a workflow packet loop

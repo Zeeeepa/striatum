@@ -2,54 +2,209 @@ package mcp
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/halbritt/striatum/go/pkg/rpc"
 )
 
-func TestHTTPHandlerDirectPostReturnsJSON(t *testing.T) {
-	handler := NewHTTPHandler(Service{Authorizer: allowAllAuthorizer{}})
-	body := `{"jsonrpc":"2.0","id":"list","method":"tools/list","params":{"repository_id":"repo_1"}}`
-	request := httptest.NewRequest(http.MethodPost, EndpointPath, strings.NewReader(body))
-	request.Header.Set("Authorization", "Bearer tok")
-	recorder := httptest.NewRecorder()
-
-	handler.ServeHTTP(recorder, request)
+func TestHTTPHandlerInitializeDirectPost(t *testing.T) {
+	handler, _ := newTestHTTPHandler(t)
+	recorder := postJSON(t, handler, EndpointPath, `{"jsonrpc":"2.0","id":"init","method":"initialize","params":{}}`, "")
 
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
 	}
-	if contentType := recorder.Header().Get("Content-Type"); contentType != "application/json" {
-		t.Fatalf("Content-Type = %q, want application/json", contentType)
+	response := decodeTestResponse(t, recorder)
+	if response.ID != "init" || response.Error != nil {
+		t.Fatalf("initialize response = %#v", response)
 	}
-	var response map[string]any
-	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
-		t.Fatalf("decode response: %v", err)
-	}
-	if response["id"] != "list" {
-		t.Fatalf("response id = %#v", response["id"])
-	}
-	result, ok := response["result"].(map[string]any)
-	if !ok {
-		t.Fatalf("response result missing: %#v", response)
-	}
-	tools, ok := result["tools"].([]any)
-	if !ok || len(tools) == 0 {
-		t.Fatalf("tools/list returned no tools: %#v", result)
+	if response.Result["protocolVersion"] != protocolVersion {
+		t.Fatalf("protocolVersion = %#v", response.Result["protocolVersion"])
 	}
 }
 
-func TestHTTPHandlerStreamsMessageResponses(t *testing.T) {
-	handler := NewHTTPHandler(Service{Authorizer: allowAllAuthorizer{}})
+func TestHTTPHandlerToolsListUsesBearerTokenAndHidesUnauthorized(t *testing.T) {
+	handler, _ := newTestHTTPHandler(t)
+	recorder := postJSON(t, handler, EndpointPath, `{"jsonrpc":"2.0","id":"list","method":"tools/list","params":{"repository_id":"repo_1"}}`, "read.secret")
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	response := decodeTestResponse(t, recorder)
+	if response.Error != nil {
+		t.Fatalf("tools/list error = %#v", response.Error)
+	}
+	tools, ok := response.Result["tools"].([]any)
+	if !ok || len(tools) == 0 {
+		t.Fatalf("tools/list returned no tools: %#v", response.Result)
+	}
+	names := toolNames(tools)
+	if !names["status"] {
+		t.Fatalf("read token did not see status tool: %#v", names)
+	}
+	for _, hidden := range []string{"work.complete", "workflow.generate"} {
+		if names[hidden] {
+			t.Fatalf("read token saw unauthorized/hidden tool %s: %#v", hidden, names)
+		}
+	}
+}
+
+func TestHTTPHandlerToolsCallReadPath(t *testing.T) {
+	handler, _ := newTestHTTPHandler(t)
+	body := `{"jsonrpc":"2.0","id":"read","method":"tools/call","params":{"name":"status","arguments":{"repository_id":"repo_1"}}}`
+	recorder := postJSON(t, handler, EndpointPath, body, "read.secret")
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	response := decodeTestResponse(t, recorder)
+	structured := structuredContent(t, response)
+	if structured["ok"] != true || structured["method"] != "status" || response.Result["isError"] != false {
+		t.Fatalf("read tool call result = %#v", response.Result)
+	}
+	data, ok := structured["data"].(map[string]any)
+	if !ok || data["status"] != "ok" {
+		t.Fatalf("read tool data = %#v", structured["data"])
+	}
+}
+
+func TestHTTPHandlerToolsCallMutationPath(t *testing.T) {
+	handler, mutationCalled := newTestHTTPHandler(t)
+	body := `{"jsonrpc":"2.0","id":"write","method":"tools/call","params":{"name":"work.complete","repository_id":"repo_1","arguments":{"session_id":"sess_1","job_id":"job_1","lease_id":"lease_1"}}}`
+	recorder := postJSON(t, handler, EndpointPath, body, "write.secret")
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	if !*mutationCalled {
+		t.Fatal("work.complete handler was not called")
+	}
+	response := decodeTestResponse(t, recorder)
+	structured := structuredContent(t, response)
+	if structured["ok"] != true || structured["method"] != "work.complete" || response.Result["isError"] != false {
+		t.Fatalf("mutation tool call result = %#v", response.Result)
+	}
+	data, ok := structured["data"].(map[string]any)
+	if !ok || data["mutated"] != true {
+		t.Fatalf("mutation tool data = %#v", structured["data"])
+	}
+}
+
+func TestHTTPHandlerToolsCallInvalidTokenDenies(t *testing.T) {
+	handler, _ := newTestHTTPHandler(t)
+	body := `{"jsonrpc":"2.0","id":"invalid-token","method":"tools/call","params":{"name":"status","arguments":{"repository_id":"repo_1"}}}`
+	recorder := postJSON(t, handler, EndpointPath, body, "missing.secret")
+
+	response := decodeTestResponse(t, recorder)
+	structured := structuredContent(t, response)
+	if response.Result["isError"] != true || structured["error"] != "token_invalid" {
+		t.Fatalf("invalid token result = %#v", response.Result)
+	}
+}
+
+func TestHTTPHandlerDeniedTokenCannotCallHiddenUnauthorizedMethod(t *testing.T) {
+	handler, _ := newTestHTTPHandler(t)
+	body := `{"jsonrpc":"2.0","id":"hidden-denied","method":"tools/call","params":{"name":"workflow.generate","repository_id":"repo_1","arguments":{}}}`
+	recorder := postJSON(t, handler, EndpointPath, body, "read.secret")
+
+	response := decodeTestResponse(t, recorder)
+	structured := structuredContent(t, response)
+	if response.Result["isError"] != true || structured["error"] != "capability_missing" {
+		t.Fatalf("hidden unauthorized method result = %#v", response.Result)
+	}
+}
+
+func TestHTTPHandlerToolsCallUnknownDaemonMethodReturnsMCPError(t *testing.T) {
+	handler, _ := newTestHTTPHandler(t)
+	body := `{"jsonrpc":"2.0","id":"unknown-daemon","method":"tools/call","params":{"name":"not.a.method","arguments":{"repository_id":"repo_1"}}}`
+	recorder := postJSON(t, handler, EndpointPath, body, "read.secret")
+
+	response := decodeTestResponse(t, recorder)
+	structured := structuredContent(t, response)
+	if response.Result["isError"] != true || structured["error"] != "method_unknown" {
+		t.Fatalf("unknown daemon method result = %#v", response.Result)
+	}
+}
+
+func TestHTTPHandlerMissingAuthReturnsJSONRPCError(t *testing.T) {
+	handler, _ := newTestHTTPHandler(t)
+	recorder := postJSON(t, handler, EndpointPath, `{"jsonrpc":"2.0","id":"list","method":"tools/list","params":{"repository_id":"repo_1"}}`, "")
+
+	response := decodeTestResponse(t, recorder)
+	if response.Error == nil || response.Error.Code != jsonrpcAuthError {
+		t.Fatalf("missing auth error = %#v", response.Error)
+	}
+	assertErrorDataCode(t, response.Error, "token_missing")
+}
+
+func TestHTTPHandlerRejectsBadOrigin(t *testing.T) {
+	handler, _ := newTestHTTPHandler(t)
+	request := newJSONRequest(t, EndpointPath, `{"jsonrpc":"2.0","id":"list","method":"tools/list","params":{"repository_id":"repo_1"}}`, "read.secret")
+	request.Header.Set("Origin", "https://example.invalid")
+	recorder := httptest.NewRecorder()
+
+	handler.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	response := decodeTestResponse(t, recorder)
+	assertErrorDataCode(t, response.Error, "bad_origin")
+}
+
+func TestHTTPHandlerRejectsBadHost(t *testing.T) {
+	handler, _ := newTestHTTPHandler(t)
+	request := newJSONRequest(t, EndpointPath, `{"jsonrpc":"2.0","id":"list","method":"tools/list","params":{"repository_id":"repo_1"}}`, "read.secret")
+	request.Host = "example.invalid"
+	recorder := httptest.NewRecorder()
+
+	handler.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	response := decodeTestResponse(t, recorder)
+	assertErrorDataCode(t, response.Error, "bad_host")
+}
+
+func TestHTTPHandlerMalformedBodyReturnsStableError(t *testing.T) {
+	handler, _ := newTestHTTPHandler(t)
+	recorder := postJSON(t, handler, EndpointPath, `{`, "read.secret")
+
+	response := decodeTestResponse(t, recorder)
+	if response.Error == nil || response.Error.Code != jsonrpcParseError {
+		t.Fatalf("malformed body error = %#v", response.Error)
+	}
+	assertErrorDataCode(t, response.Error, "malformed_body")
+}
+
+func TestHTTPHandlerUnknownJSONRPCMethodReturnsStableError(t *testing.T) {
+	handler, _ := newTestHTTPHandler(t)
+	recorder := postJSON(t, handler, EndpointPath, `{"jsonrpc":"2.0","id":"unknown","method":"resources/list","params":{}}`, "")
+
+	response := decodeTestResponse(t, recorder)
+	if response.Error == nil || response.Error.Code != jsonrpcMethodNotFound {
+		t.Fatalf("unknown method error = %#v", response.Error)
+	}
+	assertErrorDataCode(t, response.Error, "method_unknown")
+}
+
+func TestHTTPHandlerStreamsMessageResponsesFromSSEAlias(t *testing.T) {
+	handler, _ := newTestHTTPHandler(t)
 	server := httptest.NewServer(handler)
 	defer server.Close()
 
-	streamRequest, err := http.NewRequest(http.MethodGet, server.URL+EndpointPath+"?token=secret", nil)
+	streamRequest, err := http.NewRequest(http.MethodGet, server.URL+SSEEndpointPath+"?token=secret", nil)
 	if err != nil {
 		t.Fatalf("new stream request: %v", err)
 	}
+	streamRequest.Header.Set("Authorization", "Bearer read.secret")
 	stream, err := server.Client().Do(streamRequest)
 	if err != nil {
 		t.Fatalf("open stream: %v", err)
@@ -73,7 +228,7 @@ func TestHTTPHandlerStreamsMessageResponses(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new post request: %v", err)
 	}
-	postRequest.Header.Set("Authorization", "Bearer tok")
+	postRequest.Header.Set("Authorization", "Bearer read.secret")
 	postRequest.Header.Set("Content-Type", "application/json")
 	postResponse, err := server.Client().Do(postRequest)
 	if err != nil {
@@ -103,6 +258,108 @@ func TestHTTPHandlerStreamsMessageResponses(t *testing.T) {
 	if !ok || len(tools) == 0 {
 		t.Fatalf("streamed tools/list returned no tools: %#v", result)
 	}
+}
+
+func newTestHTTPHandler(t *testing.T) (*HTTPHandler, *bool) {
+	t.Helper()
+	authorizer := rpc.NewMemoryAuthorizer()
+	authorizer.AddToken("read.secret", "reader", map[rpc.Capability]rpc.CapabilityGrant{
+		rpc.CapabilityRead: {},
+	}, time.Now().Add(time.Hour))
+	authorizer.AddToken("write.secret", "writer", map[rpc.Capability]rpc.CapabilityGrant{
+		rpc.CapabilityWrite: {RepositoryID: "repo_1"},
+	}, time.Now().Add(time.Hour))
+
+	server := rpc.NewServer()
+	server.Authorizer = authorizer
+	server.Register("status", func(_ context.Context, envelope rpc.Envelope) (map[string]any, error) {
+		return map[string]any{
+			"status":        "ok",
+			"repository_id": envelope.Params["repository_id"],
+		}, nil
+	})
+	mutationCalled := false
+	server.Register("work.complete", func(_ context.Context, envelope rpc.Envelope) (map[string]any, error) {
+		mutationCalled = true
+		return map[string]any{
+			"mutated":       true,
+			"repository_id": envelope.Params["repository_id"],
+		}, nil
+	})
+	server.Register("workflow.generate", func(context.Context, rpc.Envelope) (map[string]any, error) {
+		t.Fatal("workflow.generate handler should not run for a token without write capability")
+		return nil, nil
+	})
+	return NewHTTPHandler(Service{RPC: server, Authorizer: authorizer}), &mutationCalled
+}
+
+func postJSON(t *testing.T, handler http.Handler, path string, body string, token string) *httptest.ResponseRecorder {
+	t.Helper()
+	request := newJSONRequest(t, path, body, token)
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	return recorder
+}
+
+func newJSONRequest(t *testing.T, path string, body string, token string) *http.Request {
+	t.Helper()
+	request := httptest.NewRequest(http.MethodPost, path, strings.NewReader(body))
+	request.Host = "127.0.0.1:8765"
+	request.Header.Set("Content-Type", "application/json")
+	if token != "" {
+		request.Header.Set("Authorization", "Bearer "+token)
+	}
+	return request
+}
+
+func decodeTestResponse(t *testing.T, recorder *httptest.ResponseRecorder) jsonrpcResponse {
+	t.Helper()
+	if contentType := recorder.Header().Get("Content-Type"); contentType != "application/json" {
+		t.Fatalf("Content-Type = %q, want application/json; body = %s", contentType, recorder.Body.String())
+	}
+	var response jsonrpcResponse
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode response: %v\nbody: %s", err, recorder.Body.String())
+	}
+	return response
+}
+
+func structuredContent(t *testing.T, response jsonrpcResponse) map[string]any {
+	t.Helper()
+	if response.Error != nil {
+		t.Fatalf("unexpected JSON-RPC error = %#v", response.Error)
+	}
+	structured, ok := response.Result["structuredContent"].(map[string]any)
+	if !ok {
+		t.Fatalf("structuredContent missing: %#v", response.Result)
+	}
+	return structured
+}
+
+func assertErrorDataCode(t *testing.T, rpcErr *jsonrpcError, code string) {
+	t.Helper()
+	if rpcErr == nil {
+		t.Fatalf("missing JSON-RPC error, want data code %s", code)
+	}
+	data, ok := rpcErr.Data.(map[string]any)
+	if !ok || data["code"] != code {
+		t.Fatalf("error data = %#v, want code %s", rpcErr.Data, code)
+	}
+}
+
+func toolNames(tools []any) map[string]bool {
+	names := map[string]bool{}
+	for _, item := range tools {
+		tool, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		name, _ := tool["name"].(string)
+		if name != "" {
+			names[name] = true
+		}
+	}
+	return names
 }
 
 func readTestSSEEvent(t *testing.T, reader *bufio.Reader) (string, string) {
