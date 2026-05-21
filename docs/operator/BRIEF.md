@@ -16,29 +16,47 @@ author: antigravity-001
 
 Striatum's live-state boundary is daemon-owned PostgreSQL. The active
 remediation runway is D107/RFC 0068: Go is the production/default daemon.
-We have just accepted **RFC 0050**, which mandates the removal of the remaining Python `mcp.py` wrapper, bringing HTTP/SSE MCP server functionality natively into the Go `striatumd` daemon. 
+RFC 0050's native Go daemon HTTP/SSE MCP slice has landed: the remaining
+Python `mcp.py` wrapper is removed, `striatumd` serves MCP over loopback
+HTTP/SSE, and the daemon runtime publishes `mcp-http-endpoint`.
 
-The `agent-loop` supervisor logic must be redesigned. Instead of acting as a proxy that passes raw JSON to an agent's stdin, the supervisor must act purely as a PTY manager. It will spawn the agent, provide a bootstrap prompt with the daemon's HTTP/SSE MCP endpoint, and allow the agent to autonomously connect, query `tools/list`, call `work.await_packet`, and interact with the event bus natively.
+The `agent-loop` supervisor is now a PTY bootstrapper instead of a proxy that
+passes raw JSON to an agent's stdin. It spawns the agent, provides a bootstrap
+prompt with the daemon's HTTP/SSE MCP endpoint, and lets the agent connect,
+query `tools/list`, call `work.await_packet`, and interact with the event bus
+natively.
 
 The CLI is no longer the target operator control plane. The cutover path is
 to make daemon MCP and the operator UI cover live workflow control first, then
 retire or hide the CLI verbs they replace. Bootstrap and diagnostics commands
 may survive only when explicitly justified.
 
+The human-principal checkpoint for TODO 55, 56, 59, and 60 is resolved. D124
+chooses daemon-core accepted-risk persistence for workflow lint; D125 keeps
+auto-finalize dry-run by default with a three-live-dogfood evidence gate;
+D126 accepts the Corpus Contract V2 identity/redaction/archive/verification
+direction; D127 sets the optional Git/PR boundary around read-only snapshots,
+durable request artifacts, explicit local commit confirmation, and no hosted
+provider actions in core.
+
 ## Next 1-3 Actions
 
-1. Land the Go daemon `/mcp/sse` smoke path: MCP initialize, `tools/list`
-   from the production-visible tool set, and a deterministic test MCP client.
-2. Add one read-only `tools/call` and one low-risk mutating `tools/call`
-   through daemon RPC with token/capability denial tests.
-3. Prove the lane loop with a fake MCP agent before refactoring the real
-   `agent-loop` PTY bootstrap and deleting `src/striatum/mcp.py`.
+1. Restart any long-lived local `striatumd` processes so they pick up the
+   rebuilt packaged Go binary and publish `mcp-http-endpoint`.
+2. Apply the TODO 55/56/59/60 follow-ups: daemon accepted-risk mutation
+   surfaces, auto-finalize observability/circuit-breaker work, Corpus Contract
+   V2 schema/archive defaults, and the read-only local Git snapshot slice.
+3. Continue CLI-retirement work: move remaining live operator actions to
+   MCP/UI surfaces and classify any CLI survivors as bootstrap, diagnostics,
+   or temporary compatibility.
+4. Add a fully scripted fake-agent lane if more end-to-end proof is needed
+   beyond the daemon-backed MCP list/call and authorization coverage.
 
 ## Blockers
 
-- Product decisions still block accepted-risk durable persistence,
-  default live auto-finalize policy, Corpus Contract V2 choices, and
-  optional Git/PR authority.
+- No product-decision blocker remains for TODO 55, 56, 59, or 60; D124-D127
+  define the follow-up boundaries. Hosted Git provider behavior remains out
+  of core unless a later optional-plugin decision accepts it.
 - No human intervention is needed for the remaining Go/PG remediation
   slices unless a product boundary changes.
 

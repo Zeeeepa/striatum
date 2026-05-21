@@ -106,12 +106,12 @@ so external references keep resolving even as items move between sections.
 | 52 | RFC 0061 Architecture remediation Phase 4 — daemon-first web service | 🟡 core web/API + artifact reads daemon-routed |
 | 53 | RFC 0062 Architecture remediation Phase 5 — real escalation inbox | 🟡 projection + escalation artifact schema/linkage landed |
 | 54 | RFC 0063 Architecture remediation Phase 6 — hardened PTY supervision | ✅ done |
-| 55 | RFC 0064 Architecture remediation Phase 7 — workflow risk lint and review diversity enforcement | ⏳ accepted-risk persistence blocked on product decision |
-| 56 | Architecture remediation Phase 8 — auto-finalize from front matter | ⏳ default policy blocked on live dogfood confidence |
+| 55 | RFC 0064 Architecture remediation Phase 7 — workflow risk lint and review diversity enforcement | 🟡 daemon accepted-risk authority decided; implementation pending |
+| 56 | Architecture remediation Phase 8 — auto-finalize from front matter | 🟡 dry-run default decided; evidence gate pending |
 | 57 | RFC 0065 Architecture remediation Phase 9 — UI packaging and bundle cleanup | ✅ done; chunking monitor only |
 | 58 | RFC 0059 Architecture remediation Phase 10 — day-zero setup improvements | ✅ done |
-| 59 | RFC 0059 RFC 0066 Architecture remediation Phase 11 — replay, archive, and corpus v2 foundations | 🟡 corpus verify + run archive foundations landed |
-| 60 | RFC 0059 RFC 0067 Architecture remediation Phase 12 — optional Git/PR integration | ⏳ blocked on product decision |
+| 59 | RFC 0059 RFC 0066 Architecture remediation Phase 11 — replay, archive, and corpus v2 foundations | 🟡 V2 contract decisions accepted; implementation pending |
+| 60 | RFC 0059 RFC 0067 Architecture remediation Phase 12 — optional Git/PR integration | 🟡 boundary decided; read-only snapshot slice pending |
 | 61 | RFC 0068 Go production daemon port and Python daemon retirement | 🟡 Go default; Python daemon module deleted; broad direct repo-local fixture opens converted |
 | 62 | RFC 0069 PostgreSQL-only daemon-global surfaces | 🟡 guardrail residuals only |
 | 63 | RFC 0070 daemon client/service boundary completion | 🟡 production boundary mostly done |
@@ -490,7 +490,7 @@ Legend: ✅ done · 🟡 most done (sub-tasks remain) · ⏳ open/blocked · �
     boundary is pinned by
     `tests/test_cli_corpus_export.py::test_no_engram_imports_or_memory_capabilities_in_striatum`
     (no `import engram`, no `from engram`, no `memory.*` capabilities
-    across `corpus/`, `cli/`, `daemon_rpc/`, `daemon_pg/`, `mcp.py`,
+    across `corpus/`, `cli/`, `daemon_rpc`, `daemon_pg`,
     `service.py`, and `pyproject.toml`). D100 cycle-exhaustion
     override applied: codex `needs_revision` (5th codex/codex
     anti-pattern instance after D095/D096/D097/D098) + gemini
@@ -1167,12 +1167,12 @@ review and plan are root-level operator artifacts:
     reference with `--accepted-risk-decision-id`. Follow-up validator slice made
     `workflow validate` refuse same-model review-pair and revision-cycle
     findings by default, with `--allow-same-model-pairing` as the explicit
-    operator override. Blocked policy: do not implement durable persistence
-    for accepted lint risks until a product decision chooses the authority
-    surface (decision artifact linkage, daemon audit row, workflow metadata,
-    run-preparation record, or another explicit durable home). Current
-    `workflow lint` remains CLI-local and non-mutating; durable evidence is the
-    operator-recorded decision referenced by `--accepted-risk-decision-id`.
+    operator override. D124 accepts daemon-core lint as the authoritative
+    accepted-risk surface: durable accepted-risk override state may be written
+    only through daemon-backed CLI/UI/MCP clients, must cite a decision
+    artifact, and must bind to an immutable workflow snapshot or fingerprint.
+    Follow-up implementation remains open; workflow-file metadata is not live
+    authority.
 
 56. **Phase 8: auto-finalize from front matter.** Bounded daemon slice
     landed: `recovery.auto_finalize` dry-run/live PG handler, CLI route,
@@ -1191,10 +1191,12 @@ review and plan are root-level operator artifacts:
     preserving dry-run no-side-effect behavior and folding hook failures
     into `escalations[]`. Automated dogfood-shaped acceptance coverage now
     proves valid written artifacts can auto-finalize with zero
-    operator-on-behalf publishes. Blocked policy: global/default-on
-    auto-finalize requires live dogfood confidence plus an explicit product
-    decision; until then live auto-finalize remains workflow opt-in and dry-run
-    visibility remains the default posture.
+    operator-on-behalf publishes. D125 keeps the global default as dry-run
+    projection and live auto-finalize workflow opt-in. Default-on behavior is
+    gated by three successful live dogfoods across at least two lane shapes
+    with zero contested audit-chain events, plus follow-up lane-finalization
+    visibility, skipped-candidate cause classes, and a consecutive-failure
+    circuit breaker.
 
 57. ~~**Phase 9: UI packaging and bundle cleanup.**~~ Done:
     `ui-build` depends on `ui-clean`, `ui-check-bundle` also runs a
@@ -1235,15 +1237,23 @@ review and plan are root-level operator artifacts:
     duplicate/missing id rejection for archived command request,
     process-supervisor, process-supervisor-pointer, verdict, blocker,
     process-execution, and job-worktree rows, with optional artifact content
-    hash checks via `--repo-root`. Corpus Contract V2 fields remain blocked
-    on RFC 0057 decisions.
+    hash checks via `--repo-root`. D126 accepts the Corpus Contract V2
+    direction: composite `corpus_id` identity (`slug:sha256`), graduated
+    redaction tiers, workflow opt-in augmentation by reference with agent-side
+    fetch, hybrid archive bundles, verification replay by default, read-only
+    semantic inspection, no comparative replay, deep-chain verification
+    always, and optional daemon audit-chain cross-check. Follow-up work is the
+    V2 schema, archive defaults, verification depth, and augmentation-reference
+    implementation.
 
-60. **Phase 12: optional Git/PR integration.** Blocked on a product
-    decision for commit authority and hosted-provider boundaries. Safe
-    implementation may start only with read-only local git snapshot surfaces.
-    Commit application, PR creation, hosted-provider authentication, provider
-    plugins/connectors, and confirmation semantics require an accepted decision
-    or RFC first.
+60. **Phase 12: optional Git/PR integration.** D127 decides the boundary:
+    Striatum core does not autonomously commit, push, call hosted providers, or
+    import provider SDKs. Safe implementation starts with read-only local git
+    snapshot surfaces. Durable commit-request and PR-request artifacts may be
+    added; local git commit-apply may create a local commit only after explicit
+    operator confirmation. Hosted provider actions remain out of core and
+    require a future optional-plugin decision with human-principal
+    confirmation.
 
 61. **RFC 0068: Go production daemon port.** Active. D107 supersedes D105:
     Go is the production/default daemon and active contract-method parity is

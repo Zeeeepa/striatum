@@ -48,26 +48,26 @@ dependency edges, and "what would I do next" framing. Update on every
 
 ### 1.1 Active Operator track: HTTP/SSE MCP daemon and CLI retirement
 
-An Operator is actively working on native HTTP/SSE MCP in the Go daemon and
+Native HTTP/SSE MCP in the Go daemon has landed; the remaining active work is
 the longer cutover away from CLI-driven workflow control. The working spec is
 [`RFC 0050 — Native Go Daemon HTTP/SSE MCP and Agent Loop`](rfcs/0050-go-daemon-http-sse-mcp.md).
 
 Order the work as a set of gates, not as one all-or-nothing cutover:
 
-1. Land a native Go `/mcp/sse` endpoint with initialization and `tools/list`.
-2. Route one read-only daemon method through MCP with token enforcement.
-3. Route one low-risk mutation through MCP with fail-closed authorization and
+1. [done] Land a native Go `/mcp/sse` endpoint with initialization and `tools/list`.
+2. [done] Route one read-only daemon method through MCP with token enforcement.
+3. [done] Route one low-risk mutation through MCP with fail-closed authorization and
    unsupported-method tests.
-4. Prove the lane work-packet loop with a fake MCP agent: await/ack/heartbeat,
+4. [partial] Prove the lane work-packet loop with a fake MCP agent: await/ack/heartbeat,
    publish/verdict/complete as supported by the daemon contract, and stale
-   lease behavior.
-5. Refactor `go/pkg/agentloop` into a PTY bootstrapper that gives agents the
+   lease behavior. Current coverage exercises daemon-backed MCP list/call and
+   authorization; a fully scripted fake-agent lane remains useful.
+5. [done] Refactor `go/pkg/agentloop` into a PTY bootstrapper that gives agents the
    endpoint/token/repository/lane instructions and then lets the agent use its
    own MCP client.
 6. Move live operator actions to MCP/UI surfaces until no workflow-control
    operation requires a human or AI operator to invoke `striatum` CLI verbs.
-7. Delete `src/striatum/mcp.py` and retire Python MCP launch docs once native
-   Go MCP and the replacement operator paths have parity.
+7. [done] Delete `src/striatum/mcp.py` and retire Python MCP launch docs.
 
 For this roadmap, "eliminating the CLI" means eliminating CLI verbs as the
 live workflow control plane. Bootstrap and diagnostics commands may survive
@@ -362,7 +362,7 @@ fixture-only and not an operator path.
   methods.
 - Daemon MCP tool descriptors are now generated from `METHOD_REGISTRY`, so
   method name, required capability, and repository-scope mode are no longer
-  hand-written in `mcp.py`.
+  hand-written in a Python MCP wrapper.
 - `scripts/generate_daemon_method_tables.py` renders
   `docs/architecture/DAEMON_METHOD_TABLES.md` from the daemon method
   contract, with `--check` coverage to catch checked-in documentation drift.
@@ -686,7 +686,7 @@ decide whether to rename the packet helper to `packet inbox`.
 
 ---
 
-### 4.11 🟡 partially completed — Architecture remediation Phase 7: workflow risk lint
+### 4.11 🟡 decision accepted; implementation pending — Architecture remediation Phase 7: workflow risk lint
 
 **Updates:** [TODO item 55](TODO.md).
 
@@ -713,15 +713,15 @@ decide whether to rename the packet helper to `packet inbox`.
 - Strict overrides can record an operator-supplied
   `--accepted-risk-decision-id` reference.
 
-**Remaining Phase 7 debt:** blocked on product decision. Accepted lint-risk
-persistence needs an explicit durable authority choice before implementation
-continues; current `workflow lint` remains CLI-local/non-mutating and durable
-evidence is the operator-recorded decision referenced by
-`--accepted-risk-decision-id`.
+**Remaining Phase 7 debt:** D124 accepts daemon-core lint as authoritative.
+Accepted-risk override state must be daemon-backed, append-oriented, linked to
+a decision artifact, and bound to an immutable workflow snapshot or
+fingerprint. Implement the daemon mutation surfaces through CLI/UI/MCP clients;
+do not make workflow-file metadata a live authority.
 
 ---
 
-### 4.12 🟡 partially completed — Architecture remediation Phase 8: auto-finalize from front matter
+### 4.12 🟡 default policy decided; evidence gate pending — Architecture remediation Phase 8: auto-finalize from front matter
 
 **Updates:** [TODO item 39](TODO.md), [TODO item 56](TODO.md).
 
@@ -754,9 +754,12 @@ evidence is the operator-recorded decision referenced by
   three valid written review findings auto-finalize without
   operator-on-behalf or override provenance.
 
-**Remaining Phase 8 debt:** blocked on live dogfood confidence plus a product
-decision. Live auto-finalize remains workflow opt-in, and dry-run visibility
-remains the default posture until evidence supports a default-on change.
+**Remaining Phase 8 debt:** D125 keeps dry-run projection as the global
+default and live auto-finalize workflow opt-in. Default-on behavior may be
+reconsidered only after three successful live dogfoods across at least two lane
+shapes with zero contested audit-chain events, and after lane-finalization
+visibility, skipped-candidate cause classes, and a consecutive-failure circuit
+breaker land.
 
 ---
 
@@ -869,15 +872,20 @@ corpora, but Striatum must keep running with Engram absent and must not
 pull from Engram unless an accepted policy explicitly opts a workflow or
 operator surface into augmentation.
 
-**RFC 0057 scaffold landed (2026-05-14).** See
+**RFC 0057 scaffold landed (2026-05-14); D126 resolved the core choices
+(2026-05-21).** See
 [`docs/rfcs/0057-corpus-contract-v2.md`](rfcs/0057-corpus-contract-v2.md)
 for the bounded V2 decision surface (contract version, multi-corpus
 identity, redaction-tier metadata, incremental-export watermarks,
 validation rules, V1→V2 backward compatibility, augmentation-boundary
 regression coverage, optional context-injection policy). Filed through
 the `docs/issues/17/` workflow; the scaffold is the Striatum side of
-GH #17. Full V2 acceptance criteria are deferred until the design phase
-of a future dogfood resolves the decisions.
+GH #17. D126 accepts composite `corpus_id` identity (`slug:sha256`),
+graduated redaction tiers, workflow opt-in augmentation by reference with
+agent-side fetch, hybrid archive bundles, verification replay by default,
+read-only semantic inspection, no comparative replay, deep-chain verification
+always, and optional daemon audit-chain cross-check. The remaining work is to
+write that into the V2 schema/docs and implement it.
 
 **What already shipped on our side:**
 - `striatum corpus export --since <ref> --out <dir>` (RFC 0044 V1,
@@ -898,32 +906,33 @@ of a future dogfood resolves the decisions.
    compatibility. This is the dependency for external consumers that
    ingest Striatum exports.
 
-2. **Multi-corpus support in the exporter** — emit
-   `corpus_id = striatum:<repo-or-instance-id>` rather than the V1
-   single-corpus `striatum`. Lets one machine host multiple local
-   application memories without mixing separate Striatum projects.
+2. **Multi-corpus support in the exporter** — emit the D126 composite
+   `corpus_id` shape (`slug:sha256`) rather than the V1 single-corpus
+   `striatum`. Lets one machine host multiple local application memories
+   without mixing separate Striatum projects.
 
 3. **Reciprocal augmentation-boundary record** — extend the V1
    regression test to cover any new Engram-integration entry points so
    the "Striatum runs without Engram" property survives the integration
    phases.
 
-4. **Context-injection policy** (RFC-level decision, not implementation
-   yet) — whether Striatum may request optional augmentation from an
-   external memory service, per-packet memory budget defaults, and which
-   workflows opt in. Candidate consumers include operator-startup
-   summaries, workflow scaffolding, agent-packet prep, review-cycle prep,
-   blocker/recovery investigation, and UI/CLI memory search, but none of
-   these may become hard prerequisites.
+4. **Context-injection policy** — D126 chooses workflow opt-in augmentation
+   by reference with agent-side fetch. Candidate consumers include
+   operator-startup summaries, workflow scaffolding, agent-packet prep,
+   review-cycle prep, blocker/recovery investigation, and UI/CLI memory
+   search, but none of these may become hard prerequisites.
 
-**Open decisions to make before implementation** (from Engram's roadmap
-§Open Decisions, applicable to our side):
+**Resolved decisions to encode before implementation** (from D126 and the
+earlier Engram roadmap open-decision list):
 
-- Striatum instance identity representation.
-- `corpus_id` naming — human-readable, UUID-based, or both.
+- Composite `corpus_id` naming as `slug:sha256`.
+- Graduated redaction tiers and tier metadata in the manifest.
+- Workflow opt-in augmentation by reference with agent-side fetch.
+- Hybrid archive bundle defaults and verification replay by default.
+- Deep-chain verification always, with optional daemon audit-chain
+  cross-check.
 - Which log streams are mandatory vs. optional.
 - How much git diff content to export by default.
-- Redaction tier guarantees Striatum commits to before export.
 - Incremental-export watermark storage location.
 - How to record Engram availability without creating a runtime dependency.
 - Default per-packet memory injection budget.
@@ -933,9 +942,9 @@ design RFC + contract tests; no end-user surface changes yet. Subsequent
 phases (multi-corpus exporter, then optional context-injection
 integration) are separate dogfoods.
 
-**Blocked on:** product decisions inside RFC 0057 for multi-corpus
-identity, redaction tier, watermarks, and injection policy. This is not a
-runtime blocker for Striatum's core daemon/remediation work.
+**Blocked on:** no product decision blocker remains for the core V2 direction;
+the remaining work is schema/detail implementation. This is not a runtime
+blocker for Striatum's core daemon/remediation work.
 
 **Forward link:** §11 lists the Engram-side roadmap for context;
 Engram's full backlog is at `~/git/engram/STRIATUM_MEMORY_ROADMAP.md`.
@@ -1026,11 +1035,12 @@ Release order after Phase 0:
    wrapper control acks, and reattach/lost-state handling.
 7. **TODO 55 / Phase 7:** workflow risk lint, opt-in strict enforcement,
    web surfacing, generator preview surfacing, coverage scoring, and
-   accepted-risk decision references landed; durable audit persistence
-   policy is tracked in §4.11.
+   accepted-risk decision references landed; D124 chooses daemon-core
+   accepted-risk persistence and the implementation is tracked in §4.11.
 8. **TODO 56 / Phase 8:** auto-finalize daemon method, status/dashboard/web
-   visibility, and bounded sweep integration landed; remaining default-policy
-   and dogfood acceptance work is tracked in §4.12.
+   visibility, and bounded sweep integration landed; D125 keeps the dry-run
+   default and gates any default-on flip on dogfood evidence, tracked in
+   §4.12.
 9. **TODO 57 / Phase 9:** clean-build, bundle-size, and wheel-size gates
    landed; chunking is monitor-only and tracked in §4.13.
 10. **TODO 58 / Phase 10:** day-zero Postgres/daemon setup slice
@@ -1040,10 +1050,13 @@ Release order after Phase 0:
 11. **TODO 59 / Phase 11:** replay/archive foundations landed, including
     offline event-chain, row-hash, and archived row-id verification for
     command requests, process supervisors, process supervisor pointers,
-    verdicts, blockers, process executions, and job worktrees; Corpus
-    Contract V2 fields wait on RFC 0057 decisions.
-12. **TODO 60 / Phase 12:** optional Git/PR integration waits on a product
-    decision for commit authority and hosted-provider boundaries.
+    verdicts, blockers, process executions, and job worktrees; D126 accepts
+    the Corpus Contract V2 identity, redaction, augmentation-reference,
+    archive, and verification direction.
+12. **TODO 60 / Phase 12:** D127 sets the Git/PR boundary: read-only local
+    snapshots first, durable commit/PR request artifacts next, local commit
+    apply only with explicit operator confirmation, and hosted provider
+    actions only through a later optional-plugin decision.
 13. **TODO 61 / RFC 0068:** keep the Go production daemon conformance suite
     green, keep the Go binary release provenance stamped and verified by
     `--describe`,
@@ -1091,11 +1104,11 @@ Release order after Phase 0:
     `operator_brief` context-budget overruns are schema errors. Optional
     operator-tree init/rotation remains deferred outside RFC 0058.
 
-**Blocked on:** current blockers are Phase 7 accepted-risk persistence,
-Phase 8 default auto-finalize policy, Phase 11 Corpus V2 decisions, Phase 12
-Git/PR authority, and the normal dogfood substrate mismatch recorded in
-dogfoods 064/065. The Go port itself is unblocked and should proceed without
-waiting for human approval.
+**Blocked on:** the prior Phase 7 accepted-risk authority, Phase 8 default
+auto-finalize policy, Phase 11 Corpus V2, and Phase 12 Git/PR product
+questions are decided by D124-D127. Remaining work is implementation and the
+normal dogfood substrate mismatch recorded in dogfoods 064/065. The Go port
+itself is unblocked and should proceed without waiting for human approval.
 
 ---
 
@@ -1125,8 +1138,8 @@ is the runner-owned historical bootstrap successor, and
 | Item | Blocker | Unblock criterion |
 |---|---|---|
 | RFC 0049 spike | Shelved by D106; depends on external billing semantics and PTY/MCP stability | Explicit operator-funded spike + measurement. |
-| RFC 0057 Corpus V2 | Product contract decisions for multi-corpus identity, redaction tier, watermarks, and injection policy | Accepted RFC 0057 design. |
-| Phase 12 Git/PR integration | Product decision for commit authority and hosted-provider boundaries | Accepted RFC/decision before commit apply or hosted PR work. |
+| RFC 0057 Corpus V2 | D126 accepted the core identity, redaction, augmentation, archive, and verification choices; implementation RFC/text still needs to be updated. | V2 schema and docs updated to reflect D126. |
+| Phase 12 Git/PR integration | D127 accepted the boundary; hosted-provider behavior remains out of core and needs a future optional-plugin decision. | Read-only snapshot slice can proceed; commit/PR request artifacts and local commit-apply follow the D127 confirmation boundary. |
 | Item 32 (Engram-side RFC 0044 Phase 1) | External repo (`~/git/engram/`) | Engram-side work; **not Striatum's TODO**. |
 | Item 16 (generic language sweep) | Ongoing documentation hygiene | Active sweep on 2026-05-17; keep open as a standing review item. |
 

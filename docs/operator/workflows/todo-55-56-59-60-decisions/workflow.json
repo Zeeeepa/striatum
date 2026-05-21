@@ -1,0 +1,353 @@
+{
+  "schema_version": "striatum.workflow.v1",
+  "workflow_id": "todo-55-56-59-60-decisions",
+  "workflow_version": "2026-05-21",
+  "name": "TODO 55 56 59 60 blocked product decisions",
+  "context_docs": [
+    "README.md",
+    "docs/INDEX.md",
+    "docs/SPEC.md",
+    "docs/DECISION_LOG.md",
+    "docs/UBIQUITOUS_LANGUAGE.md",
+    "docs/TODO.md",
+    "docs/ROADMAP.md",
+    "docs/operator/BRIEF.md",
+    "docs/HOW_TO_AGENT.md",
+    "docs/rfcs/0057-corpus-contract-v2.md",
+    "docs/rfcs/0059-eradicate-legacy-sqlite-fallbacks.md",
+    "docs/rfcs/0066-replay-archive-and-corpus-v2-foundations.md",
+    "docs/rfcs/0067-optional-git-pr-integration.md",
+    "AGENTS.md"
+  ],
+  "coordinator": {
+    "role_id": "coordinator",
+    "lane_id": "codex"
+  },
+  "parallelism": {
+    "mode": "declared",
+    "max_active_jobs": 4,
+    "require_disjoint_write_scopes": true
+  },
+  "branch": {
+    "mode": "confirm",
+    "suggested_name": "striatum/todo-55-56-59-60-decisions",
+    "allow_dirty": true
+  },
+  "policy": {
+    "root_review_needs_revision": "human_checkpoint",
+    "description": "Product decisions must be made by the human principal; agent lanes only prepare evidence and options."
+  },
+  "lanes": {
+    "codex": {
+      "adapter": "process",
+      "command": [
+        "bash",
+        "-lc",
+        "PYTHONPATH=src python3 -m striatum.cli skills install --profile all --scope user --force --json >/dev/null && export PATH=\"$PWD/.venv/bin:$PATH\" && exec .striatum/bin/codex-supervised-wrapper.sh"
+      ],
+      "model": "codex",
+      "display_model": "Codex",
+      "strategy_version": "2026-05-21",
+      "supervision": {
+        "compatible": true,
+        "stdin_format": "newline_delimited_json",
+        "wrapper_required": true
+      }
+    },
+    "claude_code": {
+      "adapter": "process",
+      "command": [
+        "bash",
+        "-lc",
+        "PYTHONPATH=src python3 -m striatum.cli skills install --profile all --scope user --force --json >/dev/null && export PATH=\"$PWD/.venv/bin:$PATH\" && exec .striatum/bin/claude-supervised-wrapper.sh"
+      ],
+      "model": "claude_code",
+      "display_model": "Claude Code",
+      "strategy_version": "2026-05-21",
+      "supervision": {
+        "compatible": "verify_pipe_behavior_first",
+        "stdin_format": "prompt_text",
+        "wrapper_required": true
+      }
+    },
+    "gemini": {
+      "adapter": "process",
+      "command": [
+        "bash",
+        "-lc",
+        "PYTHONPATH=src python3 -m striatum.cli skills install --profile all --scope user --force --json >/dev/null && export PATH=\"$PWD/.venv/bin:$PATH\" && exec .striatum/bin/gemini-supervised-wrapper.sh"
+      ],
+      "model": "gemini",
+      "display_model": "Gemini",
+      "strategy_version": "2026-05-21",
+      "supervision": {
+        "compatible": true,
+        "stdin_format": "prompt_text",
+        "wrapper_required": true
+      }
+    }
+  },
+  "roles": {
+    "coordinator": {
+      "description": "Operator/control-plane role."
+    },
+    "analyst": {
+      "description": "Prepares evidence and options for a blocked product decision without deciding it."
+    },
+    "reviewer": {
+      "description": "Reviews decision options for missing evidence or hidden product assumptions."
+    },
+    "human_checkpoint": {
+      "description": "Opens a human-principal checkpoint and waits for an explicit decision."
+    },
+    "synthesizer": {
+      "description": "Combines decision analyses into a single checkpoint brief."
+    }
+  },
+  "jobs": [
+    {
+      "id": "analyze_55",
+      "type": "synthesis",
+      "title": "Analyze TODO 55 accepted-risk persistence decision",
+      "role_id": "analyst",
+      "lane_id": "codex",
+      "parallel_group": "decision_analysis",
+      "fresh_session_required": true,
+      "objective": "Prepare decision options for durable accepted-risk audit persistence policy in TODO 55.",
+      "task_prompt": {
+        "path": "prompts/analyze_55.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/operator/artifacts/todo-55-56-59-60-decisions/analysis/55/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "todo_55_analysis",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/todo-55-56-59-60-decisions/analysis/55/ANALYSIS.md",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "analyze_56",
+      "type": "synthesis",
+      "title": "Analyze TODO 56 auto-finalize default policy decision",
+      "role_id": "analyst",
+      "lane_id": "claude_code",
+      "parallel_group": "decision_analysis",
+      "fresh_session_required": true,
+      "objective": "Prepare decision options for default/live auto-finalize policy and dogfood acceptance in TODO 56.",
+      "task_prompt": {
+        "path": "prompts/analyze_56.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/operator/artifacts/todo-55-56-59-60-decisions/analysis/56/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "todo_56_analysis",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/todo-55-56-59-60-decisions/analysis/56/ANALYSIS.md",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "analyze_59",
+      "type": "synthesis",
+      "title": "Analyze TODO 59 Corpus Contract V2 decisions",
+      "role_id": "analyst",
+      "lane_id": "gemini",
+      "parallel_group": "decision_analysis",
+      "fresh_session_required": true,
+      "objective": "Prepare decision options for replay/archive/Corpus Contract V2 choices in TODO 59.",
+      "task_prompt": {
+        "path": "prompts/analyze_59.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/operator/artifacts/todo-55-56-59-60-decisions/analysis/59/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "todo_59_analysis",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/todo-55-56-59-60-decisions/analysis/59/ANALYSIS.md",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "analyze_60",
+      "type": "synthesis",
+      "title": "Analyze TODO 60 optional Git/PR boundary decision",
+      "role_id": "analyst",
+      "lane_id": "codex",
+      "parallel_group": "decision_analysis",
+      "fresh_session_required": true,
+      "objective": "Prepare decision options for optional Git/PR integration, commit authority, and hosted-provider boundaries in TODO 60.",
+      "task_prompt": {
+        "path": "prompts/analyze_60.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/operator/artifacts/todo-55-56-59-60-decisions/analysis/60/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "todo_60_analysis",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/todo-55-56-59-60-decisions/analysis/60/ANALYSIS.md",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "decision_synthesis",
+      "type": "synthesis",
+      "title": "Synthesize blocked-decision checkpoint",
+      "role_id": "synthesizer",
+      "lane_id": "claude_code",
+      "fresh_session_required": true,
+      "objective": "Combine the four decision analyses into one human-principal checkpoint brief. Recommend options if evidence supports them, but do not record product decisions.",
+      "task_prompt": {
+        "path": "prompts/decision_synthesis.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/operator/artifacts/todo-55-56-59-60-decisions/checkpoint/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "checkpoint_brief",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/todo-55-56-59-60-decisions/checkpoint/CHECKPOINT_BRIEF.md",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "open_human_checkpoint",
+      "type": "human_checkpoint",
+      "title": "Open human-principal decision checkpoint",
+      "role_id": "human_checkpoint",
+      "lane_id": "gemini",
+      "fresh_session_required": true,
+      "objective": "Open a human checkpoint for the TODO 55, 56, 59, and 60 product decisions. Do not write a decision artifact yourself.",
+      "task_prompt": {
+        "path": "prompts/open_human_checkpoint.md"
+      },
+      "write_scope": {
+        "mode": "review_only_artifact",
+        "repo_write": false,
+        "allowed_paths": [
+          "docs/operator/artifacts/todo-55-56-59-60-decisions/checkpoint/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": []
+    },
+    {
+      "id": "apply_decisions",
+      "type": "synthesis",
+      "title": "Apply recorded decisions to TODO state",
+      "role_id": "synthesizer",
+      "lane_id": "codex",
+      "fresh_session_required": true,
+      "objective": "After the human principal records decisions and the checkpoint is resolved, update docs/TODO.md, docs/ROADMAP.md, docs/operator/BRIEF.md, and decision follow-up state accordingly. Do not invent missing decisions.",
+      "task_prompt": {
+        "path": "prompts/apply_decisions.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/TODO.md",
+          "docs/ROADMAP.md",
+          "docs/operator/BRIEF.md",
+          "docs/DECISION_LOG.md",
+          "docs/operator/artifacts/todo-55-56-59-60-decisions/final/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "decision_application_summary",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/todo-55-56-59-60-decisions/final/SUMMARY.md",
+          "required": true
+        }
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "from": "analyze_55",
+      "to": "decision_synthesis",
+      "on": "completed"
+    },
+    {
+      "from": "analyze_56",
+      "to": "decision_synthesis",
+      "on": "completed"
+    },
+    {
+      "from": "analyze_59",
+      "to": "decision_synthesis",
+      "on": "completed"
+    },
+    {
+      "from": "analyze_60",
+      "to": "decision_synthesis",
+      "on": "completed"
+    },
+    {
+      "from": "decision_synthesis",
+      "to": "open_human_checkpoint",
+      "on": "completed"
+    },
+    {
+      "from": "open_human_checkpoint",
+      "to": "apply_decisions",
+      "on": "completed"
+    }
+  ],
+  "cycles": []
+}
