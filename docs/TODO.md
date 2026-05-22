@@ -488,8 +488,8 @@ Legend: ✅ done · 🟡 most done (sub-tasks remain) · ⏳ open/blocked · �
     redacted JSONL bundle (nine files + `manifest.json`) backed by
     `src/striatum/corpus/` (types, git helpers, enumerator, redactor,
     JSONL writer, manifest, export orchestration). The augmentation
-    boundary is pinned by
-    `tests/test_cli_corpus_export.py::test_no_engram_imports_or_memory_capabilities_in_striatum`
+    boundary is pinned by the active V2 guardrail
+    `tests/test_corpus_verify.py::test_corpus_v2_surface_keeps_augmentation_boundary_local`
     (no `import engram`, no `from engram`, no `memory.*` capabilities
     across `corpus/`, `cli/`, `daemon_rpc`, `daemon_pg`,
     `service.py`, and `pyproject.toml`). D100 cycle-exhaustion

@@ -500,17 +500,20 @@ incremental watermarks, optional context-injection policy) are scoped by
 
 ```text
 striatum archive create --run-id <id> --out <dir>
-striatum archive verify --bundle <dir> [--replay] [--repo-root <path>]
+striatum archive verify --bundle <dir> [--manifest-only] [--repo-root <path>]
+striatum archive inspect --bundle <dir> [--repo-root <path>]
 ```
 
 `archive create` is a daemon/Postgres-backed read command that writes a
-local archive directory for one run. The V1 archive contains the run row,
-workflow snapshot, run-scoped rows, artifact metadata, and event metadata
-plus a self-verifying `manifest.json`; it does not copy artifact contents,
+local archive directory for one run. The V2 archive contains the run row,
+workflow snapshot, run-scoped rows, artifact metadata, event metadata, and a
+self-verifying `manifest.json`; it does not copy artifact contents,
 transcripts, or `.striatum/` scratch. `archive verify` is local and
-read-only against an existing archive bundle. `--replay` adds offline
-semantic checks over archived run metadata; `--repo-root` also verifies
-artifact content hashes against files in a local repository checkout.
+read-only against an existing archive bundle, and it runs offline semantic
+replay by default. `--manifest-only` is the explicit fast path that skips
+semantic replay; `--repo-root` also verifies artifact content hashes against
+files in a local repository checkout. `archive inspect` is a read-only local
+projection over the same verifier.
 
 ## Adapter
 

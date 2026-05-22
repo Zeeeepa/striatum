@@ -723,8 +723,8 @@ transitions. The non-negotiable invariants are:
   recovery, `run prepare`, `run start`, `corpus export`) that fails when
   an external memory consumer is missing, unreachable, or misconfigured.
 
-These invariants are pinned by
-`tests/test_cli_corpus_export.py::test_no_engram_imports_or_memory_capabilities_in_striatum`.
+These invariants are pinned by the active V2 boundary guardrail
+`tests/test_corpus_verify.py::test_corpus_v2_surface_keeps_augmentation_boundary_local`.
 The contract version, multi-corpus identity, redaction-tier metadata,
 incremental-export watermark, and optional context-injection policy that
 power V2 are scoped by [RFC 0057](rfcs/0057-corpus-contract-v2.md).
