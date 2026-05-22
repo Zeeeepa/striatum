@@ -70,6 +70,7 @@ the generated `workflow.json` path explicitly.
 | Require an owner decision before proceeding | Human checkpoint | `examples/human-checkpoint-flow/` |
 | Produce an artifact whose claims need explicit evidence | Evidence-backed artifact | `examples/support-ledger-flow/` |
 | Collect several independent reviews before a final recommendation | Multi-review synthesis | `examples/rfc-ledger-cleanup/` |
+| Audit code, docs, RFC status, and operator adoption risk together | Three-lane code and docs audit | RFC 0076 proposed shape |
 
 ## Lane Selection Heuristic
 
@@ -340,6 +341,34 @@ Start from `examples/rfc-ledger-cleanup/` for the current generic
 shape. Treat `examples/rfc-0014-operational-artifact-home/` and old
 P00x prompt material as historical reference unless a task explicitly
 asks for that provenance.
+
+## Three-Lane Code And Documentation Audit
+
+Use this when the question is not "is this patch good?", but "where has
+the product, source, and documentation drifted?"
+
+```mermaid
+flowchart TD
+  A["audit brief"] --> B["authority/runtime audit"]
+  A --> C["docs/decision drift audit"]
+  A --> D["operator/adoption audit"]
+  B --> E["synthesis"]
+  C --> E
+  D --> E
+  E --> F["remediation plan"]
+```
+
+Good fits:
+
+- periodic full-repo audit
+- checking half-implemented or superseded RFCs
+- release-candidate source/docs consistency review
+- validating day-zero operator adoption
+- finding gaps between daemon behavior, docs, examples, and TODOs
+
+Start from RFC 0076 until a runnable example or generator shape lands.
+The audit should produce evidence-backed findings and a remediation
+plan, not silently fix every issue it discovers.
 
 ## Current UI Path
 
