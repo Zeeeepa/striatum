@@ -73,6 +73,8 @@ from striatum.web.artifacts import (
 )
 from striatum.web import run_actions as _run_actions
 from striatum.web.run_actions import RunActionContext as _RunActionContext
+from striatum.web import escalations as _escalations
+from striatum.web.escalations import EscalationRouteContext as _EscalationRouteContext
 from striatum.web import run_pages as _run_pages
 from striatum.web.run_pages import RunPageContext as _RunPageContext
 from striatum.web import workflows as _workflows
@@ -300,6 +302,34 @@ class StriatumServiceHandler(BaseHTTPRequestHandler):
         )
 
     # --- RFC 0022 V1 page rendering -----------------------------------
+
+    def _escalation_route_context(self) -> _EscalationRouteContext:
+        return _EscalationRouteContext(
+            repo=self.state.repo,
+            allow_mutations=self.state.allow_mutations,
+            send_json=self._send_json,
+            send_html=self._send_html,
+            read_json_body_strict=self._read_json_body_strict,
+            jinja_env=_jinja_env,
+        )
+
+    def _render_escalation_list_page(self, query: dict[str, list[str]]) -> None:
+        _escalations.render_escalation_list_page(
+            self._escalation_route_context(),
+            query,
+        )
+
+    def _render_escalation_detail_page(self, escalation_id: str) -> None:
+        _escalations.render_escalation_detail_page(
+            self._escalation_route_context(),
+            escalation_id,
+        )
+
+    def _handle_escalation_resolve(self, escalation_id: str) -> None:
+        _escalations.handle_escalation_resolve(
+            self._escalation_route_context(),
+            escalation_id,
+        )
 
     def _run_page_context(self) -> _RunPageContext:
         return _RunPageContext(

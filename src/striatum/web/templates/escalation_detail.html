@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+{% block title %}Escalation {{ escalation.escalation_id }} · Striatum{% endblock %}
+{% block main %}
+<section class="page-section escalation-detail-page">
+  <header class="job-header">
+    <p class="breadcrumb"><a href="/escalations">← Escalations</a></p>
+    <h1>Escalation <code>{{ escalation.escalation_id }}</code></h1>
+    <div class="job-meta">
+      <span class="status-pill status-{{ escalation.state|replace('_', '-') }}">{{ escalation.state }}</span>
+      <span class="muted">{{ escalation.source }} · {{ escalation.class }}</span>
+      <a class="secondary-button compact-button" href="/run/{{ escalation.run_id }}">Run</a>
+      {% if escalation.job_id %}
+      <a class="secondary-button compact-button" href="/run/{{ escalation.run_id }}/job/{{ escalation.workflow_job_id or escalation.job_id }}">Job</a>
+      {% endif %}
+    </div>
+  </header>
+
+  <h2>Details</h2>
+  <dl class="kv-grid">
+    <dt>Run</dt><dd><code>{{ escalation.run_id }}</code></dd>
+    <dt>Job</dt><dd>{% if escalation.job_id %}<code>{{ escalation.workflow_job_id or escalation.job_id }}</code>{% else %}—{% endif %}</dd>
+    <dt>Session</dt><dd>{% if escalation.session_id %}<code>{{ escalation.session_id }}</code>{% else %}—{% endif %}</dd>
+    <dt>Severity</dt><dd>{{ escalation.severity }}</dd>
+    <dt>Inbox</dt><dd>{{ escalation.inbox_state or "—" }}</dd>
+    <dt>Created</dt><dd>{% if escalation.created_at %}<time datetime="{{ escalation.created_at }}">{{ escalation.created_at }}</time>{% else %}—{% endif %}</dd>
+    <dt>Viewed</dt><dd>{% if escalation.viewed_at %}<time datetime="{{ escalation.viewed_at }}">{{ escalation.viewed_at }}</time>{% else %}—{% endif %}</dd>
+    <dt>Resolved</dt><dd>{% if escalation.resolved_at %}<time datetime="{{ escalation.resolved_at }}">{{ escalation.resolved_at }}</time>{% else %}—{% endif %}</dd>
+  </dl>
+
+  <h2>Description</h2>
+  <p>{{ escalation.description }}</p>
+
+  {% if escalation.escalation_artifact %}
+  <h2>Artifact</h2>
+  <p>
+    <a href="/run/{{ escalation.run_id }}/artifact/{{ escalation.escalation_artifact.artifact_id }}"><code>{{ escalation.escalation_artifact.repo_path }}</code></a>
+  </p>
+  {% endif %}
+
+  {% if can_resolve %}
+  <h2>Resolve</h2>
+  <form class="escalation-resolve-form" data-escalation-resolve-form data-escalation-id="{{ escalation.escalation_id }}">
+    <label class="modal-field">
+      <span>Decision ID</span>
+      <input type="text" name="decision_id" autocomplete="off">
+    </label>
+    <label class="modal-field">
+      <span>Resolution note</span>
+      <textarea name="resolution_note" rows="4"></textarea>
+    </label>
+    <div class="modal-actions">
+      <button type="submit" class="primary-button">Resolve</button>
+      <span class="modal-status" data-escalation-resolve-status hidden></span>
+    </div>
+  </form>
+  {% elif escalation.source == "human_checkpoint" and escalation.state == "open" %}
+  <h2>Resolve</h2>
+  <p class="empty-state">Checkpoint resolution required.</p>
+  {% endif %}
+
+  {% if escalation.resolution_note %}
+  <h2>Resolution</h2>
+  <p>{{ escalation.resolution_note }}</p>
+  {% endif %}
+
+  {% if escalation.payload %}
+  <h2>Payload</h2>
+  <details>
+    <summary class="muted">JSON</summary>
+    <pre><code>{{ escalation.payload | tojson(indent=2) }}</code></pre>
+  </details>
+  {% endif %}
+</section>
+{% endblock %}
+{% block scripts %}
+<script defer src="/static/escalation_resolve.js"></script>
+{% endblock %}

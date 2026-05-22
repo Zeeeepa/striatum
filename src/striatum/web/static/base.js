@@ -132,7 +132,7 @@
     }
 
     let gSeenAt = 0;
-    const routes = { r: "/", w: "/workflows", c: "/chat", d: "/doctor" };
+    const routes = { r: "/", w: "/workflows", e: "/escalations", c: "/chat", d: "/doctor" };
     document.addEventListener("keydown", (event) => {
       if (isEditableTarget(event.target)) return;
       if (event.key === "?") {

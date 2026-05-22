@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% block title %}Escalations · Striatum{% endblock %}
+{% block main %}
+<section class="page-section">
+  <header class="run-header">
+    <h1>Escalations</h1>
+    <form class="filter-toolbar" method="get" action="/escalations" aria-label="Escalation filters">
+      <label class="filter-search">
+        <span>Run</span>
+        <input type="search" name="run_id" value="{{ run_id }}" placeholder="run_id" autocomplete="off">
+      </label>
+      <button type="submit" class="secondary-button compact-button">Filter</button>
+      {% if run_id %}
+      <a class="secondary-button compact-button" href="/escalations">Clear</a>
+      {% endif %}
+    </form>
+  </header>
+
+  {% if escalations %}
+  <table class="data-table escalations-table">
+    <thead>
+      <tr>
+        <th>Escalation</th>
+        <th>State</th>
+        <th>Run</th>
+        <th>Source</th>
+        <th>Class</th>
+        <th>Created</th>
+        <th>Artifact</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for escalation in escalations %}
+      <tr>
+        <td><a href="/escalations/{{ escalation.escalation_id }}"><code>{{ escalation.escalation_id }}</code></a></td>
+        <td><span class="status-pill status-{{ escalation.state|replace('_', '-') }}">{{ escalation.state }}</span></td>
+        <td><a href="/run/{{ escalation.run_id }}"><code>{{ escalation.run_id }}</code></a></td>
+        <td>{{ escalation.source }}</td>
+        <td><code>{{ escalation.class }}</code></td>
+        <td>{% if escalation.created_at %}<time datetime="{{ escalation.created_at }}">{{ escalation.created_at }}</time>{% else %}—{% endif %}</td>
+        <td>
+          {% if escalation.escalation_artifact %}
+          <a href="/run/{{ escalation.run_id }}/artifact/{{ escalation.escalation_artifact.artifact_id }}"><code>{{ escalation.escalation_artifact.repo_path }}</code></a>
+          {% else %}
+          <span class="muted">—</span>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="empty-state">No open escalations.</p>
+  {% endif %}
+</section>
+{% endblock %}

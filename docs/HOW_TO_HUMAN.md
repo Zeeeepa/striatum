@@ -36,6 +36,17 @@ Either way the escalation appears in your inbox alongside
 ordinary state. Check it whenever you sit down at the runner:
 
 ```bash
+striatum --repo "$TARGET_REPO" serve --web --allow-mutations
+```
+
+Then open `/escalations` in the local web UI. The page lists open
+principal items, links to each detail view, and resolves escalation-class
+blockers through the daemon-backed `escalation.resolve` path when
+mutations are enabled.
+
+The CLI remains available as temporary compatibility and debugging surface:
+
+```bash
 striatum --repo "$TARGET_REPO" inbox --json
 striatum --repo "$TARGET_REPO" status --json | jq '.blockers'
 ```
@@ -46,7 +57,8 @@ session id.
 
 ### Inspect
 
-For a blocker, look at what's reported:
+For a blocker, open its `/escalations/<escalation_id>` detail page. The CLI
+diagnostic equivalents are:
 
 ```bash
 striatum --repo "$TARGET_REPO" why <session_id> --json
@@ -107,8 +119,11 @@ striatum --repo "$TARGET_REPO" decision record \
   --json
 ```
 
-If the decision resolves an escalation-class blocker, clear it through the
-principal path so the AI operator can proceed:
+If the decision resolves an escalation-class blocker, use the detail page's
+Resolve form. It records the resolution through daemon `escalation.resolve`
+so the AI operator can proceed.
+
+The CLI equivalent remains available for compatibility and debugging:
 
 ```bash
 striatum --repo "$TARGET_REPO" escalation resolve \
@@ -641,7 +656,7 @@ Common recovery paths are:
 | Stale lease or no heartbeat. | `recovery stale-leases --run-id <run_id> --json` | `recovery requeue-stale` only for review-safe or force-justified work. |
 | Process exited, outputs missing, or supervisor mismatch. | `recovery process-reconcile --run-id <run_id> --json` | `recovery resume --blocker-id <id>` after the artifact/verdict issue is fixed. |
 | Human checkpoint or revision-routing blocker. | `why <blocker_id> --run-id <run_id>` plus artifacts. | `decision record`, then `checkpoint resolve --blocker-id <id> --action continue|cancel`. |
-| Escalation artifact or principal inbox item. | `inbox --json` and `escalation show --escalation-id <id> --json`. | `decision record`, then `escalation resolve --escalation-id <id> --decision-id <decision_id>`. |
+| Escalation artifact or principal inbox item. | `/escalations`, or `inbox --json` and `escalation show --escalation-id <id> --json` for CLI diagnostics. | `/escalations/<id>` Resolve form, or `decision record` then `escalation resolve --escalation-id <id> --decision-id <decision_id>` for CLI compatibility. |
 | Terminal run with active sessions. | `doctor --run-id <run_id> --verbose --json`. | `session close --session-id <session_id> --reason terminal-run-cleanup`. |
 
 For unattended runs against a **single** repo, `recovery watch`

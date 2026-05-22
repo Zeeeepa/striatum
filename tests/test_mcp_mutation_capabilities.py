@@ -151,6 +151,140 @@ def test_daemon_mcp_tools_list_excludes_removed_dogfood_composites(monkeypatch) 
     assert "dogfood.publish_on_behalf" not in names
 
 
+def test_escalation_mcp_visibility_tracks_read_and_admin_capabilities(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    def read_authorize(
+        conn: object,
+        *,
+        required: str | None,
+        repository_id: str | None,
+        token: str | None,
+    ) -> RpcAuthContext:
+        decision = "allowed" if required == "read" else "denied"
+        return RpcAuthContext(
+            "client",
+            "token",
+            repository_id,
+            required if decision == "allowed" else None,
+            decision,
+            None if decision == "allowed" else "capability_missing",
+        )
+
+    monkeypatch.setattr("striatum.daemon_rpc.capability.authorize", read_authorize)
+    read_names = {
+        tool["name"]
+        for tool in daemon_tool_specs(object(), {"token": "dtok.secret", "repository_id": "repo_a"})
+    }
+
+    assert "escalation.list" in read_names
+    assert "escalation.show" in read_names
+    assert "escalation.resolve" not in read_names
+
+    def admin_authorize(
+        conn: object,
+        *,
+        required: str | None,
+        repository_id: str | None,
+        token: str | None,
+    ) -> RpcAuthContext:
+        decision = "allowed" if required == "admin" else "denied"
+        return RpcAuthContext(
+            "client",
+            "token",
+            repository_id,
+            required if decision == "allowed" else None,
+            decision,
+            None if decision == "allowed" else "capability_missing",
+        )
+
+    monkeypatch.setattr("striatum.daemon_rpc.capability.authorize", admin_authorize)
+    admin_names = {
+        tool["name"]
+        for tool in daemon_tool_specs(object(), {"token": "dtok.secret", "repository_id": "repo_a"})
+    }
+
+    assert "escalation.resolve" in admin_names
+    assert "escalation.list" not in admin_names
+    assert "escalation.show" not in admin_names
+
+
+def test_escalation_resolve_mcp_call_refuses_read_only_or_wrong_repository_tokens(
+    monkeypatch: Any,
+) -> None:
+    audit_calls: list[dict[str, Any]] = []
+    request_logs: list[dict[str, Any]] = []
+
+    def read_only_authorize(
+        conn: object,
+        *,
+        required: str | None,
+        repository_id: str | None,
+        token: str | None,
+    ) -> RpcAuthContext:
+        return RpcAuthContext(
+            "client",
+            "token",
+            repository_id,
+            None,
+            "denied",
+            "capability_missing",
+        )
+
+    def fake_append_audit_row(*args: Any, **kwargs: Any) -> int:
+        audit_calls.append(kwargs)
+        return 11
+
+    def fake_append_request_log(*args: Any, **kwargs: Any) -> None:
+        request_logs.append(kwargs)
+
+    monkeypatch.setattr("striatum.daemon_pg.mcp_dispatch.authorize", read_only_authorize)
+    monkeypatch.setattr("striatum.daemon_rpc.request_log.append_audit_row", fake_append_audit_row)
+    monkeypatch.setattr("striatum.daemon_rpc.request_log.append_request_log", fake_append_request_log)
+
+    read_only = dispatch_mcp_tool_call(
+        pg_conn=object(),
+        name="escalation.resolve",
+        token="dtok.secret",
+        request_id="req-escalation-read-only",
+        arguments={"repository_id": "repo_a", "escalation_id": "blk_1"},
+    )
+
+    assert read_only["isError"] is True
+    structured = read_only["structuredContent"]
+    assert isinstance(structured, dict)
+    assert structured["error"] == "capability_missing"
+
+    def wrong_repo_authorize(
+        conn: object,
+        *,
+        required: str | None,
+        repository_id: str | None,
+        token: str | None,
+    ) -> RpcAuthContext:
+        return RpcAuthContext(
+            "client",
+            "token",
+            repository_id,
+            None,
+            "denied",
+            "capability_scope_mismatch",
+        )
+
+    monkeypatch.setattr("striatum.daemon_pg.mcp_dispatch.authorize", wrong_repo_authorize)
+    wrong_repo = dispatch_mcp_tool_call(
+        pg_conn=object(),
+        name="escalation.resolve",
+        token="dtok.secret",
+        request_id="req-escalation-wrong-repo",
+        arguments={"repository_id": "repo_b", "escalation_id": "blk_1"},
+    )
+
+    assert wrong_repo["isError"] is True
+    structured = wrong_repo["structuredContent"]
+    assert isinstance(structured, dict)
+    assert structured["error"] == "capability_scope_mismatch"
+    assert audit_calls[-1]["auth"].denial_reason == "capability_scope_mismatch"
+
+
 def test_daemon_mcp_tools_call_reauthorizes_and_audits_denial(monkeypatch) -> None:  # type: ignore[no-untyped-def]
     audit_calls: list[dict[str, Any]] = []
     request_logs: list[dict[str, Any]] = []

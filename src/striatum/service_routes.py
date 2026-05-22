@@ -46,6 +46,12 @@ def dispatch_get(handler: Any) -> None:
     if handler.state.web_enabled and path == "/doctor":
         handler._render_doctor_page()
         return
+    if handler.state.web_enabled and path == "/escalations":
+        handler._render_escalation_list_page(query)
+        return
+    if handler.state.web_enabled and path.startswith("/escalations/"):
+        handler._render_escalation_detail_page(path[len("/escalations/"):])
+        return
     if handler.state.web_enabled and path == "/chat":
         handler._render_chat_index_page()
         return
@@ -167,6 +173,14 @@ def dispatch_post(handler: Any) -> None:
         and (parsed.path.endswith("/cancel") or parsed.path.endswith("/retry"))
     ):
         handler._handle_job_action(parsed.path)
+        return
+    if (
+        handler.state.web_enabled
+        and parsed.path.startswith("/escalations/")
+        and parsed.path.endswith("/resolve")
+    ):
+        escalation_id = parsed.path[len("/escalations/"):-len("/resolve")]
+        handler._handle_escalation_resolve(escalation_id)
         return
     if (
         handler.state.web_enabled
