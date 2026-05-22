@@ -918,7 +918,12 @@ def build_parser() -> argparse.ArgumentParser:
     archive_verify.add_argument(
         "--replay",
         action="store_true",
-        help="run offline semantic replay checks over the archive metadata",
+        help="compatibility flag; offline semantic replay is the default",
+    )
+    archive_verify.add_argument(
+        "--manifest-only",
+        action="store_true",
+        help="skip offline semantic replay and verify only manifest, hashes, and row counts",
     )
     archive_verify.add_argument(
         "--repo-root",
@@ -928,6 +933,16 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     archive_verify.add_argument("--json", action="store_true")
+    archive_inspect = archive_sub.add_parser("inspect")
+    archive_inspect.add_argument("--bundle", required=True)
+    archive_inspect.add_argument(
+        "--repo-root",
+        help=(
+            "optional repository root used to check artifact content hashes "
+            "from archived metadata"
+        ),
+    )
+    archive_inspect.add_argument("--json", action="store_true")
 
     decision = sub.add_parser("decision")
     decision_sub = decision.add_subparsers(dest="decision_command", required=True)

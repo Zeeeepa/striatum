@@ -17,6 +17,15 @@ import (
 )
 
 const archiveSchemaVersion = "striatum.run_archive.v1"
+const archiveContractVersion = 2
+const archiveVerificationDepth = "deep_chain"
+const archiveArtifactContentPolicy = "metadata_only"
+
+var archiveHybridDefaults = map[string]bool{
+	"snapshot":                 true,
+	"event_log":                true,
+	"verify_replay_by_default": true,
+}
 
 var archiveJSONFiles = map[string]string{
 	"run":               "run.json",
@@ -304,7 +313,10 @@ func buildArchiveManifest(repoRoot string, repositoryID string, runID string, fi
 		"run_id":                   runID,
 		"generated_at":             time.Now().UTC().Truncate(time.Second).Format(time.RFC3339),
 		"archive_kind":             "run",
-		"archive_contract_version": 1,
+		"archive_contract_version": archiveContractVersion,
+		"verification_depth":       archiveVerificationDepth,
+		"hybrid_archive_defaults":  archiveHybridDefaults,
+		"artifact_content_policy":  archiveArtifactContentPolicy,
 		"schema": map[string]any{
 			"row_shape_version": 1,
 			"json_files":        archiveJSONFiles,

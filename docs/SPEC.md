@@ -729,24 +729,33 @@ The contract version, multi-corpus identity, redaction-tier metadata,
 incremental-export watermark, and optional context-injection policy that
 power V2 are scoped by [RFC 0057](rfcs/0057-corpus-contract-v2.md).
 
-`striatum archive create --run-id <id> --out <dir>` is the Phase 11 V1 run
+`striatum archive create --run-id <id> --out <dir>` is the Phase 11 run
 archive foundation. It is a daemon/Postgres-backed read command that writes
 a local archive directory for one run: run row, workflow snapshot,
 run-scoped rows including command requests, process executions, job
 worktrees, process supervisors, process supervisor pointers, artifact
-metadata, event metadata, and a self-verifying `manifest.json`. It does not
-copy artifact contents, transcripts, `.striatum/` scratch, or any
-external-service state. `striatum archive verify --bundle <dir>` checks an
-existing archive locally without daemon state. `striatum archive verify
---bundle <dir> --replay` adds an offline semantic replay over the archived
-metadata: run/repository consistency, FK-style references among run rows,
+metadata, event metadata, and a self-verifying `manifest.json`. New archives
+advertise `archive_contract_version=2`, `verification_depth=deep_chain`,
+hybrid archive defaults (`snapshot`, `event_log`, and
+`verify_replay_by_default` all true), and `artifact_content_policy:
+metadata_only`. The archive does not copy artifact contents, transcripts,
+`.striatum/` scratch, or any external-service state.
+
+`striatum archive verify --bundle <dir>` checks an existing archive locally
+without daemon state and runs offline deep-chain semantic replay by default:
+run/repository consistency, FK-style references among run rows,
 duplicate/missing archived row-id rejection for command requests, process
 supervisors, process supervisor pointers, verdicts, blockers, process
 executions, and job worktrees, monotonic event ordering, event-row hash
 recomputation, and event-chain continuity when `previous_hash` / `row_hash`
-anchors are present. Because the archive stores artifact metadata rather
-than artifact bytes, artifact content hashes are checked only when the
-operator also provides `--repo-root <path>`.
+anchors are present. `--manifest-only` is the explicit fast path that skips
+semantic replay and checks only manifest shape, file hashes, byte counts, and
+row counts. Because the archive stores artifact metadata rather than artifact
+bytes, artifact content hashes are checked only when the operator also
+provides `--repo-root <path>`. `striatum archive inspect --bundle <dir>` is
+a read-only local semantic inspection surface over the same verifier; it
+reports consistency, replay posture, and privacy-relevant metadata without
+daemon reachability or workflow-state mutation.
 
 ## Branches And Commits
 
@@ -869,7 +878,8 @@ striatum recovery resume
 # Corpus export (RFC 0044 V1; RFC 0052 contract)
 striatum corpus export --since <ref> --out <dir>
 striatum archive create --run-id <id> --out <dir>
-striatum archive verify --bundle <dir> [--replay] [--repo-root <path>]
+striatum archive verify --bundle <dir> [--manifest-only] [--repo-root <path>]
+striatum archive inspect --bundle <dir> [--repo-root <path>]
 
 # Adapter
 striatum adapter run

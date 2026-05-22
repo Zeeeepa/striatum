@@ -83,6 +83,19 @@ func TestWriteRunArchiveCreatesVerifiableManifestShape(t *testing.T) {
 	if manifest["schema_version"] != archiveSchemaVersion {
 		t.Fatalf("schema_version = %v", manifest["schema_version"])
 	}
+	if manifest["archive_contract_version"].(float64) != 2 {
+		t.Fatalf("archive_contract_version = %v", manifest["archive_contract_version"])
+	}
+	if manifest["verification_depth"] != "deep_chain" {
+		t.Fatalf("verification_depth = %v", manifest["verification_depth"])
+	}
+	if manifest["artifact_content_policy"] != "metadata_only" {
+		t.Fatalf("artifact_content_policy = %v", manifest["artifact_content_policy"])
+	}
+	defaults := manifest["hybrid_archive_defaults"].(map[string]any)
+	if defaults["snapshot"] != true || defaults["event_log"] != true || defaults["verify_replay_by_default"] != true {
+		t.Fatalf("hybrid_archive_defaults = %v", defaults)
+	}
 	rowCounts := manifest["row_counts"].(map[string]any)
 	if rowCounts["events"].(float64) != 1 {
 		t.Fatalf("events count = %v", rowCounts["events"])

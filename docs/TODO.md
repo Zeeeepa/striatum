@@ -110,7 +110,7 @@ so external references keep resolving even as items move between sections.
 | 56 | Architecture remediation Phase 8 — auto-finalize from front matter | 🟡 cause/lane/circuit-breaker guardrails landed; default-on dogfood gate pending |
 | 57 | RFC 0065 Architecture remediation Phase 9 — UI packaging and bundle cleanup | ✅ done; chunking monitor only |
 | 58 | RFC 0059 Architecture remediation Phase 10 — day-zero setup improvements | ✅ done |
-| 59 | RFC 0059 RFC 0066 Architecture remediation Phase 11 — replay, archive, and corpus v2 foundations | 🟡 V2 manifest identity/redaction landed; archive defaults pending |
+| 59 | RFC 0059 RFC 0066 Architecture remediation Phase 11 — replay, archive, and corpus v2 foundations | 🟡 V2 corpus/archive defaults landed; watermarking pending |
 | 60 | RFC 0059 RFC 0067 Architecture remediation Phase 12 — optional Git/PR integration | 🟡 read-only `git.snapshot` landed; request artifacts/local commit confirmation pending |
 | 61 | RFC 0068 Go production daemon port and Python daemon retirement | 🟡 Go default; Python daemon module deleted; broad direct repo-local fixture opens converted |
 | 62 | RFC 0069 PostgreSQL-only daemon-global surfaces | 🟡 guardrail residuals only |
@@ -1243,13 +1243,16 @@ review and plan are root-level operator artifacts:
     process executions, job worktrees, process supervisors, process
     supervisor pointers, artifact metadata, and event metadata.
     `striatum archive verify --bundle <dir>` validates the archive manifest
-    and file hashes locally; `--replay` now adds offline semantic checks for
-    run/repository consistency, archived-row references, event ordering,
-    event-chain continuity, event-row hash recomputation, and
+    and file hashes locally and now runs offline deep-chain semantic replay
+    by default for run/repository consistency, archived-row references, event
+    ordering, event-chain continuity, event-row hash recomputation, and
     duplicate/missing id rejection for archived command request,
     process-supervisor, process-supervisor-pointer, verdict, blocker,
-    process-execution, and job-worktree rows, with optional artifact content
-    hash checks via `--repo-root`. D126 accepts the Corpus Contract V2
+    process-execution, and job-worktree rows. `--manifest-only` is the
+    explicit fast path that skips semantic replay; optional artifact content
+    hash checks still require `--repo-root`. `striatum archive inspect
+    --bundle <dir>` reports read-only semantic and privacy metadata using the
+    same local verifier. D126 accepts the Corpus Contract V2
     direction: composite `corpus_id` identity (`slug:sha256`), graduated
     redaction tiers, workflow opt-in augmentation by reference with agent-side
     fetch, hybrid archive bundles, verification replay by default, read-only
@@ -1259,9 +1262,11 @@ review and plan are root-level operator artifacts:
     `corpus_contract_version=2`, composite `corpus_id`, `redaction_tier`,
     `augmentation_policy`, `verification_depth=deep_chain`,
     hybrid-archive default metadata, and optional `git_snapshot_hash`, while
-    verification still accepts implied-V1 bundles. Follow-up work is deep
-    archive default enforcement, incremental watermarking, read-only semantic
-    inspection, and any augmentation-reference fetch surface.
+    verification still accepts implied-V1 bundles. The archive follow-up now
+    emits `archive_contract_version=2`, enforces `verification_depth=deep_chain`
+    plus hybrid archive defaults when advertised, and preserves legacy-v1
+    archive verification compatibility. Follow-up work is incremental
+    watermarking and any augmentation-reference fetch surface.
 
 60. **Phase 12: optional Git/PR integration.** D127 decides the boundary:
     Striatum core does not autonomously commit, push, call hosted providers, or

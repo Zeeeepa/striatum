@@ -13,6 +13,7 @@ __all__ = [
     "ARCHIVE_JSON_FILES",
     "ARCHIVE_JSONL_FILES",
     "ARCHIVE_SCHEMA_VERSION",
+    "inspect_run_archive",
     "verify_run_archive",
     "write_run_archive",
 ]
@@ -22,6 +23,7 @@ _SYMBOL_MODULES = {
     "ARCHIVE_JSON_FILES": "striatum.archive.writer",
     "ARCHIVE_JSONL_FILES": "striatum.archive.writer",
     "ARCHIVE_SCHEMA_VERSION": "striatum.archive.writer",
+    "inspect_run_archive": "striatum.archive.verify",
     "verify_run_archive": "striatum.archive.verify",
     "write_run_archive": "striatum.archive.writer",
 }

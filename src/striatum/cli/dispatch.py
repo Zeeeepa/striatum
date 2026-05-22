@@ -145,7 +145,10 @@ def dispatch(args: argparse.Namespace) -> object:
             args.command == "corpus"
             and getattr(args, "corpus_command", None) == "migrate-historical-dogfoods"
         )
-        or (args.command == "archive" and getattr(args, "archive_command", None) == "verify")
+        or (
+            args.command == "archive"
+            and getattr(args, "archive_command", None) in {"verify", "inspect"}
+        )
         or (
             args.command == "operator"
             and getattr(args, "operator_command", None) == "current-brief"
@@ -196,7 +199,10 @@ def dispatch(args: argparse.Namespace) -> object:
         and getattr(args, "corpus_command", None) == "migrate-historical-dogfoods"
     ):
         skip_daemon_route = True
-    if args.command == "archive" and getattr(args, "archive_command", None) == "verify":
+    if (
+        args.command == "archive"
+        and getattr(args, "archive_command", None) in {"verify", "inspect"}
+    ):
         skip_daemon_route = True
     if args.command == "inbox" and getattr(args, "session_id", None):
         skip_daemon_route = True
@@ -611,11 +617,27 @@ def dispatch(args: argparse.Namespace) -> object:
             repo_root = Path(str(args.repo_root))
             if not repo_root.is_absolute():
                 repo_root = repo / repo_root
+        if bool(getattr(args, "replay", False)) and bool(getattr(args, "manifest_only", False)):
+            raise StriatumError("--replay and --manifest-only cannot be combined", exit_code=8)
+        if repo_root is not None and bool(getattr(args, "manifest_only", False)):
+            raise StriatumError("--repo-root requires semantic replay", exit_code=8)
         return verify_run_archive(
             bundle,
-            replay=bool(getattr(args, "replay", False)),
+            replay=not bool(getattr(args, "manifest_only", False)),
             repo_root=repo_root,
         )
+    if args.command == "archive" and args.archive_command == "inspect":
+        from striatum.archive import inspect_run_archive
+
+        bundle = Path(args.bundle)
+        if not bundle.is_absolute():
+            bundle = repo / bundle
+        repo_root = None
+        if getattr(args, "repo_root", None) is not None:
+            repo_root = Path(str(args.repo_root))
+            if not repo_root.is_absolute():
+                repo_root = repo / repo_root
+        return inspect_run_archive(bundle, repo_root=repo_root)
     if args.command == "archive" and args.archive_command == "create":
         raise StriatumError("archive create requires daemon-backed PostgreSQL state", exit_code=8)
     if recovery_watch:

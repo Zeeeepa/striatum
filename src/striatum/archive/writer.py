@@ -36,6 +36,16 @@ ARCHIVE_KINDS: tuple[str, ...] = (
     *ARCHIVE_JSON_FILES.keys(),
     *ARCHIVE_JSONL_FILES.keys(),
 )
+ARCHIVE_CONTRACT_VERSION_V1 = 1
+ARCHIVE_CONTRACT_VERSION_V2 = 2
+ARCHIVE_CONTRACT_VERSION = ARCHIVE_CONTRACT_VERSION_V2
+ARCHIVE_VERIFICATION_DEPTH = "deep_chain"
+ARCHIVE_ARTIFACT_CONTENT_POLICY = "metadata_only"
+ARCHIVE_HYBRID_DEFAULTS: dict[str, bool] = {
+    "snapshot": True,
+    "event_log": True,
+    "verify_replay_by_default": True,
+}
 
 
 def write_run_archive(
@@ -106,7 +116,10 @@ def build_manifest(
         "run_id": run_id,
         "generated_at": generated_at or generated_at_now(),
         "archive_kind": "run",
-        "archive_contract_version": 1,
+        "archive_contract_version": ARCHIVE_CONTRACT_VERSION,
+        "verification_depth": ARCHIVE_VERIFICATION_DEPTH,
+        "hybrid_archive_defaults": dict(ARCHIVE_HYBRID_DEFAULTS),
+        "artifact_content_policy": ARCHIVE_ARTIFACT_CONTENT_POLICY,
         "schema": {
             "row_shape_version": 1,
             "json_files": dict(ARCHIVE_JSON_FILES),

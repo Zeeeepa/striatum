@@ -9,13 +9,23 @@ from pathlib import Path
 from typing import Any, cast
 
 from striatum.archive.writer import (
+    ARCHIVE_ARTIFACT_CONTENT_POLICY,
+    ARCHIVE_CONTRACT_VERSION_V1,
+    ARCHIVE_CONTRACT_VERSION_V2,
+    ARCHIVE_HYBRID_DEFAULTS,
     ARCHIVE_JSON_FILES,
     ARCHIVE_JSONL_FILES,
     ARCHIVE_KINDS,
     ARCHIVE_SCHEMA_VERSION,
+    ARCHIVE_VERIFICATION_DEPTH,
 )
 from striatum.errors import StriatumError
 from striatum.primitives import json_dumps
+
+SUPPORTED_ARCHIVE_CONTRACT_VERSIONS = {
+    ARCHIVE_CONTRACT_VERSION_V1,
+    ARCHIVE_CONTRACT_VERSION_V2,
+}
 
 
 @dataclass(frozen=True)
@@ -27,10 +37,12 @@ class _ArchivePayload:
 def verify_run_archive(
     bundle: Path,
     *,
-    replay: bool = False,
+    replay: bool = True,
     repo_root: Path | None = None,
 ) -> dict[str, object]:
     """Verify an existing local run archive without daemon or repository state."""
+    if not replay and repo_root is not None:
+        raise StriatumError("run archive repo_root requires semantic replay", exit_code=8)
     root = bundle.resolve()
     if not root.is_dir():
         raise StriatumError(f"run archive not found: {bundle}", exit_code=8)
@@ -60,32 +72,103 @@ def verify_run_archive(
         payload = _load_archive_payload(root)
         replay_result = _verify_replay(manifest, payload, repo_root=repo_root)
     run_id = manifest.get("run_id")
+    repository_id = manifest.get("repository_id")
+    contract_version = _archive_contract_version(manifest)
     result: dict[str, object] = {
         "status": "verified",
         "bundle": str(root),
         "manifest_path": str(manifest_path),
         "schema_version": ARCHIVE_SCHEMA_VERSION,
-        "archive_contract_version": 1,
+        "archive_contract_version": contract_version,
         "run_id": str(run_id) if isinstance(run_id, str) else "",
+        "repository_id": str(repository_id) if isinstance(repository_id, str) else "",
+        "verification_depth": ARCHIVE_VERIFICATION_DEPTH,
         "row_counts": {kind: row_counts.get(kind, 0) for kind in ARCHIVE_KINDS},
         "bundle_sha256": bundle_sha,
     }
+    if contract_version >= ARCHIVE_CONTRACT_VERSION_V2:
+        result["hybrid_archive_defaults"] = dict(ARCHIVE_HYBRID_DEFAULTS)
+        result["artifact_content_policy"] = ARCHIVE_ARTIFACT_CONTENT_POLICY
     if replay_result is not None:
         result["replay"] = replay_result
     return result
 
 
+def inspect_run_archive(
+    bundle: Path,
+    *,
+    repo_root: Path | None = None,
+) -> dict[str, object]:
+    """Return a read-only semantic summary for an existing local run archive."""
+    verification = verify_run_archive(bundle, repo_root=repo_root)
+    replay = verification.get("replay")
+    replay_status = ""
+    artifact_hashes_checked = 0
+    if isinstance(replay, dict):
+        replay_status = str(replay.get("status") or "")
+        raw_checked = replay.get("artifact_content_hashes_checked")
+        if isinstance(raw_checked, int):
+            artifact_hashes_checked = raw_checked
+    return {
+        "status": "inspected",
+        "bundle": verification["bundle"],
+        "manifest_path": verification["manifest_path"],
+        "schema_version": verification["schema_version"],
+        "archive_contract_version": verification["archive_contract_version"],
+        "run_id": verification["run_id"],
+        "repository_id": verification["repository_id"],
+        "verification_depth": verification["verification_depth"],
+        "semantic_checks": {
+            "manifest": "verified",
+            "file_hashes": "verified",
+            "deep_chain_replay": replay_status or "verified",
+            "comparative_replay": "not_performed",
+            "artifact_content_hashes_checked": artifact_hashes_checked,
+        },
+        "privacy": {
+            "artifact_bytes_embedded": False,
+            "transcripts_embedded": False,
+            "operational_scratch_embedded": False,
+            "external_persistence": False,
+        },
+        "row_counts": verification["row_counts"],
+        "bundle_sha256": verification["bundle_sha256"],
+    }
+
+
 def _verify_manifest_header(manifest: dict[str, Any]) -> None:
     if manifest.get("schema_version") != ARCHIVE_SCHEMA_VERSION:
         raise StriatumError("invalid run archive manifest schema_version", exit_code=6)
-    contract_version = manifest.get("archive_contract_version")
-    if contract_version != 1:
+    contract_version = _archive_contract_version(manifest)
+    if contract_version not in SUPPORTED_ARCHIVE_CONTRACT_VERSIONS:
         raise StriatumError("unsupported run archive contract version", exit_code=6)
     if manifest.get("archive_kind") != "run":
         raise StriatumError("invalid run archive kind", exit_code=6)
     run_id = manifest.get("run_id")
     if not isinstance(run_id, str) or not run_id:
         raise StriatumError("invalid run archive run_id", exit_code=6)
+    if contract_version >= ARCHIVE_CONTRACT_VERSION_V2:
+        _verify_v2_archive_defaults(manifest)
+
+
+def _archive_contract_version(manifest: dict[str, Any]) -> int:
+    try:
+        return int(manifest.get("archive_contract_version") or ARCHIVE_CONTRACT_VERSION_V1)
+    except (TypeError, ValueError) as exc:
+        raise StriatumError("invalid run archive contract version", exit_code=6) from exc
+
+
+def _verify_v2_archive_defaults(manifest: dict[str, Any]) -> None:
+    if manifest.get("verification_depth") != ARCHIVE_VERIFICATION_DEPTH:
+        raise StriatumError("invalid run archive verification_depth", exit_code=6)
+    hybrid = manifest.get("hybrid_archive_defaults")
+    if not isinstance(hybrid, dict):
+        raise StriatumError("invalid run archive hybrid_archive_defaults", exit_code=6)
+    for key, expected in ARCHIVE_HYBRID_DEFAULTS.items():
+        if hybrid.get(key) is not expected:
+            raise StriatumError(f"invalid run archive hybrid_archive_defaults.{key}", exit_code=6)
+    if manifest.get("artifact_content_policy") != ARCHIVE_ARTIFACT_CONTENT_POLICY:
+        raise StriatumError("invalid run archive artifact_content_policy", exit_code=6)
 
 
 def _manifest_files(manifest: dict[str, Any]) -> dict[str, dict[str, int | str]]:

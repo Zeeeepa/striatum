@@ -10,6 +10,7 @@ import pytest
 from striatum.archive import (
     ARCHIVE_JSON_FILES,
     ARCHIVE_JSONL_FILES,
+    inspect_run_archive,
     verify_run_archive,
     write_run_archive,
 )
@@ -143,7 +144,18 @@ def test_verify_run_archive_accepts_writer_output(tmp_path: Path) -> None:
 
     assert result["status"] == "verified"
     assert result["run_id"] == "run_1"
-    assert result["archive_contract_version"] == 1
+    assert result["repository_id"] == "repo_a"
+    assert result["archive_contract_version"] == 2
+    assert result["verification_depth"] == "deep_chain"
+    assert result["hybrid_archive_defaults"] == {
+        "snapshot": True,
+        "event_log": True,
+        "verify_replay_by_default": True,
+    }
+    assert result["artifact_content_policy"] == "metadata_only"
+    replay = result["replay"]
+    assert isinstance(replay, dict)
+    assert replay["status"] == "verified"
     row_counts = result["row_counts"]
     assert isinstance(row_counts, dict)
     assert row_counts["artifacts"] == 1
@@ -238,7 +250,24 @@ def test_verify_run_archive_replay_rejects_broken_reference(tmp_path: Path) -> N
     _write_jsonl(archive, "artifacts", artifacts)
 
     with pytest.raises(StriatumError, match="broken reference"):
-        verify_run_archive(archive, replay=True)
+        verify_run_archive(archive)
+
+
+def test_verify_run_archive_manifest_only_skips_semantic_replay(tmp_path: Path) -> None:
+    archive = _archive(tmp_path)
+    artifacts = _read_jsonl(archive, "artifacts")
+    artifacts[0]["job_id"] = "missing_job"
+    _write_jsonl(archive, "artifacts", artifacts)
+
+    result = verify_run_archive(archive, replay=False)
+
+    assert result["status"] == "verified"
+    assert "replay" not in result
+
+
+def test_verify_run_archive_manifest_only_rejects_repo_root(tmp_path: Path) -> None:
+    with pytest.raises(StriatumError, match="repo_root requires semantic replay"):
+        verify_run_archive(_archive(tmp_path), replay=False, repo_root=tmp_path)
 
 
 @pytest.mark.parametrize(
@@ -407,6 +436,64 @@ def test_verify_run_archive_replay_optionally_checks_artifact_hash(
         verify_run_archive(archive, replay=True, repo_root=tmp_path)
 
 
+def test_verify_run_archive_rejects_unsupported_v2_defaults(tmp_path: Path) -> None:
+    archive = _archive(tmp_path)
+    manifest_path = archive / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["verification_depth"] = "manifest_only"
+    manifest_path.write_text(json.dumps(manifest, sort_keys=True), encoding="utf-8")
+
+    with pytest.raises(StriatumError, match="verification_depth"):
+        verify_run_archive(archive)
+
+
+def test_verify_run_archive_accepts_legacy_v1_manifest_with_default_replay(
+    tmp_path: Path,
+) -> None:
+    archive = _archive(tmp_path)
+    manifest_path = archive / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["archive_contract_version"] = 1
+    manifest.pop("verification_depth", None)
+    manifest.pop("hybrid_archive_defaults", None)
+    manifest.pop("artifact_content_policy", None)
+    manifest.pop("bundle_sha256", None)
+    manifest["bundle_sha256"] = hashlib.sha256(
+        json.dumps(
+            manifest,
+            ensure_ascii=False,
+            separators=(",", ":"),
+            sort_keys=True,
+        ).encode("utf-8")
+    ).hexdigest()
+    manifest_path.write_text(json.dumps(manifest, sort_keys=True), encoding="utf-8")
+
+    result = verify_run_archive(archive)
+
+    assert result["archive_contract_version"] == 1
+    assert result["verification_depth"] == "deep_chain"
+    assert "hybrid_archive_defaults" not in result
+    assert isinstance(result["replay"], dict)
+
+
+def test_inspect_run_archive_reports_semantic_and_privacy_metadata(
+    tmp_path: Path,
+) -> None:
+    result = inspect_run_archive(_archive(tmp_path))
+
+    assert result["status"] == "inspected"
+    assert result["archive_contract_version"] == 2
+    semantic_checks = result["semantic_checks"]
+    assert isinstance(semantic_checks, dict)
+    assert semantic_checks["deep_chain_replay"] == "verified"
+    assert semantic_checks["comparative_replay"] == "not_performed"
+    privacy = result["privacy"]
+    assert isinstance(privacy, dict)
+    assert privacy["artifact_bytes_embedded"] is False
+    assert privacy["transcripts_embedded"] is False
+    assert privacy["operational_scratch_embedded"] is False
+
+
 def test_archive_verify_cli_is_local_read_only(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     archive = _archive(tmp_path)
     from striatum.cli.parser import build_parser
@@ -425,7 +512,6 @@ def test_archive_verify_cli_is_local_read_only(tmp_path: Path, monkeypatch: pyte
             "verify",
             "--bundle",
             str(archive.relative_to(tmp_path)),
-            "--replay",
             "--json",
         ]
     )
@@ -434,3 +520,89 @@ def test_archive_verify_cli_is_local_read_only(tmp_path: Path, monkeypatch: pyte
 
     assert isinstance(result, dict)
     assert result["status"] == "verified"
+    assert "replay" in result
+
+
+def test_archive_verify_cli_manifest_only_is_explicit_opt_out(
+    tmp_path: Path,
+) -> None:
+    archive = _archive(tmp_path)
+    artifacts = _read_jsonl(archive, "artifacts")
+    artifacts[0]["job_id"] = "missing_job"
+    _write_jsonl(archive, "artifacts", artifacts)
+    from striatum.cli.parser import build_parser
+
+    dispatch_mod = import_module("striatum.cli.dispatch")
+    args = build_parser().parse_args(
+        [
+            "--repo",
+            str(tmp_path),
+            "archive",
+            "verify",
+            "--bundle",
+            str(archive.relative_to(tmp_path)),
+            "--manifest-only",
+            "--json",
+        ]
+    )
+
+    result = dispatch_mod.dispatch(args)
+
+    assert isinstance(result, dict)
+    assert result["status"] == "verified"
+    assert "replay" not in result
+
+
+def test_archive_verify_cli_manifest_only_rejects_repo_root(
+    tmp_path: Path,
+) -> None:
+    archive = _archive(tmp_path)
+    from striatum.cli.parser import build_parser
+
+    dispatch_mod = import_module("striatum.cli.dispatch")
+    args = build_parser().parse_args(
+        [
+            "--repo",
+            str(tmp_path),
+            "archive",
+            "verify",
+            "--bundle",
+            str(archive.relative_to(tmp_path)),
+            "--manifest-only",
+            "--repo-root",
+            str(tmp_path),
+            "--json",
+        ]
+    )
+
+    with pytest.raises(StriatumError, match="--repo-root requires semantic replay"):
+        dispatch_mod.dispatch(args)
+
+
+def test_archive_inspect_cli_is_local_read_only(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    archive = _archive(tmp_path)
+    from striatum.cli.parser import build_parser
+
+    dispatch_mod = import_module("striatum.cli.dispatch")
+
+    def fail_daemon_required(*_args: object, **_kwargs: object) -> None:
+        raise AssertionError("archive inspect should not require daemon")
+
+    monkeypatch.setattr(dispatch_mod, "enforce_daemon_required", fail_daemon_required)
+    args = build_parser().parse_args(
+        [
+            "--repo",
+            str(tmp_path),
+            "archive",
+            "inspect",
+            "--bundle",
+            str(archive.relative_to(tmp_path)),
+            "--json",
+        ]
+    )
+
+    result = dispatch_mod.dispatch(args)
+
+    assert isinstance(result, dict)
+    assert result["status"] == "inspected"
+    assert result["semantic_checks"]["deep_chain_replay"] == "verified"
