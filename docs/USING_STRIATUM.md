@@ -189,18 +189,13 @@ in tmux; use Striatum commands and durable artifacts for that.
 
 ### Recovery triage
 
-- **Stale lease or no heartbeat:** start with `recovery stale-leases
-  --run-id <run_id> --json`; requeue only review-safe work with
-  `recovery requeue-stale`.
-- **Lost process or supervisor issue:** run `recovery process-reconcile
-  --run-id <run_id> --json` before requeueing or publishing on behalf.
-- **`human_checkpoint`:** inspect with `why <blocker_id> --run-id
-  <run_id> --json`, record a decision, then `checkpoint resolve`.
-- **Principal inbox escalation:** inspect with `inbox --json`, decide,
-  `decision record`, then `escalation resolve`.
-- **Terminal run with active sessions:** inspect with `doctor --run-id
-  <run_id> --verbose --json`, then close listed sessions with
-  `session close --reason terminal-run-cleanup`.
+| Visible state | Inspect with | Recovery action |
+|---|---|---|
+| Stale lease or no heartbeat. | `recovery stale-leases --run-id <run_id> --json` | Requeue only review-safe work with `recovery requeue-stale`. |
+| Lost process or supervisor issue. | `recovery process-reconcile --run-id <run_id> --json` | Requeue or publish on behalf only after reconcile reports the safe next action. |
+| `human_checkpoint`. | `why <blocker_id> --run-id <run_id> --json` | Record a decision, then run `checkpoint resolve`. |
+| Principal inbox escalation. | `inbox --json` | Decide, run `decision record`, then run `escalation resolve`. |
+| Terminal run with active sessions. | `doctor --run-id <run_id> --verbose --json` | Close listed sessions with `session close --reason terminal-run-cleanup`. |
 
 ## Your role as principal
 

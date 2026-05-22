@@ -1,6 +1,6 @@
 # RFC 0076: Three-Lane Code And Documentation Audit Workflow
 
-Status: proposed
+Status: accepted
 Date: 2026-05-22
 author: proposer-codex-gpt-5-001
 Context:
@@ -27,10 +27,11 @@ run evidence, not as a change to the workflow shape's authority model: the
 durable findings and remediation plan are the auditable outputs, and tmux
 or terminal output remains non-authoritative.
 
-The RFC remains proposed until the owner decides whether this workflow shape
-should be accepted now, wait for generator/catalog integration, or absorb
-additional follow-up from
-[`REMEDIATION_PLAN.md`](../operator/artifacts/rfc-0076-code-doc-audit/REMEDIATION_PLAN.md).
+RFC 0076 is accepted by D128 as the reusable three-lane code and
+documentation audit workflow shape. Generator/catalog integration remains
+future catalog work; hand-authored workflows may use the accepted shape now.
+Follow-up remediation is scaffolded in
+[`docs/operator/plans/rfc-0076-audit-remediation.md`](../operator/plans/rfc-0076-audit-remediation.md).
 
 ## Problem
 
@@ -290,8 +291,8 @@ exists.
   claims their behavior is still live.
 - At least one dogfood or operator-run audit uses this shape before it
   is marked accepted. The first operator run completed on 2026-05-22
-  with one operator-recovered Claude lane; acceptance still needs an
-  owner status decision.
+  with one operator-recovered Claude lane; D128 records the owner
+  acceptance decision.
 
 ## Open Questions
 

@@ -4,10 +4,10 @@ artifact_kind: "work_plan"
 plan_id: "plan_rfc-0076-three-lane-code-doc-audit-workflow"
 scope_kind: "rfc"
 scope_ref: "docs/rfcs/0076-three-lane-code-and-doc-audit-workflow.md"
-state: "open"
+state: "closed"
 opened_at: "2026-05-22"
-closed_at: null
-closure_summary: null
+closed_at: "2026-05-22"
+closure_summary: "First runnable RFC 0076 audit completed; D128 accepted the workflow shape; remediation follow-up moved to docs/operator/plans/rfc-0076-audit-remediation.md."
 supersedes: null
 retrieval_priority: "high"
 ---
@@ -26,13 +26,13 @@ then converge through synthesis and a prioritized remediation plan.
 
 | Workstream | State |
 |---|---|
-| Hand-authored operator workflow for the first RFC 0076 audit run | open |
-| Authority/runtime audit lane | open; independent first-pass lane |
-| Docs/decision drift audit lane | open; independent first-pass lane |
-| Operator/adoption audit lane | open; independent first-pass lane |
-| Synthesis across the three findings artifacts | open |
-| Remediation plan with follow-up classification | open |
-| Decision on whether RFC 0076 is ready for acceptance/catalog work | open |
+| Hand-authored operator workflow for the first RFC 0076 audit run | closed; workflow validates |
+| Authority/runtime audit lane | closed; findings published |
+| Docs/decision drift audit lane | closed with operator recovery |
+| Operator/adoption audit lane | closed; findings published |
+| Synthesis across the three findings artifacts | closed; synthesis published |
+| Remediation plan with follow-up classification | closed; remediation plan published |
+| Decision on whether RFC 0076 is ready for acceptance/catalog work | closed; accepted by D128 |
 
 ## Decisions Made
 
@@ -55,3 +55,9 @@ then converge through synthesis and a prioritized remediation plan.
 - Which findings from the first run should become TODO updates, RFC follow-ups,
   decision-log updates, docs fixes, source/test work, or explicit accepted
   risk.
+
+## Closure Note
+
+This plan now records the completed first audit run. Follow-up verification
+and closure work for the remediation plan is scaffolded in
+[`rfc-0076-audit-remediation.md`](rfc-0076-audit-remediation.md).

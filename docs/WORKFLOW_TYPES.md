@@ -368,9 +368,10 @@ Good fits:
 
 Start from
 `docs/operator/workflows/rfc-0076-code-doc-audit/workflow.json` or
-adapt the shape described in RFC 0076 until a generator/catalog entry
-lands. The first runnable operator workflow completed on 2026-05-22
-with one operator-recovered Claude lane and produced follow-up work in
+adapt the accepted shape described in RFC 0076 until a generator/catalog
+entry lands. The first runnable operator workflow completed on
+2026-05-22 with one operator-recovered Claude lane and produced
+follow-up work in
 `docs/operator/artifacts/rfc-0076-code-doc-audit/REMEDIATION_PLAN.md`.
 
 The audit should produce evidence-backed findings and a remediation

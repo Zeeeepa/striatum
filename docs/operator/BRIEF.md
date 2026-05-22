@@ -3,7 +3,7 @@ schema_version: "striatum.operator_brief.v1"
 artifact_kind: "operator_brief"
 brief_id: "brief_2026-05-20_go-daemon-http-sse-mcp"
 supersedes: "brief_2026-05-17_go-daemon-remediation"
-scope_links: ["docs/operator/plans/rfc-0068-go-daemon-port.md", "docs/operator/plans/rfc-0069-pg-only-daemon-global-surfaces.md", "docs/operator/plans/rfc-0050-cli-retirement-cutover.md", "docs/operator/plans/rfc-0075-tmux-observable-mcp-agent-sessions.md", "docs/rfcs/0075-tmux-observable-mcp-agent-sessions.md", "docs/rfcs/0077-mcp-activity-liveness-deadlines.md"]
+scope_links: ["docs/operator/plans/rfc-0068-go-daemon-port.md", "docs/operator/plans/rfc-0069-pg-only-daemon-global-surfaces.md", "docs/operator/plans/rfc-0050-cli-retirement-cutover.md", "docs/operator/plans/rfc-0075-tmux-observable-mcp-agent-sessions.md", "docs/rfcs/0075-tmux-observable-mcp-agent-sessions.md", "docs/rfcs/0077-mcp-activity-liveness-deadlines.md", "docs/operator/plans/rfc-0076-audit-remediation.md"]
 context_budget_lines: 300
 retrieval_priority: "high"
 status: "current"
@@ -46,13 +46,14 @@ liveness timestamp persistence, deadline classification, and status/UI
 projection remain pending; tmux panes are still local inspection metadata, not
 workflow state.
 
-RFC 0076 is proposed and has completed its first runnable operator workflow
-at `docs/operator/workflows/rfc-0076-code-doc-audit/workflow.json`. The run
+RFC 0076 is accepted by D128. Its first runnable operator workflow completed
+at `docs/operator/workflows/rfc-0076-code-doc-audit/workflow.json` and
 produced findings, synthesis, and a remediation plan under
 `docs/operator/artifacts/rfc-0076-code-doc-audit/`; one Claude lane required
 operator recovery. Treat that recovery as run evidence only: durable artifacts
 and daemon/PostgreSQL state remain authoritative, and terminal output remains
-non-authoritative.
+non-authoritative. The follow-up remediation scaffold is
+`docs/operator/plans/rfc-0076-audit-remediation.md`.
 
 RFC 0077 is now the proposed narrow liveness slice under the RFC 0075
 umbrella. It owns daemon-owned MCP activity timestamp persistence and liveness
@@ -113,3 +114,5 @@ provider actions in core.
 - `docs/rfcs/0077-mcp-activity-liveness-deadlines.md`
 - `docs/operator/workflows/rfc-0076-code-doc-audit/workflow.json`
 - `docs/operator/artifacts/rfc-0076-code-doc-audit/REMEDIATION_PLAN.md`
+- `docs/operator/plans/rfc-0076-audit-remediation.md`
+- `docs/operator/workflows/rfc-0076-audit-remediation/workflow.json`
