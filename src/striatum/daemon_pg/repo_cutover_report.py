@@ -46,7 +46,7 @@ def verify_repo_cutover(options: RepoCutoverReportOptions) -> dict[str, Any]:
     repo = options.repo.resolve()
     source_path = db_path(repo)
     tombstone_path = source_path.with_name(source_path.name + ".tombstone")
-    sentinel_path = repo / ".striatum" / "state.sqlite3.migrated"
+    sentinel_path = source_path.with_name(source_path.name + ".migrated")
     conn = connect(options.postgres_url)
     try:
         repository_id = _lookup_registered(conn, repo)

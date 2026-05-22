@@ -28,6 +28,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from striatum.errors import DaemonUnreachableError, RepoNotMigratedError
+from striatum.repo_policy import db_path
 
 ENV_DAEMON_REQUIRED = "STRIATUM_DAEMON_REQUIRED"
 ENV_DAEMON_SOCKET = "STRIATUM_DAEMON_SOCKET"
@@ -190,8 +191,8 @@ def repo_is_migrated(repo_path: Path) -> bool:
     file without a sibling ``.striatum/state.sqlite3.tombstone`` as the
     "pre-cutover" signal; ``True`` otherwise.
     """
-    state_db = repo_path / ".striatum" / "state.sqlite3"
-    tombstone = repo_path / ".striatum" / "state.sqlite3.tombstone"
+    state_db = db_path(repo_path)
+    tombstone = state_db.with_name(state_db.name + ".tombstone")
     if not state_db.exists():
         return True
     if tombstone.exists():

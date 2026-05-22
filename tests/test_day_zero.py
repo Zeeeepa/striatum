@@ -8,7 +8,14 @@ from typing import Any
 
 import striatum
 from striatum.cli.dispatch import dispatch, main
-from striatum.day_zero import _call_rpc_sequence, first_run_smoke, service_install, service_start, service_status
+from striatum.day_zero import (
+    _call_rpc_sequence,
+    first_run_smoke,
+    service_install,
+    service_start,
+    service_status,
+)
+from striatum.repo_policy import db_path, state_dir
 
 
 def test_service_install_dry_run_renders_systemd_unit(tmp_path: Path, monkeypatch: Any) -> None:
@@ -130,11 +137,11 @@ def test_init_production_bootstrap_is_scratch_only(
 
     assert isinstance(result, dict)
     assert result["state_dir"] == str(tmp_path / ".striatum")
-    assert result["scratch_dir"] == str(tmp_path / ".striatum" / "scratch")
+    assert result["scratch_dir"] == str(state_dir(tmp_path) / "scratch")
     assert result["state_store"] == "daemon_postgres"
     assert "db" not in result
-    assert (tmp_path / ".striatum" / "scratch").is_dir()
-    assert not (tmp_path / ".striatum" / "state.sqlite3").exists()
+    assert (state_dir(tmp_path) / "scratch").is_dir()
+    assert not db_path(tmp_path).exists()
     assert ".striatum/" in (tmp_path / ".gitignore").read_text(encoding="utf-8").splitlines()
 
 
@@ -165,9 +172,9 @@ def test_adopt_filesystem_setup_is_scratch_only_without_sqlite(
 
     assert isinstance(result, dict)
     assert result["init"]["status"] == "scratch_initialized"
-    assert result["init"]["state_dir"] == str(repo / ".striatum")
-    assert (repo / ".striatum" / "scratch").is_dir()
-    assert not (repo / ".striatum" / "state.sqlite3").exists()
+    assert result["init"]["state_dir"] == str(state_dir(repo))
+    assert (state_dir(repo) / "scratch").is_dir()
+    assert not db_path(repo).exists()
 
 
 def test_adopt_registers_new_repo_without_repo_local_migration(
@@ -217,7 +224,7 @@ def test_adopt_registers_new_repo_without_repo_local_migration(
     assert calls["repo_add"]["path"] == repo.resolve()
     assert calls["repo_add"]["init"] is True
     assert calls["closed"] is True
-    assert not (repo / ".striatum" / "state.sqlite3").exists()
+    assert not db_path(repo).exists()
 
 
 def test_adopt_refuses_legacy_sqlite_import_window_without_opening_sqlite(
@@ -225,9 +232,9 @@ def test_adopt_refuses_legacy_sqlite_import_window_without_opening_sqlite(
     monkeypatch: Any,
 ) -> None:
     repo = tmp_path / "repo"
-    state_dir = repo / ".striatum"
-    state_dir.mkdir(parents=True)
-    (state_dir / "state.sqlite3").write_bytes(b"legacy")
+    scratch_dir = state_dir(repo)
+    scratch_dir.mkdir(parents=True)
+    db_path(repo).write_bytes(b"legacy")
     monkeypatch.delenv("STRIATUM_TEST_HARNESS", raising=False)
     monkeypatch.setenv("STRIATUM_DAEMON_REQUIRED", "1")
     monkeypatch.setenv("STRIATUM_SQLITE_CONNECT_TRIPWIRE", "1")
@@ -249,8 +256,9 @@ def test_adopt_refuses_legacy_sqlite_import_window_without_opening_sqlite(
 
     assert isinstance(result, dict)
     assert result["registration"]["status"] == "sqlite_migration_required"
+    assert result["registration"]["state_db_path"] == str(db_path(repo.resolve()))
     assert "migrate-repo-local" not in result["registration"]["hint"]
-    assert (state_dir / "state.sqlite3").exists()
+    assert db_path(repo).exists()
 
 
 def test_first_run_smoke_reports_checks_without_leaking_token(tmp_path: Path, monkeypatch: Any) -> None:

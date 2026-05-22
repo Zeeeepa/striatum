@@ -18,6 +18,7 @@ from striatum.daemon_pg.config import resolve_config
 from striatum.daemon_pg.connection import connect, connect_and_migrate, doctor as pg_doctor
 from striatum.daemon_runtime import mcp_endpoint_file, read_runtime_token, token_file
 from striatum.primitives import json_dumps, json_loads
+from striatum.repo_policy import db_path, state_dir
 
 ServiceManager = Literal["auto", "systemd", "launchd"]
 
@@ -143,9 +144,10 @@ def adopt(
                 "redacted_url": cfg.redacted_url,
             }
         elif inspection["state_db_exists"]:
+            legacy_state_db = db_path(repo)
             result["registration"] = {
                 "status": "sqlite_migration_required",
-                "state_db_path": str(repo / ".striatum" / "state.sqlite3"),
+                "state_db_path": str(legacy_state_db),
                 "hint": (
                     "Legacy SQLite state found. Migration to PostgreSQL is required. "
                     "Archive or remove the legacy .striatum/state.sqlite3 file, then "
@@ -208,13 +210,16 @@ def first_run_smoke(repo: Path) -> dict[str, Any]:
 
 
 def _inspect_repo(repo: Path) -> dict[str, Any]:
-    state_db = repo / ".striatum" / "state.sqlite3"
+    scratch_dir = state_dir(repo)
+    state_db = db_path(repo)
     return {
         "exists": repo.exists(),
         "is_git": (repo / ".git").exists(),
-        "striatum_dir_exists": (repo / ".striatum").exists(),
+        "striatum_dir_exists": scratch_dir.exists(),
         "state_db_exists": state_db.exists(),
-        "state_tombstone_exists": (repo / ".striatum" / "state.sqlite3.tombstone").exists(),
+        "state_tombstone_exists": state_db.with_name(
+            state_db.name + ".tombstone"
+        ).exists(),
         "ddd_docs_exist": (repo / "docs" / "SPEC.md").exists(),
         "workflows_dir_exists": (repo / "workflows").exists(),
     }
