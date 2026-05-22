@@ -23,9 +23,6 @@ RESIDUAL_LEGACY_SQLITE_TEST_IMPORTS: dict[Path, set[str]] = {
     Path("tests/daemon_pg/handlers/recovery_evidence/conftest.py"): {
         "from striatum.legacy_sqlite.db import connect"
     },
-    Path("tests/exit_codes/test_rfc0043_split_brain.py"): {
-        "from striatum.legacy_sqlite.db import connect, db_path"
-    },
     Path("tests/fixtures/v1_repo_local_sqlite/build_fixture.py"): {
         "from striatum.legacy_sqlite.migrations import apply_migrations"
     },
