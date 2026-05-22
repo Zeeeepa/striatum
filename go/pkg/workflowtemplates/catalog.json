@@ -54,6 +54,43 @@
       }
     },
     {
+      "template_id": "implementation_panel",
+      "kind": "shape",
+      "display_name": "Implementation panel",
+      "summary": "Compare several implementation approaches with explicit scorecards, arbitration, dissent, and a final decision.",
+      "recommended_for": ["contested implementation choices", "architecture trade-off resolution", "high-risk design forks"],
+      "default_lane_sets": ["multi_review", "author_reviewer"],
+      "required_options": ["workflow_id", "artifact_root"],
+      "generation_status": "example_only",
+      "example_workflow_path": "examples/implementation-panel-flow/workflow.json",
+      "role_packs": ["implementation_panel_roles"],
+      "adversary_packs": ["maintainer_cost", "operator_ergonomics"],
+      "graph_preview": {
+        "nodes": [
+          {"id": "frame", "label": "Frame problem"},
+          {"id": "proposal_a", "label": "Proposal A"},
+          {"id": "proposal_b", "label": "Proposal B"},
+          {"id": "proposal_c", "label": "Proposal C"},
+          {"id": "scorecards", "label": "Scorecards"},
+          {"id": "arbitration", "label": "Arbitration"},
+          {"id": "dissent", "label": "Dissent review"},
+          {"id": "decision", "label": "Decision"}
+        ],
+        "edges": [
+          {"from": "frame", "to": "proposal_a"},
+          {"from": "frame", "to": "proposal_b"},
+          {"from": "frame", "to": "proposal_c"},
+          {"from": "proposal_a", "to": "scorecards"},
+          {"from": "proposal_b", "to": "scorecards"},
+          {"from": "proposal_c", "to": "scorecards"},
+          {"from": "scorecards", "to": "arbitration"},
+          {"from": "arbitration", "to": "dissent"},
+          {"from": "dissent", "to": "decision"}
+        ],
+        "cycles": []
+      }
+    },
+    {
       "template_id": "minimal",
       "kind": "shape",
       "display_name": "Minimal bounded job",
@@ -132,6 +169,64 @@
       "summary": "One real agent session handles the whole workflow.",
       "recommended_for": ["small low-risk work", "early adoption"],
       "required_options": ["lanes.agent.command"]
+    }
+  ],
+  "role_packs": [
+    {
+      "template_id": "implementation_panel_roles",
+      "kind": "role_pack",
+      "display_name": "Implementation panel roles",
+      "summary": "Independent proposal authors, a scorekeeper, an arbitrator, and a dissent reviewer for explicit trade-off resolution.",
+      "recommended_for": ["implementation_panel", "architecture_tournament"],
+      "default_shapes": ["implementation_panel"],
+      "roles": ["proposer_a", "proposer_b", "proposer_c", "scorekeeper", "arbitrator", "dissent_reviewer"]
+    },
+    {
+      "template_id": "release_readiness",
+      "kind": "role_pack",
+      "display_name": "Release readiness roles",
+      "summary": "Release, documentation, migration, smoke-test, and rollback viewpoints for shipping decisions.",
+      "recommended_for": ["release readiness reviews", "migration releases"],
+      "default_shapes": ["review", "multi_review_synthesis"],
+      "roles": ["release_manager", "docs_reviewer", "migration_reviewer", "smoke_verifier", "rollback_reviewer"]
+    },
+    {
+      "template_id": "incident_response",
+      "kind": "role_pack",
+      "display_name": "Incident response roles",
+      "summary": "Reproduction, root-cause, fix-planning, verification, and retrospective viewpoints for incident closure.",
+      "recommended_for": ["incident follow-up", "workflow failure analysis"],
+      "default_shapes": ["review", "evidence_backed"],
+      "roles": ["reproducer", "root_cause_analyst", "fix_planner", "verifier", "retrospective_author"]
+    }
+  ],
+  "adversary_packs": [
+    {
+      "template_id": "maintainer_cost",
+      "kind": "adversary_pack",
+      "display_name": "Maintainer cost pressure",
+      "summary": "Challenge approaches on long-term ownership, migration burden, and support cost.",
+      "recommended_for": ["architecture choices", "large refactors"],
+      "default_shapes": ["implementation_panel", "code_change"],
+      "postures": ["maintainability", "migration_risk", "reversibility"]
+    },
+    {
+      "template_id": "operator_ergonomics",
+      "kind": "adversary_pack",
+      "display_name": "Operator ergonomics pressure",
+      "summary": "Challenge approaches on setup clarity, repeated-use friction, recovery behavior, and local-first operation.",
+      "recommended_for": ["operator tools", "workflow catalog entries"],
+      "default_shapes": ["implementation_panel", "review"],
+      "postures": ["operator_experience", "recovery", "documentation"]
+    },
+    {
+      "template_id": "security_privacy",
+      "kind": "adversary_pack",
+      "display_name": "Security and privacy pressure",
+      "summary": "Challenge approaches on capability scope, data minimization, secret handling, and persistence boundaries.",
+      "recommended_for": ["MCP surfaces", "artifact export", "daemon methods"],
+      "default_shapes": ["review", "evidence_backed"],
+      "postures": ["security", "privacy", "capability_scope"]
     }
   ],
   "harness_profile_fragments": [

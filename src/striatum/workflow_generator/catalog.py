@@ -12,6 +12,12 @@ from striatum.workflow import HARNESS_PROFILE_TOOL_FAMILIES
 from striatum.workflow_generator.core import GeneratorError
 
 CATALOG_SCHEMA_VERSION = "striatum.workflow_templates.v1"
+TEMPLATE_COLLECTIONS = {
+    "shape": "shapes",
+    "lane_set": "lane_sets",
+    "role_pack": "role_packs",
+    "adversary_pack": "adversary_packs",
+}
 MULTI_PHASE_SHAPE_ENTRY: JsonObject = {
     "template_id": "multi_phase",
     "kind": "shape",
@@ -49,8 +55,10 @@ def load_catalog() -> JsonObject:
         raise GeneratorError("workflow template catalog root must be an object")
     if catalog.get("schema_version") != CATALOG_SCHEMA_VERSION:
         raise GeneratorError("workflow template catalog has unsupported schema_version")
-    for key in ("shapes", "lane_sets"):
-        entries = catalog.get(key)
+    for expected_kind, key in TEMPLATE_COLLECTIONS.items():
+        entries = catalog.get(key, [])
+        if key in {"shapes", "lane_sets"} and not isinstance(catalog.get(key), list):
+            raise GeneratorError(f"workflow template catalog {key} must be a list")
         if not isinstance(entries, list):
             raise GeneratorError(f"workflow template catalog {key} must be a list")
         for index, entry in enumerate(entries):
@@ -58,7 +66,6 @@ def load_catalog() -> JsonObject:
                 raise GeneratorError(f"workflow template catalog {key}[{index}] must be an object")
             if not isinstance(entry.get("template_id"), str) or not entry["template_id"]:
                 raise GeneratorError(f"workflow template catalog {key}[{index}] missing template_id")
-            expected_kind = "shape" if key == "shapes" else "lane_set"
             if entry.get("kind") != expected_kind:
                 raise GeneratorError(f"workflow template catalog {key}[{index}] has wrong kind")
     fragments = catalog.get("harness_profile_fragments", [])
@@ -93,18 +100,20 @@ def load_catalog() -> JsonObject:
 
 def list_templates(kind: str | None = None) -> list[JsonObject]:
     """Return sorted catalog entries, optionally filtered by kind."""
-    if kind not in {None, "shape", "lane_set"}:
+    if kind not in {None, *TEMPLATE_COLLECTIONS}:
         raise GeneratorError(
-            "template kind must be shape or lane_set",
+            "template kind must be shape, lane_set, role_pack, or adversary_pack",
             field_path="kind",
-            hint="Use `workflow templates list --kind shape` or `--kind lane_set`.",
+            hint=(
+                "Use `workflow templates list --kind shape`, `--kind lane_set`, "
+                "`--kind role_pack`, or `--kind adversary_pack`."
+            ),
         )
     catalog = load_catalog()
     entries: list[JsonObject] = []
-    if kind in {None, "shape"}:
-        entries.extend(_copy_entries(catalog["shapes"]))
-    if kind in {None, "lane_set"}:
-        entries.extend(_copy_entries(catalog["lane_sets"]))
+    for candidate_kind, key in TEMPLATE_COLLECTIONS.items():
+        if kind in {None, candidate_kind}:
+            entries.extend(_copy_entries(catalog.get(key, [])))
     return sorted(entries, key=lambda item: (str(item["kind"]), str(item["template_id"])))
 
 

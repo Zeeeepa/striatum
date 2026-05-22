@@ -25,6 +25,12 @@ func TestLoadCurrentCatalogListsAndInjectsMultiPhase(t *testing.T) {
 	if ids["code_change"] != "shape" {
 		t.Fatalf("code_change entry missing from catalog: %#v", ids)
 	}
+	if ids["implementation_panel"] != "shape" {
+		t.Fatalf("implementation_panel shape missing from catalog: %#v", ids)
+	}
+	if ids["implementation_panel_roles"] != "role_pack" {
+		t.Fatalf("implementation_panel role pack missing from catalog: %#v", ids)
+	}
 	if ids["multi_phase"] != "shape" {
 		t.Fatalf("multi_phase fallback entry missing from catalog: %#v", ids)
 	}
@@ -45,8 +51,8 @@ func TestListFiltersAndSortsLikePythonCatalog(t *testing.T) {
 	if len(templates) < 2 {
 		t.Fatalf("expected multiple templates")
 	}
-	if stringValue(templates[0], "kind") != "lane_set" {
-		t.Fatalf("first sorted entry kind = %q, want lane_set", stringValue(templates[0], "kind"))
+	if stringValue(templates[0], "kind") != "adversary_pack" {
+		t.Fatalf("first sorted entry kind = %q, want adversary_pack", stringValue(templates[0], "kind"))
 	}
 
 	shapes, err := catalog.List("shape")
@@ -56,6 +62,15 @@ func TestListFiltersAndSortsLikePythonCatalog(t *testing.T) {
 	for _, entry := range shapes {
 		if stringValue(entry, "kind") != "shape" {
 			t.Fatalf("shape filter returned %#v", entry)
+		}
+	}
+	rolePacks, err := catalog.List("role_pack")
+	if err != nil {
+		t.Fatalf("List(role_pack): %v", err)
+	}
+	for _, entry := range rolePacks {
+		if stringValue(entry, "kind") != "role_pack" {
+			t.Fatalf("role_pack filter returned %#v", entry)
 		}
 	}
 }

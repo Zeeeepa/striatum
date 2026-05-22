@@ -16,6 +16,8 @@ def render_catalog_markdown() -> str:
     """Render the bundled workflow template catalog as Markdown."""
     shapes = list_templates(kind="shape")
     lane_sets = list_templates(kind="lane_set")
+    role_packs = list_templates(kind="role_pack")
+    adversary_packs = list_templates(kind="adversary_pack")
 
     lines: list[str] = [
         "# Workflow Template Catalog",
@@ -33,6 +35,18 @@ def render_catalog_markdown() -> str:
     for entry in lane_sets:
         lines.extend(_lane_set_section(entry))
         lines.append("")
+
+    if role_packs:
+        lines.extend(["## Role Packs", ""])
+        for entry in role_packs:
+            lines.extend(_role_pack_section(entry))
+            lines.append("")
+
+    if adversary_packs:
+        lines.extend(["## Adversary Packs", ""])
+        for entry in adversary_packs:
+            lines.extend(_adversary_pack_section(entry))
+            lines.append("")
 
     return "\n".join(lines).rstrip() + "\n"
 
@@ -119,12 +133,37 @@ def _lane_set_section(entry: JsonObject) -> list[str]:
     return _strip_trailing_blank(lines)
 
 
+def _role_pack_section(entry: JsonObject) -> list[str]:
+    template_id = _required_str(entry, "template_id", "template")
+    display_name = _required_str(entry, "display_name", template_id)
+    summary = _optional_str(entry, "summary")
+    lines = [f"### {display_name} (`{template_id}`)", ""]
+    if summary:
+        lines.extend([summary, ""])
+    lines.extend(_metadata_lines(entry, keys=("recommended_for", "default_shapes", "roles")))
+    return _strip_trailing_blank(lines)
+
+
+def _adversary_pack_section(entry: JsonObject) -> list[str]:
+    template_id = _required_str(entry, "template_id", "template")
+    display_name = _required_str(entry, "display_name", template_id)
+    summary = _optional_str(entry, "summary")
+    lines = [f"### {display_name} (`{template_id}`)", ""]
+    if summary:
+        lines.extend([summary, ""])
+    lines.extend(_metadata_lines(entry, keys=("recommended_for", "default_shapes", "postures")))
+    return _strip_trailing_blank(lines)
+
+
 def _metadata_lines(entry: JsonObject, *, keys: tuple[str, ...]) -> list[str]:
     lines: list[str] = []
     labels = {
         "recommended_for": "Recommended for",
         "default_lane_sets": "Default lane sets",
         "required_options": "Required options",
+        "default_shapes": "Default shapes",
+        "roles": "Roles",
+        "postures": "Postures",
     }
     for key in keys:
         values = _string_list(entry.get(key), key)

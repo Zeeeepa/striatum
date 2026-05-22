@@ -54,8 +54,18 @@ def test_catalog_lists_and_shows_templates() -> None:
     templates = list_templates()
     ids = [item["template_id"] for item in templates]
     assert "code_change" in ids
+    assert "implementation_panel" in ids
     assert "multi_phase" in ids
     assert get_template("author_reviewer")["kind"] == "lane_set"
+    assert get_template("implementation_panel")["generation_status"] == "example_only"
+
+
+def test_catalog_lists_role_and_adversary_packs() -> None:
+    role_packs = list_templates(kind="role_pack")
+    adversary_packs = list_templates(kind="adversary_pack")
+
+    assert any(item["template_id"] == "implementation_panel_roles" for item in role_packs)
+    assert any(item["template_id"] == "maintainer_cost" for item in adversary_packs)
 
 
 def test_catalog_markdown_renders_shape_diagrams() -> None:
@@ -64,11 +74,16 @@ def test_catalog_markdown_renders_shape_diagrams() -> None:
     assert markdown.startswith("# Workflow Template Catalog\n")
     assert "## Workflow Shapes" in markdown
     assert "### Code change with bounded revision (`code_change`)" in markdown
+    assert "### Implementation panel (`implementation_panel`)" in markdown
     assert "```mermaid\nflowchart TD\n" in markdown
     assert "n0[\"Draft\"]" in markdown
     assert "n1 --> n2" in markdown
     assert "n1 -.->|needs_revision| n0" in markdown
     assert "### Separate author and reviewer (`author_reviewer`)" in markdown
+    assert "## Role Packs" in markdown
+    assert "### Implementation panel roles (`implementation_panel_roles`)" in markdown
+    assert "## Adversary Packs" in markdown
+    assert "### Maintainer cost pressure (`maintainer_cost`)" in markdown
 
 
 def test_graph_preview_mermaid_escapes_labels() -> None:
@@ -283,6 +298,23 @@ def test_cli_workflow_templates_render_md_stdout(tmp_path: Path, capsys) -> None
     stdout = capsys.readouterr().out
     assert stdout.startswith("# Workflow Template Catalog\n")
     assert "```mermaid\nflowchart TD\n" in stdout
+
+
+def test_cli_workflow_templates_lists_role_packs(tmp_path: Path, capsys) -> None:  # type: ignore[no-untyped-def]
+    rc = main([
+        "--repo",
+        str(tmp_path),
+        "workflow",
+        "templates",
+        "list",
+        "--kind",
+        "role_pack",
+        "--json",
+    ])
+    assert rc == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert all(item["kind"] == "role_pack" for item in payload["data"]["templates"])
+    assert any(item["template_id"] == "implementation_panel_roles" for item in payload["data"]["templates"])
 
 
 def test_workflow_init_keeps_legacy_envelope(tmp_path: Path, capsys) -> None:  # type: ignore[no-untyped-def]

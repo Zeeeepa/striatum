@@ -55,6 +55,8 @@ var multiPhaseShapeEntry = map[string]any{
 type Catalog struct {
 	Shapes                  []map[string]any
 	LaneSets                []map[string]any
+	RolePacks               []map[string]any
+	AdversaryPacks          []map[string]any
 	HarnessProfileFragments []map[string]any
 }
 
@@ -115,6 +117,20 @@ func LoadBytes(body []byte) (*Catalog, error) {
 	if err := validateEntries(laneSets, "lane_sets", "lane_set"); err != nil {
 		return nil, err
 	}
+	rolePacks, err := optionalEntryList(root, "role_packs")
+	if err != nil {
+		return nil, err
+	}
+	if err := validateEntries(rolePacks, "role_packs", "role_pack"); err != nil {
+		return nil, err
+	}
+	adversaryPacks, err := optionalEntryList(root, "adversary_packs")
+	if err != nil {
+		return nil, err
+	}
+	if err := validateEntries(adversaryPacks, "adversary_packs", "adversary_pack"); err != nil {
+		return nil, err
+	}
 	fragments, err := optionalEntryList(root, "harness_profile_fragments")
 	if err != nil {
 		return nil, err
@@ -126,6 +142,8 @@ func LoadBytes(body []byte) (*Catalog, error) {
 	catalog := &Catalog{
 		Shapes:                  shapes,
 		LaneSets:                laneSets,
+		RolePacks:               rolePacks,
+		AdversaryPacks:          adversaryPacks,
 		HarnessProfileFragments: fragments,
 	}
 	catalog.ensureMultiPhaseShape()
@@ -159,19 +177,25 @@ func FindCatalogPath() (string, error) {
 }
 
 func (c *Catalog) List(kind string) ([]map[string]any, error) {
-	if kind != "" && kind != "shape" && kind != "lane_set" {
+	if kind != "" && kind != "shape" && kind != "lane_set" && kind != "role_pack" && kind != "adversary_pack" {
 		return nil, &Error{
-			Message:   "template kind must be shape or lane_set",
+			Message:   "template kind must be shape, lane_set, role_pack, or adversary_pack",
 			FieldPath: "kind",
-			Hint:      "Use `workflow templates list --kind shape` or `--kind lane_set`.",
+			Hint:      "Use `workflow templates list --kind shape`, `--kind lane_set`, `--kind role_pack`, or `--kind adversary_pack`.",
 		}
 	}
 	entries := []map[string]any{}
+	if kind == "" || kind == "adversary_pack" {
+		entries = append(entries, cloneEntries(c.AdversaryPacks)...)
+	}
 	if kind == "" || kind == "shape" {
 		entries = append(entries, cloneEntries(c.Shapes)...)
 	}
 	if kind == "" || kind == "lane_set" {
 		entries = append(entries, cloneEntries(c.LaneSets)...)
+	}
+	if kind == "" || kind == "role_pack" {
+		entries = append(entries, cloneEntries(c.RolePacks)...)
 	}
 	sort.SliceStable(entries, func(i, j int) bool {
 		leftKind := stringValue(entries[i], "kind")

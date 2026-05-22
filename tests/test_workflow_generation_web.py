@@ -43,6 +43,16 @@ def test_workflow_templates_response_lists_shape_templates() -> None:
     )
 
 
+def test_workflow_templates_response_lists_role_packs() -> None:
+    response = workflow_templates_response("role_pack")
+
+    assert response.status == 200
+    assert any(
+        item["template_id"] == "implementation_panel_roles"
+        for item in response.payload["data"]["templates"]
+    )
+
+
 def test_workflow_template_show_response_decodes_template_id() -> None:
     response = workflow_template_show_response("review")
 

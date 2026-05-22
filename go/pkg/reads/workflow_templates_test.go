@@ -27,13 +27,13 @@ func TestHandleWorkflowTemplatesListReturnsPythonShape(t *testing.T) {
 
 func TestHandleWorkflowTemplatesListKindFilter(t *testing.T) {
 	result, err := HandleWorkflowTemplatesList(context.Background(), nil, rpc.Envelope{
-		Params: map[string]any{"repository_id": "repo_1", "kind": "shape"},
+		Params: map[string]any{"repository_id": "repo_1", "kind": "role_pack"},
 	})
 	if err != nil {
 		t.Fatalf("HandleWorkflowTemplatesList: %v", err)
 	}
 	for _, entry := range result["templates"].([]map[string]any) {
-		if stringFrom(entry, "kind") != "shape" {
+		if stringFrom(entry, "kind") != "role_pack" {
 			t.Fatalf("kind filter returned %#v", entry)
 		}
 	}

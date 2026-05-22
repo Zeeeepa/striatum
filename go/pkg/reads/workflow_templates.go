@@ -54,7 +54,7 @@ func optionalTemplateKind(envelope rpc.Envelope) (string, error) {
 	}
 	kind, ok := raw.(string)
 	if !ok {
-		return "", rpc.NewError("schema_invalid", "kind must be shape or lane_set", map[string]any{"field_path": "kind"})
+		return "", rpc.NewError("schema_invalid", "kind must be shape, lane_set, role_pack, or adversary_pack", map[string]any{"field_path": "kind"})
 	}
 	return kind, nil
 }

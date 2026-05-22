@@ -1,0 +1,322 @@
+{
+  "schema_version": "striatum.workflow.v1",
+  "workflow_id": "rfc-0074-phase-a-catalog",
+  "workflow_version": "2026-05-22",
+  "name": "RFC 0074 Phase A catalog metadata",
+  "context_docs": [
+    "README.md",
+    "docs/INDEX.md",
+    "docs/SPEC.md",
+    "docs/DECISION_LOG.md",
+    "docs/UBIQUITOUS_LANGUAGE.md",
+    "docs/TODO.md",
+    "docs/operator/BRIEF.md",
+    "docs/HOW_TO_AGENT.md",
+    "docs/WORKFLOW_TYPES.md",
+    "docs/WORKFLOW_CATALOG.md",
+    "docs/WRITING_WORKFLOWS.md",
+    "examples/README.md",
+    "docs/rfcs/0034-workflow-generator-and-template-catalog.md",
+    "docs/rfcs/0052-committee-deliberation-workflow.md",
+    "docs/rfcs/0074-workflow-shape-and-adversary-pack-catalog.md",
+    "docs/rfcs/0076-three-lane-code-and-doc-audit-workflow.md",
+    "docs/operator/plans/rfc-0074-workflow-shape-catalog-phase-a.md",
+    "docs/operator/artifacts/active-runway-1-5/phase4/catalog/PLAN.md",
+    "docs/operator/artifacts/active-runway-1-5/phase4/examples/PLAN.md",
+    "docs/operator/artifacts/active-runway-1-5/phase4/SYNTHESIS.md",
+    "docs/operator/artifacts/rfc-0076-audit-remediation/catalog-followup/PLAN.md",
+    "src/striatum/workflow_generator/catalog.py",
+    "src/striatum/workflow_templates/catalog.json",
+    "AGENTS.md"
+  ],
+  "coordinator": {
+    "role_id": "coordinator",
+    "lane_id": "codex"
+  },
+  "parallelism": {
+    "mode": "declared",
+    "max_active_jobs": 2,
+    "require_disjoint_write_scopes": true
+  },
+  "branch": {
+    "mode": "confirm",
+    "suggested_name": "striatum/rfc-0074-phase-a-catalog",
+    "allow_dirty": true
+  },
+  "lanes": {
+    "codex": {
+      "adapter": "process",
+      "command": [
+        "bash",
+        "-lc",
+        "PYTHONPATH=src python3 -m striatum.cli skills install --profile all --scope user --force --json >/dev/null && export PATH=\"$PWD/.venv/bin:$PATH\" && exec .striatum/bin/codex-supervised-wrapper.sh"
+      ],
+      "model": "codex",
+      "display_model": "Codex",
+      "strategy_version": "2026-05-22",
+      "supervision": {
+        "compatible": true,
+        "stdin_format": "newline_delimited_json",
+        "wrapper_required": true
+      }
+    },
+    "claude_code": {
+      "adapter": "process",
+      "command": [
+        "bash",
+        "-lc",
+        "PYTHONPATH=src python3 -m striatum.cli skills install --profile all --scope user --force --json >/dev/null && export PATH=\"$PWD/.venv/bin:$PATH\" && exec .striatum/bin/claude-supervised-wrapper.sh"
+      ],
+      "model": "claude_code",
+      "display_model": "Claude Code",
+      "strategy_version": "2026-05-22",
+      "supervision": {
+        "compatible": "verify_pipe_behavior_first",
+        "stdin_format": "prompt_text",
+        "wrapper_required": true
+      }
+    },
+    "gemini": {
+      "adapter": "process",
+      "command": [
+        "bash",
+        "-lc",
+        "PYTHONPATH=src python3 -m striatum.cli skills install --profile all --scope user --force --json >/dev/null && export PATH=\"$PWD/.venv/bin:$PATH\" && exec .striatum/bin/gemini-supervised-wrapper.sh"
+      ],
+      "model": "gemini",
+      "display_model": "Gemini",
+      "strategy_version": "2026-05-22",
+      "supervision": {
+        "compatible": true,
+        "stdin_format": "prompt_text",
+        "wrapper_required": true
+      }
+    }
+  },
+  "roles": {
+    "coordinator": {
+      "description": "Operator/control-plane role."
+    },
+    "pack_discoverer": {
+      "description": "Discovers graph-shape, role-pack, and adversary-pack metadata from RFC 0074, RFC 0076, and current catalog evidence."
+    },
+    "catalog_implementer": {
+      "description": "Adds Phase A metadata-first catalog entries and read-only discovery surfaces while keeping generation deferred."
+    },
+    "example_validator": {
+      "description": "Validates one hand-authored RFC 0074 implementation-panel example and records command evidence."
+    },
+    "discovery_reviewer": {
+      "description": "Fresh-context reviewer for read-only catalog discovery and Phase A/Phase B boundary leaks."
+    },
+    "closer": {
+      "description": "Publishes Phase A closure evidence and deferred Phase B work."
+    }
+  },
+  "jobs": [
+    {
+      "id": "discover_role_adversary_packs",
+      "type": "synthesis",
+      "title": "Discover role and adversary packs",
+      "role_id": "pack_discoverer",
+      "lane_id": "claude_code",
+      "fresh_session_required": true,
+      "objective": "Inventory the RFC 0074 graph-shape, role-pack, and adversary-pack candidates, resolve the RFC 0076 overlap, and define the Phase A metadata vocabulary before implementation begins.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/rfc-0074-phase-a-catalog/prompts/discover_role_adversary_packs.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/operator/artifacts/rfc-0074-phase-a-catalog/discovery/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "role_adversary_pack_discovery",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/rfc-0074-phase-a-catalog/discovery/PACK_DISCOVERY.md",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "add_metadata_catalog_entries",
+      "type": "build",
+      "title": "Add Phase A catalog metadata",
+      "role_id": "catalog_implementer",
+      "lane_id": "codex",
+      "fresh_session_required": true,
+      "required_review_postures": [
+        "custom:catalog_discovery_readonly"
+      ],
+      "objective": "Implement the narrow Phase A metadata catalog slice: graph-shape metadata, role/adversary pack metadata, validation/list/show/render support, and read-only service discovery. Do not implement generator shape emission or web chooser pack selection.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/rfc-0074-phase-a-catalog/prompts/add_metadata_catalog_entries.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "src/striatum/workflow_generator/catalog.py",
+          "src/striatum/workflow_templates/catalog.json",
+          "src/striatum/cli/workflow.py",
+          "src/striatum/web/workflow_generation.py",
+          "docs/WORKFLOW_TYPES.md",
+          "tests/",
+          "docs/operator/artifacts/rfc-0074-phase-a-catalog/build/"
+        ],
+        "forbidden_paths": [
+          ".striatum/",
+          ".venv/",
+          "__pycache__/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "catalog_metadata_handoff",
+          "kind": "handoff",
+          "path": "docs/operator/artifacts/rfc-0074-phase-a-catalog/build/HANDOFF.md",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "validate_one_example",
+      "type": "build",
+      "title": "Validate one implementation-panel example",
+      "role_id": "example_validator",
+      "lane_id": "claude_code",
+      "fresh_session_required": true,
+      "objective": "Create or validate only the single Phase A implementation-panel example using current workflow primitives, then record workflow-validation and focused test evidence. Do not add the remaining RFC 0074 example set.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/rfc-0074-phase-a-catalog/prompts/validate_one_example.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "examples/implementation-panel-flow/",
+          "examples/README.md",
+          "tests/test_example_workflows.py",
+          "tests/test_implementation_panel_flow.py",
+          "docs/operator/artifacts/rfc-0074-phase-a-catalog/example-validation/"
+        ],
+        "forbidden_paths": [
+          ".striatum/",
+          ".venv/",
+          "__pycache__/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "implementation_panel_example_validation",
+          "kind": "test_report",
+          "path": "docs/operator/artifacts/rfc-0074-phase-a-catalog/example-validation/REPORT.md",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "review_read_only_discovery",
+      "type": "review",
+      "title": "Review read-only catalog discovery",
+      "role_id": "discovery_reviewer",
+      "lane_id": "gemini",
+      "fresh_session_required": true,
+      "reviewer_context_policy": "fresh",
+      "review_posture": "custom:catalog_discovery_readonly",
+      "objective": "Review Phase A for read-only discovery correctness and boundary leaks: metadata and discovery may be visible, but generation, chooser pack selection, RFC 0052 artifacts, hosted services, telemetry, and runtime-state semantics must remain out of scope.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/rfc-0074-phase-a-catalog/prompts/review_read_only_discovery.md"
+      },
+      "write_scope": {
+        "mode": "review_only_artifact",
+        "repo_write": false,
+        "allowed_paths": [
+          "docs/operator/artifacts/rfc-0074-phase-a-catalog/review/discovery/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "read_only_discovery_review",
+          "kind": "finding",
+          "path": "docs/operator/artifacts/rfc-0074-phase-a-catalog/review/discovery/REVIEW.md",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "close_phase_a_catalog",
+      "type": "synthesis",
+      "title": "Close RFC 0074 Phase A catalog pass",
+      "role_id": "closer",
+      "lane_id": "codex",
+      "fresh_session_required": true,
+      "objective": "Publish a concise closure artifact with catalog metadata changes, example validation evidence, review result, and the exact Phase B deferrals.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/rfc-0074-phase-a-catalog/prompts/close_phase_a_catalog.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/operator/artifacts/rfc-0074-phase-a-catalog/CLOSURE.md"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "phase_a_catalog_closure",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/rfc-0074-phase-a-catalog/CLOSURE.md",
+          "required": true
+        }
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "from": "discover_role_adversary_packs",
+      "to": "add_metadata_catalog_entries",
+      "on": "completed"
+    },
+    {
+      "from": "add_metadata_catalog_entries",
+      "to": "validate_one_example",
+      "on": "completed"
+    },
+    {
+      "from": "add_metadata_catalog_entries",
+      "to": "review_read_only_discovery",
+      "on": "completed"
+    },
+    {
+      "from": "validate_one_example",
+      "to": "review_read_only_discovery",
+      "on": "completed"
+    },
+    {
+      "from": "review_read_only_discovery",
+      "to": "close_phase_a_catalog",
+      "on": "completed"
+    }
+  ],
+  "cycles": [
+    {
+      "from": "review_read_only_discovery",
+      "to": "add_metadata_catalog_entries",
+      "on_verdict": "needs_revision",
+      "max_iterations": 1
+    }
+  ]
+}

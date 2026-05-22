@@ -576,7 +576,7 @@ def build_parser() -> argparse.ArgumentParser:
     templates = workflow_sub.add_parser("templates")
     templates_sub = templates.add_subparsers(dest="templates_command", required=True)
     templates_list = templates_sub.add_parser("list")
-    templates_list.add_argument("--kind", choices=["shape", "lane_set"])
+    templates_list.add_argument("--kind", choices=["shape", "lane_set", "role_pack", "adversary_pack"])
     templates_list.add_argument("--json", action="store_true")
     templates_show = templates_sub.add_parser("show")
     templates_show.add_argument("template_id")
