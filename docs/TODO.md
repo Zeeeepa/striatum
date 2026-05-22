@@ -107,11 +107,11 @@ so external references keep resolving even as items move between sections.
 | 53 | RFC 0062 Architecture remediation Phase 5 — real escalation inbox | 🟡 projection + escalation artifact schema/linkage landed |
 | 54 | RFC 0063 Architecture remediation Phase 6 — hardened PTY supervision | ✅ done |
 | 55 | RFC 0064 Architecture remediation Phase 7 — workflow risk lint and review diversity enforcement | 🟡 daemon accepted-risk authority decided; implementation pending |
-| 56 | Architecture remediation Phase 8 — auto-finalize from front matter | 🟡 dry-run default decided; evidence gate pending |
+| 56 | Architecture remediation Phase 8 — auto-finalize from front matter | 🟡 skipped-candidate cause classes landed; lane visibility/circuit breaker pending |
 | 57 | RFC 0065 Architecture remediation Phase 9 — UI packaging and bundle cleanup | ✅ done; chunking monitor only |
 | 58 | RFC 0059 Architecture remediation Phase 10 — day-zero setup improvements | ✅ done |
 | 59 | RFC 0059 RFC 0066 Architecture remediation Phase 11 — replay, archive, and corpus v2 foundations | 🟡 V2 contract decisions accepted; implementation pending |
-| 60 | RFC 0059 RFC 0067 Architecture remediation Phase 12 — optional Git/PR integration | 🟡 boundary decided; read-only snapshot slice pending |
+| 60 | RFC 0059 RFC 0067 Architecture remediation Phase 12 — optional Git/PR integration | 🟡 read-only `git.snapshot` landed; request artifacts/local commit confirmation pending |
 | 61 | RFC 0068 Go production daemon port and Python daemon retirement | 🟡 Go default; Python daemon module deleted; broad direct repo-local fixture opens converted |
 | 62 | RFC 0069 PostgreSQL-only daemon-global surfaces | 🟡 guardrail residuals only |
 | 63 | RFC 0070 daemon client/service boundary completion | 🟡 production boundary mostly done |
@@ -1192,12 +1192,14 @@ review and plan are root-level operator artifacts:
     preserving dry-run no-side-effect behavior and folding hook failures
     into `escalations[]`. Automated dogfood-shaped acceptance coverage now
     proves valid written artifacts can auto-finalize with zero
-    operator-on-behalf publishes. D125 keeps the global default as dry-run
-    projection and live auto-finalize workflow opt-in. Default-on behavior is
-    gated by three successful live dogfoods across at least two lane shapes
-    with zero contested audit-chain events, plus follow-up lane-finalization
-    visibility, skipped-candidate cause classes, and a consecutive-failure
-    circuit breaker.
+    operator-on-behalf publishes. The skipped-candidate cause-class slice has
+    also landed: every skip/refusal now carries a stable `cause`, artifact
+    refusals carry per-artifact causes, and `reason` strings remain
+    display-compatible. D125 keeps the global default as dry-run projection
+    and live auto-finalize workflow opt-in. Default-on behavior is gated by
+    three successful live dogfoods across at least two lane shapes with zero
+    contested audit-chain events, plus follow-up lane-finalization visibility
+    and a consecutive-failure circuit breaker.
 
 57. ~~**Phase 9: UI packaging and bundle cleanup.**~~ Done:
     `ui-build` depends on `ui-clean`, `ui-check-bundle` also runs a
@@ -1249,12 +1251,15 @@ review and plan are root-level operator artifacts:
 
 60. **Phase 12: optional Git/PR integration.** D127 decides the boundary:
     Striatum core does not autonomously commit, push, call hosted providers, or
-    import provider SDKs. Safe implementation starts with read-only local git
-    snapshot surfaces. Durable commit-request and PR-request artifacts may be
-    added; local git commit-apply may create a local commit only after explicit
-    operator confirmation. Hosted provider actions remain out of core and
-    require a future optional-plugin decision with human-principal
-    confirmation.
+    import provider SDKs. The first safe slice has landed as daemon read
+    method `git.snapshot` plus `striatum git snapshot --json`: branch/HEAD,
+    dirty counts, changed paths, and bounded ancestry are observed through a
+    closed read-only local-git allowlist. It excludes remote URLs, diff hunks,
+    commit bodies, hosted PR metadata, and provider actions. Durable
+    commit-request and PR-request artifacts may be added; local git
+    commit-apply may create a local commit only after explicit operator
+    confirmation. Hosted provider actions remain out of core and require a
+    future optional-plugin decision with human-principal confirmation.
 
 61. **RFC 0068: Go production daemon port.** Active. D107 supersedes D105:
     Go is the production/default daemon and active contract-method parity is

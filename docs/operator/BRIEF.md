@@ -74,16 +74,18 @@ provider actions in core.
 The active runway 1-5 workflow completed on 2026-05-22 as
 `run_b2e013582e0aeba267dd7a47cc66ccf1`. It produced the ordered batch plan in
 `docs/operator/artifacts/active-runway-1-5/FINAL.md`, with supporting phase
-artifacts under `docs/operator/artifacts/active-runway-1-5/`.
+artifacts under `docs/operator/artifacts/active-runway-1-5/`. The first
+implementation pair from that plan has landed: TODO 60 now has daemon
+read-only `git.snapshot` plus `striatum git snapshot --json`, and TODO 56 now
+adds stable auto-finalize skipped-candidate `cause` classes while preserving
+existing human-readable `reason` strings.
 
 ## Next 1-3 Actions
 
-1. Start implementation with the active runway's first safe parallel pair:
-   TODO 60 read-only `git.snapshot` and TODO 56 skipped-candidate cause
-   classes.
-2. After that pair lands, serialize daemon-contract work through TODO 55
-   accepted-risk daemon authority, then TODO 56 lane-finalization visibility
-   and circuit-breaker state.
+1. Serialize daemon-contract work through TODO 55 accepted-risk daemon
+   authority.
+2. Continue TODO 56 with lane-finalization visibility and circuit-breaker
+   state; keep live auto-finalize workflow-opt-in and dry-run default.
 3. Keep CLI retirement, RFC 0075 tmux metadata, RFC 0074 Phase A, and TODO
    61/62/63 cleanup queued behind the batch order in
    `docs/operator/artifacts/active-runway-1-5/FINAL.md`.

@@ -15,6 +15,7 @@
 | `evidence.export` | `read` | `single_repo` | 1 | 1 | no |
 | `corpus.export` | `read` | `single_repo` | 1 | 1 | no |
 | `archive.create` | `read` | `single_repo` | 1 | 1 | no |
+| `git.snapshot` | `read` | `single_repo` | 1 | 1 | no |
 | `run.summary` | `read` | `single_repo` | 1 | 1 | no |
 | `run.detail` | `read` | `single_repo` | 1 | 1 | no |
 | `job.detail` | `read` | `single_repo` | 1 | 1 | no |
@@ -125,6 +126,7 @@
 | `why` | `why` | `read` | `single_repo` |
 | `doctor` | `doctor` | `read` | `single_repo` |
 | `dashboard` | `dashboard` | `read` | `single_repo` |
+| `git snapshot` | `git.snapshot` | `read` | `single_repo` |
 | `repo add` | `repo.add` | `admin` | `daemon_global` |
 | `repo list` | `repo.list` | `read` | `daemon_global` |
 | `repo remove` | `repo.remove` | `admin` | `daemon_global` |

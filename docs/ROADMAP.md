@@ -31,8 +31,8 @@ dependency edges, and "what would I do next" framing. Update on every
   workflow is
   `docs/operator/workflows/active-runway-1-5/workflow.json`, with the final
   ordered batch plan at `docs/operator/artifacts/active-runway-1-5/FINAL.md`.
-  The first implementation pair is TODO 60 read-only `git.snapshot` plus TODO
-  56 skipped-candidate cause classes.
+  The first implementation pair landed: TODO 60 read-only `git.snapshot` plus
+  TODO 56 skipped-candidate cause classes.
   Earlier TODO 61-64 / RFC 0068-0071 architecture remediation remains the
   substrate this work builds on.
   D107 supersedes D105: Go is now the default production daemon core, active
@@ -786,13 +786,15 @@ do not make workflow-file metadata a live authority.
 - Recovery sweep acceptance coverage now pins a dogfood-shaped run where
   three valid written review findings auto-finalize without
   operator-on-behalf or override provenance.
+- Stable skipped-candidate cause classes landed for the dry-run/live
+  projections: every skip has `cause`, artifact refusals have per-artifact
+  `cause`, and existing `reason` strings remain display-compatible.
 
 **Remaining Phase 8 debt:** D125 keeps dry-run projection as the global
 default and live auto-finalize workflow opt-in. Default-on behavior may be
 reconsidered only after three successful live dogfoods across at least two lane
 shapes with zero contested audit-chain events, and after lane-finalization
-visibility, skipped-candidate cause classes, and a consecutive-failure circuit
-breaker land.
+visibility and a consecutive-failure circuit breaker land.
 
 ---
 
@@ -1071,9 +1073,9 @@ Release order after Phase 0:
    accepted-risk decision references landed; D124 chooses daemon-core
    accepted-risk persistence and the implementation is tracked in §4.11.
 8. **TODO 56 / Phase 8:** auto-finalize daemon method, status/dashboard/web
-   visibility, and bounded sweep integration landed; D125 keeps the dry-run
-   default and gates any default-on flip on dogfood evidence, tracked in
-   §4.12.
+   visibility, bounded sweep integration, and skipped-candidate cause classes
+   landed; D125 keeps the dry-run default and gates any default-on flip on
+   dogfood evidence, tracked in §4.12.
 9. **TODO 57 / Phase 9:** clean-build, bundle-size, and wheel-size gates
    landed; chunking is monitor-only and tracked in §4.13.
 10. **TODO 58 / Phase 10:** day-zero Postgres/daemon setup slice
@@ -1086,10 +1088,10 @@ Release order after Phase 0:
     verdicts, blockers, process executions, and job worktrees; D126 accepts
     the Corpus Contract V2 identity, redaction, augmentation-reference,
     archive, and verification direction.
-12. **TODO 60 / Phase 12:** D127 sets the Git/PR boundary: read-only local
-    snapshots first, durable commit/PR request artifacts next, local commit
-    apply only with explicit operator confirmation, and hosted provider
-    actions only through a later optional-plugin decision.
+12. **TODO 60 / Phase 12:** D127 sets the Git/PR boundary. The read-only
+    local `git.snapshot` daemon/CLI slice landed; durable commit/PR request
+    artifacts come next, local commit apply remains explicit-operator-confirmed
+    only, and hosted provider actions require a later optional-plugin decision.
 13. **TODO 61 / RFC 0068:** keep the Go production daemon conformance suite
     green, keep the Go binary release provenance stamped and verified by
     `--describe`,

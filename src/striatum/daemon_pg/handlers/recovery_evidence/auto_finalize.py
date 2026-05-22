@@ -41,6 +41,7 @@ from striatum.daemon_pg.handlers.workflow_loop.complete_job import complete_inli
 from striatum.daemon_pg.handlers.workflow_loop.record_verdict import record_verdict_inline
 from striatum.errors import ArtifactError, InvalidTransitionError, NotFoundError
 from striatum.primitives import sha256_bytes
+from striatum.recovery import auto_finalize_causes as causes
 from striatum.repo_policy import path_allowed
 
 DEFAULT_MTIME_GRACE_SECONDS = 30
@@ -62,6 +63,8 @@ def handle(ctx: RepoHandlerContext, params: Mapping[str, Any]) -> dict[str, Any]
             run_id=run_id,
             dry_run=_dry_run(params),
             reason=f"run is not running: {run['state']}",
+            cause=causes.RUN_NOT_RUNNING,
+            cause_detail=run["state"],
             policy=_policy_result(ctx, run_id=run_id, params=params),
         )
 
@@ -114,6 +117,10 @@ def handle(ctx: RepoHandlerContext, params: Mapping[str, Any]) -> dict[str, Any]
                 "workflow_job_id": row.get("workflow_job_id"),
                 "job_id": row.get("job_id"),
                 "reason": f"live auto-finalize failed: {exc}",
+                **causes.cause_fields(
+                    causes.finalize_failure_cause(exc),
+                    type(exc).__name__,
+                ),
             })
 
     return {
@@ -151,6 +158,8 @@ def dry_run_projection(
             run_id=run_id,
             dry_run=True,
             reason=f"run is not running: {run['state']}",
+            cause=causes.RUN_NOT_RUNNING,
+            cause_detail=run["state"],
             policy=policy,
         )
 
@@ -170,6 +179,10 @@ def dry_run_projection(
                     "workflow_job_id": row.get("workflow_job_id"),
                     "job_id": row.get("job_id"),
                     "reason": f"auto-finalize dry-run projection failed: {exc}",
+                    **causes.cause_fields(
+                        causes.PROJECTION_EVALUATION_FAILED,
+                        type(exc).__name__,
+                    ),
                 }
             )
             continue
@@ -239,6 +252,8 @@ def _empty_result(
     run_id: str,
     dry_run: bool,
     reason: str,
+    cause: str,
+    cause_detail: object | None = None,
     policy: Mapping[str, Any],
 ) -> dict[str, Any]:
     return {
@@ -250,7 +265,7 @@ def _empty_result(
         "finalized_count": 0,
         "finalized": [],
         "skipped_count": 1,
-        "skipped": [{"reason": reason}],
+        "skipped": [{"reason": reason, **causes.cause_fields(cause, cause_detail)}],
     }
 
 
@@ -323,13 +338,22 @@ def _evaluate_candidate(
         "message_id": message_id,
     }
     if not expected_artifacts:
-        return _not_eligible(base, "no required expected_artifacts declared")
+        return _not_eligible(
+            base,
+            "no required expected_artifacts declared",
+            causes.NO_REQUIRED_EXPECTED_ARTIFACTS,
+        )
     if message_id is None:
-        return _not_eligible(base, "no active queue message is attached")
+        return _not_eligible(base, "no active queue message is attached", causes.NO_ACTIVE_MESSAGE)
     try:
         expected_byline = expected_author_line_pg(ctx, job=row, session_id=session_id)
     except ArtifactError as exc:
-        return _not_eligible(base, f"could not derive expected byline: {exc}")
+        return _not_eligible(
+            base,
+            f"could not derive expected byline: {exc}",
+            causes.EXPECTED_BYLINE_UNRESOLVABLE,
+            type(exc).__name__,
+        )
 
     artifacts: list[dict[str, Any]] = []
     refusals: list[dict[str, Any]] = []
@@ -351,6 +375,7 @@ def _evaluate_candidate(
     if refusals:
         skip = dict(base)
         skip["reason"] = "expected_artifact validation refused"
+        skip.update(causes.cause_fields(causes.first_refusal_cause(refusals)))
         skip["artifacts"] = refusals
         return {"eligible": False, "skip": skip}
 
@@ -379,33 +404,51 @@ def _evaluate_artifact(
     kind = declared.get("kind")
     logical_name = declared.get("logical_name")
     if not isinstance(path_text, str) or not path_text:
-        return _artifact_refusal(declared, "expected_artifact path is missing")
+        return _artifact_refusal(declared, "expected_artifact path is missing", causes.ARTIFACT_PATH_MISSING)
     if not isinstance(kind, str) or kind not in ALLOWED_ARTIFACT_KINDS:
-        return _artifact_refusal(declared, "expected_artifact kind is invalid")
+        return _artifact_refusal(declared, "expected_artifact kind is invalid", causes.ARTIFACT_KIND_INVALID)
     if kind == "transcript":
-        return _artifact_refusal(declared, "transcript artifacts are not auto-finalized")
+        return _artifact_refusal(
+            declared,
+            "transcript artifacts are not auto-finalized",
+            causes.ARTIFACT_KIND_TRANSCRIPT,
+        )
     if not isinstance(logical_name, str) or not logical_name:
-        return _artifact_refusal(declared, "expected_artifact logical_name is missing")
+        return _artifact_refusal(
+            declared,
+            "expected_artifact logical_name is missing",
+            causes.ARTIFACT_LOGICAL_NAME_MISSING,
+        )
     write_scope = _json_loads(job["write_scope_json"])
     if not path_allowed(ctx.repo_root, path_text, write_scope):
-        return _artifact_refusal(declared, "artifact path is outside the job write scope")
+        return _artifact_refusal(
+            declared,
+            "artifact path is outside the job write scope",
+            causes.ARTIFACT_PATH_OUTSIDE_WRITE_SCOPE,
+        )
     try:
         path = _artifact_payload_path(ctx, job_id=job_id, path_text=path_text)
     except ArtifactError as exc:
-        return _artifact_refusal(declared, str(exc))
+        return _artifact_refusal(declared, str(exc), causes.ARTIFACT_PAYLOAD_PATH_INVALID, type(exc).__name__)
     if not path.is_file():
-        return _artifact_refusal(declared, "expected artifact file does not exist")
+        return _artifact_refusal(declared, "expected artifact file does not exist", causes.ARTIFACT_FILE_MISSING)
     stable = _mtime_stable(path, mtime_grace_seconds=mtime_grace_seconds)
     if not stable["stable"]:
         return _artifact_refusal(
             declared,
             "expected artifact file mtime is inside the grace period",
+            causes.ARTIFACT_MTIME_INSIDE_GRACE,
             extra={"age_seconds": stable["age_seconds"]},
         )
     try:
         payload = path.read_bytes()
     except OSError as exc:
-        return _artifact_refusal(declared, f"could not read expected artifact: {exc}")
+        return _artifact_refusal(
+            declared,
+            f"could not read expected artifact: {exc}",
+            causes.ARTIFACT_READ_FAILED,
+            type(exc).__name__,
+        )
     try:
         validate_artifact_front_matter(kind=kind, path=path, payload=payload)
         front_matter = _required_front_matter(kind=kind, path=path, payload=payload)
@@ -417,7 +460,7 @@ def _evaluate_artifact(
             expected_byline=expected_byline,
         )
     except ArtifactError as exc:
-        return _artifact_refusal(declared, str(exc))
+        return _artifact_refusal(declared, str(exc), causes.artifact_validation_cause(str(exc)))
     lane_reason = _lane_evidence_refusal(
         ctx,
         session_id=session_id,
@@ -425,7 +468,7 @@ def _evaluate_artifact(
         allow_no_process_execution=allow_no_process_execution,
     )
     if lane_reason is not None:
-        return _artifact_refusal(declared, lane_reason)
+        return _artifact_refusal(declared, lane_reason, causes.LANE_EVIDENCE_MISSING)
     existing = _existing_artifact_status(
         ctx,
         run_id=str(job["run_id"]),
@@ -435,7 +478,11 @@ def _evaluate_artifact(
         payload=payload,
     )
     if existing.get("status") == "conflict":
-        return _artifact_refusal(declared, str(existing["reason"]))
+        return _artifact_refusal(
+            declared,
+            str(existing["reason"]),
+            causes.ARTIFACT_CONFLICT_EXISTING_CONTENT,
+        )
     return {
         "ok": True,
         "artifact": {
@@ -453,15 +500,23 @@ def _evaluate_artifact(
     }
 
 
-def _not_eligible(base: Mapping[str, Any], reason: str) -> dict[str, Any]:
+def _not_eligible(
+    base: Mapping[str, Any],
+    reason: str,
+    cause: str,
+    cause_detail: object | None = None,
+) -> dict[str, Any]:
     skip = dict(base)
     skip["reason"] = reason
+    skip.update(causes.cause_fields(cause, cause_detail))
     return {"eligible": False, "skip": skip}
 
 
 def _artifact_refusal(
     declared: Mapping[str, Any],
     reason: str,
+    cause: str,
+    cause_detail: object | None = None,
     *,
     extra: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
@@ -470,6 +525,7 @@ def _artifact_refusal(
         "kind": declared.get("kind"),
         "logical_name": declared.get("logical_name"),
         "reason": reason,
+        **causes.cause_fields(cause, cause_detail),
     }
     if extra:
         refusal.update(extra)

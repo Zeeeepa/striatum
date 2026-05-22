@@ -27,6 +27,7 @@ from striatum.daemon_rpc.capability import RpcAuthContext
 from striatum.errors import InvalidTransitionError
 from striatum.identity import process_start_time
 from striatum.primitives import json_dumps, sha256_bytes
+from striatum.recovery import auto_finalize_causes as causes
 
 
 @pytest.fixture
@@ -139,6 +140,9 @@ def test_auto_finalize_dry_run_reports_unstable_file_without_mutation(
 
         assert result["eligible_count"] == 0
         assert result["skipped_count"] == 1
+        _assert_skip_causes(result)
+        assert result["skipped"][0]["cause"] == causes.ARTIFACT_MTIME_INSIDE_GRACE
+        assert result["skipped"][0]["artifacts"][0]["cause"] == causes.ARTIFACT_MTIME_INSIDE_GRACE
         assert result["skipped"][0]["artifacts"][0]["reason"] == (
             "expected artifact file mtime is inside the grace period"
         )
@@ -197,6 +201,8 @@ def test_status_auto_finalize_projection_reports_refusal_without_live_opt_in(
         assert projection["policy"]["live_allowed"] is False
         assert projection["eligible_count"] == 0
         assert projection["skipped_count"] == 1
+        _assert_skip_causes(projection)
+        assert projection["skipped"][0]["cause"] == causes.ARTIFACT_MTIME_INSIDE_GRACE
         assert projection["skipped"][0]["reason"] == "expected_artifact validation refused"
         assert projection["skipped"][0]["artifacts"][0]["reason"] == (
             "expected artifact file mtime is inside the grace period"
@@ -245,6 +251,9 @@ def test_auto_finalize_requires_all_required_artifacts_before_publishing(
 
         assert result["finalized_count"] == 0
         assert result["skipped_count"] == 1
+        _assert_skip_causes(result)
+        assert result["skipped"][0]["cause"] == causes.ARTIFACT_FILE_MISSING
+        assert result["skipped"][0]["artifacts"][0]["cause"] == causes.ARTIFACT_FILE_MISSING
         assert result["skipped"][0]["artifacts"][0]["reason"] == (
             "expected artifact file does not exist"
         )
@@ -287,6 +296,72 @@ def test_auto_finalize_handler_registered() -> None:
     assert inspect.signature(handle).parameters.keys() == {"ctx", "params"}
 
 
+def test_auto_finalize_dry_run_reports_no_required_artifacts_cause(
+    tmp_path: Path, pg_url: str
+) -> None:
+    conn = connect(pg_url)
+    try:
+        repo_root = tmp_path / "repo_a"
+        _seed_review_job(
+            conn,
+            repo_root,
+            repository_id="repo_a",
+            expected_artifacts=[
+                {
+                    "logical_name": "optional",
+                    "kind": "finding",
+                    "path": "docs/optional.md",
+                    "required": False,
+                }
+            ],
+        )
+        _insert_attached_supervisor(conn, repository_id="repo_a")
+        _insert_work_packet_and_clean_process(conn, repository_id="repo_a")
+        conn.commit()
+
+        result = handle(
+            _ctx(conn, repo_root, repository_id="repo_a"),
+            {
+                "run_id": "run_1",
+                "dry_run": True,
+                "mtime_grace_seconds": 0,
+            },
+        )
+
+        _assert_skip_causes(result)
+        assert result["skipped"][0]["cause"] == causes.NO_REQUIRED_EXPECTED_ARTIFACTS
+        assert result["skipped"][0]["reason"] == "no required expected_artifacts declared"
+    finally:
+        conn.close()
+
+
+def test_auto_finalize_dry_run_reports_lane_evidence_missing_cause(
+    tmp_path: Path, pg_url: str
+) -> None:
+    conn = connect(pg_url)
+    try:
+        repo_root = tmp_path / "repo_a"
+        _write_finding(repo_root, byline="author: reviewer-codex-gpt-5-001")
+        _seed_review_job(conn, repo_root, repository_id="repo_a")
+        _insert_attached_supervisor(conn, repository_id="repo_a")
+        conn.commit()
+
+        result = handle(
+            _ctx(conn, repo_root, repository_id="repo_a"),
+            {
+                "run_id": "run_1",
+                "dry_run": True,
+                "mtime_grace_seconds": 0,
+            },
+        )
+
+        _assert_skip_causes(result)
+        assert result["skipped"][0]["cause"] == causes.LANE_EVIDENCE_MISSING
+        assert result["skipped"][0]["artifacts"][0]["cause"] == causes.LANE_EVIDENCE_MISSING
+    finally:
+        conn.close()
+
+
 def _ctx(conn: Any, repo_root: Path, *, repository_id: str) -> RepoHandlerContext:
     return RepoHandlerContext(
         pg_conn=conn,
@@ -294,6 +369,21 @@ def _ctx(conn: Any, repo_root: Path, *, repository_id: str) -> RepoHandlerContex
         repo_root=repo_root,
         auth=RpcAuthContext("client", "token", repository_id, "recovery", "allowed"),
     )
+
+
+def _assert_skip_causes(result: Mapping[str, Any]) -> None:
+    skipped = result.get("skipped")
+    assert isinstance(skipped, list)
+    for skip in skipped:
+        assert isinstance(skip, Mapping)
+        assert skip.get("cause") in causes.CAUSES
+        artifacts = skip.get("artifacts")
+        if artifacts is None:
+            continue
+        assert isinstance(artifacts, list)
+        for artifact in artifacts:
+            assert isinstance(artifact, Mapping)
+            assert artifact.get("cause") in causes.CAUSES
 
 
 def _write_finding(

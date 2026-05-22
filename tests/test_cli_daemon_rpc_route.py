@@ -83,6 +83,7 @@ def _args_for_lookup(command: str, subcommand: str | None) -> argparse.Namespace
         checkpoint_command=subcommand if command == "checkpoint" else None,
         escalation_command=subcommand if command == "escalation" else None,
         branch_command=subcommand if command == "branch" else None,
+        git_command=subcommand if command == "git" else None,
         session_command=subcommand if command == "session" else None,
         worktree_command=subcommand if command == "worktree" else None,
         supervise_command=subcommand if command == "supervise" else None,
@@ -153,6 +154,8 @@ def _args_for_lookup(command: str, subcommand: str | None) -> argparse.Namespace
         strict=False,
         worktree_id="worktree_1",
         packet_id="packet_1",
+        include_ancestry=True,
+        ancestry_limit=10,
     )
 
 
@@ -324,6 +327,23 @@ def test_archive_create_routes_to_daemon_rpc() -> None:
 
     assert method == "archive.create"
     assert params == {"run_id": "run_1", "out": "archives/run_1"}
+
+
+def test_git_snapshot_routes_to_daemon_rpc_with_bounded_read_params() -> None:
+    method, params = _route(
+        "git",
+        "snapshot",
+        git_command="snapshot",
+        include_ancestry=False,
+        ancestry_limit=20,
+    )
+
+    assert method == "git.snapshot"
+    assert params == {
+        "schema_version": 1,
+        "include_ancestry": False,
+        "ancestry_limit": 20,
+    }
 
 
 def test_heartbeat_preserves_extend_seconds() -> None:

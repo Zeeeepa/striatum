@@ -15,7 +15,7 @@ import (
 )
 
 func TestHTTPHandlerInitializeDirectPost(t *testing.T) {
-	handler, _, _ := newTestHTTPHandler(t)
+	handler, _, _, _ := newTestHTTPHandler(t)
 	recorder := postJSON(t, handler, EndpointPath, `{"jsonrpc":"2.0","id":"init","method":"initialize","params":{}}`, "")
 
 	if recorder.Code != http.StatusOK {
@@ -31,7 +31,7 @@ func TestHTTPHandlerInitializeDirectPost(t *testing.T) {
 }
 
 func TestHTTPHandlerToolsListUsesBearerTokenAndHidesUnauthorized(t *testing.T) {
-	handler, _, _ := newTestHTTPHandler(t)
+	handler, _, _, _ := newTestHTTPHandler(t)
 	recorder := postJSON(t, handler, EndpointPath, `{"jsonrpc":"2.0","id":"list","method":"tools/list","params":{"repository_id":"repo_1"}}`, "read.secret")
 
 	if recorder.Code != http.StatusOK {
@@ -49,6 +49,9 @@ func TestHTTPHandlerToolsListUsesBearerTokenAndHidesUnauthorized(t *testing.T) {
 	if !names["status"] {
 		t.Fatalf("read token did not see status tool: %#v", names)
 	}
+	if !names["git.snapshot"] {
+		t.Fatalf("read token did not see git.snapshot tool: %#v", names)
+	}
 	for _, hidden := range []string{"work.complete", "workflow.generate"} {
 		if names[hidden] {
 			t.Fatalf("read token saw unauthorized/hidden tool %s: %#v", hidden, names)
@@ -57,7 +60,7 @@ func TestHTTPHandlerToolsListUsesBearerTokenAndHidesUnauthorized(t *testing.T) {
 }
 
 func TestHTTPHandlerToolsListRecordsSessionActivity(t *testing.T) {
-	handler, _, _ := newTestHTTPHandler(t)
+	handler, _, _, _ := newTestHTTPHandler(t)
 	recorder := &activityRecorder{}
 	handler.Service.ActivityRecorder = recorder
 	body := `{"jsonrpc":"2.0","id":"list-activity","method":"tools/list","params":{"repository_id":"repo_1","session_id":"sess_1"}}`
@@ -76,7 +79,7 @@ func TestHTTPHandlerToolsListRecordsSessionActivity(t *testing.T) {
 }
 
 func TestHTTPHandlerToolsCallReadPath(t *testing.T) {
-	handler, _, _ := newTestHTTPHandler(t)
+	handler, _, _, _ := newTestHTTPHandler(t)
 	body := `{"jsonrpc":"2.0","id":"read","method":"tools/call","params":{"name":"status","arguments":{"repository_id":"repo_1"}}}`
 	recorder := postJSON(t, handler, EndpointPath, body, "read.secret")
 
@@ -108,7 +111,7 @@ func (r *activityRecorder) RecordSessionActivity(_ context.Context, repositoryID
 }
 
 func TestHTTPHandlerToolsCallMutationPath(t *testing.T) {
-	handler, mutationCalled, _ := newTestHTTPHandler(t)
+	handler, mutationCalled, _, _ := newTestHTTPHandler(t)
 	body := `{"jsonrpc":"2.0","id":"write","method":"tools/call","params":{"name":"work.complete","repository_id":"repo_1","arguments":{"session_id":"sess_1","job_id":"job_1","lease_id":"lease_1"}}}`
 	recorder := postJSON(t, handler, EndpointPath, body, "write.secret")
 
@@ -130,7 +133,7 @@ func TestHTTPHandlerToolsCallMutationPath(t *testing.T) {
 }
 
 func TestHTTPHandlerToolsCallInvalidTokenDenies(t *testing.T) {
-	handler, _, _ := newTestHTTPHandler(t)
+	handler, _, _, _ := newTestHTTPHandler(t)
 	body := `{"jsonrpc":"2.0","id":"invalid-token","method":"tools/call","params":{"name":"status","arguments":{"repository_id":"repo_1"}}}`
 	recorder := postJSON(t, handler, EndpointPath, body, "missing.secret")
 
@@ -141,8 +144,23 @@ func TestHTTPHandlerToolsCallInvalidTokenDenies(t *testing.T) {
 	}
 }
 
+func TestHTTPHandlerWriteTokenCannotCallReadOnlyGitSnapshot(t *testing.T) {
+	handler, _, _, gitSnapshotCalled := newTestHTTPHandler(t)
+	body := `{"jsonrpc":"2.0","id":"git-denied","method":"tools/call","params":{"name":"git.snapshot","repository_id":"repo_1","arguments":{"repository_id":"repo_1"}}}`
+	recorder := postJSON(t, handler, EndpointPath, body, "write.secret")
+
+	response := decodeTestResponse(t, recorder)
+	structured := structuredContent(t, response)
+	if response.Result["isError"] != true || structured["error"] != "capability_missing" {
+		t.Fatalf("git.snapshot denial result = %#v", response.Result)
+	}
+	if *gitSnapshotCalled {
+		t.Fatal("git.snapshot handler ran for write-only token")
+	}
+}
+
 func TestHTTPHandlerDeniedTokenCannotCallHiddenUnauthorizedMethod(t *testing.T) {
-	handler, _, _ := newTestHTTPHandler(t)
+	handler, _, _, _ := newTestHTTPHandler(t)
 	body := `{"jsonrpc":"2.0","id":"hidden-denied","method":"tools/call","params":{"name":"workflow.generate","repository_id":"repo_1","arguments":{}}}`
 	recorder := postJSON(t, handler, EndpointPath, body, "read.secret")
 
@@ -154,7 +172,7 @@ func TestHTTPHandlerDeniedTokenCannotCallHiddenUnauthorizedMethod(t *testing.T) 
 }
 
 func TestHTTPHandlerWriteTokenCannotCallHiddenProductionTool(t *testing.T) {
-	handler, _, hiddenCalled := newTestHTTPHandler(t)
+	handler, _, hiddenCalled, _ := newTestHTTPHandler(t)
 	body := `{"jsonrpc":"2.0","id":"hidden-write-denied","method":"tools/call","params":{"name":"workflow.generate","repository_id":"repo_1","arguments":{}}}`
 	recorder := postJSON(t, handler, EndpointPath, body, "write.secret")
 
@@ -169,7 +187,7 @@ func TestHTTPHandlerWriteTokenCannotCallHiddenProductionTool(t *testing.T) {
 }
 
 func TestHTTPHandlerToolsCallUnknownDaemonMethodReturnsMCPError(t *testing.T) {
-	handler, _, _ := newTestHTTPHandler(t)
+	handler, _, _, _ := newTestHTTPHandler(t)
 	body := `{"jsonrpc":"2.0","id":"unknown-daemon","method":"tools/call","params":{"name":"not.a.method","arguments":{"repository_id":"repo_1"}}}`
 	recorder := postJSON(t, handler, EndpointPath, body, "read.secret")
 
@@ -181,7 +199,7 @@ func TestHTTPHandlerToolsCallUnknownDaemonMethodReturnsMCPError(t *testing.T) {
 }
 
 func TestHTTPHandlerMissingAuthReturnsJSONRPCError(t *testing.T) {
-	handler, _, _ := newTestHTTPHandler(t)
+	handler, _, _, _ := newTestHTTPHandler(t)
 	recorder := postJSON(t, handler, EndpointPath, `{"jsonrpc":"2.0","id":"list","method":"tools/list","params":{"repository_id":"repo_1"}}`, "")
 
 	response := decodeTestResponse(t, recorder)
@@ -192,7 +210,7 @@ func TestHTTPHandlerMissingAuthReturnsJSONRPCError(t *testing.T) {
 }
 
 func TestHTTPHandlerRejectsBadOrigin(t *testing.T) {
-	handler, _, _ := newTestHTTPHandler(t)
+	handler, _, _, _ := newTestHTTPHandler(t)
 	request := newJSONRequest(t, EndpointPath, `{"jsonrpc":"2.0","id":"list","method":"tools/list","params":{"repository_id":"repo_1"}}`, "read.secret")
 	request.Header.Set("Origin", "https://example.invalid")
 	recorder := httptest.NewRecorder()
@@ -207,7 +225,7 @@ func TestHTTPHandlerRejectsBadOrigin(t *testing.T) {
 }
 
 func TestHTTPHandlerRejectsBadHost(t *testing.T) {
-	handler, _, _ := newTestHTTPHandler(t)
+	handler, _, _, _ := newTestHTTPHandler(t)
 	request := newJSONRequest(t, EndpointPath, `{"jsonrpc":"2.0","id":"list","method":"tools/list","params":{"repository_id":"repo_1"}}`, "read.secret")
 	request.Host = "example.invalid"
 	recorder := httptest.NewRecorder()
@@ -222,7 +240,7 @@ func TestHTTPHandlerRejectsBadHost(t *testing.T) {
 }
 
 func TestHTTPHandlerMalformedBodyReturnsStableError(t *testing.T) {
-	handler, _, _ := newTestHTTPHandler(t)
+	handler, _, _, _ := newTestHTTPHandler(t)
 	recorder := postJSON(t, handler, EndpointPath, `{`, "read.secret")
 
 	response := decodeTestResponse(t, recorder)
@@ -233,7 +251,7 @@ func TestHTTPHandlerMalformedBodyReturnsStableError(t *testing.T) {
 }
 
 func TestHTTPHandlerUnknownJSONRPCMethodReturnsStableError(t *testing.T) {
-	handler, _, _ := newTestHTTPHandler(t)
+	handler, _, _, _ := newTestHTTPHandler(t)
 	recorder := postJSON(t, handler, EndpointPath, `{"jsonrpc":"2.0","id":"unknown","method":"resources/list","params":{}}`, "")
 
 	response := decodeTestResponse(t, recorder)
@@ -244,7 +262,7 @@ func TestHTTPHandlerUnknownJSONRPCMethodReturnsStableError(t *testing.T) {
 }
 
 func TestHTTPHandlerStreamsMessageResponsesFromSSEAlias(t *testing.T) {
-	handler, _, _ := newTestHTTPHandler(t)
+	handler, _, _, _ := newTestHTTPHandler(t)
 	server := httptest.NewServer(handler)
 	defer server.Close()
 
@@ -308,7 +326,7 @@ func TestHTTPHandlerStreamsMessageResponsesFromSSEAlias(t *testing.T) {
 	}
 }
 
-func newTestHTTPHandler(t *testing.T) (*HTTPHandler, *bool, *bool) {
+func newTestHTTPHandler(t *testing.T) (*HTTPHandler, *bool, *bool, *bool) {
 	t.Helper()
 	authorizer := rpc.NewMemoryAuthorizer()
 	authorizer.AddToken("read.secret", "reader", map[rpc.Capability]rpc.CapabilityGrant{
@@ -334,13 +352,21 @@ func newTestHTTPHandler(t *testing.T) (*HTTPHandler, *bool, *bool) {
 			"repository_id": envelope.Params["repository_id"],
 		}, nil
 	})
+	gitSnapshotCalled := false
+	server.Register("git.snapshot", func(_ context.Context, envelope rpc.Envelope) (map[string]any, error) {
+		gitSnapshotCalled = true
+		return map[string]any{
+			"schema_version": "striatum.git_snapshot.v1",
+			"repository_id":  envelope.Params["repository_id"],
+		}, nil
+	})
 	hiddenCalled := false
 	server.Register("workflow.generate", func(context.Context, rpc.Envelope) (map[string]any, error) {
 		hiddenCalled = true
 		return map[string]any{"hidden": true}, nil
 	})
 	handler := NewHTTPHandler(Service{RPC: server, Authorizer: authorizer})
-	return handler, &mutationCalled, &hiddenCalled
+	return handler, &mutationCalled, &hiddenCalled, &gitSnapshotCalled
 }
 
 func postJSON(t *testing.T, handler http.Handler, path string, body string, token string) *httptest.ResponseRecorder {

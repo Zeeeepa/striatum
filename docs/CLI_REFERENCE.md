@@ -427,6 +427,7 @@ and link back to the workflow detail when the source path is known.
 striatum status
 striatum why
 striatum doctor
+striatum git snapshot
 striatum evidence export
 striatum run graph
 striatum recovery auto
@@ -448,6 +449,12 @@ colored by current job state. Mermaid output appends
 `classDef`/`class` lines; JSON adds `current_state`, `attempt`,
 and a `latest_verdict` block on review nodes; `ascii` reuses the
 dashboard's graph panel renderer (RFC 0016).
+
+`git snapshot --json [--ancestry-limit N] [--no-ancestry]` emits the
+daemon read-only `git.snapshot` projection for the registered target
+repository: local branch, HEAD metadata, dirty counts, changed paths,
+and bounded ancestry. It does not fetch, push, commit, read remote URLs,
+or include diff hunks or commit bodies.
 
 `recovery auto` emits the daemon `recovery.sweep` method. The sweep
 runs workflow-opt-in `recovery.auto_finalize` before lazy lease expiry,

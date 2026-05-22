@@ -242,7 +242,7 @@ def _subcommand(args: argparse.Namespace) -> str | None:
                  "evidence_command", "corpus_command", "decision_command",
                  "checkpoint_command", "escalation_command", "branch_command", "session_command",
                  "repo_command", "worktree_command", "supervise_command", "cross_repo_command",
-                 "archive_command"):
+                 "archive_command", "git_command"):
         v = getattr(args, attr, None)
         if v is not None:
             return str(v)
@@ -402,6 +402,14 @@ def _params_repo_list(args: argparse.Namespace, repo: Path) -> dict[str, Any]:
 
 def _params_repo_remove(args: argparse.Namespace, repo: Path) -> dict[str, Any]:
     return {"id": str(args.id)}
+
+
+def _params_git_snapshot(args: argparse.Namespace, repo: Path) -> dict[str, Any]:
+    return {
+        "schema_version": 1,
+        "include_ancestry": bool(getattr(args, "include_ancestry", True)),
+        "ancestry_limit": int(getattr(args, "ancestry_limit", 10)),
+    }
 
 
 def _params_list(args: argparse.Namespace, repo: Path) -> dict[str, Any]:
@@ -767,6 +775,7 @@ _PARAM_BUILDERS: dict[str, ParamBuilder] = {
     "repo_add": _params_repo_add,
     "repo_list": _params_repo_list,
     "repo_remove": _params_repo_remove,
+    "git_snapshot": _params_git_snapshot,
     "list": _params_list,
     "run_prepare": _params_run_prepare,
     "run_start": _params_run_start,

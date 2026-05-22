@@ -457,6 +457,21 @@ def build_parser() -> argparse.ArgumentParser:
     repo_remove.add_argument("id")
     repo_remove.add_argument("--json", action="store_true")
 
+    git_cmd = sub.add_parser("git")
+    git_sub = git_cmd.add_subparsers(dest="git_command", required=True)
+    git_snapshot = git_sub.add_parser(
+        "snapshot",
+        help="read the registered target repository's local Git state through the daemon",
+    )
+    git_snapshot.add_argument("--ancestry-limit", type=int, default=10)
+    git_snapshot.add_argument(
+        "--no-ancestry",
+        dest="include_ancestry",
+        action="store_false",
+        default=True,
+    )
+    git_snapshot.add_argument("--json", action="store_true")
+
     cross_repo = sub.add_parser("cross-repo")
     cross_repo_sub = cross_repo.add_subparsers(dest="cross_repo_command", required=True)
     cross_repo_list = cross_repo_sub.add_parser("list")
