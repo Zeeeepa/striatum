@@ -67,9 +67,6 @@ RESIDUAL_LEGACY_SQLITE_TEST_IMPORTS: dict[Path, set[str]] = {
         "from striatum.legacy_sqlite.db import connect",
         "from striatum.legacy_sqlite.db import init_repo",
     },
-    Path("tests/test_job_detail_expected_artifacts.py"): {
-        "from striatum.legacy_sqlite.db import connect"
-    },
     Path("tests/test_lane_evidence_guard.py"): {
         "from striatum.legacy_sqlite.migrations import apply_migrations"
     },
@@ -92,9 +89,6 @@ RESIDUAL_LEGACY_SQLITE_TEST_IMPORTS: dict[Path, set[str]] = {
         "from striatum.legacy_sqlite.migrations import apply_migrations",
     },
     Path("tests/test_reviewer_policy.py"): {"from striatum.legacy_sqlite.db import connect"},
-    Path("tests/test_run_detail_recovery_panel.py"): {
-        "from striatum.legacy_sqlite.db import connect"
-    },
     Path("tests/test_session_close.py"): {
         "from striatum.legacy_sqlite.db import connect",
         "from striatum.legacy_sqlite.db import init_repo",
