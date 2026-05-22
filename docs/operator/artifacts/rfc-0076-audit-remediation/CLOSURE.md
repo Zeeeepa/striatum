@@ -1,14 +1,7 @@
 ---
 schema_version: "striatum.synthesis.v1"
 artifact_kind: "synthesis"
-inputs: [
-  "docs/operator/artifacts/rfc-0076-code-doc-audit/REMEDIATION_PLAN.md",
-  "docs/operator/artifacts/rfc-0076-code-doc-audit/SYNTHESIS.md",
-  "docs/operator/artifacts/rfc-0076-audit-remediation/source-verification/REPORT.md",
-  "docs/operator/artifacts/rfc-0076-audit-remediation/docs-verification/REPORT.md",
-  "docs/operator/artifacts/rfc-0076-audit-remediation/catalog-followup/PLAN.md",
-  "docs/operator/plans/rfc-0076-audit-remediation.md"
-]
+inputs: ["docs/operator/artifacts/rfc-0076-code-doc-audit/REMEDIATION_PLAN.md", "docs/operator/artifacts/rfc-0076-code-doc-audit/SYNTHESIS.md", "docs/operator/artifacts/rfc-0076-audit-remediation/source-verification/REPORT.md", "docs/operator/artifacts/rfc-0076-audit-remediation/docs-verification/REPORT.md", "docs/operator/artifacts/rfc-0076-audit-remediation/catalog-followup/PLAN.md", "docs/operator/plans/rfc-0076-audit-remediation.md"]
 ---
 
 # RFC 0076 Audit Remediation Closure
