@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"path"
 	"regexp"
 	"strings"
 	"time"
@@ -269,7 +270,7 @@ func buildPacket(
 			"docs":         asList(workflow["context_docs"]),
 			"content_mode": "references",
 		},
-		"task_prompt":         asMap(requirements["task_prompt"]),
+		"task_prompt":         packetTaskPrompt(asMap(requirements["task_prompt"]), snapshot),
 		"inputs":              asList(requirements["inputs"]),
 		"write_scope":         writeScope,
 		"adapter_constraints": buildAdapterConstraints(laneConfig),
@@ -289,6 +290,36 @@ func buildPacket(
 		packet["harness_profile"] = profile
 	}
 	return packet, nil
+}
+
+func packetTaskPrompt(taskPrompt map[string]any, snapshot map[string]any) map[string]any {
+	result := map[string]any{}
+	for key, value := range taskPrompt {
+		result[key] = value
+	}
+	rawPath, _ := result["path"].(string)
+	if rawPath == "" || strings.HasPrefix(rawPath, "/") {
+		return result
+	}
+	sourcePath, _ := snapshot["source_path"].(string)
+	if sourcePath == "" {
+		return result
+	}
+	sourceDir := path.Dir(sourcePath)
+	if sourceDir == "." || sourceDir == "/" {
+		return result
+	}
+	cleanedRaw := path.Clean(rawPath)
+	resolved := path.Clean(path.Join(sourceDir, rawPath))
+	if resolved == "." || resolved == ".." || strings.HasPrefix(resolved, "../") {
+		return result
+	}
+	if resolved != cleanedRaw {
+		result["path"] = resolved
+		result["workflow_relative_path"] = rawPath
+		result["workflow_source_path"] = sourcePath
+	}
+	return result
 }
 
 func laneWorktreeIsolation(workflow map[string]any, laneID string) string {

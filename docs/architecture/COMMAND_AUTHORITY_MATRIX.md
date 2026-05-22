@@ -252,6 +252,8 @@ remediation phases should either daemon-route, quarantine, or delete.
 7. `/v1/invoke`, local MCP `striatum/invoke`, and web chat tools route
    daemon-mapped production reads and mutations through daemon RPC; local MCP
    `tools/list` / `tools/call` do not advertise or execute CLI-shaped aliases.
+   Hidden local workflow-authoring methods also fail closed in Go MCP
+   `tools/call` with `tool_hidden`, including for write-capable tokens.
    `striatum.api.invoke` remains only for local authoring and explicit
    test/fixture compatibility paths.
 8. `striatum.db` remains the legacy SQLite engine, but substrate-neutral

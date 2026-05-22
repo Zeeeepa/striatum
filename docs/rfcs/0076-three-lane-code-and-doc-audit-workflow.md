@@ -15,6 +15,23 @@ Context:
 [`docs/TODO.md`](../TODO.md),
 [`docs/WORKFLOW_TYPES.md`](../WORKFLOW_TYPES.md)
 
+## Current Status
+
+The first runnable RFC 0076 operator workflow has completed:
+[`docs/operator/workflows/rfc-0076-code-doc-audit/workflow.json`](../operator/workflows/rfc-0076-code-doc-audit/workflow.json).
+It produced the three lane findings, synthesis, and remediation plan under
+[`docs/operator/artifacts/rfc-0076-code-doc-audit/`](../operator/artifacts/rfc-0076-code-doc-audit/).
+
+One Claude lane required operator recovery during that run. Treat that as
+run evidence, not as a change to the workflow shape's authority model: the
+durable findings and remediation plan are the auditable outputs, and tmux
+or terminal output remains non-authoritative.
+
+The RFC remains proposed until the owner decides whether this workflow shape
+should be accepted now, wait for generator/catalog integration, or absorb
+additional follow-up from
+[`REMEDIATION_PLAN.md`](../operator/artifacts/rfc-0076-code-doc-audit/REMEDIATION_PLAN.md).
+
 ## Problem
 
 Striatum is moving quickly across daemon authority, PostgreSQL-only
@@ -272,7 +289,9 @@ exists.
 - Historical fixtures are preserved as historical unless a current doc
   claims their behavior is still live.
 - At least one dogfood or operator-run audit uses this shape before it
-  is marked accepted.
+  is marked accepted. The first operator run completed on 2026-05-22
+  with one operator-recovered Claude lane; acceptance still needs an
+  owner status decision.
 
 ## Open Questions
 

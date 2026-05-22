@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import posixpath
 import uuid
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -762,7 +763,10 @@ def build_packet(
             "inline_summary": role_def.get("summary") if isinstance(role_def, dict) else None,
         },
         "context": {"docs": workflow.get("context_docs", []), "content_mode": "references"},
-        "task_prompt": _json_loads(job["capability_requirements_json"]).get("task_prompt", {}),
+        "task_prompt": packet_task_prompt(
+            _json_loads(job["capability_requirements_json"]).get("task_prompt", {}),
+            snapshot=snapshot,
+        ),
         "inputs": _json_loads(job["capability_requirements_json"]).get("inputs", []),
         "write_scope": write_scope,
         "adapter_constraints": build_adapter_constraints(lane_config if isinstance(lane_config, dict) else {}),
@@ -785,6 +789,30 @@ def build_packet(
     if profile is not None:
         packet["harness_profile"] = profile
     return packet
+
+
+def packet_task_prompt(task_prompt: object, *, snapshot: Mapping[str, Any]) -> JsonObject:
+    if not isinstance(task_prompt, Mapping):
+        return {}
+    result: JsonObject = dict(task_prompt)
+    raw_path = result.get("path")
+    if not isinstance(raw_path, str) or not raw_path or Path(raw_path).is_absolute():
+        return result
+    source_path = snapshot.get("source_path")
+    if not isinstance(source_path, str) or not source_path:
+        return result
+    source_dir = posixpath.dirname(source_path)
+    if source_dir in {"", "."}:
+        return result
+    cleaned_raw = posixpath.normpath(raw_path)
+    normalized = posixpath.normpath(posixpath.join(source_dir, raw_path))
+    if normalized == "." or normalized == ".." or normalized.startswith("../"):
+        return result
+    if normalized != cleaned_raw:
+        result["path"] = normalized
+        result["workflow_relative_path"] = raw_path
+        result["workflow_source_path"] = source_path
+    return result
 
 
 def lane_worktree_isolation(workflow: Mapping[str, Any], lane_id: str | None) -> str:

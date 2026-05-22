@@ -98,6 +98,28 @@ Connect the daemon as `striatumd_rw` rather than the database owner.
 The next section ("Configure the daemon DB connection") shows the three
 surfaces for that connection string.
 
+### Non-Linux and no-`sudo` provisioning
+
+The `sudo -u postgres psql ...` example is the common Debian/Fedora
+shape, not a Striatum requirement. Use any admin connection that can
+create roles, grant privileges, and run migrations.
+
+Common alternatives:
+
+- **macOS Postgres.app:** open the Postgres.app SQL shell or run its
+  bundled `psql` from a terminal, for example
+  `/Applications/Postgres.app/Contents/Versions/latest/bin/psql -d striatum_daemon`.
+  Connect as the app-created admin role, run the same SQL, then configure
+  `STRIATUM_DAEMON_DB_URL` for `striatumd_rw`.
+- **Homebrew PostgreSQL:** use `psql -d striatum_daemon` as the macOS
+  user that owns the local cluster, or `psql -U <admin-role> -d
+  striatum_daemon` if you created a separate admin role.
+- **Managed or locked-down local PostgreSQL:** ask the database admin to
+  run the emitted `repair_sql` / `manual_sql`, then set the daemon runtime
+  URL to the dedicated `striatumd_rw` role. Do not run the daemon as the
+  owner role just to avoid grant setup; doctor will reject unsafe
+  append-only privileges.
+
 `daemon doctor` can now apply the common local repair path directly:
 
 ```bash

@@ -40,3 +40,31 @@ func TestAwaitPacketValidatesSessionID(t *testing.T) {
 		t.Fatalf("err = %v, want schema_invalid", err)
 	}
 }
+
+func TestPacketTaskPromptResolvesWorkflowLocalPath(t *testing.T) {
+	got := packetTaskPrompt(
+		map[string]any{"path": "prompts/demo.md"},
+		map[string]any{"source_path": "docs/operator/workflows/demo/workflow.json"},
+	)
+
+	if got["path"] != "docs/operator/workflows/demo/prompts/demo.md" {
+		t.Fatalf("path = %v", got["path"])
+	}
+	if got["workflow_relative_path"] != "prompts/demo.md" {
+		t.Fatalf("workflow_relative_path = %v", got["workflow_relative_path"])
+	}
+	if got["workflow_source_path"] != "docs/operator/workflows/demo/workflow.json" {
+		t.Fatalf("workflow_source_path = %v", got["workflow_source_path"])
+	}
+}
+
+func TestPacketTaskPromptLeavesRootRelativePath(t *testing.T) {
+	got := packetTaskPrompt(
+		map[string]any{"path": "prompts/demo.md"},
+		map[string]any{"source_path": "workflow.json"},
+	)
+
+	if !reflect.DeepEqual(got, map[string]any{"path": "prompts/demo.md"}) {
+		t.Fatalf("task prompt = %#v", got)
+	}
+}

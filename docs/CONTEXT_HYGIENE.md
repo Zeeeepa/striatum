@@ -86,6 +86,24 @@ These are the things you do as the human steering a single session.
   ("any questions before you start?") often derails a session that
   was about to land cleanly.
 
+## Private project memory
+
+Private project memory is context available to one operator or local
+environment but not shared through the repo, daemon state, durable
+artifacts, or an explicit corpus export. It is useful for a person or
+agent that has it, but it is not provenance and it is not a product
+dependency.
+
+Treat private memory as a convenience cache. If a fact matters to the
+next operator, put it in a current repo-shared artifact: a decision row,
+operator brief, RFC, TODO item, support ledger, remediation plan, or
+source comment where appropriate. Do not rely on private memory to make
+day-zero setup, recovery triage, or RFC status understandable.
+
+This is distinct from repo-shared context. `AGENTS.md`,
+`docs/operator/BRIEF.md`, `docs/DECISION_LOG.md`, and durable workflow
+artifacts are visible to future sessions. Private memory is not.
+
 ## Model-side practices
 
 These are the things the agent should not need to be told, but

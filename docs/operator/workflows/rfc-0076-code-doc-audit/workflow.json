@@ -1,0 +1,290 @@
+{
+  "schema_version": "striatum.workflow.v1",
+  "workflow_id": "rfc-0076-code-doc-audit",
+  "workflow_version": "2026-05-22",
+  "name": "RFC 0076 three-lane code and documentation audit",
+  "context_docs": [
+    "README.md",
+    "docs/INDEX.md",
+    "docs/SPEC.md",
+    "docs/DECISION_LOG.md",
+    "docs/UBIQUITOUS_LANGUAGE.md",
+    "docs/TODO.md",
+    "docs/ROADMAP.md",
+    "docs/operator/BRIEF.md",
+    "docs/WORKFLOW_TYPES.md",
+    "docs/HOW_TO_AGENT.md",
+    "docs/rfcs/0076-three-lane-code-and-doc-audit-workflow.md",
+    "docs/operator/plans/rfc-0076-three-lane-code-doc-audit-workflow.md",
+    "docs/rfcs/README.md",
+    "contracts/daemon_methods.json",
+    "docs/architecture/COMMAND_AUTHORITY_MATRIX.md",
+    "docs/architecture/DAEMON_METHOD_TABLES.md",
+    "AGENTS.md"
+  ],
+  "coordinator": {
+    "role_id": "coordinator",
+    "lane_id": "codex"
+  },
+  "parallelism": {
+    "mode": "declared",
+    "max_active_jobs": 3,
+    "require_disjoint_write_scopes": true
+  },
+  "branch": {
+    "mode": "confirm",
+    "suggested_name": "striatum/rfc-0076-three-lane-audit",
+    "allow_dirty": true
+  },
+  "lanes": {
+    "codex": {
+      "adapter": "process",
+      "command": [
+        "bash",
+        "-lc",
+        "PYTHONPATH=src python3 -m striatum.cli skills install --profile all --scope user --force --json >/dev/null && export PATH=\"$PWD/.venv/bin:$PATH\" && exec .striatum/bin/codex-supervised-wrapper.sh"
+      ],
+      "model": "codex",
+      "display_model": "Codex",
+      "strategy_version": "2026-05-22",
+      "supervision": {
+        "compatible": true,
+        "stdin_format": "newline_delimited_json",
+        "wrapper_required": true
+      }
+    },
+    "claude_code": {
+      "adapter": "process",
+      "command": [
+        "bash",
+        "-lc",
+        "PYTHONPATH=src python3 -m striatum.cli skills install --profile all --scope user --force --json >/dev/null && export PATH=\"$PWD/.venv/bin:$PATH\" && exec .striatum/bin/claude-supervised-wrapper.sh"
+      ],
+      "model": "claude_code",
+      "display_model": "Claude Code",
+      "strategy_version": "2026-05-22",
+      "supervision": {
+        "compatible": "verify_pipe_behavior_first",
+        "stdin_format": "prompt_text",
+        "wrapper_required": true
+      }
+    },
+    "gemini": {
+      "adapter": "process",
+      "command": [
+        "bash",
+        "-lc",
+        "PYTHONPATH=src python3 -m striatum.cli skills install --profile all --scope user --force --json >/dev/null && export PATH=\"$PWD/.venv/bin:$PATH\" && exec .striatum/bin/gemini-supervised-wrapper.sh"
+      ],
+      "model": "gemini",
+      "display_model": "Gemini",
+      "strategy_version": "2026-05-22",
+      "supervision": {
+        "compatible": true,
+        "stdin_format": "prompt_text",
+        "wrapper_required": true
+      }
+    }
+  },
+  "roles": {
+    "coordinator": {
+      "description": "Operator/control-plane role."
+    },
+    "authority_auditor": {
+      "description": "Audits source behavior and tests for authority-boundary regressions."
+    },
+    "docs_auditor": {
+      "description": "Audits docs, decisions, TODOs, roadmap, and RFC status for drift."
+    },
+    "operator_auditor": {
+      "description": "Audits day-zero operator and first-adopter ergonomics."
+    },
+    "synthesizer": {
+      "description": "Deduplicates audit findings and classifies follow-up paths."
+    },
+    "planner": {
+      "description": "Turns synthesized findings into an actionable remediation plan."
+    }
+  },
+  "jobs": [
+    {
+      "id": "audit_authority_runtime",
+      "type": "synthesis",
+      "title": "Authority/runtime audit",
+      "role_id": "authority_auditor",
+      "lane_id": "codex",
+      "parallel_group": "audit_lanes",
+      "fresh_session_required": true,
+      "objective": "Audit current source behavior, tests, contracts, examples, and generated docs for Striatum authority-boundary regressions.",
+      "task_prompt": {
+        "path": "prompts/audit_authority_runtime.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/operator/artifacts/rfc-0076-code-doc-audit/authority-runtime/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "authority_runtime_findings",
+          "kind": "finding",
+          "path": "docs/operator/artifacts/rfc-0076-code-doc-audit/authority-runtime/FINDINGS.md",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "audit_docs_decision_drift",
+      "type": "synthesis",
+      "title": "Docs/decision drift audit",
+      "role_id": "docs_auditor",
+      "lane_id": "claude_code",
+      "parallel_group": "audit_lanes",
+      "fresh_session_required": true,
+      "objective": "Audit current docs, decision records, TODOs, roadmap, RFC status, and examples for drift from current source behavior.",
+      "task_prompt": {
+        "path": "prompts/audit_docs_decision_drift.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/operator/artifacts/rfc-0076-code-doc-audit/docs-decision-drift/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "docs_decision_drift_findings",
+          "kind": "finding",
+          "path": "docs/operator/artifacts/rfc-0076-code-doc-audit/docs-decision-drift/FINDINGS.md",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "audit_operator_adoption",
+      "type": "synthesis",
+      "title": "Operator/adoption audit",
+      "role_id": "operator_auditor",
+      "lane_id": "gemini",
+      "parallel_group": "audit_lanes",
+      "fresh_session_required": true,
+      "objective": "Audit whether operators and first adopters can understand setup, workflow selection, MCP/CLI transition, recovery, and status surfaces without private project memory.",
+      "task_prompt": {
+        "path": "prompts/audit_operator_adoption.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/operator/artifacts/rfc-0076-code-doc-audit/operator-adoption/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "operator_adoption_findings",
+          "kind": "finding",
+          "path": "docs/operator/artifacts/rfc-0076-code-doc-audit/operator-adoption/FINDINGS.md",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "synthesize_audit",
+      "type": "synthesis",
+      "title": "Synthesize audit findings",
+      "role_id": "synthesizer",
+      "lane_id": "codex",
+      "fresh_session_required": true,
+      "objective": "Deduplicate the three audit lanes, resolve conflicts, preserve AUD references, and prioritize follow-up work.",
+      "task_prompt": {
+        "path": "prompts/synthesize_audit.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/operator/artifacts/rfc-0076-code-doc-audit/"
+        ],
+        "forbidden_paths": [
+          ".striatum/",
+          "docs/operator/artifacts/rfc-0076-code-doc-audit/authority-runtime/",
+          "docs/operator/artifacts/rfc-0076-code-doc-audit/docs-decision-drift/",
+          "docs/operator/artifacts/rfc-0076-code-doc-audit/operator-adoption/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "audit_synthesis",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/rfc-0076-code-doc-audit/SYNTHESIS.md",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "write_remediation_plan",
+      "type": "synthesis",
+      "title": "Write remediation plan",
+      "role_id": "planner",
+      "lane_id": "codex",
+      "fresh_session_required": true,
+      "objective": "Map each material synthesized finding to TODO/RFC/decision/docs/source/test/wontfix follow-up paths.",
+      "task_prompt": {
+        "path": "prompts/write_remediation_plan.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/operator/artifacts/rfc-0076-code-doc-audit/REMEDIATION_PLAN.md"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "remediation_plan",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/rfc-0076-code-doc-audit/REMEDIATION_PLAN.md",
+          "required": true
+        }
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "from": "audit_authority_runtime",
+      "to": "synthesize_audit",
+      "on": "completed"
+    },
+    {
+      "from": "audit_docs_decision_drift",
+      "to": "synthesize_audit",
+      "on": "completed"
+    },
+    {
+      "from": "audit_operator_adoption",
+      "to": "synthesize_audit",
+      "on": "completed"
+    },
+    {
+      "from": "synthesize_audit",
+      "to": "write_remediation_plan",
+      "on": "completed"
+    }
+  ],
+  "cycles": []
+}

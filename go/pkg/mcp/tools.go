@@ -25,6 +25,9 @@ func (s Service) ToolsList(ctx context.Context, params map[string]any, token str
 }
 
 func (s Service) ToolsCall(ctx context.Context, name string, arguments map[string]any, token string, requestID string) map[string]any {
+	if isHiddenProductionTool(name) {
+		return toolResult(name, false, "", "tool_hidden", "MCP tools/call does not execute hidden production tools", nil)
+	}
 	if s.RPC == nil {
 		return toolResult(name, false, "", "daemon_rpc_missing", "daemon RPC server is not configured", nil)
 	}

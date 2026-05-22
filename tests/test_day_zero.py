@@ -2,11 +2,12 @@ from __future__ import annotations
 
 import argparse
 import importlib
+import json
 from pathlib import Path
 from typing import Any
 
 import striatum
-from striatum.cli.dispatch import dispatch
+from striatum.cli.dispatch import dispatch, main
 from striatum.day_zero import _call_rpc_sequence, first_run_smoke, service_install, service_start, service_status
 
 
@@ -68,7 +69,44 @@ def test_adopt_dry_run_is_daemon_optional_and_reports_guided_steps(tmp_path: Pat
     assert result["suggested_workflow"].endswith(
         "striatum/workflows/first-workflow/workflow.json"
     )
+    assert result["suggested_workflow_guidance"] == (
+        "The suggested starter workflow is a safe first-run scaffold; see "
+        "docs/WORKFLOW_TYPES.md to choose a different workflow shape."
+    )
     assert result["ddd_layout"]["dry_run"] is True
+
+
+def test_adopt_cli_output_points_to_workflow_types(
+    tmp_path: Path,
+    monkeypatch: Any,
+    capsys: Any,
+) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+
+    exit_code = main(
+        [
+            "--repo",
+            str(repo),
+            "adopt",
+            "--profile",
+            "generic",
+            "--dry-run",
+            "--no-skills",
+            "--no-plugins",
+            "--no-register",
+            "--json",
+        ]
+    )
+
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    payload = json.loads(captured.out)
+    assert payload["ok"] is True
+    guidance = payload["data"]["suggested_workflow_guidance"]
+    assert "docs/WORKFLOW_TYPES.md" in guidance
+    assert "safe first-run scaffold" in guidance
 
 
 def test_init_production_bootstrap_is_scratch_only(

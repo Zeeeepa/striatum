@@ -58,6 +58,18 @@ Read the most recent artifact the AI was working on (the workflow
 will tell you where it lives on disk) and any decision artifacts
 the AI cited.
 
+If the run uses a tmux-backed PTY, attach only for local observation:
+
+```bash
+tmux list-sessions
+tmux attach -t <session-name>
+```
+
+Use `status`, `dashboard`, `why`, `supervise status`, and durable
+artifacts for decisions. Tmux pane text, terminal output, and
+transcripts are not workflow state and must not be used as proof that
+a job completed, produced a verdict, or resolved a blocker.
+
 ### Decide
 
 Form the resolution outside the runner — you are the authority.
@@ -623,6 +635,14 @@ Common recovery paths are:
 - `process_*` supervisor issues: run
   `striatum recovery process-reconcile --run-id <run_id> --json`
   before requeueing anything.
+
+| Visible symptom | Inspect with | Recovery command |
+|---|---|---|
+| Stale lease or no heartbeat. | `recovery stale-leases --run-id <run_id> --json` | `recovery requeue-stale` only for review-safe or force-justified work. |
+| Process exited, outputs missing, or supervisor mismatch. | `recovery process-reconcile --run-id <run_id> --json` | `recovery resume --blocker-id <id>` after the artifact/verdict issue is fixed. |
+| Human checkpoint or revision-routing blocker. | `why <blocker_id> --run-id <run_id>` plus artifacts. | `decision record`, then `checkpoint resolve --blocker-id <id> --action continue|cancel`. |
+| Escalation artifact or principal inbox item. | `inbox --json` and `escalation show --escalation-id <id> --json`. | `decision record`, then `escalation resolve --escalation-id <id> --decision-id <decision_id>`. |
+| Terminal run with active sessions. | `doctor --run-id <run_id> --verbose --json`. | `session close --session-id <session_id> --reason terminal-run-cleanup`. |
 
 For unattended runs against a **single** repo, `recovery watch`
 is a foreground scheduler that calls daemon `recovery.sweep` in a sleep

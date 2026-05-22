@@ -96,6 +96,50 @@ def test_claim_next_requires_claim_capability_before_route(
         assert cur.fetchone()[0] == "pending"
 
 
+def test_claim_next_resolves_workflow_local_task_prompt_path(
+    pg_conn: Any,
+    tmp_path: Path,
+) -> None:
+    repo = tmp_path / "repo"
+    insert_repo(pg_conn, repo, "repo_a")
+    insert_claimable_work(pg_conn, repository_id="repo_a", repo_root=repo)
+    with pg_conn.cursor() as cur:
+        cur.execute(
+            """
+            UPDATE striatumd.workflow_snapshots
+            SET source_path = 'docs/operator/workflows/demo/workflow.json'
+            WHERE repository_id = 'repo_a' AND workflow_snapshot_id = 'snap_1'
+            """
+        )
+        cur.execute(
+            """
+            UPDATE striatumd.jobs
+            SET capability_requirements_json = %s
+            WHERE repository_id = 'repo_a' AND job_id = 'job_draft'
+            """,
+            (Jsonb({"objective": "Draft", "task_prompt": {"path": "prompts/demo.md"}}),),
+        )
+    pg_conn.commit()
+    token = issue_token(pg_conn, capabilities=["claim"], repo_id="repo_a")
+
+    response = rpc(
+        pg_conn,
+        repo_root=repo,
+        method="work.claim_next",
+        params={"repository_id": "repo_a", "session_id": "sess_author"},
+        token=token,
+        request_id="claim-next-prompt-path",
+    )
+
+    assert response.ok is True
+    task_prompt = response.data["packet"]["task_prompt"]
+    assert task_prompt == {
+        "path": "docs/operator/workflows/demo/prompts/demo.md",
+        "workflow_relative_path": "prompts/demo.md",
+        "workflow_source_path": "docs/operator/workflows/demo/workflow.json",
+    }
+
+
 def test_claim_next_auto_delivery_honors_one_shot_eof_metadata(
     pg_conn: Any,
     tmp_path: Path,

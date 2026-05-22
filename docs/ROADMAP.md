@@ -70,13 +70,14 @@ Order the work as a set of gates, not as one all-or-nothing cutover:
 5. [done] Refactor `go/pkg/agentloop` into a PTY bootstrapper that gives agents the
    endpoint/token/repository/lane instructions and then lets the agent use its
    own MCP client.
-6. [first slice landed] Move live operator actions to MCP/UI surfaces until
+6. [first slice landed; RFC 0077 owns next liveness slice] Move live operator actions to MCP/UI surfaces until
    no workflow-control operation requires a human or AI operator to invoke
    `striatum` CLI verbs. The RFC 0075 / MCP cutover workflow completed and
    landed `session.report` as the MCP pre-packet readiness/heartbeat/question/
-   escalation method. Remaining slices are MCP activity timestamp persistence,
-   liveness deadline classification, tmux attach metadata, and status/UI
-   projection.
+   escalation method. RFC 0077 is the proposed narrow follow-up for MCP
+   activity timestamp persistence and liveness deadline classification.
+   Tmux attach metadata and broader status/UI projection remain under
+   RFC 0075.
 7. [done] Delete `src/striatum/mcp.py` and retire Python MCP launch docs.
 
 For this roadmap, "eliminating the CLI" means eliminating CLI verbs as the
@@ -89,6 +90,9 @@ Post-transition operator introspection is proposed in
 live interactive agents should run in daemon-created tmux-backed PTYs, while
 daemon MCP activity and lease heartbeats remain the authoritative liveness
 signals. Tmux panes are for human inspection, not workflow state.
+[`RFC 0077 - MCP Activity Liveness Deadlines`](rfcs/0077-mcp-activity-liveness-deadlines.md)
+narrows the next implementation slice to daemon-owned MCP activity timestamps
+and deadline classifications before full tmux metadata persistence lands.
 The open plans are
 [`RFC 0050 CLI Retirement Cutover`](operator/plans/rfc-0050-cli-retirement-cutover.md)
 and

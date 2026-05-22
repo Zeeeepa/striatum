@@ -70,7 +70,7 @@ the generated `workflow.json` path explicitly.
 | Require an owner decision before proceeding | Human checkpoint | `examples/human-checkpoint-flow/` |
 | Produce an artifact whose claims need explicit evidence | Evidence-backed artifact | `examples/support-ledger-flow/` |
 | Collect several independent reviews before a final recommendation | Multi-review synthesis | `examples/rfc-ledger-cleanup/` |
-| Audit code, docs, RFC status, and operator adoption risk together | Three-lane code and docs audit | RFC 0076 proposed shape |
+| Audit code, docs, RFC status, and operator adoption risk together | Three-lane code and docs audit | RFC 0076 operator workflow |
 
 ## Lane Selection Heuristic
 
@@ -366,9 +366,17 @@ Good fits:
 - validating day-zero operator adoption
 - finding gaps between daemon behavior, docs, examples, and TODOs
 
-Start from RFC 0076 until a runnable example or generator shape lands.
+Start from
+`docs/operator/workflows/rfc-0076-code-doc-audit/workflow.json` or
+adapt the shape described in RFC 0076 until a generator/catalog entry
+lands. The first runnable operator workflow completed on 2026-05-22
+with one operator-recovered Claude lane and produced follow-up work in
+`docs/operator/artifacts/rfc-0076-code-doc-audit/REMEDIATION_PLAN.md`.
+
 The audit should produce evidence-backed findings and a remediation
-plan, not silently fix every issue it discovers.
+plan, not silently fix every issue it discovers. Tmux panes or terminal
+output can help an operator observe a stuck lane, but they are not
+workflow state or audit evidence.
 
 ## Current UI Path
 

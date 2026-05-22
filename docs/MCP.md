@@ -128,8 +128,11 @@ Example direct diagnostic request:
 {"jsonrpc":"2.0","id":"tools","method":"tools/list","params":{"repository_id":"repo_123"}}
 ```
 
-`tools/call` dispatches through daemon RPC. The result uses MCP tool result
-shape with Striatum details in `structuredContent`:
+`tools/call` dispatches through daemon RPC only for production-supported MCP
+tools. Hidden local workflow-authoring methods fail closed at the MCP layer
+with `structuredContent.error == "tool_hidden"` even when the caller has a
+write-capable token. Production-supported calls use MCP tool result shape with
+Striatum details in `structuredContent`:
 
 ```json
 {
@@ -143,14 +146,15 @@ shape with Striatum details in `structuredContent`:
 }
 ```
 
-Denied calls fail closed and audit under `transport = "mcp"`. Missing bearer
-auth, malformed JSON, bad local browser Origin/Host checks, and unknown
-JSON-RPC methods return stable JSON-RPC error objects with `error.data.code`.
-Daemon method denials through `tools/call` return MCP tool results with
-`isError: true` and the daemon denial code in
-`structuredContent.error`. Common denial codes include `token_missing`,
-`token_malformed`, `token_invalid`,
-`token_revoked`, `token_expired`, `capability_missing`,
+Denied calls fail closed. Calls that reach daemon RPC audit under
+`transport = "mcp"`; hidden local workflow-authoring methods are refused by
+MCP before daemon dispatch. Missing bearer auth, malformed JSON, bad local
+browser Origin/Host checks, and unknown JSON-RPC methods return stable
+JSON-RPC error objects with `error.data.code`. Hidden-tool, daemon-method, and
+authorization denials through `tools/call` return MCP tool results with
+`isError: true` and the denial code in `structuredContent.error`. Common
+denial codes include `tool_hidden`, `token_missing`, `token_malformed`,
+`token_invalid`, `token_revoked`, `token_expired`, `capability_missing`,
 `capability_scope_mismatch`, `capability_expired`, `repo_not_registered`, and
 `method_unknown`.
 

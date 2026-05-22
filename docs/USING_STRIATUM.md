@@ -165,6 +165,43 @@ The operator skill bundle teaches the agent the verbs it needs
 self-supervises through the loop until the run completes or hits a
 blocker it can't resolve.
 
+### Watching agent sessions
+
+Use daemon state first:
+
+```bash
+striatum --repo "$TARGET_REPO" status --run-id <run_id> --json
+striatum --repo "$TARGET_REPO" dashboard --run-id <run_id>
+striatum --repo "$TARGET_REPO" supervise status --session-id <session_id> --json
+```
+
+When a lane is running in a tmux-backed PTY, attach only to inspect what
+the agent is doing locally:
+
+```bash
+tmux list-sessions
+tmux attach -t <session-name>
+```
+
+Pane text, terminal output, and transcripts are not workflow state. Do
+not infer completion, verdicts, blockers, or authority from what appears
+in tmux; use Striatum commands and durable artifacts for that.
+
+### Recovery triage
+
+- **Stale lease or no heartbeat:** start with `recovery stale-leases
+  --run-id <run_id> --json`; requeue only review-safe work with
+  `recovery requeue-stale`.
+- **Lost process or supervisor issue:** run `recovery process-reconcile
+  --run-id <run_id> --json` before requeueing or publishing on behalf.
+- **`human_checkpoint`:** inspect with `why <blocker_id> --run-id
+  <run_id> --json`, record a decision, then `checkpoint resolve`.
+- **Principal inbox escalation:** inspect with `inbox --json`, decide,
+  `decision record`, then `escalation resolve`.
+- **Terminal run with active sessions:** inspect with `doctor --run-id
+  <run_id> --verbose --json`, then close listed sessions with
+  `session close --reason terminal-run-cleanup`.
+
 ## Your role as principal
 
 The AI operator is the default driver. You're escalation-only.

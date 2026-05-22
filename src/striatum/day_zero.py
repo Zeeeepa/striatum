@@ -25,6 +25,10 @@ SYSTEMD_UNIT_NAME = "striatumd.service"
 LAUNCHD_LABEL = "io.striatum.striatumd"
 MCP_HTTP_URL_ENV = "STRIATUM_DAEMON_MCP_HTTP_URL"
 MCP_HTTP_URL_COMPAT_ENV = "STRIATUM_MCP_URL"
+STARTER_WORKFLOW_GUIDANCE = (
+    "The suggested starter workflow is a safe first-run scaffold; see "
+    "docs/WORKFLOW_TYPES.md to choose a different workflow shape."
+)
 
 
 def service_install(
@@ -104,6 +108,7 @@ def adopt(
         "suggested_workflow": str(
             repo / "striatum" / "workflows" / "first-workflow" / "workflow.json"
         ),
+        "suggested_workflow_guidance": STARTER_WORKFLOW_GUIDANCE,
     }
     if dry_run:
         result["init"] = {
