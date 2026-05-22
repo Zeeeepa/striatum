@@ -94,8 +94,10 @@ imports and fails on unlisted direct PostgreSQL client helpers.
 | `run.events` | web SSE event stream DTO | read | single_repo | pg | real | no | no | stable |
 | `run.posture_verdicts` | web posture verdict drill-down | read | single_repo | pg | real | no | no | stable |
 | `workflow.validate` | `workflow validate` | read | single_repo | local_file_authoring | real | no | no live state | Go file-authoring validator; no PG state mutation |
+| `workflow.lint` | MCP/UI workflow lint | read | single_repo | not implemented in Python RPC | real | no | no live state | Go daemon lint projection with immutable workflow fingerprint and accepted-risk annotations |
 | `workflow.plan` | `workflow plan` | read | single_repo | local_file_authoring | real | no | no live state | Go file-authoring plan projection |
 | `workflow.graph` | `workflow graph` | read | single_repo | local_file_authoring | real | no | no live state | Go file-authoring JSON/Mermaid/DOT projection |
+| `workflow.accepted_risks.list` | MCP/UI accepted-risk list | read | single_repo | not implemented in Python RPC | real | no | no live state mutation | Go read projection over daemon-owned workflow accepted-risk records |
 | `workflow.templates.list` | `workflow templates list` | read | single_repo | local_file_authoring | real | no | no live state | Go embedded catalog read; CLI remains local authoring surface |
 | `workflow.templates.show` | `workflow templates show` | read | single_repo | local_file_authoring | real | no | no live state | Go embedded catalog read; CLI remains local authoring surface |
 | `workflow.generate.preview` | web/chat preview | read | single_repo | not implemented in Python RPC | real | no | no live state | Go read-only planned-write preview |
@@ -133,6 +135,7 @@ imports and fails on unlisted direct PostgreSQL client helpers.
 | `workflow.init` | `workflow init` | write | single_repo | local_file_authoring | real | no | no live state | Go scaffold writer; refuses unsafe paths/overwrites |
 | `workflow.generate` | `workflow generate` | write | single_repo | local_file_authoring | real | no | no live state | Go generator writer; refuses unsafe paths/overwrites |
 | `workflow.upgrade` | `workflow upgrade` | write | single_repo | local_file_authoring | real | no | PG running-run guard only; no Go SQLite import | Go upgrade supports harness-profile updates and `--add-phases` V1.1 rewrites |
+| `workflow.accept_risk` | MCP/UI accepted-risk mutation | admin | single_repo | not implemented in Python RPC | real | no | no | Go append-only accepted-risk mutation; requires decision artifact reference, rationale, and lint finding fingerprint |
 | `review.submit` | `submit-review` | review | single_repo | pg | real | no | no | stable |
 | `review.verdict` | `verdict` | review | single_repo | pg | real | no | no | stable |
 | `review.override` | `override-verdict` | admin | single_repo | pg | real | no | no | stable |
@@ -213,7 +216,7 @@ remediation phases should either daemon-route, quarantine, or delete.
 | `daemon status` / `stop` / `health` / `audit` / `sweep` | daemon lifecycle helpers | PostgreSQL daemon audit/metadata paths; sweep owns PostgreSQL scheduler cursors | bootstrap_admin |
 | `cross-repo list` / `describe` / `why` | daemon RPC cross-repo helpers | no | daemon_read_out_of_band |
 | `cross-repo cancel` | daemon RPC + PG participant cancel | no | daemon_recovery |
-| `workflow validate` / `lint` / `plan` / `graph` | local authoring helpers; daemon RPC fails closed | no live state | local_file_authoring |
+| `workflow validate` / `lint` / `plan` / `graph` | local authoring helpers; daemon RPC fails closed for ordinary CLI use; durable accepted-risk state is daemon-owned via `workflow.accept_risk` | no live state mutation from local lint | local_file_authoring |
 | `workflow init` / `generate` / `templates` | local authoring helpers; daemon RPC fails closed | no live state | local_file_authoring |
 | `workflow upgrade` | local authoring helper with PG running-run guard | PostgreSQL-only running-run check; fails closed when PG state is unknown and never opens repo-local SQLite | local_file_authoring |
 | `recovery watch` | foreground scheduler repeatedly calling daemon `recovery.sweep` | no production SQLite | daemon_scheduler |

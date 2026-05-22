@@ -70,6 +70,9 @@ GO_ONLY_DAEMON_METHODS: frozenset[str] = frozenset(
         "git.snapshot",
         "session.report",
         "work.await_packet",
+        "workflow.accept_risk",
+        "workflow.accepted_risks.list",
+        "workflow.lint",
     }
 )
 

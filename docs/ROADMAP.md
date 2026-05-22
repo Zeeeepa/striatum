@@ -719,7 +719,7 @@ decide whether to rename the packet helper to `packet inbox`.
 
 ---
 
-### 4.11 🟡 decision accepted; implementation pending — Architecture remediation Phase 7: workflow risk lint
+### 4.11 🟡 daemon records landed; client polish pending — Architecture remediation Phase 7: workflow risk lint
 
 **Updates:** [TODO item 55](TODO.md).
 
@@ -745,12 +745,17 @@ decide whether to rename the packet helper to `packet inbox`.
   lint summary separately from generator warnings.
 - Strict overrides can record an operator-supplied
   `--accepted-risk-decision-id` reference.
+- Go daemon `workflow.lint`, `workflow.accept_risk`, and
+  `workflow.accepted_risks.list` now provide D124 accepted-risk records bound
+  to immutable workflow snapshots or canonical workflow fingerprints.
+- Accepted-risk records are append-only PostgreSQL daemon state, require a
+  decision artifact reference plus rationale, and are MCP capability-gated
+  (`read` for lint/list, `admin` for accept).
 
-**Remaining Phase 7 debt:** D124 accepts daemon-core lint as authoritative.
-Accepted-risk override state must be daemon-backed, append-oriented, linked to
-a decision artifact, and bound to an immutable workflow snapshot or
-fingerprint. Implement the daemon mutation surfaces through CLI/UI/MCP clients;
-do not make workflow-file metadata a live authority.
+**Remaining Phase 7 debt:** wire CLI/UI client affordances over the daemon
+methods and keep local `workflow lint` as advisory authoring unless it is
+explicitly persisting accepted risk through daemon RPC. Do not make
+workflow-file metadata a live authority.
 
 ---
 
@@ -1070,8 +1075,8 @@ Release order after Phase 0:
    wrapper control acks, and reattach/lost-state handling.
 7. **TODO 55 / Phase 7:** workflow risk lint, opt-in strict enforcement,
    web surfacing, generator preview surfacing, coverage scoring, and
-   accepted-risk decision references landed; D124 chooses daemon-core
-   accepted-risk persistence and the implementation is tracked in §4.11.
+   accepted-risk decision references landed; daemon-owned accepted-risk
+   records landed for MCP/daemon clients, with CLI/UI polish tracked in §4.11.
 8. **TODO 56 / Phase 8:** auto-finalize daemon method, status/dashboard/web
    visibility, bounded sweep integration, and skipped-candidate cause classes
    landed; D125 keeps the dry-run default and gates any default-on flip on

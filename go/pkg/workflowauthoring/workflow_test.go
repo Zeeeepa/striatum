@@ -1,6 +1,8 @@
 package workflowauthoring
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -126,6 +128,72 @@ func TestValidateRejectsInvalidLaneModel(t *testing.T) {
 	err = Validate(workflow)
 	if err != nil {
 		t.Fatalf("Validate valid lane model error = %v", err)
+	}
+}
+
+func TestLintReportsReviewDiversityFindingsWithFingerprints(t *testing.T) {
+	workflow := validWorkflow()
+	lanes := workflow["lanes"].(map[string]any)
+	lanes["codex"] = map[string]any{
+		"adapter":       "process",
+		"display_model": "codex-gpt-5",
+	}
+	jobs := workflow["jobs"].([]any)
+	draft := jobs[0].(map[string]any)
+	draft["write_scope"] = map[string]any{
+		"mode":            "repo_write",
+		"repo_write":      true,
+		"allowed_paths":   []any{"."},
+		"forbidden_paths": []any{".striatum/"},
+	}
+	review := jobs[1].(map[string]any)
+	delete(review, "fresh_session_required")
+
+	payload, err := Lint(workflow)
+	if err != nil {
+		t.Fatalf("Lint: %v", err)
+	}
+	if payload["valid"] != true {
+		t.Fatalf("lint payload valid = %#v", payload["valid"])
+	}
+	warnings := payload["warnings"].([]map[string]any)
+	rules := map[string]bool{}
+	for _, warning := range warnings {
+		rules[warning["rule"].(string)] = true
+		if warning["fingerprint"] == "" {
+			t.Fatalf("warning missing fingerprint: %#v", warning)
+		}
+	}
+	for _, rule := range []string{
+		"same_model_review_pair",
+		"same_model_revision_cycle",
+		"review_without_fresh_context",
+		"broad_write_scope",
+		"repo_write_without_worktree_isolation",
+	} {
+		if !rules[rule] {
+			t.Fatalf("lint rules missing %s: %#v", rule, rules)
+		}
+	}
+	coverage := payload["coverage"].(map[string]any)
+	if coverage["level"] == "strong" {
+		t.Fatalf("coverage unexpectedly strong: %#v", coverage)
+	}
+}
+
+func TestWorkflowFingerprintMatchesCanonicalJSON(t *testing.T) {
+	workflow := validWorkflow()
+	fingerprint, err := WorkflowFingerprint(workflow)
+	if err != nil {
+		t.Fatalf("WorkflowFingerprint: %v", err)
+	}
+	raw, err := json.Marshal(workflow)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	sum := sha256.Sum256(raw)
+	if fingerprint != hex.EncodeToString(sum[:]) {
+		t.Fatalf("fingerprint = %s, want canonical JSON sha", fingerprint)
 	}
 }
 

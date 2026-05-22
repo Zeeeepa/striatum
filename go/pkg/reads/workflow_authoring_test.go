@@ -15,7 +15,8 @@ import (
 )
 
 type workflowAuthoringFakeRunner struct {
-	repoRoot string
+	repoRoot      string
+	acceptedRisks []map[string]any
 }
 
 func (r workflowAuthoringFakeRunner) Exec(context.Context, string, ...any) error {
@@ -35,13 +36,16 @@ func (r workflowAuthoringFakeRunner) BeginTx(context.Context) (db.TxRunner, erro
 }
 
 func (r workflowAuthoringFakeRunner) Query(_ context.Context, sql string, args ...any) (pgx.Rows, error) {
-	if !strings.Contains(sql, "FROM striatumd.repositories") {
-		return nil, errors.New("unexpected query: " + sql)
+	if strings.Contains(sql, "FROM striatumd.repositories") {
+		if len(args) != 1 || args[0] != "repo_1" {
+			return dashboardAllRowsFromMaps(nil), nil
+		}
+		return dashboardAllRowsFromMaps([]map[string]any{{"repo_root": r.repoRoot}}), nil
 	}
-	if len(args) != 1 || args[0] != "repo_1" {
-		return dashboardAllRowsFromMaps(nil), nil
+	if strings.Contains(sql, "FROM striatumd.workflow_accepted_risks") {
+		return dashboardAllRowsFromMaps(r.acceptedRisks), nil
 	}
-	return dashboardAllRowsFromMaps([]map[string]any{{"repo_root": r.repoRoot}}), nil
+	return nil, errors.New("unexpected query: " + sql)
 }
 
 type workflowAuthoringFakeRow struct{}
@@ -83,6 +87,58 @@ func TestWorkflowAuthoringHandlersUseRepoRelativeFiles(t *testing.T) {
 	}
 	if graph["format"] != "dot" || !strings.Contains(graph["source"].(string), "digraph striatum_workflow") {
 		t.Fatalf("graph = %#v", graph)
+	}
+}
+
+func TestWorkflowLintReturnsFingerprintsAndAcceptedRiskAnnotations(t *testing.T) {
+	repo := t.TempDir()
+	workflow := authoringWorkflow()
+	lanes := workflow["lanes"].(map[string]any)
+	lanes["codex"] = map[string]any{"adapter": "process", "display_model": "codex-gpt-5"}
+	writeAuthoringWorkflow(t, filepath.Join(repo, "workflow.json"), workflow)
+
+	initial, err := HandleWorkflowLint(context.Background(), workflowAuthoringFakeRunner{repoRoot: repo}, rpc.Envelope{
+		Params: map[string]any{"repository_id": "repo_1", "workflow_path": "workflow.json"},
+	})
+	if err != nil {
+		t.Fatalf("HandleWorkflowLint initial: %v", err)
+	}
+	warnings := initial["warnings"].([]map[string]any)
+	if len(warnings) == 0 {
+		t.Fatalf("expected lint warnings: %#v", initial)
+	}
+	first := warnings[0]
+	fingerprint := first["fingerprint"].(string)
+	runner := workflowAuthoringFakeRunner{
+		repoRoot: repo,
+		acceptedRisks: []map[string]any{{
+			"accepted_risk_id":            "war_1",
+			"workflow_fingerprint_sha256": initial["workflow_fingerprint_sha256"],
+			"lint_rule":                   first["rule"],
+			"finding_fingerprint_sha256":  fingerprint,
+			"finding_json":                first,
+			"decision_artifact_ref":       "docs/decisions/D001.md",
+			"accepted_by":                 "operator",
+			"rationale":                   "fixture",
+		}},
+	}
+
+	payload, err := HandleWorkflowLint(context.Background(), runner, rpc.Envelope{
+		Params: map[string]any{"repository_id": "repo_1", "workflow_path": "workflow.json"},
+	})
+	if err != nil {
+		t.Fatalf("HandleWorkflowLint annotated: %v", err)
+	}
+	if payload["workflow_fingerprint_sha256"] == "" {
+		t.Fatalf("missing workflow fingerprint: %#v", payload)
+	}
+	annotated := payload["warnings"].([]map[string]any)[0]
+	if annotated["accepted"] != true {
+		t.Fatalf("accepted warning was not annotated: %#v", annotated)
+	}
+	ids := annotated["accepted_risk_ids"].([]any)
+	if len(ids) != 1 || ids[0] != "war_1" {
+		t.Fatalf("accepted ids = %#v", ids)
 	}
 }
 

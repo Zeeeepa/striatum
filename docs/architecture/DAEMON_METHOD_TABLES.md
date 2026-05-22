@@ -23,8 +23,10 @@
 | `run.events` | `read` | `single_repo` | 1 | 1 | no |
 | `run.posture_verdicts` | `read` | `single_repo` | 1 | 1 | no |
 | `workflow.validate` | `read` | `single_repo` | 1 | 1 | no |
+| `workflow.lint` | `read` | `single_repo` | 1 | 1 | no |
 | `workflow.plan` | `read` | `single_repo` | 1 | 1 | no |
 | `workflow.graph` | `read` | `single_repo` | 1 | 1 | no |
+| `workflow.accepted_risks.list` | `read` | `single_repo` | 1 | 1 | no |
 | `workflow.templates.list` | `read` | `single_repo` | 1 | 1 | no |
 | `workflow.templates.show` | `read` | `single_repo` | 1 | 1 | no |
 | `workflow.generate.preview` | `read` | `single_repo` | 1 | 1 | no |
@@ -72,6 +74,7 @@
 | `workflow.init` | `write` | `single_repo` | 1 | 1 | no |
 | `workflow.generate` | `write` | `single_repo` | 1 | 1 | no |
 | `workflow.upgrade` | `write` | `single_repo` | 1 | 1 | no |
+| `workflow.accept_risk` | `admin` | `single_repo` | 1 | 1 | no |
 | `review.submit` | `review` | `single_repo` | 1 | 1 | no |
 | `review.verdict` | `review` | `single_repo` | 1 | 1 | no |
 | `review.override` | `admin` | `single_repo` | 1 | 1 | no |

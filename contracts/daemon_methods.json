@@ -221,6 +221,15 @@
       "deprecated": false
     },
     {
+      "method": "workflow.lint",
+      "required_capability": "read",
+      "repository_scope_mode": "single_repo",
+      "params_schema_version": 1,
+      "audit_class": "metadata",
+      "min_envelope": 1,
+      "deprecated": false
+    },
+    {
       "method": "workflow.plan",
       "required_capability": "read",
       "repository_scope_mode": "single_repo",
@@ -231,6 +240,15 @@
     },
     {
       "method": "workflow.graph",
+      "required_capability": "read",
+      "repository_scope_mode": "single_repo",
+      "params_schema_version": 1,
+      "audit_class": "metadata",
+      "min_envelope": 1,
+      "deprecated": false
+    },
+    {
+      "method": "workflow.accepted_risks.list",
       "required_capability": "read",
       "repository_scope_mode": "single_repo",
       "params_schema_version": 1,
@@ -655,6 +673,15 @@
     {
       "method": "workflow.upgrade",
       "required_capability": "write",
+      "repository_scope_mode": "single_repo",
+      "params_schema_version": 1,
+      "audit_class": "metadata",
+      "min_envelope": 1,
+      "deprecated": false
+    },
+    {
+      "method": "workflow.accept_risk",
+      "required_capability": "admin",
       "repository_scope_mode": "single_repo",
       "params_schema_version": 1,
       "audit_class": "metadata",

@@ -72,6 +72,7 @@ func TestRegisterInstallsInitialMutationHandlers(t *testing.T) {
 		"workflow.init",
 		"workflow.generate",
 		"workflow.upgrade",
+		"workflow.accept_risk",
 		"review.verdict",
 		"verdict",
 		"review.submit",

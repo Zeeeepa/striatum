@@ -335,6 +335,9 @@ func newTestHTTPHandler(t *testing.T) (*HTTPHandler, *bool, *bool, *bool) {
 	authorizer.AddToken("write.secret", "writer", map[rpc.Capability]rpc.CapabilityGrant{
 		rpc.CapabilityWrite: {RepositoryID: "repo_1"},
 	}, time.Now().Add(time.Hour))
+	authorizer.AddToken("admin.secret", "admin", map[rpc.Capability]rpc.CapabilityGrant{
+		rpc.CapabilityAdmin: {RepositoryID: "repo_1"},
+	}, time.Now().Add(time.Hour))
 
 	server := rpc.NewServer()
 	server.Authorizer = authorizer
@@ -367,6 +370,32 @@ func newTestHTTPHandler(t *testing.T) (*HTTPHandler, *bool, *bool, *bool) {
 	})
 	handler := NewHTTPHandler(Service{RPC: server, Authorizer: authorizer})
 	return handler, &mutationCalled, &hiddenCalled, &gitSnapshotCalled
+}
+
+func TestHTTPHandlerToolsCallAcceptedRiskRequiresAdmin(t *testing.T) {
+	handler, _, _, _ := newTestHTTPHandler(t)
+	called := false
+	handler.Service.RPC.Register("workflow.accept_risk", func(_ context.Context, envelope rpc.Envelope) (map[string]any, error) {
+		called = true
+		return map[string]any{"accepted": true, "repository_id": envelope.Params["repository_id"]}, nil
+	})
+	body := `{"jsonrpc":"2.0","id":"risk-denied","method":"tools/call","params":{"name":"workflow.accept_risk","repository_id":"repo_1","arguments":{"repository_id":"repo_1"}}}`
+
+	response := decodeTestResponse(t, postJSON(t, handler, EndpointPath, body, "read.secret"))
+	structured := structuredContent(t, response)
+	if structured["ok"] != false || structured["error"] != "capability_missing" {
+		t.Fatalf("read token accepted-risk denial = %#v", structured)
+	}
+	if called {
+		t.Fatal("workflow.accept_risk handler ran for read-only token")
+	}
+
+	body = `{"jsonrpc":"2.0","id":"risk-admin","method":"tools/call","params":{"name":"workflow.accept_risk","repository_id":"repo_1","arguments":{"repository_id":"repo_1"}}}`
+	response = decodeTestResponse(t, postJSON(t, handler, EndpointPath, body, "admin.secret"))
+	structured = structuredContent(t, response)
+	if structured["ok"] != true || !called {
+		t.Fatalf("admin accepted-risk call = %#v called=%v", structured, called)
+	}
 }
 
 func postJSON(t *testing.T, handler http.Handler, path string, body string, token string) *httptest.ResponseRecorder {

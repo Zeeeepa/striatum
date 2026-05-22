@@ -106,7 +106,7 @@ so external references keep resolving even as items move between sections.
 | 52 | RFC 0061 Architecture remediation Phase 4 — daemon-first web service | 🟡 core web/API + artifact reads daemon-routed |
 | 53 | RFC 0062 Architecture remediation Phase 5 — real escalation inbox | 🟡 projection + escalation artifact schema/linkage landed |
 | 54 | RFC 0063 Architecture remediation Phase 6 — hardened PTY supervision | ✅ done |
-| 55 | RFC 0064 Architecture remediation Phase 7 — workflow risk lint and review diversity enforcement | 🟡 daemon accepted-risk authority decided; implementation pending |
+| 55 | RFC 0064 Architecture remediation Phase 7 — workflow risk lint and review diversity enforcement | 🟡 daemon accepted-risk records landed; CLI/UI polish pending |
 | 56 | Architecture remediation Phase 8 — auto-finalize from front matter | 🟡 skipped-candidate cause classes landed; lane visibility/circuit breaker pending |
 | 57 | RFC 0065 Architecture remediation Phase 9 — UI packaging and bundle cleanup | ✅ done; chunking monitor only |
 | 58 | RFC 0059 Architecture remediation Phase 10 — day-zero setup improvements | ✅ done |
@@ -1172,8 +1172,12 @@ review and plan are root-level operator artifacts:
     accepted-risk surface: durable accepted-risk override state may be written
     only through daemon-backed CLI/UI/MCP clients, must cite a decision
     artifact, and must bind to an immutable workflow snapshot or fingerprint.
-    Follow-up implementation remains open; workflow-file metadata is not live
-    authority.
+    First implementation slice has landed: Go daemon `workflow.lint`,
+    `workflow.accept_risk`, and `workflow.accepted_risks.list` provide
+    fingerprint/snapshot-bound accepted-risk records in PostgreSQL, and MCP
+    capability gates expose the read/admin surfaces without writing workflow
+    metadata. Remaining polish is CLI/UI client wiring over the same daemon
+    methods; workflow-file metadata is not live authority.
 
 56. **Phase 8: auto-finalize from front matter.** Bounded daemon slice
     landed: `recovery.auto_finalize` dry-run/live PG handler, CLI route,
