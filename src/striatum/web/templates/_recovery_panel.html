@@ -24,6 +24,10 @@
       manual: {{ auto_finalize.lane_finalization_summary.manual_publish or 0 }}
       pending: {{ auto_finalize.lane_finalization_summary.pending or 0 }}
       {% endif %}
+      {% if auto_finalize.policy and auto_finalize.policy.circuit_breaker and auto_finalize.policy.circuit_breaker.open %}
+      /
+      breakers open: {{ auto_finalize.policy.circuit_breaker.open | length }}
+      {% endif %}
     </span>
     {% if auto_finalize.eligible %}
     <ul>
@@ -46,8 +50,14 @@
       {% for candidate in auto_finalize.skipped[:3] %}
       <li>
         <span class="status-pill status-blocked">refused</span>
+        {% if candidate.cause == "circuit_breaker_open" %}
+        <span class="status-pill status-blocked">circuit breaker</span>
+        {% endif %}
         <code>{{ candidate.workflow_job_id or candidate.job_id or "run" }}</code>
         <span>{{ candidate.reason }}</span>
+        {% if candidate.circuit_breaker and candidate.circuit_breaker.open_until %}
+        <span class="muted">open until {{ candidate.circuit_breaker.open_until }}</span>
+        {% endif %}
         {% for artifact in candidate.artifacts or [] %}
         {% if artifact.reason %}
         <span class="muted">{{ artifact.path }}: {{ artifact.reason }}</span>

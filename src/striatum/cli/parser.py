@@ -1134,6 +1134,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="allow live mode before workflow recovery.auto_finalize opt-in",
     )
     recovery_auto_finalize.add_argument(
+        "--reset-circuit-breaker",
+        action="store_true",
+        help="clear auto-finalize circuit-breaker state before evaluating candidates",
+    )
+    recovery_auto_finalize.add_argument(
         "--allow-no-process-execution",
         dest="allow_no_process_execution",
         action="store_true",

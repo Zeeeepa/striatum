@@ -96,7 +96,7 @@ def test_render_frame_shows_auto_finalize_dry_run_refusals() -> None:
                         "artifacts": [{"path": "docs/review.md"}],
                     }
                 ],
-                "skipped_count": 1,
+                "skipped_count": 2,
                 "skipped": [
                     {
                         "workflow_job_id": "review_api",
@@ -107,9 +107,24 @@ def test_render_frame_shows_auto_finalize_dry_run_refusals() -> None:
                                 "reason": "finding artifact front matter is required for auto-finalize",
                             }
                         ],
-                    }
+                    },
+                    {
+                        "workflow_job_id": "review_live",
+                        "reason": "auto-finalize circuit breaker is open until 2026-05-22T00:10:00Z",
+                        "cause": "circuit_breaker_open",
+                        "circuit_breaker": {
+                            "cause": "finalize_publish_failed",
+                            "open_until": "2026-05-22T00:10:00Z",
+                        },
+                    },
                 ],
-                "policy": {"live_allowed": False},
+                "policy": {
+                    "live_allowed": False,
+                    "circuit_breaker": {
+                        "state": "open",
+                        "open": [{"workflow_job_id": "review_live"}],
+                    },
+                },
             },
         },
         "events": [],
@@ -119,9 +134,11 @@ def test_render_frame_shows_auto_finalize_dry_run_refusals() -> None:
     output = dashboard.render_frame(payload, terminal_width=120)
 
     assert "Auto-finalize dry run:" in output
-    assert "eligible=1 refused=1 live_allowed=no lanes=auto_from_artifact=1" in output
+    assert "eligible=1 refused=2 live_allowed=no lanes=auto_from_artifact=1 breakers_open=1" in output
     assert "eligible review_docs lane=auto_from_artifact docs/review.md" in output
     assert "refused review_api expected_artifact validation refused" in output
+    assert "refused review_live auto-finalize circuit breaker is open" in output
+    assert "breaker=finalize_publish_failed" in output
     assert "finding artifact front matter is required for auto-finalize" in output
 
 

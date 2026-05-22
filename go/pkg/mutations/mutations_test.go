@@ -193,6 +193,81 @@ func TestAutoFinalizeDryRunDefaultsToProjectionMode(t *testing.T) {
 	}
 }
 
+func TestAutoFinalizeResetCircuitBreakerRequiresLiveMode(t *testing.T) {
+	server := rpc.NewServer()
+	Register(server, inertRunner{})
+	handler := server.Handlers["recovery.auto_finalize"]
+	_, err := handler(context.Background(), rpc.Envelope{
+		SchemaVersion: rpc.SupportedEnvelopeVersion,
+		RequestID:     "req_auto_finalize_reset",
+		Method:        "recovery.auto_finalize",
+		Params: map[string]any{
+			"repository_id":              "repo_a",
+			"run_id":                     "run_1",
+			"dry_run":                    true,
+			"reset_circuit_breaker":      true,
+			"mtime_grace_seconds":        0,
+			"allow_no_process_execution": true,
+		},
+	})
+	var rpcErr *rpc.Error
+	if !errors.As(err, &rpcErr) || rpcErr.Code != "invalid_transition" {
+		t.Fatalf("reset dry-run error = %v, want invalid_transition", err)
+	}
+	if rpcErr.Message != "--reset-circuit-breaker requires --live" {
+		t.Fatalf("reset dry-run message = %q", rpcErr.Message)
+	}
+}
+
+func TestAutoFinalizeCircuitBreakerConfigDefaultsAndOverrides(t *testing.T) {
+	defaults := autoFinalizeCircuitBreakerConfig(nil)
+	if defaults["enabled"] != true || defaults["max_consecutive"] != 3 || defaults["window_seconds"] != 600 {
+		t.Fatalf("default breaker config = %#v", defaults)
+	}
+	overridden := autoFinalizeCircuitBreakerConfig(map[string]any{
+		"circuit_breaker": map[string]any{
+			"enabled":         false,
+			"max_consecutive": float64(5),
+			"window_seconds":  float64(90),
+		},
+	})
+	if overridden["enabled"] != false || overridden["max_consecutive"] != 5 || overridden["window_seconds"] != 90 {
+		t.Fatalf("overridden breaker config = %#v", overridden)
+	}
+}
+
+func TestAutoFinalizeCircuitBreakerSkipShape(t *testing.T) {
+	skip := autoFinalizeCircuitBreakerSkip(
+		map[string]any{"workflow_job_id": "review", "job_id": "job_1"},
+		map[string]any{"state": "open", "cause": autoFinalizeCauseFinalizePublishFailed, "open_until": "2026-05-22T00:10:00Z"},
+	)
+	if skip["cause"] != autoFinalizeCauseCircuitBreakerOpen {
+		t.Fatalf("skip cause = %v", skip["cause"])
+	}
+	if skip["cause_detail"] != autoFinalizeCauseFinalizePublishFailed {
+		t.Fatalf("skip cause_detail = %v", skip["cause_detail"])
+	}
+	if !strings.Contains(skip["reason"].(string), "2026-05-22T00:10:00Z") {
+		t.Fatalf("skip reason = %v", skip["reason"])
+	}
+}
+
+func TestAutoFinalizeFailureCauseClassifiesCommonFailureSites(t *testing.T) {
+	for _, tc := range []struct {
+		err  error
+		want string
+	}{
+		{errors.New("artifact publish failed"), autoFinalizeCauseFinalizePublishFailed},
+		{errors.New("record verdict failed"), autoFinalizeCauseFinalizeVerdictFailed},
+		{errors.New("complete job failed"), autoFinalizeCauseFinalizeCompleteFailed},
+		{errors.New("unexpected"), autoFinalizeCauseFinalizeUnexpected},
+	} {
+		if got := autoFinalizeFailureCause(tc.err); got != tc.want {
+			t.Fatalf("cause for %q = %q, want %q", tc.err, got, tc.want)
+		}
+	}
+}
+
 func TestAutoFinalizeFindingRequiresVerdictIntentFrontMatter(t *testing.T) {
 	payload := []byte("---\nschema_version: \"striatum.finding.v1\"\nartifact_kind: \"finding\"\n---\n\nauthor: operator\n")
 	_, err := autoFinalizeRequiredFrontMatter("finding", "finding.md", payload)

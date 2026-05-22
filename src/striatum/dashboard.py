@@ -603,6 +603,9 @@ def _render_auto_finalize(projection: Mapping[str, Any], width: int) -> list[str
         if value:
             lane_bits.append(f"{key}={int(value)}")
     lane_detail = f" lanes={','.join(lane_bits)}" if lane_bits else ""
+    breaker_policy = _as_dict(policy.get("circuit_breaker"))
+    open_breakers = _as_list(breaker_policy.get("open"))
+    breaker_detail = f" breakers_open={len(open_breakers)}" if open_breakers else ""
     live_allowed = "yes" if policy.get("live_allowed") else "no"
     lines = [
         _truncate(
@@ -610,7 +613,8 @@ def _render_auto_finalize(projection: Mapping[str, Any], width: int) -> list[str
             f"eligible={int(projection.get('eligible_count') or len(eligible))} "
             f"refused={int(projection.get('skipped_count') or len(skipped))} "
             f"live_allowed={live_allowed}"
-            f"{lane_detail}",
+            f"{lane_detail}"
+            f"{breaker_detail}",
             width,
         )
     ]
@@ -639,6 +643,11 @@ def _render_auto_finalize(projection: Mapping[str, Any], width: int) -> list[str
                 artifact_reasons.append(str(artifact["reason"]))
         if artifact_reasons:
             reason += ": " + "; ".join(artifact_reasons[:2])
+        breaker = _as_dict(row.get("circuit_breaker"))
+        if breaker:
+            reason += f" breaker={breaker.get('cause') or 'open'}"
+            if breaker.get("open_until"):
+                reason += f" until={breaker.get('open_until')}"
         lines.append(
             _truncate(
                 f"  refused {row.get('workflow_job_id') or row.get('job_id') or '?'} {reason}",

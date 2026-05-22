@@ -29,6 +29,7 @@ def test_auto_finalize_cause_set_is_closed() -> None:
         causes.FINALIZE_COMPLETE_FAILED,
         causes.FINALIZE_VERDICT_FAILED,
         causes.FINALIZE_UNEXPECTED_ERROR,
+        causes.CIRCUIT_BREAKER_OPEN,
         causes.PROJECTION_EVALUATION_FAILED,
     }
 

@@ -15,6 +15,7 @@ from _harness.pg import create_ephemeral_database, drop_ephemeral_database
 from striatum.daemon_pg.connection import connect
 from striatum.daemon_pg.handlers.context import RepoHandlerContext
 from striatum.daemon_pg.handlers.reads import _read_model
+from striatum.daemon_pg.handlers.recovery_evidence import auto_finalize as auto_finalize_mod
 from striatum.daemon_pg.handlers.recovery_evidence.auto_finalize import (
     dry_run_projection,
     handle,
@@ -307,6 +308,83 @@ def test_auto_finalize_refuses_live_without_policy_opt_in(
             )
 
         assert _count(conn, "striatumd.artifacts", repository_id="repo_a") == 0
+    finally:
+        conn.close()
+
+
+def test_auto_finalize_opens_circuit_breaker_after_consecutive_live_failures(
+    tmp_path: Path, pg_url: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    conn = connect(pg_url)
+    try:
+        repo_root = tmp_path / "repo_a"
+        _write_finding(repo_root, byline="author: reviewer-codex-gpt-5-001")
+        _seed_review_job(conn, repo_root, repository_id="repo_a")
+        _insert_attached_supervisor(conn, repository_id="repo_a")
+        _insert_work_packet_and_clean_process(conn, repository_id="repo_a")
+        conn.commit()
+
+        publish_attempts = 0
+
+        def fail_publish(*_args: object, **_kwargs: object) -> dict[str, Any]:
+            nonlocal publish_attempts
+            publish_attempts += 1
+            raise RuntimeError("artifact publish failed intentionally")
+
+        monkeypatch.setattr(auto_finalize_mod, "publish_artifact_inline", fail_publish)
+        ctx = _ctx(conn, repo_root, repository_id="repo_a")
+        params = {
+            "run_id": "run_1",
+            "dry_run": False,
+            "mtime_grace_seconds": 0,
+        }
+
+        result: dict[str, Any] = {}
+        for expected_failures in (1, 2, 3):
+            result = handle(ctx, params)
+            assert result["finalized_count"] == 0
+            assert result["skipped_count"] == 1
+            assert result["skipped"][0]["cause"] == causes.FINALIZE_PUBLISH_FAILED
+            assert result["skipped"][0]["circuit_breaker"]["consecutive_failures"] == expected_failures
+
+        assert publish_attempts == 3
+        assert result["policy"]["circuit_breaker"]["state"] == "open"
+        assert result["skipped"][0]["circuit_breaker"]["state"] == "open"
+        assert _count(conn, "striatumd.auto_finalize_circuit_breakers", repository_id="repo_a") == 1
+
+        refused = handle(
+            ctx,
+            {
+                "run_id": "run_1",
+                "dry_run": False,
+                "force": True,
+                "mtime_grace_seconds": 0,
+            },
+        )
+
+        assert publish_attempts == 3
+        assert refused["finalized_count"] == 0
+        assert refused["skipped"][0]["cause"] == causes.CIRCUIT_BREAKER_OPEN
+        assert refused["skipped"][0]["circuit_breaker"]["state"] == "open"
+
+        monkeypatch.undo()
+        reset = handle(
+            ctx,
+            {
+                "run_id": "run_1",
+                "dry_run": False,
+                "mtime_grace_seconds": 0,
+                "reset_circuit_breaker": True,
+            },
+        )
+
+        assert reset["circuit_breaker_reset"]["cleared_count"] == 1
+        assert reset["policy"]["circuit_breaker"]["state"] == "closed"
+        assert reset["finalized_count"] == 1
+        assert _count(conn, "striatumd.auto_finalize_circuit_breakers", repository_id="repo_a") == 0
+        event_types = [row["event_type"] for row in _events(conn, "repo_a")]
+        assert "recovery.auto_finalize.circuit_breaker_open" in event_types
+        assert "recovery.auto_finalize.circuit_breaker_reset" in event_types
     finally:
         conn.close()
 

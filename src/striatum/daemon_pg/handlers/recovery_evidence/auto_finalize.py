@@ -9,7 +9,7 @@ does not inspect terminal output or provider transcripts.
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, cast
 
@@ -45,6 +45,8 @@ from striatum.recovery import auto_finalize_causes as causes
 from striatum.repo_policy import path_allowed
 
 DEFAULT_MTIME_GRACE_SECONDS = 30
+DEFAULT_CIRCUIT_BREAKER_MAX_CONSECUTIVE = 3
+DEFAULT_CIRCUIT_BREAKER_WINDOW_SECONDS = 600
 AUTO_FINALIZE_SUMMARY = "auto-finalized from stable expected artifact files"
 NO_PROCESS_RATIONALE = (
     "auto-finalized from stable expected artifact front matter; no terminal "
@@ -70,11 +72,20 @@ def handle(ctx: RepoHandlerContext, params: Mapping[str, Any]) -> dict[str, Any]
 
     dry_run = _dry_run(params)
     policy = _policy_result(ctx, run_id=run_id, params=params)
+    if bool(params.get("reset_circuit_breaker", False)) and dry_run:
+        raise InvalidTransitionError("--reset-circuit-breaker requires --live")
     if not dry_run and not policy["live_allowed"]:
         raise InvalidTransitionError(
             "recovery.auto_finalize live mode requires workflow recovery.auto_finalize.enabled=true "
             "or --force"
         )
+    reset_result = (
+        _reset_circuit_breaker(ctx, run_id=run_id, params=params)
+        if bool(params.get("reset_circuit_breaker", False))
+        else None
+    )
+    if reset_result is not None:
+        policy = _policy_result(ctx, run_id=run_id, params=params)
 
     mtime_grace_seconds = _mtime_grace_seconds(params)
     allow_no_process_execution = bool(params.get("allow_no_process_execution", False))
@@ -92,6 +103,14 @@ def handle(ctx: RepoHandlerContext, params: Mapping[str, Any]) -> dict[str, Any]
     skipped: list[dict[str, Any]] = []
 
     for row in candidates:
+        open_breaker = _open_circuit_breaker_for_job(
+            ctx,
+            run_id=run_id,
+            workflow_job_id=str(row["workflow_job_id"]),
+        )
+        if open_breaker is not None:
+            skipped.append(_circuit_breaker_skip(row, open_breaker))
+            continue
         evaluation = _evaluate_candidate(
             ctx,
             row=row,
@@ -113,20 +132,30 @@ def handle(ctx: RepoHandlerContext, params: Mapping[str, Any]) -> dict[str, Any]
                 )
             )
         except Exception as exc:  # noqa: BLE001 - continue sweep, report refusal.
+            failure_cause = causes.finalize_failure_cause(exc)
+            breaker = _record_circuit_breaker_failure(
+                ctx,
+                run_id=run_id,
+                workflow_job_id=str(row["workflow_job_id"]),
+                cause=failure_cause,
+                exc=exc,
+                policy=policy,
+            )
             skipped.append({
                 "workflow_job_id": row.get("workflow_job_id"),
                 "job_id": row.get("job_id"),
                 "reason": f"live auto-finalize failed: {exc}",
                 **causes.cause_fields(
-                    causes.finalize_failure_cause(exc),
+                    failure_cause,
                     type(exc).__name__,
                 ),
+                "circuit_breaker": breaker,
             })
 
-    return {
+    result = {
         "run_id": run_id,
         "dry_run": dry_run,
-        "policy": policy,
+        "policy": _policy_result(ctx, run_id=run_id, params=params),
         "lane_finalization_summary": _lane_finalization_summary(
             auto_from_artifact=len(eligible) + len(finalized)
         ),
@@ -137,6 +166,9 @@ def handle(ctx: RepoHandlerContext, params: Mapping[str, Any]) -> dict[str, Any]
         "skipped_count": len(skipped),
         "skipped": skipped,
     }
+    if reset_result is not None:
+        result["circuit_breaker_reset"] = reset_result
+    return result
 
 
 def dry_run_projection(
@@ -170,6 +202,14 @@ def dry_run_projection(
     skipped: list[dict[str, Any]] = []
     for row in _candidate_rows(ctx, run_id=run_id, job_id=None):
         try:
+            open_breaker = _open_circuit_breaker_for_job(
+                ctx,
+                run_id=run_id,
+                workflow_job_id=str(row["workflow_job_id"]),
+            )
+            if open_breaker is not None:
+                skipped.append(_circuit_breaker_skip(row, open_breaker))
+                continue
             evaluation = _evaluate_candidate(
                 ctx,
                 row=row,
@@ -232,25 +272,83 @@ def _policy_result(
     params: Mapping[str, Any],
 ) -> dict[str, Any]:
     workflow = workflow_for_run(ctx, run_id=run_id)
-    recovery = workflow.get("recovery")
-    auto_finalize: object = None
-    if isinstance(recovery, dict):
-        auto_finalize = recovery.get("auto_finalize")
-    if auto_finalize is None:
-        auto_finalize = workflow.get("auto_finalize")
+    auto_finalize = _auto_finalize_policy(workflow)
     workflow_enabled = False
     if isinstance(auto_finalize, dict):
         workflow_enabled = auto_finalize.get("enabled") is True
     elif isinstance(auto_finalize, bool):
         workflow_enabled = auto_finalize
     force = bool(params.get("force", False))
+    circuit_breaker = _circuit_breaker_policy(ctx, run_id=run_id, policy=auto_finalize)
     return {
         "workflow_enabled": workflow_enabled,
         "force": force,
         "live_allowed": workflow_enabled or force,
         "mtime_grace_seconds": _mtime_grace_seconds(params),
         "allow_no_process_execution": bool(params.get("allow_no_process_execution", False)),
+        "circuit_breaker": circuit_breaker,
     }
+
+
+def _auto_finalize_policy(workflow: Mapping[str, Any]) -> object:
+    recovery = workflow.get("recovery")
+    auto_finalize: object = None
+    if isinstance(recovery, dict):
+        auto_finalize = recovery.get("auto_finalize")
+    if auto_finalize is None:
+        auto_finalize = workflow.get("auto_finalize")
+    return auto_finalize
+
+
+def _circuit_breaker_policy(
+    ctx: RepoHandlerContext,
+    *,
+    run_id: str,
+    policy: object,
+) -> dict[str, Any]:
+    config = _circuit_breaker_config(policy)
+    open_breakers = _open_circuit_breakers(ctx, run_id=run_id)
+    return {
+        "enabled": config["enabled"],
+        "max_consecutive": config["max_consecutive"],
+        "window_seconds": config["window_seconds"],
+        "state": "open" if open_breakers else "closed",
+        "open": open_breakers,
+    }
+
+
+def _circuit_breaker_config(policy: object) -> dict[str, Any]:
+    breaker: object = None
+    if isinstance(policy, dict):
+        breaker = policy.get("circuit_breaker")
+    enabled = True
+    max_consecutive = DEFAULT_CIRCUIT_BREAKER_MAX_CONSECUTIVE
+    window_seconds = DEFAULT_CIRCUIT_BREAKER_WINDOW_SECONDS
+    if isinstance(breaker, dict):
+        enabled = breaker.get("enabled") is not False
+        max_consecutive = _positive_int(
+            breaker.get("max_consecutive"),
+            DEFAULT_CIRCUIT_BREAKER_MAX_CONSECUTIVE,
+        )
+        window_seconds = _positive_int(
+            breaker.get("window_seconds"),
+            DEFAULT_CIRCUIT_BREAKER_WINDOW_SECONDS,
+        )
+    elif breaker is False:
+        enabled = False
+    return {
+        "enabled": enabled,
+        "max_consecutive": max_consecutive,
+        "window_seconds": window_seconds,
+    }
+
+
+def _positive_int(value: object, fallback: int) -> int:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return fallback
+    return parsed if parsed > 0 else fallback
 
 
 def _empty_result(
@@ -274,6 +372,298 @@ def _empty_result(
         "skipped_count": 1,
         "skipped": [{"reason": reason, **causes.cause_fields(cause, cause_detail)}],
     }
+
+
+def _open_circuit_breakers(
+    ctx: RepoHandlerContext,
+    *,
+    run_id: str,
+    workflow_job_id: str | None = None,
+) -> list[dict[str, Any]]:
+    job_filter = "AND workflow_job_id = %s" if workflow_job_id is not None else ""
+    params: list[Any] = [ctx.repository_id, run_id, _utc_now(ctx)]
+    if workflow_job_id is not None:
+        params.append(workflow_job_id)
+    with ctx.cursor() as cur:
+        cur.execute(
+            f"""
+            SELECT workflow_job_id, cause, consecutive_failures, opened_at,
+                   open_until, last_failure_at, last_error
+            FROM striatumd.auto_finalize_circuit_breakers
+            WHERE repository_id = %s
+              AND run_id = %s
+              AND open_until > %s
+              {job_filter}
+            ORDER BY open_until DESC, workflow_job_id, cause
+            """,
+            tuple(params),
+        )
+        return [_serialize_circuit_breaker(row, state="open") for row in cur.fetchall()]
+
+
+def _open_circuit_breaker_for_job(
+    ctx: RepoHandlerContext,
+    *,
+    run_id: str,
+    workflow_job_id: str,
+) -> dict[str, Any] | None:
+    breakers = _open_circuit_breakers(ctx, run_id=run_id, workflow_job_id=workflow_job_id)
+    return breakers[0] if breakers else None
+
+
+def _circuit_breaker_skip(row: Mapping[str, Any], breaker: Mapping[str, Any]) -> dict[str, Any]:
+    open_until = breaker.get("open_until")
+    reason = "auto-finalize circuit breaker is open"
+    if open_until:
+        reason = f"{reason} until {open_until}"
+    return {
+        "workflow_job_id": row.get("workflow_job_id"),
+        "job_id": row.get("job_id"),
+        "reason": reason,
+        **causes.cause_fields(causes.CIRCUIT_BREAKER_OPEN, breaker.get("cause")),
+        "circuit_breaker": dict(breaker),
+    }
+
+
+def _record_circuit_breaker_failure(
+    ctx: RepoHandlerContext,
+    *,
+    run_id: str,
+    workflow_job_id: str,
+    cause: str,
+    exc: BaseException,
+    policy: Mapping[str, Any],
+) -> dict[str, Any]:
+    breaker_policy = policy.get("circuit_breaker")
+    if not isinstance(breaker_policy, Mapping):
+        return {"enabled": False, "state": "unavailable", "cause": cause}
+    if breaker_policy.get("enabled") is False:
+        return {"enabled": False, "state": "disabled", "cause": cause}
+    max_consecutive = _positive_int(
+        breaker_policy.get("max_consecutive"),
+        DEFAULT_CIRCUIT_BREAKER_MAX_CONSECUTIVE,
+    )
+    window_seconds = _positive_int(
+        breaker_policy.get("window_seconds"),
+        DEFAULT_CIRCUIT_BREAKER_WINDOW_SECONDS,
+    )
+    now = _utc_now(ctx)
+    cutoff = now - timedelta(seconds=window_seconds)
+    message = str(exc).strip()[:500]
+    with transaction(ctx):
+        with ctx.cursor() as cur:
+            cur.execute(
+                """
+                SELECT workflow_job_id, cause, consecutive_failures, opened_at,
+                       open_until, last_failure_at, last_error
+                FROM striatumd.auto_finalize_circuit_breakers
+                WHERE repository_id = %s
+                  AND run_id = %s
+                  AND workflow_job_id = %s
+                  AND cause = %s
+                FOR UPDATE
+                """,
+                (ctx.repository_id, run_id, workflow_job_id, cause),
+            )
+            row = cur.fetchone()
+            consecutive = 1
+            if row is not None and row.get("last_failure_at") is not None:
+                last_failure_at = _datetime_from_value(row["last_failure_at"])
+                if last_failure_at >= cutoff:
+                    consecutive = int(row["consecutive_failures"]) + 1
+            opened_at: datetime | None = None
+            open_until: datetime | None = None
+            if consecutive >= max_consecutive:
+                opened_at = (
+                    _optional_datetime_from_value(row.get("opened_at"))
+                    if row is not None
+                    else None
+                ) or now
+                open_until = now + timedelta(seconds=window_seconds)
+            cur.execute(
+                """
+                INSERT INTO striatumd.auto_finalize_circuit_breakers (
+                  repository_id, run_id, workflow_job_id, cause,
+                  consecutive_failures, opened_at, open_until,
+                  last_failure_at, last_error, updated_at
+                )
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                ON CONFLICT (repository_id, run_id, workflow_job_id, cause)
+                DO UPDATE SET
+                  consecutive_failures = EXCLUDED.consecutive_failures,
+                  opened_at = EXCLUDED.opened_at,
+                  open_until = EXCLUDED.open_until,
+                  last_failure_at = EXCLUDED.last_failure_at,
+                  last_error = EXCLUDED.last_error,
+                  updated_at = EXCLUDED.updated_at
+                RETURNING workflow_job_id, cause, consecutive_failures,
+                          opened_at, open_until, last_failure_at, last_error
+                """,
+                (
+                    ctx.repository_id,
+                    run_id,
+                    workflow_job_id,
+                    cause,
+                    consecutive,
+                    opened_at,
+                    open_until,
+                    now,
+                    message,
+                    now,
+                ),
+            )
+            stored = cur.fetchone()
+        if stored is not None and open_until is not None:
+            ctx.append_event(
+                run_id=run_id,
+                event_type="recovery.auto_finalize.circuit_breaker_open",
+                payload={
+                    "workflow_job_id": workflow_job_id,
+                    "cause": cause,
+                    "consecutive_failures": consecutive,
+                    "open_until": _iso_timestamp(open_until),
+                    "window_seconds": window_seconds,
+                    "max_consecutive": max_consecutive,
+                    "last_error": message,
+                },
+            )
+    state = "open" if stored and stored.get("open_until") else "closed"
+    return _serialize_circuit_breaker(cast(Mapping[str, Any], stored), state=state)
+
+
+def _reset_circuit_breaker(
+    ctx: RepoHandlerContext,
+    *,
+    run_id: str,
+    params: Mapping[str, Any],
+) -> dict[str, Any]:
+    job_id = str(params.get("job_id") or "")
+    with transaction(ctx):
+        if job_id:
+            with ctx.cursor() as cur:
+                cur.execute(
+                    """
+                    DELETE FROM striatumd.auto_finalize_circuit_breakers cb
+                    USING striatumd.jobs j
+                    WHERE cb.repository_id = %s
+                      AND cb.run_id = %s
+                      AND j.repository_id = cb.repository_id
+                      AND j.run_id = cb.run_id
+                      AND j.workflow_job_id = cb.workflow_job_id
+                      AND j.job_id = %s
+                    RETURNING cb.workflow_job_id, cb.cause
+                    """,
+                    (ctx.repository_id, run_id, job_id),
+                )
+                cleared = [dict(row) for row in cur.fetchall()]
+        else:
+            with ctx.cursor() as cur:
+                cur.execute(
+                    """
+                    DELETE FROM striatumd.auto_finalize_circuit_breakers
+                    WHERE repository_id = %s
+                      AND run_id = %s
+                    RETURNING workflow_job_id, cause
+                    """,
+                    (ctx.repository_id, run_id),
+                )
+                cleared = [dict(row) for row in cur.fetchall()]
+        if cleared:
+            ctx.append_event(
+                run_id=run_id,
+                event_type="recovery.auto_finalize.circuit_breaker_reset",
+                payload={
+                    "source": "operator_reset",
+                    "job_id": job_id or None,
+                    "cleared": cleared,
+                },
+            )
+    return {
+        "cleared_count": len(cleared),
+        "cleared": cleared,
+    }
+
+
+def _clear_circuit_breakers_for_job(
+    ctx: RepoHandlerContext,
+    *,
+    run_id: str,
+    workflow_job_id: str,
+) -> list[dict[str, Any]]:
+    with ctx.cursor() as cur:
+        cur.execute(
+            """
+            DELETE FROM striatumd.auto_finalize_circuit_breakers
+            WHERE repository_id = %s
+              AND run_id = %s
+              AND workflow_job_id = %s
+            RETURNING workflow_job_id, cause
+            """,
+            (ctx.repository_id, run_id, workflow_job_id),
+        )
+        cleared = [dict(row) for row in cur.fetchall()]
+    if cleared:
+        ctx.append_event(
+            run_id=run_id,
+            event_type="recovery.auto_finalize.circuit_breaker_reset",
+            payload={
+                "source": "successful_auto_finalize",
+                "workflow_job_id": workflow_job_id,
+                "cleared": cleared,
+            },
+        )
+    return cleared
+
+
+def _serialize_circuit_breaker(
+    row: Mapping[str, Any],
+    *,
+    state: str,
+) -> dict[str, Any]:
+    return {
+        "state": state,
+        "workflow_job_id": row.get("workflow_job_id"),
+        "cause": row.get("cause"),
+        "consecutive_failures": int(row.get("consecutive_failures") or 0),
+        "opened_at": _iso_timestamp(row.get("opened_at")),
+        "open_until": _iso_timestamp(row.get("open_until")),
+        "last_failure_at": _iso_timestamp(row.get("last_failure_at")),
+        "last_error": row.get("last_error"),
+    }
+
+
+def _iso_timestamp(value: object) -> str | None:
+    if isinstance(value, datetime):
+        if value.tzinfo is None:
+            value = value.replace(tzinfo=UTC)
+        return value.astimezone(UTC).isoformat().replace("+00:00", "Z")
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
+
+
+def _utc_now(ctx: RepoHandlerContext) -> datetime:
+    return _datetime_from_value(ctx.now())
+
+
+def _datetime_from_value(value: object) -> datetime:
+    if isinstance(value, datetime):
+        dt = value
+    else:
+        text = str(value)
+        if text.endswith("Z"):
+            text = text[:-1] + "+00:00"
+        dt = datetime.fromisoformat(text)
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=UTC)
+    return dt.astimezone(UTC)
+
+
+def _optional_datetime_from_value(value: object) -> datetime | None:
+    if value is None:
+        return None
+    return _datetime_from_value(value)
 
 
 def _candidate_rows(
@@ -746,6 +1136,11 @@ def _finalize_candidate(
                 lease_id=lease_id,
                 summary=AUTO_FINALIZE_SUMMARY,
             )
+        _clear_circuit_breakers_for_job(
+            ctx,
+            run_id=run_id,
+            workflow_job_id=str(candidate["workflow_job_id"]),
+        )
         return {
             "workflow_job_id": candidate["workflow_job_id"],
             "job_id": job_id,

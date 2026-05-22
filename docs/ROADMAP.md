@@ -796,12 +796,15 @@ workflow-file metadata a live authority.
   `cause`, and existing `reason` strings remain display-compatible.
 - Lane-finalization visibility landed across dry-run/live return payloads,
   status/dashboard/web projections, and the Go SQL summary path.
+- The consecutive-failure circuit breaker landed as mutable daemon state with
+  workflow policy defaults, open-breaker dry-run/status visibility,
+  force-resistant live refusal, explicit live reset, audit events, and mirrored
+  Python/Go migration support.
 
 **Remaining Phase 8 debt:** D125 keeps dry-run projection as the global
 default and live auto-finalize workflow opt-in. Default-on behavior may be
 reconsidered only after three successful live dogfoods across at least two lane
-shapes with zero contested audit-chain events, and after a
-consecutive-failure circuit breaker lands.
+shapes with zero contested audit-chain events.
 
 ---
 

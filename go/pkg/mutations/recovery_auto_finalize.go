@@ -4,6 +4,8 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -17,8 +19,16 @@ import (
 
 const (
 	defaultAutoFinalizeMtimeGraceSeconds = 30
+	defaultAutoFinalizeBreakerMax        = 3
+	defaultAutoFinalizeBreakerWindow     = 600
 	autoFinalizeSummary                  = "auto-finalized from stable expected artifact files"
 	noProcessAutoFinalizeRationale       = "auto-finalized from stable expected artifact front matter; no terminal output or transcript was used as evidence"
+
+	autoFinalizeCauseFinalizePublishFailed  = "finalize_publish_failed"
+	autoFinalizeCauseFinalizeCompleteFailed = "finalize_complete_failed"
+	autoFinalizeCauseFinalizeVerdictFailed  = "finalize_verdict_failed"
+	autoFinalizeCauseFinalizeUnexpected     = "finalize_unexpected_error"
+	autoFinalizeCauseCircuitBreakerOpen     = "circuit_breaker_open"
 )
 
 func HandleRecoveryAutoFinalize(ctx context.Context, runner db.Runner, envelope rpc.Envelope) (map[string]any, error) {
@@ -38,12 +48,26 @@ func HandleRecoveryAutoFinalize(ctx context.Context, runner db.Runner, envelope 
 	if err != nil {
 		return nil, err
 	}
+	if boolParam(envelope, "reset_circuit_breaker") && dryRun {
+		return nil, rpc.NewError("invalid_transition", "--reset-circuit-breaker requires --live", nil)
+	}
 	policy, err := readAutoFinalizePolicy(ctx, runner, repositoryID, runID, envelope, mtimeGraceSeconds)
 	if err != nil {
 		return nil, err
 	}
 	if !dryRun && policy["live_allowed"] != true {
 		return nil, rpc.NewError("invalid_transition", "recovery.auto_finalize live mode requires workflow recovery.auto_finalize.enabled=true or --force", nil)
+	}
+	var resetResult map[string]any
+	if boolParam(envelope, "reset_circuit_breaker") {
+		resetResult, err = resetAutoFinalizeCircuitBreakers(ctx, runner, repositoryID, runID, stringParam(envelope, "job_id"))
+		if err != nil {
+			return nil, err
+		}
+		policy, err = readAutoFinalizePolicy(ctx, runner, repositoryID, runID, envelope, mtimeGraceSeconds)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	if dryRun {
@@ -59,7 +83,14 @@ func HandleRecoveryAutoFinalize(ctx context.Context, runner db.Runner, envelope 
 			if err != nil {
 				return nil, err
 			}
-			return evaluateAutoFinalizeRows(ctx, tx, repositoryID, fmt.Sprint(run["repo_root"]), runID, rows, mtimeGraceSeconds, boolParam(envelope, "allow_no_process_execution"), policy)
+			result, err := evaluateAutoFinalizeRows(ctx, tx, repositoryID, fmt.Sprint(run["repo_root"]), runID, rows, mtimeGraceSeconds, boolParam(envelope, "allow_no_process_execution"), policy)
+			if err != nil {
+				return nil, err
+			}
+			if resetResult != nil {
+				result["circuit_breaker_reset"] = resetResult
+			}
+			return result, nil
 		})
 	}
 
@@ -91,6 +122,16 @@ func HandleRecoveryAutoFinalize(ctx context.Context, runner db.Runner, envelope 
 		row := asMap(item)
 		jobID := fmt.Sprint(row["job_id"])
 		result, err := withTx(ctx, runner, func(tx db.TxRunner) (map[string]any, error) {
+			openBreaker, err := openAutoFinalizeCircuitBreakerForJob(ctx, tx, repositoryID, runID, fmt.Sprint(row["workflow_job_id"]))
+			if err != nil {
+				return nil, err
+			}
+			if openBreaker != nil {
+				return map[string]any{
+					"eligible": false,
+					"skip":     autoFinalizeCircuitBreakerSkip(row, openBreaker),
+				}, nil
+			}
 			fresh, err := autoFinalizeCandidateRows(ctx, tx, repositoryID, runID, jobID)
 			if err != nil {
 				return nil, err
@@ -113,13 +154,24 @@ func HandleRecoveryAutoFinalize(ctx context.Context, runner db.Runner, envelope 
 			if err != nil {
 				return nil, err
 			}
+			if _, err := clearAutoFinalizeCircuitBreakersForJob(ctx, tx, repositoryID, runID, fmt.Sprint(row["workflow_job_id"])); err != nil {
+				return nil, err
+			}
 			return map[string]any{"eligible": true, "finalized": finalizedCandidate}, nil
 		})
 		if err != nil {
+			failureCause := autoFinalizeFailureCause(err)
+			breaker, breakerErr := recordAutoFinalizeCircuitBreakerFailure(ctx, runner, repositoryID, runID, fmt.Sprint(row["workflow_job_id"]), failureCause, err, policy)
+			if breakerErr != nil {
+				return nil, breakerErr
+			}
 			skipped = append(skipped, map[string]any{
 				"workflow_job_id": row["workflow_job_id"],
 				"job_id":          jobID,
 				"reason":          "live auto-finalize failed: " + err.Error(),
+				"cause":           failureCause,
+				"cause_detail":    errorDetail(err),
+				"circuit_breaker": breaker,
 			})
 			continue
 		}
@@ -129,10 +181,14 @@ func HandleRecoveryAutoFinalize(ctx context.Context, runner db.Runner, envelope 
 			skipped = append(skipped, asMap(result["skip"]))
 		}
 	}
-	return map[string]any{
+	freshPolicy, err := readAutoFinalizePolicy(ctx, runner, repositoryID, runID, envelope, mtimeGraceSeconds)
+	if err != nil {
+		freshPolicy = policy
+	}
+	result := map[string]any{
 		"run_id":                    runID,
 		"dry_run":                   false,
-		"policy":                    policy,
+		"policy":                    freshPolicy,
 		"lane_finalization_summary": autoFinalizeLaneFinalizationSummary(len(finalized), 0, 0),
 		"eligible_count":            0,
 		"eligible":                  []map[string]any{},
@@ -140,7 +196,11 @@ func HandleRecoveryAutoFinalize(ctx context.Context, runner db.Runner, envelope 
 		"finalized":                 finalized,
 		"skipped_count":             len(skipped),
 		"skipped":                   skipped,
-	}, nil
+	}
+	if resetResult != nil {
+		result["circuit_breaker_reset"] = resetResult
+	}
+	return result, nil
 }
 
 func autoFinalizeDryRun(envelope rpc.Envelope) (bool, error) {
@@ -188,6 +248,10 @@ func readAutoFinalizePolicy(ctx context.Context, runner db.Runner, repositoryID,
 		case map[string]any:
 			enabled = typed["enabled"] == true
 		}
+		circuitBreaker, err := autoFinalizeCircuitBreakerPolicy(ctx, tx, repositoryID, runID, policy)
+		if err != nil {
+			return nil, err
+		}
 		force := boolParam(envelope, "force")
 		return map[string]any{
 			"workflow_enabled":           enabled,
@@ -195,6 +259,7 @@ func readAutoFinalizePolicy(ctx context.Context, runner db.Runner, repositoryID,
 			"live_allowed":               enabled || force,
 			"mtime_grace_seconds":        mtimeGraceSeconds,
 			"allow_no_process_execution": boolParam(envelope, "allow_no_process_execution"),
+			"circuit_breaker":            circuitBreaker,
 		}, nil
 	})
 }
@@ -212,6 +277,310 @@ func autoFinalizeEmptyResult(runID string, dryRun bool, reason string, policy ma
 		"skipped_count":             1,
 		"skipped":                   []map[string]any{{"reason": reason}},
 	}
+}
+
+func autoFinalizeCircuitBreakerPolicy(ctx context.Context, runner any, repositoryID, runID string, policy any) (map[string]any, error) {
+	config := autoFinalizeCircuitBreakerConfig(policy)
+	openBreakers, err := openAutoFinalizeCircuitBreakers(ctx, runner, repositoryID, runID, "")
+	if err != nil {
+		return nil, err
+	}
+	state := "closed"
+	if len(openBreakers) > 0 {
+		state = "open"
+	}
+	return map[string]any{
+		"enabled":         config["enabled"],
+		"max_consecutive": config["max_consecutive"],
+		"window_seconds":  config["window_seconds"],
+		"state":           state,
+		"open":            openBreakers,
+	}, nil
+}
+
+func autoFinalizeCircuitBreakerConfig(policy any) map[string]any {
+	enabled := true
+	maxConsecutive := defaultAutoFinalizeBreakerMax
+	windowSeconds := defaultAutoFinalizeBreakerWindow
+	if typed, ok := policy.(map[string]any); ok {
+		switch breaker := typed["circuit_breaker"].(type) {
+		case bool:
+			enabled = breaker
+		case map[string]any:
+			if value, ok := breaker["enabled"].(bool); ok {
+				enabled = value
+			}
+			maxConsecutive = positiveIntFromAny(breaker["max_consecutive"], defaultAutoFinalizeBreakerMax)
+			windowSeconds = positiveIntFromAny(breaker["window_seconds"], defaultAutoFinalizeBreakerWindow)
+		}
+	}
+	return map[string]any{
+		"enabled":         enabled,
+		"max_consecutive": maxConsecutive,
+		"window_seconds":  windowSeconds,
+	}
+}
+
+func openAutoFinalizeCircuitBreakerForJob(ctx context.Context, runner any, repositoryID, runID, workflowJobID string) (map[string]any, error) {
+	rows, err := openAutoFinalizeCircuitBreakers(ctx, runner, repositoryID, runID, workflowJobID)
+	if err != nil || len(rows) == 0 {
+		return nil, err
+	}
+	return rows[0], nil
+}
+
+func openAutoFinalizeCircuitBreakers(ctx context.Context, runner any, repositoryID, runID, workflowJobID string) ([]map[string]any, error) {
+	rows, err := queryRows(ctx, runner, `
+		SELECT workflow_job_id, cause, consecutive_failures, opened_at,
+		       open_until, last_failure_at, last_error
+		  FROM striatumd.auto_finalize_circuit_breakers
+		 WHERE repository_id = $1
+		   AND run_id = $2
+		   AND open_until > $3
+		   AND ($4 = '' OR workflow_job_id = $4)
+		 ORDER BY open_until DESC, workflow_job_id, cause`, repositoryID, runID, time.Now().UTC(), workflowJobID)
+	if err != nil {
+		return nil, err
+	}
+	result := []map[string]any{}
+	for _, row := range rows {
+		result = append(result, serializeAutoFinalizeCircuitBreaker(row, "open"))
+	}
+	return result, nil
+}
+
+func autoFinalizeCircuitBreakerSkip(row map[string]any, breaker map[string]any) map[string]any {
+	reason := "auto-finalize circuit breaker is open"
+	if openUntil := fmt.Sprint(breaker["open_until"]); openUntil != "" && openUntil != "<nil>" {
+		reason += " until " + openUntil
+	}
+	return map[string]any{
+		"workflow_job_id": row["workflow_job_id"],
+		"job_id":          row["job_id"],
+		"reason":          reason,
+		"cause":           autoFinalizeCauseCircuitBreakerOpen,
+		"cause_detail":    fmt.Sprint(breaker["cause"]),
+		"circuit_breaker": breaker,
+	}
+}
+
+func recordAutoFinalizeCircuitBreakerFailure(ctx context.Context, runner db.Runner, repositoryID, runID, workflowJobID, cause string, failure error, policy map[string]any) (map[string]any, error) {
+	breakerPolicy := asMap(policy["circuit_breaker"])
+	if breakerPolicy["enabled"] == false {
+		return map[string]any{"enabled": false, "state": "disabled", "cause": cause}, nil
+	}
+	maxConsecutive := positiveIntFromAny(breakerPolicy["max_consecutive"], defaultAutoFinalizeBreakerMax)
+	windowSeconds := positiveIntFromAny(breakerPolicy["window_seconds"], defaultAutoFinalizeBreakerWindow)
+	return withTx(ctx, runner, func(tx db.TxRunner) (map[string]any, error) {
+		now := time.Now().UTC().Truncate(time.Second)
+		cutoff := now.Add(-time.Duration(windowSeconds) * time.Second)
+		row, err := oneRow(ctx, tx, `
+			SELECT workflow_job_id, cause, consecutive_failures, opened_at,
+			       open_until, last_failure_at, last_error
+			  FROM striatumd.auto_finalize_circuit_breakers
+			 WHERE repository_id = $1
+			   AND run_id = $2
+			   AND workflow_job_id = $3
+			   AND cause = $4
+			 FOR UPDATE`, repositoryID, runID, workflowJobID, cause)
+		consecutive := 1
+		var openedAt any
+		if err == nil {
+			if lastFailureAt, ok := timeFromAny(row["last_failure_at"]); ok && !lastFailureAt.Before(cutoff) {
+				consecutive = intFromAny(row["consecutive_failures"], 0) + 1
+			}
+			openedAt = row["opened_at"]
+		} else if !errors.Is(err, pgx.ErrNoRows) {
+			return nil, err
+		}
+		var openUntil any
+		if consecutive >= maxConsecutive {
+			if openedAt == nil {
+				openedAt = now
+			}
+			openUntil = now.Add(time.Duration(windowSeconds) * time.Second)
+		}
+		message := errorDetail(failure)
+		stored, err := oneRow(ctx, tx, `
+			INSERT INTO striatumd.auto_finalize_circuit_breakers (
+			  repository_id, run_id, workflow_job_id, cause,
+			  consecutive_failures, opened_at, open_until,
+			  last_failure_at, last_error, updated_at
+			)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+			ON CONFLICT (repository_id, run_id, workflow_job_id, cause)
+			DO UPDATE SET
+			  consecutive_failures = EXCLUDED.consecutive_failures,
+			  opened_at = EXCLUDED.opened_at,
+			  open_until = EXCLUDED.open_until,
+			  last_failure_at = EXCLUDED.last_failure_at,
+			  last_error = EXCLUDED.last_error,
+			  updated_at = EXCLUDED.updated_at
+			RETURNING workflow_job_id, cause, consecutive_failures,
+			          opened_at, open_until, last_failure_at, last_error`,
+			repositoryID, runID, workflowJobID, cause, consecutive, openedAt, openUntil, now, message, now)
+		if err != nil {
+			return nil, err
+		}
+		state := "closed"
+		if stored["open_until"] != nil {
+			state = "open"
+			if _, err := appendEvent(ctx, tx, repositoryID, runID, "recovery.auto_finalize.circuit_breaker_open", nil, nil, nil, nil, nil, map[string]any{
+				"workflow_job_id":      workflowJobID,
+				"cause":                cause,
+				"consecutive_failures": consecutive,
+				"open_until":           timeString(openUntil),
+				"window_seconds":       windowSeconds,
+				"max_consecutive":      maxConsecutive,
+				"last_error":           message,
+			}); err != nil {
+				return nil, err
+			}
+		}
+		return serializeAutoFinalizeCircuitBreaker(stored, state), nil
+	})
+}
+
+func resetAutoFinalizeCircuitBreakers(ctx context.Context, runner db.Runner, repositoryID, runID, jobID string) (map[string]any, error) {
+	return withTx(ctx, runner, func(tx db.TxRunner) (map[string]any, error) {
+		var rows []map[string]any
+		var err error
+		if jobID == "" {
+			rows, err = queryRows(ctx, tx, `
+				DELETE FROM striatumd.auto_finalize_circuit_breakers
+				 WHERE repository_id = $1 AND run_id = $2
+				RETURNING workflow_job_id, cause`, repositoryID, runID)
+		} else {
+			rows, err = queryRows(ctx, tx, `
+				DELETE FROM striatumd.auto_finalize_circuit_breakers cb
+				 USING striatumd.jobs j
+				 WHERE cb.repository_id = $1
+				   AND cb.run_id = $2
+				   AND j.repository_id = cb.repository_id
+				   AND j.run_id = cb.run_id
+				   AND j.workflow_job_id = cb.workflow_job_id
+				   AND j.job_id = $3
+				RETURNING cb.workflow_job_id, cb.cause`, repositoryID, runID, jobID)
+		}
+		if err != nil {
+			return nil, err
+		}
+		if len(rows) > 0 {
+			if _, err := appendEvent(ctx, tx, repositoryID, runID, "recovery.auto_finalize.circuit_breaker_reset", nil, nil, nil, nil, nil, map[string]any{
+				"source":  "operator_reset",
+				"job_id":  nullable(jobID),
+				"cleared": rows,
+			}); err != nil {
+				return nil, err
+			}
+		}
+		return map[string]any{"cleared_count": len(rows), "cleared": rows}, nil
+	})
+}
+
+func clearAutoFinalizeCircuitBreakersForJob(ctx context.Context, runner any, repositoryID, runID, workflowJobID string) ([]map[string]any, error) {
+	rows, err := queryRows(ctx, runner, `
+		DELETE FROM striatumd.auto_finalize_circuit_breakers
+		 WHERE repository_id = $1
+		   AND run_id = $2
+		   AND workflow_job_id = $3
+		RETURNING workflow_job_id, cause`, repositoryID, runID, workflowJobID)
+	if err != nil {
+		return nil, err
+	}
+	if len(rows) > 0 {
+		if _, err := appendEvent(ctx, runner, repositoryID, runID, "recovery.auto_finalize.circuit_breaker_reset", nil, nil, nil, nil, nil, map[string]any{
+			"source":          "successful_auto_finalize",
+			"workflow_job_id": workflowJobID,
+			"cleared":         rows,
+		}); err != nil {
+			return nil, err
+		}
+	}
+	return rows, nil
+}
+
+func serializeAutoFinalizeCircuitBreaker(row map[string]any, state string) map[string]any {
+	return map[string]any{
+		"state":                state,
+		"workflow_job_id":      row["workflow_job_id"],
+		"cause":                row["cause"],
+		"consecutive_failures": intFromAny(row["consecutive_failures"], 0),
+		"opened_at":            timeString(row["opened_at"]),
+		"open_until":           timeString(row["open_until"]),
+		"last_failure_at":      timeString(row["last_failure_at"]),
+		"last_error":           row["last_error"],
+	}
+}
+
+func autoFinalizeFailureCause(err error) string {
+	text := strings.ToLower(err.Error())
+	switch {
+	case strings.Contains(text, "publish") || strings.Contains(text, "artifact"):
+		return autoFinalizeCauseFinalizePublishFailed
+	case strings.Contains(text, "verdict") || strings.Contains(text, "review"):
+		return autoFinalizeCauseFinalizeVerdictFailed
+	case strings.Contains(text, "complete") || strings.Contains(text, "job"):
+		return autoFinalizeCauseFinalizeCompleteFailed
+	default:
+		return autoFinalizeCauseFinalizeUnexpected
+	}
+}
+
+func positiveIntFromAny(value any, fallback int) int {
+	parsed := intFromAny(value, fallback)
+	if parsed <= 0 {
+		return fallback
+	}
+	return parsed
+}
+
+func intFromAny(value any, fallback int) int {
+	switch typed := value.(type) {
+	case int:
+		return typed
+	case int32:
+		return int(typed)
+	case int64:
+		return int(typed)
+	case float64:
+		return int(typed)
+	case json.Number:
+		if parsed, err := typed.Int64(); err == nil {
+			return int(parsed)
+		}
+	}
+	return fallback
+}
+
+func timeFromAny(value any) (time.Time, bool) {
+	switch typed := value.(type) {
+	case time.Time:
+		return typed, true
+	case string:
+		parsed, err := time.Parse(time.RFC3339, typed)
+		return parsed, err == nil
+	default:
+		return time.Time{}, false
+	}
+}
+
+func timeString(value any) any {
+	if value == nil {
+		return nil
+	}
+	if typed, ok := timeFromAny(value); ok {
+		return typed.UTC().Format(time.RFC3339)
+	}
+	return fmt.Sprint(value)
+}
+
+func errorDetail(err error) string {
+	text := strings.TrimSpace(err.Error())
+	if len(text) > 240 {
+		return text[:240]
+	}
+	return text
 }
 
 func autoFinalizeCandidateRows(ctx context.Context, runner any, repositoryID, runID, jobID string) ([]map[string]any, error) {
@@ -244,6 +613,14 @@ func evaluateAutoFinalizeRows(ctx context.Context, runner any, repositoryID, rep
 	eligible := []map[string]any{}
 	skipped := []map[string]any{}
 	for _, row := range rows {
+		openBreaker, err := openAutoFinalizeCircuitBreakerForJob(ctx, runner, repositoryID, runID, fmt.Sprint(row["workflow_job_id"]))
+		if err != nil {
+			return nil, err
+		}
+		if openBreaker != nil {
+			skipped = append(skipped, autoFinalizeCircuitBreakerSkip(row, openBreaker))
+			continue
+		}
 		evaluation := evaluateAutoFinalizeCandidate(ctx, runner, repositoryID, repoRoot, row, mtimeGraceSeconds, allowNoProcessExecution)
 		if evaluation["eligible"] == true {
 			eligible = append(eligible, evaluation["candidate"].(map[string]any))

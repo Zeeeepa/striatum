@@ -9,7 +9,7 @@ from typing import Any
 
 from striatum.errors import SchemaVersionError, StriatumError
 
-LATEST_DAEMON_DB_VERSION = 13
+LATEST_DAEMON_DB_VERSION = 14
 MIGRATION_LOCK_KEY = 332933
 
 
@@ -57,6 +57,11 @@ MIGRATIONS: tuple[PgMigration, ...] = (
         13,
         "workflow accepted-risk records (D124)",
         "0013_workflow_accepted_risks.sql",
+    ),
+    PgMigration(
+        14,
+        "auto-finalize circuit breakers (TODO 56)",
+        "0014_auto_finalize_circuit_breakers.sql",
     ),
 )
 

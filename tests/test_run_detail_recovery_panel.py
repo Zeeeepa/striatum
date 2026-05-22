@@ -82,7 +82,7 @@ def test_recovery_panel_template_renders_auto_finalize_projection() -> None:
                         "artifacts": [{"path": "docs/review.md"}],
                     }
                 ],
-                "skipped_count": 1,
+                "skipped_count": 2,
                 "skipped": [
                     {
                         "workflow_job_id": "review_api",
@@ -93,17 +93,34 @@ def test_recovery_panel_template_renders_auto_finalize_projection() -> None:
                                 "reason": "finding artifact front matter is required for auto-finalize",
                             }
                         ],
-                    }
+                    },
+                    {
+                        "workflow_job_id": "review_live",
+                        "reason": "auto-finalize circuit breaker is open until 2026-05-22T00:10:00Z",
+                        "cause": "circuit_breaker_open",
+                        "circuit_breaker": {
+                            "cause": "finalize_publish_failed",
+                            "open_until": "2026-05-22T00:10:00Z",
+                        },
+                    },
                 ],
-                "policy": {"live_allowed": False},
+                "policy": {
+                    "live_allowed": False,
+                    "circuit_breaker": {
+                        "state": "open",
+                        "open": [{"workflow_job_id": "review_live"}],
+                    },
+                },
             },
         }
     )
 
     assert "Auto-finalize dry run" in html
     assert "1 eligible" in html
-    assert "1 refused" in html
+    assert "2 refused" in html
     assert "live allowed: no" in html
+    assert "breakers open: 1" in html
+    assert "circuit breaker" in html
     assert "auto: 1" in html
     assert "auto_from_artifact" in html
     assert "review_docs" in html

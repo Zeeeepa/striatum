@@ -155,6 +155,33 @@ func TestMigrationFiveCarriesRepoLocalWorkflowTables(t *testing.T) {
 	}
 }
 
+func TestMigrationFourteenCarriesAutoFinalizeCircuitBreakers(t *testing.T) {
+	migrations, err := Migrations()
+	if err != nil {
+		t.Fatalf("load migrations: %v", err)
+	}
+	var migrationFourteen *Migration
+	for index := range migrations {
+		if migrations[index].Version == 14 {
+			migrationFourteen = &migrations[index]
+			break
+		}
+	}
+	if migrationFourteen == nil {
+		t.Fatal("migration 14 is missing")
+	}
+	for _, needle := range []string{
+		"striatumd.auto_finalize_circuit_breakers",
+		"PRIMARY KEY (repository_id, run_id, workflow_job_id, cause)",
+		"auto_finalize_circuit_breakers_open_idx",
+		"GRANT SELECT, INSERT, UPDATE, DELETE",
+	} {
+		if !strings.Contains(migrationFourteen.SQL, needle) {
+			t.Fatalf("migration 14 missing %q", needle)
+		}
+	}
+}
+
 func TestApplyMigrationsRecordsVersion(t *testing.T) {
 	runner := &fakeRunner{scalars: map[string]string{}}
 	version, err := ApplyMigrations(context.Background(), runner, "test")

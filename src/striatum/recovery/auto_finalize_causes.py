@@ -29,6 +29,7 @@ FINALIZE_PUBLISH_FAILED = "finalize_publish_failed"
 FINALIZE_COMPLETE_FAILED = "finalize_complete_failed"
 FINALIZE_VERDICT_FAILED = "finalize_verdict_failed"
 FINALIZE_UNEXPECTED_ERROR = "finalize_unexpected_error"
+CIRCUIT_BREAKER_OPEN = "circuit_breaker_open"
 PROJECTION_EVALUATION_FAILED = "projection_evaluation_failed"
 
 CAUSES: frozenset[str] = frozenset(
@@ -55,6 +56,7 @@ CAUSES: frozenset[str] = frozenset(
         FINALIZE_COMPLETE_FAILED,
         FINALIZE_VERDICT_FAILED,
         FINALIZE_UNEXPECTED_ERROR,
+        CIRCUIT_BREAKER_OPEN,
         PROJECTION_EVALUATION_FAILED,
     }
 )

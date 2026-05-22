@@ -79,8 +79,10 @@ implementation pair from that plan has landed: TODO 60 now has daemon
 read-only `git.snapshot` plus `striatum git snapshot --json`, and TODO 56 now
 adds stable auto-finalize skipped-candidate `cause` classes and
 lane-finalization visibility while preserving existing human-readable
-`reason` strings. The next daemon-contract slice also landed the TODO 55
-accepted-risk substrate: Go daemon `workflow.lint`,
+`reason` strings. The next TODO 56 checkpoint added the table-backed
+consecutive-failure circuit breaker with open/reset audit events and
+force-resistant refusal until explicit live reset. The next daemon-contract
+slice also landed the TODO 55 accepted-risk substrate: Go daemon `workflow.lint`,
 `workflow.accept_risk`, and `workflow.accepted_risks.list` with append-only
 PostgreSQL records bound to workflow snapshots or canonical fingerprints.
 
@@ -89,8 +91,9 @@ PostgreSQL records bound to workflow snapshots or canonical fingerprints.
 1. Finish TODO 55 CLI/UI client polish over the accepted-risk daemon methods
    when those surfaces are needed; do not write accepted-risk metadata into
    workflow files.
-2. Continue TODO 56 with consecutive-failure circuit-breaker state; keep live
-   auto-finalize workflow-opt-in and dry-run default.
+2. Continue TODO 56 only through the D125 live dogfood gate evidence; keep
+   live auto-finalize workflow-opt-in and dry-run default until that evidence
+   exists.
 3. Keep CLI retirement, RFC 0075 tmux metadata, RFC 0074 Phase A, and TODO
    61/62/63 cleanup queued behind the batch order in
    `docs/operator/artifacts/active-runway-1-5/FINAL.md`.

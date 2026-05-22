@@ -1045,6 +1045,7 @@ def test_recovery_auto_finalize_routes_to_split_method() -> None:
         force=True,
         mtime_grace_seconds=30,
         allow_no_process_execution=True,
+        reset_circuit_breaker=True,
     )
 
     assert method == "recovery.auto_finalize"
@@ -1055,6 +1056,7 @@ def test_recovery_auto_finalize_routes_to_split_method() -> None:
         "dry_run": False,
         "mtime_grace_seconds": 30,
         "allow_no_process_execution": True,
+        "reset_circuit_breaker": True,
     }
 
 

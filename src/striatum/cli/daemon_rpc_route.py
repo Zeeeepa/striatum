@@ -640,6 +640,7 @@ def _params_recovery(args: argparse.Namespace, repo: Path) -> dict[str, Any]:
         "max_sweeps",
         "mtime_grace_seconds",
         "allow_no_process_execution",
+        "reset_circuit_breaker",
     ):
         value = getattr(args, name, None)
         if value is not None:
