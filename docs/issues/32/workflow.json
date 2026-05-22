@@ -1,0 +1,22 @@
+{
+  "schema_version": "striatum.workflow.v1",
+  "workflow_id": "gh-32-skills-install-wrapper-copy",
+  "workflow_version": "1",
+  "name": "GH #32: skills install copies supervised wrappers",
+  "context_docs": ["docs/issues/32/SPEC.md", "docs/SPEC.md", "AGENTS.md"],
+  "coordinator": {"lane": "codex"},
+  "parallelism": {"max_active_jobs": 1},
+  "branch": {"mode": "auto", "suggested_name": "striatum/gh-32-skills-install-wrapper-copy"},
+  "lanes": {
+    "codex": {"adapter": "process", "command": ["bash", "-lc", "PYTHONPATH=src python3 -m striatum.cli skills install --profile all --scope user --force --json >/dev/null && exec .striatum/bin/codex-supervised-wrapper.sh"], "model": "codex"},
+    "claude_code": {"adapter": "process", "command": ["bash", "-lc", "PYTHONPATH=src python3 -m striatum.cli skills install --profile all --scope user --force --json >/dev/null && exec .striatum/bin/claude-supervised-wrapper.sh"], "model": "claude_code"}
+  },
+  "roles": {"triager": {}, "implementer": {}, "reviewer": {}},
+  "jobs": [
+    {"id": "triage", "type": "synthesis", "title": "Triage GH #32", "role_id": "triager", "lane_id": "codex", "fresh_session_required": true, "objective": "Confirm where skills install should create operational wrapper files.", "write_scope": {"mode": "repo_write", "repo_write": true, "allowed_paths": ["docs/issues/32/"], "forbidden_paths": [".striatum/"]}, "expected_artifacts": [{"logical_name": "scope", "kind": "synthesis", "path": "docs/issues/32/SCOPE.md", "required": true}]},
+    {"id": "fix", "type": "build", "title": "Implement GH #32", "role_id": "implementer", "lane_id": "claude_code", "objective": "Make skills install copy supervised wrappers to consumer repos and test it.", "write_scope": {"mode": "repo_write", "repo_write": true, "allowed_paths": ["src/striatum/bootstrap.py", "src/striatum/skills/", "tests/", "docs/issues/32/"], "forbidden_paths": [".striatum/"]}, "expected_artifacts": [{"logical_name": "handoff", "kind": "handoff", "path": "docs/issues/32/HANDOFF.md", "required": true}]},
+    {"id": "verify", "type": "review", "title": "Verify GH #32", "role_id": "reviewer", "lane_id": "codex", "fresh_session_required": true, "reviewer_context_policy": "fresh", "objective": "Verify skills install populates supervised wrappers in a fresh downstream repo.", "write_scope": {"mode": "review_only_artifact", "repo_write": false, "allowed_paths": ["docs/issues/32/review/"], "forbidden_paths": [".striatum/"]}, "expected_artifacts": [{"logical_name": "review", "kind": "finding", "path": "docs/issues/32/review/REVIEW.md", "required": true}]}
+  ],
+  "edges": [{"from": "triage", "to": "fix", "on": "completed"}, {"from": "fix", "to": "verify", "on": "completed"}],
+  "cycles": [{"from": "verify", "to": "fix", "on_verdict": "needs_revision", "max_iterations": 1}]
+}

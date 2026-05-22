@@ -74,7 +74,7 @@ func (r statusFakeRunner) Query(_ context.Context, sql string, args ...any) (pgx
 			"workflow_job_id": "review", "job_state": "blocked",
 		}
 		return dashboardAllRowsFromMaps([]map[string]any{row}), nil
-	case strings.Contains(sql, "v.verdict != 'accept'"):
+	case strings.Contains(sql, "v.verdict NOT IN ('accept', 'accept_with_findings')"):
 		return dashboardAllRowsFromMaps([]map[string]any{{
 			"verdict_id": "verdict_a", "run_id": "run_a", "job_id": "job_review",
 			"workflow_job_id": "review", "verdict": "needs_revision",
@@ -220,6 +220,10 @@ func TestHandleStatusBuildsPythonShapedRunProjection(t *testing.T) {
 	}
 	if stringCount(actions, "derive_expected_byline") != 1 {
 		t.Fatalf("next_actions should de-duplicate derive_expected_byline: %#v", actions)
+	}
+	nonAccepting := result["latest_non_accepting_review_verdicts"].([]map[string]any)
+	if len(nonAccepting) != 1 || nonAccepting[0]["verdict"] != "needs_revision" {
+		t.Fatalf("non-accepting verdicts = %#v", nonAccepting)
 	}
 }
 

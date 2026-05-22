@@ -102,9 +102,9 @@ def test_lint_workflow_reports_dogfood_risk_rules() -> None:
         "same_model_review_pair",
         "review_without_fresh_context",
         "broad_write_scope",
-        "repo_write_without_worktree_isolation",
         "missing_review_escalation_path",
     }.issubset(rules)
+    assert "repo_write_without_worktree_isolation" not in rules
     coverage = payload["coverage"]
     assert coverage["level"] == "weak"
     assert coverage["score"] < coverage["max_score"]
@@ -127,6 +127,17 @@ def test_lint_workflow_reports_same_model_review_pair_and_revision_cycle() -> No
     assert "same_model_revision_cycle" in rules
 
 
+def test_lint_workflow_reports_worktree_isolation_only_when_repo_writes_can_overlap() -> None:
+    workflow = _risky_review_workflow()
+    workflow["parallelism"] = {"mode": "declared", "max_active_jobs": 2}
+
+    payload = lint_workflow(workflow)
+
+    assert payload["valid"] is True
+    rules = {warning["rule"] for warning in payload["warnings"]}
+    assert "repo_write_without_worktree_isolation" in rules
+
+
 def test_workflow_lint_cli_returns_structured_warnings(
     tmp_path: Path, monkeypatch: Any
 ) -> None:
@@ -140,7 +151,7 @@ def test_workflow_lint_cli_returns_structured_warnings(
     assert result["ok"] is True
     payload = result["data"]
     assert payload["workflow_id"] == "wf-lint"
-    assert payload["warning_count"] >= 5
+    assert payload["warning_count"] >= 4
 
 
 def test_workflow_validate_refuses_same_model_pairing_without_override(
@@ -201,7 +212,7 @@ def test_workflow_lint_strict_refuses_warnings_without_override(
     details = error["details"]
     assert details["strict"]["mode"] == "refused"
     assert details["strict"]["reason"] == "warnings_require_override_rationale"
-    assert details["warning_count"] >= 5
+    assert details["warning_count"] >= 4
 
 
 def test_workflow_lint_strict_refuses_same_model_revision_cycle_without_override(

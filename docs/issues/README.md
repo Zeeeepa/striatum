@@ -83,5 +83,14 @@ new GH issues rather than amending the closed one.
   daemon doctor ([gh#26](https://github.com/halbritt/striatum/issues/26))
 - [27/](27/) — artifacts_no_update trigger should allow blob_* column
   updates ([gh#27](https://github.com/halbritt/striatum/issues/27))
-- [28/](28/) — Unified Interactive Harness, Tmux Supervisor, and Escalation Inbox ([gh#28](https://github.com/halbritt/striatum/issues/28))
-
+- [28/](28/) — review_posture: compliance_license evidence-scope regression ([gh#28](https://github.com/halbritt/striatum/issues/28))
+- [30/](30/) — No operator recovery path for stale-leased repo-write jobs ([gh#30](https://github.com/halbritt/striatum/issues/30))
+- [32/](32/) — skills install does not copy supervised wrappers to consumer repositories ([gh#32](https://github.com/halbritt/striatum/issues/32))
+- [33/](33/) — Concurrent supervise start RPCs can deadlock in Postgres ([gh#33](https://github.com/halbritt/striatum/issues/33))
+- [34/](34/) — Write-scope escape from repo-write allowed_paths ([gh#34](https://github.com/halbritt/striatum/issues/34))
+- [35/](35/) — Zombie supervised lanes block supervise.stop ([gh#35](https://github.com/halbritt/striatum/issues/35))
+- [36/](36/) — Gemini review jobs complete without verdict and need override recovery ([gh#36](https://github.com/halbritt/striatum/issues/36))
+- [38/](38/) — RFC 0075 MCP liveness timestamps and deadline classifications ([gh#38](https://github.com/halbritt/striatum/issues/38))
+- [40/](40/) — RFC 0075 tmux attach metadata and status surfaces ([gh#40](https://github.com/halbritt/striatum/issues/40))
+- [43/](43/) — status treats accept_with_findings as non-accepting ([gh#43](https://github.com/halbritt/striatum/issues/43))
+- [44/](44/) — workflow details reports repo_write_without_worktree_isolation on serial issue workflows ([gh#44](https://github.com/halbritt/striatum/issues/44))

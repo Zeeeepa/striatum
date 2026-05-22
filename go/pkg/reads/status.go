@@ -279,7 +279,7 @@ func statusBlockers(ctx context.Context, runner db.Runner, repositoryID, runID, 
 }
 
 func statusLatestNonAccepting(ctx context.Context, runner db.Runner, repositoryID, runID string) ([]map[string]any, error) {
-	where := "v.repository_id = $1 AND v.verdict != 'accept'"
+	where := "v.repository_id = $1 AND v.verdict NOT IN ('accept', 'accept_with_findings')"
 	args := []any{repositoryID}
 	if runID != "" {
 		where += " AND v.run_id = $2"

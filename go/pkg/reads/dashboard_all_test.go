@@ -51,7 +51,7 @@ func (dashboardAllFakeRunner) Query(_ context.Context, sql string, args ...any) 
 		return dashboardAllRowsFromMaps(nil), nil
 	case strings.Contains(sql, "FROM striatumd.blockers b"):
 		return dashboardAllRowsFromMaps(nil), nil
-	case strings.Contains(sql, "DISTINCT ON (v.job_id)") && strings.Contains(sql, "v.verdict != 'accept'"):
+	case strings.Contains(sql, "DISTINCT ON (v.job_id)") && strings.Contains(sql, "v.verdict NOT IN ('accept', 'accept_with_findings')"):
 		return dashboardAllRowsFromMaps(nil), nil
 	case strings.Contains(sql, "FROM striatumd.verdicts v") && strings.Contains(sql, "GROUP BY v.posture"):
 		return dashboardAllRowsFromMaps(nil), nil

@@ -1,0 +1,22 @@
+{
+  "schema_version": "striatum.workflow.v1",
+  "workflow_id": "gh-36-verdictless-review-recovery",
+  "workflow_version": "1",
+  "name": "GH #36: verdict-less completed review recovery",
+  "context_docs": ["docs/issues/36/SPEC.md", "docs/SPEC.md", "AGENTS.md"],
+  "coordinator": {"lane": "codex"},
+  "parallelism": {"max_active_jobs": 1},
+  "branch": {"mode": "auto", "suggested_name": "striatum/gh-36-verdictless-review-recovery"},
+  "lanes": {
+    "codex": {"adapter": "process", "command": ["bash", "-lc", "PYTHONPATH=src python3 -m striatum.cli skills install --profile all --scope user --force --json >/dev/null && exec .striatum/bin/codex-supervised-wrapper.sh"], "model": "codex"},
+    "claude_code": {"adapter": "process", "command": ["bash", "-lc", "PYTHONPATH=src python3 -m striatum.cli skills install --profile all --scope user --force --json >/dev/null && exec .striatum/bin/claude-supervised-wrapper.sh"], "model": "claude_code"}
+  },
+  "roles": {"triager": {}, "implementer": {}, "reviewer": {}},
+  "jobs": [
+    {"id": "triage", "type": "synthesis", "title": "Triage GH #36", "role_id": "triager", "lane_id": "codex", "fresh_session_required": true, "objective": "Confirm current review completion, packet command, and override behavior.", "write_scope": {"mode": "repo_write", "repo_write": true, "allowed_paths": ["docs/issues/36/"], "forbidden_paths": [".striatum/"]}, "expected_artifacts": [{"logical_name": "scope", "kind": "synthesis", "path": "docs/issues/36/SCOPE.md", "required": true}]},
+    {"id": "fix", "type": "build", "title": "Implement GH #36", "role_id": "implementer", "lane_id": "claude_code", "objective": "Block review complete, improve Gemini review guidance, and support missing-verdict override.", "write_scope": {"mode": "repo_write", "repo_write": true, "allowed_paths": ["go/pkg/mutations/", "src/striatum/", "tests/", "docs/issues/36/"], "forbidden_paths": [".striatum/"]}, "expected_artifacts": [{"logical_name": "handoff", "kind": "handoff", "path": "docs/issues/36/HANDOFF.md", "required": true}]},
+    {"id": "verify", "type": "review", "title": "Verify GH #36", "role_id": "reviewer", "lane_id": "codex", "fresh_session_required": true, "reviewer_context_policy": "fresh", "objective": "Verify verdict-less reviews cannot silently block accepted-review edges.", "write_scope": {"mode": "review_only_artifact", "repo_write": false, "allowed_paths": ["docs/issues/36/review/"], "forbidden_paths": [".striatum/"]}, "expected_artifacts": [{"logical_name": "review", "kind": "finding", "path": "docs/issues/36/review/REVIEW.md", "required": true}]}
+  ],
+  "edges": [{"from": "triage", "to": "fix", "on": "completed"}, {"from": "fix", "to": "verify", "on": "completed"}],
+  "cycles": [{"from": "verify", "to": "fix", "on_verdict": "needs_revision", "max_iterations": 1}]
+}

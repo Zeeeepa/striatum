@@ -204,7 +204,7 @@ def blocker_summaries(ctx: RepoHandlerContext, *, run_id: str | None, severity: 
 
 
 def latest_non_accepting_verdicts(ctx: RepoHandlerContext, *, run_id: str | None) -> list[dict[str, Any]]:
-    where = "v.repository_id = %s AND v.verdict != 'accept'"
+    where = "v.repository_id = %s AND v.verdict NOT IN ('accept', 'accept_with_findings')"
     args: list[Any] = [ctx.repository_id]
     if run_id is not None:
         where += " AND v.run_id = %s"

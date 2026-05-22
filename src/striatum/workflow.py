@@ -2263,6 +2263,11 @@ def _lint_write_scope_risk(
 ) -> None:
     lanes = workflow.get("lanes")
     lane_map = lanes if isinstance(lanes, dict) else {}
+    parallelism = workflow.get("parallelism")
+    workflow_can_overlap = False
+    if isinstance(parallelism, dict):
+        max_active = parallelism.get("max_active_jobs")
+        workflow_can_overlap = isinstance(max_active, int) and max_active > 1
     for job_id, job in job_map.items():
         scope = job.get("write_scope")
         if not isinstance(scope, dict):
@@ -2288,7 +2293,9 @@ def _lint_write_scope_risk(
             )
         lane_id = job.get("lane_id")
         lane = lane_map.get(lane_id) if isinstance(lane_id, str) else None
-        if not isinstance(lane, dict) or lane.get("worktree_isolation") != "per_job":
+        if workflow_can_overlap and (
+            not isinstance(lane, dict) or lane.get("worktree_isolation") != "per_job"
+        ):
             findings.append(
                 {
                     "rule": "repo_write_without_worktree_isolation",

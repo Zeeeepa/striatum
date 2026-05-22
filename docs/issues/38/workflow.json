@@ -1,0 +1,22 @@
+{
+  "schema_version": "striatum.workflow.v1",
+  "workflow_id": "gh-38-mcp-liveness-classifications",
+  "workflow_version": "1",
+  "name": "GH #38: MCP liveness timestamps and classifications",
+  "context_docs": ["docs/issues/38/SPEC.md", "docs/rfcs/0075-tmux-observable-mcp-agent-sessions.md", "docs/operator/artifacts/rfc-0075-and-mcp-cutover/design/LIVENESS_CONTRACT.md", "docs/SPEC.md", "AGENTS.md"],
+  "coordinator": {"lane": "codex"},
+  "parallelism": {"max_active_jobs": 1},
+  "branch": {"mode": "auto", "suggested_name": "striatum/gh-38-mcp-liveness-classifications"},
+  "lanes": {
+    "codex": {"adapter": "process", "command": ["bash", "-lc", "PYTHONPATH=src python3 -m striatum.cli skills install --profile all --scope user --force --json >/dev/null && exec .striatum/bin/codex-supervised-wrapper.sh"], "model": "codex"},
+    "claude_code": {"adapter": "process", "command": ["bash", "-lc", "PYTHONPATH=src python3 -m striatum.cli skills install --profile all --scope user --force --json >/dev/null && exec .striatum/bin/claude-supervised-wrapper.sh"], "model": "claude_code"}
+  },
+  "roles": {"triager": {}, "implementer": {}, "reviewer": {}},
+  "jobs": [
+    {"id": "triage", "type": "synthesis", "title": "Triage GH #38", "role_id": "triager", "lane_id": "codex", "fresh_session_required": true, "objective": "Map current session liveness code against the RFC 0075 liveness contract.", "write_scope": {"mode": "repo_write", "repo_write": true, "allowed_paths": ["docs/issues/38/"], "forbidden_paths": [".striatum/"]}, "expected_artifacts": [{"logical_name": "scope", "kind": "synthesis", "path": "docs/issues/38/SCOPE.md", "required": true}]},
+    {"id": "fix", "type": "build", "title": "Implement GH #38", "role_id": "implementer", "lane_id": "claude_code", "objective": "Persist MCP activity timestamps, classify liveness deadlines, expose reads, and test fake-agent stalls.", "write_scope": {"mode": "repo_write", "repo_write": true, "allowed_paths": ["go/pkg/", "src/striatum/", "tests/", "docs/issues/38/"], "forbidden_paths": [".striatum/"]}, "expected_artifacts": [{"logical_name": "handoff", "kind": "handoff", "path": "docs/issues/38/HANDOFF.md", "required": true}]},
+    {"id": "verify", "type": "review", "title": "Verify GH #38", "role_id": "reviewer", "lane_id": "codex", "fresh_session_required": true, "reviewer_context_policy": "fresh", "objective": "Verify liveness classifications are daemon-owned metadata and transcript-free.", "write_scope": {"mode": "review_only_artifact", "repo_write": false, "allowed_paths": ["docs/issues/38/review/"], "forbidden_paths": [".striatum/"]}, "expected_artifacts": [{"logical_name": "review", "kind": "finding", "path": "docs/issues/38/review/REVIEW.md", "required": true}]}
+  ],
+  "edges": [{"from": "triage", "to": "fix", "on": "completed"}, {"from": "fix", "to": "verify", "on": "completed"}],
+  "cycles": [{"from": "verify", "to": "fix", "on_verdict": "needs_revision", "max_iterations": 1}]
+}

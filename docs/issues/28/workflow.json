@@ -1,44 +1,17 @@
 {
   "schema_version": "striatum.workflow.v1",
-  "workflow_id": "gh-28-unified-interactive-harness",
+  "workflow_id": "gh-28-review-posture-evidence-scope",
   "workflow_version": "1",
-  "name": "GH #28: Unified Interactive Harness, Tmux Supervisor, and Escalation Inbox",
-  "context_docs": [
-    "docs/issues/28/SPEC.md",
-    "docs/rfcs/0049-interactive-claude-lane-mcp-control-plane.md",
-    "docs/ROADMAP.md",
-    "docs/TODO.md",
-    "docs/DECISION_LOG.md",
-    "docs/POSTGRES_TRANSITION.md",
-    "docs/SPEC.md",
-    "docs/INDEX.md",
-    "AGENTS.md"
-  ],
+  "name": "GH #28: compliance_license review posture evidence scope",
+  "context_docs": ["docs/issues/28/SPEC.md", "docs/issues/README.md", "docs/SPEC.md", "AGENTS.md"],
   "coordinator": {"lane": "codex"},
   "parallelism": {"max_active_jobs": 1},
-  "branch": {"mode": "auto", "suggested_name": "striatum/gh-28-unified-interactive-harness"},
+  "branch": {"mode": "auto", "suggested_name": "striatum/gh-28-review-posture-evidence-scope"},
   "lanes": {
-    "codex": {
-      "adapter": "process",
-      "command": ["bash", "-lc", "PYTHONPATH=src python3 -m striatum.cli skills install --profile all --scope user --force --json >/dev/null && export PATH=\"$PWD/.venv/bin:$PATH\" && exec .striatum/bin/codex-supervised-wrapper.sh"],
-      "model": "codex",
-      "strategy_version": "2026-05-19",
-      "supervision": {"compatible": true, "stdin_format": "newline_delimited_json", "wrapper_required": true}
-    },
-    "claude_code": {
-      "adapter": "process",
-      "command": ["bash", "-lc", "PYTHONPATH=src python3 -m striatum.cli skills install --profile all --scope user --force --json >/dev/null && export PATH=\"$PWD/.venv/bin:$PATH\" && exec .striatum/bin/claude-supervised-wrapper.sh"],
-      "model": "claude_code",
-      "strategy_version": "2026-05-19",
-      "supervision": {"compatible": "verify_pipe_behavior_first", "stdin_format": "prompt_text", "wrapper_required": true}
-    }
+    "codex": {"adapter": "process", "command": ["bash", "-lc", "PYTHONPATH=src python3 -m striatum.cli skills install --profile all --scope user --force --json >/dev/null && exec .striatum/bin/codex-supervised-wrapper.sh"], "model": "codex"},
+    "claude_code": {"adapter": "process", "command": ["bash", "-lc", "PYTHONPATH=src python3 -m striatum.cli skills install --profile all --scope user --force --json >/dev/null && exec .striatum/bin/claude-supervised-wrapper.sh"], "model": "claude_code"}
   },
-  "roles": {
-    "coordinator": {"description": "Operator/control-plane role."},
-    "triager": {"description": "Bounds scope from the captured GH issue and project roadmap."},
-    "implementer": {"description": "Applies the scoped source changes."},
-    "reviewer": {"description": "Fresh-context reviewer who verifies the scoped change."}
-  },
+  "roles": {"triager": {}, "implementer": {}, "reviewer": {}},
   "jobs": [
     {
       "id": "triage",
@@ -47,8 +20,7 @@
       "role_id": "triager",
       "lane_id": "codex",
       "fresh_session_required": true,
-      "objective": "Bound scope for GH #28: specify implementation of unified interactive harness, Go validator parity, tmux-based supervision, mcp await_packet endpoint, and the stateful escalation inbox.",
-      "task_prompt": {"path": "docs/issues/28/prompts/triage.md"},
+      "objective": "Bound GH #28 and name the docs, prompts, and tests that must change.",
       "write_scope": {"mode": "repo_write", "repo_write": true, "allowed_paths": ["docs/issues/28/"], "forbidden_paths": [".striatum/"]},
       "expected_artifacts": [{"logical_name": "scope", "kind": "synthesis", "path": "docs/issues/28/SCOPE.md", "required": true}]
     },
@@ -58,21 +30,9 @@
       "title": "Implement GH #28",
       "role_id": "implementer",
       "lane_id": "claude_code",
-      "required_review_postures": ["compliance_license"],
-      "objective": "Implement the Go template catalog and validator updates, tmux-based Go supervisor helper, mcp await_packet endpoint, escalation inbox schema, and tests.",
-      "task_prompt": {"path": "docs/issues/28/prompts/fix.md"},
-      "write_scope": {
-        "mode": "repo_write",
-        "repo_write": true,
-        "allowed_paths": [
-          "go/pkg/",
-          "src/striatum/",
-          "tests/",
-          "docs/issues/28/build/"
-        ],
-        "forbidden_paths": [".striatum/"]
-      },
-      "expected_artifacts": [{"logical_name": "handoff", "kind": "handoff", "path": "docs/issues/28/build/HANDOFF.md", "required": true}]
+      "objective": "Clarify compliance_license evidence semantics and add regression coverage.",
+      "write_scope": {"mode": "repo_write", "repo_write": true, "allowed_paths": ["docs/", "tests/", "src/striatum/"], "forbidden_paths": [".striatum/"]},
+      "expected_artifacts": [{"logical_name": "handoff", "kind": "handoff", "path": "docs/issues/28/HANDOFF.md", "required": true}]
     },
     {
       "id": "verify",
@@ -83,17 +43,11 @@
       "fresh_session_required": true,
       "reviewer_context_policy": "fresh",
       "review_posture": "compliance_license",
-      "objective": "Verify GH #28 is closed against its captured SPEC and the implementer handoff.",
-      "task_prompt": {"path": "docs/issues/28/prompts/verify.md"},
+      "objective": "Verify GH #28 is closed. The compliance_license posture scopes findings, not evidence; read the handoff and changed files named by it.",
       "write_scope": {"mode": "review_only_artifact", "repo_write": false, "allowed_paths": ["docs/issues/28/review/"], "forbidden_paths": [".striatum/"]},
-      "expected_artifacts": [{"logical_name": "verify_review", "kind": "finding", "path": "docs/issues/28/review/REVIEW.md", "required": true}]
+      "expected_artifacts": [{"logical_name": "review", "kind": "finding", "path": "docs/issues/28/review/REVIEW.md", "required": true}]
     }
   ],
-  "edges": [
-    {"from": "triage", "to": "fix", "on": "completed"},
-    {"from": "fix", "to": "verify", "on": "completed"}
-  ],
-  "cycles": [
-    {"from": "verify", "to": "fix", "on_verdict": "needs_revision", "max_iterations": 1}
-  ]
+  "edges": [{"from": "triage", "to": "fix", "on": "completed"}, {"from": "fix", "to": "verify", "on": "completed"}],
+  "cycles": [{"from": "verify", "to": "fix", "on_verdict": "needs_revision", "max_iterations": 1}]
 }
