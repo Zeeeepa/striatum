@@ -24,6 +24,7 @@ chooser, see [`docs/WORKFLOW_TYPES.md`](../docs/WORKFLOW_TYPES.md).
 | `support-ledger-flow/` | You want an evidence-backed artifact with a support ledger and audit review. |
 | `harness-profiles/` | You want to inspect harness profile projection in work packets. |
 | `three-lane-design-build-review/` | You want the historical design, synthesis, build, and review graph as a runner-owned workflow. |
+| `implementation-panel-flow/` | You want three independent implementation options, fixed-dimension scorecards, arbitration, dissent review, and a final decision. |
 | `adapter-unavailable-flow/` | You want a validation fixture for unavailable adapters. |
 | `failed-review-revision-cycle/` | You want to exercise a failed bounded revision cycle. |
 
@@ -35,6 +36,7 @@ chooser, see [`docs/WORKFLOW_TYPES.md`](../docs/WORKFLOW_TYPES.md).
 | `code-change-flow/`, `support-ledger-flow/` | Single model lane used across author/review jobs. |
 | `rfc-ledger-cleanup/` | Multiple model-family lanes feeding review and synthesis jobs. |
 | `three-lane-design-build-review/` | Three design lanes, one synthesis lane, and three build-review lanes with bounded revision cycles. |
+| `implementation-panel-flow/` | Local process lanes split by proposal, review, arbitration, and decision roles. |
 | `harness-profiles/` | Tool-family harness profiles and supervised-lane wrapper shape. |
 | `adapter-unavailable-flow/` | Constraint/enforcement validation on a process lane. |
 

@@ -1,0 +1,369 @@
+{
+  "schema_version": "striatum.workflow.v1",
+  "workflow_id": "implementation-panel-flow",
+  "workflow_version": "2026-05-22",
+  "name": "Implementation Panel Flow",
+  "branch": {
+    "mode": "confirm",
+    "suggested_name": "striatum/implementation-panel-flow",
+    "allow_dirty": false
+  },
+  "coordinator": {
+    "role_id": "coordinator",
+    "lane_id": "proposal"
+  },
+  "lanes": {
+    "proposal": {
+      "adapter": "process",
+      "display_model": "Proposal Fixture",
+      "command": ["sh", "-c", "cat >/dev/null"],
+      "capabilities": ["write", "synthesis"]
+    },
+    "review": {
+      "adapter": "process",
+      "display_model": "Review Fixture",
+      "command": ["sh", "-c", "cat >/dev/null"],
+      "capabilities": ["review"]
+    },
+    "arbitration": {
+      "adapter": "process",
+      "display_model": "Arbitration Fixture",
+      "command": ["sh", "-c", "cat >/dev/null"],
+      "capabilities": ["write", "synthesis"]
+    },
+    "decision": {
+      "adapter": "process",
+      "display_model": "Decision Fixture",
+      "command": ["sh", "-c", "cat >/dev/null"],
+      "capabilities": ["write", "synthesis"]
+    }
+  },
+  "roles": {
+    "coordinator": {"definition_path": "roles/coordinator.md"},
+    "problem_framer": {"definition_path": "roles/problem_framer.md"},
+    "proposer_a": {"definition_path": "roles/proposer_a.md"},
+    "proposer_b": {"definition_path": "roles/proposer_b.md"},
+    "proposer_c": {"definition_path": "roles/proposer_c.md"},
+    "scorekeeper": {"definition_path": "roles/scorekeeper.md"},
+    "tradeoff_ledger": {"definition_path": "roles/tradeoff_ledger.md"},
+    "arbitrator": {"definition_path": "roles/arbitrator.md"},
+    "dissent_reviewer": {"definition_path": "roles/dissent_reviewer.md"},
+    "principal_decider": {"definition_path": "roles/principal_decider.md"}
+  },
+  "context_docs": [
+    {"path": "README.md", "required": false},
+    {"path": "docs/INDEX.md", "required": false},
+    {"path": "docs/UBIQUITOUS_LANGUAGE.md", "required": false},
+    {"path": "docs/WORKFLOW_TYPES.md", "required": false},
+    {"path": "docs/HOW_TO_AGENT.md", "required": false},
+    {
+      "path": "docs/rfcs/0074-workflow-shape-and-adversary-pack-catalog.md",
+      "required": false
+    }
+  ],
+  "parallelism": {
+    "mode": "declared",
+    "max_active_jobs": 3,
+    "require_disjoint_write_scopes": true
+  },
+  "jobs": [
+    {
+      "id": "frame_problem",
+      "type": "synthesis",
+      "title": "Frame problem",
+      "role_id": "problem_framer",
+      "lane_id": "proposal",
+      "objective": "Publish a concise implementation problem brief with constraints, goals, non-goals, and decision criteria.",
+      "task_prompt": {"path": "prompts/frame_problem.md"},
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": ["examples/implementation-panel-flow/artifacts/PROBLEM_BRIEF.md"],
+        "forbidden_paths": [".striatum/"]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "problem_brief",
+          "kind": "handoff",
+          "path": "examples/implementation-panel-flow/artifacts/PROBLEM_BRIEF.md",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "propose_option_a",
+      "type": "synthesis",
+      "title": "Propose option A",
+      "role_id": "proposer_a",
+      "lane_id": "proposal",
+      "parallel_group": "proposals",
+      "fresh_session_required": true,
+      "objective": "Develop implementation option A independently from the problem brief.",
+      "task_prompt": {"path": "prompts/propose_option.md"},
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": ["examples/implementation-panel-flow/artifacts/proposals/PROPOSAL_A.md"],
+        "forbidden_paths": [".striatum/"]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "proposal_a",
+          "kind": "handoff",
+          "path": "examples/implementation-panel-flow/artifacts/proposals/PROPOSAL_A.md",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "propose_option_b",
+      "type": "synthesis",
+      "title": "Propose option B",
+      "role_id": "proposer_b",
+      "lane_id": "proposal",
+      "parallel_group": "proposals",
+      "fresh_session_required": true,
+      "objective": "Develop implementation option B independently from the problem brief.",
+      "task_prompt": {"path": "prompts/propose_option.md"},
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": ["examples/implementation-panel-flow/artifacts/proposals/PROPOSAL_B.md"],
+        "forbidden_paths": [".striatum/"]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "proposal_b",
+          "kind": "handoff",
+          "path": "examples/implementation-panel-flow/artifacts/proposals/PROPOSAL_B.md",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "propose_option_c",
+      "type": "synthesis",
+      "title": "Propose option C",
+      "role_id": "proposer_c",
+      "lane_id": "proposal",
+      "parallel_group": "proposals",
+      "fresh_session_required": true,
+      "objective": "Develop implementation option C independently from the problem brief.",
+      "task_prompt": {"path": "prompts/propose_option.md"},
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": ["examples/implementation-panel-flow/artifacts/proposals/PROPOSAL_C.md"],
+        "forbidden_paths": [".striatum/"]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "proposal_c",
+          "kind": "handoff",
+          "path": "examples/implementation-panel-flow/artifacts/proposals/PROPOSAL_C.md",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "score_option_a",
+      "type": "review",
+      "title": "Score option A",
+      "role_id": "scorekeeper",
+      "lane_id": "review",
+      "parallel_group": "scorecards",
+      "fresh_session_required": true,
+      "reviewer_context_policy": "fresh",
+      "review_posture": "custom:maintainer_cost",
+      "objective": "Score proposal A against the fixed implementation-panel dimensions.",
+      "task_prompt": {"path": "prompts/score_option.md"},
+      "write_scope": {
+        "mode": "review_only_artifact",
+        "repo_write": false,
+        "allowed_paths": ["examples/implementation-panel-flow/artifacts/scorecards/SCORECARD_A.md"],
+        "forbidden_paths": [".striatum/"]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "scorecard_a",
+          "kind": "finding",
+          "path": "examples/implementation-panel-flow/artifacts/scorecards/SCORECARD_A.md",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "score_option_b",
+      "type": "review",
+      "title": "Score option B",
+      "role_id": "scorekeeper",
+      "lane_id": "review",
+      "parallel_group": "scorecards",
+      "fresh_session_required": true,
+      "reviewer_context_policy": "fresh",
+      "review_posture": "custom:maintainer_cost",
+      "objective": "Score proposal B against the fixed implementation-panel dimensions.",
+      "task_prompt": {"path": "prompts/score_option.md"},
+      "write_scope": {
+        "mode": "review_only_artifact",
+        "repo_write": false,
+        "allowed_paths": ["examples/implementation-panel-flow/artifacts/scorecards/SCORECARD_B.md"],
+        "forbidden_paths": [".striatum/"]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "scorecard_b",
+          "kind": "finding",
+          "path": "examples/implementation-panel-flow/artifacts/scorecards/SCORECARD_B.md",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "score_option_c",
+      "type": "review",
+      "title": "Score option C",
+      "role_id": "scorekeeper",
+      "lane_id": "review",
+      "parallel_group": "scorecards",
+      "fresh_session_required": true,
+      "reviewer_context_policy": "fresh",
+      "review_posture": "custom:maintainer_cost",
+      "objective": "Score proposal C against the fixed implementation-panel dimensions.",
+      "task_prompt": {"path": "prompts/score_option.md"},
+      "write_scope": {
+        "mode": "review_only_artifact",
+        "repo_write": false,
+        "allowed_paths": ["examples/implementation-panel-flow/artifacts/scorecards/SCORECARD_C.md"],
+        "forbidden_paths": [".striatum/"]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "scorecard_c",
+          "kind": "finding",
+          "path": "examples/implementation-panel-flow/artifacts/scorecards/SCORECARD_C.md",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "compile_tradeoffs",
+      "type": "synthesis",
+      "title": "Compile tradeoffs",
+      "role_id": "tradeoff_ledger",
+      "lane_id": "proposal",
+      "objective": "Compile proposal and scorecard evidence into a normalized tradeoff ledger.",
+      "task_prompt": {"path": "prompts/compile_tradeoffs.md"},
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": ["examples/implementation-panel-flow/artifacts/TRADEOFF_LEDGER.md"],
+        "forbidden_paths": [".striatum/"]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "tradeoff_ledger",
+          "kind": "findings_ledger",
+          "path": "examples/implementation-panel-flow/artifacts/TRADEOFF_LEDGER.md",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "arbitrate",
+      "type": "synthesis",
+      "title": "Arbitrate preferred option",
+      "role_id": "arbitrator",
+      "lane_id": "arbitration",
+      "fresh_session_required": true,
+      "objective": "Select or compose the preferred implementation path from the tradeoff ledger and evidence.",
+      "task_prompt": {"path": "prompts/arbitrate.md"},
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": ["examples/implementation-panel-flow/artifacts/ARBITRATOR_SYNTHESIS.md"],
+        "forbidden_paths": [".striatum/"]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "arbitrator_synthesis",
+          "kind": "synthesis",
+          "path": "examples/implementation-panel-flow/artifacts/ARBITRATOR_SYNTHESIS.md",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "review_dissent",
+      "type": "review",
+      "title": "Review dissent",
+      "role_id": "dissent_reviewer",
+      "lane_id": "review",
+      "fresh_session_required": true,
+      "reviewer_context_policy": "fresh",
+      "review_posture": "devils_advocate",
+      "objective": "Try to falsify the arbitration before the final decision is recorded.",
+      "task_prompt": {"path": "prompts/review_dissent.md"},
+      "write_scope": {
+        "mode": "review_only_artifact",
+        "repo_write": false,
+        "allowed_paths": ["examples/implementation-panel-flow/artifacts/DISSENT_REVIEW.md"],
+        "forbidden_paths": [".striatum/"]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "dissent_review",
+          "kind": "finding",
+          "path": "examples/implementation-panel-flow/artifacts/DISSENT_REVIEW.md",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "record_decision",
+      "type": "synthesis",
+      "title": "Record decision",
+      "role_id": "principal_decider",
+      "lane_id": "decision",
+      "objective": "Publish the final implementation decision and required follow-up work.",
+      "task_prompt": {"path": "prompts/record_decision.md"},
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": ["examples/implementation-panel-flow/artifacts/DECISION.md"],
+        "forbidden_paths": [".striatum/"]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "decision",
+          "kind": "decision",
+          "path": "examples/implementation-panel-flow/artifacts/DECISION.md",
+          "required": true
+        }
+      ]
+    }
+  ],
+  "edges": [
+    {"from": "frame_problem", "to": "propose_option_a", "on": "completed"},
+    {"from": "frame_problem", "to": "propose_option_b", "on": "completed"},
+    {"from": "frame_problem", "to": "propose_option_c", "on": "completed"},
+    {"from": "propose_option_a", "to": "score_option_a", "on": "completed"},
+    {"from": "propose_option_b", "to": "score_option_b", "on": "completed"},
+    {"from": "propose_option_c", "to": "score_option_c", "on": "completed"},
+    {"from": "score_option_a", "to": "compile_tradeoffs", "on": "completed"},
+    {"from": "score_option_b", "to": "compile_tradeoffs", "on": "completed"},
+    {"from": "score_option_c", "to": "compile_tradeoffs", "on": "completed"},
+    {"from": "compile_tradeoffs", "to": "arbitrate", "on": "completed"},
+    {"from": "arbitrate", "to": "review_dissent", "on": "completed"},
+    {"from": "review_dissent", "to": "record_decision", "on": "completed"}
+  ],
+  "cycles": [
+    {
+      "from": "review_dissent",
+      "to": "arbitrate",
+      "on_verdict": "needs_revision",
+      "max_iterations": 1,
+      "allow_same_lane": true
+    }
+  ]
+}
