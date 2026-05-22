@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from striatum.corpus.manifest import build_manifest, generated_at_now, verify_manifest, write_manifest
+from striatum.corpus.manifest import build_manifest, default_corpus_id, generated_at_now, verify_manifest, write_manifest
 from striatum.corpus.types import SUB_KINDS
 from striatum.errors import StriatumError
 
@@ -45,6 +45,22 @@ def test_manifest_includes_schema_git_authority_and_counts(tmp_path: Path) -> No
     )
 
     assert manifest["schema_version"] == "striatum.corpus_export.v1"
+    assert manifest["corpus_contract_version"] == 2
+    assert manifest["corpus_id"] == default_corpus_id(tmp_path)
+    assert manifest["legacy_corpus_alias"] == "striatum"
+    assert manifest["redaction_tier"] == "public"
+    assert manifest["verification_depth"] == "deep_chain"
+    assert manifest["augmentation_policy"] == {
+        "mode": "reference_only",
+        "workflow_opt_in": True,
+        "budget_per_packet_lines": 100,
+        "required": False,
+    }
+    assert manifest["hybrid_archive_defaults"] == {
+        "snapshot": True,
+        "event_log": True,
+        "verify_replay_by_default": True,
+    }
     assert manifest["state_authority"] == {
         "substrate": "postgresql",
         "repository_id": "repo_123",
@@ -54,6 +70,37 @@ def test_manifest_includes_schema_git_authority_and_counts(tmp_path: Path) -> No
     assert manifest["daemon_audit_included"] is True
     assert manifest["row_counts"] == row_counts
     assert manifest["missing_optional_sources"] == ["docs/HARNESS_FRICTION_PATTERNS.md"]
+
+
+def test_manifest_accepts_explicit_v2_identity_and_snapshot_hash(tmp_path: Path) -> None:
+    _git_repo(tmp_path)
+    row_counts = {kind: 0 for kind in SUB_KINDS}
+
+    manifest = build_manifest(
+        repo=tmp_path,
+        since_ref="HEAD",
+        since_commit="abc",
+        files={},
+        row_counts=row_counts,
+        missing_optional_sources=[],
+        state_authority={"substrate": "postgresql"},
+        corpus_slug="docs-corpus",
+        redaction_tier="curated",
+        augmentation_policy={"budget_per_packet_lines": 25},
+        git_snapshot_hash="a" * 64,
+        generated_at="2026-05-13T00:00:00Z",
+    )
+
+    assert str(manifest["corpus_id"]).startswith("docs-corpus:")
+    assert manifest["redaction_tier"] == "curated"
+    assert manifest["augmentation_policy"] == {
+        "mode": "reference_only",
+        "workflow_opt_in": True,
+        "budget_per_packet_lines": 25,
+        "required": False,
+    }
+    assert manifest["git_snapshot_hash"] == "a" * 64
+    verify_manifest(manifest, row_counts)
 
 
 def test_generated_at_is_utc_z_second_precision() -> None:

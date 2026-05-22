@@ -46,6 +46,38 @@ def _bundle(root: Path) -> Path:
     return bundle
 
 
+def _v2_bundle(root: Path) -> Path:
+    bundle = root / "bundle-v2"
+    files = write_jsonl_bundle(bundle, [_row()])
+    row_counts = {kind: 0 for kind in SUB_KINDS}
+    row_counts["rfc"] = 1
+    write_manifest(
+        bundle,
+        {
+            "schema_version": "striatum.corpus_export.v1",
+            "corpus_contract_version": 2,
+            "corpus_id": "striatum:" + ("a" * 64),
+            "legacy_corpus_alias": "striatum",
+            "redaction_tier": "public",
+            "verification_depth": "deep_chain",
+            "augmentation_policy": {
+                "mode": "reference_only",
+                "workflow_opt_in": True,
+                "budget_per_packet_lines": 100,
+                "required": False,
+            },
+            "hybrid_archive_defaults": {
+                "snapshot": True,
+                "event_log": True,
+                "verify_replay_by_default": True,
+            },
+            "row_counts": row_counts,
+            "files": files,
+        },
+    )
+    return bundle
+
+
 def test_verify_corpus_bundle_accepts_v1_without_contract_version(tmp_path: Path) -> None:
     result = verify_corpus_bundle(_bundle(tmp_path))
 
@@ -54,6 +86,33 @@ def test_verify_corpus_bundle_accepts_v1_without_contract_version(tmp_path: Path
     row_counts = cast(dict[str, int], result["row_counts"])
     assert row_counts["rfc"] == 1
     assert len(str(result["bundle_sha256"])) == 64
+
+
+def test_verify_corpus_bundle_accepts_v2_manifest_identity(tmp_path: Path) -> None:
+    result = verify_corpus_bundle(_v2_bundle(tmp_path))
+
+    assert result["status"] == "verified"
+    assert result["corpus_contract_version"] == 2
+    assert result["corpus_id"] == "striatum:" + ("a" * 64)
+    assert result["redaction_tier"] == "public"
+    assert result["verification_depth"] == "deep_chain"
+    assert result["augmentation_policy"] == {
+        "mode": "reference_only",
+        "workflow_opt_in": True,
+        "budget_per_packet_lines": 100,
+        "required": False,
+    }
+
+
+def test_verify_corpus_bundle_rejects_future_contract_version(tmp_path: Path) -> None:
+    bundle = _v2_bundle(tmp_path)
+    manifest_path = bundle / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["corpus_contract_version"] = 3
+    write_manifest(bundle, manifest)
+
+    with pytest.raises(StriatumError, match="unsupported corpus_contract_version: 3"):
+        verify_corpus_bundle(bundle)
 
 
 def test_verify_corpus_bundle_rejects_tampered_jsonl(tmp_path: Path) -> None:
@@ -121,3 +180,22 @@ def test_corpus_verify_cli_is_local_read_only(tmp_path: Path) -> None:
     payload = json.loads(result.stdout)
     assert payload["ok"] is True
     assert payload["data"]["status"] == "verified"
+
+
+def test_corpus_v2_surface_keeps_augmentation_boundary_local() -> None:
+    paths = [
+        ROOT / "src/striatum/corpus",
+        ROOT / "src/striatum/cli",
+        ROOT / "src/striatum/daemon_rpc",
+        ROOT / "src/striatum/daemon_pg",
+    ]
+    bodies = "\n".join(
+        path.read_text(encoding="utf-8")
+        if path.is_file()
+        else "\n".join(p.read_text(encoding="utf-8") for p in path.rglob("*.py"))
+        for path in paths
+    )
+    assert "import engram" not in bodies
+    assert "from engram" not in bodies
+    assert "memory." not in bodies
+    assert "engram" not in (ROOT / "pyproject.toml").read_text(encoding="utf-8").lower()

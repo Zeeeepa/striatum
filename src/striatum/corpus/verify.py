@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any, cast
 
 from striatum.corpus.manifest import verify_manifest
-from striatum.corpus.types import SCHEMA_VERSION, SUB_KINDS
+from striatum.corpus.types import CORPUS_CONTRACT_VERSION_V2, SCHEMA_VERSION, SUB_KINDS
 from striatum.corpus.writer import verify_jsonl_files
 from striatum.errors import StriatumError
 
@@ -30,7 +30,7 @@ def verify_corpus_bundle(bundle: Path) -> dict[str, object]:
     if manifest.get("schema_version") != SCHEMA_VERSION:
         raise StriatumError("invalid corpus manifest schema_version", exit_code=6)
     contract_version = int(manifest.get("corpus_contract_version") or 1)
-    if contract_version > 1:
+    if contract_version > CORPUS_CONTRACT_VERSION_V2:
         raise StriatumError(
             f"unsupported corpus_contract_version: {contract_version}",
             exit_code=6,
@@ -47,7 +47,7 @@ def verify_corpus_bundle(bundle: Path) -> dict[str, object]:
         and expected_bundle_sha != bundle_sha
     ):
         raise StriatumError("corpus bundle_sha256 mismatch", exit_code=6)
-    return {
+    result: dict[str, object] = {
         "status": "verified",
         "bundle": str(root),
         "manifest_path": str(manifest_path),
@@ -56,6 +56,16 @@ def verify_corpus_bundle(bundle: Path) -> dict[str, object]:
         "row_counts": {kind: row_counts.get(kind, 0) for kind in SUB_KINDS},
         "bundle_sha256": bundle_sha,
     }
+    for key in (
+        "corpus_id",
+        "redaction_tier",
+        "verification_depth",
+        "augmentation_policy",
+        "git_snapshot_hash",
+    ):
+        if key in manifest:
+            result[key] = manifest[key]
+    return result
 
 
 def _manifest_files(manifest: dict[str, Any]) -> dict[str, dict[str, int | str]]:

@@ -69,7 +69,9 @@ auto-finalize dry-run by default with a three-live-dogfood evidence gate;
 D126 accepts the Corpus Contract V2 identity/redaction/archive/verification
 direction; D127 sets the optional Git/PR boundary around read-only snapshots,
 durable request artifacts, explicit local commit confirmation, and no hosted
-provider actions in core.
+provider actions in core. The first TODO 59 implementation slice now emits V2
+corpus manifest metadata for new exports while keeping implied-V1 bundle
+verification compatible.
 
 The active runway 1-5 workflow completed on 2026-05-22 as
 `run_b2e013582e0aeba267dd7a47cc66ccf1`. It produced the ordered batch plan in

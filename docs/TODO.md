@@ -110,7 +110,7 @@ so external references keep resolving even as items move between sections.
 | 56 | Architecture remediation Phase 8 — auto-finalize from front matter | 🟡 cause/lane/circuit-breaker guardrails landed; default-on dogfood gate pending |
 | 57 | RFC 0065 Architecture remediation Phase 9 — UI packaging and bundle cleanup | ✅ done; chunking monitor only |
 | 58 | RFC 0059 Architecture remediation Phase 10 — day-zero setup improvements | ✅ done |
-| 59 | RFC 0059 RFC 0066 Architecture remediation Phase 11 — replay, archive, and corpus v2 foundations | 🟡 V2 contract decisions accepted; implementation pending |
+| 59 | RFC 0059 RFC 0066 Architecture remediation Phase 11 — replay, archive, and corpus v2 foundations | 🟡 V2 manifest identity/redaction landed; archive defaults pending |
 | 60 | RFC 0059 RFC 0067 Architecture remediation Phase 12 — optional Git/PR integration | 🟡 read-only `git.snapshot` landed; request artifacts/local commit confirmation pending |
 | 61 | RFC 0068 Go production daemon port and Python daemon retirement | 🟡 Go default; Python daemon module deleted; broad direct repo-local fixture opens converted |
 | 62 | RFC 0069 PostgreSQL-only daemon-global surfaces | 🟡 guardrail residuals only |
@@ -1254,9 +1254,14 @@ review and plan are root-level operator artifacts:
     redaction tiers, workflow opt-in augmentation by reference with agent-side
     fetch, hybrid archive bundles, verification replay by default, read-only
     semantic inspection, no comparative replay, deep-chain verification
-    always, and optional daemon audit-chain cross-check. Follow-up work is the
-    V2 schema, archive defaults, verification depth, and augmentation-reference
-    implementation.
+    always, and optional daemon audit-chain cross-check. The first V2 manifest
+    slice has landed: new exports emit explicit
+    `corpus_contract_version=2`, composite `corpus_id`, `redaction_tier`,
+    `augmentation_policy`, `verification_depth=deep_chain`,
+    hybrid-archive default metadata, and optional `git_snapshot_hash`, while
+    verification still accepts implied-V1 bundles. Follow-up work is deep
+    archive default enforcement, incremental watermarking, read-only semantic
+    inspection, and any augmentation-reference fetch surface.
 
 60. **Phase 12: optional Git/PR integration.** D127 decides the boundary:
     Striatum core does not autonomously commit, push, call hosted providers, or

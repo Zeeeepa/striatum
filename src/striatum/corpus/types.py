@@ -8,7 +8,23 @@ from typing import Mapping
 
 SCHEMA_VERSION = "striatum.corpus_export.v1"
 ROW_SHAPE_VERSION = "striatum.corpus_row.v1"
+CORPUS_CONTRACT_VERSION_V1 = 1
+CORPUS_CONTRACT_VERSION_V2 = 2
+SUPPORTED_CORPUS_CONTRACT_VERSIONS: frozenset[int] = frozenset({
+    CORPUS_CONTRACT_VERSION_V1,
+    CORPUS_CONTRACT_VERSION_V2,
+})
 SOURCE_KIND = "striatum"
+DEFAULT_CORPUS_SLUG = "striatum"
+DEFAULT_REDACTION_TIER = "public"
+REDACTION_TIERS: tuple[str, ...] = ("public", "curated", "internal")
+DEFAULT_VERIFICATION_DEPTH = "deep_chain"
+DEFAULT_AUGMENTATION_POLICY: Mapping[str, object] = {
+    "mode": "reference_only",
+    "workflow_opt_in": True,
+    "budget_per_packet_lines": 100,
+    "required": False,
+}
 
 SUB_KINDS: tuple[str, ...] = (
     "rfc",

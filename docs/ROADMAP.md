@@ -930,13 +930,18 @@ graduated redaction tiers, workflow opt-in augmentation by reference with
 agent-side fetch, hybrid archive bundles, verification replay by default,
 read-only semantic inspection, no comparative replay, deep-chain verification
 always, and optional daemon audit-chain cross-check. The remaining work is to
-write that into the V2 schema/docs and implement it.
+write the remaining archive/watermark/inspection details into the schema/docs
+and implement them.
 
 **What already shipped on our side:**
 - `striatum corpus export --since <ref> --out <dir>` (RFC 0044 V1,
   dogfood-046, v1.35.0) — nine JSONL files + `manifest.json`, redacted,
-  with replay-stable hashes, under `tenant_id='striatum'` and
-  `corpus_id='striatum'`.
+  with replay-stable hashes.
+- Corpus Contract V2 manifest metadata now lands on new exports:
+  `corpus_contract_version=2`, composite `corpus_id`, redaction tier,
+  reference-only augmentation policy, `verification_depth=deep_chain`,
+  hybrid archive defaults, optional `git_snapshot_hash`, and V1-compatible
+  verifier fallback for older bundles.
 - The augmentation-not-dependency boundary regression test in
   `tests/test_cli_corpus_export.py::test_no_engram_imports_or_memory_capabilities_in_striatum`
   pinning that no `import engram` / no `from engram` / no `memory.*`
@@ -951,10 +956,9 @@ write that into the V2 schema/docs and implement it.
    compatibility. This is the dependency for external consumers that
    ingest Striatum exports.
 
-2. **Multi-corpus support in the exporter** — emit the D126 composite
-   `corpus_id` shape (`slug:sha256`) rather than the V1 single-corpus
-   `striatum`. Lets one machine host multiple local application memories
-   without mixing separate Striatum projects.
+2. **Multi-corpus support in the exporter** — the D126 composite
+   `corpus_id` shape (`slug:sha256`) now lands in V2 manifests. Later work
+   can add operator-selectable slugs without changing the verifier contract.
 
 3. **Reciprocal augmentation-boundary record** — extend the V1
    regression test to cover any new Engram-integration entry points so
