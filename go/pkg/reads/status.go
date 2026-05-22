@@ -200,6 +200,7 @@ func statusSessions(ctx context.Context, runner db.Runner, repositoryID, runID s
 		        s.liveness_stall_class,
 		        s.liveness_stall_since,
 		        ps.supervisor_id AS supervisor_id, ps.pid AS pid,
+		        ptr.metadata_json AS supervisor_metadata_json,
 		        active_lease.lease_id AS active_lease_id,
 		        active_lease.acquired_at AS active_lease_acquired_at,
 		        active_lease.expires_at AS active_lease_expires_at,
@@ -209,6 +210,9 @@ func statusSessions(ctx context.Context, runner db.Runner, repositoryID, runID s
 		     ON ps.repository_id = s.repository_id
 		    AND ps.session_id = s.session_id
 		    AND ps.state = 'attached'
+		   LEFT JOIN striatumd.process_supervisor_pointers ptr
+		     ON ptr.repository_id = ps.repository_id
+		    AND ptr.supervisor_id = ps.supervisor_id
 		   LEFT JOIN LATERAL (
 		     SELECT l.lease_id, l.acquired_at, l.expires_at, l.last_heartbeat_at
 		       FROM striatumd.leases l
@@ -229,6 +233,7 @@ func statusSessions(ctx context.Context, runner db.Runner, repositoryID, runID s
 	for _, row := range rows {
 		row["liveness"] = sessionliveness.ProjectionFromRow(row, now)
 		sessionliveness.RemoveProjectionSourceFields(row)
+		attachSupervisorTmux(row, "supervisor_metadata_json")
 		if stringFrom(row, "supervisor_id") == "" {
 			row["lane_attestation"] = "unattested"
 			row["lane_attestation_reason"] = "no_attached_supervisor"

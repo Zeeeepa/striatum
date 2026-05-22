@@ -112,8 +112,12 @@ func TestRunHelperEmitsLifecyclePacketAndProgressEvents(t *testing.T) {
 		t.Fatalf("expected at least 4 events, got %d: %#v", len(decoded), decoded)
 	}
 	seen := map[string]int{}
+	var startedPayload map[string]any
 	for _, event := range decoded {
 		seen[event.EventType]++
+		if event.EventType == HelperEventAgentStarted {
+			startedPayload = event.Payload
+		}
 		if event.SchemaVersion != HelperEventSchemaVersion {
 			t.Fatalf("event %q schema_version: got %q want %q", event.EventType, event.SchemaVersion, HelperEventSchemaVersion)
 		}
@@ -133,6 +137,14 @@ func TestRunHelperEmitsLifecyclePacketAndProgressEvents(t *testing.T) {
 	}
 	if seen[HelperEventError] != 0 {
 		t.Fatalf("unexpected helper_error event: raw=%s", events.String())
+	}
+	metadata, ok := startedPayload["metadata"].(map[string]any)
+	if !ok {
+		t.Fatalf("agent_started metadata missing: %#v", startedPayload)
+	}
+	tmux, ok := metadata["tmux"].(map[string]any)
+	if !ok || tmux["unavailable_reason"] != "missing_run_or_lane" {
+		t.Fatalf("agent_started tmux metadata = %#v", metadata["tmux"])
 	}
 }
 

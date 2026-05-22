@@ -51,10 +51,13 @@ func HandleSuperviseStatus(ctx context.Context, runner db.Runner, envelope rpc.E
 		return nil, rpc.NewError("not_found", "session not found: "+sessionID, nil)
 	}
 	rows, err := collectRows(ctx, runner,
-		`SELECT *
-		   FROM striatumd.process_supervisors
-		  WHERE repository_id = $1 AND session_id = $2
-		  ORDER BY started_at DESC, supervisor_id DESC
+		`SELECT ps.*, p.metadata_json AS pointer_metadata_json
+		   FROM striatumd.process_supervisors ps
+		   LEFT JOIN striatumd.process_supervisor_pointers p
+		     ON p.repository_id = ps.repository_id
+		    AND p.supervisor_id = ps.supervisor_id
+		  WHERE ps.repository_id = $1 AND ps.session_id = $2
+		  ORDER BY ps.started_at DESC, ps.supervisor_id DESC
 		  LIMIT 1`,
 		repositoryID, sessionID,
 	)
@@ -206,16 +209,19 @@ func HandleSuperviseList(ctx context.Context, runner db.Runner, envelope rpc.Env
 	}
 
 	args := []any{repositoryID, runID}
-	where := "WHERE repository_id = $1 AND run_id = $2"
+	where := "WHERE ps.repository_id = $1 AND ps.run_id = $2"
 	if state != "" {
 		args = append(args, state)
-		where += " AND state = $3"
+		where += " AND ps.state = $3"
 	}
 	rows, err := collectRows(ctx, runner,
-		`SELECT *
-		   FROM striatumd.process_supervisors
+		`SELECT ps.*, p.metadata_json AS pointer_metadata_json
+		   FROM striatumd.process_supervisors ps
+		   LEFT JOIN striatumd.process_supervisor_pointers p
+		     ON p.repository_id = ps.repository_id
+		    AND p.supervisor_id = ps.supervisor_id
 		  `+where+`
-		  ORDER BY started_at DESC, supervisor_id DESC`,
+		  ORDER BY ps.started_at DESC, ps.supervisor_id DESC`,
 		args...,
 	)
 	if err != nil {
@@ -567,7 +573,24 @@ func supervisorView(row map[string]any) map[string]any {
 	for _, key := range []string{"started_at", "heartbeat_at", "ended_at"} {
 		view[key] = timestampValue(view[key])
 	}
+	attachSupervisorTmux(view, "pointer_metadata_json")
 	return view
+}
+
+func attachSupervisorTmux(view map[string]any, metadataKey string) {
+	metadata := superviseObject(view[metadataKey])
+	delete(view, metadataKey)
+	if tmux := tmuxMetadata(metadata); tmux != nil {
+		view["tmux"] = tmux
+	}
+}
+
+func tmuxMetadata(metadata map[string]any) map[string]any {
+	tmux := superviseObject(metadata["tmux"])
+	if len(tmux) == 0 {
+		return nil
+	}
+	return tmux
 }
 
 func rowExists(ctx context.Context, runner db.Runner, sql string, args ...any) (bool, error) {

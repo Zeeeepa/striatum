@@ -32,7 +32,9 @@ dependency edges, and "what would I do next" framing. Update on every
   `docs/operator/workflows/active-runway-1-5/workflow.json`, with the final
   ordered batch plan at `docs/operator/artifacts/active-runway-1-5/FINAL.md`.
   The first implementation pair landed: TODO 60 read-only `git.snapshot` plus
-  TODO 56 skipped-candidate cause classes.
+  TODO 56 skipped-candidate cause classes. Later follow-through trimmed TODO
+  62/63 residual direct-state probes and added RFC 0075 tmux attach metadata
+  projection.
   Earlier TODO 61-64 / RFC 0068-0071 architecture remediation remains the
   substrate this work builds on.
   D107 supersedes D105: Go is now the default production daemon core, active
@@ -85,8 +87,10 @@ Order the work as a set of gates, not as one all-or-nothing cutover:
    landed `session.report` as the MCP pre-packet readiness/heartbeat/question/
    escalation method. RFC 0077 V1 now persists MCP activity timestamps,
    projects protocol liveness through status/dashboard/supervise reads, and
-   records recovery-sweep liveness transition events. Tmux attach metadata and
-   broader status/UI polish remain under RFC 0075.
+   records recovery-sweep liveness transition events. Tmux attach metadata now
+   projects through supervisor/status/dashboard reads; requiring tmux
+   fail-closed for live interactive lanes and broader UI polish remain under
+   RFC 0075.
 7. [done] Delete `src/striatum/mcp.py` and retire Python MCP launch docs.
 
 For this roadmap, "eliminating the CLI" means eliminating CLI verbs as the
@@ -101,7 +105,7 @@ daemon MCP activity and lease heartbeats remain the authoritative liveness
 signals. Tmux panes are for human inspection, not workflow state.
 [`RFC 0077 - MCP Activity Liveness Deadlines`](rfcs/0077-mcp-activity-liveness-deadlines.md)
 landed the daemon-owned MCP activity timestamp and deadline-classification
-slice before full tmux metadata persistence.
+slice before the RFC 0075 tmux attach metadata projection.
 The open plans are
 [`RFC 0050 CLI Retirement Cutover`](operator/plans/rfc-0050-cli-retirement-cutover.md)
 and

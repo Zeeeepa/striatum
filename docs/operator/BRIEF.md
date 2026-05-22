@@ -41,9 +41,12 @@ RFC 0075 is proposed, scaffolded, and has completed its first cutover
 workflow slice at
 `docs/operator/workflows/rfc-0075-and-mcp-cutover/workflow.json`. The landed
 slice adds `session.report` as the claim-gated MCP path for pre-packet
-`ready`, `heartbeat`, `question`, and `escalate` reports. Tmux metadata,
-attach-command projection, and broader status/UI polish remain pending; tmux
-panes are still local inspection metadata, not workflow state.
+`ready`, `heartbeat`, `question`, and `escalate` reports. The next tmux slice
+now records daemon-created tmux session metadata and projects the attach
+command through `supervise`, `status`, and dashboard read surfaces. Requiring
+tmux fail-closed for live interactive lanes, broader UI polish, and CLI
+retirement remain pending; tmux panes are still local inspection metadata, not
+workflow state.
 
 RFC 0076 is accepted by D128. Its first runnable operator workflow completed
 at `docs/operator/workflows/rfc-0076-code-doc-audit/workflow.json` and
@@ -60,8 +63,8 @@ RFC 0077 is accepted by D129 and its V1 Go-daemon slice has landed. Migration
 `work.heartbeat`, and `session.report` update the timeline. Status, dashboard
 data, and `supervise.status` now project protocol liveness, and the resident
 recovery sweep persists stall transitions with metadata-only liveness events.
-RFC 0075 still owns the broader tmux-observable session shape and attach
-metadata.
+RFC 0075 still owns the broader tmux-observable session shape and fail-closed
+live-lane requirement.
 
 The human-principal checkpoint for TODO 55, 56, 59, and 60 is resolved. D124
 chooses daemon-core accepted-risk persistence for workflow lint; D125 keeps
@@ -87,6 +90,8 @@ force-resistant refusal until explicit live reset. The next daemon-contract
 slice also landed the TODO 55 accepted-risk substrate: Go daemon `workflow.lint`,
 `workflow.accept_risk`, and `workflow.accepted_risks.list` with append-only
 PostgreSQL records bound to workflow snapshots or canonical fingerprints.
+Follow-up cleanup also trimmed the remaining TODO 62/63 direct-state probes and
+cross-repo fallback dead code.
 
 ## Next 1-3 Actions
 
@@ -96,8 +101,8 @@ PostgreSQL records bound to workflow snapshots or canonical fingerprints.
 2. Continue TODO 56 only through the D125 live dogfood gate evidence; keep
    live auto-finalize workflow-opt-in and dry-run default until that evidence
    exists.
-3. Keep CLI retirement, RFC 0075 tmux metadata, RFC 0074 Phase A, and TODO
-   61/62/63 cleanup queued behind the batch order in
+3. Keep CLI retirement, RFC 0075 fail-closed tmux requirements, RFC 0074 Phase
+   A, and remaining TODO 61 cleanup queued behind the batch order in
    `docs/operator/artifacts/active-runway-1-5/FINAL.md`.
 
 ## Blockers

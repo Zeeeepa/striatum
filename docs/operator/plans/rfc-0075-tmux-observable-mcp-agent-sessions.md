@@ -28,10 +28,10 @@ PostgreSQL and MCP/RPC calls as the only live workflow-state authority.
 | Workstream | State |
 |---|---|
 | RFC accepted and implementation slices scoped | open |
-| Tmux-backed live-interactive supervisor metadata | open |
-| MCP protocol activity timestamps and liveness classifier | open |
-| Pre-work session tools for ready/heartbeat/question/escalation | open |
-| Deadline sweeper and status/dashboard/operator surfaces | open |
+| Tmux-backed live-interactive supervisor metadata | partial; attach metadata projects through daemon reads |
+| MCP protocol activity timestamps and liveness classifier | landed via RFC 0077 V1 |
+| Pre-work session tools for ready/heartbeat/question/escalation | landed as `session.report` |
+| Deadline sweeper and status/dashboard/operator surfaces | partial; protocol liveness landed, tmux fail-closed/UI polish remain |
 | No-transcript/no-terminal-authority guardrails | open |
 | Fake-agent tests for discovery, await, ack, heartbeat, and question stalls | open |
 

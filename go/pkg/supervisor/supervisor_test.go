@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -159,6 +160,17 @@ func TestLaunchEmptyCommandRejected(t *testing.T) {
 	_, err := Launch(context.Background(), t.TempDir(), "sup_x", LaunchSpec{})
 	if err == nil {
 		t.Fatal("expected error for empty command")
+	}
+}
+
+func TestTmuxSessionNameIncludesSupervisorIDAndIsSanitized(t *testing.T) {
+	got := tmuxSessionName("run/id:one", "lane one", "sup:123")
+	if got != "striatum-run_id_one-lane_one-sup_123" {
+		t.Fatalf("session name = %q", got)
+	}
+	long := tmuxSessionName(strings.Repeat("r", 90), strings.Repeat("l", 90), strings.Repeat("s", 90))
+	if len(long) > 100 {
+		t.Fatalf("session name length = %d, want <= 100", len(long))
 	}
 }
 

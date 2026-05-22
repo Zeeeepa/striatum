@@ -66,6 +66,20 @@ func (dashboardAllFakeRunner) Query(_ context.Context, sql string, args ...any) 
 	case strings.Contains(sql, "WHERE j.repository_id = $1 AND j.state = 'blocked'"):
 		return dashboardAllRowsFromMaps(nil), nil
 	case strings.Contains(sql, "FROM striatumd.sessions s"):
+		if args[0] == "repo_a" {
+			return dashboardAllRowsFromMaps([]map[string]any{{
+				"session_id": "sess_a", "run_id": "run_a", "role_id": "author",
+				"lane_id": "lane_a", "slug": "author-1", "ordinal": int64(1),
+				"state": "active", "operator_label": "codex", "registered_at": now,
+				"supervisor_id": "sup_a",
+				"supervisor_metadata_json": map[string]any{
+					"tmux": map[string]any{
+						"session_name":   "striatum-run_a-lane_a-sup_a",
+						"attach_command": "tmux attach-session -t striatum-run_a-lane_a-sup_a",
+					},
+				},
+			}}), nil
+		}
 		return dashboardAllRowsFromMaps(nil), nil
 	case strings.Contains(sql, "FROM striatumd.process_executions p"):
 		return dashboardAllRowsFromMaps([]map[string]any{{
@@ -167,6 +181,10 @@ func TestHandleDashboardAllBuildsGlobalProjectionReadOnly(t *testing.T) {
 	jobs := status["jobs"].(map[string]int)
 	if jobs["queued"] != 1 {
 		t.Fatalf("jobs = %#v", jobs)
+	}
+	sessions := status["sessions"].([]map[string]any)
+	if len(sessions) != 1 || sessions[0]["tmux"].(map[string]any)["session_name"] != "striatum-run_a-lane_a-sup_a" {
+		t.Fatalf("dashboard sessions = %#v", sessions)
 	}
 	staleRuns := first["stale_leases"].([]map[string]any)
 	if len(staleRuns) != 1 || staleRuns[0]["stale_count"] != 1 {

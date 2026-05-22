@@ -144,13 +144,17 @@ func HandleDashboard(ctx context.Context, runner db.Runner, envelope rpc.Envelop
 		        active_lease.acquired_at AS active_lease_acquired_at,
 		        active_lease.expires_at AS active_lease_expires_at,
 		        active_lease.last_heartbeat_at AS active_lease_last_heartbeat_at,
+		        ptr.metadata_json AS supervisor_metadata_json,
 		        CASE WHEN ps.supervisor_id IS NOT NULL THEN 'attested' ELSE 'unattested' END AS lane_attestation,
 		        CASE WHEN ps.supervisor_id IS NOT NULL THEN NULL ELSE 'no_attached_supervisor' END AS lane_attestation_reason
 		   FROM striatumd.sessions s
 		   LEFT JOIN striatumd.process_supervisors ps
-		     ON ps.repository_id = s.repository_id
+		    ON ps.repository_id = s.repository_id
 		    AND ps.session_id = s.session_id
 		    AND ps.state = 'attached'
+		   LEFT JOIN striatumd.process_supervisor_pointers ptr
+		     ON ptr.repository_id = ps.repository_id
+		    AND ptr.supervisor_id = ps.supervisor_id
 		   LEFT JOIN LATERAL (
 		     SELECT l.lease_id, l.acquired_at, l.expires_at, l.last_heartbeat_at
 		       FROM striatumd.leases l
@@ -171,6 +175,7 @@ func HandleDashboard(ctx context.Context, runner db.Runner, envelope rpc.Envelop
 	for _, session := range sessions {
 		session["liveness"] = sessionliveness.ProjectionFromRow(session, now)
 		sessionliveness.RemoveProjectionSourceFields(session)
+		attachSupervisorTmux(session, "supervisor_metadata_json")
 	}
 
 	events, err := collectRows(ctx, runner,

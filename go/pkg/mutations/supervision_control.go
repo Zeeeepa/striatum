@@ -192,6 +192,9 @@ func HandleSuperviseStart(ctx context.Context, runner db.Runner, envelope rpc.En
 			payload["helper_pid"] = optionalPositiveInt(launch.HelperPID)
 			payload["helper_events_path"] = eventPath
 		}
+		if tmux := objectOrNil(launch.Metadata["tmux"]); tmux != nil {
+			payload["tmux"] = tmux
+		}
 		_, err := appendEvent(ctx, tx, repositoryID, config.RunID, "supervisor.started", sessionID, nil, nil, nil, nil, payload)
 		return nil, err
 	}); err != nil {
@@ -212,6 +215,7 @@ func HandleSuperviseStart(ctx context.Context, runner db.Runner, envelope rpc.En
 		"helper_process":       helperProcessPayload(config.Transport, launch.HelperPID, launch.HelperPIDStartTime, eventPath),
 		"lane_attestation":     laneAttestation(launch.PIDStartTime),
 		"lane_id":              config.LaneID,
+		"tmux":                 objectOrNil(launch.Metadata["tmux"]),
 	}, nil
 }
 
@@ -889,6 +893,17 @@ func launchPTYHelper(ctx context.Context, config supervisionStartConfig, supervi
 	}
 	agentStart, _ := processStartToken(agentPID)
 	helperStart, _ := processStartToken(cmd.Process.Pid)
+	metadata := map[string]any{
+		"transport":               supervisionTransportPTYHelper,
+		"helper_binary":           helper,
+		"helper_pid":              cmd.Process.Pid,
+		"helper_pid_start_time":   helperStart,
+		"helper_launch_spec_path": specPath,
+		"helper_events_path":      eventPath,
+	}
+	if tmux := tmuxMetadataFromHelperEvents(events); tmux != nil {
+		metadata["tmux"] = tmux
+	}
 	return supervisionLaunchResult{
 		PID:                 agentPID,
 		PIDStartTime:        agentStart,
@@ -896,15 +911,31 @@ func launchPTYHelper(ctx context.Context, config supervisionStartConfig, supervi
 		HelperPIDStartTime:  helperStart,
 		InitialHelperEvents: events,
 		InitialHelperOffset: offset,
-		Metadata: map[string]any{
-			"transport":               supervisionTransportPTYHelper,
-			"helper_binary":           helper,
-			"helper_pid":              cmd.Process.Pid,
-			"helper_pid_start_time":   helperStart,
-			"helper_launch_spec_path": specPath,
-			"helper_events_path":      eventPath,
-		},
+		Metadata:            metadata,
 	}, nil
+}
+
+func tmuxMetadataFromHelperEvents(events []map[string]any) map[string]any {
+	for _, event := range events {
+		if event["event_type"] != gosupervisor.HelperEventAgentStarted {
+			continue
+		}
+		payload := asMap(event["payload"])
+		metadata := asMap(payload["metadata"])
+		tmux := asMap(metadata["tmux"])
+		if len(tmux) > 0 {
+			return tmux
+		}
+	}
+	return nil
+}
+
+func objectOrNil(value any) map[string]any {
+	object := asMap(value)
+	if len(object) == 0 {
+		return nil
+	}
+	return object
 }
 
 func waitForHelperAgentStart(cmd *exec.Cmd, eventPath string, timeout time.Duration) ([]map[string]any, int, error) {

@@ -98,10 +98,14 @@ func RunHelper(ctx context.Context, launchReader io.Reader, eventWriter io.Write
 	}
 	defer ptmx.Close()
 
+	startedPayload := map[string]any{"pid": result.PID}
+	if len(result.Metadata) > 0 {
+		startedPayload["metadata"] = result.Metadata
+	}
 	if err := emitter.emit(newHelperEvent(
 		HelperEventAgentStarted,
 		spec.SupervisorID,
-		map[string]any{"pid": result.PID},
+		startedPayload,
 	)); err != nil {
 		terminateProcess(result)
 		return err

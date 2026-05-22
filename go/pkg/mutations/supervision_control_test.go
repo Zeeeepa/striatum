@@ -26,7 +26,16 @@ func TestSuperviseStartInsertsAndAttachesProcessSupervisor(t *testing.T) {
 		return os.WriteFile(path, nil, 0o600)
 	}
 	supervisionLaunch = func(context.Context, supervisionStartConfig, string, string, string, string) (supervisionLaunchResult, error) {
-		return supervisionLaunchResult{PID: os.Getpid(), PIDStartTime: "start-token"}, nil
+		return supervisionLaunchResult{
+			PID:          os.Getpid(),
+			PIDStartTime: "start-token",
+			Metadata: map[string]any{
+				"tmux": map[string]any{
+					"session_name":   "striatum-run_1-lane_1-sup_1",
+					"attach_command": "tmux attach-session -t striatum-run_1-lane_1-sup_1",
+				},
+			},
+		}, nil
 	}
 
 	repoRoot := t.TempDir()
@@ -54,6 +63,10 @@ func TestSuperviseStartInsertsAndAttachesProcessSupervisor(t *testing.T) {
 	if result["lane_attestation"] != "attested" {
 		t.Fatalf("lane_attestation = %v", result["lane_attestation"])
 	}
+	tmux := result["tmux"].(map[string]any)
+	if tmux["attach_command"] != "tmux attach-session -t striatum-run_1-lane_1-sup_1" {
+		t.Fatalf("tmux metadata = %#v", tmux)
+	}
 	if !tx1.sawExec("INSERT INTO striatumd.process_supervisors") {
 		t.Fatalf("missing process_supervisors insert: %#v", tx1.execs)
 	}
@@ -65,6 +78,11 @@ func TestSuperviseStartInsertsAndAttachesProcessSupervisor(t *testing.T) {
 	}
 	if len(tx1.eventInserts()) != 1 || len(tx2.eventInserts()) != 1 {
 		t.Fatalf("event inserts tx1/tx2 = %d/%d", len(tx1.eventInserts()), len(tx2.eventInserts()))
+	}
+	payload := tx2.lastEventInsert().args[9].(map[string]any)
+	eventTmux := payload["tmux"].(map[string]any)
+	if eventTmux["session_name"] != "striatum-run_1-lane_1-sup_1" {
+		t.Fatalf("started event tmux metadata = %#v", eventTmux)
 	}
 }
 

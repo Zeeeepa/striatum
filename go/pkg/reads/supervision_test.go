@@ -58,7 +58,7 @@ func (r *superviseReadFakeRunner) Query(_ context.Context, sql string, args ...a
 		}), nil
 	case strings.Contains(sql, "FROM striatumd.sessions") && strings.Contains(sql, "LIMIT 1"):
 		return dashboardAllRowsFromMaps([]map[string]any{{"session_id": "sess_1"}}), nil
-	case strings.Contains(sql, "LEFT JOIN striatumd.process_supervisor_pointers"):
+	case strings.Contains(sql, "LEFT JOIN striatumd.daemon_supervisors ds"):
 		rows := superviseReattachRows()
 		if len(args) > 1 {
 			if supervisorID, ok := args[len(args)-1].(string); ok && strings.HasPrefix(supervisorID, "sup_") {
@@ -66,7 +66,7 @@ func (r *superviseReadFakeRunner) Query(_ context.Context, sql string, args ...a
 			}
 		}
 		return dashboardAllRowsFromMaps(rows), nil
-	case strings.Contains(sql, "FROM striatumd.process_supervisors") && strings.Contains(sql, "ORDER BY started_at DESC"):
+	case strings.Contains(sql, "FROM striatumd.process_supervisors") && strings.Contains(sql, "ORDER BY ps.started_at DESC"):
 		r.listQuery = sql
 		r.listArgs = args
 		if strings.Contains(sql, "LIMIT 1") {
@@ -92,7 +92,7 @@ func TestHandleSuperviseListScopesByRepositoryRunAndState(t *testing.T) {
 	if err != nil {
 		t.Fatalf("HandleSuperviseList: %v", err)
 	}
-	if !strings.Contains(runner.listQuery, "repository_id = $1 AND run_id = $2") || !strings.Contains(runner.listQuery, "state = $3") {
+	if !strings.Contains(runner.listQuery, "ps.repository_id = $1 AND ps.run_id = $2") || !strings.Contains(runner.listQuery, "ps.state = $3") {
 		t.Fatalf("query is not repo/run/state scoped: %s", runner.listQuery)
 	}
 	if len(runner.listArgs) != 3 || runner.listArgs[0] != "repo_1" || runner.listArgs[1] != "run_1" || runner.listArgs[2] != "attached" {
@@ -104,6 +104,10 @@ func TestHandleSuperviseListScopesByRepositoryRunAndState(t *testing.T) {
 	supervisors := result["supervisors"].([]map[string]any)
 	if len(supervisors) != 1 || supervisors[0]["supervisor_id"] != "sup_reattachable" {
 		t.Fatalf("supervisors = %#v", supervisors)
+	}
+	tmux := supervisors[0]["tmux"].(map[string]any)
+	if tmux["session_name"] != "striatum-run_1-lane_1-sup_reattachable" {
+		t.Fatalf("supervisor tmux metadata = %#v", tmux)
 	}
 	if runner.execCount != 0 {
 		t.Fatalf("unexpected exec count %d", runner.execCount)
@@ -150,6 +154,10 @@ func TestHandleSuperviseStatusKeepsGonePIDAsReadProjection(t *testing.T) {
 	}
 	if result["state"] != "attached" || result["liveness"] != "gone" {
 		t.Fatalf("status projection = %#v", result)
+	}
+	tmux := result["tmux"].(map[string]any)
+	if tmux["attach_command"] != "tmux attach-session -t striatum-run_1-lane_1-sup_gone" {
+		t.Fatalf("status tmux metadata = %#v", tmux)
 	}
 	protocolLiveness, ok := result["protocol_liveness"].(map[string]any)
 	if !ok || protocolLiveness["stall_class"] != "agent_protocol_idle_stall" {
@@ -255,6 +263,12 @@ func superviseBaseRow(supervisorID string, pid int, pidStart string) map[string]
 		"heartbeat_at":    now,
 		"ended_at":        nil,
 		"stop_reason":     nil,
+		"pointer_metadata_json": map[string]any{
+			"tmux": map[string]any{
+				"session_name":   "striatum-run_1-lane_1-" + supervisorID,
+				"attach_command": "tmux attach-session -t striatum-run_1-lane_1-" + supervisorID,
+			},
+		},
 	}
 }
 

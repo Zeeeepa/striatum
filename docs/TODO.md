@@ -118,7 +118,7 @@ so external references keep resolving even as items move between sections.
 | 64 | RFC 0071 operator diagnostics and cutover evidence | ✅ accepted diagnostic slice done |
 | 65 | RFC 0058 operator progress surface | ✅ done |
 | 66 | Decision/RFC supersession hygiene and duplicate decision-id cleanup | ✅ done |
-| 67 | RFC 0050/RFC 0075 MCP cutover and tmux-observable sessions | 🟡 MCP HTTP/cutover first slices and RFC 0077 liveness landed; tmux metadata and CLI retirement remain |
+| 67 | RFC 0050/RFC 0075 MCP cutover and tmux-observable sessions | 🟡 MCP HTTP/cutover first slices, RFC 0077 liveness, and tmux attach metadata landed; fail-closed tmux requirements and CLI retirement remain |
 
 Legend: ✅ done · 🟡 most done (sub-tasks remain) · ⏳ open/blocked · 💤 shelved
 
@@ -1493,8 +1493,10 @@ review and plan are root-level operator artifacts:
     loop proof, `session.report`, agent-loop PTY bootstrap, Python MCP wrapper
     deletion, and RFC 0077 daemon-owned MCP activity liveness. Remaining live
     workflow-control CLI verbs must still be classified before removal, MCP/UI
-    parity must be tested before hiding replacements, and RFC 0075 tmux
-    observability must not turn pane output or transcripts into workflow state.
+    parity must be tested before hiding replacements. RFC 0075 tmux attach
+    metadata now projects through daemon reads, but fail-closed tmux
+    requirements must still avoid turning pane output or transcripts into
+    workflow state.
 
 ## GH issue follow-ups
 

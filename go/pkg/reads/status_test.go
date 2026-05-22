@@ -58,6 +58,12 @@ func (r statusFakeRunner) Query(_ context.Context, sql string, args ...any) (pgx
 			"lane_id": "lane_a", "slug": "author-1", "ordinal": int64(1),
 			"state": "active", "operator_label": "codex",
 			"supervisor_id": "sup_a", "pid": int64(os.Getpid()),
+			"supervisor_metadata_json": map[string]any{
+				"tmux": map[string]any{
+					"session_name":   "striatum-run_a-lane_a-sup_a",
+					"attach_command": "tmux attach-session -t striatum-run_a-lane_a-sup_a",
+				},
+			},
 		}}), nil
 	case strings.Contains(sql, "FROM striatumd.blockers b"):
 		row := map[string]any{
@@ -171,6 +177,10 @@ func TestHandleStatusBuildsPythonShapedRunProjection(t *testing.T) {
 	sessions := result["sessions"].([]map[string]any)
 	if len(sessions) != 1 || sessions[0]["lane_attestation"] != "attested" || sessions[0]["pid"] == nil {
 		t.Fatalf("sessions = %#v", sessions)
+	}
+	tmux := sessions[0]["tmux"].(map[string]any)
+	if tmux["session_name"] != "striatum-run_a-lane_a-sup_a" {
+		t.Fatalf("session tmux metadata = %#v", tmux)
 	}
 	processHealth := result["process_health"].(map[string]any)
 	if processHealth["stale_running_count"] != 1 {

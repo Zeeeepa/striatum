@@ -32,6 +32,7 @@ type LaunchResult struct {
 	PID         int
 	StdinWriter io.WriteCloser
 	Cmd         *exec.Cmd
+	Metadata    map[string]any
 }
 
 func getEnvValue(env []string, key string) string {
@@ -59,7 +60,7 @@ func Launch(ctx context.Context, scratchDir string, supervisorID string, spec La
 	}
 
 	if spec.UsePTY {
-		return launchPTY(ctx, spec)
+		return launchPTY(ctx, supervisorID, spec)
 	}
 
 	cmd := exec.CommandContext(ctx, spec.Command[0], spec.Command[1:]...)
@@ -112,16 +113,16 @@ func ensureFIFO(scratchDir string, supervisorID string, fifoPath string) error {
 // returns the master file we hand back to the daemon as StdinWriter — the
 // daemon writes packets to the master, the child reads them off the slave
 // as ordinary stdin.
-func launchPTY(ctx context.Context, spec LaunchSpec) (*LaunchResult, error) {
+func launchPTY(ctx context.Context, supervisorID string, spec LaunchSpec) (*LaunchResult, error) {
 	runID := getEnvValue(spec.Env, "STRIATUM_RUN_ID")
 	laneID := getEnvValue(spec.Env, "STRIATUM_LANE_ID")
 	if runID != "" && laneID != "" {
 		if _, err := exec.LookPath("tmux"); err == nil {
-			sessionName := fmt.Sprintf("striatum-%s-%s", runID, laneID)
-			
+			sessionName := tmuxSessionName(runID, laneID, supervisorID)
+
 			// Kill existing session with the same name if any (to avoid collisions / stale sessions)
 			_ = exec.Command("tmux", "kill-session", "-t", sessionName).Run()
-			
+
 			// 1. Create the detached tmux session
 			newSessionArgs := []string{"new-session", "-d", "-s", sessionName, "-c", spec.WorkingDir}
 			newSessionArgs = append(newSessionArgs, spec.Command...)
@@ -130,28 +131,35 @@ func launchPTY(ctx context.Context, spec LaunchSpec) (*LaunchResult, error) {
 			if err := createCmd.Run(); err != nil {
 				return nil, fmt.Errorf("supervisor: failed to create tmux session: %w", err)
 			}
-			
+
 			// 2. Disable status bar to avoid polluting stdout
 			_ = exec.Command("tmux", "set-option", "-t", sessionName, "status", "off").Run()
-			
+
 			// 3. Attach to the session in the PTY
 			attachCmd := exec.CommandContext(ctx, "tmux", "attach-session", "-t", sessionName)
 			attachCmd.Dir = spec.WorkingDir
 			attachCmd.Env = append(os.Environ(), spec.Env...)
-			
+
 			ptmx, err := pty.Start(attachCmd)
 			if err != nil {
 				return nil, fmt.Errorf("supervisor: pty.Start (tmux attach): %w", err)
 			}
-			
+
 			return &LaunchResult{
 				PID:         attachCmd.Process.Pid,
 				StdinWriter: ptmx,
 				Cmd:         attachCmd,
+				Metadata: map[string]any{
+					"tmux": tmuxAttachMetadata(sessionName),
+				},
 			}, nil
 		}
+		return launchPlainPTY(ctx, spec, tmuxUnavailableMetadata("tmux_not_found"))
 	}
+	return launchPlainPTY(ctx, spec, tmuxUnavailableMetadata("missing_run_or_lane"))
+}
 
+func launchPlainPTY(ctx context.Context, spec LaunchSpec, metadata map[string]any) (*LaunchResult, error) {
 	cmd := exec.CommandContext(ctx, spec.Command[0], spec.Command[1:]...)
 	cmd.Dir = spec.WorkingDir
 	cmd.Env = append(os.Environ(), spec.Env...)
@@ -163,7 +171,67 @@ func launchPTY(ctx context.Context, spec LaunchSpec) (*LaunchResult, error) {
 		PID:         cmd.Process.Pid,
 		StdinWriter: ptmx,
 		Cmd:         cmd,
+		Metadata:    metadata,
 	}, nil
+}
+
+func tmuxSessionName(runID, laneID, supervisorID string) string {
+	name := "striatum-" + sanitizeTmuxName(runID) + "-" + sanitizeTmuxName(laneID)
+	if supervisorID != "" {
+		name += "-" + sanitizeTmuxName(supervisorID)
+	}
+	if len(name) > 100 {
+		return name[:100]
+	}
+	return name
+}
+
+func sanitizeTmuxName(value string) string {
+	var out strings.Builder
+	for _, r := range value {
+		switch {
+		case r >= 'a' && r <= 'z':
+			out.WriteRune(r)
+		case r >= 'A' && r <= 'Z':
+			out.WriteRune(r)
+		case r >= '0' && r <= '9':
+			out.WriteRune(r)
+		case r == '-' || r == '_' || r == '.':
+			out.WriteRune(r)
+		default:
+			out.WriteByte('_')
+		}
+	}
+	if out.Len() == 0 {
+		return "unknown"
+	}
+	return out.String()
+}
+
+func tmuxAttachMetadata(sessionName string) map[string]any {
+	metadata := map[string]any{
+		"session_name":   sessionName,
+		"attach_command": "tmux attach-session -t " + sessionName,
+	}
+	out, err := exec.Command("tmux", "display-message", "-p", "-t", sessionName, "#{window_id} #{pane_id}").Output()
+	if err == nil {
+		parts := strings.Fields(string(out))
+		if len(parts) >= 1 {
+			metadata["window_id"] = parts[0]
+		}
+		if len(parts) >= 2 {
+			metadata["pane_id"] = parts[1]
+		}
+	}
+	return metadata
+}
+
+func tmuxUnavailableMetadata(reason string) map[string]any {
+	return map[string]any{
+		"tmux": map[string]any{
+			"unavailable_reason": reason,
+		},
+	}
 }
 
 // openDevNullOr returns the file at path if non-empty, else os.DevNull.
