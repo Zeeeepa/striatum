@@ -29,6 +29,7 @@ def test_fake_mcp_agent_completes_work_packet_loop(
         "run.prepare",
         "run.start",
         "session.register",
+        "session.report",
         "work.await_packet",
         "work.ack",
         "work.heartbeat",
@@ -55,6 +56,17 @@ def test_fake_mcp_agent_completes_work_packet_loop(
         arguments={"run_id": run_id, "role": "author", "lane": "codex"},
     )
     session_id = str(session["session_id"])
+    assert _call_data(
+        client,
+        "session.report",
+        repo_id=repo_id,
+        arguments={
+            "session_id": session_id,
+            "report_kind": "ready",
+            "phase": "discovery",
+            "message": "fake MCP agent discovered tools",
+        },
+    )["status"] == "reported"
     claimed = _call_data(
         client,
         "work.await_packet",
@@ -150,6 +162,7 @@ def test_fake_mcp_agent_completes_work_packet_loop(
         "run.prepare",
         "run.start",
         "session.register",
+        "session.report",
         "work.await_packet",
         "work.ack",
         "work.heartbeat",
@@ -157,6 +170,78 @@ def test_fake_mcp_agent_completes_work_packet_loop(
         "work.complete",
     ]:
         assert method in methods
+    report_rows = harness.daemon_db_query(
+        """
+        SELECT event_type, payload_json
+          FROM striatumd.events
+         WHERE repository_id = %s AND run_id = %s AND event_type = 'session.reported'
+        """,
+        (repo_id, run_id),
+    )
+    assert report_rows == [
+        {
+            "event_type": "session.reported",
+            "payload_json": {
+                "session_id": session_id,
+                "report_kind": "ready",
+                "phase": "discovery",
+                "message": "fake MCP agent discovered tools",
+            },
+        }
+    ]
+
+
+def test_session_report_requires_claim_capability(
+    multi_repo_harness: MultiRepoHarness,
+    clean_daemon_db: None,
+) -> None:
+    harness = multi_repo_harness
+    repo_id = _register_single_repo(harness)
+    workflow_path = _write_fake_agent_workflow(
+        harness.repos[0].path, "session-report-auth-workflow.json"
+    )
+    admin_token = harness.issue_token(["admin", "claim", "read"], repo_id=repo_id)
+    admin_client = harness.mcp_client(admin_token, repo_index=0)
+    run_id = str(
+        _call_data(
+            admin_client,
+            "run.prepare",
+            repo_id=repo_id,
+            arguments={"workflow": workflow_path.name},
+        )["run_id"]
+    )
+    _call_data(admin_client, "run.start", repo_id=repo_id, arguments={"run_id": run_id})
+    session_id = str(
+        _call_data(
+            admin_client,
+            "session.register",
+            repo_id=repo_id,
+            arguments={"run_id": run_id, "role": "author", "lane": "codex"},
+        )["session_id"]
+    )
+
+    read_token = harness.issue_token(["read"], repo_id=repo_id)
+    read_client = harness.mcp_client(read_token, repo_index=0)
+    names = {str(tool["name"]) for tool in read_client.list_tools(repository_id=repo_id)}
+    assert "session.report" not in names
+
+    denied = read_client.call_tool(
+        "session.report",
+        repository_id=repo_id,
+        arguments={
+            "session_id": session_id,
+            "report_kind": "question",
+            "phase": "await_packet",
+            "message": "need startup input",
+            "blocker_kind": "missing_input",
+        },
+    )
+
+    assert denied["isError"] is True
+    assert denied["structuredContent"]["error"] == "capability_missing"
+    row = harness.audit_rows(transport="mcp")[-1]
+    assert row["method"] == "session.report"
+    assert row["decision"] == "denied"
 
 
 def test_fake_mcp_agent_stale_lease_refuses_lifecycle_mutation(

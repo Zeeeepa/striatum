@@ -121,10 +121,16 @@ func HandleDashboard(ctx context.Context, runner db.Runner, envelope rpc.Envelop
 	}
 
 	sessions, err := collectRows(ctx, runner,
-		`SELECT session_id, role_id, lane_id, state, lane_attestation
-		   FROM striatumd.sessions
-		  WHERE repository_id = $1 AND run_id = $2
-		  ORDER BY registered_at DESC`,
+		`SELECT s.session_id, s.role_id, s.lane_id, s.state,
+		        CASE WHEN ps.supervisor_id IS NOT NULL THEN 'attested' ELSE 'unattested' END AS lane_attestation,
+		        CASE WHEN ps.supervisor_id IS NOT NULL THEN NULL ELSE 'no_attached_supervisor' END AS lane_attestation_reason
+		   FROM striatumd.sessions s
+		   LEFT JOIN striatumd.process_supervisors ps
+		     ON ps.repository_id = s.repository_id
+		    AND ps.session_id = s.session_id
+		    AND ps.state = 'attached'
+		  WHERE s.repository_id = $1 AND s.run_id = $2
+		  ORDER BY s.registered_at DESC`,
 		repositoryID, runID,
 	)
 	if err != nil {

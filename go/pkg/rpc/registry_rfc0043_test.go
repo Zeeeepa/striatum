@@ -5,6 +5,7 @@ import "testing"
 func TestRFC0043CanonicalCapabilities(t *testing.T) {
 	expected := map[string]Capability{
 		"session.register":       CapabilityClaim,
+		"session.report":         CapabilityClaim,
 		"work.claim_next":        CapabilityClaim,
 		"work.ack":               CapabilityClaim,
 		"work.heartbeat":         CapabilityClaim,

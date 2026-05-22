@@ -70,10 +70,13 @@ Order the work as a set of gates, not as one all-or-nothing cutover:
 5. [done] Refactor `go/pkg/agentloop` into a PTY bootstrapper that gives agents the
    endpoint/token/repository/lane instructions and then lets the agent use its
    own MCP client.
-6. [scaffolded] Move live operator actions to MCP/UI surfaces until no
-   workflow-control operation requires a human or AI operator to invoke
-   `striatum` CLI verbs. The cutover map and first-slice workflow live at
-   `docs/operator/workflows/rfc-0075-and-mcp-cutover/workflow.json`.
+6. [first slice landed] Move live operator actions to MCP/UI surfaces until
+   no workflow-control operation requires a human or AI operator to invoke
+   `striatum` CLI verbs. The RFC 0075 / MCP cutover workflow completed and
+   landed `session.report` as the MCP pre-packet readiness/heartbeat/question/
+   escalation method. Remaining slices are MCP activity timestamp persistence,
+   liveness deadline classification, tmux attach metadata, and status/UI
+   projection.
 7. [done] Delete `src/striatum/mcp.py` and retire Python MCP launch docs.
 
 For this roadmap, "eliminating the CLI" means eliminating CLI verbs as the

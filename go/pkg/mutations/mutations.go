@@ -57,6 +57,7 @@ func Register(server *rpc.Server, runner db.Runner, opts ...Options) {
 	packageBlobClient = o.BlobClient
 	server.Register("session.register", makeHandler(runner, HandleRegisterSession))
 	server.Register("session.close", makeHandler(runner, HandleCloseSession))
+	server.Register("session.report", makeHandler(runner, HandleSessionReport))
 	server.Register("work.claim_next", makeHandler(runner, HandleClaimNext))
 	server.Register("claim_next", makeHandler(runner, HandleClaimNext))
 	server.Register("work.await_packet", makeHandler(runner, HandleAwaitPacket))

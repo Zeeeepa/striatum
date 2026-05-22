@@ -48,6 +48,7 @@ func TestRegisterInstallsInitialMutationHandlers(t *testing.T) {
 	for _, method := range []string{
 		"session.register",
 		"session.close",
+		"session.report",
 		"work.claim_next",
 		"claim_next",
 		"work.ack",

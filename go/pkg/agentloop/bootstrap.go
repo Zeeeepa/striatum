@@ -39,6 +39,7 @@ Use the local Striatum MCP server at %s.
 The same endpoint is available in STRIATUM_MCP_URL. %s
 %s
 Call tools/list first, then call work.await_packet with repository_id, session_id, and an appropriate lease_seconds value.
+If you need input or are blocked before work.await_packet, call session.report with report_kind question or escalate instead of waiting silently in terminal text.
 Use MCP tools to acknowledge work, publish artifacts, report blockers, complete work, or release work. This PTY supervisor will not claim, complete, release, or spoon-feed packet JSON for you.
 Stay inside the active work packet write scope, treat .striatum/ as operational scratch, and follow the packet commands exactly.
 `, ctx.RunID, ctx.SessionID, ctx.RepoRoot, ctx.Endpoint, tokenInstruction, repositoryInstruction)

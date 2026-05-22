@@ -110,6 +110,7 @@ imports and fails on unlisted direct PostgreSQL client helpers.
 | `repo.resolve` | client repository resolution | read | daemon_global | pg repo resolver | real | no | no | daemon-global bootstrap read for path -> repository_id resolution |
 | `session.register` | `register-session` | claim | single_repo | pg | real | no | no | stable |
 | `session.close` | `session close` | claim | single_repo | pg | real | no | no | stable |
+| `session.report` | MCP pre-work session report | claim | single_repo | not implemented in Python RPC | real | no | no | RFC 0075 structured ready/heartbeat/question/escalate event path; no terminal text authority |
 | `work.claim_next` | `claim-next` | claim | single_repo | pg | real | no | no | stable |
 | `work.await_packet` | MCP agent loop | claim | single_repo | not implemented in Python RPC | real | no | no | Go long-poll work-packet acquisition for autonomous MCP agents |
 | `work.ack` | `ack` | claim | single_repo | pg | real | no | no | stable |

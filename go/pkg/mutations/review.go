@@ -2,11 +2,13 @@ package mutations
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
 	"github.com/halbritt/striatum/go/pkg/db"
 	"github.com/halbritt/striatum/go/pkg/rpc"
+	"github.com/jackc/pgx/v5"
 )
 
 func HandleRecordVerdict(ctx context.Context, runner db.Runner, envelope rpc.Envelope) (map[string]any, error) {
@@ -105,7 +107,7 @@ func HandleOverrideVerdict(ctx context.Context, runner db.Runner, envelope rpc.E
 	rationale := stringParam(envelope, "rationale")
 	findingsArtifactID := nullable(stringParam(envelope, "findings_artifact_id"))
 	autoFreshSession := boolParam(envelope, "auto_fresh_session")
-	if sessionID == "" || jobID == "" || verdict == "" || rationale == "" {
+	if sessionID == "" || jobID == "" || verdict == "" || strings.TrimSpace(rationale) == "" {
 		return nil, rpc.NewError("schema_invalid", "review.override requires session_id, job_id, verdict, and rationale", nil)
 	}
 	if verdict != "accept" && verdict != "accept_with_findings" {
@@ -155,15 +157,24 @@ func HandleOverrideVerdict(ctx context.Context, runner db.Runner, envelope rpc.E
 			 WHERE repository_id = $1 AND job_id = $2
 			 ORDER BY created_at DESC, verdict_id DESC
 			 LIMIT 1`, repositoryID, jobID)
-		if err != nil {
+		previousVerdictID := any(nil)
+		previousVerdictValue := any(nil)
+		previousVerdict := ""
+		switch {
+		case errors.Is(err, pgx.ErrNoRows):
+			previous = nil
+		case err != nil:
 			return nil, err
+		default:
+			previousVerdict = fmt.Sprint(previous["verdict"])
+			previousVerdictID = previous["verdict_id"]
+			previousVerdictValue = previousVerdict
 		}
-		previousVerdict := fmt.Sprint(previous["verdict"])
 		if previousVerdict == "accept" || previousVerdict == "accept_with_findings" {
 			return map[string]any{"status": "already_accepting", "job_id": jobID, "previous_verdict": previousVerdict}, nil
 		}
 		effectiveArtifactID := findingsArtifactID
-		if effectiveArtifactID == nil {
+		if effectiveArtifactID == nil && previous != nil {
 			effectiveArtifactID = nullable(previous["findings_artifact_id"])
 		}
 		if effectiveArtifactID != nil {
@@ -211,17 +222,24 @@ func HandleOverrideVerdict(ctx context.Context, runner db.Runner, envelope rpc.E
 			messageID := nullable(job["current_message_id"])
 			if err := tx.Exec(ctx, `
 				UPDATE striatumd.jobs
-				   SET state = 'completed', completed_at = $1
+				   SET state = 'completed', completed_at = $1, current_lease_id = NULL
 				 WHERE repository_id = $2 AND job_id = $3`, now, repositoryID, jobID); err != nil {
 				return nil, err
 			}
 			if messageID != nil {
 				if err := tx.Exec(ctx, `
 					UPDATE striatumd.queue_messages
-					   SET state = 'completed', completed_at = $1, updated_at = $2
+					   SET state = 'completed', completed_at = $1, updated_at = $2,
+					       current_lease_id = NULL
 					 WHERE repository_id = $3 AND message_id = $4`, now, now, repositoryID, messageID); err != nil {
 					return nil, err
 				}
+			}
+			if _, err := appendEvent(ctx, tx, repositoryID, job["run_id"], "job.completed", sessionID, jobID, messageID, nil, nil, map[string]any{
+				"summary": "review override accepted by operator",
+				"source":  "review.override",
+			}); err != nil {
+				return nil, err
 			}
 			rows, err := queryRows(ctx, tx, `
 				SELECT blocker_id FROM striatumd.blockers
@@ -247,9 +265,9 @@ func HandleOverrideVerdict(ctx context.Context, runner db.Runner, envelope rpc.E
 			}
 		}
 		if _, err := appendEvent(ctx, tx, repositoryID, job["run_id"], "verdict.overridden", sessionID, jobID, nil, effectiveArtifactID, nil, map[string]any{
-			"previous_verdict":    previousVerdict,
+			"previous_verdict":    previousVerdictValue,
 			"verdict":             verdict,
-			"previous_verdict_id": previous["verdict_id"],
+			"previous_verdict_id": previousVerdictID,
 			"verdict_id":          verdictID,
 			"resolved_blockers":   resolvedBlockers,
 		}); err != nil {
@@ -261,10 +279,14 @@ func HandleOverrideVerdict(ctx context.Context, runner db.Runner, envelope rpc.E
 		if err := maybeCompleteRun(ctx, tx, repositoryID, fmt.Sprint(job["run_id"])); err != nil {
 			return nil, err
 		}
+		status := "overridden"
+		if previous == nil {
+			status = "recovered"
+		}
 		return map[string]any{
-			"status":               "overridden",
+			"status":               status,
 			"job_id":               jobID,
-			"previous_verdict":     previousVerdict,
+			"previous_verdict":     previousVerdictValue,
 			"verdict":              verdict,
 			"verdict_id":           verdictID,
 			"findings_artifact_id": effectiveArtifactID,

@@ -454,6 +454,15 @@
       "deprecated": false
     },
     {
+      "method": "session.report",
+      "required_capability": "claim",
+      "repository_scope_mode": "single_repo",
+      "params_schema_version": 1,
+      "audit_class": "metadata",
+      "min_envelope": 1,
+      "deprecated": false
+    },
+    {
       "method": "work.claim_next",
       "required_capability": "claim",
       "repository_scope_mode": "single_repo",

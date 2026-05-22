@@ -151,14 +151,16 @@ func HandleListArtifacts(ctx context.Context, runner db.Runner, envelope rpc.Env
 	}
 	if kind != "" {
 		args = append(args, kind)
-		where += " AND kind = $" + strconv.Itoa(len(args))
+		where += " AND artifact_kind = $" + strconv.Itoa(len(args))
 	}
 	limit, count := limitClause(envelope, 500)
 	items, err := collectRows(ctx, runner,
-		`SELECT artifact_id, run_id, job_id, session_id, kind, logical_name,
-		        path, content_sha256, byline, published_at
+		`SELECT artifact_id, run_id, job_id, session_id,
+		        artifact_kind AS kind, logical_name,
+		        repo_path AS path, content_sha256, author_line AS byline,
+		        created_at AS published_at
 		   FROM striatumd.artifacts `+where+
-			` ORDER BY published_at DESC`+limit,
+			` ORDER BY created_at DESC`+limit,
 		args...,
 	)
 	if err != nil {

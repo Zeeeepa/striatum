@@ -228,6 +228,91 @@ func HandleCloseSession(ctx context.Context, runner db.Runner, envelope rpc.Enve
 	})
 }
 
+func HandleSessionReport(ctx context.Context, runner db.Runner, envelope rpc.Envelope) (map[string]any, error) {
+	repositoryID, err := requireRepositoryID(envelope)
+	if err != nil {
+		return nil, err
+	}
+	sessionID := stringParam(envelope, "session_id")
+	reportKind := strings.TrimSpace(stringParam(envelope, "report_kind"))
+	phase := strings.TrimSpace(stringParam(envelope, "phase"))
+	message := strings.TrimSpace(stringParam(envelope, "message"))
+	blockerKind := strings.TrimSpace(stringParam(envelope, "blocker_kind"))
+	if sessionID == "" || reportKind == "" || phase == "" {
+		return nil, rpc.NewError("schema_invalid", "session.report requires session_id, report_kind, and phase", nil)
+	}
+	if !validSessionReportKind(reportKind) {
+		return nil, rpc.NewError("schema_invalid", "session.report report_kind must be one of ready, heartbeat, question, escalate", nil)
+	}
+	if !validSessionReportPhase(phase) {
+		return nil, rpc.NewError("schema_invalid", "session.report phase must be one of discovery, await_packet, lease_held, between_packets", nil)
+	}
+	if len(message) > 280 {
+		return nil, rpc.NewError("schema_invalid", "session.report message must be at most 280 characters", nil)
+	}
+	if blockerKind != "" && !validSessionReportBlockerKind(blockerKind) {
+		return nil, rpc.NewError("schema_invalid", "session.report blocker_kind must be one of auth_prompt, model_timeout, missing_input, other", nil)
+	}
+	if (reportKind == "ready" || reportKind == "heartbeat") && blockerKind != "" {
+		return nil, rpc.NewError("schema_invalid", "session.report blocker_kind is only valid for question or escalate reports", nil)
+	}
+	return withTx(ctx, runner, func(tx db.TxRunner) (map[string]any, error) {
+		session, err := rowByID(ctx, tx, repositoryID, "sessions", "session_id", sessionID, true)
+		if err != nil {
+			return nil, err
+		}
+		runID := session["run_id"]
+		payload := map[string]any{
+			"session_id":  sessionID,
+			"report_kind": reportKind,
+			"phase":       phase,
+		}
+		if message != "" {
+			payload["message"] = message
+		}
+		if blockerKind != "" {
+			payload["blocker_kind"] = blockerKind
+		}
+		if _, err := appendEvent(ctx, tx, repositoryID, runID, "session.reported", sessionID, nil, nil, nil, nil, payload); err != nil {
+			return nil, err
+		}
+		return map[string]any{
+			"status":      "reported",
+			"session_id":  sessionID,
+			"run_id":      runID,
+			"report_kind": reportKind,
+			"phase":       phase,
+		}, nil
+	})
+}
+
+func validSessionReportKind(value string) bool {
+	switch value {
+	case "ready", "heartbeat", "question", "escalate":
+		return true
+	default:
+		return false
+	}
+}
+
+func validSessionReportPhase(value string) bool {
+	switch value {
+	case "discovery", "await_packet", "lease_held", "between_packets":
+		return true
+	default:
+		return false
+	}
+}
+
+func validSessionReportBlockerKind(value string) bool {
+	switch value {
+	case "auth_prompt", "model_timeout", "missing_input", "other":
+		return true
+	default:
+		return false
+	}
+}
+
 func HandleAckWork(ctx context.Context, runner db.Runner, envelope rpc.Envelope) (map[string]any, error) {
 	repositoryID, err := requireRepositoryID(envelope)
 	if err != nil {

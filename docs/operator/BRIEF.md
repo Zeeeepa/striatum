@@ -37,11 +37,14 @@ to make daemon MCP and the operator UI cover live workflow control first, then
 retire or hide the CLI verbs they replace. Bootstrap and diagnostics commands
 may survive only when explicitly justified.
 
-RFC 0075 is now proposed and scaffolded as the next post-MCP operator
-observability slice. It keeps tmux as local inspection metadata, not workflow
-state, and requires explicit liveness deadlines around MCP discovery,
-`work.await_packet`, packet ack, and lease heartbeat before live agents can
-silently burn a run.
+RFC 0075 is proposed, scaffolded, and has completed its first cutover
+workflow slice at
+`docs/operator/workflows/rfc-0075-and-mcp-cutover/workflow.json`. The landed
+slice adds `session.report` as the claim-gated MCP path for pre-packet
+`ready`, `heartbeat`, `question`, and `escalate` reports. Tmux metadata,
+liveness timestamp persistence, deadline classification, and status/UI
+projection remain pending; tmux panes are still local inspection metadata, not
+workflow state.
 
 The human-principal checkpoint for TODO 55, 56, 59, and 60 is resolved. D124
 chooses daemon-core accepted-risk persistence for workflow lint; D125 keeps
@@ -53,10 +56,9 @@ provider actions in core.
 
 ## Next 1-3 Actions
 
-1. Run the scaffolded RFC 0075 / MCP cutover workflow at
-   `docs/operator/workflows/rfc-0075-and-mcp-cutover/workflow.json` to produce
-   the cutover map and liveness contract before deleting any CLI
-   workflow-control verb.
+1. Implement the next RFC 0075 slice: persist MCP activity timestamps and
+   project liveness classification for discovery, `work.await_packet`, ack,
+   heartbeat, question, and escalation stalls.
 2. Apply the TODO 55/56/59/60 follow-ups: daemon accepted-risk mutation
    surfaces, auto-finalize observability/circuit-breaker work, Corpus Contract
    V2 schema/archive defaults, and the read-only local Git snapshot slice.
@@ -93,3 +95,4 @@ provider actions in core.
 - `docs/operator/plans/rfc-0050-cli-retirement-cutover.md`
 - `docs/operator/plans/rfc-0075-tmux-observable-mcp-agent-sessions.md`
 - `docs/operator/workflows/rfc-0075-and-mcp-cutover/workflow.json`
+- `docs/operator/artifacts/rfc-0075-and-mcp-cutover/final/SUMMARY.md`

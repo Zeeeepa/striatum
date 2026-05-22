@@ -175,6 +175,11 @@ release work, or write packet JSON. The agent is responsible for using MCP:
 4. report state with MCP tools such as `work.ack`, `artifact.publish`,
    `review.verdict`, `work.complete`, or `work.release`.
 
+Before a packet exists, agents use `session.report` for structured
+`ready`, `heartbeat`, `question`, or `escalate` reports. This is the
+pre-work path for startup blockers; terminal text and pane contents remain
+observability only.
+
 ## Boundary
 
 The MCP server is local-only and daemon-owned. It does not introduce hosted
