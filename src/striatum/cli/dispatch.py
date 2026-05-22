@@ -475,11 +475,34 @@ def dispatch(args: argparse.Namespace) -> object:
         )
     if args.command == "workflow" and args.workflow_command == "templates":
         from striatum.workflow_generator.catalog import get_template, list_templates
+        from striatum.workflow_generator.catalog_markdown import (
+            render_catalog_markdown,
+            write_catalog_markdown,
+        )
+        from striatum.workflow_generator.core import GeneratorError
 
         if args.templates_command == "list":
             return {"templates": list_templates(kind=args.kind)}
         if args.templates_command == "show":
             return get_template(str(args.template_id))
+        if args.templates_command == "render-md":
+            if bool(getattr(args, "stdout", False)):
+                markdown = render_catalog_markdown()
+                if bool(getattr(args, "json", False)):
+                    return {"markdown": markdown}
+                return markdown
+            output_path_arg = getattr(args, "path", None)
+            if not isinstance(output_path_arg, str) or output_path_arg == "":
+                raise GeneratorError(
+                    "workflow templates render-md requires a path unless --stdout is passed",
+                    field_path="path",
+                )
+            return write_catalog_markdown(
+                Path(output_path_arg),
+                repo=repo,
+                force=bool(getattr(args, "force", False)),
+                check=bool(getattr(args, "check", False)),
+            )
     if args.command == "workflow" and args.workflow_command == "generate":
         return _workflow_generate(args, repo)
     if args.command == "dashboard":
@@ -1329,5 +1352,3 @@ def _dispatch_cross_repo(args: argparse.Namespace) -> object:
         if callable(close):
             close()
     raise StriatumError("unknown cross-repo command", exit_code=2)
-
-

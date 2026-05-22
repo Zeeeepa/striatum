@@ -16,6 +16,7 @@ collectively, not individually.
 | [HOW_TO_AGENT.md](HOW_TO_AGENT.md) | Coding agent | Long-form companion to the RFC 0015 skill bundle; the workflow loop, work-packet shape, and what not to do. |
 | [CONTEXT_HYGIENE.md](CONTEXT_HYGIENE.md) | Operator / agent author | Why session quality is not a function of token budget; repo-side, session-side, and model-side practices for replicating high-taste sessions. |
 | [WORKFLOW_TYPES.md](WORKFLOW_TYPES.md) | Workflow selector | Which workflow shape and lane set to choose; current starters, examples, defaults, and the roadmap toward a chooser UI. |
+| [WORKFLOW_CATALOG.md](WORKFLOW_CATALOG.md) | Workflow selector | Generated reference for bundled workflow catalog shapes and lane sets, including Mermaid graph previews. |
 | [WRITING_WORKFLOWS.md](WRITING_WORKFLOWS.md) | Workflow author | How to author `workflow.json` from scratch: required fields, scaffold layout, common graph shapes, validation. |
 | [CLI_REFERENCE.md](CLI_REFERENCE.md) | Anyone | Flat list of every CLI verb plus stable exit codes; `--help` is authoritative. |
 | [POSTGRES_TRANSITION.md](POSTGRES_TRANSITION.md) | Operator | The D094 / RFC 0043 PostgreSQL runbook: prerequisites, daemon doctor role/grant repair, daemon service startup, `striatum adopt`, retired SQLite import-command behavior, verification, and exit codes 11 / 12. |

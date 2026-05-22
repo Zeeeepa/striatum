@@ -22,6 +22,7 @@ striatum workflow graph
 striatum workflow init
 striatum workflow templates list
 striatum workflow templates show
+striatum workflow templates render-md
 striatum workflow generate
 striatum workflow upgrade
 striatum run prepare
@@ -41,9 +42,13 @@ generated tree uses a single `local` process lane as a valid
 placeholder; edit lanes and job `lane_id` bindings for real agent
 runs.
 
-`workflow templates list [--kind shape|lane_set]` and
-`workflow templates show <template_id>` expose the bundled local
-workflow-template catalog. `workflow generate <path> --shape <shape>
+`workflow templates list [--kind shape|lane_set]`,
+`workflow templates show <template_id>`, and
+`workflow templates render-md <path> [--force|--check]` expose the
+bundled local workflow-template catalog. `render-md` writes a Markdown
+catalog summary with Mermaid graph-preview diagrams for shape entries;
+`--stdout` prints the Markdown instead of writing a file.
+`workflow generate <path> --shape <shape>
 --lane-set <lane_set> --artifact-root <path>` compiles a concrete
 workflow tree from that catalog and immediately validates the generated
 `workflow.json`. Add `--dry-run --json` to preview the full envelope

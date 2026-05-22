@@ -13,6 +13,10 @@ from striatum.workflow_generator.catalog import (
     list_harness_fragments,
     list_templates,
 )
+from striatum.workflow_generator.catalog_markdown import (
+    render_catalog_markdown,
+    render_graph_preview_mermaid,
+)
 from striatum.workflow_generator.core import GENERATOR_SCHEMA_VERSION
 
 
@@ -52,6 +56,34 @@ def test_catalog_lists_and_shows_templates() -> None:
     assert "code_change" in ids
     assert "multi_phase" in ids
     assert get_template("author_reviewer")["kind"] == "lane_set"
+
+
+def test_catalog_markdown_renders_shape_diagrams() -> None:
+    markdown = render_catalog_markdown()
+
+    assert markdown.startswith("# Workflow Template Catalog\n")
+    assert "## Workflow Shapes" in markdown
+    assert "### Code change with bounded revision (`code_change`)" in markdown
+    assert "```mermaid\nflowchart TD\n" in markdown
+    assert "n0[\"Draft\"]" in markdown
+    assert "n1 --> n2" in markdown
+    assert "n1 -.->|needs_revision| n0" in markdown
+    assert "### Separate author and reviewer (`author_reviewer`)" in markdown
+
+
+def test_graph_preview_mermaid_escapes_labels() -> None:
+    source = {
+        "nodes": [{"id": "a", "label": 'Quote "one"'}, {"id": "b", "label": "Path \\\\ two"}],
+        "edges": [{"from": "a", "to": "b", "label": "then"}],
+        "cycles": [{"from": "b", "to": "a", "on_verdict": "needs_revision", "max_iterations": 2}],
+    }
+    mermaid = render_graph_preview_mermaid(source)
+
+    assert mermaid is not None
+    assert 'n0["Quote \\"one\\""]' in mermaid
+    assert 'n1["Path \\\\\\\\ two"]' in mermaid
+    assert "n0 -->|then| n1" in mermaid
+    assert "n1 -.->|needs_revision max 2| n0" in mermaid
 
 
 def test_builtin_shapes_validate() -> None:
@@ -204,6 +236,53 @@ def test_cli_workflow_generate_dry_run_and_write(tmp_path: Path, capsys) -> None
     ])
     assert rc == 0
     assert (tmp_path / "workflows" / "demo" / "workflow.json").exists()
+
+
+def test_cli_workflow_templates_render_md(tmp_path: Path, capsys) -> None:  # type: ignore[no-untyped-def]
+    rc = main([
+        "--repo",
+        str(tmp_path),
+        "workflow",
+        "templates",
+        "render-md",
+        "docs/workflow-catalog.md",
+        "--json",
+    ])
+    assert rc == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["data"]["status"] == "created"
+    target = tmp_path / "docs" / "workflow-catalog.md"
+    assert target.exists()
+    assert "### Review and synthesis (`review`)" in target.read_text(encoding="utf-8")
+
+    rc = main([
+        "--repo",
+        str(tmp_path),
+        "workflow",
+        "templates",
+        "render-md",
+        "docs/workflow-catalog.md",
+        "--check",
+        "--json",
+    ])
+    assert rc == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["data"]["status"] == "up_to_date"
+
+
+def test_cli_workflow_templates_render_md_stdout(tmp_path: Path, capsys) -> None:  # type: ignore[no-untyped-def]
+    rc = main([
+        "--repo",
+        str(tmp_path),
+        "workflow",
+        "templates",
+        "render-md",
+        "--stdout",
+    ])
+    assert rc == 0
+    stdout = capsys.readouterr().out
+    assert stdout.startswith("# Workflow Template Catalog\n")
+    assert "```mermaid\nflowchart TD\n" in stdout
 
 
 def test_workflow_init_keeps_legacy_envelope(tmp_path: Path, capsys) -> None:  # type: ignore[no-untyped-def]

@@ -175,7 +175,9 @@ status.
 The bundled template catalog is package data under
 `striatum.workflow_templates/catalog.json`; V1 does not fetch remote
 templates and does not load target-repository catalog extensions.
-`workflow templates list/show` expose catalog metadata.
+`workflow templates list/show` expose catalog metadata, and `workflow
+templates render-md` writes or prints a Markdown catalog summary with
+Mermaid graph-preview diagrams for shape entries.
 `workflow generate` writes the generated tree only after the same
 immediate validation pass and refuses to overwrite existing generated
 files. The local service exposes read endpoints
@@ -1205,7 +1207,9 @@ SIGINT. Mutations gate behind `--allow-mutations`; daemon-routed commands
 are classified as read-only only when the daemon method contract has
 `required_capability: "read"`. CLI-local workflow authoring reads
 (`workflow validate`, `workflow lint`, `workflow plan`, `workflow graph`,
-`workflow templates`) remain explicitly allowed without mutation mode.
+`workflow templates list/show`) remain explicitly allowed without mutation
+mode; `workflow templates render-md` is a CLI file writer, not a local
+service mutation endpoint.
 
 ### Registry-Backed Multi-Repo Coordination
 

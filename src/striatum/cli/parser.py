@@ -566,6 +566,27 @@ def build_parser() -> argparse.ArgumentParser:
     templates_show = templates_sub.add_parser("show")
     templates_show.add_argument("template_id")
     templates_show.add_argument("--json", action="store_true")
+    templates_render = templates_sub.add_parser(
+        "render-md",
+        description="Render the bundled workflow template catalog as Markdown with Mermaid diagrams.",
+    )
+    templates_render.add_argument("path", nargs="?")
+    templates_render.add_argument(
+        "--stdout",
+        action="store_true",
+        help="print the rendered Markdown instead of writing a file",
+    )
+    templates_render.add_argument(
+        "--force",
+        action="store_true",
+        help="overwrite an existing Markdown file when its content differs",
+    )
+    templates_render.add_argument(
+        "--check",
+        action="store_true",
+        help="report whether the target Markdown file is current without writing it",
+    )
+    templates_render.add_argument("--json", action="store_true")
     generate = workflow_sub.add_parser(
         "generate",
         description=(

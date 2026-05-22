@@ -33,7 +33,7 @@ runtime default:
 | `--style code-change` | Draft -> review -> apply, with one bounded `needs_revision` cycle back to draft. |
 | `examples/` | Runnable fixtures and reference workflows. They are useful starting points, but the runner never auto-selects them. |
 | Historical fixtures | Incubation provenance. Read them for context, not as current default workflows. |
-| `striatum workflow templates` | Lists and shows the bundled local catalog of workflow shapes and lane sets. |
+| `striatum workflow templates` | Lists, shows, and renders the bundled local catalog of workflow shapes and lane sets. |
 | `striatum workflow generate` | Generates a complete workflow tree from a shape, lane set, artifact root, and options; validates immediately; never runs the workflow. |
 | Web UI | The workflow browser and editor can list, preview, edit, and run existing workflow files; a template chooser UI is still future work, but service endpoints expose catalog and generation previews. |
 
