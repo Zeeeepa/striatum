@@ -37,6 +37,12 @@ file/module that needs coordinated review.
    is actually closed. Output: `REVIEW.md` with verdict `accept` /
    `accept_with_findings` / `needs_revision`.
 
+`review_posture: compliance_license` scopes the reviewer's findings to
+license, attribution, telemetry, hosted-service, data-handling, regulatory,
+and external-persistence risks. It does not restrict evidence: the reviewer
+still reads the implementer handoff, changed files named by the handoff,
+relevant tests, and command outputs needed to verify the issue.
+
 For HIGH severity issues (security, data loss, run-state corruption):
 fan `verify` out to 3 lanes (codex threat_model + claude ergonomics_dx
 + gemini adversarial). Use the security hardening dogfood from

@@ -52,6 +52,11 @@ def complete_inline(
     with transaction(ctx):
         job = ctx.row_by_id("jobs", "job_id", job_id, for_update=True)
         active_lease_for(ctx, lease_id=lease_id, session_id=session_id, job_id=job_id)
+        if job["job_type"] in {"review", "phase_synthesis"}:
+            label = "phase_synthesis" if job["job_type"] == "phase_synthesis" else "review"
+            raise InvalidTransitionError(
+                f"{label} jobs must use submit-review instead of complete"
+            )
         if job["state"] != "running":
             raise InvalidTransitionError("job must be running before completion")
         verify_required_artifacts(ctx, job_id=job_id)

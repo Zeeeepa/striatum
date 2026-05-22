@@ -44,6 +44,26 @@ def init_operational_scratch(
     return state_dir
 
 
+def ensure_reference_wrappers(
+    repo: Path,
+    *,
+    error_factory: Callable[[str], Exception] = OperationalScratchError,
+) -> Path:
+    """Ensure supervised wrapper scripts exist under `.striatum/bin/`."""
+
+    state_dir = repo / ".striatum"
+    if _has_symlink_component(state_dir) or state_dir.is_symlink():
+        raise error_factory("repo scratch directory symlink is not allowed")
+    state_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        os.chmod(state_dir, 0o700)
+    except PermissionError:
+        pass
+    _ensure_gitignore_entry(repo)
+    _copy_reference_wrappers(state_dir)
+    return state_dir
+
+
 def _copy_reference_wrappers(state_dir: Path) -> None:
     bin_dir = state_dir / "bin"
     bin_dir.mkdir(parents=True, exist_ok=True)

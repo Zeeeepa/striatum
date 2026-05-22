@@ -486,8 +486,19 @@ func recordVerdict(
 	}
 }
 
+func isVerdictCapableJobType(jobType string) bool {
+	return jobType == "review" || jobType == "phase_synthesis"
+}
+
+func verdictCapableJobLabel(jobType string) string {
+	if jobType == "phase_synthesis" {
+		return "phase_synthesis"
+	}
+	return "review"
+}
+
 func prevalidateSubmitReview(ctx context.Context, runner any, repositoryID string, job map[string]any, sessionID, leaseID, logicalName, kind, pathText string) error {
-	if fmt.Sprint(job["job_type"]) != "review" && fmt.Sprint(job["job_type"]) != "phase_synthesis" {
+	if !isVerdictCapableJobType(fmt.Sprint(job["job_type"])) {
 		return rpc.NewError("invalid_transition", "submit-review is valid only for verdict-capable jobs", nil)
 	}
 	state := fmt.Sprint(job["state"])

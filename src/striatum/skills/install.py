@@ -24,6 +24,7 @@ from importlib import resources
 from pathlib import Path
 from typing import Any, Mapping
 
+from striatum.bootstrap import ensure_reference_wrappers
 from striatum.errors import InvalidTransitionError, NotFoundError
 from striatum.primitives import utc_now
 from striatum.skills.context import gather_template_context
@@ -186,6 +187,7 @@ def install(
     }
 
     if not dry_run:
+        ensure_reference_wrappers(target)
         manifest_path.parent.mkdir(parents=True, exist_ok=True)
         manifest_path.write_text(
             json.dumps(manifest_payload, indent=2, sort_keys=False) + "\n",

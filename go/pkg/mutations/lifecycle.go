@@ -612,6 +612,11 @@ func HandleCompleteWork(ctx context.Context, runner db.Runner, envelope rpc.Enve
 		if _, err := activeLeaseFor(ctx, tx, repositoryID, leaseID, sessionID, jobID); err != nil {
 			return nil, err
 		}
+		jobType := fmt.Sprint(job["job_type"])
+		if isVerdictCapableJobType(jobType) {
+			label := verdictCapableJobLabel(jobType)
+			return nil, rpc.NewError("invalid_transition", fmt.Sprintf("%s jobs must use submit-review instead of complete", label), nil)
+		}
 		if fmt.Sprint(job["state"]) != "running" {
 			return nil, rpc.NewError("invalid_transition", "job must be running before completion", nil)
 		}

@@ -2,6 +2,10 @@
 
 Fresh-context review. Posture: `compliance_license`.
 
+The `compliance_license` posture scopes findings, not evidence. You must still
+read the implementer handoff, changed files named by it, relevant tests, and
+command outputs needed to verify the acceptance criteria.
+
 ## Read
 
 - `docs/issues/26/SPEC.md`

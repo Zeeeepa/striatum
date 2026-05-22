@@ -55,8 +55,9 @@ striatum --repo $REPO complete --session-id $SESSION \
     --job-id $JOB --lease-id $LEASE --json
 ```
 
-For review jobs, replace the last two steps with
-`submit-review --verdict {{accept,accept_with_findings,needs_revision,reject}}`.
+For review jobs, do not call `complete`. Replace the last two steps with
+`submit-review --verdict {{accept,accept_with_findings,needs_revision,reject}}`;
+the daemon rejects bare completion for verdict-capable jobs.
 
 ## Front-matter kinds
 

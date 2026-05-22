@@ -129,8 +129,10 @@ POSTURE_INSTRUCTIONS: dict[str, str] = {
     ),
     "compliance_license": (
         " This is a compliance / license review. Evaluate the artifact for "
-        "license, attribution, or compliance issues; verdict acceptance "
-        "means none are unresolved."
+        "license, attribution, telemetry, hosted-service, data-handling, "
+        "regulatory, or external-persistence issues; this scopes findings, "
+        "not evidence. Read the handoff, changed files, tests, and command "
+        "outputs needed to verify the declared acceptance criteria."
     ),
     "supply_chain": (
         " This is a supply-chain review. Evaluate the artifact's external "
