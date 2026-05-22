@@ -111,9 +111,6 @@ DIRECT_PG_BOOTSTRAP_IMPORT_ALLOWLIST: dict[str, set[str]] = {
     "src/striatum/cli/dispatch.py::_dispatch_daemon_repo": {
         "striatum.daemon_pg.client_admin",
     },
-    "src/striatum/cli/dispatch.py::_dispatch_cross_repo": {
-        "striatum.daemon_pg.connection.connect_and_migrate",
-    },
     "src/striatum/cli/workflow.py::_running_runs_for_workflow_pg": {
         "striatum.daemon_pg.config.resolve_config",
         "striatum.daemon_pg.connection.connect",
