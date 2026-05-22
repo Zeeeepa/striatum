@@ -70,6 +70,9 @@ func TestSuperviseStartInsertsAndAttachesProcessSupervisor(t *testing.T) {
 	if !tx1.sawExec("INSERT INTO striatumd.process_supervisors") {
 		t.Fatalf("missing process_supervisors insert: %#v", tx1.execs)
 	}
+	if !tx1.sawExec("pg_advisory_xact_lock") {
+		t.Fatalf("missing supervise-start advisory lock: %#v", tx1.execs)
+	}
 	if !tx1.sawExec("INSERT INTO striatumd.daemon_supervisors") {
 		t.Fatalf("missing daemon_supervisors insert: %#v", tx1.execs)
 	}
@@ -197,6 +200,15 @@ func TestSuperviseStopMarksSupervisorStoppedAndUnlinksPipe(t *testing.T) {
 	event := tx.lastEventInsert()
 	if event == nil || event.args[3] != "supervisor.stopped" {
 		t.Fatalf("event insert = %#v", event)
+	}
+}
+
+func TestLinuxProcStatZombieDetectsDefunctProcessState(t *testing.T) {
+	if !linuxProcStatZombie([]byte("1234 (agent command) Z 1 2 3")) {
+		t.Fatal("expected Z process state to be treated as zombie")
+	}
+	if linuxProcStatZombie([]byte("1234 (agent command) S 1 2 3")) {
+		t.Fatal("sleeping process state should not be treated as zombie")
 	}
 }
 

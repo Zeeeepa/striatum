@@ -620,6 +620,9 @@ func HandleCompleteWork(ctx context.Context, runner db.Runner, envelope rpc.Enve
 		if fmt.Sprint(job["state"]) != "running" {
 			return nil, rpc.NewError("invalid_transition", "job must be running before completion", nil)
 		}
+		if err := enforceWriteScopeClean(ctx, tx, repositoryID, job); err != nil {
+			return nil, err
+		}
 		if err := verifyRequiredArtifacts(ctx, tx, repositoryID, jobID); err != nil {
 			return nil, err
 		}

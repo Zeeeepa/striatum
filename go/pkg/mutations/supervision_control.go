@@ -119,6 +119,9 @@ func HandleSuperviseStart(ctx context.Context, runner db.Runner, envelope rpc.En
 
 	startedAt := nowString()
 	if _, err := withTx(ctx, runner, func(tx db.TxRunner) (map[string]any, error) {
+		if err := lockSuperviseStart(ctx, tx, repositoryID, sessionID); err != nil {
+			return nil, err
+		}
 		if err := ensureNoActiveSupervisor(ctx, tx, repositoryID, sessionID); err != nil {
 			return nil, err
 		}
@@ -487,6 +490,11 @@ func insertStartingSupervisorRows(ctx context.Context, runner db.TxRunner, repos
 		supervisorID, currentDaemonInstanceID(), commandArg, sha256Hex(commandJSON),
 		config.RepoRoot, pipePath, startedAt,
 	)
+}
+
+func lockSuperviseStart(ctx context.Context, runner db.TxRunner, repositoryID, sessionID string) error {
+	key := "striatum:supervise_start:" + repositoryID + ":" + sessionID
+	return runner.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext($1))`, key)
 }
 
 func ensureNoActiveSupervisor(ctx context.Context, runner any, repositoryID, sessionID string) error {
@@ -1389,11 +1397,35 @@ func pidAliveLocal(pid int) bool {
 	if pid <= 0 {
 		return false
 	}
+	if processZombieLocal(pid) {
+		return false
+	}
 	proc, err := os.FindProcess(pid)
 	if err != nil {
 		return false
 	}
 	return proc.Signal(syscall.Signal(0)) == nil
+}
+
+func processZombieLocal(pid int) bool {
+	if runtime.GOOS != "linux" || pid <= 0 {
+		return false
+	}
+	data, err := os.ReadFile(fmt.Sprintf("/proc/%d/stat", pid))
+	if err != nil {
+		return false
+	}
+	return linuxProcStatZombie(data)
+}
+
+func linuxProcStatZombie(data []byte) bool {
+	text := string(data)
+	idx := strings.LastIndex(text, ")")
+	if idx < 0 || idx+1 >= len(text) {
+		return false
+	}
+	fields := strings.Fields(text[idx+1:])
+	return len(fields) > 0 && fields[0] == "Z"
 }
 
 func reapIfChild(pid int) {
