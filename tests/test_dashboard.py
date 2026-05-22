@@ -84,9 +84,15 @@ def test_render_frame_shows_auto_finalize_dry_run_refusals() -> None:
             "next_actions": ["recovery_auto_finalize"],
             "auto_finalize_dry_run": {
                 "eligible_count": 1,
+                "lane_finalization_summary": {
+                    "auto_from_artifact": 1,
+                    "manual_publish": 0,
+                    "pending": 0,
+                },
                 "eligible": [
                     {
                         "workflow_job_id": "review_docs",
+                        "lane_finalization": "auto_from_artifact",
                         "artifacts": [{"path": "docs/review.md"}],
                     }
                 ],
@@ -113,8 +119,8 @@ def test_render_frame_shows_auto_finalize_dry_run_refusals() -> None:
     output = dashboard.render_frame(payload, terminal_width=120)
 
     assert "Auto-finalize dry run:" in output
-    assert "eligible=1 refused=1 live_allowed=no" in output
-    assert "eligible review_docs docs/review.md" in output
+    assert "eligible=1 refused=1 live_allowed=no lanes=auto_from_artifact=1" in output
+    assert "eligible review_docs lane=auto_from_artifact docs/review.md" in output
     assert "refused review_api expected_artifact validation refused" in output
     assert "finding artifact front matter is required for auto-finalize" in output
 

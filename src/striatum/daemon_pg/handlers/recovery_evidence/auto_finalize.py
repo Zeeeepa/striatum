@@ -127,6 +127,9 @@ def handle(ctx: RepoHandlerContext, params: Mapping[str, Any]) -> dict[str, Any]
         "run_id": run_id,
         "dry_run": dry_run,
         "policy": policy,
+        "lane_finalization_summary": _lane_finalization_summary(
+            auto_from_artifact=len(eligible) + len(finalized)
+        ),
         "eligible_count": len(eligible),
         "eligible": eligible,
         "finalized_count": len(finalized),
@@ -195,6 +198,9 @@ def dry_run_projection(
         "run_id": run_id,
         "dry_run": True,
         "policy": policy,
+        "lane_finalization_summary": _lane_finalization_summary(
+            auto_from_artifact=len(eligible)
+        ),
         "eligible_count": len(eligible),
         "eligible": eligible,
         "finalized_count": 0,
@@ -260,6 +266,7 @@ def _empty_result(
         "run_id": run_id,
         "dry_run": dry_run,
         "policy": dict(policy),
+        "lane_finalization_summary": _lane_finalization_summary(),
         "eligible_count": 0,
         "eligible": [],
         "finalized_count": 0,
@@ -381,6 +388,7 @@ def _evaluate_candidate(
 
     candidate = dict(base)
     candidate.update({
+        "lane_finalization": "auto_from_artifact",
         "message_state": row.get("message_state"),
         "job_state": row.get("state"),
         "expected_byline": expected_byline,
@@ -742,9 +750,24 @@ def _finalize_candidate(
             "workflow_job_id": candidate["workflow_job_id"],
             "job_id": job_id,
             "session_id": session_id,
+            "lane_finalization": "auto_from_artifact",
+            "summary": AUTO_FINALIZE_SUMMARY,
             "artifacts": published,
             "complete": complete_result,
         }
+
+
+def _lane_finalization_summary(
+    *,
+    auto_from_artifact: int = 0,
+    manual_publish: int = 0,
+    pending: int = 0,
+) -> dict[str, int]:
+    return {
+        "auto_from_artifact": auto_from_artifact,
+        "manual_publish": manual_publish,
+        "pending": pending,
+    }
 
 
 def _run_id_for_job(ctx: RepoHandlerContext, *, job_id: str) -> str:

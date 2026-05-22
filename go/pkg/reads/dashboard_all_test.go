@@ -192,6 +192,10 @@ func TestHandleDashboardAllBuildsGlobalProjectionReadOnly(t *testing.T) {
 	if autoFinalize["candidate_count"] != 1 || autoFinalize["dry_run"] != true {
 		t.Fatalf("auto-finalize summary = %#v", autoFinalize)
 	}
+	laneSummary := autoFinalize["lane_finalization_summary"].(map[string]any)
+	if laneSummary["pending"] != 1 || laneSummary["auto_from_artifact"] != 0 {
+		t.Fatalf("auto-finalize lane summary = %#v", laneSummary)
+	}
 	policy := autoFinalize["policy"].(map[string]any)
 	if policy["workflow_enabled"] != true || policy["live_allowed"] != true {
 		t.Fatalf("auto-finalize policy = %#v", policy)

@@ -70,9 +70,15 @@ def test_recovery_panel_template_renders_auto_finalize_projection() -> None:
             "auto_publish_recipe": None,
             "auto_finalize_dry_run": {
                 "eligible_count": 1,
+                "lane_finalization_summary": {
+                    "auto_from_artifact": 1,
+                    "manual_publish": 0,
+                    "pending": 0,
+                },
                 "eligible": [
                     {
                         "workflow_job_id": "review_docs",
+                        "lane_finalization": "auto_from_artifact",
                         "artifacts": [{"path": "docs/review.md"}],
                     }
                 ],
@@ -98,6 +104,8 @@ def test_recovery_panel_template_renders_auto_finalize_projection() -> None:
     assert "1 eligible" in html
     assert "1 refused" in html
     assert "live allowed: no" in html
+    assert "auto: 1" in html
+    assert "auto_from_artifact" in html
     assert "review_docs" in html
     assert "docs/review.md" in html
     assert "finding artifact front matter is required for auto-finalize" in html

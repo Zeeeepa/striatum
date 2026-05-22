@@ -184,6 +184,10 @@ func TestHandleStatusBuildsPythonShapedRunProjection(t *testing.T) {
 	if autoFinalize["candidate_count"] != 1 {
 		t.Fatalf("auto_finalize_dry_run = %#v", autoFinalize)
 	}
+	laneSummary := autoFinalize["lane_finalization_summary"].(map[string]any)
+	if laneSummary["pending"] != 1 || laneSummary["auto_from_artifact"] != 0 {
+		t.Fatalf("lane_finalization_summary = %#v", laneSummary)
+	}
 	if result["provenance_mode"] != "strict" || result["current_phase_id"] != "phase_build" {
 		t.Fatalf("run progress fields = %#v", result)
 	}

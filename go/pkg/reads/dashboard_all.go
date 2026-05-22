@@ -643,12 +643,21 @@ func dashboardAllAutoFinalizeSummary(ctx context.Context, runner db.Runner, repo
 		candidateCount = intFrom(rows[0], "candidate_count")
 	}
 	return map[string]any{
-		"run_id":          runID,
-		"dry_run":         true,
-		"projection":      "dashboard_all_sql_summary",
-		"policy":          dashboardAllAutoFinalizePolicy(workflow),
-		"candidate_count": candidateCount,
+		"run_id":                    runID,
+		"dry_run":                   true,
+		"projection":                "dashboard_all_sql_summary",
+		"policy":                    dashboardAllAutoFinalizePolicy(workflow),
+		"candidate_count":           candidateCount,
+		"lane_finalization_summary": dashboardAllLaneFinalizationSummary(0, 0, candidateCount),
 	}, nil
+}
+
+func dashboardAllLaneFinalizationSummary(autoFromArtifact, manualPublish, pending int) map[string]any {
+	return map[string]any{
+		"auto_from_artifact": autoFromArtifact,
+		"manual_publish":     manualPublish,
+		"pending":            pending,
+	}
 }
 
 func dashboardAllAutoFinalizePolicy(workflow map[string]any) map[string]any {

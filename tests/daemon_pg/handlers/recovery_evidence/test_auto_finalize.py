@@ -61,6 +61,13 @@ def test_auto_finalize_review_artifact_records_verdict_and_completes_run(
         )
 
         assert result["finalized_count"] == 1
+        assert result["lane_finalization_summary"] == {
+            "auto_from_artifact": 1,
+            "manual_publish": 0,
+            "pending": 0,
+        }
+        assert result["finalized"][0]["lane_finalization"] == "auto_from_artifact"
+        assert result["finalized"][0]["summary"] == "auto-finalized from stable expected artifact files"
         artifact = _one(
             conn,
             """
@@ -173,9 +180,22 @@ def test_auto_finalize_dry_run_projection_reports_status_eligibility(
         assert projection["eligible_count"] == 1
         assert projection["finalized_count"] == 0
         assert projection["policy"]["live_allowed"] is True
+        assert projection["lane_finalization_summary"] == {
+            "auto_from_artifact": 1,
+            "manual_publish": 0,
+            "pending": 0,
+        }
+        assert projection["eligible"][0]["lane_finalization"] == "auto_from_artifact"
         assert status_payload["auto_finalize_dry_run"]["eligible_count"] == 1
+        assert status_payload["auto_finalize_dry_run"]["lane_finalization_summary"]["auto_from_artifact"] == 1
         assert "recovery_auto_finalize" in status_payload["next_actions"]
         assert dashboard_payload["status"]["auto_finalize_dry_run"]["eligible_count"] == 1
+        assert (
+            dashboard_payload["status"]["auto_finalize_dry_run"]["lane_finalization_summary"][
+                "auto_from_artifact"
+            ]
+            == 1
+        )
         assert _count(conn, "striatumd.artifacts", repository_id="repo_a") == 0
         assert _states(conn, repository_id="repo_a")["job"] == "running"
     finally:

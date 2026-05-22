@@ -130,15 +130,16 @@ func HandleRecoveryAutoFinalize(ctx context.Context, runner db.Runner, envelope 
 		}
 	}
 	return map[string]any{
-		"run_id":          runID,
-		"dry_run":         false,
-		"policy":          policy,
-		"eligible_count":  0,
-		"eligible":        []map[string]any{},
-		"finalized_count": len(finalized),
-		"finalized":       finalized,
-		"skipped_count":   len(skipped),
-		"skipped":         skipped,
+		"run_id":                    runID,
+		"dry_run":                   false,
+		"policy":                    policy,
+		"lane_finalization_summary": autoFinalizeLaneFinalizationSummary(len(finalized), 0, 0),
+		"eligible_count":            0,
+		"eligible":                  []map[string]any{},
+		"finalized_count":           len(finalized),
+		"finalized":                 finalized,
+		"skipped_count":             len(skipped),
+		"skipped":                   skipped,
 	}, nil
 }
 
@@ -200,15 +201,16 @@ func readAutoFinalizePolicy(ctx context.Context, runner db.Runner, repositoryID,
 
 func autoFinalizeEmptyResult(runID string, dryRun bool, reason string, policy map[string]any) map[string]any {
 	return map[string]any{
-		"run_id":          runID,
-		"dry_run":         dryRun,
-		"policy":          policy,
-		"eligible_count":  0,
-		"eligible":        []map[string]any{},
-		"finalized_count": 0,
-		"finalized":       []map[string]any{},
-		"skipped_count":   1,
-		"skipped":         []map[string]any{{"reason": reason}},
+		"run_id":                    runID,
+		"dry_run":                   dryRun,
+		"policy":                    policy,
+		"lane_finalization_summary": autoFinalizeLaneFinalizationSummary(0, 0, 0),
+		"eligible_count":            0,
+		"eligible":                  []map[string]any{},
+		"finalized_count":           0,
+		"finalized":                 []map[string]any{},
+		"skipped_count":             1,
+		"skipped":                   []map[string]any{{"reason": reason}},
 	}
 }
 
@@ -250,16 +252,25 @@ func evaluateAutoFinalizeRows(ctx context.Context, runner any, repositoryID, rep
 		}
 	}
 	return map[string]any{
-		"run_id":          runID,
-		"dry_run":         true,
-		"policy":          policy,
-		"eligible_count":  len(eligible),
-		"eligible":        eligible,
-		"finalized_count": 0,
-		"finalized":       []map[string]any{},
-		"skipped_count":   len(skipped),
-		"skipped":         skipped,
+		"run_id":                    runID,
+		"dry_run":                   true,
+		"policy":                    policy,
+		"lane_finalization_summary": autoFinalizeLaneFinalizationSummary(len(eligible), 0, 0),
+		"eligible_count":            len(eligible),
+		"eligible":                  eligible,
+		"finalized_count":           0,
+		"finalized":                 []map[string]any{},
+		"skipped_count":             len(skipped),
+		"skipped":                   skipped,
 	}, nil
+}
+
+func autoFinalizeLaneFinalizationSummary(autoFromArtifact, manualPublish, pending int) map[string]any {
+	return map[string]any{
+		"auto_from_artifact": autoFromArtifact,
+		"manual_publish":     manualPublish,
+		"pending":            pending,
+	}
 }
 
 func evaluateAutoFinalizeCandidate(ctx context.Context, runner any, repositoryID, repoRoot string, row map[string]any, mtimeGraceSeconds int, allowNoProcessExecution bool) map[string]any {
@@ -313,6 +324,7 @@ func evaluateAutoFinalizeCandidate(ctx context.Context, runner any, repositoryID
 		return map[string]any{"eligible": false, "skip": skip}
 	}
 	candidate := cloneMap(base)
+	candidate["lane_finalization"] = "auto_from_artifact"
 	candidate["message_state"] = row["message_state"]
 	candidate["job_state"] = row["state"]
 	candidate["job_type"] = row["job_type"]
@@ -598,11 +610,13 @@ func finalizeAutoFinalizeCandidate(ctx context.Context, runner any, repositoryID
 		}
 	}
 	return map[string]any{
-		"workflow_job_id": candidate["workflow_job_id"],
-		"job_id":          jobID,
-		"session_id":      sessionID,
-		"artifacts":       published,
-		"complete":        completeResult,
+		"workflow_job_id":   candidate["workflow_job_id"],
+		"job_id":            jobID,
+		"session_id":        sessionID,
+		"lane_finalization": "auto_from_artifact",
+		"summary":           autoFinalizeSummary,
+		"artifacts":         published,
+		"complete":          completeResult,
 	}, nil
 }
 

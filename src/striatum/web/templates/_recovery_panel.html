@@ -18,12 +18,21 @@
       {{ auto_finalize.eligible_count or 0 }} eligible /
       {{ auto_finalize.skipped_count or 0 }} refused /
       live allowed: {{ "yes" if auto_finalize.policy and auto_finalize.policy.live_allowed else "no" }}
+      {% if auto_finalize.lane_finalization_summary %}
+      /
+      auto: {{ auto_finalize.lane_finalization_summary.auto_from_artifact or 0 }}
+      manual: {{ auto_finalize.lane_finalization_summary.manual_publish or 0 }}
+      pending: {{ auto_finalize.lane_finalization_summary.pending or 0 }}
+      {% endif %}
     </span>
     {% if auto_finalize.eligible %}
     <ul>
       {% for candidate in auto_finalize.eligible[:3] %}
       <li>
         <span class="status-pill status-ready">eligible</span>
+        {% if candidate.lane_finalization %}
+        <span class="status-pill status-running">{{ candidate.lane_finalization }}</span>
+        {% endif %}
         <code>{{ candidate.workflow_job_id or candidate.job_id }}</code>
         {% for artifact in candidate.artifacts or [] %}
         <code>{{ artifact.path }}</code>

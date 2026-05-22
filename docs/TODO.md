@@ -107,7 +107,7 @@ so external references keep resolving even as items move between sections.
 | 53 | RFC 0062 Architecture remediation Phase 5 — real escalation inbox | 🟡 projection + escalation artifact schema/linkage landed |
 | 54 | RFC 0063 Architecture remediation Phase 6 — hardened PTY supervision | ✅ done |
 | 55 | RFC 0064 Architecture remediation Phase 7 — workflow risk lint and review diversity enforcement | 🟡 daemon accepted-risk records landed; CLI/UI polish pending |
-| 56 | Architecture remediation Phase 8 — auto-finalize from front matter | 🟡 skipped-candidate cause classes landed; lane visibility/circuit breaker pending |
+| 56 | Architecture remediation Phase 8 — auto-finalize from front matter | 🟡 skipped-candidate causes and lane visibility landed; circuit breaker pending |
 | 57 | RFC 0065 Architecture remediation Phase 9 — UI packaging and bundle cleanup | ✅ done; chunking monitor only |
 | 58 | RFC 0059 Architecture remediation Phase 10 — day-zero setup improvements | ✅ done |
 | 59 | RFC 0059 RFC 0066 Architecture remediation Phase 11 — replay, archive, and corpus v2 foundations | 🟡 V2 contract decisions accepted; implementation pending |
@@ -1199,11 +1199,13 @@ review and plan are root-level operator artifacts:
     operator-on-behalf publishes. The skipped-candidate cause-class slice has
     also landed: every skip/refusal now carries a stable `cause`, artifact
     refusals carry per-artifact causes, and `reason` strings remain
-    display-compatible. D125 keeps the global default as dry-run projection
+    display-compatible. Lane-finalization visibility also landed across
+    dry-run/live return payloads, status/dashboard/web projections, and the
+    Go SQL summary path. D125 keeps the global default as dry-run projection
     and live auto-finalize workflow opt-in. Default-on behavior is gated by
     three successful live dogfoods across at least two lane shapes with zero
-    contested audit-chain events, plus follow-up lane-finalization visibility
-    and a consecutive-failure circuit breaker.
+    contested audit-chain events, plus a follow-up consecutive-failure circuit
+    breaker.
 
 57. ~~**Phase 9: UI packaging and bundle cleanup.**~~ Done:
     `ui-build` depends on `ui-clean`, `ui-check-bundle` also runs a

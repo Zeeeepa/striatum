@@ -794,12 +794,14 @@ workflow-file metadata a live authority.
 - Stable skipped-candidate cause classes landed for the dry-run/live
   projections: every skip has `cause`, artifact refusals have per-artifact
   `cause`, and existing `reason` strings remain display-compatible.
+- Lane-finalization visibility landed across dry-run/live return payloads,
+  status/dashboard/web projections, and the Go SQL summary path.
 
 **Remaining Phase 8 debt:** D125 keeps dry-run projection as the global
 default and live auto-finalize workflow opt-in. Default-on behavior may be
 reconsidered only after three successful live dogfoods across at least two lane
-shapes with zero contested audit-chain events, and after lane-finalization
-visibility and a consecutive-failure circuit breaker land.
+shapes with zero contested audit-chain events, and after a
+consecutive-failure circuit breaker lands.
 
 ---
 
