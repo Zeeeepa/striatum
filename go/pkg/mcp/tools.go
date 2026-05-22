@@ -5,11 +5,13 @@ import (
 	"fmt"
 
 	"github.com/halbritt/striatum/go/pkg/rpc"
+	"github.com/halbritt/striatum/go/pkg/sessionliveness"
 )
 
 type Service struct {
-	RPC        *rpc.Server
-	Authorizer rpc.Authorizer
+	RPC              *rpc.Server
+	Authorizer       rpc.Authorizer
+	ActivityRecorder sessionliveness.Recorder
 }
 
 func (s Service) ToolsList(ctx context.Context, params map[string]any, token string) map[string]any {
@@ -21,7 +23,12 @@ func (s Service) ToolsList(ctx context.Context, params map[string]any, token str
 	if authorizer == nil {
 		authorizer = rpc.AllowAllAuthorizer{}
 	}
-	return map[string]any{"tools": VisibleTools(ctx, authorizer, token, repositoryID)}
+	tools := VisibleTools(ctx, authorizer, token, repositoryID)
+	if len(tools) > 0 {
+		sessionID, _ := params["session_id"].(string)
+		_ = s.recordActivity(ctx, repositoryID, sessionID, sessionliveness.LastToolsListAt)
+	}
+	return map[string]any{"tools": tools}
 }
 
 func (s Service) ToolsCall(ctx context.Context, name string, arguments map[string]any, token string, requestID string) map[string]any {
@@ -53,6 +60,13 @@ func (s Service) ToolsCall(ctx context.Context, name string, arguments map[strin
 		}
 	}
 	return toolResult(name, false, response.AuditID, code, message, response.Data)
+}
+
+func (s Service) recordActivity(ctx context.Context, repositoryID string, sessionID string, columns ...string) error {
+	if s.ActivityRecorder == nil || repositoryID == "" || sessionID == "" {
+		return nil
+	}
+	return s.ActivityRecorder.RecordSessionActivity(ctx, repositoryID, sessionID, columns...)
 }
 
 func toolResult(name string, ok bool, auditID string, code string, message string, data map[string]any) map[string]any {

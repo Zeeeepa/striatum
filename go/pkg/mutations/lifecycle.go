@@ -8,6 +8,7 @@ import (
 
 	"github.com/halbritt/striatum/go/pkg/db"
 	"github.com/halbritt/striatum/go/pkg/rpc"
+	"github.com/halbritt/striatum/go/pkg/sessionliveness"
 	"github.com/jackc/pgx/v5"
 )
 
@@ -273,6 +274,9 @@ func HandleSessionReport(ctx context.Context, runner db.Runner, envelope rpc.Env
 		if blockerKind != "" {
 			payload["blocker_kind"] = blockerKind
 		}
+		if err := sessionliveness.Record(ctx, tx, repositoryID, sessionID, sessionReportActivityColumn(reportKind)); err != nil {
+			return nil, err
+		}
 		if _, err := appendEvent(ctx, tx, repositoryID, runID, "session.reported", sessionID, nil, nil, nil, nil, payload); err != nil {
 			return nil, err
 		}
@@ -284,6 +288,21 @@ func HandleSessionReport(ctx context.Context, runner db.Runner, envelope rpc.Env
 			"phase":       phase,
 		}, nil
 	})
+}
+
+func sessionReportActivityColumn(reportKind string) string {
+	switch reportKind {
+	case "ready":
+		return sessionliveness.LastSessionReadyAt
+	case "heartbeat":
+		return sessionliveness.LastSessionHeartbeatAt
+	case "question":
+		return sessionliveness.LastSessionQuestionAt
+	case "escalate":
+		return sessionliveness.LastSessionEscalateAt
+	default:
+		return sessionliveness.LastMCPRequestAt
+	}
 }
 
 func validSessionReportKind(value string) bool {
@@ -355,6 +374,9 @@ func HandleAckWork(ctx context.Context, runner db.Runner, envelope rpc.Envelope)
 			 WHERE repository_id = $2 AND job_id = $3`, now, repositoryID, job["job_id"]); err != nil {
 			return nil, err
 		}
+		if err := sessionliveness.Record(ctx, tx, repositoryID, sessionID, sessionliveness.LastAckAt); err != nil {
+			return nil, err
+		}
 		if _, err := appendEvent(ctx, tx, repositoryID, job["run_id"], "queue.acked", sessionID, job["job_id"], messageID, nil, leaseID, nil); err != nil {
 			return nil, err
 		}
@@ -390,6 +412,9 @@ func HandleHeartbeat(ctx context.Context, runner db.Runner, envelope rpc.Envelop
 			UPDATE striatumd.leases
 			   SET last_heartbeat_at = $1, expires_at = $2
 			 WHERE repository_id = $3 AND lease_id = $4`, now, expiresAt, repositoryID, leaseID); err != nil {
+			return nil, err
+		}
+		if err := sessionliveness.Record(ctx, tx, repositoryID, sessionID, sessionliveness.LastWorkHeartbeatAt); err != nil {
 			return nil, err
 		}
 		if _, err := appendEvent(ctx, tx, repositoryID, lease["run_id"], "lease.heartbeat", sessionID, lease["resource_id"], nil, nil, leaseID, map[string]any{"expires_at": expiresAt}); err != nil {
@@ -468,6 +493,9 @@ func HandleReleaseWork(ctx context.Context, runner db.Runner, envelope rpc.Envel
 			UPDATE striatumd.queue_messages
 			   SET state = $1, current_lease_id = NULL, updated_at = $2
 			 WHERE repository_id = $3 AND message_id = $4`, messageState, now, repositoryID, messageID); err != nil {
+			return nil, err
+		}
+		if err := sessionliveness.Record(ctx, tx, repositoryID, sessionID, sessionliveness.LastWorkReleaseAt); err != nil {
 			return nil, err
 		}
 		if _, err := appendEvent(ctx, tx, repositoryID, job["run_id"], "lease.released", sessionID, job["job_id"], messageID, nil, leaseID, map[string]any{"reason": reason, "job_state": jobState}); err != nil {
@@ -557,6 +585,9 @@ func HandleBlockWork(ctx context.Context, runner db.Runner, envelope rpc.Envelop
 		}); err != nil {
 			return nil, err
 		}
+		if err := sessionliveness.Record(ctx, tx, repositoryID, sessionID, sessionliveness.LastWorkBlockAt); err != nil {
+			return nil, err
+		}
 		return map[string]any{"status": "blocked", "blocker_id": blockerID}, nil
 	})
 }
@@ -608,6 +639,9 @@ func HandleCompleteWork(ctx context.Context, runner db.Runner, envelope rpc.Enve
 			UPDATE striatumd.leases
 			   SET state = 'released', released_at = $1, release_reason = 'completed'
 			 WHERE repository_id = $2 AND lease_id = $3`, now, repositoryID, leaseID); err != nil {
+			return nil, err
+		}
+		if err := sessionliveness.Record(ctx, tx, repositoryID, sessionID, sessionliveness.LastWorkCompleteAt); err != nil {
 			return nil, err
 		}
 		if _, err := appendEvent(ctx, tx, repositoryID, job["run_id"], "job.completed", sessionID, jobID, messageID, nil, leaseID, map[string]any{"summary": summary}); err != nil {

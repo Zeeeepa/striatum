@@ -13,6 +13,7 @@ import (
 
 	"github.com/halbritt/striatum/go/pkg/db"
 	"github.com/halbritt/striatum/go/pkg/rpc"
+	"github.com/halbritt/striatum/go/pkg/sessionliveness"
 )
 
 func HandleClaimNext(ctx context.Context, runner db.Runner, envelope rpc.Envelope) (map[string]any, error) {
@@ -158,6 +159,9 @@ func HandleClaimNext(ctx context.Context, runner db.Runner, envelope rpc.Envelop
 			hex.EncodeToString(packetSum[:]),
 			now,
 		); err != nil {
+			return nil, err
+		}
+		if err := sessionliveness.Record(ctx, tx, repositoryID, sessionID, sessionliveness.LastPacketDeliveredAt); err != nil {
 			return nil, err
 		}
 		if _, err := appendEvent(ctx, tx, repositoryID, runID, "queue.claimed", sessionID, jobID, chosen["message_id"], nil, leaseID, nil); err != nil {
@@ -603,6 +607,9 @@ func HandleAwaitPacket(ctx context.Context, runner db.Runner, envelope rpc.Envel
 	sessionID := stringParam(envelope, "session_id")
 	if sessionID == "" {
 		return nil, rpc.NewError("schema_invalid", "work.await_packet requires session_id", nil)
+	}
+	if err := sessionliveness.Record(ctx, runner, repositoryID, sessionID, sessionliveness.LastAwaitPacketAt); err != nil {
+		return nil, err
 	}
 
 	timeout := 30 * time.Second

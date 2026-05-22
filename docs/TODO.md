@@ -118,7 +118,7 @@ so external references keep resolving even as items move between sections.
 | 64 | RFC 0071 operator diagnostics and cutover evidence | ✅ accepted diagnostic slice done |
 | 65 | RFC 0058 operator progress surface | ✅ done |
 | 66 | Decision/RFC supersession hygiene and duplicate decision-id cleanup | ✅ done |
-| 67 | RFC 0050/RFC 0075 MCP cutover and tmux-observable sessions | ⏳ scaffolded; cutover map and liveness contract first |
+| 67 | RFC 0050/RFC 0075 MCP cutover and tmux-observable sessions | 🟡 MCP HTTP/cutover first slices and RFC 0077 liveness landed; tmux metadata and CLI retirement remain |
 
 Legend: ✅ done · 🟡 most done (sub-tasks remain) · ⏳ open/blocked · 💤 shelved
 
@@ -1470,14 +1470,12 @@ review and plan are root-level operator artifacts:
     outside the accepted V1.5 slice.
 
 67. **RFC 0050/RFC 0075: MCP cutover and tmux-observable sessions.**
-    Scaffolded: `docs/operator/plans/rfc-0050-cli-retirement-cutover.md`,
-    `docs/operator/plans/rfc-0075-tmux-observable-mcp-agent-sessions.md`, and
-    `docs/operator/workflows/rfc-0075-and-mcp-cutover/workflow.json` define
-    the next bounded path. First produce the cutover map and liveness contract:
-    remaining live workflow-control CLI verbs must be classified before
-    removal, MCP/UI parity must be tested before hiding replacements, and RFC
-    0075 tmux observability must not turn pane output or transcripts into
-    workflow state.
+    First slices landed: native Go daemon MCP HTTP/SSE, autonomous MCP packet
+    loop proof, `session.report`, agent-loop PTY bootstrap, Python MCP wrapper
+    deletion, and RFC 0077 daemon-owned MCP activity liveness. Remaining live
+    workflow-control CLI verbs must still be classified before removal, MCP/UI
+    parity must be tested before hiding replacements, and RFC 0075 tmux
+    observability must not turn pane output or transcripts into workflow state.
 
 ## GH issue follow-ups
 

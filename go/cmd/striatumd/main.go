@@ -29,6 +29,7 @@ import (
 	recoverypkg "github.com/halbritt/striatum/go/pkg/recovery"
 	"github.com/halbritt/striatum/go/pkg/repositories"
 	"github.com/halbritt/striatum/go/pkg/rpc"
+	"github.com/halbritt/striatum/go/pkg/sessionliveness"
 	"github.com/halbritt/striatum/go/pkg/supervisor"
 )
 
@@ -251,7 +252,7 @@ func main() {
 		log.Fatalf("listen on %s: %v", socketPath, err)
 	}
 	log.Printf("striatumd-go listening on %s", socketPath)
-	stopMCPHTTP, err := startMCPHTTPServer(ctx, cancel, mcpHTTPAddr, server, authorizer)
+	stopMCPHTTP, err := startMCPHTTPServer(ctx, cancel, mcpHTTPAddr, server, authorizer, runner)
 	if err != nil {
 		_ = listener.Close()
 		_ = os.Remove(pidPath)
@@ -284,7 +285,7 @@ func main() {
 	}
 }
 
-func startMCPHTTPServer(ctx context.Context, cancel context.CancelFunc, addr string, rpcServer *rpc.Server, authorizer rpc.Authorizer) (func(), error) {
+func startMCPHTTPServer(ctx context.Context, cancel context.CancelFunc, addr string, rpcServer *rpc.Server, authorizer rpc.Authorizer, runner db.Runner) (func(), error) {
 	value := strings.TrimSpace(addr)
 	if value == "" {
 		value = "127.0.0.1:0"
@@ -304,8 +305,9 @@ func startMCPHTTPServer(ctx context.Context, cancel context.CancelFunc, addr str
 	}
 	httpServer := &http.Server{
 		Handler: mcp.NewHTTPHandler(mcp.Service{
-			RPC:        rpcServer,
-			Authorizer: authorizer,
+			RPC:              rpcServer,
+			Authorizer:       authorizer,
+			ActivityRecorder: sessionliveness.DBRecorder{Runner: runner},
 		}),
 		ReadHeaderTimeout: 5 * time.Second,
 	}

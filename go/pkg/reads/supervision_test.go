@@ -40,6 +40,22 @@ func (r *superviseReadFakeRunner) Query(_ context.Context, sql string, args ...a
 	switch {
 	case strings.Contains(sql, "FROM striatumd.runs"):
 		return dashboardAllRowsFromMaps([]map[string]any{{"run_id": "run_1"}}), nil
+	case strings.Contains(sql, "FROM striatumd.sessions") && strings.Contains(sql, "last_mcp_request_at"):
+		now := time.Now().UTC()
+		return dashboardAllRowsFromMaps([]map[string]any{
+			{
+				"session_id":              "sess_1",
+				"state":                   "active",
+				"registered_at":           now.Add(-10 * time.Minute),
+				"last_tools_list_at":      now.Add(-9 * time.Minute),
+				"last_await_packet_at":    now.Add(-8 * time.Minute),
+				"last_mcp_request_at":     now.Add(-6 * time.Minute),
+				"liveness_stall_class":    nil,
+				"liveness_stall_since":    nil,
+				"active_lease_id":         nil,
+				"active_lease_expires_at": nil,
+			},
+		}), nil
 	case strings.Contains(sql, "FROM striatumd.sessions") && strings.Contains(sql, "LIMIT 1"):
 		return dashboardAllRowsFromMaps([]map[string]any{{"session_id": "sess_1"}}), nil
 	case strings.Contains(sql, "LEFT JOIN striatumd.process_supervisor_pointers"):
@@ -134,6 +150,10 @@ func TestHandleSuperviseStatusKeepsGonePIDAsReadProjection(t *testing.T) {
 	}
 	if result["state"] != "attached" || result["liveness"] != "gone" {
 		t.Fatalf("status projection = %#v", result)
+	}
+	protocolLiveness, ok := result["protocol_liveness"].(map[string]any)
+	if !ok || protocolLiveness["stall_class"] != "agent_protocol_idle_stall" {
+		t.Fatalf("protocol liveness = %#v", result["protocol_liveness"])
 	}
 	if result["lane_attestation"] != "unattested" || result["lane_attestation_reason"] != "no_live_attached_supervisor" {
 		t.Fatalf("lane attestation = %#v", result)

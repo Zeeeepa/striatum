@@ -110,17 +110,17 @@ imports and fails on unlisted direct PostgreSQL client helpers.
 | `repo.resolve` | client repository resolution | read | daemon_global | pg repo resolver | real | no | no | daemon-global bootstrap read for path -> repository_id resolution |
 | `session.register` | `register-session` | claim | single_repo | pg | real | no | no | stable |
 | `session.close` | `session close` | claim | single_repo | pg | real | no | no | stable |
-| `session.report` | MCP pre-work session report | claim | single_repo | not implemented in Python RPC | real | no | no | RFC 0075 structured ready/heartbeat/question/escalate event path; no terminal text authority |
+| `session.report` | MCP pre-work session report | claim | single_repo | not implemented in Python RPC | real | no | no | RFC 0075 structured ready/heartbeat/question/escalate event path; updates RFC 0077 liveness timestamps; no terminal text authority |
 | `work.claim_next` | `claim-next` | claim | single_repo | pg | real | no | no | stable |
-| `work.await_packet` | MCP agent loop | claim | single_repo | not implemented in Python RPC | real | no | no | Go long-poll work-packet acquisition for autonomous MCP agents |
+| `work.await_packet` | MCP agent loop | claim | single_repo | not implemented in Python RPC | real | no | no | Go long-poll work-packet acquisition for autonomous MCP agents; records await and packet-delivery liveness timestamps |
 | `work.ack` | `ack` | claim | single_repo | pg | real | no | no | stable |
-| `work.heartbeat` | `heartbeat` | claim | single_repo | pg | real | no | no | stable |
+| `work.heartbeat` | `heartbeat` | claim | single_repo | pg | real | no | no | stable; records RFC 0077 work-heartbeat activity |
 | `work.release` | `release` | claim | single_repo | pg | real | no | no | stable |
 | `supervise.start` | `supervise start` | claim | single_repo | pg | real | no | no | Go process-control launch over PG supervisor rows and FIFO/helper transport |
 | `supervise.send` | `supervise send` | claim | single_repo | pg | real | no | no | Go packet delivery with delivered-unacknowledged semantics |
 | `supervise.report` | wrapper control report | claim | single_repo | pg | real | no | no | Go records direct control events and helper JSONL batches |
 | `supervise.stop` | `supervise stop` | claim | single_repo | pg | real | no | no | Go terminal supervisor state update and process signaling |
-| `supervise.status` | `supervise status` | read | single_repo | pg | real | no | no | read-only liveness/stall projection; no pointer repair or lost-state mutation |
+| `supervise.status` | `supervise status` | read | single_repo | pg | real | no | no | read-only supervisor and protocol-liveness/stall projection; no pointer repair or lost-state mutation |
 | `supervise.list` | `supervise list` | read | single_repo | pg | real | no | no | stable |
 | `supervise.reattach_status` | supervisor reattach-status DTO | read | single_repo | pg | real | no | no | read-only reattach DTO |
 | `work.send_message` | `send` | write | single_repo | pg | real | no | no | stable |

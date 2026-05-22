@@ -10,6 +10,7 @@ import (
 
 	"github.com/halbritt/striatum/go/pkg/db"
 	"github.com/halbritt/striatum/go/pkg/rpc"
+	"github.com/halbritt/striatum/go/pkg/sessionliveness"
 )
 
 const defaultSupervisorStallAfterSeconds = 300
@@ -65,6 +66,11 @@ func HandleSuperviseStatus(ctx context.Context, runner db.Runner, envelope rpc.E
 	}
 
 	supervisor := supervisorView(rows[0])
+	protocolLiveness, err := sessionProtocolLiveness(ctx, runner, repositoryID, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	supervisor["protocol_liveness"] = protocolLiveness
 	state := superviseString(supervisor["state"])
 	pid, hasPID := intValueOptional(supervisor["pid"])
 	liveness := "gone"
@@ -123,6 +129,52 @@ func HandleSuperviseStatus(ctx context.Context, runner db.Runner, envelope rpc.E
 		supervisor["lane_attestation_reason"] = "no_live_attached_supervisor"
 	}
 	return supervisor, nil
+}
+
+func sessionProtocolLiveness(ctx context.Context, runner db.Runner, repositoryID string, sessionID string) (map[string]any, error) {
+	rows, err := collectRows(ctx, runner,
+		`SELECT s.session_id, s.state, s.registered_at,
+		        s.last_mcp_request_at,
+		        s.last_tools_list_at,
+		        s.last_await_packet_at,
+		        s.last_packet_delivered_at,
+		        s.last_ack_at,
+		        s.last_work_block_at,
+		        s.last_work_release_at,
+		        s.last_work_complete_at,
+		        s.last_work_heartbeat_at,
+		        s.last_session_ready_at,
+		        s.last_session_heartbeat_at,
+		        s.last_session_question_at,
+		        s.last_session_escalate_at,
+		        s.liveness_stall_class,
+		        s.liveness_stall_since,
+		        active_lease.lease_id AS active_lease_id,
+		        active_lease.acquired_at AS active_lease_acquired_at,
+		        active_lease.expires_at AS active_lease_expires_at,
+		        active_lease.last_heartbeat_at AS active_lease_last_heartbeat_at
+		   FROM striatumd.sessions s
+		   LEFT JOIN LATERAL (
+		     SELECT l.lease_id, l.acquired_at, l.expires_at, l.last_heartbeat_at
+		       FROM striatumd.leases l
+		      WHERE l.repository_id = s.repository_id
+		        AND l.owner_session_id = s.session_id
+		        AND l.state = 'active'
+		      ORDER BY l.acquired_at DESC, l.lease_id DESC
+		      LIMIT 1
+		   ) active_lease ON true
+		  WHERE s.repository_id = $1 AND s.session_id = $2
+		  LIMIT 1`,
+		repositoryID,
+		sessionID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	if len(rows) == 0 {
+		return map[string]any{}, nil
+	}
+	return sessionliveness.ProjectionFromRow(rows[0], time.Now().UTC()), nil
 }
 
 // HandleSuperviseList returns process supervisor rows for a run, optionally

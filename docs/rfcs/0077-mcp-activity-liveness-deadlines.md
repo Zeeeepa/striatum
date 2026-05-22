@@ -1,6 +1,6 @@
 # RFC 0077: MCP Activity Liveness Deadlines
 
-Status: proposed
+Status: accepted
 Date: 2026-05-22
 author: proposer-codex-gpt-5-001
 Context:
@@ -12,6 +12,8 @@ Context:
 [`docs/SPEC.md`](../SPEC.md),
 [`docs/operator/artifacts/rfc-0075-and-mcp-cutover/design/LIVENESS_CONTRACT.md`](../operator/artifacts/rfc-0075-and-mcp-cutover/design/LIVENESS_CONTRACT.md),
 [`docs/operator/artifacts/rfc-0075-and-mcp-cutover/final/SUMMARY.md`](../operator/artifacts/rfc-0075-and-mcp-cutover/final/SUMMARY.md)
+
+Decision: D129
 
 ## Problem
 
@@ -302,3 +304,20 @@ protocol silence from daemon-owned MCP timestamps, but it must not infer
 workflow truth from terminal output. Repository artifacts remain durable
 provenance; daemon-owned PostgreSQL remains live state; MCP/RPC methods
 remain the authoritative mutation surface.
+
+## Implementation Note
+
+The accepted V1 slice landed in the native Go daemon on 2026-05-22:
+
+- migration 0012 persists the session activity timestamp columns and
+  current stall-class fields;
+- Go MCP `tools/list`, work-packet lifecycle mutations, work heartbeat,
+  and `session.report` update the per-session activity timeline;
+- `status`, dashboard data, and `supervise.status` project protocol
+  liveness without mutating read paths;
+- the resident recovery sweep persists liveness stall transitions and
+  emits metadata-only `session.liveness_deadline_missed` /
+  `session.liveness_recovered` events.
+
+Lane/workflow-specific liveness policy overrides and broader tmux attach
+metadata remain RFC 0075 follow-up work.

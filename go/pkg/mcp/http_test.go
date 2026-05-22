@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/halbritt/striatum/go/pkg/rpc"
+	"github.com/halbritt/striatum/go/pkg/sessionliveness"
 )
 
 func TestHTTPHandlerInitializeDirectPost(t *testing.T) {
@@ -55,6 +56,25 @@ func TestHTTPHandlerToolsListUsesBearerTokenAndHidesUnauthorized(t *testing.T) {
 	}
 }
 
+func TestHTTPHandlerToolsListRecordsSessionActivity(t *testing.T) {
+	handler, _, _ := newTestHTTPHandler(t)
+	recorder := &activityRecorder{}
+	handler.Service.ActivityRecorder = recorder
+	body := `{"jsonrpc":"2.0","id":"list-activity","method":"tools/list","params":{"repository_id":"repo_1","session_id":"sess_1"}}`
+
+	responseRecorder := postJSON(t, handler, EndpointPath, body, "read.secret")
+	response := decodeTestResponse(t, responseRecorder)
+	if response.Error != nil {
+		t.Fatalf("tools/list error = %#v", response.Error)
+	}
+	if recorder.repositoryID != "repo_1" || recorder.sessionID != "sess_1" {
+		t.Fatalf("activity scope = repo %q session %q", recorder.repositoryID, recorder.sessionID)
+	}
+	if len(recorder.columns) != 1 || recorder.columns[0] != sessionliveness.LastToolsListAt {
+		t.Fatalf("activity columns = %#v", recorder.columns)
+	}
+}
+
 func TestHTTPHandlerToolsCallReadPath(t *testing.T) {
 	handler, _, _ := newTestHTTPHandler(t)
 	body := `{"jsonrpc":"2.0","id":"read","method":"tools/call","params":{"name":"status","arguments":{"repository_id":"repo_1"}}}`
@@ -72,6 +92,19 @@ func TestHTTPHandlerToolsCallReadPath(t *testing.T) {
 	if !ok || data["status"] != "ok" {
 		t.Fatalf("read tool data = %#v", structured["data"])
 	}
+}
+
+type activityRecorder struct {
+	repositoryID string
+	sessionID    string
+	columns      []string
+}
+
+func (r *activityRecorder) RecordSessionActivity(_ context.Context, repositoryID string, sessionID string, columns ...string) error {
+	r.repositoryID = repositoryID
+	r.sessionID = sessionID
+	r.columns = append([]string(nil), columns...)
+	return nil
 }
 
 func TestHTTPHandlerToolsCallMutationPath(t *testing.T) {

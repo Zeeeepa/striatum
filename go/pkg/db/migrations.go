@@ -14,7 +14,7 @@ import (
 )
 
 const (
-	LatestDaemonDBVersion = 11
+	LatestDaemonDBVersion = 12
 	MigrationLockKey      = 332933
 )
 
@@ -30,17 +30,18 @@ type Migration struct {
 
 func Migrations() ([]Migration, error) {
 	labels := map[int]string{
-		1: "baseline daemon postgres substrate",
-		2: "daemon rpc supervision and apply receipts",
-		3: "cross-repo workflows and MCP mutation scope",
-		4: "dogfood surgical recovery capability",
-		5: "repo-local workflow state substrate",
-		6: "events chain anchors + repo_event_chain_heads",
-		7: "decision propagation projections",
-		8: "lane evidence publish guard",
+		1:  "baseline daemon postgres substrate",
+		2:  "daemon rpc supervision and apply receipts",
+		3:  "cross-repo workflows and MCP mutation scope",
+		4:  "dogfood surgical recovery capability",
+		5:  "repo-local workflow state substrate",
+		6:  "events chain anchors + repo_event_chain_heads",
+		7:  "decision propagation projections",
+		8:  "lane evidence publish guard",
 		9:  "blob storage references (RFC 0072)",
 		10: "artifact blob reference update trigger (GH #27)",
 		11: "stateful escalation inbox (RFC 0062)",
+		12: "MCP activity liveness timestamps (RFC 0077)",
 	}
 	entries, err := migrationFS.ReadDir("sql")
 	if err != nil {

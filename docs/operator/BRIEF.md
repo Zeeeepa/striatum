@@ -42,9 +42,8 @@ workflow slice at
 `docs/operator/workflows/rfc-0075-and-mcp-cutover/workflow.json`. The landed
 slice adds `session.report` as the claim-gated MCP path for pre-packet
 `ready`, `heartbeat`, `question`, and `escalate` reports. Tmux metadata,
-liveness timestamp persistence, deadline classification, and status/UI
-projection remain pending; tmux panes are still local inspection metadata, not
-workflow state.
+attach-command projection, and broader status/UI polish remain pending; tmux
+panes are still local inspection metadata, not workflow state.
 
 RFC 0076 is accepted by D128. Its first runnable operator workflow completed
 at `docs/operator/workflows/rfc-0076-code-doc-audit/workflow.json` and
@@ -55,11 +54,14 @@ and daemon/PostgreSQL state remain authoritative, and terminal output remains
 non-authoritative. The follow-up remediation scaffold is
 `docs/operator/plans/rfc-0076-audit-remediation.md`.
 
-RFC 0077 is now the proposed narrow liveness slice under the RFC 0075
-umbrella. It owns daemon-owned MCP activity timestamp persistence and liveness
-deadline classification for discovery, `work.await_packet`, ack, heartbeat,
-structured question, and escalation states. RFC 0075 still owns the broader
-tmux-observable session shape.
+RFC 0077 is accepted by D129 and its V1 Go-daemon slice has landed. Migration
+0012 persists daemon-owned MCP activity timestamps on sessions; Go MCP
+`tools/list`, `work.await_packet`, packet delivery, ack/block/release/complete,
+`work.heartbeat`, and `session.report` update the timeline. Status, dashboard
+data, and `supervise.status` now project protocol liveness, and the resident
+recovery sweep persists stall transitions with metadata-only liveness events.
+RFC 0075 still owns the broader tmux-observable session shape and attach
+metadata.
 
 The human-principal checkpoint for TODO 55, 56, 59, and 60 is resolved. D124
 chooses daemon-core accepted-risk persistence for workflow lint; D125 keeps
@@ -71,15 +73,15 @@ provider actions in core.
 
 ## Next 1-3 Actions
 
-1. Implement RFC 0077: persist MCP activity timestamps and project liveness
-   classification for discovery, `work.await_packet`, ack, heartbeat,
-   question, and escalation stalls.
-2. Apply the TODO 55/56/59/60 follow-ups: daemon accepted-risk mutation
+1. Apply the TODO 55/56/59/60 follow-ups: daemon accepted-risk mutation
    surfaces, auto-finalize observability/circuit-breaker work, Corpus Contract
    V2 schema/archive defaults, and the read-only local Git snapshot slice.
-3. Continue CLI-retirement work: move remaining live operator actions to
+2. Continue CLI-retirement work: move remaining live operator actions to
    MCP/UI surfaces and classify any CLI survivors as bootstrap, diagnostics,
    or temporary compatibility.
+3. Keep RFC 0076 generator/catalog integration deferred to RFC 0074 Phase A;
+   the hand-authored audit workflow remains valid without immediate generator
+   support.
 
 ## Blockers
 

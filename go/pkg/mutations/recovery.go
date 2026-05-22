@@ -10,10 +10,12 @@ import (
 	"path/filepath"
 	"strings"
 	"syscall"
+	"time"
 	"unicode/utf8"
 
 	"github.com/halbritt/striatum/go/pkg/db"
 	"github.com/halbritt/striatum/go/pkg/rpc"
+	"github.com/halbritt/striatum/go/pkg/sessionliveness"
 	"github.com/jackc/pgx/v5"
 )
 
@@ -458,6 +460,10 @@ func HandleRecoveryAuto(ctx context.Context, runner db.Runner, envelope rpc.Enve
 				return nil, err
 			}
 		}
+		liveness, err := refreshRunLiveness(ctx, tx, repositoryID, runID, dryRun)
+		if err != nil {
+			return nil, err
+		}
 		return map[string]any{
 			"run_id":          runID,
 			"dry_run":         dryRun,
@@ -465,8 +471,186 @@ func HandleRecoveryAuto(ctx context.Context, runner db.Runner, envelope rpc.Enve
 			"published":       published,
 			"skipped_count":   len(skipped),
 			"skipped":         skipped,
+			"liveness":        liveness,
 		}, nil
 	})
+}
+
+func refreshRunLiveness(ctx context.Context, tx db.TxRunner, repositoryID string, runID string, dryRun bool) (map[string]any, error) {
+	rows, err := queryRows(ctx, tx,
+		`SELECT s.session_id, s.run_id, s.role_id, s.lane_id, s.state, s.registered_at,
+		        s.last_mcp_request_at,
+		        s.last_tools_list_at,
+		        s.last_await_packet_at,
+		        s.last_packet_delivered_at,
+		        s.last_ack_at,
+		        s.last_work_block_at,
+		        s.last_work_release_at,
+		        s.last_work_complete_at,
+		        s.last_work_heartbeat_at,
+		        s.last_session_ready_at,
+		        s.last_session_heartbeat_at,
+		        s.last_session_question_at,
+		        s.last_session_escalate_at,
+		        s.liveness_stall_class,
+		        s.liveness_stall_since,
+		        active_lease.lease_id AS active_lease_id,
+		        active_lease.acquired_at AS active_lease_acquired_at,
+		        active_lease.expires_at AS active_lease_expires_at,
+		        active_lease.last_heartbeat_at AS active_lease_last_heartbeat_at
+		   FROM striatumd.sessions s
+		   LEFT JOIN LATERAL (
+		     SELECT l.lease_id, l.acquired_at, l.expires_at, l.last_heartbeat_at
+		       FROM striatumd.leases l
+		      WHERE l.repository_id = s.repository_id
+		        AND l.owner_session_id = s.session_id
+		        AND l.state = 'active'
+		      ORDER BY l.acquired_at DESC, l.lease_id DESC
+		      LIMIT 1
+		   ) active_lease ON true
+		  WHERE s.repository_id = $1
+		    AND s.run_id = $2
+		    AND s.state = 'active'
+		  ORDER BY s.registered_at, s.session_id
+		  FOR UPDATE OF s`,
+		repositoryID,
+		runID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	now := time.Now().UTC().Truncate(time.Second)
+	missed := []map[string]any{}
+	recovered := []map[string]any{}
+	for _, row := range rows {
+		activity := sessionliveness.ActivityFromRow(row)
+		result := sessionliveness.Classify(activity, sessionliveness.DefaultPolicy(), now)
+		previous := fmt.Sprint(nullable(row[sessionliveness.LivenessStallClass]))
+		if previous == "<nil>" {
+			previous = ""
+		}
+		if previous == result.StallClass {
+			continue
+		}
+		sessionID := fmt.Sprint(row["session_id"])
+		var stallSince any
+		if result.StallSince != nil {
+			stallSince = *result.StallSince
+		}
+		if !dryRun {
+			if err := tx.Exec(ctx, `
+				UPDATE striatumd.sessions
+				   SET liveness_stall_class = $1,
+				       liveness_stall_since = $2
+				 WHERE repository_id = $3 AND session_id = $4`,
+				nullable(result.StallClass),
+				stallSince,
+				repositoryID,
+				sessionID,
+			); err != nil {
+				return nil, err
+			}
+			if result.StallClass != "" {
+				if _, err := appendEvent(ctx, tx, repositoryID, runID, "session.liveness_deadline_missed", sessionID, nil, nil, nil, nil, map[string]any{
+					"repository_id":           repositoryID,
+					"run_id":                  runID,
+					"session_id":              sessionID,
+					"lane_id":                 row["lane_id"],
+					"role_id":                 row["role_id"],
+					"stall_class":             result.StallClass,
+					"deadline_name":           result.DeadlineName,
+					"deadline_seconds":        result.DeadlineSeconds,
+					"observed_at":             now.Format(time.RFC3339),
+					"last_activity_timestamp": relevantActivityTimestamp(activity, result.DeadlineName),
+				}); err != nil {
+					return nil, err
+				}
+			} else if previous != "" {
+				if _, err := appendEvent(ctx, tx, repositoryID, runID, "session.liveness_recovered", sessionID, nil, nil, nil, nil, map[string]any{
+					"repository_id":        repositoryID,
+					"run_id":               runID,
+					"session_id":           sessionID,
+					"lane_id":              row["lane_id"],
+					"role_id":              row["role_id"],
+					"previous_stall_class": previous,
+					"observed_at":          now.Format(time.RFC3339),
+					"signal":               "liveness_sweep",
+				}); err != nil {
+					return nil, err
+				}
+			}
+		}
+		item := map[string]any{
+			"session_id": sessionID,
+			"previous":   nullable(previous),
+			"current":    nullable(result.StallClass),
+		}
+		if result.StallClass != "" {
+			missed = append(missed, item)
+		} else {
+			recovered = append(recovered, item)
+		}
+	}
+	return map[string]any{
+		"checked_count":   len(rows),
+		"missed_count":    len(missed),
+		"missed":          missed,
+		"recovered_count": len(recovered),
+		"recovered":       recovered,
+		"dry_run":         dryRun,
+	}, nil
+}
+
+func relevantActivityTimestamp(activity sessionliveness.Activity, deadline string) any {
+	var value *time.Time
+	switch deadline {
+	case sessionliveness.DeadlineDiscovery:
+		value = activity.RegisteredAt
+	case sessionliveness.DeadlineAwaitPacket:
+		value = activity.LastToolsListAt
+	case sessionliveness.DeadlineAck:
+		value = activity.LastPacketDeliveredAt
+	case sessionliveness.DeadlineLeaseHeartbeat:
+		value = latestMutationTime(activity.LastWorkHeartbeatAt, activity.ActiveLeaseHeartbeatAt, activity.ActiveLeaseAcquiredAt)
+	case sessionliveness.DeadlineQuestionPending:
+		value = activity.LastSessionQuestionAt
+	case sessionliveness.DeadlineEscalation:
+		value = activity.LastSessionEscalateAt
+	default:
+		value = latestMutationTime(
+			activity.LastMCPRequestAt,
+			activity.LastToolsListAt,
+			activity.LastAwaitPacketAt,
+			activity.LastPacketDeliveredAt,
+			activity.LastAckAt,
+			activity.LastWorkBlockAt,
+			activity.LastWorkReleaseAt,
+			activity.LastWorkCompleteAt,
+			activity.LastWorkHeartbeatAt,
+			activity.LastSessionReadyAt,
+			activity.LastSessionHeartbeatAt,
+			activity.LastSessionQuestionAt,
+			activity.LastSessionEscalateAt,
+			activity.RegisteredAt,
+		)
+	}
+	if value == nil {
+		return nil
+	}
+	return value.UTC().Format(time.RFC3339)
+}
+
+func latestMutationTime(values ...*time.Time) *time.Time {
+	var latest *time.Time
+	for _, value := range values {
+		if value == nil {
+			continue
+		}
+		if latest == nil || value.After(*latest) {
+			latest = value
+		}
+	}
+	return latest
 }
 
 func SweepRun(ctx context.Context, runner db.Runner, repositoryID string, runID string, author string) (map[string]any, error) {
