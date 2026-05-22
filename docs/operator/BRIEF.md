@@ -3,7 +3,7 @@ schema_version: "striatum.operator_brief.v1"
 artifact_kind: "operator_brief"
 brief_id: "brief_2026-05-20_go-daemon-http-sse-mcp"
 supersedes: "brief_2026-05-17_go-daemon-remediation"
-scope_links: ["docs/operator/plans/rfc-0068-go-daemon-port.md", "docs/operator/plans/rfc-0069-pg-only-daemon-global-surfaces.md", "docs/operator/plans/rfc-0050-cli-retirement-cutover.md", "docs/operator/plans/rfc-0075-tmux-observable-mcp-agent-sessions.md", "docs/rfcs/0075-tmux-observable-mcp-agent-sessions.md", "docs/rfcs/0077-mcp-activity-liveness-deadlines.md", "docs/operator/plans/rfc-0076-audit-remediation.md"]
+scope_links: ["docs/operator/plans/rfc-0068-go-daemon-port.md", "docs/operator/plans/rfc-0069-pg-only-daemon-global-surfaces.md", "docs/operator/plans/rfc-0050-cli-retirement-cutover.md", "docs/operator/plans/rfc-0075-tmux-observable-mcp-agent-sessions.md", "docs/rfcs/0075-tmux-observable-mcp-agent-sessions.md", "docs/rfcs/0077-mcp-activity-liveness-deadlines.md", "docs/operator/plans/rfc-0076-audit-remediation.md", "docs/operator/plans/active-runway-1-5.md", "docs/operator/workflows/active-runway-1-5/workflow.json", "docs/operator/artifacts/active-runway-1-5/FINAL.md"]
 context_budget_lines: 300
 retrieval_priority: "high"
 status: "current"
@@ -71,17 +71,22 @@ direction; D127 sets the optional Git/PR boundary around read-only snapshots,
 durable request artifacts, explicit local commit confirmation, and no hosted
 provider actions in core.
 
+The active runway 1-5 workflow completed on 2026-05-22 as
+`run_b2e013582e0aeba267dd7a47cc66ccf1`. It produced the ordered batch plan in
+`docs/operator/artifacts/active-runway-1-5/FINAL.md`, with supporting phase
+artifacts under `docs/operator/artifacts/active-runway-1-5/`.
+
 ## Next 1-3 Actions
 
-1. Apply the TODO 55/56/59/60 follow-ups: daemon accepted-risk mutation
-   surfaces, auto-finalize observability/circuit-breaker work, Corpus Contract
-   V2 schema/archive defaults, and the read-only local Git snapshot slice.
-2. Continue CLI-retirement work: move remaining live operator actions to
-   MCP/UI surfaces and classify any CLI survivors as bootstrap, diagnostics,
-   or temporary compatibility.
-3. Keep RFC 0076 generator/catalog integration deferred to RFC 0074 Phase A;
-   the hand-authored audit workflow remains valid without immediate generator
-   support.
+1. Start implementation with the active runway's first safe parallel pair:
+   TODO 60 read-only `git.snapshot` and TODO 56 skipped-candidate cause
+   classes.
+2. After that pair lands, serialize daemon-contract work through TODO 55
+   accepted-risk daemon authority, then TODO 56 lane-finalization visibility
+   and circuit-breaker state.
+3. Keep CLI retirement, RFC 0075 tmux metadata, RFC 0074 Phase A, and TODO
+   61/62/63 cleanup queued behind the batch order in
+   `docs/operator/artifacts/active-runway-1-5/FINAL.md`.
 
 ## Blockers
 
@@ -118,3 +123,6 @@ provider actions in core.
 - `docs/operator/artifacts/rfc-0076-code-doc-audit/REMEDIATION_PLAN.md`
 - `docs/operator/plans/rfc-0076-audit-remediation.md`
 - `docs/operator/workflows/rfc-0076-audit-remediation/workflow.json`
+- `docs/operator/plans/active-runway-1-5.md`
+- `docs/operator/workflows/active-runway-1-5/workflow.json`
+- `docs/operator/artifacts/active-runway-1-5/FINAL.md`

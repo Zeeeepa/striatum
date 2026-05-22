@@ -1,0 +1,641 @@
+{
+  "schema_version": "striatum.workflow.v1",
+  "workflow_id": "active-runway-1-5",
+  "workflow_version": "2026-05-22",
+  "name": "Active operator runway 1 through 5",
+  "context_docs": [
+    "README.md",
+    "docs/INDEX.md",
+    "docs/SPEC.md",
+    "docs/DECISION_LOG.md",
+    "docs/UBIQUITOUS_LANGUAGE.md",
+    "docs/TODO.md",
+    "docs/ROADMAP.md",
+    "docs/operator/BRIEF.md",
+    "docs/operator/plans/active-runway-1-5.md",
+    "docs/operator/artifacts/todo-55-56-59-60-decisions/final/SUMMARY.md",
+    "docs/operator/artifacts/rfc-0075-and-mcp-cutover/final/SUMMARY.md",
+    "docs/operator/artifacts/rfc-0076-audit-remediation/catalog-followup/PLAN.md",
+    "docs/rfcs/0050-go-daemon-http-sse-mcp.md",
+    "docs/rfcs/0064-review-diversity-enforcement.md",
+    "docs/rfcs/0066-replay-archive-corpus-v2-foundations.md",
+    "docs/rfcs/0067-optional-git-pr-integration.md",
+    "docs/rfcs/0074-workflow-shape-and-adversary-pack-catalog.md",
+    "docs/rfcs/0075-tmux-observable-mcp-agent-sessions.md",
+    "docs/rfcs/0077-mcp-activity-liveness-deadlines.md",
+    "AGENTS.md"
+  ],
+  "coordinator": {
+    "role_id": "coordinator",
+    "lane_id": "codex"
+  },
+  "parallelism": {
+    "mode": "declared",
+    "max_active_jobs": 5,
+    "require_disjoint_write_scopes": true
+  },
+  "branch": {
+    "mode": "confirm",
+    "suggested_name": "striatum/active-runway-1-5",
+    "allow_dirty": true
+  },
+  "lanes": {
+    "codex": {
+      "adapter": "process",
+      "command": [
+        "bash",
+        "-lc",
+        "PYTHONPATH=src python3 -m striatum.cli skills install --profile all --scope user --force --json >/dev/null && export PATH=\"$PWD/.venv/bin:$PATH\" && exec .striatum/bin/codex-supervised-wrapper.sh"
+      ],
+      "model": "codex",
+      "display_model": "Codex",
+      "strategy_version": "2026-05-22",
+      "supervision": {
+        "compatible": true,
+        "stdin_format": "newline_delimited_json",
+        "wrapper_required": true
+      }
+    },
+    "claude_code": {
+      "adapter": "process",
+      "command": [
+        "bash",
+        "-lc",
+        "PYTHONPATH=src python3 -m striatum.cli skills install --profile all --scope user --force --json >/dev/null && export PATH=\"$PWD/.venv/bin:$PATH\" && exec .striatum/bin/claude-supervised-wrapper.sh"
+      ],
+      "model": "claude_code",
+      "display_model": "Claude Code",
+      "strategy_version": "2026-05-22",
+      "supervision": {
+        "compatible": "verify_pipe_behavior_first",
+        "stdin_format": "prompt_text",
+        "wrapper_required": true
+      }
+    },
+    "gemini": {
+      "adapter": "process",
+      "command": [
+        "bash",
+        "-lc",
+        "PYTHONPATH=src python3 -m striatum.cli skills install --profile all --scope user --force --json >/dev/null && export PATH=\"$PWD/.venv/bin:$PATH\" && exec .striatum/bin/gemini-supervised-wrapper.sh"
+      ],
+      "model": "gemini",
+      "display_model": "Gemini",
+      "strategy_version": "2026-05-22",
+      "supervision": {
+        "compatible": true,
+        "stdin_format": "prompt_text",
+        "wrapper_required": true
+      }
+    }
+  },
+  "roles": {
+    "coordinator": {
+      "description": "Operator/control-plane role."
+    },
+    "accepted_risk_planner": {
+      "description": "Plans TODO 55 accepted-risk daemon implementation."
+    },
+    "auto_finalize_planner": {
+      "description": "Plans TODO 56 auto-finalize observability and breaker follow-up."
+    },
+    "corpus_planner": {
+      "description": "Plans TODO 59 Corpus Contract V2 implementation."
+    },
+    "git_snapshot_planner": {
+      "description": "Plans TODO 60 read-only Git snapshot implementation."
+    },
+    "cutover_mapper": {
+      "description": "Maps CLI retirement and MCP/UI parity."
+    },
+    "tmux_planner": {
+      "description": "Plans the remaining RFC 0075 tmux metadata slice."
+    },
+    "catalog_planner": {
+      "description": "Plans RFC 0074 Phase A catalog metadata."
+    },
+    "example_planner": {
+      "description": "Plans RFC 0074 Phase A runnable examples."
+    },
+    "cleanup_planner": {
+      "description": "Plans residual TODO 61/62/63 cleanup batches."
+    },
+    "closer": {
+      "description": "Closes the active runway workflow with ordered next implementation batches."
+    }
+  },
+  "jobs": [
+    {
+      "id": "plan_todo55_accepted_risk",
+      "type": "synthesis",
+      "title": "Plan TODO 55 accepted-risk surface",
+      "role_id": "accepted_risk_planner",
+      "lane_id": "codex",
+      "parallel_group": "phase1_todo_followups",
+      "fresh_session_required": true,
+      "objective": "Plan the daemon accepted-risk mutation/read surface and first implementation slice.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/active-runway-1-5/prompts/todo55_accepted_risk.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/operator/artifacts/active-runway-1-5/phase1/todo55/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "todo55_accepted_risk_plan",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/active-runway-1-5/phase1/todo55/PLAN.md",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "plan_todo56_autofinalize",
+      "type": "synthesis",
+      "title": "Plan TODO 56 auto-finalize follow-up",
+      "role_id": "auto_finalize_planner",
+      "lane_id": "claude_code",
+      "parallel_group": "phase1_todo_followups",
+      "fresh_session_required": true,
+      "objective": "Plan auto-finalize observability, skipped cause classes, and circuit-breaker work.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/active-runway-1-5/prompts/todo56_autofinalize.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/operator/artifacts/active-runway-1-5/phase1/todo56/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "todo56_autofinalize_plan",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/active-runway-1-5/phase1/todo56/PLAN.md",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "plan_todo59_corpus_v2",
+      "type": "synthesis",
+      "title": "Plan TODO 59 Corpus Contract V2",
+      "role_id": "corpus_planner",
+      "lane_id": "gemini",
+      "parallel_group": "phase1_todo_followups",
+      "fresh_session_required": true,
+      "objective": "Plan Corpus Contract V2 schema/archive/verification implementation.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/active-runway-1-5/prompts/todo59_corpus_v2.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/operator/artifacts/active-runway-1-5/phase1/todo59/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "todo59_corpus_v2_plan",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/active-runway-1-5/phase1/todo59/PLAN.md",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "plan_todo60_git_snapshot",
+      "type": "synthesis",
+      "title": "Plan TODO 60 read-only Git snapshot",
+      "role_id": "git_snapshot_planner",
+      "lane_id": "codex",
+      "parallel_group": "phase1_todo_followups",
+      "fresh_session_required": true,
+      "objective": "Plan the read-only local Git snapshot daemon read slice.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/active-runway-1-5/prompts/todo60_git_snapshot.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/operator/artifacts/active-runway-1-5/phase1/todo60/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "todo60_git_snapshot_plan",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/active-runway-1-5/phase1/todo60/PLAN.md",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "synthesize_phase1_followups",
+      "type": "synthesis",
+      "title": "Synthesize TODO 55/56/59/60 implementation order",
+      "role_id": "coordinator",
+      "lane_id": "codex",
+      "fresh_session_required": true,
+      "objective": "Synthesize the four TODO follow-up packets into a safe implementation order and first batch.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/active-runway-1-5/prompts/synthesize_phase1.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/operator/artifacts/active-runway-1-5/phase1/SYNTHESIS.md"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "phase1_synthesis",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/active-runway-1-5/phase1/SYNTHESIS.md",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "map_cli_retirement",
+      "type": "synthesis",
+      "title": "Map CLI retirement and MCP/UI parity",
+      "role_id": "cutover_mapper",
+      "lane_id": "claude_code",
+      "fresh_session_required": true,
+      "objective": "Classify remaining CLI verbs and missing MCP/UI parity before retirement.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/active-runway-1-5/prompts/map_cli_retirement.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/operator/artifacts/active-runway-1-5/phase2/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "cli_cutover_ledger",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/active-runway-1-5/phase2/CLI_CUTOVER.md",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "design_tmux_metadata_slice",
+      "type": "synthesis",
+      "title": "Design RFC 0075 tmux metadata slice",
+      "role_id": "tmux_planner",
+      "lane_id": "gemini",
+      "fresh_session_required": true,
+      "objective": "Define the smallest remaining RFC 0075 tmux metadata implementation slice.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/active-runway-1-5/prompts/design_tmux_metadata.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/operator/artifacts/active-runway-1-5/phase3/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "tmux_metadata_slice",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/active-runway-1-5/phase3/TMUX_METADATA_SLICE.md",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "scaffold_rfc0074_catalog_metadata",
+      "type": "synthesis",
+      "title": "Scaffold RFC 0074 catalog metadata",
+      "role_id": "catalog_planner",
+      "lane_id": "codex",
+      "parallel_group": "phase4_rfc0074",
+      "fresh_session_required": true,
+      "objective": "Plan RFC 0074 Phase A catalog metadata and pack support.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/active-runway-1-5/prompts/rfc0074_catalog_metadata.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/operator/artifacts/active-runway-1-5/phase4/catalog/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "rfc0074_catalog_metadata_plan",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/active-runway-1-5/phase4/catalog/PLAN.md",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "scaffold_rfc0074_examples",
+      "type": "synthesis",
+      "title": "Scaffold RFC 0074 runnable examples",
+      "role_id": "example_planner",
+      "lane_id": "claude_code",
+      "parallel_group": "phase4_rfc0074",
+      "fresh_session_required": true,
+      "objective": "Plan the first RFC 0074 runnable examples and validation tests.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/active-runway-1-5/prompts/rfc0074_examples.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/operator/artifacts/active-runway-1-5/phase4/examples/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "rfc0074_examples_plan",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/active-runway-1-5/phase4/examples/PLAN.md",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "synthesize_rfc0074_phase_a",
+      "type": "synthesis",
+      "title": "Synthesize RFC 0074 Phase A",
+      "role_id": "catalog_planner",
+      "lane_id": "gemini",
+      "fresh_session_required": true,
+      "objective": "Synthesize catalog metadata and runnable-example plans into the RFC 0074 Phase A patch sequence.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/active-runway-1-5/prompts/synthesize_rfc0074_phase_a.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/operator/artifacts/active-runway-1-5/phase4/SYNTHESIS.md"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "rfc0074_phase_a_synthesis",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/active-runway-1-5/phase4/SYNTHESIS.md",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "plan_todo61_cleanup",
+      "type": "synthesis",
+      "title": "Plan TODO 61 cleanup batch",
+      "role_id": "cleanup_planner",
+      "lane_id": "codex",
+      "parallel_group": "phase5_residual_cleanup",
+      "fresh_session_required": true,
+      "objective": "Plan the next bounded TODO 61 legacy fixture cleanup batch.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/active-runway-1-5/prompts/todo61_cleanup.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/operator/artifacts/active-runway-1-5/phase5/todo61/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "todo61_cleanup_plan",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/active-runway-1-5/phase5/todo61/PLAN.md",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "plan_todo62_pg_guardrails",
+      "type": "synthesis",
+      "title": "Plan TODO 62 guardrail cleanup",
+      "role_id": "cleanup_planner",
+      "lane_id": "claude_code",
+      "parallel_group": "phase5_residual_cleanup",
+      "fresh_session_required": true,
+      "objective": "Plan PG-only daemon-global guardrail cleanup for TODO 62 residuals.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/active-runway-1-5/prompts/todo62_pg_guardrails.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/operator/artifacts/active-runway-1-5/phase5/todo62/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "todo62_pg_guardrail_plan",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/active-runway-1-5/phase5/todo62/PLAN.md",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "plan_todo63_boundary",
+      "type": "synthesis",
+      "title": "Plan TODO 63 service boundary cleanup",
+      "role_id": "cleanup_planner",
+      "lane_id": "gemini",
+      "parallel_group": "phase5_residual_cleanup",
+      "fresh_session_required": true,
+      "objective": "Plan daemon client/service boundary cleanup for TODO 63 residuals.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/active-runway-1-5/prompts/todo63_boundary.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/operator/artifacts/active-runway-1-5/phase5/todo63/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "todo63_boundary_plan",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/active-runway-1-5/phase5/todo63/PLAN.md",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "finalize_active_runway",
+      "type": "synthesis",
+      "title": "Finalize active runway 1-5",
+      "role_id": "closer",
+      "lane_id": "codex",
+      "fresh_session_required": true,
+      "objective": "Publish the final active runway closure with ordered implementation batches and validation evidence.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/active-runway-1-5/prompts/finalize_runway.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/operator/artifacts/active-runway-1-5/FINAL.md"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "active_runway_final",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/active-runway-1-5/FINAL.md",
+          "required": true
+        }
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "from": "plan_todo55_accepted_risk",
+      "to": "synthesize_phase1_followups",
+      "on": "completed"
+    },
+    {
+      "from": "plan_todo56_autofinalize",
+      "to": "synthesize_phase1_followups",
+      "on": "completed"
+    },
+    {
+      "from": "plan_todo59_corpus_v2",
+      "to": "synthesize_phase1_followups",
+      "on": "completed"
+    },
+    {
+      "from": "plan_todo60_git_snapshot",
+      "to": "synthesize_phase1_followups",
+      "on": "completed"
+    },
+    {
+      "from": "synthesize_phase1_followups",
+      "to": "map_cli_retirement",
+      "on": "completed"
+    },
+    {
+      "from": "map_cli_retirement",
+      "to": "design_tmux_metadata_slice",
+      "on": "completed"
+    },
+    {
+      "from": "design_tmux_metadata_slice",
+      "to": "scaffold_rfc0074_catalog_metadata",
+      "on": "completed"
+    },
+    {
+      "from": "design_tmux_metadata_slice",
+      "to": "scaffold_rfc0074_examples",
+      "on": "completed"
+    },
+    {
+      "from": "scaffold_rfc0074_catalog_metadata",
+      "to": "synthesize_rfc0074_phase_a",
+      "on": "completed"
+    },
+    {
+      "from": "scaffold_rfc0074_examples",
+      "to": "synthesize_rfc0074_phase_a",
+      "on": "completed"
+    },
+    {
+      "from": "synthesize_rfc0074_phase_a",
+      "to": "plan_todo61_cleanup",
+      "on": "completed"
+    },
+    {
+      "from": "synthesize_rfc0074_phase_a",
+      "to": "plan_todo62_pg_guardrails",
+      "on": "completed"
+    },
+    {
+      "from": "synthesize_rfc0074_phase_a",
+      "to": "plan_todo63_boundary",
+      "on": "completed"
+    },
+    {
+      "from": "plan_todo61_cleanup",
+      "to": "finalize_active_runway",
+      "on": "completed"
+    },
+    {
+      "from": "plan_todo62_pg_guardrails",
+      "to": "finalize_active_runway",
+      "on": "completed"
+    },
+    {
+      "from": "plan_todo63_boundary",
+      "to": "finalize_active_runway",
+      "on": "completed"
+    }
+  ],
+  "cycles": []
+}

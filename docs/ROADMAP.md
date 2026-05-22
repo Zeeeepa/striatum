@@ -13,7 +13,7 @@ dependency edges, and "what would I do next" framing. Update on every
 
 ---
 
-## 1. State as of 2026-05-19 (v1.57.0)
+## 1. State as of 2026-05-22 (v1.57.0)
 
 - **Latest tag:** `v1.57.0` is the latest released tag and
   `pyproject.toml` version. v1.57.0 packages the GH #25 / #26 / #27
@@ -25,7 +25,16 @@ dependency edges, and "what would I do next" framing. Update on every
   non-JSON cleanup (no more SQLite pre-flight). Closes the
   blob-routing observability and trigger-fragility gaps surfaced by
   the v1.56 backfill.
-- **Current workstream:** TODO 61-64 / RFC 0068-0071 architecture remediation.
+- **Current workstream:** active runway 1-5 follow-through on top of TODO
+  55/56/59/60 decisions, RFC 0050 CLI cutover, RFC 0075 tmux metadata, RFC
+  0074 Phase A, and TODO 61/62/63 cleanup. The completed active-runway
+  workflow is
+  `docs/operator/workflows/active-runway-1-5/workflow.json`, with the final
+  ordered batch plan at `docs/operator/artifacts/active-runway-1-5/FINAL.md`.
+  The first implementation pair is TODO 60 read-only `git.snapshot` plus TODO
+  56 skipped-candidate cause classes.
+  Earlier TODO 61-64 / RFC 0068-0071 architecture remediation remains the
+  substrate this work builds on.
   D107 supersedes D105: Go is now the default production daemon core, active
   contract-method parity is landed, Python CLI/web clients stay useful, and
   the retired Python daemon module is deleted. Broad direct repo-local SQLite
@@ -41,9 +50,9 @@ dependency edges, and "what would I do next" framing. Update on every
 - **CI:** GitHub Actions has been backlogged during the 2026-05-17/18
   remediation commits. Treat latest-head CI failures as stop-the-line; queued
   and in-progress older runs are not by themselves blockers.
-- **Active dogfoods:** none tracked as live in this roadmap. The current
-  operator work is direct remediation/backlog execution, with dogfood-shaped
-  coverage added where behavior changes.
+- **Active dogfoods:** active runway 1-5 completed as
+  `run_b2e013582e0aeba267dd7a47cc66ccf1`. No runway workflow is currently
+  live; the next step is source implementation from the final batch plan.
 - **Branches:** `main` is the active integration branch.
 
 ### 1.1 Active Operator track: HTTP/SSE MCP daemon and CLI retirement
