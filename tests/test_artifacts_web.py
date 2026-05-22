@@ -13,6 +13,7 @@ from striatum.web.artifacts import (
     shape_artifact_rows,
     resolve_artifact_file,
 )
+from striatum.web.template_env import jinja_env
 
 
 def test_resolve_artifact_file_requires_repo_relative_path(tmp_path: Path) -> None:
@@ -76,6 +77,46 @@ def test_artifact_view_template_context_shapes_daemon_payload(tmp_path: Path) ->
     assert context["artifact"]["provenance_trail"] == [{"event_type": "artifact.publish"}]
     assert context["body_text"] is None
     assert "<h1>Title</h1>" in str(context["rendered_md"])
+
+
+def test_artifact_view_template_renders_byline_integrity_and_provenance_trail(
+    tmp_path: Path,
+) -> None:
+    artifact = tmp_path / "docs" / "artifact.md"
+    artifact.parent.mkdir()
+    artifact.write_text("# Title\n", encoding="utf-8")
+
+    context = artifact_view_template_context(
+        tmp_path,
+        {
+            "run": {"run_id": "run_1"},
+            "artifact": {
+                "artifact_id": "art_1",
+                "artifact_kind": "handoff",
+                "logical_name": "draft",
+                "repo_path": "docs/artifact.md",
+                "content_sha256": "sha256:artifact",
+                "size_bytes": 10,
+                "created_at": "2026-05-22T00:00:00Z",
+                "author_line": "author: author-codex-001",
+            },
+            "expected_author_line": "author: author-codex-001",
+            "provenance_trail": [
+                {
+                    "event_type": "provenance.publish_without_process_execution",
+                    "created_at": "2026-05-22T00:00:01Z",
+                    "payload": {"artifact_id": "art_1", "rationale": "test on behalf"},
+                }
+            ],
+        },
+    )
+
+    html = jinja_env().get_template("artifact_view.html").render(**context)
+
+    assert "Byline integrity" in html
+    assert "not yet correlated" in html
+    assert "provenance.publish_without_process_execution" in html
+    assert "test on behalf" in html
 
 
 def test_artifact_view_template_context_preserves_existing_web_shape(tmp_path: Path) -> None:

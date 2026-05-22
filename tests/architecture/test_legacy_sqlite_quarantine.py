@@ -26,9 +26,6 @@ RESIDUAL_LEGACY_SQLITE_TEST_IMPORTS: dict[Path, set[str]] = {
     Path("tests/fixtures/v1_repo_local_sqlite/build_fixture.py"): {
         "from striatum.legacy_sqlite.migrations import apply_migrations"
     },
-    Path("tests/test_artifact_view_provenance_trail.py"): {
-        "from striatum.legacy_sqlite.db import connect"
-    },
     Path("tests/test_chat_tools.py"): {"from striatum.legacy_sqlite.db import init_repo"},
     Path("tests/test_cli_corpus_export.py"): {
         "from striatum.legacy_sqlite.db import init_repo"
@@ -112,9 +109,6 @@ RESIDUAL_LEGACY_SQLITE_TEST_IMPORTS: dict[Path, set[str]] = {
     Path("tests/test_supervised_progress_watcher.py"): {
         "from striatum.legacy_sqlite.db import connect",
         "from striatum.legacy_sqlite.db import init_repo",
-    },
-    Path("tests/test_view_file_breadcrumb_heuristic.py"): {
-        "from striatum.legacy_sqlite.db import connect"
     },
     Path("tests/test_web_run_cancel.py"): {"from striatum.legacy_sqlite.db import connect"},
     Path("tests/test_web_run_pause_resume.py"): {

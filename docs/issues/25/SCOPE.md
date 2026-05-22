@@ -190,11 +190,10 @@ Manual expected results:
   `repo_not_migrated` will change behavior. That is acceptable because the
   previous error was misleading for a read-only registry command; JSON mode is
   the stable scripting interface and remains unchanged.
-- The existing tests that intentionally assert `repo_not_migrated` are mostly
-  correct and should stay focused on non-list commands:
-  `tests/exit_codes/test_rfc0043_refusals.py` and
-  `tests/exit_codes/test_rfc0043_split_brain.py`. Do not delete those
-  checks; add a `repo list` exception test beside them.
+- The active tests that intentionally assert `repo_not_migrated` should stay
+  focused on non-list commands in `tests/exit_codes/test_rfc0043_refusals.py`.
+  The older direct legacy-SQLite split-brain fixture has been retired; add a
+  `repo list` exception test beside the active refusal coverage.
 - If the implementer formats the table inside `daemon_rpc_route.py`, keep the
   formatter pure and testable. Avoid routing non-JSON mode through
   `client_admin.repo_list()`, which would reintroduce a direct PG/admin path
