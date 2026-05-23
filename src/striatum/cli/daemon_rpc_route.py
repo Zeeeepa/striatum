@@ -412,6 +412,15 @@ def _params_git_snapshot(args: argparse.Namespace, repo: Path) -> dict[str, Any]
     }
 
 
+def _params_git_commit_apply(args: argparse.Namespace, repo: Path) -> dict[str, Any]:
+    return {
+        "schema_version": 1,
+        "commit_request_path": getattr(args, "commit_request_path", None),
+        "confirm": bool(getattr(args, "confirm", False)),
+        "confirm_request_id": getattr(args, "confirm_request_id", None),
+    }
+
+
 def _params_workflow_accepted_risks_list(args: argparse.Namespace, repo: Path) -> dict[str, Any]:
     return _selected_params(
         args,
@@ -803,6 +812,7 @@ _PARAM_BUILDERS: dict[str, ParamBuilder] = {
     "repo_list": _params_repo_list,
     "repo_remove": _params_repo_remove,
     "git_snapshot": _params_git_snapshot,
+    "git_commit_apply": _params_git_commit_apply,
     "workflow_accepted_risks_list": _params_workflow_accepted_risks_list,
     "workflow_accept_risk": _params_workflow_accept_risk,
     "list": _params_list,

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import os
 import threading
 from pathlib import Path
@@ -138,6 +139,90 @@ def test_claim_next_resolves_workflow_local_task_prompt_path(
         "workflow_relative_path": "prompts/demo.md",
         "workflow_source_path": "docs/operator/workflows/demo/workflow.json",
     }
+
+
+def test_claim_next_exposes_optional_augmentation_references(
+    pg_conn: Any,
+    tmp_path: Path,
+) -> None:
+    repo = tmp_path / "repo"
+    bundle = repo / "exports" / "corpus"
+    bundle.mkdir(parents=True)
+    (bundle / "manifest.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "striatum.corpus_export.v1",
+                "corpus_contract_version": 2,
+                "corpus_id": "striatum:" + ("a" * 64),
+                "redaction_tier": "public",
+                "verification_depth": "deep_chain",
+                "bundle_sha256": "b" * 64,
+                "row_counts": {"rfc": 3},
+                "repo_root": "/absolute/path/not-exposed",
+            }
+        ),
+        encoding="utf-8",
+    )
+    insert_repo(pg_conn, repo, "repo_a")
+    insert_claimable_work(pg_conn, repository_id="repo_a", repo_root=repo)
+    workflow = _helpers.workflow_json()
+    workflow["augmentation"] = {
+        "mode": "reference_only",
+        "required": False,
+        "budget_per_packet_lines": 25,
+        "sources": [
+            {
+                "id": "local-corpus",
+                "kind": "corpus_bundle",
+                "path": "exports/corpus",
+                "description": "Local export bundle",
+            },
+            {"id": "missing-corpus", "kind": "corpus_bundle", "path": "exports/missing"},
+        ],
+        "jobs": ["draft"],
+    }
+    with pg_conn.cursor() as cur:
+        cur.execute(
+            """
+            UPDATE striatumd.workflow_snapshots
+            SET workflow_json = %s
+            WHERE repository_id = 'repo_a' AND workflow_snapshot_id = 'snap_1'
+            """,
+            (Jsonb(workflow),),
+        )
+    pg_conn.commit()
+    token = issue_token(pg_conn, capabilities=["claim"], repo_id="repo_a")
+
+    response = rpc(
+        pg_conn,
+        repo_root=repo,
+        method="work.claim_next",
+        params={"repository_id": "repo_a", "session_id": "sess_author"},
+        token=token,
+        request_id="claim-next-augmentation",
+    )
+
+    assert response.ok is True
+    augmentation = response.data["packet"]["context"]["augmentation_references"]
+    assert augmentation["mode"] == "reference_only"
+    assert augmentation["required"] is False
+    assert augmentation["budget_per_packet_lines"] == 25
+    sources = augmentation["sources"]
+    assert sources[0]["status"] == "available"
+    assert sources[0]["available"] is True
+    assert sources[0]["manifest_path"] == "exports/corpus/manifest.json"
+    assert sources[0]["manifest"] == {
+        "corpus_contract_version": 2,
+        "corpus_id": "striatum:" + ("a" * 64),
+        "redaction_tier": "public",
+        "verification_depth": "deep_chain",
+        "bundle_sha256": "b" * 64,
+        "row_counts": {"rfc": 3},
+    }
+    assert "repo_root" not in sources[0]["manifest"]
+    assert sources[1]["status"] == "missing"
+    assert sources[1]["available"] is False
+    assert sources[1]["reason"] == "bundle_not_found"
 
 
 def test_claim_next_auto_delivery_honors_one_shot_eof_metadata(

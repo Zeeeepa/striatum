@@ -108,11 +108,11 @@ def _dict_cursor(conn: Any) -> Any:
     row_factory.
 
     Production daemon connections set ``row_factory = psycopg.rows.dict_row``
-    at the connection level (see :mod:`striatum.daemon` start path), but
-    test fixtures call :func:`striatum.daemon_pg.connection.connect`
-    directly which defaults to tuple rows. Forcing dict rows per-cursor
-    keeps both call sites correct without changing the global default
-    (which would break positional access elsewhere in ``daemon_pg``).
+    at the daemon PostgreSQL connection boundary, but test fixtures call
+    :func:`striatum.daemon_pg.connection.connect` directly which defaults to
+    tuple rows. Forcing dict rows per-cursor keeps both call sites correct
+    without changing the global default (which would break positional access
+    elsewhere in ``daemon_pg``).
     """
     try:
         from psycopg.rows import dict_row

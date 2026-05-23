@@ -14,6 +14,8 @@ from striatum.errors import EXIT_DAEMON_REGISTRY, StriatumError
 
 pytestmark = pytest.mark.multi_repo
 
+RETIRED_DAEMON_REGISTRY_ENV = "STRIATUM_DAEMON_REGISTRY"
+
 
 def _configure_pg_daemon_lifecycle(
     harness: MultiRepoHarness,
@@ -27,7 +29,7 @@ def _configure_pg_daemon_lifecycle(
     registry = tmp_path / "daemon" / "striatumd.sqlite3"
     monkeypatch.setenv(ENV_DAEMON_DB_URL, harness.daemon_pg_url)
     monkeypatch.setenv(daemon.ENV_RUNTIME, str(runtime))
-    monkeypatch.setenv(daemon.ENV_REGISTRY, str(registry))
+    monkeypatch.setenv(RETIRED_DAEMON_REGISTRY_ENV, str(registry))
     monkeypatch.setenv(daemon.ENV_SQLITE_CONNECT_TRIPWIRE, "1")
     daemon.write_runtime_token(token)
     return registry

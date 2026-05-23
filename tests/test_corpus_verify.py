@@ -221,6 +221,9 @@ def test_corpus_v2_surface_keeps_augmentation_boundary_local() -> None:
         ROOT / "src/striatum/cli",
         ROOT / "src/striatum/daemon_rpc",
         ROOT / "src/striatum/daemon_pg",
+        ROOT / "src/striatum/workflow.py",
+        ROOT / "go/pkg/mutations/claim.go",
+        ROOT / "go/pkg/mutations/run.go",
     ]
     bodies = "\n".join(
         path.read_text(encoding="utf-8")
@@ -230,5 +233,5 @@ def test_corpus_v2_surface_keeps_augmentation_boundary_local() -> None:
     )
     assert "import engram" not in bodies
     assert "from engram" not in bodies
-    assert "memory." not in bodies
+    assert "memory." not in bodies.replace("in-memory.", "in-memory")
     assert "engram" not in (ROOT / "pyproject.toml").read_text(encoding="utf-8").lower()

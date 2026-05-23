@@ -79,6 +79,7 @@ imports and fails on unlisted direct PostgreSQL client helpers.
 | `corpus.export` | `corpus export` | read | single_repo | pg | real | no | no | stable |
 | `archive.create` | `archive create` | read | single_repo | pg | real | no | no | Go V1 run archive writer |
 | `git.snapshot` | `git snapshot` | read | single_repo | not implemented in Python RPC | real | no | no | Go read-only local Git snapshot; no fetch/push/commit/provider operations |
+| `git.commit_apply` | `git commit-apply` | apply | single_repo | not implemented in Python RPC | real | no | no | Go explicit-confirm local commit apply from a confirmed `commit_request` artifact; no push/provider operations |
 | `run.summary` | `run summary` | read | single_repo | pg | real | no | no | stable |
 | `run.detail` | web run detail DTO | read | single_repo | pg | real | no | no | stable |
 | `job.detail` | web job detail DTO | read | single_repo | pg | real | no | no | stable |

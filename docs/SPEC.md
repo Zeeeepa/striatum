@@ -679,6 +679,15 @@ V1 schemas:
   `blockers.payload_json.escalation_artifact` and the escalation inbox
   projections surface it; publishing an escalation artifact does not create a
   new live blocker by itself.
+- `striatum.auto_finalize_gate_evidence.v1` (kind
+  `auto_finalize_gate_evidence`, D125): required `schema_version`,
+  `artifact_kind: auto_finalize_gate_evidence`, `decision_id: D125`,
+  `gate_status` (one of `pending`, `satisfied`), `live_success_count`,
+  `lane_shape_count`, `lane_shapes`, `contested_audit_chain_events`,
+  `evidence_artifacts`, and `created_at`. A `satisfied` artifact must record
+  at least three live successes, at least two lane shapes, and zero contested
+  audit-chain events. This artifact records the default-on evidence gate; it
+  does not make live auto-finalize the global default.
 
 Other artifact kinds (`prompt`, `marker`, `handoff`, `patch_summary`,
 `test_report`, `other`) remain unschemaed in V1 and pass through without a
@@ -795,8 +804,8 @@ Use confirm mode for workflows that require operator review of the
 target repository state before any branch is touched (e.g., RFC-style
 spec reviews where the branch is part of the deliberation).
 
-No job is claimable before branch confirmation. V1 does not commit, push,
-merge, or rebase.
+No job is claimable before branch confirmation. Branch confirmation itself
+does not commit, push, merge, or rebase.
 
 `branch confirm --json` is records-only by default: it includes the requested
 branch and detected current git branch, warns when they differ, and reports
@@ -818,6 +827,27 @@ git-enforcing:
 The response also includes a `mode` field
 (`"records_only" | "create" | "use_current" | "strict"`). The default
 records-only mode preserves backwards compatibility for existing callers.
+
+`git snapshot --json` is a daemon read-only local Git projection for the
+registered target repository. It reports branch, HEAD metadata, dirty counts,
+changed paths, and bounded ancestry without fetching, pushing, committing,
+reading remote URLs, importing hosted-provider SDKs, or including diff hunks
+or commit bodies.
+
+`git commit-apply <commit-request-path> --confirm --confirm-request-id <id>
+--json` is the only core local commit creation surface. It is daemon-routed,
+requires `apply` capability, consumes a repository-relative
+`striatum.commit_request.v1` artifact, and refuses unless the artifact's
+`confirmation_status` is `operator_confirmed` or `human_confirmed` and the
+CLI confirmation id matches the artifact `request_id`. Before creating a
+commit, the daemon verifies that current HEAD equals the artifact `base_head`,
+the current branch equals the artifact `branch`, every dirty path is within
+the artifact `included_paths`, and all included paths stay inside the
+repository and outside `.striatum/`. The commit is local only, uses the
+artifact `commit_message`, stages only `included_paths`, disables repository
+Git hooks for the commit invocation, and returns the local commit SHA. It
+does not push, fetch, open or update PRs, call hosted providers, import
+provider SDKs, or load provider credentials.
 
 ## CLI
 

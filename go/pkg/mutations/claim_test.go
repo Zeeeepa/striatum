@@ -2,8 +2,12 @@ package mutations
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"os"
+	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/halbritt/striatum/go/pkg/rpc"
@@ -66,5 +70,87 @@ func TestPacketTaskPromptLeavesRootRelativePath(t *testing.T) {
 
 	if !reflect.DeepEqual(got, map[string]any{"path": "prompts/demo.md"}) {
 		t.Fatalf("task prompt = %#v", got)
+	}
+}
+
+func TestAugmentationReferencesInspectLocalCorpusBundle(t *testing.T) {
+	repoRoot := t.TempDir()
+	bundle := filepath.Join(repoRoot, "exports", "corpus")
+	if err := os.MkdirAll(bundle, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	manifest := map[string]any{
+		"schema_version":           "striatum.corpus_export.v1",
+		"corpus_contract_version":  2,
+		"corpus_id":                "striatum:" + strings.Repeat("a", 64),
+		"redaction_tier":           "public",
+		"verification_depth":       "deep_chain",
+		"bundle_sha256":            strings.Repeat("b", 64),
+		"row_counts":               map[string]any{"rfc": float64(2)},
+		"repo_root":                "/absolute/path/not-exposed",
+		"incremental_export_token": "not surfaced",
+	}
+	body, err := json.Marshal(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(bundle, "manifest.json"), body, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	workflow := map[string]any{
+		"augmentation": map[string]any{
+			"mode":                    "reference_only",
+			"required":                false,
+			"budget_per_packet_lines": 25,
+			"sources": []any{
+				map[string]any{
+					"id":          "local-corpus",
+					"kind":        "corpus_bundle",
+					"path":        "exports/corpus",
+					"description": "Local corpus bundle",
+				},
+				map[string]any{"id": "missing", "kind": "corpus_bundle", "path": "exports/missing"},
+			},
+			"jobs": []any{"draft"},
+		},
+	}
+
+	got := augmentationReferences(workflow, "draft", repoRoot)
+
+	if got["mode"] != "reference_only" || got["required"] != false {
+		t.Fatalf("augmentation policy = %#v", got)
+	}
+	if got["budget_per_packet_lines"] != 25 {
+		t.Fatalf("budget = %v", got["budget_per_packet_lines"])
+	}
+	sources := got["sources"].([]any)
+	first := sources[0].(map[string]any)
+	if first["status"] != "available" || first["available"] != true {
+		t.Fatalf("first source = %#v", first)
+	}
+	summary := first["manifest"].(map[string]any)
+	if summary["corpus_id"] != "striatum:"+strings.Repeat("a", 64) {
+		t.Fatalf("summary = %#v", summary)
+	}
+	if _, ok := summary["repo_root"]; ok {
+		t.Fatalf("absolute repo_root leaked into summary: %#v", summary)
+	}
+	second := sources[1].(map[string]any)
+	if second["status"] != "missing" || second["reason"] != "bundle_not_found" {
+		t.Fatalf("second source = %#v", second)
+	}
+}
+
+func TestAugmentationReferencesOmittedForNonOptedInJob(t *testing.T) {
+	workflow := map[string]any{
+		"augmentation": map[string]any{
+			"mode":    "reference_only",
+			"sources": []any{map[string]any{"id": "local", "kind": "corpus_bundle", "path": "exports/corpus"}},
+			"jobs":    []any{"draft"},
+		},
+	}
+
+	if got := augmentationReferences(workflow, "review", t.TempDir()); got != nil {
+		t.Fatalf("augmentation references = %#v, want nil", got)
 	}
 }

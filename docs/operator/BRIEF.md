@@ -3,7 +3,7 @@ schema_version: "striatum.operator_brief.v1"
 artifact_kind: "operator_brief"
 brief_id: "brief_2026-05-20_go-daemon-http-sse-mcp"
 supersedes: "brief_2026-05-17_go-daemon-remediation"
-scope_links: ["docs/operator/plans/remaining-runway-1-8.md", "docs/operator/workflows/remaining-runway-1-8/workflow.json", "docs/operator/plans/rfc-0050-cli-retirement-cutover.md", "docs/operator/plans/rfc-0075-tmux-observable-mcp-agent-sessions.md", "docs/operator/artifacts/active-runway-1-5/FINAL.md"]
+scope_links: ["docs/operator/plans/next-steps-1-6.md", "docs/operator/workflows/next-steps-1-6/workflow.json", "docs/operator/plans/remaining-runway-1-8.md", "docs/operator/plans/rfc-0050-cli-retirement-cutover.md", "docs/operator/plans/rfc-0075-tmux-observable-mcp-agent-sessions.md"]
 context_budget_lines: 300
 retrieval_priority: "high"
 status: "current"
@@ -91,23 +91,35 @@ slice also landed the TODO 55 accepted-risk substrate: Go daemon `workflow.lint`
 `workflow.accept_risk`, and `workflow.accepted_risks.list` with append-only
 PostgreSQL records bound to workflow snapshots or canonical fingerprints. The
 CLI now routes `workflow accepted-risks` and `workflow accept-risk` through
-those daemon methods. TODO 60 also has `commit_request` and `pr_request`
-artifact schemas for durable local request provenance; local commit
-confirmation remains pending. Follow-up cleanup also trimmed the remaining
-TODO 62/63 direct-state probes and cross-repo fallback dead code.
+those daemon methods. The next steps 1-6 run
+`run_f7659a42616591da5be84a822f8cf36e` landed the follow-through slices:
+the web workflow detail page now reads daemon lint/accepted-risk records and
+can append accepted-risk records through `workflow.accept_risk` when local
+web mutations are enabled; TODO 56 exposes the D125 dry-run default and
+default-live evidence gate in recovery policy payloads and validates
+`auto_finalize_gate_evidence` artifacts; TODO 60 has `commit_request` and
+`pr_request` artifact schemas plus daemon `git.commit_apply`, which creates
+only explicit-operator-confirmed local commits; TODO 59 adds optional
+workflow `augmentation.mode: "reference_only"` packet metadata for local
+corpus bundles without making augmentation a runtime dependency; and TODO
+61/62 cleanup removed the retired daemon-registry env export from production
+source with a guardrail preventing it from returning. The checked
+`docs/architecture/CLI_RETIREMENT_PARITY.md` ledger now classifies non-read
+CLI routes before any retirement; no live workflow-control CLI verb is
+hidden by this slice.
 
 ## Next 1-3 Actions
 
-1. Finish TODO 55 UI client polish over the accepted-risk daemon methods when
-   that surface is needed; do not write accepted-risk metadata into workflow
-   files.
-2. Continue TODO 56 only through the D125 live dogfood gate evidence; keep
-   live auto-finalize workflow-opt-in and dry-run default until that evidence
-   exists.
-3. Continue the ordered remaining-runway scaffold in
-   `docs/operator/workflows/remaining-runway-1-8/workflow.json`: CLI
-   retirement/UI polish, TODO 60 local commit confirmation, RFC 0074 follow-up
-   only beyond completed Phase A, and remaining TODO 61 cleanup.
+1. Run the D125 live auto-finalize dogfood evidence gate only when ready:
+   three live successes across at least two lane shapes with zero contested
+   audit-chain events. Keep global behavior dry-run and workflow opt-in until
+   that evidence artifact is satisfied.
+2. Use `docs/architecture/CLI_RETIREMENT_PARITY.md` to close remaining UI
+   gaps before hiding any live workflow-control CLI verb. Bootstrap and
+   diagnostics commands should survive unless a later decision says otherwise.
+3. Continue bounded TODO 61/49/62/63 cleanup where guardrails still identify
+   legacy SQLite fixture/import or direct-state residue; keep historical
+   fixtures quarantined rather than deleting broad suites blindly.
 
 ## Blockers
 

@@ -125,6 +125,11 @@ def dispatch_post(handler: Any) -> None:
     if handler.state.web_enabled and parsed.path == "/chat/new":
         handler._handle_chat_new()
         return
+    if handler.state.web_enabled and parsed.path.startswith("/workflows/accept-risk/"):
+        handler._handle_workflow_accept_risk(
+            parsed.path[len("/workflows/accept-risk/"):]
+        )
+        return
     if handler.state.web_enabled and parsed.path.startswith("/workflows/run/"):
         handler._handle_workflow_run_now(parsed.path[len("/workflows/run/"):])
         return

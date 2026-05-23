@@ -428,6 +428,7 @@ striatum status
 striatum why
 striatum doctor
 striatum git snapshot
+striatum git commit-apply
 striatum evidence export
 striatum run graph
 striatum recovery auto
@@ -455,6 +456,14 @@ daemon read-only `git.snapshot` projection for the registered target
 repository: local branch, HEAD metadata, dirty counts, changed paths,
 and bounded ancestry. It does not fetch, push, commit, read remote URLs,
 or include diff hunks or commit bodies.
+
+`git commit-apply <commit-request-path> --confirm --confirm-request-id <id>
+--json` emits daemon method `git.commit_apply`. It creates only a local
+commit from a `striatum.commit_request.v1` artifact whose
+`confirmation_status` is already `operator_confirmed` or `human_confirmed`.
+It refuses base-HEAD, branch, or dirty-path mismatches, disables repository
+Git hooks for the commit invocation, and never pushes or calls hosted
+providers.
 
 `recovery auto` emits the daemon `recovery.sweep` method. The sweep
 runs workflow-opt-in `recovery.auto_finalize` before lazy lease expiry,

@@ -10,7 +10,7 @@ import uuid
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any, cast
 
 from psycopg.rows import dict_row
@@ -724,6 +724,14 @@ def build_packet(
     author_line = author["line"]
     if author_line is None:
         raise InvalidTransitionError("session author line could not be derived")
+    packet_context: JsonObject = {"docs": workflow.get("context_docs", []), "content_mode": "references"}
+    augmentation = build_augmentation_references(
+        workflow,
+        workflow_job_id=str(job["workflow_job_id"]),
+        repo_root=ctx.repo_root,
+    )
+    if augmentation is not None:
+        packet_context["augmentation_references"] = augmentation
     packet: JsonObject = {
         "packet_version": "striatum.work-packet.v1",
         "packet_id": packet_id,
@@ -762,7 +770,7 @@ def build_packet(
             "definition_path": role_def.get("definition_path") if isinstance(role_def, dict) else None,
             "inline_summary": role_def.get("summary") if isinstance(role_def, dict) else None,
         },
-        "context": {"docs": workflow.get("context_docs", []), "content_mode": "references"},
+        "context": packet_context,
         "task_prompt": packet_task_prompt(
             _json_loads(job["capability_requirements_json"]).get("task_prompt", {}),
             snapshot=snapshot,
@@ -836,6 +844,131 @@ def expected_artifacts_with_author(expected_artifacts: object, *, author_line: s
         else:
             enriched.append(artifact)
     return enriched
+
+
+def build_augmentation_references(
+    workflow: Mapping[str, Any],
+    *,
+    workflow_job_id: str,
+    repo_root: Path,
+) -> JsonObject | None:
+    policy = workflow.get("augmentation")
+    if not isinstance(policy, Mapping):
+        return None
+    jobs = policy.get("jobs")
+    if not isinstance(jobs, list) or workflow_job_id not in {
+        item for item in jobs if isinstance(item, str)
+    }:
+        return None
+    budget = policy.get("budget_per_packet_lines", 100)
+    if not isinstance(budget, int) or isinstance(budget, bool) or budget <= 0:
+        budget = 100
+    sources: list[JsonObject] = []
+    raw_sources = policy.get("sources")
+    if isinstance(raw_sources, list):
+        for source in raw_sources:
+            if isinstance(source, Mapping):
+                source_view = _augmentation_corpus_bundle_reference(repo_root, source=source)
+                if source_view is not None:
+                    sources.append(source_view)
+    return {
+        "mode": "reference_only",
+        "required": False,
+        "budget_per_packet_lines": budget,
+        "content_mode": "references",
+        "sources": sources,
+    }
+
+
+def _augmentation_corpus_bundle_reference(
+    repo_root: Path,
+    *,
+    source: Mapping[str, Any],
+) -> JsonObject | None:
+    if source.get("kind") != "corpus_bundle":
+        return None
+    source_id = source.get("id")
+    rel_path = _safe_augmentation_path(source.get("path"))
+    if not isinstance(source_id, str) or not source_id or rel_path is None:
+        return None
+    manifest_rel = f"{rel_path.rstrip('/')}/manifest.json"
+    view: JsonObject = {
+        "source_id": source_id,
+        "kind": "corpus_bundle",
+        "path": rel_path,
+        "manifest_path": manifest_rel,
+        "fetch_mode": "agent_side_local_bundle",
+        "required": False,
+    }
+    description = source.get("description")
+    if isinstance(description, str) and description:
+        view["description"] = description
+    bundle_path = repo_root / Path(*PurePosixPath(rel_path).parts)
+    manifest_path = bundle_path / "manifest.json"
+    try:
+        if not bundle_path.exists():
+            view.update({"status": "missing", "available": False, "reason": "bundle_not_found"})
+            return view
+        if not bundle_path.is_dir():
+            view.update({"status": "unavailable", "available": False, "reason": "bundle_not_directory"})
+            return view
+        if not manifest_path.is_file():
+            view.update({"status": "missing", "available": False, "reason": "manifest_not_found"})
+            return view
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        view.update({"status": "unavailable", "available": False, "reason": "manifest_unreadable"})
+        return view
+    if not isinstance(manifest, dict):
+        view.update({"status": "unavailable", "available": False, "reason": "manifest_not_object"})
+        return view
+    view.update(
+        {
+            "status": "available",
+            "available": True,
+            "manifest": _augmentation_manifest_summary(manifest),
+        }
+    )
+    return view
+
+
+def _safe_augmentation_path(value: object) -> str | None:
+    if not isinstance(value, str) or not value:
+        return None
+    pure = PurePosixPath(value)
+    if (
+        value.startswith("/")
+        or "://" in value
+        or ".." in pure.parts
+        or (pure.parts and pure.parts[0] == ".striatum")
+    ):
+        return None
+    parts = [part for part in pure.parts if part not in {"", "."}]
+    if not parts:
+        return None
+    return "/".join(parts)
+
+
+def _augmentation_manifest_summary(manifest: Mapping[str, Any]) -> JsonObject:
+    summary: JsonObject = {}
+    for key in (
+        "corpus_contract_version",
+        "corpus_id",
+        "redaction_tier",
+        "verification_depth",
+        "bundle_sha256",
+    ):
+        value = manifest.get(key)
+        if isinstance(value, str) or (isinstance(value, int) and not isinstance(value, bool)):
+            summary[key] = value
+    row_counts = manifest.get("row_counts")
+    if isinstance(row_counts, Mapping):
+        summary["row_counts"] = {
+            str(key): value
+            for key, value in row_counts.items()
+            if isinstance(value, int) and not isinstance(value, bool)
+        }
+    return summary
 
 
 def build_packet_commands(*, session_id: str, job_id: str, message_id: str, lease_id: str, worktree_required: bool) -> JsonObject:

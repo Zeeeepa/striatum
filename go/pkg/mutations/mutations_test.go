@@ -463,6 +463,72 @@ func TestWorkflowPhaseEdgesMaterializeSynthesisFanIn(t *testing.T) {
 	}
 }
 
+func TestValidateWorkflowForPrepareAcceptsReferenceOnlyAugmentation(t *testing.T) {
+	workflow := map[string]any{
+		"schema_version": "striatum.workflow.v1",
+		"workflow_id":    "wf-augmentation",
+		"branch":         map[string]any{"mode": "confirm", "suggested_name": "wf/augmentation"},
+		"roles":          map[string]any{"worker": map[string]any{}},
+		"lanes":          map[string]any{"lane_a": map[string]any{}},
+		"jobs": []any{map[string]any{
+			"id":                 "draft",
+			"type":               "handoff",
+			"role_id":            "worker",
+			"lane_id":            "lane_a",
+			"expected_artifacts": []any{},
+		}},
+		"edges": []any{},
+		"augmentation": map[string]any{
+			"mode":                    "reference_only",
+			"required":                false,
+			"budget_per_packet_lines": 100,
+			"sources": []any{
+				map[string]any{"id": "local-corpus", "kind": "corpus_bundle", "path": "exports/corpus"},
+			},
+			"jobs": []any{"draft"},
+		},
+	}
+
+	if _, err := validateWorkflowForPrepare(workflow); err != nil {
+		t.Fatalf("workflow validation failed: %v", err)
+	}
+}
+
+func TestValidateWorkflowForPrepareRejectsRequiredAugmentation(t *testing.T) {
+	workflow := map[string]any{
+		"schema_version": "striatum.workflow.v1",
+		"workflow_id":    "wf-augmentation",
+		"branch":         map[string]any{"mode": "confirm", "suggested_name": "wf/augmentation"},
+		"roles":          map[string]any{"worker": map[string]any{}},
+		"lanes":          map[string]any{"lane_a": map[string]any{}},
+		"jobs": []any{map[string]any{
+			"id":                 "draft",
+			"type":               "handoff",
+			"role_id":            "worker",
+			"lane_id":            "lane_a",
+			"expected_artifacts": []any{},
+		}},
+		"edges": []any{},
+		"augmentation": map[string]any{
+			"mode":     "reference_only",
+			"required": true,
+			"sources": []any{
+				map[string]any{"id": "local-corpus", "kind": "corpus_bundle", "path": "exports/corpus"},
+			},
+			"jobs": []any{"draft"},
+		},
+	}
+
+	_, err := validateWorkflowForPrepare(workflow)
+	var rpcErr *rpc.Error
+	if !errors.As(err, &rpcErr) || rpcErr.Code != "workflow_error" {
+		t.Fatalf("err = %v, want workflow_error", err)
+	}
+	if !strings.Contains(rpcErr.Message, "augmentation.required") {
+		t.Fatalf("error message = %q", rpcErr.Message)
+	}
+}
+
 func phaseJob(id string, phaseID string, jobType string) map[string]any {
 	return map[string]any{
 		"id":       id,

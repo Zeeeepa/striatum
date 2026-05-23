@@ -161,6 +161,47 @@ def test_auto_finalize_dry_run_reports_unstable_file_without_mutation(
         conn.close()
 
 
+def test_auto_finalize_defaults_to_dry_run_and_reports_d125_gate(
+    tmp_path: Path, pg_url: str
+) -> None:
+    conn = connect(pg_url)
+    try:
+        repo_root = tmp_path / "repo_a"
+        _write_finding(repo_root, byline="author: reviewer-codex-gpt-5-001")
+        _seed_review_job(conn, repo_root, repository_id="repo_a", auto_finalize_enabled=False)
+        _insert_attached_supervisor(conn, repository_id="repo_a")
+        _insert_work_packet_and_clean_process(conn, repository_id="repo_a")
+        conn.commit()
+
+        result = handle(
+            _ctx(conn, repo_root, repository_id="repo_a"),
+            {
+                "run_id": "run_1",
+                "mtime_grace_seconds": 0,
+            },
+        )
+
+        assert result["dry_run"] is True
+        assert result["eligible_count"] == 1
+        assert result["finalized_count"] == 0
+        assert result["policy"]["workflow_enabled"] is False
+        assert result["policy"]["live_allowed"] is False
+        assert result["policy"]["global_default_mode"] == "dry_run"
+        assert result["policy"]["default_live_gate"] == {
+            "decision_id": "D125",
+            "status": "pending_evidence",
+            "required_live_successes": 3,
+            "required_lane_shapes": 2,
+            "max_contested_audit_chain_events": 0,
+            "evidence_artifact_kind": "auto_finalize_gate_evidence",
+            "live_default_enabled": False,
+        }
+        assert _count(conn, "striatumd.artifacts", repository_id="repo_a") == 0
+        assert _states(conn, repository_id="repo_a")["job"] == "running"
+    finally:
+        conn.close()
+
+
 def test_auto_finalize_dry_run_projection_reports_status_eligibility(
     tmp_path: Path, pg_url: str
 ) -> None:

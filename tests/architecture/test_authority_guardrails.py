@@ -67,6 +67,7 @@ GO_ONLY_DAEMON_METHODS: frozenset[str] = frozenset(
         "corpus.list_historical_dogfood_files",
         "corpus.list_historical_dogfoods",
         "corpus.migrate_historical_dogfood_file",
+        "git.commit_apply",
         "git.snapshot",
         "session.report",
         "work.await_packet",

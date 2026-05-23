@@ -47,6 +47,15 @@ from striatum.repo_policy import path_allowed
 DEFAULT_MTIME_GRACE_SECONDS = 30
 DEFAULT_CIRCUIT_BREAKER_MAX_CONSECUTIVE = 3
 DEFAULT_CIRCUIT_BREAKER_WINDOW_SECONDS = 600
+D125_DEFAULT_LIVE_GATE = {
+    "decision_id": "D125",
+    "status": "pending_evidence",
+    "required_live_successes": 3,
+    "required_lane_shapes": 2,
+    "max_contested_audit_chain_events": 0,
+    "evidence_artifact_kind": "auto_finalize_gate_evidence",
+    "live_default_enabled": False,
+}
 AUTO_FINALIZE_SUMMARY = "auto-finalized from stable expected artifact files"
 NO_PROCESS_RATIONALE = (
     "auto-finalized from stable expected artifact front matter; no terminal "
@@ -284,6 +293,8 @@ def _policy_result(
         "workflow_enabled": workflow_enabled,
         "force": force,
         "live_allowed": workflow_enabled or force,
+        "global_default_mode": "dry_run",
+        "default_live_gate": dict(D125_DEFAULT_LIVE_GATE),
         "mtime_grace_seconds": _mtime_grace_seconds(params),
         "allow_no_process_execution": bool(params.get("allow_no_process_execution", False)),
         "circuit_breaker": circuit_breaker,

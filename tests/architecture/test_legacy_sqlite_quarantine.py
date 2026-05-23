@@ -290,6 +290,16 @@ def test_production_sources_do_not_import_legacy_python_daemon() -> None:
     assert offenders == set()
 
 
+def test_production_sources_do_not_reference_retired_daemon_registry_env() -> None:
+    offenders = {
+        path.relative_to(ROOT)
+        for path in sorted((ROOT / "src" / "striatum").rglob("*.py"))
+        if "STRIATUM_DAEMON_REGISTRY" in path.read_text(encoding="utf-8")
+    }
+
+    assert offenders == set()
+
+
 def test_production_sources_do_not_import_legacy_sqlite_package() -> None:
     offenders = _legacy_sqlite_imports_under(ROOT / "src" / "striatum")
 

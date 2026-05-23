@@ -1302,6 +1302,31 @@ code.copyable,
   font-size: 0.88em;
 }
 .lint-warning-list li + li { margin-top: 0.25rem; }
+.risk-warning-list {
+  list-style: none;
+  padding-left: 0;
+}
+.risk-warning-item {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-2) 0;
+  border-bottom: 1px solid var(--border);
+}
+.risk-warning-main {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: baseline;
+}
+.risk-warning-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+}
+.accepted-risk-table code {
+  word-break: break-all;
+}
 
 .data-table { width: 100%; border-collapse: collapse; margin-top: var(--space-2); margin-bottom: var(--space-3); font-size: 0.92em; }
 .data-table th, .data-table td {

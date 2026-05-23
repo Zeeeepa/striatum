@@ -1,4 +1,4 @@
-"""Process-adapter neutral helpers and legacy compatibility wrappers."""
+"""Process-adapter neutral helpers."""
 
 from __future__ import annotations
 

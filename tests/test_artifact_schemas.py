@@ -296,6 +296,22 @@ def _parse_text(kind: str, tmp_path: Path, text: str) -> dict[str, object] | Non
             "---\n",
             "target_branch",
         ),
+        (
+            "auto_finalize_gate_evidence",
+            "---\n"
+            'schema_version: "striatum.auto_finalize_gate_evidence.v1"\n'
+            'artifact_kind: "auto_finalize_gate_evidence"\n'
+            'decision_id: "D125"\n'
+            'gate_status: "satisfied"\n'
+            "live_success_count: 3\n"
+            "lane_shape_count: 2\n"
+            'lane_shapes: ["review", "code_change"]\n'
+            "contested_audit_chain_events: 0\n"
+            'evidence_artifacts: ["docs/operator/artifacts/dogfood-1.md", "docs/operator/artifacts/dogfood-2.md", "docs/operator/artifacts/dogfood-3.md"]\n'
+            'created_at: "2026-05-23T00:00:00Z"\n'
+            "---\n",
+            "gate_status",
+        ),
     ],
 )
 def test_current_artifact_front_matter_schemas_parse_without_sqlite(
@@ -399,6 +415,22 @@ def test_current_artifact_front_matter_schemas_parse_without_sqlite(
             'confirmation_status: "pending"\n'
             "---\n",
             "related_commit_request",
+        ),
+        (
+            "auto_finalize_gate_evidence",
+            "---\n"
+            'schema_version: "striatum.auto_finalize_gate_evidence.v1"\n'
+            'artifact_kind: "auto_finalize_gate_evidence"\n'
+            'decision_id: "D125"\n'
+            'gate_status: "satisfied"\n'
+            "live_success_count: 2\n"
+            "lane_shape_count: 2\n"
+            'lane_shapes: ["review", "code_change"]\n'
+            "contested_audit_chain_events: 0\n"
+            'evidence_artifacts: ["docs/operator/artifacts/dogfood-1.md", "docs/operator/artifacts/dogfood-2.md"]\n'
+            'created_at: "2026-05-23T00:00:00Z"\n'
+            "---\n",
+            "live_success_count",
         ),
     ],
 )
@@ -1053,6 +1085,15 @@ def test_git_request_artifact_kinds_are_registered_for_workflows() -> None:
         assert kind in FRONT_MATTER_SCHEMAS
         workflow = _minimal_workflow_for_kind(kind, path=f"docs/kind-test/{kind}.md")
         validate_workflow(workflow)
+
+
+def test_auto_finalize_gate_evidence_kind_is_registered_for_workflows() -> None:
+    """D125 gate evidence is schema-bearing durable provenance, not live state."""
+    kind = "auto_finalize_gate_evidence"
+    assert kind in ALLOWED_ARTIFACT_KINDS
+    assert kind in FRONT_MATTER_SCHEMAS
+    workflow = _minimal_workflow_for_kind(kind, path=f"docs/kind-test/{kind}.md")
+    validate_workflow(workflow)
 
 
 def test_workflow_validation_accepts_escalation_kind(tmp_path: Path) -> None:

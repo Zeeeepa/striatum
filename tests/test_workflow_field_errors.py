@@ -122,6 +122,76 @@ def test_valid_workflow_does_not_raise() -> None:
     validate_workflow(_VALID)
 
 
+def test_reference_only_augmentation_validates() -> None:
+    workflow = _copy()
+    workflow["augmentation"] = {
+        "mode": "reference_only",
+        "required": False,
+        "budget_per_packet_lines": 100,
+        "sources": [
+            {"id": "local-corpus", "kind": "corpus_bundle", "path": "exports/corpus"}
+        ],
+        "jobs": ["review_only"],
+    }
+
+    validate_workflow(workflow)
+
+
+def test_augmentation_required_true_is_rejected() -> None:
+    workflow = _copy()
+    workflow["augmentation"] = {
+        "mode": "reference_only",
+        "required": True,
+        "sources": [
+            {"id": "local-corpus", "kind": "corpus_bundle", "path": "exports/corpus"}
+        ],
+        "jobs": ["review_only"],
+    }
+
+    with pytest.raises(WorkflowError) as exc_info:
+        validate_workflow(workflow)
+    assert exc_info.value.field_path == "augmentation.required"
+
+
+def test_augmentation_source_must_be_local_corpus_bundle() -> None:
+    workflow = _copy()
+    workflow["augmentation"] = {
+        "mode": "reference_only",
+        "sources": [
+            {"id": "remote", "kind": "corpus_bundle", "path": "https://example.invalid/corpus"}
+        ],
+        "jobs": ["review_only"],
+    }
+    with pytest.raises(WorkflowError) as exc_info:
+        validate_workflow(workflow)
+    assert exc_info.value.field_path == "augmentation.sources[0].path"
+
+    bad = _copy()
+    bad["augmentation"] = {
+        "mode": "reference_only",
+        "sources": [{"id": "scratch", "kind": "corpus_bundle", "path": ".striatum/corpus"}],
+        "jobs": ["review_only"],
+    }
+    with pytest.raises(WorkflowError) as exc_info:
+        validate_workflow(bad)
+    assert exc_info.value.field_path == "augmentation.sources[0].path"
+
+
+def test_augmentation_job_ids_must_resolve() -> None:
+    workflow = _copy()
+    workflow["augmentation"] = {
+        "mode": "reference_only",
+        "sources": [
+            {"id": "local-corpus", "kind": "corpus_bundle", "path": "exports/corpus"}
+        ],
+        "jobs": ["missing_job"],
+    }
+
+    with pytest.raises(WorkflowError) as exc_info:
+        validate_workflow(workflow)
+    assert exc_info.value.field_path == "augmentation.jobs[0]"
+
+
 def test_process_lane_supervision_stdin_delivery_is_closed() -> None:
     workflow = _copy()
     lane = workflow["lanes"]["lane_a"]

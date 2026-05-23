@@ -1,8 +1,6 @@
 """Artifact contract compatibility surface.
 
 Neutral artifact contract helpers live in :mod:`striatum.artifact_contracts`.
-The legacy repo-local SQLite publisher remains importable from this module for
-compatibility, but it is loaded only when callers invoke those legacy helpers.
 """
 
 from __future__ import annotations

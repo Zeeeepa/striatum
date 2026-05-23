@@ -429,7 +429,14 @@ class StriatumServiceHandler(BaseHTTPRequestHandler):
             rfile=self.rfile,
             send_json=self._send_json,
             send_html=self._send_html,
+            read_json_body_strict=self._read_json_body_strict,
             jinja_env=_jinja_env,
+        )
+
+    def _handle_workflow_accept_risk(self, rel_path: str) -> None:
+        _workflows.handle_workflow_accept_risk(
+            self._workflow_route_context(),
+            rel_path,
         )
 
     def _run_action_context(self) -> _RunActionContext:

@@ -1,4 +1,4 @@
-"""Supervisor constants and legacy compatibility wrappers."""
+"""Supervisor constants."""
 
 from __future__ import annotations
 

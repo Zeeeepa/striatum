@@ -6,6 +6,7 @@
     {"command": "doctor", "subcommand": null, "method": "doctor", "params": "doctor"},
     {"command": "dashboard", "subcommand": null, "method": "dashboard", "params": "dashboard"},
     {"command": "git", "subcommand": "snapshot", "method": "git.snapshot", "params": "git_snapshot"},
+    {"command": "git", "subcommand": "commit-apply", "method": "git.commit_apply", "params": "git_commit_apply"},
     {"command": "repo", "subcommand": "add", "method": "repo.add", "params": "repo_add"},
     {"command": "repo", "subcommand": "list", "method": "repo.list", "params": "repo_list"},
     {"command": "repo", "subcommand": "remove", "method": "repo.remove", "params": "repo_remove"},
@@ -153,6 +154,15 @@
     {
       "method": "git.snapshot",
       "required_capability": "read",
+      "repository_scope_mode": "single_repo",
+      "params_schema_version": 1,
+      "audit_class": "metadata",
+      "min_envelope": 1,
+      "deprecated": false
+    },
+    {
+      "method": "git.commit_apply",
+      "required_capability": "apply",
       "repository_scope_mode": "single_repo",
       "params_schema_version": 1,
       "audit_class": "metadata",

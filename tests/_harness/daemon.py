@@ -12,7 +12,6 @@ from pathlib import Path
 from types import FrameType
 from typing import Literal
 
-from striatum.daemon_pg.client_admin import ENV_REGISTRY
 from striatum.daemon_runtime import ENV_RUNTIME
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -65,10 +64,8 @@ class DaemonProcess:
         if self.daemon_core != "go":
             raise ValueError(f"unknown daemon_core: {self.daemon_core!r}")
         runtime = self.scratch_dir / "runtime"
-        registry = self.scratch_dir / "daemon-registry.sqlite3"
         self.env = os.environ.copy()
         self.env["PYTHONPATH"] = str(ROOT / "src")
-        self.env[ENV_REGISTRY] = str(registry)
         self.env[ENV_RUNTIME] = str(runtime)
         # The test harness creates ephemeral databases as the local DB owner;
         # the daemon connects as that same owner, which has implicit

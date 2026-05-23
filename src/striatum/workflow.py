@@ -75,6 +75,11 @@ REVIEWER_ACCESS_SCOPE_VALUES = (
     "cross_repo_artifact_augmented",
 )
 REVIEWER_CONTEXT_POLICY_VALUES = ("fresh", "cross_round")
+AUGMENTATION_MODE_VALUES = frozenset({"reference_only"})
+AUGMENTATION_SOURCE_KINDS = frozenset({"corpus_bundle"})
+AUGMENTATION_SOURCE_ID_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
+AUGMENTATION_BUDGET_PER_PACKET_LINES_DEFAULT = 100
+AUGMENTATION_BUDGET_PER_PACKET_LINES_MAX = 5000
 
 # RFC 0018 V1: closed set of first-class review postures. Workflows may also
 # declare a ``custom:<name>`` posture for off-list adversarial flavors; the
@@ -606,6 +611,7 @@ def validate_workflow(
         _validate_apply_gate(job_index, job_id, job)
     _validate_artifact_path_uniqueness(jobs)
     _validate_required_postures_reachable(workflow, job_map=job_map)
+    _validate_augmentation(workflow, job_map=job_map)
     phase_index = _validate_phases(workflow, job_map=job_map)
     explicit_edges = edge_dependency_pairs(workflow, include_phase_materialized=False)
     _validate_phase_edges(explicit_edges, job_map=job_map, phase_index=phase_index)
@@ -1710,6 +1716,131 @@ def _validate_lane_constraints(
                     f"lane {lane_id!r} requires {value!r} enforcement for {key!r}, "
                     f"but adapter provides {actual!r}"
                 )
+
+
+def _validate_augmentation(
+    workflow: JsonObject,
+    *,
+    job_map: dict[str, JsonValue],
+) -> None:
+    raw = workflow.get("augmentation")
+    if raw is None:
+        return
+    if not isinstance(raw, dict):
+        raise WorkflowError(
+            "workflow augmentation must be an object",
+            field_path="augmentation",
+        )
+    mode = raw.get("mode")
+    if mode not in AUGMENTATION_MODE_VALUES:
+        raise WorkflowError(
+            "workflow augmentation.mode must be 'reference_only'",
+            field_path="augmentation.mode",
+        )
+    required = raw.get("required", False)
+    if required is not False:
+        raise WorkflowError(
+            "workflow augmentation.required must be false; augmentation is optional",
+            field_path="augmentation.required",
+        )
+    budget = raw.get(
+        "budget_per_packet_lines",
+        AUGMENTATION_BUDGET_PER_PACKET_LINES_DEFAULT,
+    )
+    if (
+        not isinstance(budget, int)
+        or isinstance(budget, bool)
+        or budget <= 0
+        or budget > AUGMENTATION_BUDGET_PER_PACKET_LINES_MAX
+    ):
+        raise WorkflowError(
+            "workflow augmentation.budget_per_packet_lines must be a positive "
+            f"integer <= {AUGMENTATION_BUDGET_PER_PACKET_LINES_MAX}",
+            field_path="augmentation.budget_per_packet_lines",
+        )
+    sources = raw.get("sources")
+    if not isinstance(sources, list) or not sources:
+        raise WorkflowError(
+            "workflow augmentation.sources must be a non-empty list",
+            field_path="augmentation.sources",
+        )
+    seen_sources: set[str] = set()
+    for source_index, source_value in enumerate(sources):
+        if not isinstance(source_value, dict):
+            raise WorkflowError(
+                "workflow augmentation source must be an object",
+                field_path=f"augmentation.sources[{source_index}]",
+            )
+        source_id = source_value.get("id")
+        if (
+            not isinstance(source_id, str)
+            or not source_id
+            or AUGMENTATION_SOURCE_ID_RE.fullmatch(source_id) is None
+        ):
+            raise WorkflowError(
+                "workflow augmentation source id must be a non-empty local identifier",
+                field_path=f"augmentation.sources[{source_index}].id",
+            )
+        if source_id in seen_sources:
+            raise WorkflowError(
+                f"duplicate workflow augmentation source id {source_id!r}",
+                field_path=f"augmentation.sources[{source_index}].id",
+            )
+        seen_sources.add(source_id)
+        kind = source_value.get("kind")
+        if kind not in AUGMENTATION_SOURCE_KINDS:
+            raise WorkflowError(
+                "workflow augmentation source kind must be 'corpus_bundle'",
+                field_path=f"augmentation.sources[{source_index}].kind",
+            )
+        path_value = source_value.get("path")
+        if not isinstance(path_value, str) or not _is_safe_repo_relative_path(path_value):
+            raise WorkflowError(
+                "workflow augmentation source path must be repo-relative without "
+                "'..' and outside .striatum/",
+                field_path=f"augmentation.sources[{source_index}].path",
+            )
+        description = source_value.get("description")
+        if description is not None and not isinstance(description, str):
+            raise WorkflowError(
+                "workflow augmentation source description must be a string",
+                field_path=f"augmentation.sources[{source_index}].description",
+            )
+    jobs = raw.get("jobs")
+    if not isinstance(jobs, list) or not jobs:
+        raise WorkflowError(
+            "workflow augmentation.jobs must be a non-empty list",
+            field_path="augmentation.jobs",
+        )
+    seen_jobs: set[str] = set()
+    for job_index, job_id in enumerate(jobs):
+        if not isinstance(job_id, str) or not job_id:
+            raise WorkflowError(
+                "workflow augmentation.jobs entries must be non-empty strings",
+                field_path=f"augmentation.jobs[{job_index}]",
+            )
+        if job_id in seen_jobs:
+            raise WorkflowError(
+                f"duplicate workflow augmentation job {job_id!r}",
+                field_path=f"augmentation.jobs[{job_index}]",
+            )
+        seen_jobs.add(job_id)
+        if job_id not in job_map:
+            raise WorkflowError(
+                f"workflow augmentation references unknown job {job_id!r}",
+                field_path=f"augmentation.jobs[{job_index}]",
+            )
+
+
+def _is_safe_repo_relative_path(value: str) -> bool:
+    path = PurePosixPath(value)
+    return (
+        value != ""
+        and not value.startswith("/")
+        and "://" not in value
+        and ".." not in path.parts
+        and not (path.parts and path.parts[0] == ".striatum")
+    )
 
 
 def _effective_fresh_session_required(job: JsonValue) -> bool:

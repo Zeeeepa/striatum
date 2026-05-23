@@ -25,14 +25,105 @@
   <p><code>{{ workflow.path }}</code></p>
   <script defer src="/static/workflow_run.js"></script>
 
+  {% if workflow.daemon_lint_error %}
+  <div class="result-banner error">
+    Daemon lint unavailable: {{ workflow.daemon_lint_error.message }}
+  </div>
+  {% endif %}
+
   {% if workflow.lint_warning_count %}
   <h2>Lint warnings</h2>
-  <p class="run-meta">{{ workflow.lint_warning_count }} warning{{ "" if workflow.lint_warning_count == 1 else "s" }}</p>
-  <ul class="lint-warning-list">
+  <p class="run-meta">
+    <span>{{ workflow.lint_warning_count }} warning{{ "" if workflow.lint_warning_count == 1 else "s" }}</span>
+    {% if workflow.lint_source == "daemon" %}
+    <span class="status-pill status-completed">daemon-backed</span>
+    {% if workflow.workflow_fingerprint_sha256 %}
+    <span class="muted">fingerprint: <code>{{ workflow.workflow_fingerprint_sha256[:12] }}</code></span>
+    {% endif %}
+    {% endif %}
+  </p>
+  <ul class="lint-warning-list risk-warning-list">
     {% for warning in workflow.lint_warnings %}
-    <li>{% if warning.rule %}<code>{{ warning.rule }}</code>: {% endif %}{{ warning.message }}</li>
+    <li class="risk-warning-item">
+      <div class="risk-warning-main">
+        {% if warning.rule %}<code>{{ warning.rule }}</code>: {% endif %}{{ warning.message }}
+        {% if warning.fingerprint %}<span class="muted">fingerprint <code>{{ warning.fingerprint[:12] }}</code></span>{% endif %}
+      </div>
+      {% if workflow.lint_source == "daemon" and warning.fingerprint %}
+      <div class="risk-warning-actions">
+        {% if warning.accepted %}
+        <span class="status-pill status-completed">accepted</span>
+        {% for accepted_id in warning.accepted_risk_ids %}
+        <code>{{ accepted_id }}</code>
+        {% endfor %}
+        {% elif allow_mutations %}
+        <button type="button"
+                class="secondary-button compact-button"
+                data-accept-risk-open
+                data-workflow-path="{{ workflow.path }}"
+                data-fingerprint="{{ warning.fingerprint }}"
+                data-rule="{{ warning.rule or '' }}"
+                data-message="{{ warning.raw_message or warning.message }}">
+          Accept risk
+        </button>
+        {% else %}
+        <span class="muted">start with <code>--allow-mutations</code> to accept</span>
+        {% endif %}
+      </div>
+      {% endif %}
+    </li>
     {% endfor %}
   </ul>
+  {% endif %}
+
+  {% if workflow.accepted_risk_count %}
+  <h2>Accepted risks</h2>
+  <table class="data-table accepted-risk-table">
+    <thead>
+      <tr><th>ID</th><th>Rule</th><th>Decision</th><th>Accepted by</th><th>Accepted at</th><th>Rationale</th></tr>
+    </thead>
+    <tbody>
+      {% for risk in workflow.accepted_risks %}
+      <tr>
+        <td>{% if risk.accepted_risk_id %}<code>{{ risk.accepted_risk_id }}</code>{% else %}<span class="muted">—</span>{% endif %}</td>
+        <td>{% if risk.lint_rule %}<code>{{ risk.lint_rule }}</code>{% else %}<span class="muted">—</span>{% endif %}</td>
+        <td>{% if risk.decision_artifact_ref %}<code>{{ risk.decision_artifact_ref }}</code>{% else %}<span class="muted">—</span>{% endif %}</td>
+        <td>{{ risk.accepted_by or "—" }}</td>
+        <td>{% if risk.accepted_at %}<time datetime="{{ risk.accepted_at }}">{{ risk.accepted_at }}</time>{% else %}<span class="muted">—</span>{% endif %}</td>
+        <td>{{ risk.rationale or "—" }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+
+  {% if workflow.lint_source == "daemon" and workflow.lint_warning_count %}
+  <dialog id="accept-risk-dialog" class="modal-dialog" aria-labelledby="accept-risk-title">
+    <form method="dialog" id="accept-risk-form" novalidate>
+      <h2 id="accept-risk-title">Accept Workflow Risk</h2>
+      <p class="modal-status" id="accept-risk-finding"></p>
+      <input type="hidden" name="workflow_path" value="{{ workflow.path }}">
+      <input type="hidden" name="finding_fingerprint_sha256">
+      <label class="modal-field">
+        <span>Decision artifact reference</span>
+        <input name="decision_artifact_ref" required placeholder="docs/decisions/D123.md">
+      </label>
+      <label class="modal-field">
+        <span>Rationale</span>
+        <textarea name="rationale" required></textarea>
+      </label>
+      <label class="modal-field">
+        <span>Accepted by</span>
+        <input name="accepted_by" placeholder="operator">
+      </label>
+      <p class="modal-error" id="accept-risk-error" hidden></p>
+      <div class="modal-actions">
+        <button type="button" class="secondary-button" data-accept-risk-cancel>Cancel</button>
+        <button type="submit" class="primary-button">Record accepted risk</button>
+      </div>
+    </form>
+  </dialog>
+  <script defer src="/static/workflow_accepted_risk.js"></script>
   {% endif %}
 
   {% if workflow.message %}

@@ -9,7 +9,6 @@ from typing import Any, cast
 
 import pytest
 
-from striatum.daemon_pg.client_admin import ENV_REGISTRY
 from striatum.daemon_pg.config import ENV_DAEMON_DB_URL, redact_url, resolve_config
 from striatum.daemon_pg.connection import doctor as pg_doctor
 from striatum.daemon_pg.migrations import MIGRATIONS
@@ -21,7 +20,6 @@ def _env(tmp_path: Path) -> dict[str, str]:
     env = os.environ.copy()
     env.update(
         {
-            ENV_REGISTRY: str(tmp_path / "daemon" / "striatumd.sqlite3"),
             ENV_RUNTIME: str(tmp_path / "runtime"),
             "PYTHONPATH": str(Path.cwd() / "src"),
             "XDG_CONFIG_HOME": str(tmp_path / "config"),

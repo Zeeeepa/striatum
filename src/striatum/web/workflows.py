@@ -13,13 +13,15 @@ from collections.abc import Callable
 from datetime import UTC, datetime
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
+from urllib.parse import unquote
 
 __all__ = [
     "WorkflowFileError",
     "WorkflowDetailPageResponse",
     "WorkflowRouteContext",
     "discover",
+    "handle_workflow_accept_risk",
     "list_repo_tree",
     "load_workflow_at",
     "render_workflow_detail_page",
@@ -30,6 +32,7 @@ __all__ = [
 
 JsonObject = dict[str, Any]
 JsonSender = Callable[[int, JsonObject], None]
+JsonBodyReader = Callable[[int], dict[str, Any] | None]
 HtmlSender = Callable[[int, str], None]
 TemplateEnvFactory = Callable[[], Any]
 _MAX_LINT_WARNING_MESSAGES = 3
@@ -87,6 +90,7 @@ class WorkflowRouteContext:
     rfile: Any
     send_json: JsonSender
     send_html: HtmlSender
+    read_json_body_strict: JsonBodyReader
     jinja_env: TemplateEnvFactory
 
 
@@ -103,16 +107,70 @@ def render_workflows_index_page(ctx: WorkflowRouteContext) -> None:
 
 def render_workflow_detail_page(ctx: WorkflowRouteContext, rel_path: str) -> None:
     try:
-        response = workflow_detail_page_response(ctx.repo, rel_path)
+        response = workflow_detail_page_response(
+            ctx.repo,
+            rel_path,
+            include_daemon_lint=True,
+        )
         html = ctx.jinja_env().get_template("workflow_detail.html").render(
             workflow=response.workflow,
             graph_svg=response.graph_svg,
+            allow_mutations=ctx.allow_mutations,
         )
         ctx.send_html(200, html)
     except WorkflowFileError as exc:
         ctx.send_json(exc.status_code, _error(exc.status_code, exc.message))
     except Exception as exc:  # noqa: BLE001
         ctx.send_json(500, _error(500, str(exc)))
+
+
+def handle_workflow_accept_risk(ctx: WorkflowRouteContext, rel_path: str) -> None:
+    """Handle POST /workflows/accept-risk/<path>."""
+
+    from striatum import service_daemon
+
+    if not ctx.allow_mutations:
+        ctx.send_json(405, _error(405, "accept risk requires --allow-mutations"))
+        return
+    workflow_path = _safe_workflow_rel_path(ctx, rel_path)
+    if workflow_path is None:
+        return
+    body = ctx.read_json_body_strict(64 * 1024)
+    if body is None:
+        return
+    finding_fingerprint = _required_body_string(
+        ctx,
+        body,
+        "finding_fingerprint_sha256",
+    )
+    if finding_fingerprint is None:
+        return
+    decision_ref = _required_body_string(ctx, body, "decision_artifact_ref")
+    if decision_ref is None:
+        return
+    rationale = _required_body_string(ctx, body, "rationale")
+    if rationale is None:
+        return
+
+    params: JsonObject = {
+        "workflow_path": workflow_path,
+        "finding_fingerprints": [finding_fingerprint],
+        "decision_artifact_ref": decision_ref,
+        "rationale": rationale,
+    }
+    accepted_by = body.get("accepted_by")
+    if isinstance(accepted_by, str) and accepted_by.strip():
+        params["accepted_by"] = accepted_by.strip()
+
+    try:
+        payload = service_daemon.call_repo_method(ctx.repo, "workflow.accept_risk", params)
+    except service_daemon.ServiceDaemonRpcError as exc:
+        ctx.send_json(exc.status, _service_daemon_error_payload(exc))
+        return
+    except Exception as exc:  # noqa: BLE001
+        ctx.send_json(500, _error(500, f"{type(exc).__name__}: {exc}"))
+        return
+    ctx.send_json(200, {"ok": True, "data": payload})
 
 
 def _modified_at(path: Path) -> str | None:
@@ -146,7 +204,11 @@ def _lint_summary(workflow: dict[str, Any], *, repo_root: Path) -> dict[str, Any
     raw_warnings = payload.get("warnings")
     warnings = raw_warnings if isinstance(raw_warnings, list) else []
     raw_count = payload.get("warning_count")
-    warning_count = raw_count if isinstance(raw_count, int) and not isinstance(raw_count, bool) else len(warnings)
+    warning_count = (
+        raw_count
+        if isinstance(raw_count, int) and not isinstance(raw_count, bool)
+        else len(warnings)
+    )
     short: list[dict[str, str | None]] = []
     for warning in warnings[:_MAX_LINT_WARNING_MESSAGES]:
         if isinstance(warning, dict):
@@ -317,7 +379,12 @@ def load_workflow_at(repo: Path, rel_path: str) -> dict[str, Any] | None:
     return entry
 
 
-def workflow_detail_page_response(repo: Path, rel_path: str) -> WorkflowDetailPageResponse:
+def workflow_detail_page_response(
+    repo: Path,
+    rel_path: str,
+    *,
+    include_daemon_lint: bool = False,
+) -> WorkflowDetailPageResponse:
     """Return workflow detail page data for a safe repo-relative path."""
     from striatum.web.graph_svg import render_run_graph
 
@@ -338,7 +405,205 @@ def workflow_detail_page_response(repo: Path, rel_path: str) -> WorkflowDetailPa
             graph_svg = None
     if isinstance(data, dict):
         _annotate_workflow_doc_links(repo, rel_path, data)
+    if include_daemon_lint:
+        _attach_daemon_lint(repo, rel_path, entry)
     return WorkflowDetailPageResponse(workflow=entry, graph_svg=graph_svg)
+
+
+def _attach_daemon_lint(repo: Path, rel_path: str, entry: dict[str, Any]) -> None:
+    from striatum import service_daemon
+
+    try:
+        lint_payload = service_daemon.call_repo_method(
+            repo,
+            "workflow.lint",
+            {"workflow_path": rel_path},
+        )
+    except service_daemon.ServiceDaemonRpcError as exc:
+        entry["lint_source"] = "local"
+        entry["daemon_lint_error"] = {
+            "code": exc.code,
+            "message": exc.message,
+            "status": exc.status,
+        }
+        return
+    except Exception as exc:  # noqa: BLE001
+        entry["lint_source"] = "local"
+        entry["daemon_lint_error"] = {
+            "code": type(exc).__name__,
+            "message": str(exc),
+            "status": 500,
+        }
+        return
+
+    accepted_risks = _accepted_risks_for_lint(repo, lint_payload)
+    entry["lint_source"] = "daemon"
+    entry["daemon_lint"] = lint_payload
+    entry["workflow_fingerprint_sha256"] = _string_or_none(
+        lint_payload.get("workflow_fingerprint_sha256")
+    )
+    entry["workflow_snapshot_id"] = _string_or_none(
+        lint_payload.get("workflow_snapshot_id")
+    )
+    entry["source_path"] = (
+        _string_or_none(lint_payload.get("source_path")) or entry.get("path")
+    )
+    entry["accepted_risks"] = accepted_risks
+    entry["accepted_risk_count"] = len(accepted_risks)
+    warnings = _list_of_mappings(lint_payload.get("warnings"))
+    entry["lint_warnings"] = [_shape_lint_warning(warning) for warning in warnings]
+    raw_count = lint_payload.get("warning_count")
+    entry["lint_warning_count"] = raw_count if isinstance(raw_count, int) else len(warnings)
+    coverage = lint_payload.get("coverage")
+    if isinstance(coverage, Mapping):
+        entry["lint_coverage"] = dict(coverage)
+
+
+def _accepted_risks_for_lint(repo: Path, lint_payload: Mapping[str, Any]) -> list[JsonObject]:
+    from striatum import service_daemon
+
+    params: JsonObject = {}
+    snapshot_id = _string_or_none(lint_payload.get("workflow_snapshot_id"))
+    fingerprint = _string_or_none(lint_payload.get("workflow_fingerprint_sha256"))
+    if snapshot_id:
+        params["workflow_snapshot_id"] = snapshot_id
+    elif fingerprint:
+        params["workflow_fingerprint_sha256"] = fingerprint
+    if not params:
+        return [
+            _shape_accepted_risk(row)
+            for row in _list_of_mappings(lint_payload.get("accepted_risks"))
+        ]
+    try:
+        payload = service_daemon.call_repo_method(
+            repo,
+            "workflow.accepted_risks.list",
+            params,
+        )
+    except Exception:  # noqa: BLE001
+        return [
+            _shape_accepted_risk(row)
+            for row in _list_of_mappings(lint_payload.get("accepted_risks"))
+        ]
+    rows = _list_of_mappings(payload.get("accepted_risks"))
+    return [_shape_accepted_risk(row) for row in rows]
+
+
+def _shape_lint_warning(warning: Mapping[str, Any]) -> JsonObject:
+    raw_message = warning.get("message")
+    message = raw_message if isinstance(raw_message, str) else ""
+    raw_accepted_ids = warning.get("accepted_risk_ids")
+    accepted_ids: list[str] = []
+    if isinstance(raw_accepted_ids, list):
+        accepted_ids = [str(item) for item in raw_accepted_ids if str(item)]
+    shaped: JsonObject = {
+        "rule": _string_or_none(warning.get("rule")),
+        "severity": _string_or_none(warning.get("severity")) or "warning",
+        "message": _shorten_message(message),
+        "raw_message": message,
+        "fingerprint": _string_or_none(warning.get("fingerprint")),
+        "accepted": bool(warning.get("accepted")),
+        "accepted_risk_ids": accepted_ids,
+        "job_id": _string_or_none(warning.get("job_id")),
+        "related_job_id": _string_or_none(warning.get("related_job_id")),
+    }
+    return shaped
+
+
+def _shape_accepted_risk(row: Mapping[str, Any]) -> JsonObject:
+    finding = row.get("finding")
+    finding_map = dict(finding) if isinstance(finding, Mapping) else {}
+    finding_message = finding_map.get("message")
+    rationale = row.get("rationale")
+    return {
+        "accepted_risk_id": _string_or_none(row.get("accepted_risk_id")),
+        "workflow_snapshot_id": _string_or_none(row.get("workflow_snapshot_id")),
+        "workflow_fingerprint_sha256": _string_or_none(row.get("workflow_fingerprint_sha256")),
+        "workflow_id": _string_or_none(row.get("workflow_id")),
+        "workflow_version": _string_or_none(row.get("workflow_version")),
+        "source_path": _string_or_none(row.get("source_path")),
+        "lint_rule": _string_or_none(row.get("lint_rule")),
+        "finding_fingerprint_sha256": _string_or_none(row.get("finding_fingerprint_sha256")),
+        "finding_message": _shorten_message(
+            finding_message if isinstance(finding_message, str) else ""
+        ),
+        "decision_artifact_ref": _string_or_none(row.get("decision_artifact_ref")),
+        "accepted_by": _string_or_none(row.get("accepted_by")),
+        "accepted_at": _string_or_none(row.get("accepted_at")),
+        "expires_at": _string_or_none(row.get("expires_at")),
+        "rationale": _shorten_message(rationale if isinstance(rationale, str) else ""),
+    }
+
+
+def _list_of_mappings(value: Any) -> list[Mapping[str, Any]]:
+    if not isinstance(value, list):
+        return []
+    return [item for item in value if isinstance(item, Mapping)]
+
+
+def _string_or_none(value: Any) -> str | None:
+    if isinstance(value, str) and value:
+        return value
+    return None
+
+
+def _safe_workflow_rel_path(ctx: WorkflowRouteContext, rel_path: str) -> str | None:
+    rel_path = unquote(rel_path)
+    if not rel_path:
+        ctx.send_json(404, _error(404, "missing path"))
+        return None
+    if rel_path.startswith("/") or "\x00" in rel_path or ".." in Path(rel_path).parts:
+        ctx.send_json(400, _error(400, "invalid path"))
+        return None
+    repo_root = ctx.repo.resolve()
+    target = (ctx.repo / rel_path).resolve()
+    try:
+        rel_parts = target.relative_to(repo_root).parts
+    except ValueError:
+        ctx.send_json(400, _error(400, "path escapes repo"))
+        return None
+    if any(part in _SKIP_DIRS for part in rel_parts):
+        ctx.send_json(404, _error(404, "hidden path"))
+        return None
+    if not target.is_file():
+        ctx.send_json(404, _error(404, "workflow.json not found"))
+        return None
+    return "/".join(rel_parts)
+
+
+def _required_body_string(
+    ctx: WorkflowRouteContext,
+    body: Mapping[str, Any],
+    field: str,
+) -> str | None:
+    value = body.get(field)
+    if not isinstance(value, str) or not value.strip():
+        ctx.send_json(
+            400,
+            {
+                "ok": False,
+                "error": {
+                    "code": 400,
+                    "message": f"{field} must be a non-empty string",
+                    "field_path": field,
+                },
+            },
+        )
+        return None
+    return value.strip()
+
+
+def _service_daemon_error_payload(exc: Any) -> JsonObject:
+    error: JsonObject = {"code": exc.code, "message": exc.message}
+    if exc.kind is not None:
+        error["kind"] = exc.kind
+    if exc.details:
+        error["details"] = exc.details
+        for key in ("field_path", "hint", "ref"):
+            value = exc.details.get(key)
+            if isinstance(value, str):
+                error[key] = value
+    return {"ok": False, "error": error}
 
 
 def _annotate_workflow_doc_links(repo: Path, workflow_rel_path: str, data: dict[str, Any]) -> None:

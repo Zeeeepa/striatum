@@ -1,0 +1,343 @@
+{
+  "schema_version": "striatum.workflow.v1",
+  "workflow_id": "next-steps-1-6",
+  "workflow_version": "2026-05-23",
+  "name": "Next steps 1 through 6",
+  "context_docs": [
+    "README.md",
+    "docs/INDEX.md",
+    "docs/SPEC.md",
+    "docs/DECISION_LOG.md",
+    "docs/UBIQUITOUS_LANGUAGE.md",
+    "docs/TODO.md",
+    "docs/ROADMAP.md",
+    "docs/operator/BRIEF.md",
+    "docs/operator/plans/next-steps-1-6.md",
+    "docs/operator/plans/remaining-runway-1-8.md",
+    "docs/rfcs/0050-go-daemon-http-sse-mcp.md",
+    "docs/rfcs/0057-corpus-contract-v2.md",
+    "docs/rfcs/0066-replay-archive-corpus-v2-foundations.md",
+    "docs/rfcs/0067-optional-git-pr-integration.md",
+    "docs/rfcs/0068-go-production-daemon-port.md",
+    "docs/rfcs/0069-pg-only-daemon-global-surfaces.md",
+    "docs/rfcs/0070-daemon-client-service-boundary.md",
+    "docs/rfcs/0075-tmux-observable-mcp-agent-sessions.md",
+    "AGENTS.md"
+  ],
+  "coordinator": {
+    "role_id": "coordinator",
+    "lane_id": "codex"
+  },
+  "parallelism": {
+    "mode": "declared",
+    "max_active_jobs": 6,
+    "require_disjoint_write_scopes": true
+  },
+  "branch": {
+    "mode": "confirm",
+    "suggested_name": "striatum/next-steps-1-6",
+    "allow_dirty": true
+  },
+  "lanes": {
+    "codex": {
+      "adapter": "process",
+      "command": [
+        "bash",
+        "-lc",
+        "PYTHONPATH=src python3 -m striatum.cli skills install --profile all --scope user --force --json >/dev/null && export PATH=\"$PWD/.venv/bin:$PATH\" && exec .striatum/bin/codex-supervised-wrapper.sh"
+      ],
+      "model": "codex",
+      "display_model": "Codex",
+      "strategy_version": "2026-05-23",
+      "supervision": {
+        "compatible": true,
+        "stdin_format": "newline_delimited_json",
+        "wrapper_required": true
+      }
+    }
+  },
+  "roles": {
+    "coordinator": {
+      "description": "Operator/control-plane role."
+    },
+    "todo55_ui": {
+      "description": "Accepted-risk UI/client polish."
+    },
+    "todo56_gate": {
+      "description": "Auto-finalize dogfood evidence gate."
+    },
+    "cli_cutover": {
+      "description": "CLI retirement and MCP/UI parity."
+    },
+    "todo60_git": {
+      "description": "Local Git commit confirmation boundary."
+    },
+    "todo59_corpus": {
+      "description": "Corpus V2 augmentation-reference boundary."
+    },
+    "legacy_cleanup": {
+      "description": "Legacy SQLite/direct-state cleanup."
+    },
+    "closer": {
+      "description": "Final consolidation."
+    }
+  },
+  "jobs": [
+    {
+      "id": "track_01_todo55_accepted_risk_ui",
+      "type": "synthesis",
+      "title": "Track 1 TODO 55 accepted-risk UI",
+      "role_id": "todo55_ui",
+      "lane_id": "codex",
+      "parallel_group": "tracks_1_6",
+      "fresh_session_required": true,
+      "objective": "Implement or summarize accepted-risk UI/client polish over daemon accepted-risk methods.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/next-steps-1-6/prompts/track_01_todo55_accepted_risk_ui.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/operator/artifacts/next-steps-1-6/01-todo55-accepted-risk-ui/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "track_01_result",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/next-steps-1-6/01-todo55-accepted-risk-ui/RESULT.md",
+          "author_line": "author: todo55-ui-codex-gpt-5-001",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "track_02_todo56_autofinalize_gate",
+      "type": "synthesis",
+      "title": "Track 2 TODO 56 auto-finalize gate",
+      "role_id": "todo56_gate",
+      "lane_id": "codex",
+      "parallel_group": "tracks_1_6",
+      "fresh_session_required": true,
+      "objective": "Implement or summarize D125 live auto-finalize evidence-gate follow-through.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/next-steps-1-6/prompts/track_02_todo56_autofinalize_gate.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/operator/artifacts/next-steps-1-6/02-todo56-autofinalize-gate/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "track_02_result",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/next-steps-1-6/02-todo56-autofinalize-gate/RESULT.md",
+          "author_line": "author: todo56-gate-codex-gpt-5-001",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "track_03_cli_retirement_parity",
+      "type": "synthesis",
+      "title": "Track 3 CLI retirement parity",
+      "role_id": "cli_cutover",
+      "lane_id": "codex",
+      "parallel_group": "tracks_1_6",
+      "fresh_session_required": true,
+      "objective": "Classify remaining live workflow-control CLI verbs against MCP/UI parity before retirement.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/next-steps-1-6/prompts/track_03_cli_retirement_parity.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/operator/artifacts/next-steps-1-6/03-cli-retirement-parity/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "track_03_result",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/next-steps-1-6/03-cli-retirement-parity/RESULT.md",
+          "author_line": "author: cli-cutover-codex-gpt-5-001",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "track_04_todo60_local_commit_confirmation",
+      "type": "synthesis",
+      "title": "Track 4 TODO 60 local commit confirmation",
+      "role_id": "todo60_git",
+      "lane_id": "codex",
+      "parallel_group": "tracks_1_6",
+      "fresh_session_required": true,
+      "objective": "Implement or summarize explicit-operator-confirmed local commit confirmation.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/next-steps-1-6/prompts/track_04_todo60_local_commit_confirmation.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/operator/artifacts/next-steps-1-6/04-todo60-local-commit-confirmation/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "track_04_result",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/next-steps-1-6/04-todo60-local-commit-confirmation/RESULT.md",
+          "author_line": "author: todo60-git-codex-gpt-5-001",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "track_05_todo59_augmentation_reference",
+      "type": "synthesis",
+      "title": "Track 5 TODO 59 augmentation reference",
+      "role_id": "todo59_corpus",
+      "lane_id": "codex",
+      "parallel_group": "tracks_1_6",
+      "fresh_session_required": true,
+      "objective": "Implement or summarize optional local-only Corpus V2 augmentation-reference behavior.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/next-steps-1-6/prompts/track_05_todo59_augmentation_reference.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/operator/artifacts/next-steps-1-6/05-todo59-augmentation-reference/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "track_05_result",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/next-steps-1-6/05-todo59-augmentation-reference/RESULT.md",
+          "author_line": "author: todo59-corpus-codex-gpt-5-001",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "track_06_legacy_cleanup",
+      "type": "synthesis",
+      "title": "Track 6 legacy cleanup",
+      "role_id": "legacy_cleanup",
+      "lane_id": "codex",
+      "parallel_group": "tracks_1_6",
+      "fresh_session_required": true,
+      "objective": "Implement or summarize the next safe legacy SQLite/direct-state cleanup slice.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/next-steps-1-6/prompts/track_06_legacy_cleanup.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/operator/artifacts/next-steps-1-6/06-legacy-cleanup/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "track_06_result",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/next-steps-1-6/06-legacy-cleanup/RESULT.md",
+          "author_line": "author: legacy-cleanup-codex-gpt-5-001",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "final_consolidation",
+      "type": "synthesis",
+      "title": "Final consolidation",
+      "role_id": "closer",
+      "lane_id": "codex",
+      "fresh_session_required": true,
+      "objective": "Consolidate tracks 1-6, validation results, blockers, and next TODOs.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/next-steps-1-6/prompts/final_consolidation.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/operator/artifacts/next-steps-1-6/final/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "final_consolidation",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/next-steps-1-6/final/SUMMARY.md",
+          "author_line": "author: next-steps-closer-codex-gpt-5-001",
+          "required": true
+        }
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "from": "track_01_todo55_accepted_risk_ui",
+      "to": "final_consolidation",
+      "on": "completed"
+    },
+    {
+      "from": "track_02_todo56_autofinalize_gate",
+      "to": "final_consolidation",
+      "on": "completed"
+    },
+    {
+      "from": "track_03_cli_retirement_parity",
+      "to": "final_consolidation",
+      "on": "completed"
+    },
+    {
+      "from": "track_04_todo60_local_commit_confirmation",
+      "to": "final_consolidation",
+      "on": "completed"
+    },
+    {
+      "from": "track_05_todo59_augmentation_reference",
+      "to": "final_consolidation",
+      "on": "completed"
+    },
+    {
+      "from": "track_06_legacy_cleanup",
+      "to": "final_consolidation",
+      "on": "completed"
+    }
+  ],
+  "cycles": []
+}

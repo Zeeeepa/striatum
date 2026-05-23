@@ -167,6 +167,9 @@ def _args_for_lookup(command: str, subcommand: str | None) -> argparse.Namespace
         packet_id="packet_1",
         include_ancestry=True,
         ancestry_limit=10,
+        commit_request_path="docs/commit-request.md",
+        confirm=True,
+        confirm_request_id="commit_req_0001",
     )
 
 
@@ -394,6 +397,25 @@ def test_git_snapshot_routes_to_daemon_rpc_with_bounded_read_params() -> None:
         "schema_version": 1,
         "include_ancestry": False,
         "ancestry_limit": 20,
+    }
+
+
+def test_git_commit_apply_routes_to_daemon_rpc_with_confirmation() -> None:
+    method, params = _route(
+        "git",
+        "commit-apply",
+        git_command="commit-apply",
+        commit_request_path="docs/commit-request.md",
+        confirm=True,
+        confirm_request_id="commit_req_0001",
+    )
+
+    assert method == "git.commit_apply"
+    assert params == {
+        "schema_version": 1,
+        "commit_request_path": "docs/commit-request.md",
+        "confirm": True,
+        "confirm_request_id": "commit_req_0001",
     }
 
 

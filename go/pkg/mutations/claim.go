@@ -6,7 +6,9 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"os"
 	"path"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
@@ -229,6 +231,13 @@ func buildPacket(
 		return nil, rpc.NewError("invalid_transition", "session author line could not be derived", nil)
 	}
 	requirements := asMap(job["capability_requirements_json"])
+	packetContext := map[string]any{
+		"docs":         asList(workflow["context_docs"]),
+		"content_mode": "references",
+	}
+	if augmentation := augmentationReferences(workflow, fmt.Sprint(job["workflow_job_id"]), fmt.Sprint(run["repo_root"])); augmentation != nil {
+		packetContext["augmentation_references"] = augmentation
+	}
 	packet := map[string]any{
 		"packet_version": "striatum.work-packet.v1",
 		"packet_id":      packetID,
@@ -270,10 +279,7 @@ func buildPacket(
 			"definition_path": roleDef["definition_path"],
 			"inline_summary":  roleDef["summary"],
 		},
-		"context": map[string]any{
-			"docs":         asList(workflow["context_docs"]),
-			"content_mode": "references",
-		},
+		"context":             packetContext,
 		"task_prompt":         packetTaskPrompt(asMap(requirements["task_prompt"]), snapshot),
 		"inputs":              asList(requirements["inputs"]),
 		"write_scope":         writeScope,
@@ -354,6 +360,149 @@ func expectedArtifactsWithAuthor(expected []any, authorLine string) []any {
 		result = append(result, copy)
 	}
 	return result
+}
+
+func augmentationReferences(workflow map[string]any, workflowJobID, repoRoot string) map[string]any {
+	policy := asMap(workflow["augmentation"])
+	if len(policy) == 0 || !stringListContains(asList(policy["jobs"]), workflowJobID) {
+		return nil
+	}
+	budget := intValue(policy["budget_per_packet_lines"])
+	if budget <= 0 {
+		budget = 100
+	}
+	sources := []any{}
+	for _, item := range asList(policy["sources"]) {
+		source := augmentationCorpusBundleReference(repoRoot, asMap(item))
+		if source != nil {
+			sources = append(sources, source)
+		}
+	}
+	return map[string]any{
+		"mode":                    "reference_only",
+		"required":                false,
+		"budget_per_packet_lines": budget,
+		"content_mode":            "references",
+		"sources":                 sources,
+	}
+}
+
+func stringListContains(items []any, needle string) bool {
+	for _, item := range items {
+		value, ok := item.(string)
+		if ok && value == needle {
+			return true
+		}
+	}
+	return false
+}
+
+var augmentationSourceIDPattern = regexp.MustCompile(`^[A-Za-z0-9_.-]+$`)
+
+func augmentationCorpusBundleReference(repoRoot string, source map[string]any) map[string]any {
+	if source["kind"] != "corpus_bundle" {
+		return nil
+	}
+	sourceID, _ := source["id"].(string)
+	relPath := safeAugmentationPath(fmt.Sprint(source["path"]))
+	if sourceID == "" || relPath == "" {
+		return nil
+	}
+	manifestRel := path.Join(relPath, "manifest.json")
+	view := map[string]any{
+		"source_id":     sourceID,
+		"kind":          "corpus_bundle",
+		"path":          relPath,
+		"manifest_path": manifestRel,
+		"fetch_mode":    "agent_side_local_bundle",
+		"required":      false,
+	}
+	if description, _ := source["description"].(string); description != "" {
+		view["description"] = description
+	}
+	bundlePath := filepath.Join(repoRoot, filepath.FromSlash(relPath))
+	manifestPath := filepath.Join(bundlePath, "manifest.json")
+	info, err := os.Stat(bundlePath)
+	if err != nil {
+		reason := "bundle_unavailable"
+		status := "unavailable"
+		if os.IsNotExist(err) {
+			reason = "bundle_not_found"
+			status = "missing"
+		}
+		view["status"] = status
+		view["available"] = false
+		view["reason"] = reason
+		return view
+	}
+	if !info.IsDir() {
+		view["status"] = "unavailable"
+		view["available"] = false
+		view["reason"] = "bundle_not_directory"
+		return view
+	}
+	body, err := os.ReadFile(manifestPath)
+	if err != nil {
+		reason := "manifest_unreadable"
+		status := "unavailable"
+		if os.IsNotExist(err) {
+			reason = "manifest_not_found"
+			status = "missing"
+		}
+		view["status"] = status
+		view["available"] = false
+		view["reason"] = reason
+		return view
+	}
+	var manifest map[string]any
+	if err := json.Unmarshal(body, &manifest); err != nil || manifest == nil {
+		view["status"] = "unavailable"
+		view["available"] = false
+		view["reason"] = "manifest_unreadable"
+		return view
+	}
+	view["status"] = "available"
+	view["available"] = true
+	view["manifest"] = augmentationManifestSummary(manifest)
+	return view
+}
+
+func safeAugmentationPath(raw string) string {
+	if raw == "" || strings.HasPrefix(raw, "/") || strings.Contains(raw, "://") {
+		return ""
+	}
+	cleaned := path.Clean(raw)
+	if cleaned == "." || cleaned == ".." || strings.HasPrefix(cleaned, "../") {
+		return ""
+	}
+	if cleaned == ".striatum" || strings.HasPrefix(cleaned, ".striatum/") {
+		return ""
+	}
+	return cleaned
+}
+
+func augmentationManifestSummary(manifest map[string]any) map[string]any {
+	summary := map[string]any{}
+	for _, key := range []string{
+		"corpus_contract_version",
+		"corpus_id",
+		"redaction_tier",
+		"verification_depth",
+		"bundle_sha256",
+	} {
+		switch value := manifest[key].(type) {
+		case string:
+			summary[key] = value
+		case float64:
+			summary[key] = value
+		case int:
+			summary[key] = value
+		}
+	}
+	if rowCounts := asMap(manifest["row_counts"]); len(rowCounts) > 0 {
+		summary["row_counts"] = rowCounts
+	}
+	return summary
 }
 
 func buildPacketCommands(sessionID, jobID, messageID, leaseID string, worktreeRequired bool) map[string]any {

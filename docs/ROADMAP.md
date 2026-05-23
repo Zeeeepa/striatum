@@ -723,7 +723,7 @@ decide whether to rename the packet helper to `packet inbox`.
 
 ---
 
-### 4.11 🟡 daemon records landed; client polish pending — Architecture remediation Phase 7: workflow risk lint
+### 4.11 ✅ completed — Architecture remediation Phase 7: workflow risk lint
 
 **Updates:** [TODO item 55](TODO.md).
 
@@ -757,11 +757,15 @@ decide whether to rename the packet helper to `packet inbox`.
   (`read` for lint/list, `admin` for accept).
 - CLI client routing now exposes `workflow accepted-risks` and `workflow
   accept-risk` over the daemon accepted-risk methods.
+- The local web workflow detail page now uses daemon lint/accepted-risk data,
+  shows accepted warning state and accepted-risk records, and can append
+  accepted-risk records through `workflow.accept_risk` when the local service
+  is started with `--allow-mutations`.
 
-**Remaining Phase 7 debt:** wire UI client affordances and richer
-presentation over the daemon methods. Keep local `workflow lint` as advisory
-authoring unless it is explicitly persisting accepted risk through daemon RPC.
-Do not make workflow-file metadata a live authority.
+**Remaining Phase 7 debt:** none for the accepted-risk authority/client
+surface. Keep local `workflow lint` as advisory authoring unless it is
+explicitly persisting accepted risk through daemon RPC. Do not make
+workflow-file metadata a live authority.
 
 ---
 
@@ -806,6 +810,11 @@ Do not make workflow-file metadata a live authority.
   workflow policy defaults, open-breaker dry-run/status visibility,
   force-resistant live refusal, explicit live reset, audit events, and mirrored
   Python/Go migration support.
+- Recovery policy payloads now expose `global_default_mode="dry_run"` plus
+  the D125 default-live gate, and schema-bearing
+  `auto_finalize_gate_evidence` artifacts validate the required three live
+  successes, two lane shapes, and zero contested audit-chain events before
+  the evidence gate can be marked satisfied.
 
 **Remaining Phase 8 debt:** D125 keeps dry-run projection as the global
 default and live auto-finalize workflow opt-in. Default-on behavior may be
@@ -936,8 +945,8 @@ graduated redaction tiers, workflow opt-in augmentation by reference with
 agent-side fetch, hybrid archive bundles, verification replay by default,
 read-only semantic inspection, no comparative replay, deep-chain verification
 always, and optional daemon audit-chain cross-check. Archive defaults,
-read-only inspection, and manifest watermarking have landed; the remaining
-work is any optional augmentation-reference fetch surface.
+read-only inspection, manifest watermarking, and the core optional
+augmentation-reference packet surface have landed.
 
 **What already shipped on our side:**
 - `striatum corpus export --since <ref> --out <dir>` (RFC 0044 V1,
@@ -949,6 +958,10 @@ work is any optional augmentation-reference fetch surface.
   hybrid archive defaults, corpus-scoped incremental export watermark,
   optional `git_snapshot_hash`, and V1-compatible verifier fallback for older
   bundles.
+- Workflow-authored `augmentation.mode: "reference_only"` now exposes
+  optional local `corpus_bundle` references on claimed work packets under
+  `context.augmentation_references`. Missing or unreadable bundles are
+  reported as optional metadata and do not block claims or state transitions.
 - The augmentation-not-dependency boundary regression test in
   `tests/test_cli_corpus_export.py::test_no_engram_imports_or_memory_capabilities_in_striatum`
   pinning that no `import engram` / no `from engram` / no `memory.*`
@@ -973,10 +986,9 @@ work is any optional augmentation-reference fetch surface.
    phases.
 
 4. **Context-injection policy** — D126 chooses workflow opt-in augmentation
-   by reference with agent-side fetch. Candidate consumers include
-   operator-startup summaries, workflow scaffolding, agent-packet prep,
-   review-cycle prep, blocker/recovery investigation, and UI/CLI memory
-   search, but none of these may become hard prerequisites.
+   by reference with agent-side fetch. The core packet-reference surface has
+   landed; richer external-consumer fetch UX remains optional and must not
+   become a hard prerequisite.
 
 **Resolved decisions to encode before implementation** (from D126 and the
 earlier Engram roadmap open-decision list):
@@ -994,14 +1006,12 @@ earlier Engram roadmap open-decision list):
 - How to record Engram availability without creating a runtime dependency.
 - Default per-packet memory injection budget.
 
-**Suggested implementer:** any lane. The next Striatum-side phase is a
-design RFC + contract tests; no end-user surface changes yet. Subsequent
-phases (multi-corpus exporter, then optional context-injection
-integration) are separate dogfoods.
+**Suggested implementer:** no core Striatum implementation lane is currently
+needed for Corpus V2 foundations. Future external-consumer or UI search UX
+should land only behind a separate optional-augmentation decision.
 
-**Blocked on:** no product decision blocker remains for the core V2 direction;
-the remaining work is optional augmentation-reference implementation. This is
-not a runtime blocker for Striatum's core daemon/remediation work.
+**Blocked on:** no product decision blocker remains for the core V2 direction.
+Optional external-consumer fetch UX remains out of core.
 
 **Forward link:** §11 lists the Engram-side roadmap for context;
 Engram's full backlog is at `~/git/engram/STRIATUM_MEMORY_ROADMAP.md`.
@@ -1093,7 +1103,8 @@ Release order after Phase 0:
 7. **TODO 55 / Phase 7:** workflow risk lint, opt-in strict enforcement,
    web surfacing, generator preview surfacing, coverage scoring, and
    accepted-risk decision references landed; daemon-owned accepted-risk
-   records landed for MCP/daemon clients, with CLI/UI polish tracked in §4.11.
+   records landed for MCP/daemon clients, with CLI/UI polish completed in
+   §4.11.
 8. **TODO 56 / Phase 8:** auto-finalize daemon method, status/dashboard/web
    visibility, bounded sweep integration, and skipped-candidate cause classes
    landed; D125 keeps the dry-run default and gates any default-on flip on
@@ -1109,11 +1120,13 @@ Release order after Phase 0:
     command requests, process supervisors, process supervisor pointers,
     verdicts, blockers, process executions, and job worktrees; D126 accepts
     the Corpus Contract V2 identity, redaction, augmentation-reference,
-    archive, and verification direction.
+    archive, and verification direction. The core reference-only packet
+    augmentation surface has landed.
 12. **TODO 60 / Phase 12:** D127 sets the Git/PR boundary. The read-only
-    local `git.snapshot` daemon/CLI slice landed; durable commit/PR request
-    artifacts come next, local commit apply remains explicit-operator-confirmed
-    only, and hosted provider actions require a later optional-plugin decision.
+    local `git.snapshot` daemon/CLI slice, durable commit/PR request
+    artifacts, and explicit-operator-confirmed local `git.commit_apply`
+    have landed. Hosted provider actions require a later optional-plugin
+    decision.
 13. **TODO 61 / RFC 0068:** keep the Go production daemon conformance suite
     green, keep the Go binary release provenance stamped and verified by
     `--describe`,
@@ -1195,8 +1208,8 @@ is the runner-owned historical bootstrap successor, and
 | Item | Blocker | Unblock criterion |
 |---|---|---|
 | RFC 0049 spike | Shelved by D106; depends on external billing semantics and PTY/MCP stability | Explicit operator-funded spike + measurement. |
-| RFC 0057 Corpus V2 | D126 accepted the core identity, redaction, augmentation, archive, and verification choices; implementation RFC/text still needs to be updated. | V2 schema and docs updated to reflect D126. |
-| Phase 12 Git/PR integration | D127 accepted the boundary; hosted-provider behavior remains out of core and needs a future optional-plugin decision. | Read-only snapshot slice can proceed; commit/PR request artifacts and local commit-apply follow the D127 confirmation boundary. |
+| RFC 0057 Corpus V2 | D126 accepted the core identity, redaction, augmentation, archive, and verification choices. | V2 schema, archive defaults, watermarking, and reference-only packet augmentation are implemented for core Striatum. |
+| Phase 12 Git/PR integration | D127 accepted the boundary; hosted-provider behavior remains out of core and needs a future optional-plugin decision. | Read-only snapshot, request artifacts, and explicit-confirm local commit apply are implemented for core Striatum. |
 | Item 32 (Engram-side RFC 0044 Phase 1) | External repo (`~/git/engram/`) | Engram-side work; **not Striatum's TODO**. |
 | Item 16 (generic language sweep) | Ongoing documentation hygiene | Active sweep on 2026-05-17; keep open as a standing review item. |
 

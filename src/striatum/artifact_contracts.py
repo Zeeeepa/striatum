@@ -43,6 +43,7 @@ ALLOWED_ARTIFACT_KINDS: frozenset[str] = frozenset(
         "operator_report",
         "commit_request",
         "pr_request",
+        "auto_finalize_gate_evidence",
     }
 )
 
@@ -186,6 +187,7 @@ _GIT_CONFIRMATION_STATUSES: tuple[str, ...] = (
     "refused",
 )
 _PR_CONFIRMATION_STATUSES: tuple[str, ...] = ("pending", "human_confirmed", "refused")
+_AUTO_FINALIZE_GATE_STATUSES: tuple[str, ...] = ("pending", "satisfied")
 
 
 FRONT_MATTER_SCHEMAS: dict[str, FrontMatterSchema] = {
@@ -419,6 +421,26 @@ FRONT_MATTER_SCHEMAS: dict[str, FrontMatterSchema] = {
             FrontMatterField("confirmed_at", False, _is_nullable_non_empty_str),
         ),
     ),
+    "auto_finalize_gate_evidence": FrontMatterSchema(
+        schema_version="striatum.auto_finalize_gate_evidence.v1",
+        artifact_kind="auto_finalize_gate_evidence",
+        fields=(
+            FrontMatterField(
+                "schema_version",
+                True,
+                _equals("striatum.auto_finalize_gate_evidence.v1"),
+            ),
+            FrontMatterField("artifact_kind", True, _equals("auto_finalize_gate_evidence")),
+            FrontMatterField("decision_id", True, _equals("D125")),
+            FrontMatterField("gate_status", True, _one_of("gate_status", _AUTO_FINALIZE_GATE_STATUSES)),
+            FrontMatterField("live_success_count", True, _is_non_negative_int),
+            FrontMatterField("lane_shape_count", True, _is_non_negative_int),
+            FrontMatterField("lane_shapes", True, _is_non_empty_str_list),
+            FrontMatterField("contested_audit_chain_events", True, _is_non_negative_int),
+            FrontMatterField("evidence_artifacts", True, _is_non_empty_str_list),
+            FrontMatterField("created_at", True, _is_non_empty_str),
+        ),
+    ),
 }
 
 
@@ -563,6 +585,36 @@ def _validate_pr_request_source(parsed: dict[str, object]) -> None:
         )
 
 
+def _validate_auto_finalize_gate_evidence(parsed: dict[str, object]) -> None:
+    """Enforce the D125 default-on evidence bar for satisfied gate artifacts."""
+    if parsed.get("gate_status") != "satisfied":
+        return
+    live_success_count = int(parsed.get("live_success_count") or 0)
+    lane_shape_count = int(parsed.get("lane_shape_count") or 0)
+    contested_events = int(parsed.get("contested_audit_chain_events") or 0)
+    if live_success_count < 3:
+        raise ArtifactError(
+            "auto_finalize_gate_evidence artifact front matter field "
+            "'live_success_count' must be at least 3 when gate_status is 'satisfied'"
+        )
+    if lane_shape_count < 2:
+        raise ArtifactError(
+            "auto_finalize_gate_evidence artifact front matter field "
+            "'lane_shape_count' must be at least 2 when gate_status is 'satisfied'"
+        )
+    lane_shapes = parsed.get("lane_shapes")
+    if not isinstance(lane_shapes, list) or len(lane_shapes) < 2:
+        raise ArtifactError(
+            "auto_finalize_gate_evidence artifact front matter field "
+            "'lane_shapes' must list at least 2 lane shapes when gate_status is 'satisfied'"
+        )
+    if contested_events != 0:
+        raise ArtifactError(
+            "auto_finalize_gate_evidence artifact front matter field "
+            "'contested_audit_chain_events' must be 0 when gate_status is 'satisfied'"
+        )
+
+
 def ensure_required_front_matter(*, kind: str, path: Path, payload: bytes) -> bytes:
     """Auto-attach default front matter for schema-bearing kinds when safe."""
     schema = FRONT_MATTER_SCHEMAS.get(kind)
@@ -619,6 +671,8 @@ def parse_artifact_front_matter(
         )
     if schema.artifact_kind == "pr_request":
         _validate_pr_request_source(parsed)
+    if schema.artifact_kind == "auto_finalize_gate_evidence":
+        _validate_auto_finalize_gate_evidence(parsed)
     return parsed
 
 

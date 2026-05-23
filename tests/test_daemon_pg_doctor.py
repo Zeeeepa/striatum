@@ -12,6 +12,8 @@ from striatum.daemon_pg.config import ENV_DAEMON_DB_URL
 
 pytestmark = pytest.mark.multi_repo
 
+RETIRED_DAEMON_REGISTRY_ENV = "STRIATUM_DAEMON_REGISTRY"
+
 
 def _configure_pg_daemon_doctor(
     harness: MultiRepoHarness,
@@ -25,7 +27,7 @@ def _configure_pg_daemon_doctor(
     registry = tmp_path / "daemon" / "striatumd.sqlite3"
     monkeypatch.setenv(ENV_DAEMON_DB_URL, harness.daemon_pg_url)
     monkeypatch.setenv(daemon.ENV_RUNTIME, str(runtime))
-    monkeypatch.setenv(daemon.ENV_REGISTRY, str(registry))
+    monkeypatch.setenv(RETIRED_DAEMON_REGISTRY_ENV, str(registry))
     monkeypatch.setenv(daemon.ENV_SQLITE_CONNECT_TRIPWIRE, "1")
     monkeypatch.setenv("STRIATUM_PG_DOCTOR_TEST_HARNESS_OWNER_OK", "1")
     daemon.write_runtime_token(token)

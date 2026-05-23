@@ -74,6 +74,7 @@ func Register(server *rpc.Server, runner db.Runner, opts ...Options) {
 	server.Register("complete", makeHandler(runner, HandleCompleteWork))
 	server.Register("artifact.publish", makeHandler(runner, HandlePublishArtifact))
 	server.Register("publish_artifact", makeHandler(runner, HandlePublishArtifact))
+	server.Register("git.commit_apply", makeHandler(runner, HandleGitCommitApply))
 	server.Register("worktree.create", makeHandler(runner, HandleWorktreeCreate))
 	server.Register("worktree.release", makeHandler(runner, HandleWorktreeRelease))
 	server.Register("supervise.start", makeHandler(runner, HandleSuperviseStart))

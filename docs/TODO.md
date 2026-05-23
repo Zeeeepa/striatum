@@ -106,12 +106,12 @@ so external references keep resolving even as items move between sections.
 | 52 | RFC 0061 Architecture remediation Phase 4 — daemon-first web service | 🟡 core web/API + artifact reads daemon-routed |
 | 53 | RFC 0062 Architecture remediation Phase 5 — real escalation inbox | 🟡 projection + escalation artifact schema/linkage landed |
 | 54 | RFC 0063 Architecture remediation Phase 6 — hardened PTY supervision | ✅ done |
-| 55 | RFC 0064 Architecture remediation Phase 7 — workflow risk lint and review diversity enforcement | 🟡 daemon accepted-risk records + CLI accept/list landed; UI polish pending |
-| 56 | Architecture remediation Phase 8 — auto-finalize from front matter | 🟡 cause/lane/circuit-breaker guardrails landed; default-on dogfood gate pending |
+| 55 | RFC 0064 Architecture remediation Phase 7 — workflow risk lint and review diversity enforcement | ✅ done |
+| 56 | Architecture remediation Phase 8 — auto-finalize from front matter | 🟡 D125 gate artifact/projection landed; default-on dogfood evidence pending |
 | 57 | RFC 0065 Architecture remediation Phase 9 — UI packaging and bundle cleanup | ✅ done; chunking monitor only |
 | 58 | RFC 0059 Architecture remediation Phase 10 — day-zero setup improvements | ✅ done |
-| 59 | RFC 0059 RFC 0066 Architecture remediation Phase 11 — replay, archive, and corpus v2 foundations | 🟡 V2 corpus/archive defaults + manifest watermark landed; augmentation pending |
-| 60 | RFC 0059 RFC 0067 Architecture remediation Phase 12 — optional Git/PR integration | 🟡 read-only `git.snapshot` + request artifact schemas landed; local commit confirmation pending |
+| 59 | RFC 0059 RFC 0066 Architecture remediation Phase 11 — replay, archive, and corpus v2 foundations | ✅ done for core; optional external consumer UX remains out of core |
+| 60 | RFC 0059 RFC 0067 Architecture remediation Phase 12 — optional Git/PR integration | ✅ local core done; hosted providers remain out of core |
 | 61 | RFC 0068 Go production daemon port and Python daemon retirement | 🟡 Go default; Python daemon module deleted; broad direct repo-local fixture opens converted |
 | 62 | RFC 0069 PostgreSQL-only daemon-global surfaces | 🟡 guardrail residuals only |
 | 63 | RFC 0070 daemon client/service boundary completion | 🟡 production boundary mostly done |
@@ -1177,9 +1177,12 @@ review and plan are root-level operator artifacts:
     fingerprint/snapshot-bound accepted-risk records in PostgreSQL, and MCP
     capability gates expose the read/admin surfaces without writing workflow
     metadata. CLI client routing now includes `workflow accepted-risks` and
-    `workflow accept-risk` over the same daemon methods. Remaining polish is
-    UI client wiring and richer presentation; workflow-file metadata is not
-    live authority.
+    `workflow accept-risk` over the same daemon methods. The local web
+    workflow detail page now reads daemon lint plus accepted-risk records,
+    presents accepted warnings and accepted-risk rows, and can append
+    accepted-risk records through `workflow.accept_risk` when the service is
+    started with `--allow-mutations`. Workflow-file metadata remains advisory
+    and is not live authority.
 
 56. **Phase 8: auto-finalize from front matter.** Bounded daemon slice
     landed: `recovery.auto_finalize` dry-run/live PG handler, CLI route,
@@ -1208,9 +1211,12 @@ review and plan are root-level operator artifacts:
     dry-run projections, force-resistant refusal until explicit live reset,
     reset/open audit events, and mirrored Python/Go migration support. D125
     keeps the global default as dry-run projection
-    and live auto-finalize workflow opt-in. Default-on behavior is gated by
-    three successful live dogfoods across at least two lane shapes with zero
-    contested audit-chain events.
+    and live auto-finalize workflow opt-in. The policy projection now reports
+    `global_default_mode="dry_run"` plus the D125 default-live evidence gate,
+    and `auto_finalize_gate_evidence` artifacts validate the required three
+    live successes, two lane shapes, and zero contested audit-chain events.
+    Default-on behavior remains gated until a satisfied evidence artifact
+    exists.
 
 57. ~~**Phase 9: UI packaging and bundle cleanup.**~~ Done:
     `ui-build` depends on `ui-clean`, `ui-check-bundle` also runs a
@@ -1268,8 +1274,12 @@ review and plan are root-level operator artifacts:
     verification still accepts implied-V1 bundles. The archive follow-up now
     emits `archive_contract_version=2`, enforces `verification_depth=deep_chain`
     plus hybrid archive defaults when advertised, and preserves legacy-v1
-    archive verification compatibility. Follow-up work is any
-    augmentation-reference fetch surface.
+    archive verification compatibility. Workflows can now opt into
+    `augmentation.mode: "reference_only"` with local `corpus_bundle` sources;
+    claimed work packets expose optional `context.augmentation_references`
+    with manifest status, and missing/unreadable bundles never block workflow
+    progress. This is the core augmentation-reference surface; external
+    consumer fetch UX remains out of core unless a later decision accepts it.
 
 60. **Phase 12: optional Git/PR integration.** D127 decides the boundary:
     Striatum core does not autonomously commit, push, call hosted providers, or
@@ -1279,10 +1289,15 @@ review and plan are root-level operator artifacts:
     closed read-only local-git allowlist. It excludes remote URLs, diff hunks,
     commit bodies, hosted PR metadata, and provider actions. Durable
     `commit_request` and `pr_request` artifact schemas have landed as
-    provenance-only request records. Local git commit-apply may create a local
-    commit only after explicit operator confirmation. Hosted provider actions
-    remain out of core and require a future optional-plugin decision with
-    human-principal confirmation.
+    provenance-only request records. Daemon `git.commit_apply` plus
+    `striatum git commit-apply <commit-request> --confirm
+    --confirm-request-id <id>` may create a local commit only after explicit
+    operator confirmation, a confirmed request artifact, matching base HEAD
+    and branch, and dirty paths limited to `included_paths`. It disables Git
+    hooks for the commit invocation and does not push, fetch, call hosted
+    providers, import provider SDKs, or load provider credentials. Hosted
+    provider actions remain out of core and require a future optional-plugin
+    decision with human-principal confirmation.
 
 61. **RFC 0068: Go production daemon port.** Active. D107 supersedes D105:
     Go is the production/default daemon and active contract-method parity is
@@ -1502,7 +1517,11 @@ review and plan are root-level operator artifacts:
     loop proof, `session.report`, agent-loop PTY bootstrap, Python MCP wrapper
     deletion, and RFC 0077 daemon-owned MCP activity liveness. Remaining live
     workflow-control CLI verbs must still be classified before removal, MCP/UI
-    parity must be tested before hiding replacements. RFC 0075 tmux attach
+    parity must be tested before hiding replacements. The checked
+    `docs/architecture/CLI_RETIREMENT_PARITY.md` ledger now classifies
+    non-read CLI routes and fails when a new non-read daemon route lacks
+    retirement-gate classification; this slice does not hide any CLI verb.
+    RFC 0075 tmux attach
     metadata now projects through daemon reads, and PTY-helper lanes can set
     `supervision.require_tmux: true` to fail closed instead of falling back to
     a plain PTY. Broader UI polish and CLI retirement remain pending; pane

@@ -738,10 +738,108 @@ func validateWorkflowForPrepare(workflow map[string]any) (phaseIndex, error) {
 			return phaseIndex{}, rpc.NewError("workflow_error", "workflow edge references an unknown job", nil)
 		}
 	}
+	if err := validateWorkflowAugmentation(workflow, seen); err != nil {
+		return phaseIndex{}, err
+	}
 	if err := validatePhaseEdges(workflow, index); err != nil {
 		return phaseIndex{}, err
 	}
 	return index, nil
+}
+
+func validateWorkflowAugmentation(workflow map[string]any, jobs map[string]bool) error {
+	raw, ok := workflow["augmentation"]
+	if !ok || raw == nil {
+		return nil
+	}
+	augmentation := asMap(raw)
+	if len(augmentation) == 0 {
+		return rpc.NewError("workflow_error", "workflow augmentation must be an object", nil)
+	}
+	mode, _ := augmentation["mode"].(string)
+	if mode != "reference_only" {
+		return rpc.NewError("workflow_error", "workflow augmentation.mode must be reference_only", nil)
+	}
+	if required, ok := augmentation["required"]; ok {
+		requiredValue, isBool := required.(bool)
+		if !isBool || requiredValue {
+			return rpc.NewError("workflow_error", "workflow augmentation.required must be false", nil)
+		}
+	}
+	if budget, ok := augmentation["budget_per_packet_lines"]; ok {
+		budgetValue, validBudget := augmentationBudgetValue(budget)
+		if !validBudget || budgetValue <= 0 || budgetValue > 5000 {
+			return rpc.NewError("workflow_error", "workflow augmentation.budget_per_packet_lines must be a positive integer <= 5000", nil)
+		}
+	}
+	sources := asList(augmentation["sources"])
+	if len(sources) == 0 {
+		return rpc.NewError("workflow_error", "workflow augmentation.sources must be a non-empty list", nil)
+	}
+	sourceIDs := map[string]bool{}
+	for index, item := range sources {
+		source := asMap(item)
+		sourceID, _ := source["id"].(string)
+		if sourceID == "" || !augmentationSourceIDPattern.MatchString(sourceID) {
+			return rpc.NewError("workflow_error", fmt.Sprintf("workflow augmentation.sources[%d].id must be a non-empty local identifier", index), nil)
+		}
+		if sourceIDs[sourceID] {
+			return rpc.NewError("workflow_error", fmt.Sprintf("duplicate workflow augmentation source id %q", sourceID), nil)
+		}
+		sourceIDs[sourceID] = true
+		if source["kind"] != "corpus_bundle" {
+			return rpc.NewError("workflow_error", "workflow augmentation source kind must be corpus_bundle", nil)
+		}
+		pathText, _ := source["path"].(string)
+		if safeAugmentationPath(pathText) == "" {
+			return rpc.NewError("workflow_error", "workflow augmentation source path must be repo-relative without '..' and outside .striatum/", nil)
+		}
+		if description, ok := source["description"]; ok {
+			if _, isString := description.(string); !isString {
+				return rpc.NewError("workflow_error", "workflow augmentation source description must be a string", nil)
+			}
+		}
+	}
+	augmentedJobs := asList(augmentation["jobs"])
+	if len(augmentedJobs) == 0 {
+		return rpc.NewError("workflow_error", "workflow augmentation.jobs must be a non-empty list", nil)
+	}
+	seenJobs := map[string]bool{}
+	for index, item := range augmentedJobs {
+		jobID, ok := item.(string)
+		if !ok || jobID == "" {
+			return rpc.NewError("workflow_error", "workflow augmentation.jobs entries must be non-empty strings", nil)
+		}
+		if seenJobs[jobID] {
+			return rpc.NewError("workflow_error", fmt.Sprintf("duplicate workflow augmentation job %q", jobID), nil)
+		}
+		seenJobs[jobID] = true
+		if !jobs[jobID] {
+			return rpc.NewError("workflow_error", fmt.Sprintf("workflow augmentation.jobs[%d] references unknown job %q", index, jobID), nil)
+		}
+	}
+	return nil
+}
+
+func augmentationBudgetValue(value any) (int, bool) {
+	switch typed := value.(type) {
+	case int:
+		return typed, true
+	case int32:
+		return int(typed), true
+	case int64:
+		return int(typed), true
+	case float64:
+		intValue := int(typed)
+		return intValue, typed == float64(intValue)
+	case json.Number:
+		parsed, err := typed.Int64()
+		if err != nil {
+			return 0, false
+		}
+		return int(parsed), true
+	}
+	return 0, false
 }
 
 func workflowJobDefinitions(workflow map[string]any) []map[string]any {

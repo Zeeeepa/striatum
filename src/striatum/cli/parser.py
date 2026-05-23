@@ -471,6 +471,23 @@ def build_parser() -> argparse.ArgumentParser:
         default=True,
     )
     git_snapshot.add_argument("--json", action="store_true")
+    git_commit_apply = git_sub.add_parser(
+        "commit-apply",
+        help="create a local commit from a confirmed commit_request artifact through the daemon",
+    )
+    git_commit_apply.add_argument("commit_request_path")
+    git_commit_apply.add_argument(
+        "--confirm",
+        action="store_true",
+        required=True,
+        help="required explicit operator confirmation for local commit creation",
+    )
+    git_commit_apply.add_argument(
+        "--confirm-request-id",
+        required=True,
+        help="must match the commit_request artifact's request_id",
+    )
+    git_commit_apply.add_argument("--json", action="store_true")
 
     cross_repo = sub.add_parser("cross-repo")
     cross_repo_sub = cross_repo.add_subparsers(dest="cross_repo_command", required=True)
