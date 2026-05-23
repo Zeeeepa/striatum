@@ -4,6 +4,8 @@ import json
 from pathlib import Path
 from typing import Any, cast
 
+import pytest
+
 from _harness.mcp import daemon_tool_specs
 from striatum.daemon_rpc.capability import authorize
 from striatum.daemon_rpc.capability import RpcAuthContext
@@ -393,3 +395,89 @@ def test_mcp_structured_error_uses_nested_rpc_error_codes(monkeypatch) -> None: 
     assert isinstance(structured, dict)
     assert structured["error"] == "composite_failed"
     assert structured["error_codes"] == ["command_failed", "composite_failed", "artifact_error"]
+
+
+@pytest.mark.parametrize(
+    "method",
+    [
+        "run.pause",
+        "run.resume",
+        "run.cancel",
+        "run.retry_job",
+        "recovery.cancel_job",
+        "branch.confirm",
+        "session.close",
+        "work.release",
+        "work.block",
+        "review.submit",
+    ],
+)
+def test_mcp_tools_call_exact_workflow_control_methods_route_to_daemon_rpc(
+    monkeypatch: Any,
+    method: str,
+) -> None:
+    """Pin exact MCP coverage for CLI-retirement parity ledger rows."""
+
+    def fake_authorize(
+        conn: object,
+        *,
+        required: str | None,
+        repository_id: str | None,
+        token: str | None,
+    ) -> RpcAuthContext:
+        return RpcAuthContext(
+            "client",
+            "token",
+            repository_id,
+            required,
+            "allowed",
+            None,
+        )
+
+    class CaptureRouter:
+        def __init__(self) -> None:
+            self.calls: list[tuple[RpcEnvelope, dict[str, Any]]] = []
+
+        def handle(self, envelope: RpcEnvelope, **kwargs: Any) -> RpcResponse:
+            self.calls.append((envelope, dict(kwargs)))
+            return RpcResponse.ok_response(
+                request_id=envelope.request_id,
+                audit_id="aud_42",
+                data={"routed_method": envelope.method},
+            )
+
+    router = CaptureRouter()
+    monkeypatch.setattr("striatum.daemon_pg.mcp_dispatch.authorize", fake_authorize)
+
+    result = dispatch_mcp_tool_call(
+        pg_conn=object(),
+        router=cast(DaemonRpcRouter, router),
+        name=method,
+        arguments={
+            "repository_id": "repo_a",
+            "run_id": "run_1",
+            "job_id": "job_1",
+            "session_id": "sess_1",
+            "lease_id": "lease_1",
+            "blocker_id": "blk_1",
+        },
+        token="dtok.secret",
+        request_id=f"req-{method.replace('.', '-')}",
+    )
+
+    assert result["isError"] is False
+    structured = result["structuredContent"]
+    assert isinstance(structured, dict)
+    assert structured["method"] == method
+    assert structured["audit_id"] == 42
+    assert structured["data"] == {"routed_method": method}
+    assert len(router.calls) == 1
+    envelope, kwargs = router.calls[0]
+    assert envelope.method == method
+    assert envelope.params["repository_id"] == "repo_a"
+    assert envelope.capability_token == "dtok.secret"
+    assert kwargs == {
+        "connection_id": "mcp",
+        "transport": "mcp",
+        "require_handshake": False,
+    }
