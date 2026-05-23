@@ -616,6 +616,46 @@ table.runs-table tbody tr:hover { background: var(--bg-overlay); }
 .posture-list { list-style: none; padding: 0; }
 .posture-list li { display: flex; gap: var(--space-2); align-items: center; margin-bottom: var(--space-1); }
 
+.session-list {
+  list-style: none;
+  padding: 0;
+  margin: var(--space-2) 0;
+}
+.session-list li { margin-bottom: var(--space-2); }
+.session-chip {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-2);
+  max-width: 100%;
+}
+.session-observability {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1);
+  max-width: 100%;
+  padding: 0.125rem var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-base);
+  color: var(--fg-secondary);
+  font-size: 0.8125rem;
+}
+.session-observability code {
+  max-width: 28rem;
+  overflow-wrap: anywhere;
+}
+.session-liveness-stalled {
+  border-color: var(--status-blocked);
+}
+.session-liveness-attention {
+  border-color: var(--accent);
+}
+.session-tmux-unavailable {
+  border-color: var(--status-blocked);
+}
+
 .workflow-cell {
   min-width: 18rem;
 }

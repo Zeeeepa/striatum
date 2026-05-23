@@ -64,8 +64,8 @@ or provider hooks.
 
 ## Non-Goals
 
-- Persisting tmux session, pane, window, or attach-command metadata.
-  RFC 0075 still owns that broader tmux-observability work.
+- Persisting tmux session, pane, window, or attach-command metadata in this
+  RFC 0077 slice. D131 later accepts that projection under RFC 0075.
 - Requiring tmux for live interactive lanes.
 - Capturing, parsing, hashing, publishing, or auditing full terminal
   transcripts or pane contents.
@@ -319,5 +319,6 @@ The accepted V1 slice landed in the native Go daemon on 2026-05-22:
   emits metadata-only `session.liveness_deadline_missed` /
   `session.liveness_recovered` events.
 
-Lane/workflow-specific liveness policy overrides and broader tmux attach
-metadata remain RFC 0075 follow-up work.
+D131 later accepts the broader RFC 0075 tmux-observable session contract for
+the current scoped implementation, including tmux attach metadata projection
+and web/session status polish.

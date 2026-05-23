@@ -1543,8 +1543,10 @@ review and plan are root-level operator artifacts:
 67. ~~**RFC 0050/RFC 0075: MCP cutover and tmux-observable sessions.**~~
     Done. Native Go daemon MCP HTTP/SSE, autonomous MCP packet-loop proof,
     `session.report`, agent-loop PTY bootstrap, Python MCP wrapper deletion,
-    RFC 0077 daemon-owned MCP activity liveness, tmux attach metadata, and
-    fail-closed tmux opt-in have landed. The final cutover adds UI parity for
+    RFC 0077 daemon-owned MCP activity liveness, tmux attach metadata, web
+    session-observability rendering, and fail-closed tmux opt-in have landed.
+    D131 accepts RFC 0075 for the current scoped implementation. The final
+    cutover adds UI parity for
     remaining operator actions, updates current docs and agent skill templates
     to MCP-first workflow control, and reclassifies all non-read CLI routes in
     `docs/architecture/CLI_RETIREMENT_PARITY.md` as bootstrap,

@@ -95,14 +95,16 @@ live workflow control plane. Bootstrap, diagnostics, and daemon-backed
 compatibility commands survive intentionally; hiding or deleting commands is a
 later deprecation/release decision.
 
-Post-transition operator introspection is proposed in
+Post-transition operator introspection is accepted in
 [`RFC 0075 - Tmux-Observable MCP Agent Sessions And Liveness Deadlines`](rfcs/0075-tmux-observable-mcp-agent-sessions.md):
-live interactive agents should run in daemon-created tmux-backed PTYs, while
-daemon MCP activity and lease heartbeats remain the authoritative liveness
-signals. Tmux panes are for human inspection, not workflow state.
+live interactive agents use autonomous MCP sessions with daemon-owned
+protocol liveness, tmux attach metadata, and a fail-closed tmux opt-in for
+PTY-helper lanes. Daemon MCP activity and lease heartbeats remain the
+authoritative liveness signals. Tmux panes are for human inspection, not
+workflow state.
 [`RFC 0077 - MCP Activity Liveness Deadlines`](rfcs/0077-mcp-activity-liveness-deadlines.md)
 landed the daemon-owned MCP activity timestamp and deadline-classification
-slice before the RFC 0075 tmux attach metadata projection.
+slice; D131 accepts the current RFC 0075 tmux-observable session contract.
 The current closure artifacts are
 [`RFC 0050/RFC 0075 Final Cutover Design`](operator/plans/rfc-0050-0075-final-cutover-design.md)
 and

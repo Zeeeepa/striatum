@@ -23,6 +23,31 @@ STALE_CUTOVER_PHRASES = {
     "Wraps `striatum",
 }
 
+RFC0075_CURRENT_DOCS = [
+    REPO_ROOT / "docs" / "operator" / "BRIEF.md",
+    REPO_ROOT / "docs" / "ROADMAP.md",
+    REPO_ROOT / "docs" / "TODO.md",
+    REPO_ROOT / "docs" / "rfcs" / "0075-tmux-observable-mcp-agent-sessions.md",
+    REPO_ROOT / "docs" / "rfcs" / "0077-mcp-activity-liveness-deadlines.md",
+    REPO_ROOT / "docs" / "rfcs" / "README.md",
+    (
+        REPO_ROOT
+        / "docs"
+        / "operator"
+        / "plans"
+        / "rfc-0075-tmux-observable-mcp-agent-sessions.md"
+    ),
+]
+
+STALE_RFC0075_PHRASES = {
+    "RFC 0075 remains the broader",
+    "RFC 0075 still owns that broader tmux-observability work",
+    "broader tmux attach metadata remain RFC 0075 follow-up work",
+    "tmux-observable/operator-UI polish",
+    "| [0075](0075-tmux-observable-mcp-agent-sessions.md) | proposed |",
+    'state: "open"',
+}
+
 
 def test_current_agent_docs_are_mcp_first_after_rfc0050_0075_cutover() -> None:
     stale: list[str] = []
@@ -35,3 +60,12 @@ def test_current_agent_docs_are_mcp_first_after_rfc0050_0075_cutover() -> None:
                 stale.append(f"{path.relative_to(REPO_ROOT)} contains {phrase!r}")
     assert not stale, "\n".join(stale)
 
+
+def test_current_docs_do_not_leave_rfc0075_polish_as_pending() -> None:
+    stale: list[str] = []
+    for path in RFC0075_CURRENT_DOCS:
+        text = path.read_text(encoding="utf-8")
+        for phrase in STALE_RFC0075_PHRASES:
+            if phrase in text:
+                stale.append(f"{path.relative_to(REPO_ROOT)} contains {phrase!r}")
+    assert not stale, "\n".join(stale)

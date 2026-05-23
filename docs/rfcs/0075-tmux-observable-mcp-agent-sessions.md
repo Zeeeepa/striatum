@@ -1,8 +1,9 @@
 # RFC 0075: Tmux-Observable MCP Agent Sessions And Liveness Deadlines
 
-Status: proposed
+Status: accepted
 Date: 2026-05-21
 author: proposer-codex-gpt-5-001
+Decision: D131
 Context:
 [`RFC 0009`](0009-long-lived-process-supervision.md),
 [`RFC 0020`](0020-autonomous-stalled-run-recovery.md),
@@ -29,8 +30,8 @@ Today Striatum has several related mechanisms, but they are not one
 post-transition product contract:
 
 - PTY and tmux supervision exist as infrastructure, and PTY-helper lanes can
-  now opt into fail-closed tmux with `supervision.require_tmux: true`; broader
-  live-interactive UI polish remains a post-transition product contract.
+  opt into fail-closed tmux with `supervision.require_tmux: true`; D131 accepts
+  the current UI/status polish as the post-transition product contract.
 - Work leases have heartbeats, but a live process without MCP activity is
   a different failure mode from a stale lease.
 - The project intentionally does not treat tmux panes, terminal output,
@@ -45,8 +46,9 @@ states without parsing terminal output or capturing transcripts.
 
 ## Goals
 
-- Require daemon-created tmux-backed PTY sessions for live interactive
-  agent lanes once the RFC 0050 transition is complete.
+- Make daemon-created PTY sessions tmux-observable for live interactive
+  agent lanes, with fail-closed tmux opt-in for lanes that require an
+  attachable pane.
 - Preserve the authority boundary: daemon PostgreSQL and MCP calls remain
   authoritative; tmux panes and terminal output are operational
   observability only.
@@ -78,11 +80,15 @@ states without parsing terminal output or capturing transcripts.
 
 ## Proposal
 
-### 1. Require tmux for live interactive agent sessions
+### 1. Make live interactive agent sessions tmux-observable
 
 After RFC 0050 Phase D/E are accepted and live agents are expected to use
-MCP directly, Striatum should treat tmux-backed PTY supervision as the
-default and required execution surface for live interactive agent lanes.
+MCP directly, Striatum should treat PTY supervision plus tmux attach metadata
+as the operator-observability surface for live interactive agent lanes. The
+accepted current implementation provides fail-closed tmux through
+`supervision.require_tmux` on PTY-helper lanes; making tmux universal by
+default is a later profile/default-policy decision, not an implicit runtime
+requirement.
 
 For each live interactive session, the daemon records operational
 metadata:
@@ -205,11 +211,12 @@ Disallowed by default:
 
 ## Acceptance Criteria
 
-- Live interactive agent lanes launch inside daemon-created tmux-backed
-  PTY sessions by default after the RFC 0050 transition gate.
-- `tmux` absence fails closed for live interactive lanes with a clear
-  adapter error and remediation text, while explicitly non-interactive
-  lanes keep their documented behavior.
+- Live interactive PTY-helper lanes can launch inside daemon-created
+  tmux-backed PTY sessions with attach metadata.
+- `tmux` absence fails closed for lanes that set
+  `supervision.require_tmux: true`, with a clear adapter error and
+  remediation text, while lanes without that opt-in keep their documented
+  behavior.
 - Operator-facing status surfaces show the tmux attach command and
   current liveness classification for each live interactive session.
 - Tests distinguish supervisor-live/protocol-dead, protocol-live/no-lease,
@@ -225,6 +232,29 @@ Disallowed by default:
 - Evidence export, daemon audit, and artifact publication remain free of
   broad transcript capture by default.
 
+## Implementation Status
+
+Accepted by D131 for the current local-first contract. The landed
+implementation includes:
+
+- Go agent-loop PTY bootstrap that launches agents as autonomous MCP clients;
+- `session.report` as the typed pre-work ready/heartbeat/question/escalation
+  path;
+- RFC 0077 daemon-owned MCP activity timestamps, deadline classifications, and
+  metadata-only liveness events;
+- tmux attach metadata from PTY-helper supervision, projected through
+  `status`, dashboard data, `supervise.status`, `supervise.list`, terminal
+  dashboard frames, and web run-detail session chips;
+- fail-closed `supervision.require_tmux` opt-in for PTY-helper lanes;
+- no-transcript/no-terminal-authority tests that prevent pane capture and keep
+  terminal output out of artifact, audit, and recovery paths.
+
+The original universal "tmux required by default for all future live
+interactive profiles" clause is not a hidden open implementation gate in this
+accepted scope. The current contract exposes a lane-level fail-closed opt-in.
+A later profile/default-policy RFC can tighten that default if the product
+needs it.
+
 ## Implementation Scaffold
 
 The first implementation workflow is scaffolded at
@@ -235,22 +265,16 @@ any source implementation. The paired operator plans are:
 - [`RFC 0050 CLI Retirement Cutover`](../operator/plans/rfc-0050-cli-retirement-cutover.md)
 - [`RFC 0075 Tmux-Observable MCP Agent Sessions`](../operator/plans/rfc-0075-tmux-observable-mcp-agent-sessions.md)
 
-## Open Questions
+## Resolved Questions
 
-- Should `session.ready`, `session.heartbeat`, `session.question`, and
-  `session.escalate` be separate daemon methods, or should they be one
-  `session.report` method with typed payloads?
-- What are the default deadline values for discovery, await, ack, and
-  heartbeat? The initial values should be conservative enough for slow
-  model startup but short enough to catch silent stalls quickly.
-- Should deadline policy live in workflow lane constraints, daemon
-  configuration, or both?
-- Should the operator be able to pause a stall deadline while actively
-  inspecting a tmux pane?
-- How should multi-pane sessions be represented if a provider CLI spawns
-  helper panes or nested shells?
-- Should `tmux` remain the only required implementation, or should the
-  contract allow equivalent local PTY multiplexers later?
+- The structured pre-work path is one typed `session.report` daemon method.
+- Deadline defaults are owned by RFC 0077's daemon liveness policy for the
+  current slice.
+- Tmux metadata is an allow-listed inspection projection only: session name,
+  window id, pane id, attach command, and unavailability/remediation metadata.
+- The current implementation supports fail-closed tmux through
+  `supervision.require_tmux`; broader default policy and alternate local PTY
+  multiplexers require a later decision.
 
 ## Domain Modeling
 

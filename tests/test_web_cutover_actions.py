@@ -242,6 +242,22 @@ def test_cutover_templates_render_operator_controls() -> None:
                 "lane_attestation": "attested",
                 "lane_attestation_reason": None,
                 "supervisor_id": "sup_1",
+                "liveness": {
+                    "protocol": "stalled",
+                    "lease": "no_lease",
+                    "stall_class": "agent_mcp_discovery_stall",
+                    "deadline_name": "mcp_discovery",
+                    "deadline_seconds": 60,
+                    "last_session_report_kind": "heartbeat",
+                },
+                "tmux": {
+                    "state": "attachable",
+                    "session_name": "striatum-run_1-codex-sup_1",
+                    "window_id": "@1",
+                    "pane_id": "%2",
+                    "attach_command": "tmux attach-session -t striatum-run_1-codex-sup_1",
+                    "pane_text": "terminal bytes must not render",
+                },
             }
         ],
         phase_progress=[],
@@ -252,6 +268,10 @@ def test_cutover_templates_render_operator_controls() -> None:
     assert 'data-recovery-action="stale-leases"' in run_html
     assert 'data-recovery-action="resume"' in run_html
     assert 'data-supervise-action="stop"' in run_html
+    assert "agent_mcp_discovery_stall" in run_html
+    assert "tmux attach-session -t striatum-run_1-codex-sup_1" in run_html
+    assert "window=<code>@1</code> pane=<code>%2</code>" in run_html
+    assert "terminal bytes must not render" not in run_html
 
     job_html = env.get_template("job_detail.html").render(
         run={"run_id": "run_1"},

@@ -1,9 +1,9 @@
 ---
 schema_version: "striatum.operator_brief.v1"
 artifact_kind: "operator_brief"
-brief_id: "brief_2026-05-23_rfc0050_0075_final_cutover"
-supersedes: "brief_2026-05-23_residual-closure"
-scope_links: ["docs/operator/artifacts/rfc-0050-0075-final-cutover-implementation/final/SUMMARY.md", "docs/operator/artifacts/residual-deferred-closure-2026-05-23/final/SUMMARY.md", "docs/operator/artifacts/d125-auto-finalize-live-build-evidence-2026-05-23/GATE.md", "docs/architecture/CLI_RETIREMENT_PARITY.md", "docs/operator/plans/rfc-0050-0075-final-cutover-design.md", "docs/operator/plans/rfc-0050-0075-final-cutover-implementation.md"]
+brief_id: "brief_2026-05-23_rfc0075_polish_closure"
+supersedes: "brief_2026-05-23_rfc0050_0075_final_cutover"
+scope_links: ["docs/rfcs/0075-tmux-observable-mcp-agent-sessions.md", "docs/operator/plans/rfc-0075-tmux-observable-mcp-agent-sessions.md", "docs/operator/artifacts/rfc-0050-0075-final-cutover-implementation/final/SUMMARY.md", "docs/operator/artifacts/residual-deferred-closure-2026-05-23/final/SUMMARY.md", "docs/operator/artifacts/d125-auto-finalize-live-build-evidence-2026-05-23/GATE.md", "docs/architecture/CLI_RETIREMENT_PARITY.md", "docs/operator/plans/rfc-0050-0075-final-cutover-design.md", "docs/operator/plans/rfc-0050-0075-final-cutover-implementation.md"]
 context_budget_lines: 300
 retrieval_priority: "high"
 status: "current"
@@ -38,11 +38,13 @@ is a later deprecation/release decision. The scaffolded design workflow ran as
 `run_4a5eb33b0d6b037e9f62a0335d04b349`; the implementation workflow ran as
 `run_ee2973e23ad697085a52766410906940`. Both completed.
 
-RFC 0075 remains the broader tmux-observable MCP-session umbrella. RFC 0077 is
-accepted and its V1 liveness slice has landed: daemon-owned MCP activity
-timestamps, `session.report`, protocol liveness projections in status,
-dashboard, and `supervise.status`, plus metadata-only stall transition events.
-Tmux panes, pane text, terminal output, and transcripts are inspection
+RFC 0075 is accepted for the current tmux-observable MCP-session contract
+(D131). The landed scope includes daemon-owned MCP activity timestamps,
+`session.report`, protocol liveness projections in status, dashboard,
+`supervise.status`, and web run-detail session chips, metadata-only stall
+transition events, tmux attach metadata projection, fail-closed
+`supervision.require_tmux` opt-in for PTY-helper lanes, and guardrails that
+keep tmux panes, pane text, terminal output, and transcripts as inspection
 metadata only, never workflow state.
 
 The TODO 55/56/59/60 product checkpoint is resolved by D124-D127. D125 still
@@ -108,9 +110,9 @@ has `contested_audit_chain_events: 1` from the reported repo event-chain
    current when adding daemon methods. Hide/delete compatibility CLI verbs only
    through a later explicit deprecation/release decision.
 3. Continue bounded follow-through: TODO 61/49 legacy SQLite cleanup, TODO 52
-   remaining service route splits, TODO 53 blocker payload/schema hardening,
-   and RFC 0075 tmux-observable/operator-UI polish. Schedule new bounded RFCs
-   before implementing RFC 0052 Phase A, RFC 0053 schema/runtime rename,
+   remaining service route splits, and TODO 53 blocker payload/schema
+   hardening. Schedule new bounded RFCs before implementing RFC 0052 Phase A,
+   RFC 0053 schema/runtime rename,
    Cross-Repo Live Scheduler V1, sealed apply, Windows support, or local
    multi-operator tenancy.
 
@@ -152,5 +154,6 @@ has `contested_audit_chain_events: 1` from the reported repo event-chain
 - `docs/operator/plans/rfc-0050-0075-final-cutover-design.md`
 - `docs/operator/plans/rfc-0050-0075-final-cutover-implementation.md`
 - `docs/operator/artifacts/rfc-0050-0075-final-cutover-implementation/final/SUMMARY.md`
+- `docs/operator/plans/rfc-0075-tmux-observable-mcp-agent-sessions.md`
 - `docs/rfcs/0077-mcp-activity-liveness-deadlines.md`
 - `docs/architecture/CLI_RETIREMENT_PARITY.md`
