@@ -4,8 +4,11 @@ artifact_kind: "work_plan"
 plan_id: "plan_ordered-backlog-2026-05-23"
 scope_kind: "initiative"
 scope_ref: "docs/operator/BRIEF.md"
-state: "open"
+state: "closed"
 opened_at: "2026-05-23"
+closed_at: "2026-05-23"
+closure_summary: "Run run_0937abb24a344dc268aa35d7c852359e completed all ordered phases and published docs/operator/artifacts/ordered-backlog-2026-05-23/final/SUMMARY.md."
+supersedes: null
 retrieval_priority: "high"
 ---
 
@@ -49,3 +52,9 @@ Validation:
 ```bash
 PYTHONPATH=src python3 -m striatum.cli workflow validate --allow-same-model-pairing docs/operator/workflows/ordered-backlog-2026-05-23/workflow.json
 ```
+
+## Outcome
+
+Completed as `run_0937abb24a344dc268aa35d7c852359e` on 2026-05-23.
+Final synthesis:
+`docs/operator/artifacts/ordered-backlog-2026-05-23/final/SUMMARY.md`.

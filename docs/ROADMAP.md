@@ -530,8 +530,9 @@ fixtures and compatibility imports.
   module load. The compatibility `invoke()` seam lazy-loads it only when that
   explicit legacy wrapper path is called.
 - `src/striatum/web/static_assets.py` now owns bundled static asset lookup,
-  path validation, and content-type mapping. `service.py` keeps HTTP response
-  writing and CSP/header behavior for the `/static/*` route.
+  path validation, content-type mapping, JSON error mapping, CSP/header
+  selection, and response body orchestration. `service.py` keeps the thin
+  `/static/*` route wrapper and supplies context callbacks.
 - `src/striatum/web/workflows.py` now owns workflow editor file resolution,
   new-workflow scaffold payloads, validation, atomic writes, and If-Match
   handling. `service.py` keeps HTTP request parsing, template rendering, and

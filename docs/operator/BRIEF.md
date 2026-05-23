@@ -3,7 +3,7 @@ schema_version: "striatum.operator_brief.v1"
 artifact_kind: "operator_brief"
 brief_id: "brief_2026-05-20_go-daemon-http-sse-mcp"
 supersedes: "brief_2026-05-17_go-daemon-remediation"
-scope_links: ["docs/operator/plans/next-steps-1-6.md", "docs/operator/workflows/next-steps-1-6/workflow.json", "docs/operator/plans/remaining-runway-1-8.md", "docs/operator/plans/rfc-0050-cli-retirement-cutover.md", "docs/operator/plans/rfc-0075-tmux-observable-mcp-agent-sessions.md"]
+scope_links: ["docs/operator/plans/next-steps-1-6.md", "docs/operator/workflows/next-steps-1-6/workflow.json", "docs/operator/plans/remaining-runway-1-8.md", "docs/operator/plans/rfc-0050-cli-retirement-cutover.md", "docs/operator/plans/rfc-0075-tmux-observable-mcp-agent-sessions.md", "docs/operator/plans/ordered-backlog-2026-05-23.md", "docs/operator/workflows/ordered-backlog-2026-05-23/workflow.json", "docs/operator/artifacts/ordered-backlog-2026-05-23/final/SUMMARY.md"]
 context_budget_lines: 300
 retrieval_priority: "high"
 status: "current"
@@ -108,6 +108,16 @@ source with a guardrail preventing it from returning. The checked
 CLI routes before any retirement; no live workflow-control CLI verb is
 hidden by this slice.
 
+The ordered backlog workflow completed on 2026-05-23 as
+`run_0937abb24a344dc268aa35d7c852359e`; final synthesis is
+`docs/operator/artifacts/ordered-backlog-2026-05-23/final/SUMMARY.md`.
+It recorded the D125 live gate as still pending, added exact MCP
+workflow-control dispatch tests and parity-ledger updates, pruned one legacy
+SQLite skills-test fixture skip, split static asset response orchestration
+out of `service.py`, accepted D130's link-only escalation artifact policy,
+closed F2 publication-policy documentation, and refreshed current-doc generic
+language guardrails.
+
 ## Next 1-3 Actions
 
 1. Run the D125 live auto-finalize dogfood evidence gate only when ready:
@@ -117,9 +127,10 @@ hidden by this slice.
 2. Use `docs/architecture/CLI_RETIREMENT_PARITY.md` to close remaining UI
    gaps before hiding any live workflow-control CLI verb. Bootstrap and
    diagnostics commands should survive unless a later decision says otherwise.
-3. Continue bounded TODO 61/49/62/63 cleanup where guardrails still identify
-   legacy SQLite fixture/import or direct-state residue; keep historical
-   fixtures quarantined rather than deleting broad suites blindly.
+3. Continue bounded cleanup/service follow-through: TODO 61/49/62/63
+   residual direct-state or historical fixture cleanup, TODO 52 remaining
+   `service.py` route splits, TODO 53 typed escalation table/schema
+   hardening, and RFC 0075 tmux-observable/fail-closed lane work.
 
 ## Blockers
 
@@ -159,3 +170,6 @@ hidden by this slice.
 - `docs/operator/plans/active-runway-1-5.md`
 - `docs/operator/workflows/active-runway-1-5/workflow.json`
 - `docs/operator/artifacts/active-runway-1-5/FINAL.md`
+- `docs/operator/plans/ordered-backlog-2026-05-23.md`
+- `docs/operator/workflows/ordered-backlog-2026-05-23/workflow.json`
+- `docs/operator/artifacts/ordered-backlog-2026-05-23/final/SUMMARY.md`

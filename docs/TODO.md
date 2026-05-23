@@ -1011,9 +1011,10 @@ review and plan are root-level operator artifacts:
     invoked. Follow-up cleanup landed: `service.py` no longer eagerly imports
     the legacy `striatum.api` wrapper at module load; the compatibility
     `invoke()` seam lazy-loads it only when explicitly called. Follow-up split
-    landed: `web/static_assets.py` owns static
-    asset lookup, path validation, and content-type mapping while
-    `service.py` keeps HTTP response writing and CSP/header behavior.
+    landed: `web/static_assets.py` owns static asset lookup, path validation,
+    content-type mapping, JSON error mapping, CSP/header selection, and
+    response body orchestration while `service.py` keeps a thin route wrapper
+    and supplies context callbacks.
     Follow-up split landed: `web/workflows.py` owns workflow editor file
     resolution, new-workflow scaffold payloads, validation, atomic writes, and
     If-Match checks while `service.py` keeps HTTP request parsing, template
