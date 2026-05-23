@@ -171,6 +171,41 @@ func TestHandleSuperviseStatusKeepsGonePIDAsReadProjection(t *testing.T) {
 	}
 }
 
+func TestTmuxMetadataIsAllowlistedForOperatorStatus(t *testing.T) {
+	tmux := tmuxMetadata(map[string]any{
+		"tmux": map[string]any{
+			"session_name":   "striatum-run_1-lane_1-sup_1",
+			"window_id":      "@1",
+			"pane_id":        "%2",
+			"attach_command": "tmux attach-session -t striatum-run_1-lane_1-sup_1",
+			"pane_text":      "terminal bytes must stay out",
+			"raw_output":     "terminal bytes must stay out",
+		},
+	})
+	if tmux["state"] != "attachable" || tmux["pane_id"] != "%2" {
+		t.Fatalf("tmux metadata = %#v", tmux)
+	}
+	for _, forbidden := range []string{"pane_text", "raw_output"} {
+		if _, ok := tmux[forbidden]; ok {
+			t.Fatalf("tmux metadata leaked %s: %#v", forbidden, tmux)
+		}
+	}
+}
+
+func TestTmuxUnavailableMetadataCarriesStaticRemediation(t *testing.T) {
+	tmux := tmuxMetadata(map[string]any{
+		"tmux": map[string]any{
+			"unavailable_reason": "tmux_not_found",
+		},
+	})
+	if tmux["state"] != "unavailable" {
+		t.Fatalf("tmux metadata = %#v", tmux)
+	}
+	if !strings.Contains(superviseString(tmux["remediation"]), "install tmux") {
+		t.Fatalf("tmux remediation = %#v", tmux["remediation"])
+	}
+}
+
 func TestSuperviseReadHandlersValidateParamsBeforeQuery(t *testing.T) {
 	tests := []struct {
 		name    string

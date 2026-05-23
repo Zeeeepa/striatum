@@ -565,23 +565,47 @@ func shapeEscalations(rows []map[string]any) []map[string]any {
 	return shaped
 }
 
-func escalationArtifactSummary(row map[string]any) map[string]any {
-	if row["linked_artifact_id"] == nil {
+func escalationArtifactSummary(row map[string]any) any {
+	payload := objectOrEmpty(row["payload_json"])
+	value, ok := payload["escalation_artifact"].(map[string]any)
+	if !ok {
+		return nil
+	}
+	required := []string{"artifact_id", "repo_path", "content_sha256", "linked_at", "link_source"}
+	for _, key := range required {
+		if stringFrom(value, key) == "" {
+			return nil
+		}
+	}
+	if stringFrom(value, "artifact_id") != stringFrom(row, "linked_artifact_id") ||
+		stringFrom(value, "repo_path") != stringFrom(row, "linked_repo_path") ||
+		stringFrom(value, "content_sha256") != stringFrom(row, "linked_content_sha256") {
 		return nil
 	}
 	return map[string]any{
-		"artifact_id":     row["linked_artifact_id"],
-		"repo_path":       row["linked_repo_path"],
-		"content_sha256":  row["linked_content_sha256"],
-		"linked_at":       nil,
-		"link_source":     nil,
-		"summary_partial": true,
+		"artifact_id":    stringFrom(value, "artifact_id"),
+		"repo_path":      stringFrom(value, "repo_path"),
+		"content_sha256": stringFrom(value, "content_sha256"),
+		"linked_at":      stringFrom(value, "linked_at"),
+		"link_source":    stringFrom(value, "link_source"),
 	}
 }
 
 func objectOrEmpty(value any) map[string]any {
 	if object, ok := value.(map[string]any); ok {
 		return object
+	}
+	if raw, ok := value.([]byte); ok {
+		var object map[string]any
+		if err := json.Unmarshal(raw, &object); err == nil && object != nil {
+			return object
+		}
+	}
+	if raw, ok := value.(string); ok {
+		var object map[string]any
+		if err := json.Unmarshal([]byte(raw), &object); err == nil && object != nil {
+			return object
+		}
 	}
 	return map[string]any{}
 }

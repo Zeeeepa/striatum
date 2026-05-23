@@ -500,7 +500,71 @@ def _render_sessions(sessions: Sequence[Any], width: int) -> list[str]:
         if byline:
             parts.append(byline)
         lines.append(_truncate("  " + "  ".join(parts), width))
+        liveness = _session_liveness_line(raw_session)
+        if liveness:
+            lines.append(_truncate("    " + liveness, width))
+        tmux = _session_tmux_line(raw_session)
+        if tmux:
+            lines.append(_truncate("    " + tmux, width))
     return lines if len(lines) > 1 else []
+
+
+def _session_liveness_line(session: Mapping[str, Any]) -> str:
+    liveness = _as_dict(session.get("liveness"))
+    if not liveness:
+        return ""
+    protocol = str(liveness.get("protocol") or "")
+    lease = str(liveness.get("lease") or "")
+    parts: list[str] = []
+    if protocol:
+        parts.append(f"protocol={protocol}")
+    if lease:
+        parts.append(f"lease={lease}")
+    stall = str(liveness.get("stall_class") or "")
+    if stall:
+        parts.append(f"stall={stall}")
+    deadline = str(liveness.get("deadline_name") or "")
+    seconds = liveness.get("deadline_seconds")
+    if deadline:
+        suffix = f"/{seconds}s" if seconds else ""
+        parts.append(f"deadline={deadline}{suffix}")
+    report = str(liveness.get("last_session_report_kind") or "")
+    if report:
+        parts.append(f"last_report={report}")
+    if not parts:
+        return ""
+    return "liveness " + " ".join(parts)
+
+
+def _session_tmux_line(session: Mapping[str, Any]) -> str:
+    tmux = _as_dict(session.get("tmux"))
+    if not tmux:
+        return ""
+    state = str(tmux.get("state") or "")
+    unavailable = str(tmux.get("unavailable_reason") or "")
+    if unavailable:
+        line = f"tmux unavailable: {unavailable}"
+        remediation = str(tmux.get("remediation") or "")
+        if remediation:
+            line += f"; {remediation}"
+        return line
+    attach = str(tmux.get("attach_command") or "")
+    if attach:
+        suffixes = []
+        window_id = str(tmux.get("window_id") or "")
+        pane_id = str(tmux.get("pane_id") or "")
+        if window_id:
+            suffixes.append(f"window={window_id}")
+        if pane_id:
+            suffixes.append(f"pane={pane_id}")
+        suffix = " " + " ".join(suffixes) if suffixes else ""
+        label = "tmux attach" if state in {"", "attachable"} else f"tmux {state}"
+        return f"{label}: {attach}{suffix}"
+    session_name = str(tmux.get("session_name") or "")
+    if session_name:
+        label = "tmux session" if not state else f"tmux {state}"
+        return f"{label}: {session_name}"
+    return ""
 
 
 def _render_blocker_triage(blockers: Sequence[Any], width: int) -> list[str]:

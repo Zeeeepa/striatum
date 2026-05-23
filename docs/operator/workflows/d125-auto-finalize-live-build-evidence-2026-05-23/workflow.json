@@ -1,0 +1,88 @@
+{
+  "schema_version": "striatum.workflow.v1",
+  "workflow_id": "d125-auto-finalize-live-build-evidence-2026-05-23",
+  "workflow_version": "2026-05-23",
+  "name": "D125 auto-finalize live build evidence probe 2026-05-23",
+  "context_docs": [
+    "docs/DECISION_LOG.md",
+    "docs/TODO.md",
+    "docs/operator/BRIEF.md",
+    "src/striatum/daemon_pg/handlers/recovery_evidence/auto_finalize.py",
+    "src/striatum/artifact_contracts.py",
+    "AGENTS.md"
+  ],
+  "coordinator": {
+    "role_id": "coordinator",
+    "lane_id": "codex_build"
+  },
+  "parallelism": {
+    "mode": "declared",
+    "max_active_jobs": 1,
+    "require_disjoint_write_scopes": true
+  },
+  "branch": {
+    "mode": "confirm",
+    "suggested_name": "main",
+    "allow_dirty": true
+  },
+  "recovery": {
+    "auto_finalize": {
+      "enabled": true
+    }
+  },
+  "lanes": {
+    "codex_build": {
+      "adapter": "process",
+      "command": [
+        "bash",
+        "-lc",
+        "printf 'd125 auto-finalize build evidence lane\\n'"
+      ],
+      "model": "codex",
+      "display_model": "Codex Build Probe",
+      "strategy_version": "2026-05-23"
+    }
+  },
+  "roles": {
+    "coordinator": {
+      "description": "Operator/control-plane role."
+    },
+    "implementer": {
+      "description": "Build-lane evidence producer."
+    }
+  },
+  "jobs": [
+    {
+      "id": "write_build_evidence",
+      "type": "build",
+      "title": "Write expected build artifact for auto-finalize",
+      "role_id": "implementer",
+      "lane_id": "codex_build",
+      "fresh_session_required": true,
+      "objective": "Write a valid expected build evidence artifact and leave the job for recovery.auto_finalize.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/d125-auto-finalize-live-build-evidence-2026-05-23/prompt.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/operator/artifacts/d125-auto-finalize-live-build-evidence-2026-05-23/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "build_evidence",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/d125-auto-finalize-live-build-evidence-2026-05-23/BUILD.md",
+          "required": true
+        }
+      ]
+    }
+  ],
+  "edges": [],
+  "cycles": []
+}

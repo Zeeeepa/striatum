@@ -1,0 +1,44 @@
+# Striatum Evidence Export
+
+- run_id: `run_6ff2b4939f9a37987cc9fb38413b8079`
+- state: `completed`
+- branch: `main`
+
+## Snapshot
+
+```json
+{
+  "artifacts": [
+    {
+      "artifact_id": "art_20038e27a0e720033b21f27fae15fa86",
+      "byline": "author: operator [self-declared: d125-build-driver]",
+      "content_sha256": "b74f86ad5f25f91666bbdbde00b8ae8e67312b312f9c4fe36bb1b2286e613224",
+      "job_id": "job_run_6ff2b4939f9a37987cc9fb38413b8079_write_build_evidence",
+      "kind": "synthesis",
+      "logical_name": "build_evidence",
+      "path": "docs/operator/artifacts/d125-auto-finalize-live-build-evidence-2026-05-23/BUILD.md",
+      "published_at": "2026-05-23T15:17:40Z",
+      "run_id": "run_6ff2b4939f9a37987cc9fb38413b8079"
+    }
+  ],
+  "doctor": {
+    "blob": {
+      "configured": false
+    },
+    "ok": true,
+    "problems": [],
+    "schema_version": 14,
+    "stale_leases": 2,
+    "waiting_human": 0
+  },
+  "runs": [
+    {
+      "branch_name": "main",
+      "completed_at": "2026-05-23T15:17:40Z",
+      "run_id": "run_6ff2b4939f9a37987cc9fb38413b8079",
+      "state": "completed"
+    }
+  ],
+  "verdicts": []
+}
+```

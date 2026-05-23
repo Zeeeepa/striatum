@@ -22,7 +22,7 @@ func TestHandleEscalationList(t *testing.T) {
 		rows: [][]any{{
 			"blk_1", "blk_1", "run_1", "job_1", "build",
 			"sess_1", "implementer", "codex", "error", "missing_authority",
-			"needs principal decision", "open", "2026-05-17T00:00:00Z", nil, map[string]any{"seed": "blk_1"},
+			"needs principal decision", "open", "2026-05-17T00:00:00Z", nil, validEscalationPayload(),
 			"art_escalation", "docs/escalations/ESCALATION.md", "sha-escalation",
 			"pending", nil, nil, nil,
 		}},
@@ -44,6 +44,17 @@ func TestHandleEscalationList(t *testing.T) {
 	if esc["escalation_id"] != "blk_1" || esc["inbox_state"] != "pending" {
 		t.Errorf("unexpected escalation state: %#v", esc)
 	}
+	link, ok := esc["escalation_artifact"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected escalation artifact summary, got: %#v", esc["escalation_artifact"])
+	}
+	if link["artifact_id"] != "art_escalation" ||
+		link["repo_path"] != "docs/escalations/ESCALATION.md" ||
+		link["content_sha256"] != "sha-escalation" ||
+		link["linked_at"] != "2026-05-17T00:00:01Z" ||
+		link["link_source"] != "artifact.publish" {
+		t.Errorf("unexpected escalation artifact link: %#v", link)
+	}
 }
 
 func TestHandleEscalationShowMarksViewed(t *testing.T) {
@@ -58,7 +69,7 @@ func TestHandleEscalationShowMarksViewed(t *testing.T) {
 		rows: [][]any{{
 			"blk_1", "blk_1", "run_1", "job_1", "build",
 			"sess_1", "implementer", "codex", "error", "missing_authority",
-			"needs principal decision", "open", "2026-05-17T00:00:00Z", nil, map[string]any{"seed": "blk_1"},
+			"needs principal decision", "open", "2026-05-17T00:00:00Z", nil, validEscalationPayload(),
 			"art_escalation", "docs/escalations/ESCALATION.md", "sha-escalation",
 			"viewed", "2026-05-20T04:26:00Z", nil, nil,
 		}},
@@ -83,6 +94,59 @@ func TestHandleEscalationShowMarksViewed(t *testing.T) {
 
 	if len(fake.execSQL) != 1 || !strings.Contains(fake.execSQL[0], "UPDATE striatumd.escalation_inbox") {
 		t.Errorf("expected escalation_inbox update to be executed, execs: %v", fake.execSQL)
+	}
+}
+
+func TestEscalationProjectionSuppressesStaleArtifactPayloadLink(t *testing.T) {
+	row := map[string]any{
+		"escalation_id":         "blk_1",
+		"blocker_id":            "blk_1",
+		"run_id":                "run_1",
+		"job_id":                "job_1",
+		"workflow_job_id":       "build",
+		"session_id":            "sess_1",
+		"session_role_id":       "implementer",
+		"session_lane_id":       "codex",
+		"severity":              "blocked",
+		"class":                 "missing_authority",
+		"description":           "needs principal decision",
+		"state":                 "open",
+		"created_at":            "2026-05-17T00:00:00Z",
+		"resolved_at":           nil,
+		"payload_json":          validEscalationPayloadWithHash("sha-stale"),
+		"linked_artifact_id":    "art_escalation",
+		"linked_repo_path":      "docs/escalations/ESCALATION.md",
+		"linked_content_sha256": "sha-escalation",
+		"inbox_state":           "pending",
+		"viewed_at":             nil,
+		"decision_artifact_id":  nil,
+		"resolution_note":       nil,
+	}
+
+	escalations := shapeEscalations([]map[string]any{row})
+	if escalations[0]["escalation_artifact"] != nil {
+		t.Fatalf("expected stale escalation artifact link to be suppressed, got %#v", escalations[0]["escalation_artifact"])
+	}
+	payload := objectOrEmpty(escalations[0]["payload"])
+	if payload["escalation_artifact"] == nil {
+		t.Fatalf("expected raw payload to remain available, got %#v", payload)
+	}
+}
+
+func validEscalationPayload() map[string]any {
+	return validEscalationPayloadWithHash("sha-escalation")
+}
+
+func validEscalationPayloadWithHash(contentSha256 string) map[string]any {
+	return map[string]any{
+		"seed": "blk_1",
+		"escalation_artifact": map[string]any{
+			"artifact_id":    "art_escalation",
+			"repo_path":      "docs/escalations/ESCALATION.md",
+			"content_sha256": contentSha256,
+			"linked_at":      "2026-05-17T00:00:01Z",
+			"link_source":    "artifact.publish",
+		},
 	}
 }
 

@@ -586,11 +586,39 @@ func attachSupervisorTmux(view map[string]any, metadataKey string) {
 }
 
 func tmuxMetadata(metadata map[string]any) map[string]any {
-	tmux := superviseObject(metadata["tmux"])
+	raw := superviseObject(metadata["tmux"])
+	if len(raw) == 0 {
+		return nil
+	}
+	tmux := map[string]any{}
+	for _, key := range []string{"session_name", "window_id", "pane_id", "attach_command", "unavailable_reason"} {
+		if value := superviseString(raw[key]); value != "" {
+			tmux[key] = value
+		}
+	}
+	if reason := superviseString(tmux["unavailable_reason"]); reason != "" {
+		tmux["state"] = "unavailable"
+		if remediation := tmuxUnavailableRemediation(reason); remediation != "" {
+			tmux["remediation"] = remediation
+		}
+	} else if superviseString(tmux["attach_command"]) != "" || superviseString(tmux["session_name"]) != "" {
+		tmux["state"] = "attachable"
+	}
 	if len(tmux) == 0 {
 		return nil
 	}
 	return tmux
+}
+
+func tmuxUnavailableRemediation(reason string) string {
+	switch reason {
+	case "tmux_not_found":
+		return "install tmux or unset supervision.require_tmux for non-interactive lanes"
+	case "missing_run_or_lane":
+		return "restart the PTY supervisor with STRIATUM_RUN_ID and STRIATUM_LANE_ID"
+	default:
+		return ""
+	}
 }
 
 func rowExists(ctx context.Context, runner db.Runner, sql string, args ...any) (bool, error) {

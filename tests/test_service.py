@@ -403,6 +403,117 @@ def test_v1_invoke_daemon_mapped_mutation_uses_daemon_rpc_not_api_invoke(
     ]
 
 
+@pytest.mark.parametrize(
+    ("argv", "expected_method", "expected_params"),
+    [
+        (
+            ["recovery", "requeue-stale", "--run-id", "run_1", "--job-id", "job_1"],
+            "recovery.requeue_stale",
+            {"run_id": "run_1", "job_id": "job_1"},
+        ),
+        (
+            ["recovery", "auto-publish", "--run-id", "run_1", "--dry-run"],
+            "recovery.auto_publish_stale_artifacts",
+            {"run_id": "run_1", "dry_run": True},
+        ),
+        (
+            [
+                "decision",
+                "record",
+                "--run-id",
+                "run_1",
+                "--path",
+                "decisions/accepted.md",
+                "--outcome",
+                "accepted",
+                "--title",
+                "Accepted direction",
+            ],
+            "decision.record",
+            {
+                "run_id": "run_1",
+                "path": "decisions/accepted.md",
+                "title": "Accepted direction",
+                "outcome": "accepted",
+                "decision_id": None,
+                "rationale": None,
+                "follow_up": None,
+            },
+        ),
+        (
+            ["checkpoint", "resolve", "--blocker-id", "blk_1", "--action", "continue"],
+            "checkpoint.resolve",
+            {"blocker_id": "blk_1", "action": "continue", "decision_id": None},
+        ),
+    ],
+)
+def test_v1_invoke_existing_ui_gap_routes_daemon_rpc_not_api_invoke(
+    tmp_path: Path,
+    monkeypatch: Any,
+    argv: list[str],
+    expected_method: str,
+    expected_params: dict[str, Any],
+) -> None:
+    sys.path.insert(0, str(ROOT / "src"))
+    try:
+        from email.message import Message
+        from io import BytesIO
+
+        import striatum.api as api
+        import striatum.service as service
+        import striatum.service_daemon as service_daemon
+    finally:
+        sys.path.pop(0)
+
+    monkeypatch.delenv("STRIATUM_TEST_HARNESS", raising=False)
+    monkeypatch.delenv("STRIATUM_DAEMON_REQUIRED", raising=False)
+
+    def invoke_tripwire(*args: Any, **kwargs: Any) -> None:
+        raise AssertionError("/v1/invoke fell back to striatum.api.invoke")
+
+    calls: list[tuple[Path, str, dict[str, Any]]] = []
+
+    def fake_call_repo_method(
+        repo: Path, method: str, params: dict[str, Any]
+    ) -> dict[str, Any]:
+        calls.append((repo, method, dict(params)))
+        return {"recorded": True, "method": method}
+
+    monkeypatch.setattr(api, "invoke", invoke_tripwire)
+    monkeypatch.setattr(service_daemon, "call_repo_method", fake_call_repo_method)
+
+    raw = json.dumps({"argv": argv}).encode("utf-8")
+    headers = Message()
+    headers["Content-Type"] = "application/json"
+    headers["Content-Length"] = str(len(raw))
+    sent: dict[str, Any] = {}
+    handler = object.__new__(service.StriatumServiceHandler)
+    handler.state = service.ServiceState(
+        repo=tmp_path,
+        allow_mutations=True,
+        token=None,
+        web_enabled=False,
+    )
+    handler.path = "/v1/invoke"
+    handler.headers = headers
+    handler.rfile = BytesIO(raw)
+    monkeypatch.setattr(handler, "_authenticate", lambda: True)
+    monkeypatch.setattr(handler, "_requires_same_origin", lambda path: False)
+    monkeypatch.setattr(
+        handler,
+        "_send_json",
+        lambda status, body: sent.update({"status": status, "body": body}),
+    )
+
+    handler._dispatch_post()
+
+    assert sent == {
+        "status": 200,
+        "body": {"ok": True, "data": {"recorded": True, "method": expected_method}},
+    }
+    assert calls == [(tmp_path, expected_method, expected_params)]
+
+
 def test_v1_invoke_override_verdict_web_context_routes_daemon_rpc(
     tmp_path: Path, monkeypatch: Any
 ) -> None:
