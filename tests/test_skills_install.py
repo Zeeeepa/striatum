@@ -1,6 +1,4 @@
-# ruff: noqa
 from __future__ import annotations
-import pytest; pytest.skip("legacy sqlite eradicated", allow_module_level=True)
 
 import json
 import os
@@ -19,6 +17,7 @@ from striatum.skills import (  # noqa: E402
     bundled_template_sha256,
     load_manifest,
     manifest_path_for,
+    skill_files_present,
 )
 
 
@@ -155,61 +154,51 @@ def test_init_with_skills_installs_after_init(tmp_path: Path) -> None:
     assert (tmp_path / ".claude/skills/striatum-workflow/SKILL.md").exists()
 
 
-def test_doctor_reports_skills_missing(tmp_path: Path) -> None:
-    from striatum.cli.introspect import doctor
-    from striatum.legacy_sqlite.db import connect, init_repo
-
-    init_repo(tmp_path)
+def test_skill_files_present_reports_missing_claude_skill(tmp_path: Path) -> None:
     install_skills(target=tmp_path, profile="claude_code")
-    # Remove one file so the manifest no longer matches disk.
     target = tmp_path / ".claude/skills/striatum-recover/SKILL.md"
     target.unlink()
-    with connect(tmp_path) as conn:
-        result = doctor(conn, repo=tmp_path, run_id=None, verbose=True)
-    checks = {row["check"] for row in result["problem_records"]}
-    assert "skills_missing" in checks
+    manifest = load_manifest(manifest_path_for(target=tmp_path, profile="claude_code"))
+    assert manifest is not None
+    assert skill_files_present(target=tmp_path, manifest=manifest) == [
+        ".claude/skills/striatum-recover/SKILL.md"
+    ]
 
 
-def test_doctor_reports_skills_outdated_on_version(tmp_path: Path) -> None:
-    from striatum.cli.introspect import doctor
-    from striatum.legacy_sqlite.db import connect, init_repo
-
-    init_repo(tmp_path)
+def test_manifest_records_striatum_version_for_staleness_checks(tmp_path: Path) -> None:
     install_skills(target=tmp_path, profile="claude_code")
     manifest_path = manifest_path_for(target=tmp_path, profile="claude_code")
     payload = load_manifest(manifest_path)
     assert payload is not None
+    assert payload["striatum_version"] == STRIATUM_VERSION
     payload["striatum_version"] = "0.0.0-pretend-stale"
     manifest_path.write_text(
         json.dumps(payload, indent=2, sort_keys=False) + "\n",
         encoding="utf-8",
     )
-    with connect(tmp_path) as conn:
-        result = doctor(conn, repo=tmp_path, run_id=None, verbose=True)
-    checks = {row["check"] for row in result["problem_records"]}
-    assert "skills_outdated" in checks
+    stale = load_manifest(manifest_path)
+    assert stale is not None
+    assert stale["striatum_version"] != STRIATUM_VERSION
 
 
-def test_doctor_reports_skills_outdated_on_template_sha(tmp_path: Path) -> None:
-    from striatum.cli.introspect import doctor
-    from striatum.legacy_sqlite.db import connect, init_repo
-
-    init_repo(tmp_path)
+def test_manifest_template_sha_can_be_checked_without_sqlite(tmp_path: Path) -> None:
     install_skills(target=tmp_path, profile="claude_code")
     manifest_path = manifest_path_for(target=tmp_path, profile="claude_code")
     payload = load_manifest(manifest_path)
     assert payload is not None
-    # Pretend a template's bundled hash drifted by recording a fake
-    # sha for one entry. Doctor should flag the divergence.
     payload["files"][0]["template_sha256"] = "00" * 32
     manifest_path.write_text(
         json.dumps(payload, indent=2, sort_keys=False) + "\n",
         encoding="utf-8",
     )
-    with connect(tmp_path) as conn:
-        result = doctor(conn, repo=tmp_path, run_id=None, verbose=True)
-    checks = {row["check"] for row in result["problem_records"]}
-    assert "skills_outdated" in checks
+    changed = load_manifest(manifest_path)
+    assert changed is not None
+    mismatches = [
+        entry["path"]
+        for entry in changed["files"]
+        if entry["template_sha256"] != bundled_template_sha256(entry["template"])
+    ]
+    assert mismatches == [payload["files"][0]["path"]]
 
 
 def test_no_external_url_invariant(tmp_path: Path) -> None:
@@ -417,38 +406,22 @@ def test_init_with_skills_all_writes_every_profile(tmp_path: Path) -> None:
         assert path.exists(), path
 
 
-def test_doctor_reports_skills_missing_for_codex_profile(tmp_path: Path) -> None:
-    from striatum.cli.introspect import doctor
-    from striatum.legacy_sqlite.db import connect, init_repo
-
-    init_repo(tmp_path)
+def test_skill_files_present_reports_missing_codex_profile_file(tmp_path: Path) -> None:
     install_skills(target=tmp_path, profile="codex")
     target = tmp_path / ".codex" / "agents" / "striatum-recover.md"
     target.unlink()
-    with connect(tmp_path) as conn:
-        result = doctor(conn, repo=tmp_path, run_id=None, verbose=True)
-    checks = {row["check"] for row in result["problem_records"]}
-    profile_ids = {
-        row["context"].get("profile")
-        for row in result["problem_records"]
-        if row["check"] == "skills_missing"
-    }
-    assert "skills_missing" in checks
-    assert "codex" in profile_ids
+    manifest = load_manifest(manifest_path_for(target=tmp_path, profile="codex"))
+    assert manifest is not None
+    assert skill_files_present(target=tmp_path, manifest=manifest) == [
+        ".codex/agents/striatum-recover.md"
+    ]
 
 
-def test_doctor_reports_skills_missing_for_gemini_profile(tmp_path: Path) -> None:
-    from striatum.cli.introspect import doctor
-    from striatum.legacy_sqlite.db import connect, init_repo
-
-    init_repo(tmp_path)
+def test_skill_files_present_reports_missing_gemini_profile_file(tmp_path: Path) -> None:
     install_skills(target=tmp_path, profile="gemini")
     (tmp_path / "striatum-STRIATUM_GEMINI_GUIDE.md").unlink()
-    with connect(tmp_path) as conn:
-        result = doctor(conn, repo=tmp_path, run_id=None, verbose=True)
-    profile_ids = {
-        row["context"].get("profile")
-        for row in result["problem_records"]
-        if row["check"] == "skills_missing"
-    }
-    assert "gemini" in profile_ids
+    manifest = load_manifest(manifest_path_for(target=tmp_path, profile="gemini"))
+    assert manifest is not None
+    assert skill_files_present(target=tmp_path, manifest=manifest) == [
+        "striatum-STRIATUM_GEMINI_GUIDE.md"
+    ]

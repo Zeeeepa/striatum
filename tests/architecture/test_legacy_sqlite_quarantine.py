@@ -93,9 +93,6 @@ RESIDUAL_LEGACY_SQLITE_TEST_IMPORTS: dict[Path, set[str]] = {
         "from striatum.legacy_sqlite.db import connect",
         "from striatum.legacy_sqlite.db import init_repo",
     },
-    Path("tests/test_skills_install.py"): {
-        "from striatum.legacy_sqlite.db import connect, init_repo"
-    },
     Path("tests/test_supervise.py"): {
         "from striatum.legacy_sqlite.db import connect",
         "from striatum.legacy_sqlite.db import init_repo",
