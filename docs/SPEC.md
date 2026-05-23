@@ -1100,9 +1100,10 @@ generic, all}] [--scope {project, user}] [--namespace <prefix>]
 [--force] [--dry-run]` writes a self-contained agent skill bundle
 into the target tree. The bundle teaches a Striatum-aware agent how
 to drive the runner without reading the source repo: each rendered
-Markdown file lists the relevant CLI verbs, the boundary conditions
-the runner does not enforce (no SQLite writes, no marker files as
-state, no transcript capture), and a copy-pasteable command sequence.
+Markdown file lists the relevant daemon MCP methods and CLI compatibility
+verbs, the boundary conditions the runner does not enforce (no SQLite writes,
+no marker files as state, no transcript capture), and copy-pasteable method
+examples.
 
 V1.2 ships four profiles plus an `all` fan-out:
 
@@ -1228,8 +1229,8 @@ and method-denial vocabulary match the Unix-socket daemon path.
 
 The retired local Python stdio MCP wrapper is not a product surface. Tests and
 compatibility harnesses must not depend on the removed Python MCP module; any
-local manual invocation should use daemon MCP or ordinary daemon-backed CLI
-routes.
+local live workflow invocation should use daemon MCP, the local web UI, or a
+documented daemon-backed CLI fallback.
 
 Operator-driven production runs use daemon MCP as the mandatory tool surface.
 CLI use remains acceptable only when it is daemon-backed or when a documented
@@ -1721,8 +1722,10 @@ The supervise CLI surface:
   `supervision.stdin_delivery: "one_shot_eof"` with pipe transport for
   commands that read all stdin and require EOF before they start work; after
   one packet write, Striatum closes/removes the FIFO and marks the one-shot
-  stdin as consumed. Reactions remain CLI-driven (publish, ack, complete,
-  verdict) so the supervisor never parses agent stdout.
+  stdin as consumed. Reactions are daemon-driven through MCP/RPC methods
+  (`artifact.publish`, `work.ack`, `work.complete`, `review.verdict`), with
+  CLI compatibility fallbacks available for older wrappers. The supervisor
+  never parses agent stdout.
 - PTY-helper lanes can set `supervision.require_tmux: true` to fail closed if
   `tmux` is unavailable or run/lane metadata is missing. Without that opt-in,
   PTY-helper launch may fall back to a plain PTY and records tmux
@@ -1813,12 +1816,13 @@ fails to advance and `doctor` surfaces
    delivery is the work packet's `packet_json` followed by a trailing
    newline. Persistent wrappers parse one packet per line; one-shot
    commands read until EOF and parse the single payload they receive.
-3. **Call back via the `striatum` CLI.** The agent advances workflow
-   state by invoking `striatum ack`, `heartbeat`, `publish-artifact`,
-   `block`, `verdict`/`submit-review`, and `complete` with the
-   identifiers from the packet. The supervisor sends stdout and
-   stderr to `DEVNULL`; the agent's only durable output is the
-   artifacts and verdicts it records via the CLI.
+3. **Call back through daemon MCP/RPC.** The agent advances workflow state by
+   invoking `work.ack`, `work.heartbeat`, `artifact.publish`, `work.block`,
+   `review.verdict` / `review.submit`, and `work.complete` with the
+   identifiers from the packet. CLI commands for the same methods remain
+   compatibility fallbacks. The supervisor sends stdout and stderr to
+   `DEVNULL`; the agent's only durable output is the artifacts and verdicts it
+   records through the daemon.
 
 A working supervised lane therefore needs an agent that knows the
 Striatum protocol — a project skill, an embedded loop, or a wrapper

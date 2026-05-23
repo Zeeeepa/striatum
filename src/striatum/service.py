@@ -71,6 +71,8 @@ from striatum.web.artifacts import (
 )
 from striatum.web import run_actions as _run_actions
 from striatum.web.run_actions import RunActionContext as _RunActionContext
+from striatum.web import operator_actions as _operator_actions
+from striatum.web.operator_actions import OperatorActionContext as _OperatorActionContext
 from striatum.web import escalations as _escalations
 from striatum.web.escalations import EscalationRouteContext as _EscalationRouteContext
 from striatum.web import run_pages as _run_pages
@@ -464,6 +466,54 @@ class StriatumServiceHandler(BaseHTTPRequestHandler):
 
     def _handle_job_action(self, path: str) -> None:
         _run_actions.handle_job_action(self._run_action_context(), path)
+
+    def _operator_action_context(self) -> _OperatorActionContext:
+        return _OperatorActionContext(
+            repo=self.state.repo,
+            allow_mutations=self.state.allow_mutations,
+            send_json=self._send_json,
+            send_html=self._send_html,
+            read_json_body_strict=self._read_json_body_strict,
+            jinja_env=_jinja_env,
+        )
+
+    def _render_cross_repo_page(self) -> None:
+        _operator_actions.render_cross_repo_page(self._operator_action_context())
+
+    def _handle_recovery_action(self, run_id: str, action: str) -> None:
+        _operator_actions.handle_recovery_action(
+            self._operator_action_context(),
+            run_id,
+            action,
+        )
+
+    def _handle_worktree_action(self, run_id: str, job_id: str, action: str) -> None:
+        _operator_actions.handle_worktree_action(
+            self._operator_action_context(),
+            run_id,
+            job_id,
+            action,
+        )
+
+    def _handle_supervise_action(self, session_id: str, action: str) -> None:
+        _operator_actions.handle_supervise_action(
+            self._operator_action_context(),
+            session_id,
+            action,
+        )
+
+    def _handle_cross_repo_cancel(self, cross_repo_run_id: str) -> None:
+        _operator_actions.handle_cross_repo_cancel(
+            self._operator_action_context(),
+            cross_repo_run_id,
+        )
+
+    def _handle_artifact_commit_apply(self, run_id: str, artifact_id: str) -> None:
+        _operator_actions.handle_artifact_commit_apply(
+            self._operator_action_context(),
+            run_id,
+            artifact_id,
+        )
 
     def _read_json_body_strict(self, max_bytes: int) -> "dict[str, Any] | None":
         return _request_io.read_json_body_strict(

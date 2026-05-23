@@ -23,15 +23,17 @@ Use this skill to bring a target repo from "no `.striatum/`" to
 
 {verbs_scaffold}
 
-Run `striatum <verb> --help` for full flag sets.
+Workflow-file creation and validation may still use local CLI compatibility
+commands. Preparing and starting live runs should use the local operator UI or
+daemon MCP when available; `striatum <verb> --help` documents fallback flags.
 
 ## Common patterns
 
 ```bash
 striatum --repo /path/to/target init
 striatum --repo /path/to/target workflow validate path/to/workflow.json
-striatum --repo /path/to/target run prepare --workflow path/to/workflow.json --json
-striatum --repo /path/to/target run start --run-id <id> --json
+tools/call run.prepare {{"workflow":"path/to/workflow.json"}}
+tools/call run.start {{"run_id":"<id>"}}
 ```
 
 `branch.mode: "auto"` is the default; `run prepare` creates the

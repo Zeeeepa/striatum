@@ -1,9 +1,9 @@
 ---
 schema_version: "striatum.operator_brief.v1"
 artifact_kind: "operator_brief"
-brief_id: "brief_2026-05-23_residual-closure"
-supersedes: "brief_2026-05-23_next-todos"
-scope_links: ["docs/operator/artifacts/residual-deferred-closure-2026-05-23/final/SUMMARY.md", "docs/operator/artifacts/d125-auto-finalize-live-build-evidence-2026-05-23/GATE.md", "docs/architecture/CLI_RETIREMENT_PARITY.md", "docs/operator/plans/rfc-0050-cli-retirement-cutover.md", "docs/operator/plans/rfc-0075-tmux-observable-mcp-agent-sessions.md"]
+brief_id: "brief_2026-05-23_rfc0050_0075_final_cutover"
+supersedes: "brief_2026-05-23_residual-closure"
+scope_links: ["docs/operator/artifacts/rfc-0050-0075-final-cutover-implementation/final/SUMMARY.md", "docs/operator/artifacts/residual-deferred-closure-2026-05-23/final/SUMMARY.md", "docs/operator/artifacts/d125-auto-finalize-live-build-evidence-2026-05-23/GATE.md", "docs/architecture/CLI_RETIREMENT_PARITY.md", "docs/operator/plans/rfc-0050-0075-final-cutover-design.md", "docs/operator/plans/rfc-0050-0075-final-cutover-implementation.md"]
 context_budget_lines: 300
 retrieval_priority: "high"
 status: "current"
@@ -26,6 +26,17 @@ alias, capability-filters `tools/list`, routes `tools/call` through daemon
 RPC, and publishes the current endpoint as `mcp-http-endpoint`. The
 `agent-loop` supervisor is a PTY bootstrapper: agents connect as autonomous
 MCP clients instead of being fed polled JSON by a proxy wrapper.
+
+The RFC 0050/RFC 0075 live workflow-control cutover completed on 2026-05-23.
+No human or AI live workflow-control action now requires invoking
+`striatum` CLI verbs. Agents are documented to use daemon MCP first; humans
+use the local web UI for operator actions. Surviving CLI commands are
+classified in `docs/architecture/CLI_RETIREMENT_PARITY.md` as bootstrap,
+lane compatibility, or operator compatibility clients of daemon RPC. This
+cutover does not delete CLI commands; hiding or removing compatibility verbs
+is a later deprecation/release decision. The scaffolded design workflow ran as
+`run_4a5eb33b0d6b037e9f62a0335d04b349`; the implementation workflow ran as
+`run_ee2973e23ad697085a52766410906940`. Both completed.
 
 RFC 0075 remains the broader tmux-observable MCP-session umbrella. RFC 0077 is
 accepted and its V1 liveness slice has landed: daemon-owned MCP activity
@@ -84,9 +95,7 @@ D125 is not satisfied. It has 2 operator-self-declared live behavioral
 successes across 2 lane shapes, but still needs one more successful live
 dogfood and the evidence gate cannot be satisfied while the current workspace
 has `contested_audit_chain_events: 1` from the reported repo event-chain
-`row_hash_mismatch` for event `7506`. CLI retirement is also not complete:
-MCP parity expanded, but UI, docs, and skill cutover gaps remain before any
-live workflow-control CLI verb should be hidden or deleted.
+`row_hash_mismatch` for event `7506`.
 
 ## Next 1-3 Actions
 
@@ -94,10 +103,10 @@ live workflow-control CLI verb should be hidden or deleted.
    audit-chain finding: collect one more successful live dogfood and preserve
    at least two lane shapes with zero contested audit-chain events. Keep
    global behavior dry-run and workflow opt-in.
-2. Use `docs/architecture/CLI_RETIREMENT_PARITY.md` to close remaining UI,
-   docs, and skill gaps before hiding any live workflow-control CLI verb.
-   Bootstrap and diagnostics commands should survive unless a later decision
-   says otherwise.
+2. Treat RFC 0050/RFC 0075 cutover as complete for live workflow control.
+   Keep the CLI survivor categories in `docs/architecture/CLI_RETIREMENT_PARITY.md`
+   current when adding daemon methods. Hide/delete compatibility CLI verbs only
+   through a later explicit deprecation/release decision.
 3. Continue bounded follow-through: TODO 61/49 legacy SQLite cleanup, TODO 52
    remaining service route splits, TODO 53 blocker payload/schema hardening,
    and RFC 0075 tmux-observable/operator-UI polish. Schedule new bounded RFCs
@@ -109,8 +118,9 @@ live workflow-control CLI verb should be hidden or deleted.
 
 - D125 default-live auto-finalize is blocked on the remaining live evidence
   gate, not on a product decision.
-- CLI retirement is blocked on parity gaps in UI, docs, and skills. Expanded
-  MCP dispatch coverage is necessary evidence, but not sufficient.
+- RFC 0050/RFC 0075 live workflow-control cutover is no longer blocked.
+  Remaining CLI compatibility cleanup is a future deprecation policy question,
+  not an active parity blocker.
 - Hosted Git provider behavior, external corpus-fetch UX, and Engram-side
   memory tools are out of core unless later optional-extension decisions
   accept them.
@@ -121,8 +131,8 @@ live workflow-control CLI verb should be hidden or deleted.
   agents. Agents must operate as autonomous MCP clients.
 - Do not treat tmux panes, pane text, terminal output, or transcripts as
   workflow state.
-- Do not delete CLI workflow-control verbs before MCP/UI/docs/skill parity
-  exists and is covered by tests.
+- Do not delete CLI compatibility verbs without an explicit deprecation/release
+  decision. They are daemon clients, not live-state authorities.
 - Do not reopen repo-local SQLite or the legacy daemon registry in production
   paths.
 - Do not add hosted services, telemetry, transcript capture, or external
@@ -139,7 +149,8 @@ live workflow-control CLI verb should be hidden or deleted.
 - `docs/operator/workflows/d125-auto-finalize-live-build-evidence-2026-05-23/workflow.json`
 - `docs/operator/artifacts/d125-auto-finalize-live-build-evidence-2026-05-23/REPORT.md`
 - `docs/operator/artifacts/d125-auto-finalize-live-build-evidence-2026-05-23/GATE.md`
-- `docs/operator/plans/rfc-0050-cli-retirement-cutover.md`
-- `docs/operator/plans/rfc-0075-tmux-observable-mcp-agent-sessions.md`
+- `docs/operator/plans/rfc-0050-0075-final-cutover-design.md`
+- `docs/operator/plans/rfc-0050-0075-final-cutover-implementation.md`
+- `docs/operator/artifacts/rfc-0050-0075-final-cutover-implementation/final/SUMMARY.md`
 - `docs/rfcs/0077-mcp-activity-liveness-deadlines.md`
 - `docs/architecture/CLI_RETIREMENT_PARITY.md`

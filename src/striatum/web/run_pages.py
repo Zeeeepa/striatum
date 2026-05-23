@@ -171,6 +171,9 @@ def render_run_detail_page(ctx: RunPageContext, run_id: str) -> None:
             recovery_panel = {}
         recovery_panel.setdefault("run_id", run_id)
         recovery_panel.setdefault("recipes", [])
+        recovery_panel.setdefault("blockers", [])
+        recovery_panel.setdefault("human_checkpoints", [])
+        recovery_panel.setdefault("blocked", [])
         html = ctx.jinja_env().get_template("run_detail.html").render(
             run=run,
             jobs=jobs,

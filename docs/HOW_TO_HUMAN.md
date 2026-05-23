@@ -44,7 +44,8 @@ principal items, links to each detail view, and resolves escalation-class
 blockers through the daemon-backed `escalation.resolve` path when
 mutations are enabled.
 
-The CLI remains available as temporary compatibility and debugging surface:
+The CLI remains available as a daemon-backed compatibility and debugging
+surface:
 
 ```bash
 striatum --repo "$TARGET_REPO" inbox --json
@@ -410,9 +411,9 @@ run_summary(run_id=…, path="…")
 evidence_export(run_id=…, path="…")
 ```
 
-The bash CLI surface stays canonical (RFC 0040 §"Non-Goals"); the
-chat tools are an additive surface for the operator session, not a
-replacement. Anything the chat tools do is also available as a
+Daemon MCP/chat tools and the local web UI are the normal live-control
+surfaces. The bash CLI remains a daemon-backed compatibility and debugging
+client. Anything the chat tools do is also available as a
 bash CLI command.
 
 For deeper authoring guidance, see

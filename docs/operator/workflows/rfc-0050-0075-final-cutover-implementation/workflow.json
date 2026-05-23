@@ -1,0 +1,136 @@
+{
+  "schema_version": "striatum.workflow.v1",
+  "workflow_id": "rfc-0050-0075-final-cutover-implementation",
+  "workflow_version": "2026-05-23",
+  "name": "RFC 0050 / RFC 0075 final cutover implementation",
+  "context_docs": [
+    "AGENTS.md",
+    "docs/operator/artifacts/rfc-0050-0075-final-cutover-design/design/CUTOVER_DESIGN.md",
+    "docs/architecture/CLI_RETIREMENT_PARITY.md",
+    "docs/HOW_TO_AGENT.md",
+    "docs/MCP.md",
+    "docs/SPEC.md",
+    "src/striatum/service_routes.py",
+    "src/striatum/service.py",
+    "src/striatum/web/"
+  ],
+  "coordinator": {"role_id": "coordinator", "lane_id": "codex"},
+  "parallelism": {
+    "mode": "declared",
+    "max_active_jobs": 2,
+    "require_disjoint_write_scopes": true
+  },
+  "branch": {
+    "mode": "confirm",
+    "suggested_name": "striatum/rfc-0050-0075-final-cutover-implementation",
+    "allow_dirty": true
+  },
+  "lanes": {
+    "codex": {
+      "adapter": "process",
+      "command": ["bash", "-lc", "exec .striatum/bin/codex-supervised-wrapper.sh"],
+      "model": "codex",
+      "display_model": "Codex GPT-5",
+      "strategy_version": "2026-05-23",
+      "constraints": {"network": "forbidden", "repo_scope": "local_only", "transcripts": "off"},
+      "required_enforcement": {"network": "advisory_strict", "repo_scope": "advisory_strict", "transcripts": "enforced"},
+      "supervision": {"compatible": true, "stdin_format": "newline_delimited_json", "wrapper_required": true}
+    }
+  },
+  "roles": {
+    "coordinator": {"description": "Operator/control-plane coordinator."},
+    "implementer": {"description": "Implements cutover code/docs/tests."},
+    "reviewer": {"description": "Reviews authority and regression risks."},
+    "closer": {"description": "Publishes implementation closure evidence."}
+  },
+  "jobs": [
+    {
+      "id": "implement_cutover",
+      "type": "build",
+      "title": "Implement final cutover",
+      "role_id": "implementer",
+      "lane_id": "codex",
+      "fresh_session_required": true,
+      "objective": "Implement daemon-routed local web actions, docs/skills MCP-first cutover, and parity-ledger terminal survivor categories.",
+      "task_prompt": {"path": "docs/operator/workflows/rfc-0050-0075-final-cutover-implementation/prompts/implement_cutover.md"},
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "src/striatum/",
+          "tests/",
+          "docs/",
+          "go/"
+        ],
+        "forbidden_paths": [".striatum/", ".venv/", "__pycache__/"]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "implementation_handoff",
+          "kind": "handoff",
+          "path": "docs/operator/artifacts/rfc-0050-0075-final-cutover-implementation/build/HANDOFF.md",
+          "author_line": "author: operator [self-declared: implementer-codex-gpt-5-001]",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "review_cutover",
+      "type": "review",
+      "title": "Review final cutover",
+      "role_id": "reviewer",
+      "lane_id": "codex",
+      "fresh_session_required": true,
+      "reviewer_context_policy": "fresh",
+      "reviewer_access_scope": "repo_level",
+      "review_posture": "custom:authority_boundary",
+      "objective": "Review the implementation for authority, MCP/UI parity, docs, and no-transcript/no-hosted-service regressions.",
+      "task_prompt": {"path": "docs/operator/workflows/rfc-0050-0075-final-cutover-implementation/prompts/review_cutover.md"},
+      "write_scope": {
+        "mode": "review_only_artifact",
+        "repo_write": false,
+        "allowed_paths": ["docs/operator/artifacts/rfc-0050-0075-final-cutover-implementation/review/"],
+        "forbidden_paths": [".striatum/"]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "implementation_review",
+          "kind": "finding",
+          "path": "docs/operator/artifacts/rfc-0050-0075-final-cutover-implementation/review/REVIEW.md",
+          "author_line": "author: operator [self-declared: cutover-reviewer-codex-gpt-5-001]",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "finalize_cutover",
+      "type": "synthesis",
+      "title": "Finalize final cutover",
+      "role_id": "closer",
+      "lane_id": "codex",
+      "fresh_session_required": true,
+      "objective": "Publish final RFC 0050/RFC 0075 cutover closure and validation record.",
+      "task_prompt": {"path": "docs/operator/workflows/rfc-0050-0075-final-cutover-implementation/prompts/finalize_cutover.md"},
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": ["docs/operator/artifacts/rfc-0050-0075-final-cutover-implementation/final/"],
+        "forbidden_paths": [".striatum/"]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "cutover_closure",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/rfc-0050-0075-final-cutover-implementation/final/SUMMARY.md",
+          "author_line": "author: operator [self-declared: cutover-closer-codex-gpt-5-001]",
+          "required": true
+        }
+      ]
+    }
+  ],
+  "edges": [
+    {"from": "implement_cutover", "to": "review_cutover", "on": "completed"},
+    {"from": "review_cutover", "to": "finalize_cutover", "on": "completed"}
+  ],
+  "cycles": []
+}

@@ -52,6 +52,9 @@ def dispatch_get(handler: Any) -> None:
     if handler.state.web_enabled and path.startswith("/escalations/"):
         handler._render_escalation_detail_page(path[len("/escalations/"):])
         return
+    if handler.state.web_enabled and (path == "/cross-repo" or path == "/cross-repo/"):
+        handler._render_cross_repo_page()
+        return
     if handler.state.web_enabled and path == "/chat":
         handler._render_chat_index_page()
         return
@@ -178,6 +181,49 @@ def dispatch_post(handler: Any) -> None:
         and (parsed.path.endswith("/cancel") or parsed.path.endswith("/retry"))
     ):
         handler._handle_job_action(parsed.path)
+        return
+    parts = parsed.path.strip("/").split("/")
+    if (
+        handler.state.web_enabled
+        and len(parts) == 4
+        and parts[0] == "run"
+        and parts[2] == "recovery"
+    ):
+        handler._handle_recovery_action(parts[1], parts[3])
+        return
+    if (
+        handler.state.web_enabled
+        and len(parts) == 6
+        and parts[0] == "run"
+        and parts[2] == "job"
+        and parts[4] == "worktree"
+    ):
+        handler._handle_worktree_action(parts[1], parts[3], parts[5])
+        return
+    if (
+        handler.state.web_enabled
+        and len(parts) == 5
+        and parts[0] == "run"
+        and parts[2] == "artifact"
+        and parts[4] == "commit-apply"
+    ):
+        handler._handle_artifact_commit_apply(parts[1], parts[3])
+        return
+    if (
+        handler.state.web_enabled
+        and len(parts) == 4
+        and parts[0] == "sessions"
+        and parts[2] == "supervise"
+    ):
+        handler._handle_supervise_action(parts[1], parts[3])
+        return
+    if (
+        handler.state.web_enabled
+        and len(parts) == 3
+        and parts[0] == "cross-repo"
+        and parts[2] == "cancel"
+    ):
+        handler._handle_cross_repo_cancel(parts[1])
         return
     if (
         handler.state.web_enabled

@@ -24,9 +24,10 @@ runtime you can wrap as a command), records every state transition
 in a daemon-owned PostgreSQL audit chain, and never touches a hosted
 service.
 
-The runner does not decide that an agent is done because a terminal
-printed a phrase. Agents and humans move work by calling `striatum`
-CLI verbs.
+The runner does not decide that an agent is done because a terminal printed a
+phrase. Agents move work through daemon MCP/RPC methods, humans use the local
+web UI for routine operator actions, and the `striatum` CLI remains a
+daemon-backed bootstrap, diagnostics, and compatibility client.
 
 ## The two roles
 
@@ -34,11 +35,9 @@ Striatum runs with two named roles. RFC 0053 fixes the model.
 
 **AI operator** — the default driver.
 
-- Claims work, publishes artifacts, advances state through CLI
-  verbs.
-- Same surface that humans have; bounded by *function*, not
-  *interface*. Nothing prevents a human from calling any verb;
-  doing so for routine work is outside the role.
+- Claims work, publishes artifacts, advances state through daemon MCP tools.
+- Humans have local web UI and CLI compatibility access, but routine lane work
+  belongs to the AI operator.
 - Long-form companion to the operator skill bundle:
   [`HOW_TO_AGENT.md`](HOW_TO_AGENT.md).
 
@@ -51,9 +50,8 @@ Striatum runs with two named roles. RFC 0053 fixes the model.
 - Long-form playbook:
   [`HOW_TO_HUMAN.md`](HOW_TO_HUMAN.md).
 
-Routine work belongs to the operator. If you find yourself
-running CLI verbs to push a healthy run forward, the operator
-isn't doing its job — that's harness friction worth filing.
+Routine work belongs to the operator. If you find yourself using CLI fallback
+to push a healthy run forward, the operator harness should be improved.
 
 ## Prerequisites
 
@@ -159,11 +157,11 @@ the target repo and tell it:
 > Drive the workflow at `striatum/workflows/code-change/workflow.json`
 > using striatum.
 
-The operator skill bundle teaches the agent the verbs it needs
-(`claim-next`, `ack`, `complete`, `publish-artifact`, `verdict`,
-`submit-review`, `recovery requeue-stale`). The agent
-self-supervises through the loop until the run completes or hits a
-blocker it can't resolve.
+The operator skill bundle teaches the agent the daemon MCP methods it needs
+(`work.await_packet`, `work.ack`, `work.complete`, `artifact.publish`,
+`review.verdict`, `review.submit`, recovery methods). The agent
+self-supervises through the loop until the run completes or hits a blocker it
+can't resolve.
 
 ### Watching agent sessions
 

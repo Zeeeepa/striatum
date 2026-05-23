@@ -110,9 +110,9 @@ job/run, and verifies stale leases refuse later lifecycle mutation.
 - Move operator-facing workflow setup, lane selection, run observation,
   recovery, escalation, artifact review, and workflow selection to daemon MCP
   and/or the operator UI.
-- Keep only explicitly justified bootstrap and diagnostics commands until
-  equivalent MCP/UI surfaces exist; delete or hide workflow-control commands
-  once the replacement path has parity tests.
+- Classify remaining CLI commands as bootstrap, diagnostics, or compatibility
+  clients of daemon MCP/RPC. Hiding or deleting commands is a later
+  deprecation/release decision, not required for the Phase F cutover.
 - Update docs, examples, and skills so they teach MCP/UI operation first and
   stop presenting CLI loops as the normal path.
 
@@ -160,6 +160,6 @@ Do not block the first MCP daemon slices on:
   packet via MCP `tools/call`.
 - Phase F accepted: documented operator and agent workflows no longer require
   CLI verbs for live workflow control; remaining CLI commands are explicitly
-  classified as bootstrap, diagnostics, or temporary compatibility.
+  classified as bootstrap, diagnostics, or daemon-backed compatibility.
 - Phase G accepted: `src/striatum/mcp.py` and its docs/tests/aliases are
   removed after native Go MCP and replacement operator surfaces have parity.

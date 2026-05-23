@@ -6,5 +6,11 @@
   {% if session.lane_attestation != "attested" %}
   {{ ui.byline_line("author: operator", none, false) }}
   {% endif %}
+  {% if session.supervisor_id %}
+  <button type="button"
+          class="compact-button secondary-button"
+          data-supervise-action="stop"
+          data-session-id="{{ session.session_id }}">Stop supervisor</button>
+  {% endif %}
 </span>
 {%- endmacro %}

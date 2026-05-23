@@ -10,6 +10,12 @@
   <div id="island-recovery-panel"
        class="recovery-panel-island"
        data-props='{{ {"runId": panel.run_id, "recipes": panel.recipes or []} | tojson }}'></div>
+  <div class="recovery-action-bar" data-run-id="{{ panel.run_id }}">
+    <button type="button" class="secondary-button compact-button" data-recovery-action="stale-leases">Scan stale leases</button>
+    <button type="button" class="secondary-button compact-button" data-recovery-action="process-reconcile">Reconcile processes</button>
+    <button type="button" class="secondary-button compact-button" data-recovery-action="sweep">Run recovery sweep</button>
+    <button type="button" class="secondary-button compact-button" data-recovery-action="auto-finalize" data-dry-run="true">Auto-finalize dry run</button>
+  </div>
   {% set auto_finalize = panel.auto_finalize_dry_run or {} %}
   {% if auto_finalize.eligible or auto_finalize.skipped %}
   <div class="callout recovery-auto-finalize">
@@ -87,6 +93,12 @@
         <code data-copy="{{ recipe }}">{{ recipe }}</code>
         {% endfor %}
       </div>
+      {% endif %}
+      {% if blocker.blocker_id and blocker.blocker_kind and blocker.blocker_kind[:8] == "process_" %}
+      <button type="button"
+              class="secondary-button compact-button"
+              data-recovery-action="resume"
+              data-blocker-id="{{ blocker.blocker_id }}">Resume blocker</button>
       {% endif %}
     </li>
     {% endfor %}

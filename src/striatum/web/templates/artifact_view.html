@@ -32,6 +32,17 @@
   {{ ui.byline_line(artifact.author_line, artifact.expected_author_line, artifact.lane_attestation_chip.attested) }}
   {{ ui.lane_evidence_chip(artifact.lane_evidence_chip.state, artifact.lane_evidence_chip.rationale) }}
 
+  {% if artifact.artifact_kind == "commit_request" %}
+  <h2>Local commit apply</h2>
+  <div class="commit-apply-panel"
+       data-run-id="{{ run.run_id }}"
+       data-artifact-id="{{ artifact.artifact_id }}">
+    <label>Request ID <input type="text" id="commit-apply-request-id" autocomplete="off"></label>
+    <button type="button" class="primary-button" id="commit-apply-btn">Create local commit</button>
+    <span id="commit-apply-status" class="muted"></span>
+  </div>
+  {% endif %}
+
   <h2>Provenance trail</h2>
   {% if artifact.provenance_trail %}
   <ul class="provenance-trail">
@@ -60,4 +71,7 @@
   Use the raw API: <code>GET /v1/artifacts/{{ artifact.artifact_id }}/raw</code>.</p>
   {% endif %}
 </section>
+{% endblock %}
+{% block scripts %}
+<script defer src="/static/artifact_actions.js"></script>
 {% endblock %}

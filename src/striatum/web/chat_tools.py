@@ -27,12 +27,11 @@ return an error string rather than executing. Path safety mirrors the
 instruct the model to treat content between the delimiters as data,
 not instructions (prompt-injection defense in depth).
 
-Dogfood-lifecycle tools are thin shells over the existing CLI-shaped
-verbs and route mapped daemon methods through daemon RPC. Per RFC 0040 §1
-each chat-tool entry reuses the existing capability bound to its underlying
-RPC method; the chat surface's mutation gate (the ``mutation`` field on each
-entry plus ``--allow-mutations`` at the service) is the local-MCP equivalent
-of the daemon's capability-token filtering.
+Dogfood-lifecycle tools route mapped daemon methods through daemon RPC. Per
+RFC 0040 §1 each chat-tool entry reuses the existing capability bound to its
+underlying RPC method; the chat surface's mutation gate (the ``mutation`` field
+on each entry plus ``--allow-mutations`` at the service) is the local-MCP
+equivalent of the daemon's capability-token filtering.
 """
 
 from __future__ import annotations
@@ -209,7 +208,7 @@ _TOOLS: list[dict[str, Any]] = [
         "name": "run_prepare",
         "description": (
             "Prepare a workflow run from a repo-relative workflow.json path. "
-            "Wraps `striatum run prepare`. State-mutating; requires --allow-mutations."
+            "Calls daemon RPC `run.prepare`. State-mutating; requires --allow-mutations."
         ),
         "mutation": True,
         "parameters": {
@@ -227,7 +226,7 @@ _TOOLS: list[dict[str, Any]] = [
     {
         "name": "run_start",
         "description": (
-            "Start a previously-prepared run. Wraps `striatum run start --run-id`."
+            "Start a previously-prepared run through daemon RPC `run.start`."
         ),
         "mutation": True,
         "parameters": {
@@ -242,7 +241,7 @@ _TOOLS: list[dict[str, Any]] = [
     {
         "name": "register_session",
         "description": (
-            "Register an agent session against a run. Wraps `striatum register-session`."
+            "Register an agent session against a run through daemon RPC `session.register`."
         ),
         "mutation": True,
         "parameters": {
@@ -268,7 +267,7 @@ _TOOLS: list[dict[str, Any]] = [
         "name": "supervise_start",
         "description": (
             "Start the supervised wrapper for a registered session. "
-            "Wraps `striatum supervise start --session-id`."
+            "Calls daemon RPC `supervise.start`."
         ),
         "mutation": True,
         "parameters": {
@@ -283,7 +282,7 @@ _TOOLS: list[dict[str, Any]] = [
     {
         "name": "claim_next",
         "description": (
-            "Claim the next work packet for a session. Wraps `striatum claim-next`."
+            "Claim the next work packet for a session through daemon RPC `work.claim_next`."
         ),
         "mutation": True,
         "parameters": {
@@ -303,7 +302,7 @@ _TOOLS: list[dict[str, Any]] = [
     },
     {
         "name": "ack",
-        "description": "Acknowledge a claimed packet. Wraps `striatum ack`.",
+        "description": "Acknowledge a claimed packet through daemon RPC `work.ack`.",
         "mutation": True,
         "parameters": {
             "type": "object",
@@ -319,7 +318,7 @@ _TOOLS: list[dict[str, Any]] = [
     {
         "name": "publish_artifact",
         "description": (
-            "Publish a job artifact. Wraps `striatum publish-artifact`. The "
+            "Publish a job artifact through daemon RPC `artifact.publish`. The "
             "operator-on-behalf composite is documented in RFC 0040; V1 keeps "
             "the primitive chat-tool shape and lets the operator chain "
             "publish + complete or publish + verdict."
@@ -348,7 +347,7 @@ _TOOLS: list[dict[str, Any]] = [
     },
     {
         "name": "verdict",
-        "description": "Record a reviewer verdict. Wraps `striatum verdict`.",
+        "description": "Record a reviewer verdict through daemon RPC `review.verdict`.",
         "mutation": True,
         "parameters": {
             "type": "object",
@@ -374,7 +373,7 @@ _TOOLS: list[dict[str, Any]] = [
     },
     {
         "name": "complete",
-        "description": "Complete a job. Wraps `striatum complete`.",
+        "description": "Complete a job through daemon RPC `work.complete`.",
         "mutation": True,
         "parameters": {
             "type": "object",
@@ -390,7 +389,7 @@ _TOOLS: list[dict[str, Any]] = [
     },
     {
         "name": "supervise_stop",
-        "description": "Stop a supervised wrapper. Wraps `striatum supervise stop`.",
+        "description": "Stop a supervised wrapper through daemon RPC `supervise.stop`.",
         "mutation": True,
         "parameters": {
             "type": "object",
@@ -406,7 +405,7 @@ _TOOLS: list[dict[str, Any]] = [
         "name": "run_summary",
         "description": (
             "Export a JSON run summary to a repo-relative path. "
-            "Wraps `striatum run summary`. Read-shaped: not gated."
+            "Calls the daemon-backed run summary path. Read-shaped: not gated."
         ),
         "parameters": {
             "type": "object",
@@ -421,7 +420,7 @@ _TOOLS: list[dict[str, Any]] = [
     {
         "name": "evidence_export",
         "description": (
-            "Export the evidence bundle for a run. Wraps `striatum evidence export`. "
+            "Export the evidence bundle for a run through the daemon-backed path. "
             "Read-shaped: not gated."
         ),
         "parameters": {

@@ -44,8 +44,9 @@ work on Engram dogfood history.
 ## Working As A Striatum Agent
 
 When you are running inside a striatum workflow (not just editing the repo),
-the runner moves work through structured commands. Do not advance state by
-printing phrases or touching SQLite directly.
+the runner moves work through daemon MCP/RPC state transitions. Do not advance
+state by printing phrases, scraping terminal output, or touching SQLite
+directly.
 
 The workflow loop, work-packet shape, supervisor mode, decision artifacts,
 front-matter rules, and stale-lease recovery instructions all live in
@@ -53,8 +54,10 @@ front-matter rules, and stale-lease recovery instructions all live in
 RFC 0015 skill bundle when one is installed — before claiming work. The
 short version:
 
-- Use the CLI verbs supplied in each work packet's `commands` block
-  verbatim. Do not derive your own.
+- Use daemon MCP tools for live workflow control when an endpoint and
+  capability token are available. Treat the CLI verbs supplied in each work
+  packet's `commands` block as exact compatibility fallbacks and parameter
+  references; if you must use CLI fallback, run them verbatim.
 - Stay inside `write_scope.allowed_paths`. Never write to
   `forbidden_paths` or `.striatum/`.
 - Match `expected_artifacts[].author_line` exactly when an artifact's title
@@ -65,10 +68,10 @@ short version:
   `work_plan`, `progress_note`, `operator_report`) must validate
   against their V1 schema —
   the publisher refuses invalid front matter with exit code 6.
-- Lease expiry is lazy. If a normal CLI command refuses with exit code 5,
-  ask the operator to recover stale work via
-  `striatum recovery stale-leases` / `recovery requeue-stale` /
-  `recovery process-reconcile`.
+- Lease expiry is lazy. If MCP or CLI fallback refuses because a lease is
+  stale, ask the operator to recover stale work through the local UI or daemon
+  MCP recovery tools. CLI recovery verbs remain diagnostic/compatibility
+  clients of the same daemon boundary.
 
 `striatum dashboard --run-id <id>` is the compact terminal view for humans
 watching a run; `--once` produces a single frame to stdout for scripts and

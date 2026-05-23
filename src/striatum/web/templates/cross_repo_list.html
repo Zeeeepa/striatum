@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% import "_components.html" as ui %}
+{% block title %}Cross-Repo · Striatum{% endblock %}
+{% block main %}
+<section class="page-section">
+  <h1>Cross-Repo Runs</h1>
+  {% if runs %}
+  <table class="runs-table">
+    <thead>
+      <tr>
+        <th>Cross-repo run</th>
+        <th>State</th>
+        <th>Created</th>
+        <th>Action</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for run in runs %}
+      <tr>
+        <td><code>{{ run.cross_repo_run_id or run.run_id }}</code></td>
+        <td>{{ ui.run_state_pill(run.state) }}</td>
+        <td>{{ run.created_at or "—" }}</td>
+        <td>
+          {% set cross_id = run.cross_repo_run_id or run.run_id %}
+          {% if cross_id and run.state not in ("completed", "failed", "canceled") %}
+          <button type="button"
+                  class="secondary-button compact-button"
+                  data-cross-repo-cancel
+                  data-cross-repo-run-id="{{ cross_id }}">Cancel</button>
+          {% else %}
+          <span class="muted">—</span>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="empty-state">No cross-repo runs.</p>
+  {% endif %}
+</section>
+{% endblock %}
+{% block scripts %}
+<script defer src="/static/cross_repo_actions.js"></script>
+{% endblock %}

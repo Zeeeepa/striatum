@@ -12,11 +12,11 @@ When Gemini CLI's skill-discovery convention stabilizes, the
 `gemini` profile will graduate to a five-file shape matching
 Claude Code; until then, this single guide is the canonical answer.
 
-Striatum is a local-first runner whose authoritative live state
-lives in a daemon-owned PostgreSQL instance under a `repository_id`
-scope per target repository (D094 / RFC 0043). `.striatum/` next to
-the target repo is operational scratch only. The runner — not your
-prose, and not direct database access — advances state.
+Striatum is a local-first runner whose authoritative live state lives in a
+daemon-owned PostgreSQL instance under a `repository_id` scope per target
+repository (D094 / RFC 0043). `.striatum/` next to the target repo is
+operational scratch only. The runner — not your prose, terminal output, or
+direct database access — advances state through daemon MCP/RPC methods.
 
 ## Scaffold
 
@@ -30,34 +30,32 @@ Common pattern:
 ```bash
 striatum --repo /path/to/target init
 striatum --repo /path/to/target workflow validate path/to/workflow.json
-striatum --repo /path/to/target run prepare --workflow path/to/workflow.json --json
-striatum --repo /path/to/target run start --run-id <id> --json
+tools/call run.prepare {{"workflow":"path/to/workflow.json"}}
+tools/call run.start {{"run_id":"<id>"}}
 ```
 
 ## Claim loop
 
-The core verb sequence for actually doing work:
+The core MCP method sequence for actually doing work:
 
 {verbs_claim_loop}
 
 Common pattern:
 
-```bash
-striatum --repo $REPO register-session --run-id $RUN \
-    --role $ROLE --lane $LANE --json
-striatum --repo $REPO claim-next --session-id $SESSION --json
-striatum --repo $REPO ack --session-id $SESSION \
-    --message-id $MSG --lease-id $LEASE --json
-striatum --repo $REPO publish-artifact --session-id $SESSION \
-    --job-id $JOB --lease-id $LEASE \
-    --kind $KIND --logical-name $NAME --path $PATH --json
-striatum --repo $REPO complete --session-id $SESSION \
-    --job-id $JOB --lease-id $LEASE --json
+```json
+{{"method":"tools/list","params":{{"repository_id":"<repository-id>"}}}}
+{{"method":"tools/call","params":{{"name":"session.register","repository_id":"<repository-id>","arguments":{{"run_id":"<run-id>","role":"<role>","lane":"<lane>"}}}}}}
+{{"method":"tools/call","params":{{"name":"work.await_packet","repository_id":"<repository-id>","arguments":{{"session_id":"<session-id>","lease_seconds":1800}}}}}}
+{{"method":"tools/call","params":{{"name":"work.ack","repository_id":"<repository-id>","arguments":{{"session_id":"<session-id>","message_id":"<message-id>","lease_id":"<lease-id>"}}}}}}
+{{"method":"tools/call","params":{{"name":"artifact.publish","repository_id":"<repository-id>","arguments":{{"session_id":"<session-id>","job_id":"<job-id>","lease_id":"<lease-id>","kind":"<kind>","logical_name":"<logical-name>","path":"<repo-relative-path>"}}}}}}
+{{"method":"tools/call","params":{{"name":"work.complete","repository_id":"<repository-id>","arguments":{{"session_id":"<session-id>","job_id":"<job-id>","lease_id":"<lease-id>","summary":"completed"}}}}}}
 ```
 
-For review jobs, do not call `complete`. Replace the last two steps with
-`submit-review --verdict {{accept,accept_with_findings,needs_revision,reject}}`;
-the daemon rejects bare completion for verdict-capable jobs.
+For review jobs, do not call `work.complete`. Replace the last two steps with
+`review.submit` and `verdict` set to
+`{{accept,accept_with_findings,needs_revision,reject}}`; the daemon rejects
+bare completion for verdict-capable jobs. Packet `commands` entries remain
+exact CLI compatibility fallbacks and id references.
 
 ## Front-matter kinds
 
@@ -71,9 +69,10 @@ The publisher refuses invalid front matter with exit code 6.
 
 ## Long-lived supervised lanes
 
-If the lane's harness profile sets
-`supervision.compatible: true`, packets arrive as newline-
-terminated JSON on stdin via `striatum supervise send`:
+If the lane's harness profile sets `supervision.compatible: true`, the current
+agent-loop path exports MCP endpoint/token context and expects the agent to
+call `tools/list` and `work.await_packet`. The older newline-delimited stdin
+delivery via `striatum supervise send` remains a CLI compatibility path:
 
 {verbs_supervise}
 
@@ -89,9 +88,10 @@ striatum --repo $REPO supervise send \
     --session-id $SESSION --packet-id $PACKET_ID --json
 ```
 
-Use `data.packet_id`, or paste `data.next_steps.supervise_send`.
-Do not use `message_id`, `lease_id`, `job_id`, `session_id`, or
-`supervisor_id` as `--packet-id`.
+For MCP, call `work.await_packet` directly instead of routing packets through
+stdin. For CLI fallback, use `data.packet_id`, or paste
+`data.next_steps.supervise_send`. Do not use `message_id`, `lease_id`,
+`job_id`, `session_id`, or `supervisor_id` as `--packet-id`.
 
 ## Recovery
 
@@ -109,9 +109,9 @@ striatum --repo $REPO doctor --run-id $RUN --verbose --json
 
 ## MCP Mutation Surface
 
-Use this section when an operator gives you a capability token and asks you
-to use daemon MCP, or when chat workflow generation needs preview/write
-tool calls.
+Use this section when an operator gives you a capability token, when you are
+driving live workflow control, or when chat workflow generation needs
+preview/write tool calls.
 
 Call `tools/list` first. It returns the effective supported production tool
 set for the current token after capability, repository-scope, and production
@@ -124,9 +124,9 @@ registry.
 
 Preview generated workflows with `workflow.generate.preview` when it appears
 in `tools/list`; it returns the workflow, file list, graph metadata, warnings,
-and validation without writing files. Workflow writes use the CLI or web-chat
-workflow-authoring flow and may not be discoverable through production daemon
-MCP `tools/list`.
+and validation without writing files. Workflow-file authoring writes use the
+web-chat workflow-authoring flow or CLI compatibility fallback and may not be
+discoverable through production daemon MCP `tools/list`.
 
 Denial recovery:
 

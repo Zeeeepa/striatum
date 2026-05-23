@@ -7,8 +7,9 @@ composites are hidden from discovery. `tools/call` re-authorizes every call;
 mutating calls append metadata-only audit rows, including denials.
 
 Use `workflow.generate.preview` before any workflow write when it appears in
-`tools/list`. Workflow writes use the CLI or web-chat workflow-authoring flow
-and may not be discoverable through production daemon MCP `tools/list`.
+`tools/list`. Workflow-file authoring writes use the web-chat
+workflow-authoring flow or CLI compatibility fallback and may not be
+discoverable through production daemon MCP `tools/list`.
 
 Recover from `capability_missing`, `token_revoked`, `token_expired`,
 `method_unknown`, and `mutations_disabled` by stopping and asking the

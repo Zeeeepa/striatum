@@ -29,8 +29,9 @@ dependency edges, and "what would I do next" framing. Update on every
   active runway. The 2026-05-23 closure artifacts under `docs/operator/`
   classify TODO 62, TODO 63, TODO 2, TODO 16, artifact schema/redaction, RFC
   0040 V1.6, and the deferred items formerly listed as 14-27. The actionable
-  result is narrower than the old backlog: D125 evidence and RFC 0050/0075
-  CLI retirement remain active gates; TODO 52/53/61 remain bounded cleanup;
+  result is narrower than the old backlog: D125 evidence remains an active
+  gate, RFC 0050/0075 live workflow-control cutover is closed, TODO 52/53/61
+  remain bounded cleanup;
   RFC 0074 Phase B generator work is ready to schedule; RFC 0052 Phase A,
   RFC 0053 schema/runtime rename, Cross-Repo Live Scheduler V1, sealed apply,
   Windows support, and local multi-operator tenancy need separate accepted
@@ -56,14 +57,14 @@ dependency edges, and "what would I do next" framing. Update on every
   tests.
 - **Branches:** `main` is the active integration branch.
 
-### 1.1 Active Operator track: HTTP/SSE MCP daemon and CLI retirement
+### 1.1 Current Operator Track: HTTP/SSE MCP Daemon And CLI Compatibility
 
-Native HTTP MCP in the Go daemon has landed for RFC 0050 Phase A-D: `/mcp` is
+Native HTTP MCP in the Go daemon has landed for RFC 0050 Phase A-G: `/mcp` is
 the primary direct request endpoint, `/mcp/sse` remains the SSE/backcompat
-alias, tool discovery/calls reuse daemon RPC authorization, and the fake MCP
-agent coverage completes a minimal packet loop through `/mcp`. The remaining
-active work is the longer cutover away from CLI-driven workflow control. The
-working spec is
+alias, tool discovery/calls reuse daemon RPC authorization, the fake MCP agent
+coverage completes a packet loop through `/mcp`, agent-loop is a PTY/MCP
+bootstrapper, the Python MCP wrapper is deleted, and the final RFC 0050/RFC
+0075 live workflow-control cutover is complete. The working spec is
 [`RFC 0050 — Native Go Daemon HTTP/SSE MCP and Agent Loop`](rfcs/0050-go-daemon-http-sse-mcp.md).
 
 Order the work as a set of gates, not as one all-or-nothing cutover:
@@ -80,22 +81,19 @@ Order the work as a set of gates, not as one all-or-nothing cutover:
 5. [done] Refactor `go/pkg/agentloop` into a PTY bootstrapper that gives agents the
    endpoint/token/repository/lane instructions and then lets the agent use its
    own MCP client.
-6. [RFC 0077 V1 landed; broader cutover continues] Move live operator actions to MCP/UI surfaces until
-   no workflow-control operation requires a human or AI operator to invoke
-   `striatum` CLI verbs. The RFC 0075 / MCP cutover workflow completed and
-   landed `session.report` as the MCP pre-packet readiness/heartbeat/question/
-   escalation method. RFC 0077 V1 now persists MCP activity timestamps,
-   projects protocol liveness through status/dashboard/supervise reads, and
-   records recovery-sweep liveness transition events. Tmux attach metadata now
-   projects through supervisor/status/dashboard reads, and PTY-helper lanes can
-   opt in to fail-closed tmux with `supervision.require_tmux: true`; broader UI
-   polish remains under RFC 0075.
+6. [done] Move live operator actions to MCP/UI surfaces until no
+   workflow-control operation requires a human or AI operator to invoke
+   `striatum` CLI verbs. The final RFC 0050/RFC 0075 cutover adds web/UI
+   parity for the remaining operator actions, updates current agent docs and
+   skill templates to MCP-first control, and reclassifies surviving CLI verbs
+   as bootstrap, lane compatibility, or operator compatibility in
+   `docs/architecture/CLI_RETIREMENT_PARITY.md`.
 7. [done] Delete `src/striatum/mcp.py` and retire Python MCP launch docs.
 
 For this roadmap, "eliminating the CLI" means eliminating CLI verbs as the
-live workflow control plane. Bootstrap and diagnostics commands may survive
-temporarily, but every survivor must be explicitly classified and backed by a
-planned MCP/UI replacement or a narrow operational justification.
+live workflow control plane. Bootstrap, diagnostics, and daemon-backed
+compatibility commands survive intentionally; hiding or deleting commands is a
+later deprecation/release decision.
 
 Post-transition operator introspection is proposed in
 [`RFC 0075 - Tmux-Observable MCP Agent Sessions And Liveness Deadlines`](rfcs/0075-tmux-observable-mcp-agent-sessions.md):
@@ -105,10 +103,10 @@ signals. Tmux panes are for human inspection, not workflow state.
 [`RFC 0077 - MCP Activity Liveness Deadlines`](rfcs/0077-mcp-activity-liveness-deadlines.md)
 landed the daemon-owned MCP activity timestamp and deadline-classification
 slice before the RFC 0075 tmux attach metadata projection.
-The open plans are
-[`RFC 0050 CLI Retirement Cutover`](operator/plans/rfc-0050-cli-retirement-cutover.md)
+The current closure artifacts are
+[`RFC 0050/RFC 0075 Final Cutover Design`](operator/plans/rfc-0050-0075-final-cutover-design.md)
 and
-[`RFC 0075 Tmux-Observable MCP Agent Sessions`](operator/plans/rfc-0075-tmux-observable-mcp-agent-sessions.md).
+[`RFC 0050/RFC 0075 Final Cutover Implementation`](operator/plans/rfc-0050-0075-final-cutover-implementation.md).
 
 ## 2. Just shipped (this week)
 
@@ -1371,7 +1369,7 @@ $EDITOR docs/ROADMAP.md                                # promote what's done, ad
 | Architectural rationale for a decision | `docs/DECISION_LOG.md` (latest accepted rows) |
 | RFC design + acceptance criteria | `docs/rfcs/<NNNN>-*.md` and `docs/rfcs/README.md` index |
 | Per-dogfood outcomes + interventions | `docs/dogfood/<N>/OPERATOR_REPORT.md` |
-| Operator-facing CLI verbs + skills | `docs/HOW_TO_AGENT.md`, `docs/SPEC.md` |
+| Agent MCP workflow control + CLI compatibility | `docs/HOW_TO_AGENT.md`, `docs/MCP.md`, `docs/SPEC.md` |
 | Patterns that aren't in SPEC | §3 above, MEMORY.md |
 | What's actively broken | §1, §9.1, §9.2 |
 | What to do today | §4 (active runway) |

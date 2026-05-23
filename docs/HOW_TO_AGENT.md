@@ -29,12 +29,12 @@ Always prefer the bundle's command shapes over this doc; they
 were rendered from the runner version installed in this
 environment.
 
-Recent bundles also include `striatum-mcp`, the daemon MCP/chat workflow
-generation skill. Use it when the operator gives you a capability token or
-asks you to preview/write generated workflows through chat tools. It does
-not replace the claim loop; it teaches the MCP `tools/list` /
-`tools/call` capability boundary and the preview-then-operator-confirm
-write posture.
+Recent bundles also include `striatum-mcp`, the daemon MCP workflow-control
+skill. Use it when the operator gives you a capability token, a daemon MCP
+endpoint, or asks you to preview/write generated workflows through chat tools.
+It is now the normal live workflow-control path: call `tools/list`, then
+`tools/call` for the daemon methods named below. CLI command strings in a
+packet remain exact compatibility fallbacks and parameter references.
 
 ## What you are looking at
 
@@ -44,21 +44,22 @@ scope per target repository (D094 / RFC 0043). `.striatum/` next to
 the target repo is operational scratch only — supervised wrapper
 FIFOs, pidfiles, and transient supervisor scratch. The daemon runtime
 token lives under the daemon runtime directory as `client-token`. The runner —
-not your prose, and not direct database access — advances state.
-You move the workflow forward by calling `striatum` CLI verbs.
+not your prose, terminal output, marker files, or direct database access —
+advances state. You move the workflow forward through daemon MCP tools; the
+`striatum` CLI is a compatibility/debug client of the same daemon boundary.
 
 Two rules to internalize before you do anything else:
 
 1. **Do not bypass the daemon.** The daemon is the single writer.
-   CLI commands, daemon MCP/chat tools, and the local web service are
-   clients of that boundary. When your packet supplies CLI commands,
-   run those commands verbatim. Do not open Postgres directly, and do
-   not expect `.striatum/state.sqlite3` to exist as live state. Legacy
-   SQLite files or tombstones are historical remnants only; no current
-   Striatum verb opens them.
+   daemon MCP tools, the local web service, and CLI compatibility commands
+   are clients of that boundary. When you must use a packet-supplied CLI
+   fallback, run it verbatim. Do not open Postgres directly, and do not expect
+   `.striatum/state.sqlite3` to exist as live state. Legacy SQLite files or
+   tombstones are historical remnants only; no current Striatum verb opens
+   them.
 2. **Do not advance state by printing phrases.** "I have completed
-   the task" is not a state transition. `striatum complete --job-id
-   <id> --lease-id <id>` is.
+   the task" is not a state transition. `tools/call` for `work.complete`
+   is; `striatum complete --job-id <id> --lease-id <id>` is the CLI fallback.
 
 The full list of boundaries lives in each SKILL.md's "What not to
 do" section.
@@ -68,27 +69,27 @@ do" section.
 You will repeat this loop until the run reaches a terminal state.
 
 ```text
-1. register-session  (once per role+lane on a run)
-2. claim-next        (returns a work packet)
-3. ack               (acknowledge the lease)
-4. heartbeat         (extend the lease while you work; optional but
+1. session.register  (once per role+lane on a run)
+2. work.await_packet (returns a work packet)
+3. work.ack          (acknowledge the lease)
+4. work.heartbeat    (extend the lease while you work; optional but
                      recommended for long jobs)
 5. (do the work — read context_docs, follow task_prompt, write
     artifacts to write_scope.allowed_paths)
-6. publish-artifact  (one call per required artifact)
-7a. complete         (build / synthesis / handoff jobs)
-7b. submit-review    (review jobs — publishes finding + verdict)
+6. artifact.publish  (one call per required artifact)
+7a. work.complete    (build / synthesis / handoff jobs)
+7b. review.submit    (review jobs — publishes finding + verdict)
 ```
 
-When `claim-next` returns no work, check `striatum status` — the
-run may be done, blocked on a human checkpoint, or waiting on a
-dependency.
+When `work.await_packet` returns no work, inspect the run through daemon MCP,
+the local web UI, or CLI diagnostics such as `striatum status`. The run may be
+done, blocked on a human checkpoint, or waiting on a dependency.
 
-### Driving dogfoods via the MCP chat tools (RFC 0040 V1)
+### Operator Chat Tools (RFC 0040 V1)
 
 If you are the *operator session* (the AI session that supervises a
 dogfood, not the supervised role itself) and the operator has configured
-daemon MCP/chat tools for the run, prefer the tools listed in
+daemon MCP/chat tools for the run, use the tools listed in
 [`docs/MCP.md`](MCP.md#dogfood-lifecycle-tools) over shelling out to
 the bash CLI. The tool surface routes through the same daemon RPC
 authority boundary and keeps session/lease/message ids structured so
@@ -97,20 +98,21 @@ that mutate runner state are hidden unless the operator explicitly
 enables mutation-capable service/MCP access; `run_summary` and
 `evidence_export` are read-shaped and stay available either way.
 
-If you are the *supervised role*, the bash CLI commands supplied in
-the work packet's `commands` block are still the only thing you
-should call. Do not bypass them with chat tools; doing so circumvents
-the runner's verbatim-command guarantees.
+If you are the *supervised role*, use the daemon MCP endpoint and token
+exported by the supervisor. The packet's `commands` block remains the exact
+CLI fallback and argument reference; do not invent equivalent shell commands.
 
 ## Reading the work packet
 
 Every claimed packet is a JSON object with these keys you must
 understand:
 
-- `commands` — the *exact* CLI invocations you should call for
-  `ack`, `heartbeat`, `publish-artifact`, `block`, `verdict` /
-  `submit-review`, `complete`. Use them verbatim. Do not derive
-  your own; the runner pre-computes the lease/session/job ids.
+- `commands` — the exact CLI fallback invocations for `ack`, `heartbeat`,
+  `publish-artifact`, `block`, `verdict` / `submit-review`, and `complete`.
+  Prefer the equivalent MCP methods (`work.ack`, `work.heartbeat`,
+  `artifact.publish`, `work.block`, `review.verdict` / `review.submit`,
+  `work.complete`) when you have MCP. If you must use CLI fallback, use these
+  strings verbatim; the runner pre-computes the lease/session/job ids.
 - `expected_artifacts` — every artifact you must publish before
   `complete` is accepted. Each entry has a `logical_name`, `kind`,
   required `path`, and a privacy-safe `author_line` like
@@ -124,9 +126,9 @@ understand:
 - `context_docs` — required and optional reading. Required ones
   are non-negotiable; you must read them before producing the
   artifact.
-- `worktree_required` — when `true` (RFC 0008), call
-  `commands.worktree_create` *before* `publish-artifact`. The
-  packet supplies the exact invocation.
+- `worktree_required` — when `true` (RFC 0008), call `worktree.create`
+  before `artifact.publish`. The packet supplies the exact CLI fallback in
+  `commands.worktree_create`.
 - `harness_profile` — when present (RFC 0010), describes
   tool-specific guidance for your CLI. Honor it.
 - `review_policy` (review jobs only, RFC 0002) — `access_scope`,
@@ -150,48 +152,40 @@ derive bylines from job titles.
 
 ## Long-lived (supervised) sessions
 
-If the lane's harness profile sets `supervision.compatible: true`,
-your CLI may be held alive across multiple work packets via
-`striatum supervise start --session-id <id>` (RFC 0009). Packets
-arrive on stdin as newline-terminated JSON, delivered by
-`striatum supervise send --session-id <id> --packet-id <packet_id>`.
-Use the top-level `data.packet_id` from `claim-next --json`, or paste
-`data.next_steps.supervise_send`; message, lease, job, session, and
-supervisor ids are not packet ids. Read packets line-by-line and react
-via the normal CLI verbs above.
+If the lane's harness profile sets `supervision.compatible: true`, the daemon
+may hold your process alive across multiple work packets. The Go agent-loop
+path exports `STRIATUM_MCP_URL`, `STRIATUM_MCP_TOKEN` or
+`STRIATUM_MCP_TOKEN_FILE`, and the repository/session context; connect to MCP
+and call `work.await_packet` yourself. The older `supervise send` delivery
+path remains a CLI compatibility route for wrappers that read packets from
+stdin.
 
-Stdout and stderr are sent to `DEVNULL`; the supervisor never
-parses your output for state. Use `striatum supervise stop` to
-shut the supervisor down — do not `kill` the process directly.
+Stdout and stderr are sent to `DEVNULL`; the supervisor never parses your
+output for state. Use `supervise.stop` or its CLI fallback to shut the
+supervisor down. Do not `kill` the process directly.
 
 ## When something goes wrong
 
 If you are stuck — a required input is missing, a context document
 contradicts the prompt, or you cannot satisfy the write scope —
-report a blocker:
+report a blocker through `work.block`:
 
-```bash
-striatum block \
-  --session-id <id> --job-id <id> --lease-id <id> \
-  --kind missing_input \
-  --severity blocked \
-  --description "what is missing and why you cannot proceed" \
-  --json
+```json
+{"method":"tools/call","params":{"name":"work.block","arguments":{"session_id":"<id>","job_id":"<id>","lease_id":"<id>","kind":"missing_input","severity":"blocked","description":"what is missing and why you cannot proceed"}}}
 ```
 
 Use `--severity human_checkpoint` only when an explicit human
 decision is required. The operator resolves the checkpoint with
 `striatum checkpoint resolve`.
 
-If your lease has expired (you waited too long, or the network
-dropped), the runner will refuse mutations with exit code 5. Run
-`striatum status --run-id <id> --json` to see the current state
-and ask the operator to recover stale work.
+If your lease has expired (you waited too long, or the network dropped), the
+runner will refuse mutations. Inspect the run through MCP, the local web UI,
+or CLI diagnostics, then ask the operator to recover stale work.
 
 ## What you should *not* do
 
-- Do not bypass the daemon. The daemon is the single writer; CLI,
-  MCP/chat, and web-service surfaces are clients of that boundary.
+- Do not bypass the daemon. The daemon is the single writer; MCP/chat, web UI,
+  and CLI compatibility surfaces are clients of that boundary.
   Never open the daemon's Postgres directly, and do not open or rely on
   legacy `.striatum/state.sqlite3*` files or tombstones as live state.
 - Do not write to `.striatum/scratch/` or `.striatum/bin/` unless
@@ -199,7 +193,8 @@ and ask the operator to recover stale work.
   for example).
 - Do not treat marker files, tmux panes, or terminal output as
   workflow state.
-- Do not advance state by printing phrases. Call the CLI.
+- Do not advance state by printing phrases. Call daemon MCP; use CLI fallback
+  only when MCP is unavailable or explicitly required by the packet/operator.
 - Do not capture transcripts, model output, or chain-of-thought
   as workflow artifacts. D028 is enforced by construction.
 - Do not derive bylines from job titles. Use the byline supplied

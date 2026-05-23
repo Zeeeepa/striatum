@@ -118,7 +118,7 @@ so external references keep resolving even as items move between sections.
 | 64 | RFC 0071 operator diagnostics and cutover evidence | ✅ accepted diagnostic slice done |
 | 65 | RFC 0058 operator progress surface | ✅ done |
 | 66 | Decision/RFC supersession hygiene and duplicate decision-id cleanup | ✅ done |
-| 67 | RFC 0050/RFC 0075 MCP cutover and tmux-observable sessions | 🟡 MCP HTTP/cutover slices, RFC 0077 liveness, tmux attach metadata, and fail-closed tmux opt-in landed; CLI retirement/UI polish remain |
+| 67 | RFC 0050/RFC 0075 MCP cutover and tmux-observable sessions | ✅ done |
 
 Legend: ✅ done · 🟡 most done (sub-tasks remain) · ⏳ open/blocked · 💤 shelved
 
@@ -1540,20 +1540,18 @@ review and plan are root-level operator artifacts:
     operator-tree init/rotation as optional future work outside the accepted
     RFC 0058 V1.5 slice.
 
-67. **RFC 0050/RFC 0075: MCP cutover and tmux-observable sessions.**
-    First slices landed: native Go daemon MCP HTTP/SSE, autonomous MCP packet
-    loop proof, `session.report`, agent-loop PTY bootstrap, Python MCP wrapper
-    deletion, and RFC 0077 daemon-owned MCP activity liveness. Remaining live
-    workflow-control CLI verbs must still be classified before removal, MCP/UI
-    parity must be tested before hiding replacements. The checked
-    `docs/architecture/CLI_RETIREMENT_PARITY.md` ledger now classifies
-    non-read CLI routes and fails when a new non-read daemon route lacks
-    retirement-gate classification; this slice does not hide any CLI verb.
-    RFC 0075 tmux attach
-    metadata now projects through daemon reads, and PTY-helper lanes can set
-    `supervision.require_tmux: true` to fail closed instead of falling back to
-    a plain PTY. Broader UI polish and CLI retirement remain pending; pane
-    output and transcripts still must not become workflow state.
+67. ~~**RFC 0050/RFC 0075: MCP cutover and tmux-observable sessions.**~~
+    Done. Native Go daemon MCP HTTP/SSE, autonomous MCP packet-loop proof,
+    `session.report`, agent-loop PTY bootstrap, Python MCP wrapper deletion,
+    RFC 0077 daemon-owned MCP activity liveness, tmux attach metadata, and
+    fail-closed tmux opt-in have landed. The final cutover adds UI parity for
+    remaining operator actions, updates current docs and agent skill templates
+    to MCP-first workflow control, and reclassifies all non-read CLI routes in
+    `docs/architecture/CLI_RETIREMENT_PARITY.md` as bootstrap,
+    lane-compatibility, or operator-compatibility survivors. No live
+    workflow-control operation now requires CLI; pane output and transcripts
+    still must not become workflow state. Hiding or deleting CLI compatibility
+    verbs is a later deprecation/release decision, not a TODO 67 blocker.
 
 ## GH issue follow-ups
 

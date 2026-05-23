@@ -41,6 +41,17 @@
     <dt>Completed</dt><dd>{{ job.completed_at or "—" }}</dd>
   </dl>
 
+  {% if job.work_packet and job.work_packet.worktree_required %}
+  <h2>Worktree</h2>
+  <div class="worktree-actions"
+       data-run-id="{{ run.run_id }}"
+       data-job-id="{{ job.job_id }}"
+       data-session-id="{{ job.work_packet.session_id or '' }}"
+       data-lease-id="{{ job.work_packet.lease_id or '' }}">
+    <button type="button" class="secondary-button" data-worktree-action="create">Create worktree</button>
+  </div>
+  {% endif %}
+
   {% if verdicts %}
   <h2>Verdicts</h2>
   <ul class="verdict-list">
@@ -121,4 +132,5 @@
 {% endblock %}
 {% block scripts %}
 <script defer src="/static/override_verdict.js"></script>
+<script defer src="/static/worktree_actions.js"></script>
 {% endblock %}

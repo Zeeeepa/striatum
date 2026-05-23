@@ -24,12 +24,8 @@ ALLOWED_UI_PARITY = {
 }
 NON_RETIREMENT_GATES = {
     "keep_bootstrap_cli",
-    "blocked_active_ui_test_gap",
-    "blocked_docs_skill_cutover",
-    "blocked_mcp_method_test_gap",
-    "blocked_retirement_test_gap",
-    "blocked_rfc0075_ui_gap",
-    "blocked_ui_gap",
+    "keep_lane_cli_compat",
+    "keep_operator_cli_compat",
 }
 
 
@@ -123,16 +119,15 @@ def test_cli_retirement_parity_rows_use_checked_status_vocabularies() -> None:
     assert not invalid, "; ".join(invalid)
 
 
-def test_cli_retirement_parity_does_not_claim_unblocked_retirement() -> None:
+def test_cli_retirement_parity_terminal_gates_are_intentional() -> None:
     rows = _ledger_rows()
 
-    retireable = [
+    blocked = [
         label
         for label, row in sorted(rows.items())
-        if not row["Retirement gate"].startswith("blocked_")
-        and row["Retirement gate"] != "keep_bootstrap_cli"
+        if row["Retirement gate"].startswith("blocked_")
     ]
-    assert not retireable
+    assert not blocked
 
     covered_without_ui = [
         label
@@ -140,6 +135,22 @@ def test_cli_retirement_parity_does_not_claim_unblocked_retirement() -> None:
         if row["Classification"] == "replaced_by_mcp_ui" and row["UI parity"] != "ui_exact"
     ]
     assert not covered_without_ui
+
+    unexpected_operator_rows = [
+        label
+        for label, row in sorted(rows.items())
+        if row["Retirement gate"] == "keep_operator_cli_compat"
+        and row["UI parity"] != "ui_exact"
+    ]
+    assert not unexpected_operator_rows
+
+    unfinished_rows = [
+        label
+        for label, row in sorted(rows.items())
+        if row["Classification"] == "temporary_compatibility"
+        or row["UI parity"] in {"ui_missing", "ui_route_unchecked"}
+    ]
+    assert not unfinished_rows
 
 
 def test_cli_retirement_parity_active_ui_rows_cite_active_tests() -> None:

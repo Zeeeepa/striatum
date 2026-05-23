@@ -16,7 +16,10 @@ Striatum is the coordinator that was missing. It gives your AI agents — Codex,
 - **Keeps providers portable** by wrapping any model whose runtime is a terminal command; core scheduling never imports a model vendor or parses terminal output
 - **Produces replayable evidence** via `corpus export`: a redacted JSONL bundle with stable hashes for sharing provenance without sharing live state
 
-The authoritative mutation surface is the daemon MCP. The same CLI verbs that the AI operator uses are available to the human principal — the distinction is not interface, it is *role*.
+The authoritative mutation surface is daemon MCP/RPC. AI agents use daemon MCP
+for live workflow control, humans use the local web UI for routine operator
+actions, and the CLI remains a daemon-backed bootstrap, diagnostics, and
+compatibility client.
 
 ---
 
@@ -31,11 +34,15 @@ flowchart LR
     O[Codex / Claude Code / Gemini CLI session]
   end
   subgraph striatum["Striatum runner"]
+    MCP["daemon MCP"]
     CLI["striatum CLI"]
+    Web["local web UI"]
     D[("striatumd daemon")]
     PG[(Postgres<br/>striatumd schema)]
     Scratch[".striatum/<br/>(scratch, FIFOs)"]
+    MCP -- "HTTP MCP / tools/call" --> D
     CLI -- "Unix socket RPC" --> D
+    Web -- "daemon RPC" --> D
     D -- "SELECT / INSERT" --> PG
     CLI -- "supervised lanes" --> Scratch
   end
@@ -43,10 +50,10 @@ flowchart LR
     Source[("src/, docs/, …")]
     Artifacts[("artifacts: prompts, findings,<br/>syntheses, decisions, handoffs")]
   end
-  H -. "escalation only" .-> CLI
-  O -- "claim / publish / review" --> CLI
-  CLI -- "read / write" --> Source
-  CLI -- "publish provenance" --> Artifacts
+  H -. "operator actions" .-> Web
+  O -- "claim / publish / review" --> MCP
+  D -- "read / write" --> Source
+  D -- "publish provenance" --> Artifacts
 ```
 
 The daemon owns live state. The target repository owns durable provenance.
@@ -63,8 +70,8 @@ token lives under the daemon runtime directory as `client-token`.
 │          AI operator  ·  human principal  ·  web UI            │
 │      (Codex / Claude Code / Gemini CLI / browser)              │
 ├────────────────────────────────────────────────────────────────┤
-│         striatum CLI  ·  daemon MCP  ·  local HTTP serve       │
-│             same verb surface; role distinguishes access        │
+│      daemon MCP  ·  local web UI  ·  striatum CLI fallback     │
+│        capability-gated clients of the daemon RPC boundary      │
 ├────────────────────────────────────────────────────────────────┤
 │                 Daemon RPC envelope (v1)                        │
 │     capability checks · audit-chain append · method registry   │
@@ -186,7 +193,7 @@ Start from `examples/rfc-ledger-cleanup/`.
 
 Striatum runs with two named roles (RFC 0053):
 
-- **AI operator** — the default driver. Claims work, publishes artifacts, advances state through `striatum` CLI verbs. Same surface that humans have; bounded by *function*, not by *interface*.
+- **AI operator** — the default driver. Claims work, publishes artifacts, and advances state through daemon MCP tools. CLI verbs are compatibility/debug fallbacks, not the normal live control plane.
 - **Human principal** — escalation only. Resolves blockers the AI judges itself stuck on (`escalation` artifacts). Routine work belongs to the operator.
 
 The [day-zero usage guide](docs/USING_STRIATUM.md) walks new arrivals through both roles, prerequisites, first run, and the principal's escalation surface.
@@ -199,7 +206,7 @@ The [day-zero usage guide](docs/USING_STRIATUM.md) walks new arrivals through bo
 
 **Audit-quality provenance.** Many workflows lose state when a session crashes, a process exits nonzero, or a serve restarts. Striatum's authoritative live state is the daemon-owned Postgres; every event carries a `previous_hash` / `row_hash` anchor (schema v6, migration 0006); every RPC request lands a row in `striatumd.audit_log` with a chain head locked `FOR UPDATE` so concurrent appenders serialize. `corpus export` produces a verifying manifest with replay-stable SHA-256s.
 
-**Provider portability.** The runner has no model dependency. Add a lane to a workflow JSON, install a skill bundle for that provider's harness, and the same CLI verbs work. The product boundary in [`docs/SPEC.md`](docs/SPEC.md) explicitly forbids the runner from importing any vendor SDK.
+**Provider portability.** The runner has no model dependency. Add a lane to a workflow JSON, install a skill bundle for that provider's harness, and the same daemon MCP method set works. The product boundary in [`docs/SPEC.md`](docs/SPEC.md) explicitly forbids the runner from importing any vendor SDK.
 
 ---
 

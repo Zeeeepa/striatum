@@ -175,7 +175,7 @@ release work, or write packet JSON. The agent is responsible for using MCP:
 1. call `tools/list`,
 2. call `work.await_packet` with `repository_id`, `session_id`, and
    `lease_seconds`,
-3. use packet-provided commands and write scope,
+3. use the packet's identifiers, expected artifacts, and write scope,
 4. report state with MCP tools such as `work.ack`, `artifact.publish`,
    `review.verdict`, `work.complete`, or `work.release`.
 

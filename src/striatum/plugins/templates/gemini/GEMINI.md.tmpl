@@ -5,23 +5,24 @@ extension is active.
 
 ## Driving a Striatum workflow
 
-1. Register a session for a (role, lane) pair.
-2. Claim the next ready packet via `striatum claim-next`.
-3. Ack the lease, do the work, publish the artifact, complete.
+1. Connect to the daemon MCP endpoint with the operator-issued token.
+2. Call `tools/list`, then `session.register` and `work.await_packet`.
+3. Ack the lease, do the work, publish the artifact, and complete through
+   MCP `tools/call`.
 
 ## Skills
 
 - `skills/striatum-workflow/SKILL.md` — workflow scaffolding
 - `skills/striatum-scaffold/SKILL.md` — repo init flow
-- `skills/striatum-claim-loop/SKILL.md` — claim → ack → publish
-- `skills/striatum-supervise/SKILL.md` — long-lived agent CLI
+- `skills/striatum-claim-loop/SKILL.md` — MCP claim → ack → publish
+- `skills/striatum-supervise/SKILL.md` — long-lived MCP agent session
 - `skills/striatum-recover/SKILL.md` — recovery / stale lease
 - `skills/striatum-mcp/SKILL.md` — daemon MCP mutation guidance
 
 ## Slash commands (TOML)
 
-- `claim-next` `status` `why` `dashboard` `doctor` — wrap the
-  corresponding Striatum CLI verbs.
+- `claim-next` `status` `why` `dashboard` `doctor` — compatibility wrappers
+  for the corresponding Striatum CLI diagnostics/fallback verbs.
 
 ## Sub-agents
 
