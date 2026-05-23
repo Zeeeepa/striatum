@@ -1,7 +1,7 @@
 # RFC 0062: Real Escalation Inbox
 
 ## Status
-Partially implemented
+Partially implemented; D130 closes artifact-only creation as link-only
 
 ## Summary
 Escalations now have daemon-backed projection routes and an operator inbox:
@@ -17,7 +17,9 @@ conventions.
 
 ## Proposed Implementation
 Completed work covers list/show/resolve daemon methods, the CLI inbox
-projection, escalation artifact validation, and artifact linkage. Remaining
-decisions are policy and schema hardening: whether artifact-only escalation
-creation should synthesize inbox rows, and whether blocker payload shape should
-be tightened further or moved into a dedicated typed escalation table.
+projection, escalation artifact validation, and artifact linkage. D130 closes
+the artifact-only escalation creation question as link-only: publishing an
+escalation artifact may link to an existing escalation-class blocker, but it
+does not synthesize blocker rows or escalation inbox rows. Remaining work is
+schema hardening: whether blocker payload shape should be tightened further or
+moved into a dedicated typed escalation table.

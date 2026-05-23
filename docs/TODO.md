@@ -104,7 +104,7 @@ so external references keep resolving even as items move between sections.
 | 50 | RFC 0060 Architecture remediation Phase 2 — single daemon method contract source | ✅ done |
 | 51 | Architecture remediation Phase 3 — daemon core strategy decision | ✅ done |
 | 52 | RFC 0061 Architecture remediation Phase 4 — daemon-first web service | 🟡 core web/API + artifact reads daemon-routed |
-| 53 | RFC 0062 Architecture remediation Phase 5 — real escalation inbox | 🟡 projection + escalation artifact schema/linkage landed |
+| 53 | RFC 0062 Architecture remediation Phase 5 — real escalation inbox | 🟡 projection + escalation artifact schema/linkage and D130 link-only policy landed |
 | 54 | RFC 0063 Architecture remediation Phase 6 — hardened PTY supervision | ✅ done |
 | 55 | RFC 0064 Architecture remediation Phase 7 — workflow risk lint and review diversity enforcement | ✅ done |
 | 56 | Architecture remediation Phase 8 — auto-finalize from front matter | 🟡 D125 gate artifact/projection landed; default-on dogfood evidence pending |
@@ -1101,10 +1101,11 @@ review and plan are root-level operator artifacts:
     artifact through `escalation.list` / `escalation.show`. Hardening now
     suppresses stale artifact-link projections unless id/path/hash metadata
     matches a real artifact row, repairs missing links on idempotent publish
-    retries, and rejects conflicting blocker metadata. Remaining: decide
-    artifact-only escalation creation policy, typed escalation table or
-    stricter blocker payload schema, and eventual packet-helper rename
-    (`packet inbox`) if needed.
+    retries, and rejects conflicting blocker metadata. D130 closes
+    artifact-only escalation creation as link-only: `artifact.publish` does
+    not synthesize live blockers or inbox rows. Remaining: typed escalation
+    table or stricter blocker payload schema, and eventual packet-helper
+    rename (`packet inbox`) if needed.
 
 54. **Phase 6: hardened PTY supervision / Go helper.** Add daemon-owned
     PTY supervision through a narrow helper protocol, with Python retaining

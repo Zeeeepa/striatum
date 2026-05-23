@@ -647,10 +647,14 @@ paths are stable.
 - Escalation projections verify the linked artifact still exists and matches
   id/path/hash metadata before surfacing it; idempotent escalation artifact
   publishes repair missing blocker links and reject conflicting existing links.
+- D130 closes artifact-only escalation creation as link-only. Publishing an
+  escalation artifact does not synthesize live blockers or escalation inbox
+  rows; live escalation state is created through `work.block` or a future
+  accepted `escalation.create` design.
 
-**Remaining Phase 5 debt:** decide artifact-only escalation creation policy,
-consider a dedicated escalation table or stricter blocker payload schema, and
-decide whether to rename the packet helper to `packet inbox`.
+**Remaining Phase 5 debt:** consider a dedicated escalation table or stricter
+blocker payload schema, and decide whether to rename the packet helper to
+`packet inbox`.
 
 ---
 
