@@ -176,6 +176,15 @@ def test_operator_progress_artifact_front_matter_schemas_parse(tmp_path: Path) -
         assert parsed["artifact_kind"] == kind
 
 
+def test_spec_documents_every_registered_front_matter_schema() -> None:
+    text = (ROOT / "docs" / "SPEC.md").read_text(encoding="utf-8")
+    missing: list[str] = []
+    for kind, schema in sorted(FRONT_MATTER_SCHEMAS.items()):
+        if schema.schema_version not in text or kind not in text:
+            missing.append(f"{kind} ({schema.schema_version})")
+    assert not missing, "SPEC missing front-matter schema docs: " + ", ".join(missing)
+
+
 def _parse_text(kind: str, tmp_path: Path, text: str) -> dict[str, object] | None:
     path = tmp_path / f"{kind}.md"
     path.write_text(text, encoding="utf-8")

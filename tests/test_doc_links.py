@@ -195,6 +195,31 @@ def test_operator_glossary_uses_daemon_authority_boundary() -> None:
     )
 
 
+CURRENT_DOC_STALE_GENERIC_PHRASES = (
+    "Corpus Contract V2 RFC in design",
+    "Engram-style",
+    "Engram repo root",
+)
+
+
+def test_current_product_docs_do_not_regress_stale_engram_framing() -> None:
+    """Historical Engram references remain allowed, but current status and
+    layout guidance must not frame Striatum as Engram-specific.
+    """
+    checked = [
+        ROOT / "README.md",
+        ROOT / "docs" / "CONSUMER_REPO_LAYOUT.md",
+        ROOT / "scripts" / "striatum_tmux_design.sh",
+    ]
+    failures: list[str] = []
+    for path in checked:
+        text = path.read_text(encoding="utf-8")
+        for phrase in CURRENT_DOC_STALE_GENERIC_PHRASES:
+            if phrase in text:
+                failures.append(f"{path.relative_to(ROOT)}: {phrase!r}")
+    assert not failures, "stale current-doc generic language:\n" + "\n".join(failures)
+
+
 def test_decision_log_rows_under_word_budget() -> None:
     text = (ROOT / "docs" / "DECISION_LOG.md").read_text(encoding="utf-8")
     failures: list[str] = []

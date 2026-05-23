@@ -664,6 +664,25 @@ V1 schemas:
   `artifact_kind: harness_improvement_proposal`, `target` (one of `prompt`,
   `workflow`, `spec`, `defaults`, `documentation`), and `expected_benefit`
   (string); optional `risk` and `rollback` (strings).
+- `striatum.operator_brief.v1` (kind `operator_brief`): required
+  `schema_version`, `artifact_kind: operator_brief`, `brief_id`,
+  `supersedes` (string or null), `scope_links` (list of repo-relative
+  strings), `context_budget_lines` (non-negative integer),
+  `retrieval_priority` (one of `low`, `normal`, `high`), and `status`
+  (one of `current`, `superseded`); optional `author`.
+- `striatum.work_plan.v1` (kind `work_plan`): required `schema_version`,
+  `artifact_kind: work_plan`, `plan_id`, `scope_kind` (one of `rfc`, `phase`,
+  `initiative`, `bugfix`), `scope_ref`, `state` (one of
+  `open`, `in_progress`, `closed`), `opened_at`, `closed_at` (string or
+  null), `closure_summary` (string or null), `supersedes` (string or null),
+  and `retrieval_priority`; optional `author`.
+- `striatum.progress_note.v1` (kind `progress_note`): required
+  `schema_version`, `artifact_kind: progress_note`, `note_date`,
+  `session_slug`, `related_plan` (string or null), `related_brief` (string or
+  null), and `retrieval_priority`; optional `author`.
+- `striatum.operator_report.v1` (kind `operator_report`): required
+  `schema_version` and `artifact_kind: operator_report`; optional `author`,
+  `retrieval_priority`, and `supersedes` (string or null).
 - `striatum.escalation.v1` (kind `escalation`, RFC 0053): required
   `schema_version`, `artifact_kind: escalation`, `escalation_id`, `run_id`,
   `severity` (one of `blocked`, `human_checkpoint`), `blocker_kind` (one of
@@ -679,6 +698,22 @@ V1 schemas:
   `blockers.payload_json.escalation_artifact` and the escalation inbox
   projections surface it; publishing an escalation artifact does not create a
   new live blocker by itself.
+- `striatum.commit_request.v1` (kind `commit_request`, RFC 0067 / D127):
+  required `schema_version`, `artifact_kind: commit_request`, `request_id`,
+  `base_head`, `branch`, `git_snapshot_hash`, `included_paths` (non-empty
+  list of strings), `commit_message`, `rationale`, and
+  `confirmation_status` (one of `pending`, `operator_confirmed`,
+  `human_confirmed`, `refused`);
+  optional `run_id`, `reviewed_artifacts`, `confirmed_by`, and
+  `confirmed_at`. Daemon `git.commit_apply` accepts only explicitly
+  confirmed local commit requests and never pushes.
+- `striatum.pr_request.v1` (kind `pr_request`, RFC 0067 / D127): required
+  `schema_version`, `artifact_kind: pr_request`, `request_id`,
+  `target_branch`, `summary`, `body_draft`, and `confirmation_status` (one of
+  `pending`, `human_confirmed`, `refused`); optional `run_id`,
+  `related_commit_request`, `local_commit_sha`, `provider_target`,
+  `confirmed_by`, and `confirmed_at`. Core Striatum records the request
+  artifact only; hosted provider actions remain out of core.
 - `striatum.auto_finalize_gate_evidence.v1` (kind
   `auto_finalize_gate_evidence`, D125): required `schema_version`,
   `artifact_kind: auto_finalize_gate_evidence`, `decision_id: D125`,

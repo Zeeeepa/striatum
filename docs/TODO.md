@@ -36,7 +36,7 @@ so external references keep resolving even as items move between sections.
 | 17 | Legacy SQLite migration fixture (RFC 0006/D094) | ✅ done |
 | 18 | Workflow type catalog and chooser | ✅ done |
 | F1 | Run historical bootstrap as runner workflow | ✅ done |
-| F2 | Fuller publication policy | ⏳ open |
+| F2 | Fuller publication policy | ✅ done |
 | F3 | Round-6 RFC 0002 + 0003/0004/0005 follow-up | ✅ done |
 | F4 | RFC 0010 V1 (tool harness profiles, dogfood-003) | ✅ done |
 | F5 | RFC 0014 V1 (process adapter completion guarantees, dogfood-005) | ✅ done |
@@ -328,6 +328,9 @@ Legend: ✅ done · 🟡 most done (sub-tasks remain) · ⏳ open/blocked · �
     authoritative live state, `.striatum/` is operational scratch, RFC 0056
     has a directory-only `--with-striatum-layout` scaffold, and Engram remains
     optional external augmentation rather than a runtime dependency.
+    Follow-up sweep (2026-05-23): refreshed README status language,
+    consumer-layout examples, and the historical tmux bootstrap script wording;
+    added a guardrail for stale current-doc Engram phrases.
     Keep this item open as standing documentation hygiene.
 
 20. ~~**RFC 0040 V1.5 follow-up.** Six codex findings (F1-F6) from
@@ -1557,8 +1560,12 @@ F1. ~~Exercise the minimal process adapter on a Striatum-owned version of the
     `tests/test_example_workflows.py` validates the graph and referenced
     files.
 
-F2. Define any fuller publication policy after the initial package smoke,
-    typecheck, metadata check, and macOS/Linux CI wiring.
+F2. ~~Define any fuller publication policy after the initial package smoke,
+    typecheck, metadata check, and macOS/Linux CI wiring.~~ ✅ Done:
+    `docs/SPEC.md` now documents every registered front-matter schema from
+    `FRONT_MATTER_SCHEMAS`, including operator/provenance artifacts and
+    Git/PR request artifacts, and `tests/test_artifact_schemas.py` guards
+    future schema additions against SPEC drift.
 
 F3. ~~Land the round-6 follow-up integrations.~~ Done: RFC 0002 landed
     (D051) — reviewer-policy workflow fields plus work-packet exposure plus

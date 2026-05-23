@@ -175,7 +175,7 @@ Assignment:
 - Required output artifact: $OUTPUT
 - Primary emphasis: $EMPHASIS
 - Project root for this assignment: $AGENT_ROOT
-- Engram repo root: $REPO_ROOT
+- Reference repo root: $REPO_ROOT
 
 Scope override:
 - Do not synthesize the three-lane design.
@@ -188,7 +188,7 @@ Scope override:
 Required reading:
 - Read the files named in the base prompt from the striatum project root.
 - Also read docs/ENGRAM_INCUBATION_CONTEXT.md.
-- For Engram repo-root paths listed there, prefix ../ when running from this
+- For reference repo-root paths listed there, prefix ../ when running from this
   striatum directory.
 - Inspect ../scripts/phase3_tmux_agents.sh enough to understand the bootstrap
   pain, but do not treat it as target architecture.

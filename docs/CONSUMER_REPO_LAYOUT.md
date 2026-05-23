@@ -168,8 +168,8 @@ repo (added by `striatum init`); everything else is convention.
 
 ## Dogfood-heavy projects
 
-If your project's primary output is structured runs (Engram-style
-dogfood corpus, RFC ledger, research synthesis ledger), the
+If your project's primary output is structured runs (dogfood corpus,
+RFC ledger, research synthesis ledger), the
 default recommendations work but extend in two ways:
 
 1. Add a `docs/dogfood/` index or README listing each run by number,

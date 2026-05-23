@@ -269,7 +269,7 @@ Server-rendered Jinja2 UI with a live SVG dependency graph, state-colored job no
 | Schema | v6 — dedicated `previous_hash`/`row_hash` columns, serialized chain-head writes |
 | Go daemon | Phase 1 landed (RFC 0039): read-only method registry + PG/audit layer; mutating verbs and distribution artifacts are Phase 2 |
 | Active RFCs | RFC 0050 ergonomics polish; RFC 0051 auto-finalize; RFC 0039 Phase 2 (Go core CLI) |
-| Engram integration | Corpus Contract V2 RFC in design (RFC 0057); `corpus export` (RFC 0044 V1) ships |
+| Corpus export / augmentation | Corpus Contract V2 core landed; optional reference-only augmentation stays local and Striatum runs with external memory absent |
 
 ---
 
