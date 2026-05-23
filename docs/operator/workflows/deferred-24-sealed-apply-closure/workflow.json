@@ -1,0 +1,119 @@
+{
+  "schema_version": "striatum.workflow.v1",
+  "workflow_id": "deferred-24-sealed-apply-closure",
+  "workflow_version": "2026-05-23",
+  "name": "Deferred 24 sealed apply closure",
+  "context_docs": [
+    "AGENTS.md",
+    "README.md",
+    "docs/INDEX.md",
+    "docs/SPEC.md",
+    "docs/DECISION_LOG.md",
+    "docs/UBIQUITOUS_LANGUAGE.md",
+    "docs/TODO.md",
+    "docs/ROADMAP.md",
+    "docs/operator/BRIEF.md",
+    "docs/operator/plans/deferred-24-sealed-apply-closure.md",
+    "docs/operator/workflows/residual-deferred-closure-2026-05-23/prompts/deferred_24_sealed_apply.md",
+    "docs/rfcs/0027-sealed-patch-provenance-mode.md",
+    "docs/rfcs/0031-daemon-owned-supervision-and-sealed-apply-boundary.md",
+    "docs/rfcs/0068-go-production-daemon-port.md",
+    "docs/architecture/COMMAND_AUTHORITY_MATRIX.md",
+    "contracts/daemon_methods.json",
+    "src/striatum/daemon_apply/apply_service.py",
+    "src/striatum/daemon_rpc/registry.py",
+    "src/striatum/daemon_pg/mcp_dispatch.py",
+    "go/pkg/rpc/registry_methods.go",
+    "go/pkg/rpc/server.go",
+    "go/pkg/apply/signing_key.go",
+    "tests/test_mcp_mutation_capabilities.py",
+    "tests/test_mcp_capability_scope_e2e.py",
+    "tests/architecture/test_authority_guardrails.py",
+    "go/pkg/rpc/registry_contract_test.go",
+    "go/pkg/mcp/http_test.go",
+    "go/pkg/apply/service_test.go"
+  ],
+  "coordinator": {
+    "role_id": "coordinator",
+    "lane_id": "codex"
+  },
+  "parallelism": {
+    "mode": "declared",
+    "max_active_jobs": 1,
+    "require_disjoint_write_scopes": true
+  },
+  "branch": {
+    "mode": "confirm",
+    "suggested_name": "striatum/deferred-24-sealed-apply-closure",
+    "allow_dirty": true
+  },
+  "lanes": {
+    "codex": {
+      "adapter": "process",
+      "command": [
+        "bash",
+        "-lc",
+        "printf 'deferred24 sealed apply closure codex lane\\n'"
+      ],
+      "model": "codex",
+      "display_model": "Codex GPT-5",
+      "strategy_version": "2026-05-23",
+      "capabilities": [
+        "write",
+        "review"
+      ]
+    }
+  },
+  "roles": {
+    "coordinator": {
+      "description": "Coordinates the artifact-only deferred-24 closure workflow."
+    },
+    "closer": {
+      "description": "Classifies sealed apply/signing and the removed reviewed-patch apply method."
+    }
+  },
+  "jobs": [
+    {
+      "id": "classify_sealed_apply_status",
+      "type": "synthesis",
+      "title": "Classify sealed apply and reviewed-patch removal",
+      "role_id": "closer",
+      "lane_id": "codex",
+      "fresh_session_required": true,
+      "objective": "Classify the current sealed apply/signing state, confirm apply.reviewed_patch remains removed and fail-closed, and decide whether a new sealed-apply RFC is required before reintroduction.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/deferred-24-sealed-apply-closure/prompts/classify_sealed_apply_status.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/operator/artifacts/deferred-24-sealed-apply-closure/"
+        ],
+        "forbidden_paths": [
+          ".striatum/",
+          "docs/TODO.md",
+          "docs/ROADMAP.md",
+          "docs/operator/BRIEF.md",
+          "docs/DECISION_LOG.md",
+          "docs/rfcs/",
+          "contracts/daemon_methods.json",
+          "src/striatum/",
+          "go/",
+          "tests/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "sealed_apply_closure",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/deferred-24-sealed-apply-closure/closure/RESULT.md",
+          "author_line": "author: deferred24-sealed-apply-codex-gpt-5-001",
+          "required": true
+        }
+      ]
+    }
+  ],
+  "edges": [],
+  "cycles": []
+}

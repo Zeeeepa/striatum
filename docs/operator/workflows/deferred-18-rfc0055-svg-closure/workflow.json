@@ -1,0 +1,101 @@
+{
+  "schema_version": "striatum.workflow.v1",
+  "workflow_id": "deferred-18-rfc0055-svg-closure",
+  "workflow_version": "2026-05-23",
+  "name": "Deferred 18 RFC 0055 SVG closure",
+  "context_docs": [
+    "AGENTS.md",
+    "README.md",
+    "docs/INDEX.md",
+    "docs/SPEC.md",
+    "docs/DECISION_LOG.md",
+    "docs/UBIQUITOUS_LANGUAGE.md",
+    "docs/TODO.md",
+    "docs/ROADMAP.md",
+    "docs/operator/BRIEF.md",
+    "docs/operator/plans/deferred-18-rfc0055-svg-closure.md",
+    "docs/rfcs/0055-marketing-readme-and-architecture-graphics.md",
+    "tests/test_doc_links.py"
+  ],
+  "coordinator": {
+    "role_id": "coordinator",
+    "lane_id": "codex"
+  },
+  "parallelism": {
+    "mode": "declared",
+    "max_active_jobs": 1,
+    "require_disjoint_write_scopes": true
+  },
+  "branch": {
+    "mode": "confirm",
+    "suggested_name": "striatum/deferred-18-rfc0055-svg-closure",
+    "allow_dirty": true
+  },
+  "lanes": {
+    "codex": {
+      "adapter": "process",
+      "command": [
+        "bash",
+        "-lc",
+        "PYTHONPATH=src python3 -m striatum.cli skills install --profile all --scope user --force --json >/dev/null && export PATH=\"$PWD/.venv/bin:$PATH\" && exec .striatum/bin/codex-supervised-wrapper.sh"
+      ],
+      "model": "codex",
+      "display_model": "Codex",
+      "strategy_version": "2026-05-23",
+      "supervision": {
+        "compatible": true,
+        "stdin_format": "newline_delimited_json",
+        "wrapper_required": true
+      }
+    }
+  },
+  "roles": {
+    "coordinator": {
+      "description": "Operator/control-plane role."
+    },
+    "closer": {
+      "description": "Classifies the optional RFC 0055 SVG polish follow-up."
+    }
+  },
+  "jobs": [
+    {
+      "id": "close_rfc0055_svg",
+      "type": "synthesis",
+      "title": "Close RFC 0055 optional SVG polish",
+      "role_id": "closer",
+      "lane_id": "codex",
+      "fresh_session_required": true,
+      "objective": "Classify RFC 0055 Phase B SVG polish as implementation or no-action based on current README/docs evidence.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/deferred-18-rfc0055-svg-closure/prompts/close_rfc0055_svg.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/operator/artifacts/deferred-18-rfc0055-svg-closure/"
+        ],
+        "forbidden_paths": [
+          ".striatum/",
+          "README.md",
+          "docs/INDEX.md",
+          "docs/TODO.md",
+          "docs/ROADMAP.md",
+          "docs/operator/BRIEF.md",
+          "docs/rfcs/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "rfc0055_svg_no_action",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/deferred-18-rfc0055-svg-closure/closure/NO_ACTION.md",
+          "author_line": "author: deferred18-rfc0055-codex-gpt-5-001",
+          "required": true
+        }
+      ]
+    }
+  ],
+  "edges": [],
+  "cycles": []
+}

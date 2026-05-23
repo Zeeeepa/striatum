@@ -1,0 +1,213 @@
+{
+  "schema_version": "striatum.workflow.v1",
+  "workflow_id": "deferred-21-todo60-hosted-git-closure",
+  "workflow_version": "2026-05-23",
+  "name": "Deferred 21 TODO 60 hosted Git provider closure",
+  "context_docs": [
+    "AGENTS.md",
+    "README.md",
+    "docs/INDEX.md",
+    "docs/SPEC.md",
+    "docs/DECISION_LOG.md",
+    "docs/UBIQUITOUS_LANGUAGE.md",
+    "docs/TODO.md",
+    "docs/ROADMAP.md",
+    "docs/operator/BRIEF.md",
+    "docs/operator/plans/deferred-21-todo60-hosted-git-closure.md",
+    "docs/rfcs/0067-optional-git-pr-integration.md",
+    "contracts/daemon_methods.json",
+    "src/striatum/cli/daemon_rpc_route.py",
+    "go/pkg/reads/git_snapshot.go",
+    "go/pkg/mutations/git_commit_apply.go",
+    "go/pkg/reads/git_snapshot_test.go",
+    "go/pkg/mutations/git_commit_apply_test.go",
+    "tests/test_cli_daemon_rpc_route.py",
+    "tests/test_artifact_schemas.py",
+    "tests/test_mcp_mutation_capabilities.py",
+    "go/pkg/mcp/http_test.go"
+  ],
+  "coordinator": {
+    "role_id": "coordinator",
+    "lane_id": "codex"
+  },
+  "parallelism": {
+    "mode": "declared",
+    "max_active_jobs": 1,
+    "require_disjoint_write_scopes": true
+  },
+  "branch": {
+    "mode": "confirm",
+    "suggested_name": "striatum/deferred-21-todo60-hosted-git-closure",
+    "allow_dirty": true
+  },
+  "lanes": {
+    "codex": {
+      "adapter": "process",
+      "command": [
+        "bash",
+        "-lc",
+        "printf 'deferred21 todo60 hosted git closure codex lane\\n'"
+      ],
+      "model": "codex",
+      "display_model": "Codex GPT-5",
+      "strategy_version": "2026-05-23",
+      "capabilities": [
+        "write",
+        "review"
+      ],
+      "constraints": {
+        "network": "forbidden",
+        "repo_scope": "local_only",
+        "transcripts": "off"
+      },
+      "required_enforcement": {
+        "network": "advisory_strict",
+        "repo_scope": "advisory_strict",
+        "transcripts": "enforced"
+      }
+    }
+  },
+  "roles": {
+    "coordinator": {
+      "description": "Operator/control-plane role."
+    },
+    "boundary_auditor": {
+      "description": "Checks current core Git/PR source and tests against D127."
+    },
+    "classifier": {
+      "description": "Classifies hosted Git/PR provider actions as core work, optional-plugin work, or an actual violation."
+    },
+    "closer": {
+      "description": "Publishes the final TODO 60 hosted provider closure and validation evidence."
+    }
+  },
+  "jobs": [
+    {
+      "id": "audit_core_git_boundary",
+      "type": "synthesis",
+      "title": "Audit core Git boundary",
+      "role_id": "boundary_auditor",
+      "lane_id": "codex",
+      "fresh_session_required": true,
+      "objective": "Audit the landed TODO 60 core Git slice against D127's no-hosted-provider, no-SDK, no-push boundary.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/deferred-21-todo60-hosted-git-closure/prompts/audit_core_boundary.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/operator/artifacts/deferred-21-todo60-hosted-git-closure/audit/"
+        ],
+        "forbidden_paths": [
+          ".striatum/",
+          "docs/TODO.md",
+          "docs/ROADMAP.md",
+          "docs/operator/BRIEF.md",
+          "docs/rfcs/0067-optional-git-pr-integration.md",
+          "src/",
+          "tests/",
+          "go/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "core_boundary_audit",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/deferred-21-todo60-hosted-git-closure/audit/CORE_BOUNDARY_AUDIT.md",
+          "author_line": "author: todo60-auditor-codex-gpt-5-001",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "classify_hosted_provider_actions",
+      "type": "synthesis",
+      "title": "Classify hosted provider actions",
+      "role_id": "classifier",
+      "lane_id": "codex",
+      "fresh_session_required": true,
+      "objective": "Classify the hosted Git/PR provider tail as optional-plugin/out-of-core or identify any actual D127 source violation.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/deferred-21-todo60-hosted-git-closure/prompts/classify_hosted_provider_actions.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/operator/artifacts/deferred-21-todo60-hosted-git-closure/classification/"
+        ],
+        "forbidden_paths": [
+          ".striatum/",
+          "docs/TODO.md",
+          "docs/ROADMAP.md",
+          "docs/operator/BRIEF.md",
+          "docs/rfcs/0067-optional-git-pr-integration.md",
+          "src/",
+          "tests/",
+          "go/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "hosted_provider_classification",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/deferred-21-todo60-hosted-git-closure/classification/OPTIONAL_PLUGIN_CLASSIFICATION.md",
+          "author_line": "author: todo60-classifier-codex-gpt-5-001",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "finalize_todo60_hosted_git_closure",
+      "type": "synthesis",
+      "title": "Finalize TODO 60 hosted Git closure",
+      "role_id": "closer",
+      "lane_id": "codex",
+      "fresh_session_required": true,
+      "objective": "Publish the final TODO 60 hosted provider closure with changed files, validation evidence, and shared-doc update requests.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/deferred-21-todo60-hosted-git-closure/prompts/finalize_closure.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/operator/artifacts/deferred-21-todo60-hosted-git-closure/final/"
+        ],
+        "forbidden_paths": [
+          ".striatum/",
+          "docs/TODO.md",
+          "docs/ROADMAP.md",
+          "docs/operator/BRIEF.md",
+          "docs/rfcs/0067-optional-git-pr-integration.md",
+          "src/",
+          "tests/",
+          "go/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "todo60_hosted_git_closure_summary",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/deferred-21-todo60-hosted-git-closure/final/SUMMARY.md",
+          "author_line": "author: todo60-closer-codex-gpt-5-001",
+          "required": true
+        }
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "from": "audit_core_git_boundary",
+      "to": "classify_hosted_provider_actions",
+      "on": "completed"
+    },
+    {
+      "from": "classify_hosted_provider_actions",
+      "to": "finalize_todo60_hosted_git_closure",
+      "on": "completed"
+    }
+  ],
+  "cycles": []
+}

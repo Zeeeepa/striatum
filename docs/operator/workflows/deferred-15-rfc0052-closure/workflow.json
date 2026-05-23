@@ -1,0 +1,186 @@
+{
+  "schema_version": "striatum.workflow.v1",
+  "workflow_id": "deferred-15-rfc0052-closure",
+  "workflow_version": "2026-05-23",
+  "name": "Deferred 15 RFC 0052 committee workflow closure",
+  "context_docs": [
+    "AGENTS.md",
+    "README.md",
+    "docs/INDEX.md",
+    "docs/SPEC.md",
+    "docs/DECISION_LOG.md",
+    "docs/UBIQUITOUS_LANGUAGE.md",
+    "docs/TODO.md",
+    "docs/ROADMAP.md",
+    "docs/operator/BRIEF.md",
+    "docs/HOW_TO_AGENT.md",
+    "docs/rfcs/0052-committee-deliberation-workflow.md",
+    "docs/rfcs/0074-workflow-shape-and-adversary-pack-catalog.md",
+    "docs/operator/artifacts/rfc-0074-phase-a-catalog/CLOSURE.md",
+    "docs/operator/plans/deferred-15-rfc0052-closure.md"
+  ],
+  "coordinator": {
+    "role_id": "coordinator",
+    "lane_id": "codex"
+  },
+  "parallelism": {
+    "mode": "declared",
+    "max_active_jobs": 1,
+    "require_disjoint_write_scopes": true
+  },
+  "branch": {
+    "mode": "confirm",
+    "suggested_name": "striatum/deferred-15-rfc0052-closure",
+    "allow_dirty": true
+  },
+  "lanes": {
+    "codex": {
+      "adapter": "process",
+      "command": [
+        "bash",
+        "-lc",
+        "PYTHONPATH=src python3 -m striatum.cli skills install --profile all --scope user --force --json >/dev/null && export PATH=\"$PWD/.venv/bin:$PATH\" && exec .striatum/bin/codex-supervised-wrapper.sh"
+      ],
+      "model": "codex",
+      "display_model": "Codex GPT-5",
+      "strategy_version": "2026-05-23",
+      "constraints": {
+        "network": "forbidden",
+        "repo_scope": "local_only",
+        "transcripts": "off"
+      },
+      "required_enforcement": {
+        "network": "advisory_strict",
+        "repo_scope": "advisory_strict",
+        "transcripts": "enforced"
+      },
+      "supervision": {
+        "compatible": true,
+        "stdin_format": "newline_delimited_json",
+        "wrapper_required": true
+      }
+    }
+  },
+  "roles": {
+    "coordinator": {
+      "description": "Operator/control-plane role."
+    },
+    "mapper": {
+      "description": "Maps RFC 0052 readiness against current product state."
+    },
+    "comparator": {
+      "description": "Compares RFC 0052 against RFC 0074 coverage."
+    },
+    "closer": {
+      "description": "Publishes the deferred item 15 classification and validation evidence."
+    }
+  },
+  "jobs": [
+    {
+      "id": "map_rfc0052_readiness",
+      "type": "synthesis",
+      "title": "Map RFC 0052 readiness",
+      "role_id": "mapper",
+      "lane_id": "codex",
+      "fresh_session_required": true,
+      "objective": "Map RFC 0052 committee-deliberation readiness against TODO item 43, ROADMAP section 5.8, current product boundaries, and RFC 0074.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/deferred-15-rfc0052-closure/prompts/map_rfc0052_readiness.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/operator/artifacts/deferred-15-rfc0052-closure/map/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "rfc0052_readiness_map",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/deferred-15-rfc0052-closure/map/MAP.md",
+          "author_line": "author: rfc0052-mapper-codex-gpt-5-001",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "compare_rfc0074_coverage",
+      "type": "synthesis",
+      "title": "Compare RFC 0074 coverage",
+      "role_id": "comparator",
+      "lane_id": "codex",
+      "fresh_session_required": true,
+      "objective": "Determine whether RFC 0052 can be closed as covered by RFC 0074 primitives, or whether the two RFCs have distinct implementation surfaces.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/deferred-15-rfc0052-closure/prompts/compare_rfc0074_coverage.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/operator/artifacts/deferred-15-rfc0052-closure/coverage/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "rfc0074_coverage_comparison",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/deferred-15-rfc0052-closure/coverage/RFC0074_COVERAGE.md",
+          "author_line": "author: rfc0052-comparator-codex-gpt-5-001",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "finalize_rfc0052_classification",
+      "type": "synthesis",
+      "title": "Finalize RFC 0052 classification",
+      "role_id": "closer",
+      "lane_id": "codex",
+      "fresh_session_required": true,
+      "objective": "Publish the final deferred item 15 classification, changed files, validation evidence, and shared-doc update requests.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/deferred-15-rfc0052-closure/prompts/finalize_classification.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/operator/artifacts/deferred-15-rfc0052-closure/final/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "rfc0052_closure_summary",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/deferred-15-rfc0052-closure/final/SUMMARY.md",
+          "author_line": "author: rfc0052-closer-codex-gpt-5-001",
+          "required": true
+        }
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "from": "map_rfc0052_readiness",
+      "to": "compare_rfc0074_coverage",
+      "on": "completed"
+    },
+    {
+      "from": "compare_rfc0074_coverage",
+      "to": "finalize_rfc0052_classification",
+      "on": "completed"
+    }
+  ],
+  "cycles": []
+}

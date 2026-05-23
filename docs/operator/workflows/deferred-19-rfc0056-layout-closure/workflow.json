@@ -1,0 +1,186 @@
+{
+  "schema_version": "striatum.workflow.v1",
+  "workflow_id": "deferred-19-rfc0056-layout-closure",
+  "workflow_version": "2026-05-23",
+  "name": "Deferred 19 RFC 0056 layout closure",
+  "context_docs": [
+    "AGENTS.md",
+    "README.md",
+    "docs/INDEX.md",
+    "docs/SPEC.md",
+    "docs/DECISION_LOG.md",
+    "docs/UBIQUITOUS_LANGUAGE.md",
+    "docs/TODO.md",
+    "docs/ROADMAP.md",
+    "docs/operator/BRIEF.md",
+    "docs/HOW_TO_AGENT.md",
+    "docs/operator/plans/deferred-19-rfc0056-layout-closure.md",
+    "docs/rfcs/0056-consumer-repo-directory-structure-opinions.md",
+    "docs/CONSUMER_REPO_LAYOUT.md",
+    "src/striatum/scaffold/__init__.py",
+    "src/striatum/cli/parser.py",
+    "src/striatum/cli/dispatch.py",
+    "src/striatum/bootstrap.py",
+    "tests/test_scaffold_ddd_layout.py",
+    "tests/test_workflow_generator.py"
+  ],
+  "coordinator": {
+    "role_id": "coordinator",
+    "lane_id": "codex"
+  },
+  "parallelism": {
+    "mode": "declared",
+    "max_active_jobs": 1,
+    "require_disjoint_write_scopes": true
+  },
+  "branch": {
+    "mode": "confirm",
+    "suggested_name": "striatum/deferred-19-rfc0056-layout-closure",
+    "allow_dirty": true
+  },
+  "lanes": {
+    "codex": {
+      "adapter": "process",
+      "command": [
+        "bash",
+        "-lc",
+        "true"
+      ],
+      "model": "codex",
+      "display_model": "Codex GPT-5",
+      "strategy_version": "2026-05-23"
+    }
+  },
+  "roles": {
+    "coordinator": {
+      "description": "Coordinates the artifact-only closure workflow."
+    },
+    "mapper": {
+      "description": "Maps the current RFC 0056 scaffold, generator, and gitignore surfaces."
+    },
+    "classifier": {
+      "description": "Classifies whether the optional follow-up should become implementation work."
+    },
+    "closer": {
+      "description": "Publishes final closure evidence and validation results."
+    }
+  },
+  "jobs": [
+    {
+      "id": "map_layout_boundary",
+      "type": "synthesis",
+      "title": "Map RFC 0056 layout boundary",
+      "role_id": "mapper",
+      "lane_id": "codex",
+      "fresh_session_required": true,
+      "objective": "Map current docs, source, and scaffold tests for RFC 0056 workflow-file generation and artifact-root gitignore policy.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/deferred-19-rfc0056-layout-closure/prompts/map_layout_boundary.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/operator/artifacts/deferred-19-rfc0056-layout-closure/source/",
+          "tests/test_scaffold_ddd_layout.py"
+        ],
+        "forbidden_paths": [
+          ".striatum/",
+          "docs/TODO.md",
+          "docs/ROADMAP.md",
+          "docs/operator/BRIEF.md"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "layout_boundary_map",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/deferred-19-rfc0056-layout-closure/source/MAP.md",
+          "author_line": "author: rfc0056-layout-mapper-codex-gpt-5-001",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "classify_optional_followup",
+      "type": "synthesis",
+      "title": "Classify RFC 0056 optional follow-up",
+      "role_id": "classifier",
+      "lane_id": "codex",
+      "fresh_session_required": true,
+      "objective": "Classify the optional workflow-file generation and artifact-root gitignore follow-up as implement-now, explicit non-change, or future separate design.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/deferred-19-rfc0056-layout-closure/prompts/classify_optional_followup.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/operator/artifacts/deferred-19-rfc0056-layout-closure/policy/"
+        ],
+        "forbidden_paths": [
+          ".striatum/",
+          "docs/TODO.md",
+          "docs/ROADMAP.md",
+          "docs/operator/BRIEF.md"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "optional_followup_classification",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/deferred-19-rfc0056-layout-closure/policy/CLASSIFICATION.md",
+          "author_line": "author: rfc0056-layout-classifier-codex-gpt-5-001",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "finalize_layout_closure",
+      "type": "synthesis",
+      "title": "Finalize RFC 0056 layout closure",
+      "role_id": "closer",
+      "lane_id": "codex",
+      "fresh_session_required": true,
+      "objective": "Publish the final deferred item 19 closure summary with changed files, validation commands, and results.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/deferred-19-rfc0056-layout-closure/prompts/finalize_layout_closure.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/operator/artifacts/deferred-19-rfc0056-layout-closure/final/"
+        ],
+        "forbidden_paths": [
+          ".striatum/",
+          "docs/TODO.md",
+          "docs/ROADMAP.md",
+          "docs/operator/BRIEF.md"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "layout_closure_summary",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/deferred-19-rfc0056-layout-closure/final/SUMMARY.md",
+          "author_line": "author: rfc0056-layout-closer-codex-gpt-5-001",
+          "required": true
+        }
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "from": "map_layout_boundary",
+      "to": "classify_optional_followup",
+      "on": "completed"
+    },
+    {
+      "from": "classify_optional_followup",
+      "to": "finalize_layout_closure",
+      "on": "completed"
+    }
+  ],
+  "cycles": []
+}

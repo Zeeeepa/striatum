@@ -546,7 +546,6 @@ def evidence_job_summaries(
 def evidence_artifact_summaries(
     ctx: RepoHandlerContext, *, run_id: str, workflow: Mapping[str, Any]
 ) -> list[dict[str, Any]]:
-    _ = workflow
     with ctx.cursor() as cur:
         cur.execute(
             """
@@ -570,14 +569,7 @@ def evidence_artifact_summaries(
     items = []
     for row in rows:
         item = row_to_json(row)
-        item["author"] = {
-            "role_id": item.get("role_id"),
-            "lane_id": item.get("lane_id"),
-            "ordinal": item.get("ordinal"),
-            "workflow_job_id": item.get("workflow_job_id"),
-            "author_line": item.get("author_line"),
-            "operator_label": item.get("operator_label"),
-        }
+        item["author"] = _artifact_author_summary(item, workflow=workflow)
         item.pop("lane_selector_json", None)
         item.pop("role_id", None)
         item.pop("lane_id", None)
@@ -586,6 +578,41 @@ def evidence_artifact_summaries(
         item.pop("operator_label", None)
         items.append(item)
     return items
+
+
+def _artifact_author_summary(
+    item: Mapping[str, Any],
+    *,
+    workflow: Mapping[str, Any],
+) -> dict[str, Any]:
+    lane_id = item.get("lane_id")
+    if not isinstance(lane_id, str) or not lane_id:
+        lane_id = parse_json_object(item.get("lane_selector_json")).get("lane_id")
+    lane_text = lane_id if isinstance(lane_id, str) and lane_id else None
+    actual_author_line = item.get("author_line")
+    actual_line = actual_author_line if isinstance(actual_author_line, str) else None
+    return {
+        "role_id": item.get("role_id"),
+        "lane_id": lane_text,
+        "display_model": _lane_display_model(workflow, lane_text),
+        "workflow_job_id": item.get("workflow_job_id"),
+        "ordinal": item.get("ordinal"),
+        "line": actual_line,
+        "actual_author_line": actual_line,
+        # Compatibility for list.artifacts clients that predate the
+        # evidence/run-summary author identity shape.
+        "author_line": actual_line,
+        "operator_label": item.get("operator_label"),
+    }
+
+
+def _lane_display_model(workflow: Mapping[str, Any], lane_id: str | None) -> str | None:
+    if lane_id is None:
+        return None
+    lanes = workflow.get("lanes")
+    lane = lanes.get(lane_id) if isinstance(lanes, Mapping) else None
+    display_model = lane.get("display_model") if isinstance(lane, Mapping) else None
+    return display_model if isinstance(display_model, str) and display_model else None
 
 
 def evidence_session_summaries(ctx: RepoHandlerContext, *, run_id: str) -> list[dict[str, Any]]:

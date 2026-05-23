@@ -1,0 +1,170 @@
+{
+  "schema_version": "striatum.workflow.v1",
+  "workflow_id": "deferred-16-rfc0053-phase-b-closure",
+  "workflow_version": "2026-05-23",
+  "name": "Deferred 16 RFC 0053 Phase B closure",
+  "context_docs": [
+    "AGENTS.md",
+    "README.md",
+    "docs/INDEX.md",
+    "docs/SPEC.md",
+    "docs/DECISION_LOG.md",
+    "docs/UBIQUITOUS_LANGUAGE.md",
+    "docs/TODO.md",
+    "docs/ROADMAP.md",
+    "docs/operator/BRIEF.md",
+    "docs/operator/plans/deferred-16-rfc0053-phase-b-closure.md",
+    "docs/rfcs/0053-human-principal-and-terminology-truing.md",
+    "tests/test_workflow_upgrade.py",
+    "tests/test_workflow_field_errors.py",
+    "tests/test_workflow_phases.py",
+    "go/pkg/workflowauthoring/workflow_test.go",
+    "go/pkg/workflowgenerate/generate_test.go"
+  ],
+  "coordinator": {
+    "role_id": "coordinator",
+    "lane_id": "codex"
+  },
+  "parallelism": {
+    "mode": "declared",
+    "max_active_jobs": 1,
+    "require_disjoint_write_scopes": true
+  },
+  "branch": {
+    "mode": "confirm",
+    "suggested_name": "striatum/deferred-16-rfc0053-phase-b-closure",
+    "allow_dirty": true
+  },
+  "lanes": {
+    "codex": {
+      "adapter": "process",
+      "command": [
+        "bash",
+        "-lc",
+        "true"
+      ],
+      "model": "codex",
+      "display_model": "Codex",
+      "strategy_version": "2026-05-23"
+    }
+  },
+  "roles": {
+    "coordinator": {
+      "description": "Coordinates the artifact-only closure workflow."
+    },
+    "schema_mapper": {
+      "description": "Maps current workflow schema, runtime state, and test surfaces."
+    },
+    "closure_writer": {
+      "description": "Classifies blockers and writes the closure summary."
+    }
+  },
+  "jobs": [
+    {
+      "id": "map_current_surface",
+      "type": "synthesis",
+      "title": "Map current RFC 0053 Phase B surface",
+      "role_id": "schema_mapper",
+      "lane_id": "codex",
+      "fresh_session_required": true,
+      "objective": "Map where human_checkpoint and waiting_human are currently schema, runtime, read-model, and test vocabulary.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/deferred-16-rfc0053-phase-b-closure/prompts/map_current_surface.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/operator/artifacts/deferred-16-rfc0053-phase-b-closure/surface/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "surface_map",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/deferred-16-rfc0053-phase-b-closure/surface/SURFACE_MAP.md",
+          "author_line": "author: deferred16-surface-codex-gpt-5-001",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "classify_blockers",
+      "type": "synthesis",
+      "title": "Classify Phase B blockers",
+      "role_id": "closure_writer",
+      "lane_id": "codex",
+      "fresh_session_required": true,
+      "objective": "Classify the exact blockers and unblock steps for the Phase B schema/state rename.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/deferred-16-rfc0053-phase-b-closure/prompts/classify_blockers.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/operator/artifacts/deferred-16-rfc0053-phase-b-closure/classification/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "classification",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/deferred-16-rfc0053-phase-b-closure/classification/CLASSIFICATION.md",
+          "author_line": "author: deferred16-classifier-codex-gpt-5-001",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "final_summary",
+      "type": "synthesis",
+      "title": "Write closure summary",
+      "role_id": "closure_writer",
+      "lane_id": "codex",
+      "fresh_session_required": true,
+      "objective": "Summarize workflow validation, blockers, unblock sequence, and non-edited shared docs.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/deferred-16-rfc0053-phase-b-closure/prompts/final_summary.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/operator/artifacts/deferred-16-rfc0053-phase-b-closure/final/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "summary",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/deferred-16-rfc0053-phase-b-closure/final/SUMMARY.md",
+          "author_line": "author: deferred16-summary-codex-gpt-5-001",
+          "required": true
+        }
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "from": "map_current_surface",
+      "to": "classify_blockers",
+      "on": "completed"
+    },
+    {
+      "from": "classify_blockers",
+      "to": "final_summary",
+      "on": "completed"
+    }
+  ],
+  "cycles": []
+}

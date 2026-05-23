@@ -1,0 +1,264 @@
+{
+  "schema_version": "striatum.workflow.v1",
+  "workflow_id": "todo-2-adapter-constraints-closure",
+  "workflow_version": "2026-05-23",
+  "name": "TODO 2 adapter constraints closure",
+  "context_docs": [
+    "AGENTS.md",
+    "README.md",
+    "docs/INDEX.md",
+    "docs/SPEC.md",
+    "docs/DECISION_LOG.md",
+    "docs/UBIQUITOUS_LANGUAGE.md",
+    "docs/TODO.md",
+    "docs/operator/BRIEF.md",
+    "docs/HOW_TO_AGENT.md",
+    "docs/operator/plans/todo-2-adapter-constraints-closure.md",
+    "src/striatum/repo_policy.py",
+    "src/striatum/workflow.py",
+    "src/striatum/daemon_pg/handlers/context.py",
+    "tests/test_cli_mvp.py",
+    "tests/test_workflow_adapter_constraints.py"
+  ],
+  "coordinator": {
+    "role_id": "coordinator",
+    "lane_id": "codex"
+  },
+  "parallelism": {
+    "mode": "declared",
+    "max_active_jobs": 2,
+    "require_disjoint_write_scopes": true
+  },
+  "branch": {
+    "mode": "confirm",
+    "suggested_name": "striatum/todo-2-adapter-constraints-closure",
+    "allow_dirty": true
+  },
+  "lanes": {
+    "codex": {
+      "adapter": "process",
+      "command": [
+        "bash",
+        "-lc",
+        "PYTHONPATH=src python3 -m striatum.cli skills install --profile all --scope user --force --json >/dev/null && export PATH=\"$PWD/.venv/bin:$PATH\" && exec .striatum/bin/codex-supervised-wrapper.sh"
+      ],
+      "model": "codex",
+      "display_model": "Codex GPT-5",
+      "strategy_version": "2026-05-23",
+      "constraints": {
+        "network": "forbidden",
+        "repo_scope": "local_only",
+        "transcripts": "off"
+      },
+      "required_enforcement": {
+        "network": "advisory_strict",
+        "repo_scope": "advisory_strict",
+        "transcripts": "enforced"
+      },
+      "supervision": {
+        "compatible": true,
+        "stdin_format": "newline_delimited_json",
+        "wrapper_required": true
+      }
+    },
+    "gemini": {
+      "adapter": "process",
+      "command": [
+        "bash",
+        "-lc",
+        "PYTHONPATH=src python3 -m striatum.cli skills install --profile all --scope user --force --json >/dev/null && export PATH=\"$PWD/.venv/bin:$PATH\" && exec .striatum/bin/gemini-supervised-wrapper.sh"
+      ],
+      "model": "gemini",
+      "display_model": "Gemini",
+      "strategy_version": "2026-05-23",
+      "constraints": {
+        "network": "forbidden",
+        "repo_scope": "local_only",
+        "transcripts": "off"
+      },
+      "required_enforcement": {
+        "network": "advisory_strict",
+        "repo_scope": "advisory_strict",
+        "transcripts": "enforced"
+      },
+      "supervision": {
+        "compatible": true,
+        "stdin_format": "prompt_text",
+        "wrapper_required": true
+      }
+    }
+  },
+  "roles": {
+    "coordinator": {
+      "description": "Operator/control-plane role."
+    },
+    "mapper": {
+      "description": "Maps TODO 2 source, tests, and product-boundary evidence."
+    },
+    "implementer": {
+      "description": "Adds the narrow guardrail or documents the RFC-level deferral."
+    },
+    "reviewer": {
+      "description": "Fresh-context adapter-boundary reviewer."
+    },
+    "closer": {
+      "description": "Publishes closure evidence and shared-doc update requests."
+    }
+  },
+  "jobs": [
+    {
+      "id": "map_current_adapter_constraints",
+      "type": "synthesis",
+      "title": "Map current adapter constraints",
+      "role_id": "mapper",
+      "lane_id": "codex",
+      "fresh_session_required": true,
+      "objective": "Map TODO 2 against current source, tests, SPEC, and decision-log behavior. Do not edit source in this job.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/todo-2-adapter-constraints-closure/prompts/map_current_adapter_constraints.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/operator/artifacts/todo-2-adapter-constraints-closure/map/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "adapter_constraint_map",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/todo-2-adapter-constraints-closure/map/MAP.md",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "close_or_escalate_adapter_constraints",
+      "type": "build",
+      "title": "Close or escalate adapter constraints",
+      "role_id": "implementer",
+      "lane_id": "codex",
+      "fresh_session_required": true,
+      "required_review_postures": [
+        "custom:adapter_boundary"
+      ],
+      "objective": "Close the current-scope TODO 2 gap with a narrow guardrail test and document why enforced network/filesystem isolation requires a new RFC.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/todo-2-adapter-constraints-closure/prompts/close_or_escalate_adapter_constraints.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "tests/test_workflow_adapter_constraints.py",
+          "docs/operator/artifacts/todo-2-adapter-constraints-closure/build/"
+        ],
+        "forbidden_paths": [
+          ".striatum/",
+          ".venv/",
+          "__pycache__/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "adapter_constraint_handoff",
+          "kind": "handoff",
+          "path": "docs/operator/artifacts/todo-2-adapter-constraints-closure/build/HANDOFF.md",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "review_adapter_boundary",
+      "type": "review",
+      "title": "Review adapter boundary",
+      "role_id": "reviewer",
+      "lane_id": "gemini",
+      "fresh_session_required": true,
+      "reviewer_context_policy": "fresh",
+      "reviewer_access_scope": "repo_level",
+      "review_posture": "custom:adapter_boundary",
+      "objective": "Verify the closure does not overclaim enforcement, invent a new adapter, or weaken local-first/no-transcript boundaries.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/todo-2-adapter-constraints-closure/prompts/review_adapter_boundary.md"
+      },
+      "write_scope": {
+        "mode": "review_only_artifact",
+        "repo_write": false,
+        "allowed_paths": [
+          "docs/operator/artifacts/todo-2-adapter-constraints-closure/review/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "adapter_boundary_review",
+          "kind": "finding",
+          "path": "docs/operator/artifacts/todo-2-adapter-constraints-closure/review/REVIEW.md",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "finalize_todo2_closure",
+      "type": "synthesis",
+      "title": "Finalize TODO 2 closure",
+      "role_id": "closer",
+      "lane_id": "codex",
+      "fresh_session_required": true,
+      "objective": "Publish final TODO 2 closure evidence, validation commands/results, and shared-doc update requests.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/todo-2-adapter-constraints-closure/prompts/finalize_todo2_closure.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/operator/artifacts/todo-2-adapter-constraints-closure/final/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "todo2_adapter_constraints_closure",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/todo-2-adapter-constraints-closure/final/SUMMARY.md",
+          "required": true
+        }
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "from": "map_current_adapter_constraints",
+      "to": "close_or_escalate_adapter_constraints",
+      "on": "completed"
+    },
+    {
+      "from": "close_or_escalate_adapter_constraints",
+      "to": "review_adapter_boundary",
+      "on": "completed"
+    },
+    {
+      "from": "review_adapter_boundary",
+      "to": "finalize_todo2_closure",
+      "on": "completed"
+    }
+  ],
+  "cycles": [
+    {
+      "from": "review_adapter_boundary",
+      "to": "close_or_escalate_adapter_constraints",
+      "on_verdict": "needs_revision",
+      "max_iterations": 1
+    }
+  ]
+}

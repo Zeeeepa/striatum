@@ -1,0 +1,105 @@
+{
+  "schema_version": "striatum.workflow.v1",
+  "workflow_id": "todo-63-daemon-client-boundary-closure",
+  "workflow_version": "2026-05-23",
+  "name": "TODO 63 daemon client boundary closure",
+  "context_docs": [
+    "README.md",
+    "docs/INDEX.md",
+    "docs/SPEC.md",
+    "docs/DECISION_LOG.md",
+    "docs/UBIQUITOUS_LANGUAGE.md",
+    "docs/TODO.md",
+    "docs/ROADMAP.md",
+    "docs/operator/BRIEF.md",
+    "docs/operator/plans/todo-63-daemon-client-boundary-closure.md",
+    "docs/rfcs/0070-daemon-client-service-boundary.md",
+    "tests/test_cli_daemon_rpc_route.py",
+    "tests/test_service.py",
+    "tests/test_chat_tools_daemon_boundary.py",
+    "tests/test_mcp_mutation_capabilities.py",
+    "tests/test_mcp_dogfood_e2e.py",
+    "go/pkg/mcp/http_test.go",
+    "AGENTS.md"
+  ],
+  "coordinator": {
+    "role_id": "coordinator",
+    "lane_id": "codex"
+  },
+  "parallelism": {
+    "mode": "declared",
+    "max_active_jobs": 1,
+    "require_disjoint_write_scopes": true
+  },
+  "branch": {
+    "mode": "confirm",
+    "suggested_name": "striatum/todo-63-daemon-client-boundary-closure",
+    "allow_dirty": true
+  },
+  "lanes": {
+    "codex": {
+      "adapter": "process",
+      "command": [
+        "bash",
+        "-lc",
+        "PYTHONPATH=src python3 -m striatum.cli skills install --profile all --scope user --force --json >/dev/null && export PATH=\"$PWD/.venv/bin:$PATH\" && exec .striatum/bin/codex-supervised-wrapper.sh"
+      ],
+      "model": "codex",
+      "display_model": "Codex",
+      "strategy_version": "2026-05-23",
+      "supervision": {
+        "compatible": true,
+        "stdin_format": "newline_delimited_json",
+        "wrapper_required": true
+      }
+    }
+  },
+  "roles": {
+    "coordinator": {
+      "description": "Operator/control-plane role."
+    },
+    "boundary_closer": {
+      "description": "Audits RFC 0070 residuals and publishes the closure or implementation handoff."
+    }
+  },
+  "jobs": [
+    {
+      "id": "close_todo63_boundary",
+      "type": "synthesis",
+      "title": "Close TODO 63 daemon client boundary",
+      "role_id": "boundary_closer",
+      "lane_id": "codex",
+      "fresh_session_required": true,
+      "objective": "Validate RFC 0070 against current source and boundary tests. If the supported path is primitive daemon methods, publish a no-action closure artifact. Only edit source or tests for an actual implementation gap.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/todo-63-daemon-client-boundary-closure/prompts/close_boundary.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/operator/artifacts/todo-63-daemon-client-boundary-closure/"
+        ],
+        "forbidden_paths": [
+          ".striatum/",
+          "docs/TODO.md",
+          "docs/ROADMAP.md",
+          "docs/operator/BRIEF.md",
+          "docs/architecture/",
+          "docs/rfcs/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "todo63_boundary_no_action",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/todo-63-daemon-client-boundary-closure/closure/NO_ACTION.md",
+          "author_line": "author: boundary-closer-codex-gpt-5-001",
+          "required": true
+        }
+      ]
+    }
+  ],
+  "edges": [],
+  "cycles": []
+}

@@ -1,0 +1,166 @@
+{
+  "schema_version": "striatum.workflow.v1",
+  "workflow_id": "deferred-26-platform-tenancy-closure",
+  "workflow_version": "2026-05-23",
+  "name": "Deferred 26 platform tenancy closure",
+  "context_docs": [
+    "AGENTS.md",
+    "README.md",
+    "docs/INDEX.md",
+    "docs/SPEC.md",
+    "docs/DECISION_LOG.md",
+    "docs/UBIQUITOUS_LANGUAGE.md",
+    "docs/TODO.md",
+    "docs/ROADMAP.md",
+    "docs/operator/BRIEF.md",
+    "docs/operator/plans/deferred-26-platform-tenancy-closure.md",
+    "docs/rfcs/0028-long-running-daemon-and-multi-repository-control-plane.md",
+    "docs/rfcs/0030-daemon-rpc-server-and-version-skew-protocol.md",
+    "docs/rfcs/0035-multi-repo-test-harness-for-cross-repo-workflows.md",
+    "docs/rfcs/0039-go-daemon-core.md",
+    "docs/CLI_REFERENCE.md",
+    "docs/POSTGRES_TRANSITION.md",
+    "docs/USING_STRIATUM.md",
+    "src/striatum/day_zero.py",
+    "src/striatum/daemon_runtime.py",
+    "src/striatum/_daemongo/__init__.py",
+    "src/striatum/cli/parser.py",
+    "go/pkg/admin/bootstrap.go",
+    "go/cmd/striatumd/main.go",
+    "go/pkg/supervisor/start_time_other.go",
+    "tests/test_day_zero.py",
+    "tests/test_daemon_runtime.py",
+    "tests/exit_codes/test_rfc0043_refusals.py",
+    "go/pkg/admin/bootstrap_test.go"
+  ],
+  "coordinator": {
+    "role_id": "coordinator",
+    "lane_id": "codex"
+  },
+  "parallelism": {
+    "mode": "declared",
+    "max_active_jobs": 1,
+    "require_disjoint_write_scopes": true
+  },
+  "branch": {
+    "mode": "confirm",
+    "suggested_name": "striatum/deferred-26-platform-tenancy-closure",
+    "allow_dirty": true
+  },
+  "lanes": {
+    "codex": {
+      "adapter": "process",
+      "command": [
+        "bash",
+        "-lc",
+        "true"
+      ],
+      "model": "codex",
+      "display_model": "Codex GPT-5",
+      "strategy_version": "2026-05-23",
+      "capabilities": [
+        "write",
+        "review"
+      ]
+    }
+  },
+  "roles": {
+    "coordinator": {
+      "description": "Coordinates the artifact-only deferred-26 closure workflow."
+    },
+    "classifier": {
+      "description": "Audits platform/service-manager and tenancy status against current product decisions."
+    },
+    "closer": {
+      "description": "Writes the final closure summary and protected-doc follow-up."
+    }
+  },
+  "jobs": [
+    {
+      "id": "classify_platform_tenancy",
+      "type": "synthesis",
+      "title": "Classify platform service and tenancy status",
+      "role_id": "classifier",
+      "lane_id": "codex",
+      "fresh_session_required": true,
+      "objective": "Classify Windows daemon support, service-manager install, and local multi-operator tenancy against current decisions, docs, source, and tests.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/deferred-26-platform-tenancy-closure/prompts/classify_platform_tenancy.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/operator/artifacts/deferred-26-platform-tenancy-closure/classification/"
+        ],
+        "forbidden_paths": [
+          ".striatum/",
+          "docs/TODO.md",
+          "docs/ROADMAP.md",
+          "docs/operator/BRIEF.md",
+          "docs/rfcs/",
+          "docs/DECISION_LOG.md",
+          "src/",
+          "tests/",
+          "go/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "platform_tenancy_classification_report",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/deferred-26-platform-tenancy-closure/classification/REPORT.md",
+          "author_line": "author: deferred-26-platform-tenancy-codex-gpt-5-001",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "write_final_summary",
+      "type": "synthesis",
+      "title": "Write platform tenancy closure summary",
+      "role_id": "closer",
+      "lane_id": "codex",
+      "fresh_session_required": true,
+      "objective": "Summarize the platform/tenancy classification, validation results, changed files, and protected shared-doc follow-up.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/deferred-26-platform-tenancy-closure/prompts/write_final_summary.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/operator/artifacts/deferred-26-platform-tenancy-closure/final/"
+        ],
+        "forbidden_paths": [
+          ".striatum/",
+          "docs/TODO.md",
+          "docs/ROADMAP.md",
+          "docs/operator/BRIEF.md",
+          "docs/rfcs/",
+          "docs/DECISION_LOG.md",
+          "src/",
+          "tests/",
+          "go/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "platform_tenancy_closure_summary",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/deferred-26-platform-tenancy-closure/final/SUMMARY.md",
+          "author_line": "author: deferred-26-platform-tenancy-closer-codex-gpt-5-001",
+          "required": true
+        }
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "from": "classify_platform_tenancy",
+      "to": "write_final_summary",
+      "on": "completed"
+    }
+  ],
+  "cycles": []
+}

@@ -1,6 +1,6 @@
 # RFC 0035: Multi-Repo Test Harness for Cross-Repo Workflows
 
-Status: proposed
+Status: accepted (V1)
 Date: 2026-05-12
 Context:
 [`RFC 0032`](0032-cross-repo-workflows-and-mcp-mutation-capabilities.md),
@@ -13,6 +13,14 @@ Context:
 `tests/conftest.py`,
 `tests/test_cross_repo_lifecycle.py`,
 `tests/test_workflow_cross_repo.py`
+
+Implementation status: dogfood-037 shipped the developer-only
+`tests/_harness/MultiRepoHarness` coverage described here. The harness now
+targets the Go daemon and daemon-owned PostgreSQL, with no repo-local SQLite
+authority. It exercises RFC 0032 schema, prepare/lifecycle helper paths,
+crash-recovery, MCP capability scope, and per-repo write-scope behavior; it
+does not by itself ship the production live cross-repo scheduler fan-out
+surface.
 
 ## Problem
 

@@ -1,0 +1,167 @@
+{
+  "schema_version": "striatum.workflow.v1",
+  "workflow_id": "deferred-14-rfc0049-closure",
+  "workflow_version": "2026-05-23",
+  "name": "Deferred 14 RFC 0049 closure",
+  "context_docs": [
+    "AGENTS.md",
+    "README.md",
+    "docs/INDEX.md",
+    "docs/SPEC.md",
+    "docs/DECISION_LOG.md",
+    "docs/UBIQUITOUS_LANGUAGE.md",
+    "docs/TODO.md",
+    "docs/ROADMAP.md",
+    "docs/operator/BRIEF.md",
+    "docs/operator/plans/deferred-14-rfc0049-closure.md",
+    "docs/rfcs/0049-interactive-claude-lane-mcp-control-plane.md",
+    "docs/rfcs/0050-go-daemon-http-sse-mcp.md",
+    "docs/rfcs/0050-operator-ui-rework-and-provenance-honesty.md",
+    "docs/rfcs/0075-tmux-observable-mcp-agent-sessions.md",
+    "docs/MCP.md",
+    "docs/operator/plans/rfc-0075-tmux-observable-mcp-agent-sessions.md",
+    "docs/architecture/CLI_RETIREMENT_PARITY.md",
+    "contracts/daemon_methods.json",
+    "go/pkg/agentloop/bootstrap.go",
+    "go/pkg/agentloop/loop.go",
+    "go/pkg/mutations/claim.go",
+    "go/pkg/mutations/lifecycle.go",
+    "go/pkg/supervisor/pty.go",
+    "src/striatum/scaffold/templates/bin/claude-supervised-wrapper.sh",
+    "tests/test_claude_supervised_wrapper.py",
+    "tests/test_mcp_fake_agent_loop_e2e.py",
+    "tests/architecture/test_tmux_authority_boundary.py",
+    "tests/test_dashboard_rfc0075.py"
+  ],
+  "coordinator": {
+    "role_id": "coordinator",
+    "lane_id": "codex"
+  },
+  "parallelism": {
+    "mode": "declared",
+    "max_active_jobs": 1,
+    "require_disjoint_write_scopes": true
+  },
+  "branch": {
+    "mode": "confirm",
+    "suggested_name": "striatum/deferred-14-rfc0049-closure",
+    "allow_dirty": true
+  },
+  "lanes": {
+    "codex": {
+      "adapter": "process",
+      "command": [
+        "bash",
+        "-lc",
+        "PYTHONPATH=src python3 -m striatum.cli skills install --profile all --scope user --force --json >/dev/null && export PATH=\"$PWD/.venv/bin:$PATH\" && exec .striatum/bin/codex-supervised-wrapper.sh"
+      ],
+      "model": "codex",
+      "display_model": "Codex GPT-5",
+      "strategy_version": "2026-05-23",
+      "supervision": {
+        "compatible": true,
+        "stdin_format": "newline_delimited_json",
+        "wrapper_required": true
+      }
+    }
+  },
+  "roles": {
+    "coordinator": {
+      "description": "Operator/control-plane role."
+    },
+    "classifier": {
+      "description": "Audits RFC 0049 against current MCP/tmux source behavior and product decisions."
+    },
+    "closer": {
+      "description": "Writes the bounded closure summary and protected-doc follow-up."
+    }
+  },
+  "jobs": [
+    {
+      "id": "classify_rfc0049",
+      "type": "synthesis",
+      "title": "Classify RFC 0049 deferred item 14",
+      "role_id": "classifier",
+      "lane_id": "codex",
+      "fresh_session_required": true,
+      "objective": "Classify RFC 0049 as reopened, closed, or shelved using current decisions, source behavior, RFC 0050/0075 status, and focused validation.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/deferred-14-rfc0049-closure/prompts/classify_rfc0049.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/operator/artifacts/deferred-14-rfc0049-closure/classification/"
+        ],
+        "forbidden_paths": [
+          ".striatum/",
+          "docs/TODO.md",
+          "docs/ROADMAP.md",
+          "docs/operator/BRIEF.md",
+          "docs/rfcs/",
+          "docs/DECISION_LOG.md",
+          "src/",
+          "tests/",
+          "go/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "rfc0049_classification_report",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/deferred-14-rfc0049-closure/classification/REPORT.md",
+          "author_line": "author: rfc0049-classifier-codex-gpt-5-001",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "write_final_summary",
+      "type": "synthesis",
+      "title": "Write RFC 0049 closure summary",
+      "role_id": "closer",
+      "lane_id": "codex",
+      "fresh_session_required": true,
+      "objective": "Summarize the RFC 0049 classification, validation results, changed files, and protected shared-doc follow-up.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/deferred-14-rfc0049-closure/prompts/write_final_summary.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/operator/artifacts/deferred-14-rfc0049-closure/final/"
+        ],
+        "forbidden_paths": [
+          ".striatum/",
+          "docs/TODO.md",
+          "docs/ROADMAP.md",
+          "docs/operator/BRIEF.md",
+          "docs/rfcs/",
+          "docs/DECISION_LOG.md",
+          "src/",
+          "tests/",
+          "go/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "rfc0049_closure_summary",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/deferred-14-rfc0049-closure/final/SUMMARY.md",
+          "author_line": "author: rfc0049-closer-codex-gpt-5-001",
+          "required": true
+        }
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "from": "classify_rfc0049",
+      "to": "write_final_summary",
+      "on": "completed"
+    }
+  ],
+  "cycles": []
+}

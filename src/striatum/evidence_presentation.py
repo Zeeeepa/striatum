@@ -181,8 +181,8 @@ EVIDENCE_POLICY: JsonObject = {
             "state": "safe",
             "registered_at": "safe",
             "closed_at": "safe",
-            "close_reason": "safe",
-            "non_fresh_reason": "safe",
+            "close_reason": "redacted",
+            "non_fresh_reason": "redacted",
         },
     },
     "verdicts": {

@@ -1,0 +1,236 @@
+{
+  "schema_version": "striatum.workflow.v1",
+  "workflow_id": "todo-16-generic-language-closure",
+  "workflow_version": "2026-05-23",
+  "name": "TODO 16 generic language closure",
+  "context_docs": [
+    "AGENTS.md",
+    "README.md",
+    "docs/INDEX.md",
+    "docs/SPEC.md",
+    "docs/DECISION_LOG.md",
+    "docs/UBIQUITOUS_LANGUAGE.md",
+    "docs/TODO.md",
+    "docs/ROADMAP.md",
+    "docs/operator/BRIEF.md",
+    "docs/operator/plans/todo-16-generic-language-closure.md",
+    "docs/operator/artifacts/ordered-backlog-2026-05-23/phase-06-generic-language/REPORT.md",
+    "tests/test_doc_links.py"
+  ],
+  "coordinator": {
+    "role_id": "coordinator",
+    "lane_id": "codex"
+  },
+  "parallelism": {
+    "mode": "declared",
+    "max_active_jobs": 1,
+    "require_disjoint_write_scopes": true
+  },
+  "branch": {
+    "mode": "confirm",
+    "suggested_name": "main",
+    "allow_dirty": true
+  },
+  "lanes": {
+    "codex": {
+      "adapter": "process",
+      "command": [
+        "bash",
+        "-lc",
+        "printf 'todo16 generic language codex lane\\n'"
+      ],
+      "model": "codex",
+      "display_model": "Codex",
+      "strategy_version": "2026-05-23"
+    },
+    "gemini": {
+      "adapter": "process",
+      "command": [
+        "bash",
+        "-lc",
+        "printf 'todo16 generic language review lane\\n'"
+      ],
+      "model": "gemini",
+      "display_model": "Gemini",
+      "strategy_version": "2026-05-23"
+    }
+  },
+  "roles": {
+    "coordinator": {
+      "description": "Operator/control-plane role."
+    },
+    "language_mapper": {
+      "description": "Scans current docs, source, and tests for generic-language drift."
+    },
+    "language_fixer": {
+      "description": "Applies safe generic-language fixes and regression guardrails."
+    },
+    "language_reviewer": {
+      "description": "Reviews the sweep for product-boundary correctness and overreach."
+    },
+    "closer": {
+      "description": "Writes the final TODO 16 sweep summary."
+    }
+  },
+  "jobs": [
+    {
+      "id": "scan_current_language",
+      "type": "synthesis",
+      "title": "Scan current generic-language drift",
+      "role_id": "language_mapper",
+      "lane_id": "codex",
+      "fresh_session_required": true,
+      "objective": "Classify Engram-specific and product-boundary language hits as current drift, historical/reference material, optional augmentation, or no action.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/todo-16-generic-language-closure/prompts/scan_current_language.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/operator/artifacts/todo-16-generic-language-closure/scan/"
+        ],
+        "forbidden_paths": [
+          ".striatum/",
+          "docs/TODO.md",
+          "docs/ROADMAP.md",
+          "docs/operator/BRIEF.md"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "generic_language_scan",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/todo-16-generic-language-closure/scan/SCAN.md",
+          "author_line": "author: generic-language-codex-gpt-5-001",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "apply_safe_fixes",
+      "type": "build",
+      "title": "Apply safe language fixes and guardrails",
+      "role_id": "language_fixer",
+      "lane_id": "codex",
+      "fresh_session_required": true,
+      "objective": "Apply only the safe current-doc fixes and guardrails identified by the scan.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/todo-16-generic-language-closure/prompts/apply_safe_fixes.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/rfcs/0056-consumer-repo-directory-structure-opinions.md",
+          "tests/test_doc_links.py",
+          "docs/operator/artifacts/todo-16-generic-language-closure/apply/"
+        ],
+        "forbidden_paths": [
+          ".striatum/",
+          "docs/TODO.md",
+          "docs/ROADMAP.md",
+          "docs/operator/BRIEF.md"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "language_fix_handoff",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/todo-16-generic-language-closure/apply/HANDOFF.md",
+          "author_line": "author: generic-language-codex-gpt-5-002",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "review_language_closure",
+      "type": "review",
+      "title": "Review generic-language closure",
+      "role_id": "language_reviewer",
+      "lane_id": "gemini",
+      "fresh_session_required": true,
+      "objective": "Review the scan, fixes, and guardrail for correctness, scope discipline, and product-boundary alignment.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/todo-16-generic-language-closure/prompts/review_language_closure.md"
+      },
+      "write_scope": {
+        "mode": "review_only_artifact",
+        "repo_write": false,
+        "allowed_paths": [
+          "docs/operator/artifacts/todo-16-generic-language-closure/review/"
+        ],
+        "forbidden_paths": [
+          ".striatum/",
+          "docs/TODO.md",
+          "docs/ROADMAP.md",
+          "docs/operator/BRIEF.md"
+        ]
+      },
+      "reviewer_access_scope": "repo_level",
+      "reviewer_context_policy": "fresh",
+      "expected_artifacts": [
+        {
+          "logical_name": "language_closure_review",
+          "kind": "finding",
+          "path": "docs/operator/artifacts/todo-16-generic-language-closure/review/REVIEW.md",
+          "author_line": "author: generic-language-gemini-001",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "finalize_language_closure",
+      "type": "synthesis",
+      "title": "Finalize TODO 16 sweep",
+      "role_id": "closer",
+      "lane_id": "codex",
+      "fresh_session_required": true,
+      "objective": "Summarize changed files, validation, residual findings, and shared-doc updates to report.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/todo-16-generic-language-closure/prompts/finalize_language_closure.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/operator/artifacts/todo-16-generic-language-closure/final/",
+          "docs/operator/plans/todo-16-generic-language-closure.md"
+        ],
+        "forbidden_paths": [
+          ".striatum/",
+          "docs/TODO.md",
+          "docs/ROADMAP.md",
+          "docs/operator/BRIEF.md"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "language_closure_summary",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/todo-16-generic-language-closure/final/SUMMARY.md",
+          "author_line": "author: generic-language-closer-codex-gpt-5-001",
+          "required": true
+        }
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "from": "scan_current_language",
+      "to": "apply_safe_fixes",
+      "on": "completed"
+    },
+    {
+      "from": "apply_safe_fixes",
+      "to": "review_language_closure",
+      "on": "completed"
+    },
+    {
+      "from": "review_language_closure",
+      "to": "finalize_language_closure",
+      "on": "completed"
+    }
+  ],
+  "cycles": []
+}

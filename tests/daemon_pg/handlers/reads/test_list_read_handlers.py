@@ -74,7 +74,7 @@ def insert_fixture(conn: Any, *, repository_id: str, repo_root: Path) -> None:
         "name": "Workflow A",
         "branch": {"mode": "manual"},
         "coordinator": {"role_id": "author", "lane_id": "codex"},
-        "lanes": {"codex": {"adapter": "manual"}},
+        "lanes": {"codex": {"adapter": "manual", "display_model": "Codex"}},
         "roles": {"author": {}, "reviewer": {}},
         "context_docs": [],
         "parallelism": {"mode": "serial", "max_active_jobs": 1},
@@ -278,7 +278,11 @@ def test_list_artifacts_filters_and_scopes_repository(pg_conn: Any, tmp_path: Pa
 
     assert result["count"] == 1
     assert result["items"][0]["artifact_id"] == "art_1"
-    assert result["items"][0]["author"]["author_line"] == "author: author-codex-001"
+    author = result["items"][0]["author"]
+    assert author["line"] == "author: author-codex-001"
+    assert author["actual_author_line"] == "author: author-codex-001"
+    assert author["author_line"] == "author: author-codex-001"
+    assert author["display_model"] == "Codex"
     with pytest.raises(RpcError, match="unknown artifact kind"):
         module.handle(
             repo_context(pg_conn, repository_id="repo_a", repo_root=repo_a),

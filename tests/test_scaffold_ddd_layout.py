@@ -397,6 +397,19 @@ def test_striatum_layout_creates_workflow_directories(tmp_path: Path) -> None:
         assert (tmp_path / target).is_dir()
 
 
+def test_striatum_layout_does_not_write_workflow_files_or_gitignore(
+    tmp_path: Path,
+) -> None:
+    result = scaffold_striatum_layout(tmp_path, workflow_slug="review-cycle")
+
+    assert result["layout"] == "striatum"
+    assert (tmp_path / "striatum" / "workflows").is_dir()
+    assert (tmp_path / "striatum" / "review-cycle").is_dir()
+    assert list((tmp_path / "striatum" / "workflows").iterdir()) == []
+    assert list((tmp_path / "striatum" / "review-cycle").iterdir()) == []
+    assert not (tmp_path / ".gitignore").exists()
+
+
 def test_striatum_layout_dry_run_writes_no_directories(tmp_path: Path) -> None:
     result = scaffold_striatum_layout(tmp_path, dry_run=True)
 
@@ -482,6 +495,15 @@ def test_init_with_striatum_layout_returns_envelope(tmp_path: Path) -> None:
     }
     assert (tmp_path / "striatum" / "workflows").is_dir()
     assert (tmp_path / "striatum" / "review-cycle").is_dir()
+    ignore_lines = (
+        (tmp_path / ".gitignore")
+        .read_text(encoding="utf-8")
+        .splitlines()
+    )
+    assert ".striatum/" in ignore_lines
+    assert "striatum/review-cycle/" not in ignore_lines
+    assert list((tmp_path / "striatum" / "workflows").iterdir()) == []
+    assert list((tmp_path / "striatum" / "review-cycle").iterdir()) == []
 
 
 def test_striatum_layout_flags_noop_without_with_striatum_layout(tmp_path: Path) -> None:

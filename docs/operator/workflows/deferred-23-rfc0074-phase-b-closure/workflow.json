@@ -1,0 +1,188 @@
+{
+  "schema_version": "striatum.workflow.v1",
+  "workflow_id": "deferred-23-rfc0074-phase-b-closure",
+  "workflow_version": "2026-05-23",
+  "name": "Deferred 23 RFC 0074 Phase B closure",
+  "context_docs": [
+    "AGENTS.md",
+    "README.md",
+    "docs/INDEX.md",
+    "docs/SPEC.md",
+    "docs/DECISION_LOG.md",
+    "docs/UBIQUITOUS_LANGUAGE.md",
+    "docs/TODO.md",
+    "docs/ROADMAP.md",
+    "docs/operator/BRIEF.md",
+    "docs/operator/plans/rfc-0074-workflow-shape-catalog-phase-a.md",
+    "docs/operator/plans/deferred-23-rfc0074-phase-b-closure.md",
+    "docs/rfcs/0034-workflow-generator-and-template-catalog.md",
+    "docs/rfcs/0052-committee-deliberation-workflow.md",
+    "docs/rfcs/0074-workflow-shape-and-adversary-pack-catalog.md",
+    "docs/operator/artifacts/rfc-0074-phase-a-catalog/CLOSURE.md",
+    "docs/operator/artifacts/deferred-15-rfc0052-closure/final/SUMMARY.md",
+    "examples/implementation-panel-flow/workflow.json",
+    "src/striatum/workflow_generator/core.py",
+    "src/striatum/workflow_generator/catalog.py",
+    "src/striatum/workflow_templates/catalog.json",
+    "src/striatum/cli/parser.py",
+    "src/striatum/cli/dispatch.py",
+    "src/striatum/web/workflow_generation.py",
+    "src/striatum/service_routes.py",
+    "go/pkg/workflowgenerate/generate.go",
+    "go/pkg/workflowtemplates/catalog.go",
+    "tests/test_workflow_generator.py",
+    "tests/test_workflow_generation_web.py",
+    "tests/test_service.py",
+    "go/pkg/workflowgenerate/generate_test.go",
+    "go/pkg/workflowtemplates/catalog_test.go"
+  ],
+  "coordinator": {
+    "role_id": "coordinator",
+    "lane_id": "codex"
+  },
+  "parallelism": {
+    "mode": "declared",
+    "max_active_jobs": 1,
+    "require_disjoint_write_scopes": true
+  },
+  "branch": {
+    "mode": "confirm",
+    "suggested_name": "striatum/deferred-23-rfc0074-phase-b-closure",
+    "allow_dirty": true
+  },
+  "lanes": {
+    "codex": {
+      "adapter": "process",
+      "command": [
+        "bash",
+        "-lc",
+        "true"
+      ],
+      "model": "codex",
+      "display_model": "Codex",
+      "strategy_version": "2026-05-23"
+    }
+  },
+  "roles": {
+    "coordinator": {
+      "description": "Coordinates the artifact-only closure workflow."
+    },
+    "surface_mapper": {
+      "description": "Maps RFC 0074 Phase B generator, catalog, service, and UI surfaces."
+    },
+    "classifier": {
+      "description": "Classifies Phase B readiness and schedules the bounded follow-up shape."
+    },
+    "summary_writer": {
+      "description": "Writes the final closure summary and validation evidence."
+    }
+  },
+  "jobs": [
+    {
+      "id": "map_phase_b_surface",
+      "type": "synthesis",
+      "title": "Map RFC 0074 Phase B surface",
+      "role_id": "surface_mapper",
+      "lane_id": "codex",
+      "fresh_session_required": true,
+      "objective": "Map current generator, CLI, service, web/UI, Go daemon, test, and example evidence for RFC 0074 Phase B.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/deferred-23-rfc0074-phase-b-closure/prompts/map_phase_b_surface.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/operator/artifacts/deferred-23-rfc0074-phase-b-closure/surface/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "phase_b_surface_map",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/deferred-23-rfc0074-phase-b-closure/surface/SURFACE_MAP.md",
+          "author_line": "author: deferred23-surface-codex-gpt-5-001",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "classify_phase_b",
+      "type": "synthesis",
+      "title": "Classify RFC 0074 Phase B readiness",
+      "role_id": "classifier",
+      "lane_id": "codex",
+      "fresh_session_required": true,
+      "objective": "Classify whether Phase B is ready to schedule or needs a new bounded RFC, with RFC 0052 debate semantics excluded.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/deferred-23-rfc0074-phase-b-closure/prompts/classify_phase_b.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/operator/artifacts/deferred-23-rfc0074-phase-b-closure/classification/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "phase_b_classification",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/deferred-23-rfc0074-phase-b-closure/classification/CLASSIFICATION.md",
+          "author_line": "author: deferred23-classifier-codex-gpt-5-001",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "final_summary",
+      "type": "synthesis",
+      "title": "Write deferred 23 closure summary",
+      "role_id": "summary_writer",
+      "lane_id": "codex",
+      "fresh_session_required": true,
+      "objective": "Summarize the scaffolded workflow, readiness classification, validation commands, and intentionally unedited shared docs.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/deferred-23-rfc0074-phase-b-closure/prompts/final_summary.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/operator/artifacts/deferred-23-rfc0074-phase-b-closure/final/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "phase_b_summary",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/deferred-23-rfc0074-phase-b-closure/final/SUMMARY.md",
+          "author_line": "author: deferred23-summary-codex-gpt-5-001",
+          "required": true
+        }
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "from": "map_phase_b_surface",
+      "to": "classify_phase_b",
+      "on": "completed"
+    },
+    {
+      "from": "classify_phase_b",
+      "to": "final_summary",
+      "on": "completed"
+    }
+  ],
+  "cycles": []
+}

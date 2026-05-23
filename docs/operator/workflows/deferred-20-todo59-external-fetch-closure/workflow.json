@@ -1,0 +1,111 @@
+{
+  "schema_version": "striatum.workflow.v1",
+  "workflow_id": "deferred-20-todo59-external-fetch-closure",
+  "workflow_version": "2026-05-23",
+  "name": "Deferred 20 TODO 59 external fetch closure",
+  "context_docs": [
+    "AGENTS.md",
+    "README.md",
+    "docs/INDEX.md",
+    "docs/SPEC.md",
+    "docs/DECISION_LOG.md",
+    "docs/UBIQUITOUS_LANGUAGE.md",
+    "docs/TODO.md",
+    "docs/ROADMAP.md",
+    "docs/operator/BRIEF.md",
+    "docs/operator/plans/deferred-20-todo59-external-fetch-closure.md",
+    "docs/operator/plans/todo-59-corpus-v2-archive.md",
+    "docs/operator/artifacts/todo-59-corpus-v2-archive/final/SUMMARY.md",
+    "docs/rfcs/0057-corpus-contract-v2.md",
+    "docs/rfcs/0066-replay-archive-corpus-v2-foundations.md",
+    "src/striatum/workflow.py",
+    "src/striatum/daemon_pg/handlers/context.py",
+    "go/pkg/mutations/claim.go",
+    "go/pkg/mutations/run.go",
+    "tests/test_corpus_verify.py",
+    "tests/test_workflow_field_errors.py",
+    "go/pkg/mutations/claim_test.go"
+  ],
+  "coordinator": {
+    "role_id": "coordinator",
+    "lane_id": "codex"
+  },
+  "parallelism": {
+    "mode": "declared",
+    "max_active_jobs": 1,
+    "require_disjoint_write_scopes": true
+  },
+  "branch": {
+    "mode": "confirm",
+    "suggested_name": "striatum/deferred-20-todo59-external-fetch-closure",
+    "allow_dirty": true
+  },
+  "lanes": {
+    "codex": {
+      "adapter": "process",
+      "command": [
+        "bash",
+        "-lc",
+        "printf 'deferred20 todo59 external fetch closure codex lane\\n'"
+      ],
+      "model": "codex",
+      "display_model": "Codex",
+      "strategy_version": "2026-05-23",
+      "capabilities": [
+        "write",
+        "review"
+      ]
+    }
+  },
+  "roles": {
+    "coordinator": {
+      "description": "Operator/control-plane role."
+    },
+    "closer": {
+      "description": "Classifies and closes TODO 59 optional external-consumer fetch and UI UX."
+    }
+  },
+  "jobs": [
+    {
+      "id": "classify_external_fetch_ux",
+      "type": "synthesis",
+      "title": "Classify optional external fetch UX",
+      "role_id": "closer",
+      "lane_id": "codex",
+      "fresh_session_required": true,
+      "objective": "Decide whether TODO 59 needs any core Striatum source change for optional external-consumer fetch/UI UX, then close the follow-up with evidence while preserving the augmentation-not-dependency boundary.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/deferred-20-todo59-external-fetch-closure/prompts/close_external_fetch_ux.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/operator/artifacts/deferred-20-todo59-external-fetch-closure/"
+        ],
+        "forbidden_paths": [
+          ".striatum/",
+          "docs/TODO.md",
+          "docs/ROADMAP.md",
+          "docs/operator/BRIEF.md",
+          "docs/DECISION_LOG.md",
+          "docs/rfcs/",
+          "src/striatum/",
+          "go/",
+          "tests/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "external_fetch_ux_closure",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/deferred-20-todo59-external-fetch-closure/closure/NO_ACTION.md",
+          "author_line": "author: deferred20-todo59-codex-gpt-5-001",
+          "required": true
+        }
+      ]
+    }
+  ],
+  "edges": [],
+  "cycles": []
+}

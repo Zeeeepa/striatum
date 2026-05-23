@@ -1,0 +1,184 @@
+{
+  "schema_version": "striatum.workflow.v1",
+  "workflow_id": "rfc-0040-packet-evidence-closure",
+  "workflow_version": "2026-05-23",
+  "name": "RFC 0040 V1.6 packet evidence closure",
+  "context_docs": [
+    "README.md",
+    "docs/INDEX.md",
+    "docs/SPEC.md",
+    "docs/DECISION_LOG.md",
+    "docs/UBIQUITOUS_LANGUAGE.md",
+    "docs/TODO.md",
+    "docs/ROADMAP.md",
+    "docs/operator/BRIEF.md",
+    "docs/rfcs/0040-mcp-driven-dogfood-harness.md",
+    "docs/MCP.md",
+    "docs/HOW_TO_AGENT.md",
+    "tests/test_mcp_mutation_capabilities.py",
+    "tests/daemon_pg/handlers/reads/test_list_read_handlers.py",
+    "tests/test_corpus_redaction.py",
+    "tests/daemon_pg/handlers/workflow_loop/test_publish_artifact.py",
+    "src/striatum/daemon_pg/handlers/reads/_read_model.py",
+    "src/striatum/evidence_presentation.py",
+    "AGENTS.md"
+  ],
+  "coordinator": {
+    "role_id": "coordinator",
+    "lane_id": "codex"
+  },
+  "parallelism": {
+    "mode": "declared",
+    "max_active_jobs": 1,
+    "require_disjoint_write_scopes": true
+  },
+  "branch": {
+    "mode": "confirm",
+    "suggested_name": "striatum/rfc-0040-packet-evidence-closure",
+    "allow_dirty": true
+  },
+  "lanes": {
+    "codex": {
+      "adapter": "process",
+      "command": [
+        "bash",
+        "-lc",
+        "PYTHONPATH=src python3 -m striatum.cli skills install --profile all --scope user --force --json >/dev/null && export PATH=\"$PWD/.venv/bin:$PATH\" && exec .striatum/bin/codex-supervised-wrapper.sh"
+      ],
+      "model": "codex",
+      "display_model": "Codex GPT-5",
+      "strategy_version": "2026-05-23",
+      "supervision": {
+        "compatible": true,
+        "stdin_format": "newline_delimited_json",
+        "wrapper_required": true
+      }
+    }
+  },
+  "roles": {
+    "coordinator": {
+      "description": "Operator/control-plane role."
+    },
+    "analyst": {
+      "description": "Classifies the remaining RFC 0040 packet-evidence residuals from current provenance."
+    },
+    "implementer": {
+      "description": "Applies a bounded packet-evidence/provenance fix only when current source shows a clear gap."
+    },
+    "closer": {
+      "description": "Publishes the closure artifact and status-update requests."
+    }
+  },
+  "jobs": [
+    {
+      "id": "map_packet_evidence_residuals",
+      "type": "synthesis",
+      "title": "Map RFC 0040 packet evidence residuals",
+      "role_id": "analyst",
+      "lane_id": "codex",
+      "fresh_session_required": true,
+      "objective": "Classify TODO 28 residual packet-evidence debt against current RFC, decision, roadmap, source, and tests.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/rfc-0040-packet-evidence-closure/prompts/map_packet_evidence_residuals.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/operator/artifacts/rfc-0040-packet-evidence-closure/RESIDUALS.md"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "residual_map",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/rfc-0040-packet-evidence-closure/RESIDUALS.md",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "apply_packet_evidence_fix",
+      "type": "build",
+      "title": "Apply packet evidence fix",
+      "role_id": "implementer",
+      "lane_id": "codex",
+      "fresh_session_required": true,
+      "objective": "Apply the smallest source/test fix for a proven packet-evidence gap, or explicitly publish a no-op closure if no gap remains.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/rfc-0040-packet-evidence-closure/prompts/apply_packet_evidence_fix.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "src/striatum/daemon_pg/handlers/reads/_read_model.py",
+          "src/striatum/daemon_pg/handlers/reads/list_artifacts.py",
+          "tests/daemon_pg/handlers/reads/test_list_read_handlers.py",
+          "tests/test_corpus_redaction.py",
+          "docs/operator/artifacts/rfc-0040-packet-evidence-closure/BUILD.md"
+        ],
+        "forbidden_paths": [
+          ".striatum/",
+          ".venv/",
+          "__pycache__/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "packet_evidence_build",
+          "kind": "handoff",
+          "path": "docs/operator/artifacts/rfc-0040-packet-evidence-closure/BUILD.md",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "close_packet_evidence",
+      "type": "synthesis",
+      "title": "Close RFC 0040 packet evidence",
+      "role_id": "closer",
+      "lane_id": "codex",
+      "fresh_session_required": true,
+      "objective": "Publish closure evidence, validation results, and requested TODO/ROADMAP/BRIEF updates without editing those shared files.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/rfc-0040-packet-evidence-closure/prompts/close_packet_evidence.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/operator/plans/rfc-0040-packet-evidence-closure.md",
+          "docs/operator/artifacts/rfc-0040-packet-evidence-closure/CLOSURE.md"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "packet_evidence_closure",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/rfc-0040-packet-evidence-closure/CLOSURE.md",
+          "required": true
+        }
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "from": "map_packet_evidence_residuals",
+      "to": "apply_packet_evidence_fix",
+      "on": "completed"
+    },
+    {
+      "from": "apply_packet_evidence_fix",
+      "to": "close_packet_evidence",
+      "on": "completed"
+    }
+  ],
+  "cycles": []
+}

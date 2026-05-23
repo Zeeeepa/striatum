@@ -1,0 +1,835 @@
+{
+  "schema_version": "striatum.workflow.v1",
+  "workflow_id": "residual-deferred-closure-2026-05-23",
+  "workflow_version": "2026-05-23",
+  "name": "Residual and deferred closure 2026-05-23",
+  "context_docs": [
+    "README.md",
+    "docs/INDEX.md",
+    "docs/SPEC.md",
+    "docs/DECISION_LOG.md",
+    "docs/UBIQUITOUS_LANGUAGE.md",
+    "docs/TODO.md",
+    "docs/ROADMAP.md",
+    "docs/operator/BRIEF.md",
+    "docs/operator/plans/residual-deferred-closure-2026-05-23.md",
+    "docs/architecture/CLI_RETIREMENT_PARITY.md",
+    "AGENTS.md"
+  ],
+  "coordinator": {
+    "role_id": "coordinator",
+    "lane_id": "codex"
+  },
+  "parallelism": {
+    "mode": "declared",
+    "max_active_jobs": 20,
+    "require_disjoint_write_scopes": true
+  },
+  "branch": {
+    "mode": "confirm",
+    "suggested_name": "striatum/residual-deferred-closure-2026-05-23",
+    "allow_dirty": true
+  },
+  "lanes": {
+    "codex": {
+      "adapter": "process",
+      "command": [
+        "bash",
+        "-lc",
+        "PYTHONPATH=src python3 -m striatum.cli skills install --profile all --scope user --force --json >/dev/null && export PATH=\"$PWD/.venv/bin:$PATH\" && exec .striatum/bin/codex-supervised-wrapper.sh"
+      ],
+      "model": "codex",
+      "display_model": "Codex",
+      "strategy_version": "2026-05-23",
+      "supervision": {
+        "compatible": true,
+        "stdin_format": "newline_delimited_json",
+        "wrapper_required": true
+      }
+    }
+  },
+  "roles": {
+    "coordinator": {
+      "description": "Coordinator and final consolidation role."
+    },
+    "closer": {
+      "description": "Residual/deferred item closure role."
+    }
+  },
+  "jobs": [
+    {
+      "id": "active_todo62_pg_global",
+      "type": "synthesis",
+      "title": "TODO 62 PostgreSQL-only daemon-global residuals",
+      "role_id": "closer",
+      "lane_id": "codex",
+      "parallel_group": "closure_tracks",
+      "fresh_session_required": true,
+      "objective": "Classify and close TODO 62 / RFC 0069 residual daemon-global surfaces.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/residual-deferred-closure-2026-05-23/prompts/active_todo62_pg_global.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/operator/artifacts/residual-deferred-closure-2026-05-23/active-todo62-pg-global/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "todo62_result",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/residual-deferred-closure-2026-05-23/active-todo62-pg-global/RESULT.md",
+          "author_line": "author: todo62-pg-global-codex-gpt-5-001",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "active_todo63_boundary",
+      "type": "synthesis",
+      "title": "TODO 63 daemon client/service boundary",
+      "role_id": "closer",
+      "lane_id": "codex",
+      "parallel_group": "closure_tracks",
+      "fresh_session_required": true,
+      "objective": "Classify and close TODO 63 / RFC 0070 residual boundary work.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/residual-deferred-closure-2026-05-23/prompts/active_todo63_boundary.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/operator/artifacts/residual-deferred-closure-2026-05-23/active-todo63-boundary/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "todo63_result",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/residual-deferred-closure-2026-05-23/active-todo63-boundary/RESULT.md",
+          "author_line": "author: todo63-boundary-codex-gpt-5-001",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "active_todo16_generic_language",
+      "type": "synthesis",
+      "title": "TODO 16 generic language hygiene",
+      "role_id": "closer",
+      "lane_id": "codex",
+      "parallel_group": "closure_tracks",
+      "fresh_session_required": true,
+      "objective": "Close generic-language hygiene drift or record standing guardrail status.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/residual-deferred-closure-2026-05-23/prompts/active_todo16_generic_language.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/operator/artifacts/residual-deferred-closure-2026-05-23/active-todo16-generic-language/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "todo16_result",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/residual-deferred-closure-2026-05-23/active-todo16-generic-language/RESULT.md",
+          "author_line": "author: todo16-generic-language-codex-gpt-5-001",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "active_todo2_adapter_constraints",
+      "type": "synthesis",
+      "title": "TODO 2 adapter constraint enforcement",
+      "role_id": "closer",
+      "lane_id": "codex",
+      "parallel_group": "closure_tracks",
+      "fresh_session_required": true,
+      "objective": "Close adapter-constraint residuals or classify required future adapter work.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/residual-deferred-closure-2026-05-23/prompts/active_todo2_adapter_constraints.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/operator/artifacts/residual-deferred-closure-2026-05-23/active-todo2-adapter-constraints/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "todo2_result",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/residual-deferred-closure-2026-05-23/active-todo2-adapter-constraints/RESULT.md",
+          "author_line": "author: todo2-adapter-constraints-codex-gpt-5-001",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "active_artifact_schema_redaction",
+      "type": "synthesis",
+      "title": "Artifact schemas and redaction",
+      "role_id": "closer",
+      "lane_id": "codex",
+      "parallel_group": "closure_tracks",
+      "fresh_session_required": true,
+      "objective": "Close current artifact schema/redaction gaps or classify future per-RFC additions.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/residual-deferred-closure-2026-05-23/prompts/active_artifact_schema_redaction.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/operator/artifacts/residual-deferred-closure-2026-05-23/active-artifact-schema-redaction/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "artifact_schema_redaction_result",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/residual-deferred-closure-2026-05-23/active-artifact-schema-redaction/RESULT.md",
+          "author_line": "author: artifact-schema-redaction-codex-gpt-5-001",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "active_rfc0040_packet_evidence",
+      "type": "synthesis",
+      "title": "RFC 0040 packet evidence",
+      "role_id": "closer",
+      "lane_id": "codex",
+      "parallel_group": "closure_tracks",
+      "fresh_session_required": true,
+      "objective": "Close RFC 0040 packet-evidence/provenance residuals.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/residual-deferred-closure-2026-05-23/prompts/active_rfc0040_packet_evidence.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/operator/artifacts/residual-deferred-closure-2026-05-23/active-rfc0040-packet-evidence/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "rfc0040_result",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/residual-deferred-closure-2026-05-23/active-rfc0040-packet-evidence/RESULT.md",
+          "author_line": "author: rfc0040-packet-evidence-codex-gpt-5-001",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "deferred_14_rfc0049",
+      "type": "synthesis",
+      "title": "Deferred 14 RFC 0049 shelved interactive lane",
+      "role_id": "closer",
+      "lane_id": "codex",
+      "parallel_group": "closure_tracks",
+      "fresh_session_required": true,
+      "objective": "Classify RFC 0049 as reopened, closed, or explicitly shelved.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/residual-deferred-closure-2026-05-23/prompts/deferred_14_rfc0049.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/operator/artifacts/residual-deferred-closure-2026-05-23/deferred-14-rfc0049/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "deferred_14_result",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/residual-deferred-closure-2026-05-23/deferred-14-rfc0049/RESULT.md",
+          "author_line": "author: deferred-14-rfc0049-codex-gpt-5-001",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "deferred_15_rfc0052",
+      "type": "synthesis",
+      "title": "Deferred 15 RFC 0052 committee workflow",
+      "role_id": "closer",
+      "lane_id": "codex",
+      "parallel_group": "closure_tracks",
+      "fresh_session_required": true,
+      "objective": "Classify RFC 0052 committee workflow implementation readiness.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/residual-deferred-closure-2026-05-23/prompts/deferred_15_rfc0052.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/operator/artifacts/residual-deferred-closure-2026-05-23/deferred-15-rfc0052/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "deferred_15_result",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/residual-deferred-closure-2026-05-23/deferred-15-rfc0052/RESULT.md",
+          "author_line": "author: deferred-15-rfc0052-codex-gpt-5-001",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "deferred_16_rfc0053_phase_b",
+      "type": "synthesis",
+      "title": "Deferred 16 RFC 0053 schema rename",
+      "role_id": "closer",
+      "lane_id": "codex",
+      "parallel_group": "closure_tracks",
+      "fresh_session_required": true,
+      "objective": "Classify workflow schema rename readiness for RFC 0053 Phase B.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/residual-deferred-closure-2026-05-23/prompts/deferred_16_rfc0053_phase_b.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/operator/artifacts/residual-deferred-closure-2026-05-23/deferred-16-rfc0053-phase-b/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "deferred_16_result",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/residual-deferred-closure-2026-05-23/deferred-16-rfc0053-phase-b/RESULT.md",
+          "author_line": "author: deferred-16-rfc0053-codex-gpt-5-001",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "deferred_17_rfc0054_phase_b",
+      "type": "synthesis",
+      "title": "Deferred 17 RFC 0054 layout guide harvest",
+      "role_id": "closer",
+      "lane_id": "codex",
+      "parallel_group": "closure_tracks",
+      "fresh_session_required": true,
+      "objective": "Classify optional RFC 0054 Phase B guide-to-layout work.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/residual-deferred-closure-2026-05-23/prompts/deferred_17_rfc0054_phase_b.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/operator/artifacts/residual-deferred-closure-2026-05-23/deferred-17-rfc0054-phase-b/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "deferred_17_result",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/residual-deferred-closure-2026-05-23/deferred-17-rfc0054-phase-b/RESULT.md",
+          "author_line": "author: deferred-17-rfc0054-codex-gpt-5-001",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "deferred_18_rfc0055_svg",
+      "type": "synthesis",
+      "title": "Deferred 18 RFC 0055 SVG polish",
+      "role_id": "closer",
+      "lane_id": "codex",
+      "parallel_group": "closure_tracks",
+      "fresh_session_required": true,
+      "objective": "Classify optional RFC 0055 architecture graphic polish.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/residual-deferred-closure-2026-05-23/prompts/deferred_18_rfc0055_svg.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/operator/artifacts/residual-deferred-closure-2026-05-23/deferred-18-rfc0055-svg/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "deferred_18_result",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/residual-deferred-closure-2026-05-23/deferred-18-rfc0055-svg/RESULT.md",
+          "author_line": "author: deferred-18-rfc0055-codex-gpt-5-001",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "deferred_19_rfc0056_layout",
+      "type": "synthesis",
+      "title": "Deferred 19 RFC 0056 layout follow-up",
+      "role_id": "closer",
+      "lane_id": "codex",
+      "parallel_group": "closure_tracks",
+      "fresh_session_required": true,
+      "objective": "Classify workflow-file generation and artifact-root ignore policy for RFC 0056.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/residual-deferred-closure-2026-05-23/prompts/deferred_19_rfc0056_layout.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/operator/artifacts/residual-deferred-closure-2026-05-23/deferred-19-rfc0056-layout/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "deferred_19_result",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/residual-deferred-closure-2026-05-23/deferred-19-rfc0056-layout/RESULT.md",
+          "author_line": "author: deferred-19-rfc0056-codex-gpt-5-001",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "deferred_20_todo59_external_fetch",
+      "type": "synthesis",
+      "title": "Deferred 20 TODO 59 external fetch UX",
+      "role_id": "closer",
+      "lane_id": "codex",
+      "parallel_group": "closure_tracks",
+      "fresh_session_required": true,
+      "objective": "Classify optional Corpus V2 external-consumer fetch/UI UX.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/residual-deferred-closure-2026-05-23/prompts/deferred_20_todo59_external_fetch.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/operator/artifacts/residual-deferred-closure-2026-05-23/deferred-20-todo59-external-fetch/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "deferred_20_result",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/residual-deferred-closure-2026-05-23/deferred-20-todo59-external-fetch/RESULT.md",
+          "author_line": "author: deferred-20-todo59-codex-gpt-5-001",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "deferred_21_todo60_hosted_git",
+      "type": "synthesis",
+      "title": "Deferred 21 TODO 60 hosted Git providers",
+      "role_id": "closer",
+      "lane_id": "codex",
+      "parallel_group": "closure_tracks",
+      "fresh_session_required": true,
+      "objective": "Classify hosted Git/PR provider actions as optional-plugin only.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/residual-deferred-closure-2026-05-23/prompts/deferred_21_todo60_hosted_git.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/operator/artifacts/residual-deferred-closure-2026-05-23/deferred-21-todo60-hosted-git/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "deferred_21_result",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/residual-deferred-closure-2026-05-23/deferred-21-todo60-hosted-git/RESULT.md",
+          "author_line": "author: deferred-21-todo60-codex-gpt-5-001",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "deferred_22_rfc0058_operator_tree",
+      "type": "synthesis",
+      "title": "Deferred 22 RFC 0058 operator-tree rotation",
+      "role_id": "closer",
+      "lane_id": "codex",
+      "parallel_group": "closure_tracks",
+      "fresh_session_required": true,
+      "objective": "Classify optional operator-tree init/rotation follow-up.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/residual-deferred-closure-2026-05-23/prompts/deferred_22_rfc0058_operator_tree.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/operator/artifacts/residual-deferred-closure-2026-05-23/deferred-22-rfc0058-operator-tree/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "deferred_22_result",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/residual-deferred-closure-2026-05-23/deferred-22-rfc0058-operator-tree/RESULT.md",
+          "author_line": "author: deferred-22-rfc0058-codex-gpt-5-001",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "deferred_23_rfc0074_phase_b",
+      "type": "synthesis",
+      "title": "Deferred 23 RFC 0074 Phase B",
+      "role_id": "closer",
+      "lane_id": "codex",
+      "parallel_group": "closure_tracks",
+      "fresh_session_required": true,
+      "objective": "Classify RFC 0074 generator/UI pack Phase B readiness.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/residual-deferred-closure-2026-05-23/prompts/deferred_23_rfc0074_phase_b.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/operator/artifacts/residual-deferred-closure-2026-05-23/deferred-23-rfc0074-phase-b/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "deferred_23_result",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/residual-deferred-closure-2026-05-23/deferred-23-rfc0074-phase-b/RESULT.md",
+          "author_line": "author: deferred-23-rfc0074-codex-gpt-5-001",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "deferred_24_sealed_apply",
+      "type": "synthesis",
+      "title": "Deferred 24 sealed apply/signing",
+      "role_id": "closer",
+      "lane_id": "codex",
+      "parallel_group": "closure_tracks",
+      "fresh_session_required": true,
+      "objective": "Classify sealed apply/signing and removed apply.reviewed_patch status.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/residual-deferred-closure-2026-05-23/prompts/deferred_24_sealed_apply.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/operator/artifacts/residual-deferred-closure-2026-05-23/deferred-24-sealed-apply/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "deferred_24_result",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/residual-deferred-closure-2026-05-23/deferred-24-sealed-apply/RESULT.md",
+          "author_line": "author: deferred-24-sealed-apply-codex-gpt-5-001",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "deferred_25_cross_repo_live",
+      "type": "synthesis",
+      "title": "Deferred 25 full live cross-repo scheduling",
+      "role_id": "closer",
+      "lane_id": "codex",
+      "parallel_group": "closure_tracks",
+      "fresh_session_required": true,
+      "objective": "Classify full live cross-repo scheduling status beyond landed slices.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/residual-deferred-closure-2026-05-23/prompts/deferred_25_cross_repo_live.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/operator/artifacts/residual-deferred-closure-2026-05-23/deferred-25-cross-repo-live/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "deferred_25_result",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/residual-deferred-closure-2026-05-23/deferred-25-cross-repo-live/RESULT.md",
+          "author_line": "author: deferred-25-cross-repo-codex-gpt-5-001",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "deferred_26_platform_tenancy",
+      "type": "synthesis",
+      "title": "Deferred 26 Windows service manager operator tenancy",
+      "role_id": "closer",
+      "lane_id": "codex",
+      "parallel_group": "closure_tracks",
+      "fresh_session_required": true,
+      "objective": "Classify Windows daemon support, service-manager install, and local operator tenancy.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/residual-deferred-closure-2026-05-23/prompts/deferred_26_platform_tenancy.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/operator/artifacts/residual-deferred-closure-2026-05-23/deferred-26-platform-tenancy/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "deferred_26_result",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/residual-deferred-closure-2026-05-23/deferred-26-platform-tenancy/RESULT.md",
+          "author_line": "author: deferred-26-platform-tenancy-codex-gpt-5-001",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "deferred_27_engram_side",
+      "type": "synthesis",
+      "title": "Deferred 27 Engram-side memory tools",
+      "role_id": "closer",
+      "lane_id": "codex",
+      "parallel_group": "closure_tracks",
+      "fresh_session_required": true,
+      "objective": "Classify Engram-side ingester/MCP/retrieval tools as external to Striatum.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/residual-deferred-closure-2026-05-23/prompts/deferred_27_engram_side.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/operator/artifacts/residual-deferred-closure-2026-05-23/deferred-27-engram-side/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "deferred_27_result",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/residual-deferred-closure-2026-05-23/deferred-27-engram-side/RESULT.md",
+          "author_line": "author: deferred-27-engram-side-codex-gpt-5-001",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "final_consolidation",
+      "type": "synthesis",
+      "title": "Final residual closure consolidation",
+      "role_id": "coordinator",
+      "lane_id": "codex",
+      "fresh_session_required": true,
+      "objective": "Consolidate all closure artifacts and identify shared doc updates.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/residual-deferred-closure-2026-05-23/prompts/final_consolidation.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/operator/artifacts/residual-deferred-closure-2026-05-23/final/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "final_summary",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/residual-deferred-closure-2026-05-23/final/SUMMARY.md",
+          "author_line": "author: residual-deferred-coordinator-codex-gpt-5-001",
+          "required": true
+        }
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "from": "active_todo62_pg_global",
+      "to": "final_consolidation",
+      "on": "completed"
+    },
+    {
+      "from": "active_todo63_boundary",
+      "to": "final_consolidation",
+      "on": "completed"
+    },
+    {
+      "from": "active_todo16_generic_language",
+      "to": "final_consolidation",
+      "on": "completed"
+    },
+    {
+      "from": "active_todo2_adapter_constraints",
+      "to": "final_consolidation",
+      "on": "completed"
+    },
+    {
+      "from": "active_artifact_schema_redaction",
+      "to": "final_consolidation",
+      "on": "completed"
+    },
+    {
+      "from": "active_rfc0040_packet_evidence",
+      "to": "final_consolidation",
+      "on": "completed"
+    },
+    {
+      "from": "deferred_14_rfc0049",
+      "to": "final_consolidation",
+      "on": "completed"
+    },
+    {
+      "from": "deferred_15_rfc0052",
+      "to": "final_consolidation",
+      "on": "completed"
+    },
+    {
+      "from": "deferred_16_rfc0053_phase_b",
+      "to": "final_consolidation",
+      "on": "completed"
+    },
+    {
+      "from": "deferred_17_rfc0054_phase_b",
+      "to": "final_consolidation",
+      "on": "completed"
+    },
+    {
+      "from": "deferred_18_rfc0055_svg",
+      "to": "final_consolidation",
+      "on": "completed"
+    },
+    {
+      "from": "deferred_19_rfc0056_layout",
+      "to": "final_consolidation",
+      "on": "completed"
+    },
+    {
+      "from": "deferred_20_todo59_external_fetch",
+      "to": "final_consolidation",
+      "on": "completed"
+    },
+    {
+      "from": "deferred_21_todo60_hosted_git",
+      "to": "final_consolidation",
+      "on": "completed"
+    },
+    {
+      "from": "deferred_22_rfc0058_operator_tree",
+      "to": "final_consolidation",
+      "on": "completed"
+    },
+    {
+      "from": "deferred_23_rfc0074_phase_b",
+      "to": "final_consolidation",
+      "on": "completed"
+    },
+    {
+      "from": "deferred_24_sealed_apply",
+      "to": "final_consolidation",
+      "on": "completed"
+    },
+    {
+      "from": "deferred_25_cross_repo_live",
+      "to": "final_consolidation",
+      "on": "completed"
+    },
+    {
+      "from": "deferred_26_platform_tenancy",
+      "to": "final_consolidation",
+      "on": "completed"
+    },
+    {
+      "from": "deferred_27_engram_side",
+      "to": "final_consolidation",
+      "on": "completed"
+    }
+  ],
+  "cycles": []
+}

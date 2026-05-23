@@ -18,7 +18,7 @@ so external references keep resolving even as items move between sections.
 | R4 | Standalone metadata, license, CI, fresh-clone smoke | ✅ done |
 | R5 | Engram retains incubation copy + pointer | ✅ done |
 | 1 | Process adapter (single-shot + supervised) | ✅ done for current scope |
-| 2 | Adapter constraint enforcement | 🟡 most done |
+| 2 | Adapter constraint enforcement | ✅ done for process adapter scope |
 | 3 | Workflow authoring tooling | ✅ done |
 | 4 | Human-checkpoint UX | ✅ done |
 | 5 | Decision-artifact support | ✅ done |
@@ -32,7 +32,7 @@ so external references keep resolving even as items move between sections.
 | 13 | Replace bootstrap scripts | ✅ done |
 | 14 | Packaging and release | ✅ done |
 | 15 | `run summary` polish | ✅ done |
-| 16 | Keep generic language current | ⏳ open |
+| 16 | Keep generic language current | ✅ current sweep done; standing guardrail |
 | 17 | Legacy SQLite migration fixture (RFC 0006/D094) | ✅ done |
 | 18 | Workflow type catalog and chooser | ✅ done |
 | F1 | Run historical bootstrap as runner workflow | ✅ done |
@@ -113,8 +113,8 @@ so external references keep resolving even as items move between sections.
 | 59 | RFC 0059 RFC 0066 Architecture remediation Phase 11 — replay, archive, and corpus v2 foundations | ✅ done for core; optional external consumer UX remains out of core |
 | 60 | RFC 0059 RFC 0067 Architecture remediation Phase 12 — optional Git/PR integration | ✅ local core done; hosted providers remain out of core |
 | 61 | RFC 0068 Go production daemon port and Python daemon retirement | 🟡 Go default; Python daemon module deleted; broad direct repo-local fixture opens converted |
-| 62 | RFC 0069 PostgreSQL-only daemon-global surfaces | 🟡 guardrail residuals only |
-| 63 | RFC 0070 daemon client/service boundary completion | 🟡 production boundary mostly done |
+| 62 | RFC 0069 PostgreSQL-only daemon-global surfaces | ✅ done; guardrails cover future probes |
+| 63 | RFC 0070 daemon client/service boundary completion | ✅ done; primitive daemon methods are supported path |
 | 64 | RFC 0071 operator diagnostics and cutover evidence | ✅ accepted diagnostic slice done |
 | 65 | RFC 0058 operator progress surface | ✅ done |
 | 66 | Decision/RFC supersession hygiene and duplicate decision-id cleanup | ✅ done |
@@ -277,13 +277,14 @@ Legend: ✅ done · 🟡 most done (sub-tasks remain) · ⏳ open/blocked · �
    (`src/striatum/workflow.py:1576-1682` `_validate_lane_constraints`
    rejects unknown constraint keys + unsatisfiable enforcement levels;
    constraint vocabulary at `workflow.py:55-57`; adapter-side matrix at
-   `src/striatum/db.py:1422-1438`). The four-level model (`enforced`,
+   `src/striatum/repo_policy.py`). The four-level model (`enforced`,
    `advisory_strict`, `advisory`, `unsupported`) is in place; the process
    adapter graduates `network` and `repo_scope` to `advisory_strict` via
-   proxy-env scrubbing and sentinel env vars. **Remaining:** only the
-   `process` adapter is modeled — no sandbox/worktree adapter exists to
-   mechanically promote `network`/`repo_scope` from `advisory_strict` →
-   `enforced` (filesystem isolation, network namespacing).
+   proxy-env scrubbing and sentinel env vars. The 2026-05-23 TODO 2 closure
+   workflow added focused validator coverage and closes the current
+   process-adapter scope. Mechanically promoting `network`/`repo_scope` to
+   `enforced` requires a future sandbox/worktree adapter RFC; it is not
+   lingering TODO 2 work.
 
 6. **Artifact schema support.** Optional Markdown `author:` metadata is
    machine-validated; per-kind front-matter schemas exist for eight kinds:
@@ -297,16 +298,17 @@ Legend: ✅ done · 🟡 most done (sub-tasks remain) · ⏳ open/blocked · �
    5 dropped the SQL `CHECK` on `artifact_kind`; allowed kinds now live in
    `striatum.artifacts.ALLOWED_ARTIFACT_KINDS` and are enforced by both
    `publish-artifact` (exit 6) and workflow validation (exit 8). The
-   publisher records artifacts rather than rewriting them. **Remaining:**
-   schemas for additional kinds as future RFCs emerge.
+   publisher records artifacts rather than rewriting them. The 2026-05-23
+   schema/redaction closure confirmed no missing current schema; schemas for
+   additional kinds land with their accepting RFCs.
 
 7. **Redaction tests.** Default-deny evidence-export policy registry is in
    place; new evidence fields default to redacted unless explicitly marked
    safe. Synthetic injection coverage now exercises workflow/job prompt
    fields, model rationales, blocker text, transcript-like fields, nested
-   payloads under safe scalar fields, and case-insensitive path hygiene for
-   transcript/output/private paths. Future evidence fields must extend this
-   coverage with their policy entry.
+   payloads under safe scalar fields, case-insensitive path hygiene for
+   transcript/output/private paths, and session close/non-fresh reason prose.
+   Future evidence fields must extend this coverage with their policy entry.
 
 13. ~~**Replace bootstrap scripts with runner-owned workflows.**~~ ✅ Done:
     the minimal process adapter and supervised sessions cover claimed-work
@@ -328,10 +330,10 @@ Legend: ✅ done · 🟡 most done (sub-tasks remain) · ⏳ open/blocked · �
     authoritative live state, `.striatum/` is operational scratch, RFC 0056
     has a directory-only `--with-striatum-layout` scaffold, and Engram remains
     optional external augmentation rather than a runtime dependency.
-    Follow-up sweep (2026-05-23): refreshed README status language,
-    consumer-layout examples, and the historical tmux bootstrap script wording;
-    added a guardrail for stale current-doc Engram phrases.
-    Keep this item open as standing documentation hygiene.
+    Follow-up sweeps (2026-05-23): refreshed README status language,
+    consumer-layout examples, historical tmux bootstrap wording, and the RFC
+    0056 corpus phrasing; added a guardrail for stale current-doc Engram
+    phrases. This is a standing hygiene guardrail, not a blocked backlog item.
 
 20. ~~**RFC 0040 V1.5 follow-up.** Six codex findings (F1-F6) from
     dogfood-040 build review iteration 2.~~ ✅ Done: shipped under
@@ -354,26 +356,26 @@ Legend: ✅ done · 🟡 most done (sub-tasks remain) · ⏳ open/blocked · �
     needs_revision findings absorbed into RFC 0040 V1.6 (item 28
     below).
 
-28. **RFC 0040 V1.6 follow-up.** Composite failure observability landed for
+28. ~~**RFC 0040 V1.6 follow-up.**~~ Composite failure observability landed for
     `dogfood.publish_on_behalf`: mid-composite rollback errors now include
     `failed_step`, partial `composition_steps`, and a nested
     `specific_error`; rollback events record the same details; daemon RPC
     converts dogfood helper failure envelopes into RPC errors; and MCP
     structured content surfaces nested error codes instead of flattening every
-    composite failure to `command_failed`. Remaining packet-evidence debt from
-    the dogfood-044 codex review should be handled as provenance/packet-design
-    work, not as missing RFC 0040 implementation.
+    composite failure to `command_failed`. The 2026-05-23 RFC 0040 closure
+    added PostgreSQL artifact-summary byline evidence (`author.line` and
+    `author.actual_author_line`, preserving the old `author.author_line`) and
+    closes the packet-evidence residual for current scope. Any larger
+    provenance packet redesign now requires a separate product decision.
     Codex needs_revision findings from
     dogfood-044 build review, deferred by cycle-exhaustion override
     per D098 (decision `dec_242ea0b026d547c9baad9b353b149033`). 4th
     instance of the codex/codex implementer+reviewer anti-pattern
     (precedents D095 dogfood-042 Track A, D096 dogfood-042 Track C,
     D097 dogfood-043). 2-of-3 cross-lane verdicts: claude
-    accept_with_findings (medium), gemini accept (low). Land the
-    codex needs_revision delta via a future dogfood. The anti-pattern
+    accept_with_findings (medium), gemini accept (low). The anti-pattern
     is now well-characterized across four independent runs; the
-    refuse-by-default validator rule (TODO item 26) remains the
-    deferred half.
+    refuse-by-default validator rule (TODO item 26) has landed.
 
 21. ~~**RFC 0038 V1.5 follow-up.** Codex attempt-2 findings (F1-F4)
     from dogfood-041 build review iteration 2 + gemini attempt-1
@@ -735,7 +737,9 @@ section is the canonical status snapshot.
     the urgency** — RFC 0049 is now a capability RFC rather than a
     blocker. D106 records the durable shelf decision. Reopen only if
     billing terms change materially or an operator explicitly funds the
-    PTY/MCP spike. ROADMAP §5.5.
+    PTY/MCP spike. A 2026-05-23 closure workflow rechecked RFC 0050/0075
+    prerequisites and current Claude plan-credit docs; the reopen criteria
+    are still unmet. ROADMAP §5.5.
 
 38. **RFC 0050 (operator UI rework and provenance honesty).** All
     three phases landed:
@@ -791,9 +795,11 @@ section is the canonical status snapshot.
     `arbitration_ruling`, `panel_vote`, `panel_verdict`,
     `debate_synthesis`); solves D095-D102 reviewer co-blindness via
     lane composition rather than RFC 0018 posture labelling. Phase 0
-    scaffold landed (RFC body + schema sketches). Status: queued; no
-    implementation dogfood scheduled. V1.9/V2.0 — unblocked by the
-    completed RFC 0048 substrate flip. ROADMAP §5.8.
+    scaffold landed (RFC body + schema sketches). A 2026-05-23 closure
+    classified the V0 proposal as not directly implementable: a bounded
+    Phase A implementation RFC/design is required before production work.
+    RFC 0074 examples do not replace the RFC 0052 debate/panel semantics.
+    ROADMAP §5.8.
 
 44. **RFC 0053 V0 (human principal as escalation-only).** Proposed
     2026-05-14; doc-side fixes landed. Names the human role as
@@ -804,9 +810,12 @@ section is the canonical status snapshot.
     in DECISION_LOG. A follow-up wording sweep realigned reader-facing docs,
     CLI help, scaffold output, workflow-template text, and recovery skill
     templates around principal/operator language while leaving durable
-    identifiers unchanged. **Deferred follow-ups**: workflow.json
-    schema-field rename (`human_checkpoint` → `escalation_checkpoint`) and
-    `waiting_human` run state rename. The `escalation` artifact kind,
+    identifiers unchanged. The 2026-05-23 Phase B closure classified the
+    workflow.json schema-field rename (`human_checkpoint` →
+    `escalation_checkpoint`) and `waiting_human` run-state rename as a
+    coordinated schema/runtime migration requiring a version bump,
+    `workflow upgrade` rule, PostgreSQL/Go/Python runtime updates, and UI/read
+    compatibility policy before implementation. The `escalation` artifact kind,
     `striatum.escalation.v1` front matter schema, publish-time blocker
     linkage, and daemon RPC projection methods landed under remediation
     item 53.
@@ -815,14 +824,16 @@ section is the canonical status snapshot.
 45. ~~**RFC 0054 V0 (day-zero usage guide).**~~ Phase A shipped
     v1.55.0 (commit `a88f44d`). `docs/USING_STRIATUM.md` lives
     alongside `GETTING_STARTED.md` (additive — resolved Open
-    question 1 toward avoiding a breaking docs rename). Phase B
-    (harvest content into `--with-ddd-layout`) optional follow-up.
+    question 1 toward avoiding a breaking docs rename). The 2026-05-23
+    closure classified Phase B as not warranted: operator onboarding content
+    should not be copied into the generic target-repository DDD scaffold.
 
 46. ~~**RFC 0055 V0 (marketing README + architecture graphics).**~~
     Phase A shipped v1.55.0 (commit `a88f44d`). `README.md`
     rewritten with vision/value framing, Mermaid system-architecture
-    diagram, and demoted docs link table. SVG polish follow-up
-    optional.
+    diagram, ASCII architecture view, and demoted docs link table. The
+    2026-05-23 closure classified optional SVG polish as no-action unless a
+    concrete docs/product need appears.
 
 47. ~~**RFC 0056 V0 (consumer-repo directory-structure opinions).**~~
     Phase A shipped v1.55.0 (commit `a88f44d`).
@@ -830,8 +841,9 @@ section is the canonical status snapshot.
     rationale, mid-life adoption guidance, dogfood-heavy-projects
     extension. Phase B now has an additive `init --with-striatum-layout`
     scaffold for `striatum/workflows/` and `striatum/<workflow-slug>/`;
-    workflow-file generation and artifact-root `.gitignore` policy remain
-    out of scope.
+    the 2026-05-23 closure keeps workflow-file generation and artifact-root
+    `.gitignore` policy out of this scaffold so `init` does not create
+    surprising workflow files or ignore rules in target repositories.
 
 ## Architecture Remediation Backlog
 
@@ -1286,8 +1298,9 @@ review and plan are root-level operator artifacts:
     `augmentation.mode: "reference_only"` with local `corpus_bundle` sources;
     claimed work packets expose optional `context.augmentation_references`
     with manifest status, and missing/unreadable bundles never block workflow
-    progress. This is the core augmentation-reference surface; external
-    consumer fetch UX remains out of core unless a later decision accepts it.
+    progress. This is the core augmentation-reference surface. The
+    2026-05-23 closure classifies richer external-consumer fetch/UI UX as out
+    of Striatum core unless a later optional-augmentation decision accepts it.
 
 60. **Phase 12: optional Git/PR integration.** D127 decides the boundary:
     Striatum core does not autonomously commit, push, call hosted providers, or
@@ -1304,8 +1317,10 @@ review and plan are root-level operator artifacts:
     and branch, and dirty paths limited to `included_paths`. It disables Git
     hooks for the commit invocation and does not push, fetch, call hosted
     providers, import provider SDKs, or load provider credentials. Hosted
-    provider actions remain out of core and require a future optional-plugin
-    decision with human-principal confirmation.
+    provider actions are classified by the 2026-05-23 closure as future
+    optional-plugin/out-of-core work requiring a product decision with
+    human-principal confirmation; current source scans found no provider SDK
+    violation.
 
 61. **RFC 0068: Go production daemon port.** Active. D107 supersedes D105:
     Go is the production/default daemon and active contract-method parity is
@@ -1436,8 +1451,9 @@ review and plan are root-level operator artifacts:
     imports are gone; guardrails assert `src/striatum/daemon.py` remains
     absent.
 
-62. **RFC 0069: PostgreSQL-only daemon-global surfaces.** Most done. Port daemon
-    sweep, dashboard-all, daemon MCP resource list/read, and
+62. ~~**RFC 0069: PostgreSQL-only daemon-global surfaces.**~~ Done for
+    current scope. Port daemon sweep, dashboard-all, daemon MCP resource
+    list/read, and
     any remaining registry probes away from SQLite and into PostgreSQL/Go-owned
     daemon handlers. Go now owns first-start PostgreSQL admin/runtime-token
     bootstrap. The retired Python `connect_registry()` implementation is gone;
@@ -1469,12 +1485,14 @@ review and plan are root-level operator artifacts:
     the old CLI-side daemon registry wrapper is removed. Architecture tests
     now assert production sources do not import `striatum.daemon` and that the
     retired Python daemon module stays deleted.
-    Residual daemon-global gaps are any future registry probes found by those
-    guardrail scans. The workflow-upgrade running-run guard is now
-    PostgreSQL-only and fails closed when PostgreSQL state is unknown, even
-    when legacy repo-local SQLite files are present.
+    The 2026-05-23 closure ran the focused PG/global guardrail suite and
+    found no actionable residuals. Future registry-probe/global-surface
+    regressions are guardrail failures, not open TODO 62 work. The
+    workflow-upgrade running-run guard is now PostgreSQL-only and fails
+    closed when PostgreSQL state is unknown, even when legacy repo-local
+    SQLite files are present.
 
-63. **RFC 0070: daemon client/service boundary completion.** Most done.
+63. ~~**RFC 0070: daemon client/service boundary completion.**~~ Done.
     Daemon-side `repo.resolve` is registered as a daemon-global read bootstrap
     method; CLI and service clients no longer open daemon PostgreSQL to map a
     repo path to `repository_id`; daemon-mapped `/v1/invoke` production reads
@@ -1485,11 +1503,12 @@ review and plan are root-level operator artifacts:
     contract, and D112 removed `apply.reviewed_patch`. Production daemon MCP
     `tools/list` now hides local
     workflow-file authoring methods in both Python and Go, while direct calls
-    to removed method names audit as `method_unknown`. Remaining work is to
-    decide whether to reintroduce PostgreSQL-native operator composites or
-    keep the primitive daemon-method workflow as the supported path; broader
-    Python-daemon retirement is no longer a blocker because the selector and
-    module are deleted.
+    to removed method names audit as `method_unknown`. The 2026-05-23 closure
+    records primitive daemon methods as the supported production path. The
+    removed `dogfood.publish_on_behalf`, `dogfood.surgical_recovery`, and
+    `apply.reviewed_patch` names stay out of the production contract unless a
+    future accepted product decision introduces PostgreSQL-native composites
+    or sealed apply.
 
 64. **RFC 0071: operator diagnostics and cutover evidence.** Diagnostic slices
     landed: `striatum daemon doctor --authority --json` reports
@@ -1517,8 +1536,9 @@ review and plan are root-level operator artifacts:
     deprecation pointer. V1.5 landed `striatum operator current-brief`,
     configurable `--operator-docs-root`, daemon-enforcement/RPC exemptions for
     that local read, and schema errors for `operator_brief`
-    `context_budget_lines` overruns. Operator-tree init/rotation is deferred
-    outside the accepted V1.5 slice.
+    `context_budget_lines` overruns. The 2026-05-23 closure classifies
+    operator-tree init/rotation as optional future work outside the accepted
+    RFC 0058 V1.5 slice.
 
 67. **RFC 0050/RFC 0075: MCP cutover and tmux-observable sessions.**
     First slices landed: native Go daemon MCP HTTP/SSE, autonomous MCP packet
@@ -1592,10 +1612,12 @@ F31. ~~Land the RFC 0028 V1 daemon acceptance slice.~~ Done: optional
     global dashboard, resources-only daemon MCP with explicit token
     parameters and repo-scope filtering, metadata-only audit with segment
     checks, and foreground recovery sweep events bylined
-    `striatumd-<instance-id>` are in place. Deferred at V1: daemon-owned
-    supervision, MCP mutation tools, sealed apply/signing,
-    cross-repository workflows, service-manager install, Windows daemon
-    support, and operator tenancy.
+    `striatumd-<instance-id>` are in place. The old V1 deferred list has
+    since been resolved or reclassified: daemon supervision, MCP mutation
+    tools, cross-repo foundations, and service-manager support landed; sealed
+    apply, full live cross-repo scheduling, Windows support, and local
+    multi-operator tenancy require separate accepted RFCs before
+    implementation.
 
 F32. ~~Land the RFC 0030 + RFC 0031 daemon V2 foundation.~~ Done:
     envelope-v1 daemon RPC codec, handshake, method registry, owner-local

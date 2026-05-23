@@ -65,8 +65,8 @@ lay out a target repository for Striatum, and here is why.*
   dogfood records. `docs/dogfood/<NNN>/` stays.
 - Locking the recommendations to a single application domain.
   Striatum is generic; the recommendations must work for an RFC
-  ledger, a code-change loop, a research synthesis, and an
-  Engram-style dogfood corpus alike.
+  ledger, a code-change loop, a research synthesis, and a
+  structured run-record corpus alike.
 
 ## Proposed shape
 

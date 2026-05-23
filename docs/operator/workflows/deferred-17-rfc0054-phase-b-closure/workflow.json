@@ -1,0 +1,108 @@
+{
+  "schema_version": "striatum.workflow.v1",
+  "workflow_id": "deferred-17-rfc0054-phase-b-closure",
+  "workflow_version": "2026-05-23",
+  "name": "Deferred 17 RFC 0054 Phase B closure",
+  "context_docs": [
+    "AGENTS.md",
+    "README.md",
+    "docs/INDEX.md",
+    "docs/SPEC.md",
+    "docs/DECISION_LOG.md",
+    "docs/UBIQUITOUS_LANGUAGE.md",
+    "docs/TODO.md",
+    "docs/ROADMAP.md",
+    "docs/operator/BRIEF.md",
+    "docs/operator/plans/deferred-17-rfc0054-phase-b-closure.md",
+    "docs/rfcs/0054-day-zero-usage-guide.md",
+    "docs/USING_STRIATUM.md",
+    "docs/CONSUMER_REPO_LAYOUT.md",
+    "src/striatum/scaffold/__init__.py",
+    "src/striatum/scaffold/templates/ddd_layout/SPEC.md.tmpl",
+    "src/striatum/scaffold/templates/ddd_layout/PRD.md.tmpl",
+    "src/striatum/scaffold/templates/ddd_layout/DDD.md.tmpl",
+    "tests/test_scaffold_ddd_layout.py"
+  ],
+  "coordinator": {
+    "role_id": "coordinator",
+    "lane_id": "codex"
+  },
+  "parallelism": {
+    "mode": "declared",
+    "max_active_jobs": 1,
+    "require_disjoint_write_scopes": true
+  },
+  "branch": {
+    "mode": "confirm",
+    "suggested_name": "main",
+    "allow_dirty": true
+  },
+  "lanes": {
+    "codex": {
+      "adapter": "process",
+      "command": [
+        "bash",
+        "-lc",
+        "printf 'deferred17 rfc0054 phase b closure codex lane\\n'"
+      ],
+      "model": "codex",
+      "display_model": "Codex",
+      "strategy_version": "2026-05-23",
+      "capabilities": [
+        "write",
+        "review"
+      ]
+    }
+  },
+  "roles": {
+    "coordinator": {
+      "description": "Operator/control-plane role."
+    },
+    "closer": {
+      "description": "Classifies and closes the RFC 0054 optional Phase B scaffold follow-up."
+    }
+  },
+  "jobs": [
+    {
+      "id": "classify_rfc0054_phase_b",
+      "type": "synthesis",
+      "title": "Classify RFC 0054 Phase B",
+      "role_id": "closer",
+      "lane_id": "codex",
+      "fresh_session_required": true,
+      "objective": "Decide whether day-zero guide content should be harvested into the DDD layout scaffold, then implement the narrow change or close the optional follow-up explicitly.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/deferred-17-rfc0054-phase-b-closure/prompts/classify_rfc0054_phase_b.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/operator/artifacts/deferred-17-rfc0054-phase-b-closure/",
+          "src/striatum/scaffold/__init__.py",
+          "src/striatum/scaffold/templates/ddd_layout/",
+          "tests/test_scaffold_ddd_layout.py"
+        ],
+        "forbidden_paths": [
+          ".striatum/",
+          "docs/TODO.md",
+          "docs/ROADMAP.md",
+          "docs/operator/BRIEF.md",
+          "docs/rfcs/0054-day-zero-usage-guide.md",
+          "docs/USING_STRIATUM.md"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "rfc0054_phase_b_result",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/deferred-17-rfc0054-phase-b-closure/RESULT.md",
+          "author_line": "author: deferred17-rfc0054-codex-gpt-5-001",
+          "required": true
+        }
+      ]
+    }
+  ],
+  "edges": [],
+  "cycles": []
+}

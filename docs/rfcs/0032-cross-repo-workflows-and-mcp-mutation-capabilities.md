@@ -25,8 +25,10 @@ the `recovery` capability, daemon MCP `tools/list` filtering and
 helpers for prepare/start/cancel/reconcile. Current production run state is
 daemon-owned PostgreSQL under participating repositories' `repository_id`
 scopes; no per-repo SQLite rows are written outside migration fixtures.
-The real two-repo daemon end-to-end test harness and live scheduler
-progression landed in follow-up work after this RFC.
+The real two-repo daemon end-to-end test harness and helper-level
+prepare/start/cancel progression landed in follow-up work after this RFC.
+Production live cross-repo scheduler fan-out remains future product work and
+requires a new bounded RFC.
 
 ## Problem
 

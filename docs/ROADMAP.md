@@ -13,7 +13,7 @@ dependency edges, and "what would I do next" framing. Update on every
 
 ---
 
-## 1. State as of 2026-05-22 (v1.57.0)
+## 1. State as of 2026-05-23 (v1.57.0 + residual-closure evidence)
 
 - **Latest tag:** `v1.57.0` is the latest released tag and
   `pyproject.toml` version. v1.57.0 packages the GH #25 / #26 / #27
@@ -25,18 +25,17 @@ dependency edges, and "what would I do next" framing. Update on every
   non-JSON cleanup (no more SQLite pre-flight). Closes the
   blob-routing observability and trigger-fragility gaps surfaced by
   the v1.56 backfill.
-- **Current workstream:** active runway 1-5 follow-through on top of TODO
-  55/56/59/60 decisions, RFC 0050 CLI cutover, RFC 0075 tmux metadata, RFC
-  0074 Phase A, and TODO 61/62/63 cleanup. The completed active-runway
-  workflow is
-  `docs/operator/workflows/active-runway-1-5/workflow.json`, with the final
-  ordered batch plan at `docs/operator/artifacts/active-runway-1-5/FINAL.md`.
-  The first implementation pair landed: TODO 60 read-only `git.snapshot` plus
-  TODO 56 skipped-candidate cause classes. Later follow-through trimmed TODO
-  62/63 residual direct-state probes and added RFC 0075 tmux attach metadata
-  projection.
-  Earlier TODO 61-64 / RFC 0068-0071 architecture remediation remains the
-  substrate this work builds on.
+- **Current workstream:** residual/deferred backlog closure on top of the
+  active runway. The 2026-05-23 closure artifacts under `docs/operator/`
+  classify TODO 62, TODO 63, TODO 2, TODO 16, artifact schema/redaction, RFC
+  0040 V1.6, and the deferred items formerly listed as 14-27. The actionable
+  result is narrower than the old backlog: D125 evidence and RFC 0050/0075
+  CLI retirement remain active gates; TODO 52/53/61 remain bounded cleanup;
+  RFC 0074 Phase B generator work is ready to schedule; RFC 0052 Phase A,
+  RFC 0053 schema/runtime rename, Cross-Repo Live Scheduler V1, sealed apply,
+  Windows support, and local multi-operator tenancy need separate accepted
+  RFCs before implementation. Optional/out-of-core items are now explicitly
+  classified rather than left as vague deferred work.
   D107 supersedes D105: Go is now the default production daemon core, active
   contract-method parity is landed, Python CLI/web clients stay useful, and
   the retired Python daemon module is deleted. Broad direct repo-local SQLite
@@ -52,9 +51,9 @@ dependency edges, and "what would I do next" framing. Update on every
 - **CI:** GitHub Actions has been backlogged during the 2026-05-17/18
   remediation commits. Treat latest-head CI failures as stop-the-line; queued
   and in-progress older runs are not by themselves blockers.
-- **Active dogfoods:** active runway 1-5 completed as
-  `run_b2e013582e0aeba267dd7a47cc66ccf1`. No runway workflow is currently
-  live; the next step is source implementation from the final batch plan.
+- **Active dogfoods:** no runner-owned workflow is currently live. The latest
+  work is operator-scaffolded residual/deferred closure evidence plus focused
+  tests.
 - **Branches:** `main` is the active integration branch.
 
 ### 1.1 Active Operator track: HTTP/SSE MCP daemon and CLI retirement
@@ -1039,11 +1038,10 @@ is unblocked by the completed RFC 0048 substrate flip, but remains lower
 priority than the active remediation runway unless scheduled explicitly.
 
 - **RFC 0052** (committee deliberation workflow) — TODO #43.
-  Phase 0 scaffold + schema sketches landed. V1.9/V2.0 implementation.
-  Composes with RFC 0053 (committee stalemate is one of the named
-  escalation triggers). No longer blocked on RFC 0048; schedule as its
-  own dogfood when committee workflow implementation becomes the next
-  product priority.
+  Phase 0 scaffold + schema sketches landed. A 2026-05-23 closure pass
+  classified the V0 proposal as not directly implementation-ready. Schedule
+  a bounded Phase A implementation RFC/design before production work; RFC
+  0074 examples do not cover the typed debate/panel semantics.
 - **RFC 0053** (human principal as escalation-only) — TODO #44.
   RFC body + D103 + doc-side prose realignment shipped on main.
   A follow-up wording sweep realigned reader-facing docs, CLI help,
@@ -1053,28 +1051,32 @@ priority than the active remediation runway unless scheduled explicitly.
   Deferred Phase A landed under remediation Phase 5: `escalation`
   artifact-kind schema, publish-time blocker linkage, and daemon RPC
   projection methods.
-  Deferred Phase B: workflow.json schema-field rename
-  (`human_checkpoint` → `escalation_checkpoint`), `waiting_human`
-  run-state rename.
+  Phase B rename work is a coordinated schema/runtime migration, not a
+  wording sweep: it needs a workflow schema version choice, `workflow upgrade`
+  rule, PostgreSQL enum/check migration, Go/Python runtime updates,
+  generator/catalog policy, and UI/read compatibility policy.
 - **RFC 0054** (day-zero usage guide) — TODO #45. Phase 0
   scaffold + **Phase A shipped in v1.55.0** (commit `a88f44d`):
   `docs/USING_STRIATUM.md` added as a new doc alongside
   `GETTING_STARTED.md` (resolved Open question 1 toward additive,
-  not replacement). Tutorial-warm tone; under 200 lines.
+  not replacement). Tutorial-warm tone; under 200 lines. The optional
+  guide-to-layout harvest is closed as not warranted because operator
+  onboarding does not belong in the generic target-repository DDD scaffold.
 - **RFC 0055** (marketing README + architecture graphics) — TODO
   #46. Phase 0 scaffold + **Phase A shipped in v1.55.0** (commit
   `a88f44d`): `README.md` rewritten with vision-first framing,
   value-bullets above-fold, Mermaid architecture diagram, and a
-  demoted docs-link table at the bottom. SVG polish follow-up
-  still optional.
+  demoted docs-link table at the bottom. SVG polish is closed as no-action
+  unless a concrete docs/product need appears.
 - **RFC 0056** (consumer-repo directory-structure opinions) —
   TODO #47. Phase 0 scaffold + **Phase A shipped in v1.55.0**
   (commit `a88f44d`): `docs/CONSUMER_REPO_LAYOUT.md` added with
   ASCII tree, per-section rationale, mid-life adoption guidance,
   and dogfood-heavy-projects extension. Phase B shipped an additive
   `init --with-striatum-layout` scaffold for `striatum/workflows/`
-  plus `striatum/<workflow-slug>/`; workflow-file generation and
-  artifact-root ignore policy remain out of scope.
+  plus `striatum/<workflow-slug>/`. Workflow-file generation and
+  artifact-root ignore policy are closed as non-changes for this scaffold to
+  avoid surprising target-repository writes.
 
 **Suggested implementer:** any lane. Documentation phases are
 single-track and additive — they touch docs and don't intersect
@@ -1083,9 +1085,9 @@ prompt sweep) is its own dogfood; the workflow.json bump is a
 breaking schema change and should land paired with a
 `workflow upgrade` rule.
 
-**Blocked on:** RFC 0053 Phase B is blocked on the workflow.json version
-bump being scheduled. RFC 0052 implementation is unblocked but unscheduled.
-The other doc phases are unblocked.
+**Blocked on:** RFC 0053 Phase B requires a coordinated schema/runtime
+migration RFC. RFC 0052 requires a bounded Phase A implementation RFC. The
+other doc phases are closed for current scope.
 
 ### 5.9 Architecture remediation sequence (TODO 49-64)
 
@@ -1130,12 +1132,13 @@ Release order after Phase 0:
     verdicts, blockers, process executions, and job worktrees; D126 accepts
     the Corpus Contract V2 identity, redaction, augmentation-reference,
     archive, and verification direction. The core reference-only packet
-    augmentation surface has landed.
+    augmentation surface has landed. Richer external-consumer fetch/UI UX is
+    out of core until a later optional-augmentation decision accepts it.
 12. **TODO 60 / Phase 12:** D127 sets the Git/PR boundary. The read-only
     local `git.snapshot` daemon/CLI slice, durable commit/PR request
     artifacts, and explicit-operator-confirmed local `git.commit_apply`
-    have landed. Hosted provider actions require a later optional-plugin
-    decision.
+    have landed. Hosted provider actions are optional-plugin/out-of-core and
+    require a later product decision.
 13. **TODO 61 / RFC 0068:** keep the Go production daemon conformance suite
     green, keep the Go binary release provenance stamped and verified by
     `--describe`,
@@ -1152,7 +1155,8 @@ Release order after Phase 0:
     compatibility modules plus migration/in-memory fixtures; the retired
     Python daemon module is already removed and broad direct repo-local test
     opens are already converted.
-14. **TODO 62 / RFC 0069:** move daemon-global surfaces to PostgreSQL/Go,
+14. **TODO 62 / RFC 0069:** done for current scope. Daemon-global surfaces
+    moved to PostgreSQL/Go,
     including scheduler cursors, PostgreSQL-backed daemon MCP resources, and
     PostgreSQL-backed daemon lifecycle/health/audit/doctor reads. The
     dashboard-all run-progress slice now exposes phase progress,
@@ -1165,11 +1169,12 @@ Release order after Phase 0:
     direct PostgreSQL bootstrap/admin plane is now explicitly listed in the
     command authority matrix and guarded by an import scan. Daemon
     MCP resource fallback without a PostgreSQL connection is retired and fails
-    closed before the legacy registry can open; remaining RFC 0069 work is any
-    future registry-probe/global-surface cleanup found by those guardrail
-    scans.
-15. **TODO 63 / RFC 0070:** complete daemon client/service boundaries and
-    remove direct client DB access.
+    closed before the legacy registry can open. Future registry-probe/global
+    regressions are guardrail failures, not open RFC 0069 work.
+15. **TODO 63 / RFC 0070:** done. Primitive daemon methods are the supported
+    production path; removed composites stay out unless a future accepted
+    product decision reintroduces PostgreSQL-native composites or sealed
+    apply.
 16. **TODO 64 / RFC 0071:** authority doctor and repository cutover report
     diagnostics landed. D108 keeps the command authority matrix curated while
     drift tests enforce generated route labels and runtime CLI fallback cells.
@@ -1180,8 +1185,8 @@ Release order after Phase 0:
 17. **TODO 65 / RFC 0058:** V1 and V1.5 landed. Use
     `docs/operator/BRIEF.md` as the current-state authority; `striatum
     operator current-brief` is the local read helper, and
-    `operator_brief` context-budget overruns are schema errors. Optional
-    operator-tree init/rotation remains deferred outside RFC 0058.
+    `operator_brief` context-budget overruns are schema errors. Operator-tree
+    init/rotation is optional future work outside RFC 0058.
 
 **Blocked on:** the prior Phase 7 accepted-risk authority, Phase 8 default
 auto-finalize policy, Phase 11 Corpus V2, and Phase 12 Git/PR product
@@ -1200,7 +1205,7 @@ dogfood. Order them by impact, not by RFC number.
 | TODO | RFC | Origin | Decision | Scope |
 |---:|---|---|---|---|
 | [27](TODO.md) | RFC 0045 V1.5 | dogfood-043 | D097 | ✅ Completed: cycle phase-jump, Python/editor phase-field mismatch, explicit synthesis-job metadata validation, frontend drag-drop phase bypass, and invalid/unknown phase display tolerance have landed. |
-| [28](TODO.md) | RFC 0040 V1.6 | dogfood-044 | D098 | Composite publish-on-behalf failure observability landed; remaining packet-evidence debt is provenance/packet-design work. |
+| [28](TODO.md) | RFC 0040 V1.6 | dogfood-044 | D098 | ✅ Completed: composite failure observability plus PostgreSQL artifact byline evidence landed; larger packet redesign requires a separate product decision. |
 | [29](TODO.md) | RFC 0038 V1.6 | dogfood-045 | D099 | ✅ Completed: real-bundle commit + supply-chain polish. **First `reject critical` override.** |
 | [30](TODO.md) | RFC 0039 V1.6 | dogfood-047 | D101 | ✅ Completed in 4.3 as helper groundwork; full Go daemon parity is reopened by D107 / RFC 0068. |
 | [31](TODO.md) | RFC 0043 V1.5 | dogfood-048 | D102 | ✅ Completed / tracker stale: crash-recovery tombstone two-phase, daemon-required default flip, `daemon migrate-repo-local` subparser wiring, focused `make test-rfc0043`, and a foreground-daemon refusal smoke have landed. **Distinct from D095-D101 — both reviewers had real findings, not co-blindness.** |
@@ -1216,11 +1221,16 @@ is the runner-owned historical bootstrap successor, and
 
 | Item | Blocker | Unblock criterion |
 |---|---|---|
-| RFC 0049 spike | Shelved by D106; depends on external billing semantics and PTY/MCP stability | Explicit operator-funded spike + measurement. |
-| RFC 0057 Corpus V2 | D126 accepted the core identity, redaction, augmentation, archive, and verification choices. | V2 schema, archive defaults, watermarking, and reference-only packet augmentation are implemented for core Striatum. |
-| Phase 12 Git/PR integration | D127 accepted the boundary; hosted-provider behavior remains out of core and needs a future optional-plugin decision. | Read-only snapshot, request artifacts, and explicit-confirm local commit apply are implemented for core Striatum. |
-| Item 32 (Engram-side RFC 0044 Phase 1) | External repo (`~/git/engram/`) | Engram-side work; **not Striatum's TODO**. |
-| Item 16 (generic language sweep) | Ongoing documentation hygiene | Active sweep on 2026-05-17; keep open as a standing review item. |
+| RFC 0049 spike | Shelved by D106; closure rechecked RFC 0050/0075 and current Claude plan-credit docs. | Explicit operator-funded spike + measurement. |
+| RFC 0052 Phase A | V0 proposal is not implementation-ready. | New bounded Phase A implementation RFC/design. |
+| RFC 0053 schema/runtime rename | Breaking workflow/state rename needs coordinated migration. | New schema/runtime migration RFC with upgrade rule and compatibility policy. |
+| RFC 0074 Phase B generator | Narrow `implementation_panel` generator slice is ready to schedule. | Bounded implementation workflow; UI selector/cost UX can follow separately. |
+| Cross-Repo Live Scheduler V1 | Existing cross-repo work covers schema, metadata, capability gating, tests, reads, and cancel, not full live fan-out scheduling. | New bounded scheduler RFC. |
+| Sealed apply/signing | `apply.reviewed_patch` remains removed/fail-closed. | New sealed-apply RFC/product decision. |
+| Windows daemon support | Out of current POSIX-local product scope. | New Windows support RFC. |
+| Local multi-operator tenancy | Out of current single-operator local product scope. | New tenancy RFC. |
+| Engram-side RFC 0044 Phase 1 | External repo work; Striatum has no `import engram` or `memory.*` capability. | Not a Striatum TODO unless a future optional-augmentation decision changes the boundary. |
+| Item 16 (generic language sweep) | Standing documentation hygiene. | Current sweep is clean; guardrail remains active. |
 
 ---
 

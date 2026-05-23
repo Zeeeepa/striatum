@@ -1,0 +1,112 @@
+{
+  "schema_version": "striatum.workflow.v1",
+  "workflow_id": "deferred-22-rfc0058-operator-tree-closure",
+  "workflow_version": "2026-05-23",
+  "name": "Deferred 22 RFC 0058 operator-tree closure",
+  "context_docs": [
+    "AGENTS.md",
+    "README.md",
+    "docs/INDEX.md",
+    "docs/SPEC.md",
+    "docs/DECISION_LOG.md",
+    "docs/UBIQUITOUS_LANGUAGE.md",
+    "docs/TODO.md",
+    "docs/ROADMAP.md",
+    "docs/operator/BRIEF.md",
+    "docs/operator/plans/deferred-22-rfc0058-operator-tree-closure.md",
+    "docs/rfcs/0058-operator-progress-surface.md",
+    "docs/operator/plans/rfc-0058-operator-progress-surface.md",
+    "src/striatum/cli/operator.py",
+    "src/striatum/cli/parser.py",
+    "src/striatum/cli/dispatch.py",
+    "tests/test_operator_current_brief.py",
+    "tests/cli/test_parser_help.py",
+    "tests/test_artifact_schemas.py"
+  ],
+  "coordinator": {
+    "role_id": "coordinator",
+    "lane_id": "codex"
+  },
+  "parallelism": {
+    "mode": "declared",
+    "max_active_jobs": 1,
+    "require_disjoint_write_scopes": true
+  },
+  "branch": {
+    "mode": "confirm",
+    "suggested_name": "striatum/deferred-22-rfc0058-operator-tree-closure",
+    "allow_dirty": true
+  },
+  "lanes": {
+    "codex": {
+      "adapter": "process",
+      "command": [
+        "bash",
+        "-lc",
+        "true"
+      ],
+      "model": "codex",
+      "display_model": "Codex GPT-5",
+      "strategy_version": "2026-05-23",
+      "capabilities": [
+        "write",
+        "review"
+      ]
+    }
+  },
+  "roles": {
+    "coordinator": {
+      "description": "Coordinates the artifact-only deferred-22 closure workflow."
+    },
+    "closer": {
+      "description": "Classifies RFC 0058 optional operator-tree init and rotation."
+    }
+  },
+  "jobs": [
+    {
+      "id": "classify_operator_tree_init_rotation",
+      "type": "synthesis",
+      "title": "Classify operator-tree init and rotation",
+      "role_id": "closer",
+      "lane_id": "codex",
+      "fresh_session_required": true,
+      "objective": "Decide whether RFC 0058 optional operator-tree init/rotation warrants a bounded helper now, or close it explicitly as optional future work.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/deferred-22-rfc0058-operator-tree-closure/prompts/classify_operator_tree_init_rotation.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/operator/artifacts/deferred-22-rfc0058-operator-tree-closure/",
+          "src/striatum/cli/operator.py",
+          "src/striatum/cli/parser.py",
+          "src/striatum/cli/dispatch.py",
+          "docs/CLI_REFERENCE.md",
+          "tests/test_operator_current_brief.py",
+          "tests/cli/test_parser_help.py",
+          "tests/test_artifact_schemas.py"
+        ],
+        "forbidden_paths": [
+          ".striatum/",
+          "docs/TODO.md",
+          "docs/ROADMAP.md",
+          "docs/operator/BRIEF.md",
+          "docs/rfcs/0058-operator-progress-surface.md",
+          "docs/operator/plans/rfc-0058-operator-progress-surface.md"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "operator_tree_closure_result",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/deferred-22-rfc0058-operator-tree-closure/RESULT.md",
+          "author_line": "author: deferred22-rfc0058-codex-gpt-5-001",
+          "required": true
+        }
+      ]
+    }
+  ],
+  "edges": [],
+  "cycles": []
+}

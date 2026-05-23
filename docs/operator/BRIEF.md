@@ -1,9 +1,9 @@
 ---
 schema_version: "striatum.operator_brief.v1"
 artifact_kind: "operator_brief"
-brief_id: "brief_2026-05-23_next-todos"
-supersedes: "brief_2026-05-20_go-daemon-http-sse-mcp"
-scope_links: ["docs/operator/artifacts/next-todos-2026-05-23/final/SUMMARY.md", "docs/operator/artifacts/d125-auto-finalize-live-build-evidence-2026-05-23/REPORT.md", "docs/operator/artifacts/d125-auto-finalize-live-build-evidence-2026-05-23/GATE.md", "docs/architecture/CLI_RETIREMENT_PARITY.md", "docs/operator/plans/rfc-0075-tmux-observable-mcp-agent-sessions.md"]
+brief_id: "brief_2026-05-23_residual-closure"
+supersedes: "brief_2026-05-23_next-todos"
+scope_links: ["docs/operator/artifacts/residual-deferred-closure-2026-05-23/final/SUMMARY.md", "docs/operator/artifacts/d125-auto-finalize-live-build-evidence-2026-05-23/GATE.md", "docs/architecture/CLI_RETIREMENT_PARITY.md", "docs/operator/plans/rfc-0050-cli-retirement-cutover.md", "docs/operator/plans/rfc-0075-tmux-observable-mcp-agent-sessions.md"]
 context_budget_lines: 300
 retrieval_priority: "high"
 status: "current"
@@ -64,6 +64,22 @@ under `docs/operator/artifacts/d125-auto-finalize-live-build-evidence-2026-05-23
 It added an operator-self-declared build-shape live `recovery.auto_finalize`
 success through workflow opt-in without `--force`.
 
+A residual/deferred closure pass completed on 2026-05-23. It scaffolded and
+drove per-item workflows for TODO 62, TODO 63, TODO 16, TODO 2, artifact
+schema/redaction coverage, RFC 0040 packet-evidence debt, and the deferred
+items formerly listed as 14-27. The final synthesis is
+`docs/operator/artifacts/residual-deferred-closure-2026-05-23/final/SUMMARY.md`.
+Current-scope closures: TODO 62 is done with PG/global guardrails covering
+future probes; TODO 63 is done with primitive daemon methods as the supported
+production path; TODO 2 is done for the process adapter; artifact schema and
+redaction coverage is current; RFC 0040 packet-evidence debt is closed by
+PostgreSQL artifact byline evidence; TODO 16 has a refreshed current-doc
+guardrail. Explicit non-core/no-action closures: RFC 0049 remains shelved,
+RFC 0054/0055/0056 optional doc/layout follow-ups are no-action, TODO 59
+external fetch UX and TODO 60 hosted providers are out of core, RFC 0058
+operator-tree init/rotation is optional, and Engram-side memory tools are
+external to Striatum.
+
 D125 is not satisfied. It has 2 operator-self-declared live behavioral
 successes across 2 lane shapes, but still needs one more successful live
 dogfood and the evidence gate cannot be satisfied while the current workspace
@@ -82,9 +98,12 @@ live workflow-control CLI verb should be hidden or deleted.
    docs, and skill gaps before hiding any live workflow-control CLI verb.
    Bootstrap and diagnostics commands should survive unless a later decision
    says otherwise.
-3. Continue bounded follow-through: TODO 61/49/62/63 residual cleanup, TODO
-   52 remaining service route splits, TODO 53 blocker payload/schema
-   hardening, and RFC 0075 tmux-observable/operator-UI polish.
+3. Continue bounded follow-through: TODO 61/49 legacy SQLite cleanup, TODO 52
+   remaining service route splits, TODO 53 blocker payload/schema hardening,
+   and RFC 0075 tmux-observable/operator-UI polish. Schedule new bounded RFCs
+   before implementing RFC 0052 Phase A, RFC 0053 schema/runtime rename,
+   Cross-Repo Live Scheduler V1, sealed apply, Windows support, or local
+   multi-operator tenancy.
 
 ## Blockers
 
@@ -92,8 +111,9 @@ live workflow-control CLI verb should be hidden or deleted.
   gate, not on a product decision.
 - CLI retirement is blocked on parity gaps in UI, docs, and skills. Expanded
   MCP dispatch coverage is necessary evidence, but not sufficient.
-- Hosted Git provider behavior remains out of core unless a later
-  optional-plugin decision accepts it.
+- Hosted Git provider behavior, external corpus-fetch UX, and Engram-side
+  memory tools are out of core unless later optional-extension decisions
+  accept them.
 
 ## Hazards / Do Not
 
@@ -112,6 +132,8 @@ live workflow-control CLI verb should be hidden or deleted.
 ## Pointers
 
 - `docs/operator/plans/next-todos-2026-05-23.md`
+- `docs/operator/plans/residual-deferred-closure-2026-05-23.md`
+- `docs/operator/artifacts/residual-deferred-closure-2026-05-23/final/SUMMARY.md`
 - `docs/operator/workflows/next-todos-2026-05-23/workflow.json`
 - `docs/operator/artifacts/next-todos-2026-05-23/final/SUMMARY.md`
 - `docs/operator/workflows/d125-auto-finalize-live-build-evidence-2026-05-23/workflow.json`

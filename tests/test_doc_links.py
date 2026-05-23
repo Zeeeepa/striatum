@@ -200,23 +200,36 @@ CURRENT_DOC_STALE_GENERIC_PHRASES = (
     "Engram-style",
     "Engram repo root",
 )
+CURRENT_DOC_STALE_GENERIC_ALLOW = {
+    Path("docs/dogfood"),
+    Path("docs/ENGRAM_INCUBATION_CONTEXT.md"),
+    Path("docs/INTERVIEW_LOG.md"),
+    Path("docs/PRIOR_ART.md"),
+    Path("docs/RFC_0014_DOGFOOD_FIX_SPEC.md"),
+}
+CURRENT_DOC_STALE_GENERIC_EXTRA_FILES = (
+    ROOT / "scripts" / "striatum_tmux_design.sh",
+)
 
 
 def test_current_product_docs_do_not_regress_stale_engram_framing() -> None:
     """Historical Engram references remain allowed, but current status and
     layout guidance must not frame Striatum as Engram-specific.
     """
-    checked = [
-        ROOT / "README.md",
-        ROOT / "docs" / "CONSUMER_REPO_LAYOUT.md",
-        ROOT / "scripts" / "striatum_tmux_design.sh",
-    ]
+    checked = [*_markdown_files(), *CURRENT_DOC_STALE_GENERIC_EXTRA_FILES]
     failures: list[str] = []
     for path in checked:
+        if any(
+            path.resolve().relative_to(ROOT).parts[: len(allow.parts)] == allow.parts
+            for allow in CURRENT_DOC_STALE_GENERIC_ALLOW
+        ):
+            continue
         text = path.read_text(encoding="utf-8")
         for phrase in CURRENT_DOC_STALE_GENERIC_PHRASES:
-            if phrase in text:
-                failures.append(f"{path.relative_to(ROOT)}: {phrase!r}")
+            index = text.find(phrase)
+            if index != -1:
+                line_no = text.count("\n", 0, index) + 1
+                failures.append(f"{path.relative_to(ROOT)}:{line_no}: {phrase!r}")
     assert not failures, "stale current-doc generic language:\n" + "\n".join(failures)
 
 

@@ -1,0 +1,142 @@
+{
+  "schema_version": "striatum.workflow.v1",
+  "workflow_id": "todo-62-pg-global-closure",
+  "workflow_version": "2026-05-23",
+  "name": "TODO 62 PostgreSQL-only daemon-global closure",
+  "context_docs": [
+    "README.md",
+    "docs/INDEX.md",
+    "docs/SPEC.md",
+    "docs/DECISION_LOG.md",
+    "docs/UBIQUITOUS_LANGUAGE.md",
+    "docs/TODO.md",
+    "docs/ROADMAP.md",
+    "docs/operator/BRIEF.md",
+    "docs/operator/plans/rfc-0069-pg-only-daemon-global-surfaces.md",
+    "docs/operator/plans/todo-62-pg-global-closure.md",
+    "docs/rfcs/0069-pg-only-daemon-global-surfaces.md",
+    "docs/operator/artifacts/todo-61-62-cleanup/final/SUMMARY.md",
+    "docs/operator/artifacts/todo-61-62-cleanup-revision/review/REVIEW.md",
+    "tests/architecture/test_legacy_sqlite_quarantine.py",
+    "tests/architecture/test_authority_guardrails.py",
+    "tests/test_daemon_pg_doctor.py",
+    "tests/test_mcp_capability_scope_e2e.py",
+    "tests/daemon_pg/test_repo_registration.py",
+    "tests/cli/test_dispatch_daemon_doctor.py",
+    "tests/exit_codes/test_rfc0043_refusals.py",
+    "AGENTS.md"
+  ],
+  "coordinator": {
+    "role_id": "coordinator",
+    "lane_id": "codex"
+  },
+  "parallelism": {
+    "mode": "declared",
+    "max_active_jobs": 1,
+    "require_disjoint_write_scopes": true
+  },
+  "branch": {
+    "mode": "confirm",
+    "suggested_name": "striatum/todo-62-pg-global-closure",
+    "allow_dirty": true
+  },
+  "lanes": {
+    "codex": {
+      "adapter": "process",
+      "command": [
+        "bash",
+        "-lc",
+        "PYTHONPATH=src python3 -m striatum.cli skills install --profile all --scope user --force --json >/dev/null && export PATH=\"$PWD/.venv/bin:$PATH\" && exec .striatum/bin/codex-supervised-wrapper.sh"
+      ],
+      "model": "codex",
+      "display_model": "Codex",
+      "strategy_version": "2026-05-23",
+      "supervision": {
+        "compatible": true,
+        "stdin_format": "newline_delimited_json",
+        "wrapper_required": true
+      }
+    }
+  },
+  "roles": {
+    "coordinator": {
+      "description": "Operator/control-plane role."
+    },
+    "verifier": {
+      "description": "Audits current RFC 0069 daemon-global closure evidence without editing source."
+    },
+    "closer": {
+      "description": "Writes the bounded closure summary and reports protected-doc follow-ups."
+    }
+  },
+  "jobs": [
+    {
+      "id": "verify_pg_global_closure",
+      "type": "synthesis",
+      "title": "Verify PostgreSQL-only daemon-global closure",
+      "role_id": "verifier",
+      "lane_id": "codex",
+      "fresh_session_required": true,
+      "objective": "Verify current TODO 62 / RFC 0069 closure evidence against source, tests, and prior operator artifacts. Do not edit source or shared status docs.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/todo-62-pg-global-closure/prompts/verify_pg_global_closure.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/operator/artifacts/todo-62-pg-global-closure/verification/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "pg_global_closure_report",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/todo-62-pg-global-closure/verification/REPORT.md",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "write_closure_summary",
+      "type": "synthesis",
+      "title": "Write TODO 62 closure summary",
+      "role_id": "closer",
+      "lane_id": "codex",
+      "fresh_session_required": true,
+      "objective": "Summarize closure status, validation commands, absence of source changes, and protected-doc updates to report.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/todo-62-pg-global-closure/prompts/write_closure_summary.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/operator/artifacts/todo-62-pg-global-closure/final/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "todo_62_closure_summary",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/todo-62-pg-global-closure/final/SUMMARY.md",
+          "required": true
+        }
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "from": "verify_pg_global_closure",
+      "to": "write_closure_summary",
+      "on": "completed"
+    }
+  ],
+  "cycles": []
+}
