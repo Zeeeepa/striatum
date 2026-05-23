@@ -1,0 +1,504 @@
+{
+  "schema_version": "striatum.workflow.v1",
+  "workflow_id": "ordered-backlog-2026-05-23",
+  "workflow_version": "2026-05-23",
+  "name": "Ordered backlog execution 2026-05-23",
+  "context_docs": [
+    "README.md",
+    "docs/INDEX.md",
+    "docs/SPEC.md",
+    "docs/DECISION_LOG.md",
+    "docs/UBIQUITOUS_LANGUAGE.md",
+    "docs/TODO.md",
+    "docs/ROADMAP.md",
+    "docs/operator/BRIEF.md",
+    "docs/operator/plans/ordered-backlog-2026-05-23.md",
+    "docs/architecture/CLI_RETIREMENT_PARITY.md",
+    "docs/rfcs/0050-go-daemon-http-sse-mcp.md",
+    "docs/rfcs/0062-real-escalation-inbox.md",
+    "docs/rfcs/0068-go-production-daemon-port.md",
+    "docs/rfcs/0069-pg-only-daemon-global-surfaces.md",
+    "docs/rfcs/0070-daemon-client-service-boundary.md",
+    "docs/rfcs/0075-tmux-observable-mcp-agent-sessions.md",
+    "AGENTS.md"
+  ],
+  "coordinator": {
+    "role_id": "coordinator",
+    "lane_id": "codex"
+  },
+  "parallelism": {
+    "mode": "declared",
+    "max_active_jobs": 6,
+    "require_disjoint_write_scopes": true
+  },
+  "branch": {
+    "mode": "confirm",
+    "suggested_name": "striatum/ordered-backlog-2026-05-23",
+    "allow_dirty": true
+  },
+  "lanes": {
+    "codex": {
+      "adapter": "process",
+      "command": [
+        "bash",
+        "-lc",
+        "PYTHONPATH=src python3 -m striatum.cli skills install --profile all --scope user --force --json >/dev/null && export PATH=\"$PWD/.venv/bin:$PATH\" && exec .striatum/bin/codex-supervised-wrapper.sh"
+      ],
+      "model": "codex",
+      "display_model": "Codex",
+      "strategy_version": "2026-05-23",
+      "supervision": {
+        "compatible": true,
+        "stdin_format": "newline_delimited_json",
+        "wrapper_required": true
+      }
+    },
+    "claude_code": {
+      "adapter": "process",
+      "command": [
+        "bash",
+        "-lc",
+        "PYTHONPATH=src python3 -m striatum.cli skills install --profile all --scope user --force --json >/dev/null && export PATH=\"$PWD/.venv/bin:$PATH\" && exec .striatum/bin/claude-supervised-wrapper.sh"
+      ],
+      "model": "claude_code",
+      "display_model": "Claude Code",
+      "strategy_version": "2026-05-23",
+      "supervision": {
+        "compatible": "verify_pipe_behavior_first",
+        "stdin_format": "prompt_text",
+        "wrapper_required": true
+      }
+    },
+    "gemini": {
+      "adapter": "process",
+      "command": [
+        "bash",
+        "-lc",
+        "PYTHONPATH=src python3 -m striatum.cli skills install --profile all --scope user --force --json >/dev/null && export PATH=\"$PWD/.venv/bin:$PATH\" && exec .striatum/bin/gemini-supervised-wrapper.sh"
+      ],
+      "model": "gemini",
+      "display_model": "Gemini",
+      "strategy_version": "2026-05-23",
+      "supervision": {
+        "compatible": true,
+        "stdin_format": "prompt_text",
+        "wrapper_required": true
+      }
+    }
+  },
+  "roles": {
+    "coordinator": {
+      "description": "Operator/control-plane role."
+    },
+    "d125_evidence": {
+      "description": "TODO 56 D125 evidence-gate executor."
+    },
+    "mcp_parity": {
+      "description": "Exact MCP parity test mapper."
+    },
+    "ui_parity": {
+      "description": "UI parity and ledger mapper."
+    },
+    "tmux_guardrail": {
+      "description": "RFC 0075 authority-boundary guardrail mapper."
+    },
+    "legacy_cleanup": {
+      "description": "Legacy SQLite/direct-state cleanup executor."
+    },
+    "web_split": {
+      "description": "Daemon-first web service split executor."
+    },
+    "escalation_policy": {
+      "description": "Escalation artifact creation policy closer."
+    },
+    "generic_docs": {
+      "description": "Generic language hygiene executor."
+    },
+    "publication_policy": {
+      "description": "Artifact publication policy closer."
+    },
+    "closer": {
+      "description": "Final consolidation role."
+    }
+  },
+  "jobs": [
+    {
+      "id": "phase_01_d125_evidence",
+      "type": "synthesis",
+      "title": "Phase 1 TODO 56 D125 evidence gate",
+      "role_id": "d125_evidence",
+      "lane_id": "codex",
+      "fresh_session_required": true,
+      "objective": "Execute or classify the next live auto-finalize dogfood evidence slice without changing the global dry-run default.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/ordered-backlog-2026-05-23/prompts/phase_01_d125_evidence.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/operator/artifacts/ordered-backlog-2026-05-23/phase-01-d125/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "d125_evidence_report",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/ordered-backlog-2026-05-23/phase-01-d125/REPORT.md",
+          "author_line": "author: d125-evidence-codex-gpt-5-001",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "phase_02_mcp_exact_tests",
+      "type": "synthesis",
+      "title": "Phase 2A MCP exact parity",
+      "role_id": "mcp_parity",
+      "lane_id": "codex",
+      "parallel_group": "phase_02_todo67",
+      "fresh_session_required": true,
+      "objective": "Map exact MCP tests needed for current mcp_registry-only workflow-control rows.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/ordered-backlog-2026-05-23/prompts/phase_02_mcp_exact_tests.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/operator/artifacts/ordered-backlog-2026-05-23/phase-02-mcp/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "mcp_exact_tests",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/ordered-backlog-2026-05-23/phase-02-mcp/REPORT.md",
+          "author_line": "author: mcp-parity-codex-gpt-5-001",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "phase_02_ui_ledger",
+      "type": "synthesis",
+      "title": "Phase 2B UI parity ledger",
+      "role_id": "ui_parity",
+      "lane_id": "claude_code",
+      "parallel_group": "phase_02_todo67",
+      "fresh_session_required": true,
+      "objective": "Map stale UI parity rows and ledger corrections without hiding CLI verbs.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/ordered-backlog-2026-05-23/prompts/phase_02_ui_ledger.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/operator/artifacts/ordered-backlog-2026-05-23/phase-02-ui/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "ui_ledger_report",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/ordered-backlog-2026-05-23/phase-02-ui/REPORT.md",
+          "author_line": "author: ui-parity-claude-code-001",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "phase_02_tmux_authority",
+      "type": "synthesis",
+      "title": "Phase 2C tmux authority guardrail",
+      "role_id": "tmux_guardrail",
+      "lane_id": "gemini",
+      "parallel_group": "phase_02_todo67",
+      "fresh_session_required": true,
+      "objective": "Map RFC 0075 guardrails proving tmux pane output and transcripts remain non-authoritative.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/ordered-backlog-2026-05-23/prompts/phase_02_tmux_authority.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/operator/artifacts/ordered-backlog-2026-05-23/phase-02-tmux/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "tmux_authority_report",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/ordered-backlog-2026-05-23/phase-02-tmux/REPORT.md",
+          "author_line": "author: tmux-authority-gemini-001",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "phase_03_legacy_cleanup",
+      "type": "synthesis",
+      "title": "Phase 3 TODO 61/49/62/63 cleanup",
+      "role_id": "legacy_cleanup",
+      "lane_id": "codex",
+      "fresh_session_required": true,
+      "objective": "Execute or classify the next bounded legacy SQLite/direct-state cleanup slice.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/ordered-backlog-2026-05-23/prompts/phase_03_legacy_cleanup.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/operator/artifacts/ordered-backlog-2026-05-23/phase-03-cleanup/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "legacy_cleanup_report",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/ordered-backlog-2026-05-23/phase-03-cleanup/REPORT.md",
+          "author_line": "author: legacy-cleanup-codex-gpt-5-001",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "phase_04_service_split",
+      "type": "synthesis",
+      "title": "Phase 4 TODO 52 service split",
+      "role_id": "web_split",
+      "lane_id": "codex",
+      "fresh_session_required": true,
+      "objective": "Execute or classify the next daemon-first web service split, preferring the static-asset route boundary.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/ordered-backlog-2026-05-23/prompts/phase_04_service_split.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/operator/artifacts/ordered-backlog-2026-05-23/phase-04-service-split/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "service_split_report",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/ordered-backlog-2026-05-23/phase-04-service-split/REPORT.md",
+          "author_line": "author: service-split-codex-gpt-5-001",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "phase_05_escalation_policy",
+      "type": "synthesis",
+      "title": "Phase 5 TODO 53 escalation policy",
+      "role_id": "escalation_policy",
+      "lane_id": "codex",
+      "fresh_session_required": true,
+      "objective": "Close the artifact-only escalation creation policy question against current source behavior.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/ordered-backlog-2026-05-23/prompts/phase_05_escalation_policy.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/operator/artifacts/ordered-backlog-2026-05-23/phase-05-escalation/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "escalation_policy_report",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/ordered-backlog-2026-05-23/phase-05-escalation/REPORT.md",
+          "author_line": "author: escalation-policy-codex-gpt-5-001",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "phase_06_generic_language",
+      "type": "synthesis",
+      "title": "Phase 6A TODO 16 generic language",
+      "role_id": "generic_docs",
+      "lane_id": "claude_code",
+      "parallel_group": "phase_06_docs",
+      "fresh_session_required": true,
+      "objective": "Map current generic-language hygiene edits and guardrails.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/ordered-backlog-2026-05-23/prompts/phase_06_generic_language.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/operator/artifacts/ordered-backlog-2026-05-23/phase-06-generic-language/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "generic_language_report",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/ordered-backlog-2026-05-23/phase-06-generic-language/REPORT.md",
+          "author_line": "author: generic-docs-claude-code-001",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "phase_06_publication_policy",
+      "type": "synthesis",
+      "title": "Phase 6B F2 publication policy",
+      "role_id": "publication_policy",
+      "lane_id": "gemini",
+      "parallel_group": "phase_06_docs",
+      "fresh_session_required": true,
+      "objective": "Map the remaining fuller publication policy gap and source-backed schema list.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/ordered-backlog-2026-05-23/prompts/phase_06_publication_policy.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/operator/artifacts/ordered-backlog-2026-05-23/phase-06-publication-policy/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "publication_policy_report",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/ordered-backlog-2026-05-23/phase-06-publication-policy/REPORT.md",
+          "author_line": "author: publication-policy-gemini-001",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "final_consolidation",
+      "type": "synthesis",
+      "title": "Final consolidation",
+      "role_id": "closer",
+      "lane_id": "codex",
+      "fresh_session_required": true,
+      "objective": "Consolidate the ordered phases, implementation results, validation evidence, and remaining TODOs.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/ordered-backlog-2026-05-23/prompts/final_consolidation.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/operator/artifacts/ordered-backlog-2026-05-23/final/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "final_summary",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/ordered-backlog-2026-05-23/final/SUMMARY.md",
+          "author_line": "author: ordered-backlog-closer-codex-gpt-5-001",
+          "required": true
+        }
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "from": "phase_01_d125_evidence",
+      "to": "phase_02_mcp_exact_tests",
+      "on": "completed"
+    },
+    {
+      "from": "phase_01_d125_evidence",
+      "to": "phase_02_ui_ledger",
+      "on": "completed"
+    },
+    {
+      "from": "phase_01_d125_evidence",
+      "to": "phase_02_tmux_authority",
+      "on": "completed"
+    },
+    {
+      "from": "phase_02_mcp_exact_tests",
+      "to": "phase_03_legacy_cleanup",
+      "on": "completed"
+    },
+    {
+      "from": "phase_02_ui_ledger",
+      "to": "phase_03_legacy_cleanup",
+      "on": "completed"
+    },
+    {
+      "from": "phase_02_tmux_authority",
+      "to": "phase_03_legacy_cleanup",
+      "on": "completed"
+    },
+    {
+      "from": "phase_03_legacy_cleanup",
+      "to": "phase_04_service_split",
+      "on": "completed"
+    },
+    {
+      "from": "phase_04_service_split",
+      "to": "phase_05_escalation_policy",
+      "on": "completed"
+    },
+    {
+      "from": "phase_05_escalation_policy",
+      "to": "phase_06_generic_language",
+      "on": "completed"
+    },
+    {
+      "from": "phase_05_escalation_policy",
+      "to": "phase_06_publication_policy",
+      "on": "completed"
+    },
+    {
+      "from": "phase_06_generic_language",
+      "to": "final_consolidation",
+      "on": "completed"
+    },
+    {
+      "from": "phase_06_publication_policy",
+      "to": "final_consolidation",
+      "on": "completed"
+    }
+  ],
+  "cycles": []
+}
