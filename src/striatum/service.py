@@ -62,8 +62,8 @@ from striatum.web.chat_routes import (
 )
 from striatum.web import template_env as _template_env
 from striatum.web.static_assets import (
-    StaticAssetError as StaticAssetError,
-    load_static_asset as _load_static_asset,
+    StaticAssetRouteContext as _StaticAssetRouteContext,
+    serve_static_asset as _serve_static_asset_response,
 )
 from striatum.web.artifacts import (
     ArtifactRawContext as _ArtifactRawContext,
@@ -576,30 +576,18 @@ class StriatumServiceHandler(BaseHTTPRequestHandler):
     def _send_html(self, status: int, body: str) -> None:
         _request_io.send_html_response(self, status, body)
 
+    def _static_asset_route_context(self) -> _StaticAssetRouteContext:
+        return _StaticAssetRouteContext(
+            send_json=self._send_json,
+            send_response=self.send_response,
+            send_header=self.send_header,
+            end_headers=self.end_headers,
+            write_body=self.wfile.write,
+        )
+
     def _serve_static_asset(self, relative: str) -> None:
         """RFC 0013 V1: serve a bundled SPA asset from striatum.web.static."""
-        try:
-            asset = _load_static_asset(relative)
-        except StaticAssetError as exc:
-            self._send_json(
-                exc.status_code,
-                {"ok": False, "error": {"code": exc.status_code, "message": exc.message}},
-            )
-            return
-        self.send_response(200)
-        self.send_header("Content-Type", asset.content_type)
-        self.send_header("Content-Length", str(len(asset.data)))
-        self.send_header(
-            "Content-Security-Policy",
-            "default-src 'self'; script-src 'self'; style-src 'self'; "
-            "img-src 'self' data:; connect-src 'self'",
-        )
-        self.send_header("Connection", "close")
-        self.end_headers()
-        try:
-            self.wfile.write(asset.data)
-        except BrokenPipeError:
-            return
+        _serve_static_asset_response(self._static_asset_route_context(), relative)
 
     # --- SSE -----------------------------------------------------------
 
