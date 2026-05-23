@@ -1,0 +1,439 @@
+{
+  "schema_version": "striatum.workflow.v1",
+  "workflow_id": "next-todos-2026-05-23",
+  "workflow_version": "2026-05-23",
+  "name": "Next TODO execution 2026-05-23",
+  "context_docs": [
+    "README.md",
+    "docs/INDEX.md",
+    "docs/SPEC.md",
+    "docs/DECISION_LOG.md",
+    "docs/UBIQUITOUS_LANGUAGE.md",
+    "docs/TODO.md",
+    "docs/ROADMAP.md",
+    "docs/operator/BRIEF.md",
+    "docs/operator/plans/next-todos-2026-05-23.md",
+    "docs/operator/artifacts/ordered-backlog-2026-05-23/final/SUMMARY.md",
+    "docs/architecture/CLI_RETIREMENT_PARITY.md",
+    "docs/rfcs/0062-real-escalation-inbox.md",
+    "docs/rfcs/0075-tmux-observable-mcp-agent-sessions.md",
+    "AGENTS.md"
+  ],
+  "coordinator": {
+    "role_id": "coordinator",
+    "lane_id": "codex"
+  },
+  "parallelism": {
+    "mode": "declared",
+    "max_active_jobs": 5,
+    "require_disjoint_write_scopes": true
+  },
+  "branch": {
+    "mode": "confirm",
+    "suggested_name": "main",
+    "allow_dirty": true
+  },
+  "lanes": {
+    "codex": {
+      "adapter": "process",
+      "command": [
+        "bash",
+        "-lc",
+        "PYTHONPATH=src python3 -m striatum.cli skills install --profile all --scope user --force --json >/dev/null && export PATH=\"$PWD/.venv/bin:$PATH\" && exec .striatum/bin/codex-supervised-wrapper.sh"
+      ],
+      "model": "codex",
+      "display_model": "Codex",
+      "strategy_version": "2026-05-23",
+      "supervision": {
+        "compatible": true,
+        "stdin_format": "newline_delimited_json",
+        "wrapper_required": true
+      }
+    },
+    "claude_code": {
+      "adapter": "process",
+      "command": [
+        "bash",
+        "-lc",
+        "PYTHONPATH=src python3 -m striatum.cli skills install --profile all --scope user --force --json >/dev/null && export PATH=\"$PWD/.venv/bin:$PATH\" && exec .striatum/bin/claude-supervised-wrapper.sh"
+      ],
+      "model": "claude_code",
+      "display_model": "Claude Code",
+      "strategy_version": "2026-05-23",
+      "supervision": {
+        "compatible": "verify_pipe_behavior_first",
+        "stdin_format": "prompt_text",
+        "wrapper_required": true
+      }
+    },
+    "gemini": {
+      "adapter": "process",
+      "command": [
+        "bash",
+        "-lc",
+        "PYTHONPATH=src python3 -m striatum.cli skills install --profile all --scope user --force --json >/dev/null && export PATH=\"$PWD/.venv/bin:$PATH\" && exec .striatum/bin/gemini-supervised-wrapper.sh"
+      ],
+      "model": "gemini",
+      "display_model": "Gemini",
+      "strategy_version": "2026-05-23",
+      "supervision": {
+        "compatible": true,
+        "stdin_format": "prompt_text",
+        "wrapper_required": true
+      }
+    }
+  },
+  "roles": {
+    "coordinator": {
+      "description": "Operator/control-plane role."
+    },
+    "d125_evidence": {
+      "description": "D125 live auto-finalize evidence executor."
+    },
+    "parity": {
+      "description": "CLI/MCP/UI parity gap executor."
+    },
+    "legacy_cleanup": {
+      "description": "Legacy SQLite/direct-state cleanup executor."
+    },
+    "web_split": {
+      "description": "Service split executor."
+    },
+    "escalation_hardening": {
+      "description": "Escalation schema/docs hardening executor."
+    },
+    "tmux_guardrail": {
+      "description": "RFC 0075 tmux authority guardrail executor."
+    },
+    "docs_followthrough": {
+      "description": "TODO and roadmap follow-through executor."
+    },
+    "closer": {
+      "description": "Final consolidation role."
+    }
+  },
+  "jobs": [
+    {
+      "id": "phase_01_d125_live_evidence",
+      "type": "synthesis",
+      "title": "Phase 1 D125 live evidence",
+      "role_id": "d125_evidence",
+      "lane_id": "codex",
+      "fresh_session_required": true,
+      "objective": "Run the next honest D125 live auto-finalize evidence slice while preserving dry-run default behavior.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/next-todos-2026-05-23/prompts/phase_01_d125_live_evidence.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/operator/workflows/d125-auto-finalize-live-evidence-2026-05-23/",
+          "docs/operator/artifacts/d125-auto-finalize-live-evidence-2026-05-23/",
+          "docs/operator/artifacts/next-todos-2026-05-23/phase-01-d125/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "d125_report",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/next-todos-2026-05-23/phase-01-d125/REPORT.md",
+          "author_line": "author: d125-evidence-codex-gpt-5-001",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "phase_02_parity_gaps",
+      "type": "synthesis",
+      "title": "Phase 2 TODO 67 parity gaps",
+      "role_id": "parity",
+      "lane_id": "codex",
+      "fresh_session_required": true,
+      "objective": "Close the next bounded CLI/MCP/UI parity evidence gaps without retiring CLI verbs.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/next-todos-2026-05-23/prompts/phase_02_parity_gaps.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "tests/test_mcp_mutation_capabilities.py",
+          "tests/test_service.py",
+          "docs/architecture/CLI_RETIREMENT_PARITY.md",
+          "docs/operator/artifacts/next-todos-2026-05-23/phase-02-parity/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "parity_report",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/next-todos-2026-05-23/phase-02-parity/REPORT.md",
+          "author_line": "author: parity-codex-gpt-5-001",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "phase_03_cleanup_guardrail",
+      "type": "synthesis",
+      "title": "Phase 3A cleanup guardrail",
+      "role_id": "legacy_cleanup",
+      "lane_id": "codex",
+      "parallel_group": "phase_03_follow_through",
+      "fresh_session_required": true,
+      "objective": "Execute a bounded legacy SQLite/direct-state cleanup guardrail slice.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/next-todos-2026-05-23/prompts/phase_03_cleanup_guardrail.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "tests/architecture/test_legacy_sqlite_quarantine.py",
+          "tests/test_override_modal_context_validation.py",
+          "tests/test_override_modal_payload.py",
+          "tests/test_service_request_security.py",
+          "docs/operator/artifacts/next-todos-2026-05-23/phase-03-cleanup/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "cleanup_report",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/next-todos-2026-05-23/phase-03-cleanup/REPORT.md",
+          "author_line": "author: legacy-cleanup-codex-gpt-5-001",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "phase_03_service_split",
+      "type": "synthesis",
+      "title": "Phase 3B service split",
+      "role_id": "web_split",
+      "lane_id": "claude_code",
+      "parallel_group": "phase_03_follow_through",
+      "fresh_session_required": true,
+      "objective": "Move one more stable web route boundary out of service.py.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/next-todos-2026-05-23/prompts/phase_03_service_split.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "src/striatum/service.py",
+          "src/striatum/web/doctor.py",
+          "tests/test_web_doctor.py",
+          "tests/test_service.py",
+          "docs/operator/artifacts/next-todos-2026-05-23/phase-03-service-split/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "service_split_report",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/next-todos-2026-05-23/phase-03-service-split/REPORT.md",
+          "author_line": "author: service-split-claude-code-001",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "phase_03_escalation_hardening",
+      "type": "synthesis",
+      "title": "Phase 3C escalation hardening",
+      "role_id": "escalation_hardening",
+      "lane_id": "codex",
+      "parallel_group": "phase_03_follow_through",
+      "fresh_session_required": true,
+      "objective": "Correct escalation typed-table/schema status and close stale docs claims.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/next-todos-2026-05-23/prompts/phase_03_escalation_hardening.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/rfcs/0062-real-escalation-inbox.md",
+          "docs/operator/artifacts/next-todos-2026-05-23/phase-03-escalation/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "escalation_report",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/next-todos-2026-05-23/phase-03-escalation/REPORT.md",
+          "author_line": "author: escalation-hardening-codex-gpt-5-001",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "phase_03_tmux_guardrail",
+      "type": "synthesis",
+      "title": "Phase 3D RFC 0075 tmux guardrail",
+      "role_id": "tmux_guardrail",
+      "lane_id": "gemini",
+      "parallel_group": "phase_03_follow_through",
+      "fresh_session_required": true,
+      "objective": "Add a focused guardrail proving tmux observability does not become workflow authority.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/next-todos-2026-05-23/prompts/phase_03_tmux_guardrail.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "tests/architecture/test_tmux_authority_boundary.py",
+          "docs/operator/artifacts/next-todos-2026-05-23/phase-03-tmux/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "tmux_report",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/next-todos-2026-05-23/phase-03-tmux/REPORT.md",
+          "author_line": "author: tmux-guardrail-gemini-001",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "phase_04_docs_followthrough",
+      "type": "synthesis",
+      "title": "Phase 4 TODO and roadmap follow-through",
+      "role_id": "docs_followthrough",
+      "lane_id": "codex",
+      "fresh_session_required": true,
+      "objective": "Reconcile TODO and roadmap status after the bounded implementation slices.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/next-todos-2026-05-23/prompts/phase_04_docs_followthrough.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/TODO.md",
+          "docs/ROADMAP.md",
+          "docs/operator/artifacts/next-todos-2026-05-23/phase-04-docs/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "docs_followthrough_report",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/next-todos-2026-05-23/phase-04-docs/REPORT.md",
+          "author_line": "author: docs-followthrough-codex-gpt-5-001",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "final_consolidation",
+      "type": "synthesis",
+      "title": "Final consolidation",
+      "role_id": "closer",
+      "lane_id": "codex",
+      "fresh_session_required": true,
+      "objective": "Summarize the next TODO run, validations, commits, and remaining work.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/next-todos-2026-05-23/prompts/final_consolidation.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/operator/artifacts/next-todos-2026-05-23/final/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "final_summary",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/next-todos-2026-05-23/final/SUMMARY.md",
+          "author_line": "author: closer-codex-gpt-5-001",
+          "required": true
+        }
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "from": "phase_01_d125_live_evidence",
+      "to": "phase_02_parity_gaps",
+      "on": "completed"
+    },
+    {
+      "from": "phase_02_parity_gaps",
+      "to": "phase_03_cleanup_guardrail",
+      "on": "completed"
+    },
+    {
+      "from": "phase_02_parity_gaps",
+      "to": "phase_03_service_split",
+      "on": "completed"
+    },
+    {
+      "from": "phase_02_parity_gaps",
+      "to": "phase_03_escalation_hardening",
+      "on": "completed"
+    },
+    {
+      "from": "phase_02_parity_gaps",
+      "to": "phase_03_tmux_guardrail",
+      "on": "completed"
+    },
+    {
+      "from": "phase_03_cleanup_guardrail",
+      "to": "phase_04_docs_followthrough",
+      "on": "completed"
+    },
+    {
+      "from": "phase_03_service_split",
+      "to": "phase_04_docs_followthrough",
+      "on": "completed"
+    },
+    {
+      "from": "phase_03_escalation_hardening",
+      "to": "phase_04_docs_followthrough",
+      "on": "completed"
+    },
+    {
+      "from": "phase_03_tmux_guardrail",
+      "to": "phase_04_docs_followthrough",
+      "on": "completed"
+    },
+    {
+      "from": "phase_04_docs_followthrough",
+      "to": "final_consolidation",
+      "on": "completed"
+    }
+  ],
+  "cycles": []
+}
