@@ -1,0 +1,53 @@
+# Striatum Evidence Export
+
+- run_id: `run_793f221c416768dffbe82d4286bc1f10`
+- state: `completed`
+- branch: `main`
+
+## Snapshot
+
+```json
+{
+  "artifacts": [
+    {
+      "artifact_id": "art_807c61acb0d0cdf273da1d3f306f2bf6",
+      "byline": "author: operator [self-declared: d125-auto-finalize-driver]",
+      "content_sha256": "81227bf4b9715be03549fad71efa7d1adb77f5a77807b633d7c10f99d6fc8b59",
+      "job_id": "job_run_793f221c416768dffbe82d4286bc1f10_write_expected_finding",
+      "kind": "finding",
+      "logical_name": "review",
+      "path": "docs/operator/artifacts/d125-auto-finalize-live-evidence-2026-05-23/REVIEW.md",
+      "published_at": "2026-05-23T13:36:16Z",
+      "run_id": "run_793f221c416768dffbe82d4286bc1f10"
+    }
+  ],
+  "doctor": {
+    "blob": {
+      "configured": false
+    },
+    "ok": true,
+    "problems": [],
+    "schema_version": 14,
+    "stale_leases": 2,
+    "waiting_human": 0
+  },
+  "runs": [
+    {
+      "branch_name": "main",
+      "completed_at": "2026-05-23T13:36:16Z",
+      "run_id": "run_793f221c416768dffbe82d4286bc1f10",
+      "state": "completed"
+    }
+  ],
+  "verdicts": [
+    {
+      "job_id": "job_run_793f221c416768dffbe82d4286bc1f10_write_expected_finding",
+      "recorded_at": "2026-05-23T13:36:16Z",
+      "review_posture": "neutral",
+      "run_id": "run_793f221c416768dffbe82d4286bc1f10",
+      "verdict": "accept",
+      "verdict_id": "verdict_602a13d2f590d3d9ac7c15c28515ea58"
+    }
+  ]
+}
+```

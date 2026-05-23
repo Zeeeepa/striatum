@@ -1,0 +1,94 @@
+{
+  "schema_version": "striatum.workflow.v1",
+  "workflow_id": "d125-auto-finalize-live-evidence-2026-05-23",
+  "workflow_version": "2026-05-23",
+  "name": "D125 auto-finalize live evidence probe 2026-05-23",
+  "context_docs": [
+    "docs/DECISION_LOG.md",
+    "docs/TODO.md",
+    "src/striatum/daemon_pg/handlers/recovery_evidence/auto_finalize.py",
+    "src/striatum/artifact_contracts.py",
+    "AGENTS.md"
+  ],
+  "coordinator": {
+    "role_id": "coordinator",
+    "lane_id": "codex"
+  },
+  "parallelism": {
+    "mode": "declared",
+    "max_active_jobs": 1,
+    "require_disjoint_write_scopes": true
+  },
+  "branch": {
+    "mode": "confirm",
+    "suggested_name": "main",
+    "allow_dirty": true
+  },
+  "recovery": {
+    "auto_finalize": {
+      "enabled": true
+    }
+  },
+  "lanes": {
+    "codex": {
+      "adapter": "process",
+      "command": [
+        "bash",
+        "-lc",
+        "exec .striatum/bin/codex-supervised-wrapper.sh"
+      ],
+      "model": "codex",
+      "display_model": "Codex",
+      "strategy_version": "2026-05-23",
+      "supervision": {
+        "compatible": true,
+        "stdin_format": "newline_delimited_json",
+        "wrapper_required": true
+      }
+    }
+  },
+  "roles": {
+    "coordinator": {
+      "description": "Operator/control-plane role."
+    },
+    "reviewer": {
+      "description": "Evidence review role."
+    }
+  },
+  "jobs": [
+    {
+      "id": "write_expected_finding",
+      "type": "review",
+      "title": "Write expected finding for auto-finalize",
+      "role_id": "reviewer",
+      "lane_id": "codex",
+      "fresh_session_required": true,
+      "reviewer_context_policy": "fresh",
+      "objective": "Write a valid expected finding artifact and leave the job for recovery.auto_finalize.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/d125-auto-finalize-live-evidence-2026-05-23/prompt.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/operator/artifacts/d125-auto-finalize-live-evidence-2026-05-23/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "review",
+          "kind": "finding",
+          "path": "docs/operator/artifacts/d125-auto-finalize-live-evidence-2026-05-23/REVIEW.md",
+          "author_line": "author: d125-reviewer-codex-gpt-5-001",
+          "required": true
+        }
+      ]
+    }
+  ],
+  "edges": [],
+  "cycles": []
+}
