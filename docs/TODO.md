@@ -104,7 +104,7 @@ so external references keep resolving even as items move between sections.
 | 50 | RFC 0060 Architecture remediation Phase 2 — single daemon method contract source | ✅ done |
 | 51 | Architecture remediation Phase 3 — daemon core strategy decision | ✅ done |
 | 52 | RFC 0061 Architecture remediation Phase 4 — daemon-first web service | 🟡 core web/API + artifact reads daemon-routed |
-| 53 | RFC 0062 Architecture remediation Phase 5 — real escalation inbox | 🟡 projection + escalation artifact schema/linkage and D130 link-only policy landed |
+| 53 | RFC 0062 Architecture remediation Phase 5 — real escalation inbox | 🟡 projection + typed inbox table + escalation artifact linkage landed; blocker payload hardening remains |
 | 54 | RFC 0063 Architecture remediation Phase 6 — hardened PTY supervision | ✅ done |
 | 55 | RFC 0064 Architecture remediation Phase 7 — workflow risk lint and review diversity enforcement | ✅ done |
 | 56 | Architecture remediation Phase 8 — auto-finalize from front matter | 🟡 D125 gate artifact/projection landed; default-on dogfood evidence pending |
@@ -1050,8 +1050,9 @@ review and plan are root-level operator artifacts:
     landed: `service_request_io.py` owns request-body parsing plus JSON/HTML
     response helpers while `service.py` keeps route-level wrappers.
     Follow-up split landed: `web/doctor.py` owns doctor page DTO loading,
-    gated legacy fallback selection, record recipe shaping, and problem
-    grouping while `service.py` keeps template rendering and response mapping.
+    gated legacy fallback selection, record recipe shaping, problem grouping,
+    template rendering, and response/error mapping while `service.py` keeps a
+    stable route wrapper.
     Follow-up split landed: `web/workflows.py` owns workflow browser index and
     detail page DTO shaping while `service.py` keeps template rendering and
     HTTP error mapping for those pages. Follow-up split landed:
@@ -1107,9 +1108,11 @@ review and plan are root-level operator artifacts:
     matches a real artifact row, repairs missing links on idempotent publish
     retries, and rejects conflicting blocker metadata. D130 closes
     artifact-only escalation creation as link-only: `artifact.publish` does
-    not synthesize live blockers or inbox rows. Remaining: typed escalation
-    table or stricter blocker payload schema, and eventual packet-helper
-    rename (`packet inbox`) if needed.
+    not synthesize live blockers or inbox rows. Follow-up storage hardening
+    landed a typed `striatumd.escalation_inbox` table in both Python and Go
+    migrations. Remaining: stricter blocker payload schema, a future
+    dedicated create/update method only if product scope needs it, and
+    eventual packet-helper rename (`packet inbox`) if needed.
 
 54. **Phase 6: hardened PTY supervision / Go helper.** Add daemon-owned
     PTY supervision through a narrow helper protocol, with Python retaining

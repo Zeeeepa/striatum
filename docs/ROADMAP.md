@@ -570,8 +570,9 @@ fixtures and compatibility imports.
   JSON/HTML response helpers. `service.py` keeps stable route-level wrapper
   methods for existing call sites and tests.
 - `src/striatum/web/doctor.py` now owns doctor page DTO loading, gated legacy
-  fallback selection, record recipe shaping, and problem grouping. `service.py`
-  keeps template rendering and response mapping for `/doctor`.
+  fallback selection, record recipe shaping, problem grouping, template
+  rendering, and response/error mapping. `service.py` keeps a stable route
+  wrapper for `/doctor`.
 - `src/striatum/web/workflows.py` now owns workflow browser index/detail page
   DTO shaping, including small index entries and detail graph-SVG selection.
   `service.py` keeps template rendering and HTTP error mapping for those pages.
@@ -648,13 +649,16 @@ paths are stable.
 - Escalation projections verify the linked artifact still exists and matches
   id/path/hash metadata before surfacing it; idempotent escalation artifact
   publishes repair missing blocker links and reject conflicting existing links.
+- The typed `striatumd.escalation_inbox` table has landed in both Python and
+  Go migration sets, and escalation artifact linking updates that table.
 - D130 closes artifact-only escalation creation as link-only. Publishing an
   escalation artifact does not synthesize live blockers or escalation inbox
   rows; live escalation state is created through `work.block` or a future
   accepted `escalation.create` design.
 
-**Remaining Phase 5 debt:** consider a dedicated escalation table or stricter
-blocker payload schema, and decide whether to rename the packet helper to
+**Remaining Phase 5 debt:** tighten escalation-class blocker payload schema,
+consider a dedicated create/update method only if product scope needs direct
+escalation creation, and decide whether to rename the packet helper to
 `packet inbox`.
 
 ---
