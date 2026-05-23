@@ -1,14 +1,15 @@
 # RFC 0062: Real Escalation Inbox
 
 ## Status
-Partially implemented; D130 closes artifact-only creation as link-only
+Implemented core projection; blocker payload hardening remains follow-up
 
 ## Summary
 Escalations now have daemon-backed projection routes and an operator inbox:
 `escalation.list`, `escalation.show`, `escalation.resolve`, `striatum inbox`,
 and the `striatum.escalation.v1` artifact front-matter schema have landed.
 Artifact linkage into the inbox projection is implemented for the shipped
-schema.
+schema. The typed `striatumd.escalation_inbox` table now exists in both the
+Python and Go migration sets.
 
 ## Motivation
 RFC 0053 made the human principal an escalation-only role, but the product
@@ -17,9 +18,13 @@ conventions.
 
 ## Proposed Implementation
 Completed work covers list/show/resolve daemon methods, the CLI inbox
-projection, escalation artifact validation, and artifact linkage. D130 closes
-the artifact-only escalation creation question as link-only: publishing an
-escalation artifact may link to an existing escalation-class blocker, but it
-does not synthesize blocker rows or escalation inbox rows. Remaining work is
-schema hardening: whether blocker payload shape should be tightened further or
-moved into a dedicated typed escalation table.
+projection, the typed `striatumd.escalation_inbox` table, escalation artifact
+validation, and artifact linkage. D130 closes the artifact-only escalation
+creation question as link-only: publishing an escalation artifact may link to
+an existing escalation-class blocker, but it does not synthesize blocker rows
+or escalation inbox rows.
+
+Remaining work is narrower schema hardening: tighten the blocker payload
+shape for escalation-class blockers, and consider a dedicated create/update
+method only if future product work needs direct escalation creation outside
+the existing blocker lifecycle. The typed table itself is no longer missing.

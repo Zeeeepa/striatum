@@ -51,10 +51,8 @@ from striatum.service_state import (
     ServiceState as ServiceState,
     utcnow_iso as utcnow_iso,
 )
-from striatum.web.doctor import (
-    DoctorPageError as _DoctorPageError,
-    doctor_page_response as _doctor_page_response,
-)
+from striatum.web.doctor import DoctorRouteContext as _DoctorRouteContext
+from striatum.web.doctor import render_doctor_page as _render_doctor_page
 from striatum.web import chat_session as _chat_session
 from striatum.web import chat_routes as _chat_routes
 from striatum.web.chat_routes import (
@@ -476,22 +474,14 @@ class StriatumServiceHandler(BaseHTTPRequestHandler):
         )
 
     def _render_doctor_page(self) -> None:
-        try:
-            response = _doctor_page_response(
-                self.state.repo,
+        _render_doctor_page(
+            _DoctorRouteContext(
+                repo=self.state.repo,
+                send_json=self._send_json,
+                send_html=self._send_html,
+                jinja_env=_jinja_env,
             )
-            html = _jinja_env().get_template("doctor.html").render(
-                doctor=response.doctor,
-                problem_groups=response.problem_groups,
-            )
-            self._send_html(200, html)
-        except _DoctorPageError as exc:
-            self._send_json(
-                exc.status,
-                {"ok": False, "error": {"code": exc.code, "message": exc.message}},
-            )
-        except Exception as exc:  # noqa: BLE001
-            self._send_json(500, {"ok": False, "error": {"code": 500, "message": str(exc)}})
+        )
 
     # --- RFC 0023 V1 chat + view ---------------------------------------
 

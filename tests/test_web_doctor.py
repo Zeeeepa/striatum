@@ -63,3 +63,68 @@ def test_doctor_page_response_raises_http_shaped_error_when_fallback_refused(
     assert excinfo.value.status == 503
     assert excinfo.value.code == "repo_not_registered"
     assert excinfo.value.message == "register repo first"
+
+
+def test_render_doctor_page_sends_html(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fake_call_repo_method(repo: Path, method: str, params: dict[str, Any]) -> dict[str, Any]:
+        return {"problem_records": [{"check": "human_checkpoint_open", "blocker_id": "blk_1"}]}
+
+    class FakeTemplate:
+        def render(self, **kwargs: Any) -> str:
+            assert kwargs["problem_groups"]["human_checkpoint_open"][0]["recipes"] == [
+                "striatum checkpoint resolve --blocker-id blk_1 --action continue",
+                "striatum checkpoint resolve --blocker-id blk_1 --action cancel",
+            ]
+            return "doctor html"
+
+    class FakeEnvironment:
+        def get_template(self, name: str) -> FakeTemplate:
+            assert name == "doctor.html"
+            return FakeTemplate()
+
+    sent: dict[str, Any] = {}
+    monkeypatch.setattr("striatum.service_daemon.call_repo_method", fake_call_repo_method)
+
+    web_doctor.render_doctor_page(
+        web_doctor.DoctorRouteContext(
+            repo=tmp_path,
+            send_json=lambda status, body: sent.update({"json": (status, body)}),
+            send_html=lambda status, body: sent.update({"html": (status, body)}),
+            jinja_env=lambda: FakeEnvironment(),
+        )
+    )
+
+    assert sent == {"html": (200, "doctor html")}
+
+
+def test_render_doctor_page_sends_daemon_error(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fake_call_repo_method(repo: Path, method: str, params: dict[str, Any]) -> dict[str, Any]:
+        raise ServiceDaemonRpcError(503, "daemon_unreachable", "daemon is required")
+
+    sent: dict[str, Any] = {}
+    monkeypatch.setattr("striatum.service_daemon.call_repo_method", fake_call_repo_method)
+
+    web_doctor.render_doctor_page(
+        web_doctor.DoctorRouteContext(
+            repo=tmp_path,
+            send_json=lambda status, body: sent.update({"json": (status, body)}),
+            send_html=lambda status, body: sent.update({"html": (status, body)}),
+            jinja_env=lambda: object(),
+        )
+    )
+
+    assert sent == {
+        "json": (
+            503,
+            {
+                "ok": False,
+                "error": {"code": "daemon_unreachable", "message": "daemon is required"},
+            },
+        )
+    }

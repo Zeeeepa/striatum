@@ -23,6 +23,14 @@ class DoctorPageResponse:
     problem_groups: dict[str, list[JsonObject]]
 
 
+@dataclass(frozen=True)
+class DoctorRouteContext:
+    repo: Path
+    send_json: Any
+    send_html: Any
+    jinja_env: Any
+
+
 def doctor_record_recipes(record: Mapping[str, Any]) -> list[str]:
     check = str(record.get("check") or "")
     context = record.get("context")
@@ -80,3 +88,20 @@ def doctor_page_response(
     for record in records:
         groups.setdefault(str(record.get("check") or "unknown"), []).append(record)
     return DoctorPageResponse(doctor=doctor, problem_groups=groups)
+
+
+def render_doctor_page(ctx: DoctorRouteContext) -> None:
+    try:
+        response = doctor_page_response(ctx.repo)
+        html = ctx.jinja_env().get_template("doctor.html").render(
+            doctor=response.doctor,
+            problem_groups=response.problem_groups,
+        )
+        ctx.send_html(200, html)
+    except DoctorPageError as exc:
+        ctx.send_json(
+            exc.status,
+            {"ok": False, "error": {"code": exc.code, "message": exc.message}},
+        )
+    except Exception as exc:  # noqa: BLE001
+        ctx.send_json(500, {"ok": False, "error": {"code": 500, "message": str(exc)}})
