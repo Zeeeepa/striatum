@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-import sqlite3
+import importlib
 from email.message import Message
 from io import BytesIO
 from pathlib import Path
@@ -62,6 +62,10 @@ def _handler(
     return handler, sent
 
 
+def _sqlite_module() -> Any:
+    return importlib.import_module("sqlite3")
+
+
 def test_escalation_list_reads_daemon_dto_without_sqlite(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -95,7 +99,7 @@ def test_escalation_list_reads_daemon_dto_without_sqlite(
 
     handler, sent = _handler(tmp_path)
     monkeypatch.setattr(service, "_jinja_env", lambda: _FakeEnvironment("escalation_list.html", captured))
-    monkeypatch.setattr(sqlite3, "connect", sqlite_tripwire)
+    monkeypatch.setattr(_sqlite_module(), "connect", sqlite_tripwire)
     monkeypatch.setattr(service_daemon, "call_repo_method", fake_call_repo_method)
 
     handler._render_escalation_list_page({})
@@ -161,7 +165,7 @@ def test_escalation_detail_reads_daemon_dto_without_sqlite(
 
     handler, sent = _handler(tmp_path)
     monkeypatch.setattr(service, "_jinja_env", lambda: _FakeEnvironment("escalation_detail.html", captured))
-    monkeypatch.setattr(sqlite3, "connect", sqlite_tripwire)
+    monkeypatch.setattr(_sqlite_module(), "connect", sqlite_tripwire)
     monkeypatch.setattr(service_daemon, "call_repo_method", fake_call_repo_method)
 
     handler._render_escalation_detail_page("blk_1")
@@ -257,7 +261,7 @@ def test_escalation_resolve_posts_daemon_rpc_without_sqlite(
         payload={"decision_id": "dec_1", "resolution_note": "principal approved"},
         allow_mutations=True,
     )
-    monkeypatch.setattr(sqlite3, "connect", sqlite_tripwire)
+    monkeypatch.setattr(_sqlite_module(), "connect", sqlite_tripwire)
     monkeypatch.setattr(service_daemon, "call_repo_method", fake_call_repo_method)
 
     handler._handle_escalation_resolve("blk_1")

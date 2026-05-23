@@ -133,6 +133,8 @@
 | `repo add` | `repo.add` | `admin` | `daemon_global` |
 | `repo list` | `repo.list` | `read` | `daemon_global` |
 | `repo remove` | `repo.remove` | `admin` | `daemon_global` |
+| `workflow accepted-risks` | `workflow.accepted_risks.list` | `read` | `single_repo` |
+| `workflow accept-risk` | `workflow.accept_risk` | `admin` | `single_repo` |
 | `list runs` | `list.runs` | `read` | `single_repo` |
 | `list sessions` | `list.sessions` | `read` | `single_repo` |
 | `list jobs` | `list.jobs` | `read` | `single_repo` |

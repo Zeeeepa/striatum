@@ -4,10 +4,10 @@ artifact_kind: "work_plan"
 plan_id: "plan_rfc-0074-workflow-shape-catalog-phase-a"
 scope_kind: "rfc"
 scope_ref: "docs/rfcs/0074-workflow-shape-and-adversary-pack-catalog.md"
-state: "open"
+state: "closed"
 opened_at: "2026-05-22"
-closed_at: null
-closure_summary: null
+closed_at: "2026-05-23"
+closure_summary: "Phase A catalog metadata, read-only discovery, and implementation-panel example validation landed; Phase B generator/UI behavior remains deferred."
 supersedes: null
 retrieval_priority: "high"
 ---
@@ -17,12 +17,11 @@ author: coordinator-codex-gpt-5-001
 
 ## Outcome
 
-Run a bounded RFC 0074 Phase A catalog pass: metadata-first catalog entries,
-role/adversary pack discovery, one implementation-panel example validation,
-read-only discovery review, and closure. The workflow must keep generator
-shape implementation, role/adversary generation flags, cost estimation, RFC
-0052 committee artifacts, and web chooser pack selection deferred to Phase B or
-later.
+RFC 0074 Phase A is closed. Metadata-first catalog entries, role/adversary
+pack discovery, one implementation-panel example validation, read-only
+discovery review, and closure have landed. Generator shape implementation,
+role/adversary generation flags, cost estimation, RFC 0052 committee
+artifacts, and web chooser pack selection remain deferred to Phase B or later.
 
 ## Inputs
 
@@ -37,11 +36,11 @@ later.
 
 | Workstream | State |
 |---|---|
-| Discover role/adversary pack names, overlaps, and RFC 0076 fit | scaffolded |
-| Add metadata-first catalog entries and read-only discovery surfaces | scaffolded |
-| Validate one hand-authored implementation-panel example | scaffolded |
-| Review discovery surfaces for Phase A/Phase B boundary leaks | scaffolded |
-| Publish closure with validation evidence and remaining deferred work | scaffolded |
+| Discover role/adversary pack names, overlaps, and RFC 0076 fit | landed |
+| Add metadata-first catalog entries and read-only discovery surfaces | landed |
+| Validate one hand-authored implementation-panel example | landed |
+| Review discovery surfaces for Phase A/Phase B boundary leaks | landed |
+| Publish closure with validation evidence and remaining deferred work | landed |
 
 ## Workflow Scaffold
 
@@ -51,13 +50,8 @@ Validate the workflow:
 PYTHONPATH=src python3 -m striatum.cli workflow validate --allow-same-model-pairing docs/operator/workflows/rfc-0074-phase-a-catalog/workflow.json
 ```
 
-Prepare and start it through the daemon-backed runner when Phase A
-implementation is ready:
-
-```bash
-PYTHONPATH=src python3 -m striatum.cli run prepare --workflow docs/operator/workflows/rfc-0074-phase-a-catalog/workflow.json --json
-PYTHONPATH=src python3 -m striatum.cli run start --run-id <run_id> --json
-```
+Closure evidence is recorded in
+`docs/operator/artifacts/rfc-0074-phase-a-catalog/CLOSURE.md`.
 
 ## Guardrails
 

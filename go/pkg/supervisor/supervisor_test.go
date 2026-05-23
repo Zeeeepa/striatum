@@ -204,6 +204,56 @@ func TestLaunchPTYWired(t *testing.T) {
 	_ = res.Cmd.Wait()
 }
 
+func TestLaunchPTYRequireTmuxRefusesWhenUnavailable(t *testing.T) {
+	truePath := testCommandPath(t, "true")
+	t.Setenv("PATH", t.TempDir())
+
+	_, err := Launch(context.Background(), t.TempDir(), "sup_tmux_required", LaunchSpec{
+		Command: []string{truePath},
+		UsePTY:  true,
+		Env: []string{
+			"STRIATUM_RUN_ID=run_tmux_required",
+			"STRIATUM_LANE_ID=lane_tmux_required",
+		},
+		RequireTmux: true,
+	})
+	if err == nil {
+		t.Fatal("expected required tmux launch to fail when tmux is unavailable")
+	}
+	if !strings.Contains(err.Error(), "tmux required") || !strings.Contains(err.Error(), "tmux was not found") {
+		t.Fatalf("error = %q, want clean tmux-required refusal", err.Error())
+	}
+}
+
+func TestLaunchPTYOptionalTmuxFallsBackWhenUnavailable(t *testing.T) {
+	truePath := testCommandPath(t, "true")
+	t.Setenv("PATH", t.TempDir())
+
+	res, err := Launch(context.Background(), t.TempDir(), "sup_tmux_optional", LaunchSpec{
+		Command: []string{truePath},
+		UsePTY:  true,
+		Env: []string{
+			"STRIATUM_RUN_ID=run_tmux_optional",
+			"STRIATUM_LANE_ID=lane_tmux_optional",
+		},
+	})
+	if err != nil {
+		t.Fatalf("Launch optional tmux: %v", err)
+	}
+	if res.PID <= 0 {
+		t.Fatalf("expected positive PID, got %d", res.PID)
+	}
+	if res.StdinWriter == nil {
+		t.Fatal("expected non-nil StdinWriter from fallback PTY launch")
+	}
+	tmux, ok := res.Metadata["tmux"].(map[string]any)
+	if !ok || tmux["unavailable_reason"] != "tmux_not_found" {
+		t.Fatalf("fallback tmux metadata = %#v", res.Metadata["tmux"])
+	}
+	_ = res.StdinWriter.Close()
+	_ = res.Cmd.Wait()
+}
+
 func TestLaunchPipeMode(t *testing.T) {
 	truePath := testCommandPath(t, "true")
 	dir := t.TempDir()

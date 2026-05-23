@@ -41,6 +41,8 @@ ALLOWED_ARTIFACT_KINDS: frozenset[str] = frozenset(
         "work_plan",
         "progress_note",
         "operator_report",
+        "commit_request",
+        "pr_request",
     }
 )
 
@@ -97,6 +99,18 @@ def _is_str_list(value: object) -> str | None:
     for item in value:
         if not isinstance(item, str):
             return "must be a list of strings"
+    return None
+
+
+def _is_non_empty_str_list(value: object) -> str | None:
+    problem = _is_str_list(value)
+    if problem is not None:
+        return problem
+    assert isinstance(value, list)
+    if not value:
+        return "must be a non-empty list of non-empty strings"
+    if any(not item.strip() for item in value):
+        return "must be a non-empty list of non-empty strings"
     return None
 
 
@@ -165,6 +179,13 @@ _RETRIEVAL_PRIORITIES: tuple[str, ...] = ("high", "normal", "low")
 _OPERATOR_BRIEF_STATUSES: tuple[str, ...] = ("current", "superseded")
 _WORK_PLAN_SCOPE_KINDS: tuple[str, ...] = ("rfc", "phase", "initiative", "bugfix")
 _WORK_PLAN_STATES: tuple[str, ...] = ("open", "in_progress", "closed")
+_GIT_CONFIRMATION_STATUSES: tuple[str, ...] = (
+    "pending",
+    "operator_confirmed",
+    "human_confirmed",
+    "refused",
+)
+_PR_CONFIRMATION_STATUSES: tuple[str, ...] = ("pending", "human_confirmed", "refused")
 
 
 FRONT_MATTER_SCHEMAS: dict[str, FrontMatterSchema] = {
@@ -351,6 +372,53 @@ FRONT_MATTER_SCHEMAS: dict[str, FrontMatterSchema] = {
             FrontMatterField("supersedes", False, _is_nullable_non_empty_str),
         ),
     ),
+    "commit_request": FrontMatterSchema(
+        schema_version="striatum.commit_request.v1",
+        artifact_kind="commit_request",
+        fields=(
+            FrontMatterField("schema_version", True, _equals("striatum.commit_request.v1")),
+            FrontMatterField("artifact_kind", True, _equals("commit_request")),
+            FrontMatterField("request_id", True, _is_non_empty_str),
+            FrontMatterField("run_id", False, _is_non_empty_str),
+            FrontMatterField("base_head", True, _is_non_empty_str),
+            FrontMatterField("branch", True, _is_non_empty_str),
+            FrontMatterField("git_snapshot_hash", True, _is_non_empty_str),
+            FrontMatterField("included_paths", True, _is_non_empty_str_list),
+            FrontMatterField("reviewed_artifacts", False, _is_non_empty_str_list),
+            FrontMatterField("commit_message", True, _is_non_empty_str),
+            FrontMatterField("rationale", True, _is_non_empty_str),
+            FrontMatterField(
+                "confirmation_status",
+                True,
+                _one_of("confirmation_status", _GIT_CONFIRMATION_STATUSES),
+            ),
+            FrontMatterField("confirmed_by", False, _is_nullable_non_empty_str),
+            FrontMatterField("confirmed_at", False, _is_nullable_non_empty_str),
+        ),
+    ),
+    "pr_request": FrontMatterSchema(
+        schema_version="striatum.pr_request.v1",
+        artifact_kind="pr_request",
+        fields=(
+            FrontMatterField("schema_version", True, _equals("striatum.pr_request.v1")),
+            FrontMatterField("artifact_kind", True, _equals("pr_request")),
+            FrontMatterField("request_id", True, _is_non_empty_str),
+            FrontMatterField("run_id", False, _is_non_empty_str),
+            FrontMatterField("target_branch", True, _is_non_empty_str),
+            FrontMatterField("summary", True, _is_non_empty_str),
+            FrontMatterField("body_draft", True, _is_non_empty_str),
+            FrontMatterField("related_commit_request", False, _is_nullable_non_empty_str),
+            FrontMatterField("local_commit_sha", False, _is_nullable_non_empty_str),
+            FrontMatterField("provider_target", False, _is_nullable_non_empty_str),
+            FrontMatterField(
+                "confirmation_status",
+                True,
+                _one_of("confirmation_status", _PR_CONFIRMATION_STATUSES),
+            ),
+            FrontMatterField("confirmed_by", False, _is_nullable_non_empty_str),
+            FrontMatterField("confirmed_at", False, _is_nullable_non_empty_str),
+        ),
+    ),
 }
 
 
@@ -484,6 +552,17 @@ def _validate_operator_brief_context_budget(
         )
 
 
+def _validate_pr_request_source(parsed: dict[str, object]) -> None:
+    """Require a PR request to cite a commit request or local commit."""
+    related_commit_request = parsed.get("related_commit_request")
+    local_commit_sha = parsed.get("local_commit_sha")
+    if related_commit_request is None and local_commit_sha is None:
+        raise ArtifactError(
+            "pr_request artifact front matter requires at least one of "
+            "'related_commit_request' or 'local_commit_sha'"
+        )
+
+
 def ensure_required_front_matter(*, kind: str, path: Path, payload: bytes) -> bytes:
     """Auto-attach default front matter for schema-bearing kinds when safe."""
     schema = FRONT_MATTER_SCHEMAS.get(kind)
@@ -538,6 +617,8 @@ def parse_artifact_front_matter(
             parsed=parsed,
             body=_front_matter_body(text),
         )
+    if schema.artifact_kind == "pr_request":
+        _validate_pr_request_source(parsed)
     return parsed
 
 

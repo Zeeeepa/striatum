@@ -17,6 +17,8 @@ from striatum.corpus.types import (
     DEFAULT_CORPUS_SLUG,
     DEFAULT_REDACTION_TIER,
     DEFAULT_VERIFICATION_DEPTH,
+    INCREMENTAL_EXPORT_WATERMARK_SCOPE,
+    INCREMENTAL_EXPORT_WATERMARK_STRATEGY,
     ROW_SHAPE_VERSION,
     SCHEMA_VERSION,
     SOURCE_KIND,
@@ -58,13 +60,15 @@ def build_manifest(
     git_snapshot_hash: str | None = None,
 ) -> dict[str, object]:
     version = _validate_contract_version(corpus_contract_version)
+    git_head = git_helpers.head_commit(repo)
+    git_dirty = git_helpers.is_dirty(repo)
     manifest = {
         "schema_version": SCHEMA_VERSION,
         "corpus_contract_version": version,
         "striatum_version": striatum_version(),
         "repo_root": str(repo.resolve()),
-        "git_head": git_helpers.head_commit(repo),
-        "git_dirty": git_helpers.is_dirty(repo),
+        "git_head": git_head,
+        "git_dirty": git_dirty,
         "since_ref": since_ref,
         "since_commit": since_commit,
         "generated_at": generated_at or generated_at_now(),
@@ -80,13 +84,20 @@ def build_manifest(
         "daemon_audit_included": daemon_audit_included,
     }
     if version >= CORPUS_CONTRACT_VERSION_V2:
+        resolved_corpus_id = corpus_id or default_corpus_id(repo, slug=corpus_slug)
         manifest.update(
             {
-                "corpus_id": corpus_id or default_corpus_id(repo, slug=corpus_slug),
+                "corpus_id": resolved_corpus_id,
                 "legacy_corpus_alias": SOURCE_KIND,
                 "redaction_tier": _validate_redaction_tier(redaction_tier),
                 "augmentation_policy": _augmentation_policy_payload(augmentation_policy),
                 "verification_depth": _validate_verification_depth(verification_depth),
+                "incremental_export_watermark": _incremental_export_watermark_payload(
+                    corpus_id=resolved_corpus_id,
+                    since_commit=since_commit,
+                    git_head=git_head,
+                    git_dirty=git_dirty,
+                ),
                 "hybrid_archive_defaults": {
                     "snapshot": True,
                     "event_log": True,
@@ -192,6 +203,12 @@ def _validate_sha256(value: object, field: str) -> str:
     return value
 
 
+def _validate_non_empty_string(value: object, field: str) -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise StriatumError(f"invalid corpus manifest {field}", exit_code=6)
+    return value
+
+
 def _augmentation_policy_payload(value: Mapping[str, object] | None) -> dict[str, object]:
     payload = dict(DEFAULT_AUGMENTATION_POLICY)
     if value is not None:
@@ -208,12 +225,36 @@ def _augmentation_policy_payload(value: Mapping[str, object] | None) -> dict[str
     return payload
 
 
+def _incremental_export_watermark_payload(
+    *,
+    corpus_id: str,
+    since_commit: str,
+    git_head: str,
+    git_dirty: bool,
+) -> dict[str, object]:
+    _validate_non_empty_string(corpus_id, "incremental_export_watermark.corpus_id")
+    return {
+        "strategy": INCREMENTAL_EXPORT_WATERMARK_STRATEGY,
+        "scope": INCREMENTAL_EXPORT_WATERMARK_SCOPE,
+        "corpus_id": corpus_id,
+        "since_commit": _validate_non_empty_string(
+            since_commit, "incremental_export_watermark.since_commit"
+        ),
+        "high_watermark": _validate_non_empty_string(
+            git_head, "incremental_export_watermark.high_watermark"
+        ),
+        "dirty_tree": git_dirty,
+        "advanceable": not git_dirty,
+    }
+
+
 def _verify_v2_manifest_fields(manifest: Mapping[str, object]) -> None:
     corpus_id = manifest.get("corpus_id")
     if not isinstance(corpus_id, str) or re.fullmatch(r"[a-z0-9][a-z0-9-]*:[a-f0-9]{64}", corpus_id) is None:
         raise StriatumError("invalid corpus manifest corpus_id", exit_code=6)
     _validate_redaction_tier(manifest.get("redaction_tier"))
     _validate_verification_depth(manifest.get("verification_depth"))
+    _verify_incremental_export_watermark(manifest, corpus_id=corpus_id)
     policy = manifest.get("augmentation_policy")
     if not isinstance(policy, Mapping):
         raise StriatumError("invalid corpus manifest augmentation_policy", exit_code=6)
@@ -226,3 +267,33 @@ def _verify_v2_manifest_fields(manifest: Mapping[str, object]) -> None:
             raise StriatumError(f"invalid corpus manifest hybrid_archive_defaults.{key}", exit_code=6)
     if "git_snapshot_hash" in manifest:
         _validate_sha256(manifest.get("git_snapshot_hash"), "git_snapshot_hash")
+
+
+def _verify_incremental_export_watermark(manifest: Mapping[str, object], *, corpus_id: str) -> None:
+    watermark = manifest.get("incremental_export_watermark")
+    if not isinstance(watermark, Mapping):
+        raise StriatumError("invalid corpus manifest incremental_export_watermark", exit_code=6)
+    if watermark.get("strategy") != INCREMENTAL_EXPORT_WATERMARK_STRATEGY:
+        raise StriatumError("invalid corpus manifest incremental_export_watermark.strategy", exit_code=6)
+    if watermark.get("scope") != INCREMENTAL_EXPORT_WATERMARK_SCOPE:
+        raise StriatumError("invalid corpus manifest incremental_export_watermark.scope", exit_code=6)
+    if watermark.get("corpus_id") != corpus_id:
+        raise StriatumError("invalid corpus manifest incremental_export_watermark.corpus_id", exit_code=6)
+    since_commit = _validate_non_empty_string(
+        watermark.get("since_commit"), "incremental_export_watermark.since_commit"
+    )
+    high_watermark = _validate_non_empty_string(
+        watermark.get("high_watermark"), "incremental_export_watermark.high_watermark"
+    )
+    dirty_tree = watermark.get("dirty_tree")
+    advanceable = watermark.get("advanceable")
+    if not isinstance(dirty_tree, bool):
+        raise StriatumError("invalid corpus manifest incremental_export_watermark.dirty_tree", exit_code=6)
+    if not isinstance(advanceable, bool) or advanceable is dirty_tree:
+        raise StriatumError("invalid corpus manifest incremental_export_watermark.advanceable", exit_code=6)
+    if "since_commit" in manifest and manifest.get("since_commit") != since_commit:
+        raise StriatumError("invalid corpus manifest incremental_export_watermark.since_commit", exit_code=6)
+    if "git_head" in manifest and manifest.get("git_head") != high_watermark:
+        raise StriatumError("invalid corpus manifest incremental_export_watermark.high_watermark", exit_code=6)
+    if "git_dirty" in manifest and manifest.get("git_dirty") is not dirty_tree:
+        raise StriatumError("invalid corpus manifest incremental_export_watermark.dirty_tree", exit_code=6)

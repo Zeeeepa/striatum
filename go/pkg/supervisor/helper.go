@@ -79,10 +79,11 @@ func RunHelper(ctx context.Context, launchReader io.Reader, eventWriter io.Write
 	}
 
 	launchSpec := LaunchSpec{
-		Command:    spec.Command,
-		Env:        spec.Env,
-		WorkingDir: spec.WorkingDir,
-		UsePTY:     true,
+		Command:     spec.Command,
+		Env:         spec.Env,
+		WorkingDir:  spec.WorkingDir,
+		UsePTY:      true,
+		RequireTmux: spec.RequireTmux,
 	}
 	result, err := Launch(ctx, spec.ScratchDir, spec.SupervisorID, launchSpec)
 	if err != nil {

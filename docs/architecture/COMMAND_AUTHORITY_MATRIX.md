@@ -96,7 +96,7 @@ imports and fails on unlisted direct PostgreSQL client helpers.
 | `workflow.lint` | MCP/UI workflow lint | read | single_repo | not implemented in Python RPC | real | no | no live state | Go daemon lint projection with immutable workflow fingerprint and accepted-risk annotations |
 | `workflow.plan` | `workflow plan` | read | single_repo | local_file_authoring | real | no | no live state | Go file-authoring plan projection |
 | `workflow.graph` | `workflow graph` | read | single_repo | local_file_authoring | real | no | no live state | Go file-authoring JSON/Mermaid/DOT projection |
-| `workflow.accepted_risks.list` | MCP/UI accepted-risk list | read | single_repo | not implemented in Python RPC | real | no | no live state mutation | Go read projection over daemon-owned workflow accepted-risk records |
+| `workflow.accepted_risks.list` | `workflow accepted-risks` / MCP/UI accepted-risk list | read | single_repo | not implemented in Python RPC | real | no | no live state mutation | Go read projection over daemon-owned workflow accepted-risk records |
 | `workflow.templates.list` | `workflow templates list` | read | single_repo | local_file_authoring | real | no | no live state | Go embedded catalog read; CLI remains local authoring surface |
 | `workflow.templates.show` | `workflow templates show` | read | single_repo | local_file_authoring | real | no | no live state | Go embedded catalog read; CLI remains local authoring surface |
 | `workflow.generate.preview` | web/chat preview | read | single_repo | not implemented in Python RPC | real | no | no live state | Go read-only planned-write preview |
@@ -134,7 +134,7 @@ imports and fails on unlisted direct PostgreSQL client helpers.
 | `workflow.init` | `workflow init` | write | single_repo | local_file_authoring | real | no | no live state | Go scaffold writer; refuses unsafe paths/overwrites |
 | `workflow.generate` | `workflow generate` | write | single_repo | local_file_authoring | real | no | no live state | Go generator writer; refuses unsafe paths/overwrites |
 | `workflow.upgrade` | `workflow upgrade` | write | single_repo | local_file_authoring | real | no | PG running-run guard only; no Go SQLite import | Go upgrade supports harness-profile updates and `--add-phases` V1.1 rewrites |
-| `workflow.accept_risk` | MCP/UI accepted-risk mutation | admin | single_repo | not implemented in Python RPC | real | no | no | Go append-only accepted-risk mutation; requires decision artifact reference, rationale, and lint finding fingerprint |
+| `workflow.accept_risk` | `workflow accept-risk` / MCP/UI accepted-risk mutation | admin | single_repo | not implemented in Python RPC | real | no | no | Go append-only accepted-risk mutation; requires decision artifact reference, rationale, and lint finding fingerprint |
 | `review.submit` | `submit-review` | review | single_repo | pg | real | no | no | stable |
 | `review.verdict` | `verdict` | review | single_repo | pg | real | no | no | stable |
 | `review.override` | `override-verdict` | admin | single_repo | pg | real | no | no | stable |

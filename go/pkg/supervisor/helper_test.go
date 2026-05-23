@@ -148,6 +148,53 @@ func TestRunHelperEmitsLifecyclePacketAndProgressEvents(t *testing.T) {
 	}
 }
 
+func TestRunHelperRequireTmuxUnavailableEmitsLaunchError(t *testing.T) {
+	truePath, err := os.Executable()
+	if err != nil {
+		t.Fatalf("os.Executable: %v", err)
+	}
+	t.Setenv("PATH", t.TempDir())
+
+	launch := HelperLaunchSpec{
+		SchemaVersion: HelperLaunchSchemaVersion,
+		SupervisorID:  "sup_helper_tmux_required",
+		ScratchDir:    t.TempDir(),
+		Command:       []string{truePath, "-test.run=^$"},
+		Env: []string{
+			"STRIATUM_RUN_ID=run_helper_tmux_required",
+			"STRIATUM_LANE_ID=lane_helper_tmux_required",
+		},
+		RequireTmux: true,
+	}
+	launchBytes, err := json.Marshal(launch)
+	if err != nil {
+		t.Fatalf("marshal launch: %v", err)
+	}
+	input := bytes.NewReader(append(launchBytes, '\n'))
+
+	var events bytes.Buffer
+	err = RunHelper(context.Background(), input, &events, HelperOptions{})
+	if err == nil {
+		t.Fatal("expected RunHelper to fail when required tmux is unavailable")
+	}
+	decoded, decodeErr := helperEventsFromJSONL(events.Bytes())
+	if decodeErr != nil {
+		t.Fatalf("decode events: %v\nraw=%s", decodeErr, events.String())
+	}
+	if len(decoded) != 1 {
+		t.Fatalf("events: got %d want 1: %#v", len(decoded), decoded)
+	}
+	if decoded[0].EventType != HelperEventError {
+		t.Fatalf("event type: got %q want %q", decoded[0].EventType, HelperEventError)
+	}
+	if decoded[0].Payload["phase"] != "launch" {
+		t.Fatalf("helper_error phase: %#v", decoded[0].Payload)
+	}
+	if errorText, _ := decoded[0].Payload["error"].(string); !strings.Contains(errorText, "tmux required") {
+		t.Fatalf("helper_error text = %q, want tmux-required refusal", errorText)
+	}
+}
+
 func helperEventsFromJSONL(data []byte) ([]HelperControlEvent, error) {
 	lines := bytes.Split(bytes.TrimSpace(data), []byte("\n"))
 	events := make([]HelperControlEvent, 0, len(lines))

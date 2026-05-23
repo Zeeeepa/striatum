@@ -37,6 +37,7 @@ type supervisionStartConfig struct {
 	Command            []string
 	Transport          string
 	StdinDelivery      string
+	RequireTmux        bool
 }
 
 type supervisorControlRow struct {
@@ -134,6 +135,7 @@ func HandleSuperviseStart(ctx context.Context, runner db.Runner, envelope rpc.En
 			"adapter":              "process",
 			"transport":            config.Transport,
 			"stdin_delivery":       config.StdinDelivery,
+			"require_tmux":         config.RequireTmux,
 			"stdin_pipe_path":      pipePath,
 		}
 		if config.Transport == supervisionTransportPTYHelper {
@@ -189,6 +191,7 @@ func HandleSuperviseStart(ctx context.Context, runner db.Runner, envelope rpc.En
 			"pid":                  launch.PID,
 			"transport":            config.Transport,
 			"stdin_delivery":       config.StdinDelivery,
+			"require_tmux":         config.RequireTmux,
 			"stdin_pipe_path":      pipePath,
 		}
 		if config.Transport == supervisionTransportPTYHelper {
@@ -215,6 +218,7 @@ func HandleSuperviseStart(ctx context.Context, runner db.Runner, envelope rpc.En
 		"state":                "attached",
 		"transport":            config.Transport,
 		"stdin_delivery":       config.StdinDelivery,
+		"require_tmux":         config.RequireTmux,
 		"helper_process":       helperProcessPayload(config.Transport, launch.HelperPID, launch.HelperPIDStartTime, eventPath),
 		"lane_attestation":     laneAttestation(launch.PIDStartTime),
 		"lane_id":              config.LaneID,
@@ -427,12 +431,17 @@ func loadSupervisionStartConfig(ctx context.Context, runner db.Runner, repositor
 	if err != nil {
 		return config, err
 	}
+	requireTmux, err := supervisionRequireTmux(lane, transport)
+	if err != nil {
+		return config, err
+	}
 	if err := ensureNoActiveSupervisor(ctx, runner, repositoryID, sessionID); err != nil {
 		return config, err
 	}
 	config.Command = command
 	config.Transport = transport
 	config.StdinDelivery = delivery
+	config.RequireTmux = requireTmux
 	return config, nil
 }
 
@@ -446,6 +455,7 @@ func insertStartingSupervisorRows(ctx context.Context, runner db.TxRunner, repos
 		"daemon_instance_id": currentDaemonInstanceID(),
 		"transport":          config.Transport,
 		"stdin_delivery":     config.StdinDelivery,
+		"require_tmux":       config.RequireTmux,
 	}
 	if config.Transport == supervisionTransportPTYHelper {
 		metadata["helper_events_path"] = eventPath
@@ -851,6 +861,7 @@ func launchPTYHelper(ctx context.Context, config supervisionStartConfig, supervi
 		Env:             supervisedEnvEntries(config.RepoRoot, config.RunID, config.SessionID, supervisorID, config.LaneID),
 		WorkingDir:      config.RepoRoot,
 		PacketInputPath: pipePath,
+		RequireTmux:     config.RequireTmux,
 	}
 	specBody, err := json.Marshal(launchSpec)
 	if err != nil {
@@ -1290,6 +1301,28 @@ func supervisionStdinDelivery(lane map[string]any, transport string) (string, er
 		return "", rpc.NewError("invalid_transition", "lane supervision.stdin_delivery='one_shot_eof' requires supervision.transport='pipe'", nil)
 	}
 	return mode, nil
+}
+
+func supervisionRequireTmux(lane map[string]any, transport string) (bool, error) {
+	supervision, err := laneSupervision(lane)
+	if err != nil {
+		return false, err
+	}
+	if supervision == nil {
+		return false, nil
+	}
+	raw, ok := supervision["require_tmux"]
+	if !ok {
+		return false, nil
+	}
+	requireTmux, ok := raw.(bool)
+	if !ok {
+		return false, rpc.NewError("invalid_transition", "lane supervision.require_tmux must be a boolean", nil)
+	}
+	if requireTmux && transport != supervisionTransportPTYHelper {
+		return false, rpc.NewError("invalid_transition", "lane supervision.require_tmux=true requires supervision.transport='pty_helper'", nil)
+	}
+	return requireTmux, nil
 }
 
 func laneSupervision(lane map[string]any) (map[string]any, error) {

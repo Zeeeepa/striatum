@@ -522,6 +522,41 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     lint.add_argument("--json", action="store_true")
+    accepted_risks = workflow_sub.add_parser(
+        "accepted-risks",
+        help="list daemon-owned accepted workflow lint risks",
+    )
+    accepted_risks.add_argument("--workflow-snapshot-id")
+    accepted_risks.add_argument("--workflow-fingerprint-sha256")
+    accepted_risks.add_argument("--json", action="store_true")
+    accept_risk = workflow_sub.add_parser(
+        "accept-risk",
+        help="record a daemon-owned accepted workflow lint risk",
+    )
+    accept_risk.add_argument(
+        "path",
+        nargs="?",
+        help="workflow file to lint before accepting the requested finding fingerprints",
+    )
+    accept_risk.add_argument("--workflow-snapshot-id")
+    accept_risk.add_argument("--run-id")
+    accept_risk.add_argument(
+        "--finding-fingerprint-sha256",
+        dest="finding_fingerprints",
+        action="append",
+        required=True,
+        help="lint finding fingerprint to accept; repeat to accept multiple findings",
+    )
+    accept_risk.add_argument(
+        "--decision-artifact-ref",
+        "--accepted-risk-decision-id",
+        dest="decision_artifact_ref",
+        required=True,
+        help="decision artifact reference documenting why this risk is accepted",
+    )
+    accept_risk.add_argument("--rationale", required=True)
+    accept_risk.add_argument("--accepted-by")
+    accept_risk.add_argument("--json", action="store_true")
     plan = workflow_sub.add_parser("plan")
     plan.add_argument("path")
     plan.add_argument("--json", action="store_true")

@@ -89,6 +89,50 @@ func TestSuperviseStartInsertsAndAttachesProcessSupervisor(t *testing.T) {
 	}
 }
 
+func TestSuperviseStartPropagatesRequireTmuxFromLaneSupervision(t *testing.T) {
+	origMkfifo := supervisionMkfifo
+	origLaunch := supervisionLaunch
+	defer func() {
+		supervisionMkfifo = origMkfifo
+		supervisionLaunch = origLaunch
+	}()
+	supervisionMkfifo = func(path string) error {
+		return os.WriteFile(path, nil, 0o600)
+	}
+	var launchedConfig supervisionStartConfig
+	supervisionLaunch = func(_ context.Context, config supervisionStartConfig, _ string, _ string, _ string, _ string) (supervisionLaunchResult, error) {
+		launchedConfig = config
+		return supervisionLaunchResult{PID: os.Getpid(), PIDStartTime: "start-token"}, nil
+	}
+
+	runner := &superviseControlFakeRunner{
+		repoRoot: t.TempDir(),
+		workflowSupervision: map[string]any{
+			"transport":    supervisionTransportPTYHelper,
+			"require_tmux": true,
+		},
+		txs: []*superviseControlFakeTx{{}, {}},
+	}
+	result, err := HandleSuperviseStart(context.Background(), runner, rpc.Envelope{
+		SchemaVersion: rpc.SupportedEnvelopeVersion,
+		RequestID:     "req_start_require_tmux",
+		Method:        "supervise.start",
+		Params: map[string]any{
+			"repository_id": "repo_1",
+			"session_id":    "sess_1",
+		},
+	})
+	if err != nil {
+		t.Fatalf("HandleSuperviseStart: %v", err)
+	}
+	if !launchedConfig.RequireTmux || launchedConfig.Transport != supervisionTransportPTYHelper {
+		t.Fatalf("launched config = %#v", launchedConfig)
+	}
+	if result["require_tmux"] != true {
+		t.Fatalf("result require_tmux = %#v", result["require_tmux"])
+	}
+}
+
 func TestSuperviseSendDeliversPacketUnacknowledged(t *testing.T) {
 	dir := t.TempDir()
 	pipePath := dir + "/stdin.pipe"
@@ -213,10 +257,11 @@ func TestLinuxProcStatZombieDetectsDefunctProcessState(t *testing.T) {
 }
 
 type superviseControlFakeRunner struct {
-	mu       sync.Mutex
-	repoRoot string
-	pipePath string
-	txs      []*superviseControlFakeTx
+	mu                  sync.Mutex
+	repoRoot            string
+	pipePath            string
+	workflowSupervision map[string]any
+	txs                 []*superviseControlFakeTx
 }
 
 func (r *superviseControlFakeRunner) Exec(context.Context, string, ...any) error {
@@ -252,12 +297,16 @@ func (r *superviseControlFakeRunner) fakeRow(sql string, args ...any) db.Row {
 	case strings.Contains(sql, "SELECT state FROM striatumd.sessions"):
 		return superviseControlFakeRow{values: []any{"active"}}
 	case strings.Contains(sql, "SELECT workflow_json"):
+		lane := map[string]any{
+			"adapter": "process",
+			"command": []any{"/bin/cat"},
+		}
+		if r.workflowSupervision != nil {
+			lane["supervision"] = r.workflowSupervision
+		}
 		return superviseControlFakeRow{values: []any{map[string]any{
 			"lanes": map[string]any{
-				"lane_1": map[string]any{
-					"adapter": "process",
-					"command": []any{"/bin/cat"},
-				},
+				"lane_1": lane,
 			},
 		}}}
 	case strings.Contains(sql, "SELECT supervisor_id, state") && strings.Contains(sql, "state = ANY"):

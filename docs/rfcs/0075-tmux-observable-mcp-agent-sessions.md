@@ -28,8 +28,9 @@ model timeout, or holding a lease without calling `work.heartbeat`.
 Today Striatum has several related mechanisms, but they are not one
 post-transition product contract:
 
-- PTY and tmux supervision exist as infrastructure, but tmux is not yet
-  a mandatory operator-introspection surface for live interactive agents.
+- PTY and tmux supervision exist as infrastructure, and PTY-helper lanes can
+  now opt into fail-closed tmux with `supervision.require_tmux: true`; broader
+  live-interactive UI polish remains a post-transition product contract.
 - Work leases have heartbeats, but a live process without MCP activity is
   a different failure mode from a stale lease.
 - The project intentionally does not treat tmux panes, terminal output,

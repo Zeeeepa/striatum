@@ -106,19 +106,19 @@ so external references keep resolving even as items move between sections.
 | 52 | RFC 0061 Architecture remediation Phase 4 — daemon-first web service | 🟡 core web/API + artifact reads daemon-routed |
 | 53 | RFC 0062 Architecture remediation Phase 5 — real escalation inbox | 🟡 projection + escalation artifact schema/linkage landed |
 | 54 | RFC 0063 Architecture remediation Phase 6 — hardened PTY supervision | ✅ done |
-| 55 | RFC 0064 Architecture remediation Phase 7 — workflow risk lint and review diversity enforcement | 🟡 daemon accepted-risk records landed; CLI/UI polish pending |
+| 55 | RFC 0064 Architecture remediation Phase 7 — workflow risk lint and review diversity enforcement | 🟡 daemon accepted-risk records + CLI accept/list landed; UI polish pending |
 | 56 | Architecture remediation Phase 8 — auto-finalize from front matter | 🟡 cause/lane/circuit-breaker guardrails landed; default-on dogfood gate pending |
 | 57 | RFC 0065 Architecture remediation Phase 9 — UI packaging and bundle cleanup | ✅ done; chunking monitor only |
 | 58 | RFC 0059 Architecture remediation Phase 10 — day-zero setup improvements | ✅ done |
-| 59 | RFC 0059 RFC 0066 Architecture remediation Phase 11 — replay, archive, and corpus v2 foundations | 🟡 V2 corpus/archive defaults landed; watermarking pending |
-| 60 | RFC 0059 RFC 0067 Architecture remediation Phase 12 — optional Git/PR integration | 🟡 read-only `git.snapshot` landed; request artifacts/local commit confirmation pending |
+| 59 | RFC 0059 RFC 0066 Architecture remediation Phase 11 — replay, archive, and corpus v2 foundations | 🟡 V2 corpus/archive defaults + manifest watermark landed; augmentation pending |
+| 60 | RFC 0059 RFC 0067 Architecture remediation Phase 12 — optional Git/PR integration | 🟡 read-only `git.snapshot` + request artifact schemas landed; local commit confirmation pending |
 | 61 | RFC 0068 Go production daemon port and Python daemon retirement | 🟡 Go default; Python daemon module deleted; broad direct repo-local fixture opens converted |
 | 62 | RFC 0069 PostgreSQL-only daemon-global surfaces | 🟡 guardrail residuals only |
 | 63 | RFC 0070 daemon client/service boundary completion | 🟡 production boundary mostly done |
 | 64 | RFC 0071 operator diagnostics and cutover evidence | ✅ accepted diagnostic slice done |
 | 65 | RFC 0058 operator progress surface | ✅ done |
 | 66 | Decision/RFC supersession hygiene and duplicate decision-id cleanup | ✅ done |
-| 67 | RFC 0050/RFC 0075 MCP cutover and tmux-observable sessions | 🟡 MCP HTTP/cutover first slices, RFC 0077 liveness, and tmux attach metadata landed; fail-closed tmux requirements and CLI retirement remain |
+| 67 | RFC 0050/RFC 0075 MCP cutover and tmux-observable sessions | 🟡 MCP HTTP/cutover slices, RFC 0077 liveness, tmux attach metadata, and fail-closed tmux opt-in landed; CLI retirement/UI polish remain |
 
 Legend: ✅ done · 🟡 most done (sub-tasks remain) · ⏳ open/blocked · 💤 shelved
 
@@ -1172,12 +1172,14 @@ review and plan are root-level operator artifacts:
     accepted-risk surface: durable accepted-risk override state may be written
     only through daemon-backed CLI/UI/MCP clients, must cite a decision
     artifact, and must bind to an immutable workflow snapshot or fingerprint.
-    First implementation slice has landed: Go daemon `workflow.lint`,
+    First implementation slices have landed: Go daemon `workflow.lint`,
     `workflow.accept_risk`, and `workflow.accepted_risks.list` provide
     fingerprint/snapshot-bound accepted-risk records in PostgreSQL, and MCP
     capability gates expose the read/admin surfaces without writing workflow
-    metadata. Remaining polish is CLI/UI client wiring over the same daemon
-    methods; workflow-file metadata is not live authority.
+    metadata. CLI client routing now includes `workflow accepted-risks` and
+    `workflow accept-risk` over the same daemon methods. Remaining polish is
+    UI client wiring and richer presentation; workflow-file metadata is not
+    live authority.
 
 56. **Phase 8: auto-finalize from front matter.** Bounded daemon slice
     landed: `recovery.auto_finalize` dry-run/live PG handler, CLI route,
@@ -1261,12 +1263,13 @@ review and plan are root-level operator artifacts:
     slice has landed: new exports emit explicit
     `corpus_contract_version=2`, composite `corpus_id`, `redaction_tier`,
     `augmentation_policy`, `verification_depth=deep_chain`,
-    hybrid-archive default metadata, and optional `git_snapshot_hash`, while
+    hybrid-archive default metadata, a corpus-scoped
+    `incremental_export_watermark`, and optional `git_snapshot_hash`, while
     verification still accepts implied-V1 bundles. The archive follow-up now
     emits `archive_contract_version=2`, enforces `verification_depth=deep_chain`
     plus hybrid archive defaults when advertised, and preserves legacy-v1
-    archive verification compatibility. Follow-up work is incremental
-    watermarking and any augmentation-reference fetch surface.
+    archive verification compatibility. Follow-up work is any
+    augmentation-reference fetch surface.
 
 60. **Phase 12: optional Git/PR integration.** D127 decides the boundary:
     Striatum core does not autonomously commit, push, call hosted providers, or
@@ -1275,10 +1278,11 @@ review and plan are root-level operator artifacts:
     dirty counts, changed paths, and bounded ancestry are observed through a
     closed read-only local-git allowlist. It excludes remote URLs, diff hunks,
     commit bodies, hosted PR metadata, and provider actions. Durable
-    commit-request and PR-request artifacts may be added; local git
-    commit-apply may create a local commit only after explicit operator
-    confirmation. Hosted provider actions remain out of core and require a
-    future optional-plugin decision with human-principal confirmation.
+    `commit_request` and `pr_request` artifact schemas have landed as
+    provenance-only request records. Local git commit-apply may create a local
+    commit only after explicit operator confirmation. Hosted provider actions
+    remain out of core and require a future optional-plugin decision with
+    human-principal confirmation.
 
 61. **RFC 0068: Go production daemon port.** Active. D107 supersedes D105:
     Go is the production/default daemon and active contract-method parity is
@@ -1499,9 +1503,10 @@ review and plan are root-level operator artifacts:
     deletion, and RFC 0077 daemon-owned MCP activity liveness. Remaining live
     workflow-control CLI verbs must still be classified before removal, MCP/UI
     parity must be tested before hiding replacements. RFC 0075 tmux attach
-    metadata now projects through daemon reads, but fail-closed tmux
-    requirements must still avoid turning pane output or transcripts into
-    workflow state.
+    metadata now projects through daemon reads, and PTY-helper lanes can set
+    `supervision.require_tmux: true` to fail closed instead of falling back to
+    a plain PTY. Broader UI polish and CLI retirement remain pending; pane
+    output and transcripts still must not become workflow state.
 
 ## GH issue follow-ups
 

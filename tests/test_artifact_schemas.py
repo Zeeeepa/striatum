@@ -11,7 +11,11 @@ from pathlib import Path
 
 import pytest
 
-from striatum.artifacts import parse_artifact_front_matter
+from striatum.artifacts import (
+    ALLOWED_ARTIFACT_KINDS,
+    FRONT_MATTER_SCHEMAS,
+    parse_artifact_front_matter,
+)
 from striatum.errors import WorkflowError
 from striatum.workflow import validate_workflow
 
@@ -253,6 +257,45 @@ def _parse_text(kind: str, tmp_path: Path, text: str) -> dict[str, object] | Non
             "---\n",
             "target",
         ),
+        (
+            "commit_request",
+            "---\n"
+            'schema_version: "striatum.commit_request.v1"\n'
+            'artifact_kind: "commit_request"\n'
+            'request_id: "commit_req_0001"\n'
+            'run_id: "run_1"\n'
+            'base_head: "0123456789abcdef0123456789abcdef01234567"\n'
+            'branch: "striatum/todo60"\n'
+            'git_snapshot_hash: "sha256:0123456789abcdef"\n'
+            'included_paths: ["src/striatum/artifact_contracts.py", "tests/test_artifact_schemas.py"]\n'
+            'reviewed_artifacts: ["docs/operator/artifacts/review.md"]\n'
+            'commit_message: "Add Git request artifact schemas"\n'
+            'rationale: "Record a durable request without applying a commit."\n'
+            'confirmation_status: "pending"\n'
+            "confirmed_by: null\n"
+            "confirmed_at: null\n"
+            "---\n",
+            "commit_message",
+        ),
+        (
+            "pr_request",
+            "---\n"
+            'schema_version: "striatum.pr_request.v1"\n'
+            'artifact_kind: "pr_request"\n'
+            'request_id: "pr_req_0001"\n'
+            'run_id: "run_1"\n'
+            'target_branch: "main"\n'
+            'summary: "Add Git request artifact schemas"\n'
+            'body_draft: "Draft PR body for operator review."\n'
+            'related_commit_request: "docs/operator/artifacts/commit-request.md"\n'
+            "local_commit_sha: null\n"
+            "provider_target: null\n"
+            'confirmation_status: "pending"\n'
+            "confirmed_by: null\n"
+            "confirmed_at: null\n"
+            "---\n",
+            "target_branch",
+        ),
     ],
 )
 def test_current_artifact_front_matter_schemas_parse_without_sqlite(
@@ -310,6 +353,52 @@ def test_current_artifact_front_matter_schemas_parse_without_sqlite(
             'created_at: "2026-05-17T00:00:00Z"\n'
             "---\n",
             "blocker_kind",
+        ),
+        (
+            "commit_request",
+            "---\n"
+            'schema_version: "striatum.commit_request.v1"\n'
+            'artifact_kind: "commit_request"\n'
+            'request_id: "commit_req_0002"\n'
+            'base_head: "0123456789abcdef0123456789abcdef01234567"\n'
+            'branch: "striatum/todo60"\n'
+            'git_snapshot_hash: "sha256:0123456789abcdef"\n'
+            "included_paths: []\n"
+            'commit_message: "Add Git request artifact schemas"\n'
+            'rationale: "Record a durable request without applying a commit."\n'
+            'confirmation_status: "pending"\n'
+            "---\n",
+            "included_paths",
+        ),
+        (
+            "commit_request",
+            "---\n"
+            'schema_version: "striatum.commit_request.v1"\n'
+            'artifact_kind: "commit_request"\n'
+            'request_id: "commit_req_0003"\n'
+            'base_head: "0123456789abcdef0123456789abcdef01234567"\n'
+            'branch: "striatum/todo60"\n'
+            'git_snapshot_hash: "sha256:0123456789abcdef"\n'
+            'included_paths: ["src/striatum/artifact_contracts.py"]\n'
+            'commit_message: "Add Git request artifact schemas"\n'
+            'rationale: "Record a durable request without applying a commit."\n'
+            'confirmation_status: "auto_applied"\n'
+            "---\n",
+            "confirmation_status",
+        ),
+        (
+            "pr_request",
+            "---\n"
+            'schema_version: "striatum.pr_request.v1"\n'
+            'artifact_kind: "pr_request"\n'
+            'request_id: "pr_req_0002"\n'
+            'target_branch: "main"\n'
+            'summary: "Add Git request artifact schemas"\n'
+            'body_draft: "Draft PR body for operator review."\n'
+            "provider_target: null\n"
+            'confirmation_status: "pending"\n'
+            "---\n",
+            "related_commit_request",
         ),
     ],
 )
@@ -955,6 +1044,15 @@ def test_workflow_validation_accepts_three_new_kinds(tmp_path: Path) -> None:
         "cycles": [],
     }
     validate_workflow(workflow)
+
+
+def test_git_request_artifact_kinds_are_registered_for_workflows() -> None:
+    """TODO60 request artifacts are schema-bearing, durable provenance kinds."""
+    for kind in ("commit_request", "pr_request"):
+        assert kind in ALLOWED_ARTIFACT_KINDS
+        assert kind in FRONT_MATTER_SCHEMAS
+        workflow = _minimal_workflow_for_kind(kind, path=f"docs/kind-test/{kind}.md")
+        validate_workflow(workflow)
 
 
 def test_workflow_validation_accepts_escalation_kind(tmp_path: Path) -> None:

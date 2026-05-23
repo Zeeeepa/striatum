@@ -23,6 +23,7 @@ type LaunchSpec struct {
 	StdoutPath    string            // DEVNULL by default; per D028, no transcript capture
 	StderrPath    string            // DEVNULL by default
 	UsePTY        bool              // true → allocate a PTY (creack/pty); false → plain pipes
+	RequireTmux   bool              // true → fail closed instead of falling back to a plain PTY
 	Extra         map[string]string // future-use metadata
 }
 
@@ -116,47 +117,54 @@ func ensureFIFO(scratchDir string, supervisorID string, fifoPath string) error {
 func launchPTY(ctx context.Context, supervisorID string, spec LaunchSpec) (*LaunchResult, error) {
 	runID := getEnvValue(spec.Env, "STRIATUM_RUN_ID")
 	laneID := getEnvValue(spec.Env, "STRIATUM_LANE_ID")
-	if runID != "" && laneID != "" {
-		if _, err := exec.LookPath("tmux"); err == nil {
-			sessionName := tmuxSessionName(runID, laneID, supervisorID)
-
-			// Kill existing session with the same name if any (to avoid collisions / stale sessions)
-			_ = exec.Command("tmux", "kill-session", "-t", sessionName).Run()
-
-			// 1. Create the detached tmux session
-			newSessionArgs := []string{"new-session", "-d", "-s", sessionName, "-c", spec.WorkingDir}
-			newSessionArgs = append(newSessionArgs, spec.Command...)
-			createCmd := exec.Command("tmux", newSessionArgs...)
-			createCmd.Env = append(os.Environ(), spec.Env...)
-			if err := createCmd.Run(); err != nil {
-				return nil, fmt.Errorf("supervisor: failed to create tmux session: %w", err)
-			}
-
-			// 2. Disable status bar to avoid polluting stdout
-			_ = exec.Command("tmux", "set-option", "-t", sessionName, "status", "off").Run()
-
-			// 3. Attach to the session in the PTY
-			attachCmd := exec.CommandContext(ctx, "tmux", "attach-session", "-t", sessionName)
-			attachCmd.Dir = spec.WorkingDir
-			attachCmd.Env = append(os.Environ(), spec.Env...)
-
-			ptmx, err := pty.Start(attachCmd)
-			if err != nil {
-				return nil, fmt.Errorf("supervisor: pty.Start (tmux attach): %w", err)
-			}
-
-			return &LaunchResult{
-				PID:         attachCmd.Process.Pid,
-				StdinWriter: ptmx,
-				Cmd:         attachCmd,
-				Metadata: map[string]any{
-					"tmux": tmuxAttachMetadata(sessionName),
-				},
-			}, nil
+	if runID == "" || laneID == "" {
+		if spec.RequireTmux {
+			return nil, tmuxRequiredError("missing_run_or_lane")
+		}
+		return launchPlainPTY(ctx, spec, tmuxUnavailableMetadata("missing_run_or_lane"))
+	}
+	if _, err := exec.LookPath("tmux"); err != nil {
+		if spec.RequireTmux {
+			return nil, tmuxRequiredError("tmux_not_found")
 		}
 		return launchPlainPTY(ctx, spec, tmuxUnavailableMetadata("tmux_not_found"))
 	}
-	return launchPlainPTY(ctx, spec, tmuxUnavailableMetadata("missing_run_or_lane"))
+
+	sessionName := tmuxSessionName(runID, laneID, supervisorID)
+
+	// Kill existing session with the same name if any (to avoid collisions / stale sessions)
+	_ = exec.Command("tmux", "kill-session", "-t", sessionName).Run()
+
+	// 1. Create the detached tmux session
+	newSessionArgs := []string{"new-session", "-d", "-s", sessionName, "-c", spec.WorkingDir}
+	newSessionArgs = append(newSessionArgs, spec.Command...)
+	createCmd := exec.Command("tmux", newSessionArgs...)
+	createCmd.Env = append(os.Environ(), spec.Env...)
+	if err := createCmd.Run(); err != nil {
+		return nil, fmt.Errorf("supervisor: failed to create tmux session: %w", err)
+	}
+
+	// 2. Disable status bar to avoid polluting stdout
+	_ = exec.Command("tmux", "set-option", "-t", sessionName, "status", "off").Run()
+
+	// 3. Attach to the session in the PTY
+	attachCmd := exec.CommandContext(ctx, "tmux", "attach-session", "-t", sessionName)
+	attachCmd.Dir = spec.WorkingDir
+	attachCmd.Env = append(os.Environ(), spec.Env...)
+
+	ptmx, err := pty.Start(attachCmd)
+	if err != nil {
+		return nil, fmt.Errorf("supervisor: pty.Start (tmux attach): %w", err)
+	}
+
+	return &LaunchResult{
+		PID:         attachCmd.Process.Pid,
+		StdinWriter: ptmx,
+		Cmd:         attachCmd,
+		Metadata: map[string]any{
+			"tmux": tmuxAttachMetadata(sessionName),
+		},
+	}, nil
 }
 
 func launchPlainPTY(ctx context.Context, spec LaunchSpec, metadata map[string]any) (*LaunchResult, error) {
@@ -231,6 +239,17 @@ func tmuxUnavailableMetadata(reason string) map[string]any {
 		"tmux": map[string]any{
 			"unavailable_reason": reason,
 		},
+	}
+}
+
+func tmuxRequiredError(reason string) error {
+	switch reason {
+	case "missing_run_or_lane":
+		return fmt.Errorf("supervisor: tmux required but STRIATUM_RUN_ID or STRIATUM_LANE_ID is missing")
+	case "tmux_not_found":
+		return fmt.Errorf("supervisor: tmux required but tmux was not found in PATH; install tmux or unset supervision.require_tmux for non-interactive lanes")
+	default:
+		return fmt.Errorf("supervisor: tmux required but unavailable: %s", reason)
 	}
 }
 

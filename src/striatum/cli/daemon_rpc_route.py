@@ -412,6 +412,32 @@ def _params_git_snapshot(args: argparse.Namespace, repo: Path) -> dict[str, Any]
     }
 
 
+def _params_workflow_accepted_risks_list(args: argparse.Namespace, repo: Path) -> dict[str, Any]:
+    return _selected_params(
+        args,
+        (
+            "workflow_snapshot_id",
+            "workflow_fingerprint_sha256",
+        ),
+    )
+
+
+def _params_workflow_accept_risk(args: argparse.Namespace, repo: Path) -> dict[str, Any]:
+    params: dict[str, Any] = {
+        "finding_fingerprints": list(getattr(args, "finding_fingerprints", None) or []),
+        "decision_artifact_ref": getattr(args, "decision_artifact_ref", None),
+        "rationale": getattr(args, "rationale", None),
+    }
+    path = getattr(args, "path", None)
+    if path:
+        params["workflow_path"] = str(path)
+    for name in ("workflow_snapshot_id", "run_id", "accepted_by"):
+        value = getattr(args, name, None)
+        if value:
+            params[name] = value
+    return params
+
+
 def _params_list(args: argparse.Namespace, repo: Path) -> dict[str, Any]:
     return _selected_params(
         args,
@@ -777,6 +803,8 @@ _PARAM_BUILDERS: dict[str, ParamBuilder] = {
     "repo_list": _params_repo_list,
     "repo_remove": _params_repo_remove,
     "git_snapshot": _params_git_snapshot,
+    "workflow_accepted_risks_list": _params_workflow_accepted_risks_list,
+    "workflow_accept_risk": _params_workflow_accept_risk,
     "list": _params_list,
     "run_prepare": _params_run_prepare,
     "run_start": _params_run_start,

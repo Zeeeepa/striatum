@@ -58,8 +58,20 @@ def _v2_bundle(root: Path) -> Path:
             "corpus_contract_version": 2,
             "corpus_id": "striatum:" + ("a" * 64),
             "legacy_corpus_alias": "striatum",
+            "since_commit": "b" * 40,
+            "git_head": "c" * 40,
+            "git_dirty": False,
             "redaction_tier": "public",
             "verification_depth": "deep_chain",
+            "incremental_export_watermark": {
+                "strategy": "git_commit_range",
+                "scope": "corpus_id",
+                "corpus_id": "striatum:" + ("a" * 64),
+                "since_commit": "b" * 40,
+                "high_watermark": "c" * 40,
+                "dirty_tree": False,
+                "advanceable": True,
+            },
             "augmentation_policy": {
                 "mode": "reference_only",
                 "workflow_opt_in": True,
@@ -96,6 +108,15 @@ def test_verify_corpus_bundle_accepts_v2_manifest_identity(tmp_path: Path) -> No
     assert result["corpus_id"] == "striatum:" + ("a" * 64)
     assert result["redaction_tier"] == "public"
     assert result["verification_depth"] == "deep_chain"
+    assert result["incremental_export_watermark"] == {
+        "strategy": "git_commit_range",
+        "scope": "corpus_id",
+        "corpus_id": "striatum:" + ("a" * 64),
+        "since_commit": "b" * 40,
+        "high_watermark": "c" * 40,
+        "dirty_tree": False,
+        "advanceable": True,
+    }
     assert result["augmentation_policy"] == {
         "mode": "reference_only",
         "workflow_opt_in": True,
@@ -131,6 +152,18 @@ def test_verify_corpus_bundle_rejects_manifest_row_count_mismatch(tmp_path: Path
     write_manifest(bundle, manifest)
 
     with pytest.raises(StriatumError, match="row count mismatch"):
+        verify_corpus_bundle(bundle)
+
+
+def test_verify_corpus_bundle_rejects_invalid_v2_watermark(tmp_path: Path) -> None:
+    bundle = _v2_bundle(tmp_path)
+    manifest_path = bundle / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    watermark = cast(dict[str, object], manifest["incremental_export_watermark"])
+    watermark["high_watermark"] = "d" * 40
+    write_manifest(bundle, manifest)
+
+    with pytest.raises(StriatumError, match="incremental_export_watermark.high_watermark"):
         verify_corpus_bundle(bundle)
 
 

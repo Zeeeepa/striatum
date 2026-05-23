@@ -1,0 +1,963 @@
+{
+  "schema_version": "striatum.workflow.v1",
+  "workflow_id": "remaining-runway-1-8",
+  "workflow_version": "2026-05-23",
+  "name": "Remaining runway 1-8 scaffolds",
+  "context_docs": [
+    "README.md",
+    "docs/INDEX.md",
+    "docs/SPEC.md",
+    "docs/DECISION_LOG.md",
+    "docs/UBIQUITOUS_LANGUAGE.md",
+    "docs/TODO.md",
+    "docs/ROADMAP.md",
+    "docs/operator/BRIEF.md",
+    "docs/operator/plans/remaining-runway-1-8.md",
+    "docs/operator/artifacts/active-runway-1-5/FINAL.md",
+    "docs/operator/plans/rfc-0050-cli-retirement-cutover.md",
+    "docs/operator/plans/rfc-0074-workflow-shape-catalog-phase-a.md",
+    "docs/operator/plans/rfc-0075-tmux-observable-mcp-agent-sessions.md",
+    "docs/operator/plans/todo-59-corpus-v2-archive.md",
+    "docs/rfcs/0050-go-daemon-http-sse-mcp.md",
+    "docs/rfcs/0057-corpus-contract-v2.md",
+    "docs/rfcs/0066-replay-archive-corpus-v2-foundations.md",
+    "docs/rfcs/0067-optional-git-pr-integration.md",
+    "docs/rfcs/0068-go-production-daemon-port.md",
+    "docs/rfcs/0074-workflow-shape-and-adversary-pack-catalog.md",
+    "docs/rfcs/0075-tmux-observable-mcp-agent-sessions.md",
+    "docs/rfcs/0077-mcp-activity-liveness-deadlines.md",
+    "AGENTS.md"
+  ],
+  "coordinator": {
+    "role_id": "coordinator",
+    "lane_id": "codex"
+  },
+  "parallelism": {
+    "mode": "declared",
+    "max_active_jobs": 4,
+    "require_disjoint_write_scopes": true
+  },
+  "branch": {
+    "mode": "confirm",
+    "suggested_name": "striatum/remaining-runway-1-8",
+    "allow_dirty": true
+  },
+  "lanes": {
+    "codex": {
+      "adapter": "process",
+      "command": [
+        "bash",
+        "-lc",
+        "PYTHONPATH=src python3 -m striatum.cli skills install --profile all --scope user --force --json >/dev/null && export PATH=\"$PWD/.venv/bin:$PATH\" && exec .striatum/bin/codex-supervised-wrapper.sh"
+      ],
+      "model": "codex",
+      "display_model": "Codex",
+      "strategy_version": "2026-05-23",
+      "supervision": {
+        "compatible": true,
+        "stdin_format": "newline_delimited_json",
+        "wrapper_required": true
+      }
+    },
+    "claude_code": {
+      "adapter": "process",
+      "command": [
+        "bash",
+        "-lc",
+        "PYTHONPATH=src python3 -m striatum.cli skills install --profile all --scope user --force --json >/dev/null && export PATH=\"$PWD/.venv/bin:$PATH\" && exec .striatum/bin/claude-supervised-wrapper.sh"
+      ],
+      "model": "claude_code",
+      "display_model": "Claude Code",
+      "strategy_version": "2026-05-23",
+      "supervision": {
+        "compatible": "verify_pipe_behavior_first",
+        "stdin_format": "prompt_text",
+        "wrapper_required": true
+      }
+    },
+    "gemini": {
+      "adapter": "process",
+      "command": [
+        "bash",
+        "-lc",
+        "PYTHONPATH=src python3 -m striatum.cli skills install --profile all --scope user --force --json >/dev/null && export PATH=\"$PWD/.venv/bin:$PATH\" && exec .striatum/bin/gemini-supervised-wrapper.sh"
+      ],
+      "model": "gemini",
+      "display_model": "Gemini",
+      "strategy_version": "2026-05-23",
+      "supervision": {
+        "compatible": true,
+        "stdin_format": "prompt_text",
+        "wrapper_required": true
+      }
+    }
+  },
+  "roles": {
+    "coordinator": {
+      "description": "Operator/control-plane role."
+    },
+    "scaffolder": {
+      "description": "Creates ordered implementation scaffolds without editing source code."
+    },
+    "validator": {
+      "description": "Checks scaffold completeness, order, write scopes, and test gates."
+    },
+    "boundary_reviewer": {
+      "description": "Reviews authority, local-first, and product-boundary risks."
+    },
+    "closer": {
+      "description": "Publishes the final ordered scaffold closure."
+    }
+  },
+  "jobs": [
+    {
+      "id": "scaffold_01_todo55_accepted_risk_cli_ui",
+      "type": "synthesis",
+      "title": "Scaffold 1 TODO 55 accepted-risk CLI/UI",
+      "role_id": "scaffolder",
+      "lane_id": "codex",
+      "fresh_session_required": true,
+      "objective": "Scaffold TODO 55 accepted-risk CLI/UI client polish over daemon workflow.lint, workflow.accept_risk, and workflow.accepted_risks.list. Keep workflow-file metadata advisory.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/remaining-runway-1-8/prompts/scaffold_todo55_accepted_risk_cli_ui.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/operator/artifacts/remaining-runway-1-8/01-todo55-accepted-risk-cli-ui/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "todo55_scaffold",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/remaining-runway-1-8/01-todo55-accepted-risk-cli-ui/SCAFFOLD.md",
+          "author_line": "author: todo55-scaffold-codex-gpt-5-001",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "validate_01_todo55_scaffold",
+      "type": "review",
+      "title": "Validate scaffold 1",
+      "role_id": "validator",
+      "lane_id": "claude_code",
+      "fresh_session_required": true,
+      "reviewer_context_policy": "fresh",
+      "review_posture": "custom:scaffold_validation",
+      "objective": "Validate docs/operator/artifacts/remaining-runway-1-8/01-todo55-accepted-risk-cli-ui/SCAFFOLD.md against the ordered scaffold criteria.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/remaining-runway-1-8/prompts/validate_scaffold.md"
+      },
+      "write_scope": {
+        "mode": "review_only_artifact",
+        "repo_write": false,
+        "allowed_paths": [
+          "docs/operator/artifacts/remaining-runway-1-8/01-todo55-accepted-risk-cli-ui/validation/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "todo55_validation",
+          "kind": "finding",
+          "path": "docs/operator/artifacts/remaining-runway-1-8/01-todo55-accepted-risk-cli-ui/validation/VALIDATION.md",
+          "author_line": "author: todo55-validator-claude-code-001",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "review_01_todo55_boundary",
+      "type": "review",
+      "title": "Boundary review scaffold 1",
+      "role_id": "boundary_reviewer",
+      "lane_id": "gemini",
+      "fresh_session_required": true,
+      "reviewer_context_policy": "fresh",
+      "review_posture": "custom:authority_boundary",
+      "objective": "Review docs/operator/artifacts/remaining-runway-1-8/01-todo55-accepted-risk-cli-ui/SCAFFOLD.md for authority and product-boundary leaks.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/remaining-runway-1-8/prompts/review_scaffold_boundary.md"
+      },
+      "write_scope": {
+        "mode": "review_only_artifact",
+        "repo_write": false,
+        "allowed_paths": [
+          "docs/operator/artifacts/remaining-runway-1-8/01-todo55-accepted-risk-cli-ui/review/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "todo55_boundary_review",
+          "kind": "finding",
+          "path": "docs/operator/artifacts/remaining-runway-1-8/01-todo55-accepted-risk-cli-ui/review/BOUNDARY.md",
+          "author_line": "author: todo55-boundary-gemini-001",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "scaffold_02_todo56_autofinalize_gate",
+      "type": "synthesis",
+      "title": "Scaffold 2 TODO 56 auto-finalize gate",
+      "role_id": "scaffolder",
+      "lane_id": "codex",
+      "fresh_session_required": true,
+      "objective": "Scaffold TODO 56 D125 live auto-finalize dogfood evidence gate while preserving dry-run default behavior.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/remaining-runway-1-8/prompts/scaffold_todo56_autofinalize_gate.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/operator/artifacts/remaining-runway-1-8/02-todo56-autofinalize-gate/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "todo56_scaffold",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/remaining-runway-1-8/02-todo56-autofinalize-gate/SCAFFOLD.md",
+          "author_line": "author: todo56-scaffold-codex-gpt-5-001",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "validate_02_todo56_scaffold",
+      "type": "review",
+      "title": "Validate scaffold 2",
+      "role_id": "validator",
+      "lane_id": "claude_code",
+      "fresh_session_required": true,
+      "reviewer_context_policy": "fresh",
+      "review_posture": "custom:scaffold_validation",
+      "objective": "Validate docs/operator/artifacts/remaining-runway-1-8/02-todo56-autofinalize-gate/SCAFFOLD.md against D125 gate criteria.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/remaining-runway-1-8/prompts/validate_scaffold.md"
+      },
+      "write_scope": {
+        "mode": "review_only_artifact",
+        "repo_write": false,
+        "allowed_paths": [
+          "docs/operator/artifacts/remaining-runway-1-8/02-todo56-autofinalize-gate/validation/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "todo56_validation",
+          "kind": "finding",
+          "path": "docs/operator/artifacts/remaining-runway-1-8/02-todo56-autofinalize-gate/validation/VALIDATION.md",
+          "author_line": "author: todo56-validator-claude-code-001",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "review_02_todo56_boundary",
+      "type": "review",
+      "title": "Boundary review scaffold 2",
+      "role_id": "boundary_reviewer",
+      "lane_id": "gemini",
+      "fresh_session_required": true,
+      "reviewer_context_policy": "fresh",
+      "review_posture": "custom:authority_boundary",
+      "objective": "Review docs/operator/artifacts/remaining-runway-1-8/02-todo56-autofinalize-gate/SCAFFOLD.md for dry-run and audit-chain authority risks.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/remaining-runway-1-8/prompts/review_scaffold_boundary.md"
+      },
+      "write_scope": {
+        "mode": "review_only_artifact",
+        "repo_write": false,
+        "allowed_paths": [
+          "docs/operator/artifacts/remaining-runway-1-8/02-todo56-autofinalize-gate/review/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "todo56_boundary_review",
+          "kind": "finding",
+          "path": "docs/operator/artifacts/remaining-runway-1-8/02-todo56-autofinalize-gate/review/BOUNDARY.md",
+          "author_line": "author: todo56-boundary-gemini-001",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "scaffold_03_rfc0075_fail_closed_tmux_ui",
+      "type": "synthesis",
+      "title": "Scaffold 3 RFC 0075 fail-closed tmux/UI",
+      "role_id": "scaffolder",
+      "lane_id": "codex",
+      "fresh_session_required": true,
+      "objective": "Scaffold RFC 0075 fail-closed tmux requirements for live interactive lanes and UI polish.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/remaining-runway-1-8/prompts/scaffold_rfc0075_fail_closed_tmux_ui.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/operator/artifacts/remaining-runway-1-8/03-rfc0075-fail-closed-tmux-ui/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "rfc0075_scaffold",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/remaining-runway-1-8/03-rfc0075-fail-closed-tmux-ui/SCAFFOLD.md",
+          "author_line": "author: rfc0075-scaffold-codex-gpt-5-001",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "validate_03_rfc0075_scaffold",
+      "type": "review",
+      "title": "Validate scaffold 3",
+      "role_id": "validator",
+      "lane_id": "claude_code",
+      "fresh_session_required": true,
+      "reviewer_context_policy": "fresh",
+      "review_posture": "custom:scaffold_validation",
+      "objective": "Validate docs/operator/artifacts/remaining-runway-1-8/03-rfc0075-fail-closed-tmux-ui/SCAFFOLD.md.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/remaining-runway-1-8/prompts/validate_scaffold.md"
+      },
+      "write_scope": {
+        "mode": "review_only_artifact",
+        "repo_write": false,
+        "allowed_paths": [
+          "docs/operator/artifacts/remaining-runway-1-8/03-rfc0075-fail-closed-tmux-ui/validation/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "rfc0075_validation",
+          "kind": "finding",
+          "path": "docs/operator/artifacts/remaining-runway-1-8/03-rfc0075-fail-closed-tmux-ui/validation/VALIDATION.md",
+          "author_line": "author: rfc0075-validator-claude-code-001",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "review_03_rfc0075_boundary",
+      "type": "review",
+      "title": "Boundary review scaffold 3",
+      "role_id": "boundary_reviewer",
+      "lane_id": "gemini",
+      "fresh_session_required": true,
+      "reviewer_context_policy": "fresh",
+      "review_posture": "custom:authority_boundary",
+      "objective": "Review docs/operator/artifacts/remaining-runway-1-8/03-rfc0075-fail-closed-tmux-ui/SCAFFOLD.md for tmux/transcript authority risks.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/remaining-runway-1-8/prompts/review_scaffold_boundary.md"
+      },
+      "write_scope": {
+        "mode": "review_only_artifact",
+        "repo_write": false,
+        "allowed_paths": [
+          "docs/operator/artifacts/remaining-runway-1-8/03-rfc0075-fail-closed-tmux-ui/review/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "rfc0075_boundary_review",
+          "kind": "finding",
+          "path": "docs/operator/artifacts/remaining-runway-1-8/03-rfc0075-fail-closed-tmux-ui/review/BOUNDARY.md",
+          "author_line": "author: rfc0075-boundary-gemini-001",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "scaffold_04_cli_retirement_parity",
+      "type": "synthesis",
+      "title": "Scaffold 4 CLI retirement parity",
+      "role_id": "scaffolder",
+      "lane_id": "codex",
+      "fresh_session_required": true,
+      "objective": "Scaffold CLI retirement UI/MCP parity gates without hiding or deleting workflow-control verbs before tested replacements exist.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/remaining-runway-1-8/prompts/scaffold_cli_retirement_parity.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/operator/artifacts/remaining-runway-1-8/04-cli-retirement-parity/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "cli_retirement_scaffold",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/remaining-runway-1-8/04-cli-retirement-parity/SCAFFOLD.md",
+          "author_line": "author: cli-retirement-scaffold-codex-gpt-5-001",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "validate_04_cli_retirement_scaffold",
+      "type": "review",
+      "title": "Validate scaffold 4",
+      "role_id": "validator",
+      "lane_id": "claude_code",
+      "fresh_session_required": true,
+      "reviewer_context_policy": "fresh",
+      "review_posture": "custom:scaffold_validation",
+      "objective": "Validate docs/operator/artifacts/remaining-runway-1-8/04-cli-retirement-parity/SCAFFOLD.md.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/remaining-runway-1-8/prompts/validate_scaffold.md"
+      },
+      "write_scope": {
+        "mode": "review_only_artifact",
+        "repo_write": false,
+        "allowed_paths": [
+          "docs/operator/artifacts/remaining-runway-1-8/04-cli-retirement-parity/validation/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "cli_retirement_validation",
+          "kind": "finding",
+          "path": "docs/operator/artifacts/remaining-runway-1-8/04-cli-retirement-parity/validation/VALIDATION.md",
+          "author_line": "author: cli-retirement-validator-claude-code-001",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "review_04_cli_retirement_boundary",
+      "type": "review",
+      "title": "Boundary review scaffold 4",
+      "role_id": "boundary_reviewer",
+      "lane_id": "gemini",
+      "fresh_session_required": true,
+      "reviewer_context_policy": "fresh",
+      "review_posture": "custom:authority_boundary",
+      "objective": "Review docs/operator/artifacts/remaining-runway-1-8/04-cli-retirement-parity/SCAFFOLD.md for premature deletion and parity risks.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/remaining-runway-1-8/prompts/review_scaffold_boundary.md"
+      },
+      "write_scope": {
+        "mode": "review_only_artifact",
+        "repo_write": false,
+        "allowed_paths": [
+          "docs/operator/artifacts/remaining-runway-1-8/04-cli-retirement-parity/review/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "cli_retirement_boundary_review",
+          "kind": "finding",
+          "path": "docs/operator/artifacts/remaining-runway-1-8/04-cli-retirement-parity/review/BOUNDARY.md",
+          "author_line": "author: cli-retirement-boundary-gemini-001",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "scaffold_05_todo59_corpus_watermark_archive",
+      "type": "synthesis",
+      "title": "Scaffold 5 TODO 59 corpus/archive follow-through",
+      "role_id": "scaffolder",
+      "lane_id": "codex",
+      "fresh_session_required": true,
+      "objective": "Scaffold TODO 59 Corpus Contract V2 watermark/archive follow-through and optional augmentation-reference boundaries.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/remaining-runway-1-8/prompts/scaffold_todo59_corpus_watermark_archive.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/operator/artifacts/remaining-runway-1-8/05-todo59-corpus-watermark-archive/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "todo59_scaffold",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/remaining-runway-1-8/05-todo59-corpus-watermark-archive/SCAFFOLD.md",
+          "author_line": "author: todo59-scaffold-codex-gpt-5-001",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "validate_05_todo59_scaffold",
+      "type": "review",
+      "title": "Validate scaffold 5",
+      "role_id": "validator",
+      "lane_id": "claude_code",
+      "fresh_session_required": true,
+      "reviewer_context_policy": "fresh",
+      "review_posture": "custom:scaffold_validation",
+      "objective": "Validate docs/operator/artifacts/remaining-runway-1-8/05-todo59-corpus-watermark-archive/SCAFFOLD.md.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/remaining-runway-1-8/prompts/validate_scaffold.md"
+      },
+      "write_scope": {
+        "mode": "review_only_artifact",
+        "repo_write": false,
+        "allowed_paths": [
+          "docs/operator/artifacts/remaining-runway-1-8/05-todo59-corpus-watermark-archive/validation/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "todo59_validation",
+          "kind": "finding",
+          "path": "docs/operator/artifacts/remaining-runway-1-8/05-todo59-corpus-watermark-archive/validation/VALIDATION.md",
+          "author_line": "author: todo59-validator-claude-code-001",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "review_05_todo59_boundary",
+      "type": "review",
+      "title": "Boundary review scaffold 5",
+      "role_id": "boundary_reviewer",
+      "lane_id": "gemini",
+      "fresh_session_required": true,
+      "reviewer_context_policy": "fresh",
+      "review_posture": "custom:authority_boundary",
+      "objective": "Review docs/operator/artifacts/remaining-runway-1-8/05-todo59-corpus-watermark-archive/SCAFFOLD.md for privacy, archive, and augmentation boundary risks.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/remaining-runway-1-8/prompts/review_scaffold_boundary.md"
+      },
+      "write_scope": {
+        "mode": "review_only_artifact",
+        "repo_write": false,
+        "allowed_paths": [
+          "docs/operator/artifacts/remaining-runway-1-8/05-todo59-corpus-watermark-archive/review/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "todo59_boundary_review",
+          "kind": "finding",
+          "path": "docs/operator/artifacts/remaining-runway-1-8/05-todo59-corpus-watermark-archive/review/BOUNDARY.md",
+          "author_line": "author: todo59-boundary-gemini-001",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "scaffold_06_todo60_git_pr_requests",
+      "type": "synthesis",
+      "title": "Scaffold 6 TODO 60 Git/PR requests",
+      "role_id": "scaffolder",
+      "lane_id": "codex",
+      "fresh_session_required": true,
+      "objective": "Scaffold TODO 60 durable Git/PR request artifacts and explicit local commit confirmation without hosted provider behavior.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/remaining-runway-1-8/prompts/scaffold_todo60_git_pr_requests.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/operator/artifacts/remaining-runway-1-8/06-todo60-git-pr-requests/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "todo60_scaffold",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/remaining-runway-1-8/06-todo60-git-pr-requests/SCAFFOLD.md",
+          "author_line": "author: todo60-scaffold-codex-gpt-5-001",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "validate_06_todo60_scaffold",
+      "type": "review",
+      "title": "Validate scaffold 6",
+      "role_id": "validator",
+      "lane_id": "claude_code",
+      "fresh_session_required": true,
+      "reviewer_context_policy": "fresh",
+      "review_posture": "custom:scaffold_validation",
+      "objective": "Validate docs/operator/artifacts/remaining-runway-1-8/06-todo60-git-pr-requests/SCAFFOLD.md.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/remaining-runway-1-8/prompts/validate_scaffold.md"
+      },
+      "write_scope": {
+        "mode": "review_only_artifact",
+        "repo_write": false,
+        "allowed_paths": [
+          "docs/operator/artifacts/remaining-runway-1-8/06-todo60-git-pr-requests/validation/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "todo60_validation",
+          "kind": "finding",
+          "path": "docs/operator/artifacts/remaining-runway-1-8/06-todo60-git-pr-requests/validation/VALIDATION.md",
+          "author_line": "author: todo60-validator-claude-code-001",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "review_06_todo60_boundary",
+      "type": "review",
+      "title": "Boundary review scaffold 6",
+      "role_id": "boundary_reviewer",
+      "lane_id": "gemini",
+      "fresh_session_required": true,
+      "reviewer_context_policy": "fresh",
+      "review_posture": "custom:authority_boundary",
+      "objective": "Review docs/operator/artifacts/remaining-runway-1-8/06-todo60-git-pr-requests/SCAFFOLD.md for hosted provider, credential, and commit authority risks.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/remaining-runway-1-8/prompts/review_scaffold_boundary.md"
+      },
+      "write_scope": {
+        "mode": "review_only_artifact",
+        "repo_write": false,
+        "allowed_paths": [
+          "docs/operator/artifacts/remaining-runway-1-8/06-todo60-git-pr-requests/review/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "todo60_boundary_review",
+          "kind": "finding",
+          "path": "docs/operator/artifacts/remaining-runway-1-8/06-todo60-git-pr-requests/review/BOUNDARY.md",
+          "author_line": "author: todo60-boundary-gemini-001",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "scaffold_07_rfc0074_phase_a",
+      "type": "synthesis",
+      "title": "Scaffold 7 RFC 0074 Phase A",
+      "role_id": "scaffolder",
+      "lane_id": "codex",
+      "fresh_session_required": true,
+      "objective": "Reconcile and scaffold RFC 0074 Phase A catalog/generator metadata, read-only discovery, and one validating example.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/remaining-runway-1-8/prompts/scaffold_rfc0074_phase_a.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/operator/artifacts/remaining-runway-1-8/07-rfc0074-phase-a/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "rfc0074_scaffold",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/remaining-runway-1-8/07-rfc0074-phase-a/SCAFFOLD.md",
+          "author_line": "author: rfc0074-scaffold-codex-gpt-5-001",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "validate_07_rfc0074_scaffold",
+      "type": "review",
+      "title": "Validate scaffold 7",
+      "role_id": "validator",
+      "lane_id": "claude_code",
+      "fresh_session_required": true,
+      "reviewer_context_policy": "fresh",
+      "review_posture": "custom:scaffold_validation",
+      "objective": "Validate docs/operator/artifacts/remaining-runway-1-8/07-rfc0074-phase-a/SCAFFOLD.md.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/remaining-runway-1-8/prompts/validate_scaffold.md"
+      },
+      "write_scope": {
+        "mode": "review_only_artifact",
+        "repo_write": false,
+        "allowed_paths": [
+          "docs/operator/artifacts/remaining-runway-1-8/07-rfc0074-phase-a/validation/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "rfc0074_validation",
+          "kind": "finding",
+          "path": "docs/operator/artifacts/remaining-runway-1-8/07-rfc0074-phase-a/validation/VALIDATION.md",
+          "author_line": "author: rfc0074-validator-claude-code-001",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "review_07_rfc0074_boundary",
+      "type": "review",
+      "title": "Boundary review scaffold 7",
+      "role_id": "boundary_reviewer",
+      "lane_id": "gemini",
+      "fresh_session_required": true,
+      "reviewer_context_policy": "fresh",
+      "review_posture": "custom:authority_boundary",
+      "objective": "Review docs/operator/artifacts/remaining-runway-1-8/07-rfc0074-phase-a/SCAFFOLD.md for catalog/runtime boundary risks.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/remaining-runway-1-8/prompts/review_scaffold_boundary.md"
+      },
+      "write_scope": {
+        "mode": "review_only_artifact",
+        "repo_write": false,
+        "allowed_paths": [
+          "docs/operator/artifacts/remaining-runway-1-8/07-rfc0074-phase-a/review/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "rfc0074_boundary_review",
+          "kind": "finding",
+          "path": "docs/operator/artifacts/remaining-runway-1-8/07-rfc0074-phase-a/review/BOUNDARY.md",
+          "author_line": "author: rfc0074-boundary-gemini-001",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "scaffold_08_todo61_legacy_cleanup",
+      "type": "synthesis",
+      "title": "Scaffold 8 TODO 61 legacy cleanup",
+      "role_id": "scaffolder",
+      "lane_id": "codex",
+      "fresh_session_required": true,
+      "objective": "Scaffold the next bounded TODO 61 legacy fixture/import cleanup and guardrail-tightening slice without reopening retired SQLite authority.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/remaining-runway-1-8/prompts/scaffold_todo61_legacy_cleanup.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/operator/artifacts/remaining-runway-1-8/08-todo61-legacy-cleanup/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "todo61_scaffold",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/remaining-runway-1-8/08-todo61-legacy-cleanup/SCAFFOLD.md",
+          "author_line": "author: todo61-scaffold-codex-gpt-5-001",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "validate_08_todo61_scaffold",
+      "type": "review",
+      "title": "Validate scaffold 8",
+      "role_id": "validator",
+      "lane_id": "claude_code",
+      "fresh_session_required": true,
+      "reviewer_context_policy": "fresh",
+      "review_posture": "custom:scaffold_validation",
+      "objective": "Validate docs/operator/artifacts/remaining-runway-1-8/08-todo61-legacy-cleanup/SCAFFOLD.md.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/remaining-runway-1-8/prompts/validate_scaffold.md"
+      },
+      "write_scope": {
+        "mode": "review_only_artifact",
+        "repo_write": false,
+        "allowed_paths": [
+          "docs/operator/artifacts/remaining-runway-1-8/08-todo61-legacy-cleanup/validation/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "todo61_validation",
+          "kind": "finding",
+          "path": "docs/operator/artifacts/remaining-runway-1-8/08-todo61-legacy-cleanup/validation/VALIDATION.md",
+          "author_line": "author: todo61-validator-claude-code-001",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "review_08_todo61_boundary",
+      "type": "review",
+      "title": "Boundary review scaffold 8",
+      "role_id": "boundary_reviewer",
+      "lane_id": "gemini",
+      "fresh_session_required": true,
+      "reviewer_context_policy": "fresh",
+      "review_posture": "custom:authority_boundary",
+      "objective": "Review docs/operator/artifacts/remaining-runway-1-8/08-todo61-legacy-cleanup/SCAFFOLD.md for legacy SQLite authority risks.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/remaining-runway-1-8/prompts/review_scaffold_boundary.md"
+      },
+      "write_scope": {
+        "mode": "review_only_artifact",
+        "repo_write": false,
+        "allowed_paths": [
+          "docs/operator/artifacts/remaining-runway-1-8/08-todo61-legacy-cleanup/review/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "todo61_boundary_review",
+          "kind": "finding",
+          "path": "docs/operator/artifacts/remaining-runway-1-8/08-todo61-legacy-cleanup/review/BOUNDARY.md",
+          "author_line": "author: todo61-boundary-gemini-001",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "finalize_remaining_runway",
+      "type": "synthesis",
+      "title": "Finalize remaining runway scaffold",
+      "role_id": "closer",
+      "lane_id": "codex",
+      "fresh_session_required": true,
+      "objective": "Publish the final ordered scaffold closure after all eight scaffold validation and boundary review artifacts complete.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/remaining-runway-1-8/prompts/finalize_remaining_runway.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/operator/artifacts/remaining-runway-1-8/FINAL.md"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "remaining_runway_final",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/remaining-runway-1-8/FINAL.md",
+          "author_line": "author: remaining-runway-closer-codex-gpt-5-001",
+          "required": true
+        }
+      ]
+    }
+  ],
+  "edges": [
+    {"from": "scaffold_01_todo55_accepted_risk_cli_ui", "to": "validate_01_todo55_scaffold", "on": "completed"},
+    {"from": "scaffold_01_todo55_accepted_risk_cli_ui", "to": "review_01_todo55_boundary", "on": "completed"},
+    {"from": "scaffold_01_todo55_accepted_risk_cli_ui", "to": "scaffold_02_todo56_autofinalize_gate", "on": "completed"},
+    {"from": "scaffold_02_todo56_autofinalize_gate", "to": "validate_02_todo56_scaffold", "on": "completed"},
+    {"from": "scaffold_02_todo56_autofinalize_gate", "to": "review_02_todo56_boundary", "on": "completed"},
+    {"from": "scaffold_02_todo56_autofinalize_gate", "to": "scaffold_03_rfc0075_fail_closed_tmux_ui", "on": "completed"},
+    {"from": "scaffold_03_rfc0075_fail_closed_tmux_ui", "to": "validate_03_rfc0075_scaffold", "on": "completed"},
+    {"from": "scaffold_03_rfc0075_fail_closed_tmux_ui", "to": "review_03_rfc0075_boundary", "on": "completed"},
+    {"from": "scaffold_03_rfc0075_fail_closed_tmux_ui", "to": "scaffold_04_cli_retirement_parity", "on": "completed"},
+    {"from": "scaffold_04_cli_retirement_parity", "to": "validate_04_cli_retirement_scaffold", "on": "completed"},
+    {"from": "scaffold_04_cli_retirement_parity", "to": "review_04_cli_retirement_boundary", "on": "completed"},
+    {"from": "scaffold_04_cli_retirement_parity", "to": "scaffold_05_todo59_corpus_watermark_archive", "on": "completed"},
+    {"from": "scaffold_05_todo59_corpus_watermark_archive", "to": "validate_05_todo59_scaffold", "on": "completed"},
+    {"from": "scaffold_05_todo59_corpus_watermark_archive", "to": "review_05_todo59_boundary", "on": "completed"},
+    {"from": "scaffold_05_todo59_corpus_watermark_archive", "to": "scaffold_06_todo60_git_pr_requests", "on": "completed"},
+    {"from": "scaffold_06_todo60_git_pr_requests", "to": "validate_06_todo60_scaffold", "on": "completed"},
+    {"from": "scaffold_06_todo60_git_pr_requests", "to": "review_06_todo60_boundary", "on": "completed"},
+    {"from": "scaffold_06_todo60_git_pr_requests", "to": "scaffold_07_rfc0074_phase_a", "on": "completed"},
+    {"from": "scaffold_07_rfc0074_phase_a", "to": "validate_07_rfc0074_scaffold", "on": "completed"},
+    {"from": "scaffold_07_rfc0074_phase_a", "to": "review_07_rfc0074_boundary", "on": "completed"},
+    {"from": "scaffold_07_rfc0074_phase_a", "to": "scaffold_08_todo61_legacy_cleanup", "on": "completed"},
+    {"from": "scaffold_08_todo61_legacy_cleanup", "to": "validate_08_todo61_scaffold", "on": "completed"},
+    {"from": "scaffold_08_todo61_legacy_cleanup", "to": "review_08_todo61_boundary", "on": "completed"},
+    {"from": "validate_01_todo55_scaffold", "to": "finalize_remaining_runway", "on": "completed"},
+    {"from": "review_01_todo55_boundary", "to": "finalize_remaining_runway", "on": "completed"},
+    {"from": "validate_02_todo56_scaffold", "to": "finalize_remaining_runway", "on": "completed"},
+    {"from": "review_02_todo56_boundary", "to": "finalize_remaining_runway", "on": "completed"},
+    {"from": "validate_03_rfc0075_scaffold", "to": "finalize_remaining_runway", "on": "completed"},
+    {"from": "review_03_rfc0075_boundary", "to": "finalize_remaining_runway", "on": "completed"},
+    {"from": "validate_04_cli_retirement_scaffold", "to": "finalize_remaining_runway", "on": "completed"},
+    {"from": "review_04_cli_retirement_boundary", "to": "finalize_remaining_runway", "on": "completed"},
+    {"from": "validate_05_todo59_scaffold", "to": "finalize_remaining_runway", "on": "completed"},
+    {"from": "review_05_todo59_boundary", "to": "finalize_remaining_runway", "on": "completed"},
+    {"from": "validate_06_todo60_scaffold", "to": "finalize_remaining_runway", "on": "completed"},
+    {"from": "review_06_todo60_boundary", "to": "finalize_remaining_runway", "on": "completed"},
+    {"from": "validate_07_rfc0074_scaffold", "to": "finalize_remaining_runway", "on": "completed"},
+    {"from": "review_07_rfc0074_boundary", "to": "finalize_remaining_runway", "on": "completed"},
+    {"from": "validate_08_todo61_scaffold", "to": "finalize_remaining_runway", "on": "completed"},
+    {"from": "review_08_todo61_boundary", "to": "finalize_remaining_runway", "on": "completed"}
+  ],
+  "cycles": []
+}

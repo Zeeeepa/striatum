@@ -60,6 +60,7 @@ def verify_corpus_bundle(bundle: Path) -> dict[str, object]:
         "corpus_id",
         "redaction_tier",
         "verification_depth",
+        "incremental_export_watermark",
         "augmentation_policy",
         "git_snapshot_hash",
     ):

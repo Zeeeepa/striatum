@@ -34,6 +34,12 @@ WORKFLOW_AUTHORING_KEYS: frozenset[tuple[str, str | None]] = frozenset(
         ("workflow", "upgrade"),
     }
 )
+WORKFLOW_DAEMON_CLIENT_KEYS: frozenset[tuple[str, str | None]] = frozenset(
+    {
+        ("workflow", "accepted-risks"),
+        ("workflow", "accept-risk"),
+    }
+)
 
 
 def _method_contract() -> dict[str, dict[str, Any]]:
@@ -152,6 +158,11 @@ def _args_for_lookup(command: str, subcommand: str | None) -> argparse.Namespace
         create=False,
         use_current=False,
         strict=False,
+        workflow_snapshot_id="wfs_1",
+        workflow_fingerprint_sha256="a" * 64,
+        finding_fingerprints=["b" * 64],
+        decision_artifact_ref="docs/decisions/D123.md",
+        accepted_by="operator",
         worktree_id="worktree_1",
         packet_id="packet_1",
         include_ancestry=True,
@@ -199,8 +210,48 @@ def test_cli_local_workflow_authoring_methods_are_not_daemon_routed() -> None:
     translated_methods = set(_translated_methods().values())
     routed_workflow_keys = sorted(key for key in _LOOKUP if key[0] == "workflow")
 
-    assert not routed_workflow_keys
+    assert set(routed_workflow_keys) == WORKFLOW_DAEMON_CLIENT_KEYS
     assert not (translated_methods & LOCAL_FILE_AUTHORING_METHODS)
+
+
+def test_workflow_accepted_risks_list_routes_filters() -> None:
+    method, params = _route(
+        "workflow",
+        "accepted-risks",
+        workflow_command="accepted-risks",
+        workflow_snapshot_id="wfs_1",
+        workflow_fingerprint_sha256="a" * 64,
+    )
+
+    assert method == "workflow.accepted_risks.list"
+    assert params == {
+        "workflow_snapshot_id": "wfs_1",
+        "workflow_fingerprint_sha256": "a" * 64,
+    }
+
+
+def test_workflow_accept_risk_routes_decision_linked_fingerprints() -> None:
+    method, params = _route(
+        "workflow",
+        "accept-risk",
+        workflow_command="accept-risk",
+        path="workflows/demo/workflow.json",
+        workflow_snapshot_id=None,
+        run_id=None,
+        finding_fingerprints=["b" * 64, "c" * 64],
+        decision_artifact_ref="docs/decisions/D123.md",
+        rationale="accepted for dogfood continuity",
+        accepted_by="operator",
+    )
+
+    assert method == "workflow.accept_risk"
+    assert params == {
+        "workflow_path": "workflows/demo/workflow.json",
+        "finding_fingerprints": ["b" * 64, "c" * 64],
+        "decision_artifact_ref": "docs/decisions/D123.md",
+        "rationale": "accepted for dogfood continuity",
+        "accepted_by": "operator",
+    }
 
 
 def test_daemon_routed_cli_methods_do_not_depend_on_daemon_cli_fallback() -> None:

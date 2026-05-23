@@ -50,6 +50,15 @@ def test_manifest_includes_schema_git_authority_and_counts(tmp_path: Path) -> No
     assert manifest["legacy_corpus_alias"] == "striatum"
     assert manifest["redaction_tier"] == "public"
     assert manifest["verification_depth"] == "deep_chain"
+    assert manifest["incremental_export_watermark"] == {
+        "strategy": "git_commit_range",
+        "scope": "corpus_id",
+        "corpus_id": default_corpus_id(tmp_path),
+        "since_commit": "abc",
+        "high_watermark": manifest["git_head"],
+        "dirty_tree": False,
+        "advanceable": True,
+    }
     assert manifest["augmentation_policy"] == {
         "mode": "reference_only",
         "workflow_opt_in": True,
@@ -92,6 +101,15 @@ def test_manifest_accepts_explicit_v2_identity_and_snapshot_hash(tmp_path: Path)
     )
 
     assert str(manifest["corpus_id"]).startswith("docs-corpus:")
+    assert manifest["incremental_export_watermark"] == {
+        "strategy": "git_commit_range",
+        "scope": "corpus_id",
+        "corpus_id": manifest["corpus_id"],
+        "since_commit": "abc",
+        "high_watermark": manifest["git_head"],
+        "dirty_tree": False,
+        "advanceable": True,
+    }
     assert manifest["redaction_tier"] == "curated"
     assert manifest["augmentation_policy"] == {
         "mode": "reference_only",
@@ -113,6 +131,49 @@ def test_manifest_verification_rejects_count_mismatch(tmp_path: Path) -> None:
     row_counts["rfc"] = 1
     with pytest.raises(StriatumError, match="row count mismatch"):
         verify_manifest(manifest, row_counts)
+
+
+def test_v2_manifest_verification_requires_incremental_watermark(tmp_path: Path) -> None:
+    _git_repo(tmp_path)
+    row_counts = {kind: 0 for kind in SUB_KINDS}
+    manifest = build_manifest(
+        repo=tmp_path,
+        since_ref="HEAD",
+        since_commit="abc",
+        files={},
+        row_counts=row_counts,
+        missing_optional_sources=[],
+        state_authority={"substrate": "postgresql"},
+        generated_at="2026-05-13T00:00:00Z",
+    )
+    manifest.pop("incremental_export_watermark")
+
+    with pytest.raises(StriatumError, match="incremental_export_watermark"):
+        verify_manifest(manifest, row_counts)
+
+
+def test_incremental_watermark_marks_dirty_exports_not_advanceable(tmp_path: Path) -> None:
+    _git_repo(tmp_path)
+    (tmp_path / "README.md").write_text("seed\nuncommitted\n", encoding="utf-8")
+    row_counts = {kind: 0 for kind in SUB_KINDS}
+
+    manifest = build_manifest(
+        repo=tmp_path,
+        since_ref="HEAD",
+        since_commit="abc",
+        files={},
+        row_counts=row_counts,
+        missing_optional_sources=[],
+        state_authority={"substrate": "postgresql"},
+        generated_at="2026-05-13T00:00:00Z",
+    )
+
+    assert manifest["git_dirty"] is True
+    watermark = manifest["incremental_export_watermark"]
+    assert isinstance(watermark, dict)
+    assert watermark["dirty_tree"] is True
+    assert watermark["advanceable"] is False
+    verify_manifest(manifest, row_counts)
 
 
 def test_write_manifest_returns_canonical_sha(tmp_path: Path) -> None:

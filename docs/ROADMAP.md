@@ -88,9 +88,9 @@ Order the work as a set of gates, not as one all-or-nothing cutover:
    escalation method. RFC 0077 V1 now persists MCP activity timestamps,
    projects protocol liveness through status/dashboard/supervise reads, and
    records recovery-sweep liveness transition events. Tmux attach metadata now
-   projects through supervisor/status/dashboard reads; requiring tmux
-   fail-closed for live interactive lanes and broader UI polish remain under
-   RFC 0075.
+   projects through supervisor/status/dashboard reads, and PTY-helper lanes can
+   opt in to fail-closed tmux with `supervision.require_tmux: true`; broader UI
+   polish remains under RFC 0075.
 7. [done] Delete `src/striatum/mcp.py` and retire Python MCP launch docs.
 
 For this roadmap, "eliminating the CLI" means eliminating CLI verbs as the
@@ -755,11 +755,13 @@ decide whether to rename the packet helper to `packet inbox`.
 - Accepted-risk records are append-only PostgreSQL daemon state, require a
   decision artifact reference plus rationale, and are MCP capability-gated
   (`read` for lint/list, `admin` for accept).
+- CLI client routing now exposes `workflow accepted-risks` and `workflow
+  accept-risk` over the daemon accepted-risk methods.
 
-**Remaining Phase 7 debt:** wire CLI/UI client affordances over the daemon
-methods and keep local `workflow lint` as advisory authoring unless it is
-explicitly persisting accepted risk through daemon RPC. Do not make
-workflow-file metadata a live authority.
+**Remaining Phase 7 debt:** wire UI client affordances and richer
+presentation over the daemon methods. Keep local `workflow lint` as advisory
+authoring unless it is explicitly persisting accepted risk through daemon RPC.
+Do not make workflow-file metadata a live authority.
 
 ---
 
@@ -933,9 +935,9 @@ GH #17. D126 accepts composite `corpus_id` identity (`slug:sha256`),
 graduated redaction tiers, workflow opt-in augmentation by reference with
 agent-side fetch, hybrid archive bundles, verification replay by default,
 read-only semantic inspection, no comparative replay, deep-chain verification
-always, and optional daemon audit-chain cross-check. The remaining work is to
-write the remaining archive/watermark/inspection details into the schema/docs
-and implement them.
+always, and optional daemon audit-chain cross-check. Archive defaults,
+read-only inspection, and manifest watermarking have landed; the remaining
+work is any optional augmentation-reference fetch surface.
 
 **What already shipped on our side:**
 - `striatum corpus export --since <ref> --out <dir>` (RFC 0044 V1,
@@ -944,8 +946,9 @@ and implement them.
 - Corpus Contract V2 manifest metadata now lands on new exports:
   `corpus_contract_version=2`, composite `corpus_id`, redaction tier,
   reference-only augmentation policy, `verification_depth=deep_chain`,
-  hybrid archive defaults, optional `git_snapshot_hash`, and V1-compatible
-  verifier fallback for older bundles.
+  hybrid archive defaults, corpus-scoped incremental export watermark,
+  optional `git_snapshot_hash`, and V1-compatible verifier fallback for older
+  bundles.
 - The augmentation-not-dependency boundary regression test in
   `tests/test_cli_corpus_export.py::test_no_engram_imports_or_memory_capabilities_in_striatum`
   pinning that no `import engram` / no `from engram` / no `memory.*`
@@ -986,7 +989,8 @@ earlier Engram roadmap open-decision list):
   cross-check.
 - Which log streams are mandatory vs. optional.
 - How much git diff content to export by default.
-- Incremental-export watermark storage location.
+- Incremental-export watermark storage location: landed in V2 manifests as a
+  corpus-scoped git high-water mark with dirty-tree advanceability metadata.
 - How to record Engram availability without creating a runtime dependency.
 - Default per-packet memory injection budget.
 
@@ -996,8 +1000,8 @@ phases (multi-corpus exporter, then optional context-injection
 integration) are separate dogfoods.
 
 **Blocked on:** no product decision blocker remains for the core V2 direction;
-the remaining work is schema/detail implementation. This is not a runtime
-blocker for Striatum's core daemon/remediation work.
+the remaining work is optional augmentation-reference implementation. This is
+not a runtime blocker for Striatum's core daemon/remediation work.
 
 **Forward link:** §11 lists the Engram-side roadmap for context;
 Engram's full backlog is at `~/git/engram/STRIATUM_MEMORY_ROADMAP.md`.

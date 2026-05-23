@@ -1636,6 +1636,16 @@ def _validate_lane_constraints(
                         f"process lane {lane_id!r} supervision.stdin_delivery "
                         "'one_shot_eof' requires supervision.transport 'pipe'"
                     )
+                require_tmux = supervision.get("require_tmux", False)
+                if not isinstance(require_tmux, bool):
+                    raise WorkflowError(
+                        f"process lane {lane_id!r} supervision.require_tmux must be a boolean"
+                    )
+                if require_tmux and transport != "pty_helper":
+                    raise WorkflowError(
+                        f"process lane {lane_id!r} supervision.require_tmux=true "
+                        "requires supervision.transport 'pty_helper'"
+                    )
             env = lane_value.get("env")
             if env is not None and (
                 not isinstance(env, dict)

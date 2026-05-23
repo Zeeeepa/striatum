@@ -3,7 +3,7 @@ schema_version: "striatum.operator_brief.v1"
 artifact_kind: "operator_brief"
 brief_id: "brief_2026-05-20_go-daemon-http-sse-mcp"
 supersedes: "brief_2026-05-17_go-daemon-remediation"
-scope_links: ["docs/operator/plans/rfc-0068-go-daemon-port.md", "docs/operator/plans/rfc-0069-pg-only-daemon-global-surfaces.md", "docs/operator/plans/rfc-0050-cli-retirement-cutover.md", "docs/operator/plans/rfc-0075-tmux-observable-mcp-agent-sessions.md", "docs/rfcs/0075-tmux-observable-mcp-agent-sessions.md", "docs/rfcs/0077-mcp-activity-liveness-deadlines.md", "docs/operator/plans/rfc-0076-audit-remediation.md", "docs/operator/plans/active-runway-1-5.md", "docs/operator/workflows/active-runway-1-5/workflow.json", "docs/operator/artifacts/active-runway-1-5/FINAL.md"]
+scope_links: ["docs/operator/plans/remaining-runway-1-8.md", "docs/operator/workflows/remaining-runway-1-8/workflow.json", "docs/operator/plans/rfc-0050-cli-retirement-cutover.md", "docs/operator/plans/rfc-0075-tmux-observable-mcp-agent-sessions.md", "docs/operator/artifacts/active-runway-1-5/FINAL.md"]
 context_budget_lines: 300
 retrieval_priority: "high"
 status: "current"
@@ -41,12 +41,12 @@ RFC 0075 is proposed, scaffolded, and has completed its first cutover
 workflow slice at
 `docs/operator/workflows/rfc-0075-and-mcp-cutover/workflow.json`. The landed
 slice adds `session.report` as the claim-gated MCP path for pre-packet
-`ready`, `heartbeat`, `question`, and `escalate` reports. The next tmux slice
-now records daemon-created tmux session metadata and projects the attach
-command through `supervise`, `status`, and dashboard read surfaces. Requiring
-tmux fail-closed for live interactive lanes, broader UI polish, and CLI
-retirement remain pending; tmux panes are still local inspection metadata, not
-workflow state.
+`ready`, `heartbeat`, `question`, and `escalate` reports. The next tmux slices
+record daemon-created tmux session metadata, project the attach command
+through `supervise`, `status`, and dashboard read surfaces, and let PTY-helper
+lanes set `supervision.require_tmux: true` to fail closed when `tmux` is
+unavailable. Broader UI polish and CLI retirement remain pending; tmux panes
+are still local inspection metadata, not workflow state.
 
 RFC 0076 is accepted by D128. Its first runnable operator workflow completed
 at `docs/operator/workflows/rfc-0076-code-doc-audit/workflow.json` and
@@ -72,9 +72,9 @@ auto-finalize dry-run by default with a three-live-dogfood evidence gate;
 D126 accepts the Corpus Contract V2 identity/redaction/archive/verification
 direction; D127 sets the optional Git/PR boundary around read-only snapshots,
 durable request artifacts, explicit local commit confirmation, and no hosted
-provider actions in core. The first TODO 59 implementation slice now emits V2
-corpus manifest metadata for new exports while keeping implied-V1 bundle
-verification compatible.
+provider actions in core. TODO 59 now emits V2 corpus manifest metadata,
+including a corpus-scoped incremental export watermark, for new exports while
+keeping implied-V1 bundle verification compatible.
 
 The active runway 1-5 workflow completed on 2026-05-22 as
 `run_b2e013582e0aeba267dd7a47cc66ccf1`. It produced the ordered batch plan in
@@ -89,21 +89,25 @@ consecutive-failure circuit breaker with open/reset audit events and
 force-resistant refusal until explicit live reset. The next daemon-contract
 slice also landed the TODO 55 accepted-risk substrate: Go daemon `workflow.lint`,
 `workflow.accept_risk`, and `workflow.accepted_risks.list` with append-only
-PostgreSQL records bound to workflow snapshots or canonical fingerprints.
-Follow-up cleanup also trimmed the remaining TODO 62/63 direct-state probes and
-cross-repo fallback dead code.
+PostgreSQL records bound to workflow snapshots or canonical fingerprints. The
+CLI now routes `workflow accepted-risks` and `workflow accept-risk` through
+those daemon methods. TODO 60 also has `commit_request` and `pr_request`
+artifact schemas for durable local request provenance; local commit
+confirmation remains pending. Follow-up cleanup also trimmed the remaining
+TODO 62/63 direct-state probes and cross-repo fallback dead code.
 
 ## Next 1-3 Actions
 
-1. Finish TODO 55 CLI/UI client polish over the accepted-risk daemon methods
-   when those surfaces are needed; do not write accepted-risk metadata into
-   workflow files.
+1. Finish TODO 55 UI client polish over the accepted-risk daemon methods when
+   that surface is needed; do not write accepted-risk metadata into workflow
+   files.
 2. Continue TODO 56 only through the D125 live dogfood gate evidence; keep
    live auto-finalize workflow-opt-in and dry-run default until that evidence
    exists.
-3. Keep CLI retirement, RFC 0075 fail-closed tmux requirements, RFC 0074 Phase
-   A, and remaining TODO 61 cleanup queued behind the batch order in
-   `docs/operator/artifacts/active-runway-1-5/FINAL.md`.
+3. Continue the ordered remaining-runway scaffold in
+   `docs/operator/workflows/remaining-runway-1-8/workflow.json`: CLI
+   retirement/UI polish, TODO 60 local commit confirmation, RFC 0074 follow-up
+   only beyond completed Phase A, and remaining TODO 61 cleanup.
 
 ## Blockers
 

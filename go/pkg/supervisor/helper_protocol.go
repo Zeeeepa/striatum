@@ -30,6 +30,7 @@ type HelperLaunchSpec struct {
 	Env             []string `json:"env,omitempty"`
 	WorkingDir      string   `json:"working_dir,omitempty"`
 	PacketInputPath string   `json:"packet_input_path,omitempty"`
+	RequireTmux     bool     `json:"require_tmux,omitempty"`
 }
 
 // HelperControlEvent is emitted as one JSON object per line on the helper's

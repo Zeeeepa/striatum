@@ -142,6 +142,28 @@ def test_process_lane_supervision_stdin_delivery_is_closed() -> None:
         validate_workflow(bad)
 
 
+def test_process_lane_supervision_require_tmux_is_boolean_and_pty_only() -> None:
+    workflow = _copy()
+    workflow["lanes"]["lane_a"]["supervision"] = {
+        "transport": "pty_helper",
+        "require_tmux": True,
+    }
+    validate_workflow(workflow)
+
+    bad = _copy()
+    bad["lanes"]["lane_a"]["supervision"] = {
+        "transport": "pty_helper",
+        "require_tmux": "yes",
+    }
+    with pytest.raises(WorkflowError, match="supervision.require_tmux"):
+        validate_workflow(bad)
+
+    bad = _copy()
+    bad["lanes"]["lane_a"]["supervision"] = {"require_tmux": True}
+    with pytest.raises(WorkflowError, match="requires supervision.transport 'pty_helper'"):
+        validate_workflow(bad)
+
+
 def test_require_daemon_must_be_boolean() -> None:
     bad = _copy()
     bad["require_daemon"] = "yes"

@@ -19,6 +19,8 @@ DEFAULT_CORPUS_SLUG = "striatum"
 DEFAULT_REDACTION_TIER = "public"
 REDACTION_TIERS: tuple[str, ...] = ("public", "curated", "internal")
 DEFAULT_VERIFICATION_DEPTH = "deep_chain"
+INCREMENTAL_EXPORT_WATERMARK_STRATEGY = "git_commit_range"
+INCREMENTAL_EXPORT_WATERMARK_SCOPE = "corpus_id"
 DEFAULT_AUGMENTATION_POLICY: Mapping[str, object] = {
     "mode": "reference_only",
     "workflow_opt_in": True,

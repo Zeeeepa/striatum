@@ -1658,6 +1658,10 @@ The supervise CLI surface:
   one packet write, Striatum closes/removes the FIFO and marks the one-shot
   stdin as consumed. Reactions remain CLI-driven (publish, ack, complete,
   verdict) so the supervisor never parses agent stdout.
+- PTY-helper lanes can set `supervision.require_tmux: true` to fail closed if
+  `tmux` is unavailable or run/lane metadata is missing. Without that opt-in,
+  PTY-helper launch may fall back to a plain PTY and records tmux
+  unavailability as metadata.
 - `striatum supervise stop --session-id <id> --reason <text>` sends
   `SIGTERM`, waits up to five seconds, falls back to `SIGKILL` if the
   process is still present, removes the FIFO, marks the row `stopped`,
