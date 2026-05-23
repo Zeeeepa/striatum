@@ -403,6 +403,113 @@ def test_v1_invoke_daemon_mapped_mutation_uses_daemon_rpc_not_api_invoke(
     ]
 
 
+def test_v1_invoke_override_verdict_web_context_routes_daemon_rpc(
+    tmp_path: Path, monkeypatch: Any
+) -> None:
+    sys.path.insert(0, str(ROOT / "src"))
+    try:
+        from email.message import Message
+        from io import BytesIO
+
+        import striatum.api as api
+        import striatum.service as service
+        import striatum.service_daemon as service_daemon
+    finally:
+        sys.path.pop(0)
+
+    monkeypatch.delenv("STRIATUM_TEST_HARNESS", raising=False)
+    monkeypatch.delenv("STRIATUM_DAEMON_REQUIRED", raising=False)
+
+    def invoke_tripwire(*args: Any, **kwargs: Any) -> None:
+        raise AssertionError("/v1/invoke override-verdict fell back to striatum.api.invoke")
+
+    calls: list[tuple[Path, str, dict[str, Any]]] = []
+
+    def fake_call_repo_method(
+        repo: Path, method: str, params: dict[str, Any]
+    ) -> dict[str, Any]:
+        calls.append((repo, method, dict(params)))
+        return {"recorded": True, "method": method}
+
+    monkeypatch.setattr(api, "invoke", invoke_tripwire)
+    monkeypatch.setattr(service_daemon, "call_repo_method", fake_call_repo_method)
+
+    secret = b"web-context-secret".ljust(32, b"\0")
+    run_id = "run_1"
+    job_id = "job_1"
+    session_id = "sess_1"
+    token = service.make_web_context_token(
+        secret,
+        run_id=run_id,
+        job_id=job_id,
+        session_id=session_id,
+    )
+    argv = [
+        "override-verdict",
+        "--session-id",
+        session_id,
+        "--job-id",
+        job_id,
+        "--verdict",
+        "accept",
+        "--rationale",
+        "operator override",
+    ]
+    raw = json.dumps({
+        "argv": argv,
+        "web_context": {
+            "kind": "override_verdict",
+            "run_id": run_id,
+            "job_id": job_id,
+            "session_id": session_id,
+            "token": token,
+        },
+    }).encode("utf-8")
+    headers = Message()
+    headers["Content-Type"] = "application/json"
+    headers["Content-Length"] = str(len(raw))
+    sent: dict[str, Any] = {}
+    handler = object.__new__(service.StriatumServiceHandler)
+    handler.state = service.ServiceState(
+        repo=tmp_path,
+        allow_mutations=True,
+        token=None,
+        web_enabled=True,
+    )
+    handler.state.web_context_secret = secret
+    handler.path = "/v1/invoke"
+    handler.headers = headers
+    handler.rfile = BytesIO(raw)
+    monkeypatch.setattr(handler, "_authenticate", lambda: True)
+    monkeypatch.setattr(handler, "_requires_same_origin", lambda path: False)
+    monkeypatch.setattr(
+        handler,
+        "_send_json",
+        lambda status, body: sent.update({"status": status, "body": body}),
+    )
+
+    handler._dispatch_post()
+
+    assert sent == {
+        "status": 200,
+        "body": {"ok": True, "data": {"recorded": True, "method": "review.override"}},
+    }
+    assert calls == [
+        (
+            tmp_path,
+            "review.override",
+            {
+                "session_id": session_id,
+                "job_id": job_id,
+                "verdict": "accept",
+                "rationale": "operator override",
+                "findings_artifact_id": None,
+                "auto_fresh_session": False,
+            },
+        )
+    ]
+
+
 def test_v1_invoke_daemon_mapped_read_uses_daemon_rpc_not_api_invoke(
     tmp_path: Path, monkeypatch: Any
 ) -> None:
