@@ -168,7 +168,7 @@ def test_auto_finalize_defaults_to_dry_run_and_reports_d125_gate(
     try:
         repo_root = tmp_path / "repo_a"
         _write_finding(repo_root, byline="author: reviewer-codex-gpt-5-001")
-        _seed_review_job(conn, repo_root, repository_id="repo_a", auto_finalize_enabled=False)
+        _seed_review_job(conn, repo_root, repository_id="repo_a", auto_finalize_enabled=None)
         _insert_attached_supervisor(conn, repository_id="repo_a")
         _insert_work_packet_and_clean_process(conn, repository_id="repo_a")
         conn.commit()
@@ -184,20 +184,54 @@ def test_auto_finalize_defaults_to_dry_run_and_reports_d125_gate(
         assert result["dry_run"] is True
         assert result["eligible_count"] == 1
         assert result["finalized_count"] == 0
-        assert result["policy"]["workflow_enabled"] is False
-        assert result["policy"]["live_allowed"] is False
-        assert result["policy"]["global_default_mode"] == "dry_run"
+        assert result["policy"]["workflow_enabled"] is True
+        assert result["policy"]["workflow_configured"] is False
+        assert result["policy"]["workflow_opt_out"] is False
+        assert result["policy"]["live_allowed"] is True
+        assert result["policy"]["global_default_mode"] == "live"
         assert result["policy"]["default_live_gate"] == {
             "decision_id": "D125",
-            "status": "pending_evidence",
+            "status": "satisfied",
             "required_live_successes": 3,
             "required_lane_shapes": 2,
             "max_contested_audit_chain_events": 0,
             "evidence_artifact_kind": "auto_finalize_gate_evidence",
-            "live_default_enabled": False,
+            "live_default_enabled": True,
+            "enabled_by_decision_id": "D133",
         }
         assert _count(conn, "striatumd.artifacts", repository_id="repo_a") == 0
         assert _states(conn, repository_id="repo_a")["job"] == "running"
+    finally:
+        conn.close()
+
+
+def test_auto_finalize_live_defaults_enabled_without_policy_opt_in(
+    tmp_path: Path, pg_url: str
+) -> None:
+    conn = connect(pg_url)
+    try:
+        repo_root = tmp_path / "repo_a"
+        _write_finding(repo_root, byline="author: reviewer-codex-gpt-5-001")
+        _seed_review_job(conn, repo_root, repository_id="repo_a", auto_finalize_enabled=None)
+        _insert_attached_supervisor(conn, repository_id="repo_a")
+        _insert_work_packet_and_clean_process(conn, repository_id="repo_a")
+        conn.commit()
+
+        result = handle(
+            _ctx(conn, repo_root, repository_id="repo_a"),
+            {
+                "run_id": "run_1",
+                "dry_run": False,
+                "mtime_grace_seconds": 0,
+            },
+        )
+
+        assert result["policy"]["global_default_mode"] == "live"
+        assert result["policy"]["workflow_configured"] is False
+        assert result["policy"]["live_allowed"] is True
+        assert result["finalized_count"] == 1
+        assert _count(conn, "striatumd.artifacts", repository_id="repo_a") == 1
+        assert _states(conn, repository_id="repo_a")["job"] == "completed"
     finally:
         conn.close()
 
@@ -244,13 +278,13 @@ def test_auto_finalize_dry_run_projection_reports_status_eligibility(
         conn.close()
 
 
-def test_status_auto_finalize_projection_reports_refusal_without_live_opt_in(
+def test_status_auto_finalize_projection_hides_live_action_when_workflow_opts_out(
     tmp_path: Path, pg_url: str
 ) -> None:
     conn = connect(pg_url)
     try:
         repo_root = tmp_path / "repo_a"
-        _write_finding(repo_root, byline="author: reviewer-codex-gpt-5-001", stable=False)
+        _write_finding(repo_root, byline="author: reviewer-codex-gpt-5-001")
         _seed_review_job(conn, repo_root, repository_id="repo_a", auto_finalize_enabled=False)
         _insert_attached_supervisor(conn, repository_id="repo_a")
         _insert_work_packet_and_clean_process(conn, repository_id="repo_a")
@@ -261,14 +295,9 @@ def test_status_auto_finalize_projection_reports_refusal_without_live_opt_in(
         projection = payload["auto_finalize_dry_run"]
 
         assert projection["policy"]["live_allowed"] is False
-        assert projection["eligible_count"] == 0
-        assert projection["skipped_count"] == 1
-        _assert_skip_causes(projection)
-        assert projection["skipped"][0]["cause"] == causes.ARTIFACT_MTIME_INSIDE_GRACE
-        assert projection["skipped"][0]["reason"] == "expected_artifact validation refused"
-        assert projection["skipped"][0]["artifacts"][0]["reason"] == (
-            "expected artifact file mtime is inside the grace period"
-        )
+        assert projection["policy"]["workflow_opt_out"] is True
+        assert projection["eligible_count"] == 1
+        assert projection["skipped_count"] == 0
         assert "recovery_auto_finalize" not in payload["next_actions"]
         assert _count(conn, "striatumd.artifacts", repository_id="repo_a") == 0
         assert _states(conn, repository_id="repo_a")["job"] == "running"
@@ -326,7 +355,7 @@ def test_auto_finalize_requires_all_required_artifacts_before_publishing(
         conn.close()
 
 
-def test_auto_finalize_refuses_live_without_policy_opt_in(
+def test_auto_finalize_refuses_live_when_workflow_explicitly_opts_out(
     tmp_path: Path, pg_url: str
 ) -> None:
     conn = connect(pg_url)
@@ -338,7 +367,7 @@ def test_auto_finalize_refuses_live_without_policy_opt_in(
         _insert_work_packet_and_clean_process(conn, repository_id="repo_a")
         conn.commit()
 
-        with pytest.raises(InvalidTransitionError, match="workflow recovery.auto_finalize.enabled"):
+        with pytest.raises(InvalidTransitionError, match="enabled=false"):
             handle(
                 _ctx(conn, repo_root, repository_id="repo_a"),
                 {
@@ -558,7 +587,7 @@ def _seed_review_job(
     *,
     repository_id: str,
     expected_artifacts: Sequence[Mapping[str, Any]] | None = None,
-    auto_finalize_enabled: bool = True,
+    auto_finalize_enabled: bool | None = True,
 ) -> None:
     now = "2026-05-14T00:00:00Z"
     repo_root.mkdir(parents=True, exist_ok=True)
@@ -570,7 +599,7 @@ def _seed_review_job(
             "required": True,
         }
     ]
-    workflow = {
+    workflow: dict[str, Any] = {
         "workflow_id": "wf",
         "workflow_version": "1",
         "roles": {"reviewer": {}},
@@ -583,8 +612,9 @@ def _seed_review_job(
             }
         ],
         "cycles": [],
-        "recovery": {"auto_finalize": {"enabled": auto_finalize_enabled}},
     }
+    if auto_finalize_enabled is not None:
+        workflow["recovery"] = {"auto_finalize": {"enabled": auto_finalize_enabled}}
     with conn.cursor() as cur:
         cur.execute(
             """

@@ -193,6 +193,35 @@ func TestAutoFinalizeDryRunDefaultsToProjectionMode(t *testing.T) {
 	}
 }
 
+func TestAutoFinalizePolicyStateDefaultsLiveWithExplicitOptOut(t *testing.T) {
+	for _, tc := range []struct {
+		name            string
+		policy          any
+		wantEnabled     bool
+		wantConfigured  bool
+		wantWorkflowOpt bool
+	}{
+		{"absent", nil, true, false, false},
+		{"legacy-true", true, true, true, false},
+		{"legacy-false", false, false, true, true},
+		{"empty-map", map[string]any{}, true, true, false},
+		{"enabled-true", map[string]any{"enabled": true}, true, true, false},
+		{"enabled-false", map[string]any{"enabled": false}, false, true, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			enabled, configured, optOut := autoFinalizePolicyState(tc.policy)
+			if enabled != tc.wantEnabled || configured != tc.wantConfigured || optOut != tc.wantWorkflowOpt {
+				t.Fatalf("policy state = enabled:%v configured:%v optOut:%v", enabled, configured, optOut)
+			}
+		})
+	}
+
+	gate := autoFinalizeDefaultLiveGate()
+	if gate["status"] != "satisfied" || gate["live_default_enabled"] != true || gate["enabled_by_decision_id"] != "D133" {
+		t.Fatalf("default live gate = %#v", gate)
+	}
+}
+
 func TestAutoFinalizeResetCircuitBreakerRequiresLiveMode(t *testing.T) {
 	server := rpc.NewServer()
 	Register(server, inertRunner{})

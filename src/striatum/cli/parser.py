@@ -1173,7 +1173,8 @@ def build_parser() -> argparse.ArgumentParser:
         help=(
             "RFC 0051 V1: publish and complete work from stable declared "
             "expected artifacts with valid front matter and byline metadata. "
-            "Dry-run by default; live mode requires workflow opt-in or --force."
+            "Manual command defaults to dry-run; live mode uses the D133 "
+            "default-live policy unless the workflow explicitly opts out."
         ),
     )
     recovery_auto_finalize.add_argument("--run-id", required=True)
@@ -1200,7 +1201,7 @@ def build_parser() -> argparse.ArgumentParser:
     recovery_auto_finalize.add_argument(
         "--force",
         action="store_true",
-        help="allow live mode before workflow recovery.auto_finalize opt-in",
+        help="allow live mode despite workflow recovery.auto_finalize.enabled=false",
     )
     recovery_auto_finalize.add_argument(
         "--reset-circuit-breaker",

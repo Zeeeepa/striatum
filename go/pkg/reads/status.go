@@ -563,7 +563,7 @@ func statusNextActions(
 	if len(nonAcceptingVerdicts) > 0 {
 		out = append(out, "revise_workflow_cycle", "derive_expected_byline")
 	}
-	if summary, ok := autoFinalize.(map[string]any); ok && (intFrom(summary, "eligible_count") > 0 || intFrom(summary, "candidate_count") > 0) {
+	if summary, ok := autoFinalize.(map[string]any); ok && statusAutoFinalizeLiveAllowed(summary) && (intFrom(summary, "eligible_count") > 0 || intFrom(summary, "candidate_count") > 0) {
 		out = appendUnique(out, "recovery_auto_finalize")
 	}
 	for _, action := range statusStringList(processHealth["next_actions"]) {
@@ -611,6 +611,11 @@ func uniqueStrings(items []string) []string {
 		out = appendUnique(out, item)
 	}
 	return out
+}
+
+func statusAutoFinalizeLiveAllowed(summary map[string]any) bool {
+	policy, ok := summary["policy"].(map[string]any)
+	return ok && policy["live_allowed"] == true
 }
 
 func intPlaceholder(value int) string {

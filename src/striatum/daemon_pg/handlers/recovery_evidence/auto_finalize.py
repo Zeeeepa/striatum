@@ -49,12 +49,13 @@ DEFAULT_CIRCUIT_BREAKER_MAX_CONSECUTIVE = 3
 DEFAULT_CIRCUIT_BREAKER_WINDOW_SECONDS = 600
 D125_DEFAULT_LIVE_GATE = {
     "decision_id": "D125",
-    "status": "pending_evidence",
+    "status": "satisfied",
     "required_live_successes": 3,
     "required_lane_shapes": 2,
     "max_contested_audit_chain_events": 0,
     "evidence_artifact_kind": "auto_finalize_gate_evidence",
-    "live_default_enabled": False,
+    "live_default_enabled": True,
+    "enabled_by_decision_id": "D133",
 }
 AUTO_FINALIZE_SUMMARY = "auto-finalized from stable expected artifact files"
 NO_PROCESS_RATIONALE = (
@@ -85,8 +86,8 @@ def handle(ctx: RepoHandlerContext, params: Mapping[str, Any]) -> dict[str, Any]
         raise InvalidTransitionError("--reset-circuit-breaker requires --live")
     if not dry_run and not policy["live_allowed"]:
         raise InvalidTransitionError(
-            "recovery.auto_finalize live mode requires workflow recovery.auto_finalize.enabled=true "
-            "or --force"
+            "recovery.auto_finalize live mode is disabled by workflow "
+            "recovery.auto_finalize.enabled=false; use --force for operator override"
         )
     reset_result = (
         _reset_circuit_breaker(ctx, run_id=run_id, params=params)
@@ -282,18 +283,16 @@ def _policy_result(
 ) -> dict[str, Any]:
     workflow = workflow_for_run(ctx, run_id=run_id)
     auto_finalize = _auto_finalize_policy(workflow)
-    workflow_enabled = False
-    if isinstance(auto_finalize, dict):
-        workflow_enabled = auto_finalize.get("enabled") is True
-    elif isinstance(auto_finalize, bool):
-        workflow_enabled = auto_finalize
+    policy_state = auto_finalize_policy_state(auto_finalize)
     force = bool(params.get("force", False))
     circuit_breaker = _circuit_breaker_policy(ctx, run_id=run_id, policy=auto_finalize)
     return {
-        "workflow_enabled": workflow_enabled,
+        "workflow_enabled": policy_state["workflow_enabled"],
+        "workflow_configured": policy_state["workflow_configured"],
+        "workflow_opt_out": policy_state["workflow_opt_out"],
         "force": force,
-        "live_allowed": workflow_enabled or force,
-        "global_default_mode": "dry_run",
+        "live_allowed": policy_state["workflow_enabled"] or force,
+        "global_default_mode": "live",
         "default_live_gate": dict(D125_DEFAULT_LIVE_GATE),
         "mtime_grace_seconds": _mtime_grace_seconds(params),
         "allow_no_process_execution": bool(params.get("allow_no_process_execution", False)),
@@ -309,6 +308,23 @@ def _auto_finalize_policy(workflow: Mapping[str, Any]) -> object:
     if auto_finalize is None:
         auto_finalize = workflow.get("auto_finalize")
     return auto_finalize
+
+
+def auto_finalize_policy_state(policy: object) -> dict[str, bool]:
+    """Return the effective D133 policy for a workflow auto-finalize block."""
+    configured = policy is not None
+    explicit_opt_out = policy is False
+    if isinstance(policy, Mapping):
+        explicit_opt_out = policy.get("enabled") is False
+    return {
+        "workflow_enabled": not explicit_opt_out,
+        "workflow_configured": configured,
+        "workflow_opt_out": explicit_opt_out,
+    }
+
+
+def auto_finalize_live_enabled(workflow: Mapping[str, Any]) -> bool:
+    return auto_finalize_policy_state(_auto_finalize_policy(workflow))["workflow_enabled"]
 
 
 def _circuit_breaker_policy(

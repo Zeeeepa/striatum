@@ -43,7 +43,7 @@ def test_recovery_sweep_handler_registered() -> None:
     assert list(inspect.signature(handle).parameters) == ["ctx", "params"]
 
 
-def test_recovery_sweep_auto_finalizes_before_lazy_lease_expiry_when_opted_in(
+def test_recovery_sweep_auto_finalizes_before_lazy_lease_expiry_by_default(
     tmp_path: Path,
     pg_url: str,
 ) -> None:
@@ -51,7 +51,7 @@ def test_recovery_sweep_auto_finalizes_before_lazy_lease_expiry_when_opted_in(
     try:
         repo_root = tmp_path / "repo_a"
         _write_finding(repo_root, byline="author: reviewer-codex-gpt-5-001")
-        _seed_review_job(conn, repo_root, repository_id="repo_a")
+        _seed_review_job(conn, repo_root, repository_id="repo_a", auto_finalize_enabled=None)
         _insert_attached_supervisor(conn, repository_id="repo_a")
         _insert_work_packet_and_clean_process(conn, repository_id="repo_a")
         conn.commit()
@@ -186,7 +186,7 @@ def test_recovery_sweep_acceptance_auto_finalizes_valid_written_artifacts_withou
         conn.close()
 
 
-def test_recovery_sweep_does_not_force_auto_finalize_without_workflow_opt_in(
+def test_recovery_sweep_respects_explicit_auto_finalize_opt_out(
     tmp_path: Path,
     pg_url: str,
 ) -> None:

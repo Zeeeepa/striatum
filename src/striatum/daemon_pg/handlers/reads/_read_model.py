@@ -99,6 +99,7 @@ def status_payload(ctx: RepoHandlerContext, *, run_id: str | None) -> dict[str, 
     if (
         auto_finalize
         and int(auto_finalize.get("eligible_count") or 0) > 0
+        and _auto_finalize_live_allowed(auto_finalize)
         and "recovery_auto_finalize" not in actions
     ):
         actions.append("recovery_auto_finalize")
@@ -133,6 +134,11 @@ def status_payload(ctx: RepoHandlerContext, *, run_id: str | None) -> dict[str, 
 
 def auto_finalize_projection(ctx: RepoHandlerContext, *, run_id: str) -> dict[str, Any]:
     return auto_finalize_dry_run_projection(ctx, run_id=run_id)
+
+
+def _auto_finalize_live_allowed(projection: Mapping[str, Any]) -> bool:
+    policy = projection.get("policy")
+    return isinstance(policy, Mapping) and policy.get("live_allowed") is True
 
 
 def provenance_mode(ctx: RepoHandlerContext, *, run_id: str | None) -> str | None:

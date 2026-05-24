@@ -47,11 +47,12 @@ transition events, tmux attach metadata projection, fail-closed
 keep tmux panes, pane text, terminal output, and transcripts as inspection
 metadata only, never workflow state.
 
-The TODO 55/56/59/60 product checkpoint is resolved by D124-D127. D125 keeps
-global auto-finalize dry-run by default; its evidence gate is now satisfied by
-three successful live dogfoods across review, build, and synthesis lane shapes
-with zero current contested audit-chain events. Any default-live change still
-requires a separate explicit implementation decision.
+The TODO 55/56/59/60 product checkpoint is resolved by D124-D127 plus D133.
+D125's evidence gate is satisfied by three successful live dogfoods across
+review, build, and synthesis lane shapes with zero current contested
+audit-chain events. D133 flips auto-finalize live allowance on by default for
+workflows that do not explicitly opt out; the manual CLI/RPC command still
+defaults to dry-run preview unless live mode is requested.
 
 The ordered backlog workflow completed on 2026-05-23 as
 `run_0937abb24a344dc268aa35d7c852359e`. It recorded the D125 live gate as
@@ -104,8 +105,9 @@ external to Striatum.
 
 D125 is satisfied for the current repository state. The gate artifact records
 3 operator-self-declared live behavioral successes across 3 lane shapes and
-`contested_audit_chain_events: 0`. The default remains dry-run unless a later
-bounded implementation deliberately changes that policy.
+`contested_audit_chain_events: 0`. D133 now implements the bounded default-live
+policy change: absent workflow policy allows live auto-finalize, while
+`recovery.auto_finalize.enabled=false` is the workflow-level opt-out.
 
 The current TODO 1-5 workflow completed on 2026-05-24 as
 `run_f84b4145a7ee371c4b17cc6fc2c29880`; final synthesis is
@@ -120,9 +122,9 @@ validation, and catalog freshness checks.
 
 ## Next 1-3 Actions
 
-1. Keep global auto-finalize dry-run and workflow-opt-in unless a later
-   explicit policy/implementation decision flips the default after D125's
-   satisfied evidence gate.
+1. Monitor D133 default-live auto-finalize and use
+   `recovery.auto_finalize.enabled=false` only for workflows that require
+   strict agent-only finalization.
 2. Treat RFC 0050/RFC 0075 cutover as complete for live workflow control.
    Keep the CLI survivor categories in `docs/architecture/CLI_RETIREMENT_PARITY.md`
    current when adding daemon methods. Hide/delete compatibility CLI verbs only
@@ -135,9 +137,9 @@ validation, and catalog freshness checks.
 
 ## Blockers
 
-- D125 default-live auto-finalize is no longer blocked on evidence. The
-  satisfied gate permits future reconsideration, but no default-live flip is
-  implemented by this update.
+- D125 default-live auto-finalize is no longer blocked on evidence or policy.
+  D133 has landed; any rollback or narrower per-job policy needs a new bounded
+  decision.
 - RFC 0050/RFC 0075 live workflow-control cutover is no longer blocked.
   Remaining CLI compatibility cleanup is a future deprecation policy question,
   not an active parity blocker.

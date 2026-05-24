@@ -729,7 +729,9 @@ V1 schemas:
   `evidence_artifacts`, and `created_at`. A `satisfied` artifact must record
   at least three live successes, at least two lane shapes, and zero contested
   audit-chain events. This artifact records the default-on evidence gate; it
-  does not make live auto-finalize the global default.
+  did not itself make live auto-finalize the global default. D133 is the
+  separate decision that flips default-live allowance after the gate is
+  satisfied.
 
 Other artifact kinds (`prompt`, `marker`, `handoff`, `patch_summary`,
 `test_report`, `other`) remain unschemaed in V1 and pass through without a
@@ -1051,11 +1053,10 @@ timeout blockers require `--force`.
 `recovery auto --run-id <id>` (RFC 0020 V1) is a one-shot autonomous
 sweeper composable with cron / systemd timer. In daemon RPC the
 canonical method is `recovery.sweep`. The sweep first evaluates
-`recovery.auto_finalize` only when the workflow opted into
-`recovery.auto_finalize.enabled=true`; live sweep mode never supplies
-the standalone auto-finalize `--force` override and does not make global
-live auto-finalize the default. It then runs lazy lease expiry, optional
-process reconciliation, optional autonomous review-only requeue
+`recovery.auto_finalize` unless the workflow explicitly opts out with
+`recovery.auto_finalize.enabled=false`; live sweep mode never supplies
+the standalone auto-finalize `--force` override. It then runs lazy lease
+expiry, optional process reconciliation, optional autonomous review-only requeue
 (D036-safe), human-checkpoint timeout escalation, and eligible-blocker
 doctor flagging — and returns a structured envelope `{run_id, swept_at,
 run_state, policy_source, dry_run, actions, escalations, still_stuck}`. Workflows

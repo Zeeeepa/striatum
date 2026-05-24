@@ -56,7 +56,7 @@ func HandleRecoveryAutoFinalize(ctx context.Context, runner db.Runner, envelope 
 		return nil, err
 	}
 	if !dryRun && policy["live_allowed"] != true {
-		return nil, rpc.NewError("invalid_transition", "recovery.auto_finalize live mode requires workflow recovery.auto_finalize.enabled=true or --force", nil)
+		return nil, rpc.NewError("invalid_transition", "recovery.auto_finalize live mode is disabled by workflow recovery.auto_finalize.enabled=false; use --force for operator override", nil)
 	}
 	var resetResult map[string]any
 	if boolParam(envelope, "reset_circuit_breaker") {
@@ -234,7 +234,6 @@ func readAutoFinalizePolicy(ctx context.Context, runner db.Runner, repositoryID,
 			return nil, err
 		}
 		workflow := asMap(snapshot["workflow_json"])
-		enabled := false
 		policy := any(nil)
 		if recovery := asMap(workflow["recovery"]); len(recovery) > 0 {
 			policy = recovery["auto_finalize"]
@@ -242,12 +241,7 @@ func readAutoFinalizePolicy(ctx context.Context, runner db.Runner, repositoryID,
 		if policy == nil {
 			policy = workflow["auto_finalize"]
 		}
-		switch typed := policy.(type) {
-		case bool:
-			enabled = typed
-		case map[string]any:
-			enabled = typed["enabled"] == true
-		}
+		enabled, configured, optOut := autoFinalizePolicyState(policy)
 		circuitBreaker, err := autoFinalizeCircuitBreakerPolicy(ctx, tx, repositoryID, runID, policy)
 		if err != nil {
 			return nil, err
@@ -255,13 +249,46 @@ func readAutoFinalizePolicy(ctx context.Context, runner db.Runner, repositoryID,
 		force := boolParam(envelope, "force")
 		return map[string]any{
 			"workflow_enabled":           enabled,
+			"workflow_configured":        configured,
+			"workflow_opt_out":           optOut,
 			"force":                      force,
 			"live_allowed":               enabled || force,
+			"global_default_mode":        "live",
+			"default_live_gate":          autoFinalizeDefaultLiveGate(),
 			"mtime_grace_seconds":        mtimeGraceSeconds,
 			"allow_no_process_execution": boolParam(envelope, "allow_no_process_execution"),
 			"circuit_breaker":            circuitBreaker,
 		}, nil
 	})
+}
+
+func autoFinalizePolicyState(policy any) (enabled bool, configured bool, optOut bool) {
+	configured = policy != nil
+	optOut = false
+	switch typed := policy.(type) {
+	case bool:
+		optOut = !typed
+	case map[string]any:
+		optOut = typed["enabled"] == false
+	default:
+		if policyMap := asMap(policy); len(policyMap) > 0 {
+			optOut = policyMap["enabled"] == false
+		}
+	}
+	return !optOut, configured, optOut
+}
+
+func autoFinalizeDefaultLiveGate() map[string]any {
+	return map[string]any{
+		"decision_id":                      "D125",
+		"status":                           "satisfied",
+		"required_live_successes":          3,
+		"required_lane_shapes":             2,
+		"max_contested_audit_chain_events": 0,
+		"evidence_artifact_kind":           "auto_finalize_gate_evidence",
+		"live_default_enabled":             true,
+		"enabled_by_decision_id":           "D133",
+	}
 }
 
 func autoFinalizeEmptyResult(runID string, dryRun bool, reason string, policy map[string]any) map[string]any {

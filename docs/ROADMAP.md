@@ -29,7 +29,8 @@ dependency edges, and "what would I do next" framing. Update on every
   active runway. The 2026-05-23 closure artifacts under `docs/operator/`
   classify TODO 62, TODO 63, TODO 2, TODO 16, artifact schema/redaction, RFC
   0040 V1.6, and the deferred items formerly listed as 14-27. The actionable
-  result is narrower than the old backlog: D125 evidence gate is satisfied,
+  result is narrower than the old backlog: D125 evidence gate is satisfied
+  and D133 flips default-live auto-finalize with explicit workflow opt-out,
   RFC 0050/0075 live workflow-control cutover is closed, TODO 52 and TODO 53
   have additional bounded cleanup slices landed, TODO 49/61 remains legacy
   SQLite fixture/import cleanup,
@@ -272,16 +273,17 @@ cleanup is legacy fixture/import/module deletion.
 
 **Updates:** [TODO item 56](TODO.md).
 
-The bounded daemon slice has landed: `recovery.auto_finalize` supports dry-run
-and workflow-opt-in live mode, records explicit `artifact.auto_finalized` and
-`job.auto_finalized` events, projects eligibility/refusal state through status,
-dashboard, and web surfaces, and leaves malformed/missing/byline-mismatched
-artifacts on the existing operator recovery path.
+The bounded daemon slice has landed: `recovery.auto_finalize` supports manual
+dry-run preview and default-live mode with explicit workflow opt-out, records
+explicit `artifact.auto_finalized` and `job.auto_finalized` events, projects
+eligibility/refusal state through status, dashboard, and web surfaces, and
+leaves malformed/missing/byline-mismatched artifacts on the existing operator
+recovery path.
 
-**Current boundary:** global/default auto-finalize is intentionally not
-enabled. That policy waits on live dogfood confidence plus an explicit product
-decision about when Striatum may complete work from durable artifacts without
-per-workflow opt-in.
+**Current boundary:** global/default auto-finalize live allowance is enabled
+by D133 after the D125 evidence gate. Workflows that require strict agent-only
+finalization opt out with `recovery.auto_finalize.enabled=false`; status,
+dashboard, and web projections remain dry-run/read-only previews.
 
 ### 4.3 ✅ completed — TODO #30 / RFC 0039 V1.6 Go support-runtime hardening
 
@@ -793,7 +795,7 @@ workflow-file metadata a live authority.
 
 **Landed in this slice:**
 - Added `recovery.auto_finalize` as a daemon/Postgres recovery method with
-  dry-run and workflow-opt-in live modes.
+  manual dry-run preview and default-live mode with explicit workflow opt-out.
 - The checker validates declared required expected artifacts, stable mtime,
   front matter, exact byline, active lease/session ownership, and lane
   evidence before mutating state.
@@ -806,13 +808,14 @@ workflow-file metadata a live authority.
   `recovery.auto_finalize` method instead of overloading `recovery.auto`.
 - Status/dashboard projections now include an `auto_finalize_dry_run` preview
   with eligible candidates and refusal reasons, and the web recovery panel can
-  render the same preview without enabling live auto-finalize globally.
+  render the same read-only preview while live auto-finalize is globally
+  allowed by policy.
 - The recovery method surface is split: `recovery.sweep` is the canonical
   daemon RPC for `striatum recovery auto`, `recovery auto-publish` emits
   `recovery.auto_publish_stale_artifacts`, and deprecated `recovery.auto`
   remains only as a compatibility alias for stale-artifact auto-publish.
-- The sweep invokes live auto-finalize before lazy lease expiry only when the
-  workflow opted in and never supplies the standalone force override.
+- The sweep invokes live auto-finalize before lazy lease expiry unless the
+  workflow explicitly opts out and never supplies the standalone force override.
 - PostgreSQL sweep executes configured checkpoint-timeout escalation hooks in
   live mode, reports hook eligibility without side effects in dry-runs, and
   folds hook failures into `escalations[]`.
@@ -828,19 +831,19 @@ workflow-file metadata a live authority.
   workflow policy defaults, open-breaker dry-run/status visibility,
   force-resistant live refusal, explicit live reset, audit events, and mirrored
   Python/Go migration support.
-- Recovery policy payloads now expose `global_default_mode="dry_run"` plus
-  the D125 default-live gate, and schema-bearing
+- Recovery policy payloads now expose `global_default_mode="live"` plus
+  the satisfied D125 default-live gate, and schema-bearing
   `auto_finalize_gate_evidence` artifacts validate the required three live
   successes, two lane shapes, and zero contested audit-chain events before
   the evidence gate can be marked satisfied.
 - The 2026-05-24 synthesis evidence slice satisfied the D125 gate with three
   live successes across review, build, and synthesis lane shapes and zero
-  current contested audit-chain events.
+  current contested audit-chain events; D133 then flipped default-live
+  allowance with explicit workflow opt-out.
 
-**Remaining Phase 8 debt:** none for the evidence gate. D125 still keeps
-dry-run projection as the global default and live auto-finalize workflow
-opt-in; any default-on flip is a separate explicit policy/implementation
-change.
+**Remaining Phase 8 debt:** none for the evidence gate or default-live
+cutover. Continue monitoring contested audit-chain events and false-positive
+finalization reports.
 
 ---
 
@@ -1130,9 +1133,9 @@ Release order after Phase 0:
    records landed for MCP/daemon clients, with CLI/UI polish completed in
    §4.11.
 8. **TODO 56 / Phase 8:** auto-finalize daemon method, status/dashboard/web
-   visibility, bounded sweep integration, skipped-candidate cause classes, and
-   the D125 evidence gate landed; D125 still keeps the dry-run default unless
-   a later explicit policy change flips it, tracked in §4.12.
+   visibility, bounded sweep integration, skipped-candidate cause classes, the
+   D125 evidence gate, and the D133 default-live cutover landed; tracked in
+   §4.12.
 9. **TODO 57 / Phase 9:** clean-build, bundle-size, and wheel-size gates
    landed; chunking is monitor-only and tracked in §4.13.
 10. **TODO 58 / Phase 10:** day-zero Postgres/daemon setup slice

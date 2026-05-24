@@ -46,8 +46,8 @@ def handle(ctx: RepoHandlerContext, params: Mapping[str, Any]) -> dict[str, Any]
     escalations: list[dict[str, Any]] = []
     still_stuck: list[dict[str, Any]] = []
 
-    # Phase 8 checkpoint: only run auto-finalize from the sweep when the
-    # workflow opted in. Do not honor any force flag here.
+    # D133: sweep auto-finalize is live by default unless the workflow
+    # explicitly opts out. Do not honor any force flag here.
     if _auto_finalize_enabled(workflow) and str(run["state"]) == "running":
         _append_auto_finalize_action(
             ctx,
@@ -151,15 +151,7 @@ def _resolve_policy(
 
 
 def _auto_finalize_enabled(workflow: Mapping[str, Any]) -> bool:
-    recovery = workflow.get("recovery")
-    auto_finalize_policy: object = None
-    if isinstance(recovery, dict):
-        auto_finalize_policy = recovery.get("auto_finalize")
-    if auto_finalize_policy is None:
-        auto_finalize_policy = workflow.get("auto_finalize")
-    if isinstance(auto_finalize_policy, dict):
-        return auto_finalize_policy.get("enabled") is True
-    return auto_finalize_policy is True
+    return auto_finalize.auto_finalize_live_enabled(workflow)
 
 
 def _append_auto_finalize_action(

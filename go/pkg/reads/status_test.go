@@ -227,6 +227,44 @@ func TestHandleStatusBuildsPythonShapedRunProjection(t *testing.T) {
 	}
 }
 
+func TestStatusNextActionsRespectAutoFinalizeLivePolicy(t *testing.T) {
+	optOutActions := statusNextActions(
+		nil,
+		nil,
+		nil,
+		nil,
+		false,
+		false,
+		map[string]any{},
+		map[string]any{},
+		map[string]any{
+			"candidate_count": int64(1),
+			"policy":          map[string]any{"live_allowed": false},
+		},
+	)
+	if containsString(optOutActions, "recovery_auto_finalize") {
+		t.Fatalf("opt-out actions include recovery_auto_finalize: %#v", optOutActions)
+	}
+
+	liveActions := statusNextActions(
+		nil,
+		nil,
+		nil,
+		nil,
+		false,
+		false,
+		map[string]any{},
+		map[string]any{},
+		map[string]any{
+			"candidate_count": int64(1),
+			"policy":          map[string]any{"live_allowed": true},
+		},
+	)
+	if !containsString(liveActions, "recovery_auto_finalize") {
+		t.Fatalf("live actions missing recovery_auto_finalize: %#v", liveActions)
+	}
+}
+
 func TestHandleStatusRejectsUnknownRunID(t *testing.T) {
 	_, err := HandleStatus(context.Background(), statusFakeRunner{runFound: false}, rpc.Envelope{
 		Params: map[string]any{"repository_id": "repo_a", "run_id": "missing"},

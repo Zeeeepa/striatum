@@ -666,25 +666,51 @@ func dashboardAllLaneFinalizationSummary(autoFromArtifact, manualPublish, pendin
 }
 
 func dashboardAllAutoFinalizePolicy(workflow map[string]any) map[string]any {
-	enabled := false
 	policy := workflow["auto_finalize"]
 	if recovery := objectFromJSONish(workflow["recovery"]); len(recovery) > 0 {
 		if value, ok := recovery["auto_finalize"]; ok {
 			policy = value
 		}
 	}
-	switch typed := policy.(type) {
-	case bool:
-		enabled = typed
-	case map[string]any:
-		enabled = typed["enabled"] == true
-	}
+	enabled, configured, optOut := dashboardAllAutoFinalizePolicyState(policy)
 	return map[string]any{
 		"workflow_enabled":           enabled,
+		"workflow_configured":        configured,
+		"workflow_opt_out":           optOut,
 		"force":                      false,
 		"live_allowed":               enabled,
+		"global_default_mode":        "live",
+		"default_live_gate":          dashboardAllAutoFinalizeDefaultLiveGate(),
 		"mtime_grace_seconds":        30,
 		"allow_no_process_execution": false,
+	}
+}
+
+func dashboardAllAutoFinalizePolicyState(policy any) (enabled bool, configured bool, optOut bool) {
+	configured = policy != nil
+	switch typed := policy.(type) {
+	case bool:
+		optOut = !typed
+	case map[string]any:
+		optOut = typed["enabled"] == false
+	default:
+		if policyMap := objectFromJSONish(policy); len(policyMap) > 0 {
+			optOut = policyMap["enabled"] == false
+		}
+	}
+	return !optOut, configured, optOut
+}
+
+func dashboardAllAutoFinalizeDefaultLiveGate() map[string]any {
+	return map[string]any{
+		"decision_id":                      "D125",
+		"status":                           "satisfied",
+		"required_live_successes":          3,
+		"required_lane_shapes":             2,
+		"max_contested_audit_chain_events": 0,
+		"evidence_artifact_kind":           "auto_finalize_gate_evidence",
+		"live_default_enabled":             true,
+		"enabled_by_decision_id":           "D133",
 	}
 }
 

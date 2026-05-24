@@ -218,9 +218,33 @@ func TestHandleDashboardAllBuildsGlobalProjectionReadOnly(t *testing.T) {
 	if policy["workflow_enabled"] != true || policy["live_allowed"] != true {
 		t.Fatalf("auto-finalize policy = %#v", policy)
 	}
+	if policy["global_default_mode"] != "live" || policy["default_live_gate"].(map[string]any)["enabled_by_decision_id"] != "D133" {
+		t.Fatalf("auto-finalize default-live policy = %#v", policy)
+	}
 	supervisorStalls := progress[0]["supervisor_stalls"].(map[string]any)
 	if supervisorStalls["stalled_count"] != 1 || supervisorStalls["warning_count"] != 1 {
 		t.Fatalf("supervisor stalls = %#v", supervisorStalls)
+	}
+}
+
+func TestDashboardAllAutoFinalizePolicyDefaultsLiveWithExplicitOptOut(t *testing.T) {
+	defaultPolicy := dashboardAllAutoFinalizePolicy(map[string]any{})
+	if defaultPolicy["workflow_enabled"] != true ||
+		defaultPolicy["workflow_configured"] != false ||
+		defaultPolicy["workflow_opt_out"] != false ||
+		defaultPolicy["live_allowed"] != true ||
+		defaultPolicy["global_default_mode"] != "live" {
+		t.Fatalf("default auto-finalize policy = %#v", defaultPolicy)
+	}
+
+	optOutPolicy := dashboardAllAutoFinalizePolicy(map[string]any{
+		"recovery": map[string]any{"auto_finalize": map[string]any{"enabled": false}},
+	})
+	if optOutPolicy["workflow_enabled"] != false ||
+		optOutPolicy["workflow_configured"] != true ||
+		optOutPolicy["workflow_opt_out"] != true ||
+		optOutPolicy["live_allowed"] != false {
+		t.Fatalf("opt-out auto-finalize policy = %#v", optOutPolicy)
 	}
 }
 

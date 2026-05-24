@@ -107,7 +107,7 @@ so external references keep resolving even as items move between sections.
 | 53 | RFC 0062 Architecture remediation Phase 5 — real escalation inbox | 🟡 projection + typed inbox table + escalation artifact linkage + blocker payload schema landed |
 | 54 | RFC 0063 Architecture remediation Phase 6 — hardened PTY supervision | ✅ done |
 | 55 | RFC 0064 Architecture remediation Phase 7 — workflow risk lint and review diversity enforcement | ✅ done |
-| 56 | Architecture remediation Phase 8 — auto-finalize from front matter | ✅ D125 evidence gate satisfied; default remains dry-run pending separate policy change |
+| 56 | Architecture remediation Phase 8 — auto-finalize from front matter | ✅ D133 default-live cutover landed with explicit workflow opt-out |
 | 57 | RFC 0065 Architecture remediation Phase 9 — UI packaging and bundle cleanup | ✅ done; chunking monitor only |
 | 58 | RFC 0059 Architecture remediation Phase 10 — day-zero setup improvements | ✅ done |
 | 59 | RFC 0059 RFC 0066 Architecture remediation Phase 11 — replay, archive, and corpus v2 foundations | ✅ done for core; optional external consumer UX remains out of core |
@@ -766,18 +766,18 @@ section is the canonical status snapshot.
     match. **Downgrades from urgent to safety-net-only after gh-16
     empirically validated v1.48.1's wrapper auth fix** (zero
     operator-on-behalf publishes across all 3 lanes). Phase 8 daemon
-    slice landed `recovery.auto_finalize` as a dry-run-by-default,
-    workflow-opt-in live recovery method over declared
+    slice landed `recovery.auto_finalize` as a dry-run-by-default manual
+    command and default-live recovery method over declared
     `expected_artifacts`. It validates stable mtime, artifact kind,
     front matter, required byline, active lease/session ownership, and
     lane evidence; review jobs derive the verdict from
     `verdict_intent`; auto-finalized artifacts are marked in PG evidence
     summaries. A follow-up slice now surfaces dry-run eligibility and
     refusal reasons through status/dashboard projections and the web recovery
-    panel without changing the dry-run-by-default/live-opt-in policy.
+    panel while preserving read-only previews.
     The bounded sweep integration now routes `recovery auto` through
     canonical `recovery.sweep`, runs auto-finalize before lazy lease
-    expiry only when the workflow opted in, and routes stale-artifact
+    expiry unless the workflow explicitly opts out, and routes stale-artifact
     auto-publish through explicit `recovery.auto_publish_stale_artifacts`.
     PostgreSQL sweep now also executes configured checkpoint-timeout
     escalation hooks in live mode, keeps dry-runs side-effect-free, and
@@ -785,7 +785,9 @@ section is the canonical status snapshot.
     Automated PG recovery coverage now pins a dogfood-shaped run where
     three valid written artifacts auto-finalize with zero
     `dogfood.publish_on_behalf` or operator-override provenance events.
-    Remaining: default policy decision after live dogfood confidence.
+    D133 completes the default policy cutover after live dogfood confidence:
+    absent workflow policy allows live auto-finalize, and
+    `recovery.auto_finalize.enabled=false` is the explicit opt-out.
 
 43. **RFC 0052 V0 (committee deliberation workflow).** Proposed
     2026-05-14. Committee shape for high-stakes design phases: N
@@ -1218,15 +1220,16 @@ review and plan are root-level operator artifacts:
     landed: `recovery.auto_finalize` dry-run/live PG handler, CLI route,
     method contract entry, generated Go registry entry, explicit
     `artifact.auto_finalized` and `job.auto_finalized` events, review
-    `verdict_intent` handling, no-partial-publish guard, workflow opt-in
-    live policy, PG evidence `publish_origin=auto_from_artifact`, and
+    `verdict_intent` handling, no-partial-publish guard, default-live
+    workflow policy with explicit opt-out, PG evidence
+    `publish_origin=auto_from_artifact`, and
     status/dashboard/web dry-run visibility for eligibility/refusal reasons.
     Follow-up checkpoint split the overloaded recovery method surface:
     `recovery.sweep` is the canonical `recovery auto` RPC, stale-artifact
     auto-publish is explicit as `recovery.auto_publish_stale_artifacts`,
     and deprecated `recovery.auto` is no longer emitted by the CLI.
-    The sweep invokes live auto-finalize only under workflow opt-in and
-    never supplies the standalone force override. It also executes
+    The sweep invokes live auto-finalize unless the workflow explicitly opts
+    out and never supplies the standalone force override. It also executes
     configured checkpoint-timeout escalation hooks in live mode while
     preserving dry-run no-side-effect behavior and folding hook failures
     into `escalations[]`. Automated dogfood-shaped acceptance coverage now
@@ -1239,10 +1242,10 @@ review and plan are root-level operator artifacts:
     Go SQL summary path. The consecutive-failure circuit breaker is now
     table-backed with workflow policy defaults, open-breaker status in
     dry-run projections, force-resistant refusal until explicit live reset,
-    reset/open audit events, and mirrored Python/Go migration support. D125
-    keeps the global default as dry-run projection
-    and live auto-finalize workflow opt-in. The policy projection now reports
-    `global_default_mode="dry_run"` plus the D125 default-live evidence gate,
+    reset/open audit events, and mirrored Python/Go migration support. D133
+    flips the global default live allowance after D125's satisfied evidence
+    gate. The policy projection now reports
+    `global_default_mode="live"` plus the D125 default-live evidence gate,
     and `auto_finalize_gate_evidence` artifacts validate the required three
     live successes, two lane shapes, and zero contested audit-chain events.
     The 2026-05-24 synthesis evidence slice satisfied that gate with three
@@ -1372,8 +1375,9 @@ review and plan are root-level operator artifacts:
     runners. Go now owns `repo.add`,
     `repo.list`, and `repo.remove` handlers over daemon-owned PostgreSQL,
     including SQLite-source refusal and repo-scoped capability revocation on
-    removal. Go now owns `recovery.auto_finalize` as a dry-run-by-default,
-    workflow-opt-in live RPC handler over stable expected artifact files, and
+    removal. Go now owns `recovery.auto_finalize` as a dry-run-by-default
+    manual RPC handler and default-live recovery path over stable expected
+    artifact files, and
     `dashboard.all` run-progress projections expose auto-finalize dry-run
     visibility in both Go and Python/PostgreSQL paths. Go also owns a
     read-only `dashboard.all` projection over the PostgreSQL repository

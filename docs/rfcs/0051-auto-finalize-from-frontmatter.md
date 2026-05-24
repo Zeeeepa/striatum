@@ -179,10 +179,10 @@ This RFC does not loosen it. Specifically:
   per-workflow or per-job? Argument for: some workflows want strict
   agent-only finalization. Argument against: lane-stall pattern is
   universal; opt-out would re-introduce the original burden.
-  **Implemented resolution:** ship dry-run-visible and live workflow
-  opt-in. A global/default-on policy requires live dogfood confidence
-  plus an explicit product decision; no default-on flip is implied by
-  V1 implementation.
+  **Implemented resolution:** V1 initially shipped dry-run-visible with live
+  workflow opt-in. D125 later satisfied the default-on evidence gate, and D133
+  flips live allowance on by default. Workflows that require strict
+  agent-only finalization opt out with `recovery.auto_finalize.enabled=false`.
 
 - **OQ-3:** What happens if the agent calls `publish-artifact`
   *after* auto-finalize fires? Argument for race: idempotent —
@@ -219,6 +219,7 @@ self-resolving.
 
 - New event types — no existing event renamed or removed.
 - New audit marker `lane_finalization=auto_from_artifact` — additive.
-- Live auto-finalize changes lease-tick semantics and remains workflow
-  opt-in. Keep dry-run visibility as the default posture until live
-  dogfood evidence and a product decision justify any default-on change.
+- Live auto-finalize changes lease-tick semantics. D133 makes it live by
+  default after the D125 evidence gate; workflows may opt out with
+  `recovery.auto_finalize.enabled=false`, and dry-run projections remain
+  read-only.
