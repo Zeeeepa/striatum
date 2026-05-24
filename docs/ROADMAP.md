@@ -29,9 +29,10 @@ dependency edges, and "what would I do next" framing. Update on every
   active runway. The 2026-05-23 closure artifacts under `docs/operator/`
   classify TODO 62, TODO 63, TODO 2, TODO 16, artifact schema/redaction, RFC
   0040 V1.6, and the deferred items formerly listed as 14-27. The actionable
-  result is narrower than the old backlog: D125 evidence remains an active
-  gate, RFC 0050/0075 live workflow-control cutover is closed, TODO 52/53/61
-  remain bounded cleanup;
+  result is narrower than the old backlog: D125 evidence gate is satisfied,
+  RFC 0050/0075 live workflow-control cutover is closed, TODO 52 and TODO 53
+  have additional bounded cleanup slices landed, TODO 49/61 remains legacy
+  SQLite fixture/import cleanup,
   RFC 0074 Phase B generator support has landed for the lightweight
   `implementation_panel` shape; RFC 0052 Phase A,
   RFC 0053 schema/runtime rename, Cross-Repo Live Scheduler V1, sealed apply,

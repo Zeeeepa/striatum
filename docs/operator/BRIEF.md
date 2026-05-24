@@ -3,7 +3,7 @@ schema_version: "striatum.operator_brief.v1"
 artifact_kind: "operator_brief"
 brief_id: "brief_2026-05-24_current_todo_1_5"
 supersedes: "brief_2026-05-23_rfc0075_polish_closure"
-scope_links: ["docs/operator/plans/current-todo-1-5-2026-05-24.md", "docs/operator/workflows/current-todo-1-5-2026-05-24/workflow.json", "docs/operator/artifacts/d125-auto-finalize-live-synthesis-evidence-2026-05-24/GATE.md", "docs/operator/artifacts/rfc-0050-0075-final-cutover-implementation/final/SUMMARY.md", "docs/architecture/CLI_RETIREMENT_PARITY.md"]
+scope_links: ["docs/operator/plans/current-todo-1-5-2026-05-24.md", "docs/operator/workflows/current-todo-1-5-2026-05-24/workflow.json", "docs/operator/artifacts/current-todo-1-5-2026-05-24/final/SUMMARY.md", "docs/operator/artifacts/d125-auto-finalize-live-synthesis-evidence-2026-05-24/GATE.md", "docs/operator/artifacts/rfc-0050-0075-final-cutover-implementation/final/SUMMARY.md", "docs/architecture/CLI_RETIREMENT_PARITY.md"]
 context_budget_lines: 300
 retrieval_priority: "high"
 status: "current"
@@ -107,22 +107,31 @@ D125 is satisfied for the current repository state. The gate artifact records
 `contested_audit_chain_events: 0`. The default remains dry-run unless a later
 bounded implementation deliberately changes that policy.
 
+The current TODO 1-5 workflow completed on 2026-05-24 as
+`run_f84b4145a7ee371c4b17cc6fc2c29880`; final synthesis is
+`docs/operator/artifacts/current-todo-1-5-2026-05-24/final/SUMMARY.md`.
+It satisfied the D125 evidence gate, deleted six stale skipped legacy SQLite
+fixtures while preserving current PG/daemon coverage, split historical
+dogfood route handling out of `service.py`, hardened `work.block` escalation
+payloads across Python/Go runtime paths, and accepted/landed RFC 0074 Phase B
+`implementation_panel` generator support in Python and Go. Aggregate
+validation passed with `go test ./...`, full Python pytest, workflow
+validation, and catalog freshness checks.
+
 ## Next 1-3 Actions
 
-1. Continue the scaffolded current todo workflow:
-   `docs/operator/workflows/current-todo-1-5-2026-05-24/workflow.json`.
-   D125 evidence is complete; keep global auto-finalize dry-run and
-   workflow-opt-in unless a later decision changes the policy.
+1. Keep global auto-finalize dry-run and workflow-opt-in unless a later
+   explicit policy/implementation decision flips the default after D125's
+   satisfied evidence gate.
 2. Treat RFC 0050/RFC 0075 cutover as complete for live workflow control.
    Keep the CLI survivor categories in `docs/architecture/CLI_RETIREMENT_PARITY.md`
    current when adding daemon methods. Hide/delete compatibility CLI verbs only
    through a later explicit deprecation/release decision.
-3. Continue bounded follow-through: TODO 61/49 legacy SQLite cleanup, TODO 52
-   remaining service route splits, and TODO 53 blocker payload/schema
-   hardening. Schedule new bounded RFCs before implementing RFC 0052 Phase A,
-   RFC 0053 schema/runtime rename,
-   Cross-Repo Live Scheduler V1, sealed apply, Windows support, or local
-   multi-operator tenancy.
+3. Continue bounded follow-through: remaining TODO 49/61 legacy SQLite
+   fixture/import cleanup and any later service split slices. Schedule new
+   bounded RFCs before implementing RFC 0052 Phase A, RFC 0053 schema/runtime
+   rename, Cross-Repo Live Scheduler V1, sealed apply, Windows support, or
+   local multi-operator tenancy.
 
 ## Blockers
 
@@ -164,6 +173,7 @@ bounded implementation deliberately changes that policy.
 - `docs/operator/artifacts/d125-auto-finalize-live-synthesis-evidence-2026-05-24/GATE.md`
 - `docs/operator/plans/current-todo-1-5-2026-05-24.md`
 - `docs/operator/workflows/current-todo-1-5-2026-05-24/workflow.json`
+- `docs/operator/artifacts/current-todo-1-5-2026-05-24/final/SUMMARY.md`
 - `docs/operator/plans/rfc-0050-0075-final-cutover-design.md`
 - `docs/operator/plans/rfc-0050-0075-final-cutover-implementation.md`
 - `docs/operator/artifacts/rfc-0050-0075-final-cutover-implementation/final/SUMMARY.md`
