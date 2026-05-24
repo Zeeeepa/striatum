@@ -33,6 +33,13 @@ var allowedArtifactKinds = map[string]bool{
 	"action_item_ledger":           true,
 	"harness_improvement_proposal": true,
 	"escalation":                   true,
+	"operator_brief":               true,
+	"work_plan":                    true,
+	"progress_note":                true,
+	"operator_report":              true,
+	"commit_request":               true,
+	"pr_request":                   true,
+	"auto_finalize_gate_evidence":  true,
 }
 
 func HandlePublishArtifact(ctx context.Context, runner db.Runner, envelope rpc.Envelope) (map[string]any, error) {
@@ -463,12 +470,118 @@ var frontMatterSchemas = map[string]frontMatterSchema{
 	},
 	"escalation": {
 		fields: map[string]frontMatterField{
-			"schema_version": {true, equalsValue("striatum.escalation.v1")},
-			"artifact_kind":  {true, equalsValue("escalation")},
-			"escalation_id":  {true, isStringValue},
-			"run_id":         {true, isStringValue},
-			"job_id":         {false, isStringValue},
-			"session_id":     {false, isStringValue},
+			"schema_version":    {true, equalsValue("striatum.escalation.v1")},
+			"artifact_kind":     {true, equalsValue("escalation")},
+			"escalation_id":     {true, isNonEmptyStringValue},
+			"run_id":            {true, isNonEmptyStringValue},
+			"job_id":            {false, isNonEmptyStringValue},
+			"session_id":        {false, isNonEmptyStringValue},
+			"severity":          {true, oneOfValue("info", "low", "medium", "high", "critical")},
+			"blocker_kind":      {true, oneOfValue("ambiguous_goal", "missing_authority", "contradicting_decisions", "no_available_reviewer_lane", "committee_stalemate", "override_required")},
+			"description":       {true, isNonEmptyStringValue},
+			"reasoning":         {true, isNonEmptyStringValue},
+			"requested_action":  {true, isNonEmptyStringValue},
+			"related_artifacts": {false, isStringListValue},
+			"created_at":        {true, isNonEmptyStringValue},
+		},
+	},
+	"operator_brief": {
+		fields: map[string]frontMatterField{
+			"schema_version":       {true, equalsValue("striatum.operator_brief.v1")},
+			"artifact_kind":        {true, equalsValue("operator_brief")},
+			"brief_id":             {true, isNonEmptyStringValue},
+			"supersedes":           {true, isNullableNonEmptyStringValue},
+			"scope_links":          {true, isStringListValue},
+			"context_budget_lines": {true, isNonNegativeIntValue},
+			"retrieval_priority":   {true, oneOfValue("high", "medium", "low")},
+			"status":               {true, oneOfValue("current", "superseded")},
+			"author":               {false, isNonEmptyStringValue},
+		},
+	},
+	"work_plan": {
+		fields: map[string]frontMatterField{
+			"schema_version":     {true, equalsValue("striatum.work_plan.v1")},
+			"artifact_kind":      {true, equalsValue("work_plan")},
+			"plan_id":            {true, isNonEmptyStringValue},
+			"scope_kind":         {true, oneOfValue("rfc", "phase", "initiative", "bugfix")},
+			"scope_ref":          {true, isNonEmptyStringValue},
+			"state":              {true, oneOfValue("open", "in_progress", "closed")},
+			"opened_at":          {true, isNonEmptyStringValue},
+			"closed_at":          {true, isNullableNonEmptyStringValue},
+			"closure_summary":    {true, isNullableNonEmptyStringValue},
+			"supersedes":         {true, isNullableNonEmptyStringValue},
+			"retrieval_priority": {true, oneOfValue("high", "medium", "low")},
+			"author":             {false, isNonEmptyStringValue},
+		},
+	},
+	"progress_note": {
+		fields: map[string]frontMatterField{
+			"schema_version":     {true, equalsValue("striatum.progress_note.v1")},
+			"artifact_kind":      {true, equalsValue("progress_note")},
+			"note_date":          {true, isNonEmptyStringValue},
+			"session_slug":       {true, isNonEmptyStringValue},
+			"related_plan":       {true, isNullableNonEmptyStringValue},
+			"related_brief":      {true, isNullableNonEmptyStringValue},
+			"retrieval_priority": {true, oneOfValue("high", "medium", "low")},
+			"author":             {false, isNonEmptyStringValue},
+		},
+	},
+	"operator_report": {
+		fields: map[string]frontMatterField{
+			"schema_version":     {true, equalsValue("striatum.operator_report.v1")},
+			"artifact_kind":      {true, equalsValue("operator_report")},
+			"author":             {false, isNonEmptyStringValue},
+			"retrieval_priority": {false, oneOfValue("high", "medium", "low")},
+			"supersedes":         {false, isNullableNonEmptyStringValue},
+		},
+	},
+	"commit_request": {
+		fields: map[string]frontMatterField{
+			"schema_version":      {true, equalsValue("striatum.commit_request.v1")},
+			"artifact_kind":       {true, equalsValue("commit_request")},
+			"request_id":          {true, isNonEmptyStringValue},
+			"run_id":              {false, isNonEmptyStringValue},
+			"base_head":           {true, isNonEmptyStringValue},
+			"branch":              {true, isNonEmptyStringValue},
+			"git_snapshot_hash":   {true, isNonEmptyStringValue},
+			"included_paths":      {true, isNonEmptyStringListValue},
+			"reviewed_artifacts":  {false, isNonEmptyStringListValue},
+			"commit_message":      {true, isNonEmptyStringValue},
+			"rationale":           {true, isNonEmptyStringValue},
+			"confirmation_status": {true, oneOfValue("pending", "operator_confirmed", "human_confirmed", "refused")},
+			"confirmed_by":        {false, isNullableNonEmptyStringValue},
+			"confirmed_at":        {false, isNullableNonEmptyStringValue},
+		},
+	},
+	"pr_request": {
+		fields: map[string]frontMatterField{
+			"schema_version":         {true, equalsValue("striatum.pr_request.v1")},
+			"artifact_kind":          {true, equalsValue("pr_request")},
+			"request_id":             {true, isNonEmptyStringValue},
+			"run_id":                 {false, isNonEmptyStringValue},
+			"target_branch":          {true, isNonEmptyStringValue},
+			"summary":                {true, isNonEmptyStringValue},
+			"body_draft":             {true, isNonEmptyStringValue},
+			"related_commit_request": {false, isNullableNonEmptyStringValue},
+			"local_commit_sha":       {false, isNullableNonEmptyStringValue},
+			"provider_target":        {false, isNullableNonEmptyStringValue},
+			"confirmation_status":    {true, oneOfValue("pending", "human_confirmed", "refused")},
+			"confirmed_by":           {false, isNullableNonEmptyStringValue},
+			"confirmed_at":           {false, isNullableNonEmptyStringValue},
+		},
+	},
+	"auto_finalize_gate_evidence": {
+		fields: map[string]frontMatterField{
+			"schema_version":               {true, equalsValue("striatum.auto_finalize_gate_evidence.v1")},
+			"artifact_kind":                {true, equalsValue("auto_finalize_gate_evidence")},
+			"decision_id":                  {true, equalsValue("D125")},
+			"gate_status":                  {true, oneOfValue("pending", "satisfied")},
+			"live_success_count":           {true, isNonNegativeIntValue},
+			"lane_shape_count":             {true, isNonNegativeIntValue},
+			"lane_shapes":                  {true, isNonEmptyStringListValue},
+			"contested_audit_chain_events": {true, isNonNegativeIntValue},
+			"evidence_artifacts":           {true, isNonEmptyStringListValue},
+			"created_at":                   {true, isNonEmptyStringValue},
 		},
 	},
 }
@@ -535,7 +648,11 @@ func parseFrontMatterBlock(block string) (map[string]any, error) {
 		if len(parts) != 2 || strings.TrimSpace(parts[0]) == "" {
 			return nil, fmt.Errorf("artifact front matter has invalid line %q", raw)
 		}
-		result[strings.TrimSpace(parts[0])] = parseFrontMatterValue(strings.TrimSpace(parts[1]))
+		key := strings.TrimSpace(parts[0])
+		if _, exists := result[key]; exists {
+			return nil, fmt.Errorf("artifact front matter field %q is declared more than once", key)
+		}
+		result[key] = parseFrontMatterValue(strings.TrimSpace(parts[1]))
 	}
 	return result, nil
 }
@@ -587,6 +704,18 @@ func isStringValue(value any) bool {
 	return ok
 }
 
+func isNonEmptyStringValue(value any) bool {
+	text, ok := value.(string)
+	return ok && strings.TrimSpace(text) != ""
+}
+
+func isNullableNonEmptyStringValue(value any) bool {
+	if value == nil {
+		return true
+	}
+	return isNonEmptyStringValue(value)
+}
+
 func isBoolValue(value any) bool {
 	_, ok := value.(bool)
 	return ok
@@ -618,6 +747,33 @@ func isStringListValue(value any) bool {
 	case []any:
 		for _, item := range typed {
 			if _, ok := item.(string); !ok {
+				return false
+			}
+		}
+		return true
+	}
+	return false
+}
+
+func isNonEmptyStringListValue(value any) bool {
+	switch typed := value.(type) {
+	case []string:
+		if len(typed) == 0 {
+			return false
+		}
+		for _, item := range typed {
+			if strings.TrimSpace(item) == "" {
+				return false
+			}
+		}
+		return true
+	case []any:
+		if len(typed) == 0 {
+			return false
+		}
+		for _, item := range typed {
+			text, ok := item.(string)
+			if !ok || strings.TrimSpace(text) == "" {
 				return false
 			}
 		}

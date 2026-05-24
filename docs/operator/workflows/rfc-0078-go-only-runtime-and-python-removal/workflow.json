@@ -1,0 +1,397 @@
+{
+  "schema_version": "striatum.workflow.v1",
+  "workflow_id": "rfc-0078-go-only-runtime-and-python-removal",
+  "workflow_version": "2026-05-24",
+  "name": "RFC 0078 Go-only runtime and Python removal",
+  "context_docs": [
+    "AGENTS.md",
+    "README.md",
+    "docs/INDEX.md",
+    "docs/SPEC.md",
+    "docs/DECISION_LOG.md",
+    "docs/UBIQUITOUS_LANGUAGE.md",
+    "docs/TODO.md",
+    "docs/ROADMAP.md",
+    "docs/operator/BRIEF.md",
+    "docs/operator/plans/rfc-0078-go-only-runtime-and-python-removal.md",
+    "docs/rfcs/0078-go-only-runtime-and-python-removal.md",
+    "docs/rfcs/0068-go-production-daemon-port.md",
+    "docs/rfcs/0070-daemon-client-service-boundary.md",
+    "contracts/daemon_methods.json",
+    "go/",
+    "src/",
+    "tests/",
+    "pyproject.toml",
+    "Makefile",
+    ".github/workflows/"
+  ],
+  "coordinator": {
+    "role_id": "coordinator",
+    "lane_id": "codex"
+  },
+  "parallelism": {
+    "mode": "declared",
+    "max_active_jobs": 20,
+    "require_disjoint_write_scopes": true
+  },
+  "branch": {
+    "mode": "confirm",
+    "suggested_name": "main",
+    "allow_dirty": true
+  },
+  "lanes": {
+    "codex": {
+      "adapter": "process",
+      "command": ["bash", "-lc", "cat >/dev/null"],
+      "model": "codex",
+      "display_model": "Codex GPT-5.5",
+      "strategy_version": "2026-05-24",
+      "constraints": {
+        "network": "forbidden",
+        "repo_scope": "local_only",
+        "transcripts": "off"
+      },
+      "required_enforcement": {
+        "network": "advisory_strict",
+        "repo_scope": "advisory_strict",
+        "transcripts": "enforced"
+      }
+    }
+  },
+  "roles": {
+    "coordinator": {
+      "description": "Operator/control-plane coordinator."
+    },
+    "inventory": {
+      "description": "Python trace inventory and cutover ledger owner."
+    },
+    "cli_porter": {
+      "description": "Go CLI parity and command retirement owner."
+    },
+    "web_porter": {
+      "description": "Go local web/service parity and route retirement owner."
+    },
+    "workflow_porter": {
+      "description": "Workflow authoring, generation, and artifact schema parity owner."
+    },
+    "test_porter": {
+      "description": "Pytest-to-Go/shell/browser coverage migration owner."
+    },
+    "packaging_porter": {
+      "description": "Go-only packaging, release, CI, and install owner."
+    },
+    "docs_porter": {
+      "description": "Current docs, decisions, RFC supersession, and operator guidance owner."
+    },
+    "guardrail_owner": {
+      "description": "Python deletion gate and architecture guardrail owner."
+    },
+    "closer": {
+      "description": "Final synthesis and acceptance evidence owner."
+    }
+  },
+  "jobs": [
+    {
+      "id": "inventory_python_surface",
+      "type": "synthesis",
+      "title": "Inventory Python surface",
+      "role_id": "inventory",
+      "lane_id": "codex",
+      "fresh_session_required": true,
+      "objective": "Build the RFC 0078 cutover ledger for every active Python source, test, packaging, script, docs, and workflow trace.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/rfc-0078-go-only-runtime-and-python-removal/prompts/inventory_python_surface.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/operator/artifacts/rfc-0078-go-only-runtime-and-python-removal/inventory/"
+        ],
+        "forbidden_paths": [".striatum/", ".venv/", "__pycache__/"]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "cutover_ledger",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/rfc-0078-go-only-runtime-and-python-removal/inventory/CUTOVER_LEDGER.md",
+          "author_line": "author: operator [self-declared: inventory-codex-gpt-5-001]",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "go_cli_cutover",
+      "type": "build",
+      "title": "Go CLI cutover",
+      "role_id": "cli_porter",
+      "lane_id": "codex",
+      "fresh_session_required": true,
+      "objective": "Define and begin the Go `striatum` CLI replacement without duplicating daemon authority.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/rfc-0078-go-only-runtime-and-python-removal/prompts/go_cli_cutover.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "go/cmd/striatum/",
+          "go/pkg/cli/",
+          "go/pkg/workflowauthoring/",
+          "go/pkg/workflowgenerate/",
+          "go/pkg/workflowtemplates/",
+          "docs/operator/artifacts/rfc-0078-go-only-runtime-and-python-removal/cli/"
+        ],
+        "forbidden_paths": [".striatum/", ".venv/", "__pycache__/"]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "cli_cutover_handoff",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/rfc-0078-go-only-runtime-and-python-removal/cli/HANDOFF.md",
+          "author_line": "author: operator [self-declared: cli-porter-codex-gpt-5-001]",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "go_web_service_cutover",
+      "type": "build",
+      "title": "Go web/service cutover",
+      "role_id": "web_porter",
+      "lane_id": "codex",
+      "fresh_session_required": true,
+      "objective": "Map and begin Go local web/service replacement or explicit route retirement.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/rfc-0078-go-only-runtime-and-python-removal/prompts/go_web_service_cutover.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "go/cmd/striatumd/",
+          "go/pkg/web/",
+          "go/pkg/reads/",
+          "go/pkg/mutations/",
+          "docs/operator/artifacts/rfc-0078-go-only-runtime-and-python-removal/web/"
+        ],
+        "forbidden_paths": [".striatum/", ".venv/", "__pycache__/"]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "web_cutover_handoff",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/rfc-0078-go-only-runtime-and-python-removal/web/HANDOFF.md",
+          "author_line": "author: operator [self-declared: web-porter-codex-gpt-5-001]",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "workflow_authoring_cutover",
+      "type": "build",
+      "title": "Workflow authoring cutover",
+      "role_id": "workflow_porter",
+      "lane_id": "codex",
+      "fresh_session_required": true,
+      "objective": "Close Go parity gaps for workflow validation, generation, upgrade, templates, and artifact front-matter schemas.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/rfc-0078-go-only-runtime-and-python-removal/prompts/workflow_authoring_cutover.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "go/pkg/workflowauthoring/",
+          "go/pkg/workflowgenerate/",
+          "go/pkg/workflowtemplates/",
+          "go/pkg/artifacts/",
+          "go/pkg/reads/workflow_authoring.go",
+          "go/pkg/reads/workflow_generate.go",
+          "go/pkg/reads/workflow_templates.go",
+          "docs/operator/artifacts/rfc-0078-go-only-runtime-and-python-removal/workflow-authoring/"
+        ],
+        "forbidden_paths": [".striatum/", ".venv/", "__pycache__/"]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "workflow_authoring_handoff",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/rfc-0078-go-only-runtime-and-python-removal/workflow-authoring/HANDOFF.md",
+          "author_line": "author: operator [self-declared: workflow-porter-codex-gpt-5-001]",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "test_migration_cutover",
+      "type": "build",
+      "title": "Test migration cutover",
+      "role_id": "test_porter",
+      "lane_id": "codex",
+      "fresh_session_required": true,
+      "objective": "Map pytest coverage to Go/shell/browser replacements and begin the first non-overlapping test migration slice.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/rfc-0078-go-only-runtime-and-python-removal/prompts/test_migration_cutover.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "go/",
+          "scripts/",
+          "docs/operator/artifacts/rfc-0078-go-only-runtime-and-python-removal/tests/"
+        ],
+        "forbidden_paths": [".striatum/", ".venv/", "__pycache__/"]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "test_migration_handoff",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/rfc-0078-go-only-runtime-and-python-removal/tests/HANDOFF.md",
+          "author_line": "author: operator [self-declared: test-porter-codex-gpt-5-001]",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "packaging_release_cutover",
+      "type": "build",
+      "title": "Packaging and release cutover",
+      "role_id": "packaging_porter",
+      "lane_id": "codex",
+      "fresh_session_required": true,
+      "objective": "Replace Python package/release/install surfaces with Go-only distribution mechanics.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/rfc-0078-go-only-runtime-and-python-removal/prompts/packaging_release_cutover.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "Makefile",
+          ".github/workflows/",
+          "scripts/",
+          "go/",
+          "docs/operator/artifacts/rfc-0078-go-only-runtime-and-python-removal/packaging/"
+        ],
+        "forbidden_paths": [".striatum/", ".venv/", "__pycache__/"]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "packaging_handoff",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/rfc-0078-go-only-runtime-and-python-removal/packaging/HANDOFF.md",
+          "author_line": "author: operator [self-declared: packaging-porter-codex-gpt-5-001]",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "docs_decision_cutover",
+      "type": "synthesis",
+      "title": "Docs and decision cutover",
+      "role_id": "docs_porter",
+      "lane_id": "codex",
+      "fresh_session_required": true,
+      "objective": "Prepare current docs and decision/RFC supersession edits for a Go-only runtime.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/rfc-0078-go-only-runtime-and-python-removal/prompts/docs_decision_cutover.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "README.md",
+          "AGENTS.md",
+          "docs/",
+          "src/striatum/skills/templates/",
+          "src/striatum/plugins/templates/",
+          "docs/operator/artifacts/rfc-0078-go-only-runtime-and-python-removal/docs/"
+        ],
+        "forbidden_paths": [".striatum/", ".venv/", "__pycache__/"]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "docs_cutover_handoff",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/rfc-0078-go-only-runtime-and-python-removal/docs/HANDOFF.md",
+          "author_line": "author: operator [self-declared: docs-porter-codex-gpt-5-001]",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "python_guardrail_cutover",
+      "type": "build",
+      "title": "Python deletion guardrails",
+      "role_id": "guardrail_owner",
+      "lane_id": "codex",
+      "fresh_session_required": true,
+      "objective": "Add or design tracked-head guardrails that fail if active Striatum Python source, tests, packaging, or instructions return.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/rfc-0078-go-only-runtime-and-python-removal/prompts/python_guardrail_cutover.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "go/",
+          "tests/",
+          "scripts/",
+          "docs/operator/artifacts/rfc-0078-go-only-runtime-and-python-removal/guardrails/"
+        ],
+        "forbidden_paths": [".striatum/", ".venv/", "__pycache__/"]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "guardrail_handoff",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/rfc-0078-go-only-runtime-and-python-removal/guardrails/HANDOFF.md",
+          "author_line": "author: operator [self-declared: guardrail-owner-codex-gpt-5-001]",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "finalize_rfc0078_cutover",
+      "type": "synthesis",
+      "title": "Finalize RFC 0078 cutover",
+      "role_id": "closer",
+      "lane_id": "codex",
+      "fresh_session_required": true,
+      "objective": "Consolidate all RFC 0078 findings, implementation state, validation results, blockers, and next executable slices.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/rfc-0078-go-only-runtime-and-python-removal/prompts/finalize_rfc0078_cutover.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/operator/artifacts/rfc-0078-go-only-runtime-and-python-removal/final/"
+        ],
+        "forbidden_paths": [".striatum/", ".venv/", "__pycache__/"]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "rfc0078_cutover_summary",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/rfc-0078-go-only-runtime-and-python-removal/final/SUMMARY.md",
+          "author_line": "author: operator [self-declared: rfc0078-closer-codex-gpt-5-001]",
+          "required": true
+        }
+      ]
+    }
+  ],
+  "edges": [
+    {"from": "inventory_python_surface", "to": "finalize_rfc0078_cutover", "on": "completed"},
+    {"from": "go_cli_cutover", "to": "finalize_rfc0078_cutover", "on": "completed"},
+    {"from": "go_web_service_cutover", "to": "finalize_rfc0078_cutover", "on": "completed"},
+    {"from": "workflow_authoring_cutover", "to": "finalize_rfc0078_cutover", "on": "completed"},
+    {"from": "test_migration_cutover", "to": "finalize_rfc0078_cutover", "on": "completed"},
+    {"from": "packaging_release_cutover", "to": "finalize_rfc0078_cutover", "on": "completed"},
+    {"from": "docs_decision_cutover", "to": "finalize_rfc0078_cutover", "on": "completed"},
+    {"from": "python_guardrail_cutover", "to": "finalize_rfc0078_cutover", "on": "completed"}
+  ],
+  "cycles": []
+}

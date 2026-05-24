@@ -119,7 +119,7 @@ so external references keep resolving even as items move between sections.
 | 65 | RFC 0058 operator progress surface | ✅ done |
 | 66 | Decision/RFC supersession hygiene and duplicate decision-id cleanup | ✅ done |
 | 67 | RFC 0050/RFC 0075 MCP cutover and tmux-observable sessions | ✅ done |
-| 68 | RFC 0078 Go-only runtime and Python removal | ⏳ proposed |
+| 68 | RFC 0078 Go-only runtime and Python removal | 🟡 scaffold + first slice landed |
 
 Legend: ✅ done · 🟡 most done (sub-tasks remain) · ⏳ open/blocked · 💤 shelved
 
@@ -1366,7 +1366,8 @@ review and plan are root-level operator artifacts:
     still must not become workflow state. Hiding or deleting CLI compatibility
     verbs is a later deprecation/release decision, not a TODO 67 blocker.
 
-68. **RFC 0078: Go-only runtime and Python removal.** Proposed. The owner
+68. **RFC 0078: Go-only runtime and Python removal.** Scaffolded and first
+    slice landed. The owner
     direction is to remove all Python traces from the active Striatum
     repository head, not only the already-retired Python daemon/MCP/local-state
     paths. The RFC supersedes the RFC 0068/RFC 0070 carve-out that allowed
@@ -1376,7 +1377,17 @@ review and plan are root-level operator artifacts:
     ports, pytest-to-Go coverage migration, Go-only packaging/release docs,
     and guardrails that keep Python source, tests, packaging, and active
     operator instructions from returning. Git object history rewrite is out of
-    scope.
+    scope. The 2026-05-24 workflow
+    `docs/operator/workflows/rfc-0078-go-only-runtime-and-python-removal/workflow.json`
+    completed as `run_ef93ee9055bb77e40d2ae2c846337176`: it used
+    `max_active_jobs: 20`, reached the current six-sub-agent execution limit,
+    produced the cutover ledger and per-surface handoffs, added the first Go
+    `striatum workflow validate` CLI scaffold, and expanded Go artifact
+    contract/front-matter parity for operator, Git/PR, and auto-finalize gate
+    artifacts. Remaining work is the full Go CLI RPC router, Go local
+    web/service, packaging/release cutover, workflow validation/generator
+    parity, pytest migration, docs rewrite, and final Python deletion
+    guardrail enablement.
 
 ## GH issue follow-ups
 

@@ -17,6 +17,13 @@ D018's V1 Python implementation preference, RFC 0068's "keep Python CLI/web
 clients where useful" carve-out, and RFC 0070's non-goal of removing the
 Python CLI.
 
+Current implementation note:
+The max-parallel execution workflow completed on 2026-05-24 as
+`run_ef93ee9055bb77e40d2ae2c846337176`. It scaffolded the cutover ledger and
+per-surface handoffs, added the first Go `striatum workflow validate` CLI
+scaffold, and expanded Go artifact kind/front-matter parity for operator,
+Git/PR, and auto-finalize gate artifacts. Full Python removal remains open.
+
 ## Problem
 
 The Go daemon cutover is complete for the production daemon and MCP

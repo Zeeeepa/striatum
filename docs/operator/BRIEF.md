@@ -129,7 +129,18 @@ active test imports of `sqlite3`, `striatum.legacy_sqlite`, `striatum.db`, or
 `striatum.migrations`. The retired `retired-local-state` file name remains only as a
 refusal/inspection signal for old working copies and as a redaction suffix.
 
-## Next 1-3 Actions
+RFC 0078 (Go-only runtime and Python removal) is scaffolded and active, not
+complete. The max-parallel workflow completed on 2026-05-24 as
+`run_ef93ee9055bb77e40d2ae2c846337176` with six live Codex sub-agents, the
+effective thread limit in this environment, and `max_active_jobs: 20` in the
+workflow definition. It produced the cutover ledger and handoffs, added the
+first Go `striatum workflow validate` CLI scaffold, and expanded Go artifact
+contract/front-matter parity. Remaining blockers are the full Go CLI RPC
+router, Go local web/service, packaging/release cutover, workflow
+validation/generator parity, pytest migration, docs rewrite, and final
+Python-deletion guardrail enablement.
+
+## Next Actions
 
 1. Monitor D133 default-live auto-finalize and use
    `recovery.auto_finalize.enabled=false` only for workflows that require
@@ -142,6 +153,10 @@ refusal/inspection signal for old working copies and as a redaction suffix.
    bounded RFCs before implementing RFC 0052 Phase A, RFC 0053 schema/runtime
    rename, Cross-Repo Live Scheduler V1, sealed apply, Windows support, or
    local multi-operator tenancy.
+4. Continue RFC 0078 through the next executable gate: generated Go CLI RPC
+   routing plus the replacement aggregate validation command. Do not delete
+   active Python source/tests until the ledger names a Go replacement,
+   explicit retirement, or accepted historical-provenance exception.
 
 ## Blockers
 
