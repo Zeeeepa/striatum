@@ -18,7 +18,7 @@ from striatum.daemon_pg.config import resolve_config
 from striatum.daemon_pg.connection import connect, connect_and_migrate, doctor as pg_doctor
 from striatum.daemon_runtime import mcp_endpoint_file, read_runtime_token, token_file
 from striatum.primitives import json_dumps, json_loads
-from striatum.repo_policy import db_path, state_dir
+from striatum.repo_policy import state_dir
 
 ServiceManager = Literal["auto", "systemd", "launchd"]
 
@@ -113,7 +113,7 @@ def adopt(
     }
     if dry_run:
         result["init"] = {
-            "status": "would_init" if not inspection["state_db_exists"] else "would_skip"
+            "status": "would_init" if not inspection["striatum_dir_exists"] else "would_skip"
         }
     else:
         state_dir = init_operational_scratch(repo)
@@ -142,17 +142,6 @@ def adopt(
                 "status": "would_register_repo",
                 "postgres_url_source": cfg.source,
                 "redacted_url": cfg.redacted_url,
-            }
-        elif inspection["state_db_exists"]:
-            legacy_state_db = db_path(repo)
-            result["registration"] = {
-                "status": "retired_state_registration_required",
-                "state_db_path": str(legacy_state_db),
-                "hint": (
-                    "Retired repo-local state found. PostgreSQL registration is required. "
-                    "Archive or remove the legacy .striatum/state.sqlite3 file, then "
-                    "register the repository with striatum adopt or striatum repo add --init."
-                ),
             }
         else:
             from striatum.daemon_pg.repositories import repo_add_pg
@@ -211,15 +200,10 @@ def first_run_smoke(repo: Path) -> dict[str, Any]:
 
 def _inspect_repo(repo: Path) -> dict[str, Any]:
     scratch_dir = state_dir(repo)
-    state_db = db_path(repo)
     return {
         "exists": repo.exists(),
         "is_git": (repo / ".git").exists(),
         "striatum_dir_exists": scratch_dir.exists(),
-        "state_db_exists": state_db.exists(),
-        "state_tombstone_exists": state_db.with_name(
-            state_db.name + ".tombstone"
-        ).exists(),
         "ddd_docs_exist": (repo / "docs" / "SPEC.md").exists(),
         "workflows_dir_exists": (repo / "workflows").exists(),
     }

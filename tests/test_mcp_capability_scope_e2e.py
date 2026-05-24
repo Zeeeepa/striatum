@@ -144,7 +144,7 @@ def test_pg_daemon_mcp_resource_reads_preserve_shapes_without_sqlite(
         SET state_db_path = %s
         WHERE repository_id = %s
         """,
-        (str(harness.repos[0].path / ".striatum" / "state.sqlite3"), repo_id),
+        (str(harness.repos[0].path / ".striatum" / "retired-local-state"), repo_id),
     )
     harness.daemon_db_query(
         """

@@ -13,7 +13,7 @@ scope artifact for this workflow. Do not implement source changes.
    `cli/repo.py` (if it exists), `cli/parser.py` for the verb
    registration.
 3. The shared SQLite-presence helper (grep for `repo_not_migrated` or
-   `state.sqlite3` checks in the CLI module).
+   `retired-local-state` checks in the CLI module).
 4. The daemon RPC route table -- which RPC method does `repo list
    --json` use? Confirm the read-side method name in
    `contracts/daemon_methods.json` and `go/pkg/reads/`.

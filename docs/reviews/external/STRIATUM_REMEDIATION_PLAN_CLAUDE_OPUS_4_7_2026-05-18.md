@@ -320,7 +320,7 @@ These I could not resolve from the reviews + the working tree; they don't change
 - **Is the human-principal escalation flow actually firing in current dogfood runs?** `docs/TODO.md:107` (RFC 0062) shows the projection landed but the inbox is 🟡. P1-ESCALATION-UX is sized assuming the surface is being built ahead of consumption; if it's actively used today, scope and priority both increase.
 - **Should `daemon.migrate` remain the RPC method name** now that the `daemon migrate` CLI command is retired? Codex raised this. If yes, document it as PG-migration-only. If no, rename the RPC method during P0-DAEMON-PG-DELETE.
 - **Are dogfood ledger entries (66 runs in `docs/dogfood/`) actively read?** If yes, they should be linked from ADOPTER_READING_PATH. If write-mostly archives, they stay below the fold and the discoverability fix is just the 6-RFC list.
-- **Tombstone SQLite files** (`.striatum/state.sqlite3.tombstone`): Gemini and I both flagged. After legacy SQLite is fully deleted, should the daemon eventually auto-delete them on registration? Affects P0-LEGACY-SQLITE-COLLAPSE acceptance: does it include sweeping tombstones from already-registered repos, or only refusing new ones?
+- **Tombstone SQLite files** (`.striatum/retired-local-state.tombstone`): Gemini and I both flagged. After legacy SQLite is fully deleted, should the daemon eventually auto-delete them on registration? Affects P0-LEGACY-SQLITE-COLLAPSE acceptance: does it include sweeping tombstones from already-registered repos, or only refusing new ones?
 - **Is optional Git/PR integration (RFC 0067) still in-scope?** `docs/TODO.md:114` shows ⏳ blocked on product decision. If accepted, it's a P1 functionality add; if rejected, it stays in §7.
 
 ---

@@ -229,7 +229,7 @@ PYTHONPATH=src python3 -m striatum.cli --repo .. evidence export \
 
 Then inspect `RUN_EVIDENCE.md` before committing it:
 
-- it must not contain `.striatum/state.sqlite3`;
+- it must not contain `.striatum/retired-local-state`;
 - it must not contain transcript text;
 - it must not contain private-looking sentinel strings used in redaction tests;
 - it must not contain workflow job titles if title redaction is the selected

@@ -10,7 +10,7 @@ author: reviewer-gemini-001
 
 ## Summary
 
-The regression fix for repository state-path projections has been successfully verified across both Python and Go daemon implementations. The structural divergence identified in previous reviews (F1) is resolved: daemon-backed `repo.list`, `repo.resolve`, and `repo.add` (for existing registrations) now consistently normalize stale `.striatum/state.sqlite3` file paths to the `.striatum/` operational scratch directory. This normalization ensures a consistent registry view for all clients (CLI, RPC, and MCP) while preserving the underlying database integrity.
+The regression fix for repository state-path projections has been successfully verified across both Python and Go daemon implementations. The structural divergence identified in previous reviews (F1) is resolved: daemon-backed `repo.list`, `repo.resolve`, and `repo.add` (for existing registrations) now consistently normalize stale `.striatum/retired-local-state` file paths to the `.striatum/` operational scratch directory. This normalization ensures a consistent registry view for all clients (CLI, RPC, and MCP) while preserving the underlying database integrity.
 
 ## Findings
 

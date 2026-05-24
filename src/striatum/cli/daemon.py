@@ -18,7 +18,7 @@ from striatum.errors import StriatumError
 ENV_GO_BIN = "STRIATUMD_GO_BIN"
 RETIRED_SQLITE_IMPORT_MESSAGE = (
     "Retired import windows are closed; Striatum no longer opens legacy "
-    "daemon registries or repo-local .striatum/state.sqlite3 files "
+    "daemon registries or repo-local state files "
     "for migration. Archive or remove the retired local-state files and register "
     "the repository with `striatum adopt` or `striatum repo add --init`. "
     "Use an older Striatum release in an isolated environment only for "

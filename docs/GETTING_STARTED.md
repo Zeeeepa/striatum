@@ -239,7 +239,7 @@ After `adopt` or `repo add --init`, the target repo contains:
 Authoritative workflow state lives in the daemon-owned PostgreSQL
 instance under a `repository_id` scope (D094 / RFC 0043). `adopt` and
 `repo add --init` register the repository without creating
-`state.sqlite3`; if the directory already carried a V1 `state.sqlite3`
+`retired-local-state`; if the directory already carried a V1 `retired-local-state`
 from a pre-D094 install, archive or remove that legacy SQLite file before
 driving workflow verbs.
 

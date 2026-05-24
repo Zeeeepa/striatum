@@ -35,7 +35,7 @@ serve` was restarted mid-run; the on-disk artifacts and ported handler
 code survived because the work-packet model writes durable artifacts
 before any callback. The repo-local SQLite ended in a corrupted state
 under concurrent migration + serve + supervisor writes; it was
-quarantined as `.striatum/state.sqlite3.corrupt` and reset via
+quarantined as `.striatum/retired-local-state.corrupt` and reset via
 `striatum init`. Postgres `striatum_daemon` retains the pre-rollback
 73-run snapshot.
 
@@ -107,7 +107,7 @@ write SQLite for non-lifecycle verbs. The substrate flip was a
 
 Symptoms:
 - After migrate-repo-local, the next daemon-mediated mutation sees
-  `state.sqlite3` missing and creates a fresh empty SQLite (V1.6
+  `retired-local-state` missing and creates a fresh empty SQLite (V1.6
   F-split-brain guards against this but reveals the underlying
   delegation issue).
 - The `striatumd.*` Postgres tables for the migrated repo are
@@ -172,8 +172,8 @@ Python/Postgres substrate cutover.
 
 - Daemon CLI verbs no longer fall back to SQLite delegation in production.
 - `repo_local_migration.py` flips
-  `.striatum/state.sqlite3.migrated` sentinel to
-  `.striatum/state.sqlite3.tombstone` immediately after the daemon's
+  `.striatum/retired-local-state.migrated` sentinel to
+  `.striatum/retired-local-state.tombstone` immediately after the daemon's
   first successful PG write, eliminating the brief window where
   both substrates contain partial state.
 - The `STRIATUM_DAEMON_REQUIRED=0 + STRIATUM_TEST_HARNESS=1` escape is

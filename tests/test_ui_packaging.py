@@ -40,7 +40,7 @@ def test_smoke_scripts_do_not_fall_back_to_repo_local_sqlite() -> None:
         "STRIATUM_DAEMON_REQUIRED=0",
         "STRIATUM_TEST_HARNESS=1",
         "using legacy test-harness fixture path",
-        'test -f "$TARGET/.striatum/state.sqlite3"',
+        'test -f "$TARGET/.striatum/retired-local-state"',
     ]
 
     for script_name in ("fresh_clone_smoke.sh", "package_smoke.sh"):

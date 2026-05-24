@@ -21,7 +21,7 @@ from striatum.errors import StriatumError
         ".env",
         ".env.local",
         "keys/private.pem",
-        ".striatum/state.sqlite3",
+        ".striatum/retired-local-state",
         "transcripts/session.md",
         "TRANSCRIPTS/session.md",
         "raw_model_output/out.log",

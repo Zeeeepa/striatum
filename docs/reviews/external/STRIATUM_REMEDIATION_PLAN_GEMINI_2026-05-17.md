@@ -44,7 +44,7 @@ These items represent split-brain risks or data integrity threats. They must lan
 ### P0-DISPATCH-FAIL-CLOSED
 - **source:** §7 Recommended Changes (Fail closed on daemon-route exceptions)
 - **what:** Replace the broad `except Exception` fallthrough in `striatum.cli.dispatch.py` with a hard fail-closed `StriatumError` for any command present in the daemon contract.
-- **why:** Prevents a scenario where a transient daemon RPC error causes the CLI to silently drop back to mutating the legacy `state.sqlite3` file, creating an unrecoverable split-brain state.
+- **why:** Prevents a scenario where a transient daemon RPC error causes the CLI to silently drop back to mutating the legacy `retired-local-state` file, creating an unrecoverable split-brain state.
 - **touches:** `src/striatum/cli/dispatch.py`, `tests/architecture/test_authority_guardrails.py`
 - **effort:** 1 day
 - **depends on:** none
@@ -129,4 +129,4 @@ The core sequence focuses on state authority first. **P0-PG-REGISTRY-PORT** must
 ## 8. Open questions
 
 - **Performance of P0-PG-REGISTRY-PORT:** The `dashboard.all` command currently reads the SQLite registry to find all repos, then queries their status. When moved to Postgres, will this require a complex cross-schema JOIN, or will it remain an N+1 query pattern? If it's N+1, it may be slow on homelabs with many repos.
-- **Tombstone Lifecycle:** Once `migrate-repo-local` completes, the `state.sqlite3.tombstone` file remains. Is there a product decision on when (if ever) the daemon automatically deletes these tombstones, or is the operator expected to manually `rm` them?
+- **Tombstone Lifecycle:** Once `migrate-repo-local` completes, the `retired-local-state.tombstone` file remains. Is there a product decision on when (if ever) the daemon automatically deletes these tombstones, or is the operator expected to manually `rm` them?

@@ -216,7 +216,7 @@ four options for design review.
 
 #### Option A: Per-repository SQLite, daemon multiplexing
 
-Each target repository keeps `.striatum/state.sqlite3`. The daemon registers
+Each target repository keeps `.striatum/retired-local-state`. The daemon registers
 many repos and opens the relevant DB per operation.
 
 Benefits:
@@ -373,7 +373,7 @@ Daemon mode must not strand existing users. The migration should be phased:
 7. Decide whether direct SQLite CLI mode remains a supported fallback or
    becomes a compatibility mode.
 
-Existing `.striatum/state.sqlite3` runs should be importable/registered
+Existing `.striatum/retired-local-state` runs should be importable/registered
 without data rewrite where possible.
 
 ### 9. Provenance and trust implications
@@ -409,7 +409,7 @@ Minimum local daemon security:
 - Audit log for every mutating client call.
 - Explicit repository registration.
 - Refuse symlink/path traversal across repository boundaries.
-- Never expose `.striatum/state.sqlite3` raw writes.
+- Never expose `.striatum/retired-local-state` raw writes.
 - Keep transcripts off by default.
 
 Future multi-user local mode needs:
@@ -557,7 +557,7 @@ Storage substrate joins the follow-up RFC set:
   libSQL/Turso, embedded Postgres, RocksDB/BoltDB, ...) and picks one. RFC
   0033 lands first because RFC 0030's wire protocol, schema migrations, and
   audit-chain format key off the substrate choice. Repo-local
-  `.striatum/state.sqlite3` may stay SQLite indefinitely; the rewrite is for
+  `.striatum/retired-local-state` may stay SQLite indefinitely; the rewrite is for
   daemon-owned state, not repo-owned state.
 
 ## Domain Modeling

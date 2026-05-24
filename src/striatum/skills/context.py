@@ -59,7 +59,7 @@ VERB_TABLE: dict[str, dict[str, str]] = {
 # Boundary statements reused across skills. Each is a single sentence
 # the renderer may inline into a template's "What not to do" block.
 BOUNDARIES: tuple[str, ...] = (
-    "Do not bypass the daemon (the CLI is the only client; the daemon is the single writer per D094 / RFC 0043); never open Postgres directly, and do not rely on `.striatum/state.sqlite3` — on a migrated repo it has been finalized as a read-only `.tombstone` no Striatum verb opens.",
+    "Do not bypass the daemon (the CLI is the only client; the daemon is the single writer per D094 / RFC 0043); never open Postgres directly, and do not treat `.striatum/` scratch files as workflow state.",
     "Do not treat marker files, tmux panes, or terminal output as workflow state.",
     "Do not advance state by printing phrases; advance by calling the CLI verbs in your work packet.",
     "Do not capture stdout/stderr transcripts; D028 keeps them off by default.",

@@ -56,7 +56,7 @@ draw a layered graph in ASCII.
   into ambiguity; collapse to a per-layer list when the layered layout
   doesn't fit.
 - Read-only. The graph never mutates state and never reads outside
-  `.striatum/state.sqlite3`.
+  `.striatum/retired-local-state`.
 - No new runtime dependencies. `dashboard.py`'s "raw ANSI, no curses,
   no third-party libs" stance (`src/striatum/dashboard.py:1-8`) holds.
 

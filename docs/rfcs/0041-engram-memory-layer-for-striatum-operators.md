@@ -77,7 +77,7 @@ made by the design agents downstream and synthesized into a follow-up RFC
 
 - A finished memory architecture for Engram. The design phase produces
   that; this RFC scopes the phase.
-- Replacing `~/.claude/memory/` or Striatum's `.striatum/state.sqlite3`
+- Replacing `~/.claude/memory/` or Striatum's `.striatum/retired-local-state`
   state store. Engram is augmentation; if Engram is unavailable, Striatum
   must still run.
 - Hosted-mode Engram, multi-tenant access, or remote retrieval. Per D083:
@@ -266,7 +266,7 @@ proposed here so the design agents have context for what's coming.
 
 Three rules the design phase must honor:
 
-1. **Striatum's `.striatum/state.sqlite3` and the daemon DB stay the
+1. **Striatum's `.striatum/retired-local-state` and the daemon DB stay the
    authoritative live state for runs, jobs, leases, queue messages,
    sessions, and audit rows.** Engram derives memory FROM those stores; it
    does not own any of them.

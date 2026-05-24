@@ -26,7 +26,7 @@ pipeline remains a follow-up.
 Striatum can record durable provenance for work submitted through its
 control surface, but today the top-level operator usually runs in the
 same writable checkout as the source tree, runner code, workflow files,
-and `.striatum/state.sqlite3`. An operator surrogate with native file
+and `.striatum/retired-local-state`. An operator surrogate with native file
 tools can edit protected source bytes directly, then call normal
 Striatum verbs to publish artifacts, record verdicts, and complete jobs.
 The resulting run may look like a multi-lane workflow even though the
@@ -154,7 +154,7 @@ The protected path policy is workflow-declared:
 
 The validator rejects overlapping protected and operator-writable paths,
 `..` traversal, absolute paths, and attempts to protect `.striatum/` as an
-ordinary source path. `.striatum/state.sqlite3` remains runner state, not a
+ordinary source path. `.striatum/retired-local-state` remains runner state, not a
 source artifact.
 
 ### 3. Patch artifacts

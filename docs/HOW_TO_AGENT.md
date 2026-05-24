@@ -54,7 +54,7 @@ Two rules to internalize before you do anything else:
    daemon MCP tools, the local web service, and CLI compatibility commands
    are clients of that boundary. When you must use a packet-supplied CLI
    fallback, run it verbatim. Do not open Postgres directly, and do not expect
-   `.striatum/state.sqlite3` to exist as live state. Legacy SQLite files or
+   `.striatum/retired-local-state` to exist as live state. Legacy SQLite files or
    tombstones are historical remnants only; no current Striatum verb opens
    them.
 2. **Do not advance state by printing phrases.** "I have completed
@@ -187,7 +187,7 @@ or CLI diagnostics, then ask the operator to recover stale work.
 - Do not bypass the daemon. The daemon is the single writer; MCP/chat, web UI,
   and CLI compatibility surfaces are clients of that boundary.
   Never open the daemon's Postgres directly, and do not open or rely on
-  legacy `.striatum/state.sqlite3*` files or tombstones as live state.
+  legacy `.striatum/retired-local-state*` files or tombstones as live state.
 - Do not write to `.striatum/scratch/` or `.striatum/bin/` unless
   a packet explicitly asks you to (the supervised wrapper script,
   for example).

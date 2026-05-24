@@ -14,7 +14,7 @@ sources:
 # P005 Synthesis: Sealed Provenance Mode
 
 Current-context note (2026-05-17): this synthesis predates the D094/D104
-daemon-required runtime. References below to `.striatum/state.sqlite3` are
+daemon-required runtime. References below to `.striatum/retired-local-state` are
 historical substrate examples; current Striatum live state is daemon-owned
 PostgreSQL.
 

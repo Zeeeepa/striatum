@@ -15,19 +15,19 @@ state-path projection revision.
 The original implementation fixed the visible TODO 62 operational-scratch
 regression: `daemon doctor` now checks the registered repository's
 `.striatum/` operational scratch directory instead of treating the retired
-`.striatum/state.sqlite3` filename as live state. The doctor warning is now
+`.striatum/retired-local-state` filename as live state. The doctor warning is now
 `daemon_repo_scratch_missing`, with `state_dir` context and wording that names
 the missing operational scratch directory.
 
 The implementation also moved MCP repository projections toward the current
-scratch-directory model, replaced hardcoded `.striatum/state.sqlite3` probes in
+scratch-directory model, replaced hardcoded `.striatum/retired-local-state` probes in
 repository registration with `repo_policy.db_path(repo)`, and added production
 guardrails asserting that production sources do not import the retired
 `striatum.legacy_sqlite` package.
 
 The regression review found one high-risk issue: Python repository list/resolve
 projections could still leak stale `state_db_path` values that pointed at
-`.striatum/state.sqlite3`. The revision fixed that by centralizing repository
+`.striatum/retired-local-state`. The revision fixed that by centralizing repository
 projection in `src/striatum/daemon_pg/repositories.py`; `repo_list_pg`,
 `repo_resolve_pg`, and duplicate `repo_add_pg` returns now normalize stale
 SQLite-file paths to the `.striatum/` scratch directory without rewriting the

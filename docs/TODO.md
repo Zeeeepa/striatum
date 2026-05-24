@@ -119,6 +119,7 @@ so external references keep resolving even as items move between sections.
 | 65 | RFC 0058 operator progress surface | ✅ done |
 | 66 | Decision/RFC supersession hygiene and duplicate decision-id cleanup | ✅ done |
 | 67 | RFC 0050/RFC 0075 MCP cutover and tmux-observable sessions | ✅ done |
+| 68 | RFC 0078 Go-only runtime and Python removal | ⏳ proposed |
 
 Legend: ✅ done · 🟡 most done (sub-tasks remain) · ⏳ open/blocked · 💤 shelved
 
@@ -431,7 +432,7 @@ Legend: ✅ done · 🟡 most done (sub-tasks remain) · ⏳ open/blocked · �
     verifies `PRAGMA user_version == LATEST_VERSION`, copies rows in
     dependency order inside one `SERIALIZABLE` Postgres transaction,
     writes the repo-migration checkpoint, then renames
-    `.striatum/state.sqlite3 → state.sqlite3.tombstone` (mode `0444`)
+    `.striatum/retired-local-state → retired-local-state.tombstone` (mode `0444`)
     unless `--confirm-delete` is set. Byte-equivalent audit-chain
     re-anchor compares canonical `events` and `artifacts` row manifests
     between SQLite and Postgres via SHA-256. Daemon command helper at
@@ -874,7 +875,7 @@ review and plan are root-level operator artifacts:
     fixture, and the broad skipped legacy fixture tests are deleted. Active
     guardrails assert production source does not import `sqlite3`,
     `striatum.legacy_sqlite`, `striatum.db`, or `striatum.migrations`; the
-    remaining `.striatum/state.sqlite3` handling is refusal/inspection of a
+    remaining `.striatum/retired-local-state` handling is refusal/inspection of a
     retired file name, not live-state support.
 
 50. ~~**Phase 2: single method-contract source.**~~ ✅ Done. Contract source is now
@@ -1364,6 +1365,18 @@ review and plan are root-level operator artifacts:
     workflow-control operation now requires CLI; pane output and transcripts
     still must not become workflow state. Hiding or deleting CLI compatibility
     verbs is a later deprecation/release decision, not a TODO 67 blocker.
+
+68. **RFC 0078: Go-only runtime and Python removal.** Proposed. The owner
+    direction is to remove all Python traces from the active Striatum
+    repository head, not only the already-retired Python daemon/MCP/local-state
+    paths. The RFC supersedes the RFC 0068/RFC 0070 carve-out that allowed
+    Python CLI/web clients to remain useful, and scopes a full cutover ledger:
+    Go CLI parity or explicit command retirement, Go local web/service
+    replacement or route retirement, workflow-authoring and artifact-schema
+    ports, pytest-to-Go coverage migration, Go-only packaging/release docs,
+    and guardrails that keep Python source, tests, packaging, and active
+    operator instructions from returning. Git object history rewrite is out of
+    scope.
 
 ## GH issue follow-ups
 

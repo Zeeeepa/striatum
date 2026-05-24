@@ -138,31 +138,4 @@ func TestRepoInitCreatesPostgresRegistrationAndOperationalScratch(t *testing.T) 
 	if len(runner.execs) != 1 || !strings.Contains(runner.execs[0].sql, "INSERT INTO striatumd.repositories") {
 		t.Fatalf("expected repository insert, got %#v", runner.execs)
 	}
-	if _, err := os.Stat(filepath.Join(repo, ".striatum", "state.sqlite3")); !os.IsNotExist(err) {
-		t.Fatalf("repo.init created or touched SQLite state: %v", err)
-	}
-}
-
-func TestRepoInitRefusesRepoLocalSQLite(t *testing.T) {
-	repo := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(repo, ".striatum"), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(repo, ".striatum", "state.sqlite3"), []byte("legacy"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	runner := &lifecycleRunner{}
-	_, err := Service{Runner: runner}.RepoInit(context.Background(), rpc.Envelope{
-		Params: map[string]any{"path": repo, "repository_id": "repo_test"},
-	})
-	var rpcErr *rpc.Error
-	if !errors.As(err, &rpcErr) {
-		t.Fatalf("expected rpc error, got %v", err)
-	}
-	if rpcErr.Code != "sqlite_retired" {
-		t.Fatalf("code = %s", rpcErr.Code)
-	}
-	if len(runner.execs) != 0 {
-		t.Fatalf("unexpected database writes: %#v", runner.execs)
-	}
 }

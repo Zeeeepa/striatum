@@ -216,7 +216,7 @@ actual: The most useful additions are operator-facing diagnostics for the transi
 
 mine: Add `striatum doctor --authority --json`. It should report, for the current install, which commands are daemon-native, local authoring, bootstrap/admin, migration-only, legacy-fixture, or unsupported; whether the daemon registry is PostgreSQL-only; whether any repo-local SQLite file would be opened by production paths; and whether the current CLI/service can resolve the repo without direct SQL.
 
-mine: Add `striatum repo resolve --json` as a daemon-backed command. It should show the repository id, repo root, lifecycle state, Postgres schema version, scratch status, and whether old `.striatum/state.sqlite3` files are source, tombstone, missing, or unsafe.
+mine: Add `striatum repo resolve --json` as a daemon-backed command. It should show the repository id, repo root, lifecycle state, Postgres schema version, scratch status, and whether old `.striatum/retired-local-state` files are source, tombstone, missing, or unsafe.
 
 mine: Add a migration cleanup report. After `migrate-repo-local`, operators need one command that says: PG row exists, event chain reanchored, tombstone mode is correct, no production verb will open SQLite, and removable scratch candidates are limited to known transient paths.
 

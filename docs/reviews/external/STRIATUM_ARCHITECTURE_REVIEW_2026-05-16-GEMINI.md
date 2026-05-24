@@ -83,7 +83,7 @@ The project maintains a rigorous, high-coverage testing posture. It features ove
 - **Web Service Direct DB Access:** The local web dashboard directly queries the database instead of routing all requests exclusively through the daemon's RPC layer, breaking the single-source-of-truth paradigm.
 
 ### Places Where Docs and Implementation Disagree
-- Several pieces of documentation (e.g., parts of `README.md` and `GETTING_STARTED.md`) still reference `.striatum/state.sqlite3` as the authoritative state, which directly contradicts the D094/RFC 0043 implementation that enforces PostgreSQL. (Tracked as GH #15).
+- Several pieces of documentation (e.g., parts of `README.md` and `GETTING_STARTED.md`) still reference `.striatum/retired-local-state` as the authoritative state, which directly contradicts the D094/RFC 0043 implementation that enforces PostgreSQL. (Tracked as GH #15).
 
 ---
 

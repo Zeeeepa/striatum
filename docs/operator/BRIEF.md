@@ -126,7 +126,7 @@ was already absent, and this slice removes the direct corpus exporter, the V1
 local-state schema module, the deterministic repo-local fixture, and the stale
 skipped compatibility tests. Active guardrails now require no production or
 active test imports of `sqlite3`, `striatum.legacy_sqlite`, `striatum.db`, or
-`striatum.migrations`. The retired `state.sqlite3` file name remains only as a
+`striatum.migrations`. The retired `retired-local-state` file name remains only as a
 refusal/inspection signal for old working copies and as a redaction suffix.
 
 ## Next 1-3 Actions

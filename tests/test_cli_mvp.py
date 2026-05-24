@@ -106,10 +106,6 @@ def connect(repo: Path) -> Any:
     _skip_legacy_state_fixture()
 
 
-def db_path(repo: Path) -> Path:
-    _skip_legacy_state_fixture()
-
-
 def init_repo(repo: Path) -> None:
     _skip_legacy_state_fixture()
 
@@ -310,7 +306,7 @@ def verdict_claimed_review(
 
 def test_init_status_and_doctor(tmp_path: Path) -> None:
     init_repo(tmp_path)
-    assert (tmp_path / ".striatum" / "state.sqlite3").exists()
+    assert (tmp_path / ".striatum").exists()
     assert ".striatum/" in (tmp_path / ".gitignore").read_text(encoding="utf-8")
     status = data(run_cli(tmp_path, "status"))
     assert status["runs"] == []
@@ -322,7 +318,7 @@ def test_local_api_wraps_cli_semantics_without_printing_or_exiting(tmp_path: Pat
     initialized = api_data(invoke(["init"], repo=tmp_path))
     assert initialized["state_dir"] == str(tmp_path / ".striatum")
     assert initialized["state_store"] == "daemon_postgres"
-    assert not (tmp_path / ".striatum" / "state.sqlite3").exists()
+    assert (tmp_path / ".striatum" / "scratch").is_dir()
 
     init_repo(tmp_path)
     status = api_data(invoke(["status"], repo=tmp_path))
@@ -2080,7 +2076,6 @@ def test_evidence_redaction_drops_unknown_fields_by_default(
 
     monkeypatch.setattr(cli_module, "evidence_snapshot", patched_snapshot)
 
-    assert db_path(tmp_path).exists()
     with connect(tmp_path) as conn:
         cli_module.evidence_export(
             conn,
@@ -2226,7 +2221,7 @@ def test_evidence_export_writes_redacted_markdown_and_rejects_bad_paths(tmp_path
     assert "author: operator" in evidence
     assert "Author:" not in evidence
     assert "<redacted-free-text>" in evidence
-    assert "state.sqlite3" not in evidence
+    assert "retired local state" not in evidence
     assert "transcript" not in evidence.lower()
     bad_state = run_cli(
         tmp_path,

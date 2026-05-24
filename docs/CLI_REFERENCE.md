@@ -242,7 +242,7 @@ symlink/path-traversal ambiguity, derives a realpath/inode-based
 repository identity, and refuses active path re-occupation by a
 different identity. Pass `--init` when no `.striatum/` directory
 exists; it creates operational scratch only and does not create
-`.striatum/state.sqlite3`. If a pre-D094 repo-local SQLite source
+`.striatum/retired-local-state`. If a pre-D094 repo-local SQLite source
 exists, registration refuses and tells the operator to archive/remove
 the legacy SQLite file before registering.
 
@@ -562,7 +562,7 @@ striatum session close
   socket; stderr names the socket path and remediation. No SQLite
   fallback is attempted.
 - `12`: `repo_not_migrated`. The target repository is not registered for
-  daemon/PostgreSQL state or still has a legacy `.striatum/state.sqlite3`;
+  daemon/PostgreSQL state or still has a legacy `.striatum/retired-local-state`;
   stderr and the `--json` hint tell the operator to archive/remove legacy
   SQLite files and register with `adopt` or `repo add --init`.
 

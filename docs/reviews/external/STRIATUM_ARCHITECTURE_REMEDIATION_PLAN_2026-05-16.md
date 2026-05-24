@@ -106,7 +106,7 @@ Steps:
 
 Acceptance criteria:
 
-- In production-mode tests, ordinary commands cannot open `.striatum/state.sqlite3`.
+- In production-mode tests, ordinary commands cannot open `.striatum/retired-local-state`.
 - Daemon RPC does not call `striatum.api.invoke` for production transitions.
 - Docs no longer present SQLite or direct mode as ordinary operator flow.
 - `striatum inbox --json` docs are corrected or a real global inbox is implemented.

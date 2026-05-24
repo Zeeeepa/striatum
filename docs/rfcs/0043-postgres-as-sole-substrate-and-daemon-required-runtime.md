@@ -31,7 +31,7 @@ trajectory; D028 unaffected),
 
 Striatum currently runs two substrates:
 
-- `.striatum/state.sqlite3` — repo-local, owns *workflow truth*: runs, jobs,
+- `.striatum/retired-local-state` — repo-local, owns *workflow truth*: runs, jobs,
   sessions, queue messages, leases, work packets, artifact records, verdicts,
   blockers, command requests, process executions, events, worktree rows, and
   supervisor pointers. Mutated directly by the CLI process.
@@ -40,7 +40,7 @@ Striatum currently runs two substrates:
   supervisor metadata, apply receipts, cross-repo run coordination.
 
 D086 deferred the question of repo-local state. RFC 0033's non-goal §1 made
-the carve-out explicit: "Replacing repo-local `.striatum/state.sqlite3`. That
+the carve-out explicit: "Replacing repo-local `.striatum/retired-local-state`. That
 stays SQLite under D006/D007 unless a future RFC explicitly proposes change."
 This is that RFC.
 
@@ -82,7 +82,7 @@ D094 supersedes that assumption. This RFC specifies the change.
 
 - Move every authoritative repo-local table to the daemon-owned PostgreSQL
   schema introduced by RFC 0033, under a per-repo namespace.
-- Retire `.striatum/state.sqlite3`. Define `.striatum/` as operational
+- Retire `.striatum/retired-local-state`. Define `.striatum/` as operational
   scratch (FIFOs, pidfiles, supervisor stdout) with no durable workflow
   state.
 - Retire direct repo-local CLI mode (the `--no-daemon` path). Every Striatum
@@ -133,7 +133,7 @@ The daemon-owned PostgreSQL instance (`daemon_db` per RFC 0033) becomes the
 authoritative store for all Striatum state. The schema gains a repo-local
 namespace.
 
-Per-repo workflow tables (mirrors of today's `.striatum/state.sqlite3`
+Per-repo workflow tables (mirrors of today's `.striatum/retired-local-state`
 content, modulo type adjustments for Postgres):
 
 - `runs`, `sessions`, `jobs`, `job_dependencies`, `queue_messages`,
@@ -177,7 +177,7 @@ Nothing in `.striatum/` is durable workflow truth. `striatum doctor`
 treats files outside this allowlist as warnings, and the `.gitignore`
 written by `striatum init` covers the whole directory unchanged.
 
-The `state.sqlite3` file is not created on new init. If present from a
+The `retired-local-state` file is not created on new init. If present from a
 prior version it is left alone until the operator archives or removes it.
 D113 later retired the operator-facing SQLite import command.
 
@@ -234,7 +234,7 @@ The command's behavior:
    (per RFC 0028 `repo add`). If the repo is not registered, the
    command runs `repo add` implicitly with `--init=false` and prints
    what it did.
-3. Verifies the on-disk `.striatum/state.sqlite3` schema version is
+3. Verifies the on-disk `.striatum/retired-local-state` schema version is
    the highest the runner supports. If not, refuses and points the
    operator at an older Striatum release that can bring the legacy SQLite
    source forward first.
@@ -251,7 +251,7 @@ The command's behavior:
    originals byte-for-byte, writes a checkpoint marker row in the
    `repo_migrations` daemon-DB table, then commits.
 6. With `--keep-sqlite-readonly` (default): renames
-   `.striatum/state.sqlite3` to `.striatum/state.sqlite3.tombstone`
+   `.striatum/retired-local-state` to `.striatum/retired-local-state.tombstone`
    and sets the file mode to 0444. The file is no longer opened by
    any Striatum verb; it is preserved for operator inspection. The
    tombstone is what the operator deletes when they no longer need
@@ -265,7 +265,7 @@ The command's behavior:
    "already migrated" with the checkpoint marker timestamp and exit
    0.
 
-The migration command preserves D028: the `.striatum/state.sqlite3`
+The migration command preserves D028: the `.striatum/retired-local-state`
 file never contained transcripts, and the migration does not record
 any new data that was not already in the SQLite.
 
@@ -359,7 +359,7 @@ longer pay for per-test SQLite setup. Net change is neutral-to-favorable.
 
 Tests of the historical migration helper itself (`migrate-repo-local`) use a
 golden SQLite fixture. That fixture lives at
-`tests/fixtures/v1_repo_local_sqlite/state.sqlite3` as the highest
+`tests/fixtures/v1_repo_local_sqlite/retired-local-state` as the highest
 runner-supported V1 schema; after D113 those tests must opt in with
 `STRIATUM_LEGACY_SQLITE_IMPORT=1`.
 
@@ -386,7 +386,7 @@ substrate flip enables.
 
 ## Compatibility and Migration
 
-- **Existing target repositories** with `.striatum/state.sqlite3` continue
+- **Existing target repositories** with `.striatum/retired-local-state` continue
   to require operator cleanup before registration. D113 retired the writable
   SQLite import path; current CLI verbs refuse with exit code 12 and point at
   archive/remove plus `striatum adopt` or `striatum repo add --init`.
@@ -396,7 +396,7 @@ substrate flip enables.
   rewritten; running an old scaffold's workflow today produces a
   current-substrate run.
 - **Examples** under `examples/` get a one-line check: any reference to
-  `.striatum/state.sqlite3` is replaced with a substrate-neutral phrase
+  `.striatum/retired-local-state` is replaced with a substrate-neutral phrase
   ("Striatum's authoritative state") or removed entirely.
 - **Test fixtures** for the migration command itself (§7) preserve a
   V1 SQLite snapshot for the migration's regression suite. That fixture
@@ -404,7 +404,7 @@ substrate flip enables.
   empty repo plus a small run, and committed under
   `tests/fixtures/v1_repo_local_sqlite/`.
 - **Skill bundles** (RFC 0015) and **plugin bundles** (RFC 0025) regenerate
-  with new "Do not write to `.striatum/state.sqlite3`" language replaced
+  with new "Do not write to `.striatum/retired-local-state`" language replaced
   by "Do not bypass the daemon; use the supplied runner client commands."
   The underlying invariant — agents do not touch the substrate directly —
   is preserved.
@@ -589,7 +589,7 @@ Terms to add to `docs/UBIQUITOUS_LANGUAGE.md` after acceptance:
   `command_requests`, `process_executions`, `events`, `job_worktrees`,
   `process_supervisors`, `process_supervisor_pointers`) hosted in the
   daemon-owned PostgreSQL instance under a `repository_id` scope.
-  Replaces the V1 sense of `.striatum/state.sqlite3`.
+  Replaces the V1 sense of `.striatum/retired-local-state`.
 - **Operational scratch** — the post-D094 role of `.striatum/`: a
   filesystem location next to the target repo for supervised wrapper
   FIFOs, pidfiles, transient supervisor stdout, optional lane wrappers, and
@@ -598,7 +598,7 @@ Terms to add to `docs/UBIQUITOUS_LANGUAGE.md` after acceptance:
 - **Daemon-required CLI** — the post-D094 default and only CLI behavior.
   Every verb routes through the daemon RPC envelope; the daemon is the
   single writer. There is no SQLite fallback.
-- **Tombstone SQLite** — the read-only `.striatum/state.sqlite3.tombstone`
+- **Tombstone SQLite** — the read-only `.striatum/retired-local-state.tombstone`
   file created by historical migration fixtures or pre-D113 cutovers. It is
   not opened by any Striatum verb; it is preserved for operator inspection
   until the operator removes it.
@@ -674,7 +674,7 @@ two cases in `tests/exit_codes/test_rfc0043_refusals.py`:
 
 * `test_dispatch_returns_exit_12_for_unmigrated_repo` — binds a
   Unix socket so the daemon-reachability check passes, drops an
-  empty `.striatum/state.sqlite3` to present the pre-cutover disk
+  empty `.striatum/retired-local-state` to present the pre-cutover disk
   signal, then asserts `dispatch_mod.main(["--repo", str(tmp_path),
   "status"])` returns `12`, that stderr contains
   `repo_not_migrated`, and that the remediation line names
@@ -695,14 +695,14 @@ flipped default.
 V1 committed Postgres state then performed the SQLite tombstone or
 delete outside the transaction. A crash between those two steps
 left the operator with a migrated repo plus a still-writable
-`.striatum/state.sqlite3` — a silent split-brain. V1.5 hardens this
+`.striatum/retired-local-state` — a silent split-brain. V1.5 hardens this
 with a checkpointed-resume design (transactional rollback was
 rejected because the SQLite filesystem rename cannot participate
 in the Postgres transaction):
 
 1. After the Postgres `SERIALIZABLE` transaction commits, the
    migration writes the sentinel
-   `.striatum/state.sqlite3.migrated` atomically — JSON body
+   `.striatum/retired-local-state.migrated` atomically — JSON body
    containing `repository_id`, `source_state_db_sha256`,
    `keep_sqlite_readonly`, `confirm_delete`, and `written_at`.
    The write uses a `*.tmp` file + `os.fsync` + `replace` so a
@@ -716,7 +716,7 @@ branch in `migrate_repo_local` and the in-transaction branch in
 `_migrate_full`) call the new helper
 `_resume_sqlite_finalization_after_checkpoint()` before returning:
 
-* If `state.sqlite3` is still on disk, the helper verifies its
+* If `retired-local-state` is still on disk, the helper verifies its
   SHA against `checkpoint["source_state_db_sha256"]` (refusing
   with exit code 8 on mismatch — non-destructive), then resumes
   the original tombstone/delete action recorded in the sentinel,

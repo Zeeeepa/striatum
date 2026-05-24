@@ -18,7 +18,7 @@ Two related changes shape the current product:
    audit chain, scheduler cursors, RPC request log) on operator-
    installed system PostgreSQL.
 2. **D094 / RFC 0043** supersedes the V1 carve-out that kept
-   per-repository workflow state in `.striatum/state.sqlite3`.
+   per-repository workflow state in `.striatum/retired-local-state`.
    Repo-local workflow tables (`runs`, `jobs`, `sessions`,
    `queue_messages`, `leases`, `work_packets`, `artifacts`,
    `verdicts`, `blockers`, `command_requests`, `process_executions`,
@@ -55,7 +55,7 @@ Two related changes shape the current product:
   striatum-orchestrator` or a contributor checkout with
   `make install`).
 - For an existing pre-D094 repo: writable SQLite imports are retired.
-  Archive or remove `.striatum/state.sqlite3` before registering the
+  Archive or remove `.striatum/retired-local-state` before registering the
   repository with `striatum adopt` or `striatum repo add --init`.
 
 ## Provision the daemon-required role
@@ -273,7 +273,7 @@ striatum --repo /path/to/target adopt --profile claude_code --json
 `adopt` initializes `.striatum/` scratch when needed, installs local
 agent assets, scaffolds DDD docs, registers the repo into daemon PostgreSQL,
 and reports a suggested workflow path. Writable SQLite import windows are
-closed; if a legacy `.striatum/state.sqlite3` exists, archive or remove it
+closed; if a legacy `.striatum/retired-local-state` exists, archive or remove it
 before registering.
 
 The first `daemon start` bootstraps a single admin token and writes an
@@ -308,7 +308,7 @@ striatum --repo /path/to/target list runs --json
 `daemon doctor --repo <path> --authority --json` emits
 `striatum.repo_cutover_report.v1`. The report confirms repository
 registration, absence or archival of the live source
-`.striatum/state.sqlite3`, event-chain anchor health for PostgreSQL state,
+`.striatum/retired-local-state`, event-chain anchor health for PostgreSQL state,
 and the bounded migration/test SQLite exception notes. It is verify-only: it
 uses Postgres queries and raw file/tombstone/sentinel stat/hash checks, and it
 does not open SQLite as a database or resume finalization.
@@ -324,7 +324,7 @@ files and register with `adopt` or `repo add --init`.
 `striatum daemon doctor --json` reports one substrate (Postgres),
 one schema version, and one audit chain after successful registration.
 Existing dogfood scaffolds under `docs/dogfood/<NNN>/`
-are frozen historical artifacts; their `.striatum/state.sqlite3`
+are frozen historical artifacts; their `.striatum/retired-local-state`
 references describe V1 behavior and are not migrated by this
 command.
 
@@ -345,10 +345,10 @@ for the full closed list.
 
 - **Archive before registration is the safe rollback.** Current Striatum does
   not perform operator SQLite imports. If a target repo still has legacy
-  `.striatum/state.sqlite3`, archive it before registration so the old local
+  `.striatum/retired-local-state`, archive it before registration so the old local
   mirror remains available for manual inspection.
 - **Legacy tombstones are read-only historical remnants.** If an older
-  Striatum version already created `.striatum/state.sqlite3.tombstone`, no
+  Striatum version already created `.striatum/retired-local-state.tombstone`, no
   current Striatum verb opens it. SQLite tooling can inspect it directly; you
   can delete it manually when you no longer want the local mirror.
 - **There is no "un-migrate" command.** Once Postgres-side registration

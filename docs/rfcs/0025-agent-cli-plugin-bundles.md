@@ -445,7 +445,7 @@ plugin bundles:
   overwrites it; `--dry-run` prints a plan that names the conflict.
 - `striatum init --with-plugins` produces a target tree containing
   `.striatum/` operational scratch plus the requested plugin bundle; it
-  does not create live workflow state in `state.sqlite3` for current
+  does not create live workflow state in `retired-local-state` for current
   production runs.
 - `striatum doctor` reports `plugin_missing` for a target whose
   manifest references a bundle that has been deleted, and

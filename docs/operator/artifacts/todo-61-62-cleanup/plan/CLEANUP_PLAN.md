@@ -23,7 +23,7 @@ Resolve the misleading daemon-doctor warnings and hardcoded SQLite literals in p
     *   Update `src/striatum/daemon_pg/mcp_resources.py` to ensure MCP projections also reflect the directory-based scratch path.
 
 2.  **Repo Registration Cleanup:**
-    *   Update `src/striatum/daemon_pg/repositories.py` to use `striatum.repo_policy.db_path(repo)` instead of hardcoded `.striatum/state.sqlite3` literals for the migration-refusal probe.
+    *   Update `src/striatum/daemon_pg/repositories.py` to use `striatum.repo_policy.db_path(repo)` instead of hardcoded `.striatum/retired-local-state` literals for the migration-refusal probe.
     *   Ensure the symlink probe also uses the policy helper.
 
 ### Track 2: TODO 61 Test Debt Reduction (High Priority)

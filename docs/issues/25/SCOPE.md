@@ -28,7 +28,7 @@ PostgreSQL-backed:
 The misleading refusal is in the CLI preflight, not the registry query.
 `src/striatum/cli/dispatch.py` calls `enforce_daemon_required(...)` before
 daemon routing. `src/striatum/cli/daemon_required.py` then probes the daemon
-socket and also checks local `.striatum/state.sqlite3` via
+socket and also checks local `.striatum/retired-local-state` via
 `repo_is_migrated(...)`. That local SQLite check is valid for setup/mutation
 paths that need a target repository, but it is wrong for `repo list`: listing
 registered repositories is a daemon-global read and should not depend on
@@ -71,7 +71,7 @@ read path and focused tests.
     formatter lives in `daemon_rpc_route.py`.
 - `tests/exit_codes/test_rfc0043_refusals.py`
   - Add or adjust a test so `repo list` with a reachable daemon socket and a
-    local `.striatum/state.sqlite3` does not emit `repo_not_migrated`.
+    local `.striatum/retired-local-state` does not emit `repo_not_migrated`.
   - Add a test so `repo list` with an unreachable daemon reports
     `daemon_unreachable`, not `repo_not_migrated`.
   - Keep existing `status` / mutation-command `repo_not_migrated` tests
@@ -91,7 +91,7 @@ Do not touch these unless a test reveals a direct contradiction to GH #25.
 - `src/striatum/day_zero.py`, `src/striatum/daemon_pg/repositories.py`
   `repo_add_pg`, and `go/pkg/repositories/service.go` `Service.Add`:
   `adopt` and `repo add --init` should continue refusing a live
-  `.striatum/state.sqlite3` because setup is where the SQLite-retirement
+  `.striatum/retired-local-state` because setup is where the SQLite-retirement
   check belongs.
 - `src/striatum/cli/daemon.py` and daemon lifecycle/admin commands.
 - `go/pkg/repositories/service.go` `Service.List`, unless Go conformance
@@ -142,7 +142,7 @@ done".
    `last_seen_at`, and shortened repository id; the current repo is marked
    with `*` and sorted first when present.
 2. **GH25-2 (no SQLite preflight on list).** `repo list` does not call
-   `repo_is_migrated(...)` or inspect `.striatum/state.sqlite3`; it uses the
+   `repo_is_migrated(...)` or inspect `.striatum/retired-local-state`; it uses the
    daemon `repo.list` registry as the sole state source after the socket
    reachability check.
 3. **GH25-3 (`--json` unchanged).** `striatum repo list --json` still routes

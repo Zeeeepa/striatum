@@ -6,7 +6,7 @@ Read the work packet first and use the exact `author:` line supplied in
 Review only the F1 revision. Verify:
 
 - `striatum repo list --json` no longer exposes stale
-  `.striatum/state.sqlite3` paths for old rows,
+  `.striatum/retired-local-state` paths for old rows,
 - doctor and MCP projections remain consistent,
 - no production SQLite or Python-daemon authority path was reopened,
 - focused tests cover the regression.

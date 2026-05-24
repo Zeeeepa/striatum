@@ -20,7 +20,7 @@ bundle referenced here completed in v1.55.0; use `CHANGELOG.md`,
 | v1.50.0 | RFC 0048 V1.5 | Unix-socket accept loop in `run_daemon_foreground`. Daemon-required CLI verbs actually reach the daemon now. `POSTGRES_TRANSITION.md` role-provisioning runbook (`striatumd_rw`). |
 | v1.51.0 | RFC 0048 Phase C scaffold | CLI dispatch hook (`src/striatum/cli/daemon_rpc_route.py`) routes ~30 CLI verbs through Unix socket. PG admin client + runtime token bootstrapped on daemon startup. systemd user unit at `~/.config/systemd/user/striatumd.service`. Multi-repo router fix. Token + auth wiring. |
 | v1.52.0 | RFC 0048 Phase C complete (Python reads) | 12 read-surface PG handlers under `src/striatum/daemon_pg/handlers/reads/` (status, dashboard, list.\*, run.summary, why, doctor, evidence.export, corpus.export). |
-| v1.53.0 | GH #19 + #21 + doctor --explain | `recovery requeue-stale --force --justification "<reason>"` for repo_write stale jobs (audit-chained). `_verify_state_health()` at serve startup refuses to bind over a corrupted state.sqlite3 + flushes WAL. `daemon doctor --explain` shows per-method PG-backed vs SQLite-fallback routing. |
+| v1.53.0 | GH #19 + #21 + doctor --explain | `recovery requeue-stale --force --justification "<reason>"` for repo_write stale jobs (audit-chained). `_verify_state_health()` at serve startup refuses to bind over a corrupted retired-local-state + flushes WAL. `daemon doctor --explain` shows per-method PG-backed vs SQLite-fallback routing. |
 | v1.54.0 | RFC 0048 Phase B (Go reads) | `go/pkg/reads/` ports the same 12 read handlers to Go-core parity. `go/cmd/striatumd/main.go` registers them before the not-implemented stub loop. Go daemon now serves reads instead of returning `not_implemented`. |
 | follow-up | RFC 0048 Phase B/C completion | `go/pkg/mutations/` ports the repo-local workflow mutation surface to Go, Go embeds repo-local schema migration 0005, `run.prepare` materializes v1.1 phase dependencies, `recovery.auto` live mode publishes and completes recoverable stale work, `branch.confirm` honors git modes, and mapped CLI RPC verbs fail closed instead of falling back to SQLite. |
 
@@ -30,10 +30,10 @@ main at `3d85802`. All branches deleted; tag history clean.
 
 - Daemon: **active** under systemd (`systemctl --user status striatumd.service`). Bootstrap admin client in `striatumd.clients`; runtime token at `/run/user/1000/striatum/client-token`.
 - CLI: `striatum 1.54.0` (`pip install -e . --force-reinstall --user --break-system-packages` to pick up newer).
-- state.sqlite3: minimal — only dogfood-058's old `run_02ebec63…` row (the rest was lost when serve clobbered state, fix landed in v1.53.0 but the lost runs aren't recoverable).
+- retired-local-state: minimal — only dogfood-058's old `run_02ebec63…` row (the rest was lost when serve clobbered state, fix landed in v1.53.0 but the lost runs aren't recoverable).
 - Postgres `striatum_daemon` DB: has data from the earlier `daemon migrate-repo-local` attempt — `repo_a89ecd1664764f039a127c62ab7da3f3` registered, 1 run / 90 events from dogfood-058. The schema is at version 5; `striatumd_rw` role + grants in place.
 - Operator UI: `striatum serve --web --allow-mutations` running on `127.0.0.1:8088`; Tailscale-bridged at `https://proximal.tail0ecc2e.ts.net:8443/`.
-- Quarantined: `.striatum/state.sqlite3.corrupt` from earlier corruption — safe to delete.
+- Quarantined: `.striatum/retired-local-state.corrupt` from earlier corruption — safe to delete.
 
 ## Current status after follow-up
 
@@ -84,7 +84,7 @@ out-of-band helpers, not SQLite fallback routes.
 1. `striatum --version` → expect `1.54.0`.
 2. `systemctl --user status striatumd.service` → expect `active (running)`.
 3. `striatum daemon doctor --explain --json | jq '.data.explain | {method_count, pg_backed_count}'` → expect the PG-backed count to include reads plus mapped mutations after installing the follow-up working tree. (Note: the `--json` envelope wraps the explain payload under `.data`, not at the top level.)
-4. `python3 -c "import sqlite3; print(sqlite3.connect('.striatum/state.sqlite3').execute('PRAGMA integrity_check').fetchone())"` → expect `('ok',)`.
+4. `python3 -c "import sqlite3; print(sqlite3.connect('.striatum/retired-local-state').execute('PRAGMA integrity_check').fetchone())"` → expect `('ok',)`.
 5. `ps -ef | grep -E "(codex|claude|gemini).*wrapper" | grep -v grep | wc -l` → expect 0.
 6. `ls /run/user/1000/striatum/` → expect `client-token`, `striatumd.pid`, `striatumd.sock`.
 7. `git status --short --branch` → expect `## main`, clean tree.
@@ -95,21 +95,21 @@ The fixes shipped but were not load-tested under real conditions. Verify:
 
 **GH #21 (serve startup state-loss)**:
 ```bash
-# 1. Create a fake run row in state.sqlite3 so we can detect clobber.
+# 1. Create a fake run row in retired-local-state so we can detect clobber.
 python3 -c "
 import sqlite3, uuid
-c = sqlite3.connect('.striatum/state.sqlite3')
+c = sqlite3.connect('.striatum/retired-local-state')
 c.execute('INSERT INTO runs(run_id, workflow_snapshot_id, repo_root, state, created_at) VALUES (?, ?, ?, ?, ?)',
           ('run_smoke_' + uuid.uuid4().hex[:8], 'ws_smoke', '/home/halbritt/git/striatum', 'completed', '2026-05-15T00:00:00Z'))
 c.commit()
 "
-SIZE_BEFORE=$(stat -c%s .striatum/state.sqlite3)
+SIZE_BEFORE=$(stat -c%s .striatum/retired-local-state)
 # 2. Restart serve.
 kill -TERM $(pgrep -f "striatum.*serve.*web")
 sleep 2
 striatum --repo . serve --web --allow-mutations --host 127.0.0.1 --port 8088 &
 sleep 3
-SIZE_AFTER=$(stat -c%s .striatum/state.sqlite3)
+SIZE_AFTER=$(stat -c%s .striatum/retired-local-state)
 # 3. Sizes should match. Row should still be there.
 echo "before=$SIZE_BEFORE after=$SIZE_AFTER"
 ```

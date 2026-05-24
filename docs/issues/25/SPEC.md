@@ -9,7 +9,7 @@ Source: https://github.com/halbritt/striatum/issues/25
 ```
 $ striatum repo list
 repo_not_migrated: /home/halbritt/git/striatum has not been migrated to daemon PostgreSQL state
-SQLite import windows are closed. Archive or remove any legacy .striatum/state.sqlite3 file, then register the repository with `striatum adopt --repo /home/halbritt/git/striatum` or `striatum repo add --init /home/halbritt/git/striatum`.
+SQLite import windows are closed. Archive or remove any legacy .striatum/retired-local-state file, then register the repository with `striatum adopt --repo /home/halbritt/git/striatum` or `striatum repo add --init /home/halbritt/git/striatum`.
 
 $ striatum repo list --json | jq '.data.repositories[0]'
 {
@@ -21,13 +21,13 @@ $ striatum repo list --json | jq '.data.repositories[0]'
 }
 ```
 
-The non-JSON path is pre-flighting an on-disk `.striatum/state.sqlite3` check and refusing if it's absent (or present-but-not-migrated), instead of consulting the daemon's PostgreSQL repo registry. The `--json` path correctly queries the daemon.
+The non-JSON path is pre-flighting an on-disk `.striatum/retired-local-state` check and refusing if it's absent (or present-but-not-migrated), instead of consulting the daemon's PostgreSQL repo registry. The `--json` path correctly queries the daemon.
 
 ## Why this matters
 
 This is the first command an operator runs on a fresh shell to figure out which repos are registered. The non-JSON path's misleading error sends them down the wrong path — "register with adopt or repo add" — when the answer is "your repo is already registered; use --json to see it."
 
-Hit during the GH #22 / #23 / #24 operator session on 2026-05-18 → 2026-05-19. The error pointed at archiving `.striatum/state.sqlite3` (which is now retired operational state), which then made `adopt` fail with `active repository path is occupied by a different repo identity` because the daemon already knew about the repo with a different inode signature. The whole detour was unnecessary — the repo was already registered.
+Hit during the GH #22 / #23 / #24 operator session on 2026-05-18 → 2026-05-19. The error pointed at archiving `.striatum/retired-local-state` (which is now retired operational state), which then made `adopt` fail with `active repository path is occupied by a different repo identity` because the daemon already knew about the repo with a different inode signature. The whole detour was unnecessary — the repo was already registered.
 
 ## Acceptance / Definition of done
 

@@ -60,7 +60,7 @@ Add a production registry tripwire and port daemon-global surfaces in order:
   `striatum://daemon/dashboard`, and repository MCP resources work against a
   PG-only fixture.
 - The daemon recovery scheduler records PostgreSQL recovery events/cursors and
-  never opens or creates `.striatum/state.sqlite3`.
+  never opens or creates `.striatum/retired-local-state`.
 - Regression tests cover daemon start, dashboard-all, daemon sweep, MCP
   resources, health, and audit/doctor paths.
 

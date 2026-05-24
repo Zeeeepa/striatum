@@ -6,7 +6,7 @@ Read the work packet first and use the exact `author:` line supplied in
 Fix only the remaining production Go side of cleanup F1:
 
 - `striatum repo list --json` is daemon-backed by the Go repository service
-  and still returns stale `.striatum/state.sqlite3` file paths for older
+  and still returns stale `.striatum/retired-local-state` file paths for older
   repository rows.
 - The already-completed Python revision normalized Python projections, but it
   did not change the live Go `repo.list`/`repo.resolve`/already-registered
@@ -14,7 +14,7 @@ Fix only the remaining production Go side of cleanup F1:
 
 Expected implementation shape:
 
-- normalize stale `state_db_path` values ending in `state.sqlite3` to the
+- normalize stale `state_db_path` values ending in `retired-local-state` to the
   `.striatum/` operational scratch directory at Go response-projection time;
 - keep actual database storage and migration history intact;
 - cover `repo.list`, `repo.resolve`, and already-registered `repo.add` outputs

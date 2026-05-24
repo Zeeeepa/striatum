@@ -8,7 +8,7 @@ Fixed regression-review F1 for Python repository projections:
 - `repo_list_pg` and `repo_resolve_pg` now serialize repository rows through a
   shared projection helper in `src/striatum/daemon_pg/repositories.py`.
 - The helper normalizes stale `state_db_path` values ending in
-  `.striatum/state.sqlite3` to the `.striatum/` operational scratch directory.
+  `.striatum/retired-local-state` to the `.striatum/` operational scratch directory.
 - The stored PostgreSQL row is not rewritten; this is output normalization only,
   so migration history and older registry rows remain intact.
 - The duplicate-registration return path also uses the same projection helper,

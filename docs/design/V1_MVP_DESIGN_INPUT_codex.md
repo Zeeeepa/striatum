@@ -36,7 +36,7 @@ In scope:
 
 - `striatum init` creates `.striatum/`, initializes SQLite, enables
   WAL, and ensures repo-local state is ignored or documented safely.
-- One repo-local SQLite database at `.striatum/state.sqlite3`.
+- One repo-local SQLite database at `.striatum/retired-local-state`.
 - JSON workflow validation and loading. YAML must be rejected by extension,
   media type if supplied, and parse path.
 - Run creation with branch confirmation gating before any workflow jobs become

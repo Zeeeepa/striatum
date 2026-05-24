@@ -95,7 +95,7 @@ The Go daemon port lands through independent, testable slices:
   service is available.
 - The multi-repo harness participant runner writes prepare/start/cancel and
   human-checkpoint state to daemon-owned PostgreSQL tables instead of creating
-  or querying `.striatum/state.sqlite3` in target repositories.
+  or querying `.striatum/retired-local-state` in target repositories.
 - Go `run.prepare` uses the Go workflow-authoring loader for source-path
   resolution before inserting workflow snapshot rows, so traversal refusal and
   JSON-only workflow-source validation no longer depend on Python-daemon
@@ -133,7 +133,7 @@ The Go daemon port lands through independent, testable slices:
   retired `striatum.daemon` module out of production and test source.
 - SQLite-era repository identity and deterministic migration fixtures are
   deleted; refusal/reporting code may still recognize the retired
-  `.striatum/state.sqlite3` file name without opening it as live state.
+  `.striatum/retired-local-state` file name without opening it as live state.
 - D114 retires the no-PostgreSQL daemon MCP resource fallback. MCP
   `resources/list` and `resources/read` now require a daemon PostgreSQL
   connection and no longer import the legacy Python daemon for SQLite registry

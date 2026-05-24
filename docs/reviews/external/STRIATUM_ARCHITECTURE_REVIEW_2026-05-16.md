@@ -612,7 +612,7 @@ The docs are strong but some are stale or inconsistent because the architecture 
 
 Examples:
 
-- `docs/MCP.md` still describes `.striatum/state.sqlite3` as state authority for the local wrapper.
+- `docs/MCP.md` still describes `.striatum/retired-local-state` as state authority for the local wrapper.
 - `docs/WRITING_WORKFLOWS.md` still labels `.striatum/` as runtime state including SQLite.
 - `docs/USING_STRIATUM.md` says `striatum inbox --json`, but the CLI parser requires `--session-id`.
 - `docs/SPEC.md` has sections that still refer to dashboard and service views over SQLite, even though the product boundary says Postgres is authoritative.

@@ -17,7 +17,7 @@ The revision for TODO 61-62 cleanup successfully addresses the structural projec
 ### F1: Repo State-Path Projection Divergence Fixed (Resolved)
 The divergence between how repository state paths were projected has been resolved.
 - **Centralized Normalization:** Logic from `src/striatum/daemon_pg/mcp_resources.py` has been moved and centralized into a `_repository_projection` helper in `src/striatum/daemon_pg/repositories.py`.
-- **Consistent Projection:** Any repository row with a `state_db_path` pointing to the legacy `state.sqlite3` file within the operational scratch directory is now projected as the scratch directory path itself.
+- **Consistent Projection:** Any repository row with a `state_db_path` pointing to the legacy `retired-local-state` file within the operational scratch directory is now projected as the scratch directory path itself.
 - **Coverage:** This normalization is applied to `repo_list_pg`, `repo_resolve_pg`, and `repo_add_pg` (for existing identities), ensuring all Python-based clients see a consistent view.
 - **Verification:** Verified by `test_repo_list_and_resolve_normalize_stale_state_sqlite_projection` in `tests/daemon_pg/test_repo_registration.py` and `test_pg_daemon_mcp_resource_reads_preserve_shapes_without_sqlite` in `tests/test_mcp_capability_scope_e2e.py`. Both tests confirm that the database remains unchanged while the projected output is normalized.
 

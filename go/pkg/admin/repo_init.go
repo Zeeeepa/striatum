@@ -38,17 +38,6 @@ func (s Service) RepoInit(ctx context.Context, envelope rpc.Envelope) (map[strin
 	if err != nil {
 		return nil, err
 	}
-	if exists(filepath.Join(repo, ".striatum", "state.sqlite3")) {
-		return nil, rpc.NewError(
-			"sqlite_retired",
-			"repo.init refuses repo-local SQLite state; register PostgreSQL-backed daemon state instead",
-			map[string]any{
-				"path":              filepath.Join(repo, ".striatum", "state.sqlite3"),
-				"python_dependency": false,
-				"sqlite_dependency": false,
-			},
-		)
-	}
 	stateDir, err := initOperationalScratch(repo)
 	if err != nil {
 		return nil, err
@@ -398,11 +387,6 @@ func hasSymlinkComponent(path string) bool {
 		}
 	}
 	return false
-}
-
-func exists(path string) bool {
-	_, err := os.Stat(path)
-	return err == nil
 }
 
 func expandHome(value string) (string, error) {

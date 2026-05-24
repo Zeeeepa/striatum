@@ -12,7 +12,7 @@ verified end-to-end:
 
 - **GH #25**: `striatum repo list` (no `--json`) now consults the
   daemon repo registry instead of pre-flighting on
-  `.striatum/state.sqlite3`. The misleading `repo_not_migrated`
+  `.striatum/retired-local-state`. The misleading `repo_not_migrated`
   refusal is replaced by a human-readable table; daemon-unreachable
   errors surface cleanly. CLI dispatch routed through
   `src/striatum/cli/daemon_rpc_route.py` (+93 LOC).
@@ -803,7 +803,7 @@ Recent checkpoints:
 - `repo.add`, `repo.list`, and `repo.remove` now route through daemon RPC and
   operate directly on daemon-owned Postgres registration rows. `repo add
   --init` creates only `.striatum/` operational scratch and no
-  `.striatum/state.sqlite3`; existing repo-local SQLite sources must be
+  `.striatum/retired-local-state`; existing repo-local SQLite sources must be
   archived/removed before registration. The legacy importer is fixture-only.
 - Production `striatum init` and `striatum adopt` now use the same
   scratch-only bootstrap and no longer create repo-local SQLite, including
@@ -1171,12 +1171,12 @@ future audits can replay the decision.
 Without `--force --justification`, the original refusal still fires
 (regression guard).
 
-### GH #21 — serve refuses to start over a corrupted state.sqlite3
+### GH #21 — serve refuses to start over a corrupted retired-local-state
 
 Adds `_verify_state_health(repo)` to the `striatum serve` startup path
 (both TCP and Unix transports). Before binding any socket, the function:
 
-- Refuses to open if `state.sqlite3` exists but cannot be opened by
+- Refuses to open if `retired-local-state` exists but cannot be opened by
   `sqlite3.connect`.
 - Runs `PRAGMA integrity_check`; if the result isn't `ok`, raises
   `ServiceConfigError` naming the file + remediation (quarantine to
@@ -1293,7 +1293,7 @@ implementer spec.
 
 The structural gaps that made the workflow loop expensive — GH #19
 (stale-lease recovery for repo_write jobs) and GH #21 (serve restart
-clobbers state.sqlite3) — are tracked separately and remain V1.6
+clobbers retired-local-state) — are tracked separately and remain V1.6
 follow-up scope.
 
 ### Outstanding follow-ups (deferred)
@@ -2073,14 +2073,14 @@ migration) **stays deferred to V2.0** as a separate phase RFC.
   Closes codex dogfood-050 threat-model finding.
 - **F-split-brain** — `src/striatum/db.connect`: before creating a
   fresh SQLite (file absent), checks for sentinel
-  `.striatum/state.sqlite3.migrated` OR tombstone
-  `.striatum/state.sqlite3.tombstone`. Raises `StriatumError(exit_code=12)`
+  `.striatum/retired-local-state.migrated` OR tombstone
+  `.striatum/retired-local-state.tombstone`. Raises `StriatumError(exit_code=12)`
   with `repo_not_migrated` remediation text. Closes gemini A2.
 - **F-lock** —
   `src/striatum/daemon_pg/repo_local_migration.py`: new
   `MigrationInProgressError(StriatumError, exit_code=8)` and
   `_exclusive_migrate_lock(repo)` context manager taking a non-blocking
-  exclusive `fcntl.flock` on `.striatum/state.sqlite3.migrate.lock`
+  exclusive `fcntl.flock` on `.striatum/retired-local-state.migrate.lock`
   (sidecar — survives the source-file rename during finalization and
   does not fight SQLite's own POSIX byte-range locks). Refusal message
   names the source SQLite path. Exit code reuses the V1.5
@@ -2227,7 +2227,7 @@ migration) **stays deferred to V2.0** as a separate phase RFC.
     against real dispatch
     (`tests/exit_codes/test_rfc0043_refusals.py:207-243`) — runs
     `dispatch.main(["--repo", str(tmp), "status"])` against a tmp
-    repo with a `.striatum/state.sqlite3` plus listening daemon
+    repo with a `.striatum/retired-local-state` plus listening daemon
     socket, asserts rc == 12 and that the remediation line names
     `striatum daemon migrate-repo-local --from sqlite --to pg --repo`.
 
@@ -2303,13 +2303,13 @@ migration) **stays deferred to V2.0** as a separate phase RFC.
     `compute_repo_local_reanchor()`. Algorithm: authorize daemon
     admin → resolve or implicitly register the repository → refuse if
     a `repo_migrations` row already exists (returns
-    `already_migrated: true`) → open `.striatum/state.sqlite3`
+    `already_migrated: true`) → open `.striatum/retired-local-state`
     read-only → verify `PRAGMA user_version ==
     striatum.migrations.LATEST_VERSION` → for full runs, copy every
     repo-scoped row in dependency order inside one `SERIALIZABLE`
     Postgres transaction → write the `repo_migrations` checkpoint
     inside the same transaction → commit → rename
-    `.striatum/state.sqlite3 → state.sqlite3.tombstone` with mode
+    `.striatum/retired-local-state → retired-local-state.tombstone` with mode
     `0444` (default `--keep-sqlite-readonly`). If
     `--no-keep-sqlite-readonly` is supplied, deletion still requires
     `--confirm-delete`; otherwise the command refuses with exit code
@@ -2356,9 +2356,9 @@ migration) **stays deferred to V2.0** as a separate phase RFC.
     RFC 0028 read-mode opt-in until daemon-mediated CLI dispatch
     absorbs it. New `tests/cli/test_no_daemon_retired.py` covers the
     rejection plus `--help` absence assertion.
-  - **`.striatum/state.sqlite3` retained read-only when
+  - **`.striatum/retired-local-state` retained read-only when
     `--keep-sqlite-readonly` is set** (mode `0444` tombstone at
-    `.striatum/state.sqlite3.tombstone`); otherwise the
+    `.striatum/retired-local-state.tombstone`); otherwise the
     `--confirm-delete` flag deletes the source DB after the
     checkpoint commits. Post-migration `.striatum/` survives as
     operational scratch only — FIFOs, pidfiles, supervisor stdout,
@@ -2398,7 +2398,7 @@ migration) **stays deferred to V2.0** as a separate phase RFC.
   - **D094 supersession of D006 / D007 / D036 / SQLite half of D009
     is now executable.** The local-SQLite assumption baked into those
     earlier decisions no longer holds for repo-local workflow state;
-    `.striatum/state.sqlite3` is migration source or read-only
+    `.striatum/retired-local-state` is migration source or read-only
     tombstone only. RFC 0039's Go-core scope can now drop SQLite
     entirely (TODO item 25 marked unblocked).
   - **Files (uncommitted in this branch at merge time):** Track A —
@@ -2467,7 +2467,7 @@ migration) **stays deferred to V2.0** as a separate phase RFC.
   preserved. (2) **3rd `gemini-no-frontmatter` instance** — gemini
   reviewer's REVIEW.md was missing `striatum.finding.v1` front
   matter; operator-fixed inline. Operator also performed SQL surgery
-  on `artifacts.logical_name` in the live `.striatum/state.sqlite3`
+  on `artifacts.logical_name` in the live `.striatum/retired-local-state`
   because the on-behalf publish call had passed the wrong logical
   name during recovery (the artifact's underlying file path was
   correct but the `logical_name` column needed a one-row UPDATE to
@@ -2700,7 +2700,7 @@ migration) **stays deferred to V2.0** as a separate phase RFC.
   `FROM runs|FROM verdicts|FROM artifacts|FROM jobs|FROM sessions`
   queries from the live state DB), `redaction.py` (denylist-based
   source-path refusal for `.env`, `.env.local`, `keys/private.pem`,
-  `.striatum/state.sqlite3`, `transcripts/`, `raw_model_output/`,
+  `.striatum/retired-local-state`, `transcripts/`, `raw_model_output/`,
   `docs/transcript.txt`; co-author-email + 64-char-token scrubbing on
   commit messages; redaction policy enforces no-secrets/no-PII so the
   JSONL bundle is Engram-compatible), `writer.py` (deterministic
@@ -3403,7 +3403,7 @@ migration) **stays deferred to V2.0** as a separate phase RFC.
   operator-supplied system PostgreSQL, with forward-only daemon DB
   migrations and `striatum daemon migrate --from sqlite --to pg` for the
   V1 registry cutover. The docs keep repo-local
-  `.striatum/state.sqlite3` as workflow truth and avoid claiming daemon
+  `.striatum/retired-local-state` as workflow truth and avoid claiming daemon
   RPC, MCP mutations, daemon-owned supervision, cross-repo mutation, or
   sealed apply before their later RFCs.
 

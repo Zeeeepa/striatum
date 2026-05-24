@@ -20,7 +20,7 @@ current worktree.
 |---|---|---|
 | Legacy daemon registry / SQLite quarantine | `tests/architecture/test_legacy_sqlite_quarantine.py` and production tree inspection confirm `src/striatum/legacy_sqlite` and `src/striatum/daemon.py` are absent from production sources. | Passed |
 | Command authority / daemon method routing | `tests/architecture/test_authority_guardrails.py` confirms active daemon methods have explicit authority classifications and no unclassified daemon fallback route. | Passed |
-| Daemon doctor PG-only diagnostics | `tests/test_daemon_pg_doctor.py` covers PostgreSQL doctor reads, repo-scoped reads, stale `state.sqlite3` projection normalization, and missing `.striatum/` scratch warnings. | Passed |
+| Daemon doctor PG-only diagnostics | `tests/test_daemon_pg_doctor.py` covers PostgreSQL doctor reads, repo-scoped reads, stale `retired-local-state` projection normalization, and missing `.striatum/` scratch warnings. | Passed |
 | MCP daemon-global resources | `tests/test_mcp_capability_scope_e2e.py` covers PostgreSQL-backed daemon resources and stale state-path normalization without opening SQLite. | Passed |
 | Repository registration/projection | `tests/daemon_pg/test_repo_registration.py` covers PG registration, no SQLite file creation, stale projection normalization, closed import windows, repo removal, and capability revocation. | Passed |
 | CLI daemon doctor dispatch | `tests/cli/test_dispatch_daemon_doctor.py` covers PostgreSQL diagnostics and the disabled legacy registry posture. | Passed |

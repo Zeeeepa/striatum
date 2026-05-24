@@ -4,23 +4,23 @@ Source: https://github.com/halbritt/striatum/issues/21
 
 ## Summary
 
-Restarting \`striatum serve\` while a run is active loses the entire active-run state from \`.striatum/state.sqlite3\`. Reproduced 3 times in a single 8-hour operator session today (2026-05-14 → 2026-05-15).
+Restarting \`striatum serve\` while a run is active loses the entire active-run state from \`.striatum/retired-local-state\`. Reproduced 3 times in a single 8-hour operator session today (2026-05-14 → 2026-05-15).
 
-The mechanism appears to be: serve startup runs \`striatum init\` (or equivalent) which creates a fresh state.sqlite3, OR opens the file with a write mode that truncates / clobbers concurrent supervisor writes, OR a race between serve's first-write and the running supervisor processes' final-commit. End result: state.sqlite3 shrinks from MB-scale (active run + history) to KB-scale (history only or pure-fresh init).
+The mechanism appears to be: serve startup runs \`striatum init\` (or equivalent) which creates a fresh retired-local-state, OR opens the file with a write mode that truncates / clobbers concurrent supervisor writes, OR a race between serve's first-write and the running supervisor processes' final-commit. End result: retired-local-state shrinks from MB-scale (active run + history) to KB-scale (history only or pure-fresh init).
 
 ## Repro
 
 1. Start a multi-job dogfood with \`striatum run prepare\` + \`striatum run start\`.
-2. Register sessions, start supervisors, claim packets. Run progresses; state.sqlite3 grows to MB-scale.
+2. Register sessions, start supervisors, claim packets. Run progresses; retired-local-state grows to MB-scale.
 3. Restart \`striatum serve --web --allow-mutations\` (e.g. operator sees a UI 500, kill -TERM the serve PID, re-launch).
-4. After restart, \`striatum dashboard --run-id <active-run>\` returns \`unknown run_id\`. \`sqlite3 state.sqlite3 'SELECT count(*) FROM runs'\` returns the pre-active-run count.
+4. After restart, \`striatum dashboard --run-id <active-run>\` returns \`unknown run_id\`. \`sqlite3 retired-local-state 'SELECT count(*) FROM runs'\` returns the pre-active-run count.
 5. The supervisor processes are still alive (\`ps -ef | grep -E 'codex|claude|gemini.*wrapper'\`) but cannot make progress; any callback they attempt fails because their session/lease IDs aren't in the DB.
 
 ## Observed instances (this session)
 
 1. dogfood-057 mid-run: bounced serve to debug an unrelated UI issue → run_f6c7076a63484f9daedd9ef3f0850130 disappeared; eventually committed the on-disk artifacts and pushed; state corruption surfaced separately.
-2. Operator-UI restart during dogfood-058: state.sqlite3 went from healthy to integrity_check failure ("database disk image is malformed"). Forced full reset (quarantine to \`.corrupt\`, \`striatum init\` fresh DB).
-3. dogfood-060 mid-build-review-phase: operator restarted serve because UI was returning 500. run_0d07b5cc8ad0450d8c1f830ef828f0c1 vanished; state.sqlite3 shrank from ~8MB to 385KB; only dogfood-058's old completed run row survived.
+2. Operator-UI restart during dogfood-058: retired-local-state went from healthy to integrity_check failure ("database disk image is malformed"). Forced full reset (quarantine to \`.corrupt\`, \`striatum init\` fresh DB).
+3. dogfood-060 mid-build-review-phase: operator restarted serve because UI was returning 500. run_0d07b5cc8ad0450d8c1f830ef828f0c1 vanished; retired-local-state shrank from ~8MB to 385KB; only dogfood-058's old completed run row survived.
 
 ## Cost
 
@@ -28,7 +28,7 @@ Each occurrence costs the active dogfood iteration: ~30-60 minutes of agent work
 
 ## Required fixes
 
-1. **Serve startup must NOT call \`init\` if state.sqlite3 already exists and is healthy.** Read-only attach to existing DB; error out (not init-over) if the file is unreadable.
+1. **Serve startup must NOT call \`init\` if retired-local-state already exists and is healthy.** Read-only attach to existing DB; error out (not init-over) if the file is unreadable.
 2. **Serve must use SQLite WAL mode + acquire only a SHARED lock for reads.** Any exclusive lock should be held only for serve-side writes (which only happen on the mutation surface), and even then must use \`BEGIN IMMEDIATE\` to coexist with concurrent supervisor writes.
 3. **Document the serve-restart hazard** in HOW_TO_HUMAN.md and OPERATOR_INITIALIZATION_PROMPT.md — \"never restart serve during an active run; if the UI is unhealthy, diagnose without bouncing the process.\"
 4. **\`striatum serve --read-only\`** flag — serve becomes a pure-read process that never opens the DB in write mode. Operator UI doesn't strictly need write authority (mutations go through MCP/RPC); a read-only mode would close the hazard entirely.

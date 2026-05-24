@@ -8,7 +8,7 @@ Fixed the remaining Go-side repository projection divergence from cleanup F1:
 - `repo.list` now serializes rows through the same public repository
   projection used by `repo.resolve`.
 - `repo.resolve` and the already-registered `repo.add` path normalize stale
-  `state_db_path` values ending in `.striatum/state.sqlite3` to the
+  `state_db_path` values ending in `.striatum/retired-local-state` to the
   `.striatum/` operational scratch directory.
 - The stored PostgreSQL value is not rewritten; normalization happens only in
   the response map.

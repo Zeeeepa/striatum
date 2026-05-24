@@ -134,7 +134,7 @@ scope, and completion protocol.
 
 ## 3. SQLite Schema
 
-Database path: `.striatum/state.sqlite3`.
+Database path: `.striatum/retired-local-state`.
 
 Connection defaults:
 

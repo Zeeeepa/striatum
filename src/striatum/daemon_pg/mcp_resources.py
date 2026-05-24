@@ -16,7 +16,7 @@ from striatum.daemon_pg.handlers.reads.why import handle as why_handle
 from striatum.daemon_pg.handlers.recovery_evidence._sql import is_repo_write_scope
 from striatum.daemon_rpc.capability import RpcAuthContext, authorize
 from striatum.daemon_rpc.request_log import append_audit_row
-from striatum.repo_policy import DB_NAME, state_dir
+from striatum.repo_policy import state_dir
 from striatum.primitives import JsonObject
 
 READ_CAPABILITY = "read"
@@ -417,7 +417,7 @@ def _repository_rows(pg_conn: Any, *, active_only: bool) -> list[dict[str, Any]]
         scratch_path = state_dir(Path(str(repo_root)))
         row["state_dir"] = str(scratch_path)
         stored_state_path = Path(str(row.get("state_db_path", "")))
-        if stored_state_path.name == DB_NAME and stored_state_path.parent.name == scratch_path.name:
+        if stored_state_path != scratch_path and stored_state_path.parent == scratch_path:
             row["state_db_path"] = str(scratch_path)
     return rows
 

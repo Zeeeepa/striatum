@@ -41,7 +41,7 @@ The Phase 1 problem is therefore narrow: add a local, optional, read-only
 Engram memory layer for Striatum operators, while preserving Striatum's
 authoritative state, Engram's existing architecture, and the operator's root
 authority over the machine. Striatum's daemon-owned PostgreSQL remains live
-workflow state; `.striatum/state.sqlite3` is pre-D094 migration
+workflow state; `.striatum/retired-local-state` is pre-D094 migration
 input/tombstone or fixture material only. Repository artifacts remain durable
 provenance.
 Engram derives retrievable references from those sources; it does not become
@@ -85,7 +85,7 @@ the message bus, source of truth, hosted service, or critical path.
   authority, not hosted or cloud multi-tenancy.
 - Transcript capture, model-output ingestion, terminal scraping, or broad log
   ingestion. The Striatum corpus is structural and curated.
-- Replacing daemon-owned PostgreSQL, migration-only `.striatum/state.sqlite3`
+- Replacing daemon-owned PostgreSQL, migration-only `.striatum/retired-local-state`
   sources, the decision log, RFCs, operator reports, run summaries, audit
   chain, or git history as authority.
 - Adding a Striatum `workflow.json` memory field, daemon RPC method, chat tool,

@@ -2,7 +2,7 @@
 
 Status: historical research snapshot. Current Striatum live state is
 daemon-owned PostgreSQL scoped per registered target repository; `.striatum/`
-is operational scratch. References below to `.striatum/state.sqlite3` describe
+is operational scratch. References below to `.striatum/retired-local-state` describe
 the source context of this research and are not current product guidance.
 
 The paradigm of software engineering is undergoing a fundamental transformation with the integration of Large Language Models (LLMs) and autonomous AI agents. As these systems evolve from passive, advisory copilots to active, autonomous operators capable of orchestrating complex repository modifications, traditional software supply chain security boundaries are rapidly becoming obsolete. The core vulnerability introduced by these architectures is the "provenance loophole"—a structural failure in the trust boundary where an entity responsible for routing and orchestrating work simultaneously retains the capability to natively author that work without oversight.1 When an AI operator possesses the capability to modify source code directly, while circumventing the defined orchestration protocols, the system loses the ability to guarantee cryptographic provenance. This structural flaw renders multi-agent review processes, adversarial checks, and deterministic policies effectively useless.1

@@ -82,7 +82,7 @@ def insert_repo(conn: Any, repo_root: Path, repository_id: str) -> None:
                 repository_id,
                 f"identity:{repository_id}",
                 str(repo_root.resolve()),
-                str((repo_root / ".striatum" / "state.sqlite3").resolve()),
+                str((repo_root / ".striatum" / "retired-local-state").resolve()),
                 repository_id,
             ),
         )

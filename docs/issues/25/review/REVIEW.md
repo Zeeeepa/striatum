@@ -44,7 +44,7 @@ registry/listing behavior.
    transition runbook says mapped CLI routes fail closed instead of falling back
    to SQLite when the daemon is unreachable in `docs/POSTGRES_TRANSITION.md:31-39`.
    Those documents support the intended direction, but they do not prove the
-   `repo list` read path no longer checks `state.sqlite3`.
+   `repo list` read path no longer checks `retired-local-state`.
 
 3. `striatum repo list --json` semantics are unchanged byte-for-byte.
 

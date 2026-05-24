@@ -89,7 +89,7 @@ adds two independent confirmations from the same input set:
   `tests/test_mcp_capability_scope_e2e.py` confirms no SQLite
   connection is opened during repository listing/resolution or MCP
   resource reads — i.e., the projection helper does not even
-  speculatively touch a `.striatum/state.sqlite3` file when one is
+  speculatively touch a `.striatum/retired-local-state` file when one is
   named in the legacy column.
 - `src/striatum/service_command_policy.py` has been further
   restricted to require `STRIATUM_LEGACY_SERVICE_FIXTURE=1` for the

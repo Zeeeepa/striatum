@@ -26,7 +26,7 @@ Include:
   "Acceptance / Definition of done" bullet in `SPEC.md`;
 - particular adversarial probes:
   - **No SQLite check anywhere on the `list` path**. grep the changed
-    files: if `state.sqlite3` or `repo_not_migrated` still appears
+    files: if `retired-local-state` or `repo_not_migrated` still appears
     on the read path, it's a `needs_revision`.
   - **`adopt` and `repo add --init` still refuse** an
     unmigrated-but-state-DB-present setup (regression risk on the

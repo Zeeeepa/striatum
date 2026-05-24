@@ -1,8 +1,7 @@
-"""Retired-local-state-free repository cutover verification reports."""
+"""Repository cutover verification reports."""
 
 from __future__ import annotations
 
-import hashlib
 import json
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -11,7 +10,6 @@ from typing import Any
 
 from striatum.daemon_pg.connection import connect
 from striatum.daemon_pg.handlers.context import canonical_event_hash
-from striatum.repo_policy import db_path
 
 
 @dataclass(frozen=True)
@@ -42,11 +40,8 @@ REPO_LOCAL_TABLE_NAMES: tuple[str, ...] = (
 
 
 def verify_repo_cutover(options: RepoCutoverReportOptions) -> dict[str, Any]:
-    """Report repo-local state -> Postgres cutover health without retired local-state imports."""
+    """Report repository registration and Postgres cutover health."""
     repo = options.repo.resolve()
-    source_path = db_path(repo)
-    tombstone_path = source_path.with_name(source_path.name + ".tombstone")
-    sentinel_path = source_path.with_name(source_path.name + ".migrated")
     conn = connect(options.postgres_url)
     try:
         repository_id = _lookup_registered(conn, repo)
@@ -56,12 +51,7 @@ def verify_repo_cutover(options: RepoCutoverReportOptions) -> dict[str, Any]:
             _destination_counts(conn, repository_id) if repository_id is not None else {}
         )
         count_report = _count_cutover_report(destination_counts, checkpoint)
-        file_report = _retired_state_file_cutover_report(
-            source_path=source_path,
-            tombstone_path=tombstone_path,
-            sentinel_path=sentinel_path,
-            checkpoint=checkpoint,
-        )
+        file_report = _retired_state_file_cutover_report(checkpoint=checkpoint)
         event_chain = (
             _event_chain_report(conn, repository_id)
             if repository_id is not None
@@ -117,33 +107,7 @@ def _lookup_registered(conn: Any, repo: Path) -> str | None:
             (str(repo),),
         )
         row = cur.fetchone()
-        if row is not None:
-            return str(row[0])
-        state_db = db_path(repo)
-        if not state_db.exists():
-            return None
-        identity = _legacy_repo_identity(repo)
-        cur.execute(
-            """
-            SELECT repository_id
-            FROM striatumd.repositories
-            WHERE state != 'removed' AND repo_identity = %s
-            ORDER BY repository_id
-            LIMIT 1
-            """,
-            (identity,),
-        )
-        row = cur.fetchone()
     return None if row is None else str(row[0])
-
-
-def _legacy_repo_identity(repo: Path) -> str:
-    repo_stat = repo.stat()
-    state_stat = db_path(repo).stat()
-    return (
-        f"inode:{repo_stat.st_dev}:{repo_stat.st_ino}:"
-        f"state:{state_stat.st_dev}:{state_stat.st_ino}"
-    )
 
 
 def _existing_checkpoint(conn: Any, repository_id: str | None) -> dict[str, Any] | None:
@@ -272,162 +236,27 @@ def _count_cutover_report(
 
 def _retired_state_file_cutover_report(
     *,
-    source_path: Path,
-    tombstone_path: Path,
-    sentinel_path: Path,
     checkpoint: dict[str, Any] | None,
 ) -> dict[str, Any]:
-    expected_tombstone_path = _expected_tombstone_path(tombstone_path, checkpoint)
-    source = _file_stat_report(source_path)
-    tombstone = _file_stat_report(expected_tombstone_path)
-    sentinel = _sentinel_stat_report(sentinel_path)
-    expected_action = "unknown"
-    if checkpoint is not None:
-        expected_action = "tombstone" if checkpoint.get("tombstone_path") else "delete"
-    source_sha_matches = _report_sha_matches_checkpoint(source, checkpoint)
-    tombstone_sha_matches = _report_sha_matches_checkpoint(tombstone, checkpoint)
     recommendations: list[str] = []
     diagnosis: list[str] = []
-    source_exists = bool(source["exists"])
-    tombstone_exists = bool(tombstone["exists"])
-    sentinel_exists = bool(sentinel["exists"])
-    ok = False
     if checkpoint is None:
-        status = "not_migrated" if source_exists else "checkpoint_missing"
-    elif source_exists:
-        status = (
-            "incomplete_finalization_after_checkpoint"
-            if sentinel_exists
-            else "source_left_after_checkpoint"
-        )
-        diagnosis.append(
-            "Postgres checkpoint exists but .striatum/state.sqlite3 is still present"
-        )
-        if source_sha_matches is False:
-            diagnosis.append("source_state_db_sha256 differs from the checkpoint")
-        recommendations.append(
-            "current Striatum does not resume retired local-state finalization; inspect the "
-            "source hash against the checkpoint, then archive/remove the legacy file"
-        )
-    elif sentinel_exists:
-        status = "orphan_sentinel_after_finalization"
-        diagnosis.append("migration sentinel remains after source finalization")
-        recommendations.append("inspect the sentinel and remove it after confirming Postgres state")
-    elif expected_action == "tombstone":
-        if not tombstone_exists:
-            status = "tombstone_missing"
-            diagnosis.append("checkpoint expected a read-only tombstone, but it is absent")
-            recommendations.append("inspect operator cleanup history or restore the tombstone if needed")
-        else:
-            tombstone_readonly = tombstone.get("mode") == "0444"
-            if tombstone_readonly and tombstone_sha_matches is not False:
-                status = "tombstoned"
-                ok = True
-            else:
-                status = "tombstone_drift"
-                if not tombstone_readonly:
-                    diagnosis.append("tombstone mode is not 0444")
-                    recommendations.append("chmod the tombstone to 0444 after inspection")
-                if tombstone_sha_matches is False:
-                    diagnosis.append("tombstone sha256 differs from the migration checkpoint")
-    elif expected_action == "delete":
-        if tombstone_exists:
-            status = "deleted_with_unexpected_tombstone"
-            diagnosis.append("checkpoint recorded delete finalization, but a tombstone exists")
-            recommendations.append("inspect the unexpected tombstone before removing it")
-        else:
-            status = "deleted"
-            ok = True
+        status = "checkpoint_missing"
+        ok = False
+        recommendations.append("register the target repository with adopt or repo add --init")
     else:
-        status = "unknown"
-    if sentinel_exists and checkpoint is None:
-        diagnosis.append("migration sentinel exists without a Postgres checkpoint")
+        status = "retired_local_state_removed"
+        ok = True
+        diagnosis.append("retired repo-local file finalization is no longer inspected")
     return {
         "ok": ok,
         "status": status,
-        "expected_action": expected_action,
-        "source_state_db_absent": not source_exists,
-        "sentinel_absent": not sentinel_exists,
-        "source_sha256_matches_checkpoint": source_sha_matches,
-        "tombstone_sha256_matches_checkpoint": tombstone_sha_matches,
-        "source_state_db": source,
-        "tombstone": tombstone,
-        "sentinel": sentinel,
+        "expected_action": "none",
+        "source_state_absent": True,
+        "sentinel_absent": True,
         "diagnosis": diagnosis,
         "recommendations": recommendations,
     }
-
-
-def _expected_tombstone_path(
-    default_path: Path,
-    checkpoint: dict[str, Any] | None,
-) -> Path:
-    if checkpoint is None:
-        return default_path
-    raw_path = checkpoint.get("tombstone_path")
-    if isinstance(raw_path, str) and raw_path:
-        return Path(raw_path)
-    return default_path
-
-
-def _file_stat_report(path: Path) -> dict[str, Any]:
-    exists = path.exists()
-    report: dict[str, Any] = {
-        "path": str(path),
-        "exists": exists,
-        "is_file": path.is_file() if exists else False,
-    }
-    if not exists:
-        return report
-    try:
-        stat = path.stat()
-    except OSError as exc:
-        report["stat_error"] = str(exc)
-        return report
-    report.update({"mode": f"{stat.st_mode & 0o777:04o}", "size_bytes": int(stat.st_size)})
-    if report["is_file"]:
-        try:
-            report["sha256"] = _raw_file_sha256(path)
-        except OSError as exc:
-            report["sha256_error"] = str(exc)
-    return report
-
-
-def _sentinel_stat_report(path: Path) -> dict[str, Any]:
-    report = _file_stat_report(path)
-    if not report.get("is_file"):
-        return report
-    try:
-        loaded = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
-        report["json_valid"] = False
-        report["json_error"] = str(exc)
-        return report
-    report["json_valid"] = isinstance(loaded, dict)
-    if isinstance(loaded, dict):
-        report["payload"] = loaded
-    return report
-
-
-def _raw_file_sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
-
-
-def _report_sha_matches_checkpoint(
-    report: dict[str, Any],
-    checkpoint: dict[str, Any] | None,
-) -> bool | None:
-    if checkpoint is None or not report.get("exists"):
-        return None
-    expected = checkpoint.get("source_state_db_sha256")
-    observed = report.get("sha256")
-    if not isinstance(expected, str) or not isinstance(observed, str):
-        return None
-    return observed == expected
 
 
 def _event_chain_unregistered_report() -> dict[str, Any]:
@@ -597,21 +426,11 @@ def _retired_state_exception_notes() -> list[dict[str, str]]:
     return [
         {
             "scope": "migration_source_import",
-            "note": (
-                "writable import windows are closed; only explicitly guarded "
-                "legacy migration fixture tests may open .striatum/state.sqlite3"
-            ),
-        },
-        {
-            "scope": "operator_tombstone_inspection",
-            "note": (
-                "a .striatum/state.sqlite3.tombstone is optional operator evidence; "
-                "Striatum does not use it as live state"
-            ),
+            "note": "writable import windows are closed; retired local files are not opened",
         },
         {
             "scope": "tests_and_fixtures",
-            "note": "legacy local state remains in bounded tests, fixtures, and migration code only",
+            "note": "legacy local-state fixtures are deleted from active tests",
         },
     ]
 

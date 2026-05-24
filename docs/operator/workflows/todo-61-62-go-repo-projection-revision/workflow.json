@@ -102,7 +102,7 @@
         "custom:regression_risk",
         "custom:authority_boundary"
       ],
-      "objective": "Fix the remaining production Go repo projection issue from cleanup F1: daemon-backed repo.add/repo.list/repo.resolve outputs must normalize stale `.striatum/state.sqlite3` rows to the `.striatum/` operational scratch directory without rewriting stored history.",
+      "objective": "Fix the remaining production Go repo projection issue from cleanup F1: daemon-backed repo.add/repo.list/repo.resolve outputs must normalize stale `.striatum/retired-local-state` rows to the `.striatum/` operational scratch directory without rewriting stored history.",
       "task_prompt": {
         "path": "prompts/fix_go_state_path_projection.md"
       },
@@ -137,7 +137,7 @@
       "fresh_session_required": true,
       "reviewer_context_policy": "fresh",
       "review_posture": "custom:regression_risk",
-      "objective": "Verify that daemon-backed repo list/resolve/add projections no longer expose stale `.striatum/state.sqlite3` values and that focused tests cover the regression.",
+      "objective": "Verify that daemon-backed repo list/resolve/add projections no longer expose stale `.striatum/retired-local-state` values and that focused tests cover the regression.",
       "task_prompt": {
         "path": "prompts/review_go_projection_regression.md"
       },

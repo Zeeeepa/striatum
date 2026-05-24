@@ -8,16 +8,16 @@ guardrail for TODO 61:
 
 - `daemon doctor` now checks the registered repository's `.striatum/`
   operational scratch directory instead of the historical
-  `.striatum/state.sqlite3` filename.
+  `.striatum/retired-local-state` filename.
 - The doctor warning is now `daemon_repo_scratch_missing`, with `state_dir`
   in context and a message that names the missing `.striatum/` operational
   scratch directory.
 - MCP daemon repository projections now expose `state_dir` and normalize
-  stale `state_db_path` values that still point at `state.sqlite3` to the
+  stale `state_db_path` values that still point at `retired-local-state` to the
   `.striatum/` scratch directory.
 - Python repository registration now uses `repo_policy.db_path(repo)` for the
   retired SQLite migration-refusal and symlink probes instead of duplicating
-  `.striatum/state.sqlite3` literals.
+  `.striatum/retired-local-state` literals.
 - Architecture guardrails now assert that the production
   `src/striatum/legacy_sqlite` package remains deleted and production sources
   do not import it.

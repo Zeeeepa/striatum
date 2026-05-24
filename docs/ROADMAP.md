@@ -354,7 +354,7 @@ as drift guards.
   not open repo-local SQLite.
 - `repo.add`, `repo.list`, and `repo.remove` now route through daemon RPC
   and update `striatumd.repositories` directly; `repo add --init` creates
-  only operational scratch and never creates `.striatum/state.sqlite3`.
+  only operational scratch and never creates `.striatum/retired-local-state`.
 - Production `striatum init` and `striatum adopt` now share the same
   scratch-only bootstrap, with repo-local SQLite init retained only for
   legacy test fixtures.
@@ -371,7 +371,7 @@ as drift guards.
 legacy local-state implementation residue is deleted. `src/striatum/legacy_sqlite/`,
 root `striatum.db` / `striatum.migrations` facades, the direct corpus exporter,
 the V1 local-state schema module, the deterministic repo-local fixture, and the
-broad skipped compatibility tests are gone. Remaining `state.sqlite3` references
+broad skipped compatibility tests are gone. Remaining `retired-local-state` references
 are refusal/inspection of a retired file name or redaction/test signals, not
 live-state support.
 

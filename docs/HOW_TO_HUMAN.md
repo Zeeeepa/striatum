@@ -731,7 +731,7 @@ root, refuses symlink/path-traversal ambiguity, derives a
 realpath/inode-based repository identity, and refuses active
 path re-occupation by a different identity. Pass `--init`
 when no `.striatum/` directory exists; it creates operational
-scratch only and does not create `.striatum/state.sqlite3`. If a
+scratch only and does not create `.striatum/retired-local-state`. If a
 pre-D094 repo-local SQLite source exists, registration refuses and
 points at archive/remove guidance; writable SQLite imports are retired.
 

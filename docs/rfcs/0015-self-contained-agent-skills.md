@@ -83,7 +83,7 @@ the CLI actually does. This RFC defines that.
   describe how an agent *drives* it.
 - Generating workflow-specific task prompts. Task prompts live on the
   workflow's jobs, not in the skill bundle.
-- Skills that mutate `.striatum/state.sqlite3` directly. They invoke the
+- Skills that mutate `.striatum/retired-local-state` directly. They invoke the
   CLI; SQLite remains the runner's private boundary (D006, D009).
 - Tracking which skill an agent actually consulted. Skill load is a
   client-side concern that Striatum does not observe.
@@ -260,7 +260,7 @@ The bundle is "self-contained" in three concrete senses:
   is preserved across a re-run; `--force` overwrites it; `--dry-run`
   prints a plan that names the conflict.
 - `striatum init --with-skills` produces a target tree containing both
-  `.striatum/state.sqlite3` and the skill bundle.
+  `.striatum/retired-local-state` and the skill bundle.
 - `striatum doctor` reports `skills_missing` for a target with no
   bundle and `skills_outdated` after the package is upgraded but
   `skills install` has not been re-run.

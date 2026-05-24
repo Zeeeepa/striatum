@@ -96,7 +96,7 @@ def test_daemon_doctor_treats_legacy_state_db_path_as_scratch_directory(
         SET state_db_path = %s
         WHERE repository_id = %s
         """,
-        (str(repo.path / ".striatum" / "state.sqlite3"), repo_id),
+        (str(repo.path / ".striatum" / "retired-local-state"), repo_id),
     )
     _configure_pg_daemon_doctor(harness, monkeypatch, tmp_path, repo_id=repo_id)
 

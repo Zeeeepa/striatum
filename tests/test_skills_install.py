@@ -150,7 +150,7 @@ def test_init_with_skills_installs_after_init(tmp_path: Path) -> None:
     assert payload["ok"] is True
     assert payload["data"]["state_store"] == "daemon_postgres"
     assert (tmp_path / ".striatum").is_dir()
-    assert not (tmp_path / ".striatum" / "state.sqlite3").exists()
+    assert not (tmp_path / ".striatum" / "retired-local-state").exists()
     assert (tmp_path / ".claude/skills/striatum-workflow/SKILL.md").exists()
 
 
@@ -401,7 +401,7 @@ def test_init_with_skills_all_writes_every_profile(tmp_path: Path) -> None:
     assert payload["data"]["skills"]["profile"] == "all"
     assert payload["data"]["state_store"] == "daemon_postgres"
     assert (tmp_path / ".striatum").is_dir()
-    assert not (tmp_path / ".striatum/state.sqlite3").exists()
+    assert not (tmp_path / ".striatum/retired-local-state").exists()
     for path in _all_artifact_paths(tmp_path):
         assert path.exists(), path
 

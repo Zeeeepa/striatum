@@ -31,7 +31,7 @@ agent guidance templates, and regression tests needed for this issue.
   authoritative" story with the current PostgreSQL-first transition story;
   keep README within the existing line-budget test.
 - **EDIT** `AGENTS.md` - update the product-boundary bullets so contributors
-  are not told that `.striatum/state.sqlite3` is current authoritative live
+  are not told that `.striatum/retired-local-state` is current authoritative live
   state.
 - **EDIT** `docs/SPEC.md` - reconcile the implementation contract with
   D094/RFC 0043, the daemon-required/Postgres direction, the current
@@ -63,7 +63,7 @@ agent guidance templates, and regression tests needed for this issue.
 - **EDIT** `docs/INDEX.md` - add the new runbook to the documentation map.
 - **EDIT** skill templates under `src/striatum/skills/templates/` - update
   generated Claude Code, Codex, Gemini, and generic agent guidance so it no
-  longer teaches `.striatum/state.sqlite3` as the current live substrate.
+  longer teaches `.striatum/retired-local-state` as the current live substrate.
 - **EDIT** plugin templates under `src/striatum/plugins/templates/` - keep
   plugin-bundled skills byte-for-byte aligned with the canonical skill
   templates where `tests/test_plugin_install.py` requires it, and update
@@ -80,7 +80,7 @@ agent guidance templates, and regression tests needed for this issue.
 The implementer must not edit:
 
 - `docs/dogfood/` - frozen historical dogfood artifacts, including old
-  `.striatum/state.sqlite3` references.
+  `.striatum/retired-local-state` references.
 - `docs/rfcs/` - accepted/proposed design records are evidence, not targets
   for this docs cleanup.
 - `docs/issues/15/SCOPE.md` - this triage artifact is an input to the
@@ -117,14 +117,14 @@ The verify job should cite each ID below.
   [--postgres-url <url>] [--dry-run] [--keep-sqlite-readonly |
   --no-keep-sqlite-readonly --confirm-delete] [--json]` shape.
 - [DoD-5] The runbook explains tombstone vs delete behavior: the safe default
-  keeps a read-only `state.sqlite3.tombstone`; deletion requires
+  keeps a read-only `retired-local-state.tombstone`; deletion requires
   `--no-keep-sqlite-readonly --confirm-delete`.
 - [DoD-6] The runbook explains exit code 11 `daemon_unreachable` and exit
   code 12 `repo_not_migrated`, including the operator remediation for each.
 - [DoD-7] README, SPEC, GETTING_STARTED, HOW_TO_HUMAN, HOW_TO_AGENT,
   CLI_REFERENCE, AGENTS, and UBIQUITOUS_LANGUAGE tell one consistent
   PostgreSQL-first story and do not contradict D094/RFC 0043.
-- [DoD-8] Current product docs no longer claim `.striatum/state.sqlite3` is
+- [DoD-8] Current product docs no longer claim `.striatum/retired-local-state` is
   authoritative live state except when explicitly describing historical V1
   behavior, migration fixtures, tombstone inspection, or RFC 0048 remaining
   delegated paths.

@@ -51,7 +51,7 @@ def _seed_artifact(conn: Any, tmp_path: Path) -> None:
               display_name, registered_at, last_schema_version, state
             ) VALUES ('repo_1', 'repo_1', %s, %s, 'repo_1', %s, 10, 'active')
             """,
-            (str(repo_root), str(repo_root / ".striatum" / "state.sqlite3"), now),
+            (str(repo_root), str(repo_root / ".striatum" / "retired-local-state"), now),
         )
         cur.execute(
             """

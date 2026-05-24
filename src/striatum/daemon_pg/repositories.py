@@ -16,10 +16,10 @@ from striatum.bootstrap import (
     init_operational_scratch as _bootstrap_init_operational_scratch,
     require_operational_scratch as _bootstrap_require_operational_scratch,
 )
-from striatum.errors import EXIT_DAEMON_CAPABILITY, NotFoundError, SchemaVersionError, StriatumError
+from striatum.errors import EXIT_DAEMON_CAPABILITY, NotFoundError, StriatumError
 from striatum.primitives import utc_now
 from striatum.repo_local_schema import LATEST_REPO_LOCAL_SCHEMA_VERSION
-from striatum.repo_policy import DB_NAME, db_path, state_dir
+from striatum.repo_policy import state_dir
 
 
 class RepoRegistrationError(StriatumError):
@@ -36,13 +36,6 @@ def repo_add_pg(
     init: bool = False,
 ) -> dict[str, Any]:
     repo = _canonical_repo(path)
-    legacy_state = db_path(repo)
-    if legacy_state.exists():
-        raise SchemaVersionError(
-            "retired repo-local state exists and import windows are closed; "
-            "archive or remove .striatum/state.sqlite3 before registering with "
-            "`striatum adopt` or `striatum repo add --init`"
-        )
     state_dir = _init_operational_scratch(repo) if init else _require_operational_scratch(repo)
     identity = _pg_repo_identity(repo)
     with _pg_dict_cursor(pg_conn) as cur:
@@ -216,9 +209,9 @@ def _canonical_repo(path: Path) -> Path:
     if _has_symlink_component(lexical):
         raise RepoRegistrationError("repo registration refuses symlink paths")
     resolved = raw.resolve(strict=True)
-    state = db_path(resolved)
-    if _has_symlink_component(state.parent) or state.is_symlink():
-        raise RepoRegistrationError("repo state database symlink is not allowed")
+    scratch = state_dir(resolved)
+    if _has_symlink_component(scratch):
+        raise RepoRegistrationError("repo scratch directory symlink is not allowed")
     return resolved
 
 
@@ -274,7 +267,7 @@ def _repository_projection(row: dict[str, Any]) -> dict[str, Any]:
         return item
     scratch_path = state_dir(Path(str(repo_root)))
     stored_state_path = Path(str(item.get("state_db_path", "")))
-    if stored_state_path.name == DB_NAME and stored_state_path.parent.name == scratch_path.name:
+    if stored_state_path != scratch_path and stored_state_path.parent == scratch_path:
         item["state_db_path"] = str(scratch_path)
     return item
 

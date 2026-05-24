@@ -54,7 +54,7 @@ def _seed_repo(conn: Any, tmp_path: Path, repository_id: str) -> None:
                 repository_id,
                 f"identity:{repository_id}",
                 str(tmp_path),
-                str(tmp_path / ".striatum" / "state.sqlite3"),
+                str(tmp_path / ".striatum" / "retired-local-state"),
                 repository_id,
             ),
         )

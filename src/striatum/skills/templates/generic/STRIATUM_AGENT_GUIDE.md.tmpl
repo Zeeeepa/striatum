@@ -132,9 +132,7 @@ Denial recovery:
 
 A repo-scoped write token for repo A cannot write repo B. Do not request
 wildcard or admin capabilities for ordinary generation, do not bypass
-the daemon by opening Postgres directly or relying on
-`.striatum/state.sqlite3` (a migrated repo's read-only `.tombstone` is
-not live state), and do not treat audit as malicious-local-root-
+the daemon by opening Postgres directly or treating `.striatum/` scratch files as workflow state, and do not treat audit as malicious-local-root-
 resistant proof.
 
 ## What not to do

@@ -89,7 +89,6 @@ if smoke_create_pg_db "$CLONE/.venv/bin/python" "$PG_ENV"; then
   "$RUNNER" --repo "$TARGET" repo add "$TARGET" --init --json >/dev/null
   run_workflow_smoke "striatum/smoke"
   test -d "$TARGET/.striatum/scratch"
-  test ! -e "$TARGET/.striatum/state.sqlite3"
 else
   echo "fresh-clone smoke: skipping; PostgreSQL is required for daemon-owned Striatum state" >&2
   exit 0

@@ -64,7 +64,7 @@ work-packet shape — a SPEC-level surface.
   capture, or background ingestion. Bundles remain operator-triggered and
   local. Striatum must not stream events to Engram or any other consumer at
   run time.
-- Replacing daemon-owned PostgreSQL, migration-only `.striatum/state.sqlite3`
+- Replacing daemon-owned PostgreSQL, migration-only `.striatum/retired-local-state`
   sources, the decision log, RFCs, operator reports, run summaries, or git
   history as live state or authoritative history. The corpus is durable
   provenance reshaped for retrieval, not live workflow state.

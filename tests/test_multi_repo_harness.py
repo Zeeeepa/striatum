@@ -25,7 +25,7 @@ def test_start_registers_two_repos_without_repo_local_sqlite(
         harness.repos[0].repository_id,
         harness.repos[1].repository_id,
     }
-    assert all(not (repo.path / ".striatum" / "state.sqlite3").exists() for repo in harness.repos)
+    assert all(not (repo.path / ".striatum" / "retired-local-state").exists() for repo in harness.repos)
 
 
 def test_reset_daemon_db_preserves_schema_metadata_and_clears_data(

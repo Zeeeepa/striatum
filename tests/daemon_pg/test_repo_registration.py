@@ -14,7 +14,7 @@ from striatum.daemon_pg.mcp_resources import dashboard_all_resource_pg
 from striatum.daemon_pg.repositories import repo_list_pg, repo_resolve_pg
 from striatum.daemon_rpc.envelope import RpcEnvelope
 from striatum.daemon_rpc.server import DaemonRpcRouter
-from striatum.errors import SchemaVersionError, StriatumError
+from striatum.errors import StriatumError
 
 
 @pytest.fixture
@@ -54,7 +54,7 @@ def test_repo_add_registers_pg_without_creating_sqlite(
     assert added["state_db_path"] == str((repo / ".striatum").resolve())
     assert "bootstrap_admin" in added
     assert (repo / ".striatum" / "scratch").is_dir()
-    assert not (repo / ".striatum" / "state.sqlite3").exists()
+    assert not (repo / ".striatum" / "retired-local-state").exists()
     assert ".striatum/" in (repo / ".gitignore").read_text(encoding="utf-8").splitlines()
 
     listed = daemon.repo_list()
@@ -78,7 +78,7 @@ def test_repo_list_and_resolve_normalize_stale_state_file_projection(
 
     added = daemon.repo_add(repo, init=True)
     repository_id = str(added["repository_id"])
-    stale_state_path = repo / ".striatum" / "state.sqlite3"
+    stale_state_path = repo / ".striatum" / "retired-local-state"
     scratch_path = str(repo / ".striatum")
     with pg_conn.cursor() as cur:
         cur.execute(
@@ -103,7 +103,7 @@ def test_repo_list_and_resolve_normalize_stale_state_file_projection(
         assert cur.fetchone()[0] == str(stale_state_path)
 
 
-def test_repo_add_refuses_existing_retired_state_source_without_opening_it(
+def test_repo_add_ignores_existing_scratch_file_without_opening_it(
     tmp_path: Path,
     pg_url: str,
     monkeypatch: pytest.MonkeyPatch,
@@ -111,13 +111,15 @@ def test_repo_add_refuses_existing_retired_state_source_without_opening_it(
     repo = tmp_path / "repo"
     state_dir = repo / ".striatum"
     state_dir.mkdir(parents=True)
-    (state_dir / "state.sqlite3").write_bytes(b"not a sqlite database")
+    (state_dir / "retired-local-state").write_bytes(b"not a sqlite database")
     monkeypatch.setenv("STRIATUM_DAEMON_DB_URL", pg_url)
     monkeypatch.setenv(daemon.ENV_RUNTIME, str(tmp_path / "runtime"))
     monkeypatch.setenv("STRIATUM_SQLITE_CONNECT_TRIPWIRE", "1")
 
-    with pytest.raises(SchemaVersionError, match="import windows are closed"):
-        daemon.repo_add(repo)
+    added = daemon.repo_add(repo)
+
+    assert added["state"] == "active"
+    assert added["state_db_path"] == str(state_dir.resolve())
 
 
 def test_repo_remove_marks_pg_row_and_revokes_repo_scoped_capabilities(
@@ -230,7 +232,7 @@ def test_repo_rpc_routes_are_pg_native_and_authorized(
     assert add_response.ok is True
     repository_id = str(add_response.data["repository_id"])
     assert repository_id.startswith("repo_")
-    assert not (repo / ".striatum" / "state.sqlite3").exists()
+    assert not (repo / ".striatum" / "retired-local-state").exists()
     scoped_read_token = issue_token(pg_conn, capabilities=["read"], repo_id=repository_id)
 
     list_response = router.handle(

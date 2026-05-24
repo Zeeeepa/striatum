@@ -294,4 +294,4 @@ PYTHONPATH=src python -m striatum.cli --repo "$tmpdir" doctor --json
   smaller state-machine decision before inventing a general graph-rewrite
   engine.
 - If schema changes are needed, confirm whether this branch needs migrations
-  for existing `.striatum/state.sqlite3` files or only a clean MVP schema.
+  for existing `.striatum/retired-local-state` files or only a clean MVP schema.

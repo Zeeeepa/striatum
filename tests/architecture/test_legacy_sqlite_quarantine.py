@@ -4,7 +4,6 @@ import ast
 from pathlib import Path
 
 
-
 ROOT = Path(__file__).resolve().parents[2]
 
 
@@ -20,13 +19,11 @@ DAEMON_RPC_DB_IMPORT_ALLOWLIST: dict[Path, set[str]] = {}
 NEUTRAL_DB_REEXPORTS = frozenset(
     {
         "ADAPTER_ENFORCEMENT_LEVELS",
-        "DB_NAME",
         "JsonObject",
         "STATE_DIR",
         "WORKTREES_SUBDIR",
         "adapter_constraint_enforcement",
         "adapter_enforcement_satisfies",
-        "db_path",
         "json_dumps",
         "json_loads",
         "lane_worktree_isolation",

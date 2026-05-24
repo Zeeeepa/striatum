@@ -30,7 +30,7 @@ The authoritative live state is the daemon-owned PostgreSQL instance
 (RFC 0033) under a `repository_id` scope per registered target
 repository. Per [D094 / RFC 0043](rfcs/0043-postgres-as-sole-substrate-and-daemon-required-runtime.md),
 this supersedes the V1 carve-out that kept repo-local workflow state
-in `.striatum/state.sqlite3`. The daemon is a hard prerequisite for
+in `.striatum/retired-local-state`. The daemon is a hard prerequisite for
 every Striatum verb; the V1 `--no-daemon` flag is retired and parsing
 it returns the standard argparse "unrecognized arguments" error.
 Repository artifacts are durable provenance only. Marker files, tmux
@@ -46,7 +46,7 @@ daemon module and selector are retired; the Python MCP wrapper is retired; and
 the Python CLI/web layers may remain daemon clients. The legacy local-state
 package, root DB/migration facades, direct corpus exporter, V1 local-state
 schema module, deterministic repo-local fixture, and broad skipped
-compatibility tests are deleted. Remaining `state.sqlite3` handling is
+compatibility tests are deleted. Remaining `retired-local-state` handling is
 refusal/inspection of a retired file name, not live-state support.
 `STRIATUM_DAEMON_REQUIRED=0 STRIATUM_TEST_HARNESS=1` escape no
 longer takes effect for ported methods — mapped CLI verbs fail
@@ -1315,7 +1315,7 @@ work packets, artifacts, verdicts, blockers, command requests,
 process executions, events, worktrees, process supervisors, and
 supervisor pointers — live in the same Postgres instance under a
 `repository_id` scope. The historical V1 carve-out that kept those
-tables in `.striatum/state.sqlite3` is superseded by RFC 0043.
+tables in `.striatum/retired-local-state` is superseded by RFC 0043.
 
 RFC 0033 specifies the daemon-global PostgreSQL substrate: the
 daemon connects through `STRIATUM_DAEMON_DB_URL`,
@@ -1352,7 +1352,7 @@ daemon support is not claimed in V1.
 It authorizes the daemon admin token before recording the repository in
 daemon-owned Postgres. If `.striatum/` scratch is absent, registration
 refuses unless `--init` is passed; `--init` creates only operational
-scratch and does not create `.striatum/state.sqlite3`. If a pre-D094
+scratch and does not create `.striatum/retired-local-state`. If a pre-D094
 repo-local SQLite source exists, registration refuses and tells the operator
 to archive/remove the legacy SQLite file before registering.
 The command canonicalizes the repository root, refuses

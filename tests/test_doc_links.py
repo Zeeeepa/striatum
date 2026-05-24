@@ -116,7 +116,7 @@ DECISION_ROW_BUDGET_FROM = 55
 
 
 # GH #15 — post-D094 / RFC 0043 state model. Current product docs
-# must not claim that `.striatum/state.sqlite3` is the authoritative
+# must not claim that `.striatum/retired-local-state` is the authoritative
 # live state. Historical RFC text, the per-repo migration runbook,
 # and references that describe the V1 substrate or the post-migration
 # tombstone explicitly are still allowed.
@@ -160,7 +160,7 @@ def _is_under_allowlist(path: Path, root: Path) -> bool:
 def test_current_product_docs_do_not_claim_sqlite_authority() -> None:
     """Post-D094 / RFC 0043 the authoritative live state is the daemon-
     owned PostgreSQL substrate; current product docs must not state that
-    `.striatum/state.sqlite3` is authoritative live state. Historical
+    `.striatum/retired-local-state` is authoritative live state. Historical
     RFCs, dogfood scaffolds, and incubation provenance are allowlisted
     so the regression test does not rewrite frozen artifacts.
     """
@@ -187,7 +187,7 @@ def test_operator_glossary_uses_daemon_authority_boundary() -> None:
     text = (ROOT / "docs" / "UBIQUITOUS_LANGUAGE.md").read_text(encoding="utf-8")
     stale = (
         "runs `striatum` CLI verbs against a target repository's "
-        "`.striatum/state.sqlite3`"
+        "`.striatum/retired-local-state`"
     )
     assert stale not in text, (
         "operator glossary must describe the post-D094 daemon/PostgreSQL "

@@ -84,7 +84,7 @@
       "required_review_postures": [
         "custom:regression_risk"
       ],
-      "objective": "Fix the regression-review F1 issue: Python repository list/resolve projections must normalize stale `.striatum/state.sqlite3` values to the `.striatum/` operational scratch directory consistently with doctor and MCP resources.",
+      "objective": "Fix the regression-review F1 issue: Python repository list/resolve projections must normalize stale `.striatum/retired-local-state` values to the `.striatum/` operational scratch directory consistently with doctor and MCP resources.",
       "task_prompt": {
         "path": "prompts/fix_state_path_projection.md"
       },

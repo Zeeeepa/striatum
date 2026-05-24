@@ -204,7 +204,7 @@ tools/call name=workflow.generate args={spec, confirm_write: true}
 
 - Don't escalate by claiming a different identity. The daemon never
   bypasses capability gating regardless of client identity claims.
-- Don't try to write directly to `.striatum/state.sqlite3`. The
+- Don't try to write directly to `.striatum/retired-local-state`. The
   daemon never exposes a way for a non-admin MCP token to write
   repo-local state directly. Mutations flow through capability-gated
   RPC.

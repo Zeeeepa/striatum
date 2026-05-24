@@ -297,7 +297,7 @@ def test_upgrade_does_not_fallback_to_repo_local_sqlite(
 ) -> None:
     _git_init_repo(tmp_path)
     path = _write_workflow(tmp_path, _baseline_workflow())
-    state_db = tmp_path / ".striatum" / "state.sqlite3"
+    state_db = tmp_path / ".striatum" / "retired-local-state"
     state_db.parent.mkdir()
     state_db.write_bytes(b"not a database")
     monkeypatch.setattr(

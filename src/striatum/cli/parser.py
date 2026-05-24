@@ -344,7 +344,7 @@ def build_parser() -> argparse.ArgumentParser:
         description=(
             "Retired compatibility command. Repo-local import windows "
             "are closed; this command now refuses without opening "
-            ".striatum/state.sqlite3. Archive or remove the retired local-state "
+            "retired repo-local state. Archive or remove retired local-state "
             "file and register the repository with `striatum adopt` or "
             "`striatum repo add --init`."
         ),

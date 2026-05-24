@@ -91,5 +91,5 @@ The immediate architectural priority is achieving the definition of "done" for t
 
 ## 10. Open questions
 
-- **Tombstone Lifecycle:** Once legacy data is fully migrated to Postgres and `state.sqlite3.tombstone` files are left behind, what is the product decision on their lifecycle? Should the daemon eventually auto-delete them?
+- **Tombstone Lifecycle:** Once legacy data is fully migrated to Postgres and `retired-local-state.tombstone` files are left behind, what is the product decision on their lifecycle? Should the daemon eventually auto-delete them?
 - **Workflow Generation Boundaries:** `striatum workflow generate` is the accepted authoring path. How complex are these generated workflows expected to get before a human needs to drop down to manual intervention?

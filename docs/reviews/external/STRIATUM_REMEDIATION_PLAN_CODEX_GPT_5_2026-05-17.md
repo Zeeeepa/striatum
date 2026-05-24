@@ -90,7 +90,7 @@ mine: Drop from this plan. It is good product work later, not remediation work n
 - touches: `src/striatum/daemon.py`, `src/striatum/daemon_pg/handlers/recovery_evidence/sweep.py`, `src/striatum/daemon_pg/sql/*` only if cursor schema is missing, `tests/daemon_pg/`.
 - effort: several days.
 - depends on: `P0-LEGACY-REGISTRY-GATE`.
-- acceptance: A PG-backed integration test creates a running PG run, calls `daemon_sweep_once()` with `STRIATUM_SQLITE_CONNECT_TRIPWIRE=1`, observes a PG recovery event/cursor update, and verifies no `.striatum/state.sqlite3` is opened or created.
+- acceptance: A PG-backed integration test creates a running PG run, calls `daemon_sweep_once()` with `STRIATUM_SQLITE_CONNECT_TRIPWIRE=1`, observes a PG recovery event/cursor update, and verifies no `.striatum/retired-local-state` is opened or created.
 
 ### P0-PG-GLOBAL-READS-MCP
 
@@ -216,7 +216,7 @@ mine: Drop from this plan. It is good product work later, not remediation work n
 - actual: Migration code and repo registration tests exist, but post-cutover cleanliness is spread across doctor, migration output, and tripwire tests.
 - mine: Worth doing after legacy registry paths are gated, because only then can the report be honest.
 - what: Keep the verify-only migration cleanup report in first-run/doctor authority diagnostics or another current command surface; retired `daemon migrate-repo-local` should not return as an operator-facing spelling.
-- why: Operators need one command to know an old `.striatum/state.sqlite3` is no longer live state.
+- why: Operators need one command to know an old `.striatum/retired-local-state` is no longer live state.
 - touches: `src/striatum/daemon_pg/repo_local_migration.py`, CLI parser/dispatch, docs, tests.
 - effort: 1-2 days.
 - depends on: `P0-LEGACY-REGISTRY-GATE`.

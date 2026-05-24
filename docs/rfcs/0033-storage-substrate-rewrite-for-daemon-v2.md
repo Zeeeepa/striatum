@@ -48,7 +48,7 @@ eventual port to Go. SQLite is fine for a repo-local short-lived CLI; it is
 not the right substrate for a daemon-first product with multi-tenant
 queries, streaming projections, and resident process supervision.
 
-At the time RFC 0033 landed, repo-local `.striatum/state.sqlite3` stayed and
+At the time RFC 0033 landed, repo-local `.striatum/retired-local-state` stayed and
 the substrate rewrite was for daemon-owned global state only. D094/RFC 0043
 later superseded that carve-out and moved per-repository workflow state into
 daemon-owned PostgreSQL.
@@ -72,7 +72,7 @@ daemon-owned PostgreSQL.
 
 ## Non-Goals
 
-- Replacing repo-local `.striatum/state.sqlite3` in the RFC 0033 slice. That
+- Replacing repo-local `.striatum/retired-local-state` in the RFC 0033 slice. That
   later happened explicitly through D094/RFC 0043.
 - Introducing a hosted or networked storage tier. Local-first is preserved.
 - Defining the daemon RPC wire protocol. That lives in RFC 0030 and
@@ -265,7 +265,7 @@ audit, scheduler cursors, daemon metadata). The cutover is:
 4. A `--keep-sqlite-readonly` flag retains the V1 file as a tombstone for
    audit cross-check but blocks all V1 writes.
 
-Repo-local `.striatum/state.sqlite3` is untouched.
+Repo-local `.striatum/retired-local-state` is untouched.
 
 ### 5. Audit chain in the new substrate
 
@@ -346,7 +346,7 @@ The daemon may not assume single-writer semantics anymore:
 - The V1 SQLite registry import path is retired for operators. Current
   `daemon migrate` spellings are compatibility refusals; any SQLite import
   exercise is fixture-only.
-- Repo-local `.striatum/state.sqlite3` was unaffected by RFC 0033 itself.
+- Repo-local `.striatum/retired-local-state` was unaffected by RFC 0033 itself.
   Current production workflow state now lives in daemon-owned PostgreSQL per
   D094/RFC 0043; V1 SQLite survives only as migration source, tombstone, or
   fixture material.
@@ -435,7 +435,7 @@ Terms to add to `docs/UBIQUITOUS_LANGUAGE.md` after acceptance:
 
 - **Daemon DB** — the daemon-owned Postgres instance that holds registry,
   audit, capability, scheduler, RPC-session state, and current per-repository
-  workflow state. `.striatum/state.sqlite3` is historical migration/fixture
+  workflow state. `.striatum/retired-local-state` is historical migration/fixture
   material, not repo-local run truth.
 - **Daemon DB migration** — the daemon-owned forward-only versioned
   migration set applied at startup; refuses to run if the on-disk schema

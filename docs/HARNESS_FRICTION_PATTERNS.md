@@ -125,7 +125,7 @@ split-brain`.
 
 **Root cause** (multi-step):
 
-1. The operator's local `.striatum/state.sqlite3` was written to by
+1. The operator's local `.striatum/retired-local-state` was written to by
    the v1.55.0 burn-down (GH #21 smoke + ephemeral test daemons)
    after the original repo-local PG migration, so the
    `striatumd.repo_migrations` checkpoint's
@@ -133,12 +133,12 @@ split-brain`.
 2. `striatum daemon migrate-repo-local` refuses with exit 8
    ("changed since the Postgres checkpoint") — the V1.5 F-crash
    safety guard correctly refuses to tombstone an unverified source.
-3. Manual tombstone (`mv state.sqlite3 → state.sqlite3.tombstone`)
+3. Manual tombstone (`mv retired-local-state → retired-local-state.tombstone`)
    bypassed the migration-required check in
    `src/striatum/cli/daemon_required.py::repo_is_migrated`. At the
    time, `run prepare` still routed through legacy SQLite-backed CLI
    dispatch rather than the daemon RPC route used by already-mapped verbs.
-4. That legacy path tries to open `.striatum/state.sqlite3`, finds
+4. That legacy path tries to open `.striatum/retired-local-state`, finds
    it absent (it's now `.tombstone`), and offers `striatum init`
    — which itself refuses because the tombstone is present
    ("split-brain detection").
@@ -153,7 +153,7 @@ split-brain`.
   and `workflow validate` are daemon-routed through the shared method
   contract instead of falling through to SQLite-backed dispatch.
 - **F3** — completed: `striatum init` on a repo with a
-  `.striatum/state.sqlite3.tombstone` or `.striatum/state.sqlite3.migrated`
+  `.striatum/retired-local-state.tombstone` or `.striatum/retired-local-state.migrated`
   marker is a no-op because daemon-owned PostgreSQL is the live-state
   authority and `.striatum/` is operational scratch.
 
@@ -171,7 +171,7 @@ of Pattern 5 is F1, not command routing or post-tombstone `init`.
   translations; `src/striatum/cli/daemon_rpc_route.py` owns CLI-local
   parameter extraction.
 - F3: `src/striatum/cli/dispatch.py::_dispatch_init` — short-circuit
-  to "already initialized" when `.striatum/state.sqlite3.tombstone`
+  to "already initialized" when `.striatum/retired-local-state.tombstone`
   exists; current initialization also short-circuits in
   `src/striatum/db.py` before opening SQLite.
 

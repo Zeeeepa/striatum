@@ -241,7 +241,7 @@ remediation phases should either daemon-route, quarantine, or delete.
    `recovery.watch` RPC method.
 3. `repo.add`, `repo.list`, and `repo.remove` now route through daemon RPC
    and register against `striatumd.repositories` without opening or creating
-   `.striatum/state.sqlite3`; `--init` creates only operational scratch.
+   `.striatum/retired-local-state`; `--init` creates only operational scratch.
 4. `repo.resolve` is a daemon-global bootstrap read because repository-scoped
    authorization cannot know the repository id before resolution. Python CLI
    and service clients now resolve repositories through daemon RPC instead of

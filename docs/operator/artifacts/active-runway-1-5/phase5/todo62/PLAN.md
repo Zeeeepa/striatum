@@ -37,7 +37,7 @@ The RFC 0069 substantive surfaces have all landed:
   `daemon_repo_scratch_missing` against `state_dir(repo_root)`, not the
   legacy filename (`src/striatum/daemon_pg/client_admin.py:518-528`).
 - `repo_list_pg`/`repo_resolve_pg` and the MCP resource projection
-  normalize stale `state_db_path` rows that still end in `state.sqlite3`
+  normalize stale `state_db_path` rows that still end in `retired-local-state`
   back to the `.striatum/` scratch directory without rewriting the
   column (`src/striatum/daemon_pg/repositories.py:270-279`;
   `src/striatum/daemon_pg/mcp_resources.py:399-422`).
@@ -54,11 +54,11 @@ operator-visible projection key; do not rename it.
 RFC 0069's vocabulary distinguishes:
 
 1. **Legacy SQLite file refusal / diagnostics.** Code that refuses to
-   open `.striatum/state.sqlite3`, reports migration-required envelopes,
+   open `.striatum/retired-local-state`, reports migration-required envelopes,
    or projects a tombstone/migrated sentinel. These paths intentionally
    spell the legacy filename in user-visible refusal text.
 2. **Live SQLite authority.** Code that would treat
-   `.striatum/state.sqlite3` as a production datastore. Production no
+   `.striatum/retired-local-state` as a production datastore. Production no
    longer contains any. RFC 0069 §Acceptance Criteria forbid this.
 
 This plan only touches surface (1) to remove ad-hoc literals where
@@ -68,7 +68,7 @@ tombstone-inspection diagnostics.
 
 ## Stale Literal-Encoding Residuals (production sources)
 
-These are the remaining `repo / ".striatum" / "state.sqlite3"`-shaped
+These are the remaining `repo / ".striatum" / "retired-local-state"`-shaped
 literals in `src/striatum/**` that still encode the legacy filename
 directly instead of routing through `repo_policy.db_path` /
 `repo_policy.state_dir`:
@@ -89,7 +89,7 @@ Only the sentinel literal at line 49 is new work.
 ## Stale References To Leave Alone
 
 These are correct migration-refusal/diagnostic surfaces and must keep
-the literal `.striatum/state.sqlite3` spelling because the wording or
+the literal `.striatum/retired-local-state` spelling because the wording or
 output shape is operator-facing or load-bearing:
 
 - Refusal messages and CLI help text:
@@ -100,7 +100,7 @@ output shape is operator-facing or load-bearing:
   `src/striatum/plugins/templates/**/skills/*.tmpl` and
   `src/striatum/skills/templates/**/*.tmpl` plus
   `src/striatum/skills/context.py:62`. The directive
-  "do not rely on `.striatum/state.sqlite3`" is the intended guidance.
+  "do not rely on `.striatum/retired-local-state`" is the intended guidance.
 - Cutover-report `_sqlite_exception_notes` and `sqlite_finalization`
   diagnosis strings in
   `src/striatum/daemon_pg/repo_cutover_report.py:300-314, 594-614`.
@@ -135,16 +135,16 @@ remain unchanged by this cleanup:
 - `tests/test_corpus_redaction.py:24`. Redaction of legacy state paths
   in evidence exports.
 - `tests/test_view_file.py:74`, `tests/test_web_view.py:108`. The view
-  file endpoint must 404 on `.striatum/state.sqlite3`.
+  file endpoint must 404 on `.striatum/retired-local-state`.
 - `tests/test_ui_packaging.py:43`. Fresh-clone smoke wraps the legacy
   file path.
 - `tests/test_doc_links.py:119-190`. Doc-link integrity tests that pin
   the wording "is not authoritative live state."
 - `tests/test_multi_repo_harness.py:28`, `tests/test_harness_v2_fixes.py:232`,
   `tests/test_process_adapter.py:62`. Negative assertions that
-  `.striatum/state.sqlite3` does not exist after harness setup.
+  `.striatum/retired-local-state` does not exist after harness setup.
 - All `tests/daemon_pg/**` fixture rows that insert
-  `state_db_path = .../.striatum/state.sqlite3` to exercise the legacy
+  `state_db_path = .../.striatum/retired-local-state` to exercise the legacy
   shape against current projections.
 - `tests/architecture/test_legacy_sqlite_quarantine.py`. The full
   quarantine assertion set; do not relax it.
@@ -163,7 +163,7 @@ from this cleanup batch.
 
 One bounded batch with a single disjoint write scope. All five edits
 are mechanical literal-to-helper substitutions inside the
-`legacy_state = repo / ".striatum" / "state.sqlite3"`-shape; none
+`legacy_state = repo / ".striatum" / "retired-local-state"`-shape; none
 change semantics or operator-visible output strings.
 
 Write scope (single batch, single repo_write):
@@ -191,7 +191,7 @@ Edits:
      `db_path(repo).with_name(db_path(repo).name + ".tombstone").exists()`
      (or cache `db_path(repo)` to a local and derive once).
 2. `src/striatum/daemon_pg/repo_cutover_report.py`
-   - Replace the `sentinel_path = repo / ".striatum" / "state.sqlite3.migrated"`
+   - Replace the `sentinel_path = repo / ".striatum" / "retired-local-state.migrated"`
      literal at line 49 with
      `sentinel_path = source_path.with_name(source_path.name + ".migrated")`
      (where `source_path = db_path(repo)` is already computed at line
@@ -203,13 +203,13 @@ Edits:
      literals with `state_db = db_path(repo_path)` and
      `tombstone = state_db.with_name(state_db.name + ".tombstone")`.
    - Do not change `render_repo_not_migrated_message` /
-     `render_repo_not_migrated_hint`; their `.striatum/state.sqlite3`
+     `render_repo_not_migrated_hint`; their `.striatum/retired-local-state`
      spelling is the user-facing refusal copy.
 4. `tests/test_day_zero.py`
    - Update only the `sqlite_migration_required` envelope expectation
      (and any `_inspect_repo` assertion that compares `state_db_path`
      verbatim) to compute `db_path(repo)` the same way the source does.
-     Keep the literal `.striatum/state.sqlite3` in any doc-string or
+     Keep the literal `.striatum/retired-local-state` in any doc-string or
      hint-text assertion that pins user-facing copy.
 
 This batch is intentionally narrow:
@@ -248,7 +248,7 @@ The final `rg` should return only the operator-facing refusal/wording
 sites enumerated above (cli/daemon.py:21, cli/daemon_required.py
 render_* messages, cli/parser.py:347, repo_cutover_report.py diagnosis
 strings, plugin/skill templates, `skills/context.py`) plus the
-`DB_NAME = "state.sqlite3"` definition in `repo_policy.py`.
+`DB_NAME = "retired-local-state"` definition in `repo_policy.py`.
 
 ## Non-Goals
 
@@ -263,12 +263,12 @@ strings, plugin/skill templates, `skills/context.py`) plus the
   `RESIDUAL_SQLITE_REFERENCE_TESTS` entries; TODO 61 Track-2 owns
   that test-debt conversion.
 - Do not change operator-facing refusal copy, skill/plugin templates,
-  or doc references to `.striatum/state.sqlite3`.
+  or doc references to `.striatum/retired-local-state`.
 - Do not modify CLI verbs, daemon RPC envelopes, MCP method names,
   or capability vocabulary.
 - Do not flip the default daemon core or alter RFC 0068 sequencing.
-- Do not delete `.striatum/state.sqlite3.tombstone` or
-  `.striatum/state.sqlite3.archive-*` operator evidence.
+- Do not delete `.striatum/retired-local-state.tombstone` or
+  `.striatum/retired-local-state.archive-*` operator evidence.
 
 ## Open Question (Deferred, Not In Scope)
 

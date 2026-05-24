@@ -220,7 +220,7 @@ def _seed(conn: Any, tmp_path: Path) -> None:
             )
             VALUES ('repo_1', 'repo_1', %s, %s, 'repo_1', %s, 6, 'active')
             """,
-            (str(repo_root), str(repo_root / ".striatum" / "state.sqlite3"), now),
+            (str(repo_root), str(repo_root / ".striatum" / "retired-local-state"), now),
         )
         cur.execute(
             """

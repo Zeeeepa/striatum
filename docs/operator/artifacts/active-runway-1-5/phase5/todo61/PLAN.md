@@ -58,7 +58,7 @@ supervision, skills install, and dogfood composite history.
 
 Keep these out of the cleanup batch:
 
-- `tests/fixtures/v1_repo_local_sqlite/state.sqlite3`
+- `tests/fixtures/v1_repo_local_sqlite/retired-local-state`
 - `tests/fixtures/v1_repo_local_sqlite/build_fixture.py`
 - `tests/fixtures/v1_repo_local_sqlite/README.md`
 - `tests/daemon_pg/handlers/recovery_evidence/conftest.py`

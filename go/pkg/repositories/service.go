@@ -40,13 +40,6 @@ func (s Service) Add(ctx context.Context, envelope rpc.Envelope) (map[string]any
 	if err != nil {
 		return nil, err
 	}
-	if exists(repoLocalSQLitePath(repo)) {
-		return nil, rpc.NewError(
-			"sqlite_source_present",
-			"repo-local SQLite state exists and SQLite import windows are closed; archive or remove .striatum/state.sqlite3 before registering",
-			nil,
-		)
-	}
 	stateDir, err := operationalScratch(repo, boolParam(envelope.Params, "init"))
 	if err != nil {
 		return nil, err
@@ -262,7 +255,7 @@ func projectedStateDBPath(row map[string]any) any {
 		return row["state_db_path"]
 	}
 	cleaned := filepath.Clean(statePath)
-	if filepath.Base(cleaned) == "state.sqlite3" && filepath.Base(filepath.Dir(cleaned)) == ".striatum" {
+	if filepath.Base(filepath.Dir(cleaned)) == ".striatum" && cleaned != filepath.Dir(cleaned) {
 		return filepath.Dir(cleaned)
 	}
 	return row["state_db_path"]
@@ -363,10 +356,6 @@ func ensureGitignore(repo string) error {
 	return os.WriteFile(path, []byte(string(body)+prefix+".striatum/\n"), 0o644)
 }
 
-func repoLocalSQLitePath(repo string) string {
-	return filepath.Join(repo, ".striatum", "state.sqlite3")
-}
-
 func repoIdentity(repo string) (string, error) {
 	info, err := os.Stat(repo)
 	if err != nil {
@@ -409,11 +398,6 @@ func hasSymlinkComponent(path string) bool {
 		}
 	}
 	return false
-}
-
-func exists(path string) bool {
-	_, err := os.Stat(path)
-	return err == nil
 }
 
 func expandHome(value string) (string, error) {

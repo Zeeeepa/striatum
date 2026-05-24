@@ -15,7 +15,7 @@ The cleanup for TODO 61 (RFC 0068) and TODO 62 (RFC 0069) is **partially complet
 ### F1: Structural Projection Divergence (High Risk)
 There is a divergence in how `state_db_path` is projected to clients, which may break tools that rely on a consistent registry view.
 - **Go Daemon & Python MCP:** Correctly project the operational scratch *directory* (`.striatum/`).
-- **Python CLI/RPC (Internal):** Projects the raw `striatumd.repositories.state_db_path` column, which for older repositories still contains the *file* path (`.striatum/state.sqlite3`).
+- **Python CLI/RPC (Internal):** Projects the raw `striatumd.repositories.state_db_path` column, which for older repositories still contains the *file* path (`.striatum/retired-local-state`).
 - **Daemon Doctor:** Derives the scratch path from `repo_root` and ignores the column entirely.
 - **Impact:** Tools registered before the cutover see a file path; newly registered tools see a directory. This inconsistency should be resolved by normalizing the path in `src/striatum/daemon_pg/repositories.py` (similar to the logic already in `mcp_resources.py`).
 

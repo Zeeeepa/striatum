@@ -77,9 +77,9 @@ func TestResolveReturnsActiveRepositoryMetadata(t *testing.T) {
 	}
 }
 
-func TestListNormalizesStaleStateSQLiteProjection(t *testing.T) {
+func TestListNormalizesStaleScratchFileProjection(t *testing.T) {
 	repo := t.TempDir()
-	staleStatePath := filepath.Join(repo, ".striatum", "state.sqlite3")
+	staleStatePath := filepath.Join(repo, ".striatum", "retired-local-state")
 	runner := &resolveFakeRunner{
 		rows: []map[string]any{repositoryRowWithStatePath("repo_stale", repo, "active", staleStatePath)},
 	}
@@ -101,9 +101,9 @@ func TestListNormalizesStaleStateSQLiteProjection(t *testing.T) {
 	}
 }
 
-func TestResolveNormalizesStaleStateSQLiteProjection(t *testing.T) {
+func TestResolveNormalizesStaleScratchFileProjection(t *testing.T) {
 	repo := t.TempDir()
-	staleStatePath := filepath.Join(repo, ".striatum", "state.sqlite3")
+	staleStatePath := filepath.Join(repo, ".striatum", "retired-local-state")
 	runner := &resolveFakeRunner{
 		rows: []map[string]any{repositoryRowWithStatePath("repo_stale", repo, "active", staleStatePath)},
 	}
@@ -123,7 +123,7 @@ func TestResolveNormalizesStaleStateSQLiteProjection(t *testing.T) {
 	}
 }
 
-func TestAddAlreadyRegisteredNormalizesStaleStateSQLiteProjection(t *testing.T) {
+func TestAddAlreadyRegisteredNormalizesStaleScratchFileProjection(t *testing.T) {
 	repo := t.TempDir()
 	if err := os.Mkdir(filepath.Join(repo, ".striatum"), 0o700); err != nil {
 		t.Fatalf("mkdir .striatum: %v", err)
@@ -132,7 +132,7 @@ func TestAddAlreadyRegisteredNormalizesStaleStateSQLiteProjection(t *testing.T) 
 	if err != nil {
 		t.Fatalf("repoIdentity: %v", err)
 	}
-	staleStatePath := filepath.Join(repo, ".striatum", "state.sqlite3")
+	staleStatePath := filepath.Join(repo, ".striatum", "retired-local-state")
 	row := repositoryRowWithStatePath("repo_existing", repo, "active", staleStatePath)
 	row["repo_identity"] = identity
 	runner := &resolveFakeRunner{rows: []map[string]any{row}}

@@ -28,7 +28,6 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from striatum.errors import DaemonUnreachableError, RepoNotMigratedError
-from striatum.repo_policy import db_path
 
 ENV_DAEMON_REQUIRED = "STRIATUM_DAEMON_REQUIRED"
 ENV_DAEMON_SOCKET = "STRIATUM_DAEMON_SOCKET"
@@ -127,8 +126,7 @@ def render_repo_not_migrated_message(repo_path: Path) -> str:
     return (
         f"repo_not_migrated: {repo_path} has not been migrated to daemon "
         "PostgreSQL state\n"
-        "Retired import windows are closed. Archive or remove any legacy "
-        ".striatum/state.sqlite3 file, then register the repository with "
+        "Retired import windows are closed. Register the repository with "
         f"`striatum adopt --repo {repo_path}` or "
         f"`striatum repo add --init {repo_path}`."
     )
@@ -137,8 +135,8 @@ def render_repo_not_migrated_message(repo_path: Path) -> str:
 def render_repo_not_migrated_hint(repo_path: Path) -> str:
     """Compose the structured ``hint`` field for the JSON error envelope."""
     return (
-        "archive/remove legacy .striatum/state.sqlite3, then run "
-        f"striatum adopt --repo {repo_path} or striatum repo add --init {repo_path}"
+        f"run striatum adopt --repo {repo_path} or "
+        f"striatum repo add --init {repo_path}"
     )
 
 
@@ -185,19 +183,13 @@ def daemon_socket_is_reachable(socket_path: Path, *, timeout_seconds: float = 1.
 def repo_is_migrated(repo_path: Path) -> bool:
     """Best-effort migration check.
 
-    Track A owns the authoritative ``striatumd.repo_migrations`` lookup; Track B
-    surfaces the refusal shape so callers can opt in once Track A lands.
-    For now the helper treats the presence of a ``.striatum/state.sqlite3``
-    file without a sibling ``.striatum/state.sqlite3.tombstone`` as the
-    "pre-cutover" signal; ``True`` otherwise.
+    Repository registration is daemon-owned. The CLI no longer derives a
+    migration verdict from a repo-local file sentinel, so this compatibility
+    helper returns ``True`` until a daemon call raises the canonical
+    ``repo_not_migrated`` refusal.
     """
-    state_db = db_path(repo_path)
-    tombstone = state_db.with_name(state_db.name + ".tombstone")
-    if not state_db.exists():
-        return True
-    if tombstone.exists():
-        return True
-    return False
+    del repo_path
+    return True
 
 
 def enforce_daemon_required(
@@ -210,18 +202,15 @@ def enforce_daemon_required(
     """Raise the RFC 0043 §3 refusals when enforcement is enabled.
 
     The dispatcher calls this before retired in-process fallback code so
-    the operator sees codes 11/12 immediately instead of the legacy
-    ``state.sqlite3 not found`` failure mode.
+    the operator sees codes 11/12 immediately instead of an in-process
+    fallback failure mode.
 
     ``check_repo_migration`` lets the caller skip the per-repo
-    ``repo_is_migrated`` retired-state-file probe while keeping the
+    ``repo_is_migrated`` compatibility probe while keeping the
     daemon-socket reachability requirement. Daemon-global read commands
     (e.g. ``repo list``) must not refuse with ``repo_not_migrated``
-    just because the cwd has a legacy ``.striatum/state.sqlite3``
-    file — the registry is daemon-side and is the sole source of truth.
-    Mutation/setup paths (``adopt``, ``repo add --init``) keep the
-    default ``True`` so the retired-state-file check still fires where it
-    belongs.
+    from local disk shape — the registry is daemon-side and is the sole source
+    of truth.
     """
     if command == "doctor" and first_run:
         return

@@ -104,7 +104,7 @@ def pg_ctx(pg_db: Any, tmp_path: Path) -> Any:
                 repository_id,
                 f"identity:{repository_id}",
                 str(tmp_path),
-                str(tmp_path / ".striatum" / "state.sqlite3"),
+                str(tmp_path / ".striatum" / "retired-local-state"),
                 repository_id,
             ),
         )

@@ -10,7 +10,7 @@ PostgreSQL.
 
 ## Problem
 
-Striatum currently uses a static `SCHEMA_SQL` in `src/striatum/schema.py` which is executed during `striatum init`. There is no mechanism to migrate existing `.striatum/state.sqlite3` databases when the schema changes. As the tool evolves beyond V1, users will be forced to delete their local state directory and lose run history whenever a schema update is required.
+Striatum currently uses a static `SCHEMA_SQL` in `src/striatum/schema.py` which is executed during `striatum init`. There is no mechanism to migrate existing `.striatum/retired-local-state` databases when the schema changes. As the tool evolves beyond V1, users will be forced to delete their local state directory and lose run history whenever a schema update is required.
 
 ## Goals
 

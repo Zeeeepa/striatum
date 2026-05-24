@@ -279,7 +279,7 @@ def _seed_claimed_work(
                 repository_id,
                 repository_id,
                 str(repo_root.resolve()),
-                str((repo_root / ".striatum" / "state.sqlite3").resolve()),
+                str((repo_root / ".striatum" / "retired-local-state").resolve()),
                 repository_id,
                 now,
                 now,

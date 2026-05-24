@@ -39,7 +39,7 @@ posture and records that no safe implementation gap is present.
 | Check | State | Evidence |
 |---|---|---|
 | Production daemon-global surfaces do not reopen the legacy SQLite registry | passed | Architecture guardrails and daemon doctor/MCP focused tests passed. |
-| Doctor and MCP projections treat `.striatum/` as operational scratch, not `.striatum/state.sqlite3` live state | passed | Existing daemon doctor, MCP resource, and repo registration tests passed. |
+| Doctor and MCP projections treat `.striatum/` as operational scratch, not `.striatum/retired-local-state` live state | passed | Existing daemon doctor, MCP resource, and repo registration tests passed. |
 | Repo-global bootstrap/refusal behavior remains PostgreSQL/daemon-owned | passed | RFC 0043 refusal and repo registration tests passed. |
 | Residual implementation gap requiring source/test edits | none found | Closure audit report records no source changes. |
 

@@ -8,7 +8,6 @@ from striatum.errors import ArtifactError
 from striatum.primitives import JsonObject
 
 STATE_DIR = ".striatum"
-DB_NAME = "state.sqlite3"
 WORKTREES_SUBDIR = "worktrees"
 ADAPTER_ENFORCEMENT_LEVELS = {
     "unsupported": 0,
@@ -21,11 +20,6 @@ ADAPTER_ENFORCEMENT_LEVELS = {
 def state_dir(repo: Path) -> Path:
     """Return the repo-local state directory."""
     return repo / STATE_DIR
-
-
-def db_path(repo: Path) -> Path:
-    """Return the retired repo-local state-file path."""
-    return state_dir(repo) / DB_NAME
 
 
 def repo_relative_path(repo: Path, path_text: str) -> Path:

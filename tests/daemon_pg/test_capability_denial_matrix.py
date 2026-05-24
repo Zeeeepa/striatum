@@ -72,7 +72,7 @@ def seeded_repo(pg_conn: Any, tmp_path: Path) -> str:
                 repository_id,
                 f"identity:{repository_id}",
                 str(tmp_path),
-                str(tmp_path / ".striatum" / "state.sqlite3"),
+                str(tmp_path / ".striatum" / "retired-local-state"),
                 repository_id,
             ),
         )
@@ -247,7 +247,7 @@ def test_pg_method_denies_capability_scoped_to_other_repository(
                 other_repo,
                 f"identity:{other_repo}",
                 str(tmp_path / "other"),
-                str(tmp_path / "other" / ".striatum" / "state.sqlite3"),
+                str(tmp_path / "other" / ".striatum" / "retired-local-state"),
                 other_repo,
             ),
         )

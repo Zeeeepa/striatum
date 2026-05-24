@@ -26,7 +26,7 @@ Byline: `author: reviewer-unknown-model-<NN>`. Plain markdown line.
 
 ### GH #21
 
-1. Test exists that simulates "serve restart while state.sqlite3 has rows."
+1. Test exists that simulates "serve restart while retired-local-state has rows."
 2. Test asserts row count + sha256 invariant (not just "no exception").
 3. If integrity_check fails on an existing file, serve errors out cleanly (no silent re-init).
 

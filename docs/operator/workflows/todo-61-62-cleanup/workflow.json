@@ -139,7 +139,7 @@
       "lane_id": "claude_code",
       "parallel_group": "triage",
       "fresh_session_required": true,
-      "objective": "Identify the remaining TODO 62 / RFC 0069 cleanup needed after PostgreSQL-only daemon-global surfaces. Include the current daemon doctor warning that expects .striatum/state.sqlite3 even though repo scratch exists and SQLite live state is retired.",
+      "objective": "Identify the remaining TODO 62 / RFC 0069 cleanup needed after PostgreSQL-only daemon-global surfaces. Include the current daemon doctor warning that expects .striatum/retired-local-state even though repo scratch exists and SQLite live state is retired.",
       "task_prompt": {
         "path": "prompts/triage_62.md"
       },

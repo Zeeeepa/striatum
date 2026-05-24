@@ -18,21 +18,21 @@ health, audit, doctor) read from PostgreSQL, and the Go daemon owns
 The residuals are narrow and concrete:
 
 1. The daemon doctor still treats the legacy SQLite filename
-   (`.striatum/state.sqlite3`) as the operational-scratch existence probe and
+   (`.striatum/retired-local-state`) as the operational-scratch existence probe and
    raises a misleading warning on every repo registered before the
    `state_db_path = .striatum/` shape landed.
 2. The repo registrar refuses migration based on a hardcoded
-   `.striatum/state.sqlite3` filename rather than calling
+   `.striatum/retired-local-state` filename rather than calling
    `striatum.repo_policy.db_path`; the cleanup should retire `repo_policy.DB_NAME`
    alongside the doctor fix or treat it as the only legacy filename allowed.
 3. The Python `repo_resolve_pg` reach-around path is structurally identical to
    the deleted `connect_registry()` guardrail concern: it canonicalises
-   `state = repo / .striatum / state.sqlite3` purely to refuse symlinks. The
+   `state = repo / .striatum / retired-local-state` purely to refuse symlinks. The
    probe is correct; the literal still encodes SQLite as live state.
 4. `repo_policy.DB_NAME`, `db_path`, and the cutover-report reliance on it are
    the last live-state names in the Python production tree; the test
    architecture quarantine permits them by category but they should follow
-   TODO 61 retirement to remove the last "state.sqlite3 is live" surface.
+   TODO 61 retirement to remove the last "retired-local-state is live" surface.
 
 The blocked open question on the RFC 0069 plan — "whether registry-probe /
 global diagnostic paths should be generated from the daemon method contract"
@@ -44,7 +44,7 @@ global diagnostic paths should be generated from the daemon method contract"
    pre-cutover registrations.
 
    Symptom: `striatum daemon doctor --authority --json` reports
-   `daemon_repo_state_missing` for `/.../.striatum/state.sqlite3` even though
+   `daemon_repo_state_missing` for `/.../.striatum/retired-local-state` even though
    `.striatum/` exists, PostgreSQL is authoritative, and SQLite live state is
    retired. Verified locally on this repo:
 
@@ -52,7 +52,7 @@ global diagnostic paths should be generated from the daemon method contract"
    "problem_records": [
      {"check": "daemon_repo_state_missing",
       "context": {"repo_root": "/home/halbritt/git/striatum",
-                  "state_db_path": "/home/halbritt/git/striatum/.striatum/state.sqlite3"},
+                  "state_db_path": "/home/halbritt/git/striatum/.striatum/retired-local-state"},
       "id": "repo_a89ecd1664764f039a127c62ab7da3f3",
       "message": "registered repository operational scratch is missing"}
    ]
@@ -66,7 +66,7 @@ global diagnostic paths should be generated from the daemon method contract"
    (`go/pkg/repositories/service.go:94` and `go/pkg/admin/repo_init.go:119`)
    now persist the `.striatum` *directory* into that column, but any
    repository registered before that change still has the row pointing at the
-   `state.sqlite3` *file*, which is now archived/tombstoned. The check then
+   `retired-local-state` *file*, which is now archived/tombstoned. The check then
    flags a perfectly healthy operational-scratch directory as missing.
 
    Implementer paths (either is acceptable; pick one and stay consistent):
@@ -83,7 +83,7 @@ global diagnostic paths should be generated from the daemon method contract"
    b. Forward-fix existing rows by adding a one-shot daemon-startup
       normalisation that rewrites
       `striatumd.repositories.state_db_path` to the parent operational-scratch
-      directory when the stored value ends in `state.sqlite3` and the parent
+      directory when the stored value ends in `retired-local-state` and the parent
       exists. Land this as a tiny PostgreSQL migration (or in
       `striatum.daemon_pg.repositories` on the next `repo.list`/`repo.resolve`)
       so operator inspection and projection clients converge.
@@ -97,14 +97,14 @@ global diagnostic paths should be generated from the daemon method contract"
      `daemon_doctor_records_pg` body.
    - `src/striatum/daemon_pg/mcp_resources.py:405` — read the same column
      name; the resource projection should not emit
-     `state.sqlite3` for new clients.
+     `retired-local-state` for new clients.
    - `docs/architecture/COMMAND_AUTHORITY_MATRIX.md` — surface the warning
      rename if/when the matrix lists it.
 
    Regression coverage to add:
    - Extend `tests/test_daemon_pg_doctor.py` and
      `tests/cli/test_dispatch_daemon_doctor.py` with a case where the
-     `state_db_path` column is `.../.striatum/state.sqlite3` and the
+     `state_db_path` column is `.../.striatum/retired-local-state` and the
      `.striatum/` directory exists; doctor must report `"problem_records":
      []`, `"problems": []`, and the authority report must remain `ok: true`.
    - Add a parity case where `.striatum/` itself does not exist and the
@@ -121,7 +121,7 @@ global diagnostic paths should be generated from the daemon method contract"
    Both registrars already store the `.striatum/` directory in
    `state_db_path`, but the Python pre-flight refusal in
    `src/striatum/daemon_pg/repositories.py:38-44` still hardcodes
-   `legacy_state = repo / ".striatum" / "state.sqlite3"`. The probe is
+   `legacy_state = repo / ".striatum" / "retired-local-state"`. The probe is
    correct, but the literal duplicates `striatum.repo_policy.db_path`.
    The cleanup is to call `db_path(repo)` (or, if `repo_policy.DB_NAME`
    is retired alongside this slice, the explicit constant kept inside
@@ -137,8 +137,8 @@ global diagnostic paths should be generated from the daemon method contract"
    "SQLite-is-live-state" production names, or quarantine them explicitly.
 
    Evidence: `src/striatum/repo_policy.py:11-28` exports
-   `DB_NAME = "state.sqlite3"` and `db_path(repo)` returning
-   `repo / .striatum / state.sqlite3`. The only production callers are the
+   `DB_NAME = "retired-local-state"` and `db_path(repo)` returning
+   `repo / .striatum / retired-local-state`. The only production callers are the
    cutover-report `src/striatum/daemon_pg/repo_cutover_report.py:14, 47, 122`
    (correct — it reports cutover status of the tombstoned file) and the
    two registrar probes from item 2. Day-zero inspection in
@@ -155,7 +155,7 @@ global diagnostic paths should be generated from the daemon method contract"
    Implementer rule: do not delete `DB_NAME` / `db_path` opportunistically.
    Touch them only when item 2 lands. If the cutover-report can survive
    without `db_path`, retiring `DB_NAME` becomes a one-line follow-up that
-   removes the last production reference to the literal `state.sqlite3`
+   removes the last production reference to the literal `retired-local-state`
    filename outside cutover diagnostics.
 
 4. Keep the architecture guardrails covering everything RFC 0069 promised.
@@ -178,7 +178,7 @@ global diagnostic paths should be generated from the daemon method contract"
 ## Lower Priority But Worth Doing
 
 - `docs/POSTGRES_TRANSITION.md` and `docs/HOW_TO_AGENT.md` describe the
-  retired SQLite path with the literal `.striatum/state.sqlite3` filename
+  retired SQLite path with the literal `.striatum/retired-local-state` filename
   several times. Those are correct operator-facing descriptions of the
   one-time migration window and should stay; do not rewrite them as part of
   the doctor fix.
@@ -186,7 +186,7 @@ global diagnostic paths should be generated from the daemon method contract"
   (`src/striatum/plugins/templates/*/skills/mcp.md.tmpl`,
   `src/striatum/skills/templates/*/STRIATUM_*_GUIDE.md.tmpl`,
   `src/striatum/skills/context.py:60-65`) still tell agents
-  "do not rely on `.striatum/state.sqlite3`". This is correct guidance and
+  "do not rely on `.striatum/retired-local-state`". This is correct guidance and
   should not change.
 - `src/striatum/cli/daemon_required.py:189-220`
   (`is_repo_migrated_for_daemon`) is an explicit pre-cutover signal; the
@@ -234,8 +234,8 @@ pytest tests/architecture/test_legacy_sqlite_quarantine.py
 - Do not change the daemon RPC envelope, capability vocabulary, or
   `repo.*` semantics; RFC 0069 §Non-Goals applies.
 - Do not flip the default daemon core or alter RFC 0068 sequencing.
-- Do not delete `.striatum/state.sqlite3.tombstone` or
-  `.striatum/state.sqlite3.archive-*` operator evidence on this repo or
+- Do not delete `.striatum/retired-local-state.tombstone` or
+  `.striatum/retired-local-state.archive-*` operator evidence on this repo or
   any registered repo; D108/D111 keep them as inspection-only artifacts.
 - Do not modify cutover-report semantics in
   `src/striatum/daemon_pg/repo_cutover_report.py` beyond replacing the

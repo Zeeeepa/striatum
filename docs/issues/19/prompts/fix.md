@@ -4,11 +4,11 @@ Implement the fixes named in `docs/issues/19/SCOPE.md`. Produce `docs/issues/19/
 
 ## Scope per issue
 
-### GH #21 — serve startup must not clobber state.sqlite3
+### GH #21 — serve startup must not clobber retired-local-state
 
-Source files (verify exact path during triage): typically `src/striatum/init.py` or wherever `striatum serve` initializes state. Make startup detect an existing healthy state.sqlite3 and attach to it instead of (re)creating. If the file exists but `PRAGMA integrity_check` fails, error out with a clear message — do not silently re-init.
+Source files (verify exact path during triage): typically `src/striatum/init.py` or wherever `striatum serve` initializes state. Make startup detect an existing healthy retired-local-state and attach to it instead of (re)creating. If the file exists but `PRAGMA integrity_check` fails, error out with a clear message — do not silently re-init.
 
-Test under `tests/`: simulate the exact failure mode that happened 3 times in this session — start serve while state.sqlite3 has rows, kill -TERM, restart serve, assert row count + sha256 unchanged.
+Test under `tests/`: simulate the exact failure mode that happened 3 times in this session — start serve while retired-local-state has rows, kill -TERM, restart serve, assert row count + sha256 unchanged.
 
 ### GH #19 — stale-lease operator escape for repo_write
 

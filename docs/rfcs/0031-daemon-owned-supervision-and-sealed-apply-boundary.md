@@ -36,7 +36,7 @@ reviewed-patch mutation remain deferred.
 
 V1 supervision (RFC 0009) lives in repo-local SQLite. The CLI starts a
 detached child process, records a `process_supervisors` row in
-`.striatum/state.sqlite3`, and writes packets to its stdin FIFO. The
+`.striatum/retired-local-state`, and writes packets to its stdin FIFO. The
 operator (or a recovery sweep) is responsible for keeping the supervisor
 alive across packets. The runner does not own the supervised process'
 lifecycle; it observes it.
@@ -122,7 +122,7 @@ Out of scope:
   audit chain. Audit append-only enforcement uses Postgres roles for
   protection against accidental updates through the daemon API; an
   operator with the database superuser role can bypass it.
-- An operator who modifies `.striatum/state.sqlite3` directly or
+- An operator who modifies `.striatum/retired-local-state` directly or
   modifies the daemon's worktree directly. Repo-local provenance has
   always been "operator can edit; we record artifacts so reviewers can
   notice."
@@ -143,7 +143,7 @@ The V1 supervisor row schema moves into the daemon DB (RFC 0033
 substrate). Repo-local SQLite keeps a thin pointer:
 
 ```text
-repo-local .striatum/state.sqlite3:
+repo-local .striatum/retired-local-state:
   process_supervisor_pointers:
     session_id PRIMARY KEY,
     supervisor_id,
@@ -294,7 +294,7 @@ unchanged.
 - V1 dogfood workflows continue to register supervisors via
   `supervise start`; the daemon now owns them, but the CLI surface
   is preserved.
-- V1 `process_supervisor` rows in `.striatum/state.sqlite3` are
+- V1 `process_supervisor` rows in `.striatum/retired-local-state` are
   migrated to daemon DB at first daemon start after upgrade. The
   pointer table replaces the V1 row's daemon-side fields; repo-local
   rows for terminated supervisors are kept for run-summary

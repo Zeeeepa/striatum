@@ -127,5 +127,5 @@ Simultaneously, **P1-GO-RELEASE-PROVENANCE** must land before **P1-FIRST-RUN-DIA
 
 ## 8. Open questions
 
-- **Tombstone Lifecycle:** Once legacy data is fully migrated to Postgres and `state.sqlite3.tombstone` files are left behind, what is the product decision on their lifecycle? Should the daemon eventually auto-delete them, or is the operator expected to manually `rm` them? If the latter, we risk accumulating disk clutter.
+- **Tombstone Lifecycle:** Once legacy data is fully migrated to Postgres and `retired-local-state.tombstone` files are left behind, what is the product decision on their lifecycle? Should the daemon eventually auto-delete them, or is the operator expected to manually `rm` them? If the latter, we risk accumulating disk clutter.
 - **Cross-Repo Ambitions:** R6 asks to trim unused cross-repo hooks. Is cross-repo orchestration still a near-term roadmap priority? If not, we might want to excise the `crossrepo` package entirely rather than just trimming individual unused hooks.

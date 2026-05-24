@@ -130,7 +130,7 @@ def test_enforce_daemon_required_raises_unreachable_when_socket_missing(
     assert "daemon_unreachable" in str(exc.value)
 
 
-def test_enforce_daemon_required_raises_repo_not_migrated_when_socket_listens(
+def test_enforce_daemon_required_ignores_repo_local_scratch_files_when_socket_listens(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     import socket as socket_mod
@@ -141,16 +141,9 @@ def test_enforce_daemon_required_raises_repo_not_migrated_when_socket_listens(
         listener.bind(str(socket_path))
         listener.listen(1)
         monkeypatch.setenv(ENV_DAEMON_SOCKET, str(socket_path))
-        # Repo presents the pre-cutover signal: a .striatum/state.sqlite3
-        # without a tombstone marker. Track B's helper uses that as the
-        # "unmigrated" stand-in until Track A's repo_migrations row check
-        # lands.
         (tmp_path / ".striatum").mkdir()
-        (tmp_path / ".striatum" / "state.sqlite3").write_bytes(b"")
-        with pytest.raises(RepoNotMigratedError) as exc:
-            enforce_daemon_required("status", tmp_path)
-        assert exc.value.exit_code == 12
-        assert "repo_not_migrated" in str(exc.value)
+        (tmp_path / ".striatum" / "retired-local-state").write_bytes(b"")
+        enforce_daemon_required("status", tmp_path)
     finally:
         listener.close()
 
@@ -268,82 +261,11 @@ def test_resolve_socket_path_respects_override(monkeypatch: pytest.MonkeyPatch) 
     assert resolve_socket_path() == Path("/tmp/custom.sock")
 
 
-# RFC 0043 V1.5 F-test: end-to-end exit-code-12 coverage --------------
-
-
-def test_dispatch_returns_exit_12_for_unmigrated_repo(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    """End-to-end: an unmigrated repo with a reachable daemon socket
-    exits with code 12 and the retired retired local state-import guidance.
-
-    The default flip means we exercise this without setting
-    ``STRIATUM_DAEMON_REQUIRED=1`` — the unset env reaches the
-    enforcement path.
-    """
-    import socket as socket_mod
-
-    socket_path = tmp_path / "striatumd.sock"
-    listener = socket_mod.socket(socket_mod.AF_UNIX, socket_mod.SOCK_STREAM)
-    try:
-        listener.bind(str(socket_path))
-        listener.listen(1)
-        monkeypatch.setenv(ENV_DAEMON_SOCKET, str(socket_path))
-        # Pre-cutover disk signal — a state.sqlite3 with no tombstone.
-        (tmp_path / ".striatum").mkdir()
-        (tmp_path / ".striatum" / "state.sqlite3").write_bytes(b"")
-
-        rc = dispatch_mod.main(["--repo", str(tmp_path), "status"])
-        assert rc == 12
-        captured = capsys.readouterr()
-        assert "repo_not_migrated" in captured.err
-        assert "Retired import windows are closed" in captured.err
-        assert "striatum repo add --init" in captured.err
-        # The hint names the resolved repo path so operators can copy the
-        # command verbatim.
-        assert str(tmp_path.resolve()) in captured.err
-    finally:
-        listener.close()
-
-
-def test_dispatch_exit_12_json_envelope(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    """The --json error envelope for exit 12 carries the structured hint."""
-    import socket as socket_mod
-
-    socket_path = tmp_path / "striatumd.sock"
-    listener = socket_mod.socket(socket_mod.AF_UNIX, socket_mod.SOCK_STREAM)
-    try:
-        listener.bind(str(socket_path))
-        listener.listen(1)
-        monkeypatch.setenv(ENV_DAEMON_SOCKET, str(socket_path))
-        (tmp_path / ".striatum").mkdir()
-        (tmp_path / ".striatum" / "state.sqlite3").write_bytes(b"")
-
-        rc = dispatch_mod.main(["--repo", str(tmp_path), "status", "--json"])
-        assert rc == 12
-        payload = json.loads(capsys.readouterr().out)
-        assert payload["ok"] is False
-        assert payload["error"]["code"] == 12
-        assert payload["error"]["message"].startswith("repo_not_migrated:")
-        assert "striatum repo add --init" in payload["error"]["hint"]
-    finally:
-        listener.close()
-
-
-def test_repo_list_does_not_refuse_when_local_sqlite_state_exists(
+def test_repo_list_does_not_refuse_when_local_scratch_file_exists(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """GH #25: ``repo list`` is a daemon-global registry read. The
-    legacy ``.striatum/state.sqlite3`` preflight must not fire for the
-    listing verb — it stays in ``adopt`` / ``repo add --init`` where
-    setup is happening. ``enforce_daemon_required`` with
-    ``check_repo_migration=False`` is the seam the dispatcher uses.
+    local scratch shape must not produce ``repo_not_migrated``.
     """
     import socket as socket_mod
 
@@ -354,14 +276,9 @@ def test_repo_list_does_not_refuse_when_local_sqlite_state_exists(
         listener.listen(1)
         monkeypatch.setenv(ENV_DAEMON_SOCKET, str(socket_path))
         (tmp_path / ".striatum").mkdir()
-        (tmp_path / ".striatum" / "state.sqlite3").write_bytes(b"")
+        (tmp_path / ".striatum" / "retired-local-state").write_bytes(b"")
 
-        # Default behavior (mutation-style path): still refuses.
-        with pytest.raises(RepoNotMigratedError):
-            enforce_daemon_required("repo", tmp_path)
-
-        # The list-side seam: no refusal even with the legacy file
-        # present.
+        enforce_daemon_required("repo", tmp_path)
         enforce_daemon_required("repo", tmp_path, check_repo_migration=False)
     finally:
         listener.close()
@@ -378,7 +295,7 @@ def test_repo_list_unreachable_daemon_reports_daemon_unreachable(
     """
     monkeypatch.setenv(ENV_DAEMON_SOCKET, str(tmp_path / "no-socket"))
     (tmp_path / ".striatum").mkdir()
-    (tmp_path / ".striatum" / "state.sqlite3").write_bytes(b"")
+    (tmp_path / ".striatum" / "retired-local-state").write_bytes(b"")
 
     rc = dispatch_mod.main(["--repo", str(tmp_path), "repo", "list"])
 
@@ -389,25 +306,24 @@ def test_repo_list_unreachable_daemon_reports_daemon_unreachable(
 
 
 @pytest.mark.multi_repo
-def test_dispatch_exit_12_json_envelope_with_foreground_daemon_socket(
+def test_dispatch_json_envelope_with_foreground_daemon_socket_uses_daemon_registry(
     tmp_path: Path,
     multi_repo_harness: MultiRepoHarness,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """Live smoke: a reachable foreground daemon socket still refuses an
-    unmigrated repo before any local-state fallback can run.
+    """Live smoke: a reachable daemon reports repository registration state
+    instead of using a local preflight.
     """
     repo = tmp_path / "repo"
     (repo / ".striatum").mkdir(parents=True)
-    (repo / ".striatum" / "state.sqlite3").write_bytes(b"")
     monkeypatch.setenv(ENV_DAEMON_SOCKET, str(multi_repo_harness.socket_path))
+    monkeypatch.setenv("STRIATUM_DAEMON_RUNTIME_DIR", str(multi_repo_harness.socket_path.parent))
 
     rc = dispatch_mod.main(["--repo", str(repo), "status", "--json"])
 
-    assert rc == 12
+    assert rc == 1
     payload = json.loads(capsys.readouterr().out)
     assert payload["ok"] is False
-    assert payload["error"]["code"] == 12
-    assert payload["error"]["message"].startswith("repo_not_migrated:")
-    assert "striatum repo add --init" in payload["error"]["hint"]
+    assert payload["error"]["code"] == 1
+    assert payload["error"]["message"].startswith("repo_not_registered:")

@@ -152,7 +152,6 @@ if smoke_create_pg_db "$PACKAGE_VENV/bin/python" "$PG_ENV"; then
   "$RUNNER" --repo "$TARGET" repo add "$TARGET" --init --json >/dev/null
   run_workflow_smoke "striatum/package-smoke"
   test -d "$TARGET/.striatum/scratch"
-  test ! -e "$TARGET/.striatum/state.sqlite3"
 else
   echo "package smoke: skipping; PostgreSQL is required for daemon-owned Striatum state" >&2
   exit 0

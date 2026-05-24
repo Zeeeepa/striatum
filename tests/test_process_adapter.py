@@ -59,7 +59,7 @@ def test_adapter_run_is_retired_outside_legacy_test_harness(tmp_path: Path) -> N
     payload = json.loads(result.stdout)
     assert payload["ok"] is False
     assert "adapter must route through daemon RPC" in payload["error"]["message"]
-    assert not (tmp_path / ".striatum" / "state.sqlite3").exists()
+    assert not (tmp_path / ".striatum" / "retired-local-state").exists()
 
 
 def _run_cli(repo: Path, *args: str, check: bool = True) -> JsonDict:

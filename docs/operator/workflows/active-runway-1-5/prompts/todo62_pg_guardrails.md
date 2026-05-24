@@ -7,7 +7,7 @@ artifact must:
 
 - distinguish legacy SQLite file refusal/diagnostics from live SQLite
   authority;
-- identify stale registry or `.striatum/state.sqlite3` references that still
+- identify stale registry or `.striatum/retired-local-state` references that still
   need wording or test cleanup;
 - list files and tests that should remain as migration-refusal coverage;
 - define the smallest cleanup batch with disjoint write scope.

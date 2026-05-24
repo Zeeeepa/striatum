@@ -71,7 +71,7 @@ def test_render_view_path_does_not_consult_legacy_state_breadcrumb(tmp_path: Pat
     [
         ("../outside.md", 400),
         (".git/HEAD", 404),
-        (".striatum/state.sqlite3", 404),
+        (".striatum/retired-local-state", 404),
         ("missing.md", 404),
     ],
 )

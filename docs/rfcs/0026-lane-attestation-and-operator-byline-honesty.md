@@ -117,7 +117,7 @@ companion recovery RFC and is out of scope here.
 ## Non-Goals
 
 - **No defense against adversarial operators with local control.** An
-  operator who can write to `.striatum/state.sqlite3` directly, patch
+  operator who can write to `.striatum/retired-local-state` directly, patch
   `src/striatum/identity.py`, or run a real `supervise start` against a
   lane and then ghost-write artifacts under that pid can still produce
   falsified provenance. The runner is local-first (SPEC); there is no
