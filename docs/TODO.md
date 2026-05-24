@@ -798,7 +798,8 @@ section is the canonical status snapshot.
     scaffold landed (RFC body + schema sketches). A 2026-05-23 closure
     classified the V0 proposal as not directly implementable: a bounded
     Phase A implementation RFC/design is required before production work.
-    RFC 0074 examples do not replace the RFC 0052 debate/panel semantics.
+    RFC 0074's generated `implementation_panel` shape does not replace the
+    RFC 0052 debate/panel semantics.
     ROADMAP §5.8.
 
 44. **RFC 0053 V0 (human principal as escalation-only).** Proposed

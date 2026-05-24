@@ -61,7 +61,7 @@
       "recommended_for": ["contested implementation choices", "architecture trade-off resolution", "high-risk design forks"],
       "default_lane_sets": ["multi_review", "author_reviewer"],
       "required_options": ["workflow_id", "artifact_root"],
-      "generation_status": "example_only",
+      "generation_status": "generated",
       "example_workflow_path": "examples/implementation-panel-flow/workflow.json",
       "role_packs": ["implementation_panel_roles"],
       "adversary_packs": ["maintainer_cost", "operator_ergonomics"],
@@ -179,7 +179,7 @@
       "summary": "Independent proposal authors, a scorekeeper, an arbitrator, and a dissent reviewer for explicit trade-off resolution.",
       "recommended_for": ["implementation_panel", "architecture_tournament"],
       "default_shapes": ["implementation_panel"],
-      "roles": ["proposer_a", "proposer_b", "proposer_c", "scorekeeper", "arbitrator", "dissent_reviewer"]
+      "roles": ["problem_framer", "proposer_a", "proposer_b", "proposer_c", "scorekeeper", "tradeoff_ledger", "arbitrator", "dissent_reviewer", "principal_decider"]
     },
     {
       "template_id": "release_readiness",

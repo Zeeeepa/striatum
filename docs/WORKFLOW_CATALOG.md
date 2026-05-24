@@ -68,6 +68,35 @@ flowchart TD
   n1 --> n2
 ```
 
+### Implementation panel (`implementation_panel`)
+
+Compare several implementation approaches with explicit scorecards, arbitration, dissent, and a final decision.
+
+- Recommended for: contested implementation choices; architecture trade-off resolution; high-risk design forks
+- Default lane sets: `multi_review`, `author_reviewer`
+- Required options: `workflow_id`, `artifact_root`
+
+```mermaid
+flowchart TD
+  n0["Frame problem"]
+  n1["Proposal A"]
+  n2["Proposal B"]
+  n3["Proposal C"]
+  n4["Scorecards"]
+  n5["Arbitration"]
+  n6["Dissent review"]
+  n7["Decision"]
+  n0 --> n1
+  n0 --> n2
+  n0 --> n3
+  n1 --> n4
+  n2 --> n4
+  n3 --> n4
+  n4 --> n5
+  n5 --> n6
+  n6 --> n7
+```
+
 ### Minimal bounded job (`minimal`)
 
 One bounded job for a small report or starter artifact.
@@ -171,3 +200,55 @@ One real agent session handles the whole workflow.
 
 - Recommended for: small low-risk work; early adoption
 - Required options: `lanes.agent.command`
+
+## Role Packs
+
+### Implementation panel roles (`implementation_panel_roles`)
+
+Independent proposal authors, a scorekeeper, an arbitrator, and a dissent reviewer for explicit trade-off resolution.
+
+- Recommended for: implementation_panel; architecture_tournament
+- Default shapes: `implementation_panel`
+- Roles: `problem_framer`, `proposer_a`, `proposer_b`, `proposer_c`, `scorekeeper`, `tradeoff_ledger`, `arbitrator`, `dissent_reviewer`, `principal_decider`
+
+### Incident response roles (`incident_response`)
+
+Reproduction, root-cause, fix-planning, verification, and retrospective viewpoints for incident closure.
+
+- Recommended for: incident follow-up; workflow failure analysis
+- Default shapes: `review`, `evidence_backed`
+- Roles: `reproducer`, `root_cause_analyst`, `fix_planner`, `verifier`, `retrospective_author`
+
+### Release readiness roles (`release_readiness`)
+
+Release, documentation, migration, smoke-test, and rollback viewpoints for shipping decisions.
+
+- Recommended for: release readiness reviews; migration releases
+- Default shapes: `review`, `multi_review_synthesis`
+- Roles: `release_manager`, `docs_reviewer`, `migration_reviewer`, `smoke_verifier`, `rollback_reviewer`
+
+## Adversary Packs
+
+### Maintainer cost pressure (`maintainer_cost`)
+
+Challenge approaches on long-term ownership, migration burden, and support cost.
+
+- Recommended for: architecture choices; large refactors
+- Default shapes: `implementation_panel`, `code_change`
+- Postures: `maintainability`, `migration_risk`, `reversibility`
+
+### Operator ergonomics pressure (`operator_ergonomics`)
+
+Challenge approaches on setup clarity, repeated-use friction, recovery behavior, and local-first operation.
+
+- Recommended for: operator tools; workflow catalog entries
+- Default shapes: `implementation_panel`, `review`
+- Postures: `operator_experience`, `recovery`, `documentation`
+
+### Security and privacy pressure (`security_privacy`)
+
+Challenge approaches on capability scope, data minimization, secret handling, and persistence boundaries.
+
+- Recommended for: MCP surfaces; artifact export; daemon methods
+- Default shapes: `review`, `evidence_backed`
+- Postures: `security`, `privacy`, `capability_scope`

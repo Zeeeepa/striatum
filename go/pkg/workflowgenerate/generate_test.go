@@ -183,6 +183,53 @@ func TestMultiPhaseInvalidCasesCarryFieldPath(t *testing.T) {
 	}
 }
 
+func TestImplementationPanelShapeUsesRoleAndAdversaryPacks(t *testing.T) {
+	spec := implementationPanelGeneratorSpec()
+	generated, err := GenerateFromMap(spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	workflow := generated.Workflow
+	if err := ValidateWorkflow(workflow); err != nil {
+		t.Fatal(err)
+	}
+
+	jobs := jobsByID(workflow["jobs"])
+	if _, ok := jobs["propose_option_a"]; !ok {
+		t.Fatalf("missing propose_option_a in %#v", jobs)
+	}
+	if _, ok := jobs["propose_option_b"]; !ok {
+		t.Fatalf("missing propose_option_b in %#v", jobs)
+	}
+	if _, ok := jobs["propose_option_c"]; ok {
+		t.Fatalf("unexpected propose_option_c in %#v", jobs)
+	}
+	if jobs["score_option_a"]["review_posture"] != "custom:operator_experience" {
+		t.Fatalf("score_option_a = %#v", jobs["score_option_a"])
+	}
+	if jobs["review_dissent"]["role_id"] != "dissent_reviewer" {
+		t.Fatalf("review_dissent = %#v", jobs["review_dissent"])
+	}
+	if mapFrom(workflow["coordinator"])["role_id"] != "problem_framer" {
+		t.Fatalf("coordinator = %#v", workflow["coordinator"])
+	}
+	if mapFrom(workflow["parallelism"])["max_active_jobs"] != 2 {
+		t.Fatalf("parallelism = %#v", workflow["parallelism"])
+	}
+	if strings.Join(generated.Metadata["role_packs"].([]string), ",") != "implementation_panel_roles" {
+		t.Fatalf("role_packs = %#v", generated.Metadata["role_packs"])
+	}
+	if strings.Join(generated.Metadata["adversary_packs"].([]string), ",") != "operator_ergonomics" {
+		t.Fatalf("adversary_packs = %#v", generated.Metadata["adversary_packs"])
+	}
+	if strings.Join(generated.Metadata["score_dimensions"].([]string), ",") != "operator_experience,recovery,documentation" {
+		t.Fatalf("score_dimensions = %#v", generated.Metadata["score_dimensions"])
+	}
+	if len(generated.Warnings) == 0 || !strings.Contains(generated.Warnings[0], "high-artifact") {
+		t.Fatalf("warnings = %#v", generated.Warnings)
+	}
+}
+
 func TestUpgradeAddPhasesPreviewWritesNothing(t *testing.T) {
 	repo := t.TempDir()
 	path := filepath.Join(repo, "workflow.json")
@@ -445,6 +492,30 @@ func multiPhaseGeneratorSpec() map[string]any {
 					"synthesis_lane_id": "reviewer",
 				},
 			},
+		},
+	}
+}
+
+func implementationPanelGeneratorSpec() map[string]any {
+	return map[string]any{
+		"schema_version":   GeneratorSchemaVersion,
+		"shape":            "implementation_panel",
+		"lane_set":         "multi_review",
+		"workflow_id":      "implementation_panel-test",
+		"name":             "implementation_panel test",
+		"workflow_version": "2026-05-12",
+		"branch":           map[string]any{"mode": "confirm", "suggested_name": "striatum/implementation_panel", "allow_dirty": false},
+		"scaffold_root":    "workflows/implementation_panel",
+		"artifact_root":    "striatum/implementation_panel",
+		"lanes": map[string]any{
+			"author":     map[string]any{"command": []any{"author", "run"}, "display_model": "Author"},
+			"reviewer_1": map[string]any{"command": []any{"reviewer1", "run"}, "display_model": "Reviewer 1"},
+			"reviewer_2": map[string]any{"command": []any{"reviewer2", "run"}, "display_model": "Reviewer 2"},
+		},
+		"options": map[string]any{
+			"role_packs":      []any{"implementation_panel_roles"},
+			"adversary_packs": []any{"operator_ergonomics"},
+			"proposal_count":  2,
 		},
 	}
 }

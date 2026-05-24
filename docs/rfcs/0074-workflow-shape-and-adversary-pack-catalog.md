@@ -1,8 +1,9 @@
 # RFC 0074: Workflow Shape And Adversary Pack Catalog Expansion
 
-Status: proposed
+Status: accepted
 Date: 2026-05-20
 author: proposer-codex-gpt-5-001
+Decision: D132
 Context:
 [`docs/WORKFLOW_TYPES.md`](../WORKFLOW_TYPES.md),
 [`examples/README.md`](../../examples/README.md),
@@ -260,13 +261,19 @@ Phase A can be metadata-only:
   a small starter set.
 - Do not change runtime validation.
 
-Phase B can extend generation:
+Phase B extends generation for the first bounded shape:
 
 - `workflow generate --shape implementation_panel`
-- `--role-pack implementation_panel`
+- `--role-pack implementation_panel_roles`
 - `--adversary-pack maintainer_cost`
 - `--option score_dimensions='[...]'`
 - `--option proposal_count=3`
+
+As of 2026-05-24, the narrow Phase B slice is implemented in the Python
+and Go generators for `implementation_panel`. Generated panel workflows
+use normal V1 jobs, review artifacts, synthesis artifacts, and a final
+decision artifact. They deliberately do not implement RFC 0052's typed
+debate turns, panel votes, or committee daemon methods.
 
 The web chooser should expose this as progressive disclosure:
 
@@ -312,8 +319,9 @@ Phase B:
 
 - `workflow generate` accepts role-pack and adversary-pack options for at
   least one expanded shape.
-- The web chooser can display role/adversary packs separately from graph
-  shapes.
+- The local template catalog and generation preview surfaces expose
+  role/adversary packs separately from graph shapes; the fuller chooser
+  UX remains Phase C.
 - Generated workflows remain ordinary validated `workflow.json` trees.
 - The docs make the cost and artifact-volume trade-off visible before
   the operator writes the workflow.
@@ -356,6 +364,7 @@ closed built-in vocabulary.
 - **Phase 0:** Preserve the proposal and align it with RFC 0052.
 - **Phase A:** Docs plus catalog metadata plus one runnable example.
 - **Phase B:** Generator support for role packs and adversary packs.
-- **Phase C:** Web chooser support and cost/artifact-volume warnings.
+  Landed 2026-05-24 for the lightweight `implementation_panel` shape.
+- **Phase C:** Fuller web chooser support and cost/artifact-volume UX.
 - **Phase D:** Optional RFC 0052 integration for full committee
   deliberation once typed debate artifacts and panel methods exist.

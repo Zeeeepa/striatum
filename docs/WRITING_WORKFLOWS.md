@@ -31,10 +31,28 @@ overwrites.
 
 `--shape` selects the graph family (`minimal`, `review`,
 `code_change`, `human_checkpoint`, `evidence_backed`,
-`multi_review_synthesis`, `custom`). `--lane-set` selects the
-lane topology (`local`, `single_agent`, `author_reviewer`,
-`multi_review`, `custom`). They compose independently, so the same
-graph shape can run on different lane topologies.
+`implementation_panel`, `multi_review_synthesis`, `multi_phase`,
+`custom`). `--lane-set` selects the lane topology (`local`,
+`single_agent`, `author_reviewer`, `multi_review`, `custom`). They
+compose independently, so the same graph shape can run on different
+lane topologies.
+
+For panel-style workflows, `--role-pack` selects the role vocabulary and
+`--adversary-pack` selects the default scoring/review dimensions. The
+current generated Phase B shape is `implementation_panel`; it emits
+ordinary validated V1 workflow jobs and artifacts, not RFC 0052 typed
+committee-deliberation artifacts.
+
+```bash
+striatum workflow generate striatum/workflows/panel \
+  --shape implementation_panel \
+  --lane-set multi_review \
+  --artifact-root striatum/panel \
+  --role-pack implementation_panel_roles \
+  --adversary-pack operator_ergonomics \
+  --option proposal_count=2 \
+  --dry-run --json
+```
 
 The generator is the path a team adopting striatum should reach for
 first. The other surfaces below exist for cases where the generator's

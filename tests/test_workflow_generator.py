@@ -57,7 +57,7 @@ def test_catalog_lists_and_shows_templates() -> None:
     assert "implementation_panel" in ids
     assert "multi_phase" in ids
     assert get_template("author_reviewer")["kind"] == "lane_set"
-    assert get_template("implementation_panel")["generation_status"] == "example_only"
+    assert get_template("implementation_panel")["generation_status"] == "generated"
 
 
 def test_catalog_lists_role_and_adversary_packs() -> None:
@@ -108,6 +108,7 @@ def test_builtin_shapes_validate() -> None:
         ("code_change", "local"),
         ("human_checkpoint", "author_reviewer"),
         ("evidence_backed", "author_reviewer"),
+        ("implementation_panel", "multi_review"),
         ("multi_review_synthesis", "multi_review"),
     ]
     for shape, lane_set in cases:
@@ -115,6 +116,75 @@ def test_builtin_shapes_validate() -> None:
         validate_workflow(generated.workflow)
         assert generated.validation["ok"] is True
         assert generated.metadata["shape"] == shape
+
+
+def test_implementation_panel_shape_uses_role_and_adversary_packs() -> None:
+    spec = _spec("implementation_panel", "multi_review")
+    spec["options"] = {
+        "role_packs": ["implementation_panel_roles"],
+        "adversary_packs": ["operator_ergonomics"],
+        "proposal_count": 2,
+    }
+
+    generated = generate_workflow(spec)
+    workflow = generated.workflow
+    validate_workflow(workflow)
+
+    jobs = {job["id"]: job for job in workflow["jobs"]}
+    assert "propose_option_a" in jobs
+    assert "propose_option_b" in jobs
+    assert "propose_option_c" not in jobs
+    assert jobs["score_option_a"]["review_posture"] == "custom:operator_experience"
+    assert jobs["review_dissent"]["role_id"] == "dissent_reviewer"
+    assert workflow["parallelism"]["max_active_jobs"] == 2
+    assert generated.metadata["role_packs"] == ["implementation_panel_roles"]
+    assert generated.metadata["adversary_packs"] == ["operator_ergonomics"]
+    assert generated.metadata["proposal_count"] == 2
+    assert generated.metadata["score_dimensions"] == [
+        "operator_experience",
+        "recovery",
+        "documentation",
+    ]
+    assert any("high-artifact" in warning for warning in generated.warnings)
+
+
+def test_cli_workflow_generate_accepts_panel_pack_flags(tmp_path: Path, capsys) -> None:  # type: ignore[no-untyped-def]
+    rc = main([
+        "--repo",
+        str(tmp_path),
+        "workflow",
+        "generate",
+        "workflows/panel",
+        "--shape",
+        "implementation_panel",
+        "--lane-set",
+        "multi_review",
+        "--artifact-root",
+        "striatum/panel",
+        "--lane-command",
+        'author=["sh","-c","cat >/dev/null"]',
+        "--lane-command",
+        'reviewer_1=["sh","-c","cat >/dev/null"]',
+        "--lane-command",
+        'reviewer_2=["sh","-c","cat >/dev/null"]',
+        "--role-pack",
+        "implementation_panel_roles",
+        "--adversary-pack",
+        "operator_ergonomics",
+        "--option",
+        "proposal_count=2",
+        "--dry-run",
+        "--json",
+    ])
+
+    assert rc == 0
+    payload = json.loads(capsys.readouterr().out)
+    data = payload["data"]
+    assert data["metadata"]["role_packs"] == ["implementation_panel_roles"]
+    assert data["metadata"]["adversary_packs"] == ["operator_ergonomics"]
+    assert data["metadata"]["proposal_count"] == 2
+    assert data["workflow"]["parallelism"]["max_active_jobs"] == 2
+    assert not (tmp_path / "workflows" / "panel").exists()
 
 
 def test_generated_workflow_surfaces_lint_summary() -> None:

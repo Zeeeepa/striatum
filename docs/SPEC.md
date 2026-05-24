@@ -164,8 +164,12 @@ lane modifiers, and optional closed-vocabulary custom plan into an
 ordinary `striatum.workflow.v1` or `striatum.workflow.v1.1` JSON object,
 then calls the existing workflow validator before returning success.
 `shape: "multi_phase"` emits V1.1 with ordered `phases` and
-`phase_synthesis` jobs; other built-in shapes emit V1. `workflow init
---style` is compatibility sugar over this generator with
+`phase_synthesis` jobs. `shape: "implementation_panel"` emits a V1
+workflow from RFC 0074 role/adversary pack options such as
+`implementation_panel_roles`, `maintainer_cost`, and `operator_ergonomics`;
+it remains a normal workflow tree and does not use RFC 0052 typed
+committee artifacts. Other built-in shapes emit V1. `workflow init --style`
+is compatibility sugar over this generator with
 `lane_set: "local"`.
 Generator preview envelopes also include the same advisory workflow lint
 payload exposed by `workflow lint`, including warning count and coverage

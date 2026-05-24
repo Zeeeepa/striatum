@@ -28,6 +28,7 @@ SHAPES = frozenset({
     "code_change",
     "human_checkpoint",
     "evidence_backed",
+    "implementation_panel",
     "multi_review_synthesis",
     "multi_phase",
     "custom",
@@ -42,6 +43,12 @@ OPTION_KEYS = frozenset({
     "required_enforcement",
     "harness_profiles",
     "reviewer_count",
+    "role_pack",
+    "role_packs",
+    "adversary_pack",
+    "adversary_packs",
+    "proposal_count",
+    "score_dimensions",
     "custom_job_artifacts",
     "supervision_compatible",
     "phases",
@@ -225,6 +232,11 @@ def generate_workflow(spec: WorkflowGenerationSpec | JsonObject) -> GeneratedWor
         phases: list[JsonObject] = []
     else:
         jobs, edges, cycles, phases = _compile_shape(normalized)
+    if normalized.shape == "implementation_panel":
+        warnings.append(
+            "implementation_panel generates a high-artifact workflow; review "
+            "proposal_count, score_dimensions, and lane costs before running."
+        )
     roles = _roles(sorted({str(job["role_id"]) for job in jobs}))
     workflow: JsonObject = {
         "schema_version": "striatum.workflow.v1.1" if normalized.shape == "multi_phase" else "striatum.workflow.v1",
@@ -262,6 +274,11 @@ def generate_workflow(spec: WorkflowGenerationSpec | JsonObject) -> GeneratedWor
         "scaffold_root": normalized.scaffold_root,
         "workflow_path": workflow_path,
     }
+    if normalized.shape == "implementation_panel":
+        metadata["role_packs"] = _panel_role_packs(normalized)
+        metadata["adversary_packs"] = _panel_adversary_packs(normalized)
+        metadata["proposal_count"] = _panel_proposal_count(normalized)
+        metadata["score_dimensions"] = _panel_score_dimensions(normalized)
     return GeneratedWorkflow(
         workflow=workflow,
         files=files,
@@ -411,11 +428,185 @@ def _compile_shape(spec: WorkflowGenerationSpec) -> tuple[
         ])
         edges = [{"from": f"review_{index}", "to": "synthesis", "on": "completed"} for index in range(1, count + 1)]
         edges.append({"from": "synthesis", "to": "final_review", "on": "completed"})
+    elif spec.shape == "implementation_panel":
+        jobs, edges, cycles = _compile_implementation_panel(spec)
     elif spec.shape == "multi_phase":
         jobs, edges, cycles, phases = _compile_multi_phase(spec)
     else:
         raise GeneratorError("unknown workflow shape", field_path="spec.shape")
     return jobs, edges, cycles, phases
+
+
+def _compile_implementation_panel(
+    spec: WorkflowGenerationSpec,
+) -> tuple[list[JsonObject], list[JsonObject], list[JsonObject]]:
+    _panel_role_packs(spec)
+    proposal_count = _panel_proposal_count(spec)
+    score_dimensions = _panel_score_dimensions(spec)
+    base = spec.artifact_root
+    proposal_lane = _panel_proposal_lane(spec)
+    review_lane = _panel_review_lane(spec, 1)
+    dissent_lane = _panel_review_lane(spec, 2)
+    arbitration_lane = _panel_arbitration_lane(spec)
+    decision_lane = _panel_decision_lane(spec)
+    score_posture = _panel_score_posture(score_dimensions)
+    jobs: list[JsonObject] = [
+        _job(
+            "frame_problem",
+            "synthesis",
+            "Frame problem",
+            "problem_framer",
+            proposal_lane,
+            base,
+            "PROBLEM_BRIEF.md",
+            "handoff",
+            "problem_brief",
+            prompt="frame_problem",
+            objective=(
+                "Publish a concise implementation problem brief with constraints, "
+                "goals, non-goals, and decision criteria."
+            ),
+        )
+    ]
+    proposal_ids: list[str] = []
+    score_ids: list[str] = []
+    for index in range(proposal_count):
+        suffix = chr(ord("a") + index)
+        label = suffix.upper()
+        proposal_id = f"propose_option_{suffix}"
+        score_id = f"score_option_{suffix}"
+        proposal_ids.append(proposal_id)
+        score_ids.append(score_id)
+        proposal = _job(
+            proposal_id,
+            "synthesis",
+            f"Propose option {label}",
+            f"proposer_{suffix}",
+            proposal_lane,
+            f"{base}/proposals/option_{suffix}",
+            f"PROPOSAL_{label}.md",
+            "handoff",
+            f"proposal_{suffix}",
+            prompt="propose_option",
+            objective=(
+                f"Develop implementation option {label} independently from "
+                "the problem brief."
+            ),
+        )
+        proposal["parallel_group"] = "proposals"
+        proposal["fresh_session_required"] = True
+        jobs.append(proposal)
+        score = _review_job_for_role(
+            score_id,
+            f"Score option {label}",
+            "scorekeeper",
+            review_lane,
+            f"{base}/scorecards/SCORECARD_{label}.md",
+            posture=score_posture,
+            logical_name=f"scorecard_{suffix}",
+            prompt="score_option",
+            objective=(
+                f"Score proposal {label} against the implementation-panel "
+                f"dimensions: {', '.join(score_dimensions)}."
+            ),
+        )
+        score["parallel_group"] = "scorecards"
+        jobs.append(score)
+    jobs.extend(
+        [
+            _job(
+                "compile_tradeoffs",
+                "synthesis",
+                "Compile tradeoffs",
+                "tradeoff_ledger",
+                proposal_lane,
+                base,
+                "TRADEOFF_LEDGER.md",
+                "findings_ledger",
+                "tradeoff_ledger",
+                prompt="compile_tradeoffs",
+                objective=(
+                    "Compile proposal and scorecard evidence into a normalized "
+                    "tradeoff ledger."
+                ),
+            ),
+            _job(
+                "arbitrate",
+                "synthesis",
+                "Arbitrate preferred option",
+                "arbitrator",
+                arbitration_lane,
+                base,
+                "ARBITRATOR_SYNTHESIS.md",
+                "synthesis",
+                "arbitrator_synthesis",
+                prompt="arbitrate",
+                objective=(
+                    "Select or compose the preferred implementation path from "
+                    "the tradeoff ledger and evidence."
+                ),
+            ),
+            _review_job_for_role(
+                "review_dissent",
+                "Review dissent",
+                "dissent_reviewer",
+                dissent_lane,
+                f"{base}/DISSENT_REVIEW.md",
+                posture="devils_advocate",
+                logical_name="dissent_review",
+                prompt="review_dissent",
+                objective=(
+                    "Try to falsify the arbitration before the final decision "
+                    "is recorded."
+                ),
+            ),
+            _job(
+                "record_decision",
+                "synthesis",
+                "Record decision",
+                "principal_decider",
+                decision_lane,
+                base,
+                "DECISION.md",
+                "decision",
+                "decision",
+                prompt="record_decision",
+                objective=(
+                    "Publish the final implementation decision and required "
+                    "follow-up work."
+                ),
+            ),
+        ]
+    )
+    edges: list[JsonObject] = [
+        {"from": "frame_problem", "to": proposal_id, "on": "completed"}
+        for proposal_id in proposal_ids
+    ]
+    edges.extend(
+        {"from": proposal_id, "to": score_id, "on": "completed"}
+        for proposal_id, score_id in zip(proposal_ids, score_ids, strict=True)
+    )
+    edges.extend(
+        {"from": score_id, "to": "compile_tradeoffs", "on": "completed"}
+        for score_id in score_ids
+    )
+    edges.extend(
+        [
+            {"from": "compile_tradeoffs", "to": "arbitrate", "on": "completed"},
+            {"from": "arbitrate", "to": "review_dissent", "on": "completed"},
+            {"from": "review_dissent", "to": "record_decision", "on": "completed"},
+        ]
+    )
+    cycles = [
+        {
+            "from": "review_dissent",
+            "to": "arbitrate",
+            "on_verdict": "needs_revision",
+            "max_iterations": 1,
+            "allow_same_lane": True,
+        }
+    ]
+    return jobs, edges, cycles
 
 
 def _compile_multi_phase(
@@ -735,15 +926,179 @@ def _job(
 
 
 def _review_job(job_id: str, lane: str, path: str, *, posture: str) -> JsonObject:
+    return _review_job_for_role(
+        job_id,
+        "Review the draft",
+        "reviewer",
+        lane,
+        path,
+        posture=posture,
+        logical_name="review",
+        prompt="review",
+        objective="Review the draft and record a finding.",
+    )
+
+
+def _review_job_for_role(
+    job_id: str,
+    title: str,
+    role: str,
+    lane: str,
+    path: str,
+    *,
+    posture: str,
+    logical_name: str,
+    prompt: str,
+    objective: str,
+) -> JsonObject:
     root = str(PurePosixPath(path).parent)
     filename = PurePosixPath(path).name
-    job = _job(job_id, "review", "Review the draft", "reviewer", lane, root, filename, "finding", "review", prompt="review")
-    job["objective"] = "Review the draft and record a finding."
+    job = _job(
+        job_id,
+        "review",
+        title,
+        role,
+        lane,
+        root,
+        filename,
+        "finding",
+        logical_name,
+        prompt=prompt,
+        objective=objective,
+    )
     job["fresh_session_required"] = True
     job["write_scope"] = {"mode": "review_only_artifact", "repo_write": False, "allowed_paths": [f"{root}/"], "forbidden_paths": [".striatum/"]}
     if posture != "neutral":
         job["review_posture"] = posture
     return job
+
+
+def _panel_role_packs(spec: WorkflowGenerationSpec) -> list[str]:
+    raw = spec.options.get("role_packs", spec.options.get("role_pack"))
+    if raw is None:
+        packs = ["implementation_panel_roles"]
+    elif isinstance(raw, str):
+        packs = [raw]
+    elif isinstance(raw, list) and raw and all(isinstance(item, str) for item in raw):
+        packs = list(raw)
+    else:
+        raise GeneratorError(
+            "role_packs must be a non-empty string list",
+            field_path="spec.options.role_packs",
+        )
+    _validate_catalog_packs(packs, kind="role_pack", field_path="spec.options.role_packs")
+    if "implementation_panel_roles" not in packs:
+        raise GeneratorError(
+            "implementation_panel requires implementation_panel_roles",
+            field_path="spec.options.role_packs",
+        )
+    return packs
+
+
+def _panel_adversary_packs(spec: WorkflowGenerationSpec) -> list[str]:
+    raw = spec.options.get("adversary_packs", spec.options.get("adversary_pack"))
+    if raw is None:
+        packs = ["maintainer_cost"]
+    elif isinstance(raw, str):
+        packs = [raw]
+    elif isinstance(raw, list) and raw and all(isinstance(item, str) for item in raw):
+        packs = list(raw)
+    else:
+        raise GeneratorError(
+            "adversary_packs must be a non-empty string list",
+            field_path="spec.options.adversary_packs",
+        )
+    _validate_catalog_packs(packs, kind="adversary_pack", field_path="spec.options.adversary_packs")
+    return packs
+
+
+def _validate_catalog_packs(packs: list[str], *, kind: str, field_path: str) -> None:
+    from striatum.workflow_generator.catalog import get_template
+
+    for index, pack_id in enumerate(packs):
+        try:
+            template = get_template(pack_id)
+        except GeneratorError as exc:
+            raise GeneratorError(
+                f"unknown {kind}: {pack_id}",
+                field_path=f"{field_path}[{index}]",
+            ) from exc
+        if template.get("kind") != kind:
+            raise GeneratorError(
+                f"template {pack_id!r} is not a {kind}",
+                field_path=f"{field_path}[{index}]",
+            )
+
+
+def _panel_proposal_count(spec: WorkflowGenerationSpec) -> int:
+    raw = spec.options.get("proposal_count", 3)
+    if not isinstance(raw, int) or raw < 2 or raw > 3:
+        raise GeneratorError(
+            "proposal_count must be 2 or 3 for implementation_panel",
+            field_path="spec.options.proposal_count",
+        )
+    return raw
+
+
+def _panel_score_dimensions(spec: WorkflowGenerationSpec) -> list[str]:
+    raw = spec.options.get("score_dimensions")
+    if isinstance(raw, list) and raw and all(isinstance(item, str) and item.strip() for item in raw):
+        values = [str(item).strip() for item in raw]
+    elif raw is None:
+        values = []
+    else:
+        raise GeneratorError(
+            "score_dimensions must be a non-empty string list",
+            field_path="spec.options.score_dimensions",
+        )
+    if not values:
+        from striatum.workflow_generator.catalog import get_template
+
+        for pack_id in _panel_adversary_packs(spec):
+            template = get_template(pack_id)
+            postures = template.get("postures")
+            if isinstance(postures, list):
+                values.extend(str(item) for item in postures if isinstance(item, str) and item.strip())
+    if not values:
+        values = ["maintainability", "migration_risk", "reversibility"]
+    for index, value in enumerate(values):
+        if not _safe_panel_slug(value):
+            raise GeneratorError(
+                "score_dimensions entries must match ^[a-z0-9._-]{1,64}$",
+                field_path=f"spec.options.score_dimensions[{index}]",
+            )
+    return values
+
+
+def _safe_panel_slug(value: str) -> bool:
+    if not value or len(value) > 64:
+        return False
+    return all(
+        char.isascii() and (char.islower() or char.isdigit() or char in "._-")
+        for char in value
+    )
+
+
+def _panel_score_posture(score_dimensions: list[str]) -> str:
+    return f"custom:{score_dimensions[0]}"
+
+
+def _panel_proposal_lane(spec: WorkflowGenerationSpec) -> str:
+    return _author_lane(spec)
+
+
+def _panel_review_lane(spec: WorkflowGenerationSpec, index: int) -> str:
+    if spec.lane_set == "multi_review":
+        return _reviewer_lane(spec, min(index, _reviewer_count(spec)))
+    return _reviewer_lane(spec, 1)
+
+
+def _panel_arbitration_lane(spec: WorkflowGenerationSpec) -> str:
+    return _author_lane(spec)
+
+
+def _panel_decision_lane(spec: WorkflowGenerationSpec) -> str:
+    return _author_lane(spec)
 
 
 def _render_files(spec: WorkflowGenerationSpec, workflow: JsonObject, roles: JsonObject) -> list[JsonObject]:
@@ -759,6 +1114,56 @@ def _render_files(spec: WorkflowGenerationSpec, workflow: JsonObject, roles: Jso
 
 
 def _role_stub(role: str) -> str:
+    panel_roles = {
+        "problem_framer": (
+            "# Problem Framer Role\n\n"
+            "You frame the implementation problem before proposals begin. "
+            "Publish constraints, goals, non-goals, and decision criteria at "
+            "the declared artifact path.\n"
+        ),
+        "proposer_a": (
+            "# Proposer A Role\n\n"
+            "You develop implementation option A independently from the other "
+            "proposal roles. Stay inside the declared write scope.\n"
+        ),
+        "proposer_b": (
+            "# Proposer B Role\n\n"
+            "You develop implementation option B independently from the other "
+            "proposal roles. Stay inside the declared write scope.\n"
+        ),
+        "proposer_c": (
+            "# Proposer C Role\n\n"
+            "You develop implementation option C independently from the other "
+            "proposal roles. Stay inside the declared write scope.\n"
+        ),
+        "scorekeeper": (
+            "# Scorekeeper Role\n\n"
+            "You score one proposal against the selected adversary-pack "
+            "dimensions. Publish only the review artifact at the declared path.\n"
+        ),
+        "tradeoff_ledger": (
+            "# Tradeoff Ledger Role\n\n"
+            "You normalize proposal and scorecard evidence into a tradeoff "
+            "ledger at the declared artifact path.\n"
+        ),
+        "arbitrator": (
+            "# Arbitrator Role\n\n"
+            "You select or compose the preferred implementation path from the "
+            "tradeoff ledger and supporting evidence.\n"
+        ),
+        "dissent_reviewer": (
+            "# Dissent Reviewer Role\n\n"
+            "You try to falsify the arbitration before final decision. Publish "
+            "only the review artifact at the declared path.\n"
+        ),
+        "principal_decider": (
+            "# Principal Decider Role\n\n"
+            "You record the final implementation decision and required follow-up "
+            "work at the declared artifact path.\n"
+        ),
+    }
+    if role in panel_roles:
+        return panel_roles[role]
     if role == "reviewer":
         return (
             "# Reviewer Role\n\n"
@@ -890,12 +1295,19 @@ def _roles(role_ids: list[str]) -> JsonObject:
 
 
 def _coordinator(spec: WorkflowGenerationSpec, lanes: JsonObject) -> JsonObject:
+    if spec.shape == "implementation_panel":
+        return {"role_id": "problem_framer", "lane_id": _panel_proposal_lane(spec)}
     lane = "local" if "local" in lanes else ("author" if "author" in lanes else sorted(lanes)[0])
     return {"role_id": "author", "lane_id": lane}
 
 
 def _parallelism(spec: WorkflowGenerationSpec) -> JsonObject:
-    max_jobs = _reviewer_count(spec) if spec.shape == "multi_review_synthesis" else 1
+    if spec.shape == "multi_review_synthesis":
+        max_jobs = _reviewer_count(spec)
+    elif spec.shape == "implementation_panel":
+        max_jobs = _panel_proposal_count(spec)
+    else:
+        max_jobs = 1
     return {"mode": "declared", "max_active_jobs": max_jobs, "require_disjoint_write_scopes": True}
 
 

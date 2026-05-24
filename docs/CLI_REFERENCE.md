@@ -42,7 +42,7 @@ generated tree uses a single `local` process lane as a valid
 placeholder; edit lanes and job `lane_id` bindings for real agent
 runs.
 
-`workflow templates list [--kind shape|lane_set]`,
+`workflow templates list [--kind shape|lane_set|role_pack|adversary_pack]`,
 `workflow templates show <template_id>`, and
 `workflow templates render-md <path> [--force|--check]` expose the
 bundled local workflow-template catalog. `render-md` writes a Markdown
@@ -57,7 +57,10 @@ without writing files. Real lane sets require lane commands such as
 the placeholder fixture command. `--shape multi_phase` requires
 `--option phases='<json-array>'` and writes a
 `striatum.workflow.v1.1` workflow with `phases` and `phase_synthesis`
-jobs. V1 refuses overwrites and does not run the workflow automatically.
+jobs. `--shape implementation_panel` accepts `--role-pack`,
+`--adversary-pack`, and panel options such as
+`--option proposal_count=2`. V1 refuses overwrites and does not run the
+workflow automatically.
 
 `workflow upgrade <path> [--dry-run] [--force] [--add-phases --apply]`
 (RFC 0040 V1 / RFC 0045 V1.5) backports the per-model harness-profile

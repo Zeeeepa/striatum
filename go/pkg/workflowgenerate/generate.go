@@ -24,15 +24,17 @@ const (
 var (
 	shapes = set(
 		"minimal", "review", "code_change", "human_checkpoint",
-		"evidence_backed", "multi_review_synthesis", "multi_phase", "custom",
+		"evidence_backed", "implementation_panel", "multi_review_synthesis",
+		"multi_phase", "custom",
 	)
 	laneSets      = set("local", "single_agent", "author_reviewer", "multi_review", "custom")
 	laneModifiers = set("supervised", "worktree_isolated", "constrained", "harness_profiled")
 	optionKeys    = set(
 		"review_postures", "max_revision_cycles", "include_support_ledger",
 		"constraints", "required_enforcement", "harness_profiles",
-		"reviewer_count", "custom_job_artifacts", "supervision_compatible",
-		"phases",
+		"reviewer_count", "role_pack", "role_packs", "adversary_pack",
+		"adversary_packs", "proposal_count", "score_dimensions",
+		"custom_job_artifacts", "supervision_compatible", "phases",
 	)
 	blockKinds = set(
 		"draft", "review", "synthesis", "implementation", "test",
@@ -259,6 +261,9 @@ func Generate(spec Spec) (Generated, error) {
 	if err != nil {
 		return Generated{}, err
 	}
+	if spec.Shape == "implementation_panel" {
+		warnings = append(warnings, "implementation_panel generates a high-artifact workflow; review proposal_count, score_dimensions, and lane costs before running.")
+	}
 	roleIDs := map[string]struct{}{}
 	for _, job := range jobs {
 		roleIDs[fmt.Sprint(job["role_id"])] = struct{}{}
@@ -278,7 +283,7 @@ func Generate(spec Spec) (Generated, error) {
 		"workflow_version": spec.WorkflowVer,
 		"name":             spec.Name,
 		"branch":           cloneMap(spec.Branch),
-		"coordinator":      coordinator(lanes),
+		"coordinator":      coordinator(spec, lanes),
 		"lanes":            lanes,
 		"roles":            roles,
 		"context_docs":     append([]any(nil), spec.ContextDocs...),
@@ -305,18 +310,41 @@ func Generate(spec Spec) (Generated, error) {
 	if err != nil {
 		return Generated{}, err
 	}
+	metadata := map[string]any{
+		"shape":             spec.Shape,
+		"lane_set":          spec.LaneSet,
+		"lane_modifiers":    append([]string(nil), spec.LaneModifiers...),
+		"graph":             graph,
+		"catalog_templates": []string{spec.Shape, spec.LaneSet},
+		"scaffold_root":     spec.ScaffoldRoot,
+		"workflow_path":     spec.ScaffoldRoot + "/workflow.json",
+	}
+	if spec.Shape == "implementation_panel" {
+		rolePacks, err := panelRolePacks(spec)
+		if err != nil {
+			return Generated{}, err
+		}
+		adversaryPacks, err := panelAdversaryPacks(spec)
+		if err != nil {
+			return Generated{}, err
+		}
+		proposalCount, err := panelProposalCount(spec)
+		if err != nil {
+			return Generated{}, err
+		}
+		scoreDimensions, err := panelScoreDimensions(spec)
+		if err != nil {
+			return Generated{}, err
+		}
+		metadata["role_packs"] = rolePacks
+		metadata["adversary_packs"] = adversaryPacks
+		metadata["proposal_count"] = proposalCount
+		metadata["score_dimensions"] = scoreDimensions
+	}
 	return Generated{
-		Workflow: workflow,
-		Files:    files,
-		Metadata: map[string]any{
-			"shape":             spec.Shape,
-			"lane_set":          spec.LaneSet,
-			"lane_modifiers":    append([]string(nil), spec.LaneModifiers...),
-			"graph":             graph,
-			"catalog_templates": []string{spec.Shape, spec.LaneSet},
-			"scaffold_root":     spec.ScaffoldRoot,
-			"workflow_path":     spec.ScaffoldRoot + "/workflow.json",
-		},
+		Workflow:   workflow,
+		Files:      files,
+		Metadata:   metadata,
 		Warnings:   warnings,
 		Validation: map[string]any{"ok": true, "workflow_id": spec.WorkflowID},
 		Lint:       lintWorkflow(workflow),
@@ -466,11 +494,169 @@ func compileShape(spec Spec) ([]map[string]any, []map[string]any, []map[string]a
 		)
 		edges = append(edges, map[string]any{"from": "synthesis", "to": "final_review", "on": "completed"})
 		return jobs, edges, nil, nil, nil
+	case "implementation_panel":
+		jobs, edges, cycles, err := compileImplementationPanel(spec)
+		if err != nil {
+			return nil, nil, nil, nil, err
+		}
+		return jobs, edges, cycles, nil, nil
 	case "multi_phase":
 		return compileMultiPhase(spec)
 	default:
 		return nil, nil, nil, nil, genErr("unknown workflow shape", "spec.shape")
 	}
+}
+
+func compileImplementationPanel(spec Spec) ([]map[string]any, []map[string]any, []map[string]any, error) {
+	if _, err := panelRolePacks(spec); err != nil {
+		return nil, nil, nil, err
+	}
+	proposalCount, err := panelProposalCount(spec)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	scoreDimensions, err := panelScoreDimensions(spec)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	base := spec.ArtifactRoot
+	proposalLane := panelProposalLane(spec)
+	reviewLane := panelReviewLane(spec, 1)
+	dissentLane := panelReviewLane(spec, 2)
+	arbitrationLane := panelArbitrationLane(spec)
+	decisionLane := panelDecisionLane(spec)
+	scorePosture := panelScorePosture(scoreDimensions)
+	jobs := []map[string]any{
+		job(
+			"frame_problem",
+			"synthesis",
+			"Frame problem",
+			"problem_framer",
+			proposalLane,
+			base,
+			"PROBLEM_BRIEF.md",
+			"handoff",
+			"problem_brief",
+			"frame_problem",
+			"Publish a concise implementation problem brief with constraints, goals, non-goals, and decision criteria.",
+		),
+	}
+	proposalIDs := []string{}
+	scoreIDs := []string{}
+	for idx := 0; idx < proposalCount; idx++ {
+		suffix := string(rune('a' + idx))
+		label := strings.ToUpper(suffix)
+		proposalID := "propose_option_" + suffix
+		scoreID := "score_option_" + suffix
+		proposalIDs = append(proposalIDs, proposalID)
+		scoreIDs = append(scoreIDs, scoreID)
+		proposal := job(
+			proposalID,
+			"synthesis",
+			"Propose option "+label,
+			"proposer_"+suffix,
+			proposalLane,
+			base+"/proposals/option_"+suffix,
+			"PROPOSAL_"+label+".md",
+			"handoff",
+			"proposal_"+suffix,
+			"propose_option",
+			"Develop implementation option "+label+" independently from the problem brief.",
+		)
+		proposal["parallel_group"] = "proposals"
+		proposal["fresh_session_required"] = true
+		jobs = append(jobs, proposal)
+		score := reviewJobForRole(
+			scoreID,
+			"Score option "+label,
+			"scorekeeper",
+			reviewLane,
+			base+"/scorecards/SCORECARD_"+label+".md",
+			scorePosture,
+			"scorecard_"+suffix,
+			"score_option",
+			"Score proposal "+label+" against the implementation-panel dimensions: "+strings.Join(scoreDimensions, ", ")+".",
+		)
+		score["parallel_group"] = "scorecards"
+		jobs = append(jobs, score)
+	}
+	jobs = append(jobs,
+		job(
+			"compile_tradeoffs",
+			"synthesis",
+			"Compile tradeoffs",
+			"tradeoff_ledger",
+			proposalLane,
+			base,
+			"TRADEOFF_LEDGER.md",
+			"findings_ledger",
+			"tradeoff_ledger",
+			"compile_tradeoffs",
+			"Compile proposal and scorecard evidence into a normalized tradeoff ledger.",
+		),
+		job(
+			"arbitrate",
+			"synthesis",
+			"Arbitrate preferred option",
+			"arbitrator",
+			arbitrationLane,
+			base,
+			"ARBITRATOR_SYNTHESIS.md",
+			"synthesis",
+			"arbitrator_synthesis",
+			"arbitrate",
+			"Select or compose the preferred implementation path from the tradeoff ledger and evidence.",
+		),
+		reviewJobForRole(
+			"review_dissent",
+			"Review dissent",
+			"dissent_reviewer",
+			dissentLane,
+			base+"/DISSENT_REVIEW.md",
+			"devils_advocate",
+			"dissent_review",
+			"review_dissent",
+			"Try to falsify the arbitration before the final decision is recorded.",
+		),
+		job(
+			"record_decision",
+			"synthesis",
+			"Record decision",
+			"principal_decider",
+			decisionLane,
+			base,
+			"DECISION.md",
+			"decision",
+			"decision",
+			"record_decision",
+			"Publish the final implementation decision and required follow-up work.",
+		),
+	)
+	edges := []map[string]any{}
+	for _, proposalID := range proposalIDs {
+		edges = append(edges, map[string]any{"from": "frame_problem", "to": proposalID, "on": "completed"})
+	}
+	for idx, proposalID := range proposalIDs {
+		edges = append(edges, map[string]any{"from": proposalID, "to": scoreIDs[idx], "on": "completed"})
+	}
+	for _, scoreID := range scoreIDs {
+		edges = append(edges, map[string]any{"from": scoreID, "to": "compile_tradeoffs", "on": "completed"})
+	}
+	edges = append(edges,
+		map[string]any{"from": "compile_tradeoffs", "to": "arbitrate", "on": "completed"},
+		map[string]any{"from": "arbitrate", "to": "review_dissent", "on": "completed"},
+		map[string]any{"from": "review_dissent", "to": "record_decision", "on": "completed"},
+	)
+	cycles := []map[string]any{
+		{
+			"from":            "review_dissent",
+			"to":              "arbitrate",
+			"on_verdict":      "needs_revision",
+			"max_iterations":  1,
+			"allow_same_lane": true,
+		},
+	}
+	return jobs, edges, cycles, nil
 }
 
 func compileMultiPhase(spec Spec) ([]map[string]any, []map[string]any, []map[string]any, []map[string]any, error) {
@@ -815,15 +1001,173 @@ func job(id, jobType, title, role, lane, root, filename, artifactKind, logicalNa
 }
 
 func reviewJob(id, lane, artifactPath, posture string) map[string]any {
+	return reviewJobForRole(id, "Review the draft", "reviewer", lane, artifactPath, posture, "review", "review", "Review the draft and record a finding.")
+}
+
+func reviewJobForRole(id, title, role, lane, artifactPath, posture, logicalName, prompt, objective string) map[string]any {
 	root := path.Dir(artifactPath)
 	filename := path.Base(artifactPath)
-	result := job(id, "review", "Review the draft", "reviewer", lane, root, filename, "finding", "review", "review", "Review the draft and record a finding.")
+	result := job(id, "review", title, role, lane, root, filename, "finding", logicalName, prompt, objective)
 	result["fresh_session_required"] = true
 	result["write_scope"] = map[string]any{"mode": "review_only_artifact", "repo_write": false, "allowed_paths": []string{root + "/"}, "forbidden_paths": []string{".striatum/"}}
 	if posture != "neutral" {
 		result["review_posture"] = posture
 	}
 	return result
+}
+
+func panelRolePacks(spec Spec) ([]string, error) {
+	packs, err := panelStringOptionList(spec, "role_packs", "role_pack", []string{"implementation_panel_roles"}, "spec.options.role_packs")
+	if err != nil {
+		return nil, err
+	}
+	if err := validateCatalogPacks(packs, "role_pack", "spec.options.role_packs"); err != nil {
+		return nil, err
+	}
+	if _, ok := stringSet(packs)["implementation_panel_roles"]; !ok {
+		return nil, genErr("implementation_panel requires implementation_panel_roles", "spec.options.role_packs")
+	}
+	return packs, nil
+}
+
+func panelAdversaryPacks(spec Spec) ([]string, error) {
+	packs, err := panelStringOptionList(spec, "adversary_packs", "adversary_pack", []string{"maintainer_cost"}, "spec.options.adversary_packs")
+	if err != nil {
+		return nil, err
+	}
+	if err := validateCatalogPacks(packs, "adversary_pack", "spec.options.adversary_packs"); err != nil {
+		return nil, err
+	}
+	return packs, nil
+}
+
+func panelStringOptionList(spec Spec, pluralKey, singularKey string, fallback []string, fieldPath string) ([]string, error) {
+	raw, ok := spec.Options[pluralKey]
+	if !ok {
+		raw = spec.Options[singularKey]
+	}
+	if raw == nil {
+		return append([]string(nil), fallback...), nil
+	}
+	if text, ok := raw.(string); ok && strings.TrimSpace(text) != "" {
+		return []string{text}, nil
+	}
+	values, err := stringList(raw, fieldPath)
+	if err != nil || len(values) == 0 {
+		return nil, genErr(strings.TrimPrefix(pluralKey, "panel_")+" must be a non-empty string list", fieldPath)
+	}
+	return values, nil
+}
+
+func validateCatalogPacks(packs []string, kind, fieldPath string) error {
+	catalog, err := workflowtemplates.Load()
+	if err != nil {
+		return genErr("workflow template catalog could not be loaded", fieldPath)
+	}
+	for idx, packID := range packs {
+		template, err := catalog.Get(packID)
+		if err != nil {
+			return genErr(fmt.Sprintf("unknown %s: %s", kind, packID), fmt.Sprintf("%s[%d]", fieldPath, idx))
+		}
+		if template["kind"] != kind {
+			return genErr(fmt.Sprintf("template %q is not a %s", packID, kind), fmt.Sprintf("%s[%d]", fieldPath, idx))
+		}
+	}
+	return nil
+}
+
+func panelProposalCount(spec Spec) (int, error) {
+	value, ok := intFrom(defaultAny(spec.Options["proposal_count"], 3))
+	if !ok || value < 2 || value > 3 {
+		return 0, genErr("proposal_count must be 2 or 3 for implementation_panel", "spec.options.proposal_count")
+	}
+	return value, nil
+}
+
+func panelScoreDimensions(spec Spec) ([]string, error) {
+	values := []string{}
+	if raw, ok := spec.Options["score_dimensions"]; ok && raw != nil {
+		list, err := stringList(raw, "spec.options.score_dimensions")
+		if err != nil || len(list) == 0 {
+			return nil, genErr("score_dimensions must be a non-empty string list", "spec.options.score_dimensions")
+		}
+		for _, item := range list {
+			values = append(values, strings.TrimSpace(item))
+		}
+	}
+	if len(values) == 0 {
+		packs, err := panelAdversaryPacks(spec)
+		if err != nil {
+			return nil, err
+		}
+		catalog, err := workflowtemplates.Load()
+		if err != nil {
+			return nil, genErr("workflow template catalog could not be loaded", "spec.options.adversary_packs")
+		}
+		for _, packID := range packs {
+			template, err := catalog.Get(packID)
+			if err != nil {
+				return nil, genErr(fmt.Sprintf("unknown adversary_pack: %s", packID), "spec.options.adversary_packs")
+			}
+			for _, item := range listFrom(template["postures"]) {
+				if text, ok := item.(string); ok && strings.TrimSpace(text) != "" {
+					values = append(values, text)
+				}
+			}
+		}
+	}
+	if len(values) == 0 {
+		values = []string{"maintainability", "migration_risk", "reversibility"}
+	}
+	for idx, value := range values {
+		if !safePanelSlug(value) {
+			return nil, genErr("score_dimensions entries must match ^[a-z0-9._-]{1,64}$", fmt.Sprintf("spec.options.score_dimensions[%d]", idx))
+		}
+	}
+	return values, nil
+}
+
+func safePanelSlug(value string) bool {
+	if value == "" || len(value) > 64 {
+		return false
+	}
+	for _, ch := range value {
+		if ch > 127 {
+			return false
+		}
+		if (ch >= 'a' && ch <= 'z') || (ch >= '0' && ch <= '9') || ch == '.' || ch == '_' || ch == '-' {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
+func panelScorePosture(scoreDimensions []string) string {
+	return "custom:" + scoreDimensions[0]
+}
+
+func panelProposalLane(spec Spec) string {
+	return authorLane(spec)
+}
+
+func panelReviewLane(spec Spec, idx int) string {
+	if spec.LaneSet == "multi_review" {
+		count := reviewerCount(spec)
+		if idx > count {
+			idx = count
+		}
+		return reviewerLane(spec, idx)
+	}
+	return reviewerLane(spec, 1)
+}
+
+func panelArbitrationLane(spec Spec) string {
+	return authorLane(spec)
+}
+
+func panelDecisionLane(spec Spec) string {
+	return authorLane(spec)
 }
 
 func renderFiles(spec Spec, workflow map[string]any, roles map[string]any) ([]map[string]any, error) {
@@ -946,6 +1290,20 @@ func FileHash(content string) string {
 }
 
 func roleStub(role string) string {
+	panelRoles := map[string]string{
+		"problem_framer":    "# Problem Framer Role\n\nYou frame the implementation problem before proposals begin. Publish constraints, goals, non-goals, and decision criteria at the declared artifact path.\n",
+		"proposer_a":        "# Proposer A Role\n\nYou develop implementation option A independently from the other proposal roles. Stay inside the declared write scope.\n",
+		"proposer_b":        "# Proposer B Role\n\nYou develop implementation option B independently from the other proposal roles. Stay inside the declared write scope.\n",
+		"proposer_c":        "# Proposer C Role\n\nYou develop implementation option C independently from the other proposal roles. Stay inside the declared write scope.\n",
+		"scorekeeper":       "# Scorekeeper Role\n\nYou score one proposal against the selected adversary-pack dimensions. Publish only the review artifact at the declared path.\n",
+		"tradeoff_ledger":   "# Tradeoff Ledger Role\n\nYou normalize proposal and scorecard evidence into a tradeoff ledger at the declared artifact path.\n",
+		"arbitrator":        "# Arbitrator Role\n\nYou select or compose the preferred implementation path from the tradeoff ledger and supporting evidence.\n",
+		"dissent_reviewer":  "# Dissent Reviewer Role\n\nYou try to falsify the arbitration before final decision. Publish only the review artifact at the declared path.\n",
+		"principal_decider": "# Principal Decider Role\n\nYou record the final implementation decision and required follow-up work at the declared artifact path.\n",
+	}
+	if content, ok := panelRoles[role]; ok {
+		return content
+	}
 	if role == "reviewer" {
 		return "# Reviewer Role\n\nYou are the reviewer for this workflow. Read the upstream draft and write a single review-only finding artifact at the declared path; do not modify other files.\n"
 	}
@@ -1136,7 +1494,10 @@ func rolesFor(roleIDs []string) map[string]any {
 	return result
 }
 
-func coordinator(lanes map[string]any) map[string]any {
+func coordinator(spec Spec, lanes map[string]any) map[string]any {
+	if spec.Shape == "implementation_panel" {
+		return map[string]any{"role_id": "problem_framer", "lane_id": panelProposalLane(spec)}
+	}
 	lane := "local"
 	if lanes[lane] == nil {
 		if lanes["author"] != nil {
@@ -1155,6 +1516,10 @@ func defaultParallelism(spec Spec) map[string]any {
 	maxJobs := 1
 	if spec.Shape == "multi_review_synthesis" {
 		maxJobs = reviewerCount(spec)
+	} else if spec.Shape == "implementation_panel" {
+		if count, err := panelProposalCount(spec); err == nil {
+			maxJobs = count
+		}
 	}
 	return map[string]any{"mode": "declared", "max_active_jobs": maxJobs, "require_disjoint_write_scopes": true}
 }

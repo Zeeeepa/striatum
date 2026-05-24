@@ -62,6 +62,21 @@ striatum workflow generate striatum/workflows/my-change \
 Drop `--dry-run` once the preview is right. `run prepare` still needs
 the generated `workflow.json` path explicitly.
 
+Role packs and adversary packs are generator inputs for larger shapes.
+For example, RFC 0074 Phase B now supports a lightweight
+implementation panel:
+
+```bash
+striatum workflow generate striatum/workflows/implementation-panel \
+  --shape implementation_panel \
+  --lane-set multi_review \
+  --artifact-root striatum/implementation-panel \
+  --role-pack implementation_panel_roles \
+  --adversary-pack maintainer_cost \
+  --option proposal_count=3 \
+  --dry-run --json
+```
+
 | Desired outcome | Use this type | Closest current starter |
 |---|---|---|
 | Do one small, bounded task and publish one artifact | Minimal bounded job | `workflow init --style minimal` |
@@ -70,6 +85,7 @@ the generated `workflow.json` path explicitly.
 | Require an owner decision before proceeding | Human checkpoint | `examples/human-checkpoint-flow/` |
 | Produce an artifact whose claims need explicit evidence | Evidence-backed artifact | `examples/support-ledger-flow/` |
 | Collect several independent reviews before a final recommendation | Multi-review synthesis | `examples/rfc-ledger-cleanup/` |
+| Compare implementation choices before deciding | Implementation panel | `workflow generate --shape implementation_panel` |
 | Audit code, docs, RFC status, and operator adoption risk together | Three-lane code and docs audit | RFC 0076 operator workflow |
 
 ## Lane Selection Heuristic

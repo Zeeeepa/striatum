@@ -676,6 +676,8 @@ def build_parser() -> argparse.ArgumentParser:
     generate.add_argument("--branch-suggestion")
     generate.add_argument("--lane-command", action="append", default=[])
     generate.add_argument("--lane-display-model", action="append", default=[])
+    generate.add_argument("--role-pack", action="append", default=[])
+    generate.add_argument("--adversary-pack", action="append", default=[])
     generate.add_argument("--option", action="append", default=[])
     generate.add_argument("--dry-run", action="store_true")
     generate.add_argument("--json", action="store_true")

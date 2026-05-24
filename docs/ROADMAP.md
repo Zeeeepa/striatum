@@ -32,7 +32,8 @@ dependency edges, and "what would I do next" framing. Update on every
   result is narrower than the old backlog: D125 evidence remains an active
   gate, RFC 0050/0075 live workflow-control cutover is closed, TODO 52/53/61
   remain bounded cleanup;
-  RFC 0074 Phase B generator work is ready to schedule; RFC 0052 Phase A,
+  RFC 0074 Phase B generator support has landed for the lightweight
+  `implementation_panel` shape; RFC 0052 Phase A,
   RFC 0053 schema/runtime rename, Cross-Repo Live Scheduler V1, sealed apply,
   Windows support, and local multi-operator tenancy need separate accepted
   RFCs before implementation. Optional/out-of-core items are now explicitly
@@ -1235,7 +1236,7 @@ is the runner-owned historical bootstrap successor, and
 | RFC 0049 spike | Shelved by D106; closure rechecked RFC 0050/0075 and current Claude plan-credit docs. | Explicit operator-funded spike + measurement. |
 | RFC 0052 Phase A | V0 proposal is not implementation-ready. | New bounded Phase A implementation RFC/design. |
 | RFC 0053 schema/runtime rename | Breaking workflow/state rename needs coordinated migration. | New schema/runtime migration RFC with upgrade rule and compatibility policy. |
-| RFC 0074 Phase B generator | Narrow `implementation_panel` generator slice is ready to schedule. | Bounded implementation workflow; UI selector/cost UX can follow separately. |
+| RFC 0074 Phase C chooser UX | Phase B generator support has landed for `implementation_panel`; richer chooser cost/artifact-volume UX is still future work. | New bounded UI workflow or product decision. |
 | Cross-Repo Live Scheduler V1 | Existing cross-repo work covers schema, metadata, capability gating, tests, reads, and cancel, not full live fan-out scheduling. | New bounded scheduler RFC. |
 | Sealed apply/signing | `apply.reviewed_patch` remains removed/fail-closed. | New sealed-apply RFC/product decision. |
 | Windows daemon support | Out of current POSIX-local product scope. | New Windows support RFC. |

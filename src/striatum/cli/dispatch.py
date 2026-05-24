@@ -712,6 +712,11 @@ def _workflow_generate(args: argparse.Namespace, repo: Path) -> object:
             raise GeneratorError("--plan must point to a JSON object", field_path="spec.plan")
         plan = loaded
     workflow_id = args.workflow_id or slugify(Path(args.path).name)
+    options = _parse_options(args.option)
+    if args.role_pack:
+        options["role_packs"] = list(args.role_pack)
+    if args.adversary_pack:
+        options["adversary_packs"] = list(args.adversary_pack)
     spec = default_spec(
         scaffold_root=str(args.path).rstrip("/"),
         artifact_root=str(args.artifact_root).rstrip("/"),
@@ -723,7 +728,7 @@ def _workflow_generate(args: argparse.Namespace, repo: Path) -> object:
         branch_suggestion=args.branch_suggestion,
         lanes={key: dict(value) for key, value in lanes.items()},
         lane_modifiers=list(args.lane_modifier or []),
-        options=_parse_options(args.option),
+        options=options,
         plan=plan,
     )
     generated = generate_workflow(spec)
