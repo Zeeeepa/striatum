@@ -2,7 +2,7 @@
 
 Asserts the handler registers under the correct RPC method name, holds
 the locked signature, and uses the same PID-liveness predicate semantics
-the SQLite path uses (EPERM → alive, ESRCH → dead).
+the retired local-state path uses (EPERM → alive, ESRCH → dead).
 """
 
 from __future__ import annotations

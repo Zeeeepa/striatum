@@ -55,7 +55,7 @@ def test_retired_migrate_repo_local_refuses_before_importing_sqlite_migration(
         dispatch_daemon(args)
 
     assert exc.value.exit_code == 12
-    assert "SQLite import windows are closed" in str(exc.value)
+    assert "Retired import windows are closed" in str(exc.value)
     assert "striatum.daemon_pg.repo_local_migration" not in sys.modules
 
 
@@ -79,8 +79,7 @@ def test_retired_daemon_migrate_refuses_before_importing_sqlite_cutover(
         _dispatch_daemon(args)
 
     assert exc.value.exit_code == 12
-    assert "SQLite import windows are closed" in str(exc.value)
+    assert "Retired import windows are closed" in str(exc.value)
     assert "striatum.daemon" not in sys.modules
     assert "striatum.daemon_pg.cutover" not in sys.modules
-
 

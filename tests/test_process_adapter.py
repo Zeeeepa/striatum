@@ -172,11 +172,11 @@ def _build_workflow(
 def _start_with(repo: Path, workflow: JsonDict) -> tuple[str, str, str, str, str]:
     """Init, prepare, start, register, claim. Returns (run_id, session_id,
     job_id, lease_id, message_id)."""
-    pytest.skip("historical repo-local SQLite adapter-run fixture quarantined")
+    pytest.skip("historical direct adapter-run fixture quarantined")
     _git_init_repo(repo)
     workflow_path = repo / "workflow.json"
     workflow_path.write_text(json.dumps(workflow), encoding="utf-8")
-    raise AssertionError("unreachable after historical SQLite fixture skip")
+    raise AssertionError("unreachable after historical direct fixture skip")
     prepared = _data(_run_cli(repo, "run", "prepare", "--workflow", str(workflow_path)))
     run_id = str(prepared["run_id"])
     _run_cli(repo, "run", "start", "--run-id", run_id)
@@ -209,15 +209,15 @@ def _publish_artifact(repo: Path, session_id: str, job_id: str, lease_id: str,
 
 
 def _open_blocker(repo: Path, job_id: str) -> JsonDict | None:
-    pytest.skip("historical repo-local SQLite blocker fixture quarantined")
+    pytest.skip("historical direct blocker fixture quarantined")
 
 
 def _job_state(repo: Path, job_id: str) -> str:
-    pytest.skip("historical repo-local SQLite job-state fixture quarantined")
+    pytest.skip("historical direct job-state fixture quarantined")
 
 
 def _process_executions(repo: Path, run_id: str) -> list[JsonDict]:
-    pytest.skip("historical repo-local SQLite process-execution fixture quarantined")
+    pytest.skip("historical direct process-execution fixture quarantined")
 
 
 # ----- 1. Happy path ------------------------------------------------------
@@ -580,4 +580,4 @@ def test_lane_env_unknown_variable_is_left_in_place() -> None:
 
 def test_migrations_v8_v9_idempotent(tmp_path: Path) -> None:
     """v8 + v9 migrations must be re-runnable on an already-migrated DB."""
-    pytest.skip("historical SQLite migration fixture quarantined")
+    pytest.skip("historical direct migration fixture quarantined")

@@ -37,7 +37,7 @@ def test_view_file_payload_reports_binary_file(tmp_path: Path) -> None:
     assert "Binary file" in str(payload["message"])
 
 
-def test_render_view_path_does_not_consult_legacy_sqlite_breadcrumb(tmp_path: Path) -> None:
+def test_render_view_path_does_not_consult_legacy_state_breadcrumb(tmp_path: Path) -> None:
     (tmp_path / "doc.md").write_text("# Hello\n", encoding="utf-8")
     sent: dict[str, object] = {}
 

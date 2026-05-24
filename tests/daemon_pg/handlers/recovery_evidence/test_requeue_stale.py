@@ -2,7 +2,7 @@
 
 Asserts the handler registers under the correct RPC method name, has the
 locked ``(ctx, params)`` signature, and refuses repo-write jobs with the
-same exit-4 ``InvalidTransitionError`` the SQLite path raises.
+same exit-4 ``InvalidTransitionError`` the retired local-state path raises.
 """
 
 from __future__ import annotations
@@ -39,7 +39,7 @@ def test_handler_module_exposes_no_repo_write_loophole() -> None:
     """The PG handler must use ``is_repo_write_scope`` to gate requeue.
 
     A direct ``grep`` for the predicate is the cheapest way to prevent
-    accidental drift from the SQLite path (which gates on
+    accidental drift from the retired local-state path (which gates on
     ``is_repo_write``).
     """
     from ._helpers import import_handler

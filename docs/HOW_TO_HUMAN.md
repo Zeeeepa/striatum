@@ -915,8 +915,7 @@ deferred.
 
 ### Go daemon port notes (RFC 0039 / RFC 0068)
 
-> Status: current production daemon path plus legacy-cleanup backlog. D109 made
-> the Go daemon the default,
+> Status: current production daemon path. D109 made the Go daemon the default,
 > D111 retired the Python daemon selector, and D112 removed
 > `apply.reviewed_patch` from the production daemon RPC contract.
 > `striatum daemon start` launches the Go daemon; `--core go` is a
@@ -926,8 +925,9 @@ RFC 0039 produced a Go `go/cmd/striatumd` prototype that speaks the
 RFC 0030 envelope-v1 wire protocol over the RFC 0033 PostgreSQL
 substrate. The D105 Python-primary constraint was superseded by D107; active
 contract methods now have Go handlers. The Python daemon module is deleted;
-remaining cleanup is legacy SQLite fixture/import conversion or deletion, not
-a production reviewed-patch RPC blocker or operator SQLite import window.
+the Python MCP wrapper is deleted; the legacy local-state package/facades and
+fixtures are deleted. This is no longer a production reviewed-patch RPC blocker
+or operator import-window concern.
 
 Build the binary from a contributor checkout:
 

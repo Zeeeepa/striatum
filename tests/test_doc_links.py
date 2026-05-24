@@ -127,7 +127,7 @@ STALE_SQLITE_AUTHORITY_PATTERNS = (
         re.IGNORECASE,
     ),
     re.compile(
-        r"repo-local SQLite\s+(?:is|remains)\s+(?:the\s+)?authoritative",
+        r"repo-local retired local state\s+(?:is|remains)\s+(?:the\s+)?authoritative",
         re.IGNORECASE,
     ),
 )
@@ -176,7 +176,7 @@ def test_current_product_docs_do_not_claim_sqlite_authority() -> None:
                     f"{path.relative_to(ROOT)}:{line_no}: {match.group(0)!r}"
                 )
     assert not failures, (
-        "current product docs must not claim SQLite is authoritative live "
+        "current product docs must not claim retired local state is authoritative live "
         "state (D094 / RFC 0043 moved workflow state to the daemon-owned "
         "PostgreSQL substrate); see docs/POSTGRES_TRANSITION.md:\n"
         + "\n".join(failures)
@@ -191,7 +191,7 @@ def test_operator_glossary_uses_daemon_authority_boundary() -> None:
     )
     assert stale not in text, (
         "operator glossary must describe the post-D094 daemon/PostgreSQL "
-        "authority boundary, not the retired repo-local SQLite target"
+        "authority boundary, not the retired repo-local retired local state target"
     )
 
 

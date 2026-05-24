@@ -5,7 +5,7 @@ Asserts that:
 - The decorator argument matches the canonical daemon RPC method.
 - The handler signature is ``(ctx, params) -> dict[str, Any]``.
 - On an empty PG run state, the handler returns ``stale_count: 0`` with
-  no events emitted (parity with the SQLite path on a fresh DB).
+  no events emitted (parity with the retired local-state path on a fresh DB).
 
 Track A's PG mutation helpers (``record_verdict``, ``submit_review``,
 ``override_review_verdict``) landed in v1.49.0, so the historical

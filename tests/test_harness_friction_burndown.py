@@ -12,7 +12,7 @@ Covers:
   from the workflow's ``expected_artifacts`` when ``--path`` matches a
   declared artifact.
 - A4 + C1: ``striatum byline`` and ``striatum inbox`` print operator
-  helpers without requiring SQLite spelunking.
+  helpers without requiring local-state spelunking.
 - A1: ``recovery auto-publish`` walks stale leases, finds on-disk
   conformant artifacts, publishes them, and completes the job. This
   is the headline burn-down for the claude-no-publish anti-pattern.

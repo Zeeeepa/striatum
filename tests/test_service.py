@@ -11,7 +11,6 @@ import json
 import os
 import signal
 import socket
-import sqlite3
 import subprocess
 import sys
 import time
@@ -25,7 +24,7 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 LEGACY_SQLITE_FIXTURE_REASON = (
-    "historical repo-local SQLite service fixture quarantined after Go/PG cutover"
+    "historical direct service fixture quarantined after Go/PG cutover"
 )
 
 
@@ -194,9 +193,6 @@ def _web_mutation_handler(
     import striatum.service as service
     import striatum.service_daemon as service_daemon
 
-    def sqlite_tripwire(*args: Any, **kwargs: Any) -> None:
-        raise AssertionError("web POST mutation handler opened repo-local SQLite")
-
     def fake_call_repo_method(repo: Path, method: str, params: dict[str, Any]) -> dict[str, Any]:
         assert repo == tmp_path
         calls.append((method, dict(params)))
@@ -243,7 +239,6 @@ def _web_mutation_handler(
         "_send_json",
         lambda status, body: sent.update({"status": status, "body": body}),
     )
-    monkeypatch.setattr(sqlite3, "connect", sqlite_tripwire)
     monkeypatch.setattr(service_daemon, "call_repo_method", fake_call_repo_method)
     return handler, sent
 
@@ -830,9 +825,6 @@ def test_service_run_detail_passes_phase_progress_context(tmp_path: Path, monkey
             assert name == "run_detail.html"
             return FakeTemplate()
 
-    def sqlite_tripwire(*args: Any, **kwargs: Any) -> None:
-        raise AssertionError("run-detail page opened repo-local SQLite")
-
     def fake_call_repo_method(
         repo: Path, method: str, params: dict[str, Any]
     ) -> dict[str, Any]:
@@ -906,7 +898,6 @@ def test_service_run_detail_passes_phase_progress_context(tmp_path: Path, monkey
         "render_run_graph",
         lambda workflow, node_states, *, run_id, jobs: "<svg></svg>",
     )
-    monkeypatch.setattr(sqlite3, "connect", sqlite_tripwire)
     monkeypatch.setattr(service_daemon, "call_repo_method", fake_call_repo_method)
 
     handler._render_run_detail_page("run_phased")
@@ -942,9 +933,6 @@ def test_service_job_detail_reads_daemon_dto_without_sqlite(
         def get_template(self, name: str) -> FakeTemplate:
             assert name == "job_detail.html"
             return FakeTemplate()
-
-    def sqlite_tripwire(*args: Any, **kwargs: Any) -> None:
-        raise AssertionError("job-detail page opened repo-local SQLite")
 
     def fake_call_repo_method(
         repo: Path, method: str, params: dict[str, Any]
@@ -1002,7 +990,6 @@ def test_service_job_detail_reads_daemon_dto_without_sqlite(
         lambda status, body: sent.update({"status": status, "body": body}),
     )
     monkeypatch.setattr(service, "_jinja_env", lambda: FakeEnvironment())
-    monkeypatch.setattr(sqlite3, "connect", sqlite_tripwire)
     monkeypatch.setattr(service_daemon, "call_repo_method", fake_call_repo_method)
 
     handler._render_job_detail_page("run_123", "review")
@@ -1039,9 +1026,6 @@ def test_service_run_list_reads_daemon_dto_without_sqlite(
         def get_template(self, name: str) -> FakeTemplate:
             assert name == "run_list.html"
             return FakeTemplate()
-
-    def sqlite_tripwire(*args: Any, **kwargs: Any) -> None:
-        raise AssertionError("run-list page opened repo-local SQLite")
 
     def fake_call_repo_method(
         repo: Path, method: str, params: dict[str, Any]
@@ -1090,7 +1074,6 @@ def test_service_run_list_reads_daemon_dto_without_sqlite(
         lambda status, body: sent.update({"status": status, "body": body}),
     )
     monkeypatch.setattr(service, "_jinja_env", lambda: FakeEnvironment())
-    monkeypatch.setattr(sqlite3, "connect", sqlite_tripwire)
     monkeypatch.setattr(service_daemon, "call_repo_method", fake_call_repo_method)
 
     handler._render_run_list_page()
@@ -1120,9 +1103,6 @@ def test_chat_briefing_active_runs_reads_daemon_dto_without_sqlite(
 
     calls: list[tuple[Path, str, dict[str, Any]]] = []
 
-    def sqlite_tripwire(*args: Any, **kwargs: Any) -> None:
-        raise AssertionError("chat briefing opened repo-local SQLite")
-
     def fake_call_repo_method(
         repo: Path, method: str, params: dict[str, Any]
     ) -> dict[str, Any]:
@@ -1137,7 +1117,6 @@ def test_chat_briefing_active_runs_reads_daemon_dto_without_sqlite(
         }
 
     monkeypatch.setattr(service, "_safe_git", lambda repo, argv: "")
-    monkeypatch.setattr(sqlite3, "connect", sqlite_tripwire)
     monkeypatch.setattr(service_daemon, "call_repo_method", fake_call_repo_method)
 
     briefing = service._build_chat_briefing(tmp_path)
@@ -1169,9 +1148,6 @@ def test_run_posture_verdicts_reads_daemon_dto_without_sqlite(
         def get_template(self, name: str) -> FakeTemplate:
             assert name == "run_posture_verdicts.html"
             return FakeTemplate()
-
-    def sqlite_tripwire(*args: Any, **kwargs: Any) -> None:
-        raise AssertionError("posture verdict page opened repo-local SQLite")
 
     def fake_call_repo_method(
         repo: Path, method: str, params: dict[str, Any]
@@ -1225,7 +1201,6 @@ def test_run_posture_verdicts_reads_daemon_dto_without_sqlite(
         lambda status, body: sent.update({"status": status, "body": body}),
     )
     monkeypatch.setattr(service, "_jinja_env", lambda: FakeEnvironment())
-    monkeypatch.setattr(sqlite3, "connect", sqlite_tripwire)
     monkeypatch.setattr(service_daemon, "call_repo_method", fake_call_repo_method)
 
     handler._render_run_posture_verdicts_page("run_daemon", "security")
@@ -1258,9 +1233,6 @@ def test_artifact_raw_reads_daemon_dto_without_sqlite(tmp_path: Path, monkeypatc
     artifact_path.write_text("hello from daemon\n", encoding="utf-8")
     calls: list[tuple[Path, str, dict[str, Any]]] = []
 
-    def sqlite_tripwire(*args: Any, **kwargs: Any) -> None:
-        raise AssertionError("artifact raw handler opened repo-local SQLite")
-
     def fake_call_repo_method(
         repo: Path, method: str, params: dict[str, Any]
     ) -> dict[str, Any]:
@@ -1286,7 +1258,6 @@ def test_artifact_raw_reads_daemon_dto_without_sqlite(tmp_path: Path, monkeypatc
     monkeypatch.setattr(handler, "send_response", lambda status: responses.append(status))
     monkeypatch.setattr(handler, "send_header", lambda key, value: headers.update({key: value}))
     monkeypatch.setattr(handler, "end_headers", lambda: None)
-    monkeypatch.setattr(sqlite3, "connect", sqlite_tripwire)
     monkeypatch.setattr(service_daemon, "call_repo_method", fake_call_repo_method)
 
     handler._handle_artifact_raw("art_daemon")
@@ -1317,9 +1288,6 @@ def test_artifact_view_reads_daemon_dto_without_sqlite(tmp_path: Path, monkeypat
         def get_template(self, name: str) -> FakeTemplate:
             assert name == "artifact_view.html"
             return FakeTemplate()
-
-    def sqlite_tripwire(*args: Any, **kwargs: Any) -> None:
-        raise AssertionError("artifact view page opened repo-local SQLite")
 
     def fake_call_repo_method(
         repo: Path, method: str, params: dict[str, Any]
@@ -1370,7 +1338,6 @@ def test_artifact_view_reads_daemon_dto_without_sqlite(tmp_path: Path, monkeypat
         lambda status, body: sent.update({"status": status, "body": body}),
     )
     monkeypatch.setattr(service, "_jinja_env", lambda: FakeEnvironment())
-    monkeypatch.setattr(sqlite3, "connect", sqlite_tripwire)
     monkeypatch.setattr(service_daemon, "call_repo_method", fake_call_repo_method)
 
     handler._render_artifact_view_page("run_daemon", "art_daemon")
@@ -1406,9 +1373,6 @@ def test_json_read_endpoints_route_daemon_without_invoke_or_sqlite(
 
     calls: list[tuple[Path, str, dict[str, Any]]] = []
 
-    def sqlite_tripwire(*args: Any, **kwargs: Any) -> None:
-        raise AssertionError("JSON read endpoint opened repo-local SQLite")
-
     def invoke_tripwire(*args: Any, **kwargs: Any) -> None:
         raise AssertionError("JSON read endpoint routed through legacy invoke")
 
@@ -1417,8 +1381,6 @@ def test_json_read_endpoints_route_daemon_without_invoke_or_sqlite(
     ) -> dict[str, Any]:
         calls.append((repo, method, dict(params)))
         return {"method": method, "params": dict(params)}
-
-    monkeypatch.setattr(sqlite3, "connect", sqlite_tripwire)
     monkeypatch.setattr(service, "invoke", invoke_tripwire)
     monkeypatch.setattr(service_daemon, "call_repo_method", fake_call_repo_method)
 
@@ -1486,9 +1448,6 @@ def test_doctor_page_reads_daemon_dto_without_sqlite(
             assert name == "doctor.html"
             return FakeTemplate()
 
-    def sqlite_tripwire(*args: Any, **kwargs: Any) -> None:
-        raise AssertionError("doctor page opened repo-local SQLite")
-
     def fake_call_repo_method(
         repo: Path, method: str, params: dict[str, Any]
     ) -> dict[str, Any]:
@@ -1526,7 +1485,6 @@ def test_doctor_page_reads_daemon_dto_without_sqlite(
         lambda status, body: sent.update({"status": status, "body": body}),
     )
     monkeypatch.setattr(service, "_jinja_env", lambda: FakeEnvironment())
-    monkeypatch.setattr(sqlite3, "connect", sqlite_tripwire)
     monkeypatch.setattr(service_daemon, "call_repo_method", fake_call_repo_method)
 
     handler._render_doctor_page()
@@ -1663,9 +1621,6 @@ def test_workflow_run_now_maps_daemon_workflow_error_details_to_422(
     calls: list[tuple[str, dict[str, Any]]] = []
     sent: dict[str, Any] = {}
 
-    def sqlite_tripwire(*args: Any, **kwargs: Any) -> None:
-        raise AssertionError("web run-now opened repo-local SQLite")
-
     def fake_call_repo_method(
         repo: Path, method: str, params: dict[str, Any]
     ) -> dict[str, Any]:
@@ -1692,7 +1647,6 @@ def test_workflow_run_now_maps_daemon_workflow_error_details_to_422(
         "_send_json",
         lambda status, body: sent.update({"status": status, "body": body}),
     )
-    monkeypatch.setattr(sqlite3, "connect", sqlite_tripwire)
     monkeypatch.setattr(service_daemon, "call_repo_method", fake_call_repo_method)
 
     handler._handle_workflow_run_now("examples/wf/workflow.json")
@@ -1890,9 +1844,6 @@ def test_service_startup_checks_daemon_doctor_without_sqlite(
 
     calls: list[tuple[Path, str, dict[str, Any]]] = []
 
-    def sqlite_tripwire(*args: Any, **kwargs: Any) -> None:
-        raise AssertionError("production service startup opened repo-local SQLite")
-
     def fake_call_repo_method(
         repo: Path, method: str, params: dict[str, Any]
     ) -> dict[str, Any]:
@@ -1901,7 +1852,6 @@ def test_service_startup_checks_daemon_doctor_without_sqlite(
 
     monkeypatch.delenv("STRIATUM_TEST_HARNESS", raising=False)
     monkeypatch.delenv("STRIATUM_DAEMON_REQUIRED", raising=False)
-    monkeypatch.setattr(sqlite3, "connect", sqlite_tripwire)
     monkeypatch.setattr(service_daemon, "call_repo_method", fake_call_repo_method)
 
     service._verify_service_startup(tmp_path)
@@ -2029,9 +1979,6 @@ def test_sse_stream_reads_daemon_events_without_sqlite(
         {"run": {"run_id": "run_daemon", "state": "completed"}, "events": []},
     ]
 
-    def sqlite_tripwire(*args: Any, **kwargs: Any) -> None:
-        raise AssertionError("SSE stream opened repo-local SQLite")
-
     def fake_call_repo_method(
         repo: Path, method: str, params: dict[str, Any]
     ) -> dict[str, Any]:
@@ -2054,7 +2001,6 @@ def test_sse_stream_reads_daemon_events_without_sqlite(
     monkeypatch.setattr(handler, "send_header", lambda key, value: headers.update({key: value}))
     monkeypatch.setattr(handler, "end_headers", lambda: None)
     monkeypatch.setattr("striatum.service.time.sleep", lambda seconds: None)
-    monkeypatch.setattr(sqlite3, "connect", sqlite_tripwire)
     monkeypatch.setattr(service_daemon, "call_repo_method", fake_call_repo_method)
 
     handler._stream_events("run_daemon", since=10)

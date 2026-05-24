@@ -1,7 +1,7 @@
 """PostgreSQL-backed daemon CLI/admin helpers.
 
 This module owns the production CLI/admin client path that used to live in the
-deleted Python daemon module. It deliberately has no SQLite registry fallback.
+deleted Python daemon module. It deliberately has no local-state registry fallback.
 """
 
 from __future__ import annotations

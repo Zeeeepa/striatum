@@ -120,6 +120,15 @@ payloads across Python/Go runtime paths, and accepted/landed RFC 0074 Phase B
 validation passed with `go test ./...`, full Python pytest, workflow
 validation, and catalog freshness checks.
 
+The follow-up TODO 49/61 cleanup on 2026-05-24 deleted the remaining legacy
+local-state implementation residue: the `src/striatum/legacy_sqlite/` package
+was already absent, and this slice removes the direct corpus exporter, the V1
+local-state schema module, the deterministic repo-local fixture, and the stale
+skipped compatibility tests. Active guardrails now require no production or
+active test imports of `sqlite3`, `striatum.legacy_sqlite`, `striatum.db`, or
+`striatum.migrations`. The retired `state.sqlite3` file name remains only as a
+refusal/inspection signal for old working copies and as a redaction suffix.
+
 ## Next 1-3 Actions
 
 1. Monitor D133 default-live auto-finalize and use
@@ -129,8 +138,7 @@ validation, and catalog freshness checks.
    Keep the CLI survivor categories in `docs/architecture/CLI_RETIREMENT_PARITY.md`
    current when adding daemon methods. Hide/delete compatibility CLI verbs only
    through a later explicit deprecation/release decision.
-3. Continue bounded follow-through: remaining TODO 49/61 legacy SQLite
-   fixture/import cleanup and any later service split slices. Schedule new
+3. Continue bounded follow-through on later service split slices. Schedule new
    bounded RFCs before implementing RFC 0052 Phase A, RFC 0053 schema/runtime
    rename, Cross-Repo Live Scheduler V1, sealed apply, Windows support, or
    local multi-operator tenancy.
@@ -155,8 +163,8 @@ validation, and catalog freshness checks.
   workflow state.
 - Do not delete CLI compatibility verbs without an explicit deprecation/release
   decision. They are daemon clients, not live-state authorities.
-- Do not reopen repo-local SQLite or the legacy daemon registry in production
-  paths.
+- Do not reopen retired repo-local state files or the legacy daemon registry in
+  production paths.
 - Do not add hosted services, telemetry, transcript capture, or external
   persistence without a product decision.
 - Keep Engram references historical or explicitly optional.

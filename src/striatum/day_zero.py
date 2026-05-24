@@ -146,10 +146,10 @@ def adopt(
         elif inspection["state_db_exists"]:
             legacy_state_db = db_path(repo)
             result["registration"] = {
-                "status": "sqlite_migration_required",
+                "status": "retired_state_registration_required",
                 "state_db_path": str(legacy_state_db),
                 "hint": (
-                    "Legacy SQLite state found. Migration to PostgreSQL is required. "
+                    "Retired repo-local state found. PostgreSQL registration is required. "
                     "Archive or remove the legacy .striatum/state.sqlite3 file, then "
                     "register the repository with striatum adopt or striatum repo add --init."
                 ),

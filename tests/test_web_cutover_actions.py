@@ -20,7 +20,7 @@ def _handler(
     allow_mutations: bool = True,
 ) -> tuple[Any, dict[str, Any]]:
     def sqlite_tripwire(*args: Any, **kwargs: Any) -> None:
-        raise AssertionError("cutover web action opened repo-local SQLite")
+        raise AssertionError("cutover web action opened repo-local retired local state")
 
     def fake_call_repo_method(
         repo: Path,

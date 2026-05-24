@@ -32,7 +32,7 @@ def _configure_pg_daemon_audit(
     return registry
 
 
-def test_daemon_audit_reads_postgres_without_sqlite_registry(
+def test_daemon_audit_reads_postgres_without_retired_registry(
     multi_repo_harness: MultiRepoHarness,
     clean_daemon_db: None,
     monkeypatch: pytest.MonkeyPatch,
@@ -54,7 +54,7 @@ def test_daemon_audit_reads_postgres_without_sqlite_registry(
     harness.assert_audit_chain()
 
 
-def test_dispatch_daemon_audit_uses_postgres_without_sqlite_registry(
+def test_dispatch_daemon_audit_uses_postgres_without_retired_registry(
     multi_repo_harness: MultiRepoHarness,
     clean_daemon_db: None,
     monkeypatch: pytest.MonkeyPatch,

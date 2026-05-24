@@ -53,7 +53,7 @@ def data(payload: dict[str, object]) -> dict[str, object]:
 
 
 def init_repo(repo: Path) -> None:
-    pytest.skip("historical repo-local SQLite publish fixture quarantined")
+    pytest.skip("historical direct publish fixture quarantined")
 
 
 def prepare_started_run(repo: Path) -> str:
@@ -503,10 +503,6 @@ def test_operator_brief_context_budget_lines_is_schema_error(tmp_path: Path) -> 
         assert "budget exceeded" in message
     else:
         raise AssertionError("operator_brief over context budget should fail")
-
-
-def test_legacy_sqlite_bootstrap_does_not_constrain_artifact_kind() -> None:
-    pytest.skip("historical SQLite schema assertion quarantined")
 
 
 def publish(

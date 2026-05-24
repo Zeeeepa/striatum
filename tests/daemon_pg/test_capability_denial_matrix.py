@@ -87,7 +87,7 @@ def _pg_backed_methods() -> list[str]:
         if entry.required_capability is None:
             continue  # handshake methods don't authorize
         if resolve_pg_handler(method) is None:
-            continue  # method not yet ported to PG; legacy SQLite path covers it
+            continue  # method not yet ported to PG; legacy retired local-state path covers it
         methods.append(method)
     return methods
 

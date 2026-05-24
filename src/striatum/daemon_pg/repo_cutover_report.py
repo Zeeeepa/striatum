@@ -1,4 +1,4 @@
-"""SQLite-free repository cutover verification reports."""
+"""Retired-local-state-free repository cutover verification reports."""
 
 from __future__ import annotations
 
@@ -42,7 +42,7 @@ REPO_LOCAL_TABLE_NAMES: tuple[str, ...] = (
 
 
 def verify_repo_cutover(options: RepoCutoverReportOptions) -> dict[str, Any]:
-    """Report repo-local SQLite -> Postgres cutover health without SQLite imports."""
+    """Report repo-local state -> Postgres cutover health without retired local-state imports."""
     repo = options.repo.resolve()
     source_path = db_path(repo)
     tombstone_path = source_path.with_name(source_path.name + ".tombstone")
@@ -56,7 +56,7 @@ def verify_repo_cutover(options: RepoCutoverReportOptions) -> dict[str, Any]:
             _destination_counts(conn, repository_id) if repository_id is not None else {}
         )
         count_report = _count_cutover_report(destination_counts, checkpoint)
-        file_report = _sqlite_file_cutover_report(
+        file_report = _retired_state_file_cutover_report(
             source_path=source_path,
             tombstone_path=tombstone_path,
             sentinel_path=sentinel_path,
@@ -82,7 +82,7 @@ def verify_repo_cutover(options: RepoCutoverReportOptions) -> dict[str, Any]:
         recommendations.append("register or migrate the target repository into daemon PostgreSQL")
     if checkpoint is None:
         recommendations.append(
-            "SQLite import windows are closed; archive/remove legacy SQLite "
+            "import windows are closed; archive/remove legacy local state "
             "files and register the target repository with adopt or repo add --init"
         )
     recommendations.extend(str(item) for item in count_report["recommendations"])
@@ -97,9 +97,9 @@ def verify_repo_cutover(options: RepoCutoverReportOptions) -> dict[str, Any]:
         "repository": registration,
         "checkpoint": {"present": checkpoint is not None, "record": checkpoint},
         "destination_counts": count_report,
-        "sqlite_finalization": file_report,
+        "retired_state_finalization": file_report,
         "event_chain": event_chain,
-        "sqlite_exceptions": _sqlite_exception_notes(),
+        "retired_state_exceptions": _retired_state_exception_notes(),
         "recommendations": recommendations,
     }
 
@@ -252,7 +252,9 @@ def _count_cutover_report(
             )
     recommendations: list[str] = []
     if checkpoint is None:
-        recommendations.append("no repo_migrations checkpoint is present for sqlite -> postgres")
+        recommendations.append(
+            "no repo_migrations checkpoint is present for retired local state -> postgres"
+        )
     if violations:
         recommendations.append(
             "destination Postgres row counts are below the migration checkpoint; "
@@ -268,7 +270,7 @@ def _count_cutover_report(
     }
 
 
-def _sqlite_file_cutover_report(
+def _retired_state_file_cutover_report(
     *,
     source_path: Path,
     tombstone_path: Path,
@@ -304,7 +306,7 @@ def _sqlite_file_cutover_report(
         if source_sha_matches is False:
             diagnosis.append("source_state_db_sha256 differs from the checkpoint")
         recommendations.append(
-            "current Striatum does not resume SQLite finalization; inspect the "
+            "current Striatum does not resume retired local-state finalization; inspect the "
             "source hash against the checkpoint, then archive/remove the legacy file"
         )
     elif sentinel_exists:
@@ -591,12 +593,12 @@ def _event_chain_status(
     return "anchored"
 
 
-def _sqlite_exception_notes() -> list[dict[str, str]]:
+def _retired_state_exception_notes() -> list[dict[str, str]]:
     return [
         {
             "scope": "migration_source_import",
             "note": (
-                "writable SQLite import windows are closed; only explicitly guarded "
+                "writable import windows are closed; only explicitly guarded "
                 "legacy migration fixture tests may open .striatum/state.sqlite3"
             ),
         },
@@ -609,7 +611,7 @@ def _sqlite_exception_notes() -> list[dict[str, str]]:
         },
         {
             "scope": "tests_and_fixtures",
-            "note": "legacy SQLite remains in bounded tests, fixtures, and migration code only",
+            "note": "legacy local state remains in bounded tests, fixtures, and migration code only",
         },
     ]
 

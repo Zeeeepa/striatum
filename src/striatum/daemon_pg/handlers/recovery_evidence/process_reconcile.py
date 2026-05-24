@@ -31,7 +31,7 @@ def _pid_alive(pid: int) -> bool:
       - returns None on success    → process is alive and reachable.
 
     The reconciler treats EPERM as "still running" (we can't act on it
-    anyway), parity with the SQLite path.
+    anyway), parity with the retired local-state path.
     """
     try:
         os.kill(pid, 0)

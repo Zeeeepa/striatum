@@ -37,7 +37,7 @@ def test_handler_signature_is_ctx_params() -> None:
 def test_dry_run_branch_skips_expire_leases() -> None:
     """Source-level guard for GH #11: dry-run must NOT call ``expire_leases``.
 
-    The SQLite path's ``auto_publish_stale_artifacts`` gates the call
+    The retired local-state path's ``auto_publish_stale_artifacts`` gates the call
     behind ``if not dry_run``. Drift here would silently mutate runner
     state during a read-only operator preview.
     """

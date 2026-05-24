@@ -9,7 +9,7 @@ the file system is the ``evidence.exported`` audit event with payload
 
 Digest equality contract (review-finding #2 follow-up): the snapshot
 payload that feeds the rendered Markdown body uses the same canonical JSON
-serialization the SQLite path uses (``json.dumps(..., sort_keys=True,
+serialization the retired local-state path uses (``json.dumps(..., sort_keys=True,
 indent=2)`` for the snapshot block, ``json_dumps`` for the smaller status
 and doctor blocks). Test ``test_evidence_export_pg_digest_equality`` pins
 that contract.
@@ -79,7 +79,7 @@ def handle(ctx: RepoHandlerContext, params: Mapping[str, Any]) -> dict[str, Any]
 def _status(ctx: RepoHandlerContext, *, run_id: str) -> dict[str, Any]:
     """PG analog of :func:`striatum.cli.status` scoped to one run.
 
-    Returns the same key set the SQLite version returns so
+    Returns the same key set the retired local-state version returns so
     :func:`redact_evidence_payload` walks the same shape and produces a
     byte-identical Markdown body for parity tests.
     """

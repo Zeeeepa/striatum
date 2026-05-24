@@ -39,7 +39,7 @@ def repo_add_pg(
     legacy_state = db_path(repo)
     if legacy_state.exists():
         raise SchemaVersionError(
-            "repo-local SQLite state exists and SQLite import windows are closed; "
+            "retired repo-local state exists and import windows are closed; "
             "archive or remove .striatum/state.sqlite3 before registering with "
             "`striatum adopt` or `striatum repo add --init`"
         )

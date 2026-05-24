@@ -8,7 +8,7 @@ V1.5: daemon-required enforcement is the default. The two refusal paths:
   hint). The JSON error envelope carries a short ``hint``.
 - :data:`EXIT_REPO_NOT_MIGRATED` (12) — raised when the daemon is reachable
   but the target repo has no ``repo_migrations`` row yet. Stderr names
-  retired SQLite-import guidance plus the supported `adopt` / `repo add`
+  retired import guidance plus the supported `adopt` / `repo add`
   registration paths.
 
 Opt-out: V1.6 narrows this to test-only. Setting
@@ -127,7 +127,7 @@ def render_repo_not_migrated_message(repo_path: Path) -> str:
     return (
         f"repo_not_migrated: {repo_path} has not been migrated to daemon "
         "PostgreSQL state\n"
-        "SQLite import windows are closed. Archive or remove any legacy "
+        "Retired import windows are closed. Archive or remove any legacy "
         ".striatum/state.sqlite3 file, then register the repository with "
         f"`striatum adopt --repo {repo_path}` or "
         f"`striatum repo add --init {repo_path}`."
@@ -209,18 +209,18 @@ def enforce_daemon_required(
 ) -> None:
     """Raise the RFC 0043 §3 refusals when enforcement is enabled.
 
-    The dispatcher calls this before the SQLite/in-process fallback so
+    The dispatcher calls this before retired in-process fallback code so
     the operator sees codes 11/12 immediately instead of the legacy
     ``state.sqlite3 not found`` failure mode.
 
     ``check_repo_migration`` lets the caller skip the per-repo
-    ``repo_is_migrated`` (SQLite-presence) probe while keeping the
+    ``repo_is_migrated`` retired-state-file probe while keeping the
     daemon-socket reachability requirement. Daemon-global read commands
     (e.g. ``repo list``) must not refuse with ``repo_not_migrated``
     just because the cwd has a legacy ``.striatum/state.sqlite3``
     file — the registry is daemon-side and is the sole source of truth.
     Mutation/setup paths (``adopt``, ``repo add --init``) keep the
-    default ``True`` so the SQLite-retirement check still fires where it
+    default ``True`` so the retired-state-file check still fires where it
     belongs.
     """
     if command == "doctor" and first_run:

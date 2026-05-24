@@ -42,14 +42,12 @@ RFC 0048 (v1.49.0 → v1.55.0) completed the PostgreSQL substrate port:
 every single-repo mutation, recovery, and read handler had a native
 PostgreSQL implementation before the Go cutover. D107 / RFC 0068 and D111
 set the current target architecture: the production daemon is Go; the Python
-daemon module and selector are retired; remaining cleanup is legacy SQLite
-fixture/import conversion or deletion; and the Python CLI/web layers may
-remain daemon clients. The repo-local SQLite engine and migrations are
-quarantined under `striatum.legacy_sqlite`; root `striatum.db` /
-`striatum.migrations` are lazy compatibility facades for legacy fixtures. The
-retired repo-local import helper is also quarantined under
-`striatum.legacy_sqlite`; any remaining compatibility facades are fixture-only
-and not operator surfaces.
+daemon module and selector are retired; the Python MCP wrapper is retired; and
+the Python CLI/web layers may remain daemon clients. The legacy local-state
+package, root DB/migration facades, direct corpus exporter, V1 local-state
+schema module, deterministic repo-local fixture, and broad skipped
+compatibility tests are deleted. Remaining `state.sqlite3` handling is
+refusal/inspection of a retired file name, not live-state support.
 `STRIATUM_DAEMON_REQUIRED=0 STRIATUM_TEST_HARNESS=1` escape no
 longer takes effect for ported methods — mapped CLI verbs fail
 closed instead of falling back to SQLite when the daemon is
@@ -104,9 +102,8 @@ Schema upgrades are forward-only, daemon-owned, and applied at
 daemon startup; `daemon doctor` reports the on-disk substrate
 version. A database whose schema version is higher than the daemon
 binary supports is refused; client/daemon version skew refuses with
-exit code 10. The pre-D094 repo-local SQLite migration list is
-retained only for guarded legacy migration fixture tests and is not applied
-by ordinary CLI verbs.
+exit code 10. The pre-D094 repo-local migration implementation is deleted;
+ordinary CLI verbs do not apply or import it.
 
 Day-zero setup is guided by `striatum adopt`, `daemon service
 install/start/status`, `daemon doctor --provision-rw-role
@@ -119,7 +116,7 @@ Writable SQLite import windows are closed. The retired `migrate-repo-local`
 and `daemon migrate` spellings remain parseable for compatibility diagnostics,
 but they refuse with exit code 12 before opening or importing SQLite migration
 code. CLI verbs against an unregistered repo refuse with exit code 12
-(`repo_not_migrated`) and point operators to archive/remove legacy SQLite
+(`repo_not_migrated`) and point operators to archive/remove retired local-state
 files and register with `adopt` or `repo add --init`; CLI verbs without a
 reachable daemon refuse with exit code 11 (`daemon_unreachable`). Neither
 refusal opens or creates a SQLite file.
@@ -1280,8 +1277,7 @@ only for subprocess compatibility tests (`STRIATUM_TEST_HARNESS=1` and
 closed when the daemon or repository registration is unavailable.
 Production service startup also calls daemon `doctor` before binding, so a
 missing daemon or unregistered repository is reported before the HTTP/Unix
-socket listener starts. The historical SQLite integrity check is retained
-only for subprocess compatibility tests using the legacy fallback mode.
+socket listener starts.
 
 Auth: Unix sockets bind `0o600` (filesystem permissions are the
 boundary); HTTP loopback supports an optional `--token` validated by
@@ -1343,12 +1339,11 @@ refuse before importing SQLite migration code. `daemon doctor --repo <path>
 --authority --json` can still report repository cutover evidence without
 opening SQLite as a database. RFC 0048 completed in v1.55.0: production mapped
 verbs are daemon/Postgres-backed and fail closed without the daemon or
-repository registration. Legacy SQLite paths are quarantined for golden
-fixtures and explicitly gated compatibility tests only.
+repository registration. The legacy local-state implementation and golden
+fixtures are deleted.
 
-The legacy SQLite daemon-registry path may still appear in fixture isolation,
-but production daemon registry state is PostgreSQL-only and production
-dispatch refuses SQLite registry fallback. Runtime files are overrideable with
+Production daemon registry state is PostgreSQL-only and production dispatch
+refuses retired registry fallback. Runtime files are overrideable with
 `STRIATUM_DAEMON_RUNTIME_DIR`.
 Linux uses XDG runtime locations; macOS uses Caches for runtime files. Windows
 daemon support is not claimed in V1.
@@ -1509,13 +1504,11 @@ SQLite-bound
 `dogfood.surgical_recovery` RPC names from production discovery and the daemon
 method contract. D112 likewise removed `apply.reviewed_patch` from the
 production daemon RPC contract; stale direct calls audit as `method_unknown`.
-D113 closes the writable SQLite import window. The Python daemon module has
-been deleted; remaining retirement work is legacy SQLite fixture/import
-conversion or deletion. The repo-local SQLite engine and migrations are
-quarantined under `striatum.legacy_sqlite`; root compatibility modules are lazy
-facades only. The retired repo-local import helper is quarantined under the
-same legacy namespace. The Python CLI/web service may remain as clients of the
-Go daemon.
+D113 closes the writable import window. The Python daemon module, Python MCP
+wrapper, legacy local-state package, root compatibility facades, direct corpus
+exporter, V1 local-state schema module, deterministic repo-local fixture, and
+broad skipped compatibility tests are deleted. The Python CLI/web service may
+remain as clients of the Go daemon.
 
 ### Local Web UI
 
@@ -1541,25 +1534,21 @@ Routes:
   layout, state-colored nodes via CSS custom properties, click
   to navigate to a job's detail page, SVG `<title>` tooltip on
   hover for accessibility. Production page-state reads use daemon
-  `run.detail`; the web service keeps HTML/SVG rendering local, and the
-  legacy SQLite page read exists only for subprocess test fixtures.
+  `run.detail`; the web service keeps HTML/SVG rendering local.
 - `GET /run/<run_id>/posture/<posture>` →
   `run_posture_verdicts.html`. Production reads use daemon
-  `run.posture_verdicts`; the legacy SQLite path exists only for
-  subprocess test fixtures.
+  `run.posture_verdicts`.
 - `GET /run/<run_id>/job/<job_id>` → `job_detail.html`. Job
   metadata + verdict + posture chip + artifacts list. Production
   page-state reads use daemon `job.detail`; override-verdict context-token
-  minting remains local to the web service, and the legacy SQLite page read
-  exists only for subprocess test fixtures.
+  minting remains local to the web service.
 - `GET /run/<run_id>/artifact/<artifact_id>` →
   `artifact_view.html`. Metadata + sha256 + raw-API pointer.
   Production metadata reads use daemon `artifact.show` with optional
   web context for run scoping, expected author line, and provenance trail
-  rows; the legacy SQLite path exists only for subprocess test fixtures.
+  rows.
 - `GET /doctor` → `doctor.html`. Production page state comes from daemon
-  `doctor` with verbose problem records; direct SQLite is limited to the
-  subprocess compatibility fallback.
+  `doctor` with verbose problem records.
 - `GET /static/<path>` → bundled asset (CSS / JS islands).
 - All HTML responses set `Content-Security-Policy: default-src 'self';
   script-src 'self'; style-src 'self'; img-src 'self' data:;
@@ -1912,4 +1901,4 @@ scripts/fresh_clone_smoke.sh
 
 Both scripts use daemon-owned PostgreSQL and the Go daemon when PostgreSQL
 setup is available; if it is unavailable they skip with a clear message
-instead of entering a SQLite fallback.
+instead of entering a retired local-state fallback.

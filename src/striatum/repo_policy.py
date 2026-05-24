@@ -24,7 +24,7 @@ def state_dir(repo: Path) -> Path:
 
 
 def db_path(repo: Path) -> Path:
-    """Return the repo-local SQLite database path."""
+    """Return the retired repo-local state-file path."""
     return state_dir(repo) / DB_NAME
 
 

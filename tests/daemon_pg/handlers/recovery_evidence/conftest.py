@@ -6,9 +6,6 @@ This conftest exposes PostgreSQL fixtures for the per-method test files:
 1. ``pg_ctx`` — a :class:`RepoHandlerContext` bound to an ephemeral
    PostgreSQL database with the latest migrations applied.
 
-``sqlite_conn`` is retained only as a skipped historical fixture for tests
-that still explicitly request the retired repo-local SQLite substrate.
-
 Per RFC 0048 V1.5 #1 the parity rig is now fully unblocked — Track A's
 remaining handlers (``record_verdict``, ``submit_review``,
 ``override_review_verdict``) landed in v1.49.0, so the parent package
@@ -18,7 +15,6 @@ imports cleanly without the historical workflow-loop stubs.
 from __future__ import annotations
 
 import importlib
-import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
 from types import ModuleType
@@ -35,7 +31,7 @@ def import_handler(module_name: str) -> ModuleType:
 
 @dataclass
 class Seed:
-    """Minimal fixture that mirrors the SQLite + PG runner state we need."""
+    """Minimal fixture that mirrors the PostgreSQL runner state we need."""
 
     repository_id: str
     run_id: str
@@ -120,24 +116,6 @@ def pg_ctx(pg_db: Any, tmp_path: Path) -> Any:
         repo_root=tmp_path,
         auth=auth,
     )
-
-
-@pytest.fixture
-def sqlite_conn(tmp_path: Path) -> Iterator[sqlite3.Connection]:
-    """Return a fresh SQLite connection at the latest schema version."""
-    pytest.skip(
-        "historical repo-local SQLite recovery evidence fixture quarantined "
-        "after Go/PG cutover"
-    )
-    repo = tmp_path / "repo"
-    (repo / ".striatum").mkdir(parents=True)
-    from striatum.legacy_sqlite.db import connect
-
-    conn = connect(repo)
-    try:
-        yield conn
-    finally:
-        conn.close()
 
 
 __all__ = ["Seed", "import_handler"]

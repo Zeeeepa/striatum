@@ -32,8 +32,7 @@ dependency edges, and "what would I do next" framing. Update on every
   result is narrower than the old backlog: D125 evidence gate is satisfied
   and D133 flips default-live auto-finalize with explicit workflow opt-out,
   RFC 0050/0075 live workflow-control cutover is closed, TODO 52 and TODO 53
-  have additional bounded cleanup slices landed, TODO 49/61 remains legacy
-  SQLite fixture/import cleanup,
+  have additional bounded cleanup slices landed, TODO 49/61 cleanup is closed,
   RFC 0074 Phase B generator support has landed for the lightweight
   `implementation_panel` shape; RFC 0052 Phase A,
   RFC 0053 schema/runtime rename, Cross-Repo Live Scheduler V1, sealed apply,
@@ -42,16 +41,15 @@ dependency edges, and "what would I do next" framing. Update on every
   classified rather than left as vague deferred work.
   D107 supersedes D105: Go is now the default production daemon core, active
   contract-method parity is landed, Python CLI/web clients stay useful, and
-  the retired Python daemon module is deleted. Broad direct repo-local SQLite
-  opens in the regression suites now use the explicit legacy fixture helper;
-  remaining SQLite eradication is legacy compatibility module,
-  migration/import fixture, and in-memory unit-fixture cleanup. D110
-  removed the SQLite-bound migration and dogfood composite RPC names from the
-  production contract, and D112 removed `apply.reviewed_patch`; stale direct
-  calls to all removed names audit as `method_unknown`. D113 closes writable
-  SQLite import windows; the old migration spellings now refuse before opening
-  SQLite, with only explicit fixture tests still allowed to exercise the
-  importer.
+  the retired Python daemon module is deleted. The 2026-05-24 cleanup deletes
+  the remaining legacy local-state implementation residue: no legacy package,
+  root DB/migration facades, direct corpus exporter, V1 local-state schema
+  module, deterministic repo-local fixture, or broad skipped compatibility
+  tests remain. D110 removed the retired migration and dogfood composite RPC
+  names from the production contract, and D112 removed `apply.reviewed_patch`;
+  stale direct calls to all removed names audit as `method_unknown`. D113
+  closes writable import windows; the old migration spellings refuse without
+  opening retired local state.
 - **CI:** GitHub Actions has been backlogged during the 2026-05-17/18
   remediation commits. Treat latest-head CI failures as stop-the-line; queued
   and in-progress older runs are not by themselves blockers.
@@ -313,7 +311,7 @@ avoid codex (D101 precedent).
 **Why now:** the 2026-05-16 architecture review found the main product
 risk is not a missing feature; it is authority ambiguity across daemon
 RPC, native Python PG handlers, Go handlers, contract route translations,
-and legacy SQLite. The next work had to make that ambiguity measurable
+and legacy local state. The next work had to make that ambiguity measurable
 before deleting fallbacks.
 
 **Landed in this slice:**
@@ -323,15 +321,15 @@ before deleting fallbacks.
 - Guardrail tests fail when a daemon registry method lacks an explicit
   authority classification or when a handwritten fallback route appears
   without being named as transition debt.
-- A SQLite-connect tripwire test covers representative production-mode
+- A retired-local-state tripwire test covers representative production-mode
   commands under daemon-required enforcement.
 - `recovery auto-publish` no longer emits the unregistered
   `recovery.auto_publish` method.
 
-**Current follow-up:** TODO item 61 / RFC 0068 is the active cutover path.
-Keep the Go conformance gate green, keep the Python daemon selector/module
-deleted, shrink migration/test-only SQLite exceptions, and preserve the
-authority matrix and contract tests as drift guards.
+**Current follow-up:** TODO item 61 / RFC 0068 is closed for the current
+cutover. Keep the Go conformance gate green, keep the Python daemon
+selector/module deleted, and preserve the authority matrix and contract tests
+as drift guards.
 
 ---
 
@@ -369,19 +367,13 @@ authority matrix and contract tests as drift guards.
   whenever PostgreSQL state is unknown; it no longer has a repo-local SQLite
   fallback, including under legacy test-harness escapes.
 
-**Remaining Phase 1 debt:** legacy SQLite code is now a named
-migration/test-fixture and quarantined compatibility concern, not a daemon
-production fallback path or repo-administration path. Newly discovered
-production registry or repo-local SQLite probes should be treated as
-guardrail failures. The repo-local SQLite engine and migrations now live under
-`striatum.legacy_sqlite`; root `striatum.db` / `striatum.migrations` remain
-lazy compatibility facades for legacy fixtures and do not import SQLite on
-plain module import. The retired repo-local import helper is also quarantined
-under `striatum.legacy_sqlite`; any remaining compatibility facade is
-fixture-only and not an operator path. The 2026-05-24 cleanup removed six
-fully skipped legacy SQLite run lifecycle/recovery/web-route fixtures and
-their quarantine allowlist entries; remaining fixture entries are narrower
-and must continue to shrink by conversion or deletion.
+**Phase 1 cleanup closure:** production daemon fallback is closed and the
+legacy local-state implementation residue is deleted. `src/striatum/legacy_sqlite/`,
+root `striatum.db` / `striatum.migrations` facades, the direct corpus exporter,
+the V1 local-state schema module, the deterministic repo-local fixture, and the
+broad skipped compatibility tests are gone. Remaining `state.sqlite3` references
+are refusal/inspection of a retired file name or redaction/test signals, not
+live-state support.
 
 ---
 
@@ -437,11 +429,9 @@ and must continue to shrink by conversion or deletion.
 
 **Decision:** D105 named Python as the primary production daemon core, but
 D107 supersedes it. RFC 0068 has moved the production/default daemon to Go;
-the retired Python daemon module is deleted, and remaining retirement work is
-legacy SQLite fixture/import cleanup while Python CLI/web clients remain useful.
-The repo-local SQLite engine and schema migrations are now quarantined under
-`striatum.legacy_sqlite`; root compatibility modules are lazy facades only.
-The retired repo-local import helper follows the same pattern.
+the retired Python daemon module is deleted, the Python MCP wrapper is deleted,
+and the legacy local-state package/facades/fixtures are gone while Python
+CLI/web clients remain useful daemon clients.
 
 **Landed in this slice:**
 - `docs/DECISION_LOG.md` records D107 and marks D105 superseded.
@@ -449,9 +439,9 @@ The retired repo-local import helper follows the same pattern.
 - TODO item 30 remains completed helper groundwork.
 - TODO item 61 owns the Go daemon port and Python-daemon retirement.
 
-**Next after this ships:** RFC 0068 owns the remaining cleanup gate: keep the
-Go contract/conformance gate green while deleting or converting legacy SQLite
-fixtures and compatibility imports.
+**Status:** RFC 0068 cleanup is closed for the current cutover. Keep the Go
+contract/conformance gate green and prevent the retired Python daemon/Python MCP
+and legacy local-state implementation paths from reappearing.
 
 ---
 
@@ -463,24 +453,22 @@ fixtures and compatibility imports.
 - Added `src/striatum/service_daemon.py` as a narrow local-service daemon RPC
   helper.
 - Web POST handlers for run cancel/pause/resume, job cancel/retry, and branch
-  confirm now call daemon RPC instead of opening repo-local SQLite.
-- Focused service tests tripwire `striatum.db.connect` for those POST paths.
+  confirm now call daemon RPC instead of opening retired local state.
+- Focused service tests cover daemon DTO routing for those POST paths.
 - The web run-list page now calls daemon `list.runs` in production and renders
-  the workflow identity/source DTO returned by the daemon handler. The legacy
-  SQLite path is gated behind `STRIATUM_TEST_HARNESS=1
-  STRIATUM_DAEMON_REQUIRED=0` for subprocess web fixtures only.
+  the workflow identity/source DTO returned by the daemon handler. Only narrow
+  subprocess compatibility fixtures may use local fallback paths.
 - Chat-session briefing now calls daemon `list.runs` for its active-run
-  summary and has a SQLite tripwire regression for the daemon DTO path.
+  summary and has a daemon-routing regression for the DTO path.
 - The posture-verdict drill-down page now calls daemon
-  `run.posture_verdicts` in production and retains the legacy SQLite path
-  only for the test-harness escape.
+  `run.posture_verdicts` in production; retired local-state page reads are gone.
 - The `/v1` JSON read endpoints for status, doctor, why, dashboard, and
   run artifact rollups now call daemon read DTOs directly instead of routing
   through the legacy CLI invoke wrapper. Test-harness fallbacks preserve the
   old subprocess fixture path only.
 - The `/doctor` HTML page now calls daemon `doctor` in production, with
   grouped problem records and per-record recovery recipes still shaped for
-  the template. Direct SQLite remains only in the test-harness fallback.
+  the template.
 - The artifact detail page now calls daemon `artifact.show` with optional
   web context for run scoping, expected author line, and operator-on-behalf
   provenance. The existing raw-artifact endpoint remains backward-compatible
@@ -496,24 +484,20 @@ fixtures and compatibility imports.
   CLI-shaped aliases. Local `api.invoke` remains for unmapped authoring and
   explicit test fixtures.
 - Production service startup now verifies daemon/repository health through
-  daemon `doctor` before binding. The old SQLite integrity check remains
-  only for subprocess fixtures running under the legacy test-harness escape.
+  daemon `doctor` before binding. The old local-state integrity check is gone
+  from the production service path.
 - The web SSE stream now uses daemon `run.events` in production and retains
-  direct SQLite event tailing only for subprocess fixtures under the same
-  test-harness escape.
+  only narrow subprocess compatibility fallback outside production.
 - The workflow run-now POST path now calls daemon `run.prepare`,
   `branch.confirm`, and `run.start` in production, while preserving its
   historical field-level workflow validation response through daemon RPC
-  error details. The direct SQLite lifecycle remains only in the subprocess
-  test-harness fallback.
+  error details.
 - The run detail page now calls daemon `run.detail` in production for run,
   job, session, recovery-panel, verdict, and phase-progress state. The web
-  service still owns HTML/SVG rendering, and the legacy SQLite page read is
-  limited to the subprocess test-harness fallback.
+  service still owns HTML/SVG rendering.
 - The job detail page now calls daemon `job.detail` in production for job,
   expected-artifact, artifact, process-evidence, and verdict state. Override
-  context-token minting remains local to the web service; the direct SQLite
-  page read is limited to the subprocess test-harness fallback.
+  context-token minting remains local to the web service.
 - `src/striatum/service_http.py` now owns the pure HTTP/security helpers
   for token comparison, JSON content-type validation, origin parsing, bind
   origin derivation, argv flag lookup, and web-context HMAC tokens. The
@@ -524,14 +508,9 @@ fixtures and compatibility imports.
   safe-git, multipart parsing, session path/listing, display-message, and
   workflow-write confirmation helpers. `service.py` keeps HTTP routing,
   provider/tool orchestration, and response handling.
-- `src/striatum/legacy_sqlite/service.py` now owns the gated subprocess-fixture
-  mutation fallbacks and legacy error mappers, narrowing `service.py` toward
-  request handling plus rendering.
-- `src/striatum/legacy_sqlite/service.py` also owns the remaining legacy page-read
-  payload builders, view-file breadcrumb lookup, doctor-page fixture payload,
-  SSE event tail, and legacy startup integrity check. `service.py` no longer
-  imports or opens repo-local SQLite directly, and its compatibility aliases
-  load the quarantined module lazily only when a legacy fallback is invoked.
+- The old `src/striatum/legacy_sqlite/service.py` quarantine module is now
+  deleted. `service.py` no longer imports or opens retired repo-local state,
+  and production web/API reads and mutations use daemon DTO/RPC paths.
 - `service.py` no longer eagerly imports the legacy `striatum.api` wrapper at
   module load. The compatibility `invoke()` seam lazy-loads it only when that
   explicit legacy wrapper path is called.
@@ -590,9 +569,7 @@ fixtures and compatibility imports.
   RPC/fallback and HTTP response mapping for the route.
 - `src/striatum/web/artifacts.py` now also owns artifact-view template
   context shaping, byline display, recorded attestation chips, lane-evidence
-  chips, and expected-artifact row shaping. The daemon-backed artifact page
-  no longer reaches into `legacy_sqlite.service` for pure presentation
-  shaping.
+  chips, and expected-artifact row shaping.
 - `src/striatum/web/run_posture_verdicts.py` now owns posture-verdict
   template-context shaping and verdict-row filtering. `service.py` keeps the
   daemon RPC/fallback and HTTP error mapping for the route.
@@ -602,7 +579,7 @@ fixtures and compatibility imports.
   dispatch and stable briefing/git-helper compatibility aliases.
 - `src/striatum/web/run_pages.py` now owns run list/detail, job detail,
   artifact view, and posture-verdict page rendering, including daemon DTO
-  loading, gated legacy fallback selection, graph rendering, and template
+  loading, compatibility fallback selection, graph rendering, and template
   context assembly. `service.py` keeps route dispatch and stable private
   handler wrappers for existing tests/callers.
 - `src/striatum/web/artifacts.py` now also owns artifact raw download
@@ -1109,13 +1086,13 @@ other doc phases are closed for current scope.
 
 This sequence comes from `reviews/external/STRIATUM_ARCHITECTURE_REMEDIATION_PLAN_2026-05-16.md`.
 Production daemon fallback is now closed for mapped Python paths, but D107
-changed the runway: Go is now the production/default daemon, and the remaining
-work is eliminating SQLite from production and compatibility paths.
+changed the runway: Go is now the production/default daemon, and the local-state
+cleanup path is complete for current scope.
 
 Release order after Phase 0:
 
-1. **TODO 49 / Phase 1:** production daemon fallback is closed; remaining
-   legacy SQLite quarantine belongs with service/adapter cleanup.
+1. **TODO 49 / Phase 1:** done. Production daemon fallback is closed and the
+   legacy local-state package/facades/fixtures are deleted.
 2. **TODO 50 / Phase 2:** contract source plus Python/Go registry
    generation, generated MCP descriptors, generated docs tables, and
    declarative runtime CLI route translation landed.
@@ -1155,22 +1132,10 @@ Release order after Phase 0:
     artifacts, and explicit-operator-confirmed local `git.commit_apply`
     have landed. Hosted provider actions are optional-plugin/out-of-core and
     require a later product decision.
-13. **TODO 61 / RFC 0068:** keep the Go production daemon conformance suite
-    green, keep the Go binary release provenance stamped and verified by
-    `--describe`,
-    resident recovery scheduler in Go, enforce workflow-loader path/source
-    checks in Go `run.prepare`, rotate the local Ed25519 sealed-apply
-    fallback key through Go `daemon.key.rotate`, keep removed
-    `apply.reviewed_patch` calls returning `method_unknown`, keep Go
-    `workflow.generate --shape multi_phase` and
-    `workflow.upgrade --add-phases` parity green, keep
-    `make daemon-go-conformance` green, keep writable SQLite import commands
-    retired, keep the deleted daemon-global SQLite registry cutover helper out
-    of production code, keep speculative cross-repo runner hooks trimmed until
-    a handler needs them, and delete or replace remaining legacy SQLite
-    compatibility modules plus migration/in-memory fixtures; the retired
-    Python daemon module is already removed and broad direct repo-local test
-    opens are already converted.
+13. **TODO 61 / RFC 0068:** done for the Go/Python cutover. Keep the Go
+    production daemon conformance suite green, keep removed method names
+    returning `method_unknown`, and keep the deleted Python daemon/Python MCP
+    and legacy local-state implementation paths from reappearing.
 14. **TODO 62 / RFC 0069:** done for current scope. Daemon-global surfaces
     moved to PostgreSQL/Go,
     including scheduler cursors, PostgreSQL-backed daemon MCP resources, and

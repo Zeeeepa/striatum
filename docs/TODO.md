@@ -100,7 +100,7 @@ so external references keep resolving even as items move between sections.
 | 41 | GH #15 — docs clarify PostgreSQL transition guidance | ✅ done |
 | 42 | GH #17 — Striatum doc consistency for Engram memory integration | ✅ done |
 | 48 | Architecture remediation Phase 0 — command authority matrix and fallback guardrails | ✅ done |
-| 49 | RFC 0059 Architecture remediation Phase 1 — close production SQLite fallback | 🟡 production fallback closed; legacy SQLite quarantine remains |
+| 49 | RFC 0059 Architecture remediation Phase 1 — close production SQLite fallback | ✅ done |
 | 50 | RFC 0060 Architecture remediation Phase 2 — single daemon method contract source | ✅ done |
 | 51 | Architecture remediation Phase 3 — daemon core strategy decision | ✅ done |
 | 52 | RFC 0061 Architecture remediation Phase 4 — daemon-first web service | 🟡 core web/API + artifact reads daemon-routed |
@@ -112,7 +112,7 @@ so external references keep resolving even as items move between sections.
 | 58 | RFC 0059 Architecture remediation Phase 10 — day-zero setup improvements | ✅ done |
 | 59 | RFC 0059 RFC 0066 Architecture remediation Phase 11 — replay, archive, and corpus v2 foundations | ✅ done for core; optional external consumer UX remains out of core |
 | 60 | RFC 0059 RFC 0067 Architecture remediation Phase 12 — optional Git/PR integration | ✅ local core done; hosted providers remain out of core |
-| 61 | RFC 0068 Go production daemon port and Python daemon retirement | 🟡 Go default; Python daemon module deleted; broad direct repo-local fixture opens converted |
+| 61 | RFC 0068 Go production daemon port and Python daemon retirement | ✅ done |
 | 62 | RFC 0069 PostgreSQL-only daemon-global surfaces | ✅ done; guardrails cover future probes |
 | 63 | RFC 0070 daemon client/service boundary completion | ✅ done; primitive daemon methods are supported path |
 | 64 | RFC 0071 operator diagnostics and cutover evidence | ✅ accepted diagnostic slice done |
@@ -231,8 +231,8 @@ Legend: ✅ done · 🟡 most done (sub-tasks remain) · ⏳ open/blocked · �
 - ~~**17. SQLite migration system (RFC 0006, accepted).** Historical pre-D094
   repo-local SQLite schema versioning shipped with `PRAGMA user_version`,
   transactional migrations, and newer-database refusals. Current production
-  state is daemon-owned Postgres; this SQLite code remains migration and
-  fixture context.~~
+  state is daemon-owned Postgres; the legacy implementation code and fixtures
+  have since been deleted.~~
 
 - ~~**18. Workflow type catalog and chooser.**
   `src/striatum/workflow_generator/{catalog.py,core.py,write.py}` plus
@@ -250,8 +250,7 @@ Legend: ✅ done · 🟡 most done (sub-tasks remain) · ⏳ open/blocked · �
 
 1. ~~**Process adapter.**~~ ✅ Done for current scope: single-shot `adapter run`
    and long-lived supervision are production daemon/PostgreSQL-backed surfaces;
-   legacy SQLite adapter/supervisor code is quarantined under
-   `src/striatum/legacy_sqlite/` for fixture compatibility only. Supervised
+   legacy local-state adapter/supervisor code has been deleted. Supervised
    wrappers remain under `.striatum/bin/{claude,codex,gemini}-supervised-wrapper.sh`:
    `process_supervisors` table (migration version 4), `striatum supervise
    start | send | stop | status | list`, lazy lease-expiry recovery that
@@ -865,96 +864,18 @@ review and plan are root-level operator artifacts:
     daemon-required production commands. `AGENTS.md` now requires matrix
     and guardrail updates for new RPC methods or handwritten route maps.
 
-49. **Phase 1: close production SQLite fallback.** Production daemon RPC
-    fallback is closed: `CLI_ROUTES` is empty, `DaemonRpcRouter` no longer
-    imports or calls `striatum.api.invoke`, local MCP `tools/list` /
-    `tools/call` no longer advertise or execute CLI-shaped command aliases,
-    local service/chat/manual mapped invocations route through daemon RPC,
-    legacy Python RPC compatibility code refuses workflow authoring as
-    CLI-local, and Go implements workflow authoring/generation handlers
-    without live-state mutation while hiding them from production MCP
-    discovery. `run.graph`,
-    `worktree.*`, and `supervise.*` now have native PG handlers, and
-    `recovery watch` now runs as a CLI-local daemon scheduler over
-    `recovery.sweep` instead of a broken `recovery.watch` RPC. The
-    substrate-neutral helpers were split into `primitives.py` and
-    `repo_policy.py`; guardrails now prevent `daemon_pg` and production
-    `daemon_rpc` code from importing the legacy SQLite module except for
-    the explicitly quarantined dogfood compatibility route. Mapped CLI
-    commands now also fail closed if route translation raises unexpectedly,
-    preventing a route-layer crash from falling through to repo-local
-    SQLite. The legacy SQLite service quarantine has landed; remaining
-    follow-up is to shrink the named migration/test-fixture exceptions and
-    convert/delete guarded one-way migration fixtures. The repo administration
-    verbs are no longer part of that debt: `repo.add`, `repo.list`, and
-    `repo.remove` now route through daemon RPC, register directly in
-    `striatumd.repositories`, and `repo add --init` creates only operational
-    scratch rather than `.striatum/state.sqlite3`. Production `striatum init`
-    and `striatum adopt` now use the same scratch-only bootstrap; the legacy
-    SQLite initializer remains reachable only under the explicit
-    `STRIATUM_TEST_HARNESS=1` / `STRIATUM_DAEMON_REQUIRED=0` fixture path.
-    `adapter run`, `byline`, and `inbox --session-id` are now retired outside
-    that same legacy fixture escape. Legacy SQLite shapes are now limited to
-    named migration/test fixtures and quarantined compatibility modules. The
-    legacy SQLite artifact publisher now lives under
-    `striatum.legacy_sqlite.artifacts`; `striatum.artifacts` is a neutral
-    contract facade with lazy compatibility wrappers. Legacy SQLite workflow
-    live-state helpers now live under `striatum.legacy_sqlite.workflow`;
-    `striatum.workflow` is kept to validation, graph, and planning helpers
-    plus lazy compatibility wrappers. The legacy SQLite autonomous recovery
-    sweep now lives under `striatum.legacy_sqlite.recovery_auto`, with
-    `striatum.recovery.auto` reduced to lazy compatibility wrappers. Legacy
-    SQLite process-completion output validation and blocker insertion now
-    live under `striatum.legacy_sqlite.process_completion`; the root
-    `striatum.process_completion` module keeps only neutral envelope/recovery
-    helpers plus lazy compatibility wrappers. The legacy SQLite process
-    adapter now lives under `striatum.legacy_sqlite.process_adapter`; the root
-    `striatum.process_adapter` module keeps neutral env expansion/schema
-    constants plus lazy compatibility wrappers. The legacy SQLite supervisor
-    helper now lives under `striatum.legacy_sqlite.supervisor`; the root
-    `striatum.supervisor` module keeps only the active-state constant plus
-    lazy compatibility wrappers. The SQLite-bound dogfood operator composites
-    now live under `striatum.legacy_sqlite.dogfood_operator_tools`; importing
-    `striatum.dogfood` no longer loads SQLite. Legacy SQLite worktree CLI
-    helpers now live under `striatum.legacy_sqlite.cli_worktree`; importing
-    `striatum.cli.worktree` no longer loads SQLite. Legacy SQLite evidence
-    reader/export helpers now live under `striatum.legacy_sqlite.cli_evidence`;
-    importing `striatum.cli.evidence` no longer loads SQLite. Legacy SQLite
-    run-summary reader/export helpers now live under
-    `striatum.legacy_sqlite.cli_run_summary`; importing
-    `striatum.cli.run_summary` no longer loads SQLite. Legacy SQLite list
-    readers now live under `striatum.legacy_sqlite.cli_list_commands`;
-    importing `striatum.cli.list_commands` no longer loads SQLite.
-    Service/web legacy SQLite fallback now requires
-    `STRIATUM_LEGACY_SERVICE_FIXTURE=1` in addition to the paired
-    test-harness daemon opt-out, so broad pytest daemon opt-out no longer
-    disables daemon RPC routing for service calls. Legacy SQLite status/why/
-    doctor introspection helpers now live under
-    `striatum.legacy_sqlite.cli_introspect`; importing
-    `striatum.cli.introspect` no longer loads SQLite. Legacy SQLite recovery
-    mutation helpers now live under `striatum.legacy_sqlite.cli_recovery`;
-    importing `striatum.cli.recovery` no longer loads SQLite. Legacy SQLite
-    workflow-loop mutation helpers now live under
-    `striatum.legacy_sqlite.cli_mutations`; importing
-    `striatum.cli.mutations` no longer loads SQLite. Legacy SQLite DB imports
-    used by the paired test-harness CLI dispatch path now live behind
-    `striatum.legacy_sqlite.cli_dispatch_db`; importing
-    `striatum.cli.dispatch` no longer imports `sqlite3` or `striatum.db`.
-    `daemon doctor --repo --authority` now uses the SQLite-free
-    `striatum.daemon_pg.repo_cutover_report` module for cutover verification
-    instead of importing the retired repo-local SQLite migrator. The repo-local
-    SQLite engine and schema migrations now live under
-    `striatum.legacy_sqlite.db` and `striatum.legacy_sqlite.migrations`; root
-    `striatum.db` / `striatum.migrations` are lazy compatibility facades that
-    do not import SQLite until legacy fixture callers request attributes. The
-    retired repo-local SQLite import helper now lives under
-    `striatum.legacy_sqlite.repo_local_migration`; the old
-    `striatum.daemon_pg.repo_local_migration` path is a lazy facade and no
-    longer imports SQLite on plain module import. The 2026-05-24 cleanup
-    deleted six fully module-level-skipped legacy SQLite test fixtures for
-    run cancel, pause/resume, retry, recovery resume, and matching web routes,
-    with current PostgreSQL/daemon-routed coverage retained in the daemon and
-    service test suites.
+49. ~~**Phase 1: close production SQLite fallback.**~~ ✅ Done. Production
+    daemon RPC fallback is closed: `CLI_ROUTES` is empty, mapped CLI/service/MCP
+    calls fail closed through daemon RPC, and Go implements the workflow
+    authoring/generation surfaces without live-state mutation. The 2026-05-24
+    cleanup completes the remaining retirement slice: `src/striatum/legacy_sqlite/`,
+    root `striatum.db` / `striatum.migrations` facades, the direct corpus
+    exporter, the V1 local-state schema module, the deterministic repo-local
+    fixture, and the broad skipped legacy fixture tests are deleted. Active
+    guardrails assert production source does not import `sqlite3`,
+    `striatum.legacy_sqlite`, `striatum.db`, or `striatum.migrations`; the
+    remaining `.striatum/state.sqlite3` handling is refusal/inspection of a
+    retired file name, not live-state support.
 
 50. ~~**Phase 2: single method-contract source.**~~ ✅ Done. Contract source is now
     live at `contracts/daemon_methods.json`; Python `METHOD_REGISTRY`
@@ -974,60 +895,54 @@ review and plan are root-level operator artifacts:
     participant-cancel runner rather than the historical repo-local SQLite
     runner.
 
-51. ~~**Phase 3: daemon core strategy decision.**~~ Done, superseded:
-    D105 briefly recorded Python as the primary production daemon core, but
-    D107 / RFC 0068 supersedes it. Go is now the production/default daemon;
-    the Python daemon selector and module are deleted, Python CLI/web clients
-    remain useful, and remaining cleanup is legacy SQLite fixture/import
-    conversion or deletion.
+51. ~~**Phase 3: daemon core strategy decision.**~~ ✅ Done. D105 briefly
+    recorded Python as the primary production daemon core, but D107 / RFC 0068
+    superseded it. Go is the production/default daemon; the Python daemon
+    selector and module are deleted; the Python MCP wrapper is deleted; Python
+    CLI/web code remains only as daemon-client surface where useful.
 
 52. **Phase 4: daemon-first web service.** Initial slices landed:
     web POST mutations for run cancel/pause/resume, job cancel/retry, and
     branch confirm now call daemon RPC (`run.cancel`, `run.pause`,
     `run.resume`, `recovery.cancel_job`, `run.retry_job`,
     `branch.confirm`, `run.start`) through `service_daemon.py`, with
-    SQLite tripwire tests. The web run list now renders from daemon
+    daemon-routing regression tests. The web run list now renders from daemon
     `list.runs` DTOs in production; a `STRIATUM_TEST_HARNESS` fallback
     preserves legacy subprocess web fixtures only. Chat-session briefing now
     uses daemon `list.runs` DTOs for its active-run summary without opening
-    repo-local SQLite. The posture-verdict drill-down page now uses daemon
+    retired local state. The posture-verdict drill-down page now uses daemon
     `run.posture_verdicts` in production, again with only the test-harness
-    SQLite fallback. The `/v1` status, doctor, why, dashboard, and run
+    compatibility fallback. The `/v1` status, doctor, why, dashboard, and run
     artifact-rollup read endpoints now call daemon read DTOs directly
     instead of the legacy CLI invoke wrapper. The artifact detail page now
     uses daemon `artifact.show` with optional web context for run scoping,
     expected author line, and provenance events. The `/doctor` HTML page now
     renders from daemon `doctor` in production, with per-record recipe shaping
-    kept in web presentation code and direct SQLite retained only for the
+    kept in web presentation code and local compatibility retained only for the
     subprocess fixture fallback. The `/v1/invoke` mutation
     gate now derives daemon-routed read classification from
     `METHOD_REGISTRY.required_capability`, with only CLI-local workflow
     authoring reads left in an explicit service allowlist. Production service
     startup now verifies daemon/repository health via daemon `doctor` before
-    binding; the old SQLite integrity check remains only for subprocess
+    binding; legacy local integrity checks are gone from production service
     fixtures under the test-harness escape. The web SSE stream now uses
-    daemon `run.events` in production, with direct SQLite event tailing
+    daemon `run.events` in production, with local event tailing
     limited to the same subprocess fixture path. Workflow run-now now calls
     daemon `run.prepare`, `branch.confirm`, and `run.start` in production,
-    with the direct SQLite lifecycle retained only for subprocess fixtures.
+    with only narrow subprocess compatibility fixtures outside production.
     The run detail page now calls daemon `run.detail` for page state in
-    production, with HTML/SVG rendering kept local and direct SQLite retained
-    only for subprocess fixtures. The job detail page now calls daemon
+    production, with HTML/SVG rendering kept local. The job detail page now calls daemon
     `job.detail` for page state in production, with override-verdict
-    context-token minting kept local and direct SQLite retained only for
-    subprocess fixtures. First behavior-preserving split landed:
+    context-token minting kept local. First behavior-preserving split landed:
     `service_http.py` owns pure HTTP/security helpers while `service.py`
     re-exports the same names for existing callers. Follow-up split landed:
     `web/chat_session.py` owns chat transcript projection, briefing,
     JSONL append, timestamp, stable-hash, safe-git, multipart, session
     path/listing, display-message, and workflow-write confirmation helpers.
-    Follow-up quarantine landed: `legacy_sqlite/service.py` owns gated
-    subprocess-fixture mutation fallbacks, legacy error mappers, legacy
-    page-read payload builders, the view-file breadcrumb lookup, doctor-page
-    fixture payload, SSE event tail, and legacy startup integrity check.
-    `service.py` no longer imports or opens repo-local SQLite directly, and
-    the quarantined module is loaded lazily only when a legacy fallback is
-    invoked. Follow-up cleanup landed: `service.py` no longer eagerly imports
+    Follow-up cleanup landed: the old `legacy_sqlite/service.py` quarantine
+    module has been deleted; production web/API reads and mutations use daemon
+    DTO/RPC paths, and compatibility fixtures no longer reopen retired
+    repo-local state. `service.py` no longer eagerly imports
     the legacy `striatum.api` wrapper at module load; the compatibility
     `invoke()` seam lazy-loads it only when explicitly called. Follow-up split
     landed: `web/static_assets.py` owns static asset lookup, path validation,
@@ -1337,140 +1252,19 @@ review and plan are root-level operator artifacts:
     human-principal confirmation; current source scans found no provider SDK
     violation.
 
-61. **RFC 0068: Go production daemon port.** Active. D107 supersedes D105:
-    Go is the production/default daemon and active contract-method parity is
-    landed; remaining work is legacy SQLite fixture/import cleanup and
-    operator-composite product decisions. The retired Python daemon module has
-    been deleted.
-    Keep Python CLI/web clients where useful and remove SQLite from production
-    and compatibility paths. First slice landed in dogfood 065:
-    Go `--describe` reports supported schema, migration count, method etag,
-    stamped package version, git SHA, and dirty/clean state; the Python
-    launcher rejects stale or unstamped Go daemon binaries before socket bind.
-    Go migration SHA-source verification refuses extra newer source
-    migrations, and Go `doctor` reads `schema_meta['substrate_version']`
-    correctly. A Go
-    handler-coverage test now records every missing or placeholder contract
-    method explicitly, and `recovery.sweep` is wired to the Go recovery sweep
-    handler instead of only the deprecated `recovery.auto` alias. Go now
-    registers the canonical `recovery.auto_publish_stale_artifacts` method,
-    keeps `recovery.auto` as its deprecated alias, and requires every
-    auto-published file to match the expected byline. Go also owns
-    `archive.create` for the V1 run archive bundle format, `worktree.list` as
-    a PostgreSQL read-only projection, and `run.graph` for stateful graph
-    projections from materialized PostgreSQL dependencies. The first Go
-    read-detail cluster now registers `run.detail`, `job.detail`,
-    `run.events`, `run.posture_verdicts`, `artifact.show`, `escalation.list`,
-    `escalation.show`, and the `escalation.resolve` mutation; remaining
-    DTO/web-context parity stays tracked by
-    the coverage ledger rather than claimed complete. `cross_repo.cancel` now
-    calls the Go cross-repo lifecycle service and local run-cancel mutation
-    instead of returning `not_implemented`, with participant-cancel parity for
-    terminal skips, preparing participants without local runs, inactive
-    participant repositories, persisted `blocked_errors`, and typed
-    `not_found` errors for missing cross-repo run ids. Socket-level CORE=go
-    conformance now exercises `cross_repo.cancel` through the Unix RPC daemon
-    against live PostgreSQL state and audit rows, and the exposed Go mutation
-    event append path now inserts JSONB payloads safely for pgx-backed
-    runners. Go now owns `repo.add`,
-    `repo.list`, and `repo.remove` handlers over daemon-owned PostgreSQL,
-    including SQLite-source refusal and repo-scoped capability revocation on
-    removal. Go now owns `recovery.auto_finalize` as a dry-run-by-default
-    manual RPC handler and default-live recovery path over stable expected
-    artifact files, and
-    `dashboard.all` run-progress projections expose auto-finalize dry-run
-    visibility in both Go and Python/PostgreSQL paths. Go also owns a
-    read-only `dashboard.all` projection over the PostgreSQL repository
-    registry and per-repo read projections. Go now owns
-    `supervise.report` for direct wrapper control events and helper JSONL
-    batches. Go now also owns `work.send_message`, `worktree.create`,
-    `worktree.release`, `workflow.templates.list`, `workflow.templates.show`,
-    `supervise.status`, `supervise.list`, `supervise.reattach_status`,
-    `supervise.start`, `supervise.send`, `supervise.stop`, `daemon.migrate`,
-    `daemon.token.create`, `daemon.token.revoke`, `daemon.token.rotate`,
-    `repo.init`, `workflow.validate`, `workflow.plan`, `workflow.graph`,
-    `workflow.generate.preview`, `workflow.generate`, `workflow.init`, and
-    `workflow.upgrade`; Go `workflow.generate --shape multi_phase` now emits
-    the same V1.1 phase graph as Python, and Go
-    `workflow.upgrade --add-phases` now matches the Python V1-to-V1.1
-    phase-inference path for preview/apply, synthesis-job insertion,
-    cross-phase edge rewriting, and non-terminal-run refusal;
-    web/chat preview callers now route
-    `workflow.generate.preview` through daemon RPC in all modes. Go now owns
-    `daemon.key.rotate` for the local Ed25519 `0600` fallback signing-key
-    file. D110 removed `daemon.migrate_repo_local`,
-    `dogfood.publish_on_behalf`, and `dogfood.surgical_recovery` from the
-    production daemon contract, and D112 removed `apply.reviewed_patch`;
-    stale direct calls to all four names return/audit as `method_unknown`.
-    Go `daemon.shutdown` wires to the process
-    cancellation path. The Go
-    handler-coverage ledger reports zero generic `not_implemented` handlers
-    for active contract methods. Go also owns daemon-global `repo.resolve` for
-    repository path resolution without client-side direct PG access, and fresh
-    Go startup now bootstraps the first PostgreSQL admin client plus the
-    private runtime `client-token`. Go daemon startup now also launches a
-    resident PostgreSQL recovery scheduler after socket bind; it runs an
-    immediate active-run sweep, records `daemon.recovery_sweep`, upserts
-    scheduler cursors, and exposes `--sweep-interval-seconds` plus test-only
-    `--max-sweeps` launcher plumbing. `make daemon-go-conformance` now builds
-    and tests the Go daemon, then runs the multi-repo harness with `CORE=go`;
-    CI executes that gate on Linux with PostgreSQL. Go `run.prepare` now uses
-    the Go workflow-authoring loader before writing rows, enforcing repo-bound
-    path checks and JSON-only workflow source validation in the Go daemon path.
-    Production `cross-repo` CLI dispatch now refuses direct PostgreSQL fallback
-    outside the paired legacy test-harness escape. D113 closes the writable
-    SQLite import window: `daemon migrate` and `daemon migrate-repo-local`
-    are retired compatibility spellings that refuse before opening SQLite, and
-    direct repo-local imports require the explicit fixture escape. Broad direct
-    repo-local SQLite opens in the regression suites now use the explicit
-    legacy helper. Remaining Go-port debt is to delete or replace legacy
-    SQLite compatibility modules plus migration/in-memory fixtures, and decide
-    whether PostgreSQL-native operator composites should replace the removed
-    dogfood RPC names. The Python daemon entry point/module has been deleted.
-    The Go cross-repo
-    runner boundary now uses per-operation prepare/start/cancel interfaces, so
-    unused `ParticipantIntact` and `HumanCheckpoint` hooks are gone until a
-    future handler needs them. D112 removed the
-    reviewed-patch apply mutation from the production daemon RPC contract until
-    a future sealed-apply decision reintroduces it. The operator-facing Python
-    daemon core selector is retired and the multi-repo harness / CI lane is
-    Go-only. Prep work has
-    started by moving runtime path/token helpers to `daemon_runtime`,
-    PostgreSQL repository registration helpers to `daemon_pg.repositories`,
-    and production daemon CLI/admin helpers to `daemon_pg.client_admin`. The
-    CLI-side legacy daemon registry wrapper and its direct `--daemon` fallback
-    path are removed. The `striatumd` console script now targets a Go-daemon
-    launcher shim instead of `striatum.daemon:main`; the retired
-    `src/striatum/daemon.py` Python daemon / SQLite-registry module is
-    deleted. The retired daemon-global SQLite registry cutover helper is
-    removed.
-    The multi-repo harness participant runner no longer creates or queries
-    repo-local SQLite; cross-repo E2E assertions now inspect daemon-owned
-    PostgreSQL participant rows. The standalone SQLite compatibility helper is
-    removed; its last repository-identity calculation is inlined beside the
-    one-way repo-local migration fixture, and the unused daemon audit-chain
-    validators are gone. The unused repo-local SQLite supervisor pointer
-    helper is deleted; current supervisor pointer writes live under the
-    daemon/PostgreSQL handlers. The supervised progress watcher no longer
-    imports `sqlite3`; its optional connection is caller-owned. Legacy corpus
-    export helpers also no longer import `sqlite3` or `striatum.db`; their
-    caller supplies the connection while corpus-specific row lookup stays
-    local to the compatibility exporter. Shared identity helpers no longer
-    import `sqlite3`; the legacy session-lane attestation path accepts a
-    generic row-capable connection while PostgreSQL code keeps using the
-    substrate-neutral author/process helpers. Mixed legacy modules now import
-    neutral JSON/id/time/path helpers directly from `striatum.primitives` and
-    `striatum.repo_policy`, with a guardrail blocking new neutral imports
-    through `striatum.db`. Legacy daemon
-    security fixture coverage has also
-    moved onto current runtime/MCP/capability helpers. Direct Python-daemon
-    imports are gone; guardrails assert `src/striatum/daemon.py` remains
-    absent.
+61. ~~**RFC 0068: Go production daemon port.**~~ ✅ Done for the current
+    Go/Python cutover. D107 supersedes D105: Go is the production/default
+    daemon and active contract-method parity has landed. The Python daemon
+    selector/module, Python MCP wrapper, legacy local-state package, root
+    DB/migration facades, direct corpus exporter, V1 local-state schema module,
+    deterministic repo-local fixture, and broad skipped compatibility tests are
+    deleted. Keep Python CLI/web clients where useful as daemon clients, and
+    keep the guardrails that prevent the retired implementation paths from
+    reappearing.
 
 62. ~~**RFC 0069: PostgreSQL-only daemon-global surfaces.**~~ Done for
-    current scope. Port daemon sweep, dashboard-all, daemon MCP resource
-    list/read, and
-    any remaining registry probes away from SQLite and into PostgreSQL/Go-owned
+    current scope. Daemon sweep, dashboard-all, daemon MCP resource
+    list/read, and registry probes now use PostgreSQL/Go-owned
     daemon handlers. Go now owns first-start PostgreSQL admin/runtime-token
     bootstrap. The retired Python `connect_registry()` implementation is gone;
     any new daemon-registry probe must be PostgreSQL/Go-owned. `dashboard.all`
@@ -1480,7 +1274,7 @@ review and plan are root-level operator artifacts:
     the Go daemon has a resident recovery scheduler over active PostgreSQL
     runs. Daemon MCP resource list/read now use PostgreSQL-backed repository
     visibility plus status/doctor/run/why/blocker/dashboard/stale-lease
-    projections when `pg_conn` is present; the no-`pg_conn` SQLite registry
+    projections when `pg_conn` is present; the no-`pg_conn` retired registry
     fallback is retired and the legacy Python daemon module is deleted.
     `striatum daemon status`,
     `striatum daemon stop`,
@@ -1490,9 +1284,9 @@ review and plan are root-level operator artifacts:
     retained for CLI compatibility. The old single-variable legacy-registry
     opt-in has no active product or diagnostic surface. The terminal dashboard
     now renders production
-    text frames from the daemon/PostgreSQL `dashboard` DTO, with the old
-    repo-local SQLite gatherer isolated under `legacy_sqlite` for paired test
-    fixtures. Go `status` now matches the PostgreSQL/Python read-model shape
+    text frames from the daemon/PostgreSQL `dashboard` DTO; the old
+    repo-local gatherer and its legacy package are deleted. Go `status` now
+    matches the PostgreSQL/Python read-model shape
     for job counts, nested verdict posture counts, queue-based claimable work,
     blocker/checkpoint payloads, process health, supervisor stalls, phase
     progress, provenance mode, auto-finalize dry-run visibility, and
@@ -1505,8 +1299,8 @@ review and plan are root-level operator artifacts:
     found no actionable residuals. Future registry-probe/global-surface
     regressions are guardrail failures, not open TODO 62 work. The
     workflow-upgrade running-run guard is now PostgreSQL-only and fails
-    closed when PostgreSQL state is unknown, even when legacy repo-local
-    SQLite files are present.
+    closed when PostgreSQL state is unknown, even when retired local-state
+    files are present.
 
 63. ~~**RFC 0070: daemon client/service boundary completion.**~~ Done.
     Daemon-side `repo.resolve` is registered as a daemon-global read bootstrap
@@ -1515,7 +1309,7 @@ review and plan are root-level operator artifacts:
     and mutations route through daemon RPC; local MCP `striatum/invoke` and
     chat mapped commands share that daemon-routing policy, while local MCP
     `tools/list` / `tools/call` no longer expose CLI-shaped aliases; D110
-    removed the SQLite-bound dogfood composites from the production daemon
+    removed the old dogfood composites from the production daemon
     contract, and D112 removed `apply.reviewed_patch`. Production daemon MCP
     `tools/list` now hides local
     workflow-file authoring methods in both Python and Go, while direct calls
@@ -1529,8 +1323,8 @@ review and plan are root-level operator artifacts:
 64. **RFC 0071: operator diagnostics and cutover evidence.** Diagnostic slices
     landed: `striatum daemon doctor --authority --json` reports
     `striatum.authority_report.v1`, including PostgreSQL live-state authority,
-    legacy SQLite registry status, method fallback counts, remaining
-    migration/test-only SQLite exceptions, and remediation recommendations;
+    retired local-state status, method fallback counts, and remediation
+    recommendations;
     `striatum daemon doctor --repo <path> --authority --json` reports
     `striatum.repo_cutover_report.v1` without opening SQLite as a database.
     D108 keeps the command authority matrix

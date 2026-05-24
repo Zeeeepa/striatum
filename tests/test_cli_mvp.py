@@ -95,23 +95,23 @@ def api_data(payload: JsonDict) -> JsonDict:
     return cast(JsonDict, value)
 
 
-def _skip_legacy_sqlite_fixture() -> None:
+def _skip_legacy_state_fixture() -> None:
     pytest.skip(
-        "historical CLI MVP fixture depends on retired repo-local SQLite state; "
+        "historical CLI MVP fixture depends on retired local state; "
         "covered by daemon/PostgreSQL tests or pending focused conversion"
     )
 
 
 def connect(repo: Path) -> Any:
-    _skip_legacy_sqlite_fixture()
+    _skip_legacy_state_fixture()
 
 
 def db_path(repo: Path) -> Path:
-    _skip_legacy_sqlite_fixture()
+    _skip_legacy_state_fixture()
 
 
 def init_repo(repo: Path) -> None:
-    _skip_legacy_sqlite_fixture()
+    _skip_legacy_state_fixture()
 
 
 def prepare_started_run(repo: Path, workflow_path: Path = WORKFLOW) -> str:

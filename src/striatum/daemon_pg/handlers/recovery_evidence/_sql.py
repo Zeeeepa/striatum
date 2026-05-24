@@ -101,7 +101,7 @@ def lock_run(ctx: RepoHandlerContextProtocol, *, run_id: str) -> dict[str, Any]:
 
 
 def is_repo_write_scope(write_scope_json: Any) -> bool:
-    """Mirror ``striatum.db.is_repo_write`` against a parsed write_scope JSON.
+    """Evaluate repo-write scope from parsed write-scope JSON.
 
     A job is repo-write when its write scope is either ``mode=repo_write`` or
     its ``repo_write`` flag is truthy. This drives the lease-expiry policy
@@ -150,9 +150,9 @@ def expire_leases(
     *,
     run_id: str,
 ) -> list[dict[str, Any]]:
-    """PG port of :func:`striatum.db.expire_leases` (lazy lease expiry).
+    """PostgreSQL lazy lease expiry.
 
-    Behavior mirrored from ``src/striatum/db.py::expire_leases``:
+    Behavior:
       - Find ``leases`` rows in state ``active`` whose ``expires_at`` is in
         the past.
       - Transition each lease to ``expired`` with ``release_reason='expired'``.
@@ -283,7 +283,7 @@ def maybe_complete_run(
     *,
     run_id: str,
 ) -> dict[str, Any]:
-    """PG port of :func:`striatum.db.maybe_complete_run`.
+    """Maybe move a run into a terminal state after job transitions.
 
     A run reaches a terminal state when every job is in a terminal state
     (``completed``, ``failed``, ``canceled``, ``skipped``). The terminal

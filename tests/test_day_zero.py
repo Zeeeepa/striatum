@@ -227,7 +227,7 @@ def test_adopt_registers_new_repo_without_repo_local_migration(
     assert not db_path(repo).exists()
 
 
-def test_adopt_refuses_legacy_sqlite_import_window_without_opening_sqlite(
+def test_adopt_refuses_legacy_retired_import_window_without_opening_retired_state(
     tmp_path: Path,
     monkeypatch: Any,
 ) -> None:
@@ -255,7 +255,7 @@ def test_adopt_refuses_legacy_sqlite_import_window_without_opening_sqlite(
     result = dispatch(args)
 
     assert isinstance(result, dict)
-    assert result["registration"]["status"] == "sqlite_migration_required"
+    assert result["registration"]["status"] == "retired_state_registration_required"
     assert result["registration"]["state_db_path"] == str(db_path(repo.resolve()))
     assert "migrate-repo-local" not in result["registration"]["hint"]
     assert db_path(repo).exists()

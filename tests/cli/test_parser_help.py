@@ -28,7 +28,7 @@ def _help_for(args: list[str], capsys: pytest.CaptureFixture[str]) -> str:
 def test_help_includes_description(capsys: pytest.CaptureFixture[str]) -> None:
     out = _migrate_repo_local_help(capsys)
     assert "Retired compatibility command" in out
-    assert "SQLite import windows are closed" in out
+    assert "Repo-local import windows are closed" in out
 
 
 def test_help_documents_every_migrate_flag(

@@ -2,9 +2,9 @@
 
 Operationalizes D006's promise of an "optional Unix-socket / local HTTP
 API later for Slack, TUI, and web adapters." Production state-changing
-endpoints and migrated read pages delegate to daemon RPC; repo-local SQLite
-compatibility is isolated under ``striatum.legacy_sqlite`` for explicit
-subprocess test-harness paths.
+endpoints and migrated read pages delegate to daemon RPC. Direct local-state
+service fixtures are retired; subprocess compatibility paths are narrow test
+harnesses, not a production authority.
 Localhost-only by default; non-loopback hosts are refused at startup.
 Mutations are gated behind ``--allow-mutations``.
 """
@@ -174,8 +174,7 @@ class StriatumServiceHandler(BaseHTTPRequestHandler):
 
     The production web/API read paths call daemon RPC directly where a
     daemon DTO exists. Legacy CLI invoke fallbacks are retained only for the
-    subprocess test harness while repo-local SQLite compatibility fixtures
-    still exist.
+    subprocess test harness.
     """
 
     server_version = "Striatum-Service/1"

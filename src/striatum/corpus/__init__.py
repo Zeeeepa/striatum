@@ -1,8 +1,4 @@
-"""Deterministic Striatum corpus export surface.
-
-The package-level compatibility exports are lazy so storage-neutral corpus
-helpers can be imported without loading the legacy SQLite export path.
-"""
+"""Deterministic Striatum corpus verification surface."""
 
 from __future__ import annotations
 
@@ -11,11 +7,10 @@ from typing import Any
 
 from striatum.corpus.types import SCHEMA_VERSION
 
-__all__ = ["SCHEMA_VERSION", "export_corpus_bundle", "verify_corpus_bundle"]
+__all__ = ["SCHEMA_VERSION", "verify_corpus_bundle"]
 
 
 _SYMBOL_MODULES = {
-    "export_corpus_bundle": "striatum.corpus.export",
     "verify_corpus_bundle": "striatum.corpus.verify",
 }
 

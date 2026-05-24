@@ -527,7 +527,7 @@ def dispatch(args: argparse.Namespace) -> object:
                     exit_code=1,
                 ) from route_exc
             raise StriatumError(
-                "dashboard --all requires daemon RPC routing; legacy SQLite fallback is retired",
+                "dashboard --all requires daemon RPC routing; legacy local-state fallback is retired",
                 exit_code=8,
             )
         if not args.run_id:
@@ -686,7 +686,7 @@ def dispatch(args: argparse.Namespace) -> object:
         return None
     raise StriatumError(
         f"daemon_route_required: {args.command} must route through daemon RPC; "
-        "legacy SQLite dispatch is retired.",
+        "legacy local-state dispatch is retired.",
         exit_code=12,
     )
 
@@ -1023,8 +1023,8 @@ def _dispatch_daemon(args: argparse.Namespace) -> object:
         )
         daemon_diagnostics: dict[str, object] | None = None
         if pg.get("ok"):
-            v1 = _post_pg_cutover_sqlite_registry_result(
-                "Legacy SQLite daemon registry is disabled in production; "
+            v1 = _post_pg_cutover_retired_registry_result(
+                "Legacy daemon registry is disabled in production; "
                 "PostgreSQL is the authoritative daemon state."
             )
             try:
@@ -1046,7 +1046,7 @@ def _dispatch_daemon(args: argparse.Namespace) -> object:
                 )
             except Exception as exc:  # noqa: BLE001 - daemon doctor must still report PG onboarding.
                 v1 = {"ok": False, "error": str(exc)}
-        result: dict[str, object] = {"mode": "daemon", "postgres": pg, "sqlite_registry": v1}
+        result: dict[str, object] = {"mode": "daemon", "postgres": pg, "retired_registry": v1}
         if daemon_diagnostics is not None:
             result["daemon_diagnostics"] = daemon_diagnostics
             if isinstance(daemon_diagnostics.get("blob"), dict):
@@ -1064,7 +1064,7 @@ def _dispatch_daemon(args: argparse.Namespace) -> object:
         if bool(getattr(args, "authority", False)):
             result["authority"] = _daemon_authority_report(
                 postgres=pg,
-                sqlite_registry=v1,
+                retired_registry=v1,
                 explain=explain or _daemon_method_authority_explain(),
                 repo_cutover=repo_cutover,
             )
@@ -1107,8 +1107,8 @@ def _dispatch_first_run_doctor(repo: Path) -> dict[str, object]:
     explain = _daemon_method_authority_explain()
     result["authority"] = _daemon_authority_report(
         postgres=postgres,
-        sqlite_registry=_post_pg_cutover_sqlite_registry_result(
-            "Legacy SQLite daemon registry is disabled in production; "
+        retired_registry=_post_pg_cutover_retired_registry_result(
+            "Legacy daemon registry is disabled in production; "
             "PostgreSQL is the authoritative daemon state."
         ),
         explain=explain,
@@ -1116,7 +1116,7 @@ def _dispatch_first_run_doctor(repo: Path) -> dict[str, object]:
     return result
 
 
-def _post_pg_cutover_sqlite_registry_result(note: str) -> dict[str, object]:
+def _post_pg_cutover_retired_registry_result(note: str) -> dict[str, object]:
     return {
         "ok": True,
         "status": "post_pg_cutover_unused",
@@ -1131,9 +1131,9 @@ def _daemon_doctor_blob_block(result: dict[str, object]) -> dict[str, Any] | Non
     diagnostics = result.get("daemon_diagnostics")
     if isinstance(diagnostics, dict) and isinstance(diagnostics.get("blob"), dict):
         return cast(dict[str, Any], diagnostics["blob"])
-    sqlite_registry = result.get("sqlite_registry")
-    if isinstance(sqlite_registry, dict) and isinstance(sqlite_registry.get("blob"), dict):
-        return cast(dict[str, Any], sqlite_registry["blob"])
+    retired_registry = result.get("retired_registry")
+    if isinstance(retired_registry, dict) and isinstance(retired_registry.get("blob"), dict):
+        return cast(dict[str, Any], retired_registry["blob"])
     return None
 
 
@@ -1248,17 +1248,17 @@ def _daemon_method_authority_explain() -> dict[str, object]:
 def _daemon_authority_report(
     *,
     postgres: dict[str, Any],
-    sqlite_registry: dict[str, Any],
+    retired_registry: dict[str, Any],
     explain: dict[str, object],
     repo_cutover: dict[str, object] | None = None,
 ) -> dict[str, object]:
-    sqlite_status = "error"
-    if sqlite_registry.get("status") == "post_pg_cutover_unused":
-        sqlite_status = "disabled"
-    elif sqlite_registry.get("ok") or (
-        "error" not in sqlite_registry and sqlite_registry.get("ok") is not False
+    retired_status = "error"
+    if retired_registry.get("status") == "post_pg_cutover_unused":
+        retired_status = "disabled"
+    elif retired_registry.get("ok") or (
+        "error" not in retired_registry and retired_registry.get("ok") is not False
     ):
-        sqlite_status = "legacy_registry_reachable"
+        retired_status = "legacy_registry_reachable"
     raw_fallback_count = explain.get("cli_fallback_route_count")
     method_fallback_count = int(raw_fallback_count) if isinstance(raw_fallback_count, int | str) else 0
     test_harness_escape = (
@@ -1267,15 +1267,15 @@ def _daemon_authority_report(
     )
     ok = (
         bool(postgres.get("ok"))
-        and sqlite_status == "disabled"
+        and retired_status == "disabled"
         and method_fallback_count == 0
         and (repo_cutover is None or bool(repo_cutover.get("ok")))
     )
     recommendations: list[str] = []
     if not bool(postgres.get("ok")):
         recommendations.append("configure daemon PostgreSQL and rerun daemon doctor")
-    if sqlite_status != "disabled":
-        recommendations.append("disable legacy SQLite registry access outside migration/test fixtures")
+    if retired_status != "disabled":
+        recommendations.append("disable legacy daemon-registry access outside named test fixtures")
     if method_fallback_count:
         recommendations.append("remove daemon CLI fallback routes before Go cutover")
     if repo_cutover is not None and not bool(repo_cutover.get("ok")):
@@ -1292,12 +1292,12 @@ def _daemon_authority_report(
             "status": postgres.get("status"),
             "schema_version": postgres.get("schema_version"),
         },
-        "legacy_sqlite": {
-            "registry_status": sqlite_status,
+        "retired_local_state": {
+            "registry_status": retired_status,
             "test_harness_escape_enabled": test_harness_escape,
             "remaining_allowed_uses": [
-                "repo cutover verification without opening SQLite",
-                "legacy_sqlite service fixture fallback",
+                "repo cutover verification without opening retired local state",
+                "direct service fixture fallback",
                 "test fixtures",
             ],
         },
@@ -1337,6 +1337,6 @@ def _dispatch_daemon_repo(args: argparse.Namespace) -> object:
 
 def _dispatch_cross_repo(args: argparse.Namespace) -> object:
     raise StriatumError(
-        "daemon_route_required: cross-repo commands must route through daemon RPC; legacy SQLite dispatch is retired.",
+        "daemon_route_required: cross-repo commands must route through daemon RPC; legacy local-state dispatch is retired.",
         exit_code=12,
     )

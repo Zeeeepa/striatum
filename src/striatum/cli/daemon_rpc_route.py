@@ -82,7 +82,7 @@ def try_route(args: argparse.Namespace, repo: Path) -> tuple[bool, Any]:
     sock_path = resolve_socket_path()
     if not daemon_socket_is_reachable(sock_path):
         raise StriatumError(
-            f"daemon_unreachable: {method} is daemon-routed and cannot fall back to SQLite",
+            f"daemon_unreachable: {method} is daemon-routed and cannot fall back to local state",
             exit_code=12,
         )
     entry = METHOD_REGISTRY[method]

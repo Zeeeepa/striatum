@@ -28,7 +28,7 @@ def _doctor_args() -> argparse.Namespace:
     )
 
 
-def test_sqlite_registry_post_pg_cutover_surfaces_as_disabled_and_records_diagnostics_error(
+def test_retired_registry_post_pg_cutover_surfaces_as_disabled_and_records_diagnostics_error(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(
@@ -44,18 +44,18 @@ def test_sqlite_registry_post_pg_cutover_surfaces_as_disabled_and_records_diagno
     result = _dispatch_daemon(_doctor_args())
 
     assert isinstance(result, dict)
-    sqlite_registry = result["sqlite_registry"]
-    assert isinstance(sqlite_registry, dict)
-    assert sqlite_registry["ok"] is True
-    assert sqlite_registry["status"] == "post_pg_cutover_unused"
-    assert "PostgreSQL is the authoritative" in sqlite_registry["note"]
+    retired_registry = result["retired_registry"]
+    assert isinstance(retired_registry, dict)
+    assert retired_registry["ok"] is True
+    assert retired_registry["status"] == "post_pg_cutover_unused"
+    assert "PostgreSQL is the authoritative" in retired_registry["note"]
     assert result["daemon_diagnostics"] == {
         "ok": False,
         "error": "daemon authorization failed: token_invalid",
     }
 
 
-def test_sqlite_registry_disabled_with_pg_ok_surfaces_as_benign(
+def test_retired_registry_disabled_with_pg_ok_surfaces_as_benign(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(
@@ -65,7 +65,7 @@ def test_sqlite_registry_disabled_with_pg_ok_surfaces_as_benign(
 
     def _raise_registry_disabled(**_: Any) -> dict[str, Any]:
         raise daemon_mod.DaemonRegistryError(
-            "legacy SQLite daemon registry is disabled in production; "
+            "legacy local state daemon registry is disabled in production; "
             "use the configured PostgreSQL daemon registry"
         )
 
@@ -74,21 +74,21 @@ def test_sqlite_registry_disabled_with_pg_ok_surfaces_as_benign(
     result = _dispatch_daemon(_doctor_args())
 
     assert isinstance(result, dict)
-    sqlite_registry = result["sqlite_registry"]
-    assert isinstance(sqlite_registry, dict)
-    assert sqlite_registry["ok"] is True
-    assert sqlite_registry["status"] == "post_pg_cutover_unused"
-    assert "PostgreSQL is the authoritative" in sqlite_registry["note"]
+    retired_registry = result["retired_registry"]
+    assert isinstance(retired_registry, dict)
+    assert retired_registry["ok"] is True
+    assert retired_registry["status"] == "post_pg_cutover_unused"
+    assert "PostgreSQL is the authoritative" in retired_registry["note"]
     assert result["daemon_diagnostics"] == {
         "ok": False,
         "error": (
-            "legacy SQLite daemon registry is disabled in production; "
+            "legacy local state daemon registry is disabled in production; "
             "use the configured PostgreSQL daemon registry"
         ),
     }
 
 
-def test_sqlite_registry_token_invalid_with_pg_down_reports_error(
+def test_retired_registry_token_invalid_with_pg_down_reports_error(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(
@@ -104,13 +104,13 @@ def test_sqlite_registry_token_invalid_with_pg_down_reports_error(
     result = _dispatch_daemon(_doctor_args())
 
     assert isinstance(result, dict)
-    sqlite_registry = result["sqlite_registry"]
-    assert isinstance(sqlite_registry, dict)
-    assert sqlite_registry["ok"] is False
-    assert "token_invalid" in sqlite_registry["error"]
+    retired_registry = result["retired_registry"]
+    assert isinstance(retired_registry, dict)
+    assert retired_registry["ok"] is False
+    assert "token_invalid" in retired_registry["error"]
 
 
-def test_sqlite_registry_other_auth_failure_reports_error(
+def test_retired_registry_other_auth_failure_reports_error(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(
@@ -126,17 +126,17 @@ def test_sqlite_registry_other_auth_failure_reports_error(
     result = _dispatch_daemon(_doctor_args())
 
     assert isinstance(result, dict)
-    sqlite_registry = result["sqlite_registry"]
-    assert isinstance(sqlite_registry, dict)
-    assert sqlite_registry["ok"] is True
-    assert sqlite_registry["status"] == "post_pg_cutover_unused"
+    retired_registry = result["retired_registry"]
+    assert isinstance(retired_registry, dict)
+    assert retired_registry["ok"] is True
+    assert retired_registry["status"] == "post_pg_cutover_unused"
     assert result["daemon_diagnostics"] == {
         "ok": False,
         "error": "daemon authorization failed: token_revoked",
     }
 
 
-def test_sqlite_registry_success_path_unchanged(
+def test_retired_registry_success_path_unchanged(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(
@@ -152,9 +152,9 @@ def test_sqlite_registry_success_path_unchanged(
     result = _dispatch_daemon(_doctor_args())
 
     assert isinstance(result, dict)
-    sqlite_registry = result["sqlite_registry"]
-    assert isinstance(sqlite_registry, dict)
-    assert sqlite_registry["status"] == "post_pg_cutover_unused"
+    retired_registry = result["retired_registry"]
+    assert isinstance(retired_registry, dict)
+    assert retired_registry["status"] == "post_pg_cutover_unused"
     assert result["daemon_diagnostics"] == {"mode": "daemon", "problems": [], "protocol_version": 1}
 
 
@@ -265,7 +265,7 @@ def test_daemon_doctor_authority_report_names_cutover_state(
         lambda **_: {
             "ok": True,
             "status": "post_pg_cutover_unused",
-            "note": "SQLite client registry is no longer the authoritative auth surface.",
+            "note": "retired client registry is no longer the authoritative auth surface.",
         },
     )
     args = _doctor_args()
@@ -280,7 +280,7 @@ def test_daemon_doctor_authority_report_names_cutover_state(
     assert authority["schema_version"] == "striatum.authority_report.v1"
     assert authority["ok"] is True
     assert authority["live_state_authority"] == "daemon_postgresql"
-    assert authority["legacy_sqlite"]["registry_status"] == "disabled"
+    assert authority["retired_local_state"]["registry_status"] == "disabled"
     assert authority["daemon_methods"]["cli_fallback_route_count"] == 0
     assert authority["recommendations"] == []
     assert "explain" not in result
@@ -302,7 +302,7 @@ def test_daemon_doctor_repo_option_embeds_cutover_report(
         lambda **_: {
             "ok": True,
             "status": "post_pg_cutover_unused",
-            "note": "SQLite client registry is no longer the authoritative auth surface.",
+            "note": "retired client registry is no longer the authoritative auth surface.",
         },
     )
 
@@ -344,7 +344,7 @@ def test_daemon_doctor_repo_option_embeds_cutover_report(
     }
 
 
-def test_daemon_doctor_repo_option_does_not_import_retired_sqlite_migrator(
+def test_daemon_doctor_repo_option_does_not_import_retired_state_migrator(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -362,7 +362,7 @@ def test_daemon_doctor_repo_option_does_not_import_retired_sqlite_migrator(
         lambda **_: {
             "ok": True,
             "status": "post_pg_cutover_unused",
-            "note": "SQLite client registry is no longer the authoritative auth surface.",
+            "note": "retired client registry is no longer the authoritative auth surface.",
         },
     )
     monkeypatch.setattr(
@@ -375,7 +375,6 @@ def test_daemon_doctor_repo_option_does_not_import_retired_sqlite_migrator(
             "recommendations": [],
         },
     )
-    sys.modules.pop("sqlite3", None)
     sys.modules.pop("striatum.daemon_pg.repo_local_migration", None)
     args = _doctor_args()
     args.authority = True
@@ -384,7 +383,6 @@ def test_daemon_doctor_repo_option_does_not_import_retired_sqlite_migrator(
 
     _dispatch_daemon(args)
 
-    assert "sqlite3" not in sys.modules
     assert "striatum.daemon_pg.repo_local_migration" not in sys.modules
 
 
@@ -404,7 +402,7 @@ def test_daemon_doctor_authority_report_flags_repo_cutover_failure(
         lambda **_: {
             "ok": True,
             "status": "post_pg_cutover_unused",
-            "note": "SQLite client registry is no longer the authoritative auth surface.",
+            "note": "retired client registry is no longer the authoritative auth surface.",
         },
     )
     monkeypatch.setattr(

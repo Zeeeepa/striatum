@@ -2,7 +2,7 @@
 
 This module is intentionally independent of the legacy Python daemon so
 Python CLI clients and the Go daemon launcher can share runtime discovery
-without importing SQLite-backed daemon registry code.
+without importing the deleted daemon registry code.
 """
 
 from __future__ import annotations

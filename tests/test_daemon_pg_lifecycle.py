@@ -35,7 +35,7 @@ def _configure_pg_daemon_lifecycle(
     return registry
 
 
-def test_daemon_status_uses_postgres_without_sqlite_registry(
+def test_daemon_status_uses_postgres_without_retired_registry(
     multi_repo_harness: MultiRepoHarness,
     clean_daemon_db: None,
     monkeypatch: pytest.MonkeyPatch,
@@ -57,7 +57,7 @@ def test_daemon_status_uses_postgres_without_sqlite_registry(
     assert row["decision"] == "allowed"
 
 
-def test_dispatch_daemon_status_uses_postgres_without_sqlite_registry(
+def test_dispatch_daemon_status_uses_postgres_without_retired_registry(
     multi_repo_harness: MultiRepoHarness,
     clean_daemon_db: None,
     monkeypatch: pytest.MonkeyPatch,
@@ -75,7 +75,7 @@ def test_dispatch_daemon_status_uses_postgres_without_sqlite_registry(
     assert harness.audit_rows(transport="cli")[-1]["method"] == "daemon.status"
 
 
-def test_daemon_stop_authorizes_with_postgres_without_sqlite_registry(
+def test_daemon_stop_authorizes_with_postgres_without_retired_registry(
     multi_repo_harness: MultiRepoHarness,
     clean_daemon_db: None,
     monkeypatch: pytest.MonkeyPatch,
@@ -93,7 +93,7 @@ def test_daemon_stop_authorizes_with_postgres_without_sqlite_registry(
     assert row["decision"] == "allowed"
 
 
-def test_dispatch_daemon_stop_authorizes_with_postgres_without_sqlite_registry(
+def test_dispatch_daemon_stop_authorizes_with_postgres_without_retired_registry(
     multi_repo_harness: MultiRepoHarness,
     clean_daemon_db: None,
     monkeypatch: pytest.MonkeyPatch,

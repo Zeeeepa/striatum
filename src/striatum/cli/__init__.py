@@ -1,7 +1,7 @@
 """Command line interface package.
 
 The package keeps historical ``from striatum.cli import ...`` imports working
-without importing legacy SQLite-heavy helper modules during a plain package
+without importing retired local-state helper modules during a plain package
 import. Runtime code should prefer importing concrete submodules directly.
 """
 

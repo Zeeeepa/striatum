@@ -65,7 +65,7 @@ def test_repo_add_registers_pg_without_creating_sqlite(
     assert duplicate["repository_id"] == added["repository_id"]
 
 
-def test_repo_list_and_resolve_normalize_stale_state_sqlite_projection(
+def test_repo_list_and_resolve_normalize_stale_state_file_projection(
     tmp_path: Path,
     pg_url: str,
     pg_conn: Any,
@@ -103,7 +103,7 @@ def test_repo_list_and_resolve_normalize_stale_state_sqlite_projection(
         assert cur.fetchone()[0] == str(stale_state_path)
 
 
-def test_repo_add_refuses_existing_sqlite_source_without_opening_it(
+def test_repo_add_refuses_existing_retired_state_source_without_opening_it(
     tmp_path: Path,
     pg_url: str,
     monkeypatch: pytest.MonkeyPatch,
@@ -116,7 +116,7 @@ def test_repo_add_refuses_existing_sqlite_source_without_opening_it(
     monkeypatch.setenv(daemon.ENV_RUNTIME, str(tmp_path / "runtime"))
     monkeypatch.setenv("STRIATUM_SQLITE_CONNECT_TRIPWIRE", "1")
 
-    with pytest.raises(SchemaVersionError, match="SQLite import windows are closed"):
+    with pytest.raises(SchemaVersionError, match="import windows are closed"):
         daemon.repo_add(repo)
 
 

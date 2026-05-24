@@ -34,7 +34,7 @@ def _configure_pg_daemon_doctor(
     return registry
 
 
-def test_daemon_doctor_reads_postgres_without_sqlite_registry(
+def test_daemon_doctor_reads_postgres_without_retired_registry(
     multi_repo_harness: MultiRepoHarness,
     clean_daemon_db: None,
     monkeypatch: pytest.MonkeyPatch,
@@ -57,7 +57,7 @@ def test_daemon_doctor_reads_postgres_without_sqlite_registry(
     harness.assert_audit_chain()
 
 
-def test_repo_scoped_daemon_doctor_reads_postgres_without_sqlite_registry(
+def test_repo_scoped_daemon_doctor_reads_postgres_without_retired_registry(
     multi_repo_harness: MultiRepoHarness,
     clean_daemon_db: None,
     monkeypatch: pytest.MonkeyPatch,
@@ -137,7 +137,7 @@ def test_daemon_doctor_reports_missing_operational_scratch_directory(
     ]
 
 
-def test_dispatch_daemon_doctor_reports_pg_diagnostics_without_sqlite_registry(
+def test_dispatch_daemon_doctor_reports_pg_diagnostics_without_retired_registry(
     multi_repo_harness: MultiRepoHarness,
     clean_daemon_db: None,
     monkeypatch: pytest.MonkeyPatch,
@@ -163,7 +163,7 @@ def test_dispatch_daemon_doctor_reports_pg_diagnostics_without_sqlite_registry(
 
     assert isinstance(result, dict)
     assert result["postgres"]["ok"] is True
-    assert result["sqlite_registry"]["status"] == "post_pg_cutover_unused"
+    assert result["retired_registry"]["status"] == "post_pg_cutover_unused"
     assert result["daemon_diagnostics"]["mode"] == "daemon"
     assert result["daemon_diagnostics"]["problems"] == []
     assert not registry.exists()

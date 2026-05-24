@@ -53,5 +53,5 @@ def test_handler_emits_cascade_events_in_order() -> None:
     assert "_dependents_blocked_only_through" in source
     assert "while queue:" in source, (
         "cancel_job must iterate dependents until the queue empties to "
-        "match SQLite's transitive cascade behavior"
+        "match retired local-state's transitive cascade behavior"
     )

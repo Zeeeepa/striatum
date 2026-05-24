@@ -43,8 +43,8 @@ def is_read_command(argv: list[str]) -> bool:
 def daemon_route_for_argv(argv: list[str], repo: Path) -> DaemonCommandRoute | None:
     """Return the daemon RPC route for production service invoke argv.
 
-    The test-harness direct path is deliberately preserved for legacy
-    SQLite-backed service tests. Production service invocations route mapped
+    The test-harness direct path is deliberately preserved for direct
+    service fixture tests. Production service invocations route mapped
     daemon methods through RPC instead of re-entering local CLI dispatch through
     ``striatum.api.invoke``.
     """
@@ -72,7 +72,7 @@ def daemon_mutation_route_for_argv(argv: list[str], repo: Path) -> DaemonCommand
 
 
 def legacy_service_fixture_fallback_enabled() -> bool:
-    """Return True only for explicit legacy service/web SQLite fixtures."""
+    """Return True only for explicit direct service/web fixtures."""
     return (
         os.environ.get("STRIATUM_TEST_HARNESS") == "1"
         and os.environ.get("STRIATUM_DAEMON_REQUIRED") == "0"

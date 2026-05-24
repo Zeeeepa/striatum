@@ -78,7 +78,7 @@ def test_repo_not_migrated_message_names_retired_import_window(tmp_path: Path) -
     assert text.startswith(
         f"repo_not_migrated: {tmp_path} has not been migrated to daemon PostgreSQL state"
     )
-    assert "SQLite import windows are closed" in text
+    assert "Retired import windows are closed" in text
     assert "striatum adopt" in text
     assert "striatum repo add --init" in text
 
@@ -205,7 +205,7 @@ def test_resolve_requirement_paired_opt_out_is_recognized(
     """V1.6 F-escape: the opt-out requires BOTH env vars.
 
     ``STRIATUM_DAEMON_REQUIRED=0`` paired with ``STRIATUM_TEST_HARNESS=1``
-    returns ``None`` so the legacy SQLite-backed test fixtures stay green
+    returns ``None`` so the legacy local state-backed test fixtures stay green
     during the V1.6 → V2.0 substrate migration.
     """
     monkeypatch.setenv(ENV_DAEMON_REQUIRED, "0")
@@ -277,7 +277,7 @@ def test_dispatch_returns_exit_12_for_unmigrated_repo(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     """End-to-end: an unmigrated repo with a reachable daemon socket
-    exits with code 12 and the retired SQLite-import guidance.
+    exits with code 12 and the retired retired local state-import guidance.
 
     The default flip means we exercise this without setting
     ``STRIATUM_DAEMON_REQUIRED=1`` — the unset env reaches the
@@ -299,7 +299,7 @@ def test_dispatch_returns_exit_12_for_unmigrated_repo(
         assert rc == 12
         captured = capsys.readouterr()
         assert "repo_not_migrated" in captured.err
-        assert "SQLite import windows are closed" in captured.err
+        assert "Retired import windows are closed" in captured.err
         assert "striatum repo add --init" in captured.err
         # The hint names the resolved repo path so operators can copy the
         # command verbatim.
@@ -374,7 +374,7 @@ def test_repo_list_unreachable_daemon_reports_daemon_unreachable(
 ) -> None:
     """GH #25: with the daemon socket unreachable, ``repo list`` exits
     with the documented ``daemon_unreachable`` refusal (exit code 11),
-    not the legacy ``repo_not_migrated`` SQLite-state error.
+    not the legacy ``repo_not_migrated`` local-state error.
     """
     monkeypatch.setenv(ENV_DAEMON_SOCKET, str(tmp_path / "no-socket"))
     (tmp_path / ".striatum").mkdir()
@@ -396,7 +396,7 @@ def test_dispatch_exit_12_json_envelope_with_foreground_daemon_socket(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     """Live smoke: a reachable foreground daemon socket still refuses an
-    unmigrated repo before any SQLite fallback can run.
+    unmigrated repo before any local-state fallback can run.
     """
     repo = tmp_path / "repo"
     (repo / ".striatum").mkdir(parents=True)

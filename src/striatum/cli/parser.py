@@ -285,7 +285,7 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help=(
             "also include verify-only striatum.repo_cutover_report.v1 "
-            "for this target repository without opening SQLite"
+            "for this target repository without opening retired local state"
         ),
     )
     daemon_doctor.add_argument("--apply-migrations", action="store_true")
@@ -319,16 +319,16 @@ def build_parser() -> argparse.ArgumentParser:
     daemon_doctor.add_argument(
         "--authority",
         action="store_true",
-        help="include a cutover authority report for PostgreSQL and legacy SQLite paths",
+        help="include a cutover authority report for PostgreSQL and retired local-state paths",
     )
     daemon_doctor.add_argument("--json", action="store_true")
     daemon_migrate = daemon_sub.add_parser(
         "migrate",
-        help="retired legacy SQLite daemon-registry import command",
+        help="retired legacy daemon-registry import command",
         description=(
-            "Retired compatibility command. SQLite daemon-registry import "
+            "Retired compatibility command. Daemon-registry import "
             "windows are closed; this command now refuses without opening "
-            "SQLite."
+            "retired local state."
         ),
     )
     daemon_migrate.add_argument("--from", dest="from_substrate", choices=["sqlite"])
@@ -340,11 +340,11 @@ def build_parser() -> argparse.ArgumentParser:
     daemon_migrate.add_argument("--json", action="store_true")
     daemon_migrate_repo = daemon_sub.add_parser(
         "migrate-repo-local",
-        help="retired legacy repo-local SQLite import command",
+        help="retired legacy repo-local state import command",
         description=(
-            "Retired compatibility command. Repo-local SQLite import windows "
+            "Retired compatibility command. Repo-local import windows "
             "are closed; this command now refuses without opening "
-            ".striatum/state.sqlite3. Archive or remove the legacy SQLite "
+            ".striatum/state.sqlite3. Archive or remove the retired local-state "
             "file and register the repository with `striatum adopt` or "
             "`striatum repo add --init`."
         ),
@@ -386,18 +386,18 @@ def build_parser() -> argparse.ArgumentParser:
         dest="keep_sqlite_readonly",
         action="store_true",
         default=True,
-        help="retired compatibility option; legacy SQLite files are left untouched",
+        help="retired compatibility option; legacy local-state files are left untouched",
     )
     daemon_migrate_repo.add_argument(
         "--no-keep-sqlite-readonly",
         dest="keep_sqlite_readonly",
         action="store_false",
-        help="retired compatibility option; legacy SQLite files are left untouched",
+        help="retired compatibility option; legacy local-state files are left untouched",
     )
     daemon_migrate_repo.add_argument(
         "--confirm-delete",
         action="store_true",
-        help="retired compatibility option; legacy SQLite files are left untouched",
+        help="retired compatibility option; legacy local-state files are left untouched",
     )
     daemon_migrate_repo.add_argument(
         "--json",
@@ -448,7 +448,7 @@ def build_parser() -> argparse.ArgumentParser:
     repo_add.add_argument(
         "--no-migrate",
         action="store_true",
-        help="deprecated compatibility flag; writable SQLite imports are retired",
+        help="deprecated compatibility flag; writable local-state imports are retired",
     )
     repo_add.add_argument("--json", action="store_true")
     repo_list = repo_sub.add_parser("list")
