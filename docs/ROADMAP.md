@@ -542,6 +542,9 @@ fixtures and compatibility imports.
 - `src/striatum/web/run_list.py` now owns run-list presentation helpers for
   GitHub remote parsing, workflow source-path normalization, workflow tree-link
   construction, and run state-chip shaping.
+- `src/striatum/web/dogfood_routes.py` now owns historical dogfood route
+  dispatch and raw/page context construction. `service.py` keeps only a thin
+  handler adapter for the browse surface.
 - `src/striatum/web/artifacts.py` now owns safe artifact file resolution, raw
   download content-type selection, and inline Markdown rendering helpers for
   artifact views.

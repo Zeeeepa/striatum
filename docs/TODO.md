@@ -1037,6 +1037,9 @@ review and plan are root-level operator artifacts:
     rendering, and JSON response mapping for those routes. Follow-up split
     landed: `web/run_list.py` owns GitHub remote parsing, workflow source-path
     normalization, workflow tree-link construction, and run state-chip shaping.
+    Follow-up split landed: `web/dogfood_routes.py` owns historical dogfood
+    route dispatch and raw/page context construction while `service.py` keeps a
+    thin request-handler adapter.
     Follow-up split landed: `web/artifacts.py` owns safe repo-relative artifact
     path resolution, raw download content-type selection, and inline Markdown
     rendering helpers for artifact views. Follow-up split landed:

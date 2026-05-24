@@ -77,22 +77,10 @@ def dispatch_get(handler: Any) -> None:
         handler._render_run_subpath(path[len("/run/"):])
         return
     if handler.state.web_enabled and (path == "/dogfood" or path == "/dogfood/"):
-        handler._render_dogfood_index_page()
+        handler._render_dogfood_path("", query)
         return
     if handler.state.web_enabled and path.startswith("/dogfood/"):
-        rest = path[len("/dogfood/"):]
-        # rest = "<id>/" → list page; "<id>/<rel_path>" → file page
-        parts = rest.split("/", 1)
-        dogfood_id = parts[0]
-        if not dogfood_id:
-            handler._render_dogfood_index_page()
-            return
-        if len(parts) == 1 or parts[1] == "":
-            handler._render_dogfood_run_page(dogfood_id)
-            return
-        rel_path = parts[1].rstrip("/")
-        raw = query.get("raw", ["0"])[0] in ("1", "true", "yes")
-        handler._render_dogfood_file_page(dogfood_id, rel_path, raw=raw)
+        handler._render_dogfood_path(path[len("/dogfood/"):], query)
         return
     if handler.state.web_enabled and path.startswith("/static/"):
         relative = path[len("/static/"):]
