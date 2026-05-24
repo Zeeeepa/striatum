@@ -13,6 +13,7 @@ from striatum.daemon_pg.connection import connect
 from striatum.daemon_pg.handlers.context import RepoHandlerContext, canonical_event_hash
 from striatum.daemon_pg.handlers.workflow_loop.block_job import handle
 from striatum.daemon_rpc.capability import RpcAuthContext
+from striatum.daemon_rpc.envelope import RpcError
 
 
 @pytest.fixture
@@ -67,7 +68,7 @@ def test_block_job_moves_running_work_to_blocked_and_appends_event(
         }
         blocker = _one(
             conn,
-            "SELECT blocker_kind, description, severity, state FROM striatumd.blockers "
+            "SELECT blocker_kind, description, severity, state, payload_json FROM striatumd.blockers "
             "WHERE repository_id = %s",
             ("repo_a",),
         )
@@ -76,6 +77,16 @@ def test_block_job_moves_running_work_to_blocked_and_appends_event(
             "description": "blocked for test",
             "severity": "blocked",
             "state": "open",
+            "payload_json": {
+                "schema_version": "striatum.blocker_payload.v1",
+                "source": "work.block",
+                "severity": "blocked",
+                "blocker_kind": "needs_operator",
+                "description_format": "plain_text",
+                "description_length": len("blocked for test"),
+                "is_escalation": False,
+                "escalation_trigger": None,
+            },
         }
         events = _events(conn, repository_id="repo_a")
         assert [row["event_type"] for row in events] == ["seed.event", "job.blocked"]
@@ -83,6 +94,9 @@ def test_block_job_moves_running_work_to_blocked_and_appends_event(
         assert events[-1]["payload_json"] == {
             "blocker_id": result["blocker_id"],
             "severity": "blocked",
+            "blocker_kind": "needs_operator",
+            "is_escalation": False,
+            "payload_schema_version": "striatum.blocker_payload.v1",
         }
         seed_hash = canonical_event_hash(events[0])
         blocked_hash = canonical_event_hash(events[-1], previous_hash=seed_hash)
@@ -99,7 +113,7 @@ def test_block_job_human_checkpoint_moves_job_to_waiting_human(
         _seed_claimed_work(conn, tmp_path, repository_id="repo_a")
         conn.commit()
 
-        handle(
+        result = handle(
             _ctx(conn, tmp_path, repository_id="repo_a"),
             {
                 "session_id": "sess_1",
@@ -116,6 +130,56 @@ def test_block_job_human_checkpoint_moves_job_to_waiting_human(
             "SELECT state FROM striatumd.jobs WHERE repository_id = %s AND job_id = %s",
             ("repo_a", "job_1"),
         ) == {"state": "waiting_human"}
+        expected_payload = {
+            "schema_version": "striatum.blocker_payload.v1",
+            "source": "work.block",
+            "severity": "human_checkpoint",
+            "blocker_kind": "needs_human",
+            "description_format": "plain_text",
+            "description_length": len("needs principal decision"),
+            "is_escalation": True,
+            "escalation_trigger": "human_checkpoint",
+        }
+        assert _one(
+            conn,
+            "SELECT payload_json FROM striatumd.blockers WHERE repository_id = %s AND blocker_id = %s",
+            ("repo_a", result["blocker_id"]),
+        ) == {"payload_json": expected_payload}
+        assert _one(
+            conn,
+            "SELECT payload_json FROM striatumd.escalation_inbox WHERE repository_id = %s AND escalation_id = %s",
+            ("repo_a", result["blocker_id"]),
+        ) == {"payload_json": expected_payload}
+    finally:
+        conn.close()
+
+
+def test_block_job_rejects_invalid_payload_shape(tmp_path: Path, pg_url: str) -> None:
+    conn = connect(pg_url)
+    try:
+        _seed_claimed_work(conn, tmp_path, repository_id="repo_a")
+        conn.commit()
+
+        with pytest.raises(RpcError) as excinfo:
+            handle(
+                _ctx(conn, tmp_path, repository_id="repo_a"),
+                {
+                    "session_id": "sess_1",
+                    "job_id": "job_1",
+                    "lease_id": "lease_1",
+                    "kind": "Needs Human",
+                    "severity": "warning",
+                    "description": "bad shape",
+                },
+            )
+
+        assert excinfo.value.code == "schema_invalid"
+        assert "severity" in str(excinfo.value)
+        assert _one(
+            conn,
+            "SELECT COUNT(*) AS count FROM striatumd.blockers WHERE repository_id = %s",
+            ("repo_a",),
+        ) == {"count": 0}
     finally:
         conn.close()
 

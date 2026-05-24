@@ -5,20 +5,39 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from striatum.daemon_pg.handlers.context import RepoHandlerContext, active_lease_for, transaction
+from striatum.daemon_pg.handlers.context import (
+    RepoHandlerContext,
+    _jsonb,
+    active_lease_for,
+    transaction,
+)
 from striatum.daemon_pg.handlers.registry import register_pg_handler
+from striatum.daemon_rpc.envelope import RpcError
+from striatum.escalations import (
+    blocker_payload,
+    is_escalation_blocker,
+    normalize_blocker_request,
+)
 
 
 @register_pg_handler("work.block", "block")
 def handle(ctx: RepoHandlerContext, params: Mapping[str, Any]) -> dict[str, Any]:
-    session_id = str(params["session_id"])
-    job_id = str(params["job_id"])
-    lease_id = str(params["lease_id"])
-    kind = str(params["kind"])
-    severity = str(params["severity"])
-    description = str(params["description"])
-    from striatum.escalations import ESCALATION_BLOCKER_KINDS
-    is_escalation = (severity == "human_checkpoint" or kind in ESCALATION_BLOCKER_KINDS)
+    try:
+        request = normalize_blocker_request(params)
+    except ValueError as exc:
+        raise RpcError("schema_invalid", str(exc)) from exc
+    session_id = request["session_id"]
+    job_id = request["job_id"]
+    lease_id = request["lease_id"]
+    kind = request["kind"]
+    severity = request["severity"]
+    description = request["description"]
+    is_escalation = is_escalation_blocker(severity=severity, kind=kind)
+    payload = blocker_payload(
+        severity=severity,
+        kind=kind,
+        description=description,
+    )
     with transaction(ctx):
         job = ctx.row_by_id("jobs", "job_id", job_id, for_update=True)
         active_lease_for(ctx, lease_id=lease_id, session_id=session_id, job_id=job_id)
@@ -30,22 +49,44 @@ def handle(ctx: RepoHandlerContext, params: Mapping[str, Any]) -> dict[str, Any]
                 """
                 INSERT INTO striatumd.blockers (
                   repository_id, blocker_id, run_id, job_id, session_id, severity,
-                  blocker_kind, description, state, created_at
+                  blocker_kind, description, state, created_at, payload_json
                 )
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 'open', %s)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 'open', %s, %s)
                 """,
-                (ctx.repository_id, blocker_id, job["run_id"], job_id, session_id, severity, kind, description, now),
+                (
+                    ctx.repository_id,
+                    blocker_id,
+                    job["run_id"],
+                    job_id,
+                    session_id,
+                    severity,
+                    kind,
+                    description,
+                    now,
+                    _jsonb(payload),
+                ),
             )
             if is_escalation:
                 cur.execute(
                     """
                     INSERT INTO striatumd.escalation_inbox (
                       repository_id, escalation_id, run_id, job_id, session_id,
-                      blocker_id, blocker_kind, severity, state, created_at
+                      blocker_id, blocker_kind, severity, state, created_at, payload_json
                     )
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 'pending', %s)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 'pending', %s, %s)
                     """,
-                    (ctx.repository_id, blocker_id, job["run_id"], job_id, session_id, blocker_id, kind, severity, now),
+                    (
+                        ctx.repository_id,
+                        blocker_id,
+                        job["run_id"],
+                        job_id,
+                        session_id,
+                        blocker_id,
+                        kind,
+                        severity,
+                        now,
+                        _jsonb(payload),
+                    ),
                 )
             cur.execute(
                 "UPDATE striatumd.jobs SET state = %s, current_lease_id = NULL WHERE repository_id = %s AND job_id = %s",
@@ -74,6 +115,12 @@ def handle(ctx: RepoHandlerContext, params: Mapping[str, Any]) -> dict[str, Any]
             actor_session_id=session_id,
             job_id=job_id,
             lease_id=lease_id,
-            payload={"blocker_id": blocker_id, "severity": severity},
+            payload={
+                "blocker_id": blocker_id,
+                "severity": severity,
+                "blocker_kind": kind,
+                "is_escalation": is_escalation,
+                "payload_schema_version": payload["schema_version"],
+            },
         )
         return {"status": "blocked", "blocker_id": blocker_id}

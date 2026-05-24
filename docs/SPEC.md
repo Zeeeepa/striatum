@@ -697,7 +697,10 @@ V1 schemas:
   repository/run. Successful linkage stores compact metadata under
   `blockers.payload_json.escalation_artifact` and the escalation inbox
   projections surface it; publishing an escalation artifact does not create a
-  new live blocker by itself.
+  new live blocker by itself. Live `work.block` mutations validate the
+  blocker request shape and persist `striatum.blocker_payload.v1` metadata
+  under `blockers.payload_json`; escalation-class blockers mirror the same
+  payload into `escalation_inbox.payload_json`.
 - `striatum.commit_request.v1` (kind `commit_request`, RFC 0067 / D127):
   required `schema_version`, `artifact_kind: commit_request`, `request_id`,
   `base_head`, `branch`, `git_snapshot_hash`, `included_paths` (non-empty

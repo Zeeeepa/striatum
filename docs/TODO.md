@@ -104,7 +104,7 @@ so external references keep resolving even as items move between sections.
 | 50 | RFC 0060 Architecture remediation Phase 2 — single daemon method contract source | ✅ done |
 | 51 | Architecture remediation Phase 3 — daemon core strategy decision | ✅ done |
 | 52 | RFC 0061 Architecture remediation Phase 4 — daemon-first web service | 🟡 core web/API + artifact reads daemon-routed |
-| 53 | RFC 0062 Architecture remediation Phase 5 — real escalation inbox | 🟡 projection + typed inbox table + escalation artifact linkage landed; blocker payload hardening remains |
+| 53 | RFC 0062 Architecture remediation Phase 5 — real escalation inbox | 🟡 projection + typed inbox table + escalation artifact linkage + blocker payload schema landed |
 | 54 | RFC 0063 Architecture remediation Phase 6 — hardened PTY supervision | ✅ done |
 | 55 | RFC 0064 Architecture remediation Phase 7 — workflow risk lint and review diversity enforcement | ✅ done |
 | 56 | Architecture remediation Phase 8 — auto-finalize from front matter | ✅ D125 evidence gate satisfied; default remains dry-run pending separate policy change |
@@ -1129,9 +1129,11 @@ review and plan are root-level operator artifacts:
     artifact-only escalation creation as link-only: `artifact.publish` does
     not synthesize live blockers or inbox rows. Follow-up storage hardening
     landed a typed `striatumd.escalation_inbox` table in both Python and Go
-    migrations. Remaining: stricter blocker payload schema, a future
-    dedicated create/update method only if product scope needs it, and
-    eventual packet-helper rename (`packet inbox`) if needed.
+    migrations. Follow-up payload hardening landed `work.block` request
+    validation plus `striatum.blocker_payload.v1` payloads on blocker rows,
+    escalation inbox rows, and block events. Remaining: a future dedicated
+    create/update method only if product scope needs it, and eventual
+    packet-helper rename (`packet inbox`) if needed.
 
 54. **Phase 6: hardened PTY supervision / Go helper.** Add daemon-owned
     PTY supervision through a narrow helper protocol, with Python retaining

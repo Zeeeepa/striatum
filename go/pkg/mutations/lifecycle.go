@@ -510,21 +510,16 @@ func HandleBlockWork(ctx context.Context, runner db.Runner, envelope rpc.Envelop
 	if err != nil {
 		return nil, err
 	}
-	sessionID := stringParam(envelope, "session_id")
-	jobID := stringParam(envelope, "job_id")
-	leaseID := stringParam(envelope, "lease_id")
-	kind := stringParam(envelope, "kind")
-	severity := stringParam(envelope, "severity")
-	description := stringParam(envelope, "description")
-	if sessionID == "" || jobID == "" || leaseID == "" || kind == "" || severity == "" || description == "" {
-		return nil, rpc.NewError("schema_invalid", "work.block requires session_id, job_id, lease_id, kind, severity, and description", nil)
+	request, err := normalizeBlockWork(envelope)
+	if err != nil {
+		return nil, err
 	}
 	return withTx(ctx, runner, func(tx db.TxRunner) (map[string]any, error) {
-		job, err := rowByID(ctx, tx, repositoryID, "jobs", "job_id", jobID, true)
+		job, err := rowByID(ctx, tx, repositoryID, "jobs", "job_id", request.jobID, true)
 		if err != nil {
 			return nil, err
 		}
-		if _, err := activeLeaseFor(ctx, tx, repositoryID, leaseID, sessionID, jobID); err != nil {
+		if _, err := activeLeaseFor(ctx, tx, repositoryID, request.leaseID, request.sessionID, request.jobID); err != nil {
 			return nil, err
 		}
 		blockerID, err := newID("blk")
@@ -533,27 +528,34 @@ func HandleBlockWork(ctx context.Context, runner db.Runner, envelope rpc.Envelop
 		}
 		now := nowString()
 		state := "blocked"
-		if severity == "human_checkpoint" {
+		if request.severity == "human_checkpoint" {
 			state = "waiting_human"
+		}
+		payload := blockerPayload(request.severity, request.kind, request.description)
+		payloadArg, err := db.JSONBArg(tx, payload)
+		if err != nil {
+			return nil, err
 		}
 		if err := tx.Exec(ctx, `
 			INSERT INTO striatumd.blockers (
 			  repository_id, blocker_id, run_id, job_id, session_id, severity,
-			  blocker_kind, description, state, created_at
+			  blocker_kind, description, state, created_at, payload_json
 			)
-			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'open',$9)`,
-			repositoryID, blockerID, job["run_id"], jobID, sessionID, severity, kind, description, now,
+			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'open',$9,$10::jsonb)`,
+			repositoryID, blockerID, job["run_id"], request.jobID, request.sessionID,
+			request.severity, request.kind, request.description, now, payloadArg,
 		); err != nil {
 			return nil, err
 		}
-		if isEscalation(severity, kind) {
+		if isEscalation(request.severity, request.kind) {
 			if err := tx.Exec(ctx, `
 				INSERT INTO striatumd.escalation_inbox (
 				  repository_id, escalation_id, run_id, job_id, session_id,
-				  blocker_id, blocker_kind, severity, state, created_at
+				  blocker_id, blocker_kind, severity, state, created_at, payload_json
 				)
-				VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'pending',$9)`,
-				repositoryID, blockerID, job["run_id"], jobID, sessionID, blockerID, kind, severity, now,
+				VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'pending',$9,$10::jsonb)`,
+				repositoryID, blockerID, job["run_id"], request.jobID, request.sessionID,
+				blockerID, request.kind, request.severity, now, payloadArg,
 			); err != nil {
 				return nil, err
 			}
@@ -561,13 +563,13 @@ func HandleBlockWork(ctx context.Context, runner db.Runner, envelope rpc.Envelop
 		if err := tx.Exec(ctx, `
 			UPDATE striatumd.jobs
 			   SET state = $1, current_lease_id = NULL
-			 WHERE repository_id = $2 AND job_id = $3`, state, repositoryID, jobID); err != nil {
+			 WHERE repository_id = $2 AND job_id = $3`, state, repositoryID, request.jobID); err != nil {
 			return nil, err
 		}
 		if err := tx.Exec(ctx, `
 			UPDATE striatumd.leases
 			   SET state = 'released', released_at = $1, release_reason = 'blocked'
-			 WHERE repository_id = $2 AND lease_id = $3`, now, repositoryID, leaseID); err != nil {
+			 WHERE repository_id = $2 AND lease_id = $3`, now, repositoryID, request.leaseID); err != nil {
 			return nil, err
 		}
 		messageID := nullable(job["current_message_id"])
@@ -579,13 +581,16 @@ func HandleBlockWork(ctx context.Context, runner db.Runner, envelope rpc.Envelop
 				return nil, err
 			}
 		}
-		if _, err := appendEvent(ctx, tx, repositoryID, job["run_id"], "job.blocked", sessionID, jobID, nil, nil, leaseID, map[string]any{
-			"blocker_id": blockerID,
-			"severity":   severity,
+		if _, err := appendEvent(ctx, tx, repositoryID, job["run_id"], "job.blocked", request.sessionID, request.jobID, nil, nil, request.leaseID, map[string]any{
+			"blocker_id":             blockerID,
+			"severity":               request.severity,
+			"blocker_kind":           request.kind,
+			"is_escalation":          payload["is_escalation"],
+			"payload_schema_version": payload["schema_version"],
 		}); err != nil {
 			return nil, err
 		}
-		if err := sessionliveness.Record(ctx, tx, repositoryID, sessionID, sessionliveness.LastWorkBlockAt); err != nil {
+		if err := sessionliveness.Record(ctx, tx, repositoryID, request.sessionID, sessionliveness.LastWorkBlockAt); err != nil {
 			return nil, err
 		}
 		return map[string]any{"status": "blocked", "blocker_id": blockerID}, nil
@@ -676,4 +681,85 @@ func isEscalation(severity string, kind string) bool {
 		return true
 	}
 	return false
+}
+
+type blockWorkRequest struct {
+	sessionID   string
+	jobID       string
+	leaseID     string
+	kind        string
+	severity    string
+	description string
+}
+
+func normalizeBlockWork(envelope rpc.Envelope) (blockWorkRequest, error) {
+	request := blockWorkRequest{
+		sessionID:   strings.TrimSpace(stringParam(envelope, "session_id")),
+		jobID:       strings.TrimSpace(stringParam(envelope, "job_id")),
+		leaseID:     strings.TrimSpace(stringParam(envelope, "lease_id")),
+		kind:        strings.TrimSpace(stringParam(envelope, "kind")),
+		severity:    strings.TrimSpace(stringParam(envelope, "severity")),
+		description: strings.TrimSpace(stringParam(envelope, "description")),
+	}
+	required := map[string]string{
+		"session_id":  request.sessionID,
+		"job_id":      request.jobID,
+		"lease_id":    request.leaseID,
+		"kind":        request.kind,
+		"severity":    request.severity,
+		"description": request.description,
+	}
+	for key, value := range required {
+		if value == "" {
+			return blockWorkRequest{}, rpc.NewError("schema_invalid", fmt.Sprintf("work.block field %s must be non-empty", key), nil)
+		}
+	}
+	if request.severity != "blocked" && request.severity != "human_checkpoint" {
+		return blockWorkRequest{}, rpc.NewError("schema_invalid", "work.block severity must be one of blocked, human_checkpoint", nil)
+	}
+	if !validBlockerKind(request.kind) {
+		return blockWorkRequest{}, rpc.NewError("schema_invalid", "work.block kind must match ^[a-z0-9._-]{1,64}$", nil)
+	}
+	if len(request.description) > 8000 {
+		return blockWorkRequest{}, rpc.NewError("schema_invalid", "work.block description must be at most 8000 characters", nil)
+	}
+	return request, nil
+}
+
+func validBlockerKind(value string) bool {
+	if value == "" || len(value) > 64 {
+		return false
+	}
+	for _, ch := range value {
+		if ch >= 'a' && ch <= 'z' {
+			continue
+		}
+		if ch >= '0' && ch <= '9' {
+			continue
+		}
+		if ch == '.' || ch == '_' || ch == '-' {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
+func blockerPayload(severity string, kind string, description string) map[string]any {
+	trigger := any(nil)
+	if severity == "human_checkpoint" {
+		trigger = "human_checkpoint"
+	} else if isEscalation(severity, kind) {
+		trigger = "escalation_blocker_kind"
+	}
+	return map[string]any{
+		"schema_version":     "striatum.blocker_payload.v1",
+		"source":             "work.block",
+		"severity":           severity,
+		"blocker_kind":       kind,
+		"description_format": "plain_text",
+		"description_length": len(description),
+		"is_escalation":      isEscalation(severity, kind),
+		"escalation_trigger": trigger,
+	}
 }

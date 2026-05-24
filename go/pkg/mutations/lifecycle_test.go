@@ -87,6 +87,48 @@ func TestCompleteWorkRefusesReviewJobs(t *testing.T) {
 	}
 }
 
+func TestNormalizeBlockWorkRejectsInvalidPayloadShape(t *testing.T) {
+	_, err := normalizeBlockWork(rpc.Envelope{
+		SchemaVersion: rpc.SupportedEnvelopeVersion,
+		RequestID:     "req_block",
+		Method:        "work.block",
+		Params: map[string]any{
+			"session_id":  "sess_1",
+			"job_id":      "job_1",
+			"lease_id":    "lease_1",
+			"kind":        "Needs Human",
+			"severity":    "warning",
+			"description": "bad shape",
+		},
+	})
+	if err == nil {
+		t.Fatalf("expected invalid block payload")
+	}
+	rpcErr, ok := err.(*rpc.Error)
+	if !ok || rpcErr.Code != "schema_invalid" {
+		t.Fatalf("err = %#v", err)
+	}
+	if !strings.Contains(rpcErr.Message, "severity") {
+		t.Fatalf("message = %q", rpcErr.Message)
+	}
+}
+
+func TestBlockerPayloadMarksEscalationTrigger(t *testing.T) {
+	payload := blockerPayload("human_checkpoint", "needs_human", "needs principal decision")
+	if payload["schema_version"] != "striatum.blocker_payload.v1" {
+		t.Fatalf("schema_version = %#v", payload["schema_version"])
+	}
+	if payload["is_escalation"] != true {
+		t.Fatalf("is_escalation = %#v", payload["is_escalation"])
+	}
+	if payload["escalation_trigger"] != "human_checkpoint" {
+		t.Fatalf("escalation_trigger = %#v", payload["escalation_trigger"])
+	}
+	if payload["description_length"] != len("needs principal decision") {
+		t.Fatalf("description_length = %#v", payload["description_length"])
+	}
+}
+
 type releaseFakeRunner struct {
 	tx *releaseFakeTx
 }

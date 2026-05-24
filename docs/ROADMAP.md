@@ -660,11 +660,13 @@ paths are stable.
   escalation artifact does not synthesize live blockers or escalation inbox
   rows; live escalation state is created through `work.block` or a future
   accepted `escalation.create` design.
+- `work.block` now validates blocker request shape and writes
+  `striatum.blocker_payload.v1` payloads to blocker rows, escalation inbox
+  rows, and block events in both Python and Go paths.
 
-**Remaining Phase 5 debt:** tighten escalation-class blocker payload schema,
-consider a dedicated create/update method only if product scope needs direct
-escalation creation, and decide whether to rename the packet helper to
-`packet inbox`.
+**Remaining Phase 5 debt:** consider a dedicated create/update method only if
+product scope needs direct escalation creation, and decide whether to rename
+the packet helper to `packet inbox`.
 
 ---
 
