@@ -107,7 +107,7 @@ so external references keep resolving even as items move between sections.
 | 53 | RFC 0062 Architecture remediation Phase 5 — real escalation inbox | 🟡 projection + typed inbox table + escalation artifact linkage landed; blocker payload hardening remains |
 | 54 | RFC 0063 Architecture remediation Phase 6 — hardened PTY supervision | ✅ done |
 | 55 | RFC 0064 Architecture remediation Phase 7 — workflow risk lint and review diversity enforcement | ✅ done |
-| 56 | Architecture remediation Phase 8 — auto-finalize from front matter | 🟡 D125 gate artifact/projection landed; default-on dogfood evidence pending |
+| 56 | Architecture remediation Phase 8 — auto-finalize from front matter | ✅ D125 evidence gate satisfied; default remains dry-run pending separate policy change |
 | 57 | RFC 0065 Architecture remediation Phase 9 — UI packaging and bundle cleanup | ✅ done; chunking monitor only |
 | 58 | RFC 0059 Architecture remediation Phase 10 — day-zero setup improvements | ✅ done |
 | 59 | RFC 0059 RFC 0066 Architecture remediation Phase 11 — replay, archive, and corpus v2 foundations | ✅ done for core; optional external consumer UX remains out of core |
@@ -1235,8 +1235,10 @@ review and plan are root-level operator artifacts:
     `global_default_mode="dry_run"` plus the D125 default-live evidence gate,
     and `auto_finalize_gate_evidence` artifacts validate the required three
     live successes, two lane shapes, and zero contested audit-chain events.
-    Default-on behavior remains gated until a satisfied evidence artifact
-    exists.
+    The 2026-05-24 synthesis evidence slice satisfied that gate with three
+    live successes across review, build, and synthesis lane shapes and
+    `contested_audit_chain_events: 0`. Default-on behavior remains a separate
+    explicit policy/implementation change, not an evidence blocker.
 
 57. ~~**Phase 9: UI packaging and bundle cleanup.**~~ Done:
     `ui-build` depends on `ui-clean`, `ui-check-bundle` also runs a

@@ -1,16 +1,16 @@
 ---
 schema_version: "striatum.operator_brief.v1"
 artifact_kind: "operator_brief"
-brief_id: "brief_2026-05-23_rfc0075_polish_closure"
-supersedes: "brief_2026-05-23_rfc0050_0075_final_cutover"
-scope_links: ["docs/rfcs/0075-tmux-observable-mcp-agent-sessions.md", "docs/operator/plans/rfc-0075-tmux-observable-mcp-agent-sessions.md", "docs/operator/artifacts/rfc-0050-0075-final-cutover-implementation/final/SUMMARY.md", "docs/operator/artifacts/residual-deferred-closure-2026-05-23/final/SUMMARY.md", "docs/operator/artifacts/d125-auto-finalize-live-build-evidence-2026-05-23/GATE.md", "docs/architecture/CLI_RETIREMENT_PARITY.md", "docs/operator/plans/rfc-0050-0075-final-cutover-design.md", "docs/operator/plans/rfc-0050-0075-final-cutover-implementation.md"]
+brief_id: "brief_2026-05-24_current_todo_1_5"
+supersedes: "brief_2026-05-23_rfc0075_polish_closure"
+scope_links: ["docs/operator/plans/current-todo-1-5-2026-05-24.md", "docs/operator/workflows/current-todo-1-5-2026-05-24/workflow.json", "docs/operator/artifacts/d125-auto-finalize-live-synthesis-evidence-2026-05-24/GATE.md", "docs/operator/artifacts/rfc-0050-0075-final-cutover-implementation/final/SUMMARY.md", "docs/architecture/CLI_RETIREMENT_PARITY.md"]
 context_budget_lines: 300
 retrieval_priority: "high"
 status: "current"
 ---
 
 # Operator Brief
-author: antigravity-001
+author: operator-codex-001
 
 ## State
 
@@ -47,10 +47,11 @@ transition events, tmux attach metadata projection, fail-closed
 keep tmux panes, pane text, terminal output, and transcripts as inspection
 metadata only, never workflow state.
 
-The TODO 55/56/59/60 product checkpoint is resolved by D124-D127. D125 still
-keeps global auto-finalize dry-run by default and requires three successful
-live dogfoods across at least two lane shapes with zero contested audit-chain
-events before any default-live reconsideration.
+The TODO 55/56/59/60 product checkpoint is resolved by D124-D127. D125 keeps
+global auto-finalize dry-run by default; its evidence gate is now satisfied by
+three successful live dogfoods across review, build, and synthesis lane shapes
+with zero current contested audit-chain events. Any default-live change still
+requires a separate explicit implementation decision.
 
 The ordered backlog workflow completed on 2026-05-23 as
 `run_0937abb24a344dc268aa35d7c852359e`. It recorded the D125 live gate as
@@ -77,6 +78,14 @@ under `docs/operator/artifacts/d125-auto-finalize-live-build-evidence-2026-05-23
 It added an operator-self-declared build-shape live `recovery.auto_finalize`
 success through workflow opt-in without `--force`.
 
+The final D125 evidence slice completed on 2026-05-24 as
+`run_3d182acb046f7b09dbc0dbd9a3a90363`; evidence and satisfied gate artifacts
+are under
+`docs/operator/artifacts/d125-auto-finalize-live-synthesis-evidence-2026-05-24/`.
+It added an operator-self-declared synthesis-shape live
+`recovery.auto_finalize` success through workflow opt-in without `--force`, and
+the export-time daemon doctor reported no audit-chain problems.
+
 A residual/deferred closure pass completed on 2026-05-23. It scaffolded and
 drove per-item workflows for TODO 62, TODO 63, TODO 16, TODO 2, artifact
 schema/redaction coverage, RFC 0040 packet-evidence debt, and the deferred
@@ -93,18 +102,17 @@ external fetch UX and TODO 60 hosted providers are out of core, RFC 0058
 operator-tree init/rotation is optional, and Engram-side memory tools are
 external to Striatum.
 
-D125 is not satisfied. It has 2 operator-self-declared live behavioral
-successes across 2 lane shapes, but still needs one more successful live
-dogfood and the evidence gate cannot be satisfied while the current workspace
-has `contested_audit_chain_events: 1` from the reported repo event-chain
-`row_hash_mismatch` for event `7506`.
+D125 is satisfied for the current repository state. The gate artifact records
+3 operator-self-declared live behavioral successes across 3 lane shapes and
+`contested_audit_chain_events: 0`. The default remains dry-run unless a later
+bounded implementation deliberately changes that policy.
 
 ## Next 1-3 Actions
 
-1. Continue D125 evidence only after resolving or isolating the contested
-   audit-chain finding: collect one more successful live dogfood and preserve
-   at least two lane shapes with zero contested audit-chain events. Keep
-   global behavior dry-run and workflow opt-in.
+1. Continue the scaffolded current todo workflow:
+   `docs/operator/workflows/current-todo-1-5-2026-05-24/workflow.json`.
+   D125 evidence is complete; keep global auto-finalize dry-run and
+   workflow-opt-in unless a later decision changes the policy.
 2. Treat RFC 0050/RFC 0075 cutover as complete for live workflow control.
    Keep the CLI survivor categories in `docs/architecture/CLI_RETIREMENT_PARITY.md`
    current when adding daemon methods. Hide/delete compatibility CLI verbs only
@@ -118,8 +126,9 @@ has `contested_audit_chain_events: 1` from the reported repo event-chain
 
 ## Blockers
 
-- D125 default-live auto-finalize is blocked on the remaining live evidence
-  gate, not on a product decision.
+- D125 default-live auto-finalize is no longer blocked on evidence. The
+  satisfied gate permits future reconsideration, but no default-live flip is
+  implemented by this update.
 - RFC 0050/RFC 0075 live workflow-control cutover is no longer blocked.
   Remaining CLI compatibility cleanup is a future deprecation policy question,
   not an active parity blocker.
@@ -151,6 +160,10 @@ has `contested_audit_chain_events: 1` from the reported repo event-chain
 - `docs/operator/workflows/d125-auto-finalize-live-build-evidence-2026-05-23/workflow.json`
 - `docs/operator/artifacts/d125-auto-finalize-live-build-evidence-2026-05-23/REPORT.md`
 - `docs/operator/artifacts/d125-auto-finalize-live-build-evidence-2026-05-23/GATE.md`
+- `docs/operator/workflows/d125-auto-finalize-live-synthesis-evidence-2026-05-24/workflow.json`
+- `docs/operator/artifacts/d125-auto-finalize-live-synthesis-evidence-2026-05-24/GATE.md`
+- `docs/operator/plans/current-todo-1-5-2026-05-24.md`
+- `docs/operator/workflows/current-todo-1-5-2026-05-24/workflow.json`
 - `docs/operator/plans/rfc-0050-0075-final-cutover-design.md`
 - `docs/operator/plans/rfc-0050-0075-final-cutover-implementation.md`
 - `docs/operator/artifacts/rfc-0050-0075-final-cutover-implementation/final/SUMMARY.md`

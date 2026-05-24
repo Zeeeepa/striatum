@@ -1,0 +1,44 @@
+# Striatum Evidence Export
+
+- run_id: `run_3d182acb046f7b09dbc0dbd9a3a90363`
+- state: `completed`
+- branch: `main`
+
+## Snapshot
+
+```json
+{
+  "artifacts": [
+    {
+      "artifact_id": "art_adc3be2f55b926fdb5befc3915e7b7cc",
+      "byline": "author: operator [self-declared: d125-synthesis-driver]",
+      "content_sha256": "2d0f08d46df7bc6ca67dbde6790f52b938a2ad52d7d1e400f10c245eadff9dac",
+      "job_id": "job_run_3d182acb046f7b09dbc0dbd9a3a90363_write_synthesis_evidence",
+      "kind": "synthesis",
+      "logical_name": "synthesis_evidence",
+      "path": "docs/operator/artifacts/d125-auto-finalize-live-synthesis-evidence-2026-05-24/SYNTHESIS.md",
+      "published_at": "2026-05-24T00:55:21Z",
+      "run_id": "run_3d182acb046f7b09dbc0dbd9a3a90363"
+    }
+  ],
+  "doctor": {
+    "blob": {
+      "configured": false
+    },
+    "ok": true,
+    "problems": [],
+    "schema_version": 14,
+    "stale_leases": 2,
+    "waiting_human": 0
+  },
+  "runs": [
+    {
+      "branch_name": "main",
+      "completed_at": "2026-05-24T00:55:21Z",
+      "run_id": "run_3d182acb046f7b09dbc0dbd9a3a90363",
+      "state": "completed"
+    }
+  ],
+  "verdicts": []
+}
+```

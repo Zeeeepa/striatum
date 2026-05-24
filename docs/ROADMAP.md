@@ -777,7 +777,7 @@ workflow-file metadata a live authority.
 
 ---
 
-### 4.12 🟡 default policy decided; evidence gate pending — Architecture remediation Phase 8: auto-finalize from front matter
+### 4.12 ✅ completed; evidence gate satisfied — Architecture remediation Phase 8: auto-finalize from front matter
 
 **Updates:** [TODO item 39](TODO.md), [TODO item 56](TODO.md).
 
@@ -823,11 +823,14 @@ workflow-file metadata a live authority.
   `auto_finalize_gate_evidence` artifacts validate the required three live
   successes, two lane shapes, and zero contested audit-chain events before
   the evidence gate can be marked satisfied.
+- The 2026-05-24 synthesis evidence slice satisfied the D125 gate with three
+  live successes across review, build, and synthesis lane shapes and zero
+  current contested audit-chain events.
 
-**Remaining Phase 8 debt:** D125 keeps dry-run projection as the global
-default and live auto-finalize workflow opt-in. Default-on behavior may be
-reconsidered only after three successful live dogfoods across at least two lane
-shapes with zero contested audit-chain events.
+**Remaining Phase 8 debt:** none for the evidence gate. D125 still keeps
+dry-run projection as the global default and live auto-finalize workflow
+opt-in; any default-on flip is a separate explicit policy/implementation
+change.
 
 ---
 
@@ -1117,9 +1120,9 @@ Release order after Phase 0:
    records landed for MCP/daemon clients, with CLI/UI polish completed in
    §4.11.
 8. **TODO 56 / Phase 8:** auto-finalize daemon method, status/dashboard/web
-   visibility, bounded sweep integration, and skipped-candidate cause classes
-   landed; D125 keeps the dry-run default and gates any default-on flip on
-   dogfood evidence, tracked in §4.12.
+   visibility, bounded sweep integration, skipped-candidate cause classes, and
+   the D125 evidence gate landed; D125 still keeps the dry-run default unless
+   a later explicit policy change flips it, tracked in §4.12.
 9. **TODO 57 / Phase 9:** clean-build, bundle-size, and wheel-size gates
    landed; chunking is monitor-only and tracked in §4.13.
 10. **TODO 58 / Phase 10:** day-zero Postgres/daemon setup slice

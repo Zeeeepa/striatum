@@ -1,0 +1,276 @@
+{
+  "schema_version": "striatum.workflow.v1",
+  "workflow_id": "current-todo-1-5-2026-05-24",
+  "workflow_version": "2026-05-24",
+  "name": "Current TODO 1 through 5 execution",
+  "context_docs": [
+    "README.md",
+    "docs/INDEX.md",
+    "docs/SPEC.md",
+    "docs/DECISION_LOG.md",
+    "docs/UBIQUITOUS_LANGUAGE.md",
+    "docs/TODO.md",
+    "docs/ROADMAP.md",
+    "docs/operator/BRIEF.md",
+    "docs/operator/plans/current-todo-1-5-2026-05-24.md",
+    "docs/rfcs/0062-real-escalation-inbox.md",
+    "docs/rfcs/0074-workflow-shape-and-adversary-pack-catalog.md",
+    "AGENTS.md"
+  ],
+  "coordinator": {
+    "role_id": "coordinator",
+    "lane_id": "codex"
+  },
+  "parallelism": {
+    "mode": "declared",
+    "max_active_jobs": 5,
+    "require_disjoint_write_scopes": true
+  },
+  "branch": {
+    "mode": "confirm",
+    "suggested_name": "main",
+    "allow_dirty": true
+  },
+  "lanes": {
+    "codex": {
+      "adapter": "process",
+      "command": ["bash", "-lc", "cat >/dev/null"],
+      "model": "codex",
+      "display_model": "Codex",
+      "strategy_version": "2026-05-24"
+    }
+  },
+  "roles": {
+    "coordinator": {
+      "description": "Operator/control-plane role."
+    },
+    "d125_evidence": {
+      "description": "D125 evidence gate executor."
+    },
+    "legacy_cleanup": {
+      "description": "Legacy SQLite cleanup executor."
+    },
+    "service_split": {
+      "description": "Web service split executor."
+    },
+    "escalation_hardening": {
+      "description": "Escalation blocker payload schema executor."
+    },
+    "generator_phase_b": {
+      "description": "RFC 0074 Phase B generator executor."
+    },
+    "closer": {
+      "description": "Final consolidation role."
+    }
+  },
+  "jobs": [
+    {
+      "id": "item_01_d125_gate",
+      "type": "synthesis",
+      "title": "Item 1 D125 evidence gate",
+      "role_id": "d125_evidence",
+      "lane_id": "codex",
+      "fresh_session_required": true,
+      "objective": "Run a fresh opt-in live auto-finalize probe and record whether the D125 gate is satisfied.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/current-todo-1-5-2026-05-24/prompts/item_01_d125_gate.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/operator/workflows/d125-auto-finalize-live-synthesis-evidence-2026-05-24/",
+          "docs/operator/artifacts/d125-auto-finalize-live-synthesis-evidence-2026-05-24/",
+          "docs/operator/artifacts/current-todo-1-5-2026-05-24/item-01/"
+        ],
+        "forbidden_paths": [".striatum/"]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "d125_gate_result",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/current-todo-1-5-2026-05-24/item-01/RESULT.md",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "item_02_legacy_sqlite_cleanup",
+      "type": "synthesis",
+      "title": "Item 2 legacy SQLite cleanup",
+      "role_id": "legacy_cleanup",
+      "lane_id": "codex",
+      "fresh_session_required": true,
+      "objective": "Delete or retire a bounded stale legacy-SQLite skipped-test slice and update guardrails.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/current-todo-1-5-2026-05-24/prompts/item_02_legacy_sqlite_cleanup.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "tests/",
+          "pyproject.toml",
+          "docs/TODO.md",
+          "docs/ROADMAP.md",
+          "docs/operator/artifacts/current-todo-1-5-2026-05-24/item-02/"
+        ],
+        "forbidden_paths": [".striatum/"]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "legacy_cleanup_result",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/current-todo-1-5-2026-05-24/item-02/RESULT.md",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "item_03_service_split",
+      "type": "synthesis",
+      "title": "Item 3 service split cleanup",
+      "role_id": "service_split",
+      "lane_id": "codex",
+      "fresh_session_required": true,
+      "objective": "Move one more stable non-SQLite web/service boundary out of service.py.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/current-todo-1-5-2026-05-24/prompts/item_03_service_split.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "src/striatum/service.py",
+          "src/striatum/service_routes.py",
+          "src/striatum/web/",
+          "tests/",
+          "docs/TODO.md",
+          "docs/ROADMAP.md",
+          "docs/operator/artifacts/current-todo-1-5-2026-05-24/item-03/"
+        ],
+        "forbidden_paths": [".striatum/"]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "service_split_result",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/current-todo-1-5-2026-05-24/item-03/RESULT.md",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "item_04_escalation_hardening",
+      "type": "synthesis",
+      "title": "Item 4 escalation payload hardening",
+      "role_id": "escalation_hardening",
+      "lane_id": "codex",
+      "fresh_session_required": true,
+      "objective": "Tighten escalation-class blocker payload validation and projection without changing D130 link-only policy.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/current-todo-1-5-2026-05-24/prompts/item_04_escalation_hardening.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "src/striatum/escalations.py",
+          "src/striatum/daemon_pg/handlers/workflow_loop/block_job.py",
+          "go/pkg/mutations/",
+          "tests/",
+          "docs/TODO.md",
+          "docs/ROADMAP.md",
+          "docs/operator/artifacts/current-todo-1-5-2026-05-24/item-04/"
+        ],
+        "forbidden_paths": [".striatum/"]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "escalation_hardening_result",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/current-todo-1-5-2026-05-24/item-04/RESULT.md",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "item_05_rfc0074_phase_b",
+      "type": "synthesis",
+      "title": "Item 5 RFC 0074 Phase B",
+      "role_id": "generator_phase_b",
+      "lane_id": "codex",
+      "fresh_session_required": true,
+      "objective": "Implement the narrow RFC 0074 Phase B generator slice for implementation_panel role/adversary packs.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/current-todo-1-5-2026-05-24/prompts/item_05_rfc0074_phase_b.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "src/striatum/workflow_generator/",
+          "src/striatum/cli/",
+          "src/striatum/web/",
+          "src/striatum/workflow_templates/catalog.json",
+          "go/pkg/workflowgenerate/",
+          "tests/",
+          "docs/WORKFLOW_TYPES.md",
+          "docs/WRITING_WORKFLOWS.md",
+          "docs/rfcs/0074-workflow-shape-and-adversary-pack-catalog.md",
+          "docs/TODO.md",
+          "docs/ROADMAP.md",
+          "docs/operator/artifacts/current-todo-1-5-2026-05-24/item-05/"
+        ],
+        "forbidden_paths": [".striatum/"]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "rfc0074_phase_b_result",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/current-todo-1-5-2026-05-24/item-05/RESULT.md",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "finalize_current_todo_1_5",
+      "type": "synthesis",
+      "title": "Finalize current TODO 1-5",
+      "role_id": "closer",
+      "lane_id": "codex",
+      "fresh_session_required": true,
+      "objective": "Consolidate validation, residuals, and docs updates for the five-item run.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/current-todo-1-5-2026-05-24/prompts/finalize.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/operator/artifacts/current-todo-1-5-2026-05-24/final/",
+          "docs/operator/BRIEF.md",
+          "docs/TODO.md",
+          "docs/ROADMAP.md"
+        ],
+        "forbidden_paths": [".striatum/"]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "final_summary",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/current-todo-1-5-2026-05-24/final/SUMMARY.md",
+          "required": true
+        }
+      ]
+    }
+  ],
+  "edges": [
+    {"from": "item_01_d125_gate", "to": "item_02_legacy_sqlite_cleanup", "on": "completed"},
+    {"from": "item_02_legacy_sqlite_cleanup", "to": "item_03_service_split", "on": "completed"},
+    {"from": "item_03_service_split", "to": "item_04_escalation_hardening", "on": "completed"},
+    {"from": "item_04_escalation_hardening", "to": "item_05_rfc0074_phase_b", "on": "completed"},
+    {"from": "item_05_rfc0074_phase_b", "to": "finalize_current_todo_1_5", "on": "completed"}
+  ],
+  "cycles": []
+}
