@@ -1250,8 +1250,8 @@ review and plan are root-level operator artifacts:
     live successes, two lane shapes, and zero contested audit-chain events.
     The 2026-05-24 synthesis evidence slice satisfied that gate with three
     live successes across review, build, and synthesis lane shapes and
-    `contested_audit_chain_events: 0`. Default-on behavior remains a separate
-    explicit policy/implementation change, not an evidence blocker.
+    `contested_audit_chain_events: 0`. D133 completes the default-on
+    implementation; any rollback or narrower policy requires a new decision.
 
 57. ~~**Phase 9: UI packaging and bundle cleanup.**~~ Done:
     `ui-build` depends on `ui-clean`, `ui-check-bundle` also runs a
