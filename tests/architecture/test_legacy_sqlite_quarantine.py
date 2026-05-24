@@ -30,7 +30,6 @@ RESIDUAL_LEGACY_SQLITE_TEST_IMPORTS: dict[Path, set[str]] = {
     Path("tests/test_cli_corpus_export.py"): {
         "from striatum.legacy_sqlite.db import init_repo"
     },
-    Path("tests/test_cli_run_cancel.py"): {"from striatum.legacy_sqlite.db import connect"},
     Path("tests/test_corpus_export_integration.py"): {
         "from striatum.legacy_sqlite.db import init_repo"
     },
@@ -71,7 +70,6 @@ RESIDUAL_LEGACY_SQLITE_TEST_IMPORTS: dict[Path, set[str]] = {
         "from striatum.legacy_sqlite.migrations import apply_migrations"
     },
     Path("tests/test_list_commands.py"): {"from striatum.legacy_sqlite.db import init_repo"},
-    Path("tests/test_pause_resume.py"): {"from striatum.legacy_sqlite.db import connect"},
     Path("tests/test_posture_verdicts_override_provenance.py"): {
         "from striatum.legacy_sqlite.db import connect"
     },
@@ -82,8 +80,6 @@ RESIDUAL_LEGACY_SQLITE_TEST_IMPORTS: dict[Path, set[str]] = {
     Path("tests/test_recovery_panel_dry_run.py"): {
         "from striatum.legacy_sqlite.db import connect"
     },
-    Path("tests/test_recovery_resume.py"): {"from striatum.legacy_sqlite.db import connect"},
-    Path("tests/test_retry_job.py"): {"from striatum.legacy_sqlite.db import connect"},
     Path("tests/test_review_postures_introspection.py"): {
         "from striatum.legacy_sqlite.db import connect",
         "from striatum.legacy_sqlite.migrations import apply_migrations",
@@ -100,10 +96,6 @@ RESIDUAL_LEGACY_SQLITE_TEST_IMPORTS: dict[Path, set[str]] = {
     Path("tests/test_supervised_progress_watcher.py"): {
         "from striatum.legacy_sqlite.db import connect",
         "from striatum.legacy_sqlite.db import init_repo",
-    },
-    Path("tests/test_web_run_cancel.py"): {"from striatum.legacy_sqlite.db import connect"},
-    Path("tests/test_web_run_pause_resume.py"): {
-        "from striatum.legacy_sqlite.db import connect"
     },
     Path("tests/test_web_run_posture_verdicts.py"): {
         "from striatum.legacy_sqlite.db import connect"

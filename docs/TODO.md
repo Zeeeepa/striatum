@@ -947,7 +947,11 @@ review and plan are root-level operator artifacts:
     retired repo-local SQLite import helper now lives under
     `striatum.legacy_sqlite.repo_local_migration`; the old
     `striatum.daemon_pg.repo_local_migration` path is a lazy facade and no
-    longer imports SQLite on plain module import.
+    longer imports SQLite on plain module import. The 2026-05-24 cleanup
+    deleted six fully module-level-skipped legacy SQLite test fixtures for
+    run cancel, pause/resume, retry, recovery resume, and matching web routes,
+    with current PostgreSQL/daemon-routed coverage retained in the daemon and
+    service test suites.
 
 50. ~~**Phase 2: single method-contract source.**~~ ✅ Done. Contract source is now
     live at `contracts/daemon_methods.json`; Python `METHOD_REGISTRY`

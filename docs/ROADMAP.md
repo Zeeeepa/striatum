@@ -374,7 +374,10 @@ guardrail failures. The repo-local SQLite engine and migrations now live under
 lazy compatibility facades for legacy fixtures and do not import SQLite on
 plain module import. The retired repo-local import helper is also quarantined
 under `striatum.legacy_sqlite`; any remaining compatibility facade is
-fixture-only and not an operator path.
+fixture-only and not an operator path. The 2026-05-24 cleanup removed six
+fully skipped legacy SQLite run lifecycle/recovery/web-route fixtures and
+their quarantine allowlist entries; remaining fixture entries are narrower
+and must continue to shrink by conversion or deletion.
 
 ---
 
