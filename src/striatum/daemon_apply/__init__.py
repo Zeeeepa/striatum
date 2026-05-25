@@ -1,1 +1,0 @@
-"""Daemon sealed-apply helpers."""

@@ -111,7 +111,7 @@ When two docs disagree, the home wins.
 - **What it is:** one entry per shipped version.
 - **What it owns:** what changed user-visibly per release.
 - **Rule of thumb:** a CHANGELOG entry is for someone who reads
-  it after `pip install -U striatum-orchestrator` to understand what they
+  it after an installation to understand what they
   just got. It's not a PR description.
 
 ### `README.md` — first contact

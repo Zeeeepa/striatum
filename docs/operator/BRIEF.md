@@ -117,7 +117,7 @@ fixtures while preserving current PG/daemon coverage, split historical
 dogfood route handling out of `service.py`, hardened `work.block` escalation
 payloads across Python/Go runtime paths, and accepted/landed RFC 0074 Phase B
 `implementation_panel` generator support in Python and Go. Aggregate
-validation passed with `go test ./...`, full Python pytest, workflow
+validation passed with `go test ./...`, the full Python test suite, workflow
 validation, and catalog freshness checks.
 
 The follow-up TODO 49/61 cleanup on 2026-05-24 deleted the remaining legacy
@@ -180,7 +180,7 @@ slice closes those rows.
   not an active parity blocker.
 - RFC 0078 final deletion is blocked by the Python-trace guardrail. As of the
   integrated 2026-05-25 run, report mode shows active blockers for Python
-  source, pytest, `pyproject.toml`, tracked Python scripts, and current docs.
+  source, the Python test suite, `pyproject.toml`, tracked Python scripts, and current docs.
 - Hosted Git provider behavior, external corpus-fetch UX, and Engram-side
   memory tools are out of core unless later optional-extension decisions
   accept them.

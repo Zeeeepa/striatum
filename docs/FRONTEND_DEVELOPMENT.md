@@ -11,9 +11,9 @@ the Striatum web UI's React island components. It complements
 [`docs/rfcs/0038-web-ui-feature-additions-and-frontend-toolchain.md`](rfcs/0038-web-ui-feature-additions-and-frontend-toolchain.md)
 (the RFC that introduced this surface).
 
-Operators do not need Node installed. Operators install Striatum with
-`pip install striatum-orchestrator`; the Vite-bundled JavaScript ships
-inside the Python wheel under `src/striatum/web/static/build/`.
+Operators do not need Node installed. Operators install Striatum from
+Go release archives; the Vite-bundled JavaScript ships inside the
+Go binary under `src/striatum/web/static/build/`.
 
 ## When you need this guide
 
@@ -83,8 +83,7 @@ make ui-dev       # vite dev server with hot reload
 make ui-test      # vitest --run
 ```
 
-`make install` does not run any of these. The Python install path stays
-pip-only.
+`make install` does not run any of these. The installation path is Go-only.
 
 ## Local feature loop
 

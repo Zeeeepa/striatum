@@ -199,6 +199,7 @@ done < <(
   git grep -I -n -i -E "$guidance_pattern" -- \
     README.md AGENTS.md Makefile .github scripts docs examples prompts \
     src/striatum/skills/templates src/striatum/plugins/templates \
+    ':(exclude)scripts/python_trace_guardrail.sh' \
     2>/dev/null || true
 )
 

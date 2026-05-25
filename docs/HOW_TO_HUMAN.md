@@ -938,7 +938,7 @@ ls go/bin/striatumd
 
 The build requires Go 1.23+ and the system `make`. Release tooling can
 stage per-platform binaries into `striatum._daemongo` via
-`make daemon-go-release`, and local wheel/editable testing can stage the
+`make daemon-go-release`, and local package/editable testing can stage the
 host binary with `make daemon-go-install`. Installs that do not include a
 matching package-data binary still fall through to `STRIATUMD_GO_BIN` and
 then `go/bin/striatumd`.

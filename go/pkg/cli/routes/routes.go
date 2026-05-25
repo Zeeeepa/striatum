@@ -1,7 +1,7 @@
 // Package routes contains generated CLI-to-daemon route metadata.
 package routes
 
-//go:generate go run ../routergen -contract ../../../../contracts/daemon_methods.json -out routes_generated.go
+//go:generate go run ../routergen -mode routes -contract ../../../../contracts/daemon_methods.json -out routes_generated.go
 
 type Route struct {
 	Command             string

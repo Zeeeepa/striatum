@@ -1,0 +1,227 @@
+package installers
+
+import (
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+func TestInstallSkillsClaudeCode(t *testing.T) {
+	home := t.TempDir()
+	params := SkillsParams{Home: home, Profile: "claude_code", Scope: "user", Namespace: "striatum-", Version: "9.9.9"}
+	result, err := InstallSkills(params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Files) != len(claudeCodeSkills) {
+		t.Fatalf("expected %d files, got %d", len(claudeCodeSkills), len(result.Files))
+	}
+	for _, f := range result.Files {
+		if f.Status != "written" {
+			t.Fatalf("fresh install file %s status = %s", f.Path, f.Status)
+		}
+	}
+	// Every skill file exists and carries the rendered version stamp.
+	workflowPath := filepath.Join(home, ".claude", "skills", "striatum-workflow", "SKILL.md")
+	body, err := os.ReadFile(workflowPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(body), "9.9.9") {
+		t.Fatalf("rendered skill missing version stamp")
+	}
+	if strings.Contains(string(body), "{striatum_version}") || strings.Contains(string(body), "{verbs_") {
+		t.Fatalf("rendered skill has unexpanded placeholders")
+	}
+
+	// Manifest carries the version stamp doctor reads.
+	doc := loadManifest(result.ManifestPath, skillsManifestSchema)
+	if doc == nil {
+		t.Fatalf("manifest not written/parseable at %s", result.ManifestPath)
+	}
+	if doc.StriatumVersion != "9.9.9" {
+		t.Fatalf("manifest version = %s", doc.StriatumVersion)
+	}
+	if doc.Profile != "claude_code" || doc.Scope != "user" {
+		t.Fatalf("manifest meta mismatch: %+v", doc)
+	}
+}
+
+func TestInstallSkillsIdempotent(t *testing.T) {
+	home := t.TempDir()
+	params := SkillsParams{Home: home, Profile: "claude_code", Scope: "user", Namespace: "striatum-", Version: "1.2.3"}
+	if _, err := InstallSkills(params); err != nil {
+		t.Fatal(err)
+	}
+	result, err := InstallSkills(params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range result.Files {
+		if f.Status != "skipped_unchanged" {
+			t.Fatalf("reinstall file %s status = %s, want skipped_unchanged", f.Path, f.Status)
+		}
+	}
+}
+
+func TestInstallSkillsRefusesOperatorEditWithoutForce(t *testing.T) {
+	home := t.TempDir()
+	params := SkillsParams{Home: home, Profile: "claude_code", Scope: "user", Namespace: "striatum-", Version: "1.0.0"}
+	if _, err := InstallSkills(params); err != nil {
+		t.Fatal(err)
+	}
+	edited := filepath.Join(home, ".claude", "skills", "striatum-workflow", "SKILL.md")
+	if err := os.WriteFile(edited, []byte("operator edit\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	result, err := InstallSkills(params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, f := range result.Files {
+		if strings.HasSuffix(f.Path, "striatum-workflow/SKILL.md") {
+			found = true
+			if f.Status != "refused_modified" {
+				t.Fatalf("edited file status = %s, want refused_modified", f.Status)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("workflow skill not in results")
+	}
+	if body, _ := os.ReadFile(edited); string(body) != "operator edit\n" {
+		t.Fatal("refused file was overwritten")
+	}
+
+	// With force, the operator edit is overwritten.
+	forced := params
+	forced.Force = true
+	if _, err := InstallSkills(forced); err != nil {
+		t.Fatal(err)
+	}
+	if body, _ := os.ReadFile(edited); string(body) == "operator edit\n" {
+		t.Fatal("force did not overwrite operator edit")
+	}
+}
+
+func TestInstallSkillsAllFansOut(t *testing.T) {
+	home := t.TempDir()
+	result, err := InstallSkillsAll(SkillsParams{Home: home, Scope: "user", Namespace: "striatum-", Version: "2.0.0"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Results) != len(SkillsAllProfilesOrder) {
+		t.Fatalf("expected %d profile results, got %d", len(SkillsAllProfilesOrder), len(result.Results))
+	}
+	for i, prof := range SkillsAllProfilesOrder {
+		if result.Results[i].Profile != prof {
+			t.Fatalf("result %d profile = %s, want %s", i, result.Results[i].Profile, prof)
+		}
+	}
+}
+
+func TestInstallSkillsUnknownProfile(t *testing.T) {
+	_, err := InstallSkills(SkillsParams{Home: t.TempDir(), Profile: "nope", Scope: "user", Version: "1"})
+	if err == nil {
+		t.Fatal("expected error for unknown profile")
+	}
+}
+
+func TestInstallPluginClaudeCode(t *testing.T) {
+	target := t.TempDir()
+	result, err := InstallPlugin(PluginsParams{
+		Target: target, Profile: "claude_code", Scope: "project",
+		Namespace: "striatum", WithMarketplace: true, Version: "3.1.4",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// plugin.json + 6 skills + 5 commands + hooks + mcp + README = 15
+	if len(result.Files) != 15 {
+		t.Fatalf("expected 15 plugin files, got %d", len(result.Files))
+	}
+	pluginJSON := filepath.Join(result.BundleRoot, ".claude-plugin", "plugin.json")
+	body, err := os.ReadFile(pluginJSON)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var parsed map[string]any
+	if err := json.Unmarshal(body, &parsed); err != nil {
+		t.Fatalf("plugin.json not valid JSON (brace escaping?): %v", err)
+	}
+	if parsed["version"] != "3.1.4" {
+		t.Fatalf("plugin.json version = %v", parsed["version"])
+	}
+	if parsed["name"] != "striatum" {
+		t.Fatalf("plugin.json name = %v", parsed["name"])
+	}
+	// Marketplace written under project scope.
+	if result.Marketplace == nil {
+		t.Fatal("expected marketplace result")
+	}
+	mkt := filepath.Join(target, ".striatum", "plugins", "marketplace.json")
+	if _, err := os.Stat(mkt); err != nil {
+		t.Fatalf("marketplace.json missing: %v", err)
+	}
+}
+
+func TestPluginUninstallRoundTrip(t *testing.T) {
+	target := t.TempDir()
+	params := PluginsParams{Target: target, Profile: "claude_code", Scope: "project", Namespace: "striatum", WithMarketplace: false, Version: "1.0.0"}
+	if _, err := InstallPlugin(params); err != nil {
+		t.Fatal(err)
+	}
+	result, err := UninstallPlugin(params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != "uninstalled" {
+		t.Fatalf("status = %s", result.Status)
+	}
+	if _, err := os.Stat(result.BundleRoot); !os.IsNotExist(err) {
+		t.Fatalf("bundle root still present: %v", err)
+	}
+}
+
+func TestPluginGeminiSkipsMarketplace(t *testing.T) {
+	target := t.TempDir()
+	result, err := InstallPlugin(PluginsParams{Target: target, Profile: "gemini", Scope: "project", Namespace: "striatum", WithMarketplace: true, Version: "1.0.0"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Marketplace["skipped"] != true {
+		t.Fatalf("gemini marketplace not skipped: %+v", result.Marketplace)
+	}
+}
+
+func TestDryRunWritesNothing(t *testing.T) {
+	home := t.TempDir()
+	result, err := InstallSkills(SkillsParams{Home: home, Profile: "claude_code", Scope: "user", Namespace: "striatum-", DryRun: true, Version: "1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range result.Files {
+		if f.Status != "dry_run" {
+			t.Fatalf("dry-run file status = %s", f.Status)
+		}
+	}
+	if _, err := os.Stat(result.ManifestPath); !os.IsNotExist(err) {
+		t.Fatal("dry-run wrote a manifest")
+	}
+}
+
+func TestFormatMapBraceEscaping(t *testing.T) {
+	out, err := formatMap("{{\"v\": \"{striatum_version}\"}}", map[string]string{"striatum_version": "1.0"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out != `{"v": "1.0"}` {
+		t.Fatalf("got %q", out)
+	}
+	if _, err := formatMap("{unknown_key}", map[string]string{}); err == nil {
+		t.Fatal("expected error for unknown key")
+	}
+}

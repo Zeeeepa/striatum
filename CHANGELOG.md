@@ -1,6 +1,34 @@
 # Changelog
 
-## Unreleased — 2026-05-19
+## Unreleased — 2026-05-25
+
+## v2.1.0 — 2026-05-25
+
+### RFC 0078: Go-only runtime and Python removal (accepted)
+
+Striatum is now Go-only at repository HEAD. The legacy Python runtime,
+source, the Python test suite, packaging, and tracked Python scripts are
+removed; their behavior is ported to Go or explicitly retired.
+
+- **Corpus**: redaction-tier compliance ported into the Go reads/export
+  path; the standalone Python corpus modules retired.
+- **Installers**: `striatum skills install` / `plugin install` reimplemented
+  in Go with embedded templates and `doctor` version-stamp parity; the
+  `scaffold` flag retired.
+- **Generators**: the daemon-method-table and Go RPC-registry generators
+  consolidated into the Go `routergen` tool, fed by
+  `contracts/daemon_methods.json` with a byte-identical `go generate`
+  round-trip; the Python generators removed.
+- **Tests**: Python test coverage migrated to Go (and frontend/shell) tests
+  or retired by recorded ledger reason; all tracked Python tests deleted.
+- **Packaging/docs**: `pyproject.toml`, the legacy Python Makefile targets,
+  and the remaining Python scripts removed; operator guidance rewritten to
+  Go-only; release is Go binary archives.
+- **Guardrail**: `make python-trace-guardrail` is strict (blocked=0) and
+  enforced in CI to keep Python from returning.
+
+Daemon-owned PostgreSQL remains the only live-state substrate. See D134 and
+`docs/operator/artifacts/rfc-0078-closure/`.
 
 ## v1.57.0 — 2026-05-19
 

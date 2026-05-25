@@ -58,6 +58,12 @@ func TestDetailReadHandlersValidateBeforeQuery(t *testing.T) {
 			code:    "schema_invalid",
 		},
 		{
+			name:    "why target",
+			handler: HandleWhy,
+			params:  map[string]any{"repository_id": "repo_1"},
+			code:    "schema_invalid",
+		},
+		{
 			name:    "archive output path",
 			handler: HandleArchiveCreate,
 			params:  map[string]any{"repository_id": "repo_1", "run_id": "run_1"},

@@ -87,12 +87,11 @@ Use the Makefile targets:
 - `make test`
 - `make smoke`
 
-The active production build path is Go-first: the root Makefile delegates to
-`go/` for `striatum`, `striatumd`, and `striatum-supervisor-helper` binaries.
-Python source and pytest coverage still exist while RFC 0078 finishes the
-remaining port/delete gates; treat them as active legacy surfaces, not new
-implementation targets. Examples live under `examples`. Historical execution
-prompts live under `prompts`.
+The project is Go-only: the root Makefile delegates to `go/` for `striatum`,
+`striatumd`, and `striatum-supervisor-helper` binaries. The legacy Python
+runtime, source, and tests have been retired and removed per RFC 0078.
+Examples live under `examples`. Historical execution prompts live under
+`prompts`.
 
 ## Change Discipline
 
@@ -109,8 +108,7 @@ prompts live under `prompts`.
   marker names to product docs or core code.
 - New durable Markdown artifacts should use the lowercase privacy-safe
   byline: `author: <role-name>-<model-name>-<ordinal>`.
-- Do not commit `.striatum/`, `.venv/`, caches, egg-info, transcripts, or
-  private diagnostics.
+- Do not commit `.striatum/`, caches, transcripts, or private diagnostics.
 - Avoid hardcoded home-directory absolute paths in tracked docs and
   fixtures; use repository-relative paths, environment variables, or
   generalized `~/` paths when a path shape matters.

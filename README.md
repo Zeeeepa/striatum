@@ -262,10 +262,10 @@ The skill bundle teaches a Striatum-aware agent how to drive the runner without 
 striatum --repo "$TARGET_REPO" serve --web --allow-mutations
 ```
 
-The current operator UI remains server-rendered while RFC 0078 ports or
-retires remaining local web routes in Go. It provides a live SVG dependency
-graph, state-colored job nodes, artifact browsing, verdict recording, and
-recovery actions. Loopback-only; non-loopback bind is refused at startup.
+The current operator UI is being ported to Go (RFC 0078). It provides a
+live SVG dependency graph, state-colored job nodes, artifact browsing,
+verdict recording, and recovery actions. Loopback-only; non-loopback bind is
+refused at startup.
 
 ---
 
@@ -273,7 +273,7 @@ recovery actions. Loopback-only; non-loopback bind is refused at startup.
 
 | Area | Status |
 |------|--------|
-| Version | v2.0.0 packaging cutover in progress (see [CHANGELOG.md](CHANGELOG.md)) |
+| Version | v2.0.0 packaging complete (see [CHANGELOG.md](CHANGELOG.md)) |
 | Platforms | Linux + macOS Go binaries · Postgres 14+ |
 | Distribution | GitHub release archives with `SHA256SUMS` |
 | License | Apache-2.0 |
@@ -281,7 +281,7 @@ recovery actions. Loopback-only; non-loopback bind is refused at startup.
 | Daemon substrate | Postgres-native (RFC 0048 complete through all three phases) |
 | Schema | v6 — dedicated `previous_hash`/`row_hash` columns, serialized chain-head writes |
 | Go runtime | Production runtime and release archive path for `striatum`, `striatumd`, and `striatum-supervisor-helper` |
-| Active RFCs | RFC 0078 Go-only runtime and Python removal |
+| Active RFCs | RFC 0078 Go-only runtime and Python removal (complete) |
 | Corpus export / augmentation | Corpus Contract V2 core landed; optional reference-only augmentation stays local and Striatum runs with external memory absent |
 
 ---

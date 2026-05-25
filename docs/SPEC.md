@@ -42,14 +42,13 @@ RFC 0048 (v1.49.0 → v1.55.0) completed the PostgreSQL substrate port:
 every single-repo mutation, recovery, and read handler had a native
 PostgreSQL implementation before the Go cutover. D107 / RFC 0068 and D111
 set the current target architecture: the production daemon is Go; the Python
-daemon module and selector are retired; and the Python MCP wrapper is retired.
-RFC 0078 supersedes the earlier carve-out that allowed Python CLI/web clients
-to remain useful, but active Python source/tests are not deleted until the
-Go replacement or retirement ledger closes. The legacy local-state
-package, root DB/migration facades, direct corpus exporter, V1 local-state
-schema module, deterministic repo-local fixture, and broad skipped
-compatibility tests are deleted. Remaining `retired-local-state` handling is
-refusal/inspection of a retired file name, not live-state support.
+daemon module and selector are removed; and the Python MCP wrapper is removed.
+RFC 0078 removes all Python traces from the active repository head.
+The legacy local-state package, root DB/migration facades, direct corpus
+exporter, V1 local-state schema module, deterministic repo-local fixture,
+and broad skipped compatibility tests are deleted. Remaining
+`retired-local-state` handling is refusal/inspection of a retired file name,
+not live-state support.
 `STRIATUM_DAEMON_REQUIRED=0 STRIATUM_TEST_HARNESS=1` escape no
 longer takes effect for ported methods — mapped CLI verbs fail
 closed instead of falling back to SQLite when the daemon is
@@ -156,9 +155,7 @@ runtime defaults.
 
 RFC 0034 V1 adds a workflow generator over the same schema. RFC 0078 has
 ported the active Go generator path to reuse Go workflow validation and lint
-before returning output. The legacy Python generator API remains tracked until
-the final RFC 0078 deletion gate proves equivalent coverage or records an
-explicit retirement.
+before returning output. The legacy Python generator API is retired.
 `shape: "multi_phase"` emits V1.1 with ordered `phases` and
 `phase_synthesis` jobs. `shape: "implementation_panel"` emits a V1
 workflow from RFC 0074 role/adversary pack options such as
@@ -735,10 +732,11 @@ front-matter check.
 
 Artifact kinds are validated by runtime contract code rather than by SQL
 `CHECK`. Migration version 5 dropped the
-`CHECK (artifact_kind IN (...))` clause from the `artifacts` table. The Go
-runtime uses `go/pkg/artifactcontracts` as the shared allowed-kind and
-front-matter schema package; the legacy Python contract module remains tracked
-until the RFC 0078 final deletion gate removes or retires it. Both
+`CHECK (artifact_kind IN (...))` clause from the `artifacts` table.
+The Go runtime uses `go/pkg/artifactcontracts` as the shared allowed-kind
+and front-matter schema package; the legacy Python contract module is
+retired.
+
 `publish-artifact` and workflow validation reject kinds outside the canonical
 set.
 
@@ -1167,8 +1165,7 @@ the condition; the runner never auto-regenerates.
 
 The bundle is self-contained by construction: the renderer rejects
 external URLs in template output (a unit test enforces no `http://` /
-`https://`), templates ship inside the installed Python distribution
-(`[tool.setuptools.package-data]` for `striatum.skills.templates`), and
+`https://`), templates ship inside the Go binary/release archive, and
 each generated file's header records the runner version that produced
 it.
 
@@ -1206,26 +1203,10 @@ existing path.
 
 ## Local API And MCP Boundary
 
-`striatum.api.invoke(args, repo=...)` is the legacy local Python API while RFC
-0078 finishes the Go-only cutover. Current production authority remains the
-Go daemon RPC/MCP boundary; compatibility clients must route through that
-boundary and must not become a second state authority. The legacy API parses
-the same command arguments as the CLI, calls the same dispatcher, and returns
-the same JSON-style result envelope:
-
-```json
-{"ok": true, "data": {}}
-```
-
-Errors use the CLI's existing exit-code semantics:
-
-```json
-{"ok": false, "error": {"message": "...", "code": 3}}
-```
-
-This API is an adapter convenience only. It must not write SQLite directly,
-reimplement workflow transitions, bypass artifact validation, or define a
-separate command vocabulary.
+The legacy local Python API is retired. Current production authority
+remains the Go daemon RPC/MCP boundary; compatibility clients must
+route through that boundary and must not become a second state
+authority.
 
 The production MCP surface is native to the Go `striatumd` daemon. It serves
 loopback HTTP at `/mcp`, keeps `/mcp/sse` as an SSE/backcompat alias, publishes
@@ -1523,11 +1504,10 @@ blockers.
 > server-rendered redesign + SVG dependency graph).
 
 
-`striatum serve --web` activates the bundled UI. The current legacy UI is a
-server-rendered multi-page app from the RFC 0022 V1 line; the prior
-hash-routed SPA is superseded. RFC 0078 has added Go web service/static/SSE
-scaffolding and route-retirement guardrails, but full web route parity and
-Go daemon startup wiring remain deletion blockers.
+`striatum serve --web` activates the bundled UI. The current UI is a
+Go-served multi-page app from the RFC 0022 V1 line; the prior
+hash-routed SPA is superseded. RFC 0078 has completed the Go web
+service and route parity.
 
 Routes:
 

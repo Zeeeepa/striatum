@@ -1,8 +1,8 @@
 # Adopter Reading Path
 
 A six-RFC reading list for a team adopting striatum. Aimed at the
-maintainer-or-tech-lead who has run `pip install striatum-orchestrator`
-and now needs to understand how the system *thinks* before authoring a
+maintainer-or-tech-lead who has installed the Go binaries and now
+needs to understand how the system *thinks* before authoring a
 workflow or wiring an agent.
 
 These six explain the model. The other 66+ RFCs are decision-trail and

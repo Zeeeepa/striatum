@@ -12,11 +12,6 @@ mkdir -p "$CLONE"
 tar \
   --exclude .git \
   --exclude .striatum \
-  --exclude .venv \
-  --exclude .pytest_cache \
-  --exclude .mypy_cache \
-  --exclude .ruff_cache \
-  --exclude __pycache__ \
   --exclude build \
   --exclude dist \
   -C "$ROOT" \

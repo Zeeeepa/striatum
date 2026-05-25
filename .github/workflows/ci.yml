@@ -32,18 +32,8 @@ jobs:
       - name: Fresh clone smoke
         run: make smoke
 
-      - name: Guard no active Python release path
-        run: |
-          pybuild='python -m'; pybuild="$pybuild build"
-          publisher='pypa/gh-action'; publisher="$publisher-pypi-publish"
-          tw='twi'; tw="${tw}ne"
-          pip_install='pip install'; pip_install="$pip_install striatum-orchestrator"
-          wheel_sdist='wheel +'; wheel_sdist="$wheel_sdist sdist"
-          for needle in "$pybuild" "$publisher" "$tw" "$pip_install" "$wheel_sdist"; do
-            ! grep -R --line-number -F "$needle" \
-              Makefile .github/workflows/release.yml scripts README.md \
-              docs/USING_STRIATUM.md docs/GETTING_STARTED.md docs/RELEASING.md
-          done
+      - name: Guard no active Python trace
+        run: make python-trace-guardrail
 
   frontend:
     name: Frontend bundle check

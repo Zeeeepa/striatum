@@ -1,4 +1,5 @@
-//go:generate sh -c "cd ../../.. && python3 scripts/generate_go_rpc_registry.py --contract contracts/daemon_methods.json --out go/pkg/rpc/registry_methods.go"
+//go:generate go run ../cli/routergen -mode rpc-registry -contract ../../../contracts/daemon_methods.json -out registry_methods.go
+//go:generate go run ../cli/routergen -mode markdown-tables -contract ../../../contracts/daemon_methods.json -out ../../../docs/architecture/DAEMON_METHOD_TABLES.md
 
 package rpc
 

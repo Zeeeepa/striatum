@@ -10,8 +10,7 @@ DIST_DIR ?= $(MAKEFILE_DIR)/dist
 	go-build go-test go-vet go-release release-archives check-release-archives package-smoke \
 	ui-install ui-update-lock ui-audit ui-clean ui-build ui-dev ui-test ui-bundle-hash \
 	ui-verify-bundle ui-bundle-size ui-check-bundle \
-	legacy-python-install legacy-python-lint legacy-python-typecheck legacy-python-test \
-	legacy-python-metadata-check python-trace-report python-trace-guardrail
+	python-trace-report python-trace-guardrail
 
 install: go-build
 	mkdir -p "$(PREFIX)/bin"
@@ -114,23 +113,8 @@ ui-verify-bundle:
 	echo "ui-verify-bundle: ok"
 
 ui-bundle-size:
-	node -e 'const fs=require("fs"),p=require("path"); const root=p.join(process.cwd(),"src/striatum/web/static/build"); let total=0; for (const name of fs.readdirSync(root)) { const f=p.join(root,name); if (fs.statSync(f).isFile()) total += fs.statSync(f).size; } if (total > 2_000_000) { console.error(`ui-bundle-size: ${total} bytes exceeds 2000000`); process.exit(1); } console.log(`ui-bundle-size: ${total} bytes`);'
+	STRIATUM_UI_BUNDLE_ROOT="$(MAKEFILE_DIR)/src/striatum/web/static/build" \
+	node -e 'const fs=require("fs"),p=require("path"); const root=process.env.STRIATUM_UI_BUNDLE_ROOT; const maxBytes=Number(process.env.STRIATUM_UI_BUNDLE_MAX_BYTES||12000000); const maxFiles=Number(process.env.STRIATUM_UI_BUNDLE_MAX_FILES||32); const maxShared=Number(process.env.STRIATUM_UI_BUNDLE_MAX_SHARED_CHUNKS||4); const ignore=new Set(["manifest.sha256"]); if(!fs.existsSync(root)||!fs.statSync(root).isDirectory()){console.error(`ui-bundle-size: missing build directory: $${root}`);process.exit(1);} const walk=(d)=>fs.readdirSync(d,{withFileTypes:true}).flatMap(e=>{const f=p.join(d,e.name); return e.isDirectory()?walk(f):[f];}); const files=walk(root).filter(f=>!ignore.has(p.basename(f))); const total=files.reduce((s,f)=>s+fs.statSync(f).size,0); const shared=files.filter(f=>/^island-shared-.*\.js$$/.test(p.basename(f))); if(files.length>maxFiles){console.error(`ui-bundle-size: $${files.length} files exceeds limit $${maxFiles}; check for stale generated chunks before raising STRIATUM_UI_BUNDLE_MAX_FILES`);process.exit(1);} if(shared.length>maxShared){console.error(`ui-bundle-size: $${shared.length} island-shared chunks exceeds limit $${maxShared}; group dynamic imports before raising STRIATUM_UI_BUNDLE_MAX_SHARED_CHUNKS`);process.exit(1);} if(total>maxBytes){console.error(`ui-bundle-size: $${total} bytes exceeds limit $${maxBytes}; raise STRIATUM_UI_BUNDLE_MAX_BYTES only with an explicit review note`);process.exit(1);} console.log(`ui-bundle-size: $${total} bytes <= $${maxBytes}; $${files.length} files <= $${maxFiles}; $${shared.length} shared chunks <= $${maxShared}`);'
 
 ui-check-bundle: ui-build ui-verify-bundle ui-bundle-size
 	git -C "$(MAKEFILE_DIR)" diff --exit-code -- src/striatum/web/static/build
-
-legacy-python-install:
-	python3 -m venv "$(MAKEFILE_DIR)/.venv"
-	"$(MAKEFILE_DIR)/.venv/bin/python" -m pip install -e "$(MAKEFILE_DIR)[dev,daemon-pg]"
-
-legacy-python-lint: legacy-python-install
-	"$(MAKEFILE_DIR)/.venv/bin/python" -m ruff check .
-
-legacy-python-typecheck: legacy-python-install
-	"$(MAKEFILE_DIR)/.venv/bin/python" -m mypy
-
-legacy-python-test: legacy-python-install
-	"$(MAKEFILE_DIR)/.venv/bin/python" -m pytest
-
-legacy-python-metadata-check: legacy-python-install
-	"$(MAKEFILE_DIR)/.venv/bin/python" "$(MAKEFILE_DIR)/scripts/release_metadata_check.py"

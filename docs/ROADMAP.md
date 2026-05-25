@@ -40,7 +40,7 @@ dependency edges, and "what would I do next" framing. Update on every
   router, Go artifact contracts/workflow parity slices, Go web service
   scaffolding, Go-only release archives and smoke scripts, and the
   Python-trace guardrail. Final Python deletion remains blocked by active
-  Python source, pytest, packaging, scripts, and current guidance. RFC 0052 Phase A,
+  Python source, the Python test suite, packaging, scripts, and current guidance. RFC 0052 Phase A,
   RFC 0053 schema/runtime rename, Cross-Repo Live Scheduler V1, sealed apply,
   Windows support, and local multi-operator tenancy need separate accepted
   RFCs before implementation. Optional/out-of-core items are now explicitly
@@ -845,7 +845,7 @@ finalization reports.
   `devDependencies`, with the lockfile updated.
 - Focused packaging tests pin the clean-build Makefile contract, build-only
   dependency placement, and bundle-size checker behavior.
-- The package wheel now has a size gate aligned with the UI bundle gate.
+- The package archive now has a size gate aligned with the UI bundle gate.
 
 **Remaining Phase 9 debt:** none currently actionable. Manual chunking is
 monitor-only until bundle evidence shows the current Rollup output is a
@@ -1121,7 +1121,7 @@ Release order after Phase 0:
    visibility, bounded sweep integration, skipped-candidate cause classes, the
    D125 evidence gate, and the D133 default-live cutover landed; tracked in
    §4.12.
-9. **TODO 57 / Phase 9:** clean-build, bundle-size, and wheel-size gates
+9. **TODO 57 / Phase 9:** clean-build, bundle-size, and archive-size gates
    landed; chunking is monitor-only and tracked in §4.13.
 10. **TODO 58 / Phase 10:** day-zero Postgres/daemon setup slice
     landed: role/grant repair, service helpers, guided adoption,
@@ -1263,7 +1263,7 @@ PostgreSQL setup is unavailable instead of entering SQLite test-harness mode.
 - `test_decision_log_rows_under_word_budget` — **passes** (D094 prose
   trimmed or budget raised; current rows fit).
 
-The full pytest sweep on the local dev machine (with halbritt granted
+The full Python test sweep on the local dev machine (with halbritt granted
 CREATEDB + CREATEROLE on the local PG so ephemeral DB fixtures actually
 run, and `striatum_daemon.schema_meta.substrate_version=6` applied) is
 1254 passed / 7 skipped / 0 expected failures as of v1.55.0

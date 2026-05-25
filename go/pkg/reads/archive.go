@@ -147,21 +147,21 @@ func HandleArchiveCreate(ctx context.Context, runner db.Runner, envelope rpc.Env
 		if err != nil {
 			return nil, err
 		}
-		rows[table.kind] = items
+		rows[table.kind] = redactArchiveRows(table.kind, items)
 	}
 	dependencies, err := archiveJobDependencies(ctx, runner, repositoryID, runID)
 	if err != nil {
 		return nil, err
 	}
-	rows["job_dependencies"] = dependencies
+	rows["job_dependencies"] = redactArchiveRows("job_dependencies", dependencies)
 
 	return writeRunArchive(
 		out,
 		repoRoot,
 		repositoryID,
 		runID,
-		normalizeArchiveRow(runRows[0]),
-		normalizeArchiveRow(workflowRows[0]),
+		redactArchiveRow("run", normalizeArchiveRow(runRows[0])),
+		redactArchiveRow("workflow_snapshot", normalizeArchiveRow(workflowRows[0])),
 		rows,
 	)
 }

@@ -4,7 +4,7 @@ Status: draft policy
 Date: 2026-05-25
 
 Striatum releases are Go binary archives plus a checksum manifest. The
-Python distribution name `striatum-orchestrator` is retired for current
+legacy Python distribution name is retired for current
 production packaging; do not publish Python package artifacts from the normal
 release workflow.
 

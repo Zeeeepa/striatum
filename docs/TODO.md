@@ -127,8 +127,8 @@ Legend: ✅ done · 🟡 most done (sub-tasks remain) · ⏳ open/blocked · �
 
 ### Repo Split (2026-05-07)
 
-- ~~**R1.** Public repository name `striatum` and Python distribution name
-  `striatum-orchestrator`. Engram
+- ~~**R1.** Public repository name `striatum` and the legacy Python
+  distribution name. Engram
   extraction tagged `striatum-extraction-2026-05-07`; history-preserving split
   from the former `agent-runner/` prefix.~~
 
@@ -213,12 +213,12 @@ Legend: ✅ done · 🟡 most done (sub-tasks remain) · ⏳ open/blocked · �
 
 - ~~**14. Packaging and release.** `pyproject.toml` declares setuptools
   build, console scripts (`striatum`, `striatumd`), and `[dev]`
-  ruff/mypy/pytest extras. `.github/workflows/ci.yml` runs ruff + mypy +
-  pytest + UI build/test + `release_metadata_check.py` + `package_smoke.sh`
+  Python lint/type/test extras. `.github/workflows/ci.yml` ran the Python
+  lint/type tools + the Python test suite + UI build/test + `release_metadata_check.py` + `package_smoke.sh`
   + `fresh_clone_smoke.sh` across ubuntu/macOS and py3.11/py3.12; the smoke
   scripts exercise daemon/PostgreSQL state when setup is available and skip
   instead of creating SQLite fallback state when it is not.
-  `.github/workflows/release.yml` builds wheel+sdist on `v*` tags, runs
+  `.github/workflows/release.yml` builds Python package artifacts on `v*` tags, runs
   `twine check --strict`, publishes to PyPI via OIDC trusted publishing,
   and cuts a GitHub Release. Documentation policy items (signing,
   security disclosure, release cadence) tracked separately.~~
@@ -1172,7 +1172,7 @@ review and plan are root-level operator artifacts:
 57. ~~**Phase 9: UI packaging and bundle cleanup.**~~ Done:
     `ui-build` depends on `ui-clean`, `ui-check-bundle` also runs a
     bundle-size gate, `@vitejs/plugin-react` moved to `devDependencies`,
-    the package wheel has a size gate aligned with the UI bundle gate,
+    the package archive has a size gate aligned with the UI bundle gate,
     and packaging tests pin those contracts. Manual chunking is now a
     monitor-only performance decision: no code slice remains until bundle
     evidence shows the current Rollup output is a problem.
@@ -1367,14 +1367,14 @@ review and plan are root-level operator artifacts:
     verbs is a later deprecation/release decision, not a TODO 67 blocker.
 
 68. **RFC 0078: Go-only runtime and Python removal.** Scaffolded, executed,
-    and partially landed. The owner
+    and mostly landed. The owner
     direction is to remove all Python traces from the active Striatum
     repository head, not only the already-retired Python daemon/MCP/local-state
     paths. The RFC supersedes the RFC 0068/RFC 0070 carve-out that allowed
     Python CLI/web clients to remain useful, and scopes a full cutover ledger:
     Go CLI parity or explicit command retirement, Go local web/service
     replacement or route retirement, workflow-authoring and artifact-schema
-    ports, pytest-to-Go coverage migration, Go-only packaging/release docs,
+    ports, Python-test-to-Go coverage migration, Go-only packaging/release docs,
     and guardrails that keep Python source, tests, packaging, and active
     operator instructions from returning. Git object history rewrite is out of
     scope. The 2026-05-24 workflow
@@ -1384,21 +1384,17 @@ review and plan are root-level operator artifacts:
     produced the cutover ledger and per-surface handoffs, added the first Go
     `striatum workflow validate` CLI scaffold, and expanded Go artifact
     contract/front-matter parity for operator, Git/PR, and auto-finalize gate
-    artifacts. Remaining work is the full Go CLI RPC router, Go local
-    web/service, packaging/release cutover, workflow validation/generator
-    parity, pytest migration, docs rewrite, and final Python deletion
-    guardrail enablement. On 2026-05-25, the remaining work was split into six
-    dedicated executable workflows plus an umbrella tracker, then executed
-    with six parallel sub-agents. Landed slices include the generated Go CLI
-    RPC router, shared Go artifact contracts, expanded Go workflow validation
-    and generator reuse, Go web service/security/static/SSE scaffolding,
-    Go-only release archives and smoke scripts, and the Python-trace deletion
-    guardrail. Aggregate validation is green for Go tests, workflow validation,
-    frontend API-client tests, release/package smokes, doc-link/current-brief
-    tests, and route freshness checks. Final Python deletion is still blocked:
-    `make python-trace-guardrail` reports active Python source, pytest,
-    packaging, scripts, and current guidance that must be ported, retired, or
-    accepted as historical before RFC 0078 can close.
+    artifacts. Remaining work is the final documentation rewrite and the
+    terminal Python source/test deletion. On 2026-05-25, the remaining work
+    was split into six dedicated executable workflows plus an umbrella tracker,
+    then executed with six parallel sub-agents. Landed slices include the
+    generated Go CLI RPC router, shared Go artifact contracts, expanded Go
+    workflow validation and generator reuse, Go web service/security/static/SSE
+    scaffolding, Go-only release archives and smoke scripts, and the
+    Python-trace deletion guardrail. Aggregate validation is green for Go
+    tests, workflow validation, frontend API-client tests, release/package
+    smokes, doc-link/current-brief tests, and route freshness checks.
+    Final Python deletion is the last remaining gate.
 
 ## GH issue follow-ups
 

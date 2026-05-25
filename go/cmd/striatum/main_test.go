@@ -91,6 +91,27 @@ func TestTopLevelHelpAndUnknownCommand(t *testing.T) {
 	}
 }
 
+func TestRetiredCLICompatibilityCommandsStayUnavailable(t *testing.T) {
+	tests := [][]string{
+		{"--no-daemon", "status"},
+		{"daemon", "migrate"},
+		{"daemon", "migrate-repo-local"},
+		{"scaffold", "ddd"},
+	}
+	for _, args := range tests {
+		t.Run(strings.Join(args, " "), func(t *testing.T) {
+			var stdout, stderr bytes.Buffer
+			exitCode := run(args, &stdout, &stderr)
+			if exitCode == 0 {
+				t.Fatalf("expected nonzero exit, stdout=%s stderr=%s", stdout.String(), stderr.String())
+			}
+			if exitCode != 2 && exitCode != 11 && exitCode != 12 {
+				t.Fatalf("exit = %d, stderr = %s", exitCode, stderr.String())
+			}
+		})
+	}
+}
+
 func TestWorkflowValidateJSONErrorEnvelope(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "workflow.json")

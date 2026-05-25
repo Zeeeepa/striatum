@@ -151,12 +151,12 @@ func HandleEvidenceExport(ctx context.Context, runner db.Runner, envelope rpc.En
 		return nil, err
 	}
 	doctor, _ := HandleDoctor(ctx, runner, envelope)
-	payload := map[string]any{
+	payload := redactEvidencePayload(map[string]any{
 		"runs":      runs,
 		"artifacts": artifacts,
 		"verdicts":  verdicts,
 		"doctor":    doctor,
-	}
+	})
 	body, err := renderEvidenceMarkdown(runs[0], payload)
 	if err != nil {
 		return nil, err
@@ -174,10 +174,10 @@ func HandleEvidenceExport(ctx context.Context, runner db.Runner, envelope rpc.En
 		"path":      pathText,
 		"sha256":    meta["sha256"],
 		"bytes":     meta["bytes"],
-		"runs":      runs,
-		"artifacts": artifacts,
-		"verdicts":  verdicts,
-		"doctor":    doctor,
+		"runs":      payload["runs"],
+		"artifacts": payload["artifacts"],
+		"verdicts":  payload["verdicts"],
+		"doctor":    payload["doctor"],
 	}, nil
 }
 
@@ -225,16 +225,17 @@ func renderEvidenceMarkdown(run map[string]any, payload map[string]any) (string,
 	return b.String(), nil
 }
 
-// HandleCorpusExport mirrors reads/corpus_export.py — exposes the
-// redaction-safe corpus rows the augmentation contract consumes.
-// V1.7: returns the bundle's manifest + a paged row list. Heavy lifting
-// (redaction, redaction-tier compliance) stays in the Python handler
-// until the Go port grows the same surface; this Go handler returns the
-// raw row payload + structure so the consumer can detect substrate.
+// HandleCorpusExport exposes the redaction-safe corpus rows the augmentation
+// contract consumes. The Go path owns the active redaction-tier validation and
+// field-level redaction rules for the daemon-backed artifact projection.
 func HandleCorpusExport(ctx context.Context, runner db.Runner, envelope rpc.Envelope) (map[string]any, error) {
 	repositoryID, err := requireRepositoryID(envelope)
 	if err != nil {
 		return nil, err
+	}
+	redactionTier, err := redactionTierFromEnvelope(envelope.Params)
+	if err != nil {
+		return nil, rpc.NewError("schema_invalid", err.Error(), nil)
 	}
 	limit, count := limitClause(envelope, 1000)
 	rows, err := collectRows(ctx, runner,
@@ -249,11 +250,34 @@ func HandleCorpusExport(ctx context.Context, runner db.Runner, envelope rpc.Enve
 	if err != nil {
 		return nil, err
 	}
+	redactedRows := make([]map[string]any, 0, len(rows))
+	for _, row := range rows {
+		redactedRows = append(redactedRows, redactCorpusArtifactRow(row))
+	}
 	return map[string]any{
-		"corpus_contract_version": 1,
+		"corpus_contract_version": 2,
 		"repository_id":           repositoryID,
-		"row_count":               len(rows),
+		"redaction_tier":          redactionTier,
+		"row_count":               len(redactedRows),
 		"limit":                   count,
-		"rows":                    rows,
+		"rows":                    redactedRows,
 	}, nil
+}
+
+func redactCorpusArtifactRow(row map[string]any) map[string]any {
+	redacted := map[string]any{}
+	for key, value := range row {
+		redacted[key] = value
+	}
+	if path, ok := redacted["path"].(string); ok {
+		if err := validateCorpusSourcePath(path); err != nil {
+			redacted["path"] = evidenceFreeTextPlaceholder
+		}
+	}
+	for _, key := range []string{"content", "body", "rationale", "description", "payload_json", "metadata_json"} {
+		if redacted[key] != nil {
+			redacted[key] = evidenceFreeTextPlaceholder
+		}
+	}
+	return redacted
 }

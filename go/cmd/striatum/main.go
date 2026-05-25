@@ -13,6 +13,7 @@ import (
 	"github.com/halbritt/striatum/go/pkg/cli/dispatch"
 	"github.com/halbritt/striatum/go/pkg/cli/localcommands"
 	"github.com/halbritt/striatum/go/pkg/cli/rpcclient"
+	cliskills "github.com/halbritt/striatum/go/pkg/cli/skills"
 	"github.com/halbritt/striatum/go/pkg/workflowauthoring"
 )
 
@@ -33,11 +34,21 @@ func run(args []string, stdout io.Writer, stderr io.Writer) int {
 		return 2
 	}
 	if _, ok := localcommands.Lookup(globals.CommandArgs); ok {
-		workflowArgs := globals.CommandArgs[1:]
-		if globals.JSONOutput && !containsFlag(workflowArgs, "--json") {
-			workflowArgs = append([]string{workflowArgs[0], "--json"}, workflowArgs[1:]...)
+		commandArgs := globals.CommandArgs
+		switch commandArgs[0] {
+		case "skills", "plugin":
+			runArgs := append([]string(nil), commandArgs...)
+			if globals.JSONOutput && !containsFlag(runArgs, "--json") {
+				runArgs = append(runArgs, "--json")
+			}
+			return cliskills.Run(runArgs, stdout, stderr, globals.RepoPath, version)
+		default:
+			workflowArgs := commandArgs[1:]
+			if globals.JSONOutput && !containsFlag(workflowArgs, "--json") {
+				workflowArgs = append([]string{workflowArgs[0], "--json"}, workflowArgs[1:]...)
+			}
+			return runWorkflow(workflowArgs, stdout, stderr, globals.RepoPath)
 		}
-		return runWorkflow(workflowArgs, stdout, stderr, globals.RepoPath)
 	}
 	switch args[0] {
 	case "-h", "--help", "help":

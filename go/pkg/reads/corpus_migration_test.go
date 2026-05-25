@@ -58,12 +58,12 @@ func (r *corpusExportFakeRunner) Query(_ context.Context, sql string, args ...an
 func TestHandleCorpusExportReturnsVersionedArtifactRows(t *testing.T) {
 	runner := &corpusExportFakeRunner{}
 	result, err := HandleCorpusExport(context.Background(), runner, rpc.Envelope{
-		Params: map[string]any{"repository_id": "repo_a", "limit": float64(2)},
+		Params: map[string]any{"repository_id": "repo_a", "limit": float64(2), "redaction_tier": "curated"},
 	})
 	if err != nil {
 		t.Fatalf("HandleCorpusExport: %v", err)
 	}
-	if result["corpus_contract_version"] != 1 || result["repository_id"] != "repo_a" {
+	if result["corpus_contract_version"] != 2 || result["repository_id"] != "repo_a" || result["redaction_tier"] != "curated" {
 		t.Fatalf("contract header = %#v", result)
 	}
 	if result["row_count"] != 1 || result["limit"] != 2 {

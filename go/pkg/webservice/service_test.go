@@ -103,3 +103,19 @@ func TestArtifactRawUsesDaemonContent(t *testing.T) {
 		t.Fatalf("body = %q", got)
 	}
 }
+
+func TestWorkflowGeneratePreviewRouteUsesDaemonRPC(t *testing.T) {
+	fixture := webtest.NewFixture()
+	body := `{"spec":{"shape":"minimal","lane_set":"local"}}`
+	rec := webtest.Request(t, webtest.Handler(fixture, false), http.MethodPost, "/workflows/generate/preview", body)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	if len(fixture.Calls) != 1 || fixture.Calls[0].Method != "workflow.generate.preview" {
+		t.Fatalf("calls = %#v", fixture.Calls)
+	}
+	spec, ok := fixture.Calls[0].Params["spec"].(map[string]any)
+	if !ok || spec["shape"] != "minimal" {
+		t.Fatalf("spec params = %#v", fixture.Calls[0].Params)
+	}
+}
