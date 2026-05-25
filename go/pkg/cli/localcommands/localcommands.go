@@ -8,6 +8,8 @@ type Command struct {
 
 var commands = []Command{
 	{Command: "workflow", Subcommand: "validate", Rationale: "local workflow-authoring validation reads the workflow file before daemon state exists"},
+	{Command: "workflow", Subcommand: "generate", Rationale: "local workflow generation renders a starter workflow from an embedded catalog shape; it previews (or writes repo files) and touches no daemon state"},
+	{Command: "workflow", Subcommand: "templates", Rationale: "local catalog read lists/shows workflow template shapes and lane sets from embedded data; it touches no daemon state"},
 	{Command: "skills", Subcommand: "install", Rationale: "skills install renders embedded skill templates into the user/project skills dir; it writes no daemon state"},
 	{Command: "plugin", Subcommand: "install", Rationale: "plugin install renders embedded plugin bundles into the user/project plugin dir; it writes no daemon state"},
 	{Command: "plugin", Subcommand: "uninstall", Rationale: "plugin uninstall removes a previously rendered bundle by reading its on-disk manifest; it writes no daemon state"},

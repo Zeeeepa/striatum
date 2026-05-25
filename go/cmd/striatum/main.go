@@ -9,12 +9,15 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/halbritt/striatum/go/pkg/cli/dispatch"
 	"github.com/halbritt/striatum/go/pkg/cli/localcommands"
 	"github.com/halbritt/striatum/go/pkg/cli/rpcclient"
 	cliskills "github.com/halbritt/striatum/go/pkg/cli/skills"
 	"github.com/halbritt/striatum/go/pkg/workflowauthoring"
+	"github.com/halbritt/striatum/go/pkg/workflowgenerate"
+	"github.com/halbritt/striatum/go/pkg/workflowtemplates"
 )
 
 var version = "dev"
@@ -140,14 +143,236 @@ func containsFlag(args []string, flag string) bool {
 
 func runWorkflow(args []string, stdout io.Writer, stderr io.Writer, repoRootOverride string) int {
 	if len(args) == 0 {
-		fmt.Fprintln(stderr, "usage: striatum workflow {validate} ...")
+		fmt.Fprintln(stderr, "usage: striatum workflow {validate|generate|templates} ...")
 		return 2
 	}
 	switch args[0] {
 	case "validate":
 		return runWorkflowValidate(args[1:], stdout, stderr, repoRootOverride)
+	case "generate":
+		return runWorkflowGenerate(args[1:], stdout, stderr, repoRootOverride)
+	case "templates":
+		return runWorkflowTemplates(args[1:], stdout, stderr)
 	default:
 		fmt.Fprintf(stderr, "unknown workflow command: %s\n", args[0])
+		return 2
+	}
+}
+
+// runWorkflowGenerate renders a starter workflow from an embedded catalog shape.
+// Preview (dry-run) by default; --write commits the repo-relative files.
+func runWorkflowGenerate(args []string, stdout io.Writer, stderr io.Writer, repoRootOverride string) int {
+	shape := ""
+	laneSet := ""
+	workflowID := ""
+	scaffoldRoot := ""
+	artifactRoot := ""
+	write := false
+	jsonOutput := false
+	options := map[string]any{}
+
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		key, value, hasValue := strings.Cut(arg, "=")
+		next := func() (string, bool) {
+			if hasValue {
+				return value, true
+			}
+			if i+1 < len(args) {
+				i++
+				return args[i], true
+			}
+			return "", false
+		}
+		switch key {
+		case "--shape":
+			shape, _ = next()
+		case "--lane-set":
+			laneSet, _ = next()
+		case "--workflow-id":
+			workflowID, _ = next()
+		case "--scaffold-root":
+			scaffoldRoot, _ = next()
+		case "--artifact-root":
+			artifactRoot, _ = next()
+		case "--option":
+			kv, ok := next()
+			if !ok {
+				fmt.Fprintln(stderr, "--option requires key=value")
+				return 2
+			}
+			optKey, optVal, ok2 := strings.Cut(kv, "=")
+			if !ok2 || optKey == "" {
+				fmt.Fprintf(stderr, "--option must be key=value, got %q\n", kv)
+				return 2
+			}
+			options[optKey] = optVal
+		case "--write":
+			parsed, err := optionalBool(value, hasValue)
+			if err != nil {
+				fmt.Fprintln(stderr, "--write must be a boolean")
+				return 2
+			}
+			write = parsed
+		case "--json":
+			parsed, err := optionalBool(value, hasValue)
+			if err != nil {
+				fmt.Fprintln(stderr, "--json must be a boolean")
+				return 2
+			}
+			jsonOutput = parsed
+		default:
+			fmt.Fprintf(stderr, "unknown workflow generate flag: %s\n", arg)
+			return 2
+		}
+	}
+
+	if shape == "" {
+		fmt.Fprintln(stderr, "usage: striatum workflow generate --shape <shape> [--lane-set <set>] [--workflow-id <id>] [--scaffold-root <path>] [--artifact-root <path>] [--option key=value ...] [--write] [--json]")
+		return 2
+	}
+
+	// Default to the "local" fixture lane set: it requires no real lane commands,
+	// so a starter scaffold generates and validates out of the box. Other lane
+	// sets (e.g. author_reviewer, single_agent) require lane commands the operator
+	// supplies by editing the generated workflow or via --lane-set after wiring
+	// lanes; the generator reports exactly which lane command is missing.
+	if laneSet == "" {
+		laneSet = "local"
+	}
+	if workflowID == "" {
+		workflowID = strings.ReplaceAll(shape, "_", "-") + "-starter"
+	}
+	if scaffoldRoot == "" {
+		scaffoldRoot = "docs/operator/workflows/" + workflowID
+	}
+	if artifactRoot == "" {
+		artifactRoot = "docs/operator/artifacts/" + workflowID
+	}
+
+	spec, err := workflowgenerate.SpecFromMap(map[string]any{
+		"schema_version":   workflowgenerate.GeneratorSchemaVersion,
+		"shape":            shape,
+		"lane_set":         laneSet,
+		"workflow_id":      workflowID,
+		"name":             workflowID,
+		"workflow_version": time.Now().UTC().Format("2006-01-02"),
+		"branch":           map[string]any{"mode": "confirm", "suggested_name": "striatum/" + workflowID, "allow_dirty": false},
+		"scaffold_root":    scaffoldRoot,
+		"artifact_root":    artifactRoot,
+		"lanes":            map[string]any{},
+		"options":          options,
+		"lane_modifiers":   []any{},
+		"context_docs":     []any{},
+	})
+	if err != nil {
+		return outputWorkflowValidateError(stdout, stderr, jsonOutput, "workflow_generate_invalid", err, 8)
+	}
+	generated, err := workflowgenerate.Generate(spec)
+	if err != nil {
+		return outputWorkflowValidateError(stdout, stderr, jsonOutput, "workflow_generate_invalid", err, 8)
+	}
+
+	repoRoot := repoRootOverride
+	if repoRoot == "" {
+		repoRoot, err = os.Getwd()
+		if err != nil {
+			return outputWorkflowValidateError(stdout, stderr, jsonOutput, "cwd_error", err, 1)
+		}
+	}
+
+	if write {
+		result, err := workflowgenerate.Write(repoRoot, generated)
+		if err != nil {
+			return outputWorkflowValidateError(stdout, stderr, jsonOutput, "workflow_generate_write_failed", err, 1)
+		}
+		if jsonOutput {
+			return writeJSON(stdout, map[string]any{"ok": true, "data": map[string]any{"shape": shape, "workflow_id": workflowID, "written": result}}, stderr)
+		}
+		fmt.Fprintf(stdout, "wrote workflow %s (shape %s) under %s\n", workflowID, shape, scaffoldRoot)
+		return 0
+	}
+
+	planned, err := workflowgenerate.Preview(repoRoot, generated)
+	if err != nil {
+		return outputWorkflowValidateError(stdout, stderr, jsonOutput, "workflow_generate_preview_failed", err, 1)
+	}
+	if jsonOutput {
+		return writeJSON(stdout, map[string]any{"ok": true, "data": map[string]any{"shape": shape, "workflow_id": workflowID, "lane_set": laneSet, "planned": planned}}, stderr)
+	}
+	fmt.Fprintf(stdout, "preview: workflow %s (shape %s, lane_set %s) — %d planned file(s); pass --write to commit\n", workflowID, shape, laneSet, len(planned))
+	for _, p := range planned {
+		fmt.Fprintf(stdout, "  %v %v\n", p["status"], p["path"])
+	}
+	return 0
+}
+
+// runWorkflowTemplates lists or shows entries from the embedded workflow catalog.
+func runWorkflowTemplates(args []string, stdout io.Writer, stderr io.Writer) int {
+	// The dispatcher may inject a global --json before the subcommand; treat
+	// --json as order-independent and dispatch on the first non-flag arg.
+	jsonOutput := false
+	rest := make([]string, 0, len(args))
+	for _, a := range args {
+		if a == "--json" {
+			jsonOutput = true
+			continue
+		}
+		rest = append(rest, a)
+	}
+	args = rest
+	if len(args) == 0 {
+		fmt.Fprintln(stderr, "usage: striatum workflow templates {list|show} [--kind <kind>] [--json]")
+		return 2
+	}
+	catalog, err := workflowtemplates.Load()
+	if err != nil {
+		fmt.Fprintf(stderr, "load workflow template catalog: %v\n", err)
+		return 1
+	}
+	switch args[0] {
+	case "list":
+		kind := ""
+		for i := 1; i < len(args); i++ {
+			key, value, hasValue := strings.Cut(args[i], "=")
+			switch key {
+			case "--kind":
+				if hasValue {
+					kind = value
+				} else if i+1 < len(args) {
+					i++
+					kind = args[i]
+				}
+			default:
+				fmt.Fprintf(stderr, "unknown workflow templates list flag: %s\n", args[i])
+				return 2
+			}
+		}
+		entries, err := catalog.List(kind)
+		if err != nil {
+			fmt.Fprintf(stderr, "%v\n", err)
+			return 2
+		}
+		if jsonOutput {
+			return writeJSON(stdout, map[string]any{"ok": true, "data": map[string]any{"kind": kind, "templates": entries}}, stderr)
+		}
+		for _, e := range entries {
+			fmt.Fprintf(stdout, "%-22s %-14s %v\n", e["template_id"], e["kind"], e["summary"])
+		}
+		return 0
+	case "show":
+		if len(args) < 2 {
+			fmt.Fprintln(stderr, "usage: striatum workflow templates show <template-id> [--json]")
+			return 2
+		}
+		entry, err := catalog.Get(args[1])
+		if err != nil {
+			fmt.Fprintf(stderr, "%v\n", err)
+			return 2
+		}
+		return writeJSON(stdout, map[string]any{"ok": true, "data": entry}, stderr)
+	default:
+		fmt.Fprintf(stderr, "unknown workflow templates command: %s\n", args[0])
 		return 2
 	}
 }

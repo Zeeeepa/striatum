@@ -330,3 +330,56 @@ func sameModelWorkflow() string {
   "cycles": []
 }`
 }
+
+func TestWorkflowGenerateConversationPreview(t *testing.T) {
+	dir := t.TempDir()
+	var stdout, stderr bytes.Buffer
+	exitCode := run([]string{"--repo", dir, "--json", "workflow", "generate",
+		"--shape", "conversation", "--option", "topic=trajectory design",
+		"--workflow-id", "conv-cli-test"}, &stdout, &stderr)
+	if exitCode != 0 {
+		t.Fatalf("exit = %d, stderr = %s", exitCode, stderr.String())
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(stdout.Bytes(), &payload); err != nil {
+		t.Fatalf("json: %v; out=%s", err, stdout.String())
+	}
+	if payload["ok"] != true {
+		t.Fatalf("ok = %#v", payload["ok"])
+	}
+	data := payload["data"].(map[string]any)
+	if data["shape"] != "conversation" || data["workflow_id"] != "conv-cli-test" {
+		t.Fatalf("data = %#v", data)
+	}
+	planned, ok := data["planned"].([]any)
+	if !ok || len(planned) == 0 {
+		t.Fatalf("expected planned files, got %#v", data["planned"])
+	}
+	// Preview must not write anything to the repo.
+	if _, err := os.Stat(filepath.Join(dir, "docs", "operator", "workflows", "conv-cli-test", "workflow.json")); !os.IsNotExist(err) {
+		t.Fatalf("preview wrote workflow.json or stat failed: %v", err)
+	}
+}
+
+func TestWorkflowTemplatesListIncludesConversation(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	exitCode := run([]string{"--json", "workflow", "templates", "list", "--kind", "shape"}, &stdout, &stderr)
+	if exitCode != 0 {
+		t.Fatalf("exit = %d, stderr = %s", exitCode, stderr.String())
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(stdout.Bytes(), &payload); err != nil {
+		t.Fatalf("json: %v; out=%s", err, stdout.String())
+	}
+	data := payload["data"].(map[string]any)
+	templates := data["templates"].([]any)
+	found := false
+	for _, entry := range templates {
+		if m, ok := entry.(map[string]any); ok && m["template_id"] == "conversation" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("conversation shape not listed in templates: %s", stdout.String())
+	}
+}

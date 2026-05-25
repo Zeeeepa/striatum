@@ -2,6 +2,20 @@
 
 ## Unreleased — 2026-05-25
 
+## v2.3.1 — 2026-05-25
+
+### Fix: wire the `workflow generate` / `workflow templates` Go CLI verbs
+
+RFC 0078 ported the workflow generator/catalog packages but never wired their
+CLI verbs (only `workflow validate` was exposed), so RFC 0081's documented
+`workflow generate --shape conversation …` failed with `unknown command`. Wire
+`workflow generate` (preview by default, `--write` to commit; `--shape`,
+`--lane-set`, `--workflow-id`, `--scaffold-root`, `--artifact-root`,
+`--option key=value`) and `workflow templates {list,show}` as local commands
+over the existing `workflowgenerate`/`workflowtemplates` packages, with CLI
+tests. `workflow generate --shape conversation` now scaffolds the RFC 0081
+conversation workflow type end-to-end (defaults to the `local` fixture lane set).
+
 ## v2.3.0 — 2026-05-25
 
 ### RFC 0082: interrogation sessions (accepted)
