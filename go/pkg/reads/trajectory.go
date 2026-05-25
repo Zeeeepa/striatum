@@ -191,6 +191,18 @@ func fetchTrajectory(ctx context.Context, runner db.Runner, repositoryID, runID,
 			if topic, ok := body["topic"].(string); ok {
 				curated["topic"] = topic
 			}
+			// RFC 0082: interrogation turns ride the message bus as curated
+			// agent messages. Surface their correlation identifiers (still
+			// authored fields only, D028) so the dialogue reproduces the thread.
+			if interrogationID, ok := body["interrogation_id"].(string); ok && interrogationID != "" {
+				curated["interrogation_id"] = interrogationID
+				if turn, ok := body["turn"]; ok {
+					curated["turn"] = turn
+				}
+				if turnIndex, ok := body["turn_index"]; ok {
+					curated["turn_index"] = turnIndex
+				}
+			}
 			row["body"] = curated
 		}
 	}

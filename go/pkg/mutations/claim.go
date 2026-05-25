@@ -231,6 +231,10 @@ func buildPacket(
 		return nil, rpc.NewError("invalid_transition", "session author line could not be derived", nil)
 	}
 	requirements := asMap(job["capability_requirements_json"])
+	// RFC 0082 §6: relax fresh_session_required for an interrogable builder so
+	// its context survives into the interrogation/review window.
+	interrogable := workflowJobInterrogable(workflow, fmt.Sprint(job["workflow_job_id"]))
+	freshRequired := boolValue(job["fresh_session_required"]) && !interrogable
 	packetContext := map[string]any{
 		"docs":         asList(workflow["context_docs"]),
 		"content_mode": "references",
@@ -272,7 +276,8 @@ func buildPacket(
 			"title":                  job["title"],
 			"author":                 author,
 			"objective":              requirements["objective"],
-			"fresh_session_required": boolValue(job["fresh_session_required"]),
+			"fresh_session_required": freshRequired,
+			"interrogable":           interrogable,
 		},
 		"role": map[string]any{
 			"role_id":         job["role_id"],
@@ -353,6 +358,16 @@ func packetTaskPrompt(taskPrompt map[string]any, snapshot map[string]any) map[st
 		result["workflow_source_path"] = sourcePath
 	}
 	return result
+}
+
+func workflowJobInterrogable(workflow map[string]any, workflowJobID string) bool {
+	for _, item := range asList(workflow["jobs"]) {
+		def := asMap(item)
+		if fmt.Sprint(def["id"]) == workflowJobID {
+			return def["interrogable"] == true
+		}
+	}
+	return false
 }
 
 func laneWorktreeIsolation(workflow map[string]any, laneID string) string {
@@ -789,6 +804,18 @@ func HandleAwaitPacket(ctx context.Context, runner db.Runner, envelope rpc.Envel
 	deadline := time.Now().Add(timeout)
 
 	for {
+		// RFC 0082: a worker's single subscribe loop receives either work or a
+		// pending interrogation question addressed to its session. Delivery
+		// prefers a pending interrogation question over new work so
+		// interrogations are answered promptly.
+		question, err := deliverPendingInterrogationQuestion(ctx, runner, repositoryID, sessionID)
+		if err != nil {
+			return nil, err
+		}
+		if question != nil {
+			return question, nil
+		}
+
 		res, err := HandleClaimNext(ctx, runner, envelope)
 		if err != nil {
 			return nil, err
@@ -796,7 +823,7 @@ func HandleAwaitPacket(ctx context.Context, runner db.Runner, envelope rpc.Envel
 
 		status := fmt.Sprint(res["status"])
 		if status == "claimed" {
-			return res, nil
+			return awaitWorkEnvelope(res), nil
 		}
 
 		isRunning, err := isRunRunning(ctx, runner, repositoryID, sessionID)
@@ -804,11 +831,11 @@ func HandleAwaitPacket(ctx context.Context, runner db.Runner, envelope rpc.Envel
 			return nil, err
 		}
 		if !isRunning {
-			return map[string]any{"status": "no_work"}, nil
+			return awaitNoneEnvelope(), nil
 		}
 
 		if time.Now().After(deadline) {
-			return map[string]any{"status": "no_work"}, nil
+			return awaitNoneEnvelope(), nil
 		}
 
 		select {
@@ -817,6 +844,69 @@ func HandleAwaitPacket(ctx context.Context, runner db.Runner, envelope rpc.Envel
 		case <-time.After(pollInterval):
 		}
 	}
+}
+
+// awaitWorkEnvelope wraps a claim_next result in the RFC 0082 typed envelope
+// while preserving the legacy fields (status, packet_id, packet, next_steps)
+// so existing callers that read those keys keep working.
+func awaitWorkEnvelope(res map[string]any) map[string]any {
+	out := map[string]any{"type": "work_packet"}
+	for key, value := range res {
+		out[key] = value
+	}
+	return out
+}
+
+func awaitNoneEnvelope() map[string]any {
+	return map[string]any{"type": "none", "status": "no_work"}
+}
+
+// deliverPendingInterrogationQuestion returns the oldest pending interrogation
+// question addressed to this session and marks it delivered (acked). It returns
+// nil when none is pending. The question is delivered to the target session's
+// receive loop and to no other session (its target_session_id is the filter).
+func deliverPendingInterrogationQuestion(ctx context.Context, runner db.Runner, repositoryID, sessionID string) (map[string]any, error) {
+	return withTx(ctx, runner, func(tx db.TxRunner) (map[string]any, error) {
+		rows, err := queryRows(ctx, tx, `
+			SELECT message_id, payload_json
+			  FROM striatumd.queue_messages
+			 WHERE repository_id = $1
+			   AND target_session_id = $2
+			   AND kind = 'agent_message'
+			   AND state = 'pending'
+			   AND payload_json->>'turn' = 'question'
+			   AND payload_json->>'interrogation_id' IS NOT NULL
+			 ORDER BY created_at ASC, message_id ASC
+			 LIMIT 1
+			 FOR UPDATE SKIP LOCKED`,
+			repositoryID, sessionID)
+		if err != nil {
+			return nil, err
+		}
+		if len(rows) == 0 {
+			return nil, nil
+		}
+		row := rows[0]
+		messageID := fmt.Sprint(row["message_id"])
+		payload := asMap(row["payload_json"])
+		interrogationID := fmt.Sprint(payload["interrogation_id"])
+		body := fmt.Sprint(payload["body"])
+		now := nowString()
+		if err := tx.Exec(ctx, `
+			UPDATE striatumd.queue_messages
+			   SET state = 'acked', acked_at = $1, updated_at = $1
+			 WHERE repository_id = $2 AND message_id = $3`,
+			now, repositoryID, messageID); err != nil {
+			return nil, err
+		}
+		return map[string]any{
+			"type":             "interrogation_question",
+			"status":           "interrogation_question",
+			"interrogation_id": interrogationID,
+			"message_id":       messageID,
+			"body":             body,
+		}, nil
+	})
 }
 
 func isRunRunning(ctx context.Context, runner db.Runner, repositoryID, sessionID string) (bool, error) {

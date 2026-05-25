@@ -8,6 +8,12 @@
 |---|---|---|---:|---:|---:|
 | `trajectory.export` | `read` | `single_repo` | 1 | 1 | no |
 | `trajectory.watch` | `read` | `single_repo` | 1 | 1 | no |
+| `interrogation.open` | `write` | `single_repo` | 1 | 1 | no |
+| `interrogation.ask` | `write` | `single_repo` | 1 | 1 | no |
+| `interrogation.answer` | `write` | `single_repo` | 1 | 1 | no |
+| `interrogation.close` | `write` | `single_repo` | 1 | 1 | no |
+| `interrogation.list` | `read` | `single_repo` | 1 | 1 | no |
+| `interrogation.show` | `read` | `single_repo` | 1 | 1 | no |
 | `daemon.hello` | none | `daemon_global` | 1 | 1 | no |
 | `daemon.describe` | `read` | `daemon_global` | 1 | 1 | no |
 | `status` | `read` | `single_repo` | 1 | 1 | no |
@@ -197,3 +203,9 @@
 | `cross-repo cancel` | `cross_repo.cancel` | `recovery` | `cross_repo` |
 | `trajectory export` | `trajectory.export` | `read` | `single_repo` |
 | `trajectory watch` | `trajectory.watch` | `read` | `single_repo` |
+| `interrogation open` | `interrogation.open` | `write` | `single_repo` |
+| `interrogation ask` | `interrogation.ask` | `write` | `single_repo` |
+| `interrogation answer` | `interrogation.answer` | `write` | `single_repo` |
+| `interrogation close` | `interrogation.close` | `write` | `single_repo` |
+| `interrogation list` | `interrogation.list` | `read` | `single_repo` |
+| `interrogation show` | `interrogation.show` | `read` | `single_repo` |

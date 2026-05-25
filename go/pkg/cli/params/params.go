@@ -171,6 +171,14 @@ func positionalNames(group string) []string {
 		return []string{"cross_repo_run_id"}
 	case "trajectory_export", "trajectory_watch":
 		return []string{"run_id", "profile"}
+	case "interrogation_open":
+		return []string{"session_id", "target_session_id"}
+	case "interrogation_ask", "interrogation_answer", "interrogation_close":
+		return []string{"session_id", "interrogation_id"}
+	case "interrogation_list":
+		return []string{"run_id"}
+	case "interrogation_show":
+		return []string{"interrogation_id"}
 	default:
 		return nil
 	}

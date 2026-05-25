@@ -69,7 +69,13 @@
     {"command": "cross-repo", "subcommand": "why", "method": "cross_repo.why", "params": "cross_repo"},
     {"command": "cross-repo", "subcommand": "cancel", "method": "cross_repo.cancel", "params": "cross_repo"},
     {"command": "trajectory", "subcommand": "export", "method": "trajectory.export", "params": "trajectory_export"},
-    {"command": "trajectory", "subcommand": "watch", "method": "trajectory.watch", "params": "trajectory_watch"}
+    {"command": "trajectory", "subcommand": "watch", "method": "trajectory.watch", "params": "trajectory_watch"},
+    {"command": "interrogation", "subcommand": "open", "method": "interrogation.open", "params": "interrogation_open"},
+    {"command": "interrogation", "subcommand": "ask", "method": "interrogation.ask", "params": "interrogation_ask"},
+    {"command": "interrogation", "subcommand": "answer", "method": "interrogation.answer", "params": "interrogation_answer"},
+    {"command": "interrogation", "subcommand": "close", "method": "interrogation.close", "params": "interrogation_close"},
+    {"command": "interrogation", "subcommand": "list", "method": "interrogation.list", "params": "interrogation_list"},
+    {"command": "interrogation", "subcommand": "show", "method": "interrogation.show", "params": "interrogation_show"}
   ],
   "methods": [
     {
@@ -83,6 +89,60 @@
     },
     {
       "method": "trajectory.watch",
+      "required_capability": "read",
+      "repository_scope_mode": "single_repo",
+      "params_schema_version": 1,
+      "audit_class": "metadata",
+      "min_envelope": 1,
+      "deprecated": false
+    },
+    {
+      "method": "interrogation.open",
+      "required_capability": "write",
+      "repository_scope_mode": "single_repo",
+      "params_schema_version": 1,
+      "audit_class": "metadata",
+      "min_envelope": 1,
+      "deprecated": false
+    },
+    {
+      "method": "interrogation.ask",
+      "required_capability": "write",
+      "repository_scope_mode": "single_repo",
+      "params_schema_version": 1,
+      "audit_class": "metadata",
+      "min_envelope": 1,
+      "deprecated": false
+    },
+    {
+      "method": "interrogation.answer",
+      "required_capability": "write",
+      "repository_scope_mode": "single_repo",
+      "params_schema_version": 1,
+      "audit_class": "metadata",
+      "min_envelope": 1,
+      "deprecated": false
+    },
+    {
+      "method": "interrogation.close",
+      "required_capability": "write",
+      "repository_scope_mode": "single_repo",
+      "params_schema_version": 1,
+      "audit_class": "metadata",
+      "min_envelope": 1,
+      "deprecated": false
+    },
+    {
+      "method": "interrogation.list",
+      "required_capability": "read",
+      "repository_scope_mode": "single_repo",
+      "params_schema_version": 1,
+      "audit_class": "metadata",
+      "min_envelope": 1,
+      "deprecated": false
+    },
+    {
+      "method": "interrogation.show",
       "required_capability": "read",
       "repository_scope_mode": "single_repo",
       "params_schema_version": 1,

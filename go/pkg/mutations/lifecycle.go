@@ -663,14 +663,59 @@ func HandleCompleteWork(ctx context.Context, runner db.Runner, envelope rpc.Enve
 		if _, err := appendEvent(ctx, tx, repositoryID, job["run_id"], "job.completed", sessionID, jobID, messageID, nil, leaseID, map[string]any{"summary": summary}); err != nil {
 			return nil, err
 		}
+		// RFC 0082 §5: an interrogable job's session does NOT close on
+		// completion. It enters the awaiting_interrogation phase — staying live
+		// with its context preserved so a reviewer can interrogate it — until
+		// interrogation.close or a bounded idle timeout closes the session.
+		interrogable, err := jobIsInterrogable(ctx, tx, repositoryID, job)
+		if err != nil {
+			return nil, err
+		}
+		if interrogable {
+			if _, err := appendEvent(ctx, tx, repositoryID, job["run_id"], "session.awaiting_interrogation", sessionID, jobID, nil, nil, nil, map[string]any{
+				"session_id":      sessionID,
+				"workflow_job_id": job["workflow_job_id"],
+			}); err != nil {
+				return nil, err
+			}
+		}
 		if err := maybeEnqueueDownstream(ctx, tx, repositoryID, jobID); err != nil {
 			return nil, err
 		}
 		if err := maybeCompleteRun(ctx, tx, repositoryID, fmt.Sprint(job["run_id"])); err != nil {
 			return nil, err
 		}
-		return map[string]any{"status": "completed", "job_id": jobID}, nil
+		result := map[string]any{"status": "completed", "job_id": jobID}
+		if interrogable {
+			result["interrogable"] = true
+			result["session_phase"] = "awaiting_interrogation"
+		}
+		return result, nil
 	})
+}
+
+// jobIsInterrogable reports whether the completed job's workflow definition
+// declares interrogable: true. The flag lives in the run's workflow snapshot
+// (no jobs-table column is added — owner-table ALTERs are forbidden per RFC
+// 0079 §5), keyed by workflow_job_id.
+func jobIsInterrogable(ctx context.Context, runner any, repositoryID string, job map[string]any) (bool, error) {
+	run, err := rowByID(ctx, runner, repositoryID, "runs", "run_id", fmt.Sprint(job["run_id"]), false)
+	if err != nil {
+		return false, err
+	}
+	snapshot, err := rowByID(ctx, runner, repositoryID, "workflow_snapshots", "workflow_snapshot_id", fmt.Sprint(run["workflow_snapshot_id"]), false)
+	if err != nil {
+		return false, err
+	}
+	workflow := asMap(snapshot["workflow_json"])
+	workflowJobID := fmt.Sprint(job["workflow_job_id"])
+	for _, item := range asList(workflow["jobs"]) {
+		def := asMap(item)
+		if fmt.Sprint(def["id"]) == workflowJobID {
+			return def["interrogable"] == true, nil
+		}
+	}
+	return false, nil
 }
 
 func workPacketWriteScopeBaseline(ctx context.Context, runner any, repositoryID, jobID, leaseID string) map[string]any {

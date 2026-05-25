@@ -157,3 +157,32 @@ Export a stable JSONL manifest for reproducibility:
 ```bash
 striatum trajectory export --run-id <run-id> --profile provenance > manifest.jsonl
 ```
+
+## Interrogation sessions
+
+[RFC 0082](../rfcs/0082-interrogation-sessions.md) lets a reviewer interrogate a
+builder's *preserved* context after the builder finishes an `interrogable` job.
+Such a builder session does not close on `work.complete`; it enters the
+`awaiting_interrogation` phase (visible as the `session.awaiting_interrogation`
+event) and stays live until the interrogation is closed or it is recovered.
+
+```bash
+# list / inspect interrogations on a run
+striatum interrogation list --run-id <run-id>
+striatum interrogation show --interrogation-id <id>
+```
+
+Operational notes:
+
+- Interrogations require the MCP agent-loop executor — the fresh-per-packet
+  supervised wrapper cannot preserve context and is not interrogable.
+- A builder left in `awaiting_interrogation` widens the lease/resource window.
+  If an interrogation is never closed, the bounded idle timeout / stale-lease
+  recovery sweep (RFC 0020/0077) reclaims the session; an operator can also run
+  `striatum session close --session-id <builder> --reason "..."` once no lease
+  is held. `interrogation.close` closes the target automatically when it holds
+  no active lease and no other interrogation is open against it.
+- Interrogation turns are curated (D028) and surface in the `dialogue`
+  trajectory; they are never raw provider stdout/stderr. The
+  `striatumd.interrogations` table (migration 0016) is ownership-safe: it is a
+  plain runtime-role table with no `ALTER`/FK to owner-held tables.

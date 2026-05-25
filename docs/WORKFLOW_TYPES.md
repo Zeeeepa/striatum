@@ -388,6 +388,56 @@ striatum workflow generate striatum/workflows/my-convo \
   --option turns=5
 ```
 
+## Review By Interrogation
+
+Use this when artifact-mediated review is not enough — when the reviewer
+needs to query the builder's *live, preserved reasoning* rather than only
+reading the published artifact. Realized by RFC 0082 interrogation sessions.
+
+```mermaid
+flowchart TD
+  A["builder claims interrogable job"] --> B["builder completes → awaiting_interrogation"]
+  B --> C["reviewer: interrogation open --target-session <builder>"]
+  C --> D["reviewer: interrogation ask … (delivered to builder await loop)"]
+  D --> E["builder: interrogation answer … (from preserved context)"]
+  E --> D
+  D --> F["reviewer: interrogation close → builder session closes"]
+  F --> G["reviewer folds answers into verdict alongside the artifact"]
+```
+
+How it works:
+
+- Mark the builder's job `interrogable: true` in the workflow job definition.
+  An interrogable builder's `fresh_session_required` is relaxed and its session
+  does **not** close on `work.complete`; it enters the `awaiting_interrogation`
+  phase, staying live with its context preserved.
+- The reviewer session must hold the `interrogate` capability. It opens an
+  interrogation against the builder's *live, attested* target session
+  (`interrogation.open` fails `target_unavailable` otherwise), asks questions,
+  and reads the builder's answers.
+- Questions are session-addressed: they ride the message bus and are delivered
+  to the target's `work.await_packet` loop, which returns a typed envelope
+  (`work_packet` | `interrogation_question` | `none`) and prefers a pending
+  question over new work. No other session receives them.
+- Interrogation turns are curated records (D028 — never provider
+  stdout/stderr) and appear in the RFC 0081 `dialogue` trajectory:
+  `striatum trajectory export --profile dialogue`.
+- `interrogation.close` terminates the exchange and closes the builder session
+  once it holds no active lease and no other interrogation is open against it.
+
+CLI surface:
+
+```bash
+striatum interrogation open  --session-id <reviewer> --target-session <builder> --topic "design"
+striatum interrogation ask   --session-id <reviewer> --interrogation-id <id> --body "why X?"
+striatum interrogation answer --session-id <builder> --interrogation-id <id> --body "because Y"
+striatum interrogation list  --run-id <run>
+striatum interrogation show  --interrogation-id <id>
+striatum interrogation close --session-id <reviewer> --interrogation-id <id>
+```
+
+The same verbs are exposed as `interrogation.*` MCP tools to lane agents.
+
 ## Three-Lane Code And Documentation Audit
 
 Use this when the question is not "is this patch good?", but "where has

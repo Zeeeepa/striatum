@@ -108,6 +108,10 @@ func Register(server *rpc.Server, runner db.Runner, opts ...Options) {
 	server.Register("recovery.auto", makeHandler(runner, HandleRecoveryAuto))
 	server.Register("recovery.auto_finalize", makeHandler(runner, HandleRecoveryAutoFinalize))
 	server.Register("supervise.report", makeHandler(runner, HandleSuperviseReport))
+	server.Register("interrogation.open", makeHandler(runner, HandleInterrogationOpen))
+	server.Register("interrogation.ask", makeHandler(runner, HandleInterrogationAsk))
+	server.Register("interrogation.answer", makeHandler(runner, HandleInterrogationAnswer))
+	server.Register("interrogation.close", makeHandler(runner, HandleInterrogationClose))
 	server.Register("corpus.migrate_historical_dogfood_file", makeHandler(runner, HandleCorpusMigrateHistoricalDogfoodFile))
 	server.Register("artifact.backfill_blob", makeHandler(runner, HandleArtifactBackfillBlob))
 }

@@ -177,6 +177,50 @@ func TestMigrationFourteenCarriesAutoFinalizeCircuitBreakers(t *testing.T) {
 	}
 }
 
+// TestMigrationSixteenInterrogationsIsOwnershipSafe is RFC 0082 Required Test 9:
+// the interrogations migration creates a new table + grants the runtime role
+// and does NOT ALTER owner tables nor declare foreign keys referencing
+// owner-held tables (regression guard for the RFC 0081 incident).
+func TestMigrationSixteenInterrogationsIsOwnershipSafe(t *testing.T) {
+	migrations, err := Migrations()
+	if err != nil {
+		t.Fatalf("load migrations: %v", err)
+	}
+	var migration *Migration
+	for index := range migrations {
+		if migrations[index].Version == 16 {
+			migration = &migrations[index]
+			break
+		}
+	}
+	if migration == nil {
+		t.Fatal("migration 16 is missing")
+	}
+	sql := migration.SQL
+	for _, needle := range []string{
+		"CREATE TABLE IF NOT EXISTS striatumd.interrogations",
+		"PRIMARY KEY (repository_id, interrogation_id)",
+		"GRANT SELECT, INSERT, UPDATE, DELETE ON striatumd.interrogations TO striatumd_rw",
+	} {
+		if !strings.Contains(sql, needle) {
+			t.Fatalf("migration 16 missing %q", needle)
+		}
+	}
+	// Ownership-safety: no ALTER of any table, and no foreign keys to the
+	// owner-held tables. striatumd_rw must be able to apply this migration.
+	for _, forbidden := range []string{
+		"ALTER TABLE",
+		"REFERENCES striatumd.repositories",
+		"REFERENCES striatumd.runs",
+		"REFERENCES striatumd.sessions",
+		"FOREIGN KEY",
+	} {
+		if strings.Contains(sql, forbidden) {
+			t.Fatalf("migration 16 must not contain %q (owner-table dependency); referential integrity is enforced in Go", forbidden)
+		}
+	}
+}
+
 func TestApplyMigrationsRecordsVersion(t *testing.T) {
 	runner := &fakeRunner{scalars: map[string]string{}}
 	version, err := ApplyMigrations(context.Background(), runner, "test")

@@ -72,4 +72,10 @@ var generatedRoutes = []Route{
 	{Command: "cross-repo", Subcommand: "cancel", Method: "cross_repo.cancel", ParamsGroup: "cross_repo", RequiredCapability: "recovery", RepositoryScopeMode: "cross_repo", Deprecated: false},
 	{Command: "trajectory", Subcommand: "export", Method: "trajectory.export", ParamsGroup: "trajectory_export", RequiredCapability: "read", RepositoryScopeMode: "single_repo", Deprecated: false},
 	{Command: "trajectory", Subcommand: "watch", Method: "trajectory.watch", ParamsGroup: "trajectory_watch", RequiredCapability: "read", RepositoryScopeMode: "single_repo", Deprecated: false},
+	{Command: "interrogation", Subcommand: "open", Method: "interrogation.open", ParamsGroup: "interrogation_open", RequiredCapability: "write", RepositoryScopeMode: "single_repo", Deprecated: false},
+	{Command: "interrogation", Subcommand: "ask", Method: "interrogation.ask", ParamsGroup: "interrogation_ask", RequiredCapability: "write", RepositoryScopeMode: "single_repo", Deprecated: false},
+	{Command: "interrogation", Subcommand: "answer", Method: "interrogation.answer", ParamsGroup: "interrogation_answer", RequiredCapability: "write", RepositoryScopeMode: "single_repo", Deprecated: false},
+	{Command: "interrogation", Subcommand: "close", Method: "interrogation.close", ParamsGroup: "interrogation_close", RequiredCapability: "write", RepositoryScopeMode: "single_repo", Deprecated: false},
+	{Command: "interrogation", Subcommand: "list", Method: "interrogation.list", ParamsGroup: "interrogation_list", RequiredCapability: "read", RepositoryScopeMode: "single_repo", Deprecated: false},
+	{Command: "interrogation", Subcommand: "show", Method: "interrogation.show", ParamsGroup: "interrogation_show", RequiredCapability: "read", RepositoryScopeMode: "single_repo", Deprecated: false},
 }
