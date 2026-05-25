@@ -1,7 +1,8 @@
 # RFC 0082: Interrogation Sessions
 
-Status: proposed
+Status: accepted
 Date: 2026-05-25
+Accepted: 2026-05-25 (D138; implemented in the rfc-0082-interrogation run. All 9 Required Tests pass under live PostgreSQL, including the end-to-end intention test: a reviewer interrogates a builder's preserved context and receives a context-aware answer.)
 author: proposer-claude-opus-4-7-001
 Context:
 [`RFC 0002`](0002-reviewer-independence-policy.md),

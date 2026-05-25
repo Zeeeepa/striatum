@@ -2,6 +2,21 @@
 
 ## Unreleased — 2026-05-25
 
+## v2.3.0 — 2026-05-25
+
+### RFC 0082: interrogation sessions (accepted)
+
+Adds the construct the event-bus assessment found missing: a worker preserves
+its context window and other workers iteratively interrogate it for design/build
+review. `interrogation.{open,ask,answer,close,list,show}` daemon methods + CLI +
+MCP tools; targeted delivery via a typed `work.await_packet` envelope
+(`work_packet` | `interrogation_question` | `none`); an `awaiting_interrogation`
+context-preservation window on the MCP agent-loop with `interrogable` jobs;
+curated turns (D028) surfaced in the RFC 0081 `dialogue` trajectory. Migration
+0016 (`interrogations`) is ownership-safe. All 9 RFC 0082 Required Tests pass
+under live PostgreSQL, including the end-to-end intention test (a reviewer
+interrogates a builder's preserved context). See D138.
+
 ## v2.2.0 — 2026-05-25
 
 ### RFC 0079 / 0080 / 0081: operability, test hardening, conversation trajectories
