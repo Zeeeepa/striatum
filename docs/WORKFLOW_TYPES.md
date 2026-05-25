@@ -86,6 +86,7 @@ striatum workflow generate striatum/workflows/implementation-panel \
 | Produce an artifact whose claims need explicit evidence | Evidence-backed artifact | `examples/support-ledger-flow/` |
 | Collect several independent reviews before a final recommendation | Multi-review synthesis | `examples/rfc-ledger-cleanup/` |
 | Compare implementation choices before deciding | Implementation panel | `workflow generate --shape implementation_panel` |
+| N-turn, M-model alternating speaker dialogue | Conversation | `workflow generate --shape conversation --option topic=...` |
 | Audit code, docs, RFC status, and operator adoption risk together | Three-lane code and docs audit | RFC 0076 operator workflow |
 
 ## Lane Selection Heuristic
@@ -357,6 +358,35 @@ Start from `examples/rfc-ledger-cleanup/` for the current generic
 shape. Treat `examples/rfc-0014-operational-artifact-home/` and old
 P00x prompt material as historical reference unless a task explicitly
 asks for that provenance.
+
+## Conversation
+
+Use this for model-to-model dialogue, agent-operator interviews, or
+multi-turn reasoning loops over the message bus.
+
+```mermaid
+flowchart TD
+  A["topic/seed"] --> B["turn 1 (author)"]
+  B --> C["turn 2 (reviewer)"]
+  C --> D["turn 3 (author)"]
+  D --> E["turn n..."]
+```
+
+Good fits:
+
+- multi-model reasoning loops
+- agent-operator interviews
+- structured model-to-model debate
+- sequential reasoning where each turn is a distinct model session
+
+Start with:
+
+```bash
+striatum workflow generate striatum/workflows/my-convo \
+  --shape conversation \
+  --option topic="your topic" \
+  --option turns=5
+```
 
 ## Three-Lane Code And Documentation Audit
 

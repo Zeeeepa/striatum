@@ -126,5 +126,34 @@ In the foreground recipe the daemon logs to stderr.
 - **Migration on start.** The daemon applies pending schema migrations on
   startup; a slow first start after an upgrade is normal. Watch the log.
 - **Unit references a deleted launcher.** If you upgraded from a pre-RFC-0078
-  install, the old unit may point at `.venv/bin/python -m striatum.cli`. Run
+  install, the old unit may point at the retired Python launch path. Run
   `striatum daemon install` to overwrite it with the current Go unit.
+
+## Conversation trajectories and tmux
+
+[RFC 0081](../rfcs/0081-conversation-trajectories.md) introduces real-time
+observable trajectories. Use `trajectory watch` to follow a run's dialogue or
+lifecycle in a dedicated tmux pane.
+
+```bash
+# 1. Start a watch in a background pane or new shell:
+striatum trajectory watch --run-id <run-id> --profile dialogue
+
+# 2. To follow with a tmux 'tail -f' feel:
+# (in a 80x24 pane, showing only curated chat text)
+striatum trajectory watch --run-id <run-id> | jq -r '.body.text // ""'
+```
+
+Trajectories are read-only projections. They are constrained by D028: they
+never contain raw provider transcripts (process stdout/stderr).
+
+| Profile | Contents | Use case |
+|---|---|---|
+| `dialogue` | Curated chat messages and artifact references. | Pure conversation view. |
+| `provenance` | Full lifecycle (claim, ack, verdict, blocker) + dialogue. | Operational audit view. |
+
+Export a stable JSONL manifest for reproducibility:
+
+```bash
+striatum trajectory export --run-id <run-id> --profile provenance > manifest.jsonl
+```

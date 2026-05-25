@@ -8,6 +8,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/halbritt/striatum/go/pkg/cli/mutationparams"
 	"github.com/halbritt/striatum/go/pkg/cli/readparams"
@@ -100,10 +101,63 @@ func Run(ctx context.Context, args []string, stdout io.Writer, stderr io.Writer,
 	if err != nil {
 		return writeError(stderr, err, options)
 	}
+	if route.Method == "trajectory.watch" && !globals.JSONOutput {
+		return runWatchLoop(ctx, invoker, route, params, data, stdout, stderr)
+	}
+	if route.Method == "trajectory.export" && !globals.JSONOutput {
+		return writeJSONL(stdout, data, stderr)
+	}
 	if globals.JSONOutput {
 		return writeJSON(stdout, map[string]any{"ok": true, "data": data}, stderr)
 	}
 	return writeJSON(stdout, data, stderr)
+}
+
+func writeJSONL(stdout io.Writer, data map[string]any, stderr io.Writer) int {
+	records, ok := data["records"].([]any)
+	if !ok {
+		return writeJSON(stdout, data, stderr)
+	}
+	for _, record := range records {
+		encoded, err := json.Marshal(record)
+		if err != nil {
+			fmt.Fprintln(stderr, err.Error())
+			return 1
+		}
+		fmt.Fprintln(stdout, string(encoded))
+	}
+	return 0
+}
+
+func runWatchLoop(ctx context.Context, invoker Invoker, route routes.Route, params map[string]any, initialData map[string]any, stdout io.Writer, stderr io.Writer) int {
+	data := initialData
+	for {
+		records, _ := data["records"].([]any)
+		for _, record := range records {
+			encoded, _ := json.Marshal(record)
+			fmt.Fprintln(stdout, string(encoded))
+			if m, ok := record.(map[string]any); ok {
+				if seq, ok := m["seq"].(float64); ok {
+					params["since_seq"] = int64(seq)
+				} else if seq, ok := m["seq"].(int64); ok {
+					params["since_seq"] = seq
+				}
+			}
+		}
+
+		select {
+		case <-ctx.Done():
+			return 0
+		case <-time.After(1 * time.Second):
+		}
+
+		var err error
+		data, err = invoker.Invoke(ctx, route.Method, params)
+		if err != nil {
+			fmt.Fprintln(stderr, err.Error())
+			return 1
+		}
+	}
 }
 
 func parseGlobal(args []string) (globalOptions, error) {

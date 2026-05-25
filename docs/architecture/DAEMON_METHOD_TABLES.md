@@ -6,6 +6,8 @@
 
 | RPC method | Capability | Scope | Params schema | Min envelope | Deprecated |
 |---|---|---|---:|---:|---:|
+| `trajectory.export` | `read` | `single_repo` | 1 | 1 | no |
+| `trajectory.watch` | `read` | `single_repo` | 1 | 1 | no |
 | `daemon.hello` | none | `daemon_global` | 1 | 1 | no |
 | `daemon.describe` | `read` | `daemon_global` | 1 | 1 | no |
 | `status` | `read` | `single_repo` | 1 | 1 | no |
@@ -193,3 +195,5 @@
 | `cross-repo describe` | `cross_repo.describe` | `read` | `cross_repo` |
 | `cross-repo why` | `cross_repo.why` | `read` | `cross_repo` |
 | `cross-repo cancel` | `cross_repo.cancel` | `recovery` | `cross_repo` |
+| `trajectory export` | `trajectory.export` | `read` | `single_repo` |
+| `trajectory watch` | `trajectory.watch` | `read` | `single_repo` |

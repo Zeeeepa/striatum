@@ -26,7 +26,7 @@ var (
 	shapes = set(
 		"minimal", "review", "code_change", "human_checkpoint",
 		"evidence_backed", "implementation_panel", "multi_review_synthesis",
-		"multi_phase", "custom",
+		"multi_phase", "custom", "conversation",
 	)
 	laneSets      = set("local", "single_agent", "author_reviewer", "multi_review", "custom")
 	laneModifiers = set("supervised", "worktree_isolated", "constrained", "harness_profiled")
@@ -36,10 +36,12 @@ var (
 		"reviewer_count", "role_pack", "role_packs", "adversary_pack",
 		"adversary_packs", "proposal_count", "score_dimensions",
 		"custom_job_artifacts", "supervision_compatible", "phases",
+		"topic", "turns",
 	)
 	blockKinds = set(
 		"draft", "review", "synthesis", "implementation", "test",
 		"human_checkpoint", "support_ledger", "evidence_audit", "final_review",
+		"conversation",
 	)
 	allowedPostures = set(
 		"neutral", "devils_advocate", "security", "threat_model",
@@ -506,6 +508,38 @@ func compileShape(spec Spec) ([]map[string]any, []map[string]any, []map[string]a
 			reviewJob("final_review", reviewerLane(spec, 1), base+"/final/FINAL_REVIEW.md", "neutral"),
 		)
 		edges = append(edges, map[string]any{"from": "synthesis", "to": "final_review", "on": "completed"})
+		return jobs, edges, nil, nil, nil
+	case "conversation":
+		turns := 3
+		if raw, ok := spec.Options["turns"]; ok {
+			if v, ok := raw.(float64); ok {
+				turns = int(v)
+			} else if v, ok := raw.(int); ok {
+				turns = v
+			}
+		}
+		topic := "unspecified topic"
+		if raw, ok := spec.Options["topic"]; ok {
+			if v, ok := raw.(string); ok {
+				topic = v
+			}
+		}
+		jobs := []map[string]any{}
+		edges := []map[string]any{}
+		for i := 1; i <= turns; i++ {
+			id := fmt.Sprintf("turn_%d", i)
+			lane := "author"
+			laneID := authorLane
+			if i%2 == 0 {
+				lane = "reviewer"
+				laneID = reviewerLane(spec, 1)
+			}
+			label := fmt.Sprintf("Turn %d (%s)", i, topic)
+			jobs = append(jobs, job(id, "conversation", label, lane, laneID, base, fmt.Sprintf("turn_%d.md", i), "handoff", id, "draft", ""))
+			if i > 1 {
+				edges = append(edges, map[string]any{"from": fmt.Sprintf("turn_%d", i-1), "to": id, "on": "completed"})
+			}
+		}
 		return jobs, edges, nil, nil, nil
 	case "implementation_panel":
 		jobs, edges, cycles, err := compileImplementationPanel(spec)

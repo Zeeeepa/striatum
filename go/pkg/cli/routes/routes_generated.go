@@ -70,4 +70,6 @@ var generatedRoutes = []Route{
 	{Command: "cross-repo", Subcommand: "describe", Method: "cross_repo.describe", ParamsGroup: "cross_repo", RequiredCapability: "read", RepositoryScopeMode: "cross_repo", Deprecated: false},
 	{Command: "cross-repo", Subcommand: "why", Method: "cross_repo.why", ParamsGroup: "cross_repo", RequiredCapability: "read", RepositoryScopeMode: "cross_repo", Deprecated: false},
 	{Command: "cross-repo", Subcommand: "cancel", Method: "cross_repo.cancel", ParamsGroup: "cross_repo", RequiredCapability: "recovery", RepositoryScopeMode: "cross_repo", Deprecated: false},
+	{Command: "trajectory", Subcommand: "export", Method: "trajectory.export", ParamsGroup: "trajectory_export", RequiredCapability: "read", RepositoryScopeMode: "single_repo", Deprecated: false},
+	{Command: "trajectory", Subcommand: "watch", Method: "trajectory.watch", ParamsGroup: "trajectory_watch", RequiredCapability: "read", RepositoryScopeMode: "single_repo", Deprecated: false},
 }

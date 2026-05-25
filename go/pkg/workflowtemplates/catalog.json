@@ -16,6 +16,20 @@
       }
     },
     {
+      "template_id": "conversation",
+      "kind": "shape",
+      "display_name": "Conversation",
+      "summary": "N-turn, M-model alternating speaker conversation over the message bus.",
+      "recommended_for": ["model-to-model dialogue", "agent-operator interviews", "multi-turn reasoning loops"],
+      "default_lane_sets": ["author_reviewer", "multi_review"],
+      "required_options": ["workflow_id", "artifact_root", "topic"],
+      "graph_preview": {
+        "nodes": [{"id": "turn_1", "label": "Turn 1"}, {"id": "turn_2", "label": "Turn 2"}, {"id": "turn_n", "label": "Turn N"}],
+        "edges": [{"from": "turn_1", "to": "turn_2"}, {"from": "turn_2", "to": "turn_n"}],
+        "cycles": []
+      }
+    },
+    {
       "template_id": "custom",
       "kind": "shape",
       "display_name": "Custom safe block plan",
