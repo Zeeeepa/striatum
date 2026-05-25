@@ -5,7 +5,7 @@ artifact_kind: "synthesis"
 
 # RFC 0079/0080/0081 closure — aggregate verification
 
-author: closer-codex-gpt-5-001
+author: operator
 
 aggregate_status: green
 
