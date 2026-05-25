@@ -1,7 +1,8 @@
 # RFC 0079: Go-Only Operability And Install
 
-Status: proposed
+Status: accepted
 Date: 2026-05-25
+Accepted: 2026-05-25 (D135; implemented in the rfc-0079-0081-closure run)
 author: proposer-claude-opus-4-7-001
 Context:
 [`RFC 0068`](0068-go-production-daemon-port.md),
@@ -88,6 +89,25 @@ smoke.
   DSN configuration, log access (`journalctl --user -u striatumd`), and
   troubleshooting (socket/token mismatch, migration on start).
 - `docs/INDEX.md` / `docs/DOC_MAP.md` updated.
+
+### 5. Owner-applied migrations
+
+The daemon currently auto-applies PostgreSQL migrations on startup using its
+runtime role (`striatumd_rw`). That role holds DML grants but does not own the
+`striatumd` schema objects (owned by the bootstrap/admin role), so any migration
+that issues DDL against existing tables — `ALTER`, or even `CREATE` with a
+foreign key referencing an owner table — fails with `must be owner` /
+`permission denied`. This only stayed hidden because every prior migration was
+applied out-of-band by the owner and the daemon's startup migrate was a no-op.
+(Surfaced 2026-05-25 when RFC 0081's migration 0015 crash-looped the daemon.)
+
+The fix: migrations are applied by an **owner/admin connection**, not the
+runtime role. Either `striatum daemon migrate` (run by the operator/owner, or
+using an admin DSN from `daemon.toml`) applies pending migrations and the
+runtime daemon starts with migrate disabled, or the daemon acquires the admin
+DSN for the migrate step only. New schema objects must `GRANT` the needed DML to
+`striatumd_rw`. The runbook documents the model; a guard test asserts a
+migration adding an owner-referencing object also grants the runtime role.
 
 ## Acceptance Criteria
 

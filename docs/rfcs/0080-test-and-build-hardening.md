@@ -1,7 +1,8 @@
 # RFC 0080: Test And Build Hardening
 
-Status: proposed
+Status: accepted
 Date: 2026-05-25
+Accepted: 2026-05-25 (D136; implemented in the rfc-0079-0081-closure run)
 author: proposer-claude-opus-4-7-001
 Context:
 [`RFC 0043`](0043-postgres-as-sole-substrate-and-daemon-required-runtime.md),

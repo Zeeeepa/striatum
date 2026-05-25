@@ -1,7 +1,13 @@
 # RFC 0081: Conversation Trajectories
 
-Status: proposed
+Status: accepted
 Date: 2026-05-25
+Accepted: 2026-05-25 (D137; implemented in the rfc-0079-0081-closure run.
+Final design uses a read-derived per-run sequence — ROW_NUMBER over
+created_at + source class + primary key — rather than a stored run_event_seq
+column, since existing tables are owner-restricted and the converged design
+called for no new authority. Verified: `striatum trajectory export` reproduces
+the recorded two-model conversation.)
 author: proposer-claude-opus-4-7-001
 Context:
 [`RFC 0030`](0030-daemon-rpc-server-and-version-skew-protocol.md),

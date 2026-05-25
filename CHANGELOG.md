@@ -2,6 +2,30 @@
 
 ## Unreleased — 2026-05-25
 
+## v2.2.0 — 2026-05-25
+
+### RFC 0079 / 0080 / 0081: operability, test hardening, conversation trajectories
+
+- **RFC 0079 (operability & install, accepted)**: `striatum daemon install`
+  generates a portable systemd user unit (`%h`/`%t`); `make install` places
+  binaries + unit + skills and verifies `doctor`; a daemon runbook documents the
+  runtime layout and `daemon.toml` DSN; the canonical socket is `daemon-go.sock`.
+  PostgreSQL migrations are applied by an owner/admin connection (the daemon's
+  runtime role lacks DDL on owner tables).
+- **RFC 0080 (test & build hardening, accepted)**: reusable `go/pkg/pgtest`
+  PostgreSQL harness; live-PG tests run in CI; restored coverage; `go vet`,
+  `go test -race`, lint, and coverage gates; the `complete` write-scope guard now
+  baseline-diffs instead of flagging pre-existing untracked paths.
+- **RFC 0081 (conversation trajectories, accepted)**: `striatum trajectory
+  export/watch` with `dialogue`/`provenance` profiles over a read-model of
+  existing daemon events — ordering derived at read time (no stored column, no
+  new authority, no `ALTER` of owner tables), `trajectory_segments` for export
+  metadata, a tmux monitor, and a `conversation` workflow type. Curated
+  structured provenance only; never raw provider transcripts (D028). The design
+  was produced by a recorded two-model conversation over the message bus.
+
+See D135/D136/D137. Daemon-owned PostgreSQL remains the only live-state substrate.
+
 ## v2.1.0 — 2026-05-25
 
 ### RFC 0078: Go-only runtime and Python removal (accepted)
