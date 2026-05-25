@@ -87,27 +87,22 @@ func TestMigrationsAreOrdered(t *testing.T) {
 	}
 }
 
-func TestGoEmbeddedMigrationsMatchPythonSource(t *testing.T) {
-	sourcePath := filepath.Join("..", "..", "..", "src", "striatum", "daemon_pg", "sql")
-	if err := VerifyMigrationsSHASource(sourcePath); err != nil {
-		t.Fatalf("embedded migrations differ from Python source: %v", err)
-	}
-}
-
 func TestVerifyMigrationsSHASourceRejectsExtraSourceMigration(t *testing.T) {
-	sourcePath := filepath.Join("..", "..", "..", "src", "striatum", "daemon_pg", "sql")
+	// Post-RFC-0078 the embedded migrations are the canonical source of truth
+	// (the Python source tree is gone). Reconstruct a source dir from the embed,
+	// add a spurious newer file, and assert VerifyMigrationsSHASource rejects it.
 	tmp := t.TempDir()
-	entries, err := os.ReadDir(sourcePath)
+	entries, err := migrationFS.ReadDir("sql")
 	if err != nil {
-		t.Fatalf("read source migrations: %v", err)
+		t.Fatalf("read embedded migrations: %v", err)
 	}
 	for _, entry := range entries {
 		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".sql") {
 			continue
 		}
-		body, err := os.ReadFile(filepath.Join(sourcePath, entry.Name()))
+		body, err := migrationFS.ReadFile(filepath.Join("sql", entry.Name()))
 		if err != nil {
-			t.Fatalf("read source migration: %v", err)
+			t.Fatalf("read embedded migration: %v", err)
 		}
 		if err := os.WriteFile(filepath.Join(tmp, entry.Name()), body, 0o644); err != nil {
 			t.Fatalf("write copied migration: %v", err)

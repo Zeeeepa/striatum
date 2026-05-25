@@ -1,7 +1,6 @@
 package workflowtemplates
 
 import (
-	"bytes"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -127,21 +126,6 @@ func TestWriteMarkdownCheckAndOverwritePolicy(t *testing.T) {
 	}
 	if result["status"] != "up_to_date" {
 		t.Fatalf("check result = %#v", result)
-	}
-}
-
-func TestEmbeddedCatalogMatchesPythonSource(t *testing.T) {
-	source := filepath.Join("..", "..", "..", "src", "striatum", "workflow_templates", "catalog.json")
-	sourceBody, err := os.ReadFile(source)
-	if err != nil {
-		t.Fatalf("read source catalog: %v", err)
-	}
-	embeddedBody, err := catalogFS.ReadFile("catalog.json")
-	if err != nil {
-		t.Fatalf("read embedded catalog: %v", err)
-	}
-	if !bytes.Equal(embeddedBody, sourceBody) {
-		t.Fatalf("embedded Go workflow template catalog differs from Python source catalog")
 	}
 }
 

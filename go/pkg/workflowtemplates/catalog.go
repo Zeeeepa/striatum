@@ -14,7 +14,7 @@ import (
 
 const CatalogSchemaVersion = "striatum.workflow_templates.v1"
 
-const catalogRelPath = "src/striatum/workflow_templates/catalog.json"
+const catalogRelPath = "go/pkg/workflowtemplates/catalog.json"
 
 //go:embed catalog.json
 var catalogFS embed.FS
