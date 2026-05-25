@@ -1,6 +1,7 @@
 package localcommands
 
 import (
+	"context"
 	_ "embed"
 	"encoding/json"
 	"fmt"
@@ -14,6 +15,10 @@ import (
 	"github.com/halbritt/striatum/go/pkg/admin"
 	"github.com/halbritt/striatum/go/pkg/db"
 )
+
+// EnvDaemonAdminDBURL is an optional owner/admin DSN used by `daemon migrate`
+// to apply DDL the runtime role (striatumd_rw) cannot (RFC 0079 §5).
+const EnvDaemonAdminDBURL = "STRIATUM_DAEMON_ADMIN_DB_URL"
 
 //go:embed striatumd.service.tmpl
 var systemdUnitTemplate string
@@ -35,9 +40,9 @@ const daemonTomlScaffold = `# Striatum daemon configuration (scaffolded by ` + "
 // RunDaemon dispatches the local `striatum daemon {install|uninstall|status}`
 // bootstrap helpers. These never touch daemon RPC routes; they manage the
 // systemd user unit, scaffold daemon.toml, and report runtime layout.
-func RunDaemon(args []string, stdout, stderr io.Writer) int {
+func RunDaemon(args []string, stdout, stderr io.Writer, version string) int {
 	if len(args) == 0 {
-		fmt.Fprintln(stderr, "usage: striatum daemon {install|uninstall|status} [flags]")
+		fmt.Fprintln(stderr, "usage: striatum daemon {install|uninstall|status|migrate-db} [flags]")
 		return 2
 	}
 	switch args[0] {
@@ -47,10 +52,63 @@ func RunDaemon(args []string, stdout, stderr io.Writer) int {
 		return runDaemonUninstall(args[1:], stdout, stderr)
 	case "status":
 		return runDaemonStatus(args[1:], stdout, stderr)
+	case "migrate-db":
+		return runDaemonMigrate(args[1:], stdout, stderr, version)
 	default:
 		fmt.Fprintf(stderr, "unknown daemon command: %s\n", args[0])
 		return 2
 	}
+}
+
+// runDaemonMigrate applies pending PostgreSQL migrations using an owner/admin
+// DSN, so DDL the runtime role (striatumd_rw) cannot perform — ALTERing or
+// adding foreign keys against owner-held tables — is applied by the owner
+// before the daemon serves (RFC 0079 §5). Admin DSN resolution: --admin-url,
+// then STRIATUM_DAEMON_ADMIN_DB_URL, then the normal daemon DSN (flag/env/
+// daemon.toml) as a fallback for additive migrations the runtime role can apply.
+func runDaemonMigrate(args []string, stdout, stderr io.Writer, version string) int {
+	adminURL := ""
+	jsonOutput := false
+	for i := 0; i < len(args); i++ {
+		key, value, hasValue := strings.Cut(args[i], "=")
+		switch key {
+		case "--admin-url":
+			if hasValue {
+				adminURL = value
+			} else if i+1 < len(args) {
+				i++
+				adminURL = args[i]
+			}
+		case "--json":
+			jsonOutput = true
+		default:
+			fmt.Fprintf(stderr, "unknown daemon migrate flag: %s\n", args[i])
+			return 2
+		}
+	}
+	if adminURL == "" {
+		adminURL = os.Getenv(EnvDaemonAdminDBURL)
+	}
+	// ResolveConfig("") falls back to STRIATUM_DAEMON_DB_URL / daemon.toml.
+	cfg := db.ResolveConfig(adminURL)
+	if cfg.URL == "" {
+		fmt.Fprintln(stderr, "daemon migrate: no Postgres DSN; pass --admin-url, set STRIATUM_DAEMON_ADMIN_DB_URL, or configure daemon.toml")
+		return 1
+	}
+	if version == "" {
+		version = "dev"
+	}
+	pool, schemaVersion, err := db.ConnectAndMigrate(context.Background(), cfg.URL, version)
+	if err != nil {
+		fmt.Fprintf(stderr, "daemon migrate failed: %v\n", err)
+		return 1
+	}
+	defer pool.Close()
+	if jsonOutput {
+		return writeDaemonJSON(stdout, stderr, map[string]any{"ok": true, "data": map[string]any{"schema_version": schemaVersion, "dsn_source": cfg.Source}})
+	}
+	fmt.Fprintf(stdout, "migrations applied; schema_version=%d (dsn source: %s)\n", schemaVersion, cfg.Source)
+	return 0
 }
 
 type daemonFlags struct {

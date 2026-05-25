@@ -34,7 +34,7 @@ func TestRenderUnitUsesSpecifiersNotHardcodedHome(t *testing.T) {
 
 func TestDaemonInstallPrintUnit(t *testing.T) {
 	var stdout, stderr bytes.Buffer
-	if code := RunDaemon([]string{"install", "--print-unit"}, &stdout, &stderr); code != 0 {
+	if code := RunDaemon([]string{"install", "--print-unit"}, &stdout, &stderr, "test"); code != 0 {
 		t.Fatalf("print-unit exit=%d stderr=%s", code, stderr.String())
 	}
 	if !strings.Contains(stdout.String(), "ExecStart=%h/.local/bin/striatumd") {

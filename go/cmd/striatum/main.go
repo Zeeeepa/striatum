@@ -50,7 +50,7 @@ func run(args []string, stdout io.Writer, stderr io.Writer) int {
 			if globals.JSONOutput && !containsFlag(daemonArgs, "--json") {
 				daemonArgs = append(daemonArgs, "--json")
 			}
-			return localcommands.RunDaemon(daemonArgs, stdout, stderr)
+			return localcommands.RunDaemon(daemonArgs, stdout, stderr, version)
 		default:
 			workflowArgs := commandArgs[1:]
 			if globals.JSONOutput && !containsFlag(workflowArgs, "--json") {

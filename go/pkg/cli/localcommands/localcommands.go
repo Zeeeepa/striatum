@@ -16,6 +16,7 @@ var commands = []Command{
 	{Command: "daemon", Subcommand: "install", Rationale: "daemon install is a bootstrap helper that renders the systemd user unit and scaffolds daemon.toml before any daemon exists; it writes no daemon RPC state"},
 	{Command: "daemon", Subcommand: "uninstall", Rationale: "daemon uninstall disables and removes the systemd user unit; it touches no daemon RPC state and leaves config/data intact"},
 	{Command: "daemon", Subcommand: "status", Rationale: "daemon status summarizes the local unit/runtime layout and folds in read-only doctor; it issues no state-changing daemon RPC"},
+	{Command: "daemon", Subcommand: "migrate-db", Rationale: "daemon migrate-db applies pending PostgreSQL migrations via an owner/admin DSN before the daemon serves (RFC 0079 §5); it is a bootstrap helper, not a daemon RPC"},
 }
 
 func All() []Command {
