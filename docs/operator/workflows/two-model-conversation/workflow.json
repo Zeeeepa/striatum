@@ -1,0 +1,80 @@
+{
+  "schema_version": "striatum.workflow.v1",
+  "workflow_id": "two-model-conversation",
+  "workflow_version": "2026-05-25",
+  "name": "Two-model conversation over the message bus",
+  "context_docs": [
+    "AGENTS.md",
+    "docs/SPEC.md",
+    "docs/DECISION_LOG.md"
+  ],
+  "coordinator": {"role_id": "coordinator", "lane_id": "claude"},
+  "parallelism": {"mode": "declared", "max_active_jobs": 1, "require_disjoint_write_scopes": false},
+  "branch": {"mode": "confirm", "suggested_name": "striatum/two-model-conversation", "allow_dirty": true},
+  "lanes": {
+    "claude": {
+      "adapter": "process",
+      "command": ["bash", "-lc", "striatum skills install --profile claude_code --scope user --force --json >/dev/null 2>&1 || true; exec .striatum/bin/claude-supervised-wrapper.sh"],
+      "model": "claude",
+      "display_model": "Claude",
+      "strategy_version": "2026-05-25",
+      "constraints": {"network": "forbidden", "repo_scope": "local_only", "transcripts": "off"},
+      "required_enforcement": {"network": "advisory_strict", "repo_scope": "advisory_strict", "transcripts": "enforced"},
+      "supervision": {"compatible": true, "stdin_format": "newline_delimited_json", "wrapper_required": true}
+    },
+    "codex": {
+      "adapter": "process",
+      "command": ["bash", "-lc", "striatum skills install --profile codex --scope user --force --json >/dev/null 2>&1 || true; exec .striatum/bin/codex-supervised-wrapper.sh"],
+      "model": "codex",
+      "display_model": "Codex GPT-5",
+      "strategy_version": "2026-05-25",
+      "constraints": {"network": "forbidden", "repo_scope": "local_only", "transcripts": "off"},
+      "required_enforcement": {"network": "advisory_strict", "repo_scope": "advisory_strict", "transcripts": "enforced"},
+      "supervision": {"compatible": true, "stdin_format": "newline_delimited_json", "wrapper_required": true}
+    }
+  },
+  "roles": {
+    "coordinator": {"description": "Operator/control-plane coordinator."},
+    "speaker": {"description": "A model taking one turn in the conversation."}
+  },
+  "jobs": [
+    {
+      "id": "turn_1_claude", "type": "build", "title": "Turn 1 (Claude opens)",
+      "role_id": "speaker", "lane_id": "claude", "fresh_session_required": false,
+      "objective": "Open the trajectory-logging design conversation on the message bus.",
+      "task_prompt": {"path": "docs/operator/workflows/two-model-conversation/prompts/turn.md"},
+      "write_scope": {"mode": "repo_write", "repo_write": true, "allowed_paths": ["docs/operator/artifacts/two-model-conversation/"], "forbidden_paths": [".striatum/", "dist/"]},
+      "expected_artifacts": [{"logical_name": "turn1", "kind": "synthesis", "path": "docs/operator/artifacts/two-model-conversation/turn-1.md", "required": true}]
+    },
+    {
+      "id": "turn_2_codex", "type": "build", "title": "Turn 2 (Codex responds)",
+      "role_id": "speaker", "lane_id": "codex", "fresh_session_required": false,
+      "objective": "Respond on the message bus, refining the trajectory-logging design.",
+      "task_prompt": {"path": "docs/operator/workflows/two-model-conversation/prompts/turn.md"},
+      "write_scope": {"mode": "repo_write", "repo_write": true, "allowed_paths": ["docs/operator/artifacts/two-model-conversation/"], "forbidden_paths": [".striatum/", "dist/"]},
+      "expected_artifacts": [{"logical_name": "turn2", "kind": "synthesis", "path": "docs/operator/artifacts/two-model-conversation/turn-2.md", "required": true}]
+    },
+    {
+      "id": "turn_3_claude", "type": "build", "title": "Turn 3 (Claude refines)",
+      "role_id": "speaker", "lane_id": "claude", "fresh_session_required": false,
+      "objective": "Advance the design on the message bus, responding to Codex.",
+      "task_prompt": {"path": "docs/operator/workflows/two-model-conversation/prompts/turn.md"},
+      "write_scope": {"mode": "repo_write", "repo_write": true, "allowed_paths": ["docs/operator/artifacts/two-model-conversation/"], "forbidden_paths": [".striatum/", "dist/"]},
+      "expected_artifacts": [{"logical_name": "turn3", "kind": "synthesis", "path": "docs/operator/artifacts/two-model-conversation/turn-3.md", "required": true}]
+    },
+    {
+      "id": "turn_4_codex", "type": "build", "title": "Turn 4 (Codex closes with a proposal)",
+      "role_id": "speaker", "lane_id": "codex", "fresh_session_required": false,
+      "objective": "Close the conversation on the message bus with a concrete proposal.",
+      "task_prompt": {"path": "docs/operator/workflows/two-model-conversation/prompts/turn.md"},
+      "write_scope": {"mode": "repo_write", "repo_write": true, "allowed_paths": ["docs/operator/artifacts/two-model-conversation/"], "forbidden_paths": [".striatum/", "dist/"]},
+      "expected_artifacts": [{"logical_name": "turn4", "kind": "synthesis", "path": "docs/operator/artifacts/two-model-conversation/turn-4.md", "required": true}]
+    }
+  ],
+  "edges": [
+    {"from": "turn_1_claude", "to": "turn_2_codex", "on": "completed"},
+    {"from": "turn_2_codex", "to": "turn_3_claude", "on": "completed"},
+    {"from": "turn_3_claude", "to": "turn_4_codex", "on": "completed"}
+  ],
+  "cycles": []
+}
