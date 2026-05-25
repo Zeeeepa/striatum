@@ -1,3 +1,8 @@
+---
+schema_version: "striatum.synthesis.v1"
+artifact_kind: "synthesis"
+---
+
 # RFC 0081: Conversation Trajectories — Implementation Synthesis
 
 author: implementer-gemini-001
