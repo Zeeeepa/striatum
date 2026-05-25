@@ -1,0 +1,45 @@
+{
+  "schema_version": "striatum.workflow.v1",
+  "workflow_id": "rfc-0082-interrogation",
+  "workflow_version": "2026-05-25",
+  "name": "RFC 0082 interrogation sessions implementation",
+  "context_docs": [
+    "AGENTS.md", "docs/SPEC.md", "docs/DECISION_LOG.md",
+    "docs/rfcs/0082-interrogation-sessions.md",
+    "docs/rfcs/0081-conversation-trajectories.md",
+    "docs/rfcs/0079-go-only-operability-and-install.md",
+    "contracts/daemon_methods.json", "go/"
+  ],
+  "coordinator": {"role_id": "coordinator", "lane_id": "claude"},
+  "parallelism": {"mode": "declared", "max_active_jobs": 1, "require_disjoint_write_scopes": true},
+  "branch": {"mode": "confirm", "suggested_name": "striatum/rfc-0082-interrogation", "allow_dirty": true},
+  "lanes": {
+    "claude": {"adapter": "process", "command": ["bash", "-lc", "striatum skills install --profile claude_code --scope user --force --json >/dev/null 2>&1 || true; exec .striatum/bin/claude-supervised-wrapper.sh"], "model": "claude", "display_model": "Claude", "strategy_version": "2026-05-25", "constraints": {"network": "forbidden", "repo_scope": "local_only", "transcripts": "off"}, "required_enforcement": {"network": "advisory_strict", "repo_scope": "advisory_strict", "transcripts": "enforced"}, "supervision": {"compatible": true, "stdin_format": "newline_delimited_json", "wrapper_required": true}},
+    "codex": {"adapter": "process", "command": ["bash", "-lc", "striatum skills install --profile codex --scope user --force --json >/dev/null 2>&1 || true; exec .striatum/bin/codex-supervised-wrapper.sh"], "model": "codex", "display_model": "Codex GPT-5", "strategy_version": "2026-05-25", "constraints": {"network": "forbidden", "repo_scope": "local_only", "transcripts": "off"}, "required_enforcement": {"network": "advisory_strict", "repo_scope": "advisory_strict", "transcripts": "enforced"}, "supervision": {"compatible": true, "stdin_format": "newline_delimited_json", "wrapper_required": true}}
+  },
+  "roles": {
+    "coordinator": {"description": "Operator/control-plane coordinator."},
+    "implementer": {"description": "RFC 0082 implementer (impl + required tests)."},
+    "closer": {"description": "Aggregate verification closer."}
+  },
+  "jobs": [
+    {
+      "id": "gate_impl", "type": "build", "title": "RFC 0082: implement interrogation sessions + required tests", "role_id": "implementer", "lane_id": "claude", "fresh_session_required": true,
+      "objective": "Implement the interrogation-session construct (table, daemon methods, await_packet envelope, awaiting_interrogation window, CLI/MCP, trajectory) and ALL RFC 0082 Required Tests including the e2e intention test.",
+      "task_prompt": {"path": "docs/operator/workflows/rfc-0082-interrogation/prompts/gate_impl.md"},
+      "write_scope": {"mode": "repo_write", "repo_write": true, "allowed_paths": ["go/pkg/mutations/", "go/pkg/reads/", "go/pkg/rpc/", "go/pkg/cli/", "go/pkg/db/", "go/pkg/agentloop/", "go/pkg/mcp/", "go/pkg/sessionliveness/", "go/cmd/striatum/", "contracts/", "docs/WORKFLOW_TYPES.md", "docs/operator/DAEMON_RUNBOOK.md", "docs/operator/artifacts/rfc-0082-interrogation/"], "forbidden_paths": [".striatum/", "src/striatum/", "dist/", "__pycache__/"]},
+      "expected_artifacts": [{"logical_name": "impl", "kind": "synthesis", "path": "docs/operator/artifacts/rfc-0082-interrogation/impl/SUMMARY.md", "required": true}]
+    },
+    {
+      "id": "gate_verify", "type": "build", "title": "Verify RFC 0082 (intention e2e is the bar)", "role_id": "closer", "lane_id": "codex", "fresh_session_required": true,
+      "objective": "Run build/vet/test/-race, frontend, guardrail, and confirm the RFC 0082 Required Tests (esp. the e2e intention test) are present and green.",
+      "task_prompt": {"path": "docs/operator/workflows/rfc-0082-interrogation/prompts/gate_verify.md"},
+      "write_scope": {"mode": "repo_write", "repo_write": true, "allowed_paths": ["docs/operator/artifacts/rfc-0082-interrogation/verify/"], "forbidden_paths": [".striatum/", "src/striatum/", "dist/", "__pycache__/"]},
+      "expected_artifacts": [{"logical_name": "verify", "kind": "synthesis", "path": "docs/operator/artifacts/rfc-0082-interrogation/verify/SUMMARY.md", "required": true}]
+    }
+  ],
+  "edges": [
+    {"from": "gate_impl", "to": "gate_verify", "on": "completed"}
+  ],
+  "cycles": []
+}
