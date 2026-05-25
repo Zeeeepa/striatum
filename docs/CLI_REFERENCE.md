@@ -388,11 +388,13 @@ striatum serve
 
 ### Web routes (RFC 0013 / 0022 / 0024 / 0038)
 
-`striatum serve --web` exposes a server-rendered Jinja2 UI on the
+`striatum serve --web` exposes the legacy server-rendered operator UI on the
 same localhost-only origin as the JSON API. RFC 0038 V1 mounts React
-"frontend islands" into specific page slots; the rest of every page
-remains server-rendered. There are no new CLI verbs; the routes
-below are reachable in any browser pointed at the bound URL.
+"frontend islands" into specific page slots; the rest of every page remains
+server-rendered. RFC 0078 has begun the Go web-service cutover, but full route
+parity and daemon startup wiring remain deletion blockers. There are no new
+CLI verbs; the routes below are reachable in any browser pointed at the bound
+URL.
 
 | Route | Surface |
 | --- | --- |

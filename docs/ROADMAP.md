@@ -13,20 +13,21 @@ dependency edges, and "what would I do next" framing. Update on every
 
 ---
 
-## 1. State as of 2026-05-23 (v1.57.0 + residual-closure evidence)
+## 1. State as of 2026-05-25 (RFC 0078 Go-only cutover in progress)
 
-- **Latest tag:** `v1.57.0` is the latest released tag and
-  `pyproject.toml` version. v1.57.0 packages the GH #25 / #26 / #27
-  cluster on top of v1.56.0 (daemon recovery + RFC 0072 + remediation
-  follow-through).
+- **Latest tag:** `v1.57.0` remains the latest published release tag. The
+  repository head is preparing the RFC 0078 Go-only archive cutover with root
+  `VERSION=2.0.0`; do not describe `pyproject.toml` as the current release
+  source.
 - **Latest substantive release:** v1.57.0 — RFC 0073 implementation
   (daemon doctor surfaces blob diagnostics block), PG migration 0010
   (column-aware artifacts_no_update trigger), and `repo list`
   non-JSON cleanup (no more SQLite pre-flight). Closes the
   blob-routing observability and trigger-fragility gaps surfaced by
   the v1.56 backfill.
-- **Current workstream:** residual/deferred backlog closure on top of the
-  active runway. The 2026-05-23 closure artifacts under `docs/operator/`
+- **Current workstream:** RFC 0078 Go-only runtime and Python removal on top
+  of the closed residual/deferred backlog. The 2026-05-23 closure artifacts
+  under `docs/operator/`
   classify TODO 62, TODO 63, TODO 2, TODO 16, artifact schema/redaction, RFC
   0040 V1.6, and the deferred items formerly listed as 14-27. The actionable
   result is narrower than the old backlog: D125 evidence gate is satisfied
@@ -34,14 +35,21 @@ dependency edges, and "what would I do next" framing. Update on every
   RFC 0050/0075 live workflow-control cutover is closed, TODO 52 and TODO 53
   have additional bounded cleanup slices landed, TODO 49/61 cleanup is closed,
   RFC 0074 Phase B generator support has landed for the lightweight
-  `implementation_panel` shape; RFC 0052 Phase A,
+  `implementation_panel` shape. On 2026-05-25, the remaining RFC 0078 gates
+  executed with six parallel sub-agents and landed the generated Go CLI RPC
+  router, Go artifact contracts/workflow parity slices, Go web service
+  scaffolding, Go-only release archives and smoke scripts, and the
+  Python-trace guardrail. Final Python deletion remains blocked by active
+  Python source, pytest, packaging, scripts, and current guidance. RFC 0052 Phase A,
   RFC 0053 schema/runtime rename, Cross-Repo Live Scheduler V1, sealed apply,
   Windows support, and local multi-operator tenancy need separate accepted
   RFCs before implementation. Optional/out-of-core items are now explicitly
   classified rather than left as vague deferred work.
   D107 supersedes D105: Go is now the default production daemon core, active
-  contract-method parity is landed, Python CLI/web clients stay useful, and
-  the retired Python daemon module is deleted. The 2026-05-24 cleanup deletes
+  contract-method parity is landed, and the retired Python daemon module is
+  deleted. RFC 0078 now supersedes the older "Python CLI/web clients stay
+  useful" carve-out, but those source/test surfaces are not deleted until the
+  trace guardrail blocker rows close. The 2026-05-24 cleanup deletes
   the remaining legacy local-state implementation residue: no legacy package,
   root DB/migration facades, direct corpus exporter, V1 local-state schema
   module, deterministic repo-local fixture, or broad skipped compatibility

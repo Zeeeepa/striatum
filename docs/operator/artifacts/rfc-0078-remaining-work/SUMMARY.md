@@ -14,6 +14,24 @@ one umbrella workflow. Six sub-agents were launched, which is the effective
 maximum live sub-agent count available in this environment after closing the
 previous completed agent threads.
 
+## Execution Update
+
+The six dedicated gates were executed on 2026-05-25 with six parallel
+sub-agents and integrated into one working tree. Landed output includes:
+
+- generated Go CLI RPC route metadata and dispatch through daemon RPC;
+- shared Go artifact contracts plus expanded workflow validation and generator
+  reuse;
+- Go web service/security/static/SSE scaffolding and route-retirement
+  guardrails;
+- Go release archives, root `VERSION`, Go-only package/fresh-clone smokes, and
+  release CI changes;
+- row-level pytest migration/deletion ledgers;
+- a Python-trace report/strict guardrail for final deletion readiness.
+
+Final deletion is blocked, not accepted. `make python-trace-guardrail` still
+reports active Python source, pytest, packaging, scripts, and current guidance.
+
 ## Dedicated Gates
 
 1. `docs/operator/workflows/rfc-0078-go-cli-rpc-router/workflow.json`
@@ -43,14 +61,13 @@ All seven workflow files validated with:
 STRIATUM_TEST_HARNESS=1 STRIATUM_DAEMON_REQUIRED=0 PYTHONPATH=src .venv/bin/python -m striatum.cli workflow validate --allow-same-model-pairing <workflow.json>
 ```
 
-## Recommended Execution Order
+Integrated validation also passed for `go test ./...`, `make check`,
+`go generate ./pkg/cli/routes` freshness, the Go release/package/fresh-clone
+smoke scripts, frontend API-client tests, and doc-link/current-brief tests.
+The strict Python deletion guardrail fails as designed while blockers remain.
 
-1. Run `rfc-0078-go-cli-rpc-router`.
-2. Run `rfc-0078-workflow-artifact-parity`.
-3. Run `rfc-0078-python-test-migration`.
-4. Run `rfc-0078-go-web-service-cutover`.
-5. Run `rfc-0078-go-only-packaging-release`.
-6. Run `rfc-0078-docs-guardrails-final-deletion`.
+## Remaining Order
 
-The order keeps the operator command surface and validation coverage ahead of
-deleting Python files.
+Start from the Python-trace and coverage-ledger blockers, not from scaffold.
+Port or retire active Python runtime/test/script/doc rows, then re-run strict
+guardrail mode before declaring RFC 0078 accepted.

@@ -189,7 +189,7 @@ The examples assume you are in a striatum checkout and want to
 orchestrate some target repository. Set these once:
 
 ```bash
-RUNNER=.venv/bin/striatum
+RUNNER=striatum
 TARGET_REPO=/path/to/target/repo
 WORKFLOW=examples/rfc-ledger-cleanup/workflow.json
 OUTPUT_DIR=striatum/rfc-ledger    # see "Where artifacts land" below

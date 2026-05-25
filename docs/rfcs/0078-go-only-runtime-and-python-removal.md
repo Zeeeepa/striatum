@@ -25,7 +25,13 @@ scaffold, and expanded Go artifact kind/front-matter parity for operator,
 Git/PR, and auto-finalize gate artifacts. Full Python removal remains open.
 On 2026-05-25, the remaining work was scaffolded as six executable gates plus
 an umbrella tracker under `docs/operator/workflows/rfc-0078-*`; all workflow
-JSON files validate.
+JSON files validate. Those six gates were then executed with six parallel
+sub-agents. The integrated result lands Go CLI RPC routing, Go artifact
+contracts and workflow/generator parity slices, Go web service scaffolding,
+Go-only release archives and smoke scripts, and the Python-trace guardrail.
+RFC 0078 is still not accepted: final deletion is blocked by remaining active
+Python source, pytest, packaging, scripts, and current guidance reported by
+`make python-trace-guardrail`.
 
 ## Problem
 

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -86,6 +87,46 @@ func TestGetReturnsTemplateEntry(t *testing.T) {
 	}
 	if stringValue(entry, "kind") != "lane_set" {
 		t.Fatalf("kind = %v, want lane_set", entry["kind"])
+	}
+}
+
+func TestRenderMarkdownIncludesMermaidGraphPreview(t *testing.T) {
+	catalog, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	body, err := RenderMarkdown(catalog)
+	if err != nil {
+		t.Fatalf("RenderMarkdown: %v", err)
+	}
+	for _, needle := range []string{
+		"# Workflow Template Catalog\n",
+		"### Review and synthesis (`review`)",
+		"```mermaid\nflowchart TD\n",
+		"## Role Packs",
+		"## Adversary Packs",
+	} {
+		if !strings.Contains(body, needle) {
+			t.Fatalf("rendered catalog missing %q", needle)
+		}
+	}
+}
+
+func TestWriteMarkdownCheckAndOverwritePolicy(t *testing.T) {
+	repo := t.TempDir()
+	result, err := WriteMarkdown(repo, "docs/workflow-catalog.md", MarkdownWriteOptions{})
+	if err != nil {
+		t.Fatalf("WriteMarkdown: %v", err)
+	}
+	if result["status"] != "created" {
+		t.Fatalf("result = %#v", result)
+	}
+	result, err = WriteMarkdown(repo, "docs/workflow-catalog.md", MarkdownWriteOptions{Check: true})
+	if err != nil {
+		t.Fatalf("WriteMarkdown check: %v", err)
+	}
+	if result["status"] != "up_to_date" {
+		t.Fatalf("check result = %#v", result)
 	}
 }
 

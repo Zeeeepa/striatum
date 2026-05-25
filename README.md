@@ -76,7 +76,7 @@ token lives under the daemon runtime directory as `client-token`.
 │                 Daemon RPC envelope (v1)                        │
 │     capability checks · audit-chain append · method registry   │
 ├────────────────────────────────────────────────────────────────┤
-│    Python PG handlers  ·  Go PG handlers (RFC 0039)            │
+│                   Go daemon/RPC handlers                       │
 │         runs · sessions · jobs · leases · verdicts             │
 │         artifacts · blockers · events · audit_log              │
 ├────────────────────────────────────────────────────────────────┤
@@ -213,7 +213,10 @@ The [day-zero usage guide](docs/USING_STRIATUM.md) walks new arrivals through bo
 ## Quick Start
 
 ```bash
-pip install striatum-orchestrator
+# Download and unpack a Go release archive for your OS/arch.
+# Then put its bin/ directory on PATH.
+tar -xzf striatum_2.0.0_linux-amd64.tar.gz
+export PATH="$PWD/striatum_2.0.0_linux-amd64/bin:$PATH"
 
 # Check/provision the daemon's Postgres substrate.
 striatum daemon doctor --apply-migrations
@@ -259,7 +262,10 @@ The skill bundle teaches a Striatum-aware agent how to drive the runner without 
 striatum --repo "$TARGET_REPO" serve --web --allow-mutations
 ```
 
-Server-rendered Jinja2 UI with a live SVG dependency graph, state-colored job nodes, artifact browsing, verdict recording, and recovery actions. Loopback-only; non-loopback bind is refused at startup.
+The current operator UI remains server-rendered while RFC 0078 ports or
+retires remaining local web routes in Go. It provides a live SVG dependency
+graph, state-colored job nodes, artifact browsing, verdict recording, and
+recovery actions. Loopback-only; non-loopback bind is refused at startup.
 
 ---
 
@@ -267,15 +273,15 @@ Server-rendered Jinja2 UI with a live SVG dependency graph, state-colored job no
 
 | Area | Status |
 |------|--------|
-| Version | v1.55.0 (see [CHANGELOG.md](CHANGELOG.md)) |
-| Platforms | Linux + macOS · Python 3.11+ · Postgres 14+ |
-| PyPI | `striatum-orchestrator` |
+| Version | v2.0.0 packaging cutover in progress (see [CHANGELOG.md](CHANGELOG.md)) |
+| Platforms | Linux + macOS Go binaries · Postgres 14+ |
+| Distribution | GitHub release archives with `SHA256SUMS` |
 | License | Apache-2.0 |
-| CI | 1254 passed / 7 skipped / 0 failures on `main` as of v1.55.0 |
+| CI | Go tests, frontend checks, archive checks, and Go-only smoke scripts |
 | Daemon substrate | Postgres-native (RFC 0048 complete through all three phases) |
 | Schema | v6 — dedicated `previous_hash`/`row_hash` columns, serialized chain-head writes |
-| Go daemon | Phase 1 landed (RFC 0039): read-only method registry + PG/audit layer; mutating verbs and distribution artifacts are Phase 2 |
-| Active RFCs | RFC 0050 ergonomics polish; RFC 0051 auto-finalize; RFC 0039 Phase 2 (Go core CLI) |
+| Go runtime | Production runtime and release archive path for `striatum`, `striatumd`, and `striatum-supervisor-helper` |
+| Active RFCs | RFC 0078 Go-only runtime and Python removal |
 | Corpus export / augmentation | Corpus Contract V2 core landed; optional reference-only augmentation stays local and Striatum runs with external memory absent |
 
 ---
@@ -286,19 +292,13 @@ Server-rendered Jinja2 UI with a live SVG dependency graph, state-colored job no
 git clone https://github.com/halbritt/striatum.git
 cd striatum
 make install
-.venv/bin/striatum --help
+~/.local/bin/striatum --help
 ```
 
 Run tests:
 
 ```bash
-make lint typecheck test
-```
-
-For development without installing the console script:
-
-```bash
-PYTHONPATH=src python3 -m striatum.cli --help
+make check
 ```
 
 ---

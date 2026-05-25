@@ -129,22 +129,27 @@ active test imports of `sqlite3`, `striatum.legacy_sqlite`, `striatum.db`, or
 `striatum.migrations`. The retired `retired-local-state` file name remains only as a
 refusal/inspection signal for old working copies and as a redaction suffix.
 
-RFC 0078 (Go-only runtime and Python removal) is scaffolded and active, not
-complete. The max-parallel workflow completed on 2026-05-24 as
+RFC 0078 (Go-only runtime and Python removal) is active and partially landed,
+not complete. The max-parallel workflow completed on 2026-05-24 as
 `run_ef93ee9055bb77e40d2ae2c846337176` with six live Codex sub-agents, the
 effective thread limit in this environment, and `max_active_jobs: 20` in the
 workflow definition. It produced the cutover ledger and handoffs, added the
 first Go `striatum workflow validate` CLI scaffold, and expanded Go artifact
-contract/front-matter parity. Remaining blockers are the full Go CLI RPC
-router, Go local web/service, packaging/release cutover, workflow
-validation/generator parity, pytest migration, docs rewrite, and final
-Python-deletion guardrail enablement.
+contract/front-matter parity.
 
-The remaining RFC 0078 work is now scaffolded as six dedicated workflows plus
-one umbrella tracker. All validate. The recommended order is Go CLI RPC router,
-workflow/artifact parity, Python test migration, Go web/service cutover,
-Go-only packaging/release, then docs/guardrails/final deletion. Start from
-`docs/operator/plans/rfc-0078-remaining-work.md`.
+On 2026-05-25 the remaining RFC 0078 workflows were executed with six parallel
+sub-agents. Landed slices include the generated Go CLI RPC router from
+`contracts/daemon_methods.json`, shared Go artifact contracts, expanded Go
+workflow validation/lint/generator reuse, Go web service/security/static/SSE
+scaffolding, Go-only archive release and smoke scripts, and a checked-in
+Python-trace deletion guardrail. Aggregate validation passed after integration:
+`go test ./...`, `make check`, all seven RFC 0078 workflow validates,
+frontend API-client tests, release/package/fresh-clone smoke scripts, doc
+link/current-brief tests, route generation freshness, shell syntax checks, and
+`make release-check`.
+The strict deletion guardrail intentionally fails with active blockers, so
+Python source/tests/packaging/scripts remain until the next deletion/parity
+slice closes those rows.
 
 ## Next Actions
 
@@ -159,12 +164,11 @@ Go-only packaging/release, then docs/guardrails/final deletion. Start from
    bounded RFCs before implementing RFC 0052 Phase A, RFC 0053 schema/runtime
    rename, Cross-Repo Live Scheduler V1, sealed apply, Windows support, or
    local multi-operator tenancy.
-4. Continue RFC 0078 by running
-   `docs/operator/workflows/rfc-0078-go-cli-rpc-router/workflow.json`, then
-   `docs/operator/workflows/rfc-0078-workflow-artifact-parity/workflow.json`.
-   Do not delete active Python source/tests until the ledger names a Go
-   replacement, explicit retirement, or accepted historical-provenance
-   exception.
+4. Continue RFC 0078 from the deletion blockers, not from scaffold. The next
+   bounded slice should reduce `make python-trace-guardrail` blockers by
+   porting or retiring active Python source/tests/scripts/docs; do not delete
+   active Python files until the coverage ledger names a Go replacement,
+   explicit retirement, or accepted historical-provenance exception.
 
 ## Blockers
 
@@ -174,6 +178,9 @@ Go-only packaging/release, then docs/guardrails/final deletion. Start from
 - RFC 0050/RFC 0075 live workflow-control cutover is no longer blocked.
   Remaining CLI compatibility cleanup is a future deprecation policy question,
   not an active parity blocker.
+- RFC 0078 final deletion is blocked by the Python-trace guardrail. As of the
+  integrated 2026-05-25 run, report mode shows active blockers for Python
+  source, pytest, `pyproject.toml`, tracked Python scripts, and current docs.
 - Hosted Git provider behavior, external corpus-fetch UX, and Engram-side
   memory tools are out of core unless later optional-extension decisions
   accept them.

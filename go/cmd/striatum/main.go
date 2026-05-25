@@ -1,14 +1,18 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
-	"flag"
 	"fmt"
 	"io"
 	"os"
+	"strconv"
 	"strings"
 
+	"github.com/halbritt/striatum/go/pkg/cli/dispatch"
+	"github.com/halbritt/striatum/go/pkg/cli/localcommands"
+	"github.com/halbritt/striatum/go/pkg/cli/rpcclient"
 	"github.com/halbritt/striatum/go/pkg/workflowauthoring"
 )
 
@@ -23,6 +27,18 @@ func run(args []string, stdout io.Writer, stderr io.Writer) int {
 		usage(stderr)
 		return 2
 	}
+	globals, err := parseLeadingGlobals(args)
+	if err != nil {
+		fmt.Fprintln(stderr, err.Error())
+		return 2
+	}
+	if _, ok := localcommands.Lookup(globals.CommandArgs); ok {
+		workflowArgs := globals.CommandArgs[1:]
+		if globals.JSONOutput && !containsFlag(workflowArgs, "--json") {
+			workflowArgs = append([]string{workflowArgs[0], "--json"}, workflowArgs[1:]...)
+		}
+		return runWorkflow(workflowArgs, stdout, stderr, globals.RepoPath)
+	}
 	switch args[0] {
 	case "-h", "--help", "help":
 		usage(stdout)
@@ -30,59 +46,122 @@ func run(args []string, stdout io.Writer, stderr io.Writer) int {
 	case "--version":
 		fmt.Fprintln(stdout, version)
 		return 0
-	case "workflow":
-		return runWorkflow(args[1:], stdout, stderr)
 	default:
-		fmt.Fprintf(stderr, "unknown command: %s\n", args[0])
-		usage(stderr)
-		return 2
+		return runDaemonRoute(args, stdout, stderr)
 	}
 }
 
 func usage(out io.Writer) {
-	fmt.Fprintln(out, "usage: striatum [--version] {workflow} ...")
+	fmt.Fprintln(out, "usage: striatum [--version] [--repo path|--repository-id id] command ...")
 }
 
-func runWorkflow(args []string, stdout io.Writer, stderr io.Writer) int {
+func runDaemonRoute(args []string, stdout io.Writer, stderr io.Writer) int {
+	return dispatch.Run(context.Background(), args, stdout, stderr, dispatch.Options{
+		Env:         os.Environ(),
+		ResolveRepo: true,
+		ExitCode:    rpcclient.ExitCode,
+		InvokerFactory: func(runtime dispatch.RuntimeConfig) (dispatch.Invoker, error) {
+			config, err := rpcclient.ResolveConfig(os.Environ(), runtime.SocketPath, runtime.Token, runtime.TokenFile, runtime.DeadlineMS)
+			if err != nil {
+				return nil, err
+			}
+			return rpcclient.Client{Config: config}, nil
+		},
+	})
+}
+
+type leadingGlobals struct {
+	CommandArgs []string
+	RepoPath    string
+	JSONOutput  bool
+}
+
+func parseLeadingGlobals(args []string) (leadingGlobals, error) {
+	var globals leadingGlobals
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		if arg == "--" {
+			globals.CommandArgs = args[i+1:]
+			return globals, nil
+		}
+		if !strings.HasPrefix(arg, "--") {
+			globals.CommandArgs = args[i:]
+			return globals, nil
+		}
+		keyValue := strings.TrimPrefix(arg, "--")
+		key, value, hasValue := strings.Cut(keyValue, "=")
+		switch key {
+		case "json":
+			globals.JSONOutput = true
+		case "repo", "repository-id", "daemon-socket", "capability-token", "capability-token-file", "deadline-ms":
+			if !hasValue {
+				if i+1 >= len(args) {
+					return leadingGlobals{}, fmt.Errorf("--%s requires a value", key)
+				}
+				value = args[i+1]
+				i++
+			}
+			if key == "repo" {
+				globals.RepoPath = value
+			}
+		default:
+			globals.CommandArgs = args[i:]
+			return globals, nil
+		}
+	}
+	return globals, nil
+}
+
+func containsFlag(args []string, flag string) bool {
+	for _, arg := range args {
+		if arg == flag {
+			return true
+		}
+	}
+	return false
+}
+
+func runWorkflow(args []string, stdout io.Writer, stderr io.Writer, repoRootOverride string) int {
 	if len(args) == 0 {
 		fmt.Fprintln(stderr, "usage: striatum workflow {validate} ...")
 		return 2
 	}
 	switch args[0] {
 	case "validate":
-		return runWorkflowValidate(args[1:], stdout, stderr)
+		return runWorkflowValidate(args[1:], stdout, stderr, repoRootOverride)
 	default:
 		fmt.Fprintf(stderr, "unknown workflow command: %s\n", args[0])
 		return 2
 	}
 }
 
-func runWorkflowValidate(args []string, stdout io.Writer, stderr io.Writer) int {
-	fs := flag.NewFlagSet("workflow validate", flag.ContinueOnError)
-	fs.SetOutput(stderr)
-	allowSameModel := fs.Bool("allow-same-model-pairing", false, "accept same-model implementer/reviewer pairings")
-	jsonOutput := fs.Bool("json", false, "emit JSON")
-	if err := fs.Parse(args); err != nil {
+func runWorkflowValidate(args []string, stdout io.Writer, stderr io.Writer, repoRootOverride string) int {
+	allowSameModel, jsonOutput, paths, err := parseWorkflowValidateArgs(args)
+	if err != nil {
+		fmt.Fprintln(stderr, err.Error())
 		return 2
 	}
-	if fs.NArg() != 1 {
+	if len(paths) != 1 {
 		fmt.Fprintln(stderr, "usage: striatum workflow validate [--allow-same-model-pairing] [--json] path")
 		return 2
 	}
-	repoRoot, err := os.Getwd()
-	if err != nil {
-		return outputWorkflowValidateError(stdout, stderr, *jsonOutput, "cwd_error", err, 1)
-	}
-	workflow, _, err := workflowauthoring.LoadFile(repoRoot, fs.Arg(0))
-	if err != nil {
-		return outputWorkflowValidateError(stdout, stderr, *jsonOutput, "workflow_invalid", err, 8)
-	}
-	if !*allowSameModel {
-		if err := refuseSameModelLint(workflow); err != nil {
-			return outputWorkflowValidateError(stdout, stderr, *jsonOutput, "workflow_lint_refused", err, 8)
+	repoRoot := repoRootOverride
+	if repoRoot == "" {
+		repoRoot, err = os.Getwd()
+		if err != nil {
+			return outputWorkflowValidateError(stdout, stderr, jsonOutput, "cwd_error", err, 1)
 		}
 	}
-	if *jsonOutput {
+	workflow, _, err := workflowauthoring.LoadFile(repoRoot, paths[0])
+	if err != nil {
+		return outputWorkflowValidateError(stdout, stderr, jsonOutput, "workflow_invalid", err, 8)
+	}
+	if !allowSameModel {
+		if err := refuseSameModelLint(workflow); err != nil {
+			return outputWorkflowValidateError(stdout, stderr, jsonOutput, "workflow_lint_refused", err, 8)
+		}
+	}
+	if jsonOutput {
 		return writeJSON(stdout, map[string]any{
 			"ok": true,
 			"data": map[string]any{
@@ -93,6 +172,42 @@ func runWorkflowValidate(args []string, stdout io.Writer, stderr io.Writer) int 
 	}
 	fmt.Fprintln(stdout, "valid")
 	return 0
+}
+
+func parseWorkflowValidateArgs(args []string) (bool, bool, []string, error) {
+	allowSameModel := false
+	jsonOutput := false
+	paths := []string{}
+	for _, arg := range args {
+		key, value, hasValue := strings.Cut(arg, "=")
+		switch key {
+		case "--allow-same-model-pairing":
+			parsed, err := optionalBool(value, hasValue)
+			if err != nil {
+				return false, false, nil, fmt.Errorf("--allow-same-model-pairing must be a boolean")
+			}
+			allowSameModel = parsed
+		case "--json":
+			parsed, err := optionalBool(value, hasValue)
+			if err != nil {
+				return false, false, nil, fmt.Errorf("--json must be a boolean")
+			}
+			jsonOutput = parsed
+		default:
+			if strings.HasPrefix(arg, "-") {
+				return false, false, nil, fmt.Errorf("unknown workflow validate flag: %s", arg)
+			}
+			paths = append(paths, arg)
+		}
+	}
+	return allowSameModel, jsonOutput, paths, nil
+}
+
+func optionalBool(value string, hasValue bool) (bool, error) {
+	if !hasValue {
+		return true, nil
+	}
+	return strconv.ParseBool(value)
 }
 
 func refuseSameModelLint(workflow map[string]any) error {

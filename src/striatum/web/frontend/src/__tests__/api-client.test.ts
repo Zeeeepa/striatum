@@ -41,6 +41,17 @@ describe("api-client.fetchRepoTree", () => {
     expect(fetchMock.mock.calls[0]?.[0]).toBe("/api/repo/tree?path=docs");
   });
 
+  it("preserves existing query parameters on override endpoints", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      jsonResponse({ ok: true, data: { path: "", entries: [], truncated: false } }),
+    );
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    await fetchRepoTree("docs/reviews", "/api/repo/tree?run_id=run_1");
+    expect(fetchMock.mock.calls[0]?.[0]).toBe(
+      "/api/repo/tree?run_id=run_1&path=docs%2Freviews",
+    );
+  });
+
   it("propagates a server error envelope", async () => {
     const fetchMock = vi
       .fn()
@@ -58,4 +69,3 @@ describe("api-client.fetchRepoTree", () => {
     }
   });
 });
-

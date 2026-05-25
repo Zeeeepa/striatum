@@ -51,9 +51,8 @@ Two related changes shape the current product:
   distributions are deferred (RFC 0033 §8, inherited by RFC 0043).
 - A role that can `CREATE SCHEMA` and `CREATE TABLE`; the daemon
   owns subsequent forward-only migrations and role grants.
-- Python 3.11+ and a Striatum install (`pip install
-  striatum-orchestrator` or a contributor checkout with
-  `make install`).
+- Striatum's Go binaries installed from a release archive or a contributor
+  checkout with `make install`.
 - For an existing pre-D094 repo: writable SQLite imports are retired.
   Archive or remove `.striatum/retired-local-state` before registering the
   repository with `striatum adopt` or `striatum repo add --init`.

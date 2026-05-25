@@ -8,39 +8,17 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
-	"strconv"
 	"strings"
 
+	"github.com/halbritt/striatum/go/pkg/artifactcontracts"
 	"github.com/halbritt/striatum/go/pkg/blob"
 	"github.com/halbritt/striatum/go/pkg/db"
 	"github.com/halbritt/striatum/go/pkg/rpc"
 	"github.com/jackc/pgx/v5"
 )
 
-var allowedArtifactKinds = map[string]bool{
-	"prompt":                       true,
-	"finding":                      true,
-	"findings_ledger":              true,
-	"synthesis":                    true,
-	"marker":                       true,
-	"handoff":                      true,
-	"decision":                     true,
-	"patch_summary":                true,
-	"test_report":                  true,
-	"other":                        true,
-	"support_ledger":               true,
-	"action_item_ledger":           true,
-	"harness_improvement_proposal": true,
-	"escalation":                   true,
-	"operator_brief":               true,
-	"work_plan":                    true,
-	"progress_note":                true,
-	"operator_report":              true,
-	"commit_request":               true,
-	"pr_request":                   true,
-	"auto_finalize_gate_evidence":  true,
-}
+var allowedArtifactKinds = artifactcontracts.AllowedKindSet()
+var frontMatterSchemas = artifactcontracts.SchemaSet()
 
 func HandlePublishArtifact(ctx context.Context, runner db.Runner, envelope rpc.Envelope) (map[string]any, error) {
 	repositoryID, err := requireRepositoryID(envelope)
@@ -379,407 +357,31 @@ func sameOrInside(path string, base string) bool {
 }
 
 func ensureRequiredFrontMatter(kind string, path string, payload []byte) ([]byte, error) {
-	if kind != "synthesis" || !isMarkdownPath(path) {
-		return payload, nil
-	}
-	text := string(payload)
-	if strings.HasPrefix(text, "---\n") || strings.HasPrefix(text, "---\r\n") {
-		return payload, nil
-	}
-	prepend := "---\nschema_version: \"striatum.synthesis.v1\"\nartifact_kind: \"synthesis\"\n---\n\n"
-	updated := []byte(prepend + text)
-	if err := os.WriteFile(path, updated, 0o644); err != nil {
+	updated, err := artifactcontracts.EnsureRequiredFrontMatter(kind, path, payload)
+	if err != nil {
 		return nil, err
+	}
+	if string(updated) != string(payload) {
+		if err := os.WriteFile(path, updated, 0o644); err != nil {
+			return nil, err
+		}
 	}
 	return updated, nil
 }
 
-type frontMatterField struct {
-	required bool
-	check    func(any) bool
-}
-
-type frontMatterSchema struct {
-	fields map[string]frontMatterField
-}
-
-var frontMatterSchemas = map[string]frontMatterSchema{
-	"decision": {
-		fields: map[string]frontMatterField{
-			"schema_version":     {true, equalsValue("striatum.decision.v1")},
-			"artifact_kind":      {true, equalsValue("decision")},
-			"decision_id":        {true, isStringValue},
-			"run_id":             {true, isStringValue},
-			"owner":              {true, equalsValue("human")},
-			"outcome":            {true, oneOfValue("accepted", "rejected", "accepted_with_follow_up")},
-			"follow_up_required": {true, isBoolValue},
-			"title":              {true, isStringValue},
-			"created_at":         {true, isStringValue},
-		},
-	},
-	"finding": {
-		fields: map[string]frontMatterField{
-			"schema_version": {true, equalsValue("striatum.finding.v1")},
-			"artifact_kind":  {true, equalsValue("finding")},
-			"verdict_intent": {true, oneOfValue("accept", "accept_with_findings", "needs_revision", "reject")},
-			"severity":       {false, oneOfValue("info", "low", "medium", "high", "critical")},
-			"tags":           {false, isStringListValue},
-		},
-	},
-	"findings_ledger": {
-		fields: map[string]frontMatterField{
-			"schema_version": {true, equalsValue("striatum.findings_ledger.v1")},
-			"artifact_kind":  {true, equalsValue("findings_ledger")},
-			"summary_count":  {true, isNonNegativeIntValue},
-			"entries_path":   {false, isStringValue},
-		},
-	},
-	"synthesis": {
-		fields: map[string]frontMatterField{
-			"schema_version": {true, equalsValue("striatum.synthesis.v1")},
-			"artifact_kind":  {true, equalsValue("synthesis")},
-			"inputs":         {false, isStringListValue},
-		},
-	},
-	"support_ledger": {
-		fields: map[string]frontMatterField{
-			"schema_version":   {true, equalsValue("striatum.support_ledger.v1")},
-			"artifact_kind":    {true, equalsValue("support_ledger")},
-			"audited_artifact": {true, isStringValue},
-			"claim_count":      {false, isNonNegativeIntValue},
-		},
-	},
-	"action_item_ledger": {
-		fields: map[string]frontMatterField{
-			"schema_version":         {true, equalsValue("striatum.action_item_ledger.v1")},
-			"artifact_kind":          {true, equalsValue("action_item_ledger")},
-			"source_review_artifact": {true, isStringValue},
-			"revision_round":         {true, isNonNegativeIntValue},
-			"total_items":            {false, isNonNegativeIntValue},
-		},
-	},
-	"harness_improvement_proposal": {
-		fields: map[string]frontMatterField{
-			"schema_version":   {true, equalsValue("striatum.harness_improvement_proposal.v1")},
-			"artifact_kind":    {true, equalsValue("harness_improvement_proposal")},
-			"target":           {true, oneOfValue("prompt", "workflow", "spec", "defaults", "documentation")},
-			"expected_benefit": {true, isStringValue},
-			"risk":             {false, isStringValue},
-			"rollback":         {false, isStringValue},
-		},
-	},
-	"escalation": {
-		fields: map[string]frontMatterField{
-			"schema_version":    {true, equalsValue("striatum.escalation.v1")},
-			"artifact_kind":     {true, equalsValue("escalation")},
-			"escalation_id":     {true, isNonEmptyStringValue},
-			"run_id":            {true, isNonEmptyStringValue},
-			"job_id":            {false, isNonEmptyStringValue},
-			"session_id":        {false, isNonEmptyStringValue},
-			"severity":          {true, oneOfValue("info", "low", "medium", "high", "critical")},
-			"blocker_kind":      {true, oneOfValue("ambiguous_goal", "missing_authority", "contradicting_decisions", "no_available_reviewer_lane", "committee_stalemate", "override_required")},
-			"description":       {true, isNonEmptyStringValue},
-			"reasoning":         {true, isNonEmptyStringValue},
-			"requested_action":  {true, isNonEmptyStringValue},
-			"related_artifacts": {false, isStringListValue},
-			"created_at":        {true, isNonEmptyStringValue},
-		},
-	},
-	"operator_brief": {
-		fields: map[string]frontMatterField{
-			"schema_version":       {true, equalsValue("striatum.operator_brief.v1")},
-			"artifact_kind":        {true, equalsValue("operator_brief")},
-			"brief_id":             {true, isNonEmptyStringValue},
-			"supersedes":           {true, isNullableNonEmptyStringValue},
-			"scope_links":          {true, isStringListValue},
-			"context_budget_lines": {true, isNonNegativeIntValue},
-			"retrieval_priority":   {true, oneOfValue("high", "medium", "low")},
-			"status":               {true, oneOfValue("current", "superseded")},
-			"author":               {false, isNonEmptyStringValue},
-		},
-	},
-	"work_plan": {
-		fields: map[string]frontMatterField{
-			"schema_version":     {true, equalsValue("striatum.work_plan.v1")},
-			"artifact_kind":      {true, equalsValue("work_plan")},
-			"plan_id":            {true, isNonEmptyStringValue},
-			"scope_kind":         {true, oneOfValue("rfc", "phase", "initiative", "bugfix")},
-			"scope_ref":          {true, isNonEmptyStringValue},
-			"state":              {true, oneOfValue("open", "in_progress", "closed")},
-			"opened_at":          {true, isNonEmptyStringValue},
-			"closed_at":          {true, isNullableNonEmptyStringValue},
-			"closure_summary":    {true, isNullableNonEmptyStringValue},
-			"supersedes":         {true, isNullableNonEmptyStringValue},
-			"retrieval_priority": {true, oneOfValue("high", "medium", "low")},
-			"author":             {false, isNonEmptyStringValue},
-		},
-	},
-	"progress_note": {
-		fields: map[string]frontMatterField{
-			"schema_version":     {true, equalsValue("striatum.progress_note.v1")},
-			"artifact_kind":      {true, equalsValue("progress_note")},
-			"note_date":          {true, isNonEmptyStringValue},
-			"session_slug":       {true, isNonEmptyStringValue},
-			"related_plan":       {true, isNullableNonEmptyStringValue},
-			"related_brief":      {true, isNullableNonEmptyStringValue},
-			"retrieval_priority": {true, oneOfValue("high", "medium", "low")},
-			"author":             {false, isNonEmptyStringValue},
-		},
-	},
-	"operator_report": {
-		fields: map[string]frontMatterField{
-			"schema_version":     {true, equalsValue("striatum.operator_report.v1")},
-			"artifact_kind":      {true, equalsValue("operator_report")},
-			"author":             {false, isNonEmptyStringValue},
-			"retrieval_priority": {false, oneOfValue("high", "medium", "low")},
-			"supersedes":         {false, isNullableNonEmptyStringValue},
-		},
-	},
-	"commit_request": {
-		fields: map[string]frontMatterField{
-			"schema_version":      {true, equalsValue("striatum.commit_request.v1")},
-			"artifact_kind":       {true, equalsValue("commit_request")},
-			"request_id":          {true, isNonEmptyStringValue},
-			"run_id":              {false, isNonEmptyStringValue},
-			"base_head":           {true, isNonEmptyStringValue},
-			"branch":              {true, isNonEmptyStringValue},
-			"git_snapshot_hash":   {true, isNonEmptyStringValue},
-			"included_paths":      {true, isNonEmptyStringListValue},
-			"reviewed_artifacts":  {false, isNonEmptyStringListValue},
-			"commit_message":      {true, isNonEmptyStringValue},
-			"rationale":           {true, isNonEmptyStringValue},
-			"confirmation_status": {true, oneOfValue("pending", "operator_confirmed", "human_confirmed", "refused")},
-			"confirmed_by":        {false, isNullableNonEmptyStringValue},
-			"confirmed_at":        {false, isNullableNonEmptyStringValue},
-		},
-	},
-	"pr_request": {
-		fields: map[string]frontMatterField{
-			"schema_version":         {true, equalsValue("striatum.pr_request.v1")},
-			"artifact_kind":          {true, equalsValue("pr_request")},
-			"request_id":             {true, isNonEmptyStringValue},
-			"run_id":                 {false, isNonEmptyStringValue},
-			"target_branch":          {true, isNonEmptyStringValue},
-			"summary":                {true, isNonEmptyStringValue},
-			"body_draft":             {true, isNonEmptyStringValue},
-			"related_commit_request": {false, isNullableNonEmptyStringValue},
-			"local_commit_sha":       {false, isNullableNonEmptyStringValue},
-			"provider_target":        {false, isNullableNonEmptyStringValue},
-			"confirmation_status":    {true, oneOfValue("pending", "human_confirmed", "refused")},
-			"confirmed_by":           {false, isNullableNonEmptyStringValue},
-			"confirmed_at":           {false, isNullableNonEmptyStringValue},
-		},
-	},
-	"auto_finalize_gate_evidence": {
-		fields: map[string]frontMatterField{
-			"schema_version":               {true, equalsValue("striatum.auto_finalize_gate_evidence.v1")},
-			"artifact_kind":                {true, equalsValue("auto_finalize_gate_evidence")},
-			"decision_id":                  {true, equalsValue("D125")},
-			"gate_status":                  {true, oneOfValue("pending", "satisfied")},
-			"live_success_count":           {true, isNonNegativeIntValue},
-			"lane_shape_count":             {true, isNonNegativeIntValue},
-			"lane_shapes":                  {true, isNonEmptyStringListValue},
-			"contested_audit_chain_events": {true, isNonNegativeIntValue},
-			"evidence_artifacts":           {true, isNonEmptyStringListValue},
-			"created_at":                   {true, isNonEmptyStringValue},
-		},
-	},
-}
-
 func validateArtifactFrontMatter(kind string, path string, payload []byte) error {
-	schema, ok := frontMatterSchemas[kind]
-	if !ok || !isMarkdownPath(path) {
-		return nil
-	}
-	block, ok := frontMatterBlock(string(payload))
-	if !ok {
-		return nil
-	}
-	parsed, err := parseFrontMatterBlock(block)
-	if err != nil {
+	if err := artifactcontracts.ValidateFrontMatter(kind, path, payload); err != nil {
 		return rpc.NewError("artifact_error", err.Error(), nil)
-	}
-	for name, field := range schema.fields {
-		value, exists := parsed[name]
-		if !exists {
-			if field.required {
-				return rpc.NewError("artifact_error", fmt.Sprintf("%s artifact front matter missing required field %q", kind, name), nil)
-			}
-			continue
-		}
-		if !field.check(value) {
-			return rpc.NewError("artifact_error", fmt.Sprintf("%s artifact front matter field %q is invalid", kind, name), nil)
-		}
-	}
-	extra := []string{}
-	for name := range parsed {
-		if _, ok := schema.fields[name]; !ok {
-			extra = append(extra, name)
-		}
-	}
-	if len(extra) > 0 {
-		sort.Strings(extra)
-		return rpc.NewError("artifact_error", fmt.Sprintf("%s artifact front matter has unknown fields: %s", kind, strings.Join(extra, ", ")), nil)
 	}
 	return nil
 }
 
 func frontMatterBlock(text string) (string, bool) {
-	lines := strings.Split(text, "\n")
-	if len(lines) == 0 || strings.TrimSpace(lines[0]) != "---" {
-		return "", false
-	}
-	for i := 1; i < len(lines); i++ {
-		if strings.TrimSpace(lines[i]) == "---" {
-			return strings.Join(lines[1:i], "\n"), true
-		}
-	}
-	return "", false
+	return artifactcontracts.FrontMatterBlock(text)
 }
 
 func parseFrontMatterBlock(block string) (map[string]any, error) {
-	result := map[string]any{}
-	for _, raw := range strings.Split(block, "\n") {
-		line := strings.TrimSpace(raw)
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
-		}
-		parts := strings.SplitN(line, ":", 2)
-		if len(parts) != 2 || strings.TrimSpace(parts[0]) == "" {
-			return nil, fmt.Errorf("artifact front matter has invalid line %q", raw)
-		}
-		key := strings.TrimSpace(parts[0])
-		if _, exists := result[key]; exists {
-			return nil, fmt.Errorf("artifact front matter field %q is declared more than once", key)
-		}
-		result[key] = parseFrontMatterValue(strings.TrimSpace(parts[1]))
-	}
-	return result, nil
-}
-
-func parseFrontMatterValue(value string) any {
-	value = strings.TrimSpace(value)
-	if len(value) >= 2 {
-		if (value[0] == '"' && value[len(value)-1] == '"') || (value[0] == '\'' && value[len(value)-1] == '\'') {
-			return value[1 : len(value)-1]
-		}
-	}
-	if value == "true" {
-		return true
-	}
-	if value == "false" {
-		return false
-	}
-	if strings.HasPrefix(value, "[") && strings.HasSuffix(value, "]") {
-		body := strings.TrimSpace(value[1 : len(value)-1])
-		if body == "" {
-			return []string{}
-		}
-		items := []string{}
-		for _, item := range strings.Split(body, ",") {
-			items = append(items, strings.Trim(strings.TrimSpace(item), `"'`))
-		}
-		return items
-	}
-	if parsed, err := strconv.Atoi(value); err == nil {
-		return parsed
-	}
-	return value
-}
-
-func equalsValue(expected string) func(any) bool {
-	return func(value any) bool { return fmt.Sprint(value) == expected }
-}
-
-func oneOfValue(options ...string) func(any) bool {
-	allowed := map[string]bool{}
-	for _, option := range options {
-		allowed[option] = true
-	}
-	return func(value any) bool { return allowed[fmt.Sprint(value)] }
-}
-
-func isStringValue(value any) bool {
-	_, ok := value.(string)
-	return ok
-}
-
-func isNonEmptyStringValue(value any) bool {
-	text, ok := value.(string)
-	return ok && strings.TrimSpace(text) != ""
-}
-
-func isNullableNonEmptyStringValue(value any) bool {
-	if value == nil {
-		return true
-	}
-	return isNonEmptyStringValue(value)
-}
-
-func isBoolValue(value any) bool {
-	_, ok := value.(bool)
-	return ok
-}
-
-func isNonNegativeIntValue(value any) bool {
-	switch typed := value.(type) {
-	case int:
-		return typed >= 0
-	case int16:
-		return typed >= 0
-	case int32:
-		return typed >= 0
-	case int64:
-		return typed >= 0
-	case float64:
-		return typed >= 0 && typed == float64(int64(typed))
-	case json.Number:
-		parsed, err := typed.Int64()
-		return err == nil && parsed >= 0
-	}
-	return false
-}
-
-func isStringListValue(value any) bool {
-	switch typed := value.(type) {
-	case []string:
-		return true
-	case []any:
-		for _, item := range typed {
-			if _, ok := item.(string); !ok {
-				return false
-			}
-		}
-		return true
-	}
-	return false
-}
-
-func isNonEmptyStringListValue(value any) bool {
-	switch typed := value.(type) {
-	case []string:
-		if len(typed) == 0 {
-			return false
-		}
-		for _, item := range typed {
-			if strings.TrimSpace(item) == "" {
-				return false
-			}
-		}
-		return true
-	case []any:
-		if len(typed) == 0 {
-			return false
-		}
-		for _, item := range typed {
-			text, ok := item.(string)
-			if !ok || strings.TrimSpace(text) == "" {
-				return false
-			}
-		}
-		return true
-	}
-	return false
+	return artifactcontracts.ParseFrontMatterBlock(block)
 }
 
 func validateMarkdownAuthorLine(ctx context.Context, runner any, repositoryID string, job map[string]any, sessionID string, path string, payload []byte) error {

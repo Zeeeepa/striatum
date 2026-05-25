@@ -1,93 +1,54 @@
 name: Release
 
-# Triggered when a `v*` tag is pushed. Builds the wheel + sdist,
-# publishes to PyPI via trusted publishing (no API token in repo),
-# and creates a GitHub Release with the CHANGELOG slice for the
-# tagged version.
-
 on:
   push:
     tags:
       - "v*"
 
 permissions:
-  contents: write   # needed to create the GitHub Release
+  contents: write
 
 jobs:
   build:
-    name: Build distributions
+    name: Build Go release archives
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
       - uses: actions/setup-go@v5
         with:
-          go-version: "1.23"
+          go-version-file: go/go.mod
+          cache-dependency-path: go/go.sum
 
-      - name: Cross-compile Go daemon (4 platforms)
-        # RFC 0039 Phase 2 Step 6: produce per-platform striatumd binaries
-        # under src/striatum/_daemongo/binaries/ so the wheel ships them
-        # via package-data. Release-time only; CI's PR workflow does not
-        # cross-compile.
-        run: make daemon-go-release
+      - name: Verify tag matches VERSION
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          version="$(tr -d '[:space:]' < VERSION)"
+          test "$tag" = "$version" || {
+            echo "tag $GITHUB_REF_NAME disagrees with VERSION $version" >&2
+            exit 1
+          }
+
+      - name: Test
+        run: make check
+
+      - name: Build Go archives and checksums
+        run: make release-archives
+
+      - name: Check Go archives
+        run: make check-release-archives
+
+      - name: Smoke release archive
+        run: make package-smoke
 
       - uses: actions/upload-artifact@v4
         with:
-          name: striatumd-binaries
-          path: src/striatum/_daemongo/binaries/
-
-      - name: Verify tag matches pyproject version
-        run: |
-          python - <<'PY'
-          import os, re, tomllib
-          tag = os.environ["GITHUB_REF_NAME"]              # e.g. v1.5.0
-          assert tag.startswith("v"), tag
-          tag_version = tag[1:]
-          with open("pyproject.toml", "rb") as fh:
-              data = tomllib.load(fh)
-          pyproject_version = data["project"]["version"]
-          assert tag_version == pyproject_version, (
-              f"tag {tag} disagrees with pyproject {pyproject_version}; "
-              "bump the version in the same commit you tag"
-          )
-          print(f"OK: tag {tag} matches pyproject {pyproject_version}")
-          PY
-
-      - name: Install build tools
-        run: |
-          python -m pip install --upgrade pip
-          python -m pip install build twine
-
-      - name: Build wheel + sdist
-        run: python -m build
-
-      - name: Verify with twine
-        run: python -m twine check --strict dist/*
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: dist
-          path: dist/
-
-  pypi:
-    name: Publish to PyPI
-    needs: build
-    runs-on: ubuntu-latest
-    environment: pypi   # configure on the repo + on PyPI as trusted publisher
-    permissions:
-      id-token: write   # required for trusted publishing (OIDC)
-    steps:
-      - uses: actions/download-artifact@v4
-        with:
-          name: dist
-          path: dist/
-      - uses: pypa/gh-action-pypi-publish@release/v1
+          name: go-release-archives
+          path: |
+            dist/*.tar.gz
+            dist/SHA256SUMS
 
   github-release:
     name: Create GitHub Release
@@ -102,38 +63,36 @@ jobs:
 
       - uses: actions/download-artifact@v4
         with:
-          name: dist
+          name: go-release-archives
           path: dist/
 
       - name: Extract CHANGELOG slice for this version
         id: changelog
         run: |
-          python - <<'PY' >> "$GITHUB_OUTPUT"
-          import os, re, sys
-          tag = os.environ["GITHUB_REF_NAME"]
-          version = tag.lstrip("v")
-          with open("CHANGELOG.md", encoding="utf-8") as fh:
-              text = fh.read()
-          # Match `## <version> — <date>` until the next `## ` heading.
-          pattern = re.compile(
-              rf"^## {re.escape(version)}.*?(?=^## |\Z)",
-              re.MULTILINE | re.DOTALL,
-          )
-          match = pattern.search(text)
-          body = (match.group(0).rstrip() if match
-                  else f"## {version}\n\nNo CHANGELOG entry found for this version.")
-          # Multi-line output via heredoc syntax for GITHUB_OUTPUT.
-          delim = "EOF_CHANGELOG_SLICE"
-          print(f"body<<{delim}")
-          print(body)
-          print(delim)
-          PY
+          version="${GITHUB_REF_NAME#v}"
+          body="$(awk -v version="$version" '
+            $0 ~ "^## " version "([[:space:]]|$)" {capture=1}
+            capture && /^## / && $0 !~ "^## " version "([[:space:]]|$)" {exit}
+            capture {print}
+          ' CHANGELOG.md)"
+          if [[ -z "$body" ]]; then
+            body="## $version
+
+No CHANGELOG entry found for this version."
+          fi
+          {
+            echo "body<<EOF_CHANGELOG_SLICE"
+            printf '%s\n' "$body"
+            echo "EOF_CHANGELOG_SLICE"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Create release
         uses: softprops/action-gh-release@v2
         with:
           name: ${{ github.ref_name }}
           body: ${{ steps.changelog.outputs.body }}
-          files: dist/*
+          files: |
+            dist/*.tar.gz
+            dist/SHA256SUMS
           fail_on_unmatched_files: true
           generate_release_notes: false

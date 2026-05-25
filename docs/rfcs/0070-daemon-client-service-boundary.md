@@ -4,6 +4,14 @@ Status: mostly implemented
 Date: 2026-05-17
 Context: [RFC 0030](0030-daemon-rpc-server-and-version-skew-protocol.md), [RFC 0040](0040-mcp-driven-dogfood-harness.md), [RFC 0061](0061-daemon-first-web-service.md), [RFC 0068](0068-go-production-daemon-port.md), [RFC 0069](0069-pg-only-daemon-global-surfaces.md)
 
+Successor note:
+[`RFC 0078`](0078-go-only-runtime-and-python-removal.md), if accepted and
+completed, supersedes this RFC's non-goal of keeping the Python CLI outside
+the removal scope. Until then, this RFC remains the live daemon-client
+boundary: clients must not become alternate live-state authorities, and the
+remaining Python CLI/web/service surfaces are RFC 0078 cutover blockers rather
+than accepted long-term architecture.
+
 ## Problem
 
 The CLI and web service are mostly daemon clients. Repo resolution, daemon

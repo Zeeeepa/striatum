@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/halbritt/striatum/go/pkg/workflowauthoring"
 	"github.com/halbritt/striatum/go/pkg/workflowtemplates"
 )
 
@@ -261,6 +262,18 @@ func Generate(spec Spec) (Generated, error) {
 	if err != nil {
 		return Generated{}, err
 	}
+	if jobs == nil {
+		jobs = []map[string]any{}
+	}
+	if edges == nil {
+		edges = []map[string]any{}
+	}
+	if cycles == nil {
+		cycles = []map[string]any{}
+	}
+	if phases == nil {
+		phases = []map[string]any{}
+	}
 	if spec.Shape == "implementation_panel" {
 		warnings = append(warnings, "implementation_panel generates a high-artifact workflow; review proposal_count, score_dimensions, and lane costs before running.")
 	}
@@ -286,7 +299,7 @@ func Generate(spec Spec) (Generated, error) {
 		"coordinator":      coordinator(spec, lanes),
 		"lanes":            lanes,
 		"roles":            roles,
-		"context_docs":     append([]any(nil), spec.ContextDocs...),
+		"context_docs":     append([]any{}, spec.ContextDocs...),
 		"parallelism":      parallelism,
 		"jobs":             jobs,
 		"edges":            edges,
@@ -1194,76 +1207,15 @@ func renderFiles(spec Spec, workflow map[string]any, roles map[string]any) ([]ma
 }
 
 func ValidateWorkflow(workflow map[string]any) error {
-	if workflow["schema_version"] != WorkflowSchemaVersion && workflow["schema_version"] != WorkflowSchemaVersionV11 {
-		return genErr("workflow has unsupported schema_version", "workflow.schema_version")
-	}
-	for _, key := range []string{"workflow_id", "workflow_version", "name"} {
-		if value, ok := workflow[key].(string); !ok || value == "" {
-			return genErr("workflow missing required field "+key, "workflow."+key)
-		}
-	}
-	lanes := mapFrom(workflow["lanes"])
-	roles := mapFrom(workflow["roles"])
-	if len(lanes) == 0 {
-		return genErr("workflow must declare at least one lane", "workflow.lanes")
-	}
-	jobs := listFrom(workflow["jobs"])
-	if len(jobs) == 0 {
-		return genErr("workflow must declare at least one job", "workflow.jobs")
-	}
-	jobIDs := map[string]struct{}{}
-	reviewIDs := map[string]struct{}{}
-	for idx, item := range jobs {
-		job := mapFrom(item)
-		jobID, _ := job["id"].(string)
-		if jobID == "" {
-			return genErr("workflow job is missing id", fmt.Sprintf("workflow.jobs[%d].id", idx))
-		}
-		if _, ok := jobIDs[jobID]; ok {
-			return genErr("duplicate workflow job id", fmt.Sprintf("workflow.jobs[%d].id", idx))
-		}
-		jobIDs[jobID] = struct{}{}
-		if job["type"] == "review" {
-			reviewIDs[jobID] = struct{}{}
-		}
-		if role, _ := job["role_id"].(string); role == "" || roles[role] == nil {
-			return genErr("job references missing role", fmt.Sprintf("workflow.jobs[%d].role_id", idx))
-		}
-		if lane, _ := job["lane_id"].(string); lane != "" && lanes[lane] == nil {
-			return genErr("job references missing lane", fmt.Sprintf("workflow.jobs[%d].lane_id", idx))
-		}
-		for artIdx, art := range listFrom(job["expected_artifacts"]) {
-			artifact := mapFrom(art)
-			p, _ := artifact["path"].(string)
-			if _, err := SafeRelativePath(p, fmt.Sprintf("workflow.jobs[%d].expected_artifacts[%d].path", idx, artIdx)); err != nil {
-				return err
+	if err := workflowauthoring.Validate(workflow); err != nil {
+		if authoringErr, ok := err.(*workflowauthoring.Error); ok {
+			fieldPath := authoringErr.FieldPath
+			if fieldPath != "" && !strings.HasPrefix(fieldPath, "workflow.") {
+				fieldPath = "workflow." + fieldPath
 			}
+			return genErr(authoringErr.Message, fieldPath)
 		}
-		scope := mapFrom(job["write_scope"])
-		for _, ap := range stringListFrom(scope["allowed_paths"]) {
-			if _, err := SafeRelativePath(strings.TrimSuffix(ap, "/"), fmt.Sprintf("workflow.jobs[%d].write_scope.allowed_paths", idx)); err != nil {
-				return err
-			}
-		}
-	}
-	for idx, item := range listFrom(workflow["edges"]) {
-		edge := mapFrom(item)
-		if _, ok := jobIDs[fmt.Sprint(edge["from"])]; !ok {
-			return genErr("edge references missing job", fmt.Sprintf("workflow.edges[%d].from", idx))
-		}
-		if _, ok := jobIDs[fmt.Sprint(edge["to"])]; !ok {
-			return genErr("edge references missing job", fmt.Sprintf("workflow.edges[%d].to", idx))
-		}
-	}
-	for idx, item := range listFrom(workflow["cycles"]) {
-		cycle := mapFrom(item)
-		from := fmt.Sprint(cycle["from"])
-		if _, ok := reviewIDs[from]; !ok {
-			return genErr("cycle source must be a review job", fmt.Sprintf("workflow.cycles[%d].from", idx))
-		}
-		if _, ok := jobIDs[fmt.Sprint(cycle["to"])]; !ok {
-			return genErr("cycle references missing job", fmt.Sprintf("workflow.cycles[%d].to", idx))
-		}
+		return err
 	}
 	return nil
 }
@@ -1776,32 +1728,17 @@ func graphData(jobs, edges, cycles []map[string]any) map[string]any {
 }
 
 func lintWorkflow(workflow map[string]any) map[string]any {
-	warnings := []string{}
-	lanes := mapFrom(workflow["lanes"])
-	authorModel := ""
-	reviewerModel := ""
-	if lane, ok := mapFrom(lanes["author"])["display_model"].(string); ok {
-		authorModel = lane
+	lint, err := workflowauthoring.Lint(workflow)
+	if err != nil {
+		return map[string]any{
+			"valid":         false,
+			"errors":        []map[string]any{{"message": err.Error()}},
+			"warnings":      []map[string]any{},
+			"warning_count": 0,
+			"coverage":      map[string]any{"level": "weak", "score": 0, "max_score": 0},
+		}
 	}
-	if lane, ok := mapFrom(lanes["reviewer"])["display_model"].(string); ok {
-		reviewerModel = lane
-	}
-	if authorModel != "" && authorModel == reviewerModel {
-		warnings = append(warnings, "author and reviewer lanes use the same display_model")
-	}
-	if lanes["local"] != nil {
-		warnings = append(warnings, "local fixture lane is suitable for tests and operator-by-hand starts only")
-	}
-	level := "adequate"
-	if len(warnings) > 0 {
-		level = "weak"
-	}
-	return map[string]any{
-		"valid":         true,
-		"warnings":      warnings,
-		"warning_count": len(warnings),
-		"coverage":      map[string]any{"level": level, "score": 1, "max_score": 3},
-	}
+	return lint
 }
 
 func isReviewKind(kind string) bool {

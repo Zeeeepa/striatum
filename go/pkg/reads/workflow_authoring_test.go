@@ -94,7 +94,7 @@ func TestWorkflowLintReturnsFingerprintsAndAcceptedRiskAnnotations(t *testing.T)
 	repo := t.TempDir()
 	workflow := authoringWorkflow()
 	lanes := workflow["lanes"].(map[string]any)
-	lanes["codex"] = map[string]any{"adapter": "process", "display_model": "codex-gpt-5"}
+	lanes["codex"] = map[string]any{"adapter": "process", "command": []any{"true"}, "display_model": "codex-gpt-5"}
 	writeAuthoringWorkflow(t, filepath.Join(repo, "workflow.json"), workflow)
 
 	initial, err := HandleWorkflowLint(context.Background(), workflowAuthoringFakeRunner{repoRoot: repo}, rpc.Envelope{
@@ -190,7 +190,7 @@ func authoringWorkflow() map[string]any {
 		"name":             "Handler Authoring",
 		"branch":           map[string]any{"mode": "confirm", "suggested_name": "striatum/handler-authoring"},
 		"coordinator":      map[string]any{"role_id": "author", "lane_id": "codex"},
-		"lanes":            map[string]any{"codex": map[string]any{"adapter": "process"}},
+		"lanes":            map[string]any{"codex": map[string]any{"adapter": "process", "command": []any{"true"}}},
 		"roles":            map[string]any{"author": map[string]any{}, "reviewer": map[string]any{}},
 		"context_docs":     []any{},
 		"parallelism":      map[string]any{"mode": "declared", "max_active_jobs": 1},

@@ -1,0 +1,187 @@
+package params
+
+import (
+	"encoding/json"
+	"fmt"
+	"strconv"
+	"strings"
+)
+
+type Options struct {
+	RepositoryID string
+}
+
+func Build(group string, args []string, options Options) (map[string]any, error) {
+	result := map[string]any{}
+	if options.RepositoryID != "" {
+		result["repository_id"] = options.RepositoryID
+	}
+	positionals, err := parseFlags(args, result)
+	if err != nil {
+		return nil, err
+	}
+	names := positionalNames(group)
+	for i, value := range positionals {
+		if i < len(names) {
+			result[names[i]] = value
+			continue
+		}
+		existing, _ := result["args"].([]any)
+		result["args"] = append(existing, value)
+	}
+	applyAliases(group, result)
+	return result, nil
+}
+
+func parseFlags(args []string, result map[string]any) ([]string, error) {
+	positionals := []string{}
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		if arg == "--" {
+			positionals = append(positionals, args[i+1:]...)
+			break
+		}
+		if !strings.HasPrefix(arg, "--") || arg == "--" {
+			positionals = append(positionals, arg)
+			continue
+		}
+		keyValue := strings.TrimPrefix(arg, "--")
+		if keyValue == "" {
+			return nil, fmt.Errorf("empty flag name")
+		}
+		if strings.HasPrefix(keyValue, "no-") && !strings.Contains(keyValue, "=") {
+			setValue(result, normalizeKey(strings.TrimPrefix(keyValue, "no-")), false)
+			continue
+		}
+		key, value, hasValue := strings.Cut(keyValue, "=")
+		key = normalizeKey(key)
+		if key == "" {
+			return nil, fmt.Errorf("empty flag name")
+		}
+		if !hasValue {
+			if i+1 < len(args) && !strings.HasPrefix(args[i+1], "--") {
+				i++
+				value = args[i]
+			} else {
+				setValue(result, key, true)
+				continue
+			}
+		}
+		setValue(result, key, coerceValue(key, value))
+	}
+	return positionals, nil
+}
+
+func normalizeKey(key string) string {
+	return strings.ReplaceAll(strings.TrimSpace(key), "-", "_")
+}
+
+func coerceValue(key string, value string) any {
+	if key == "body_json" {
+		return value
+	}
+	if key == "spec" || strings.HasSuffix(key, "_json") {
+		var decoded any
+		if err := json.Unmarshal([]byte(value), &decoded); err == nil {
+			return decoded
+		}
+	}
+	switch strings.ToLower(value) {
+	case "true":
+		return true
+	case "false":
+		return false
+	}
+	if parsed, err := strconv.Atoi(value); err == nil {
+		return parsed
+	}
+	return value
+}
+
+func setValue(result map[string]any, key string, value any) {
+	if existing, ok := result[key]; ok {
+		switch typed := existing.(type) {
+		case []any:
+			result[key] = append(typed, value)
+		default:
+			result[key] = []any{typed, value}
+		}
+		return
+	}
+	result[key] = value
+}
+
+func positionalNames(group string) []string {
+	switch group {
+	case "repo_add":
+		return []string{"path"}
+	case "repo_remove":
+		return []string{"id"}
+	case "run_prepare":
+		return []string{"workflow"}
+	case "run_start", "run_pause", "run_resume", "run_cancel", "run_summary", "run_graph":
+		return []string{"run_id"}
+	case "run_retry_job":
+		return []string{"run_id", "job_id"}
+	case "register_session":
+		return []string{"run_id", "role", "lane"}
+	case "session_close", "claim_next":
+		return []string{"session_id"}
+	case "ack", "release":
+		return []string{"session_id", "message_id", "lease_id"}
+	case "heartbeat":
+		return []string{"session_id", "lease_id"}
+	case "send":
+		return []string{"session_id", "kind"}
+	case "block":
+		return []string{"session_id", "job_id", "lease_id"}
+	case "complete":
+		return []string{"session_id", "job_id", "lease_id"}
+	case "publish_artifact":
+		return []string{"session_id", "job_id", "lease_id", "kind", "logical_name", "path"}
+	case "verdict":
+		return []string{"session_id", "job_id", "lease_id", "verdict"}
+	case "submit_review":
+		return []string{"session_id", "job_id", "lease_id", "path", "verdict"}
+	case "override_verdict":
+		return []string{"session_id", "job_id", "verdict"}
+	case "recovery":
+		return []string{"run_id"}
+	case "evidence_export", "corpus_export", "archive_create":
+		return []string{"run_id", "out"}
+	case "decision_record":
+		return []string{"run_id", "path", "outcome", "title"}
+	case "checkpoint_resolve":
+		return []string{"blocker_id", "action"}
+	case "escalation_show", "escalation_resolve":
+		return []string{"escalation_id"}
+	case "branch_confirm":
+		return []string{"run_id", "branch"}
+	case "worktree_create":
+		return []string{"session_id", "job_id", "lease_id"}
+	case "worktree_release":
+		return []string{"worktree_id"}
+	case "supervise_start", "supervise_status", "supervise_stop":
+		return []string{"session_id"}
+	case "supervise_send":
+		return []string{"session_id", "packet_id"}
+	case "supervise_list":
+		return []string{"run_id"}
+	case "cross_repo":
+		return []string{"cross_repo_run_id"}
+	default:
+		return nil
+	}
+}
+
+func applyAliases(group string, result map[string]any) {
+	if value, ok := result["repo"].(string); ok && result["repository_id"] == nil {
+		result["repository_id"] = value
+	}
+	if value, ok := result["workflow_path"].(string); ok && group == "run_prepare" && result["workflow"] == nil {
+		result["workflow"] = value
+	}
+	if value, ok := result["out"].(string); ok && result["path"] == nil && (group == "evidence_export" || group == "corpus_export" || group == "archive_create") {
+		result["path"] = value
+	}
+}

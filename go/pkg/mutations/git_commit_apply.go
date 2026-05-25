@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/halbritt/striatum/go/pkg/artifactcontracts"
 	"github.com/halbritt/striatum/go/pkg/db"
 	"github.com/halbritt/striatum/go/pkg/rpc"
 )
@@ -198,15 +199,9 @@ func validateGitCommitApplySchema(envelope rpc.Envelope) error {
 }
 
 func parseCommitRequestArtifact(payload []byte) (commitRequest, error) {
-	fields, err := parseSimpleFrontMatter(payload)
+	fields, err := artifactcontracts.ParseAndValidateFrontMatter("commit_request", "COMMIT_REQUEST.md", payload)
 	if err != nil {
-		return commitRequest{}, err
-	}
-	if value := scalarField(fields, "schema_version"); value != "striatum.commit_request.v1" {
-		return commitRequest{}, rpc.NewError("schema_invalid", "commit_request schema_version must be striatum.commit_request.v1", map[string]any{"field_path": "schema_version"})
-	}
-	if value := scalarField(fields, "artifact_kind"); value != "commit_request" {
-		return commitRequest{}, rpc.NewError("schema_invalid", "commit_request artifact_kind must be commit_request", map[string]any{"field_path": "artifact_kind"})
+		return commitRequest{}, rpc.NewError("schema_invalid", err.Error(), nil)
 	}
 	request := commitRequest{
 		RequestID:          scalarField(fields, "request_id"),
@@ -261,66 +256,6 @@ func validateCommitRequestConfirmation(request commitRequest) error {
 		return rpc.NewError("confirmation_required", "confirmed commit_request requires confirmed_by", map[string]any{"field_path": "confirmed_by"})
 	}
 	return nil
-}
-
-func parseSimpleFrontMatter(payload []byte) (map[string]any, error) {
-	text := strings.ReplaceAll(string(payload), "\r\n", "\n")
-	lines := strings.Split(text, "\n")
-	if len(lines) < 3 || strings.TrimSpace(lines[0]) != "---" {
-		return nil, rpc.NewError("schema_invalid", "commit_request artifact requires front matter", nil)
-	}
-	end := -1
-	for i := 1; i < len(lines); i++ {
-		if strings.TrimSpace(lines[i]) == "---" {
-			end = i
-			break
-		}
-	}
-	if end == -1 {
-		return nil, rpc.NewError("schema_invalid", "commit_request front matter is not closed", nil)
-	}
-	fields := map[string]any{}
-	for _, line := range lines[1:end] {
-		line = strings.TrimSpace(line)
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
-		}
-		key, raw, ok := strings.Cut(line, ":")
-		if !ok {
-			return nil, rpc.NewError("schema_invalid", "commit_request front matter line must be key: value", nil)
-		}
-		key = strings.TrimSpace(key)
-		if key == "" {
-			return nil, rpc.NewError("schema_invalid", "commit_request front matter key is empty", nil)
-		}
-		value, err := parseSimpleFrontMatterValue(strings.TrimSpace(raw))
-		if err != nil {
-			return nil, rpc.NewError("schema_invalid", "commit_request front matter value is invalid", map[string]any{"field_path": key})
-		}
-		fields[key] = value
-	}
-	return fields, nil
-}
-
-func parseSimpleFrontMatterValue(raw string) (any, error) {
-	if raw == "null" || raw == "~" {
-		return nil, nil
-	}
-	if strings.HasPrefix(raw, "[") {
-		var values []string
-		if err := json.Unmarshal([]byte(raw), &values); err != nil {
-			return nil, err
-		}
-		return values, nil
-	}
-	if strings.HasPrefix(raw, `"`) {
-		value, err := strconv.Unquote(raw)
-		if err != nil {
-			return nil, err
-		}
-		return value, nil
-	}
-	return strings.TrimSpace(raw), nil
 }
 
 func scalarField(fields map[string]any, key string) string {

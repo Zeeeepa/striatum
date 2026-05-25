@@ -4,6 +4,13 @@ Status: accepted
 Date: 2026-05-17
 Context: [RFC 0030](0030-daemon-rpc-server-and-version-skew-protocol.md), [RFC 0033](0033-storage-substrate-rewrite-for-daemon-v2.md), [RFC 0039](0039-go-daemon-core.md), [RFC 0043](0043-postgres-as-sole-substrate-and-daemon-required-runtime.md), [RFC 0059](0059-eradicate-legacy-sqlite-fallbacks.md), [DECISION_LOG.md](../DECISION_LOG.md)
 
+Successor note:
+[`RFC 0078`](0078-go-only-runtime-and-python-removal.md), if accepted and
+completed, supersedes this RFC's Python CLI/web-client carve-out. Until that
+final deletion gate passes, this RFC remains the live rule for the production
+daemon cutover only: Go is the only daemon core, while active Python
+client/web/package/test surfaces are still tracked as RFC 0078 blockers.
+
 ## Problem
 
 D105 encoded a Python-primary production daemon constraint during the

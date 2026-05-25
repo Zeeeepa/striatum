@@ -137,8 +137,8 @@ func acceptedRiskWorkflow() map[string]any {
 		"branch":           map[string]any{"mode": "confirm", "suggested_name": "striatum/accepted-risk"},
 		"coordinator":      map[string]any{"role_id": "author", "lane_id": "author"},
 		"lanes": map[string]any{
-			"author":   map[string]any{"adapter": "process", "display_model": "codex-gpt-5"},
-			"reviewer": map[string]any{"adapter": "process", "display_model": "codex-gpt-5.1"},
+			"author":   map[string]any{"adapter": "process", "command": []any{"true"}, "display_model": "codex-gpt-5"},
+			"reviewer": map[string]any{"adapter": "process", "command": []any{"true"}, "display_model": "codex-gpt-5.1"},
 		},
 		"roles":        map[string]any{"author": map[string]any{}, "reviewer": map[string]any{}},
 		"context_docs": []any{},

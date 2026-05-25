@@ -230,6 +230,36 @@ func TestImplementationPanelShapeUsesRoleAndAdversaryPacks(t *testing.T) {
 	}
 }
 
+func TestGenerateUsesSharedAuthoringLintPayload(t *testing.T) {
+	generated := mustGenerate(t, map[string]any{
+		"schema_version":   GeneratorSchemaVersion,
+		"shape":            "review",
+		"lane_set":         "author_reviewer",
+		"workflow_id":      "demo",
+		"name":             "Demo",
+		"workflow_version": "2026-05-17",
+		"branch":           map[string]any{"mode": "confirm", "suggested_name": "striatum/demo", "allow_dirty": false},
+		"scaffold_root":    "workflows/demo",
+		"artifact_root":    "striatum/demo",
+		"lanes": map[string]any{
+			"author":   map[string]any{"adapter": "process", "command": []any{"true"}, "display_model": "codex-gpt-5"},
+			"reviewer": map[string]any{"adapter": "process", "command": []any{"true"}, "display_model": "codex-gpt-5.1"},
+		},
+		"options": map[string]any{},
+	})
+	warnings, ok := generated.Lint["warnings"].([]map[string]any)
+	if !ok || len(warnings) == 0 {
+		t.Fatalf("lint warnings = %#v", generated.Lint["warnings"])
+	}
+	if warnings[0]["fingerprint"] == "" {
+		t.Fatalf("lint warning missing fingerprint: %#v", warnings[0])
+	}
+	coverage := generated.Lint["coverage"].(map[string]any)
+	if coverage["checks"] == nil {
+		t.Fatalf("lint coverage did not come from workflowauthoring: %#v", coverage)
+	}
+}
+
 func TestUpgradeAddPhasesPreviewWritesNothing(t *testing.T) {
 	repo := t.TempDir()
 	path := filepath.Join(repo, "workflow.json")

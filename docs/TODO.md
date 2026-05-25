@@ -119,7 +119,7 @@ so external references keep resolving even as items move between sections.
 | 65 | RFC 0058 operator progress surface | ✅ done |
 | 66 | Decision/RFC supersession hygiene and duplicate decision-id cleanup | ✅ done |
 | 67 | RFC 0050/RFC 0075 MCP cutover and tmux-observable sessions | ✅ done |
-| 68 | RFC 0078 Go-only runtime and Python removal | 🟡 remaining gates scaffolded |
+| 68 | RFC 0078 Go-only runtime and Python removal | 🟡 gates executed; final deletion blocked |
 
 Legend: ✅ done · 🟡 most done (sub-tasks remain) · ⏳ open/blocked · 💤 shelved
 
@@ -1366,8 +1366,8 @@ review and plan are root-level operator artifacts:
     still must not become workflow state. Hiding or deleting CLI compatibility
     verbs is a later deprecation/release decision, not a TODO 67 blocker.
 
-68. **RFC 0078: Go-only runtime and Python removal.** Scaffolded and first
-    slice landed. The owner
+68. **RFC 0078: Go-only runtime and Python removal.** Scaffolded, executed,
+    and partially landed. The owner
     direction is to remove all Python traces from the active Striatum
     repository head, not only the already-retired Python daemon/MCP/local-state
     paths. The RFC supersedes the RFC 0068/RFC 0070 carve-out that allowed
@@ -1388,10 +1388,17 @@ review and plan are root-level operator artifacts:
     web/service, packaging/release cutover, workflow validation/generator
     parity, pytest migration, docs rewrite, and final Python deletion
     guardrail enablement. On 2026-05-25, the remaining work was split into six
-    dedicated executable workflows plus an umbrella tracker: Go CLI RPC router,
-    Go web/service cutover, workflow/artifact parity, Python test migration,
-    Go-only packaging/release, and docs/guardrails/final deletion. All seven
-    workflow JSON files validate.
+    dedicated executable workflows plus an umbrella tracker, then executed
+    with six parallel sub-agents. Landed slices include the generated Go CLI
+    RPC router, shared Go artifact contracts, expanded Go workflow validation
+    and generator reuse, Go web service/security/static/SSE scaffolding,
+    Go-only release archives and smoke scripts, and the Python-trace deletion
+    guardrail. Aggregate validation is green for Go tests, workflow validation,
+    frontend API-client tests, release/package smokes, doc-link/current-brief
+    tests, and route freshness checks. Final Python deletion is still blocked:
+    `make python-trace-guardrail` reports active Python source, pytest,
+    packaging, scripts, and current guidance that must be ported, retired, or
+    accepted as historical before RFC 0078 can close.
 
 ## GH issue follow-ups
 

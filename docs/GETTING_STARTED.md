@@ -30,7 +30,8 @@ covers that path.
 
 ## Prerequisites
 
-- Python 3.11+ on `PATH`.
+- Striatum's Go release binaries on `PATH`, or a source checkout where
+  `make install` has installed them.
 - A target repository (the one you want striatum to orchestrate).
   This is *not* the striatum source repository unless you are
   dogfooding striatum on itself.
@@ -53,13 +54,15 @@ From a checkout of the striatum repository:
 
 ```bash
 make install
-.venv/bin/striatum --help
+~/.local/bin/striatum --help
 ```
 
-For development without installing the console script:
+From a release archive:
 
 ```bash
-PYTHONPATH=src python3 -m striatum.cli --help
+tar -xzf striatum_2.0.0_linux-amd64.tar.gz
+export PATH="$PWD/striatum_2.0.0_linux-amd64/bin:$PATH"
+striatum --help
 ```
 
 For the rest of this guide, `striatum` refers to either invocation.

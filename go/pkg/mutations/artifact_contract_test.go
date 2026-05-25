@@ -30,6 +30,11 @@ schema_version: "striatum.escalation.v1"
 artifact_kind: "escalation"
 escalation_id: "esc_1"
 run_id: "run_1"
+blocker_kind: "override_required"
+description: "operator decision required"
+reasoning: "review lane is blocked"
+requested_action: "decide whether to proceed"
+created_at: "2026-05-24T00:00:00Z"
 ---
 
 # Escalation

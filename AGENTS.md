@@ -87,9 +87,12 @@ Use the Makefile targets:
 - `make test`
 - `make smoke`
 
-Python source lives under `src/striatum`. The CLI is a package
-(`src/striatum/cli/`) split by concern. Tests live under `tests`. Examples
-live under `examples`. Historical execution prompts live under `prompts`.
+The active production build path is Go-first: the root Makefile delegates to
+`go/` for `striatum`, `striatumd`, and `striatum-supervisor-helper` binaries.
+Python source and pytest coverage still exist while RFC 0078 finishes the
+remaining port/delete gates; treat them as active legacy surfaces, not new
+implementation targets. Examples live under `examples`. Historical execution
+prompts live under `prompts`.
 
 ## Change Discipline
 

@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/halbritt/striatum/go/pkg/artifactcontracts"
 )
 
 const (
@@ -15,6 +17,22 @@ const (
 	SchemaV11  = "striatum.workflow.v1.1"
 	defaultFmt = "mermaid"
 )
+
+var constraintValues = map[string]map[string]bool{
+	"network":     {"allowed": true, "forbidden": true, "advisory_forbidden": true},
+	"transcripts": {"off": true, "redacted": true, "allowed": true},
+	"repo_scope":  {"local_only": true, "unrestricted": true},
+}
+
+var enforcementLevels = map[string]int{"unsupported": 0, "advisory": 1, "advisory_strict": 2, "enforced": 3}
+var worktreeIsolationValues = map[string]bool{"off": true, "per_job": true}
+var reviewerAccessScopes = map[string]bool{"document_only": true, "artifact_augmented": true, "repo_level": true, "cross_repo_artifact_augmented": true}
+var reviewerContextPolicies = map[string]bool{"fresh": true, "cross_round": true}
+var reviewPostures = map[string]bool{
+	"neutral": true, "devils_advocate": true, "security": true, "threat_model": true,
+	"latency_performance": true, "ergonomics_dx": true, "accessibility": true,
+	"compliance_license": true, "supply_chain": true,
+}
 
 var requiredTopLevel = []string{
 	"schema_version",
@@ -32,13 +50,7 @@ var requiredTopLevel = []string{
 	"cycles",
 }
 
-var allowedArtifactKinds = map[string]bool{
-	"prompt": true, "finding": true, "findings_ledger": true, "synthesis": true,
-	"marker": true, "handoff": true, "decision": true, "patch_summary": true,
-	"test_report": true, "other": true, "support_ledger": true,
-	"action_item_ledger": true, "harness_improvement_proposal": true,
-	"escalation": true,
-}
+var allowedArtifactKinds = artifactcontracts.AllowedKindSet()
 
 var verdictJobTypes = map[string]bool{"review": true, "phase_synthesis": true}
 
@@ -155,22 +167,14 @@ func Validate(workflow map[string]any) error {
 	if err != nil {
 		return err
 	}
-	for laneID, laneVal := range lanes {
-		lane, ok := laneVal.(map[string]any)
-		if !ok {
-			return fieldErr(fmt.Sprintf("lanes.%s", laneID), "lane %q must be an object", laneID)
-		}
-		if modelVal, exists := lane["model"]; exists {
-			modelStr, ok := modelVal.(string)
-			if !ok || modelStr == "" {
-				return fieldErr(fmt.Sprintf("lanes.%s.model", laneID), "lane %q model must be a non-empty string", laneID)
-			}
-		}
+	if err := validateLanes(lanes); err != nil {
+		return err
 	}
 	roles, err := object(workflow, "roles")
 	if err != nil {
 		return err
 	}
+	_, crossRepo := workflow["repositories"]
 	if _, err := list(workflow, "context_docs"); err != nil {
 		return err
 	}
@@ -216,6 +220,15 @@ func Validate(workflow map[string]any) error {
 		if err := validateJobPaths(index, jobID, job); err != nil {
 			return err
 		}
+		if err := validateReviewerPolicy(jobID, job, crossRepo); err != nil {
+			return err
+		}
+		if err := validateReviewPosture(jobID, job); err != nil {
+			return err
+		}
+		if err := validateRequiredReviewPostures(jobID, job); err != nil {
+			return err
+		}
 	}
 	if err := validateEdges(workflow, jobMap); err != nil {
 		return err
@@ -227,6 +240,15 @@ func Validate(workflow map[string]any) error {
 		return err
 	}
 	if err := validateCycleTargets(workflow, jobMap); err != nil {
+		return err
+	}
+	if err := validateParallelism(jobs); err != nil {
+		return err
+	}
+	if err := validateRequiredPosturesReachable(workflow, jobMap); err != nil {
+		return err
+	}
+	if err := validateRevisionPolicy(workflow, jobs); err != nil {
 		return err
 	}
 	return nil
@@ -632,6 +654,153 @@ func validateJobPaths(jobIndex int, jobID string, job map[string]any) error {
 	return nil
 }
 
+func validateLanes(lanes map[string]any) error {
+	for laneID, laneVal := range lanes {
+		lane, ok := laneVal.(map[string]any)
+		if !ok {
+			return fieldErr(fmt.Sprintf("lanes.%s", laneID), "lane %q must be an object", laneID)
+		}
+		if modelVal, exists := lane["model"]; exists {
+			modelStr, ok := modelVal.(string)
+			if !ok || modelStr == "" {
+				return fieldErr(fmt.Sprintf("lanes.%s.model", laneID), "lane %q model must be a non-empty string", laneID)
+			}
+		}
+		if lane["adapter"] == "process" {
+			command := anySlice(lane["command"])
+			if len(command) == 0 {
+				return errf("process lane %q command must be a non-empty array", laneID)
+			}
+			for _, part := range command {
+				if text, ok := part.(string); !ok || text == "" {
+					return errf("process lane %q command entries must be non-empty strings", laneID)
+				}
+			}
+		}
+		if mode := stringValue(lane["worktree_isolation"]); mode != "" && !worktreeIsolationValues[mode] {
+			return errf("lane %q worktree_isolation must be one of [off per_job]", laneID)
+		}
+		constraints := map[string]any{}
+		if raw, exists := lane["constraints"]; exists {
+			var ok bool
+			constraints, ok = raw.(map[string]any)
+			if !ok {
+				return errf("lane %q constraints must be an object", laneID)
+			}
+			for key, value := range constraints {
+				allowed, ok := constraintValues[key]
+				if !ok {
+					return errf("lane %q has unknown constraint %q", laneID, key)
+				}
+				if !allowed[fmt.Sprint(value)] {
+					return errf("lane %q has invalid %q constraint value", laneID, key)
+				}
+			}
+		}
+		required, exists := lane["required_enforcement"]
+		if !exists {
+			continue
+		}
+		requiredMap, ok := required.(map[string]any)
+		if !ok {
+			return errf("lane %q required_enforcement must be an object", laneID)
+		}
+		for key, value := range requiredMap {
+			if _, ok := constraints[key]; !ok {
+				return errf("lane %q requires enforcement for undeclared constraint %q", laneID, key)
+			}
+			requiredText, ok := value.(string)
+			if !ok || !enforcementLevelKnown(requiredText) {
+				return errf("lane %q has invalid required enforcement level", laneID)
+			}
+			actual := adapterConstraintEnforcement(lane["adapter"], key, fmt.Sprint(constraints[key]))
+			if !adapterEnforcementSatisfies(actual, requiredText) {
+				return errf("lane %q requires %q enforcement for %q, but adapter provides %q", laneID, requiredText, key, actual)
+			}
+		}
+	}
+	return nil
+}
+
+func validateReviewerPolicy(jobID string, job map[string]any, crossRepo bool) error {
+	_, hasAccess := job["reviewer_access_scope"]
+	_, hasContext := job["reviewer_context_policy"]
+	if !hasAccess && !hasContext {
+		return nil
+	}
+	if defaultString(job["type"], "generic") != "review" {
+		return errf("non-review job %q cannot declare reviewer_access_scope/reviewer_context_policy", jobID)
+	}
+	if hasAccess {
+		access := stringValue(job["reviewer_access_scope"])
+		if access == "" || !reviewerAccessScopes[access] {
+			return errf("review job %q has unknown reviewer_access_scope %q; allowed: document_only|artifact_augmented|repo_level|cross_repo_artifact_augmented", jobID, job["reviewer_access_scope"])
+		}
+		if access == "cross_repo_artifact_augmented" && !crossRepo {
+			return errf("review job %q may use reviewer_access_scope cross_repo_artifact_augmented only in cross-repo workflows", jobID)
+		}
+	}
+	if hasContext {
+		context := stringValue(job["reviewer_context_policy"])
+		if context == "" || !reviewerContextPolicies[context] {
+			return errf("review job %q has unknown reviewer_context_policy %q; allowed: fresh|cross_round", jobID, job["reviewer_context_policy"])
+		}
+		if context == "fresh" && job["fresh_session_required"] == false {
+			return errf("review job %q declares reviewer_context_policy=fresh but fresh_session_required=false", jobID)
+		}
+	}
+	return nil
+}
+
+func validateReviewPosture(jobID string, job map[string]any) error {
+	value, exists := job["review_posture"]
+	if !exists {
+		return nil
+	}
+	if defaultString(job["type"], "generic") != "review" {
+		return errf("non-review job %q cannot declare review_posture", jobID)
+	}
+	posture, ok := value.(string)
+	if !ok || posture == "" {
+		return errf("review job %q review_posture must be a non-empty string", jobID)
+	}
+	return validatePostureValue(jobID, "review job", posture)
+}
+
+func validateRequiredReviewPostures(jobID string, job map[string]any) error {
+	raw, exists := job["required_review_postures"]
+	if !exists {
+		return nil
+	}
+	if defaultString(job["type"], "generic") != "build" {
+		return errf("non-build job %q cannot declare required_review_postures", jobID)
+	}
+	values := anySlice(raw)
+	if len(values) == 0 {
+		return errf("build job %q required_review_postures must be a non-empty list", jobID)
+	}
+	for _, item := range values {
+		posture, ok := item.(string)
+		if !ok || posture == "" {
+			return errf("build job %q required_review_postures entries must be non-empty strings", jobID)
+		}
+		if err := validatePostureValue(jobID, "build job", posture); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validatePostureValue(jobID string, label string, posture string) error {
+	if reviewPostures[posture] {
+		return nil
+	}
+	if strings.HasPrefix(posture, "custom:") && strings.TrimSpace(strings.TrimPrefix(posture, "custom:")) != "" {
+		return nil
+	}
+	return errf("%s %q has unknown review_posture %q; allowed: first-class postures or custom:<name>", label, jobID, posture)
+}
+
 func validateArtifactInWriteScope(jobID string, job map[string]any, artifactPath string) error {
 	scope, ok := job["write_scope"].(map[string]any)
 	if !ok {
@@ -784,6 +953,221 @@ func validateCycleTargets(workflow map[string]any, jobMap map[string]map[string]
 	return nil
 }
 
+func validateParallelism(jobs []any) error {
+	groups := map[string][]map[string]any{}
+	for _, item := range jobs {
+		job, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		group := stringValue(job["parallel_group"])
+		if group != "" {
+			groups[group] = append(groups[group], job)
+		}
+	}
+	for group, members := range groups {
+		artifactPaths := map[string]bool{}
+		writePaths := map[string]bool{}
+		var seenRepoWrite *bool
+		for _, job := range members {
+			for _, artifactItem := range anySlice(job["expected_artifacts"]) {
+				artifact, ok := artifactItem.(map[string]any)
+				if !ok {
+					continue
+				}
+				path := normalizeRepoPath(stringValue(artifact["path"]))
+				if path == "" {
+					continue
+				}
+				if artifactPaths[path] {
+					return errf("parallel group %q reuses artifact path %q", group, path)
+				}
+				artifactPaths[path] = true
+			}
+			scope, _ := job["write_scope"].(map[string]any)
+			repoWrite := scope["repo_write"] == true
+			if seenRepoWrite == nil {
+				value := repoWrite
+				seenRepoWrite = &value
+			} else if *seenRepoWrite != repoWrite {
+				return errf("parallel group %q mixes repo_write and review-only jobs; split them into separate groups", group)
+			}
+			if !repoWrite {
+				continue
+			}
+			for _, allowed := range stringsFromSlice(scope["allowed_paths"]) {
+				path := normalizeRepoPath(allowed)
+				if path == "" {
+					continue
+				}
+				for seen := range writePaths {
+					if repoPathWithin(path, seen) || repoPathWithin(seen, path) {
+						return errf("parallel group %q has overlapping write scope", group)
+					}
+				}
+				writePaths[path] = true
+			}
+		}
+	}
+	return nil
+}
+
+func validateRequiredPosturesReachable(workflow map[string]any, jobMap map[string]map[string]any) error {
+	for buildID, build := range jobMap {
+		if defaultString(build["type"], "generic") != "build" {
+			continue
+		}
+		required := stringsFromSlice(build["required_review_postures"])
+		if len(required) == 0 {
+			continue
+		}
+		reachable := reachableJobs(workflow, buildID)
+		available := map[string]bool{}
+		for candidateID := range reachable {
+			candidate := jobMap[candidateID]
+			if candidate == nil || defaultString(candidate["type"], "generic") != "review" {
+				continue
+			}
+			posture := stringValue(candidate["review_posture"])
+			if posture == "" {
+				posture = "neutral"
+			}
+			available[posture] = true
+		}
+		for _, posture := range required {
+			if !available[posture] {
+				return errf("build job %q requires review posture %q but no reachable review job declares it", buildID, posture)
+			}
+		}
+	}
+	return nil
+}
+
+func validateRevisionPolicy(workflow map[string]any, jobs []any) error {
+	raw, exists := workflow["review_revision_policy"]
+	if !exists {
+		return nil
+	}
+	policy, ok := raw.(map[string]any)
+	if !ok {
+		return errf("review_revision_policy must be an object")
+	}
+	rootPolicy := stringValue(policy["root_review_needs_revision"])
+	if rootPolicy != "human_checkpoint" && rootPolicy != "declared_cycle" {
+		return errf("review_revision_policy.root_review_needs_revision is invalid")
+	}
+	if description, exists := policy["description"]; exists {
+		if _, ok := description.(string); !ok {
+			return errf("review_revision_policy.description must be a string")
+		}
+	}
+	if rootPolicy != "declared_cycle" {
+		return nil
+	}
+	cycleSources := map[string]bool{}
+	for _, item := range anySlice(workflow["cycles"]) {
+		cycle, ok := item.(map[string]any)
+		if ok && cycle["on_verdict"] == "needs_revision" {
+			cycleSources[stringValue(cycle["from"])] = true
+		}
+	}
+	missing := []string{}
+	for _, reviewID := range rootReviewJobIDs(workflow, jobs) {
+		if !cycleSources[reviewID] {
+			missing = append(missing, reviewID)
+		}
+	}
+	if len(missing) > 0 {
+		sort.Strings(missing)
+		return errf("declared_cycle review_revision_policy requires needs_revision cycles for root review jobs: %s", strings.Join(missing, ", "))
+	}
+	return nil
+}
+
+func reachableJobs(workflow map[string]any, start string) map[string]bool {
+	forward := map[string][]string{}
+	reverse := map[string][]string{}
+	for _, item := range anySlice(workflow["edges"]) {
+		edge, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		fromID := stringValue(edge["from"])
+		toID := stringValue(edge["to"])
+		forward[fromID] = append(forward[fromID], toID)
+		reverse[toID] = append(reverse[toID], fromID)
+	}
+	result := traverse(start, forward)
+	for id := range traverse(start, reverse) {
+		result[id] = true
+	}
+	return result
+}
+
+func traverse(start string, edges map[string][]string) map[string]bool {
+	seen := map[string]bool{}
+	stack := []string{start}
+	for len(stack) > 0 {
+		current := stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
+		for _, next := range edges[current] {
+			if seen[next] {
+				continue
+			}
+			seen[next] = true
+			stack = append(stack, next)
+		}
+	}
+	return seen
+}
+
+func rootReviewJobIDs(workflow map[string]any, jobs []any) []string {
+	targets := map[string]bool{}
+	for _, item := range anySlice(workflow["edges"]) {
+		edge, ok := item.(map[string]any)
+		if ok {
+			targets[stringValue(edge["to"])] = true
+		}
+	}
+	result := []string{}
+	for _, item := range jobs {
+		job, ok := item.(map[string]any)
+		if !ok || defaultString(job["type"], "generic") != "review" {
+			continue
+		}
+		jobID := stringValue(job["id"])
+		if !targets[jobID] {
+			result = append(result, jobID)
+		}
+	}
+	return result
+}
+
+func adapterConstraintEnforcement(adapter any, constraint string, requested string) string {
+	if adapter == "process" {
+		if constraint == "transcripts" && requested == "off" {
+			return "enforced"
+		}
+		if constraint == "network" && requested == "forbidden" {
+			return "advisory_strict"
+		}
+		if constraint == "repo_scope" && requested == "local_only" {
+			return "advisory_strict"
+		}
+		return "advisory"
+	}
+	return "unsupported"
+}
+
+func adapterEnforcementSatisfies(actual string, required string) bool {
+	return enforcementLevels[actual] >= enforcementLevels[required]
+}
+
+func enforcementLevelKnown(level string) bool {
+	_, ok := enforcementLevels[level]
+	return ok
+}
+
 func object(value map[string]any, key string) (map[string]any, error) {
 	item, ok := value[key].(map[string]any)
 	if !ok {
@@ -793,11 +1177,17 @@ func object(value map[string]any, key string) (map[string]any, error) {
 }
 
 func list(value map[string]any, key string) ([]any, error) {
-	item, ok := value[key].([]any)
-	if !ok {
-		return nil, errf("workflow field %q must be a list", key)
+	switch item := value[key].(type) {
+	case []any:
+		return item, nil
+	case []map[string]any:
+		result := make([]any, 0, len(item))
+		for _, entry := range item {
+			result = append(result, entry)
+		}
+		return result, nil
 	}
-	return item, nil
+	return nil, errf("workflow field %q must be a list", key)
 }
 
 func stringField(value map[string]any, key string) (string, error) {
@@ -874,6 +1264,20 @@ func anySlice(value any) []any {
 	if items, ok := value.([]any); ok {
 		return items
 	}
+	if items, ok := value.([]string); ok {
+		result := make([]any, 0, len(items))
+		for _, item := range items {
+			result = append(result, item)
+		}
+		return result
+	}
+	if items, ok := value.([]map[string]any); ok {
+		result := make([]any, 0, len(items))
+		for _, item := range items {
+			result = append(result, item)
+		}
+		return result
+	}
 	return []any{}
 }
 
@@ -896,6 +1300,17 @@ func typedMaps(value any) []map[string]any {
 
 func stringsFromSlice(value any) []string {
 	out := []string{}
+	switch items := value.(type) {
+	case []string:
+		return append(out, items...)
+	case []any:
+		for _, item := range items {
+			if text, ok := item.(string); ok {
+				out = append(out, text)
+			}
+		}
+		return out
+	}
 	for _, item := range anySlice(value) {
 		if text, ok := item.(string); ok {
 			out = append(out, text)

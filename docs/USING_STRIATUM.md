@@ -55,9 +55,9 @@ to push a healthy run forward, the operator harness should be improved.
 
 ## Prerequisites
 
-- **Python 3.11+.** Striatum is published to PyPI as
-  `striatum-orchestrator`. The package name is unrelated to a
-  separate `striatum` package on PyPI.
+- **Striatum Go binaries.** Install from a GitHub release archive or
+  from a source checkout with `make install`. Normal operator use does
+  not require Python or a virtual environment.
 - **PostgreSQL 14+** running locally. The daemon is a hard
   prerequisite; SQLite is no longer the live substrate (D094 /
   RFC 0043). See [`POSTGRES_TRANSITION.md`](POSTGRES_TRANSITION.md)
@@ -75,8 +75,9 @@ to push a healthy run forward, the operator harness should be improved.
 ## Day-zero setup
 
 ```bash
-# 1. Install.
-pip install striatum-orchestrator
+# 1. Install from a Go release archive, or from source with `make install`.
+tar -xzf striatum_2.0.0_linux-amd64.tar.gz
+export PATH="$PWD/striatum_2.0.0_linux-amd64/bin:$PATH"
 
 # 2. Verify and repair the local Postgres role/grants.
 striatum daemon doctor \

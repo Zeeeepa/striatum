@@ -108,7 +108,7 @@ func TestValidateReturnsAuthoringErrors(t *testing.T) {
 func TestValidateRejectsInvalidLaneModel(t *testing.T) {
 	workflow := validWorkflow()
 	lanes := workflow["lanes"].(map[string]any)
-	lanes["codex"] = map[string]any{"adapter": "process", "model": 123} // Invalid model type (int)
+	lanes["codex"] = map[string]any{"adapter": "process", "command": []any{"true"}, "model": 123} // Invalid model type (int)
 	err := Validate(workflow)
 	if err == nil || !strings.Contains(err.Error(), "model must be a non-empty string") {
 		t.Fatalf("Validate invalid lane model error = %v", err)
@@ -116,7 +116,7 @@ func TestValidateRejectsInvalidLaneModel(t *testing.T) {
 
 	workflow = validWorkflow()
 	lanes = workflow["lanes"].(map[string]any)
-	lanes["codex"] = map[string]any{"adapter": "process", "model": ""} // Invalid empty model
+	lanes["codex"] = map[string]any{"adapter": "process", "command": []any{"true"}, "model": ""} // Invalid empty model
 	err = Validate(workflow)
 	if err == nil || !strings.Contains(err.Error(), "model must be a non-empty string") {
 		t.Fatalf("Validate invalid lane model error = %v", err)
@@ -124,10 +124,46 @@ func TestValidateRejectsInvalidLaneModel(t *testing.T) {
 
 	workflow = validWorkflow()
 	lanes = workflow["lanes"].(map[string]any)
-	lanes["codex"] = map[string]any{"adapter": "process", "model": "gpt-4"} // Valid model
+	lanes["codex"] = map[string]any{"adapter": "process", "command": []any{"true"}, "model": "gpt-4"} // Valid model
 	err = Validate(workflow)
 	if err != nil {
 		t.Fatalf("Validate valid lane model error = %v", err)
+	}
+}
+
+func TestValidateUsesSharedArtifactKindsAndLaneConstraints(t *testing.T) {
+	workflow := validWorkflow()
+	lanes := workflow["lanes"].(map[string]any)
+	lanes["codex"] = map[string]any{
+		"adapter": "process",
+		"command": []any{"true"},
+		"constraints": map[string]any{
+			"network":     "forbidden",
+			"repo_scope":  "local_only",
+			"transcripts": "off",
+		},
+		"required_enforcement": map[string]any{
+			"network":     "advisory_strict",
+			"repo_scope":  "advisory_strict",
+			"transcripts": "enforced",
+		},
+	}
+	jobs := workflow["jobs"].([]any)
+	draft := jobs[0].(map[string]any)
+	draft["expected_artifacts"] = []any{map[string]any{
+		"logical_name": "brief",
+		"kind":         "operator_brief",
+		"path":         "src/BRIEF.md",
+		"required":     true,
+	}}
+	if err := Validate(workflow); err != nil {
+		t.Fatalf("Validate shared artifact kind and constraints: %v", err)
+	}
+
+	lanes["codex"].(map[string]any)["required_enforcement"] = map[string]any{"network": "enforced"}
+	err := Validate(workflow)
+	if err == nil || !strings.Contains(err.Error(), "adapter provides") {
+		t.Fatalf("Validate invalid required_enforcement error = %v", err)
 	}
 }
 
@@ -136,6 +172,7 @@ func TestLintReportsReviewDiversityFindingsWithFingerprints(t *testing.T) {
 	lanes := workflow["lanes"].(map[string]any)
 	lanes["codex"] = map[string]any{
 		"adapter":       "process",
+		"command":       []any{"true"},
 		"display_model": "codex-gpt-5",
 	}
 	jobs := workflow["jobs"].([]any)
@@ -216,7 +253,7 @@ func validWorkflow() map[string]any {
 		"name":             "Go Authoring",
 		"branch":           map[string]any{"mode": "confirm", "suggested_name": "striatum/go-authoring"},
 		"coordinator":      map[string]any{"role_id": "author", "lane_id": "codex"},
-		"lanes":            map[string]any{"codex": map[string]any{"adapter": "process"}},
+		"lanes":            map[string]any{"codex": map[string]any{"adapter": "process", "command": []any{"true"}}},
 		"roles":            map[string]any{"author": map[string]any{}, "reviewer": map[string]any{}},
 		"context_docs":     []any{},
 		"parallelism":      map[string]any{"mode": "declared", "max_active_jobs": 1},
