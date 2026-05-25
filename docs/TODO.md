@@ -1465,3 +1465,28 @@ F32. ~~Land the RFC 0030 + RFC 0031 daemon V2 foundation.~~ Done:
     transport guards, PostgreSQL request/audit helpers, daemon DB
     supervisor/apply receipt tables, repo-local supervisor pointers, and
     fail-closed sealed-apply authority helpers.
+
+F33. Add a seeded live-PG trajectory test (RFC 0081) via `go/pkg/pgtest`: seed a
+    run with bus messages + artifacts and assert `trajectory.export` reproduces
+    them in derived-`seq` order for both `dialogue` and `provenance` profiles,
+    with a D028 guard that no projected row carries provider stdout/stderr.
+    Non-blocking follow-up from the v2.2.0 closure (verify evidence:
+    `docs/operator/artifacts/rfc-0079-0081-closure/verify/SUMMARY.md`); the
+    feature is already verified end-to-end against the recorded two-model
+    conversation run.
+
+F34. Implement owner-applied daemon migrations (RFC 0079 §5). The daemon
+    currently auto-migrates as runtime role `striatumd_rw`, which cannot DDL
+    owner-held `striatumd` tables (surfaced when RFC 0081's migration 0015
+    crash-looped the daemon). Add `striatum daemon migrate` run via an
+    owner/admin DSN (or acquire the admin DSN for the migrate step only) and a
+    guard test asserting a migration that adds an owner-referencing object also
+    `GRANT`s the runtime role. See `docs/DECISION_LOG.md` D135 and RFC 0079 §5.
+
+F35. Review remaining `src/striatum/web` residue. RFC 0078/0079 cleanup removed
+    the dead Python trees, but `src/striatum/web/static`, `web/static/build`,
+    and `web/templates` are still tracked. Confirm which the Go web service
+    (`go/pkg/webassets`) actually serves/embeds, then migrate the live assets
+    under `go/` (embed) and delete the dead remainder so `src/striatum` holds
+    only the live Node frontend source. Non-blocking follow-up from the v2.2.0
+    closure.
