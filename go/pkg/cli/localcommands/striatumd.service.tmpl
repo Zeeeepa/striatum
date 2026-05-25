@@ -1,0 +1,19 @@
+[Unit]
+Description=Striatum local workflow daemon (Go)
+Documentation=https://github.com/halbritt/striatum
+After=network-online.target
+
+[Service]
+Type=simple
+# striatumd is installed by `make install` / `striatum daemon install`.
+# The Postgres DSN is read from ~/.config/striatum/daemon.toml (postgres_url),
+# or overridden with the STRIATUM_DAEMON_DB_URL environment variable.
+# %h = user home, %t = per-user runtime directory (XDG_RUNTIME_DIR); using
+# specifiers keeps this unit host-portable with no hardcoded home paths.
+ExecStartPre=/usr/bin/mkdir -p %t/striatum
+ExecStart=%h/.local/bin/striatumd -socket %t/striatum/daemon-go.sock
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=default.target

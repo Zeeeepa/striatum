@@ -3,7 +3,11 @@ package mutations
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"errors"
 	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"sort"
@@ -28,7 +32,7 @@ func enforceWriteScopeClean(ctx context.Context, runner any, repositoryID string
 		return err
 	}
 	repoRoot := fmt.Sprint(repo["repo_root"])
-	paths, err := gitChangedPaths(ctx, repoRoot)
+	paths, err := gitTouchedPathsSinceBaseline(ctx, repoRoot, job)
 	if err != nil {
 		return rpc.NewError("invalid_transition", "write_scope check failed: "+err.Error(), nil)
 	}
@@ -67,6 +71,70 @@ func stringListFromAny(value any) []string {
 }
 
 func gitChangedPaths(ctx context.Context, repoRoot string) ([]string, error) {
+	snapshots, err := gitChangedPathSnapshots(ctx, repoRoot)
+	if err != nil {
+		return nil, err
+	}
+	paths := make([]string, 0, len(snapshots))
+	for _, item := range snapshots {
+		paths = append(paths, item.Path)
+	}
+	return paths, nil
+}
+
+type gitPathSnapshot struct {
+	Path string `json:"path"`
+	Hash string `json:"hash"`
+}
+
+func gitTouchedPathsSinceBaseline(ctx context.Context, repoRoot string, job map[string]any) ([]string, error) {
+	current, err := gitChangedPathSnapshots(ctx, repoRoot)
+	if err != nil {
+		return nil, err
+	}
+	baseline := gitBaselineFromJob(job)
+	if len(baseline) == 0 {
+		paths := make([]string, 0, len(current))
+		for _, item := range current {
+			paths = append(paths, item.Path)
+		}
+		return paths, nil
+	}
+	currentByPath := map[string]string{}
+	for _, item := range current {
+		currentByPath[item.Path] = item.Hash
+	}
+	touched := []string{}
+	for path, currentHash := range currentByPath {
+		if baselineHash, ok := baseline[path]; !ok || baselineHash != currentHash {
+			touched = append(touched, path)
+		}
+	}
+	for path, baselineHash := range baseline {
+		if _, ok := currentByPath[path]; !ok && baselineHash != "" {
+			touched = append(touched, path)
+		}
+	}
+	sort.Strings(touched)
+	return dedupeStrings(touched), nil
+}
+
+func gitBaselineFromJob(job map[string]any) map[string]string {
+	raw := asMap(job["write_scope_baseline"])
+	entries := asList(raw["changed_paths"])
+	out := map[string]string{}
+	for _, entry := range entries {
+		item := asMap(entry)
+		path, _ := item["path"].(string)
+		hash, _ := item["hash"].(string)
+		if path != "" {
+			out[path] = hash
+		}
+	}
+	return out
+}
+
+func gitChangedPathSnapshots(ctx context.Context, repoRoot string) ([]gitPathSnapshot, error) {
 	if strings.TrimSpace(repoRoot) == "" {
 		return nil, fmt.Errorf("repository root is empty")
 	}
@@ -80,7 +148,36 @@ func gitChangedPaths(ctx context.Context, repoRoot string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	return parseGitPorcelainZ(output), nil
+	paths := parseGitPorcelainZ(output)
+	snapshots := make([]gitPathSnapshot, 0, len(paths))
+	for _, path := range paths {
+		hash, err := hashRepoPath(repoRoot, path)
+		if err != nil {
+			return nil, err
+		}
+		snapshots = append(snapshots, gitPathSnapshot{Path: path, Hash: hash})
+	}
+	return snapshots, nil
+}
+
+func hashRepoPath(repoRoot, path string) (string, error) {
+	full := filepath.Join(repoRoot, filepath.FromSlash(path))
+	info, err := os.Stat(full)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return "", nil
+		}
+		return "", err
+	}
+	if info.IsDir() {
+		return "dir", nil
+	}
+	body, err := os.ReadFile(full)
+	if err != nil {
+		return "", err
+	}
+	sum := sha256.Sum256(body)
+	return hex.EncodeToString(sum[:]), nil
 }
 
 func parseGitPorcelainZ(output []byte) []string {

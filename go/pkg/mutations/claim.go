@@ -293,6 +293,9 @@ func buildPacket(
 			"curated_artifacts_only": true,
 		},
 	}
+	if baseline := buildWriteScopeBaseline(ctx, fmt.Sprint(run["repo_root"]), writeScope); baseline != nil {
+		packet["write_scope_baseline"] = baseline
+	}
 	if policy := buildReviewPolicy(workflow, fmt.Sprint(job["workflow_job_id"])); policy != nil {
 		packet["review_policy"] = policy
 	}
@@ -300,6 +303,26 @@ func buildPacket(
 		packet["harness_profile"] = profile
 	}
 	return packet, nil
+}
+
+func buildWriteScopeBaseline(ctx context.Context, repoRoot string, writeScope map[string]any) map[string]any {
+	if !isRepoWriteScope(writeScope) {
+		return nil
+	}
+	allowed := stringListFromAny(writeScope["allowed_paths"])
+	forbidden := stringListFromAny(writeScope["forbidden_paths"])
+	if len(allowed) == 0 && len(forbidden) == 0 {
+		return nil
+	}
+	changed, err := gitChangedPathSnapshots(ctx, repoRoot)
+	if err != nil {
+		return map[string]any{"status": "unavailable", "error": err.Error()}
+	}
+	entries := make([]map[string]any, 0, len(changed))
+	for _, item := range changed {
+		entries = append(entries, map[string]any{"path": item.Path, "hash": item.Hash})
+	}
+	return map[string]any{"status": "captured", "changed_paths": entries}
 }
 
 func packetTaskPrompt(taskPrompt map[string]any, snapshot map[string]any) map[string]any {

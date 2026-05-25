@@ -9,6 +9,22 @@ jobs:
   go:
     name: Go build, test, and smoke
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: striatum
+          POSTGRES_PASSWORD: striatum
+          POSTGRES_DB: striatum_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U striatum -d striatum_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      STRIATUM_PG_TEST_URL: postgres://striatum:striatum@localhost:5432/striatum_test?sslmode=disable
     steps:
       - uses: actions/checkout@v4
 
@@ -17,8 +33,15 @@ jobs:
           go-version-file: go/go.mod
           cache-dependency-path: go/go.sum
 
-      - name: Go tests
-        run: make check
+      - name: Install golangci-lint
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: latest
+          install-mode: binary
+          args: --version
+
+      - name: Go vet, test, race, lint, and coverage
+        run: make -C go check
 
       - name: Build release archive
         run: make release-archives

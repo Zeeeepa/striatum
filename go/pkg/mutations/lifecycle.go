@@ -625,6 +625,9 @@ func HandleCompleteWork(ctx context.Context, runner db.Runner, envelope rpc.Enve
 		if fmt.Sprint(job["state"]) != "running" {
 			return nil, rpc.NewError("invalid_transition", "job must be running before completion", nil)
 		}
+		if baseline := workPacketWriteScopeBaseline(ctx, tx, repositoryID, jobID, leaseID); baseline != nil {
+			job["write_scope_baseline"] = baseline
+		}
 		if err := enforceWriteScopeClean(ctx, tx, repositoryID, job); err != nil {
 			return nil, err
 		}
@@ -668,6 +671,20 @@ func HandleCompleteWork(ctx context.Context, runner db.Runner, envelope rpc.Enve
 		}
 		return map[string]any{"status": "completed", "job_id": jobID}, nil
 	})
+}
+
+func workPacketWriteScopeBaseline(ctx context.Context, runner any, repositoryID, jobID, leaseID string) map[string]any {
+	row, err := oneRow(ctx, runner, `
+		SELECT packet_json
+		  FROM striatumd.work_packets
+		 WHERE repository_id = $1 AND job_id = $2 AND lease_id = $3
+		 ORDER BY created_at DESC
+		 LIMIT 1`, repositoryID, jobID, leaseID)
+	if err != nil {
+		return nil
+	}
+	packet := asMap(row["packet_json"])
+	return asMap(packet["write_scope_baseline"])
 }
 
 func isEscalation(severity string, kind string) bool {

@@ -133,6 +133,20 @@ When two docs disagree, the home wins.
   contracts; they don't *redefine* them. If the verb shape
   changes, edit SPEC and the playbook in the same PR.
 
+### `docs/operator/DAEMON_RUNBOOK.md` — daemon operability runbook
+
+- **What it is:** the RFC 0079 operator reference for the `striatumd`
+  lifecycle: `striatum daemon install/uninstall/status`, the portable
+  systemd user unit, runtime layout, the `daemon.toml` DSN, logs, and
+  troubleshooting.
+- **What it owns:** how to install/start/stop the daemon and where its
+  runtime files live (`daemon-go.sock`, `client-token`,
+  `mcp-http-endpoint`, pidfile).
+- **What it doesn't:** Postgres role/grant provisioning (that's
+  `POSTGRES_TRANSITION.md`) or the workflow verb sequences (HOW_TO_*).
+  `GETTING_STARTED.md` links here for the lifecycle rather than
+  duplicating it.
+
 ### `docs/WORKFLOW_TYPES.md` — workflow selection guide
 
 - **What it is:** the current operator-facing map of workflow

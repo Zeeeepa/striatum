@@ -50,18 +50,49 @@ covers that path.
 
 ## Install striatum
 
-From a checkout of the striatum repository:
+Striatum is Go-only (RFC 0078/0079). From a clean checkout the single
+path is clone → `make install` → `doctor`:
 
 ```bash
+git clone https://github.com/halbritt/striatum
+cd striatum
 make install
-~/.local/bin/striatum --help
 ```
 
-From a release archive:
+`make install` (RFC 0079):
+
+1. builds and installs the three Go binaries (`striatum`, `striatumd`,
+   `striatum-supervisor-helper`) into `$(PREFIX)/bin` (default
+   `~/.local/bin`);
+2. runs `striatum daemon install --no-start`, which renders the portable
+   systemd **user** unit `~/.config/systemd/user/striatumd.service` (using
+   the `%h`/`%t` specifiers — no hardcoded home paths) and scaffolds a
+   commented `~/.config/striatum/daemon.toml` if one does not already exist;
+3. installs the skill bundle (`striatum skills install`);
+4. attempts to start the daemon and runs a health check (best effort).
+
+The daemon refuses to bind a socket until a Postgres DSN is configured, so
+on a brand-new host you finish bootstrap with one edit:
 
 ```bash
-tar -xzf striatum_2.0.0_linux-amd64.tar.gz
-export PATH="$PWD/striatum_2.0.0_linux-amd64/bin:$PATH"
+# Set postgres_url in the scaffolded config (or export STRIATUM_DAEMON_DB_URL):
+$EDITOR ~/.config/striatum/daemon.toml
+striatum daemon install        # re-runs `systemctl --user enable --now`
+striatum doctor                # expect: ok
+```
+
+`striatum daemon status` summarizes the unit state, runtime layout, and
+`doctor` in one view; `make uninstall` reverses the install (binaries +
+unit), leaving `daemon.toml` and data intact. The full lifecycle, runtime
+layout, and troubleshooting live in
+[operator/DAEMON_RUNBOOK.md](operator/DAEMON_RUNBOOK.md).
+
+From a release archive instead of a source checkout:
+
+```bash
+tar -xzf striatum_2.1.0_linux-amd64.tar.gz
+export PATH="$PWD/striatum_2.1.0_linux-amd64/bin:$PATH"
+striatum daemon install        # render the user unit + scaffold daemon.toml
 striatum --help
 ```
 
@@ -84,10 +115,12 @@ multiple model-family review lanes, supervised lanes, or constrained
 lanes.
 
 ```bash
-# First terminal: keep the daemon running.
-striatum daemon start
+# The daemon runs as a systemd user service after `make install`
+# (`striatum daemon status` to check it). To run it in the foreground
+# instead — e.g. on a non-systemd host:
+#   striatumd -socket "${XDG_RUNTIME_DIR}/striatum/daemon-go.sock"
 
-# Second terminal: register and drive the target repo.
+# Register and drive the target repo.
 TARGET_REPO=/path/to/your/repo
 WORKFLOW=examples/code-change-flow/workflow.json   # or choose a type in WORKFLOW_TYPES.md
 

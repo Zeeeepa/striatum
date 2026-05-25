@@ -21,6 +21,7 @@ collectively, not individually.
 | [CLI_REFERENCE.md](CLI_REFERENCE.md) | Anyone | Flat list of every CLI verb plus stable exit codes; `--help` is authoritative. |
 | [POSTGRES_TRANSITION.md](POSTGRES_TRANSITION.md) | Operator | The D094 / RFC 0043 PostgreSQL runbook: prerequisites, daemon doctor role/grant repair, daemon service startup, `striatum adopt`, retired SQLite import-command behavior, verification, and exit codes 11 / 12. |
 | [BLOB_TRANSITION.md](BLOB_TRANSITION.md) | Operator | The RFC 0072 blob-storage runbook: configuring `striatumd` against an S3-compatible service, adopting repos with `--apply-blob-creation`, bulk-migrating `docs/dogfood/` into blob storage, and verifying the round trip. |
+| [operator/DAEMON_RUNBOOK.md](operator/DAEMON_RUNBOOK.md) | Operator | The RFC 0079 daemon operability runbook: `striatum daemon install/uninstall/status`, the portable systemd user unit, runtime layout (`daemon-go.sock`, `client-token`, `mcp-http-endpoint`, pidfile), `daemon.toml` DSN, `journalctl --user -u striatumd`, and troubleshooting. |
 | [operator/INDEX.md](operator/INDEX.md) | Operator | RFC 0058 current-state surface: read `operator/BRIEF.md`, then only its bounded plan links unless a task asks for deeper history. |
 
 ## Specifications and decisions

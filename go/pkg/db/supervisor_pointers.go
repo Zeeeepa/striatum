@@ -8,10 +8,12 @@ package db
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -58,28 +60,50 @@ func (s *SupervisorPointerStore) UpsertSupervisorPointer(ctx context.Context, ro
 	if row.RepositoryID == "" {
 		return fmt.Errorf("supervisor_pointer: empty repository_id")
 	}
-	_, err := s.pool.Exec(ctx, `
+	if row.SessionID == "" {
+		return fmt.Errorf("supervisor_pointer: empty session_id")
+	}
+	var runID string
+	err := s.pool.QueryRow(ctx, `
+		SELECT run_id FROM striatumd.sessions
+		 WHERE repository_id = $1 AND session_id = $2`,
+		row.RepositoryID, row.SessionID,
+	).Scan(&runID)
+	if err != nil {
+		return fmt.Errorf("supervisor_pointer lookup session run: %w", err)
+	}
+	metadata, err := json.Marshal(map[string]any{
+		"started_at":        row.StartedAt.UTC().Format(time.RFC3339Nano),
+		"last_heartbeat_at": row.LastHeartbeatAt.UTC().Format(time.RFC3339Nano),
+		"stdin_pipe_path":   row.StdinPipePath,
+		"lost_reason":       row.LostReason,
+	})
+	if err != nil {
+		return fmt.Errorf("supervisor_pointer metadata: %w", err)
+	}
+	_, err = s.pool.Exec(ctx, `
 		INSERT INTO striatumd.process_supervisor_pointers
-		  (supervisor_id, repository_id, session_id, pid, started_at,
-		   last_heartbeat_at, stdin_pipe_path, state, lost_reason)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-		ON CONFLICT (supervisor_id) DO UPDATE SET
-		  pid               = EXCLUDED.pid,
-		  started_at        = EXCLUDED.started_at,
-		  last_heartbeat_at = EXCLUDED.last_heartbeat_at,
-		  stdin_pipe_path   = EXCLUDED.stdin_pipe_path,
-		  state             = EXCLUDED.state,
-		  lost_reason       = EXCLUDED.lost_reason
+		  (repository_id, supervisor_id, daemon_supervisor_id, run_id, session_id,
+		   pid, state, updated_at, metadata_json)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb)
+		ON CONFLICT (repository_id, supervisor_id) DO UPDATE SET
+		  daemon_supervisor_id = EXCLUDED.daemon_supervisor_id,
+		  run_id               = EXCLUDED.run_id,
+		  session_id           = EXCLUDED.session_id,
+		  pid                  = EXCLUDED.pid,
+		  state                = EXCLUDED.state,
+		  updated_at           = EXCLUDED.updated_at,
+		  metadata_json        = EXCLUDED.metadata_json
 	`,
-		row.SupervisorID,
 		row.RepositoryID,
-		nullable(row.SessionID),
+		row.SupervisorID,
+		row.SupervisorID,
+		runID,
+		row.SessionID,
 		row.PID,
-		row.StartedAt,
-		row.LastHeartbeatAt,
-		nullable(row.StdinPipePath),
 		row.State,
-		nullable(row.LostReason),
+		row.LastHeartbeatAt,
+		string(metadata),
 	)
 	if err != nil {
 		return fmt.Errorf("supervisor_pointer upsert: %w", err)
@@ -90,7 +114,9 @@ func (s *SupervisorPointerStore) UpsertSupervisorPointer(ctx context.Context, ro
 func (s *SupervisorPointerStore) MarkSupervisorLost(ctx context.Context, supervisorID string, reason string) error {
 	tag, err := s.pool.Exec(ctx, `
 		UPDATE striatumd.process_supervisor_pointers
-		   SET state = 'lost', lost_reason = $2
+		   SET state = 'lost',
+		       updated_at = now(),
+		       metadata_json = metadata_json || jsonb_build_object('lost_reason', $2)
 		 WHERE supervisor_id = $1
 	`, supervisorID, reason)
 	if err != nil {
@@ -104,34 +130,46 @@ func (s *SupervisorPointerStore) MarkSupervisorLost(ctx context.Context, supervi
 
 func (s *SupervisorPointerStore) GetSupervisorPointer(ctx context.Context, supervisorID string) (PointerRow, error) {
 	var row PointerRow
-	var sessionID, stdinPipePath, lostReason *string
+	var metadataRaw []byte
+	var updatedAt time.Time
 	err := s.pool.QueryRow(ctx, `
-		SELECT supervisor_id, repository_id, session_id, pid, started_at,
-		       last_heartbeat_at, stdin_pipe_path, state, lost_reason
+		SELECT supervisor_id, repository_id, session_id, COALESCE(pid, 0),
+		       updated_at, state, metadata_json
 		  FROM striatumd.process_supervisor_pointers
 		 WHERE supervisor_id = $1
 	`, supervisorID).Scan(
 		&row.SupervisorID,
 		&row.RepositoryID,
-		&sessionID,
+		&row.SessionID,
 		&row.PID,
-		&row.StartedAt,
-		&row.LastHeartbeatAt,
-		&stdinPipePath,
+		&updatedAt,
 		&row.State,
-		&lostReason,
+		&metadataRaw,
 	)
 	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return PointerRow{}, ErrSupervisorNotFound
+		}
 		return PointerRow{}, ErrSupervisorNotFound
 	}
-	if sessionID != nil {
-		row.SessionID = *sessionID
+	row.LastHeartbeatAt = updatedAt
+	metadata := map[string]any{}
+	_ = json.Unmarshal(metadataRaw, &metadata)
+	if startedAt, ok := metadata["started_at"].(string); ok {
+		if parsed, err := time.Parse(time.RFC3339Nano, startedAt); err == nil {
+			row.StartedAt = parsed
+		}
 	}
-	if stdinPipePath != nil {
-		row.StdinPipePath = *stdinPipePath
+	if heartbeat, ok := metadata["last_heartbeat_at"].(string); ok {
+		if parsed, err := time.Parse(time.RFC3339Nano, heartbeat); err == nil {
+			row.LastHeartbeatAt = parsed
+		}
 	}
-	if lostReason != nil {
-		row.LostReason = *lostReason
+	if stdinPipePath, ok := metadata["stdin_pipe_path"].(string); ok {
+		row.StdinPipePath = stdinPipePath
+	}
+	if lostReason, ok := metadata["lost_reason"].(string); ok {
+		row.LostReason = lostReason
 	}
 	return row, nil
 }

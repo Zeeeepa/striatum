@@ -1,44 +1,63 @@
-package db
+package db_test
 
 import (
 	"context"
 	"errors"
-	"os"
 	"testing"
 	"time"
+
+	"github.com/halbritt/striatum/go/pkg/db"
+	"github.com/halbritt/striatum/go/pkg/pgtest"
 )
 
 // TestSupervisorPointerStoreRoundtrip locks F-store against a real Postgres
-// instance. Skips when STRIATUM_PG_TEST_URL is unset so `go test ./...`
-// stays hermetic in CI environments without Postgres (matches the existing
-// TestAuditRecorderRaceLinearChain opt-in pattern).
+// instance.
 func TestSupervisorPointerStoreRoundtrip(t *testing.T) {
-	url := os.Getenv("STRIATUM_PG_TEST_URL")
-	if url == "" {
-		t.Skip("STRIATUM_PG_TEST_URL not set; skipping supervisor pointers PG test")
+	ctx := context.Background()
+	pool := pgtest.Pool(t)
+	now := time.Now().UTC().Truncate(time.Microsecond)
+	if err := pool.Runner.Exec(ctx, `
+		INSERT INTO striatumd.repositories (
+		  repository_id, repo_identity, repo_root, state_db_path, display_name,
+		  registered_at, last_schema_version, state
+		) VALUES ('repo_test_pointers','ident_pointers','/tmp/repo','/tmp/repo/.striatum','repo',$1,14,'active')`,
+		now,
+	); err != nil {
+		t.Fatalf("insert repository: %v", err)
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-	defer cancel()
-
-	pool, _, err := ConnectAndMigrate(ctx, url, "test-go-supervisor-pointers")
-	if err != nil {
-		t.Fatalf("connect/migrate: %v", err)
+	if err := pool.Runner.Exec(ctx, `
+		INSERT INTO striatumd.workflow_snapshots (
+		  repository_id, workflow_snapshot_id, workflow_id, content_sha256, workflow_json, loaded_at
+		) VALUES ('repo_test_pointers','snap_pointers','wf','sha','{}'::jsonb,$1)`, now); err != nil {
+		t.Fatalf("insert workflow snapshot: %v", err)
 	}
-	defer pool.Close()
+	if err := pool.Runner.Exec(ctx, `
+		INSERT INTO striatumd.runs (
+		  repository_id, run_id, workflow_snapshot_id, repo_root, state, created_at
+		) VALUES ('repo_test_pointers','run_pointers','snap_pointers','/tmp/repo','running',$1)`, now); err != nil {
+		t.Fatalf("insert run: %v", err)
+	}
+	if err := pool.Runner.Exec(ctx, `
+		INSERT INTO striatumd.sessions (
+		  repository_id, session_id, run_id, role_id, lane_id, slug, ordinal,
+		  state, registered_at
+		) VALUES ('repo_test_pointers','sess_test_pointers','run_pointers','implementer','codex','slug',1,'active',$1)`, now); err != nil {
+		t.Fatalf("insert session: %v", err)
+	}
 
-	runner, ok := pool.Runner.(PgxRunner)
+	runner, ok := pool.Runner.(db.PgxRunner)
 	if !ok {
 		t.Fatalf("expected PgxRunner backing the pool, got %T", pool.Runner)
 	}
-	store := NewSupervisorPointerStore(runner.Pool)
+	store := db.NewSupervisorPointerStore(runner.Pool)
 	supID := "sup_test_pointers_001"
-	row := PointerRow{
+	row := db.PointerRow{
 		SupervisorID:    supID,
 		RepositoryID:    "repo_test_pointers",
 		SessionID:       "sess_test_pointers",
 		PID:             4242,
-		StartedAt:       time.Now().UTC().Truncate(time.Microsecond),
-		LastHeartbeatAt: time.Now().UTC().Truncate(time.Microsecond),
+		StartedAt:       now,
+		LastHeartbeatAt: now,
 		StdinPipePath:   "/tmp/striatum-test/fifo",
 		State:           "starting",
 	}
@@ -63,7 +82,7 @@ func TestSupervisorPointerStoreRoundtrip(t *testing.T) {
 	})
 
 	t.Run("upsert_updates_existing", func(t *testing.T) {
-		row.State = "running"
+		row.State = "attached"
 		row.LastHeartbeatAt = time.Now().UTC().Truncate(time.Microsecond)
 		if err := store.UpsertSupervisorPointer(ctx, row); err != nil {
 			t.Fatalf("upsert update: %v", err)
@@ -72,8 +91,8 @@ func TestSupervisorPointerStoreRoundtrip(t *testing.T) {
 		if err != nil {
 			t.Fatalf("get after update: %v", err)
 		}
-		if got.State != "running" {
-			t.Fatalf("state after update: got %q want running", got.State)
+		if got.State != "attached" {
+			t.Fatalf("state after update: got %q want attached", got.State)
 		}
 	})
 
@@ -95,27 +114,27 @@ func TestSupervisorPointerStoreRoundtrip(t *testing.T) {
 
 	t.Run("get_missing_returns_typed_not_found", func(t *testing.T) {
 		_, err := store.GetSupervisorPointer(ctx, "sup_does_not_exist_ever")
-		if !errors.Is(err, ErrSupervisorNotFound) {
+		if !errors.Is(err, db.ErrSupervisorNotFound) {
 			t.Fatalf("expected ErrSupervisorNotFound, got %v", err)
 		}
 	})
 
 	t.Run("mark_lost_missing_returns_typed_not_found", func(t *testing.T) {
 		err := store.MarkSupervisorLost(ctx, "sup_does_not_exist_ever", "noop")
-		if !errors.Is(err, ErrSupervisorNotFound) {
+		if !errors.Is(err, db.ErrSupervisorNotFound) {
 			t.Fatalf("expected ErrSupervisorNotFound, got %v", err)
 		}
 	})
 
 	t.Run("upsert_rejects_empty_supervisor_id", func(t *testing.T) {
-		err := store.UpsertSupervisorPointer(ctx, PointerRow{RepositoryID: "x"})
+		err := store.UpsertSupervisorPointer(ctx, db.PointerRow{RepositoryID: "x"})
 		if err == nil {
 			t.Fatal("expected error for empty supervisor_id")
 		}
 	})
 
 	t.Run("upsert_rejects_empty_repository_id", func(t *testing.T) {
-		err := store.UpsertSupervisorPointer(ctx, PointerRow{SupervisorID: "x"})
+		err := store.UpsertSupervisorPointer(ctx, db.PointerRow{SupervisorID: "x"})
 		if err == nil {
 			t.Fatal("expected error for empty repository_id")
 		}

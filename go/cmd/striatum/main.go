@@ -42,6 +42,12 @@ func run(args []string, stdout io.Writer, stderr io.Writer) int {
 				runArgs = append(runArgs, "--json")
 			}
 			return cliskills.Run(runArgs, stdout, stderr, globals.RepoPath, version)
+		case "daemon":
+			daemonArgs := append([]string(nil), commandArgs[1:]...)
+			if globals.JSONOutput && !containsFlag(daemonArgs, "--json") {
+				daemonArgs = append(daemonArgs, "--json")
+			}
+			return localcommands.RunDaemon(daemonArgs, stdout, stderr)
 		default:
 			workflowArgs := commandArgs[1:]
 			if globals.JSONOutput && !containsFlag(workflowArgs, "--json") {

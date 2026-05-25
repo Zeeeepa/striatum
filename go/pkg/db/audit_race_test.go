@@ -1,35 +1,24 @@
-package db
+package db_test
 
 import (
 	"context"
 	"fmt"
-	"os"
 	"sync"
 	"testing"
-	"time"
 
+	"github.com/halbritt/striatum/go/pkg/db"
+	"github.com/halbritt/striatum/go/pkg/pgtest"
 	"github.com/halbritt/striatum/go/pkg/rpc"
 )
 
 // TestAuditRecorderRaceLinearChain locks F4: concurrent goroutines calling
 // RecordRPC against a real Postgres database must produce a linear hash
-// chain. The test is opt-in on STRIATUM_PG_TEST_URL so `go test ./...`
-// stays hermetic in CI environments without Postgres.
+// chain.
 func TestAuditRecorderRaceLinearChain(t *testing.T) {
-	url := os.Getenv("STRIATUM_PG_TEST_URL")
-	if url == "" {
-		t.Skip("STRIATUM_PG_TEST_URL not set; skipping pgx audit race test")
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-	defer cancel()
+	ctx := context.Background()
+	pool := pgtest.Pool(t)
 
-	pool, _, err := ConnectAndMigrate(ctx, url, "test-go-audit")
-	if err != nil {
-		t.Fatalf("connect/migrate: %v", err)
-	}
-	defer pool.Close()
-
-	recorder := AuditRecorder{Runner: pool.Runner, DaemonVersion: "test-go-audit"}
+	recorder := db.AuditRecorder{Runner: pool.Runner, DaemonVersion: "test-go-audit"}
 	concurrency := 8
 	perWorker := 4
 	var wg sync.WaitGroup
@@ -87,8 +76,8 @@ type auditChainRow struct {
 	previousHash string
 }
 
-func loadAuditChainForTest(ctx context.Context, runner Runner) ([]auditChainRow, error) {
-	pr, ok := runner.(PgxRunner)
+func loadAuditChainForTest(ctx context.Context, runner db.Runner) ([]auditChainRow, error) {
+	pr, ok := runner.(db.PgxRunner)
 	if !ok {
 		return nil, fmt.Errorf("runner is not PgxRunner")
 	}
