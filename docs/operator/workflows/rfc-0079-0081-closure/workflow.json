@@ -1,0 +1,59 @@
+{
+  "schema_version": "striatum.workflow.v1",
+  "workflow_id": "rfc-0079-0081-closure",
+  "workflow_version": "2026-05-25",
+  "name": "RFC 0079/0080/0081 implementation",
+  "context_docs": [
+    "AGENTS.md", "README.md", "docs/SPEC.md", "docs/DECISION_LOG.md",
+    "docs/rfcs/0079-go-only-operability-and-install.md",
+    "docs/rfcs/0080-test-and-build-hardening.md",
+    "docs/rfcs/0081-conversation-trajectories.md",
+    "docs/operator/artifacts/two-model-conversation/",
+    "contracts/daemon_methods.json", "go/", "Makefile", ".github/workflows/"
+  ],
+  "coordinator": {"role_id": "coordinator", "lane_id": "codex"},
+  "parallelism": {"mode": "declared", "max_active_jobs": 3, "require_disjoint_write_scopes": true},
+  "branch": {"mode": "confirm", "suggested_name": "striatum/rfc-0079-0081-closure", "allow_dirty": true},
+  "lanes": {
+    "claude": {"adapter": "process", "command": ["bash", "-lc", "striatum skills install --profile claude_code --scope user --force --json >/dev/null 2>&1 || true; exec .striatum/bin/claude-supervised-wrapper.sh"], "model": "claude", "display_model": "Claude", "strategy_version": "2026-05-25", "constraints": {"network": "forbidden", "repo_scope": "local_only", "transcripts": "off"}, "required_enforcement": {"network": "advisory_strict", "repo_scope": "advisory_strict", "transcripts": "enforced"}, "supervision": {"compatible": true, "stdin_format": "newline_delimited_json", "wrapper_required": true}},
+    "codex": {"adapter": "process", "command": ["bash", "-lc", "striatum skills install --profile codex --scope user --force --json >/dev/null 2>&1 || true; exec .striatum/bin/codex-supervised-wrapper.sh"], "model": "codex", "display_model": "Codex GPT-5", "strategy_version": "2026-05-25", "constraints": {"network": "forbidden", "repo_scope": "local_only", "transcripts": "off"}, "required_enforcement": {"network": "advisory_strict", "repo_scope": "advisory_strict", "transcripts": "enforced"}, "supervision": {"compatible": true, "stdin_format": "newline_delimited_json", "wrapper_required": true}},
+    "gemini": {"adapter": "process", "command": ["bash", "-lc", "striatum skills install --profile gemini --scope user --force --json >/dev/null 2>&1 || true; exec .striatum/bin/gemini-supervised-wrapper.sh"], "model": "gemini", "display_model": "Gemini", "strategy_version": "2026-05-25", "constraints": {"network": "forbidden", "repo_scope": "local_only", "transcripts": "off"}, "required_enforcement": {"network": "advisory_strict", "repo_scope": "advisory_strict", "transcripts": "enforced"}, "supervision": {"compatible": true, "stdin_format": "newline_delimited_json", "wrapper_required": true}}
+  },
+  "roles": {"coordinator": {"description": "Operator/control-plane coordinator."}, "implementer": {"description": "RFC implementer."}, "closer": {"description": "Aggregate verification closer."}},
+  "jobs": [
+    {
+      "id": "gate_0079", "type": "build", "title": "RFC 0079: operability & install", "role_id": "implementer", "lane_id": "claude", "fresh_session_required": true,
+      "objective": "Implement striatum daemon install (portable systemd unit), make install completeness, and operability docs.",
+      "task_prompt": {"path": "docs/operator/workflows/rfc-0079-0081-closure/prompts/gate_0079.md"},
+      "write_scope": {"mode": "repo_write", "repo_write": true, "allowed_paths": ["go/pkg/cli/localcommands/", "go/cmd/striatum/", "Makefile", "docs/GETTING_STARTED.md", "docs/operator/DAEMON_RUNBOOK.md", "docs/INDEX.md", "docs/DOC_MAP.md", "docs/operator/artifacts/rfc-0079-0081-closure/0079/"], "forbidden_paths": [".striatum/", "dist/", "__pycache__/"]},
+      "expected_artifacts": [{"logical_name": "s0079", "kind": "synthesis", "path": "docs/operator/artifacts/rfc-0079-0081-closure/0079/SUMMARY.md", "required": true}]
+    },
+    {
+      "id": "gate_0080", "type": "build", "title": "RFC 0080: test & build hardening", "role_id": "implementer", "lane_id": "codex", "fresh_session_required": true,
+      "objective": "Add the Go PG test harness, un-skip live-PG tests in CI, restore coverage, add race/vet/lint gates, fix the write-scope guard.",
+      "task_prompt": {"path": "docs/operator/workflows/rfc-0079-0081-closure/prompts/gate_0080.md"},
+      "write_scope": {"mode": "repo_write", "repo_write": true, "allowed_paths": ["go/pkg/pgtest/", "go/pkg/db/", "go/pkg/mutations/", "go/Makefile", ".github/workflows/", "docs/operator/artifacts/rfc-0079-0081-closure/0080/"], "forbidden_paths": [".striatum/", "dist/", "__pycache__/"]},
+      "expected_artifacts": [{"logical_name": "s0080", "kind": "synthesis", "path": "docs/operator/artifacts/rfc-0079-0081-closure/0080/SUMMARY.md", "required": true}]
+    },
+    {
+      "id": "gate_0081", "type": "build", "title": "RFC 0081: conversation trajectories", "role_id": "implementer", "lane_id": "gemini", "fresh_session_required": true,
+      "objective": "Implement trajectory read-model (export/watch), run_event_seq ordering, trajectory_segments, CLI + tmux, conversation workflow type — respecting D028. Uses the RFC 0080 PG harness.",
+      "task_prompt": {"path": "docs/operator/workflows/rfc-0079-0081-closure/prompts/gate_0081.md"},
+      "write_scope": {"mode": "repo_write", "repo_write": true, "allowed_paths": ["go/pkg/reads/", "go/pkg/rpc/", "go/pkg/cli/routes/", "go/pkg/cli/readparams/", "go/pkg/cli/params/", "contracts/", "go/pkg/db/migrations/", "go/pkg/workflowgenerate/", "go/pkg/workflowtemplates/", "docs/WORKFLOW_TYPES.md", "docs/operator/workflows/two-model-conversation/", "docs/operator/artifacts/rfc-0079-0081-closure/0081/"], "forbidden_paths": [".striatum/", "dist/", "__pycache__/"]},
+      "expected_artifacts": [{"logical_name": "s0081", "kind": "synthesis", "path": "docs/operator/artifacts/rfc-0079-0081-closure/0081/SUMMARY.md", "required": true}]
+    },
+    {
+      "id": "verify_aggregate", "type": "build", "title": "Verify: aggregate validation", "role_id": "closer", "lane_id": "codex", "fresh_session_required": true,
+      "objective": "Run build/vet/test/-race, frontend, guardrail, smoke, live-PG-runs check, and a trajectory export; record green/red.",
+      "task_prompt": {"path": "docs/operator/workflows/rfc-0079-0081-closure/prompts/gate_verify.md"},
+      "write_scope": {"mode": "repo_write", "repo_write": true, "allowed_paths": ["docs/operator/artifacts/rfc-0079-0081-closure/verify/"], "forbidden_paths": [".striatum/", "dist/", "__pycache__/"]},
+      "expected_artifacts": [{"logical_name": "sverify", "kind": "synthesis", "path": "docs/operator/artifacts/rfc-0079-0081-closure/verify/SUMMARY.md", "required": true}]
+    }
+  ],
+  "edges": [
+    {"from": "gate_0080", "to": "gate_0081", "on": "completed"},
+    {"from": "gate_0079", "to": "verify_aggregate", "on": "completed"},
+    {"from": "gate_0081", "to": "verify_aggregate", "on": "completed"}
+  ],
+  "cycles": []
+}
