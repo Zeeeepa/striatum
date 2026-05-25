@@ -1,0 +1,548 @@
+{
+  "schema_version": "striatum.workflow.v1",
+  "workflow_id": "rfc-0078-go-cli-rpc-router",
+  "workflow_version": "2026-05-25",
+  "name": "RFC 0078 generated Go CLI RPC router",
+  "context_docs": [
+    "AGENTS.md",
+    "README.md",
+    "docs/INDEX.md",
+    "docs/SPEC.md",
+    "docs/DECISION_LOG.md",
+    "docs/UBIQUITOUS_LANGUAGE.md",
+    "docs/TODO.md",
+    "docs/ROADMAP.md",
+    "docs/operator/BRIEF.md",
+    "docs/operator/plans/rfc-0078-go-cli-rpc-router.md",
+    "docs/operator/artifacts/rfc-0078-go-only-runtime-and-python-removal/cli/HANDOFF.md",
+    "docs/operator/artifacts/rfc-0078-go-only-runtime-and-python-removal/final/SUMMARY.md",
+    "docs/rfcs/0078-go-only-runtime-and-python-removal.md",
+    "docs/rfcs/0068-go-production-daemon-port.md",
+    "docs/rfcs/0070-daemon-client-service-boundary.md",
+    "docs/architecture/COMMAND_AUTHORITY_MATRIX.md",
+    "docs/architecture/CLI_RETIREMENT_PARITY.md",
+    "contracts/daemon_methods.json",
+    "go/cmd/striatum/",
+    "go/pkg/rpc/",
+    "go/pkg/reads/",
+    "go/pkg/mutations/",
+    "go/pkg/workflowauthoring/",
+    "go/pkg/workflowgenerate/",
+    "go/pkg/workflowtemplates/",
+    "Makefile"
+  ],
+  "coordinator": {
+    "role_id": "coordinator",
+    "lane_id": "codex"
+  },
+  "parallelism": {
+    "mode": "declared",
+    "max_active_jobs": 20,
+    "require_disjoint_write_scopes": true
+  },
+  "branch": {
+    "mode": "confirm",
+    "suggested_name": "main",
+    "allow_dirty": true
+  },
+  "lanes": {
+    "codex": {
+      "adapter": "process",
+      "command": ["bash", "-lc", "cat >/dev/null"],
+      "model": "codex",
+      "display_model": "Codex GPT-5.5",
+      "strategy_version": "2026-05-25",
+      "constraints": {
+        "network": "forbidden",
+        "repo_scope": "local_only",
+        "transcripts": "off"
+      },
+      "required_enforcement": {
+        "network": "advisory_strict",
+        "repo_scope": "advisory_strict",
+        "transcripts": "enforced"
+      }
+    },
+    "claude_code": {
+      "adapter": "process",
+      "command": ["bash", "-lc", "cat >/dev/null"],
+      "model": "claude_code",
+      "display_model": "Claude Code",
+      "strategy_version": "2026-05-25",
+      "constraints": {
+        "network": "forbidden",
+        "repo_scope": "local_only",
+        "transcripts": "off"
+      },
+      "required_enforcement": {
+        "network": "advisory_strict",
+        "repo_scope": "advisory_strict",
+        "transcripts": "enforced"
+      }
+    },
+    "gemini": {
+      "adapter": "process",
+      "command": ["bash", "-lc", "cat >/dev/null"],
+      "model": "gemini",
+      "display_model": "Gemini",
+      "strategy_version": "2026-05-25",
+      "constraints": {
+        "network": "forbidden",
+        "repo_scope": "local_only",
+        "transcripts": "off"
+      },
+      "required_enforcement": {
+        "network": "advisory_strict",
+        "repo_scope": "advisory_strict",
+        "transcripts": "enforced"
+      }
+    }
+  },
+  "roles": {
+    "coordinator": {
+      "description": "Operator/control-plane coordinator."
+    },
+    "router_mapper": {
+      "description": "Maps daemon method contract routes, local exceptions, and unported CLI surface."
+    },
+    "router_builder": {
+      "description": "Builds generated route metadata and drift checks from contracts/daemon_methods.json."
+    },
+    "transport_builder": {
+      "description": "Builds CLI daemon RPC transport and token/socket resolution."
+    },
+    "params_builder": {
+      "description": "Builds typed CLI parameter adapters for generated RPC routes."
+    },
+    "boundary_builder": {
+      "description": "Keeps local workflow-authoring commands explicit and outside daemon-router generation."
+    },
+    "integrator": {
+      "description": "Wires generated routes, parameter builders, transport, and local exceptions into go/cmd/striatum."
+    },
+    "reviewer": {
+      "description": "Fresh-context reviewer for authority-boundary and route-coverage risks."
+    },
+    "validator": {
+      "description": "Runs aggregate validation and records exact command evidence."
+    },
+    "closer": {
+      "description": "Final synthesis owner for the generated Go CLI RPC router gate."
+    }
+  },
+  "jobs": [
+    {
+      "id": "inventory_router_contract",
+      "type": "synthesis",
+      "title": "Inventory CLI router contract",
+      "role_id": "router_mapper",
+      "lane_id": "codex",
+      "fresh_session_required": true,
+      "objective": "Map contracts/daemon_methods.json into generated Go CLI route groups, explicit local exceptions, and unported command risks for this gate.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/rfc-0078-go-cli-rpc-router/prompts/inventory_router_contract.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/operator/artifacts/rfc-0078-go-cli-rpc-router/inventory/"
+        ],
+        "forbidden_paths": [".striatum/", ".venv/", "__pycache__/"]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "router_contract_map",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/rfc-0078-go-cli-rpc-router/inventory/ROUTE_CONTRACT.md",
+          "author_line": "author: operator [self-declared: router-mapper-codex-gpt-5-001]",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "build_generated_route_metadata",
+      "type": "build",
+      "title": "Build generated route metadata",
+      "role_id": "router_builder",
+      "lane_id": "codex",
+      "parallel_group": "router_implementation",
+      "fresh_session_required": true,
+      "required_review_postures": [
+        "custom:authority_boundary",
+        "custom:contract_drift"
+      ],
+      "objective": "Implement generated Go route metadata and freshness checks sourced only from contracts/daemon_methods.json.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/rfc-0078-go-cli-rpc-router/prompts/build_generated_route_metadata.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "go/pkg/cli/routergen/",
+          "go/pkg/cli/routes/",
+          "go/pkg/cli/routestest/",
+          "docs/operator/artifacts/rfc-0078-go-cli-rpc-router/build/routes/"
+        ],
+        "forbidden_paths": [".striatum/", ".venv/", "__pycache__/"]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "route_metadata_handoff",
+          "kind": "handoff",
+          "path": "docs/operator/artifacts/rfc-0078-go-cli-rpc-router/build/routes/HANDOFF.md",
+          "author_line": "author: operator [self-declared: router-builder-codex-gpt-5-001]",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "build_cli_rpc_transport",
+      "type": "build",
+      "title": "Build CLI RPC transport",
+      "role_id": "transport_builder",
+      "lane_id": "codex",
+      "parallel_group": "router_implementation",
+      "fresh_session_required": true,
+      "required_review_postures": [
+        "custom:authority_boundary",
+        "custom:operator_ergonomics"
+      ],
+      "objective": "Implement the Go CLI daemon RPC client path for generated routes, including token/socket resolution and stable error mapping.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/rfc-0078-go-cli-rpc-router/prompts/build_cli_rpc_transport.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "go/pkg/cli/rpcclient/",
+          "docs/operator/artifacts/rfc-0078-go-cli-rpc-router/build/transport/"
+        ],
+        "forbidden_paths": [".striatum/", ".venv/", "__pycache__/"]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "rpc_transport_handoff",
+          "kind": "handoff",
+          "path": "docs/operator/artifacts/rfc-0078-go-cli-rpc-router/build/transport/HANDOFF.md",
+          "author_line": "author: operator [self-declared: transport-builder-codex-gpt-5-001]",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "build_read_param_adapters",
+      "type": "build",
+      "title": "Build read parameter adapters",
+      "role_id": "params_builder",
+      "lane_id": "codex",
+      "parallel_group": "router_implementation",
+      "fresh_session_required": true,
+      "required_review_postures": [
+        "custom:contract_drift",
+        "custom:operator_ergonomics"
+      ],
+      "objective": "Implement generated-route parameter adapters for read/list/status/reporting commands without changing daemon method semantics.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/rfc-0078-go-cli-rpc-router/prompts/build_read_param_adapters.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "go/pkg/cli/readparams/",
+          "docs/operator/artifacts/rfc-0078-go-cli-rpc-router/build/read-params/"
+        ],
+        "forbidden_paths": [".striatum/", ".venv/", "__pycache__/"]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "read_params_handoff",
+          "kind": "handoff",
+          "path": "docs/operator/artifacts/rfc-0078-go-cli-rpc-router/build/read-params/HANDOFF.md",
+          "author_line": "author: operator [self-declared: read-params-codex-gpt-5-001]",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "build_mutation_param_adapters",
+      "type": "build",
+      "title": "Build mutation parameter adapters",
+      "role_id": "params_builder",
+      "lane_id": "codex",
+      "parallel_group": "router_implementation",
+      "fresh_session_required": true,
+      "required_review_postures": [
+        "custom:authority_boundary",
+        "custom:contract_drift"
+      ],
+      "objective": "Implement generated-route parameter adapters for run/work/review/recovery/supervision mutations while keeping all authority in daemon RPC.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/rfc-0078-go-cli-rpc-router/prompts/build_mutation_param_adapters.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "go/pkg/cli/mutationparams/",
+          "docs/operator/artifacts/rfc-0078-go-cli-rpc-router/build/mutation-params/"
+        ],
+        "forbidden_paths": [".striatum/", ".venv/", "__pycache__/"]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "mutation_params_handoff",
+          "kind": "handoff",
+          "path": "docs/operator/artifacts/rfc-0078-go-cli-rpc-router/build/mutation-params/HANDOFF.md",
+          "author_line": "author: operator [self-declared: mutation-params-codex-gpt-5-001]",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "preserve_local_command_boundary",
+      "type": "build",
+      "title": "Preserve local command boundary",
+      "role_id": "boundary_builder",
+      "lane_id": "codex",
+      "parallel_group": "router_implementation",
+      "fresh_session_required": true,
+      "required_review_postures": [
+        "custom:authority_boundary",
+        "custom:contract_drift"
+      ],
+      "objective": "Make workflow-authoring/bootstrap commands explicit local exceptions so the generated RPC router does not hide local file mutation behavior.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/rfc-0078-go-cli-rpc-router/prompts/preserve_local_command_boundary.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "go/pkg/cli/localcommands/",
+          "docs/operator/artifacts/rfc-0078-go-cli-rpc-router/build/local-boundary/"
+        ],
+        "forbidden_paths": [".striatum/", ".venv/", "__pycache__/"]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "local_boundary_handoff",
+          "kind": "handoff",
+          "path": "docs/operator/artifacts/rfc-0078-go-cli-rpc-router/build/local-boundary/HANDOFF.md",
+          "author_line": "author: operator [self-declared: local-boundary-codex-gpt-5-001]",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "integrate_go_cli_dispatch",
+      "type": "build",
+      "title": "Integrate Go CLI dispatch",
+      "role_id": "integrator",
+      "lane_id": "codex",
+      "fresh_session_required": true,
+      "required_review_postures": [
+        "custom:authority_boundary",
+        "custom:operator_ergonomics"
+      ],
+      "objective": "Wire generated routes, RPC transport, parameter adapters, and local exceptions into go/cmd/striatum with focused tests.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/rfc-0078-go-cli-rpc-router/prompts/integrate_go_cli_dispatch.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "go/cmd/striatum/",
+          "go/pkg/cli/dispatch/",
+          "docs/operator/artifacts/rfc-0078-go-cli-rpc-router/build/integration/"
+        ],
+        "forbidden_paths": [".striatum/", ".venv/", "__pycache__/"]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "cli_dispatch_handoff",
+          "kind": "handoff",
+          "path": "docs/operator/artifacts/rfc-0078-go-cli-rpc-router/build/integration/HANDOFF.md",
+          "author_line": "author: operator [self-declared: cli-integrator-codex-gpt-5-001]",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "review_authority_boundary",
+      "type": "review",
+      "title": "Review authority boundary",
+      "role_id": "reviewer",
+      "lane_id": "claude_code",
+      "review_posture": "custom:authority_boundary",
+      "parallel_group": "router_review",
+      "fresh_session_required": true,
+      "objective": "Review the generated Go CLI RPC router for daemon-authority regressions, hidden local mutations, and Python fallback reintroduction.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/rfc-0078-go-cli-rpc-router/prompts/review_authority_boundary.md"
+      },
+      "write_scope": {
+        "mode": "review_only",
+        "repo_write": false,
+        "allowed_paths": [
+          "docs/operator/artifacts/rfc-0078-go-cli-rpc-router/review/authority/"
+        ],
+        "forbidden_paths": [".striatum/", ".venv/", "__pycache__/"]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "authority_review",
+          "kind": "finding",
+          "path": "docs/operator/artifacts/rfc-0078-go-cli-rpc-router/review/authority/FINDING.md",
+          "author_line": "author: operator [self-declared: authority-reviewer-codex-gpt-5-001]",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "review_route_coverage",
+      "type": "review",
+      "title": "Review route coverage",
+      "role_id": "reviewer",
+      "lane_id": "gemini",
+      "review_posture": "custom:contract_drift",
+      "parallel_group": "router_review",
+      "fresh_session_required": true,
+      "objective": "Review generated route coverage against contracts/daemon_methods.json and name every skipped, local, or deferred command explicitly.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/rfc-0078-go-cli-rpc-router/prompts/review_route_coverage.md"
+      },
+      "write_scope": {
+        "mode": "review_only",
+        "repo_write": false,
+        "allowed_paths": [
+          "docs/operator/artifacts/rfc-0078-go-cli-rpc-router/review/coverage/"
+        ],
+        "forbidden_paths": [".striatum/", ".venv/", "__pycache__/"]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "coverage_review",
+          "kind": "finding",
+          "path": "docs/operator/artifacts/rfc-0078-go-cli-rpc-router/review/coverage/FINDING.md",
+          "author_line": "author: operator [self-declared: coverage-reviewer-codex-gpt-5-001]",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "review_operator_ergonomics",
+      "type": "review",
+      "title": "Review operator ergonomics",
+      "role_id": "reviewer",
+      "lane_id": "claude_code",
+      "review_posture": "custom:operator_ergonomics",
+      "parallel_group": "router_review",
+      "fresh_session_required": true,
+      "objective": "Review generated Go CLI behavior for operator-facing flag, output, help, and failure-mode regressions against the existing CLI contract.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/rfc-0078-go-cli-rpc-router/prompts/review_operator_ergonomics.md"
+      },
+      "write_scope": {
+        "mode": "review_only",
+        "repo_write": false,
+        "allowed_paths": [
+          "docs/operator/artifacts/rfc-0078-go-cli-rpc-router/review/ergonomics/"
+        ],
+        "forbidden_paths": [".striatum/", ".venv/", "__pycache__/"]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "ergonomics_review",
+          "kind": "finding",
+          "path": "docs/operator/artifacts/rfc-0078-go-cli-rpc-router/review/ergonomics/FINDING.md",
+          "author_line": "author: operator [self-declared: ergonomics-reviewer-codex-gpt-5-001]",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "validate_router_gate",
+      "type": "test",
+      "title": "Validate router gate",
+      "role_id": "validator",
+      "lane_id": "codex",
+      "fresh_session_required": true,
+      "objective": "Run focused validation for generated-router freshness, Go CLI dispatch, RPC registry parity, workflow authoring, and aggregate Go tests needed for this gate.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/rfc-0078-go-cli-rpc-router/prompts/validate_router_gate.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/operator/artifacts/rfc-0078-go-cli-rpc-router/validation/"
+        ],
+        "forbidden_paths": [".striatum/", ".venv/", "__pycache__/"]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "router_validation",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/rfc-0078-go-cli-rpc-router/validation/VALIDATION.md",
+          "author_line": "author: operator [self-declared: router-validator-codex-gpt-5-001]",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "finalize_router_gate",
+      "type": "synthesis",
+      "title": "Finalize router gate",
+      "role_id": "closer",
+      "lane_id": "codex",
+      "fresh_session_required": true,
+      "objective": "Summarize implemented router behavior, validation evidence, remaining unported commands, and the next RFC 0078 gate.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/rfc-0078-go-cli-rpc-router/prompts/finalize_router_gate.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/operator/artifacts/rfc-0078-go-cli-rpc-router/final/"
+        ],
+        "forbidden_paths": [".striatum/", ".venv/", "__pycache__/"]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "router_gate_summary",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/rfc-0078-go-cli-rpc-router/final/SUMMARY.md",
+          "author_line": "author: operator [self-declared: router-closer-codex-gpt-5-001]",
+          "required": true
+        }
+      ]
+    }
+  ],
+  "edges": [
+    {"from": "inventory_router_contract", "to": "build_generated_route_metadata", "on": "completed"},
+    {"from": "inventory_router_contract", "to": "build_cli_rpc_transport", "on": "completed"},
+    {"from": "inventory_router_contract", "to": "build_read_param_adapters", "on": "completed"},
+    {"from": "inventory_router_contract", "to": "build_mutation_param_adapters", "on": "completed"},
+    {"from": "inventory_router_contract", "to": "preserve_local_command_boundary", "on": "completed"},
+    {"from": "build_generated_route_metadata", "to": "integrate_go_cli_dispatch", "on": "completed"},
+    {"from": "build_cli_rpc_transport", "to": "integrate_go_cli_dispatch", "on": "completed"},
+    {"from": "build_read_param_adapters", "to": "integrate_go_cli_dispatch", "on": "completed"},
+    {"from": "build_mutation_param_adapters", "to": "integrate_go_cli_dispatch", "on": "completed"},
+    {"from": "preserve_local_command_boundary", "to": "integrate_go_cli_dispatch", "on": "completed"},
+    {"from": "integrate_go_cli_dispatch", "to": "review_authority_boundary", "on": "completed"},
+    {"from": "integrate_go_cli_dispatch", "to": "review_route_coverage", "on": "completed"},
+    {"from": "integrate_go_cli_dispatch", "to": "review_operator_ergonomics", "on": "completed"},
+    {"from": "integrate_go_cli_dispatch", "to": "validate_router_gate", "on": "completed"},
+    {"from": "review_authority_boundary", "to": "finalize_router_gate", "on": "completed"},
+    {"from": "review_route_coverage", "to": "finalize_router_gate", "on": "completed"},
+    {"from": "review_operator_ergonomics", "to": "finalize_router_gate", "on": "completed"},
+    {"from": "validate_router_gate", "to": "finalize_router_gate", "on": "completed"}
+  ],
+  "cycles": []
+}

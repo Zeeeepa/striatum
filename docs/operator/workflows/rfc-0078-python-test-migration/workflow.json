@@ -1,0 +1,371 @@
+{
+  "schema_version": "striatum.workflow.v1",
+  "workflow_id": "rfc-0078-python-test-migration",
+  "workflow_version": "2026-05-25",
+  "name": "RFC 0078 Python test migration",
+  "context_docs": [
+    "AGENTS.md",
+    "README.md",
+    "docs/INDEX.md",
+    "docs/SPEC.md",
+    "docs/DECISION_LOG.md",
+    "docs/UBIQUITOUS_LANGUAGE.md",
+    "docs/TODO.md",
+    "docs/operator/BRIEF.md",
+    "docs/operator/plans/rfc-0078-python-test-migration.md",
+    "docs/operator/plans/rfc-0078-go-only-runtime-and-python-removal.md",
+    "docs/rfcs/0078-go-only-runtime-and-python-removal.md",
+    "docs/operator/artifacts/rfc-0078-go-only-runtime-and-python-removal/inventory/CUTOVER_LEDGER.md",
+    "docs/operator/artifacts/rfc-0078-go-only-runtime-and-python-removal/tests/HANDOFF.md",
+    "contracts/daemon_methods.json",
+    "go/",
+    "tests/",
+    "scripts/",
+    "src/striatum/web/frontend/",
+    "pyproject.toml",
+    "Makefile",
+    ".github/workflows/"
+  ],
+  "coordinator": {
+    "role_id": "coordinator",
+    "lane_id": "codex"
+  },
+  "parallelism": {
+    "mode": "declared",
+    "max_active_jobs": 20,
+    "require_disjoint_write_scopes": true
+  },
+  "branch": {
+    "mode": "confirm",
+    "suggested_name": "main",
+    "allow_dirty": true
+  },
+  "lanes": {
+    "codex": {
+      "adapter": "process",
+      "command": ["bash", "-lc", "cat >/dev/null"],
+      "model": "codex",
+      "display_model": "Codex GPT-5.5",
+      "strategy_version": "2026-05-25",
+      "constraints": {
+        "network": "forbidden",
+        "repo_scope": "local_only",
+        "transcripts": "off"
+      },
+      "required_enforcement": {
+        "network": "advisory_strict",
+        "repo_scope": "advisory_strict",
+        "transcripts": "enforced"
+      }
+    }
+  },
+  "roles": {
+    "coordinator": {
+      "description": "Operator/control-plane coordinator."
+    },
+    "coverage_ledger": {
+      "description": "Coverage ledger refinement owner."
+    },
+    "pg_harness_porter": {
+      "description": "Go PostgreSQL test harness migration owner."
+    },
+    "cli_test_porter": {
+      "description": "Go CLI and shell smoke test migration owner."
+    },
+    "web_test_porter": {
+      "description": "Go web route and browser/frontend test migration owner."
+    },
+    "workflow_artifact_porter": {
+      "description": "Workflow authoring, generator, and artifact contract test migration owner."
+    },
+    "corpus_archive_porter": {
+      "description": "Corpus export, archive, redaction, and replay test migration owner."
+    },
+    "packaging_smoke_porter": {
+      "description": "Go-only packaging smoke and release-check migration owner."
+    },
+    "deletion_readiness": {
+      "description": "Final pytest deletion readiness gate owner."
+    }
+  },
+  "jobs": [
+    {
+      "id": "coverage_ledger_refinement",
+      "type": "synthesis",
+      "title": "Refine pytest coverage ledger",
+      "role_id": "coverage_ledger",
+      "lane_id": "codex",
+      "fresh_session_required": true,
+      "objective": "Refine the RFC 0078 pytest migration ledger into row-level Go, shell, browser, retirement, and deletion-gate decisions.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/rfc-0078-python-test-migration/prompts/coverage_ledger_refinement.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/operator/artifacts/rfc-0078-python-test-migration/coverage-ledger/"
+        ],
+        "forbidden_paths": [".striatum/", ".venv/", "__pycache__/"]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "coverage_ledger",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/rfc-0078-python-test-migration/coverage-ledger/COVERAGE_LEDGER.md",
+          "author_line": "author: operator [self-declared: coverage-ledger-codex-gpt-5-001]",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "go_pg_harness",
+      "type": "build",
+      "title": "Go PostgreSQL harness tests",
+      "role_id": "pg_harness_porter",
+      "lane_id": "codex",
+      "fresh_session_required": true,
+      "objective": "Port stateful daemon/PostgreSQL pytest coverage to reusable Go harness tests.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/rfc-0078-python-test-migration/prompts/go_pg_harness.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "go/pkg/testsupport/pg/",
+          "go/pkg/db/pg_harness_test.go",
+          "go/pkg/rpc/pg_harness_test.go",
+          "go/pkg/repositories/pg_harness_test.go",
+          "go/pkg/crossrepo/pg_harness_test.go",
+          "docs/operator/artifacts/rfc-0078-python-test-migration/pg-harness/"
+        ],
+        "forbidden_paths": [".striatum/", ".venv/", "__pycache__/"]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "pg_harness_migration",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/rfc-0078-python-test-migration/pg-harness/PG_HARNESS.md",
+          "author_line": "author: operator [self-declared: pg-harness-codex-gpt-5-001]",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "cli_tests",
+      "type": "build",
+      "title": "CLI and shell test migration",
+      "role_id": "cli_test_porter",
+      "lane_id": "codex",
+      "fresh_session_required": true,
+      "objective": "Port Python CLI pytest coverage to Go command/RPC tests and process-level shell smoke.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/rfc-0078-python-test-migration/prompts/cli_tests.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "go/cmd/striatum/",
+          "go/pkg/cli/",
+          "go/pkg/testsupport/cli/",
+          "scripts/go_cli_smoke.sh",
+          "docs/operator/artifacts/rfc-0078-python-test-migration/cli/"
+        ],
+        "forbidden_paths": [".striatum/", ".venv/", "__pycache__/"]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "cli_test_migration",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/rfc-0078-python-test-migration/cli/CLI_TESTS.md",
+          "author_line": "author: operator [self-declared: cli-tests-codex-gpt-5-001]",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "web_tests",
+      "type": "build",
+      "title": "Web and browser test migration",
+      "role_id": "web_test_porter",
+      "lane_id": "codex",
+      "fresh_session_required": true,
+      "objective": "Port Python local web pytest coverage to Go route tests and browser/frontend checks.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/rfc-0078-python-test-migration/prompts/web_tests.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "go/pkg/web/",
+          "go/pkg/reads/web_routes_test.go",
+          "go/pkg/testsupport/web/",
+          "src/striatum/web/frontend/src/__tests__/",
+          "src/striatum/web/frontend/package.json",
+          "src/striatum/web/frontend/package-lock.json",
+          "src/striatum/web/frontend/vite.config.ts",
+          "docs/operator/artifacts/rfc-0078-python-test-migration/web/"
+        ],
+        "forbidden_paths": [".striatum/", ".venv/", "__pycache__/", "src/striatum/web/frontend/node_modules/"]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "web_test_migration",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/rfc-0078-python-test-migration/web/WEB_TESTS.md",
+          "author_line": "author: operator [self-declared: web-tests-codex-gpt-5-001]",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "workflow_artifact_tests",
+      "type": "build",
+      "title": "Workflow and artifact test migration",
+      "role_id": "workflow_artifact_porter",
+      "lane_id": "codex",
+      "fresh_session_required": true,
+      "objective": "Port pytest coverage for workflow authoring, generation, catalog, and artifact/front-matter contracts to Go tests.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/rfc-0078-python-test-migration/prompts/workflow_artifact_tests.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "go/pkg/workflowauthoring/",
+          "go/pkg/workflowgenerate/",
+          "go/pkg/workflowtemplates/",
+          "go/pkg/artifacts/",
+          "go/pkg/mutations/artifact_contract_migration_test.go",
+          "docs/operator/artifacts/rfc-0078-python-test-migration/workflow-artifacts/"
+        ],
+        "forbidden_paths": [".striatum/", ".venv/", "__pycache__/"]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "workflow_artifact_test_migration",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/rfc-0078-python-test-migration/workflow-artifacts/WORKFLOW_ARTIFACT_TESTS.md",
+          "author_line": "author: operator [self-declared: workflow-artifacts-codex-gpt-5-001]",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "corpus_archive_tests",
+      "type": "build",
+      "title": "Corpus and archive test migration",
+      "role_id": "corpus_archive_porter",
+      "lane_id": "codex",
+      "fresh_session_required": true,
+      "objective": "Port corpus export, archive, redaction, manifest, and replay verification pytest coverage to Go tests.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/rfc-0078-python-test-migration/prompts/corpus_archive_tests.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "go/pkg/corpus/",
+          "go/pkg/reads/archive_migration_test.go",
+          "go/pkg/reads/corpus_migration_test.go",
+          "go/pkg/blob/corpus_archive_migration_test.go",
+          "docs/operator/artifacts/rfc-0078-python-test-migration/corpus-archive/"
+        ],
+        "forbidden_paths": [".striatum/", ".venv/", "__pycache__/"]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "corpus_archive_test_migration",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/rfc-0078-python-test-migration/corpus-archive/CORPUS_ARCHIVE_TESTS.md",
+          "author_line": "author: operator [self-declared: corpus-archive-codex-gpt-5-001]",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "packaging_smoke",
+      "type": "build",
+      "title": "Packaging smoke migration",
+      "role_id": "packaging_smoke_porter",
+      "lane_id": "codex",
+      "fresh_session_required": true,
+      "objective": "Replace Python package/fresh-clone smoke coverage with Go-only distribution smoke checks.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/rfc-0078-python-test-migration/prompts/packaging_smoke.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "scripts/go_package_smoke.sh",
+          "scripts/go_fresh_clone_smoke.sh",
+          "scripts/go_release_metadata_check.sh",
+          ".github/workflows/go-only-release.yml",
+          "go/Makefile",
+          "docs/operator/artifacts/rfc-0078-python-test-migration/packaging/"
+        ],
+        "forbidden_paths": [".striatum/", ".venv/", "__pycache__/"]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "packaging_smoke_migration",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/rfc-0078-python-test-migration/packaging/PACKAGING_SMOKE.md",
+          "author_line": "author: operator [self-declared: packaging-smoke-codex-gpt-5-001]",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "final_deletion_readiness",
+      "type": "synthesis",
+      "title": "Final pytest deletion readiness",
+      "role_id": "deletion_readiness",
+      "lane_id": "codex",
+      "fresh_session_required": true,
+      "objective": "Consolidate migration evidence and decide whether pytest/Python test deletion is ready.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/rfc-0078-python-test-migration/prompts/final_deletion_readiness.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "scripts/check_no_python_test_surface.sh",
+          "docs/operator/artifacts/rfc-0078-python-test-migration/final/"
+        ],
+        "forbidden_paths": [".striatum/", ".venv/", "__pycache__/"]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "deletion_readiness",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/rfc-0078-python-test-migration/final/DELETION_READINESS.md",
+          "author_line": "author: operator [self-declared: deletion-readiness-codex-gpt-5-001]",
+          "required": true
+        }
+      ]
+    }
+  ],
+  "edges": [
+    {"from": "coverage_ledger_refinement", "to": "go_pg_harness", "on": "completed"},
+    {"from": "coverage_ledger_refinement", "to": "cli_tests", "on": "completed"},
+    {"from": "coverage_ledger_refinement", "to": "web_tests", "on": "completed"},
+    {"from": "coverage_ledger_refinement", "to": "workflow_artifact_tests", "on": "completed"},
+    {"from": "coverage_ledger_refinement", "to": "corpus_archive_tests", "on": "completed"},
+    {"from": "coverage_ledger_refinement", "to": "packaging_smoke", "on": "completed"},
+    {"from": "go_pg_harness", "to": "final_deletion_readiness", "on": "completed"},
+    {"from": "cli_tests", "to": "final_deletion_readiness", "on": "completed"},
+    {"from": "web_tests", "to": "final_deletion_readiness", "on": "completed"},
+    {"from": "workflow_artifact_tests", "to": "final_deletion_readiness", "on": "completed"},
+    {"from": "corpus_archive_tests", "to": "final_deletion_readiness", "on": "completed"},
+    {"from": "packaging_smoke", "to": "final_deletion_readiness", "on": "completed"}
+  ],
+  "cycles": []
+}

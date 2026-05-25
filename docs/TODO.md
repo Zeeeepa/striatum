@@ -119,7 +119,7 @@ so external references keep resolving even as items move between sections.
 | 65 | RFC 0058 operator progress surface | ✅ done |
 | 66 | Decision/RFC supersession hygiene and duplicate decision-id cleanup | ✅ done |
 | 67 | RFC 0050/RFC 0075 MCP cutover and tmux-observable sessions | ✅ done |
-| 68 | RFC 0078 Go-only runtime and Python removal | 🟡 scaffold + first slice landed |
+| 68 | RFC 0078 Go-only runtime and Python removal | 🟡 remaining gates scaffolded |
 
 Legend: ✅ done · 🟡 most done (sub-tasks remain) · ⏳ open/blocked · 💤 shelved
 
@@ -1387,7 +1387,11 @@ review and plan are root-level operator artifacts:
     artifacts. Remaining work is the full Go CLI RPC router, Go local
     web/service, packaging/release cutover, workflow validation/generator
     parity, pytest migration, docs rewrite, and final Python deletion
-    guardrail enablement.
+    guardrail enablement. On 2026-05-25, the remaining work was split into six
+    dedicated executable workflows plus an umbrella tracker: Go CLI RPC router,
+    Go web/service cutover, workflow/artifact parity, Python test migration,
+    Go-only packaging/release, and docs/guardrails/final deletion. All seven
+    workflow JSON files validate.
 
 ## GH issue follow-ups
 

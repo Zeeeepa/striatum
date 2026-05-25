@@ -23,6 +23,9 @@ The max-parallel execution workflow completed on 2026-05-24 as
 per-surface handoffs, added the first Go `striatum workflow validate` CLI
 scaffold, and expanded Go artifact kind/front-matter parity for operator,
 Git/PR, and auto-finalize gate artifacts. Full Python removal remains open.
+On 2026-05-25, the remaining work was scaffolded as six executable gates plus
+an umbrella tracker under `docs/operator/workflows/rfc-0078-*`; all workflow
+JSON files validate.
 
 ## Problem
 

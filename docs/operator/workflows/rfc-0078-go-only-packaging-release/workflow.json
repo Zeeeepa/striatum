@@ -1,0 +1,332 @@
+{
+  "schema_version": "striatum.workflow.v1",
+  "workflow_id": "rfc-0078-go-only-packaging-release",
+  "workflow_version": "2026-05-25",
+  "name": "RFC 0078 Go-only packaging, release, and install cutover",
+  "context_docs": [
+    "AGENTS.md",
+    "README.md",
+    "docs/INDEX.md",
+    "docs/SPEC.md",
+    "docs/DECISION_LOG.md",
+    "docs/UBIQUITOUS_LANGUAGE.md",
+    "docs/TODO.md",
+    "docs/ROADMAP.md",
+    "docs/operator/BRIEF.md",
+    "docs/operator/plans/rfc-0078-go-only-packaging-release.md",
+    "docs/operator/plans/rfc-0078-go-only-runtime-and-python-removal.md",
+    "docs/rfcs/0078-go-only-runtime-and-python-removal.md",
+    "docs/operator/artifacts/rfc-0078-go-only-runtime-and-python-removal/packaging/HANDOFF.md",
+    "docs/operator/artifacts/rfc-0078-go-only-runtime-and-python-removal/final/SUMMARY.md",
+    "docs/operator/artifacts/rfc-0078-go-only-runtime-and-python-removal/inventory/CUTOVER_LEDGER.md",
+    "Makefile",
+    "go/Makefile",
+    "go/go.mod",
+    "pyproject.toml",
+    ".github/workflows/",
+    "scripts/",
+    "go/"
+  ],
+  "coordinator": {
+    "role_id": "coordinator",
+    "lane_id": "codex"
+  },
+  "parallelism": {
+    "mode": "declared",
+    "max_active_jobs": 12,
+    "require_disjoint_write_scopes": true
+  },
+  "branch": {
+    "mode": "confirm",
+    "suggested_name": "main",
+    "allow_dirty": true
+  },
+  "lanes": {
+    "codex": {
+      "adapter": "process",
+      "command": ["bash", "-lc", "cat >/dev/null"],
+      "model": "codex",
+      "display_model": "Codex GPT-5.5",
+      "strategy_version": "2026-05-25",
+      "constraints": {
+        "network": "forbidden",
+        "repo_scope": "local_only",
+        "transcripts": "off"
+      },
+      "required_enforcement": {
+        "network": "advisory_strict",
+        "repo_scope": "advisory_strict",
+        "transcripts": "enforced"
+      }
+    }
+  },
+  "roles": {
+    "coordinator": {
+      "description": "Operator/control-plane coordinator."
+    },
+    "release_architect": {
+      "description": "Owns version-source and root Go module cutover decisions."
+    },
+    "ci_packager": {
+      "description": "Owns Makefile, CI, and release archive replacement mechanics."
+    },
+    "asset_packager": {
+      "description": "Owns Go embedding for runtime assets currently shipped as Python package data."
+    },
+    "smoke_owner": {
+      "description": "Owns Go-only fresh-clone and package smoke scripts."
+    },
+    "install_docs_owner": {
+      "description": "Owns active install and release documentation rewrites."
+    },
+    "pypi_retirement_owner": {
+      "description": "Owns Python distribution retirement policy and transition evidence."
+    },
+    "closer": {
+      "description": "Consolidates packaging gate status and remaining deletion blockers."
+    }
+  },
+  "jobs": [
+    {
+      "id": "decide_version_and_root_module",
+      "type": "synthesis",
+      "title": "Decide VERSION and root Go module",
+      "role_id": "release_architect",
+      "lane_id": "codex",
+      "parallel_group": "packaging_parallel",
+      "fresh_session_required": true,
+      "objective": "Decide the authoritative version source and whether Go should move to a root module before the Go-only packaging cutover edits land.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/rfc-0078-go-only-packaging-release/prompts/decide_version_and_root_module.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/operator/artifacts/rfc-0078-go-only-packaging-release/version-module/"
+        ],
+        "forbidden_paths": [".striatum/", ".venv/", "__pycache__/"]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "version_module_decision",
+          "kind": "decision",
+          "path": "docs/operator/artifacts/rfc-0078-go-only-packaging-release/version-module/DECISION.md",
+          "author_line": "author: operator [self-declared: release-architect-codex-gpt-5-001]",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "makefile_ci_release_archives",
+      "type": "build",
+      "title": "Makefile CI release archive cutover",
+      "role_id": "ci_packager",
+      "lane_id": "codex",
+      "parallel_group": "packaging_parallel",
+      "fresh_session_required": true,
+      "objective": "Replace Python-centered Makefile, CI, and release archive mechanics with Go-only build/test/package targets.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/rfc-0078-go-only-packaging-release/prompts/makefile_ci_release_archives.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "VERSION",
+          "Makefile",
+          "go/Makefile",
+          ".github/workflows/ci.yml",
+          ".github/workflows/release.yml",
+          "scripts/build_go_release_archives.sh",
+          "scripts/check_go_release_archives.sh",
+          "docs/operator/artifacts/rfc-0078-go-only-packaging-release/makefile-ci-release/"
+        ],
+        "forbidden_paths": [".striatum/", ".venv/", "__pycache__/", "pyproject.toml"]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "makefile_ci_release_handoff",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/rfc-0078-go-only-packaging-release/makefile-ci-release/HANDOFF.md",
+          "author_line": "author: operator [self-declared: ci-packager-codex-gpt-5-001]",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "go_embed_runtime_assets",
+      "type": "build",
+      "title": "Go embed runtime assets",
+      "role_id": "asset_packager",
+      "lane_id": "codex",
+      "parallel_group": "packaging_parallel",
+      "fresh_session_required": true,
+      "objective": "Move runtime assets needed by the Go distribution into Go embed packages and tests.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/rfc-0078-go-only-packaging-release/prompts/go_embed_runtime_assets.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "go/pkg/assets/",
+          "go/pkg/db/sql/",
+          "go/pkg/workflowtemplates/catalog.go",
+          "go/pkg/workflowtemplates/catalog_test.go",
+          "go/pkg/webassets/",
+          "docs/operator/artifacts/rfc-0078-go-only-packaging-release/embed-assets/"
+        ],
+        "forbidden_paths": [".striatum/", ".venv/", "__pycache__/", "pyproject.toml"]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "embed_assets_handoff",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/rfc-0078-go-only-packaging-release/embed-assets/HANDOFF.md",
+          "author_line": "author: operator [self-declared: asset-packager-codex-gpt-5-001]",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "go_only_smoke_scripts",
+      "type": "build",
+      "title": "Go-only smoke scripts",
+      "role_id": "smoke_owner",
+      "lane_id": "codex",
+      "parallel_group": "packaging_parallel",
+      "fresh_session_required": true,
+      "objective": "Replace package and fresh-clone smoke scripts so they exercise Go binaries and never create a Python virtual environment.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/rfc-0078-go-only-packaging-release/prompts/go_only_smoke_scripts.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "scripts/go_package_smoke.sh",
+          "scripts/go_fresh_clone_smoke.sh",
+          "scripts/smoke_common.sh",
+          "docs/operator/artifacts/rfc-0078-go-only-packaging-release/smoke/"
+        ],
+        "forbidden_paths": [".striatum/", ".venv/", "__pycache__/", "pyproject.toml"]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "smoke_scripts_handoff",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/rfc-0078-go-only-packaging-release/smoke/HANDOFF.md",
+          "author_line": "author: operator [self-declared: smoke-owner-codex-gpt-5-001]",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "docs_install_release_changes",
+      "type": "synthesis",
+      "title": "Docs install release changes",
+      "role_id": "install_docs_owner",
+      "lane_id": "codex",
+      "parallel_group": "packaging_parallel",
+      "fresh_session_required": true,
+      "objective": "Rewrite active install, release, and operator guidance for Go-only release archives and local Go builds.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/rfc-0078-go-only-packaging-release/prompts/docs_install_release_changes.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "README.md",
+          "docs/USING_STRIATUM.md",
+          "docs/GETTING_STARTED.md",
+          "docs/RELEASING.md",
+          "docs/CLI_REFERENCE.md",
+          "docs/POSTGRES_TRANSITION.md",
+          "docs/HOW_TO_AGENT.md",
+          "docs/HOW_TO_HUMAN.md",
+          "docs/operator/artifacts/rfc-0078-go-only-packaging-release/docs-install/"
+        ],
+        "forbidden_paths": [".striatum/", ".venv/", "__pycache__/", "pyproject.toml"]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "docs_install_handoff",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/rfc-0078-go-only-packaging-release/docs-install/HANDOFF.md",
+          "author_line": "author: operator [self-declared: install-docs-owner-codex-gpt-5-001]",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "pypi_retirement_sequence",
+      "type": "synthesis",
+      "title": "PyPI retirement sequence",
+      "role_id": "pypi_retirement_owner",
+      "lane_id": "codex",
+      "parallel_group": "packaging_parallel",
+      "fresh_session_required": true,
+      "objective": "Define the PyPI retirement sequence and whether any transitional deprecation artifact is allowed.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/rfc-0078-go-only-packaging-release/prompts/pypi_retirement_sequence.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/operator/artifacts/rfc-0078-go-only-packaging-release/pypi-retirement/"
+        ],
+        "forbidden_paths": [".striatum/", ".venv/", "__pycache__/", "pyproject.toml"]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "pypi_retirement_decision",
+          "kind": "decision",
+          "path": "docs/operator/artifacts/rfc-0078-go-only-packaging-release/pypi-retirement/DECISION.md",
+          "author_line": "author: operator [self-declared: pypi-retirement-owner-codex-gpt-5-001]",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "synthesize_packaging_release_gate",
+      "type": "synthesis",
+      "title": "Synthesize packaging release gate",
+      "role_id": "closer",
+      "lane_id": "codex",
+      "fresh_session_required": true,
+      "objective": "Consolidate packaging cutover artifacts, validation evidence, deletion blockers, and the next executable gate for RFC 0078.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/rfc-0078-go-only-packaging-release/prompts/synthesize_packaging_release_gate.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/operator/artifacts/rfc-0078-go-only-packaging-release/final/"
+        ],
+        "forbidden_paths": [".striatum/", ".venv/", "__pycache__/"]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "packaging_release_summary",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/rfc-0078-go-only-packaging-release/final/SUMMARY.md",
+          "author_line": "author: operator [self-declared: packaging-release-closer-codex-gpt-5-001]",
+          "required": true
+        }
+      ]
+    }
+  ],
+  "edges": [
+    {"from": "decide_version_and_root_module", "to": "synthesize_packaging_release_gate", "on": "completed"},
+    {"from": "makefile_ci_release_archives", "to": "synthesize_packaging_release_gate", "on": "completed"},
+    {"from": "go_embed_runtime_assets", "to": "synthesize_packaging_release_gate", "on": "completed"},
+    {"from": "go_only_smoke_scripts", "to": "synthesize_packaging_release_gate", "on": "completed"},
+    {"from": "docs_install_release_changes", "to": "synthesize_packaging_release_gate", "on": "completed"},
+    {"from": "pypi_retirement_sequence", "to": "synthesize_packaging_release_gate", "on": "completed"}
+  ],
+  "cycles": []
+}

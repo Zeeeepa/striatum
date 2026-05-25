@@ -140,6 +140,12 @@ router, Go local web/service, packaging/release cutover, workflow
 validation/generator parity, pytest migration, docs rewrite, and final
 Python-deletion guardrail enablement.
 
+The remaining RFC 0078 work is now scaffolded as six dedicated workflows plus
+one umbrella tracker. All validate. The recommended order is Go CLI RPC router,
+workflow/artifact parity, Python test migration, Go web/service cutover,
+Go-only packaging/release, then docs/guardrails/final deletion. Start from
+`docs/operator/plans/rfc-0078-remaining-work.md`.
+
 ## Next Actions
 
 1. Monitor D133 default-live auto-finalize and use
@@ -153,10 +159,12 @@ Python-deletion guardrail enablement.
    bounded RFCs before implementing RFC 0052 Phase A, RFC 0053 schema/runtime
    rename, Cross-Repo Live Scheduler V1, sealed apply, Windows support, or
    local multi-operator tenancy.
-4. Continue RFC 0078 through the next executable gate: generated Go CLI RPC
-   routing plus the replacement aggregate validation command. Do not delete
-   active Python source/tests until the ledger names a Go replacement,
-   explicit retirement, or accepted historical-provenance exception.
+4. Continue RFC 0078 by running
+   `docs/operator/workflows/rfc-0078-go-cli-rpc-router/workflow.json`, then
+   `docs/operator/workflows/rfc-0078-workflow-artifact-parity/workflow.json`.
+   Do not delete active Python source/tests until the ledger names a Go
+   replacement, explicit retirement, or accepted historical-provenance
+   exception.
 
 ## Blockers
 

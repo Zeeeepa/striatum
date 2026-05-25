@@ -1,0 +1,370 @@
+{
+  "schema_version": "striatum.workflow.v1",
+  "workflow_id": "rfc-0078-workflow-artifact-parity",
+  "workflow_version": "2026-05-25",
+  "name": "RFC 0078 workflow artifact parity",
+  "context_docs": [
+    "AGENTS.md",
+    "README.md",
+    "docs/INDEX.md",
+    "docs/SPEC.md",
+    "docs/DECISION_LOG.md",
+    "docs/UBIQUITOUS_LANGUAGE.md",
+    "docs/TODO.md",
+    "docs/ROADMAP.md",
+    "docs/operator/BRIEF.md",
+    "docs/operator/plans/rfc-0078-workflow-artifact-parity.md",
+    "docs/operator/plans/rfc-0078-go-only-runtime-and-python-removal.md",
+    "docs/operator/artifacts/rfc-0078-go-only-runtime-and-python-removal/workflow-authoring/HANDOFF.md",
+    "docs/operator/artifacts/rfc-0078-go-only-runtime-and-python-removal/inventory/CUTOVER_LEDGER.md",
+    "docs/rfcs/0078-go-only-runtime-and-python-removal.md",
+    "docs/rfcs/0034-workflow-generator-and-type-catalog.md",
+    "docs/rfcs/0064-workflow-risk-lint-and-review-diversity.md",
+    "contracts/daemon_methods.json",
+    "go/pkg/artifacts/",
+    "go/pkg/mutations/artifact.go",
+    "go/pkg/mutations/git_artifacts.go",
+    "go/pkg/workflowauthoring/",
+    "go/pkg/workflowgenerate/",
+    "go/pkg/workflowtemplates/",
+    "src/striatum/artifact_contracts.py",
+    "src/striatum/workflow.py",
+    "src/striatum/workflow_generator/",
+    "tests/"
+  ],
+  "coordinator": {
+    "role_id": "coordinator",
+    "lane_id": "codex"
+  },
+  "parallelism": {
+    "mode": "declared",
+    "max_active_jobs": 12,
+    "require_disjoint_write_scopes": true
+  },
+  "branch": {
+    "mode": "confirm",
+    "suggested_name": "main",
+    "allow_dirty": true
+  },
+  "lanes": {
+    "codex": {
+      "adapter": "process",
+      "command": ["bash", "-lc", "cat >/dev/null"],
+      "model": "codex",
+      "display_model": "Codex GPT-5",
+      "strategy_version": "2026-05-25",
+      "constraints": {
+        "network": "forbidden",
+        "repo_scope": "local_only",
+        "transcripts": "off"
+      },
+      "required_enforcement": {
+        "network": "advisory_strict",
+        "repo_scope": "advisory_strict",
+        "transcripts": "enforced"
+      }
+    }
+  },
+  "roles": {
+    "coordinator": {
+      "description": "Operator/control-plane coordinator."
+    },
+    "contract_porter": {
+      "description": "Go artifact/front-matter contract package owner."
+    },
+    "validator_porter": {
+      "description": "Go workflow validate parity owner."
+    },
+    "lint_porter": {
+      "description": "Go workflow lint parity and accepted-risk owner."
+    },
+    "generator_porter": {
+      "description": "Workflow generator validation/lint reuse owner."
+    },
+    "catalog_porter": {
+      "description": "Workflow template catalog and render-md decision owner."
+    },
+    "test_porter": {
+      "description": "Workflow artifact parity test migration owner."
+    },
+    "closer": {
+      "description": "Final summary, residuals, and next deletion gate owner."
+    }
+  },
+  "jobs": [
+    {
+      "id": "artifact_contracts_package",
+      "type": "build",
+      "title": "Artifact contracts package",
+      "role_id": "contract_porter",
+      "lane_id": "codex",
+      "fresh_session_required": true,
+      "objective": "Create or finish a dedicated Go artifact-contract package shared by publish, Git artifacts, workflow validation, and tests.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/rfc-0078-workflow-artifact-parity/prompts/artifact_contracts_package.md"
+      },
+      "inputs": [
+        "docs/operator/artifacts/rfc-0078-go-only-runtime-and-python-removal/workflow-authoring/HANDOFF.md",
+        "src/striatum/artifact_contracts.py",
+        "go/pkg/artifacts/",
+        "go/pkg/mutations/artifact.go",
+        "go/pkg/mutations/git_artifacts.go"
+      ],
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "go/pkg/artifactcontracts/",
+          "go/pkg/artifacts/",
+          "go/pkg/mutations/artifact.go",
+          "go/pkg/mutations/git_artifacts.go",
+          "docs/operator/artifacts/rfc-0078-workflow-artifact-parity/contracts/"
+        ],
+        "forbidden_paths": [".striatum/", ".venv/", "__pycache__/"]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "artifact_contracts_handoff",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/rfc-0078-workflow-artifact-parity/contracts/HANDOFF.md",
+          "author_line": "author: operator [self-declared: contract-porter-codex-gpt-5-001]",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "workflow_validate_parity",
+      "type": "build",
+      "title": "Workflow validate parity",
+      "role_id": "validator_porter",
+      "lane_id": "codex",
+      "fresh_session_required": true,
+      "objective": "Expand Go workflow validation toward Python parity using the shared artifact contracts package.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/rfc-0078-workflow-artifact-parity/prompts/workflow_validate_parity.md"
+      },
+      "inputs": [
+        "docs/operator/artifacts/rfc-0078-workflow-artifact-parity/contracts/HANDOFF.md",
+        "src/striatum/workflow.py",
+        "go/pkg/workflowauthoring/"
+      ],
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "go/pkg/workflowauthoring/",
+          "docs/operator/artifacts/rfc-0078-workflow-artifact-parity/validate/"
+        ],
+        "forbidden_paths": [".striatum/", ".venv/", "__pycache__/"]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "validate_parity_handoff",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/rfc-0078-workflow-artifact-parity/validate/HANDOFF.md",
+          "author_line": "author: operator [self-declared: validator-porter-codex-gpt-5-001]",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "workflow_lint_parity",
+      "type": "build",
+      "title": "Workflow lint parity",
+      "role_id": "lint_porter",
+      "lane_id": "codex",
+      "fresh_session_required": true,
+      "objective": "Align Go workflow lint semantics with Python lint, including same-model pairing, revision-cycle risk, advisory warnings, and durable accepted-risk authority.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/rfc-0078-workflow-artifact-parity/prompts/workflow_lint_parity.md"
+      },
+      "inputs": [
+        "docs/operator/artifacts/rfc-0078-workflow-artifact-parity/contracts/HANDOFF.md",
+        "docs/rfcs/0064-workflow-risk-lint-and-review-diversity.md",
+        "src/striatum/workflow.py",
+        "go/pkg/workflowauthoring/"
+      ],
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "go/pkg/workflowlint/",
+          "go/pkg/acceptedrisk/",
+          "docs/operator/artifacts/rfc-0078-workflow-artifact-parity/lint/"
+        ],
+        "forbidden_paths": [".striatum/", ".venv/", "__pycache__/"]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "lint_parity_handoff",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/rfc-0078-workflow-artifact-parity/lint/HANDOFF.md",
+          "author_line": "author: operator [self-declared: lint-porter-codex-gpt-5-001]",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "generator_reuse",
+      "type": "build",
+      "title": "Generator validation and lint reuse",
+      "role_id": "generator_porter",
+      "lane_id": "codex",
+      "fresh_session_required": true,
+      "objective": "Make Go workflow generation call the shared validation and lint path before returning preview or written output.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/rfc-0078-workflow-artifact-parity/prompts/generator_reuse.md"
+      },
+      "inputs": [
+        "docs/operator/artifacts/rfc-0078-workflow-artifact-parity/contracts/HANDOFF.md",
+        "src/striatum/workflow_generator/",
+        "go/pkg/workflowgenerate/",
+        "go/pkg/workflowauthoring/"
+      ],
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "go/pkg/workflowgenerate/",
+          "docs/operator/artifacts/rfc-0078-workflow-artifact-parity/generator/"
+        ],
+        "forbidden_paths": [".striatum/", ".venv/", "__pycache__/"]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "generator_reuse_handoff",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/rfc-0078-workflow-artifact-parity/generator/HANDOFF.md",
+          "author_line": "author: operator [self-declared: generator-porter-codex-gpt-5-001]",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "templates_render_md_decision",
+      "type": "synthesis",
+      "title": "Templates render-md decision",
+      "role_id": "catalog_porter",
+      "lane_id": "codex",
+      "fresh_session_required": true,
+      "objective": "Decide whether `workflow templates render-md` is ported to Go now, replaced by generated docs, or explicitly retired for RFC 0078.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/rfc-0078-workflow-artifact-parity/prompts/templates_render_md_decision.md"
+      },
+      "inputs": [
+        "docs/operator/artifacts/rfc-0078-workflow-artifact-parity/contracts/HANDOFF.md",
+        "docs/WORKFLOW_CATALOG.md",
+        "src/striatum/workflow_generator/",
+        "go/pkg/workflowtemplates/"
+      ],
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "go/pkg/workflowtemplates/",
+          "docs/WORKFLOW_CATALOG.md",
+          "docs/operator/artifacts/rfc-0078-workflow-artifact-parity/templates/"
+        ],
+        "forbidden_paths": [".striatum/", ".venv/", "__pycache__/"]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "templates_render_md_decision",
+          "kind": "decision",
+          "path": "docs/operator/artifacts/rfc-0078-workflow-artifact-parity/templates/RENDER_MD_DECISION.md",
+          "author_line": "author: operator [self-declared: catalog-porter-codex-gpt-5-001]",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "workflow_artifact_tests",
+      "type": "build",
+      "title": "Workflow artifact parity tests",
+      "role_id": "test_porter",
+      "lane_id": "codex",
+      "fresh_session_required": true,
+      "objective": "Convert the relevant Python workflow/generator/artifact-contract tests to Go or shell checks and document any tests deliberately retired.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/rfc-0078-workflow-artifact-parity/prompts/tests.md"
+      },
+      "inputs": [
+        "docs/operator/artifacts/rfc-0078-workflow-artifact-parity/contracts/HANDOFF.md",
+        "docs/operator/artifacts/rfc-0078-workflow-artifact-parity/validate/HANDOFF.md",
+        "docs/operator/artifacts/rfc-0078-workflow-artifact-parity/lint/HANDOFF.md",
+        "docs/operator/artifacts/rfc-0078-workflow-artifact-parity/generator/HANDOFF.md",
+        "docs/operator/artifacts/rfc-0078-workflow-artifact-parity/templates/RENDER_MD_DECISION.md",
+        "tests/"
+      ],
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "go/",
+          "scripts/",
+          "tests/",
+          "docs/operator/artifacts/rfc-0078-workflow-artifact-parity/tests/"
+        ],
+        "forbidden_paths": [".striatum/", ".venv/", "__pycache__/"]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "test_parity_handoff",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/rfc-0078-workflow-artifact-parity/tests/HANDOFF.md",
+          "author_line": "author: operator [self-declared: test-porter-codex-gpt-5-001]",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "final_summary",
+      "type": "synthesis",
+      "title": "Final summary",
+      "role_id": "closer",
+      "lane_id": "codex",
+      "fresh_session_required": true,
+      "objective": "Summarize the landed parity, validation evidence, residual blockers, and the next deletion gate for RFC 0078.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/rfc-0078-workflow-artifact-parity/prompts/final_summary.md"
+      },
+      "inputs": [
+        "docs/operator/artifacts/rfc-0078-workflow-artifact-parity/contracts/HANDOFF.md",
+        "docs/operator/artifacts/rfc-0078-workflow-artifact-parity/validate/HANDOFF.md",
+        "docs/operator/artifacts/rfc-0078-workflow-artifact-parity/lint/HANDOFF.md",
+        "docs/operator/artifacts/rfc-0078-workflow-artifact-parity/generator/HANDOFF.md",
+        "docs/operator/artifacts/rfc-0078-workflow-artifact-parity/templates/RENDER_MD_DECISION.md",
+        "docs/operator/artifacts/rfc-0078-workflow-artifact-parity/tests/HANDOFF.md"
+      ],
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/operator/artifacts/rfc-0078-workflow-artifact-parity/final/"
+        ],
+        "forbidden_paths": [".striatum/", ".venv/", "__pycache__/"]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "final_summary",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/rfc-0078-workflow-artifact-parity/final/SUMMARY.md",
+          "author_line": "author: operator [self-declared: workflow-artifact-parity-closer-codex-gpt-5-001]",
+          "required": true
+        }
+      ]
+    }
+  ],
+  "edges": [
+    {"from": "artifact_contracts_package", "to": "workflow_validate_parity", "on": "completed"},
+    {"from": "artifact_contracts_package", "to": "workflow_lint_parity", "on": "completed"},
+    {"from": "artifact_contracts_package", "to": "generator_reuse", "on": "completed"},
+    {"from": "artifact_contracts_package", "to": "templates_render_md_decision", "on": "completed"},
+    {"from": "workflow_validate_parity", "to": "workflow_artifact_tests", "on": "completed"},
+    {"from": "workflow_lint_parity", "to": "workflow_artifact_tests", "on": "completed"},
+    {"from": "generator_reuse", "to": "workflow_artifact_tests", "on": "completed"},
+    {"from": "templates_render_md_decision", "to": "workflow_artifact_tests", "on": "completed"},
+    {"from": "workflow_artifact_tests", "to": "final_summary", "on": "completed"}
+  ],
+  "cycles": []
+}

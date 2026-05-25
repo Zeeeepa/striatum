@@ -1,0 +1,299 @@
+{
+  "schema_version": "striatum.workflow.v1",
+  "workflow_id": "rfc-0078-remaining-work",
+  "workflow_version": "2026-05-25",
+  "name": "RFC 0078 remaining work umbrella",
+  "context_docs": [
+    "AGENTS.md",
+    "README.md",
+    "docs/INDEX.md",
+    "docs/SPEC.md",
+    "docs/DECISION_LOG.md",
+    "docs/UBIQUITOUS_LANGUAGE.md",
+    "docs/TODO.md",
+    "docs/ROADMAP.md",
+    "docs/operator/BRIEF.md",
+    "docs/operator/plans/rfc-0078-remaining-work.md",
+    "docs/operator/artifacts/rfc-0078-go-only-runtime-and-python-removal/final/SUMMARY.md",
+    "docs/rfcs/0078-go-only-runtime-and-python-removal.md",
+    "contracts/daemon_methods.json",
+    "go/",
+    "src/",
+    "tests/",
+    "pyproject.toml",
+    "Makefile",
+    ".github/workflows/"
+  ],
+  "coordinator": {
+    "role_id": "coordinator",
+    "lane_id": "codex"
+  },
+  "parallelism": {
+    "mode": "declared",
+    "max_active_jobs": 20,
+    "require_disjoint_write_scopes": true
+  },
+  "branch": {
+    "mode": "confirm",
+    "suggested_name": "main",
+    "allow_dirty": true
+  },
+  "lanes": {
+    "codex": {
+      "adapter": "process",
+      "command": ["bash", "-lc", "cat >/dev/null"],
+      "model": "codex",
+      "display_model": "Codex GPT-5.5",
+      "strategy_version": "2026-05-25",
+      "constraints": {
+        "network": "forbidden",
+        "repo_scope": "local_only",
+        "transcripts": "off"
+      },
+      "required_enforcement": {
+        "network": "advisory_strict",
+        "repo_scope": "advisory_strict",
+        "transcripts": "enforced"
+      }
+    }
+  },
+  "roles": {
+    "coordinator": {
+      "description": "Operator/control-plane coordinator."
+    },
+    "cli_gate": {
+      "description": "Go CLI RPC router gate owner."
+    },
+    "web_gate": {
+      "description": "Go local web/service gate owner."
+    },
+    "parity_gate": {
+      "description": "Workflow/artifact parity gate owner."
+    },
+    "test_gate": {
+      "description": "Python test migration gate owner."
+    },
+    "packaging_gate": {
+      "description": "Go-only packaging/release gate owner."
+    },
+    "deletion_gate": {
+      "description": "Docs, guardrails, and final deletion gate owner."
+    },
+    "closer": {
+      "description": "Consolidates remaining-work scaffold status."
+    }
+  },
+  "jobs": [
+    {
+      "id": "scaffold_cli_router_gate",
+      "type": "synthesis",
+      "title": "Scaffold Go CLI RPC router gate",
+      "role_id": "cli_gate",
+      "lane_id": "codex",
+      "fresh_session_required": true,
+      "objective": "Scaffold the dedicated RFC 0078 Go CLI RPC router workflow and gate summary.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/rfc-0078-remaining-work/prompts/scaffold_cli_router_gate.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/operator/plans/rfc-0078-go-cli-rpc-router.md",
+          "docs/operator/workflows/rfc-0078-go-cli-rpc-router/"
+        ],
+        "forbidden_paths": [".striatum/", ".venv/", "__pycache__/"]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "cli_router_scaffold",
+          "kind": "synthesis",
+          "path": "docs/operator/workflows/rfc-0078-go-cli-rpc-router/README.md",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "scaffold_web_service_gate",
+      "type": "synthesis",
+      "title": "Scaffold Go web/service gate",
+      "role_id": "web_gate",
+      "lane_id": "codex",
+      "fresh_session_required": true,
+      "objective": "Scaffold the dedicated RFC 0078 Go web/service workflow and route-retention gate.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/rfc-0078-remaining-work/prompts/scaffold_web_service_gate.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/operator/plans/rfc-0078-go-web-service-cutover.md",
+          "docs/operator/workflows/rfc-0078-go-web-service-cutover/"
+        ],
+        "forbidden_paths": [".striatum/", ".venv/", "__pycache__/"]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "web_service_scaffold",
+          "kind": "synthesis",
+          "path": "docs/operator/workflows/rfc-0078-go-web-service-cutover/README.md",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "scaffold_workflow_artifact_gate",
+      "type": "synthesis",
+      "title": "Scaffold workflow/artifact parity gate",
+      "role_id": "parity_gate",
+      "lane_id": "codex",
+      "fresh_session_required": true,
+      "objective": "Scaffold the dedicated RFC 0078 workflow/artifact parity workflow.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/rfc-0078-remaining-work/prompts/scaffold_workflow_artifact_gate.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/operator/plans/rfc-0078-workflow-artifact-parity.md",
+          "docs/operator/workflows/rfc-0078-workflow-artifact-parity/"
+        ],
+        "forbidden_paths": [".striatum/", ".venv/", "__pycache__/"]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "workflow_artifact_scaffold",
+          "kind": "synthesis",
+          "path": "docs/operator/workflows/rfc-0078-workflow-artifact-parity/README.md",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "scaffold_test_migration_gate",
+      "type": "synthesis",
+      "title": "Scaffold Python test migration gate",
+      "role_id": "test_gate",
+      "lane_id": "codex",
+      "fresh_session_required": true,
+      "objective": "Scaffold the dedicated RFC 0078 Python test migration workflow.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/rfc-0078-remaining-work/prompts/scaffold_test_migration_gate.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/operator/plans/rfc-0078-python-test-migration.md",
+          "docs/operator/workflows/rfc-0078-python-test-migration/"
+        ],
+        "forbidden_paths": [".striatum/", ".venv/", "__pycache__/"]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "test_migration_scaffold",
+          "kind": "synthesis",
+          "path": "docs/operator/workflows/rfc-0078-python-test-migration/README.md",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "scaffold_packaging_gate",
+      "type": "synthesis",
+      "title": "Scaffold Go-only packaging gate",
+      "role_id": "packaging_gate",
+      "lane_id": "codex",
+      "fresh_session_required": true,
+      "objective": "Scaffold the dedicated RFC 0078 Go-only packaging/release workflow.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/rfc-0078-remaining-work/prompts/scaffold_packaging_gate.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/operator/plans/rfc-0078-go-only-packaging-release.md",
+          "docs/operator/workflows/rfc-0078-go-only-packaging-release/"
+        ],
+        "forbidden_paths": [".striatum/", ".venv/", "__pycache__/"]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "packaging_scaffold",
+          "kind": "synthesis",
+          "path": "docs/operator/workflows/rfc-0078-go-only-packaging-release/README.md",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "scaffold_docs_guardrails_gate",
+      "type": "synthesis",
+      "title": "Scaffold docs/guardrails/deletion gate",
+      "role_id": "deletion_gate",
+      "lane_id": "codex",
+      "fresh_session_required": true,
+      "objective": "Scaffold the dedicated RFC 0078 docs, guardrails, final deletion, and acceptance workflow.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/rfc-0078-remaining-work/prompts/scaffold_docs_guardrails_gate.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/operator/plans/rfc-0078-docs-guardrails-final-deletion.md",
+          "docs/operator/workflows/rfc-0078-docs-guardrails-final-deletion/"
+        ],
+        "forbidden_paths": [".striatum/", ".venv/", "__pycache__/"]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "docs_guardrails_scaffold",
+          "kind": "synthesis",
+          "path": "docs/operator/workflows/rfc-0078-docs-guardrails-final-deletion/README.md",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "finalize_remaining_work_scaffold",
+      "type": "synthesis",
+      "title": "Finalize RFC 0078 remaining-work scaffold",
+      "role_id": "closer",
+      "lane_id": "codex",
+      "fresh_session_required": true,
+      "objective": "Consolidate the six remaining RFC 0078 workflow scaffolds and name the execution order.",
+      "task_prompt": {
+        "path": "docs/operator/workflows/rfc-0078-remaining-work/prompts/finalize_remaining_work_scaffold.md"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/operator/artifacts/rfc-0078-remaining-work/"
+        ],
+        "forbidden_paths": [".striatum/", ".venv/", "__pycache__/"]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "remaining_work_summary",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/rfc-0078-remaining-work/SUMMARY.md",
+          "required": true
+        }
+      ]
+    }
+  ],
+  "edges": [
+    {"from": "scaffold_cli_router_gate", "to": "finalize_remaining_work_scaffold", "on": "completed"},
+    {"from": "scaffold_web_service_gate", "to": "finalize_remaining_work_scaffold", "on": "completed"},
+    {"from": "scaffold_workflow_artifact_gate", "to": "finalize_remaining_work_scaffold", "on": "completed"},
+    {"from": "scaffold_test_migration_gate", "to": "finalize_remaining_work_scaffold", "on": "completed"},
+    {"from": "scaffold_packaging_gate", "to": "finalize_remaining_work_scaffold", "on": "completed"},
+    {"from": "scaffold_docs_guardrails_gate", "to": "finalize_remaining_work_scaffold", "on": "completed"}
+  ],
+  "cycles": []
+}
