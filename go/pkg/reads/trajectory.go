@@ -163,20 +163,30 @@ func fetchTrajectory(ctx context.Context, runner db.Runner, repositoryID, runID,
 
 	// Curate bodies to ensure D028 compliance.
 	for _, row := range rows {
-		kind := row["kind"].(string)
+		kind, _ := row["kind"].(string)
 		body, _ := row["body"].(map[string]any)
 		if kind == "agent_message" || kind == "coordinator_message" {
-			// Curate the message body: surface the agent-authored content the bus
-			// carried (work.send_message stores {kind, body}), never raw provider
-			// output (D028). Accept either a structured body or a plain string.
+			// Surface the agent-authored content the bus carried into "text",
+			// never raw provider output (D028). work.send_message stores
+			// {kind, body}; body may be a string, a {text: ...} object, or the
+			// message may carry a top-level "text" field — handle each shape.
 			curated := map[string]any{}
 			if mk, ok := body["kind"].(string); ok {
 				curated["message_kind"] = mk
 			}
-			if inner, ok := body["body"]; ok {
-				curated["content"] = inner
-			} else if text, ok := body["text"].(string); ok {
-				curated["content"] = text
+			switch inner := body["body"].(type) {
+			case string:
+				curated["text"] = inner
+			case map[string]any:
+				if t, ok := inner["text"].(string); ok {
+					curated["text"] = t
+				} else {
+					curated["text"] = inner
+				}
+			default:
+				if t, ok := body["text"].(string); ok {
+					curated["text"] = t
+				}
 			}
 			if topic, ok := body["topic"].(string); ok {
 				curated["topic"] = topic
