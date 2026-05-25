@@ -77,79 +77,84 @@ func fetchTrajectory(ctx context.Context, runner db.Runner, repositoryID, runID,
 	var args []any
 	args = append(args, repositoryID, runID, sinceSeq)
 
+	// Per the converged design, the trajectory is a READ MODEL over existing
+	// daemon-owned records: ordering is DERIVED here (ROW_NUMBER over created_at,
+	// then a stable source class + per-row primary key as tie-breakers) rather
+	// than read from a stored run_event_seq column. No existing table is altered;
+	// the daemon adds no new authority. Projected rows carry curated fields only
+	// (D028: never provider stdout/stderr). The `since_seq` cursor filters the
+	// derived sequence in the outer query.
+
 	// 1. Messages (Dialogue + Provenance)
-	// For dialogue, we only want agent_message and coordinator_message.
-	// For provenance, we also want work (claim/ack/complete) and human_checkpoint.
 	messageFilter := "'agent_message', 'coordinator_message'"
 	if profile == "provenance" {
 		messageFilter = "'agent_message', 'coordinator_message', 'work', 'human_checkpoint', 'commit_request'"
 	}
 
 	queries = append(queries, fmt.Sprintf(`
-		SELECT run_event_seq AS seq, created_at AS ts, kind,
+		SELECT created_at AS ts, 1 AS src, message_id::text AS tiebreak, kind,
 		       target_session_id AS session_id, target_role_id AS role_id, target_lane_id AS lane_id,
 		       payload_json->>'parent_message_id' AS parent_message_id,
-		       payload_json AS body,
-		       NULL::jsonb AS references
+		       payload_json AS body, NULL::jsonb AS refs
 		  FROM striatumd.queue_messages
-		 WHERE repository_id = $1 AND run_id = $2 AND run_event_seq > $3
-		   AND kind IN (%s)`, messageFilter))
+		 WHERE repository_id = $1 AND run_id = $2 AND kind IN (%s)`, messageFilter))
 
 	// 2. Events (Provenance only)
 	if profile == "provenance" {
 		queries = append(queries, `
-			SELECT run_event_seq AS seq, created_at AS ts, event_type AS kind,
+			SELECT created_at AS ts, 2 AS src, event_id::text AS tiebreak, event_type AS kind,
 			       actor_session_id AS session_id, NULL AS role_id, NULL AS lane_id,
-			       NULL AS parent_message_id,
-			       payload_json AS body,
-			       NULL::jsonb AS references
+			       NULL AS parent_message_id, payload_json AS body, NULL::jsonb AS refs
 			  FROM striatumd.events
-			 WHERE repository_id = $1 AND run_id = $2 AND run_event_seq > $3`)
+			 WHERE repository_id = $1 AND run_id = $2`)
 	}
 
-	// 3. Artifacts (Dialogue + Provenance)
-	// We project these as 'artifact_published' kind.
+	// 3. Artifacts (Dialogue + Provenance) projected as 'artifact_published'.
 	queries = append(queries, `
-		SELECT run_event_seq AS seq, created_at AS ts, 'artifact_published' AS kind,
-		       session_id, NULL AS role_id, NULL AS lane_id,
-		       NULL AS parent_message_id,
+		SELECT created_at AS ts, 3 AS src, artifact_id::text AS tiebreak, 'artifact_published' AS kind,
+		       session_id, NULL AS role_id, NULL AS lane_id, NULL AS parent_message_id,
 		       jsonb_build_object('artifact_id', artifact_id, 'logical_name', logical_name, 'kind', artifact_kind, 'path', repo_path) AS body,
-		       NULL::jsonb AS references
+		       NULL::jsonb AS refs
 		  FROM striatumd.artifacts
-		 WHERE repository_id = $1 AND run_id = $2 AND run_event_seq > $3`)
+		 WHERE repository_id = $1 AND run_id = $2`)
 
 	// 4. Verdicts (Provenance only)
 	if profile == "provenance" {
 		queries = append(queries, `
-			SELECT run_event_seq AS seq, created_at AS ts, 'verdict' AS kind,
-			       session_id, NULL AS role_id, NULL AS lane_id,
-			       NULL AS parent_message_id,
+			SELECT created_at AS ts, 4 AS src, verdict_id::text AS tiebreak, 'verdict' AS kind,
+			       session_id, NULL AS role_id, NULL AS lane_id, NULL AS parent_message_id,
 			       jsonb_build_object('verdict_id', verdict_id, 'verdict', verdict, 'rationale', rationale, 'posture', posture) AS body,
-			       NULL::jsonb AS references
+			       NULL::jsonb AS refs
 			  FROM striatumd.verdicts
-			 WHERE repository_id = $1 AND run_id = $2 AND run_event_seq > $3`)
+			 WHERE repository_id = $1 AND run_id = $2`)
 	}
 
 	// 5. Blockers (Provenance only)
 	if profile == "provenance" {
 		queries = append(queries, `
-			SELECT run_event_seq AS seq, created_at AS ts, 'blocker' AS kind,
-			       session_id, NULL AS role_id, NULL AS lane_id,
-			       NULL AS parent_message_id,
+			SELECT created_at AS ts, 5 AS src, blocker_id::text AS tiebreak, 'blocker' AS kind,
+			       session_id, NULL AS role_id, NULL AS lane_id, NULL AS parent_message_id,
 			       jsonb_build_object('blocker_id', blocker_id, 'severity', severity, 'kind', blocker_kind, 'description', description, 'state', state) AS body,
-			       NULL::jsonb AS references
+			       NULL::jsonb AS refs
 			  FROM striatumd.blockers
-			 WHERE repository_id = $1 AND run_id = $2 AND run_event_seq > $3`)
+			 WHERE repository_id = $1 AND run_id = $2`)
 	}
 
-	fullQuery := ""
+	union := ""
 	for i, q := range queries {
 		if i > 0 {
-			fullQuery += " UNION ALL "
+			union += " UNION ALL "
 		}
-		fullQuery += q
+		union += q
 	}
-	fullQuery += " ORDER BY seq ASC"
+	fullQuery := fmt.Sprintf(`
+		SELECT kind, ts, session_id, role_id, lane_id, parent_message_id, body, refs, seq
+		  FROM (
+		    SELECT sub.*, ROW_NUMBER() OVER (ORDER BY ts ASC, src ASC, tiebreak ASC) AS seq
+		      FROM ( %s ) sub
+		  ) numbered
+		 WHERE seq > $3
+		 ORDER BY seq ASC`, union)
 
 	rows, err := collectRows(ctx, runner, fullQuery, args...)
 	if err != nil {
@@ -161,10 +166,17 @@ func fetchTrajectory(ctx context.Context, runner db.Runner, repositoryID, runID,
 		kind := row["kind"].(string)
 		body, _ := row["body"].(map[string]any)
 		if kind == "agent_message" || kind == "coordinator_message" {
-			// Curate chat body.
+			// Curate the message body: surface the agent-authored content the bus
+			// carried (work.send_message stores {kind, body}), never raw provider
+			// output (D028). Accept either a structured body or a plain string.
 			curated := map[string]any{}
-			if text, ok := body["text"].(string); ok {
-				curated["text"] = text
+			if mk, ok := body["kind"].(string); ok {
+				curated["message_kind"] = mk
+			}
+			if inner, ok := body["body"]; ok {
+				curated["content"] = inner
+			} else if text, ok := body["text"].(string); ok {
+				curated["content"] = text
 			}
 			if topic, ok := body["topic"].(string); ok {
 				curated["topic"] = topic
