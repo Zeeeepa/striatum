@@ -438,6 +438,51 @@ striatum interrogation close --session-id <reviewer> --interrogation-id <id>
 
 The same verbs are exposed as `interrogation.*` MCP tools to lane agents.
 
+## Iterated Interrogating Panel
+
+Use this when a unit of work is high-stakes enough to want both *independent
+diversity* and *preserved-context review* — e.g. designing then building a
+feature where reasoning-level defects must be caught before landing. It composes
+the three-lane fan-out, synthesis, and Review By Interrogation into one reusable
+shape (RFC 0083; example at `examples/iterated-interrogating-panel/`).
+
+Two structurally identical loops chained design → build. Each loop:
+
+```mermaid
+flowchart TD
+  F["fan-out: 3 independent lanes"] --> S["synthesis / implement (interrogable)"]
+  S --> P["interrogating panel: 3 reviewers, distinct postures"]
+  P -.->|needs_revision, max 2| S
+  P --> N["next loop / land"]
+```
+
+Two **distinct bounded budgets** — do not conflate them:
+
+- **Interrogation rounds:** each panel reviewer runs ≤ 3 `ask`/`answer` rounds
+  against the live reviewed session and exits early once its findings resolve.
+  Enforced by the reviewer role prompt (the engine does not bound ask/answer);
+  the reviewer states how many rounds it used and why it stopped.
+- **Revision cycle:** if the panel's aggregate verdict is `needs_revision`, the
+  loop returns to the synthesis/implement node — a `cycle` with
+  `on_verdict: needs_revision`, `max_iterations: 2`. It does not fire if no
+  reviewer dissents.
+
+Notes:
+
+- The reviewed node (synthesis in the design loop, the implementer in the build
+  loop) is `interrogable: true` so it stays live for the panel.
+- Build fan-out is on the **review** side (one implementation, a 3-wide panel),
+  not three competing diffs.
+- Execution is **agent-loop-first**: the reviewed lane must run on the MCP
+  agent-loop (preserved context), not the `--print` supervised wrapper. Validate
+  the workflow with `--allow-same-model-pairing` (a 3-lane/3-posture panel
+  necessarily pairs an author's lane with a same-lane reviewer).
+
+```bash
+striatum workflow validate --allow-same-model-pairing examples/iterated-interrogating-panel/workflow.json
+striatum run prepare --workflow examples/iterated-interrogating-panel/workflow.json
+```
+
 ## Three-Lane Code And Documentation Audit
 
 Use this when the question is not "is this patch good?", but "where has

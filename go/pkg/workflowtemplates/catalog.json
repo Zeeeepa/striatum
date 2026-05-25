@@ -105,6 +105,53 @@
       }
     },
     {
+      "template_id": "iterated_interrogating_panel",
+      "kind": "shape",
+      "display_name": "Iterated interrogating panel",
+      "summary": "Two chained design+build loops, each fanning out to three independent lanes, synthesizing, then an interrogating panel review with a bounded needs_revision cycle.",
+      "recommended_for": ["high-stakes design-then-build work", "patterns that need preserved-context interrogation", "panel review with bounded re-work"],
+      "default_lane_sets": ["multi_review", "author_reviewer"],
+      "required_options": ["workflow_id", "artifact_root"],
+      "example_workflow_path": "examples/iterated-interrogating-panel/workflow.json",
+      "graph_preview": {
+        "nodes": [
+          {"id": "design_codex", "label": "Design (codex)"},
+          {"id": "design_claude", "label": "Design (claude_code)"},
+          {"id": "design_gemini", "label": "Design (gemini)"},
+          {"id": "synth", "label": "Synthesis (interrogable)"},
+          {"id": "review_design_codex", "label": "Design review (threat_model)"},
+          {"id": "review_design_claude", "label": "Design review (ergonomics_dx)"},
+          {"id": "review_design_gemini", "label": "Design review (devils_advocate)"},
+          {"id": "implement", "label": "Implement (interrogable)"},
+          {"id": "review_build_codex", "label": "Build review (threat_model)"},
+          {"id": "review_build_claude", "label": "Build review (ergonomics_dx)"},
+          {"id": "review_build_gemini", "label": "Build review (devils_advocate)"}
+        ],
+        "edges": [
+          {"from": "design_codex", "to": "synth"},
+          {"from": "design_claude", "to": "synth"},
+          {"from": "design_gemini", "to": "synth"},
+          {"from": "synth", "to": "review_design_codex"},
+          {"from": "synth", "to": "review_design_claude"},
+          {"from": "synth", "to": "review_design_gemini"},
+          {"from": "review_design_codex", "to": "implement"},
+          {"from": "review_design_claude", "to": "implement"},
+          {"from": "review_design_gemini", "to": "implement"},
+          {"from": "implement", "to": "review_build_codex"},
+          {"from": "implement", "to": "review_build_claude"},
+          {"from": "implement", "to": "review_build_gemini"}
+        ],
+        "cycles": [
+          {"from": "review_design_codex", "to": "synth", "on_verdict": "needs_revision"},
+          {"from": "review_design_claude", "to": "synth", "on_verdict": "needs_revision"},
+          {"from": "review_design_gemini", "to": "synth", "on_verdict": "needs_revision"},
+          {"from": "review_build_codex", "to": "implement", "on_verdict": "needs_revision"},
+          {"from": "review_build_claude", "to": "implement", "on_verdict": "needs_revision"},
+          {"from": "review_build_gemini", "to": "implement", "on_verdict": "needs_revision"}
+        ]
+      }
+    },
+    {
       "template_id": "minimal",
       "kind": "shape",
       "display_name": "Minimal bounded job",

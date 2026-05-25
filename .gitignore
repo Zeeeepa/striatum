@@ -32,3 +32,6 @@ docs/dogfood/
 
 .striatum/
 .scratch/
+
+# local agent MCP config (contains tokens)
+.gemini/

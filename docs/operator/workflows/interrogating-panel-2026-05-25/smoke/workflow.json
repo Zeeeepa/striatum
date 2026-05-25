@@ -1,0 +1,41 @@
+{
+  "schema_version": "striatum.workflow.v1",
+  "workflow_id": "agentloop-smoke",
+  "workflow_version": "2026-05-25",
+  "name": "Agent-loop smoke test",
+  "context_docs": [],
+  "coordinator": {"role_id": "coordinator", "lane_id": "claude"},
+  "parallelism": {"mode": "declared", "max_active_jobs": 1, "require_disjoint_write_scopes": false},
+  "branch": {"mode": "confirm", "suggested_name": "striatum/agentloop-smoke", "allow_dirty": true},
+  "lanes": {
+    "claude": {
+      "adapter": "process",
+      "command": ["claude"],
+      "model": "claude",
+      "display_model": "Claude",
+      "capabilities": ["write"]
+    }
+  },
+  "roles": {
+    "coordinator": {"description": "Operator coordinator."},
+    "implementer": {"description": "Builder lane under agent-loop validation."}
+  },
+  "jobs": [
+    {
+      "id": "build",
+      "type": "build",
+      "title": "Smoke build",
+      "role_id": "implementer",
+      "lane_id": "claude",
+      "fresh_session_required": false,
+      "objective": "Write a one-line marker file proving the agent-loop completed a packet via MCP.",
+      "task_prompt": {"inline": "Create the file docs/operator/workflows/interrogating-panel-2026-05-25/smoke/MARKER.md containing the single line: agent-loop reached this packet. Then publish it as the expected artifact and complete the work via MCP tools."},
+      "write_scope": {"mode": "repo_write", "repo_write": true, "allowed_paths": ["docs/operator/workflows/interrogating-panel-2026-05-25/smoke/"], "forbidden_paths": [".striatum/"]},
+      "expected_artifacts": [
+        {"logical_name": "marker", "kind": "handoff", "path": "docs/operator/workflows/interrogating-panel-2026-05-25/smoke/MARKER.md", "required": true}
+      ]
+    }
+  ],
+  "edges": [],
+  "cycles": []
+}
