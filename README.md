@@ -215,8 +215,8 @@ The [day-zero usage guide](docs/USING_STRIATUM.md) walks new arrivals through bo
 ```bash
 # Download and unpack a Go release archive for your OS/arch.
 # Then put its bin/ directory on PATH.
-tar -xzf striatum_2.0.0_linux-amd64.tar.gz
-export PATH="$PWD/striatum_2.0.0_linux-amd64/bin:$PATH"
+tar -xzf striatum_2.3.2_linux-amd64.tar.gz
+export PATH="$PWD/striatum_2.3.2_linux-amd64/bin:$PATH"
 
 # Check/provision the daemon's Postgres substrate.
 striatum daemon doctor --apply-migrations
@@ -273,7 +273,7 @@ refused at startup.
 
 | Area | Status |
 |------|--------|
-| Version | v2.0.0 packaging complete (see [CHANGELOG.md](CHANGELOG.md)) |
+| Version | v2.3.x — Go-only runtime; RFCs 0078–0082 landed (see [CHANGELOG.md](CHANGELOG.md)) |
 | Platforms | Linux + macOS Go binaries · Postgres 14+ |
 | Distribution | GitHub release archives with `SHA256SUMS` |
 | License | Apache-2.0 |

@@ -2,6 +2,28 @@
 
 ## Unreleased — 2026-05-25
 
+## v2.3.2 — 2026-05-25
+
+### Follow-ups (F33/F34/F35) + doc scrub
+
+- **F33**: seeded live-PostgreSQL trajectory test (`go/pkg/reads`) asserting
+  `trajectory.export`/`watch` reproduce a seeded run in derived-`seq` order for
+  both profiles, D028-safe.
+- **F34**: `striatum daemon migrate-db [--admin-url <dsn>]` applies pending
+  daemon PostgreSQL migrations via an owner/admin DSN (RFC 0079 §5), so DDL the
+  runtime role cannot perform is applied before the daemon serves. Distinct from
+  the retired SQLite-era `daemon migrate`.
+- **F35**: removed the dead Python-era Jinja `src/striatum/web/templates` (the
+  Go web service embeds its own `go/pkg/webassets`); kept the live Node frontend
+  + bundle pipeline. The Vite-bundle-not-embedded architectural finding is
+  tracked as F36.
+- **Doc scrub**: corrected `docs/CLI_REFERENCE.md` to the actual Go workflow
+  verbs (`validate`, `generate`, `templates {list,show}`), removed unported
+  Python-era prose (`workflow {init,lint,plan,graph,upgrade,templates render-md}`),
+  documented `daemon migrate-db` + owner-applied-migration recovery in the daemon
+  runbook, and refreshed stale version strings in README/GETTING_STARTED. A full
+  CLI_REFERENCE audit is tracked as F37.
+
 ## v2.3.1 — 2026-05-25
 
 ### Fix: wire the `workflow generate` / `workflow templates` Go CLI verbs

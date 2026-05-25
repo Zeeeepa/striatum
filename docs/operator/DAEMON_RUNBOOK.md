@@ -124,7 +124,21 @@ In the foreground recipe the daemon logs to stderr.
   (`daemon-go.sock`, `client-token`, `mcp-http-endpoint`), and restart; the
   daemon regenerates them.
 - **Migration on start.** The daemon applies pending schema migrations on
-  startup; a slow first start after an upgrade is normal. Watch the log.
+  startup as its runtime role (`striatumd_rw`); a slow first start after an
+  upgrade is normal. Watch the log.
+- **`must be owner` / `permission denied` on startup migrate (RFC 0079 §5).**
+  The runtime role cannot run DDL against owner-held tables (`ALTER`, or a
+  `CREATE` with a foreign key to an owner table). If a new migration needs that,
+  the daemon crash-loops. Apply migrations as the owner first, then start:
+  ```bash
+  systemctl --user stop striatumd
+  striatum daemon migrate-db --admin-url "<owner DSN>"   # e.g. postgres:///striatum_daemon
+  systemctl --user start striatumd                       # startup migrate is now a no-op
+  ```
+  `daemon migrate-db` resolves the admin DSN from `--admin-url`, then
+  `STRIATUM_DAEMON_ADMIN_DB_URL`, then the normal `daemon.toml` DSN. Additive
+  new tables that grant the runtime role need no admin DSN (the runtime role can
+  create them). This is distinct from the retired SQLite-era `daemon migrate`.
 - **Unit references a deleted launcher.** If you upgraded from a pre-RFC-0078
   install, the old unit may point at the retired Python launch path. Run
   `striatum daemon install` to overwrite it with the current Go unit.

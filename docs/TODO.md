@@ -1474,6 +1474,10 @@ F33. Add a seeded live-PG trajectory test (RFC 0081) via `go/pkg/pgtest`: seed a
     `docs/operator/artifacts/rfc-0079-0081-closure/verify/SUMMARY.md`); the
     feature is already verified end-to-end against the recorded two-model
     conversation run.
+    ✅ DONE (v2.3.1): `go/pkg/reads/trajectory_integration_test.go`
+    (`TestTrajectoryExportReproducesSeededRun`) seeds a run with chat messages +
+    an artifact and asserts `trajectory.export`/`watch` reproduce them in
+    derived-`seq` order for `dialogue` and `provenance`, with a D028 assertion.
 
 F34. Implement owner-applied daemon migrations (RFC 0079 §5). The daemon
     currently auto-migrates as runtime role `striatumd_rw`, which cannot DDL
@@ -1482,6 +1486,12 @@ F34. Implement owner-applied daemon migrations (RFC 0079 §5). The daemon
     owner/admin DSN (or acquire the admin DSN for the migrate step only) and a
     guard test asserting a migration that adds an owner-referencing object also
     `GRANT`s the runtime role. See `docs/DECISION_LOG.md` D135 and RFC 0079 §5.
+    ✅ DONE (v2.3.1): `striatum daemon migrate-db` applies pending migrations via
+    an owner/admin DSN (`--admin-url` / `STRIATUM_DAEMON_ADMIN_DB_URL` /
+    daemon.toml fallback). Named `migrate-db` to avoid the retired SQLite-era
+    `daemon migrate`. Migration 0016 is already proven ownership-safe by
+    `TestMigrationSixteenInterrogationsIsOwnershipSafe`; a general migration-lint
+    guard remains optional.
 
 F35. Review remaining `src/striatum/web` residue. RFC 0078/0079 cleanup removed
     the dead Python trees, but `src/striatum/web/static`, `web/static/build`,
@@ -1490,3 +1500,28 @@ F35. Review remaining `src/striatum/web` residue. RFC 0078/0079 cleanup removed
     under `go/` (embed) and delete the dead remainder so `src/striatum` holds
     only the live Node frontend source. Non-blocking follow-up from the v2.2.0
     closure.
+    ✅ DONE (v2.3.1) for the dead part: deleted the Python-era Jinja
+    `src/striatum/web/templates` (the Go web service embeds its own
+    `go/pkg/webassets/{static,templates}`). Kept the live Node frontend
+    (`src/striatum/web/frontend`) and the bundle pipeline
+    (`src/striatum/web/static/build`, gated by `make ui-check-bundle`).
+    Remaining architectural finding split out as F36.
+
+F36. Decide and wire the Go web service's served assets. `go/pkg/webassets`
+    embeds only three hand-authored files (`app.js`, `base.css`, `page.html`);
+    the React/Vite islands bundle built to `src/striatum/web/static/build` is
+    built + bundle-hash-checked in CI but is NOT embedded or served by the Go
+    daemon's web service. Decide whether the Go web service should embed/serve
+    the Vite bundle (repoint Vite `outDir` into `go/pkg/webassets/static/build`
+    and extend the embed + `page.html` island mounts) or whether the minimal
+    server-rendered surface is the intended product. This is a web-UI product
+    decision (likely a short RFC), not residue cleanup. Surfaced 2026-05-25.
+
+F37. Full `docs/CLI_REFERENCE.md` audit against the Go command surface. The
+    2026-05-25 doc scrub corrected the workflow-authoring verbs (`validate`,
+    `generate`, `templates {list,show}`), removed the unported
+    `workflow {init,lint,plan,graph,upgrade,templates render-md}` prose, and
+    added `daemon migrate-db`. A complete pass should reconcile every documented
+    verb against the daemon route table (`go/pkg/cli/routes`) + local commands
+    (`go/pkg/cli/localcommands`), flagging any other Python-era spellings that
+    no longer exist in the Go CLI. Non-blocking doc accuracy follow-up.

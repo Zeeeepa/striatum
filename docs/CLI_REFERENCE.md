@@ -16,15 +16,9 @@ striatum adopt [--profile <profile>] [--postgres-url <url>]
                [--dry-run] [--no-skills] [--no-plugins]
                [--no-ddd-layout] [--no-register]
 striatum workflow validate
-striatum workflow lint
-striatum workflow plan
-striatum workflow graph
-striatum workflow init
+striatum workflow generate
 striatum workflow templates list
 striatum workflow templates show
-striatum workflow templates render-md
-striatum workflow generate
-striatum workflow upgrade
 striatum run prepare
 striatum branch confirm
 striatum run start
@@ -34,61 +28,37 @@ striatum archive verify
 striatum operator current-brief
 ```
 
-`workflow init [--style minimal|review|code-change] <path>`
-scaffolds a starter workflow tree; when `--style` is omitted, the
-scaffold style is `review`. This does not create a runtime default:
-`run prepare` still requires an explicit `--workflow <path>`. The
-generated tree uses a single `local` process lane as a valid
-placeholder; edit lanes and job `lane_id` bindings for real agent
-runs.
+`workflow generate` (below) is the way to scaffold a starter workflow tree;
+`run prepare` requires an explicit `--workflow <path>` and creates no runtime
+default. The generated tree uses a single `local` process lane as a valid
+placeholder; edit lanes and job `lane_id` bindings for real agent runs.
 
-`workflow templates list [--kind shape|lane_set|role_pack|adversary_pack]`,
-`workflow templates show <template_id>`, and
-`workflow templates render-md <path> [--force|--check]` expose the
-bundled local workflow-template catalog. `render-md` writes a Markdown
-catalog summary with Mermaid graph-preview diagrams for shape entries;
-`--stdout` prints the Markdown instead of writing a file.
-`workflow generate <path> --shape <shape>
---lane-set <lane_set> --artifact-root <path>` compiles a concrete
-workflow tree from that catalog and immediately validates the generated
-`workflow.json`. Add `--dry-run --json` to preview the full envelope
-without writing files. Real lane sets require lane commands such as
-`--lane-command author='["codex","exec"]'`; the `local` lane set keeps
-the placeholder fixture command. `--shape multi_phase` requires
-`--option phases='<json-array>'` and writes a
-`striatum.workflow.v1.1` workflow with `phases` and `phase_synthesis`
-jobs. `--shape implementation_panel` accepts `--role-pack`,
-`--adversary-pack`, and panel options such as
-`--option proposal_count=2`. V1 refuses overwrites and does not run the
-workflow automatically.
+`workflow templates list [--kind shape|lane_set|role_pack|adversary_pack]`
+and `workflow templates show <template_id>` read the bundled local
+workflow-template catalog (embedded under `go/pkg/workflowtemplates`).
 
-`workflow upgrade <path> [--dry-run] [--force] [--add-phases --apply]`
-(RFC 0040 V1 / RFC 0045 V1.5) backports the per-model harness-profile
-fragments from the bundled template catalog into an existing
-`workflow.json` and can rewrite V1 workflows to V1.1 phase metadata when
-`--add-phases --apply` is supplied. Default behaviour fills
-`harness_profiles[*].native_delegation.instruction` when the field is
-empty or already matches the catalog default; a non-default
-custom instruction is reported as a `refused_conflict` unless
-`--force` is supplied. `--dry-run` emits the change set without
-writing. The verb refuses to mutate a workflow that has any
-non-terminal daemon-registered run referencing it; cancel or complete
-the run first. Harness-profile backports and phase metadata rewrites are
-the only in-place rewrites this verb performs.
+`workflow generate --shape <shape> [--lane-set <set>] [--workflow-id <id>]
+[--scaffold-root <path>] [--artifact-root <path>] [--option key=value ...]`
+compiles a concrete workflow tree from that catalog. It previews the planned
+repo-relative files by default and writes them only with `--write`; `--json`
+emits the structured envelope. The lane set defaults to the `local` fixture
+lane (which needs no real lane command), so `workflow generate --shape
+conversation --option topic="…"` scaffolds a valid starter out of the box; edit
+in real lanes (e.g. `--lane-set author_reviewer` then supply lane commands in
+the generated `workflow.json`) before a real run. `--option phases=…`
+(`multi_phase`) and `--role-pack`/`--adversary-pack` options
+(`implementation_panel`) are accepted as the shape requires.
 
-`workflow lint <path> [--strict] [--override-rationale <text>] [--accepted-risk-decision-id <id>]`
-returns structured advisory warnings for operational workflow risks
-such as same-model review pairs, review jobs without fresh context,
-broad write scopes, repo-write jobs without per-job worktree
-isolation, and review workflows without revision or escalation paths.
-The JSON payload also includes advisory coverage scoring for reviewer
-independence, fresh context, write isolation, revision/escalation path,
-and review posture diversity.
-With `--strict`, lint warnings refuse the command unless the operator
-records a non-empty override rationale; JSON/API refusals include the
-lint payload under `error.details`. `--accepted-risk-decision-id`
-records the decision reference for an accepted strict override and is
-valid only with `--strict --override-rationale`.
+The Python-era `workflow init`, `workflow lint`, `workflow plan`,
+`workflow graph`, `workflow upgrade`, and `workflow templates render-md`
+verbs are not part of the current Go CLI (RFC 0078 ported `validate`,
+`generate`, and `templates {list,show}`); workflow-authoring lint is enforced
+at `validate`/generation time. A fuller CLI_REFERENCE audit against the Go
+command surface is tracked separately.
+
+Same-model-pairing lint is enforced by `workflow validate` (refuse unless
+`--allow-same-model-pairing`); operational accepted-risk overrides are recorded
+through the daemon `workflow accept-risk` / `workflow accepted-risks` commands.
 
 `striatum init` creates `.striatum/` in the target repo. The
 optional flags scaffold extra material:
@@ -208,6 +178,7 @@ striatum daemon doctor [--postgres-url <url>] [--apply-migrations]
                        [--as-owner <owner-url>]
                        [--provision-rw-role] [--repair-grants]
                        [--explain] [--authority] [--repo <path>] [--json]
+striatum daemon migrate-db [--admin-url <dsn>] [--json]
 striatum daemon migrate --from sqlite --to pg [retired compatibility refusal]
 striatum daemon migrate-repo-local --from sqlite --to pg
                          [--repo <path>] [retired compatibility refusal]
@@ -298,9 +269,19 @@ remaining migration/test-only SQLite exceptions.
 output without opening SQLite; with `--authority`, the authority report also
 summarizes whether that repository cutover is healthy.
 
+`daemon migrate-db [--admin-url <dsn>] [--json]` (RFC 0079 §5) applies pending
+daemon PostgreSQL schema migrations using an owner/admin DSN, so DDL the runtime
+role (`striatumd_rw`) cannot perform — e.g. a migration that adds a foreign key
+to an owner-held table — is applied before the daemon serves. The admin DSN is
+resolved from `--admin-url`, then `STRIATUM_DAEMON_ADMIN_DB_URL`, then the normal
+daemon DSN (flag/env/`daemon.toml`) as a fallback for additive migrations the
+runtime role can apply itself. This is distinct from the retired SQLite-era
+`daemon migrate` below.
+
 `daemon migrate --from sqlite --to pg` and
 `daemon migrate-repo-local --from sqlite --to pg --repo <path>` are retired
-compatibility spellings. They remain parseable so old automation receives a
+compatibility spellings (the SQLite→PostgreSQL import, not schema migration).
+They remain parseable so old automation receives a
 clear error, but they refuse with exit code 12 before importing or opening
 SQLite migration code. `daemon doctor --repo <path> --authority --json` is the
 supported cutover-evidence diagnostic and does not open SQLite as a database.

@@ -90,8 +90,8 @@ layout, and troubleshooting live in
 From a release archive instead of a source checkout:
 
 ```bash
-tar -xzf striatum_2.1.0_linux-amd64.tar.gz
-export PATH="$PWD/striatum_2.1.0_linux-amd64/bin:$PATH"
+tar -xzf striatum_2.3.2_linux-amd64.tar.gz
+export PATH="$PWD/striatum_2.3.2_linux-amd64/bin:$PATH"
 striatum daemon install        # render the user unit + scaffold daemon.toml
 striatum --help
 ```
