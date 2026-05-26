@@ -1560,16 +1560,22 @@ F41. Derive the RFC 0085 identity route-audit allowlist from the dispatch table.
     enumerate routes from the actual dispatch so a new mutating route is rejected
     over the identity socket by construction. Surfaced 2026-05-26.
 
-F42. Harden gemini-cli as an autonomous agent-loop participant. In the RFC 0086
-    3-way conversation, gemini-2.5-pro is fast (~9s/turn) but gemini-cli is
-    unreliable at the stateful await→say→await loop (it exited the loop early,
-    printing "conversation done" while the conversation was open), so its turns
-    had to be driven by an operator-side loop (`/tmp/gemini-driver.sh`-style:
-    detect floor==gemini, call gemini for content, conversation.say). claude and
-    codex self-drive fine. Provide a thin Striatum-supplied conversation/agent-loop
-    wrapper (or a much simpler, more deterministic bootstrap + default long lease)
-    so gemini participates autonomously without an operator turn-driver. Surfaced
-    2026-05-26.
+F42. [DONE 2026-05-26, v2.6.0, D145] Harden gemini-cli as an autonomous
+    agent-loop participant. Shipped the generic `striatumd -agent-loop
+    -turn-driver` (pure `go/pkg/turndriver` loop): a non-self-driving lane
+    declared `adapter_capabilities.single_shot: true` runs under a Striatum-owned
+    turn-driver that holds the MCP client and calls `conversation.say`, invoking
+    the child once per turn as a topic+transcript content generator (selection by
+    capability, not model name). `ContentOnlyEnv` strips `STRIATUM_*`; the
+    spoon-feeding boundary is reflection-test-pinned. Designed+built via the
+    iterated-interrogating-panel dogfood `run_63a8ffa4a77edebfd25620876fe9e7ce`
+    (4× accept_with_findings, real interrogations). The `/tmp/gemini-driver.sh`
+    hack is obsoleted. Follow-ups recorded in
+    `docs/operator/workflows/f42-conversation-turn-driver/OPERATOR_REPORT.md`:
+    interrogation-window closes after the first interrogation (breaks sequential
+    multi-reviewer panels); reviewer sessions need the `interrogate` capability at
+    registration; `review.submit` must be a single call; live gemini verification
+    pending a daemon rebuild+restart (post-merge).
 
 F43. Render conversations in the chat UI. RFC 0086 conversation turns are
     queryable (`conversation.show`/`list`) and persist on the message bus like

@@ -2,6 +2,40 @@
 
 ## Unreleased — 2026-05-26
 
+## v2.6.0 — 2026-05-26
+
+### F42: autonomous conversation turn-driver (D145)
+
+- **Generic turn-driver for non-self-driving lanes.** RFC 0086 proved the
+  conversation primitive, but `gemini -p` (single-shot, non-agentic) could not
+  hold the stateful `await_packet → say → await_packet` loop and needed an
+  operator-side shell driver. F42 makes a non-self-driving lane participate
+  autonomously by moving the loop into Striatum.
+- **`go/pkg/turndriver`** — pure, fake-tested loop (`Conversation` + `Generator`
+  seams; `ConversationContext` carries only `Topic`+`Transcript`; output
+  sanitization, bounded retries, not-our-floor wait, closed-conversation exit;
+  idempotent/crash-safe, no double-speak).
+- **`striatumd -agent-loop -turn-driver`** runtime wiring: the **driver** is the
+  MCP client (holds the token; calls `work.await_packet`, `conversation.show`,
+  `conversation.say`); the child agent is invoked once per turn as a content
+  generator receiving topic+transcript only. `ContentOnlyEnv` strips all
+  `STRIATUM_*` from the child environment.
+- **Selection by capability, not model name.** `supervise.start` runs driven
+  mode when a lane declares `adapter_capabilities.single_shot: true` (or
+  `self_driving: false`); `supervise.status` / dashboard surface
+  `agent_loop_mode=turn_driver`. The conversation-3way recipe + gemini guide
+  templates document the path; the `/tmp/gemini-driver.sh` operator hack is
+  obsoleted.
+- **Boundary enforcement** (the prohibited packet-spoon-feeding proxy): a
+  reflection test pins `ConversationContext` to topic+transcript only; the
+  generator's output is routed solely to `conversation.say` and never parsed as
+  control; if `await_packet` returns a work packet or interrogation question to a
+  turn-driver session, the driver errors rather than feeding it to the child.
+- Designed + built through the iterated-interrogating-panel dogfood
+  (`run_63a8ffa4a77edebfd25620876fe9e7ce`); four `accept_with_findings` verdicts
+  with genuine live interrogations of the synthesizer and implementer. Residual
+  v1 risk (same-user child daemon-material discovery) recorded in D145.
+
 ## v2.5.0 — 2026-05-26
 
 ### RFC 0086: multi-party conversation on the MCP agent-loop (D144)
