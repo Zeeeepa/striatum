@@ -1,0 +1,36 @@
+{
+  "schema_version": "striatum.workflow.v1",
+  "workflow_id": "d1-web-mount",
+  "workflow_version": "2026-05-26",
+  "name": "D1: mount Go web service in daemon (interrogable build + review)",
+  "branch": {"mode": "confirm", "suggested_name": "striatum/v2.4.0-followups", "allow_dirty": true},
+  "coordinator": {"role_id": "coordinator", "lane_id": "claude_code"},
+  "lanes": {
+    "claude_code": {"adapter": "process", "display_model": "Claude", "command": ["claude"], "capabilities": ["write", "review", "synthesis"]},
+    "codex": {"adapter": "process", "display_model": "Codex", "command": ["codex", "exec"], "capabilities": ["write", "review"]}
+  },
+  "roles": {
+    "coordinator": {"description": "Operator coordinator."},
+    "implementer": {"description": "Implements the mux; stays live for interrogation."},
+    "reviewer": {"description": "Interrogates the live implementer before verdict."}
+  },
+  "context_docs": [
+    {"path": "docs/operator/workflows/v2.4.0-followups/D1-web-mount/TASK.md", "required": true}
+  ],
+  "parallelism": {"mode": "declared", "max_active_jobs": 2, "require_disjoint_write_scopes": true},
+  "jobs": [
+    {"id": "implement", "type": "build", "title": "Mount web service via mux (interrogable)", "role_id": "implementer", "lane_id": "claude_code", "interrogable": true,
+     "objective": "Mount newWebServiceHandler alongside /mcp on the daemon HTTP listener via a path multiplexer, per TASK.md. Stay live for the build-review interrogation.",
+     "task_prompt": {"inline": "Implement per D1-web-mount/TASK.md."},
+     "write_scope": {"mode": "repo_write", "repo_write": true, "allowed_paths": ["go/cmd/striatumd/", "go/pkg/webservice/", "docs/operator/workflows/v2.4.0-followups/D1-web-mount/"], "forbidden_paths": [".striatum/"]},
+     "expected_artifacts": [{"logical_name": "d1_handoff", "kind": "handoff", "path": "docs/operator/workflows/v2.4.0-followups/D1-web-mount/HANDOFF.md", "required": true}]},
+    {"id": "review_build", "type": "review", "title": "Build review codex threat_model", "role_id": "reviewer", "lane_id": "codex", "fresh_session_required": true,
+     "reviewer_context_policy": "fresh", "reviewer_access_scope": "document_only", "review_posture": "threat_model",
+     "objective": "Threat-model the mux (auth/host preserved, no MCP regression) and interrogate the live implementer before verdict.",
+     "task_prompt": {"inline": "Interrogate the live implement session, then write your finding and verdict."},
+     "write_scope": {"mode": "review_only_artifact", "repo_write": false, "allowed_paths": ["docs/operator/workflows/v2.4.0-followups/D1-web-mount/review/"], "forbidden_paths": [".striatum/"]},
+     "expected_artifacts": [{"logical_name": "d1_review", "kind": "finding", "path": "docs/operator/workflows/v2.4.0-followups/D1-web-mount/review/REVIEW.md", "required": true}]}
+  ],
+  "edges": [{"from": "implement", "to": "review_build", "on": "completed"}],
+  "cycles": [{"from": "review_build", "to": "implement", "on_verdict": "needs_revision", "max_iterations": 2, "allow_same_lane": true}]
+}
