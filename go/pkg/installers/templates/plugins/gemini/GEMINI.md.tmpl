@@ -34,3 +34,13 @@ extension is active.
 2.  **No exploration**: Do not grep/explore before or while holding a packet. Read only named files and go straight to MCP.
 3.  **Explicit IDs**: Pass `repository_id` and `session_id` on every Striatum MCP call.
 4.  **Complete promptly**: `await_packet` → work → `artifact.publish` → `work.ack` → `work.complete`. If a lease error occurs, re-`await_packet` and retry.
+
+## Conversation Turn-Driver
+
+For RFC 0086 multi-party conversations, configure Gemini-style single-shot
+lanes with `adapter_capabilities.single_shot: true` (or
+`self_driving: false`). `supervise.start` then launches
+`striatumd -agent-loop -turn-driver` around the lane command, and Striatum
+owns the MCP loop. Gemini receives only topic plus ordered transcript and
+returns one content contribution; it does not receive work packets, leases,
+session tokens, or completion commands.

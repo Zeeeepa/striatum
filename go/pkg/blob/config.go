@@ -11,14 +11,14 @@ import (
 // names are not part of this struct; they live on
 // striatumd.repositories.blob_bucket and are looked up at request time.
 type Config struct {
-	Endpoint        string
-	Region          string
-	AccessKey       string
-	SecretKey       string
-	PathStyle       bool
-	BucketPrefix    string
-	UseSSL          bool
-	ServerName      string // SNI override; usually empty.
+	Endpoint     string
+	Region       string
+	AccessKey    string
+	SecretKey    string
+	PathStyle    bool
+	BucketPrefix string
+	UseSSL       bool
+	ServerName   string // SNI override; usually empty.
 }
 
 // ConfigError indicates an invalid or incomplete daemon-global blob

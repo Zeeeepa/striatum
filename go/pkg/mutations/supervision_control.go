@@ -26,15 +26,21 @@ const (
 
 	stdinDeliveryPersistentFIFO = "persistent_fifo"
 	stdinDeliveryOneShotEOF     = "one_shot_eof"
+
+	agentLoopModeSelfDriving = "self_driving"
+	agentLoopModeTurnDriver  = "turn_driver"
 )
 
 type supervisionStartConfig struct {
 	SessionID          string
+	RepositoryID       string
 	RunID              string
 	LaneID             string
 	RepoRoot           string
 	WorkflowSnapshotID string
 	Command            []string
+	OriginalCommand    []string
+	AgentLoopMode      string
 	Transport          string
 	StdinDelivery      string
 	RequireTmux        bool
@@ -136,6 +142,7 @@ func HandleSuperviseStart(ctx context.Context, runner db.Runner, envelope rpc.En
 			"transport":            config.Transport,
 			"stdin_delivery":       config.StdinDelivery,
 			"require_tmux":         config.RequireTmux,
+			"agent_loop_mode":      config.AgentLoopMode,
 			"stdin_pipe_path":      pipePath,
 		}
 		if config.Transport == supervisionTransportPTYHelper {
@@ -192,6 +199,7 @@ func HandleSuperviseStart(ctx context.Context, runner db.Runner, envelope rpc.En
 			"transport":            config.Transport,
 			"stdin_delivery":       config.StdinDelivery,
 			"require_tmux":         config.RequireTmux,
+			"agent_loop_mode":      config.AgentLoopMode,
 			"stdin_pipe_path":      pipePath,
 		}
 		if config.Transport == supervisionTransportPTYHelper {
@@ -219,6 +227,8 @@ func HandleSuperviseStart(ctx context.Context, runner db.Runner, envelope rpc.En
 		"transport":            config.Transport,
 		"stdin_delivery":       config.StdinDelivery,
 		"require_tmux":         config.RequireTmux,
+		"agent_loop_mode":      config.AgentLoopMode,
+		"turn_driver":          config.AgentLoopMode == agentLoopModeTurnDriver,
 		"helper_process":       helperProcessPayload(config.Transport, launch.HelperPID, launch.HelperPIDStartTime, eventPath),
 		"lane_attestation":     laneAttestation(launch.PIDStartTime),
 		"lane_id":              config.LaneID,
@@ -387,6 +397,7 @@ func HandleSuperviseStop(ctx context.Context, runner db.Runner, envelope rpc.Env
 
 func loadSupervisionStartConfig(ctx context.Context, runner db.Runner, repositoryID string, sessionID string) (supervisionStartConfig, error) {
 	var config supervisionStartConfig
+	config.RepositoryID = repositoryID
 	var sessionState string
 	err := runner.QueryRow(ctx, `
 		SELECT s.session_id, s.run_id, s.lane_id, s.state,
@@ -423,6 +434,15 @@ func loadSupervisionStartConfig(ctx context.Context, runner db.Runner, repositor
 	if err != nil {
 		return config, err
 	}
+	config.OriginalCommand = append([]string(nil), command...)
+	config.AgentLoopMode = agentLoopModeSelfDriving
+	if laneUsesTurnDriver(lane) {
+		command, err = turnDriverAgentLoopCommand(command)
+		if err != nil {
+			return config, err
+		}
+		config.AgentLoopMode = agentLoopModeTurnDriver
+	}
 	transport, err := supervisionTransport(lane)
 	if err != nil {
 		return config, err
@@ -456,6 +476,11 @@ func insertStartingSupervisorRows(ctx context.Context, runner db.TxRunner, repos
 		"transport":          config.Transport,
 		"stdin_delivery":     config.StdinDelivery,
 		"require_tmux":       config.RequireTmux,
+		"agent_loop_mode":    config.AgentLoopMode,
+	}
+	if config.AgentLoopMode == agentLoopModeTurnDriver {
+		metadata["turn_driver"] = true
+		metadata["content_generator_command"] = config.OriginalCommand
 	}
 	if config.Transport == supervisionTransportPTYHelper {
 		metadata["helper_events_path"] = eventPath
@@ -821,7 +846,7 @@ func launchPipeProcess(ctx context.Context, config supervisionStartConfig, super
 	defer stdin.Close()
 	cmd := exec.CommandContext(ctx, config.Command[0], config.Command[1:]...)
 	cmd.Dir = config.RepoRoot
-	cmd.Env = supervisedEnv(config.RepoRoot, config.RunID, config.SessionID, supervisorID, config.LaneID)
+	cmd.Env = supervisedEnv(config.RepoRoot, config.RepositoryID, config.RunID, config.SessionID, supervisorID, config.LaneID)
 	cmd.Stdin = stdin
 	stdout, err := os.OpenFile(os.DevNull, os.O_WRONLY, 0)
 	if err != nil {
@@ -858,7 +883,7 @@ func launchPTYHelper(ctx context.Context, config supervisionStartConfig, supervi
 		SupervisorID:    supervisorID,
 		ScratchDir:      filepath.Dir(scratch),
 		Command:         config.Command,
-		Env:             supervisedEnvEntries(config.RepoRoot, config.RunID, config.SessionID, supervisorID, config.LaneID),
+		Env:             supervisedEnvEntries(config.RepoRoot, config.RepositoryID, config.RunID, config.SessionID, supervisorID, config.LaneID),
 		WorkingDir:      config.RepoRoot,
 		PacketInputPath: pipePath,
 		RequireTmux:     config.RequireTmux,
@@ -1264,6 +1289,92 @@ func commandArray(lane map[string]any) ([]string, error) {
 	return command, nil
 }
 
+func laneUsesTurnDriver(lane map[string]any) bool {
+	if value, ok := boolLaneValue(lane, "single_shot"); ok && value {
+		return true
+	}
+	if value, ok := boolLaneValue(lane, "self_driving"); ok {
+		return !value
+	}
+	capabilities := asMap(lane["adapter_capabilities"])
+	if value, ok := boolLaneValue(capabilities, "single_shot"); ok && value {
+		return true
+	}
+	if value, ok := boolLaneValue(capabilities, "self_driving"); ok {
+		return !value
+	}
+	return false
+}
+
+func boolLaneValue(values map[string]any, key string) (bool, bool) {
+	value, exists := values[key]
+	if !exists {
+		return false, false
+	}
+	switch typed := value.(type) {
+	case bool:
+		return typed, true
+	case string:
+		normalized := strings.ToLower(strings.TrimSpace(typed))
+		if normalized == "true" || normalized == "1" {
+			return true, true
+		}
+		if normalized == "false" || normalized == "0" {
+			return false, true
+		}
+	}
+	return false, false
+}
+
+func turnDriverAgentLoopCommand(command []string) ([]string, error) {
+	if len(command) == 0 {
+		return nil, rpc.NewError("invalid_transition", "turn-driver content generator command must be non-empty", nil)
+	}
+	if idx := agentLoopFlagIndex(command); idx >= 0 {
+		if hasCommandFlag(command, "-turn-driver") {
+			return append([]string(nil), command...), nil
+		}
+		out := make([]string, 0, len(command)+1)
+		out = append(out, command[:idx+1]...)
+		out = append(out, "-turn-driver")
+		out = append(out, command[idx+1:]...)
+		return out, nil
+	}
+	return append([]string{agentLoopExecutable(), "-agent-loop", "-turn-driver", "--"}, command...), nil
+}
+
+func agentLoopFlagIndex(command []string) int {
+	limit := len(command)
+	if limit > 4 {
+		limit = 4
+	}
+	for i := 0; i < limit; i++ {
+		if command[i] == "-agent-loop" || command[i] == "--agent-loop" {
+			return i
+		}
+	}
+	return -1
+}
+
+func hasCommandFlag(command []string, flag string) bool {
+	for _, part := range command {
+		if part == flag || part == "--"+strings.TrimPrefix(flag, "-") {
+			return true
+		}
+	}
+	return false
+}
+
+func agentLoopExecutable() string {
+	if override := strings.TrimSpace(os.Getenv("STRIATUM_AGENT_LOOP_BINARY")); override != "" {
+		return override
+	}
+	if executable, err := os.Executable(); err == nil && executable != "" {
+		return executable
+	}
+	return "striatumd"
+}
+
 func supervisionTransport(lane map[string]any) (string, error) {
 	supervision, err := laneSupervision(lane)
 	if err != nil {
@@ -1352,12 +1463,13 @@ func currentDaemonInstanceID() string {
 	return "go-pg-handler"
 }
 
-func supervisedEnv(repoRoot, runID, sessionID, supervisorID, laneID string) []string {
-	return append(os.Environ(), supervisedEnvEntries(repoRoot, runID, sessionID, supervisorID, laneID)...)
+func supervisedEnv(repoRoot, repositoryID, runID, sessionID, supervisorID, laneID string) []string {
+	return append(os.Environ(), supervisedEnvEntries(repoRoot, repositoryID, runID, sessionID, supervisorID, laneID)...)
 }
 
-func supervisedEnvEntries(repoRoot, runID, sessionID, supervisorID, laneID string) []string {
+func supervisedEnvEntries(repoRoot, repositoryID, runID, sessionID, supervisorID, laneID string) []string {
 	return []string{
+		"STRIATUM_REPOSITORY_ID=" + repositoryID,
 		"STRIATUM_RUN_ID=" + runID,
 		"STRIATUM_SESSION_ID=" + sessionID,
 		"STRIATUM_SUPERVISOR_ID=" + supervisorID,

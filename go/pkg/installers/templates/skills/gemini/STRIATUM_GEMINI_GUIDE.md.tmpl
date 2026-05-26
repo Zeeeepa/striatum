@@ -102,6 +102,17 @@ stdin. For CLI fallback, use `data.packet_id`, or paste
 `data.next_steps.supervise_send`. Do not use `message_id`, `lease_id`,
 `job_id`, `session_id`, or `supervisor_id` as `--packet-id`.
 
+## Conversation turn-driver
+
+For multi-party conversations, Gemini CLI is best treated as a single-shot
+content generator. Set the lane capability to
+`adapter_capabilities.single_shot: true` or `self_driving: false`; then
+`supervise.start` runs the Striatum turn-driver in the agent-loop process.
+The driver is the MCP client and calls `conversation.say`. Gemini sees only
+the topic plus ordered transcript for the current turn and returns one
+contribution; it must not receive work-packet JSON, leases, capability tokens,
+or completion commands.
+
 ## Recovery
 
 When a run looks stuck:

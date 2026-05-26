@@ -102,6 +102,7 @@ func main() {
 	var sweepIntervalSeconds float64
 	var maxSweeps optionalIntFlag
 	var agentLoop bool
+	var turnDriver bool
 	var mcpHTTPAddr string
 	var webTailscale bool
 	flag.StringVar(&socketPath, "socket", defaultSocketPath(), "Unix socket path")
@@ -111,6 +112,7 @@ func main() {
 	flag.BoolVar(&migrate, "migrate", true, "apply daemon PostgreSQL migrations before serving when a URL is configured")
 	flag.BoolVar(&describe, "describe", false, "print daemon metadata and exit")
 	flag.BoolVar(&agentLoop, "agent-loop", false, "run as the interactive MCP agent loop instead of a daemon server")
+	flag.BoolVar(&turnDriver, "turn-driver", false, "with -agent-loop, drive a single-shot content generator through conversation turns")
 	flag.StringVar(&migrationsSHASource, "migrations-sha-source", "", "verify embedded migration SHAs against SQL files at this path before serving")
 	flag.Float64Var(&sweepIntervalSeconds, "sweep-interval-seconds", 60.0, "seconds between resident recovery sweeps")
 	flag.Var(&maxSweeps, "max-sweeps", "maximum resident recovery sweeps before exiting; when set to 0, one startup sweep still runs")
@@ -140,7 +142,13 @@ func main() {
 		runID := os.Getenv("STRIATUM_RUN_ID")
 		sessionID := os.Getenv("STRIATUM_SESSION_ID")
 
-		if err := agentloop.Run(socketPath, repoRoot, runID, sessionID, flag.Args()); err != nil {
+		var err error
+		if turnDriver {
+			err = agentloop.RunTurnDriver(socketPath, repoRoot, runID, sessionID, flag.Args())
+		} else {
+			err = agentloop.Run(socketPath, repoRoot, runID, sessionID, flag.Args())
+		}
+		if err != nil {
 			log.Fatalf("agent-loop failed: %v", err)
 		}
 		os.Exit(0)

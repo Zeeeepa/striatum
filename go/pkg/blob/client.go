@@ -21,8 +21,8 @@ import (
 // accept a context.Context so callers can deadline reads/writes
 // per-RPC.
 type Client struct {
-	cfg  *Config
-	mc   *minio.Client
+	cfg *Config
+	mc  *minio.Client
 }
 
 // New returns a new Client backed by minio-go. Returns an error if the

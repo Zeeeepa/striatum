@@ -143,9 +143,9 @@ func HandleInterrogationAsk(ctx context.Context, runner db.Runner, envelope rpc.
 			return nil, err
 		}
 		return map[string]any{
-			"interrogation_id": interrogationID,
-			"message_id":       messageID,
-			"turn_index":       turnIndex,
+			"interrogation_id":  interrogationID,
+			"message_id":        messageID,
+			"turn_index":        turnIndex,
 			"target_session_id": targetSessionID,
 		}, nil
 	})

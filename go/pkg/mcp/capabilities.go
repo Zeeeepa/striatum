@@ -7,11 +7,11 @@ import (
 )
 
 type Tool struct {
-	Name                string `json:"name"`
-	Description         string `json:"description"`
+	Name                string         `json:"name"`
+	Description         string         `json:"description"`
 	InputSchema         map[string]any `json:"inputSchema"`
-	RequiredCapability  string `json:"required_capability"`
-	RepositoryScopeMode string `json:"repository_scope_mode"`
+	RequiredCapability  string         `json:"required_capability"`
+	RepositoryScopeMode string         `json:"repository_scope_mode"`
 }
 
 func VisibleTools(ctx context.Context, authorizer rpc.Authorizer, token string, repositoryID string) []Tool {
