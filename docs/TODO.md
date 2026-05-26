@@ -1525,3 +1525,29 @@ F37. Full `docs/CLI_REFERENCE.md` audit against the Go command surface. The
     verb against the daemon route table (`go/pkg/cli/routes`) + local commands
     (`go/pkg/cli/localcommands`), flagging any other Python-era spellings that
     no longer exist in the Go CLI. Non-blocking doc accuracy follow-up.
+
+F38. Per-run repository resolution for the daemon-mounted web service. RFC 0084
+    D1 mounted `/v1` on the daemon listener, but the web service injects
+    `repository_id` only from `STRIATUM_DAEMON_WEB_REPOSITORY_ID`; the daemon is
+    multi-repo, so run-scoped routes (`/v1/runs/{runID}/...`) return
+    `repo_not_registered` unless that env scopes the daemon to one repo. Resolve
+    `repository_id` per-run from the `runID` path segment (runs are globally
+    unique and belong to one repo) so the mounted web service works across all
+    registered repos without per-deploy config. Surfaced by D1 live verification
+    2026-05-26.
+
+F39. Harden the MCP mutation surface for review/publish. In the RFC 0083/0084
+    live runs, lane agents reported that the MCP `review.verdict` and
+    `artifact.publish` tools returned opaque errors and fell back to the CLI
+    `commands` block; the finding schema also silently requires a
+    `verdict_intent` front-matter field the publisher rejects without naming.
+    Reproduce, surface structured/actionable errors through the MCP tool path,
+    and make the missing-`verdict_intent` rejection name the field. Surfaced
+    2026-05-25/26.
+
+F40. Diagnose the `striatum release` (work.release) hang. During the 2026-05-25
+    operator-driven run, `striatum release --run-id --session-id` blocked past
+    120s (had to be abandoned). Reproduce against `HandleReleaseWork`
+    (`go/pkg/mutations/lifecycle.go`) + the CLI client, identify whether the
+    block is daemon-side or CLI-side, and fix or add a timeout. Surfaced
+    2026-05-25.

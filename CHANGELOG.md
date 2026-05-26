@@ -2,6 +2,31 @@
 
 ## Unreleased — 2026-05-26
 
+## v2.4.1 — 2026-05-26
+
+### RFC 0084 follow-ups (dogfooded via the iterated interrogating panel)
+
+- **D1 — Go web service mounted in the daemon.** `striatumd`'s HTTP listener now
+  multiplexes `/mcp` (MCP JSON-RPC/SSE) and everything else (`/v1/...`, `/run`,
+  `/static`) to the Go web service, so the RFC 0084 interrogation chat route is
+  reachable live. Verified end-to-end: MCP unregressed, `/v1/health` 200 with
+  bearer + 401 without, and `/v1/runs/{id}/interrogations/{id}?view=chat` renders
+  the real interrogation thread with `html/template` escaping + run-ownership
+  404. Build-review interrogation + live verification additionally fixed a
+  fail-open empty-token auth path (now an unguessable deny token →
+  fail-closed) and a `[]map[string]any` turns type-assertion that silently
+  dropped all turns. Mounted web service scopes via
+  `STRIATUM_DAEMON_WEB_REPOSITORY_ID`; per-run multi-repo resolution is TODO F38.
+- **D2 — Gemini agent-loop reliability.** A Gemini lane fixed its own failure
+  mode: both Gemini agent guides gain an "Agent-loop reliability (Gemini)"
+  section (request a long lease, do not explore the repo while holding a packet,
+  pass explicit `repository_id`/`session_id`, complete promptly). Running with a
+  900s lease + no-exploration discipline, the lane completed the full packet loop
+  that previously failed on lease expiry.
+- Tracked follow-ups: F38 (per-run web repo resolution), F39 (harden MCP
+  `review.verdict`/`artifact.publish` + name the missing `verdict_intent`), F40
+  (diagnose the `work.release` hang).
+
 ## v2.4.0 — 2026-05-26
 
 ### RFC 0083 + RFC 0084: iterated interrogating panel, agent-loop interrogation, chat UI
