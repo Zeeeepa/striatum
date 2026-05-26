@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"flag"
 	"fmt"
@@ -157,6 +159,7 @@ func main() {
 	var recorder *db.AuditRecorder
 	var runner db.Runner
 	var authorizer rpc.Authorizer
+	var webServiceToken string
 	config := db.ResolveConfig(postgresURL)
 	// RFC 0039 V1.6 F2 (dogfood-047 codex finding): the daemon must
 	// refuse to bind a socket without a configured Postgres URL.
@@ -196,6 +199,20 @@ func main() {
 		}
 		if bootstrap != nil {
 			log.Printf("bootstrapped daemon admin client %s and wrote runtime token %s", bootstrap["client_id"], tokenPath)
+		}
+		// The runtime client token (bootstrapped above or pre-existing) is the
+		// same bearer the MCP listener and CLI present. The mounted web service
+		// reuses it to gate HTTP access and author its downstream RPC calls.
+		webServiceToken = readRuntimeTokenFile(tokenPath)
+		if webServiceToken == "" {
+			// RFC 0084 D1 build-review finding: the runtime token is the web
+			// service's bearer, and the web handler authenticates open when its
+			// ServiceToken is empty. If the token file is unreadable, fail
+			// CLOSED — inject an unguessable deny token so mounted /v1 routes
+			// reject every request (401) while MCP keeps its own auth — rather
+			// than mounting the web surface without authentication.
+			webServiceToken = randomDenyToken()
+			log.Printf("warning: daemon runtime token %s unreadable; web service locked with a deny token (/v1 will 401 until the token is restored)", tokenPath)
 		}
 		recorder = &db.AuditRecorder{Runner: pool.Runner, DaemonVersion: daemonVersion}
 		authorizer = &rpc.PostgresAuthorizer{Runner: pool.Runner, Clock: time.Now}
@@ -252,7 +269,7 @@ func main() {
 		log.Fatalf("listen on %s: %v", socketPath, err)
 	}
 	log.Printf("striatumd-go listening on %s", socketPath)
-	stopMCPHTTP, err := startMCPHTTPServer(ctx, cancel, mcpHTTPAddr, server, authorizer, runner)
+	stopMCPHTTP, err := startMCPHTTPServer(ctx, cancel, mcpHTTPAddr, server, authorizer, runner, resolveWebServiceOptions(webServiceToken))
 	if err != nil {
 		_ = listener.Close()
 		_ = os.Remove(pidPath)
@@ -285,7 +302,7 @@ func main() {
 	}
 }
 
-func startMCPHTTPServer(ctx context.Context, cancel context.CancelFunc, addr string, rpcServer *rpc.Server, authorizer rpc.Authorizer, runner db.Runner) (func(), error) {
+func startMCPHTTPServer(ctx context.Context, cancel context.CancelFunc, addr string, rpcServer *rpc.Server, authorizer rpc.Authorizer, runner db.Runner, webOpts webServiceOptions) (func(), error) {
 	value := strings.TrimSpace(addr)
 	if value == "" {
 		value = "127.0.0.1:0"
@@ -303,15 +320,17 @@ func startMCPHTTPServer(ctx context.Context, cancel context.CancelFunc, addr str
 		_ = listener.Close()
 		return nil, err
 	}
+	mcpHandler := mcp.NewHTTPHandler(mcp.Service{
+		RPC:              rpcServer,
+		Authorizer:       authorizer,
+		ActivityRecorder: sessionliveness.DBRecorder{Runner: runner},
+	})
+	webHandler := newWebServiceHandler(rpcServer, webOpts)
 	httpServer := &http.Server{
-		Handler: mcp.NewHTTPHandler(mcp.Service{
-			RPC:              rpcServer,
-			Authorizer:       authorizer,
-			ActivityRecorder: sessionliveness.DBRecorder{Runner: runner},
-		}),
+		Handler:           newDaemonHTTPHandler(mcpHandler, webHandler),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
-	log.Printf("striatumd-go MCP HTTP/SSE listening on %s", endpoint)
+	log.Printf("striatumd-go MCP HTTP/SSE listening on %s (web service mounted at /v1)", endpoint)
 	log.Printf("striatumd-go MCP endpoint file %s", endpointPath)
 	go func() {
 		err := httpServer.Serve(listener)
@@ -379,6 +398,30 @@ func writeMCPEndpointFile(endpoint string) (string, error) {
 		return "", fmt.Errorf("write MCP endpoint file %s: %w", path, err)
 	}
 	return path, nil
+}
+
+// readRuntimeTokenFile reads the daemon runtime client token, returning "" when
+// the file is absent or unreadable. An empty token must not be passed to the
+// mounted web service as-is (its authenticate() treats an empty ServiceToken as
+// open); callers substitute randomDenyToken to fail closed.
+func readRuntimeTokenFile(path string) string {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(data))
+}
+
+// randomDenyToken returns an unguessable bearer the web service requires but
+// nobody holds, so /v1 requests fail closed (401) when the runtime token is
+// unreadable. On RNG failure it still returns a non-empty constant so the web
+// service never authenticates open.
+func randomDenyToken() string {
+	buf := make([]byte, 32)
+	if _, err := rand.Read(buf); err != nil {
+		return "deny-web-token-rng-unavailable"
+	}
+	return "deny-" + hex.EncodeToString(buf)
 }
 
 func writeOwnerOnlyTextFile(path string, content string) error {

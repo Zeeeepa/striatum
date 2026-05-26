@@ -14,7 +14,9 @@ import (
 // the fixture's RPC server. interrogation.show returns run_id "run_1" only for
 // interrogation_id "intg_match"; any other id resolves under run_id
 // "run_other" so the run-ownership 404 path can be exercised.
-func registerInterrogationReads(fixture *webtest.Fixture, turns []any) {
+// turns is []map[string]any to mirror reads.HandleInterrogationShow's real
+// return type (a []any fake masked the live D1 type-assertion bug).
+func registerInterrogationReads(fixture *webtest.Fixture, turns []map[string]any) {
 	// list goes through the tracking helper so tests can assert on fixture.Calls.
 	fixture.Register("interrogation.list", map[string]any{"count": 1, "run_id": "run_1", "items": []any{
 		map[string]any{"interrogation_id": "intg_match", "state": "open"},
@@ -62,7 +64,7 @@ func TestInterrogationListRouteUsesDaemonRPC(t *testing.T) {
 
 func TestInterrogationShowReturnsCuratedJSON(t *testing.T) {
 	fixture := webtest.NewFixture()
-	registerInterrogationReads(fixture, []any{
+	registerInterrogationReads(fixture, []map[string]any{
 		map[string]any{"kind": "interrogation_question", "body": "q", "turn_index": 0},
 		map[string]any{"kind": "interrogation_answer", "body": "a", "turn_index": 1},
 	})
@@ -90,7 +92,7 @@ func TestInterrogationShowRunOwnership404(t *testing.T) {
 // page (?view=chat) escapes attacker-controlled turn bodies via html/template.
 func TestInterrogationChatViewEscapesBodies(t *testing.T) {
 	fixture := webtest.NewFixture()
-	registerInterrogationReads(fixture, []any{
+	registerInterrogationReads(fixture, []map[string]any{
 		map[string]any{"kind": "interrogation_question", "body": "<script>alert(1)</script>", "turn_index": 0},
 		map[string]any{"kind": "interrogation_answer", "body": "<img src=x onerror=alert(1)>", "turn_index": 1},
 	})

@@ -344,17 +344,28 @@ func (h *Handler) renderInterrogationPage(w http.ResponseWriter, data map[string
 		OpenedAt:              displayString(interrogation["opened_at"]),
 		ClosedAt:              displayString(interrogation["closed_at"]),
 	}
-	rawTurns, _ := data["turns"].([]any)
-	turns := make([]webassets.InterrogationTurn, 0, len(rawTurns))
-	for _, raw := range rawTurns {
-		row, ok := raw.(map[string]any)
-		if !ok {
-			continue
-		}
+	// interrogation.show (reads.HandleInterrogationShow) returns turns as
+	// []map[string]any over in-process RPC; tolerate []any too (e.g. when the
+	// result has round-tripped through JSON). A single-type assertion silently
+	// drops every turn — the live D1 verification caught exactly that.
+	turns := make([]webassets.InterrogationTurn, 0)
+	appendTurn := func(row map[string]any) {
 		turns = append(turns, webassets.InterrogationTurn{
 			Kind: displayString(row["kind"]),
 			Body: displayString(row["body"]),
 		})
+	}
+	switch rows := data["turns"].(type) {
+	case []map[string]any:
+		for _, row := range rows {
+			appendTurn(row)
+		}
+	case []any:
+		for _, raw := range rows {
+			if row, ok := raw.(map[string]any); ok {
+				appendTurn(row)
+			}
+		}
 	}
 	body, err := webassets.RenderInterrogation(meta, turns)
 	if err != nil {
