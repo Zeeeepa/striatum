@@ -1,0 +1,36 @@
+{
+  "schema_version": "striatum.workflow.v1",
+  "workflow_id": "d2-gemini-reliability",
+  "workflow_version": "2026-05-26",
+  "name": "D2: Gemini fixes the Gemini agent-loop reliability problem",
+  "branch": {"mode": "confirm", "suggested_name": "striatum/v2.4.0-followups", "allow_dirty": true},
+  "coordinator": {"role_id": "coordinator", "lane_id": "claude_code"},
+  "lanes": {
+    "gemini": {"adapter": "process", "display_model": "Gemini", "command": ["gemini", "-p"], "capabilities": ["write"]},
+    "claude_code": {"adapter": "process", "display_model": "Claude", "command": ["claude"], "capabilities": ["write", "review"]}
+  },
+  "roles": {
+    "coordinator": {"description": "Operator coordinator."},
+    "implementer": {"description": "Gemini lane fixing its own reliability guidance."},
+    "reviewer": {"description": "Reviews the guidance change."}
+  },
+  "context_docs": [
+    {"path": "docs/operator/workflows/v2.4.0-followups/D2-gemini/TASK.md", "required": true}
+  ],
+  "parallelism": {"mode": "declared", "max_active_jobs": 1, "require_disjoint_write_scopes": true},
+  "jobs": [
+    {"id": "implement", "type": "build", "title": "Gemini updates its own agent-loop guide", "role_id": "implementer", "lane_id": "gemini", "fresh_session_required": false,
+     "objective": "Update the Gemini agent guidance with the agent-loop reliability rules per TASK.md.",
+     "task_prompt": {"inline": "Edit the two Gemini guide templates per D2-gemini/TASK.md."},
+     "write_scope": {"mode": "repo_write", "repo_write": true, "allowed_paths": ["go/pkg/installers/templates/skills/gemini/", "go/pkg/installers/templates/plugins/gemini/", "docs/operator/workflows/v2.4.0-followups/D2-gemini/"], "forbidden_paths": [".striatum/"]},
+     "expected_artifacts": [{"logical_name": "d2_handoff", "kind": "handoff", "path": "docs/operator/workflows/v2.4.0-followups/D2-gemini/HANDOFF.md", "required": true}]},
+    {"id": "review", "type": "review", "title": "Review gemini guidance change", "role_id": "reviewer", "lane_id": "claude_code", "fresh_session_required": true,
+     "reviewer_context_policy": "fresh", "reviewer_access_scope": "document_only", "review_posture": "ergonomics_dx",
+     "objective": "Review the Gemini guidance change for correctness and clarity.",
+     "task_prompt": {"inline": "Review the guidance change; write a finding and verdict."},
+     "write_scope": {"mode": "review_only_artifact", "repo_write": false, "allowed_paths": ["docs/operator/workflows/v2.4.0-followups/D2-gemini/review/"], "forbidden_paths": [".striatum/"]},
+     "expected_artifacts": [{"logical_name": "d2_review", "kind": "finding", "path": "docs/operator/workflows/v2.4.0-followups/D2-gemini/review/REVIEW.md", "required": true}]}
+  ],
+  "edges": [{"from": "implement", "to": "review", "on": "completed"}],
+  "cycles": [{"from": "review", "to": "implement", "on_verdict": "needs_revision", "max_iterations": 1, "allow_same_lane": true}]
+}
